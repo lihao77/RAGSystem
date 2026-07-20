@@ -41,4 +41,25 @@ describe("AsyncOutboxDispatcher", () => {
     expect(retrying[0]).toContain("Invalid outbox payload");
     expect(dispatcher.getMetrics().retried).toBe(1);
   });
+
+  it("publishes a new row only after acquiring delivery ownership", async () => {
+    let claimed = false;
+    const store = {
+      claimOutboxRows: async () => {
+        if (claimed) return [];
+        claimed = true;
+        return [row(1)];
+      },
+      claimPendingOutbox: async () => [],
+      markOutboxDelivered: async () => true,
+      markOutboxRetrying: async () => false,
+      markOutboxFailed: async () => false,
+    } as unknown as AsyncOutboxStore;
+    const hub = new RealtimeEventHub();
+    const dispatcher = new AsyncOutboxDispatcher(store, hub, undefined, { tenantId: "tenant-1" });
+
+    await Promise.all([dispatcher.dispatchPendingRows([row(1)]), dispatcher.dispatchPendingRows([row(1)])]);
+
+    expect(hub.getHistory("session-1")).toHaveLength(1);
+  });
 });

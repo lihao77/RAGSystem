@@ -53,6 +53,52 @@ describe("SaaSSessionApplication", () => {
     expect(repository.deleteMessagesAfter).toHaveBeenCalledWith("session-1", { afterSeq: null, afterMessageId: "message-1" });
   });
 
+  it("supports the asynchronous execution-session write port", async () => {
+    const userMessage = {
+      id: "message-1",
+      session_id: "session-1",
+      seq: 4,
+      role: "user",
+      content: "retry me",
+      metadata: {},
+      tool_calls: [],
+      tool_call_id: null,
+      name: null,
+      thread_key: "root",
+      child_agent_id: null,
+      created_at: "2026-01-01T00:00:00.000Z",
+    };
+    const repository = {
+      createSession: vi.fn().mockResolvedValue(undefined),
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      addMessage: vi.fn().mockResolvedValue(userMessage),
+      getMessageBySeq: vi.fn().mockResolvedValue(userMessage),
+      updateMessage: vi.fn().mockResolvedValue(true),
+      deleteMessagesAfter: vi.fn().mockResolvedValue(2),
+    };
+    const application = new SaaSSessionApplication("tenant-a", repository as never);
+
+    await application.createSystemSession({ sessionId: "system-session" });
+    await expect(application.addMessage({
+      sessionId: "session-1",
+      role: "user",
+      content: "retry me",
+    })).resolves.toEqual(userMessage);
+    await expect(application.prepareRetry({
+      sessionId: "session-1",
+      afterSeq: 4,
+      modifyUserMessage: "changed",
+    })).resolves.toMatchObject({ deleted: 2, task: "changed", message: { content: "changed" } });
+
+    expect(repository.createSession).toHaveBeenCalledWith("tenant-a", "system-session", null, {}, null);
+    expect(repository.addMessage).toHaveBeenCalledTimes(1);
+    expect(repository.updateMessage).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: "message-1",
+      content: "changed",
+      roleFilter: "user",
+    }));
+  });
+
   it("returns only repository-filtered root messages and marks final assistant execution", async () => {
     const repository = {
       getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),

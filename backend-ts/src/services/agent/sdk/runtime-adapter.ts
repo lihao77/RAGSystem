@@ -96,6 +96,8 @@ export interface SdkExecuteRunInput {
    */
   messageMetadata?: Record<string, unknown> | null;
   userMessageId?: string;
+  initialUserMessageContent?: string;
+  initialUserMessageMetadata?: Record<string, unknown>;
   onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
   onRunPersisted?: (() => void) | undefined;
 }
@@ -127,6 +129,8 @@ export async function executeRunWithSdk(
   deps: SdkRuntimeAdapterDeps,
   input: SdkExecuteRunInput,
 ): Promise<SdkExecuteRunResult> {
+  // SaaS loads its durable session policy before synchronous SDK tool gates run.
+  await deps.permissionPolicy.prepareSession(input.sessionId);
   const profile = projectAgentProfile({
     agent: input.agent,
     providers: deps.providers,
@@ -236,7 +240,7 @@ export async function executeRunWithSdk(
     ...(deps.memoryContextSourceFactory ? { memoryContextSourceFactory: deps.memoryContextSourceFactory } : {}),
   });
   await sessionMetadata.flush();
-  const conversation = built.conversation;
+  let conversation = built.conversation;
   // refresh 水位线:本 run 启动前 store 最后一条消息的 seq;refresh 每轮拉 seq > lastSeq 的新 user 消息(followup 等)。
   let lastSeq = built.rawMessages.reduce(
     (max, m) => (m && typeof m.seq === "number" && m.seq > max ? m.seq : max),
@@ -372,11 +376,12 @@ export async function executeRunWithSdk(
       ...(input.parentCallId !== undefined ? { parentCallId: input.parentCallId } : {}),
       ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
       ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
-      ...(deps.storage.kind === "durable" && input.userMessageId ? {
+      ...(input.userMessageId && input.initialUserMessageMetadata ? {
         initialUserMessage: {
           id: input.userMessageId,
-          content: input.task,
+          content: input.initialUserMessageContent ?? input.task,
           metadata: {
+            ...(input.initialUserMessageMetadata ?? {}),
             agent: input.agent.agent_name,
             run_id: input.runId,
             task_id: input.taskId,
@@ -388,6 +393,22 @@ export async function executeRunWithSdk(
   });
   await persister.startRun();
   input.onRunPersisted?.();
+  if (input.userMessageId && input.initialUserMessageMetadata) {
+    // startRun atomically persists the initial user message. Rebuild after that
+    // commit so the first model request sees the same durable history that
+    // subsequent rounds and retries read.
+    const startedContext = await contextBuilder.buildContext({
+      sessionId: input.sessionId,
+      threadKey: input.threadKey,
+      microcompact: true,
+    });
+    await sessionMetadata.flush();
+    conversation = startedContext.conversation;
+    lastSeq = startedContext.rawMessages.reduce(
+      (max, message) => message && typeof message.seq === "number" && message.seq > max ? message.seq : max,
+      lastSeq,
+    );
+  }
   const runtime = createRuntime(runtimeOpts);
   const handle = runtime.run({
     sessionId: input.sessionId,

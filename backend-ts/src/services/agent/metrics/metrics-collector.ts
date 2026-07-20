@@ -1,26 +1,5 @@
 import type { AgentMetricSummary } from "../../../contracts/conversation-store/index.js";
-
-/** metrics 写入/聚合端口(MetricOps 的窄投影,便于测试与解耦)。 */
-interface MetricStorePort {
-  insertMetric(input: {
-    agentName: string;
-    model?: string;
-    sessionId?: string | null;
-    runId?: string | null;
-    taskId?: string | null;
-    executionKind: string;
-    status: string;
-    durationMs: number;
-    tokenIn?: number;
-    tokenOut?: number;
-    toolUsage?: Record<string, number>;
-    errorType?: string | null;
-    startedAt: string;
-    finishedAt?: string | null;
-  }): void;
-  aggregateMetrics(agentName?: string | null): AgentMetricSummary[];
-  resetMetrics(agentName?: string | null): { deleted: number };
-}
+import type { AgentMetricsStorePort } from "../../../contracts/runtime/core-runtime-ports.js";
 
 /** 单次 agent run 的指标采集载荷(由 executeRun 在终态填充后落库)。 */
 export interface AgentRunMetricPayload {
@@ -54,44 +33,56 @@ export interface SystemMetrics {
  * 数据层是 MetricOps;本类负责 payload 组装 + 系统级聚合(总调用/加权平均耗时/总成功率)。
  */
 export class AgentMetricsCollector {
-  constructor(private readonly store: MetricStorePort) {}
+  constructor(private readonly store: AgentMetricsStorePort) {}
 
-  recordRun(payload: AgentRunMetricPayload): void {
-    this.store.insertMetric(payload);
+  recordRun(payload: AgentRunMetricPayload): void | Promise<void> {
+    return this.store.insertMetric(payload);
   }
 
   /**
    * 返回监控指标。无 agent_name:系统级 + agents Record;
    * 指定 agent_name:铺平返回该 agent 单对象(无数据返零值,对齐前端 agent_metrics || value 取数)。
    */
-  getSystemMetrics(agentName?: string | null): SystemMetrics | AgentMetricSummary {
-    if (agentName) {
-      const summaries = this.store.aggregateMetrics(agentName);
-      return summaries[0] ?? zeroSummary(agentName);
-    }
-    const summaries = this.store.aggregateMetrics();
-    const agents: Record<string, AgentMetricSummary> = {};
-    let totalCalls = 0;
-    let successTotal = 0;
-    let durationSum = 0;
-    for (const summary of summaries) {
-      agents[summary.agent_name] = summary;
-      totalCalls += summary.total_calls;
-      successTotal += summary.success_count;
-      durationSum += summary.avg_duration_ms * summary.total_calls;
-    }
-    return {
-      total_agents: summaries.length,
-      total_calls: totalCalls,
-      avg_duration_ms: totalCalls > 0 ? Math.round(durationSum / totalCalls) : 0,
-      overall_success_rate: totalCalls > 0 ? successTotal / totalCalls : 0,
-      agents,
-    };
+  getSystemMetrics(agentName?: string | null): SystemMetrics | AgentMetricSummary | Promise<SystemMetrics | AgentMetricSummary> {
+    const summaries = this.store.aggregateMetrics(agentName);
+    return isPromiseLike(summaries)
+      ? summaries.then((items) => summarizeMetrics(items, agentName))
+      : summarizeMetrics(summaries, agentName);
   }
 
-  reset(agentName?: string | null): { deleted: number } {
+  reset(agentName?: string | null): { deleted: number } | Promise<{ deleted: number }> {
     return this.store.resetMetrics(agentName);
   }
+}
+
+function summarizeMetrics(
+  summaries: AgentMetricSummary[],
+  agentName?: string | null,
+): SystemMetrics | AgentMetricSummary {
+  if (agentName) {
+    return summaries[0] ?? zeroSummary(agentName);
+  }
+  const agents: Record<string, AgentMetricSummary> = {};
+  let totalCalls = 0;
+  let successTotal = 0;
+  let durationSum = 0;
+  for (const summary of summaries) {
+    agents[summary.agent_name] = summary;
+    totalCalls += summary.total_calls;
+    successTotal += summary.success_count;
+    durationSum += summary.avg_duration_ms * summary.total_calls;
+  }
+  return {
+    total_agents: summaries.length,
+    total_calls: totalCalls,
+    avg_duration_ms: totalCalls > 0 ? Math.round(durationSum / totalCalls) : 0,
+    overall_success_rate: totalCalls > 0 ? successTotal / totalCalls : 0,
+    agents,
+  };
+}
+
+function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
+  return typeof (value as { then?: unknown })?.then === "function";
 }
 
 function zeroSummary(agentName: string): AgentMetricSummary {

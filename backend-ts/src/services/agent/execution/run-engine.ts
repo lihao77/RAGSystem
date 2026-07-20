@@ -4,7 +4,7 @@ import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
-import type { AgentSessionApplication } from "../../sessions/index.js";
+import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import { EnvelopeSchema, RecoverableInterrupt } from "@ragsystem/agent-protocol";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
@@ -51,7 +51,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 export class AgentRunEngine {
   constructor(
     private readonly tenantId: TenantId,
-    private readonly sessions: AgentSessionApplication,
+    private readonly sessions: ExecutionSessionPort,
     private readonly storage: ExecutionStorage,
     private readonly dataRoot: string,
     private readonly memoryConfig: MemoryConfig,
@@ -86,6 +86,7 @@ export class AgentRunEngine {
     userId?: string | null;
     requestId: string;
     task: string;
+    modelTask?: string;
     executionKind: string;
     entrypoint?: string | undefined;
     agent: AgentConfig;
@@ -124,25 +125,20 @@ export class AgentRunEngine {
 
     let userMessageSavedPayload = input.userMessageSavedPayload;
     let existingUserMessageId = input.existingUserMessageId;
+    let initialUserMessageMetadata: Record<string, unknown> | undefined;
     if (!input.resume && input.persistUserMessage) {
-      const userMessage = this.sessions.addMessage({
-        sessionId: input.sessionId,
-        role: "user",
-        content: input.task,
-        metadata: {
-          ...(input.persistUserMessage.metadata ?? {}),
-          agent: input.agent.agent_name,
-          run_id: runId,
-          task_id: taskId,
-          request_id: input.requestId,
-          execution_kind: input.executionKind,
-        },
-      });
-      existingUserMessageId = userMessage.id;
+      existingUserMessageId = randomUUID();
+      initialUserMessageMetadata = {
+        ...(input.persistUserMessage.metadata ?? {}),
+        agent: input.agent.agent_name,
+        run_id: runId,
+        task_id: taskId,
+        request_id: input.requestId,
+        execution_kind: input.executionKind,
+      };
       userMessageSavedPayload = {
-        id: userMessage.id,
-        seq: userMessage.seq,
-        role: userMessage.role,
+        id: existingUserMessageId,
+        role: "user",
       };
     }
 
@@ -179,7 +175,7 @@ export class AgentRunEngine {
       taskId,
       rootCallId,
       requestId: input.requestId,
-      task: input.task,
+      task: input.modelTask ?? input.task,
       startedAt,
       abortController,
       agent: input.agent,
@@ -192,6 +188,8 @@ export class AgentRunEngine {
       childAgentId: null,
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
       userMessageId: existingUserMessageId,
+      initialUserMessageContent: input.task,
+      ...(initialUserMessageMetadata ? { initialUserMessageMetadata } : {}),
       executionKind: input.executionKind,
       rootTask: input.task,
       finalMetadataExtra: input.finalMetadataExtra,
@@ -333,6 +331,8 @@ export class AgentRunEngine {
     childAgentId?: string | null;
     userId?: string | null;
     userMessageId?: string | undefined;
+    initialUserMessageContent?: string | undefined;
+    initialUserMessageMetadata?: Record<string, unknown> | undefined;
     executionKind?: string | undefined;
     rootTask?: string | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
@@ -367,15 +367,18 @@ export class AgentRunEngine {
         startedAt: input.startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
       };
-      this.metricsCollector?.recordRun(metric);
       try {
-        await this.asyncAnalytics?.insertMetric(this.tenantId, metric);
+        if (this.metricsCollector) {
+          await this.metricsCollector.recordRun(metric);
+        } else {
+          await this.asyncAnalytics?.insertMetric(this.tenantId, metric);
+        }
       } catch (error) {
         this.logger?.error({ tenant_id: this.tenantId, run_id: input.runId, error: error instanceof Error ? error.message : String(error) }, "failed to persist SaaS agent metric");
       }
     };
     try {
-      const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
+      const sessionMetadata = (await this.sessions.getSession(input.sessionId))?.metadata ?? {};
       const executionKind = input.executionKind ?? "agent_stream";
       // 后台任务完成通知落库为 user 消息（系统注入的上下文）；SDK 从 store 读取对话历史时一并看到，
       // backend 不再组装消息数组传给 SDK。
@@ -422,6 +425,8 @@ export class AgentRunEngine {
           ...(input.rootTask !== undefined ? { rootTask: input.rootTask } : {}),
          ...(input.userId !== undefined ? { userId: input.userId } : {}),
          ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
+         ...(input.initialUserMessageContent ? { initialUserMessageContent: input.initialUserMessageContent } : {}),
+         ...(input.initialUserMessageMetadata ? { initialUserMessageMetadata: input.initialUserMessageMetadata } : {}),
          ...(input.onRunPersisted ? { onRunPersisted: input.onRunPersisted } : {}),
         signal: input.abortController.signal,
          selectedLlm: input.selectedLlm ?? null,
@@ -503,7 +508,7 @@ export class AgentRunEngine {
       if (!content.trim()) {
         continue;
       }
-      if (this.storage.kind === "local") this.storage.conversation.addMessage({
+      await this.storage.conversation.addMessage({
         sessionId,
         role: "user",
         content,

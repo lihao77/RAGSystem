@@ -125,7 +125,7 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
     const tenantId = await requireExistingTenant(options.controlPlane, request.params.tenantId);
     const query = request.query as Record<string, string | undefined>;
     return withTenantRuntime(options.registry, tenantId, async (runtime) => {
-      const sessions = runtime.sessionApplication.listSessions({
+      const sessions = await runtime.sessionApplication.listSessions({
         tenantId,
         limit: parseIntQuery(query.limit) ?? 20,
         offset: parseIntQuery(query.offset) ?? 0,
@@ -139,7 +139,7 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
     const actor = await requirePlatformAdmin(request, options.controlPlane);
     const tenantId = await requireQueryTenant(options.controlPlane, request.query);
     return withTenantRuntime(options.registry, tenantId, async (runtime) => {
-      const session = runtime.sessionApplication.getSession(request.params.sessionId);
+      const session = await runtime.sessionApplication.getSession(request.params.sessionId);
       if (!session) throw new HttpError(404, "not_found", "会话不存在");
       await options.controlPlane.audit.record({ actorUserId: actor.id, action: "read_session", targetTenantId: tenantId, targetResource: `session:${request.params.sessionId}` });
       return { success: true, data: redactSensitive(session) };
@@ -151,10 +151,10 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
     const tenantId = await requireQueryTenant(options.controlPlane, request.query);
     const query = request.query as Record<string, string | undefined>;
     return withTenantRuntime(options.registry, tenantId, async (runtime) => {
-      if (!runtime.sessionApplication.getSession(request.params.sessionId)) {
+      if (!await runtime.sessionApplication.getSession(request.params.sessionId)) {
         throw new HttpError(404, "not_found", "会话不存在");
       }
-      const messages = runtime.sessionApplication.listMessages({
+      const messages = await runtime.sessionApplication.listMessages({
         sessionId: request.params.sessionId,
         limit: parseIntQuery(query.limit) ?? 20,
         offset: parseIntQuery(query.offset) ?? 0,
@@ -168,7 +168,7 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
     const actor = await requirePlatformAdmin(request, options.controlPlane);
     const tenantId = await requireExistingTenant(options.controlPlane, request.params.tenantId);
     return withTenantRuntime(options.registry, tenantId, async (runtime) => {
-      const sessionsCount = runtime.sessionApplication.listSessions({ tenantId, limit: 1, offset: 0 }).total;
+      const sessionsCount = (await runtime.sessionApplication.listSessions({ tenantId, limit: 1, offset: 0 })).total;
       await options.controlPlane.audit.record({ actorUserId: actor.id, action: "read_tenant_health", targetTenantId: tenantId, targetResource: `tenant:${tenantId}:health` });
       return { success: true, data: { status: "healthy", tenantId, sessionsCount } };
     });

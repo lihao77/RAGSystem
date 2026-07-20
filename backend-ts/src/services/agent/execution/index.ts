@@ -13,10 +13,9 @@ import type {
 } from "../../../contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
-import type { AgentSessionApplication } from "../../sessions/index.js";
+import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
-import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
@@ -30,6 +29,7 @@ import type { ExecutionStorage } from "../../../contracts/execution/execution-st
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
 import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
+import type { AsyncSessionFileStorage } from "../../../contracts/session/session-file-storage.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
 import { AttachmentResolver } from "./attachment-resolver.js";
@@ -77,8 +77,8 @@ export type AgentExecutionService = AgentExecutionServiceApi;
 
 export interface AgentExecutionServiceParams {
   tenantId: TenantId;
-  sessions: AgentSessionApplication;
-  conversationStore: ConversationStore;
+  sessions: ExecutionSessionPort;
+  conversationStore?: ConversationStore;
   executionStorage: ExecutionStorage;
   runtimeCore: RuntimeExecutionConfigResolver;
   dataRoot: string;
@@ -92,8 +92,9 @@ export interface AgentExecutionServiceParams {
   /** 后台通知暂存队列（单例，注入 launchers.triggerBgNotificationRun；与 backgroundTasks 共用同一实例）。 */
   notificationQueue?: SessionNotificationQueue | null;
   fileIndex?: IFileIndexStore | null;
+  asyncSessionFiles?: AsyncSessionFileStorage | null;
   outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
- clientEvents: DurableClientEventPublisher;
+  clientEvents: ClientEventPublisher;
   /** 用户可见执行事件的持久化通道；SaaS 使用异步 PostgreSQL outbox。 */
   eventClientEvents?: ClientEventPublisher;
  /** 已加载的 provider 列表提供者（SDK 投影层解析 tier.provider 引用用）。 */
@@ -136,7 +137,10 @@ export function createAgentExecutionService(
   }
   const statusTracker = new AgentExecutionStatusTracker();
   const eventPublisher = new AgentExecutionEventPublisher(params.eventClientEvents ?? params.clientEvents);
-  const attachmentResolver = new AttachmentResolver(params.fileIndex ?? null);
+  const attachmentResolver = new AttachmentResolver(
+    params.fileIndex ?? null,
+    params.asyncSessionFiles ?? null,
+  );
   const notificationQueue = params.notificationQueue ?? new SessionNotificationQueue();
   const storage = params.executionStorage;
   const slashCommandHandler = new SlashCommandHandler(
@@ -145,7 +149,6 @@ export function createAgentExecutionService(
     statusTracker,
     params.runtimeCore,
     params.providersProvider,
-    params.conversationStore,
     params.compressionService ?? null,
     params.clientEvents,
   );
@@ -178,7 +181,6 @@ export function createAgentExecutionService(
   const launchers = createLaunchers({
     tenantId: params.tenantId,
     sessions: params.sessions,
-    conversationStore: params.conversationStore,
     runtimeCore: params.runtimeCore,
     slashCommandHandler,
     attachmentResolver,
@@ -190,7 +192,7 @@ export function createAgentExecutionService(
   const sessionControl = createSessionControl({
     statusTracker,
     eventPublisher,
-    conversationStore: params.conversationStore,
+    ...(params.conversationStore ? { conversationStore: params.conversationStore } : {}),
     pendingInteractions: params.pendingInteractions,
     ...(params.runtimeStorage ? { runtimeStorage: params.runtimeStorage } : {}),
     ...(params.asyncSuspendedSessionControl ? { asyncSuspendedSessionControl: params.asyncSuspendedSessionControl } : {}),

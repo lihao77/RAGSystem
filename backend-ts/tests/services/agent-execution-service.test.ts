@@ -195,6 +195,7 @@ describe("AgentExecutionService (baseline regression)", () => {
       WAIT,
     );
     const messages = store.listMessages(sessionId, 50, 0).items;
+    expect(messages.filter((message) => message.role === "user" && message.content === "hello world")).toHaveLength(1);
     expect(messages.map((m) => [m.role, m.content])).toContainEqual(["assistant", "the answer"]);
     store.close();
   });

@@ -15,9 +15,14 @@ import type {
   MemoryToolOperations,
   MemoryToolRuntimeContext,
   ReadMemoryEntryInput,
-  RuntimeMemorySessionPort,
   WriteMemoryInput,
 } from "./MemoryExecution.js";
+
+export interface SaaSMemorySessionPort {
+  getSession(sessionId: string): { metadata: Record<string, unknown>; user_id?: string | null }
+    | null
+    | Promise<{ metadata: Record<string, unknown>; user_id?: string | null } | null>;
+}
 
 interface ResolvedSaaSMemoryScope {
   partition: MemoryScopePartition;
@@ -27,7 +32,7 @@ interface ResolvedSaaSMemoryScope {
 export class SaaSMemoryToolService implements MemoryToolOperations {
   constructor(
     private readonly memory: MemoryApplication,
-    private readonly sessions: RuntimeMemorySessionPort,
+    private readonly sessions: SaaSMemorySessionPort,
   ) {}
 
   checkMemoryScopeAccess(
@@ -59,7 +64,7 @@ export class SaaSMemoryToolService implements MemoryToolOperations {
 
   async listMemoryIndex(input: ListMemoryIndexInput, context: MemoryToolRuntimeContext): Promise<ToolExecutionResult> {
     const toolName = "list_memory_index";
-    const setup = this.resolveScope(input, context, toolName);
+    const setup = await this.resolveScope(input, context, toolName);
     if ("error" in setup) return toolError(toolName, setup.error);
     try {
       const ownerUserId = normalizeString(context.userId);
@@ -96,7 +101,7 @@ export class SaaSMemoryToolService implements MemoryToolOperations {
 
   async readMemoryEntry(input: ReadMemoryEntryInput, context: MemoryToolRuntimeContext): Promise<ToolExecutionResult> {
     const toolName = "read_memory_entry";
-    const setup = this.resolveScope(input, context, toolName);
+    const setup = await this.resolveScope(input, context, toolName);
     if ("error" in setup) return toolError(toolName, setup.error);
     try {
       // fileName remains accepted as the transport field while SaaS treats it as a stable memory id.
@@ -131,7 +136,7 @@ export class SaaSMemoryToolService implements MemoryToolOperations {
 
   async writeMemory(input: WriteMemoryInput, context: MemoryToolRuntimeContext): Promise<ToolExecutionResult> {
     const toolName = "write_memory";
-    const setup = this.resolveScope(input, context, toolName);
+    const setup = await this.resolveScope(input, context, toolName);
     if ("error" in setup) return toolError(toolName, setup.error);
     const ownerUserId = normalizeString(context.userId);
     if (!ownerUserId) return toolError(toolName, "当前执行缺少用户身份，无法保存 memory");
@@ -191,7 +196,7 @@ export class SaaSMemoryToolService implements MemoryToolOperations {
 
   async archiveMemory(input: ArchiveMemoryInput, context: MemoryToolRuntimeContext): Promise<ToolExecutionResult> {
     const toolName = "archive_memory";
-    const setup = this.resolveScope(input, context, toolName);
+    const setup = await this.resolveScope(input, context, toolName);
     if ("error" in setup) return toolError(toolName, setup.error);
     const ownerUserId = normalizeString(context.userId);
     if (!ownerUserId) return toolError(toolName, "当前执行缺少用户身份，无法提交 memory 归档申请");
@@ -248,15 +253,15 @@ export class SaaSMemoryToolService implements MemoryToolOperations {
     }
   }
 
-  private resolveScope(
+  private async resolveScope(
     input: ListMemoryIndexInput,
     context: MemoryToolRuntimeContext,
     toolName: string,
-  ): ResolvedSaaSMemoryScope | { error: string } {
+  ): Promise<ResolvedSaaSMemoryScope | { error: string }> {
     const scope = normalizeMemoryScope(input.scope);
     if (!scope) return { error: `不支持的 memory scope: ${input.scope}` };
     const sessionId = normalizeString(context.sessionId);
-    const metadata = sessionId ? this.sessions.getSession(sessionId)?.metadata ?? {} : {};
+    const metadata = sessionId ? (await this.sessions.getSession(sessionId))?.metadata ?? {} : {};
     const teamName = normalizeString(context.teamName) ?? normalizeString(metadata.team);
     const userId = normalizeString(context.userId);
     const agentName = normalizeString(input.currentAgentName) ?? normalizeString(context.currentAgentName) ?? context.agent?.agent_name ?? null;

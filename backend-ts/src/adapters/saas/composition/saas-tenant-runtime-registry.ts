@@ -37,9 +37,8 @@ export class SaaSTenantRuntimeRegistry
         const runtime = createSaaSRuntimeContainer({
           tenantId,
           dataRoot,
-          dbPath: path.join(dataRoot, "db", "ragsystem.db"),
           conversationRuntime,
-          ...(options.memoryRuntime ? { memoryRuntime: options.memoryRuntime } : {}),
+          memoryRuntime: requireMemoryRuntime(options.memoryRuntime),
           ...(logger ? { logger } : {}),
         });
         try {
@@ -66,4 +65,9 @@ export class SaaSTenantRuntimeRegistry
       closeRuntime: (runtime) => runtime.close(),
     });
   }
+}
+
+function requireMemoryRuntime(runtime: SaaSMemoryRuntimeHandle | undefined): SaaSMemoryRuntimeHandle {
+  if (!runtime) throw new Error("SaaS tenant runtime requires PostgreSQL memory runtime");
+  return runtime;
 }

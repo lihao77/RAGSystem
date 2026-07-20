@@ -39,6 +39,14 @@ export interface DurableExecutionConversationPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
+  addMessage(input: {
+    sessionId: string;
+    role: MessageInfo["role"];
+    content: string;
+    metadata?: Record<string, unknown>;
+    threadKey?: string;
+    childAgentId?: string | null;
+  }): Promise<MessageInfo>;
   insertCompressionMessage(input: { sessionId: string; summaryContent: string; replacesUpToSeq?: number | null; threadKey?: string; childAgentId?: string | null; metadata?: Record<string, unknown> }): Promise<MessageInfo>;
 }
 

@@ -203,6 +203,12 @@ export interface IOutboxStore {
 export interface AsyncOutboxStore {
   appendOutbox(input: AppendOutboxInput): Promise<OutboxRow>;
   claimPendingOutbox(input?: ClaimOutboxInput): Promise<OutboxRow[]>;
+  claimOutboxRows(input: {
+    ids: readonly number[];
+    tenantId?: string;
+    lockTimeoutMs?: number;
+    now?: Date;
+  }): Promise<OutboxRow[]>;
   listOutboxForReplay(input: { tenantId: string; sessionId: string; runIds?: readonly string[] | null; afterSeq?: number; limit?: number }): Promise<OutboxRow[]>;
   markOutboxDelivered(id: number): Promise<boolean>;
   markOutboxRetrying(id: number, error: string, availableAt: string): Promise<boolean>;

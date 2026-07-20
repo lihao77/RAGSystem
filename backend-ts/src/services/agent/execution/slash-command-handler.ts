@@ -1,8 +1,7 @@
 import type { AgentRunStartResult } from "../../../contracts/execution/execution.js";
-import type { AgentSessionApplication } from "../../sessions/index.js";
+import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
-import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
-import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
+import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import { buildFullSystemPrompt, estimateTokens, resolveToolInstructionMode } from "@ragsystem/agent-sdk";
@@ -46,13 +45,12 @@ const PROMPT_SLASH_COMMANDS: Record<string, { description: string; template: str
 export class SlashCommandHandler {
   constructor(
     private readonly tenantId: TenantId,
-    private readonly sessions: AgentSessionApplication,
+    private readonly sessions: ExecutionSessionPort,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly providersProvider: () => ModelProviderConfig[],
-    private readonly conversationStore: ConversationStore,
     private readonly compressionService: AgentCompressionService | null,
-    private readonly clientEvents: DurableClientEventPublisher,
+    private readonly clientEvents: ClientEventPublisher,
   ) {}
 
   handle(input: {
@@ -77,10 +75,10 @@ export class SlashCommandHandler {
     command: ParsedSlashCommand;
     originalTask: string;
   }): Promise<AgentRunStartResult> {
-    if (!this.sessions.getSession(input.sessionId)) {
-      this.sessions.createSession({ tenantId: this.tenantId, sessionId: input.sessionId, userId: input.userId });
+    if (!(await this.sessions.getSession(input.sessionId))) {
+      await this.sessions.createSession({ tenantId: this.tenantId, sessionId: input.sessionId, userId: input.userId });
     }
-    this.sessions.addMessage({
+    await this.sessions.addMessage({
       sessionId: input.sessionId,
       role: "user",
       content: input.originalTask,
@@ -91,7 +89,7 @@ export class SlashCommandHandler {
       },
     });
     const result = await this.resolveSystemSlashCommandResult(input);
-    const message = this.sessions.addMessage({
+    const message = await this.sessions.addMessage({
       sessionId: input.sessionId,
       role: "system",
       content: result.content,
@@ -144,7 +142,7 @@ export class SlashCommandHandler {
         content: "该会话正在执行任务，请等待完成后再压缩",
       };
     }
-    const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
+    const sessionMetadata = (await this.sessions.getSession(input.sessionId))?.metadata ?? {};
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {

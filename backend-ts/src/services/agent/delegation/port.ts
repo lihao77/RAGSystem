@@ -55,5 +55,5 @@ export interface ListChildAgentsCall {
 export interface DelegationPort {
   callAgent(call: AgentDelegationCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;
   sendMessage(call: SendMessageCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;
-  listChildAgents(call: ListChildAgentsCall, ctx: ToolExecContext): ToolExecutionResult;
+  listChildAgents(call: ListChildAgentsCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;
 }

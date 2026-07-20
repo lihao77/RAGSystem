@@ -25,6 +25,12 @@ export class SaaSSessionApplication {
     await this.repository.createSession(this.tenantId, input.sessionId, input.userId, metadata, input.permissionMode ?? null);
     return { session_id: input.sessionId, user_id: input.userId, permission_mode: input.permissionMode ?? null, metadata };
   }
+  async createSystemSession(input: { sessionId: string; metadata?: Record<string, unknown>; permissionMode?: PermissionMode | null }) {
+    assertSafeSessionId(input.sessionId);
+    const metadata = normalizeSessionMetadata(input.metadata ?? {});
+    await this.repository.createSession(this.tenantId, input.sessionId, null, metadata, input.permissionMode ?? null);
+    return { session_id: input.sessionId, user_id: null, permission_mode: input.permissionMode ?? null, metadata };
+  }
   listSessions(input: { limit?: number; offset?: number; userIds?: readonly string[] | null }): Promise<PaginatedResult<SessionListItem>> {
     return this.repository.listSessions(this.tenantId, input.limit ?? 20, input.offset ?? 0, input.userIds ?? null);
   }
@@ -56,6 +62,38 @@ export class SaaSSessionApplication {
   async getRecentMessages(sessionId: string, limit = 10_000, threadKey?: string | null): Promise<MessageInfo[]> {
     if (!(await this.getSession(sessionId))) return [];
     return this.repository.getRecentMessages(sessionId, limit, threadKey ?? "root");
+  }
+  async addMessage(input: Parameters<AsyncConversationRepository["addMessage"]>[0]): Promise<MessageInfo> {
+    if (!(await this.getSession(input.sessionId))) {
+      throw new Error(`会话不存在: ${input.sessionId}`);
+    }
+    const message = await this.repository.addMessage(input);
+    if ((message.role === "user" && isVisibleRootMessage(message)) || message.role === "assistant") {
+      const snapshotId = await this.fileHistory?.makeSnapshot(input.sessionId, message.seq);
+      if (snapshotId) {
+        const metadata = { ...message.metadata, snapshot_id: snapshotId };
+        await this.repository.updateMessage({
+          messageId: message.id,
+          metadata,
+          sessionId: input.sessionId,
+          roleFilter: message.role,
+        });
+        return { ...message, metadata };
+      }
+    }
+    return message;
+  }
+  async getLastRunRound(sessionId: string, runId: string): Promise<number> {
+    if (!(await this.getSession(sessionId)) || !this.runs) return 0;
+    const steps = await this.runs.listRunSteps({ tenantId: this.tenantId, sessionId, runId, limit: 1000 });
+    return steps.reduce((max, step) => {
+      if (step.step_type !== EXECUTION_ENVELOPE_STEP_TYPE) return max;
+      const payload = step.payload.payload;
+      const round = payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>).round
+        : undefined;
+      return typeof round === "number" && round > max ? round : max;
+    }, 0);
   }
   async listMessageRunSteps(input: {
     sessionId: string;
@@ -137,6 +175,56 @@ export class SaaSSessionApplication {
       .filter(({ envelope }) => EXECUTION_ENVELOPE_TYPES.has(envelope.type));
   }
   async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> { if (!(await this.getSession(input.sessionId))) return false; return this.repository.updateMessage({ sessionId: input.sessionId, messageId: input.messageId, content: input.content, roleFilter: "user" }); }
+  async prepareRetry(input: {
+    sessionId: string;
+    afterSeq?: number | null;
+    afterMessageId?: string | null;
+    modifyUserMessage?: string | null;
+    metadataPatch?: { attachments?: unknown[]; extensions?: unknown[] };
+  }): Promise<{ deleted: number; task: string; message: MessageInfo }> {
+    if (!(await this.getSession(input.sessionId))) {
+      throw new Error(`会话不存在: ${input.sessionId}`);
+    }
+    const originalMessage = input.afterSeq != null
+      ? await this.repository.getMessageBySeq(input.sessionId, input.afterSeq)
+      : input.afterMessageId?.trim()
+        ? await this.repository.getMessageById(input.sessionId, input.afterMessageId.trim())
+        : null;
+    if (!originalMessage) {
+      const description = input.afterSeq != null
+        ? `序号为 ${input.afterSeq}`
+        : `ID 为 ${input.afterMessageId ?? ""}`;
+      throw new Error(`未找到会话 ${input.sessionId} 中${description}的消息`);
+    }
+    if (originalMessage.role !== "user") {
+      throw new Error("指定位置必须是用户消息（user），才能从此处重试");
+    }
+    const modifiedTask = input.modifyUserMessage?.trim();
+    const task = modifiedTask || originalMessage.content.trim();
+    if (!task) throw new Error("无法获取要重试的任务内容");
+
+    let message = originalMessage;
+    if (modifiedTask) {
+      const metadata: Record<string, unknown> = {
+        ...originalMessage.metadata,
+        ...(input.metadataPatch ?? {}),
+        retry_modified_at: new Date().toISOString(),
+      };
+      const snapshotId = await this.fileHistory?.makeSnapshot(input.sessionId, originalMessage.seq);
+      if (snapshotId) metadata.snapshot_id = snapshotId;
+      const updated = await this.repository.updateMessage({
+        messageId: originalMessage.id,
+        content: task,
+        metadata,
+        sessionId: input.sessionId,
+        roleFilter: "user",
+      });
+      if (!updated) throw new Error("消息不存在或不可编辑");
+      message = { ...originalMessage, content: task, metadata };
+    }
+    const deleted = await this.rollbackMessages({ sessionId: input.sessionId, afterSeq: message.seq });
+    return { deleted, task, message };
+  }
   async rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number> {
     if (!(await this.getSession(input.sessionId))) return 0;
     const fileHistory = this.fileHistory;

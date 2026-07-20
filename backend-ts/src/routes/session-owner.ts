@@ -25,7 +25,7 @@ export async function loadOwnedSession(
 ): Promise<SessionInfo> {
   const session = sessions
     ? await sessions.getSession(sessionId)
-    : request.container.sessionApplication.getSession(sessionId);
+    : await request.container.sessionApplication.getSession(sessionId);
   if (!session) {
     throw new HttpError(404, "not_found", "会话不存在");
   }
@@ -43,7 +43,7 @@ export async function assertOwnedSessionIfExists(
   }
   const session = sessions
     ? await sessions.getSessionForExecutionValidation(sessionId)
-    : request.container.sessionApplication.getSession(sessionId);
+    : await request.container.sessionApplication.getSession(sessionId);
   if (session) {
     await assertSessionOwner(request, session);
   }

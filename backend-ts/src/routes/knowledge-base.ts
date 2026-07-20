@@ -197,12 +197,16 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
     }
   });
 
-  app.get("/vectorizers", async (request) => ok(await request.container.knowledgeBase.listVectorizers()));
+  app.get("/vectorizers", async (request) => {
+    const application = await resolveVectorApplication(request);
+    return ok(await (application ? application.listVectorizers() : request.container.knowledgeBase.listVectorizers()));
+  });
 
   app.post("/vectorizers", async (request) => {
     const payload = VectorizerCreateSchema.parse(request.body);
     try {
-      return ok(request.container.knowledgeBase.addVectorizer(payload));
+      const application = await resolveVectorApplication(request);
+      return ok(await (application ? application.addVectorizer(payload) : request.container.knowledgeBase.addVectorizer(payload)));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -210,7 +214,10 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.post<{ Params: KeyParams }>("/vectorizers/:key/activate", async (request) => {
     try {
-      return ok(request.container.knowledgeBase.activateVectorizer(request.params.key));
+      const application = await resolveVectorApplication(request);
+      return ok(await (application
+        ? application.activateVectorizer(request.params.key)
+        : request.container.knowledgeBase.activateVectorizer(request.params.key)));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -227,7 +234,10 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.delete<{ Params: KeyParams }>("/vectorizers/:key", async (request) => {
     try {
-      return ok(await request.container.knowledgeBase.deleteVectorizer(request.params.key));
+      const application = await resolveVectorApplication(request);
+      return ok(await (application
+        ? application.deleteVectorizer(request.params.key)
+        : request.container.knowledgeBase.deleteVectorizer(request.params.key)));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -277,11 +287,12 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
     }
   });
   app.get("/collections", async (request) => {
-    const data = await request.container.knowledgeBase.listCollections();
+    const application = await resolveVectorApplication(request);
+    const data = await (application ? application.listCollections() : request.container.knowledgeBase.listCollections());
     return {
       success: true,
       data,
-      count: data.length,
+      count: Array.isArray(data) ? data.length : 0,
     };
   });
 

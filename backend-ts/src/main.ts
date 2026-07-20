@@ -61,7 +61,10 @@ try {
         const files = saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId);
         return new SaaSKnowledgeVectorApplication(
           request.identity.tenantId,
-          request.container.knowledgeBase,
+          saasConversationRuntime!.createKnowledgeService(
+            request.identity.tenantId,
+            request.container.modelAdapter,
+          ),
           files,
           new TenantKnowledgeMarkdownPipeline(files),
           saasConversationRuntime!.vectorStore,

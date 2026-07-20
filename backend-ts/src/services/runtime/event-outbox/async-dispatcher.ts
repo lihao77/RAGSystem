@@ -4,6 +4,10 @@ import type { RealtimeEventBus } from "../../../contracts/runtime/realtime-event
 import { EnvelopeProjector } from "./projector.js";
 import type { OutboxDispatcherMetrics, OutboxDispatcherOptions } from "./dispatcher.js";
 
+export interface AsyncOutboxDispatcherOptions extends OutboxDispatcherOptions {
+  tenantId?: string;
+}
+
 /** Async counterpart of the Local synchronous dispatcher for SaaS repositories. */
 export class AsyncOutboxDispatcher {
   private timer: NodeJS.Timeout | null = null;
@@ -12,19 +16,21 @@ export class AsyncOutboxDispatcher {
   private readonly retryMaxDelayMs: number;
   private readonly lockTimeoutMs: number;
   private readonly now: () => Date;
+  private readonly tenantId: string | undefined;
   private readonly metrics: OutboxDispatcherMetrics = { projected: 0, delivered: 0, retried: 0, failed: 0, lastError: null };
 
   constructor(
     private readonly outbox: AsyncOutboxStore,
     private readonly realtimeEvents: RealtimeEventBus,
     private readonly projector = new EnvelopeProjector(),
-    options: OutboxDispatcherOptions = {},
+    options: AsyncOutboxDispatcherOptions = {},
   ) {
     this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 5));
     this.retryBaseDelayMs = Math.max(0, Math.floor(options.retryBaseDelayMs ?? 1_000));
     this.retryMaxDelayMs = Math.max(this.retryBaseDelayMs, Math.floor(options.retryMaxDelayMs ?? 30_000));
     this.lockTimeoutMs = Math.max(0, Math.floor(options.lockTimeoutMs ?? 60_000));
     this.now = options.now ?? (() => new Date());
+    this.tenantId = options.tenantId?.trim() || undefined;
   }
 
   start(intervalMs = 500): void {
@@ -40,8 +46,26 @@ export class AsyncOutboxDispatcher {
   }
 
   async pollOnce(limit = 100): Promise<Envelope[]> {
-    const rows = await this.outbox.claimPendingOutbox({ limit, lockTimeoutMs: this.lockTimeoutMs, now: this.now() });
+    const rows = await this.outbox.claimPendingOutbox({
+      ...(this.tenantId ? { tenantId: this.tenantId } : {}),
+      limit,
+      lockTimeoutMs: this.lockTimeoutMs,
+      now: this.now(),
+    });
     return this.dispatchRows(rows);
+  }
+
+  /** Claim specific newly-written rows before publishing, racing safely with the recovery poller. */
+  async dispatchPendingRows(rows: OutboxRow[]): Promise<Envelope[]> {
+    const ids = rows.filter((row) => row.status === "pending" || row.status === "retrying").map((row) => row.id);
+    if (ids.length === 0) return [];
+    const claimed = await this.outbox.claimOutboxRows({
+      ids,
+      ...(this.tenantId ? { tenantId: this.tenantId } : {}),
+      lockTimeoutMs: this.lockTimeoutMs,
+      now: this.now(),
+    });
+    return this.dispatchRows(claimed);
   }
 
   async dispatchRows(rows: OutboxRow[]): Promise<Envelope[]> {

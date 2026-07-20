@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentRunEngine } from "../execution/run-engine.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
-import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
+import type { ChildAgentInfo } from "../../../contracts/conversation-store/index.js";
+import type { AgentDelegationStorePort } from "../../../contracts/runtime/core-runtime-ports.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../execution/runtime-core-service.js";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
@@ -33,7 +34,7 @@ export class AgentDelegationService implements DelegationPort {
   private runEngineProvider: (() => AgentRunEngine | null) | null = null;
 
   constructor(
-    private readonly conversationStore: IMessageStore & IChildAgentStore & IRunStore & ISessionStore,
+    private readonly store: AgentDelegationStorePort,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly clientEvents: ClientEventPublisher | null = null,
   ) {}
@@ -73,14 +74,14 @@ export class AgentDelegationService implements DelegationPort {
       return errorResult("不允许委派给自身", toolName);
     }
 
-    const existingChild = this.conversationStore.findChildAgentByCreator({
+    const existingChild = await this.store.findChildAgentByCreator({
       sessionId,
       createdByRunId: parentRunId,
       createdByCallId: parentCallId,
     });
     const matchingChild = existingChild?.agent_name === targetAgentName ? existingChild : null;
     const existingRun = matchingChild?.last_run_id
-      ? this.conversationStore.getRun(sessionId, matchingChild.last_run_id)
+      ? await this.store.getRun(sessionId, matchingChild.last_run_id)
       : null;
     const resumedRun = existingRun?.status === "suspended" ? existingRun : null;
     const childAgentId = resumedRun && matchingChild ? matchingChild.child_agent_id : `child_${randomUUID()}`;
@@ -91,12 +92,12 @@ export class AgentDelegationService implements DelegationPort {
     const agentCallId = resumedAgentCallId ?? `call_${randomUUID()}`;
     const child = resumedRun && matchingChild
       ? matchingChild
-      : this.conversationStore.createChildAgent({
+      : await this.store.createChildAgent({
           childAgentId,
           sessionId,
           agentName: targetAgentName,
           threadKey,
-          createdSeq: this.conversationStore.getRecentMessages(sessionId, 1, "root").at(-1)?.seq ?? null,
+          createdSeq: (await this.store.getRecentMessages(sessionId, 1, "root")).at(-1)?.seq ?? null,
           createdByRunId: parentRunId,
           createdByCallId: parentCallId,
           parentRunId,
@@ -186,7 +187,7 @@ export class AgentDelegationService implements DelegationPort {
     if (!message) {
       return errorResult("send_message 缺少 message", toolName);
     }
-    const child = this.conversationStore.getChildAgent(sessionId, childAgentId);
+    const child = await this.store.getChildAgent(sessionId, childAgentId);
     if (!child) {
       return errorResult(`子 Agent '${childAgentId}' 不存在`, toolName);
     }
@@ -254,7 +255,7 @@ export class AgentDelegationService implements DelegationPort {
     });
   }
 
-  listChildAgents(call: ListChildAgentsCall, ctx: ToolExecContext): ToolExecutionResult {
+  async listChildAgents(call: ListChildAgentsCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
     const { input } = call;
     const sessionId = normalizeString(ctx.sessionId);
     if (!sessionId) {
@@ -262,7 +263,7 @@ export class AgentDelegationService implements DelegationPort {
     }
     const agentName = normalizeString(input.agentName);
     const limit = clampInteger(input.limit ?? 20, 1, 100);
-    const result = this.conversationStore.listChildAgents({
+    const result = await this.store.listChildAgents({
       sessionId,
       agentName,
       limit,
@@ -340,10 +341,10 @@ export class AgentDelegationService implements DelegationPort {
     const childRunId = input.resumeRunId ?? randomUUID();
     const targetAgent = applyWorkspaceOverride(resolved.agent, input.workspaceRoot);
     if (input.resumeRunId) {
-      this.conversationStore.updateRunStatus(childRunId, input.sessionId, "running", null);
+      await this.store.updateRunStatus(childRunId, input.sessionId, "running", null);
     } else {
       // 首次调用才写入任务消息；恢复时直接复用 child thread 中的悬空 tool_use。
-      this.conversationStore.addMessage({
+      await this.store.addMessage({
         sessionId: input.sessionId,
         role: "user",
         content: input.task,
@@ -388,7 +389,7 @@ export class AgentDelegationService implements DelegationPort {
     }
 
     // 在执行前记录 last_run_id，确保子 run 挂起抛异常时仍可由原 call_agent 找回。
-    this.conversationStore.updateChildAgentLastRun({
+    await this.store.updateChildAgentLastRun({
       sessionId: input.sessionId,
       childAgentId: input.childAgent.child_agent_id,
       lastRunId: childRunId,

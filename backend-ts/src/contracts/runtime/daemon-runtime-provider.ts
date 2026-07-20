@@ -3,8 +3,8 @@ import type { InteractionCoordinator } from "./pending-interactions.js";
 
 export interface DaemonRuntime {
   interactionCoordinator: Pick<InteractionCoordinator, "respondApprovalAsync" | "respondUserInputAsync" | "listPendingAsync" | "peekApprovalMeta">;
-  conversationStore: {
-    getSession(sessionId: string): { metadata: Record<string, unknown> } | null;
+  sessionApplication: {
+    getSession(sessionId: string): { metadata: Record<string, unknown> } | null | Promise<{ metadata: Record<string, unknown> } | null>;
   };
 }
 

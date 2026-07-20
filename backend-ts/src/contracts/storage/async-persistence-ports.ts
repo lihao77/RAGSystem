@@ -15,7 +15,7 @@ import type {
   PendingInteractionRecord,
   PendingInteractionStatus,
 } from "../conversation-store/index.js";
-import type { DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "../conversation-store/index.js";
+import type { AgentMetricSummary, DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "../conversation-store/index.js";
 import type { PermissionMode } from "../runtime/permissions.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
@@ -63,6 +63,13 @@ export interface AsyncAnalyticsRepository {
   aggregateModelUsage(tenantId: string, input: { since: string }): Promise<ModelUsagePoint[]>;
   aggregateActivityHeatmap(tenantId: string, input: { since: string }): Promise<HeatmapPoint[]>;
   aggregateDailyActivity(tenantId: string, input: { since: string }): Promise<DailyActivityPoint[]>;
+}
+
+/** Runtime metrics surface; separate from chart-only analytics consumers. */
+export interface AsyncAgentMetricsRepository {
+  insertMetric(tenantId: string, input: AnalyticsMetricInput): Promise<void>;
+  aggregateMetrics(tenantId: string, agentName?: string | null): Promise<AgentMetricSummary[]>;
+  resetMetrics(tenantId: string, agentName?: string | null): Promise<{ deleted: number }>;
 }
 
 export interface AnalyticsMetricInput {

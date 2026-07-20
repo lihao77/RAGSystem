@@ -40,6 +40,13 @@ import type { KnowledgeQueryPort } from "../knowledge/query-port.js";
 import type { ExecutionStorage } from "../execution/execution-storage.js";
 import type { PathAccessPolicy } from "./path-access-policy.js";
 import type { AsyncAnalyticsRepository } from "../storage/async-persistence-ports.js";
+import type { AsyncSessionFileStorage } from "../session/session-file-storage.js";
+import type {
+  AgentDelegationStorePort,
+  AgentMetricsStorePort,
+  CompressionHistoryStorePort,
+  PermissionPolicyStorePort,
+} from "./core-runtime-ports.js";
 
 export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = IMemoryStore> {
   readonly deploymentKind: "local" | "saas";
@@ -103,15 +110,19 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   asyncAnalytics?: AsyncAnalyticsRepository;
   runtimeStorage: RuntimeStorage;
   conversationStore: ConversationStore;
+  delegationStore: AgentDelegationStorePort;
+  metricsStore: AgentMetricsStorePort;
+  permissionPolicyStore: PermissionPolicyStorePort;
+  compressionHistory: CompressionHistoryStorePort | null;
   sessionApplication: AgentSessionApplication;
   realtimeEvents: RealtimeEventBus;
-  permissionPolicy: PermissionPolicyService;
   agentConfig: AgentConfigService;
   modelAdapter: ModelAdapterService;
   systemConfig: SystemConfigService;
   mcp: McpService;
   fileHistory: IFileHistoryStore;
   fileIndex: IFileIndexStore;
+  asyncSessionFiles?: AsyncSessionFileStorage | null;
   knowledgeBase: KnowledgeBaseService;
   knowledge: KnowledgeQueryPort;
   artifacts: ArtifactService;

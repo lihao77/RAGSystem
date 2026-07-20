@@ -9,8 +9,7 @@ import type {
   StreamExecuteRequest,
 } from "../../../contracts/execution/execution.js";
 import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/execution/execution.js";
-import type { AgentSessionApplication } from "../../sessions/index.js";
-import type { IRunStore } from "../../../contracts/conversation-store/index.js";
+import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import {
   asString,
@@ -50,8 +49,7 @@ export interface LauncherApi {
 
 export interface LauncherDeps {
   tenantId: TenantId;
-  sessions: AgentSessionApplication;
-  conversationStore: IRunStore;
+  sessions: ExecutionSessionPort;
   runtimeCore: RuntimeExecutionConfigResolver;
   slashCommandHandler: SlashCommandHandler;
   attachmentResolver: AttachmentResolver;
@@ -68,8 +66,7 @@ export interface LauncherDeps {
 class AgentLaunchers {
   constructor(
     private readonly tenantId: TenantId,
-    private readonly sessions: AgentSessionApplication,
-    private readonly conversationStore: IRunStore,
+    private readonly sessions: ExecutionSessionPort,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly slashCommandHandler: SlashCommandHandler,
     private readonly attachmentResolver: AttachmentResolver,
@@ -105,7 +102,7 @@ class AgentLaunchers {
         error: "Task and attachments cannot both be empty",
       };
     }
-    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
+    const sessionMetadata = (await this.sessions.getSession(sessionId))?.metadata ?? {};
     // 不变量：runningStatus 检查 → startRun(register) 必须同步无 await，否则与 triggerBgNotificationRun 竞态。
     const runningStatus = this.statusTracker.getStatusBySession(sessionId);
     if (runningStatus?.status === "running") {
@@ -113,18 +110,8 @@ class AgentLaunchers {
       const runningTaskId = runningStatus.task_id ?? null;
       const currentAgentName = normalizeSessionEntryAgent(sessionMetadata.entry_agent) ?? "orchestrator_agent";
       // followup 的 round 定位：取该 run 已归档 Envelope 的最大 payload.round。
-      const lastRound = runningRunId
-        ? this.conversationStore.listRunSteps({ sessionId, runId: runningRunId, limit: 1000 })
-            .reduce((max, s) => {
-              if (s.step_type !== "protocol.envelope.v1") return max;
-              const envelopePayload = s.payload.payload;
-              const r = envelopePayload && typeof envelopePayload === "object" && !Array.isArray(envelopePayload)
-                ? (envelopePayload as Record<string, unknown>).round
-                : undefined;
-              return typeof r === "number" && r > max ? r : max;
-            }, 0)
-        : 0;
-      const followupMessage = this.sessions.addMessage({
+      const lastRound = runningRunId ? await this.sessions.getLastRunRound(sessionId, runningRunId) : 0;
+      const followupMessage = await this.sessions.addMessage({
         sessionId,
         role: "user",
         content: task,
@@ -153,7 +140,7 @@ class AgentLaunchers {
       };
     }
 
-    const attachmentResolution = this.attachmentResolver.resolve(sessionId, request.attachments);
+    const attachmentResolution = await this.attachmentResolver.resolveAsync(sessionId, request.attachments);
     if (attachmentResolution.error) {
       return {
         started: false,
@@ -180,9 +167,6 @@ class AgentLaunchers {
       };
     }
 
-    if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ tenantId: this.tenantId, sessionId, userId: request.userId });
-    }
     const runtimeAgent = ready.agent;
 
     // 写入侧拆分:image 进 metadata.extensions(image_attachment),file 留 metadata.attachments。
@@ -198,6 +182,7 @@ class AgentLaunchers {
       userId: request.userId,
       requestId,
       task,
+      ...(slashCommand?.mode === "prompt" ? { modelTask: slashCommand.expandedTask } : {}),
       executionKind: "agent_stream",
       agent: runtimeAgent,
       provider: ready.provider,
@@ -254,11 +239,8 @@ class AgentLaunchers {
         error: "该会话正在执行任务，请等待完成或停止当前任务",
       };
     }
-    if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ tenantId: this.tenantId, sessionId, userId: request.userId });
-    }
-
-    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
+    const session = await this.sessions.getSession(sessionId);
+    const sessionMetadata = session?.metadata ?? {};
     const requestSelectedLlm = resolveSelectedLlm(request);
     const ready = resolveReadyAgent(
       this.runtimeCore,
@@ -346,7 +328,8 @@ class AgentLaunchers {
 
     // 先解析 ready 与确保会话存在——这两步不依赖消息内容，失败时直接返回不触碰消息 DB，
     // 避免 prepareRetry 已改写内容/删除回复、却因 ready 失败留下“内容改了、回复没了、新 run 没起”的中间态。
-    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
+    const existingSession = await this.sessions.getSession(sessionId);
+    const sessionMetadata = existingSession?.metadata ?? {};
     const resolveInput: {
       agentName?: string | null;
       teamName?: string | null;
@@ -367,8 +350,8 @@ class AgentLaunchers {
         error: ready.reason,
       };
     }
-    if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ tenantId: this.tenantId, sessionId, userId: input.userId });
+    if (!existingSession) {
+      await this.sessions.createSession({ tenantId: this.tenantId, sessionId, userId: input.userId });
     }
 
     const prepareInput: {
@@ -390,7 +373,7 @@ class AgentLaunchers {
     // 编辑重发可能带新附件：解析后按 image/file 拆分（复用 startStream 的拆分逻辑），
     // 打包成 metadataPatch 交给 prepareRetry 合并进用户消息 metadata。
     if (input.attachments && input.attachments.length) {
-      const attachmentResolution = this.attachmentResolver.resolve(sessionId, input.attachments);
+      const attachmentResolution = await this.attachmentResolver.resolveAsync(sessionId, input.attachments);
       if (attachmentResolution.error) {
         return {
           started: false,
@@ -411,7 +394,7 @@ class AgentLaunchers {
     } else if (input.uiContext) {
       prepareInput.metadataPatch = { extensions: [{ kind: "ui_context", data: input.uiContext }] };
     }
-    const prepared = this.sessions.prepareRetry(prepareInput);
+    const prepared = await this.sessions.prepareRetry(prepareInput);
 
     const runtimeAgent = ready.agent;
     const started = this.runEngine.startRun({
@@ -479,8 +462,18 @@ class AgentLaunchers {
     if (!payloads.length) {
       return;
     }
+    void this.startBgNotificationRun(sessionId, payloads).catch(() => {
+      for (const payload of payloads) this.notificationQueue.add(sessionId, payload);
+    });
+  }
+
+  private async startBgNotificationRun(
+    sessionId: string,
+    payloads: Parameters<SessionNotificationQueue["add"]>[1][],
+  ): Promise<void> {
     const task = payloads.map(renderBackgroundNotification).join("\n\n");
-    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
+    const existingSession = await this.sessions.getSession(sessionId);
+    const sessionMetadata = existingSession?.metadata ?? {};
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {
@@ -497,28 +490,31 @@ class AgentLaunchers {
       }
       return;
     }
-    if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSystemSession({ tenantId: this.tenantId, sessionId });
+    // Session I/O may be asynchronous in SaaS. Re-check immediately before
+    // synchronous startRun registration so an intervening user run wins.
+    if (this.statusTracker.getStatusBySession(sessionId)?.status === "running") {
+      for (const payload of payloads) this.notificationQueue.add(sessionId, payload);
+      return;
     }
-    try {
-      this.runEngine.startRun({
-        sessionId,
-        requestId: `bg_notify_${randomUUID()}`,
-        task,
-        executionKind: "system.bg_notification",
-        agent: ready.agent,
-        provider: ready.provider,
-        modelName: ready.modelName,
-        persistUserMessage: {
-          metadata: { source: "background_notification" },
-        },
-      });
-    } catch (error) {
-      for (const payload of payloads) {
-        this.notificationQueue.add(sessionId, payload);
+    if (!existingSession) {
+      await this.sessions.createSystemSession({ tenantId: this.tenantId, sessionId });
+      if (this.statusTracker.getStatusBySession(sessionId)?.status === "running") {
+        for (const payload of payloads) this.notificationQueue.add(sessionId, payload);
+        return;
       }
-      throw error;
     }
+    this.runEngine.startRun({
+      sessionId,
+      requestId: `bg_notify_${randomUUID()}`,
+      task,
+      executionKind: "system.bg_notification",
+      agent: ready.agent,
+      provider: ready.provider,
+      modelName: ready.modelName,
+      persistUserMessage: {
+        metadata: { source: "background_notification" },
+      },
+    });
   }
 
 }
@@ -527,7 +523,6 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
   const impl = new AgentLaunchers(
     deps.tenantId,
     deps.sessions,
-    deps.conversationStore,
     deps.runtimeCore,
     deps.slashCommandHandler,
     deps.attachmentResolver,

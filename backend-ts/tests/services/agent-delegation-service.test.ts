@@ -11,6 +11,18 @@ import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
+import type { AgentDelegationStorePort } from "../../src/contracts/runtime/core-runtime-ports.js";
+
+function asAsyncDelegationStore(store: ReturnType<typeof createConversationStore>): AgentDelegationStorePort {
+  return new Proxy(store, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === "function"
+        ? (...args: unknown[]) => Promise.resolve().then(() => Reflect.apply(value, target, args))
+        : value;
+    },
+  }) as unknown as AgentDelegationStorePort;
+}
 
 describe("AgentDelegationService", () => {
   it("keeps grandchild durable and wire call lineage distinct", async () => {
@@ -19,7 +31,7 @@ describe("AgentDelegationService", () => {
     const workerAgent = minimalAgent("worker_agent");
     const parentAgent = minimalAgent("parent_agent");
     parentAgent.delegation.enabled_agents = ["worker_agent"];
-    const service = new AgentDelegationService(store, runtimeCoreStub(workerAgent));
+    const service = new AgentDelegationService(asAsyncDelegationStore(store), runtimeCoreStub(workerAgent));
     const seenInputs: Array<Record<string, unknown>> = [];
     service.setRunEngine(() => ({
       async executeRun(input: Record<string, unknown>) {
@@ -62,7 +74,7 @@ describe("AgentDelegationService", () => {
     const workerAgent = minimalAgent("worker_agent");
     const parentAgent = minimalAgent("orchestrator_agent");
     parentAgent.delegation.enabled_agents = ["worker_agent"];
-    const service = new AgentDelegationService(store, runtimeCoreStub(workerAgent), clientEvents);
+    const service = new AgentDelegationService(asAsyncDelegationStore(store), runtimeCoreStub(workerAgent), clientEvents);
     store.createSession(LOCAL_TENANT_ID, "resume-session", null, { workspace_root: "E:/workspace" });
     store.createRun({
       sessionId: "resume-session",
@@ -164,7 +176,7 @@ describe("AgentDelegationService", () => {
     const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     const clientEvents = new DurableClientEventPublisher(store, dispatcher);
     const workerAgent = minimalAgent("worker_agent");
-    const service = new AgentDelegationService(store, runtimeCoreStub(workerAgent), clientEvents);
+    const service = new AgentDelegationService(asAsyncDelegationStore(store), runtimeCoreStub(workerAgent), clientEvents);
 
     // 子 run 复用 root 的 executeRun 执行核心（run-engine 那套由 runtime-core-execution 端到端覆盖）。
     // 这里 mock executeRun：验证 delegation 把 child 归属（threadKey/parent_run_id/child_agent_id/parent_call_id）
@@ -217,7 +229,7 @@ describe("AgentDelegationService", () => {
     });
 
     expect(
-      service.listChildAgents(
+      await service.listChildAgents(
         {
           agent: minimalAgent("orchestrator_agent"),
           teamName: null,

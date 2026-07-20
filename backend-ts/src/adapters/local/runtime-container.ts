@@ -32,14 +32,13 @@ import { DurableClientEventPublisher } from "../../services/runtime/event-outbox
 import { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
 import { OutboxDispatcher } from "../../services/runtime/event-outbox/dispatcher.js";
 import { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
-import { PermissionPolicyService } from "../../services/runtime/permission-policy-service.js";
 import { RealtimeEventHub } from "../../services/runtime/realtime-event-hub.js";
 import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { LocalRuntimeContainerOptions } from "./runtime-options.js";
 import { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import { LocalKnowledgeQueryAdapter } from "./local-knowledge-query-adapter.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";
-import { PathApprovalService } from "./path-approval-service.js";
+import { PathApprovalService } from "../../services/runtime/path-approval-service.js";
 import { SqliteRuntimeStorage } from "./sqlite-runtime-storage.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
@@ -65,7 +64,6 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     ?? localAsyncClientEvents;
   // Both deployments use the queued publisher so finalize can flush all prior envelope writes.
   const eventClientEvents = asyncClientEvents ?? localAsyncClientEvents;
-  const permissionPolicy = new PermissionPolicyService(conversationStore);
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
     dataRoot: options.dataRoot,
@@ -165,9 +163,12 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     ...(asyncSuspendedSessionControl ? { asyncSuspendedSessionControl } : {}),
     ...(options.asyncAnalytics ? { asyncAnalytics: options.asyncAnalytics } : {}),
     conversationStore,
+    delegationStore: conversationStore,
+    metricsStore: conversationStore,
+    permissionPolicyStore: conversationStore,
+    compressionHistory: conversationStore,
     sessionApplication,
     realtimeEvents,
-    permissionPolicy,
     agentConfig,
     modelAdapter,
     systemConfig,

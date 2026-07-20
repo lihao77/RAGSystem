@@ -1,7 +1,7 @@
 /**
  * Agent 压缩服务（自 SDK compression/context-compression.ts 迁入,A3 压缩外移）。
  *
- * 读 conversationStore 全量历史 → 压缩视图 → 阈值判断 → 选段 → agent-llm 摘要 → 写 compression 消息。
+ * 读 history port 全量历史 → 压缩视图 → 阈值判断 → 选段 → agent-llm 摘要 → 写 compression 消息。
  * - 摘要 tier 候选/参数:SDK llm-params 纯函数（resolveSummaryTierCandidates/readTierParams,通用基金,不依赖 store）
  * - budget/settings:backend context-compression/index.ts（AgentConfig + systemConfig）
  * - 压缩视图:backend context/history-view（resolveCompressionView）
@@ -13,7 +13,7 @@ import { OpenAiCompatibleClient, extractText, type ChatMessage, type LlmClient, 
 import { countMessagesTokens, readTierParams, resolveContextBudget, resolveSummaryTierCandidates } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
-import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
+import type { CompressionHistoryStorePort } from "../../../contracts/runtime/core-runtime-ports.js";
 import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { SystemConfigService } from "../../config/system-config-service.js";
 import { HISTORY_SCAN_LIMIT, resolveCompressionView } from "../context/index.js";
@@ -83,12 +83,15 @@ export class AgentCompressionService {
   private readonly llm: LlmClient;
 
   constructor(
-    private readonly conversationStore: ConversationStore,
+    private readonly syncHistory: CompressionHistoryStorePort | null,
     private readonly providersProvider: () => ModelProviderConfig[],
     private readonly systemConfig: SystemConfigService,
     llm?: LlmClient,
     private readonly asyncHistory?: AsyncCompressionHistoryPort,
   ) {
+    if (!syncHistory && !asyncHistory) {
+      throw new Error("AgentCompressionService requires a synchronous or asynchronous history port");
+    }
     this.llm = llm ?? new OpenAiCompatibleClient();
   }
 
@@ -139,7 +142,7 @@ export class AgentCompressionService {
     };
     const summaryMessage = this.asyncHistory
       ? await this.asyncHistory.insertCompressionMessage(compressionInput)
-      : this.conversationStore.insertCompressionMessage(compressionInput);
+      : this.syncHistory!.insertCompressionMessage(compressionInput);
     return {
       status: "success",
       reason: "success",
@@ -159,7 +162,7 @@ export class AgentCompressionService {
     const budgetTokens = resolveContextBudget(profile.llmTiers, input.systemPromptTokens, profile.behavior.budget);
     const persistedMessages = this.asyncHistory
       ? await this.asyncHistory.getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey)
-      : this.conversationStore.getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey);
+      : this.syncHistory!.getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey);
     const rawMessages = persistedMessages.filter(isCompressibleHistoryMessage);
     const historyResolved = resolveCompressionView(rawMessages);
     const historyTokens = countMessagesTokens(historyResolved);

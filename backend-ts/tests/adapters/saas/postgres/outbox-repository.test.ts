@@ -50,6 +50,33 @@ describe("PostgresOutboxRepository", () => {
     await expect(repo.markOutboxFailed(1, "fatal")).resolves.toBe(true);
   });
 
+  it("tenant-scopes claims used by per-tenant SaaS dispatchers", async () => {
+    const query = vi.fn(async () => ({ rows: [base] }));
+    const executor = {
+      query,
+      transaction: async <T>(fn: (tx: PostgresMemoryExecutor) => Promise<T>) => fn(executor as PostgresMemoryExecutor),
+    } as PostgresMemoryExecutor;
+
+    await new PostgresOutboxRepository(executor).claimPendingOutbox({ tenantId: "tenant-a", limit: 2 });
+
+    expect(query.mock.calls[0]?.[0]).toContain("tenant_id=$3");
+    expect(query.mock.calls[0]?.[1]?.slice(2)).toEqual(["tenant-a", 2]);
+  });
+
+  it("claims specified rows before immediate delivery", async () => {
+    const query = vi.fn(async () => ({ rows: [base] }));
+    const executor = {
+      query,
+      transaction: async <T>(fn: (tx: PostgresMemoryExecutor) => Promise<T>) => fn(executor as PostgresMemoryExecutor),
+    } as PostgresMemoryExecutor;
+
+    await new PostgresOutboxRepository(executor).claimOutboxRows({ ids: [1], tenantId: "tenant-a" });
+
+    expect(query.mock.calls[0]?.[0]).toContain("id=ANY($1::bigint[])");
+    expect(query.mock.calls[0]?.[0]).toContain("tenant_id=$4");
+    expect(query.mock.calls[0]?.[1]?.slice(3)).toEqual(["tenant-a"]);
+  });
+
   it("tenant-scopes operations list and detail queries", async () => {
     const query = vi.fn()
       .mockResolvedValueOnce({ rows: [{ total: "1" }] })

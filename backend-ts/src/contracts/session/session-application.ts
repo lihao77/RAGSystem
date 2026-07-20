@@ -3,8 +3,40 @@ import type { Envelope } from "@ragsystem/agent-protocol";
 import type { PaginatedResult } from "../common.js";
 import type { PermissionMode } from "../runtime/permissions.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../session/session.js";
+import type { TenantId } from "../../identity/types.js";
 
 export type Awaitable<T> = T | Promise<T>;
+
+/**
+ * Execution-only session port.  Unlike SessionApplication this intentionally
+ * contains only the operations used while launching a run.  Implementations
+ * may be fully asynchronous (for example the SaaS PostgreSQL adapter).
+ */
+export interface ExecutionSessionPort {
+  getSession(sessionId: string): Awaitable<SessionInfo | null>;
+  createSession(input: { tenantId: TenantId; sessionId: string; userId: string; metadata?: Record<string, unknown> }): Awaitable<unknown>;
+  createSystemSession(input: { tenantId: TenantId; sessionId: string; metadata?: Record<string, unknown> }): Awaitable<unknown>;
+  addMessage(input: {
+    sessionId: string;
+    role: MessageInfo["role"];
+    content: string;
+    metadata?: Record<string, unknown>;
+    toolCalls?: MessageInfo["tool_calls"];
+    toolCallId?: string;
+    name?: string;
+    messageId?: string;
+    threadKey?: string;
+    childAgentId?: string | null;
+  }): Awaitable<MessageInfo>;
+  getLastRunRound(sessionId: string, runId: string): Awaitable<number>;
+  prepareRetry(input: {
+    sessionId: string;
+    afterSeq?: number | null;
+    afterMessageId?: string | null;
+    modifyUserMessage?: string | null;
+    metadataPatch?: { attachments?: unknown[]; extensions?: unknown[] };
+  }): Awaitable<{ deleted: number; task: string; message: MessageInfo }>;
+}
 
 export interface SessionExport {
   version: number;

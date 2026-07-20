@@ -6,16 +6,37 @@ import type { MemoryRepository } from "../../../src/contracts/memory-store/index
 import type { MemoryToolOperations } from "../../../src/tools/MemoryTools/MemoryExecution.js";
 import { createTenantId } from "../../../src/identity/types.js";
 import { HashFallbackEmbedder } from "../../../src/services/integrations/embedder-registry.js";
+import { AgentCompressionService } from "../../../src/services/agent/context-compression/compression-service.js";
+import { AgentDelegationService } from "../../../src/services/agent/delegation/index.js";
+import { AgentMetricsCollector } from "../../../src/services/agent/metrics/metrics-collector.js";
+import { PermissionPolicyService } from "../../../src/services/runtime/permission-policy-service.js";
 import {
   createLocalRuntimeContainer,
 } from "../../../src/adapters/local/runtime-container.js";
 import type { CoreRuntimeDependencies } from "../../../src/contracts/runtime/runtime-container.js";
+import type {
+  AgentDelegationStorePort,
+  AgentMetricsStorePort,
+  CompressionHistoryStorePort,
+  PermissionPolicyStorePort,
+} from "../../../src/contracts/runtime/core-runtime-ports.js";
 import type { LocalRuntimeContainerOptions } from "../../../src/adapters/local/runtime-options.js";
 import { makeTempRoot } from "../../helpers/temp-db.js";
 
 describe("runtime composition roots", () => {
   it("keeps the core memory dependency deployment-independent", () => {
     expectTypeOf<CoreRuntimeDependencies["memoryStore"]>().toEqualTypeOf<MemoryRepository>();
+  });
+
+  it("exposes narrow persistence ports for shared runtime services", () => {
+    expectTypeOf<CoreRuntimeDependencies["delegationStore"]>().toEqualTypeOf<AgentDelegationStorePort>();
+    expectTypeOf<CoreRuntimeDependencies["metricsStore"]>().toEqualTypeOf<AgentMetricsStorePort>();
+    expectTypeOf<CoreRuntimeDependencies["permissionPolicyStore"]>().toEqualTypeOf<PermissionPolicyStorePort>();
+    expectTypeOf<CoreRuntimeDependencies["compressionHistory"]>().toEqualTypeOf<CompressionHistoryStorePort | null>();
+    expectTypeOf<ConstructorParameters<typeof AgentDelegationService>[0]>().toEqualTypeOf<AgentDelegationStorePort>();
+    expectTypeOf<ConstructorParameters<typeof AgentMetricsCollector>[0]>().toEqualTypeOf<AgentMetricsStorePort>();
+    expectTypeOf<ConstructorParameters<typeof PermissionPolicyService>[0]>().toEqualTypeOf<PermissionPolicyStorePort>();
+    expectTypeOf<ConstructorParameters<typeof AgentCompressionService>[0]>().toEqualTypeOf<CompressionHistoryStorePort | null>();
   });
 
   it("local entrypoint creates the runtime contract", () => {

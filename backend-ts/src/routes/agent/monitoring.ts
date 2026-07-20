@@ -53,7 +53,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const query = request.query as { agent_name?: string };
     const agentName = query.agent_name?.trim() || null;
     return ok({
-      ...request.container.metricsCollector.getSystemMetrics(agentName),
+      ...await request.container.metricsCollector.getSystemMetrics(agentName),
       scope: "node",
     }, "获取节点指标成功");
   });
@@ -61,7 +61,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
   app.post("/metrics/reset", async (request) => {
     const body = isRecord(request.body) ? request.body : {};
     const agentName = typeof body.agent_name === "string" && body.agent_name.trim() ? body.agent_name.trim() : null;
-    const result = request.container.metricsCollector.reset(agentName);
+    const result = await request.container.metricsCollector.reset(agentName);
     return ok(result, `已重置${agentName ? `智能体 ${agentName}` : "所有"}指标`);
   });
 

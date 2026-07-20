@@ -1,6 +1,6 @@
 import { asString } from "../../utils/guards.js";
 import type { PermissionMode, PermissionPolicy, RiskLevel } from "../../contracts/runtime/permissions.js";
-import type { ISessionStore } from "../../contracts/conversation-store/index.js";
+import type { PermissionPolicyStorePort } from "../../contracts/runtime/core-runtime-ports.js";
 
 export interface RuntimeToolApprovalInput {
   toolName: string;
@@ -29,12 +29,20 @@ export interface RuntimeToolApprovalDecision {
 }
 
 export class PermissionPolicyService {
-  constructor(private readonly conversationStore: Pick<ISessionStore, "getSession">) {}
+  constructor(private readonly store: PermissionPolicyStorePort) {}
+
+  /** Refresh the synchronous policy snapshot before starting a run. */
+  async prepareSession(sessionId?: string | null | undefined): Promise<void> {
+    const normalizedSessionId = normalizeSessionId(sessionId);
+    if (normalizedSessionId && this.store.prepareSession) {
+      await this.store.prepareSession(normalizedSessionId);
+    }
+  }
 
   getEffectivePolicy(sessionId?: string | null | undefined): PermissionPolicy {
     const normalizedSessionId = normalizeSessionId(sessionId);
     const mode = normalizedSessionId
-      ? this.conversationStore.getSession(normalizedSessionId)?.permission_mode ?? "standard"
+      ? this.store.getSession(normalizedSessionId)?.permission_mode ?? "standard"
       : "standard";
     return {
       mode,

@@ -45,4 +45,22 @@ describe("PostgresAnalyticsRepository", () => {
     expect(query.mock.calls[0]?.[1]?.[1]).toBe("tenant-b");
     expect(query.mock.calls[0]?.[1]?.[12]).toBe('{"search":1}');
   });
+
+  it("aggregates and resets metrics within one tenant", async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [
+        { agent_name: "agent-a", status: "completed", duration_ms: 10, token_in: 2, token_out: 3, tool_usage: { search: 1 }, error_type: null, started_at: "2026-01-01T00:00:00.000Z" },
+        { agent_name: "agent-a", status: "failed", duration_ms: 20, token_in: 4, token_out: 1, tool_usage: { search: 2 }, error_type: "timeout", started_at: "2026-01-01T00:01:00.000Z" },
+      ] })
+      .mockResolvedValueOnce({ rows: [], rowCount: 2 });
+    const repository = new PostgresAnalyticsRepository({ query } as never);
+    await expect(repository.aggregateMetrics("tenant-a")).resolves.toEqual([{
+      agent_name: "agent-a", total_calls: 2, success_count: 1, failure_count: 1, success_rate: 0.5,
+      avg_duration_ms: 15, avg_tokens: 5, first_call: "2026-01-01T00:00:00.000Z", last_call: "2026-01-01T00:01:00.000Z",
+      tool_usage: { search: 3 }, error_distribution: { timeout: 1 },
+    }]);
+    await expect(repository.resetMetrics("tenant-a")).resolves.toEqual({ deleted: 2 });
+    expect(query.mock.calls[0]?.[1]).toEqual(["tenant-a"]);
+    expect(query.mock.calls[1]?.[1]).toEqual(["tenant-a"]);
+  });
 });

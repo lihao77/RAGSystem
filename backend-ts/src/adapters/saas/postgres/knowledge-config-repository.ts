@@ -1,0 +1,58 @@
+import type { AsyncKnowledgeConfigStore } from "../../../contracts/knowledge/async-knowledge-config.js";
+import type { CreateVectorizerInput, StoredVectorizer } from "../../../contracts/vector-store/knowledge-config.js";
+import type { PostgresMemoryExecutor } from "./memory-repository.js";
+
+function map(row: Record<string, unknown>): StoredVectorizer {
+  return {
+    model_id: Number(row.model_id), vectorizer_key: String(row.vectorizer_key), provider_key: String(row.provider_key),
+    provider_type: row.provider_type == null ? null : String(row.provider_type), model_name: String(row.model_name),
+    distance_metric: String(row.distance_metric), created_at: new Date(String(row.created_at)).toISOString(),
+    vector_dimension: row.vector_dimension == null ? null : Number(row.vector_dimension), is_active: Boolean(row.is_active),
+  };
+}
+
+export class PostgresKnowledgeConfigRepository implements AsyncKnowledgeConfigStore {
+  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  async listVectorizers(tenantId: string): Promise<StoredVectorizer[]> {
+    const result = await this.executor.query("SELECT * FROM knowledge_vectorizers WHERE tenant_id=$1 ORDER BY model_id", [tenantId]);
+    return result.rows.map(map);
+  }
+  async getVectorizerByKey(tenantId: string, key: string): Promise<StoredVectorizer | null> {
+    const result = await this.executor.query("SELECT * FROM knowledge_vectorizers WHERE tenant_id=$1 AND vectorizer_key=$2", [tenantId, key]);
+    return result.rows[0] ? map(result.rows[0]) : null;
+  }
+  async createVectorizer(tenantId: string, input: CreateVectorizerInput): Promise<StoredVectorizer> {
+    const result = await this.executor.query(
+      `INSERT INTO knowledge_vectorizers(tenant_id,vectorizer_key,provider_key,provider_type,model_name,distance_metric,is_active)
+       VALUES($1,$2,$3,$4,$5,$6,NOT EXISTS(SELECT 1 FROM knowledge_vectorizers WHERE tenant_id=$1)) RETURNING *`,
+      [tenantId, input.vectorizer_key, input.provider_key, input.provider_type, input.model_name, input.distance_metric],
+    );
+    if (!result.rows[0]) throw new Error("knowledge vectorizer insert returned no row");
+    return map(result.rows[0]);
+  }
+  async setVectorDimension(tenantId: string, key: string, dimension: number): Promise<void> {
+    if (!Number.isSafeInteger(dimension) || dimension <= 0) throw new Error("vector dimension must be a positive integer");
+    const result = await this.executor.query(
+      "UPDATE knowledge_vectorizers SET vector_dimension=$3 WHERE tenant_id=$1 AND vectorizer_key=$2 AND (vector_dimension IS NULL OR vector_dimension=$3)",
+      [tenantId, key, dimension],
+    );
+    if (!result.rowCount) throw new Error(`vectorizer dimension mismatch or vectorizer not found: ${key}`);
+  }
+  async activateVectorizer(tenantId: string, key: string): Promise<void> {
+    await this.executor.transaction(async (tx) => {
+      const found = await tx.query("SELECT model_id FROM knowledge_vectorizers WHERE tenant_id=$1 AND vectorizer_key=$2", [tenantId, key]);
+      if (!found.rows[0]) throw new Error(`vectorizer not found: ${key}`);
+      await tx.query("UPDATE knowledge_vectorizers SET is_active=FALSE WHERE tenant_id=$1", [tenantId]);
+      await tx.query("UPDATE knowledge_vectorizers SET is_active=TRUE WHERE tenant_id=$1 AND vectorizer_key=$2", [tenantId, key]);
+    });
+  }
+  async deleteVectorizer(tenantId: string, key: string): Promise<{ next_active_key: string | null }> {
+    return this.executor.transaction(async (tx) => {
+      const deleted = await tx.query<{ is_active: boolean }>("DELETE FROM knowledge_vectorizers WHERE tenant_id=$1 AND vectorizer_key=$2 RETURNING is_active", [tenantId, key]);
+      if (!deleted.rows[0]) throw new Error(`vectorizer not found: ${key}`);
+      if (deleted.rows[0].is_active) await tx.query("UPDATE knowledge_vectorizers SET is_active=TRUE WHERE model_id=(SELECT model_id FROM knowledge_vectorizers WHERE tenant_id=$1 ORDER BY model_id LIMIT 1)", [tenantId]);
+      const active = await tx.query<{ vectorizer_key: string }>("SELECT vectorizer_key FROM knowledge_vectorizers WHERE tenant_id=$1 AND is_active", [tenantId]);
+      return { next_active_key: active.rows[0]?.vectorizer_key ?? null };
+    });
+  }
+}

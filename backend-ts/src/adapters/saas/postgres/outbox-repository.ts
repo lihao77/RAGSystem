@@ -56,7 +56,41 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
     const now = input.now ?? new Date();
     const stale = new Date(now.getTime() - Math.max(0, input.lockTimeoutMs ?? 60_000));
     return this.executor.transaction(async (tx) => {
-      const claimed = await tx.query(`WITH picked AS (SELECT id FROM event_outbox WHERE status IN ('pending','retrying') AND available_at <= $1 AND (locked_at IS NULL OR locked_at <= $2) ORDER BY id FOR UPDATE SKIP LOCKED LIMIT $3) UPDATE event_outbox e SET locked_at=$1 FROM picked WHERE e.id=picked.id RETURNING ${SELECT}`, [now.toISOString(), stale.toISOString(), limit]);
+      const params: unknown[] = [now.toISOString(), stale.toISOString()];
+      const tenantFilter = input.tenantId ? ` AND tenant_id=$${params.push(input.tenantId)}` : "";
+      const limitParam = params.push(limit);
+      const claimed = await tx.query(`WITH picked AS (SELECT id FROM event_outbox WHERE status IN ('pending','retrying') AND available_at <= $1 AND (locked_at IS NULL OR locked_at <= $2)${tenantFilter} ORDER BY id FOR UPDATE SKIP LOCKED LIMIT $${limitParam}) UPDATE event_outbox e SET locked_at=$1 FROM picked WHERE e.id=picked.id RETURNING ${SELECT}`, params);
+      return claimed.rows.map(row);
+    });
+  }
+
+  async claimOutboxRows(input: {
+    ids: readonly number[];
+    tenantId?: string;
+    lockTimeoutMs?: number;
+    now?: Date;
+  }): Promise<OutboxRow[]> {
+    const ids = [...new Set(input.ids.filter((id) => Number.isSafeInteger(id) && id > 0))];
+    if (ids.length === 0) return [];
+    const now = input.now ?? new Date();
+    const stale = new Date(now.getTime() - Math.max(0, input.lockTimeoutMs ?? 60_000));
+    return this.executor.transaction(async (tx) => {
+      const params: unknown[] = [ids, now.toISOString(), stale.toISOString()];
+      const tenantFilter = input.tenantId ? ` AND tenant_id=$${params.push(input.tenantId)}` : "";
+      const claimed = await tx.query(
+        `WITH picked AS (
+          SELECT id FROM event_outbox
+          WHERE id=ANY($1::bigint[])
+            AND status IN ('pending','retrying')
+            AND available_at <= $2
+            AND (locked_at IS NULL OR locked_at <= $3)${tenantFilter}
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE event_outbox e SET locked_at=$2
+        FROM picked WHERE e.id=picked.id
+        RETURNING ${SELECT}`,
+        params,
+      );
       return claimed.rows.map(row);
     });
   }

@@ -214,6 +214,18 @@ export class AgentSessionApplication {
     return message;
   }
 
+  getLastRunRound(sessionId: string, runId: string): number {
+    return this.conversationStore.listRunSteps({ sessionId, runId, limit: 1000 })
+      .reduce((max, step) => {
+        if (step.step_type !== EXECUTION_ENVELOPE_STEP_TYPE) return max;
+        const payload = step.payload.payload;
+        const round = payload && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>).round
+          : undefined;
+        return typeof round === "number" && round > max ? round : max;
+      }, 0);
+  }
+
   updateUserMessage(input: { sessionId: string; messageId: string; content: string }): boolean {
     return this.conversationStore.updateMessage({
       messageId: input.messageId,

@@ -9,9 +9,9 @@ import type { SearchVectorsRequest } from "../../../contracts/knowledge/knowledg
 export class PostgresKnowledgeQueryAdapter implements KnowledgeQueryPort {
   private readonly knowledge: KnowledgeQueryPort;
 
-  constructor(knowledge: KnowledgeQueryPort | string, baseKnowledge?: { withAsyncVectorStore: (vectors: unknown, tenantId: string) => KnowledgeQueryPort }, vectors?: unknown) {
+  constructor(knowledge: KnowledgeQueryPort | string, legacyBase?: { withAsyncVectorStore: (vectors: unknown, tenantId: string) => KnowledgeQueryPort }, legacyVectors?: unknown) {
     this.knowledge = typeof knowledge === "string"
-      ? baseKnowledge!.withAsyncVectorStore(vectors, knowledge)
+      ? legacyBase!.withAsyncVectorStore(legacyVectors, knowledge)
       : knowledge;
   }
 

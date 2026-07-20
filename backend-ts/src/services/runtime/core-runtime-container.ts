@@ -8,6 +8,7 @@ import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
 import type { CoreRuntimeDependencies, RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import { RuntimeInteractionCoordinator } from "./pending-interaction-service.js";
+import { PermissionPolicyService } from "./permission-policy-service.js";
 
 /** Assemble deployment-provided services into the shared agent runtime. */
 export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepository>(
@@ -19,15 +20,19 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     dataRoot,
     memoryConfig,
     conversationStore,
+    delegationStore,
+    metricsStore,
+    permissionPolicyStore,
+    compressionHistory,
     sessionApplication,
     realtimeEvents,
-    permissionPolicy,
     agentConfig,
     modelAdapter,
     systemConfig,
     mcp,
     fileHistory,
     fileIndex,
+    asyncSessionFiles,
     knowledgeBase,
     knowledge,
     artifacts,
@@ -59,7 +64,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
   const selectedPendingInteractions = interactionCoordinator;
 
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
-  const agentDelegation = new AgentDelegationService(conversationStore, runtimeCore, eventClientEvents);
+  const agentDelegation = new AgentDelegationService(delegationStore, runtimeCore, eventClientEvents);
   const toolsDeps = {
     memoryTools: memoryBindings.tools,
     pendingInteractions: selectedPendingInteractions,
@@ -74,7 +79,8 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     getAgentDelegation: () => agentDelegation,
     agentConfig,
   };
-  const metricsCollector = new AgentMetricsCollector(conversationStore);
+  const metricsCollector = new AgentMetricsCollector(metricsStore);
+  const permissionPolicy = new PermissionPolicyService(permissionPolicyStore);
   const agentExecution = createAgentExecutionService({
     tenantId,
     sessions: sessionApplication,
@@ -92,6 +98,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     backgroundTasks,
     notificationQueue,
     fileIndex,
+    ...(asyncSessionFiles ? { asyncSessionFiles } : {}),
     outboxDispatcher,
     clientEvents,
     eventClientEvents,
@@ -103,7 +110,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     metricsCollector,
     ...(dependencies.asyncAnalytics ? { asyncAnalytics: dependencies.asyncAnalytics } : {}),
     compressionService: new AgentCompressionService(
-      conversationStore,
+      compressionHistory,
       () => modelAdapter.listProviders(),
       systemConfig,
       undefined,

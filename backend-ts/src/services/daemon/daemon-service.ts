@@ -430,12 +430,15 @@ export class DaemonService {
       let rootRunId = "";
       const callbacks = {
         onCompleted: (result: { content: string; success: boolean }) => {
-          const metadata = lease.runtime.conversationStore.getSession(sessionId)?.metadata ?? {};
-          const chatId = resolveBotChatId(state.config, metadata);
-          releaseLease();
-          if (!chatId) return;
-          const content = result.success ? result.content : `Agent 恢复执行失败：${result.content}`;
-          void this.sendFeishuMessage(state, chatId, "chat_id", content).catch((error: unknown) => {
+          void (async () => {
+            const metadata = (await lease.runtime.sessionApplication.getSession(sessionId))?.metadata ?? {};
+            const chatId = resolveBotChatId(state.config, metadata);
+            releaseLease();
+            if (!chatId) return;
+            const content = result.success ? result.content : `Agent 恢复执行失败：${result.content}`;
+            await this.sendFeishuMessage(state, chatId, "chat_id", content);
+          })().catch((error: unknown) => {
+            releaseLease();
             console.error(`[daemon][feishu][${state.botId}] 恢复结果发送失败`, error);
           });
         },
@@ -443,7 +446,7 @@ export class DaemonService {
           void (async () => {
             const nextRootRunId = lease.runtime.interactionCoordinator.peekApprovalMeta(nextApprovalId, sessionId)?.rootRunId ?? rootRunId;
             const next = await lease.runtime.interactionCoordinator.listPendingAsync(nextRootRunId, sessionId);
-            const metadata = lease.runtime.conversationStore.getSession(sessionId)?.metadata ?? {};
+            const metadata = (await lease.runtime.sessionApplication.getSession(sessionId))?.metadata ?? {};
             releaseLease();
             if (next.length === 0) return;
             await this.sendSuspendedCards(

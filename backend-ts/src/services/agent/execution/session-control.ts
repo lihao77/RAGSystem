@@ -23,7 +23,7 @@ export interface SessionControlApi {
 export interface SessionControlDeps {
   statusTracker: AgentExecutionStatusTracker;
   eventPublisher: AgentExecutionEventPublisher;
-  conversationStore: IRunStore;
+  conversationStore?: IRunStore;
   pendingInteractions: PendingInteractionPort;
   runtimeStorage?: RuntimeStorage;
   asyncSuspendedSessionControl?: SuspendedSessionControlPort;
@@ -66,6 +66,9 @@ export function createSessionControl(deps: SessionControlDeps): SessionControlAp
           deps.pendingInteractions.cancelSession(sessionId, "suspended run cancelled", { persist: false });
           await deps.asyncClientEvents?.deliver(result.records.map((record) => record.outbox));
           return result.interruptedRuns.length > 0 || result.cancelledInteractions > 0;
+        }
+        if (!deps.conversationStore) {
+          throw new Error("Session control requires RuntimeStorage for non-local runtimes");
         }
         const suspendedRuns = deps.conversationStore.listRuns(sessionId, 1000).items
           .filter((run) => run.status === "suspended");

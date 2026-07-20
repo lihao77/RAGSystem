@@ -11,8 +11,11 @@ import {
   PostgresPendingInteractionRepository,
   PostgresProviderMcpRepository,
   PostgresRunRepository,
+  TenantBoundPostgresAgentDelegationStore,
   runPostgresConversationMigrations,
+  runPostgresChildAgentMigrations,
   runPostgresKnowledgeFileMigrations,
+  runPostgresKnowledgeConfigMigrations,
   runPostgresOutboxMigrations,
   runPostgresPendingInteractionMigrations,
   runPostgresArtifactMigrations,
@@ -44,10 +47,12 @@ import type { AsyncSessionFileStorage } from "../../../contracts/session/session
 import { SaaSWorkspaceBlobStorage } from "../../../adapters/saas/object-storage/workspace-blob-storage.js";
 import type { WorkspaceBlobStorage } from "../../../contracts/storage/workspace-blob-storage.js";
 import type { KnowledgeQueryPort } from "../../../contracts/knowledge/query-port.js";
-import type { KnowledgeBaseService } from "../../../services/knowledge/knowledge-base-service.js";
 import { PostgresKnowledgeQueryAdapter } from "../../../adapters/saas/postgres/knowledge-query-adapter.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { TenantId } from "../../../identity/types.js";
+import { PostgresKnowledgeConfigRepository } from "../../../adapters/saas/postgres/knowledge-config-repository.js";
+import { SaaSKnowledgeService } from "../application/knowledge/saas-knowledge-service.js";
+import type { ModelAdapterService } from "../../../services/integrations/model-adapter-service.js";
 
 export interface SaaSConversationRuntimeOptions {
   connectionString: string;
@@ -61,6 +66,8 @@ export interface SaaSConversationRuntimeOptions {
 /** Shared PostgreSQL lifecycle for the async SaaS conversation/run repositories. */
 export interface SaaSConversationRuntimeHandle {
   conversation: PostgresConversationRepository;
+  /** Tenant-bound async child-agent/delegation persistence. */
+  createDelegationStore(tenantId: TenantId): TenantBoundPostgresAgentDelegationStore;
   runs: PostgresRunRepository;
   outbox: PostgresOutboxRepository;
   providerContinuations: PostgresProviderContinuationRepository;
@@ -75,7 +82,9 @@ export interface SaaSConversationRuntimeHandle {
   /** Tenant-scoped vector data-plane backed by PostgreSQL pgvector. */
   vectorStore: PostgresPgVectorRepository;
   /** Tenant-bound Agent knowledge query port backed by PostgreSQL pgvector. */
-  createKnowledgeQuery(tenantId: string, baseKnowledge: KnowledgeBaseService): KnowledgeQueryPort;
+  knowledgeConfig: PostgresKnowledgeConfigRepository;
+  createKnowledgeService(tenantId: string, modelAdapter: ModelAdapterService): SaaSKnowledgeService;
+  createKnowledgeQuery(tenantId: string, modelAdapter: ModelAdapterService): KnowledgeQueryPort;
   providerMcp: PostgresProviderMcpRepository;
   providerMcpApplication: SaaSProviderMcpApplication;
   backgroundTasks: PostgresBackgroundTaskRepository;
@@ -100,8 +109,10 @@ export async function createSaaSConversationRuntime(
     if (options.runMigrations !== false) {
       await runPostgresConversationMigrations(executor);
       await runPostgresRunMigrations(executor);
+      await runPostgresChildAgentMigrations(executor);
       await runPostgresOutboxMigrations(executor);
       await runPostgresKnowledgeFileMigrations(executor);
+      await runPostgresKnowledgeConfigMigrations(executor);
       await runPostgresPendingInteractionMigrations(executor);
       await runPostgresArtifactMigrations(executor);
       await runPostgresProviderMcpMigrations(executor);
@@ -122,6 +133,7 @@ export async function createSaaSConversationRuntime(
     const providerMcp = new PostgresProviderMcpRepository(executor, options.secretResolver);
     const vectorIndex = new PostgresKnowledgeVectorIndexRepository(executor);
     const vectorStore = new PostgresPgVectorRepository(executor);
+    const knowledgeConfig = new PostgresKnowledgeConfigRepository(executor);
     const backgroundTasks = new PostgresBackgroundTaskRepository(executor);
     const analytics = new PostgresAnalyticsRepository(executor);
     const fileHistory = new PostgresFileHistoryMetadataRepository(executor);
@@ -130,6 +142,12 @@ export async function createSaaSConversationRuntime(
     const providerMcpApplication = new SaaSProviderMcpApplication(providerMcp);
     return {
       conversation,
+      createDelegationStore: (tenantId) => new TenantBoundPostgresAgentDelegationStore(
+        tenantId,
+        executor,
+        conversation,
+        runs,
+      ),
       runs,
       outbox,
       providerContinuations,
@@ -148,9 +166,9 @@ export async function createSaaSConversationRuntime(
       providerMcpApplication,
       vectorIndex,
       vectorStore,
-      createKnowledgeQuery: (tenantId, baseKnowledge) => new PostgresKnowledgeQueryAdapter(
-        baseKnowledge.withAsyncVectorStore(vectorStore, tenantId) as unknown as KnowledgeQueryPort,
-      ),
+      knowledgeConfig,
+      createKnowledgeService: (tenantId, modelAdapter) => new SaaSKnowledgeService(tenantId, modelAdapter, knowledgeConfig, vectorStore),
+      createKnowledgeQuery: (tenantId, modelAdapter) => new PostgresKnowledgeQueryAdapter(new SaaSKnowledgeService(tenantId, modelAdapter, knowledgeConfig, vectorStore)),
       backgroundTasks,
       analytics,
       fileHistory,

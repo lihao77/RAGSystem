@@ -186,6 +186,7 @@ export const AppendOutboxInputSchema = z.object({
 export type AppendOutboxInput = z.infer<typeof AppendOutboxInputSchema>;
 
 export const ClaimOutboxInputSchema = z.object({
+  tenantId: z.string().optional(),
   limit: z.number().optional(),
   lockTimeoutMs: z.number().optional(),
   now: z.date().optional(),

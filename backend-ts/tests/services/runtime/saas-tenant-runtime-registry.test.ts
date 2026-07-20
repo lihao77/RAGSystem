@@ -56,7 +56,6 @@ describe("SaaSTenantRuntimeRegistry", () => {
     expect(createRuntime).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: "tnt_saas",
       dataRoot: expect.stringMatching(/runtime-tenants[\\/]tnt_saas$/),
-      dbPath: expect.stringMatching(/runtime-tenants[\\/]tnt_saas[\\/]db[\\/]ragsystem\.db$/),
       conversationRuntime,
       memoryRuntime,
     }));
@@ -86,6 +85,8 @@ describe("SaaSTenantRuntimeRegistry", () => {
       { tenantsRoot: "D:/runtime-tenants" } as never,
       { get: vi.fn(async () => ({ id: "tnt_saas", status: "active" })) } as never,
       { conversation: {} } as SaaSConversationRuntimeHandle,
+      undefined,
+      { memoryRuntime: {} as SaaSMemoryRuntimeHandle },
     );
     registries.push(registry);
 
