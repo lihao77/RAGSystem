@@ -11,6 +11,9 @@ describe("PostgresRunRepository tenant isolation", () => {
     expect(sql).toContain("ON saas_run_steps(tenant_id, session_id, message_id)");
     expect(POSTGRES_RUN_MIGRATIONS[1]).toMatchObject({ version: 2, name: "tenant-scoped-run-state-rebuild" });
     expect(POSTGRES_RUN_MIGRATIONS[1]?.sql).toContain("DROP TABLE IF EXISTS saas_runs");
+    expect(POSTGRES_RUN_MIGRATIONS[2]).toMatchObject({ version: 3, name: "remove-duplicate-saas-boundary-messages" });
+    expect(POSTGRES_RUN_MIGRATIONS[2]?.sql).toContain("SET final_message_id = canonical.id");
+    expect(POSTGRES_RUN_MIGRATIONS[2]?.sql).toContain("DELETE FROM conversation_messages AS boundary");
   });
 
   it("includes tenant_id in every run and step operation", async () => {

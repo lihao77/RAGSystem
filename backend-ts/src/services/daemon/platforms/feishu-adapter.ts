@@ -11,6 +11,8 @@ export interface FeishuMessageEvent {
     message_id?: string;
   };
   sender?: {
+    /** 飞书会把机器人自己发出的消息也作为事件推送；这类事件不能再次触发 Agent。 */
+    sender_type?: string;
     sender_id?: {
       open_id?: string;
       union_id?: string;

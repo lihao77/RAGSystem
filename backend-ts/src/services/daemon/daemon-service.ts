@@ -376,6 +376,10 @@ export class DaemonService {
 
   private onFeishuMessage(state: BotRuntimeState, input: unknown): void {
     const data = input as FeishuMessageEvent;
+    // 忽略机器人自身发出的消息事件，避免回复被再次当成用户输入，
+    // 导致同一条飞书消息在前端出现多条 Agent 回复甚至形成回环。
+    const senderType = data.sender?.sender_type?.trim().toUpperCase();
+    if (senderType === "ASSISTANT" || senderType === "BOT") return;
     const messageId = data.message?.message_id;
     if (messageId) {
       const now = Date.now();

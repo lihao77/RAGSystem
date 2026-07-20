@@ -1,5 +1,5 @@
 import type { PaginatedResult } from "../../../../contracts/common.js";
-import type { AsyncConversationRepository, AsyncRunStore } from "../../../../contracts/storage/async-persistence-ports.js";
+import type { AsyncConversationRepository, AsyncRunStore, ExecutionReplayRepositoryPort } from "../../../../contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "../../../../identity/types.js";
 import type { PermissionMode } from "../../../../contracts/runtime/permissions.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../../../../contracts/session/session.js";
@@ -9,6 +9,7 @@ import type { AsyncFileHistoryStore } from "../../../../contracts/file-history-s
 import type { RunInfo } from "../../../../contracts/conversation-store/index.js";
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../../../services/runtime/event-outbox/execution-envelope-archive.js";
+import { EnvelopeProjector } from "../../../../services/runtime/event-outbox/projector.js";
 
 export class SaaSSessionApplication {
   constructor(
@@ -16,6 +17,7 @@ export class SaaSSessionApplication {
     private readonly repository: AsyncConversationRepository,
     private readonly fileHistory: AsyncFileHistoryStore | null = null,
     private readonly runs: AsyncRunStore | null = null,
+    private readonly outbox: ExecutionReplayRepositoryPort | null = null,
   ) {}
   async createSession(input: { sessionId: string; userId: string; metadata?: Record<string, unknown>; permissionMode?: PermissionMode | null }) {
     assertSafeSessionId(input.sessionId);
@@ -78,6 +80,7 @@ export class SaaSSessionApplication {
     const limit = input.limit ?? 500;
     const offset = input.offset ?? 0;
     const rootRunId = message.metadata.run_id ? String(message.metadata.run_id) : null;
+    let runIds: string[] = [];
     let steps;
     if (!rootRunId) {
       steps = await this.runs.listRunSteps({
@@ -88,18 +91,21 @@ export class SaaSSessionApplication {
       });
     } else {
       const allRuns = (await this.runs.listRuns(this.tenantId, input.sessionId, 1000)).items;
-      const runIds = collectRunTreeRunIds(allRuns, rootRunId);
-      const groups = await Promise.all(runIds.map((runId) => this.runs!.listRunSteps({
+      runIds = collectRunTreeRunIds(allRuns, rootRunId);
+      steps = (await Promise.all(runIds.map((runId) => this.runs!.listRunSteps({
         tenantId: this.tenantId,
         runId,
         sessionId: input.sessionId,
         limit: limit + offset,
-      })));
-      steps = groups.flat();
+      })))).flat();
     }
-    const envelopes = steps
+    const archivedEnvelopes = steps
       .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
       .map((step) => EnvelopeSchema.parse(step.payload) as Envelope);
+    const durableEnvelopes = this.outbox && rootRunId
+      ? await this.collectRunTreeOutboxEnvelopes(input.sessionId, runIds, limit + offset)
+      : [];
+    const envelopes = mergeExecutionEnvelopes(archivedEnvelopes, durableEnvelopes);
     return {
       message_id: input.messageId,
       items: envelopes.slice(offset, offset + limit),
@@ -108,6 +114,20 @@ export class SaaSSessionApplication {
       offset,
       has_more: offset + limit < envelopes.length,
     };
+  }
+
+  private async collectRunTreeOutboxEnvelopes(sessionId: string, runIds: string[], limit: number): Promise<Envelope[]> {
+    if (!this.outbox) return [];
+    const rows = await this.outbox.listOutboxForReplay({
+      tenantId: this.tenantId,
+      sessionId,
+      runIds,
+      limit: Math.max(1, Math.min(500, limit)),
+    });
+    const projector = new EnvelopeProjector();
+    return rows
+      .map((row) => projector.toEnvelope(row))
+      .filter((event) => EXECUTION_ENVELOPE_TYPES.has(event.type));
   }
   async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> { if (!(await this.getSession(input.sessionId))) return false; return this.repository.updateMessage({ sessionId: input.sessionId, messageId: input.messageId, content: input.content, roleFilter: "user" }); }
   async rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number> {
@@ -152,4 +172,26 @@ function collectRunTreeRunIds(allRuns: RunInfo[], rootRunId: string): string[] {
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
     .map((run) => run.run_id);
   return [rootRunId, ...descendants];
+}
+
+const EXECUTION_ENVELOPE_TYPES = new Set<Envelope["type"]>([
+  "agent_started",
+  "agent_ended",
+  "stream_output",
+  "tool_call",
+  "tool_result",
+]);
+
+function mergeExecutionEnvelopes(archived: Envelope[], durable: Envelope[]): Envelope[] {
+  const merged: Envelope[] = [];
+  const seen = new Set<string>();
+  for (const event of [...archived, ...durable]) {
+    const key = typeof event.message_id === "string"
+      ? event.message_id
+      : JSON.stringify([event.type, event.run_id ?? null, event.call_id ?? null, event.agent_id ?? null, event.payload ?? null]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(event);
+  }
+  return merged;
 }

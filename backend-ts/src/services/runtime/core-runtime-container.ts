@@ -6,6 +6,7 @@ import { createResumeExecutor } from "../agent/execution/resume-executor.js";
 import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
 import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
 import type { CoreRuntimeDependencies, RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
+import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 
 /** Assemble deployment-provided services into the shared agent runtime. */
 export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepository>(
@@ -48,8 +49,11 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     clientEvents,
   } = dependencies;
 
+  // SaaS 的用户可见事件必须进入 PostgreSQL durable outbox；Local 继续使用 SQLite outbox。
+  const eventClientEvents: ClientEventPublisher = dependencies.asyncClientEvents ?? clientEvents;
+
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
-  const agentDelegation = new AgentDelegationService(conversationStore, runtimeCore, clientEvents);
+  const agentDelegation = new AgentDelegationService(conversationStore, runtimeCore, eventClientEvents);
   const toolsDeps = {
     memoryTools: memoryBindings.tools,
     pendingInteractions,
@@ -84,6 +88,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     fileIndex,
     outboxDispatcher,
     clientEvents,
+    eventClientEvents,
     permissionPolicy,
     pendingInteractions,
     hostToolRegistry,

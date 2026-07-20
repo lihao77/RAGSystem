@@ -56,6 +56,8 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
   }
   const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
+  // SaaS 运行时通过 asyncClientEvents 将用户可见事件写入 PostgreSQL；Local 保持 SQLite 通道。
+  const eventClientEvents = asyncClientEvents ?? clientEvents;
   const permissionPolicy = new PermissionPolicyService(conversationStore);
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
@@ -125,7 +127,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     agentConfig,
     artifacts,
     backgroundTasks,
-    clientEvents,
+    clientEvents: eventClientEvents,
   });
   agentConfig.setSkillToolService(skillTools);
   const skillLibrary = new SkillLibraryService(skillTools);
@@ -136,10 +138,10 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     maxTimeoutSeconds: toolsConfig.bash_max_timeout,
     maxOutputChars: toolsConfig.bash_max_output,
     backgroundTasks,
-    clientEvents,
+    clientEvents: eventClientEvents,
   }) : null;
   const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot: options.dataRoot });
-  const pendingInteractions = new PendingInteractionService(clientEvents, conversationStore);
+  const pendingInteractions = new PendingInteractionService(eventClientEvents, conversationStore);
   const asyncSuspendedSessionControl = options.asyncSuspendedSessionControlFactory?.(options.tenantId);
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();

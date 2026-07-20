@@ -163,6 +163,22 @@ describe("bot 自动化执行引擎", () => {
     await vi.waitFor(() => expect(feishuMock.sent).toEqual([{ chatId: "ou_user", receiveIdType: "open_id", content: "reply" }]));
   });
 
+  it("忽略飞书机器人自身发出的消息事件", async () => {
+    const harness = await createEngineHarness(vi.fn(async () => completed("reply")));
+    configureFeishu(harness.controlStore, harness.botId, "webhook");
+    await harness.engine.reloadBot(harness.botId);
+    const token = harness.controlStore.getBotRuntimeConfig(harness.botId)!.feishu.route_token!;
+
+    await harness.engine.handleIncomingMessage(token, {
+      ...feishuMessage("om_bot_echo"),
+      sender: { sender_type: "ASSISTANT", sender_id: { open_id: "ou_bot" } },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(feishuMock.sent).toEqual([]);
+    harness.close();
+  });
+
   it("app runAgentTask 将 suspended 作为第三态返回并由 daemon 发卡片", async () => {
     const harness = await buildTestHarness();
     app = harness.app;

@@ -17,6 +17,7 @@ import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
+import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
@@ -91,6 +92,8 @@ export interface AgentExecutionServiceParams {
   fileIndex?: IFileIndexStore | null;
   outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
  clientEvents: DurableClientEventPublisher;
+  /** 用户可见执行事件的持久化通道；SaaS 使用异步 PostgreSQL outbox。 */
+  eventClientEvents?: ClientEventPublisher;
  /** 已加载的 provider 列表提供者（SDK 投影层解析 tier.provider 引用用）。 */
  providersProvider: () => ModelProviderConfig[];
  /** 权限策略服务（SDK 审批编排判定用）。 */
@@ -129,7 +132,7 @@ export function createAgentExecutionService(
     throw new Error("AgentExecutionService requires an outbox dispatcher");
   }
   const statusTracker = new AgentExecutionStatusTracker();
-  const eventPublisher = new AgentExecutionEventPublisher(params.clientEvents);
+  const eventPublisher = new AgentExecutionEventPublisher(params.eventClientEvents ?? params.clientEvents);
   const attachmentResolver = new AttachmentResolver(params.fileIndex ?? null);
   const notificationQueue = params.notificationQueue ?? new SessionNotificationQueue();
   const storage = params.executionStorage;

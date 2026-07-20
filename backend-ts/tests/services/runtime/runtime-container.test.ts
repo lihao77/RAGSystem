@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import type { MemoryRepository } from "../../../src/contracts/memory-store/index.js";
 import type { MemoryToolOperations } from "../../../src/tools/MemoryTools/MemoryExecution.js";
@@ -91,6 +91,34 @@ describe("runtime composition roots", () => {
       expect(runtime.documentTools).toBeNull();
       expect(runtime.codeExecutionTools).toBeNull();
       expect(runtime.searchTools).toBeNull();
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it("routes SaaS execution events through the deployment-provided durable publisher", async () => {
+    const dataRoot = makeTempRoot();
+    const publish = vi.fn().mockResolvedValue({});
+    const runtime = createLocalRuntimeContainer({
+      tenantId: createTenantId("tnt_runtime_durable_events"),
+      dbPath: ":memory:",
+      dataRoot,
+      startOutboxDispatcher: false,
+      hostToolsEnabled: false,
+      asyncClientEventsFactory: () => ({ publish } as never),
+    });
+    try {
+      const eventPublisher = (runtime.agentExecution as typeof runtime.agentExecution & {
+        eventPublisher: { publishRunStarted(sessionId: string, runId: string, payload: Record<string, string>): void };
+      }).eventPublisher;
+      eventPublisher.publishRunStarted("session-1", "run-1", { source: "daemon.feishu.incoming" });
+
+      await vi.waitFor(() => expect(publish).toHaveBeenCalledWith(
+        "session-1",
+        expect.objectContaining({ type: "run_started", run_id: "run-1" }),
+        { runId: "run-1", aggregateType: "run", aggregateId: "run-1" },
+      ));
+      expect(runtime.conversationStore.listOutbox({ limit: 10 }).items).toEqual([]);
     } finally {
       runtime.close();
     }

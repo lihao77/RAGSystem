@@ -78,6 +78,7 @@ try {
         saasConversationRuntime!.conversation,
         saasConversationRuntime!.createFileHistoryStorage(request.identity.tenantId),
         saasConversationRuntime!.runs,
+        saasConversationRuntime!.outbox,
       ),
       resolveExecutionRead: (request: FastifyRequest) => new SaaSAgentReadApplication(
         request.identity.tenantId,

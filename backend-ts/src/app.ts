@@ -40,7 +40,6 @@ import { AsyncKernelEventPersister } from "./services/agent/sdk/async-event-pers
 import { AsyncOutboxDispatcher } from "./services/runtime/event-outbox/async-dispatcher.js";
 import { AsyncDurableClientEventPublisher } from "./services/runtime/event-outbox/async-client-event-publisher.js";
 import type { SaaSControlRuntimeHandle } from "./adapters/saas/composition/saas-control-runtime.js";
-import { SaaSExecutionWriteBridge } from "./adapters/saas/application/execution/saas-execution-write-bridge.js";
 import { SaaSSessionControlApplication } from "./adapters/saas/application/execution/saas-session-control-application.js";
 import { SaaSDaemonState } from "./adapters/saas/composition/saas-daemon-state.js";
 import { createPostgresExecutionStorage } from "./adapters/saas/postgres/postgres-execution-storage.js";
@@ -312,20 +311,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             executionKind: input.source,
             onInteractionRequired,
           }, randomUUID());
-          if (options.saasConversationRuntime && result.run_id) {
-            await new SaaSExecutionWriteBridge(
-              options.saasConversationRuntime.conversation,
-              options.saasConversationRuntime.runs,
-            ).record({
-              tenantId: input.tenantId,
-              sessionId: input.sessionId,
-              runId: result.run_id,
-              userId: input.botId,
-              taskSummary: input.task,
-              status: result.suspended ? "suspended" : result.success ? "completed" : "failed",
-              answer: result.answer ?? null,
-            });
-          }
           if (!result.success && !result.suspended) throw new Error(result.error ?? "agent 执行失败");
           if (result.suspended) {
             const rootRunId = result.rootRunId ?? result.run_id ?? "";

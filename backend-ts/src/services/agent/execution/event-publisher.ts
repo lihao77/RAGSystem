@@ -1,7 +1,7 @@
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { Envelope, StateSyncPayload } from "../../../contracts/events.js";
 import type { ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
-import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
+import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 
 interface ExecutionEventContext {
   sessionId: string;
@@ -39,7 +39,7 @@ function contextMarkers(input: ExecutionEventContext): {
 
 export class AgentExecutionEventPublisher {
   constructor(
-    private readonly clientEvents: DurableClientEventPublisher,
+    private readonly clientEvents: ClientEventPublisher,
   ) {}
 
   publishRunStarted(sessionId: string, runId: string, payload: { request_id?: string; task?: string; source?: string }): void {
@@ -143,11 +143,15 @@ export class AgentExecutionEventPublisher {
 
 
   private publish(sessionId: string, event: Envelope): void {
-    this.clientEvents.publish(sessionId, event, {
-      runId: typeof event.run_id === "string" ? event.run_id : null,
-      aggregateType: typeof event.run_id === "string" ? "run" : "session",
-      aggregateId: typeof event.run_id === "string" ? event.run_id : sessionId,
-    });
+    try {
+      void Promise.resolve(this.clientEvents.publish(sessionId, event, {
+        runId: typeof event.run_id === "string" ? event.run_id : null,
+        aggregateType: typeof event.run_id === "string" ? "run" : "session",
+        aggregateId: typeof event.run_id === "string" ? event.run_id : sessionId,
+      })).catch(() => undefined);
+    } catch {
+      // Event delivery is best-effort here; durable replay covers reconnects.
+    }
   }
 
 }

@@ -137,6 +137,50 @@ describe("SaaSSessionApplication", () => {
     ]);
   });
 
+  it("loads durable root and child execution envelopes from the SaaS outbox", async () => {
+    const repository = {
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      getMessageById: vi.fn().mockResolvedValue({
+        id: "message-1",
+        role: "assistant",
+        metadata: { run_id: "root-run" },
+        thread_key: "root",
+      }),
+    };
+    const runs = {
+      listRuns: vi.fn().mockResolvedValue({
+        total: 2,
+        items: [
+          { run_id: "root-run", parent_run_id: null, created_at: "2026-01-01T00:00:00.000Z" },
+          { run_id: "child-run", parent_run_id: "root-run", created_at: "2026-01-01T00:00:01.000Z" },
+        ],
+      }),
+      listRunSteps: vi.fn().mockResolvedValue([]),
+    };
+    const outbox = {
+      listOutboxForReplay: vi.fn().mockResolvedValue([
+        outboxRow(1, "root-run", { ...executionEnvelope("root-run"), type: "agent_started" }),
+        outboxRow(2, "root-run", { ...executionEnvelope("root-run"), type: "state_sync" }),
+        outboxRow(3, "child-run", { ...executionEnvelope("child-run"), type: "tool_call" }),
+      ]),
+    };
+    const application = new SaaSSessionApplication("tenant-a" as never, repository as never, null, runs as never, outbox as never);
+
+    const result = await application.listMessageRunSteps({ sessionId: "session-1", messageId: "message-1" });
+
+    expect(result.items).toMatchObject([
+      { type: "agent_started", run_id: "root-run", seq: 1 },
+      { type: "tool_call", run_id: "child-run", seq: 3 },
+    ]);
+    expect(runs.listRunSteps).toHaveBeenCalledTimes(2);
+    expect(outbox.listOutboxForReplay).toHaveBeenCalledWith({
+      tenantId: "tenant-a",
+      sessionId: "session-1",
+      runIds: ["root-run", "child-run"],
+      limit: 500,
+    });
+  });
+
   it("falls back to message-bound steps when the assistant message has no run id", async () => {
     const repository = {
       getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
@@ -186,5 +230,27 @@ function executionEnvelope(runId: string) {
     session_id: "session-1",
     run_id: runId,
     payload: {},
+  };
+}
+
+function outboxRow(seq: number, runId: string, event: Record<string, unknown>) {
+  return {
+    id: seq,
+    event_id: `event-${seq}`,
+    session_id: "session-1",
+    tenant_id: "tenant-a",
+    run_id: runId,
+    session_seq: seq,
+    event_type: `client.${String(event.type)}`,
+    aggregate_type: "run",
+    aggregate_id: runId,
+    payload: JSON.stringify({ client_event: event }),
+    status: "delivered",
+    attempts: 0,
+    available_at: null,
+    locked_at: null,
+    delivered_at: "2026-01-01T00:00:00.000Z",
+    last_error: null,
+    created_at: "2026-01-01T00:00:00.000Z",
   };
 }

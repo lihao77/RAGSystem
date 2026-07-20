@@ -71,6 +71,45 @@ export const POSTGRES_RUN_MIGRATIONS: readonly PostgresRunMigration[] = [
       ${tenantScopedRunSchema}
     `,
   },
+  {
+    version: 3,
+    name: "remove-duplicate-saas-boundary-messages",
+    sql: `
+      WITH canonical AS (
+        SELECT DISTINCT ON (run.tenant_id, run.run_id)
+          run.tenant_id,
+          run.run_id,
+          message.id
+        FROM saas_runs AS run
+        JOIN conversation_messages AS message
+          ON message.session_id = run.session_id
+          AND message.metadata->>'run_id' = run.run_id
+        WHERE run.final_message_id = run.run_id || ':final'
+          AND message.role = 'assistant'
+          AND message.metadata->>'msg_type' = 'assistant_final'
+          AND message.metadata->>'saas_boundary' IS DISTINCT FROM 'true'
+        ORDER BY run.tenant_id, run.run_id, message.seq DESC
+      )
+      UPDATE saas_runs AS run
+      SET final_message_id = canonical.id
+      FROM canonical
+      WHERE run.tenant_id = canonical.tenant_id
+        AND run.run_id = canonical.run_id;
+
+      DELETE FROM conversation_messages AS boundary
+      WHERE boundary.role = 'assistant'
+        AND boundary.metadata->>'saas_boundary' = 'true'
+        AND EXISTS (
+          SELECT 1
+          FROM conversation_messages AS canonical
+          WHERE canonical.session_id = boundary.session_id
+            AND canonical.role = 'assistant'
+            AND canonical.metadata->>'run_id' = boundary.metadata->>'run_id'
+            AND canonical.metadata->>'msg_type' = 'assistant_final'
+            AND canonical.metadata->>'saas_boundary' IS DISTINCT FROM 'true'
+        );
+    `,
+  },
 ];
 
 export function getPendingPostgresRunMigrations(appliedVersion: number): readonly PostgresRunMigration[] {
