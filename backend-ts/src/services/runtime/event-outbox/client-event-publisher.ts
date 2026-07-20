@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { Envelope } from "../../../contracts/events.js";
 import type {
   AppendOutboxInput,
@@ -14,6 +16,7 @@ export interface ClientEventPublishOptions {
   aggregateType?: string | undefined;
   aggregateId?: string | undefined;
   eventType?: string | undefined;
+  eventId?: string | undefined;
 }
 
 export interface ClientEventPublisher {
@@ -33,8 +36,9 @@ export class DurableClientEventPublisher {
   ) {}
 
   publish(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): OutboxRow {
+    const resolvedOptions = withStableEventId(options);
     const record = this.conversationStore.runInTransaction((tx) =>
-      this.recordInTransaction(tx, sessionId, event, options),
+      this.recordInTransaction(tx, sessionId, event, resolvedOptions),
     );
     this.deliver([record]);
     return record.row;
@@ -46,9 +50,10 @@ export class DurableClientEventPublisher {
     event: Envelope,
     options: ClientEventPublishOptions = {},
   ): RecordedClientEvent {
+    const resolvedOptions = withStableEventId(options);
     const runId = options.runId ?? event.run_id ?? null;
-    archiveExecutionEnvelope(tx, sessionId, runId, event);
-    const row = tx.appendOutbox(this.toOutboxInput(sessionId, event, options));
+    archiveExecutionEnvelope(tx, sessionId, runId, event, resolvedOptions.eventId);
+    const row = tx.appendOutbox(this.toOutboxInput(sessionId, event, resolvedOptions));
     return { sessionId, event, row };
   }
 
@@ -64,6 +69,7 @@ export class DurableClientEventPublisher {
     return {
       sessionId,
       runId,
+      eventId: options.eventId,
       eventType: options.eventType ?? `client.${event.type}`,
       aggregateType: options.aggregateType ?? (runId ? "run" : "session"),
       aggregateId: options.aggregateId ?? runId ?? sessionId,
@@ -72,4 +78,16 @@ export class DurableClientEventPublisher {
       },
     };
   }
+}
+
+type ResolvedClientEventPublishOptions = ClientEventPublishOptions & { eventId: string };
+
+export function withStableEventId(
+  options: ClientEventPublishOptions,
+): ResolvedClientEventPublishOptions {
+  const supplied = options.eventId?.trim();
+  if (options.eventId !== undefined && !supplied) {
+    throw new Error("client eventId must not be empty");
+  }
+  return { ...options, eventId: supplied ?? randomUUID() };
 }

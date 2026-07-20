@@ -1,5 +1,8 @@
 import { PROTOCOL_VERSION, type Envelope } from "@ragsystem/agent-protocol";
-import type { ConversationStoreTransaction } from "../../../contracts/conversation-store/index.js";
+import type {
+  AddRunStepInput,
+  ConversationStoreTransaction,
+} from "../../../contracts/conversation-store/index.js";
 
 export const EXECUTION_ENVELOPE_STEP_TYPE = "protocol.envelope.v1";
 
@@ -16,14 +19,26 @@ export function archiveExecutionEnvelope(
   sessionId: string,
   runId: string | null,
   envelope: Envelope,
+  eventId: string,
 ): void {
+  const step = buildExecutionEnvelopeRunStep(sessionId, runId, envelope, eventId);
+  if (step) tx.addRunStep(step);
+}
+
+export function buildExecutionEnvelopeRunStep(
+  sessionId: string,
+  runId: string | null,
+  envelope: Envelope,
+  eventId: string,
+): AddRunStepInput | null {
   // Session-level events can be delivered live but are intentionally absent from run-scoped replay.
   if (!runId || !EXECUTION_ENVELOPE_TYPES.has(envelope.type)) {
-    return;
+    return null;
   }
-  tx.addRunStep({
+  return {
     sessionId,
     runId,
+    eventId,
     stepType: EXECUTION_ENVELOPE_STEP_TYPE,
     payload: {
       ...envelope,
@@ -31,5 +46,5 @@ export function archiveExecutionEnvelope(
       session_id: sessionId,
       run_id: runId,
     },
-  });
+  };
 }

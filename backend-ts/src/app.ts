@@ -148,8 +148,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           providerContinuations: options.saasConversationRuntime!.providerContinuations,
           clientEvents: input.asyncClientEvents,
           createEventPersister: (context) => new AsyncKernelEventPersister(
-            options.saasConversationRuntime!.conversation,
-            options.saasConversationRuntime!.runs,
+            options.saasConversationRuntime!.createRuntimeStorage(context.tenantId),
+            input.asyncClientEvents!,
             context,
             options.saasConversationRuntime!.createFileHistoryStorage(context.tenantId),
           ),
@@ -177,12 +177,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             ),
             ...(saasExecutionStorageFactory ? { executionStorageFactory: saasExecutionStorageFactory } : {}),
             ...(options.saasConversationRuntime ? {
-              asyncEventPersisterFactory: (context: import("./services/agent/sdk/async-event-persister.js").AsyncPersisterRunContext) => new AsyncKernelEventPersister(
-                options.saasConversationRuntime!.conversation,
-                options.saasConversationRuntime!.runs,
-                context,
-                options.saasConversationRuntime!.createFileHistoryStorage(context.tenantId),
-              ),
               asyncConversationHistory: options.saasConversationRuntime!.conversation,
               asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
               asyncAnalytics: options.saasConversationRuntime!.analytics,
@@ -194,8 +188,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
                 options.saasConversationRuntime!.runs,
                 options.saasConversationRuntime!.pendingInteractions,
               ),
-              asyncClientEventsFactory: (realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
-                options.saasConversationRuntime!.outbox,
+              asyncClientEventsFactory: (tenantId: import("./identity/types.js").TenantId, realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
+                options.saasConversationRuntime!.createRuntimeStorage(tenantId),
                 new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
               ),
             } : {}),
@@ -211,12 +205,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           runtimeOptions: {
             hostToolsEnabled: false,
             ...(saasExecutionStorageFactory ? { executionStorageFactory: saasExecutionStorageFactory } : {}),
-            asyncEventPersisterFactory: (context: import("./services/agent/sdk/async-event-persister.js").AsyncPersisterRunContext) => new AsyncKernelEventPersister(
-              options.saasConversationRuntime!.conversation,
-              options.saasConversationRuntime!.runs,
-              context,
-              options.saasConversationRuntime!.createFileHistoryStorage(context.tenantId),
-            ),
             asyncConversationHistory: options.saasConversationRuntime!.conversation,
             asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
             asyncAnalytics: options.saasConversationRuntime!.analytics,
@@ -228,8 +216,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               options.saasConversationRuntime!.runs,
               options.saasConversationRuntime!.pendingInteractions,
             ),
-            asyncClientEventsFactory: (realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
-              options.saasConversationRuntime!.outbox,
+            asyncClientEventsFactory: (tenantId: import("./identity/types.js").TenantId, realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
+              options.saasConversationRuntime!.createRuntimeStorage(tenantId),
               new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
             ),
           } }

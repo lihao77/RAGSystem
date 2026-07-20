@@ -15,7 +15,6 @@ import type { ResumeExecutor } from "../../services/agent/execution/resume-execu
 import type { RuntimeCoreService } from "../../services/agent/execution/runtime-core-service.js";
 import type { AgentMetricsCollector } from "../../services/agent/metrics/metrics-collector.js";
 import type { MemoryRuntimeBindings } from "../../services/agent/memory/runtime-bindings.js";
-import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../../services/agent/sdk/async-event-persister.js";
 import type { ArtifactService } from "../../services/artifacts/artifact-service.js";
 import type { TransientArtifactService } from "../../services/artifacts/transient-artifact-service.js";
 import type { SystemConfigService } from "../../services/config/system-config-service.js";
@@ -95,7 +94,6 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   memoryConfig: MemoryConfig;
   logger?: AgentExecutionLogger | undefined;
   hooks?: ((registry: HookRegistry) => void) | undefined;
-  asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
   asyncConversationHistory?: AsyncConversationHistoryPort;
   asyncProviderContinuations?: AsyncProviderContinuationLookupPort;
   asyncClientEvents?: AsyncDurableClientEventPublisher;

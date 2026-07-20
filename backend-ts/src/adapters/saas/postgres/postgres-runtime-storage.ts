@@ -1,8 +1,12 @@
+import { isDeepStrictEqual } from "node:util";
+
 import type {
   RuntimeAtomicOperations,
   RuntimeConversationStorage,
   RuntimeFinalizeRunInput,
   RuntimeFinalizeRunResult,
+  RuntimePersistMessageInput,
+  RuntimePersistMessageResult,
   RuntimeOutboxStorage,
   RuntimePendingInteractionStorage,
   RuntimeProviderContinuationStorage,
@@ -22,6 +26,7 @@ import type {
   RunStepRecord,
 } from "../../../contracts/conversation-store/index.js";
 import type { MessageInfo } from "../../../contracts/session/session.js";
+import { buildInterruptedToolMessages } from "../../../contracts/storage/runtime-finalization.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 import { PostgresConversationRepository } from "./conversation-repository.js";
 import { PostgresOutboxRepository } from "./outbox-repository.js";
@@ -118,6 +123,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
   ) {
     this.operations = {
       startRun: (input) => this.startRun(input),
+      persistMessage: (input) => this.persistMessage(input),
       recordEnvelope: (input) => this.recordEnvelope(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
@@ -150,16 +156,12 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (existingRun) assertRunScope(existingRun, input.run);
       let initialUserMessage = null;
       if (input.initialUserMessage) {
-        const existingMessage = await tx.conversation.getMessageById(
-          input.session.sessionId,
-          input.initialUserMessage.messageId,
+        initialUserMessage = await getOrCreateMessage(
+          transactionExecutor,
+          tx,
+          input.initialUserMessage,
+          "initial user message",
         );
-        if (existingMessage) {
-          assertMessageIdentity(existingMessage, input.initialUserMessage, "initial user message");
-          initialUserMessage = existingMessage;
-        } else {
-          initialUserMessage = await tx.conversation.addMessage(input.initialUserMessage);
-        }
       }
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(input.run);
       return { run, initialUserMessage };
@@ -184,6 +186,25 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         this.tenantId,
         normalized,
       );
+    });
+  }
+
+  private async persistMessage(input: RuntimePersistMessageInput): Promise<RuntimePersistMessageResult> {
+    assertContinuationScope(input);
+    return this.executor.transaction(async (transactionExecutor) => {
+      await assertTenantSession(transactionExecutor, this.tenantId, input.message.sessionId);
+      const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+      const deletedProviderContinuations = input.deleteProviderContinuationThreadKey
+        ? await tx.providerContinuations.deleteProviderContinuations(
+          input.message.sessionId,
+          input.deleteProviderContinuationThreadKey,
+        )
+        : 0;
+      const message = await getOrCreateMessage(transactionExecutor, tx, input.message, "message");
+      const providerContinuation = input.providerContinuation
+        ? await tx.providerContinuations.putProviderContinuation(input.providerContinuation)
+        : null;
+      return { message, deletedProviderContinuations, providerContinuation };
     });
   }
 
@@ -212,8 +233,22 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           input.suspendRootRunId,
         );
       }
+      if (input.closeDanglingToolCalls) {
+        const messages = await tx.conversation.getRecentMessages(
+          input.sessionId,
+          1000,
+          input.closeDanglingToolCalls.threadKey,
+        );
+        for (const message of buildInterruptedToolMessages(messages, {
+          sessionId: input.sessionId,
+          runId: input.runId,
+          ...input.closeDanglingToolCalls,
+        })) {
+          await getOrCreateMessage(transactionExecutor, tx, message, "interrupted tool message");
+        }
+      }
       const finalMessage = input.finalMessage
-        ? await getOrCreateFinalMessage(transactionExecutor, tx, input.finalMessage)
+        ? await getOrCreateMessage(transactionExecutor, tx, input.finalMessage, "final message")
         : null;
       if (run.status === input.status && run.final_message_id !== (finalMessage?.id ?? null)) {
         throw new Error(`run final message conflicts with idempotent finalize: ${input.runId}`);
@@ -366,23 +401,25 @@ function assertTerminalTransition(current: string, target: string, runId: string
   throw new Error(`run terminal status conflict: ${runId} is ${current}, cannot become ${target}`);
 }
 
-async function getOrCreateFinalMessage(
+async function getOrCreateMessage(
   executor: PostgresMemoryExecutor,
   tx: RuntimeStorageRepositories,
   input: AddMessageInput & { messageId: string },
+  subject: string,
 ): Promise<MessageInfo> {
+  await lockAdvisoryKey(executor, `message:${input.messageId}`);
   const owner = await executor.query<{ session_id: string }>(
     "SELECT session_id FROM conversation_messages WHERE id=$1 FOR UPDATE",
     [input.messageId],
   );
   if (owner.rows[0] && owner.rows[0].session_id !== input.sessionId) {
-    throw new Error(`final message belongs to another session: ${input.messageId}`);
+    throw new Error(`${subject} belongs to another session: ${input.messageId}`);
   }
   const existing = owner.rows[0]
     ? await tx.conversation.getMessageById(input.sessionId, input.messageId)
     : null;
   if (!existing) return tx.conversation.addMessage(input);
-  assertMessageIdentity(existing, input, "final message");
+  assertMessageIdentity(existing, input, subject);
   return existing;
 }
 
@@ -481,6 +518,17 @@ function assertTerminalMessageRule(input: RuntimeFinalizeRunInput): void {
   }
 }
 
+function assertContinuationScope(input: RuntimePersistMessageInput): void {
+  const continuation = input.providerContinuation;
+  if (!continuation) return;
+  if (continuation.messageId !== input.message.messageId) {
+    throw new Error("provider continuation message mismatch");
+  }
+  if (continuation.sessionId !== input.message.sessionId) {
+    throw new Error("provider continuation session mismatch");
+  }
+}
+
 function normalizeRecord(input: RuntimeRecordEnvelopeInput): RuntimeRecordEnvelopeInput {
   assertEventId(input.outbox.eventId);
   return {
@@ -524,7 +572,7 @@ function jsonObject(value: unknown): Record<string, unknown> {
 }
 
 function jsonEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return isDeepStrictEqual(left, right);
 }
 
 function iso(value: unknown): string {

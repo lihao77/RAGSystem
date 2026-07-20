@@ -45,6 +45,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     getMessageById: messages.getMessageById.bind(messages),
     createRun: runs.createRun.bind(runs),
     getRun: runs.getRun.bind(runs),
+    getRunStepByEventId: runs.getRunStepByEventId.bind(runs),
     addRunStep: runs.addRunStepInTransaction.bind(runs),
     updateRunStepsMessageId: runs.updateRunStepsMessageId.bind(runs),
     updateRunStatus: runs.updateRunStatus.bind(runs),

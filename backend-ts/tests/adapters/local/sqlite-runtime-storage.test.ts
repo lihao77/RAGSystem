@@ -24,6 +24,31 @@ async function startRun(storage: SqliteRuntimeStorage, runId = "run-1") {
   });
 }
 
+function persistMessageInput(messageId: string) {
+  return {
+    message: {
+      messageId,
+      sessionId: "session-1",
+      role: "assistant" as const,
+      content: "working",
+      threadKey: "root",
+      toolCalls: [{ id: "tool-1", type: "function" as const, function: { name: "search", arguments: "{}" } }],
+    },
+    providerContinuation: {
+      messageId,
+      sessionId: "session-1",
+      threadKey: "root",
+      providerType: "anthropic",
+      toolCallIds: ["tool-1"],
+      state: {
+        protocol: "anthropic_messages" as const,
+        toolCallIds: ["tool-1"],
+        blocks: [{ type: "thinking" as const, thinking: "private", signature: "sig" }],
+      },
+    },
+  };
+}
+
 describe("SqliteRuntimeStorage", () => {
   it("exposes only tenant identity and fixed atomic operations", () => {
     const { storage } = createHarness();
@@ -31,12 +56,76 @@ describe("SqliteRuntimeStorage", () => {
     expect(storage.tenantId).toBe(LOCAL_TENANT_ID);
     expect(storage.operations).toEqual({
       startRun: expect.any(Function),
+      persistMessage: expect.any(Function),
       recordEnvelope: expect.any(Function),
       finalizeRun: expect.any(Function),
     });
     expect(storage).not.toHaveProperty("conversation");
     expect(storage).not.toHaveProperty("runs");
     expect(storage).not.toHaveProperty("outbox");
+  });
+
+  it("persists a deterministic message and provider continuation atomically and idempotently", async () => {
+    const { store, storage } = createHarness();
+    await startRun(storage);
+    const input = persistMessageInput("message-1");
+
+    const first = await storage.operations.persistMessage(input);
+    const replay = await storage.operations.persistMessage(input);
+
+    expect(replay.message).toEqual(first.message);
+    expect(replay.providerContinuation?.message_id).toBe("message-1");
+    expect(store.listMessages("session-1").items).toHaveLength(1);
+    expect(store.getProviderContinuation("session-1", "message-1")?.state).toEqual(
+      input.providerContinuation?.state,
+    );
+  });
+
+  it("deletes the previous continuation before storing the replacement", async () => {
+    const { store, storage } = createHarness();
+    await startRun(storage);
+    await storage.operations.persistMessage(persistMessageInput("message-old"));
+
+    const result = await storage.operations.persistMessage({
+      ...persistMessageInput("message-new"),
+      deleteProviderContinuationThreadKey: "root",
+    });
+
+    expect(result.deletedProviderContinuations).toBe(1);
+    expect(store.getProviderContinuation("session-1", "message-old")).toBeNull();
+    expect(store.getProviderContinuation("session-1", "message-new")).not.toBeNull();
+  });
+
+  it("rejects message and continuation identity conflicts", async () => {
+    const { storage } = createHarness();
+    await startRun(storage);
+    await storage.operations.persistMessage(persistMessageInput("message-1"));
+
+    await expect(storage.operations.persistMessage({
+      ...persistMessageInput("message-1"),
+      message: { ...persistMessageInput("message-1").message, content: "changed" },
+    })).rejects.toThrow("message deterministic id conflict");
+    await expect(storage.operations.persistMessage({
+      ...persistMessageInput("message-2"),
+      providerContinuation: {
+        ...persistMessageInput("message-2").providerContinuation!,
+        messageId: "other-message",
+      },
+    })).rejects.toThrow("provider continuation message mismatch");
+  });
+
+  it("rolls back the message when provider continuation persistence fails", async () => {
+    const { store, storage } = createHarness();
+    await startRun(storage);
+    const input = persistMessageInput("message-rollback");
+
+    await expect(storage.operations.persistMessage({
+      ...input,
+      providerContinuation: { ...input.providerContinuation!, state: { invalid: true } as never },
+    })).rejects.toThrow("Provider continuation insert failed");
+
+    expect(store.getMessageById("session-1", "message-rollback")).toBeNull();
+    expect(store.getProviderContinuation("session-1", "message-rollback")).toBeNull();
   });
 
   it("commits final message, terminal records, step attachment, and run status atomically", async () => {
@@ -387,6 +476,86 @@ describe("SqliteRuntimeStorage", () => {
 
     expect(store.listRunSteps({ sessionId: "session-1", runId: "run-1" })).toHaveLength(1);
     expect(store.listOutboxForReplay({ sessionId: "session-1" })).toHaveLength(1);
+  });
+
+  it("rejects an event id replay with conflicting immutable step fields", async () => {
+    const { store, storage } = createHarness();
+    await startRun(storage);
+    const base = {
+      step: { sessionId: "session-1", runId: "run-1", stepType: "event", payload: { value: 1 } },
+      outbox: {
+        eventId: "conflicting-step",
+        sessionId: "session-1",
+        runId: "run-1",
+        eventType: "client.event",
+        aggregateType: "run",
+        aggregateId: "run-1",
+        payload: { value: 1 },
+      },
+    };
+    await storage.operations.recordEnvelope(base);
+
+    await expect(storage.operations.recordEnvelope({
+      ...base,
+      step: { ...base.step, stepType: "other" },
+    })).rejects.toThrow("run step eventId conflict");
+
+    expect(store.listRunSteps({ sessionId: "session-1", runId: "run-1" })).toHaveLength(1);
+    expect(store.listOutboxForReplay({ sessionId: "session-1" })).toHaveLength(1);
+  });
+
+  it("closes dangling tool calls atomically when a run is interrupted", async () => {
+    const { store, storage } = createHarness();
+    await startRun(storage);
+    await storage.operations.persistMessage({
+      message: {
+        messageId: "run-1:intent:0",
+        sessionId: "session-1",
+        role: "assistant",
+        content: "working",
+        threadKey: "root",
+        toolCalls: [
+          { id: "answered", type: "function", function: { name: "read", arguments: "{}" } },
+          { id: "dangling", type: "function", function: { name: "write", arguments: "{}" } },
+        ],
+        metadata: { run_id: "run-1", round: 2 },
+      },
+    });
+    await storage.operations.persistMessage({
+      message: {
+        messageId: "run-1:tool:answered",
+        sessionId: "session-1",
+        role: "tool",
+        content: "done",
+        threadKey: "root",
+        toolCallId: "answered",
+        name: "read",
+      },
+    });
+
+    await storage.operations.finalizeRun({
+      runId: "run-1",
+      sessionId: "session-1",
+      status: "interrupted",
+      closeDanglingToolCalls: { threadKey: "root", agentName: "agent-1" },
+      finalMessage: {
+        messageId: "run-1:interrupted",
+        sessionId: "session-1",
+        role: "assistant",
+        content: "",
+        threadKey: "root",
+        metadata: { interrupted: true },
+      },
+    });
+
+    expect(store.getMessageById("session-1", "run-1:tool:dangling")).toMatchObject({
+      role: "tool",
+      content: "工具执行被中断",
+      tool_call_id: "dangling",
+      name: "write",
+      metadata: { interrupted: true, round: 2 },
+    });
+    expect(store.listMessages("session-1").items.filter((message) => message.tool_call_id === "answered")).toHaveLength(1);
   });
 
   it("allows running to reach one terminal status and only replays that same terminal", async () => {

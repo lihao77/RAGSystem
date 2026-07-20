@@ -15,7 +15,7 @@ import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { DurableExecutionClientEventPort, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
+import type { ExecutionEventPersister, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
 import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -349,13 +349,17 @@ export async function executeRunWithSdk(
   }
 
   // KernelEvent 落库（B1：从 SDK Dispatcher 迁回 backend）：createRun + 增量事件落库 + 终态合一全在此。
-  const persister = deps.storage.kind === "durable"
+  const persister: ExecutionEventPersister = deps.storage.kind === "durable"
     ? deps.storage.createEventPersister({
       tenantId: deps.storage.tenantId,
       sessionId: input.sessionId,
       runId: input.runId,
       threadKey: input.threadKey,
       agentName: input.agent.agent_name,
+      agentDisplayName: input.agent.display_name ?? input.agent.agent_name,
+      rootCallId: input.rootCallId,
+      rootRunId,
+      taskId: input.taskId,
       ...(input.provider.provider_type ? { providerType: input.provider.provider_type } : {}),
       ...(input.executionKind ? { executionKind: input.executionKind } : {}),
       taskSummary: input.task.slice(0, 200),
@@ -434,7 +438,7 @@ export async function executeRunWithSdk(
   } catch (error) {
     await consumeEvents.catch(() => undefined);
     if (error instanceof RecoverableInterrupt) {
-      await persister.finalize("suspended", null);
+      await persister.finalize("suspended", null, error);
       runtime.close();
       if (input.runId !== error.rootRunId) {
         throw error;
@@ -456,10 +460,11 @@ export async function executeRunWithSdk(
     runtime.close();
     const interrupted = input.signal.aborted;
     // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
-    await persister.finalize(interrupted ? "interrupted" : "failed", null);
+    await persister.finalize(interrupted ? "interrupted" : "failed", null, error);
     if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, false);
-    if (deps.storage.kind === "durable") await recordTerminalAsync(deps.storage.clientEvents, input, interrupted ? "interrupted" : "failed", null, error);
-    else recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
+    if (deps.storage.kind === "local") {
+      recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
+    }
     const message = error instanceof Error ? error.message : String(error);
     return { content: message, success: false, tokenUsage, toolCalls };
   }
@@ -471,35 +476,8 @@ export async function executeRunWithSdk(
   await persister.finalize("completed", { content: result.content });
   if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, true);
   const finalMessage = await persister.resolveFinalMessage();
-  if (deps.storage.kind === "durable") await recordTerminalAsync(deps.storage.clientEvents, input, "completed", finalMessage, null);
-  else recordTerminal(deps, input, "completed", finalMessage, null);
+  if (deps.storage.kind === "local") recordTerminal(deps, input, "completed", finalMessage, null);
   return { content: result.content, success: true, tokenUsage, toolCalls };
-}
-
-async function recordTerminalAsync(
-  publisher: DurableExecutionClientEventPort,
-  input: SdkExecuteRunInput,
-  status: "completed" | "failed" | "interrupted",
-  finalMessage: { id: string; seq: number; content: string } | null,
-  error: unknown,
-): Promise<void> {
-  if (input.childAgentId) return;
-  const events: Envelope[] = [];
-  if (status === "completed" && finalMessage) {
-    events.push(
-      { type: "stream_output", session_id: input.sessionId, run_id: input.runId, call_id: input.rootCallId, agent_id: input.agent.agent_name, payload: { phase: "final", content: finalMessage.content } },
-      { type: "state_sync", session_id: input.sessionId, run_id: input.runId, payload: { category: "message_saved", ref: { message_id: finalMessage.id, seq: finalMessage.seq } } },
-      { type: "agent_ended", session_id: input.sessionId, run_id: input.runId, call_id: input.rootCallId, agent_id: input.agent.agent_name, payload: { phase: "end", result: finalMessage.content.slice(0, 500), success: true } },
-      { type: "run_ended", session_id: input.sessionId, run_id: input.runId, payload: { status: "completed" } },
-    );
-  } else {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    events.push(
-      { type: "agent_ended", session_id: input.sessionId, run_id: input.runId, call_id: input.rootCallId, agent_id: input.agent.agent_name, payload: { phase: "end", result: status === "interrupted" ? "[已停止生成]" : errorMessage.slice(0, 500), success: false } },
-      { type: "run_ended", session_id: input.sessionId, run_id: input.runId, payload: { status, ...(status !== "interrupted" ? { reason: errorMessage } : {}) } },
-    );
-  }
-  for (const event of events) await publisher.publish(input.sessionId, event, { runId: input.runId, aggregateType: "run", aggregateId: input.runId });
 }
 
 /**

@@ -1,12 +1,21 @@
-import { extractText } from "@ragsystem/agent-llm";
-import type { ChatMessage } from "@ragsystem/agent-llm";
+import { extractText, type ChatMessage } from "@ragsystem/agent-llm";
 import type { KernelEvent } from "@ragsystem/agent-sdk";
-import type { AddMessageInput } from "../../../contracts/conversation-store/types.js";
-import type { MessageInfo } from "../../../contracts/session/session.js";
-import type { IRunStore, RunInfo } from "../../../contracts/conversation-store/index.js";
+
+import type {
+  AddMessageInput,
+  PutProviderContinuationInput,
+} from "../../../contracts/conversation-store/index.js";
+import type { Envelope } from "../../../contracts/events.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
-import type { TenantId } from "../../../identity/types.js";
 import type { AsyncFileHistoryStore } from "../../../contracts/file-history-store/index.js";
+import type {
+  RuntimeFinalizeStatus,
+  RuntimeRecordEnvelopeInput,
+  RuntimeStorage,
+} from "../../../contracts/storage/runtime-storage.js";
+import type { TenantId } from "../../../identity/types.js";
+import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
+import { buildExecutionEnvelopeRunStep } from "../../runtime/event-outbox/execution-envelope-archive.js";
 
 export interface AsyncPersisterRunContext {
   tenantId: TenantId;
@@ -14,6 +23,10 @@ export interface AsyncPersisterRunContext {
   runId: string;
   threadKey: string;
   agentName: string;
+  agentDisplayName: string;
+  rootCallId: string;
+  rootRunId?: string;
+  taskId?: string | null;
   providerType?: string;
   executionKind?: string;
   taskSummary?: string;
@@ -26,110 +39,331 @@ export interface AsyncPersisterRunContext {
   initialUserMessage?: { id: string; content: string; metadata?: Record<string, unknown> | null };
 }
 
-export interface AsyncFinalMessageInput { id?: string; content: string; metadata?: Record<string, unknown> }
-
-export interface AsyncEventConversationPort {
-  createSession(tenantId: TenantId, sessionId: string, userId: string | null): Promise<void>;
-  addMessage(input: AddMessageInput): Promise<MessageInfo>;
-  getMessageById(sessionId: string, messageId: string): Promise<MessageInfo | null>;
+export interface AsyncFinalMessageInput {
+  id?: string;
+  content: string;
+  metadata?: Record<string, unknown>;
 }
 
-export interface AsyncEventRunPort {
-  createRun(input: Parameters<IRunStore["createRun"]>[0] & { tenantId: string }): Promise<ReturnType<IRunStore["createRun"]>>;
-  updateRunStatus(tenantId: string, runId: string, sessionId: string, status: string, finalMessageId?: string | null): Promise<boolean>;
-  getRun(tenantId: string, sessionId: string, runId: string): Promise<RunInfo | null>;
-}
-
-/** Async SaaS event persister. It is intentionally separate from Local's sync transaction persister. */
+/** PostgreSQL-backed kernel persister using the same atomic RuntimeStorage boundary as Local. */
 export class AsyncKernelEventPersister {
-  private finalMessageId: string | null = null;
+  private finalMessage: { id: string; seq: number; content: string } | null = null;
 
   constructor(
-    private readonly conversation: AsyncEventConversationPort,
-    private readonly runs: AsyncEventRunPort,
+    private readonly storage: RuntimeStorage,
+    private readonly clientEvents: Pick<AsyncDurableClientEventPublisher, "deliver" | "flush">,
     private readonly ctx: AsyncPersisterRunContext,
     private readonly fileHistory: AsyncFileHistoryStore | null = null,
-  ) {}
+  ) {
+    if (storage.tenantId !== ctx.tenantId) {
+      throw new Error(`runtime storage tenant mismatch: expected ${ctx.tenantId}, received ${storage.tenantId}`);
+    }
+  }
 
   async startRun(): Promise<void> {
-    await this.conversation.createSession(this.ctxTenant(), this.ctx.sessionId, this.ctx.userId ?? null);
-    if (this.ctx.initialUserMessage && !await this.conversation.getMessageById(this.ctx.sessionId, this.ctx.initialUserMessage.id)) {
-      await this.conversation.addMessage({
-        messageId: this.ctx.initialUserMessage.id,
+    await this.storage.operations.startRun({
+      session: {
         sessionId: this.ctx.sessionId,
-        role: "user",
-        content: this.ctx.initialUserMessage.content,
+        userId: this.ctx.userId ?? null,
+      },
+      run: {
+        runId: this.ctx.runId,
+        sessionId: this.ctx.sessionId,
+        status: "running",
+        agentName: this.ctx.agentName,
         threadKey: this.ctx.threadKey,
-        metadata: this.ctx.initialUserMessage.metadata ?? {},
-      });
-    }
-    await this.runs.createRun({
-      tenantId: this.ctx.tenantId, runId: this.ctx.runId, sessionId: this.ctx.sessionId, status: "running", agentName: this.ctx.agentName,
-      threadKey: this.ctx.threadKey, ...(this.ctx.executionKind ? { entrypoint: this.ctx.executionKind } : {}),
-      ...(this.ctx.taskSummary !== undefined ? { taskSummary: this.ctx.taskSummary } : {}),
-      ...(this.ctx.requestId !== undefined ? { requestId: this.ctx.requestId } : {}),
-      ...(this.ctx.userId !== undefined ? { userId: this.ctx.userId } : {}),
-      ...(this.ctx.parentRunId !== undefined ? { parentRunId: this.ctx.parentRunId } : {}),
-      ...(this.ctx.parentCallId !== undefined ? { parentCallId: this.ctx.parentCallId } : {}),
-      ...(this.ctx.childAgentId !== undefined ? { childAgentId: this.ctx.childAgentId } : {}),
+        ...(this.ctx.executionKind ? { entrypoint: this.ctx.executionKind } : {}),
+        ...(this.ctx.taskSummary !== undefined ? { taskSummary: this.ctx.taskSummary } : {}),
+        ...(this.ctx.requestId !== undefined ? { requestId: this.ctx.requestId } : {}),
+        ...(this.ctx.userId !== undefined ? { userId: this.ctx.userId } : {}),
+        ...(this.ctx.parentRunId !== undefined ? { parentRunId: this.ctx.parentRunId } : {}),
+        ...(this.ctx.parentCallId !== undefined ? { parentCallId: this.ctx.parentCallId } : {}),
+        ...(this.ctx.childAgentId !== undefined ? { childAgentId: this.ctx.childAgentId } : {}),
+      },
+      ...(this.ctx.initialUserMessage ? {
+        initialUserMessage: {
+          messageId: this.ctx.initialUserMessage.id,
+          sessionId: this.ctx.sessionId,
+          role: "user",
+          content: this.ctx.initialUserMessage.content,
+          threadKey: this.ctx.threadKey,
+          metadata: this.ctx.initialUserMessage.metadata ?? {},
+        },
+      } : {}),
     });
   }
 
   async persist(event: KernelEvent): Promise<void> {
     if (event.type === "tool_result") {
-      await this.conversation.addMessage({ sessionId: this.ctx.sessionId, role: "tool", content: event.observation, threadKey: this.ctx.threadKey, toolCallId: event.toolCallId, name: event.toolName, metadata: this.messageMeta(event.round, MSG_TYPE.OBSERVATION) });
-    } else if (event.type === "assistant_intermediate") {
+      const toolMedia = Array.isArray(event.metadata.tool_result_media)
+        ? event.metadata.tool_result_media
+        : [];
+      await this.storage.operations.persistMessage({
+        message: {
+          messageId: `${this.ctx.runId}:tool:${event.toolCallId}`,
+          sessionId: this.ctx.sessionId,
+          role: "tool",
+          content: event.observation,
+          threadKey: this.ctx.threadKey,
+          toolCallId: event.toolCallId,
+          name: event.toolName,
+          metadata: {
+            ...this.messageMeta(event.round),
+            msg_type: MSG_TYPE.OBSERVATION,
+            ...(toolMedia.length > 0
+              ? { extensions: [{ kind: "tool_result_media", data: { media: toolMedia } }] }
+              : {}),
+          },
+        },
+      });
+      return;
+    }
+    if (event.type === "assistant_intermediate") {
       await this.persistAssistant(event.message, event.round);
     }
   }
 
-  async finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: AsyncFinalMessageInput | null): Promise<void> {
-    let finalMessageSeq: number | null = null;
-    if (status === "completed" && finalMessage) {
-      const message = await this.conversation.addMessage({ sessionId: this.ctx.sessionId, role: "assistant", content: finalMessage.content, threadKey: this.ctx.threadKey, ...(finalMessage.id ? { messageId: finalMessage.id } : {}), metadata: { ...this.messageMeta(0, MSG_TYPE.ASSISTANT_FINAL), ...(this.ctx.messageMetadata ?? {}), ...(finalMessage.metadata ?? {}) } });
-      this.finalMessageId = message.id;
-      finalMessageSeq = message.seq;
-    }
-    // Run 状态是工作台终态的权威来源，不能被非核心的文件历史快照失败阻断。
-    await this.runs.updateRunStatus(this.ctx.tenantId, this.ctx.runId, this.ctx.sessionId, status, this.finalMessageId);
-    if (status === "completed" && finalMessage && finalMessageSeq !== null) {
-      try {
-        await this.fileHistory?.makeSnapshot(this.ctx.sessionId, finalMessageSeq);
-      } catch {
-        // 文件历史是旁路能力，快照失败不应把已完成的 Agent run 重新变成 running。
-      }
+  async finalize(
+    status: RuntimeFinalizeStatus,
+    finalMessage: AsyncFinalMessageInput | null,
+    error: unknown = null,
+  ): Promise<void> {
+    const persistedFinal = this.buildFinalMessage(status, finalMessage);
+    await this.clientEvents.flush(this.ctx.sessionId);
+    const result = await this.storage.operations.finalizeRun({
+      runId: this.ctx.runId,
+      sessionId: this.ctx.sessionId,
+      status,
+      finalMessage: persistedFinal,
+      ...(persistedFinal ? { attachStepsToFinalMessage: true } : {}),
+      ...(status === "suspended" ? { suspendRootRunId: this.ctx.rootRunId ?? this.ctx.runId } : {}),
+      ...(status === "completed" || status === "interrupted"
+        ? { deleteProviderContinuationThreadKey: this.ctx.threadKey }
+        : {}),
+      ...(status === "interrupted" ? {
+        closeDanglingToolCalls: {
+          threadKey: this.ctx.threadKey,
+          agentName: this.ctx.agentName,
+        },
+      } : {}),
+      buildTerminalRecords: (message) => this.buildTerminalRecords(status, message, error),
+    });
+
+    this.finalMessage = result.finalMessage
+      ? { id: result.finalMessage.id, seq: result.finalMessage.seq, content: result.finalMessage.content }
+      : null;
+    await this.clientEvents.deliver(result.records.map((record) => record.outbox));
+    if (status === "completed" && result.finalMessage) {
+      await this.makeFileSnapshot(result.finalMessage.seq);
     }
   }
 
-  async resolveFinalMessage(): Promise<{ id: string; seq: number; content: string } | null> {
-    const run = await this.runs.getRun(this.ctx.tenantId, this.ctx.sessionId, this.ctx.runId);
-    if (!run?.final_message_id) return null;
-    const message = await this.conversation.getMessageById(this.ctx.sessionId, run.final_message_id);
-    return message ? { id: message.id, seq: message.seq, content: message.content } : null;
+  resolveFinalMessage(): { id: string; seq: number; content: string } | null {
+    return this.finalMessage;
   }
 
   private async persistAssistant(message: ChatMessage, round: number): Promise<void> {
-    const input: AddMessageInput = { sessionId: this.ctx.sessionId, role: "assistant", content: extractText(message.content), threadKey: this.ctx.threadKey, metadata: this.messageMeta(round, MSG_TYPE.INTENT) };
-    if (message.tool_calls) input.toolCalls = message.tool_calls as AddMessageInput["toolCalls"];
-    await this.conversation.addMessage(input);
+    const messageId = `${this.ctx.runId}:intent:${round}`;
+    const input: AddMessageInput & { messageId: string } = {
+      messageId,
+      sessionId: this.ctx.sessionId,
+      role: "assistant",
+      content: extractText(message.content),
+      threadKey: this.ctx.threadKey,
+      metadata: { ...this.messageMeta(round), msg_type: MSG_TYPE.INTENT },
+    };
+    if (message.tool_calls) {
+      input.toolCalls = message.tool_calls as AddMessageInput["toolCalls"];
+    }
+    const providerContinuation = this.buildProviderContinuation(message, messageId);
+    await this.storage.operations.persistMessage({
+      message: input,
+      deleteProviderContinuationThreadKey: this.ctx.threadKey,
+      ...(providerContinuation ? { providerContinuation } : {}),
+    });
   }
 
-  private messageMeta(round: number, msgType: string): Record<string, unknown> {
+  private buildProviderContinuation(
+    message: ChatMessage,
+    messageId: string,
+  ): PutProviderContinuationInput | null {
+    if (!message.provider_continuation || !message.tool_calls?.length) return null;
+    const callIds = message.tool_calls.map((call) => call.id);
+    const stateIds = new Set(message.provider_continuation.toolCallIds);
+    if (callIds.length !== stateIds.size || !callIds.every((id) => stateIds.has(id))) return null;
+    if (!this.ctx.providerType) {
+      throw new Error("providerType is required to persist provider continuation");
+    }
     return {
-      agent_name: this.ctx.agentName,
-      run_id: this.ctx.runId,
-      thread_key: this.ctx.threadKey,
-      execution_kind: this.ctx.executionKind,
-      round: round + 1,
-      msg_type: msgType,
-      visible_to_user: true,
-      ...(msgType === MSG_TYPE.INTENT || msgType === MSG_TYPE.OBSERVATION ? { react_intermediate: true } : {}),
+      messageId,
+      sessionId: this.ctx.sessionId,
+      threadKey: this.ctx.threadKey,
+      providerType: this.ctx.providerType,
+      toolCallIds: callIds,
+      state: message.provider_continuation,
     };
   }
 
-  private ctxTenant() {
-    // Async repository requires a tenant id; runtime composition supplies it through the session boundary.
-    // The session is created by the SaaS execution bridge before this persister is used.
-    return this.ctx.tenantId;
+  private buildFinalMessage(
+    status: RuntimeFinalizeStatus,
+    finalMessage: AsyncFinalMessageInput | null,
+  ): (AddMessageInput & { messageId: string }) | null {
+    if (status === "completed") {
+      if (!finalMessage) throw new Error("completed finalize requires a final message");
+      return {
+        messageId: finalMessage.id?.trim() || `${this.ctx.runId}:final`,
+        sessionId: this.ctx.sessionId,
+        role: "assistant",
+        content: finalMessage.content,
+        threadKey: this.ctx.threadKey,
+        metadata: {
+          ...this.finalMessageMeta(),
+          msg_type: MSG_TYPE.ASSISTANT_FINAL,
+          ...(this.ctx.messageMetadata ?? {}),
+          ...(finalMessage.metadata ?? {}),
+        },
+      };
+    }
+    if (status === "interrupted") {
+      return {
+        messageId: `${this.ctx.runId}:interrupted`,
+        sessionId: this.ctx.sessionId,
+        role: "assistant",
+        content: "",
+        threadKey: this.ctx.threadKey,
+        metadata: {
+          ...this.finalMessageMeta(),
+          msg_type: MSG_TYPE.ASSISTANT_FINAL,
+          interrupted: true,
+        },
+      };
+    }
+    return null;
   }
+
+  private buildTerminalRecords(
+    status: RuntimeFinalizeStatus,
+    finalMessage: { id: string; seq: number; content: string } | null,
+    error: unknown,
+  ): RuntimeRecordEnvelopeInput[] {
+    if (status === "suspended" || this.ctx.childAgentId) return [];
+    const events = buildTerminalEnvelopes(this.ctx, status, finalMessage, error);
+    return events.map((event, index) => {
+      const eventId = `${this.ctx.runId}:terminal:${index}:${event.type}`;
+      return {
+        step: buildExecutionEnvelopeRunStep(this.ctx.sessionId, this.ctx.runId, event, eventId),
+        outbox: {
+          sessionId: this.ctx.sessionId,
+          runId: this.ctx.runId,
+          eventId,
+          eventType: `client.${event.type}`,
+          aggregateType: "run",
+          aggregateId: this.ctx.runId,
+          payload: { client_event: event },
+        },
+      };
+    });
+  }
+
+  private messageMeta(round: number): Record<string, unknown> {
+    return {
+      ...this.baseMessageMeta(),
+      react_intermediate: true,
+      visible_to_user: true,
+      round: round + 1,
+    };
+  }
+
+  private finalMessageMeta(): Record<string, unknown> {
+    return this.baseMessageMeta();
+  }
+
+  private baseMessageMeta(): Record<string, unknown> {
+    return {
+      agent_name: this.ctx.agentName,
+      run_id: this.ctx.runId,
+      agent: this.ctx.agentName,
+      thread_key: this.ctx.threadKey,
+      conversation_scope: this.ctx.parentCallId != null ? "child" : "root",
+      ...(this.ctx.taskId ? { task_id: this.ctx.taskId } : {}),
+      ...(this.ctx.requestId ? { request_id: this.ctx.requestId } : {}),
+      ...(this.ctx.executionKind ? { execution_kind: this.ctx.executionKind } : {}),
+    };
+  }
+
+  private async makeFileSnapshot(messageSeq: number): Promise<void> {
+    try {
+      await this.fileHistory?.makeSnapshot(this.ctx.sessionId, messageSeq);
+    } catch {
+      // File history is auxiliary and must not invalidate a committed run terminal state.
+    }
+  }
+}
+
+function buildTerminalEnvelopes(
+  ctx: AsyncPersisterRunContext,
+  status: RuntimeFinalizeStatus,
+  finalMessage: { id: string; seq: number; content: string } | null,
+  error: unknown,
+): Envelope[] {
+  if (status === "completed" && finalMessage) {
+    return [
+      {
+        type: "stream_output",
+        session_id: ctx.sessionId,
+        run_id: ctx.runId,
+        call_id: ctx.rootCallId,
+        agent_id: ctx.agentName,
+        payload: { phase: "final", content: finalMessage.content },
+      },
+      {
+        type: "state_sync",
+        session_id: ctx.sessionId,
+        run_id: ctx.runId,
+        payload: { category: "message_saved", ref: { message_id: finalMessage.id, seq: finalMessage.seq } },
+      },
+      {
+        type: "agent_ended",
+        session_id: ctx.sessionId,
+        run_id: ctx.runId,
+        call_id: ctx.rootCallId,
+        agent_id: ctx.agentName,
+        payload: {
+          phase: "end",
+          display_name: ctx.agentDisplayName,
+          result: finalMessage.content.slice(0, 500),
+          success: true,
+        },
+      },
+      {
+        type: "run_ended",
+        session_id: ctx.sessionId,
+        run_id: ctx.runId,
+        payload: { status: "completed" },
+      },
+    ];
+  }
+  if (status === "suspended") return [];
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  return [
+    {
+      type: "agent_ended",
+      session_id: ctx.sessionId,
+      run_id: ctx.runId,
+      call_id: ctx.rootCallId,
+      agent_id: ctx.agentName,
+      payload: {
+        phase: "end",
+        display_name: ctx.agentDisplayName,
+        result: status === "interrupted" ? "[已停止生成]" : errorMessage.slice(0, 500),
+        success: false,
+      },
+    },
+    {
+      type: "run_ended",
+      session_id: ctx.sessionId,
+      run_id: ctx.runId,
+      payload: { status, ...(status !== "interrupted" ? { reason: errorMessage } : {}) },
+    },
+  ];
 }

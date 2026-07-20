@@ -369,6 +369,16 @@ export interface ConversationStoreTransaction {
     child_agent_id: string | null;
   };
   getRun(sessionId: string, runId: string): RunInfo | null;
+  getRunStepByEventId(eventId: string): {
+    id: number;
+    run_id: string;
+    session_id: string;
+    message_id: string | null;
+    event_id: string;
+    step_order: number;
+    step_type: string;
+    payload: Record<string, unknown>;
+  } | null;
   addRunStep(input: AddRunStepInput): RunStepRecord;
   updateRunStepsMessageId(sessionId: string, runId: string, messageId: string): number;
   updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): boolean;

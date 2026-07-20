@@ -12,6 +12,10 @@ export interface ExecutionRunPersistenceContext {
   runId: string;
   threadKey: string;
   agentName: string;
+  agentDisplayName: string;
+  rootCallId: string;
+  rootRunId?: string;
+  taskId?: string | null;
   providerType?: string;
   executionKind?: string;
   taskSummary?: string;
@@ -27,7 +31,7 @@ export interface ExecutionRunPersistenceContext {
 export interface ExecutionEventPersister {
   startRun(): void | Promise<void>;
   persist(event: KernelEvent): void | Promise<void>;
-  finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: { id?: string; content: string; metadata?: Record<string, unknown> } | null): void | Promise<void>;
+  finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: { id?: string; content: string; metadata?: Record<string, unknown> } | null, error?: unknown): void | Promise<void>;
   resolveFinalMessage(): { id: string; seq: number; content: string } | null | Promise<{ id: string; seq: number; content: string } | null>;
 }
 

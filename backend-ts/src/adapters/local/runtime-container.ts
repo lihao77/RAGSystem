@@ -50,7 +50,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
   transientArtifacts.startPruning();
   const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory, transientArtifacts);
   const realtimeEvents = new RealtimeEventHub();
-  const asyncClientEvents = options.asyncClientEventsFactory?.(realtimeEvents);
+  const asyncClientEvents = options.asyncClientEventsFactory?.(options.tenantId, realtimeEvents);
   const outboxDispatcher = new OutboxDispatcher(conversationStore, realtimeEvents);
   if (options.startOutboxDispatcher ?? true) {
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
@@ -152,7 +152,6 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     memoryConfig,
     logger: options.logger,
     ...(options.hooks ? { hooks: options.hooks } : {}),
-    ...(options.asyncEventPersisterFactory ? { asyncEventPersisterFactory: options.asyncEventPersisterFactory } : {}),
     ...(options.asyncConversationHistory ? { asyncConversationHistory: options.asyncConversationHistory } : {}),
     ...(options.asyncProviderContinuations ? { asyncProviderContinuations: options.asyncProviderContinuations } : {}),
     ...(asyncClientEvents ? { asyncClientEvents } : {}),

@@ -166,6 +166,10 @@ export interface RuntimeFinalizeRunInput {
   attachStepsToFinalMessage?: boolean;
   suspendRootRunId?: string | null;
   deleteProviderContinuationThreadKey?: string | null;
+  closeDanglingToolCalls?: {
+    threadKey: string;
+    agentName: string;
+  } | null;
   /**
    * Builds terminal step/outbox records after the final message has been inserted.
    * This callback runs inside the database transaction and must be synchronous and free of I/O.
@@ -180,12 +184,22 @@ export interface RuntimeFinalizeRunResult {
   records: RuntimeRecordEnvelopeResult[];
 }
 
+export interface RuntimePersistMessageInput {
+  message: AddMessageInput & { messageId: string };
+  deleteProviderContinuationThreadKey?: string | null;
+  providerContinuation?: PutProviderContinuationInput | null;
+}
+
+export interface RuntimePersistMessageResult {
+  message: MessageInfo;
+  deletedProviderContinuations: number;
+  providerContinuation: ProviderContinuationRecord | null;
+}
+
 export interface RuntimeAtomicOperations {
   startRun(input: RuntimeStartRunInput): Promise<RuntimeStartRunResult>;
-  /**
-   * `outbox.eventId` is the retry key. A future schema slice must also give the
-   * optional run step a matching durable idempotency constraint.
-   */
+  persistMessage(input: RuntimePersistMessageInput): Promise<RuntimePersistMessageResult>;
+  /** `outbox.eventId` is the shared idempotency key for the outbox row and optional run step. */
   recordEnvelope(input: RuntimeRecordEnvelopeInput): Promise<RuntimeRecordEnvelopeResult>;
   finalizeRun(input: RuntimeFinalizeRunInput): Promise<RuntimeFinalizeRunResult>;
 }

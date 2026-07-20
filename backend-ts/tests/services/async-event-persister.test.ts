@@ -1,105 +1,289 @@
 import { describe, expect, it } from "vitest";
+
+import type { MessageInfo } from "../../src/contracts/session/session.js";
+import type {
+  RuntimeFinalizeRunInput,
+  RuntimePersistMessageInput,
+  RuntimeRecordEnvelopeInput,
+  RuntimeStorage,
+  RuntimeStartRunInput,
+} from "../../src/contracts/storage/runtime-storage.js";
 import { AsyncKernelEventPersister } from "../../src/services/agent/sdk/async-event-persister.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
-describe("AsyncKernelEventPersister", () => {
-  it("persists run, incremental messages, and final status through async ports", async () => {
-    const messages = new Map<string, { id: string; seq: number; content: string }>();
-    const runs = new Map<string, { final_message_id: string | null }>();
-    const conversation = {
-      createSession: async () => undefined,
-      addMessage: async (input: { messageId?: string; content: string }) => { const value = { id: input.messageId ?? `m-${messages.size + 1}`, seq: messages.size + 1, content: input.content }; messages.set(value.id, value); return value; },
-      getMessageById: async (_session: string, id: string) => messages.get(id) ?? null,
-    } as never;
-    const runStore = {
-      createRun: async (input: { runId: string }) => { runs.set(input.runId, { final_message_id: null }); return { run_id: input.runId, session_id: "s", status: "running", thread_key: "root", parent_run_id: null, parent_call_id: null, child_agent_id: null }; },
-      updateRunStatus: async (_tenant: string, id: string, _session: string, _status: string, finalId?: string | null) => { const run = runs.get(id); if (run) run.final_message_id = finalId ?? null; return Boolean(run); },
-      getRun: async (_tenant: string, _session: string, id: string) => { const run = runs.get(id); return run ? { final_message_id: run.final_message_id } : null; },
-    } as never;
-    const snapshots: Array<[string, number]> = [];
-    const fileHistory = { makeSnapshot: async (sessionId: string, seq: number) => { snapshots.push([sessionId, seq]); return "snapshot"; } } as never;
-    const persister = new AsyncKernelEventPersister(conversation, runStore, { tenantId: LOCAL_TENANT_ID, sessionId: "s", runId: "r", threadKey: "root", agentName: "a" }, fileHistory);
-    await persister.startRun();
-    await persister.finalize("completed", { content: "answer" });
-    expect(await persister.resolveFinalMessage()).toMatchObject({ content: "answer" });
-    expect(snapshots).toEqual([["s", 1]]);
-  });
+const NOW = "2026-01-01T00:00:00.000Z";
 
-  it("mirrors the initial user turn once for future SaaS context reads", async () => {
-    const messages = new Map<string, { id: string; seq: number; content: string }>();
-    let addCount = 0;
-    const conversation = {
-      createSession: async () => undefined,
-      addMessage: async (input: { messageId?: string; content: string }) => {
-        addCount += 1;
-        const value = { id: input.messageId ?? `m-${messages.size + 1}`, seq: messages.size + 1, content: input.content };
-        messages.set(value.id, value);
-        return value;
-      },
-      getMessageById: async (_session: string, id: string) => messages.get(id) ?? null,
-    } as never;
-    const runStore = {
-      createRun: async (input: { runId: string }) => ({ run_id: input.runId }),
-      updateRunStatus: async () => true,
-      getRun: async () => null,
-    } as never;
-    const context = {
-      tenantId: LOCAL_TENANT_ID,
-      sessionId: "s",
-      runId: "r",
-      threadKey: "root",
-      agentName: "a",
-      initialUserMessage: { id: "user-1", content: "question" },
+function createHarness() {
+  const starts: RuntimeStartRunInput[] = [];
+  const persists: RuntimePersistMessageInput[] = [];
+  const finalizes: RuntimeFinalizeRunInput[] = [];
+  const delivered: Array<Array<{ event_id: string }>> = [];
+  const snapshots: Array<[string, number]> = [];
+  const lifecycle: string[] = [];
+  const messages = new Map<string, MessageInfo>();
+  let nextSeq = 1;
+
+  const persist = (input: RuntimePersistMessageInput["message"]): MessageInfo => {
+    const existing = messages.get(input.messageId);
+    if (existing) return existing;
+    const value: MessageInfo = {
+      id: input.messageId,
+      seq: nextSeq++,
+      session_id: input.sessionId,
+      role: input.role,
+      content: input.content,
+      metadata: input.metadata ?? {},
+      thread_key: input.threadKey ?? "root",
+      child_agent_id: input.childAgentId ?? null,
+      created_at: NOW,
+      ...(input.toolCalls ? { tool_calls: input.toolCalls } : {}),
+      ...(input.toolCallId ? { tool_call_id: input.toolCallId } : {}),
+      ...(input.name ? { name: input.name } : {}),
     };
+    messages.set(value.id, value);
+    return value;
+  };
 
-    await new AsyncKernelEventPersister(conversation, runStore, context).startRun();
-    await new AsyncKernelEventPersister(conversation, runStore, context).startRun();
-
-    expect(messages.get("user-1")).toMatchObject({ content: "question" });
-    expect(addCount).toBe(1);
-  });
-
-  it("marks intent and observation messages as intermediate but not the final answer", async () => {
-    const added: Array<Record<string, unknown>> = [];
-    const conversation = {
-      createSession: async () => undefined,
-      addMessage: async (input: Record<string, unknown>) => {
-        added.push(input);
-        return { id: `m-${added.length}`, seq: added.length, content: input.content };
+  const storage: RuntimeStorage = {
+    tenantId: LOCAL_TENANT_ID,
+    operations: {
+      startRun: async (input) => {
+        starts.push(input);
+        const initialUserMessage = input.initialUserMessage
+          ? persist(input.initialUserMessage)
+          : null;
+        return {
+          run: {
+            run_id: input.run.runId,
+            session_id: input.run.sessionId,
+            status: input.run.status ?? "running",
+            thread_key: input.run.threadKey ?? "root",
+            parent_run_id: input.run.parentRunId ?? null,
+            parent_call_id: input.run.parentCallId ?? null,
+            child_agent_id: input.run.childAgentId ?? null,
+          },
+          initialUserMessage,
+        };
       },
-      getMessageById: async () => null,
-    } as never;
-    const runStore = {
-      createRun: async () => ({ run_id: "run-1" }),
-      updateRunStatus: async () => true,
-      getRun: async () => null,
-    } as never;
-    const persister = new AsyncKernelEventPersister(conversation, runStore, {
-      tenantId: LOCAL_TENANT_ID,
-      sessionId: "session-1",
-      runId: "run-1",
-      threadKey: "root",
-      agentName: "agent-1",
-    });
+      persistMessage: async (input) => {
+        persists.push(input);
+        return {
+          message: persist(input.message),
+          deletedProviderContinuations: input.deleteProviderContinuationThreadKey ? 1 : 0,
+          providerContinuation: null,
+        };
+      },
+      recordEnvelope: async () => {
+        throw new Error("persister terminal flow must use finalizeRun");
+      },
+      finalizeRun: async (input) => {
+        lifecycle.push("finalize");
+        finalizes.push(input);
+        const finalMessage = input.finalMessage ? persist(input.finalMessage) : null;
+        const records = (input.buildTerminalRecords?.(finalMessage) ?? []).map((record, index) => ({
+          step: record.step ? {
+            id: index + 1,
+            run_id: record.step.runId,
+            event_id: record.outbox.eventId,
+            step_order: index + 1,
+            step_type: record.step.stepType,
+          } : null,
+          outbox: {
+            id: index + 1,
+            event_id: record.outbox.eventId,
+            session_id: record.outbox.sessionId,
+            tenant_id: LOCAL_TENANT_ID,
+            run_id: record.outbox.runId ?? null,
+            session_seq: index + 1,
+            event_type: record.outbox.eventType,
+            aggregate_type: record.outbox.aggregateType,
+            aggregate_id: record.outbox.aggregateId,
+            payload: JSON.stringify(record.outbox.payload),
+            status: "pending" as const,
+            attempts: 0,
+            available_at: NOW,
+            locked_at: null,
+            delivered_at: null,
+            last_error: null,
+            created_at: NOW,
+          },
+        }));
+        return { finalMessage, records };
+      },
+    },
+  };
+  const clientEvents = {
+    flush: async () => { lifecycle.push("flush"); },
+    deliver: async (rows: Array<{ event_id: string }>) => {
+      lifecycle.push("deliver");
+      delivered.push(rows);
+    },
+  };
+  const fileHistory = {
+    makeSnapshot: async (sessionId: string, seq: number) => {
+      snapshots.push([sessionId, seq]);
+      return "snapshot";
+    },
+  };
+  return { storage, clientEvents, fileHistory, starts, persists, finalizes, delivered, snapshots, messages, lifecycle };
+}
 
+function context(overrides: Record<string, unknown> = {}) {
+  return {
+    tenantId: LOCAL_TENANT_ID,
+    sessionId: "session-1",
+    runId: "run-1",
+    rootRunId: "run-1",
+    threadKey: "root",
+    agentName: "agent-1",
+    agentDisplayName: "Agent One",
+    rootCallId: "call-root",
+    taskId: "task-1",
+    providerType: "anthropic",
+    executionKind: "agent_stream",
+    requestId: "request-1",
+    userId: "user-1",
+    ...overrides,
+  } as const;
+}
+
+describe("AsyncKernelEventPersister", () => {
+  it("persists deterministic incremental messages and completes with atomic terminal records", async () => {
+    const harness = createHarness();
+    const persister = new AsyncKernelEventPersister(
+      harness.storage,
+      harness.clientEvents as never,
+      context({ initialUserMessage: { id: "user-1", content: "question" } }),
+      harness.fileHistory as never,
+    );
+
+    await persister.startRun();
     await persister.persist({
       type: "assistant_intermediate",
-      message: { role: "assistant", content: "intent" },
       round: 0,
+      message: {
+        role: "assistant",
+        content: "intent",
+        tool_calls: [{ id: "tool-1", type: "function", function: { name: "search", arguments: "{}" } }],
+        provider_continuation: {
+          protocol: "anthropic_messages",
+          toolCallIds: ["tool-1"],
+          blocks: [{ type: "thinking", thinking: "private", signature: "sig" }],
+        },
+      },
     } as never);
     await persister.persist({
       type: "tool_result",
-      observation: "result",
-      toolCallId: "call-1",
-      toolName: "read_file",
       round: 0,
+      toolCallId: "tool-1",
+      toolName: "search",
+      observation: "result",
+      metadata: { tool_result_media: [{ type: "image", path: "result.png" }] },
     } as never);
-    await persister.finalize("completed", { content: "final" });
+    await persister.finalize("completed", { content: "answer" });
 
-    expect(added.map((input) => input.role)).toEqual(["assistant", "tool", "assistant"]);
-    expect(added[0]?.metadata).toMatchObject({ msg_type: "intent", react_intermediate: true });
-    expect(added[1]?.metadata).toMatchObject({ msg_type: "observation", react_intermediate: true });
-    expect(added[2]?.metadata).toMatchObject({ msg_type: "assistant_final" });
-    expect(added[2]?.metadata).not.toHaveProperty("react_intermediate");
+    expect(harness.starts[0]).toMatchObject({
+      session: { sessionId: "session-1", userId: "user-1" },
+      run: { runId: "run-1", agentName: "agent-1" },
+      initialUserMessage: { messageId: "user-1", content: "question" },
+    });
+    expect(harness.persists.map((item) => item.message.messageId)).toEqual([
+      "run-1:intent:0",
+      "run-1:tool:tool-1",
+    ]);
+    expect(harness.persists[0]).toMatchObject({
+      deleteProviderContinuationThreadKey: "root",
+      providerContinuation: {
+        messageId: "run-1:intent:0",
+        providerType: "anthropic",
+        toolCallIds: ["tool-1"],
+      },
+    });
+    expect(harness.persists[1]?.message.metadata).toMatchObject({
+      msg_type: "observation",
+      react_intermediate: true,
+      extensions: [{ kind: "tool_result_media" }],
+    });
+    expect(harness.finalizes[0]?.finalMessage).toMatchObject({
+      messageId: "run-1:final",
+      content: "answer",
+      metadata: { msg_type: "assistant_final", task_id: "task-1" },
+    });
+    const terminalInputs = harness.finalizes[0]?.buildTerminalRecords?.(
+      harness.messages.get("run-1:final") ?? null,
+    ) ?? [];
+    expect(terminalInputs.map((record) => record.outbox.eventId)).toEqual([
+      "run-1:terminal:0:stream_output",
+      "run-1:terminal:1:state_sync",
+      "run-1:terminal:2:agent_ended",
+      "run-1:terminal:3:run_ended",
+    ]);
+    expect(terminalInputs[2]?.outbox.payload).toMatchObject({
+      client_event: { payload: { display_name: "Agent One", success: true } },
+    });
+    expect(harness.delivered[0]?.map((row) => row.event_id)).toEqual(
+      terminalInputs.map((record) => record.outbox.eventId),
+    );
+    expect(harness.lifecycle).toEqual(["flush", "finalize", "deliver"]);
+    expect(harness.snapshots).toEqual([["session-1", 4]]);
+    expect(persister.resolveFinalMessage()).toMatchObject({ id: "run-1:final", content: "answer" });
+  });
+
+  it("creates an interrupted anchor, clears continuations, and records failure terminal events", async () => {
+    const harness = createHarness();
+    const persister = new AsyncKernelEventPersister(
+      harness.storage,
+      harness.clientEvents as never,
+      context(),
+      harness.fileHistory as never,
+    );
+    await persister.startRun();
+
+    await persister.finalize("interrupted", null, new Error("aborted"));
+
+    const finalized = harness.finalizes[0]!;
+    expect(finalized.finalMessage).toMatchObject({
+      messageId: "run-1:interrupted",
+      role: "assistant",
+      content: "",
+      metadata: { interrupted: true, msg_type: "assistant_final" },
+    });
+    expect(finalized.deleteProviderContinuationThreadKey).toBe("root");
+    expect(finalized.closeDanglingToolCalls).toEqual({
+      threadKey: "root",
+      agentName: "agent-1",
+    });
+    const records = finalized.buildTerminalRecords?.(
+      harness.messages.get("run-1:interrupted") ?? null,
+    ) ?? [];
+    expect(records.map((record) => record.outbox.eventId)).toEqual([
+      "run-1:terminal:0:agent_ended",
+      "run-1:terminal:1:run_ended",
+    ]);
+    expect(records[0]?.outbox.payload).toMatchObject({
+      client_event: { payload: { result: "[已停止生成]", success: false } },
+    });
+    expect(harness.snapshots).toEqual([]);
+  });
+
+  it("suspends the root interaction tree without producing terminal events", async () => {
+    const harness = createHarness();
+    const persister = new AsyncKernelEventPersister(
+      harness.storage,
+      harness.clientEvents as never,
+      context({ runId: "child-run", rootRunId: "root-run", childAgentId: "child-1" }),
+    );
+    await persister.startRun();
+
+    await persister.finalize("suspended", null);
+
+    expect(harness.finalizes[0]).toMatchObject({
+      runId: "child-run",
+      status: "suspended",
+      finalMessage: null,
+      suspendRootRunId: "root-run",
+    });
+    expect(harness.delivered).toEqual([[]]);
+    expect(persister.resolveFinalMessage()).toBeNull();
   });
 });

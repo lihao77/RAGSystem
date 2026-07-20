@@ -1,9 +1,15 @@
 import type { RunStepInfo } from "../../../../contracts/common.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
-import { stringifyJson } from "./helpers.js";
+import { parseJsonObject, stringifyJson } from "./helpers.js";
 import { rowToRun, rowToRunStep } from "./mappers.js";
-import type { AddRunStepInput, IRunStore, RunInfo, RunStepRecord } from "../../../../contracts/conversation-store/index.js";
+import type {
+  AddRunStepInput,
+  ConversationStoreTransaction,
+  IRunStore,
+  RunInfo,
+  RunStepRecord,
+} from "../../../../contracts/conversation-store/index.js";
 import type { RunRow, RunStepRow } from "./types.js";
 
 const RUN_STEP_SELECT_COLUMNS = "id, run_id, session_id, message_id, step_order, step_type, payload, created_at";
@@ -15,6 +21,11 @@ interface IdempotentRunStepRow {
   event_id: string;
   step_order: number;
   step_type: string;
+}
+
+interface IdempotentRunStepDbRow extends IdempotentRunStepRow {
+  message_id: string | null;
+  payload: string;
 }
 
 /** runs + run_steps 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
@@ -176,6 +187,17 @@ export class RunOps implements IRunStore {
       step_order: stepOrder,
       step_type: input.stepType,
     };
+  }
+
+  getRunStepByEventId(eventId: string): ReturnType<ConversationStoreTransaction["getRunStepByEventId"]> {
+    const row = this.db
+      .prepare(`
+        SELECT id, run_id, session_id, message_id, event_id, step_order, step_type, payload
+        FROM run_steps
+        WHERE event_id=?
+      `)
+      .get(eventId) as IdempotentRunStepDbRow | undefined;
+    return row ? { ...row, payload: parseJsonObject(row.payload) } : null;
   }
 
   updateRunStepsMessageId(sessionId: string, runId: string, messageId: string): number {

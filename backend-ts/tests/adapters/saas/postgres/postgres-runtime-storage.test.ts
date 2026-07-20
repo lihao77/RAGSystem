@@ -9,18 +9,39 @@ import { createTenantId } from "../../../../src/identity/types.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 
+function persistMessageInput(messageId: string) {
+  return {
+    message: {
+      messageId, sessionId: "session-1", role: "assistant" as const, content: "working",
+      threadKey: "root",
+      toolCalls: [{ id: "tool-1", type: "function" as const, function: { name: "search", arguments: "{}" } }],
+    },
+    providerContinuation: {
+      messageId, sessionId: "session-1", threadKey: "root", providerType: "anthropic",
+      toolCallIds: ["tool-1"],
+      state: {
+        protocol: "anthropic_messages" as const,
+        toolCallIds: ["tool-1"],
+        blocks: [{ type: "thinking" as const, thinking: "private", signature: "sig" }],
+      },
+    },
+  };
+}
+
 function createExecutorHarness(options: {
   sessionExists?: boolean;
   sessionTenantId?: string;
   runExists?: boolean;
   runStatus?: string;
   runPatch?: Record<string, unknown>;
+  failProviderContinuation?: boolean;
 } = {}) {
   const tenantId = createTenantId("tnt_runtime_storage");
   const transactionQueries: Array<{ sql: string; params: readonly unknown[] }> = [];
   const messages = new Map<string, Record<string, unknown>>();
   const eventSteps = new Map<string, Record<string, unknown>>();
   const eventOutboxes = new Map<string, Record<string, unknown>>();
+  const providerContinuations = new Map<string, Record<string, unknown>>();
   let rootQueryCount = 0;
   let transactionCount = 0;
   let sessionExists = options.sessionExists ?? true;
@@ -51,6 +72,7 @@ function createExecutorHarness(options: {
     ): Promise<PostgresQueryResult<Row>> => {
       transactionQueries.push({ sql, params });
       let rows: Record<string, unknown>[] = [];
+      let rowCount = 1;
       if (sql.startsWith("INSERT INTO conversation_sessions")) {
         sessionExists = true;
         rows = [{ tenant_id: tenantId }];
@@ -150,8 +172,23 @@ function createExecutorHarness(options: {
         };
         eventOutboxes.set(inserted.event_id, inserted);
         rows = [inserted];
+      } else if (sql.startsWith("DELETE FROM provider_continuations")) {
+        const matching = [...providerContinuations.entries()].filter(([, record]) => (
+          record.session_id === params[1] && record.thread_key === params[2]
+        ));
+        for (const [key] of matching) providerContinuations.delete(key);
+        rowCount = matching.length;
+      } else if (sql.includes("INSERT INTO provider_continuations")) {
+        if (options.failProviderContinuation) throw new Error("provider continuation failure");
+        const inserted = {
+          message_id: String(params[1]), session_id: String(params[2]), thread_key: String(params[3]),
+          provider_type: String(params[4]), tool_call_ids: JSON.parse(String(params[5])),
+          state: JSON.parse(String(params[6])), created_at: NOW,
+        };
+        providerContinuations.set(inserted.message_id, inserted);
+        rows = [inserted];
       }
-      return { rows: rows as Row[], rowCount: 1 };
+      return { rows: rows as Row[], rowCount };
     },
     transaction: async (operation) => operation(transactionExecutor),
   };
@@ -162,7 +199,17 @@ function createExecutorHarness(options: {
     },
     transaction: async (operation) => {
       transactionCount += 1;
-      return operation(transactionExecutor);
+      const messageSnapshot = new Map(messages);
+      const continuationSnapshot = new Map(providerContinuations);
+      try {
+        return await operation(transactionExecutor);
+      } catch (error) {
+        messages.clear();
+        for (const [key, value] of messageSnapshot) messages.set(key, value);
+        providerContinuations.clear();
+        for (const [key, value] of continuationSnapshot) providerContinuations.set(key, value);
+        throw error;
+      }
     },
   };
   return {
@@ -173,6 +220,7 @@ function createExecutorHarness(options: {
     messages,
     eventSteps,
     eventOutboxes,
+    providerContinuations,
     get rootQueryCount() { return rootQueryCount; },
     get transactionCount() { return transactionCount; },
   };
@@ -486,5 +534,80 @@ describe("PostgresRuntimeStorage", () => {
     expect(second).toEqual(first);
     expect(harness.transactionQueries.filter(({ sql }) => sql.includes("INSERT INTO saas_run_steps"))).toHaveLength(1);
     expect(harness.transactionQueries.filter(({ sql }) => sql.includes("INSERT INTO event_outbox"))).toHaveLength(1);
+  });
+
+  it("persists and reuses a deterministic message with its continuation in one transaction", async () => {
+    const harness = createExecutorHarness();
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+    const input = persistMessageInput("message-persist");
+
+    const first = await storage.operations.persistMessage(input);
+    const replay = await storage.operations.persistMessage(input);
+
+    expect(replay.message).toEqual(first.message);
+    expect(replay.providerContinuation?.message_id).toBe("message-persist");
+    expect(harness.messages).toHaveLength(1);
+    expect(harness.providerContinuations).toHaveLength(1);
+    const advisoryIndex = harness.transactionQueries.findIndex(({ sql, params }) => (
+      sql.includes("pg_advisory_xact_lock") && params[0] === "message:message-persist"
+    ));
+    const lookupIndex = harness.transactionQueries.findIndex(({ sql, params }) => (
+      sql.startsWith("SELECT session_id FROM conversation_messages") && params[0] === "message-persist"
+    ));
+    expect(advisoryIndex).toBeGreaterThanOrEqual(0);
+    expect(advisoryIndex).toBeLessThan(lookupIndex);
+  });
+
+  it("treats JSON object key order as immaterial for deterministic message retries", async () => {
+    const harness = createExecutorHarness();
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+    const input = persistMessageInput("message-json-order");
+
+    await storage.operations.persistMessage({
+      ...input,
+      message: { ...input.message, metadata: { first: 1, second: 2 } },
+    });
+    await expect(storage.operations.persistMessage({
+      ...input,
+      message: { ...input.message, metadata: { second: 2, first: 1 } },
+    })).resolves.toBeDefined();
+  });
+
+  it("deletes the previous continuation and rejects scope or message conflicts", async () => {
+    const harness = createExecutorHarness();
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+    await storage.operations.persistMessage(persistMessageInput("message-old"));
+    const replacement = persistMessageInput("message-new");
+
+    const result = await storage.operations.persistMessage({
+      ...replacement,
+      deleteProviderContinuationThreadKey: "root",
+    });
+    expect(result.deletedProviderContinuations).toBe(1);
+    expect(harness.providerContinuations.has("message-old")).toBe(false);
+
+    await expect(storage.operations.persistMessage({
+      ...replacement,
+      message: { ...replacement.message, content: "changed" },
+    })).rejects.toThrow("message immutable fields conflict");
+    await expect(storage.operations.persistMessage({
+      ...persistMessageInput("message-scope"),
+      providerContinuation: {
+        ...persistMessageInput("message-scope").providerContinuation!,
+        sessionId: "session-other",
+      },
+    })).rejects.toThrow("provider continuation session mismatch");
+  });
+
+  it("rolls back a newly inserted message when continuation persistence fails", async () => {
+    const harness = createExecutorHarness({ failProviderContinuation: true });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+
+    await expect(storage.operations.persistMessage(
+      persistMessageInput("message-rollback"),
+    )).rejects.toThrow("provider continuation failure");
+
+    expect(harness.messages.has("message-rollback")).toBe(false);
+    expect(harness.providerContinuations.has("message-rollback")).toBe(false);
   });
 });

@@ -5,12 +5,15 @@ import type {
   RuntimeAtomicOperations,
   RuntimeFinalizeRunInput,
   RuntimeFinalizeRunResult,
+  RuntimePersistMessageInput,
+  RuntimePersistMessageResult,
   RuntimeRecordEnvelopeInput,
   RuntimeRecordEnvelopeResult,
   RuntimeStartRunInput,
   RuntimeStartRunResult,
   RuntimeStorage,
 } from "../../contracts/storage/runtime-storage.js";
+import { buildInterruptedToolMessages } from "../../contracts/storage/runtime-finalization.js";
 import type { TenantId } from "../../identity/types.js";
 
 class SerialExecutor {
@@ -35,6 +38,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
   ) {
     this.operations = {
       startRun: (input) => this.startRun(input),
+      persistMessage: (input) => this.persistMessage(input),
       recordEnvelope: (input) => this.recordEnvelope(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
@@ -87,6 +91,27 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
     });
   }
 
+  private persistMessage(input: RuntimePersistMessageInput): Promise<RuntimePersistMessageResult> {
+    return this.serial.run(() => {
+      assertContinuationScope(input);
+      return this.store.runInTransaction((tx) => {
+        const session = tx.getSession(input.message.sessionId);
+        if (!session) throw new Error(`session not found: ${input.message.sessionId}`);
+        if (session.tenant_id !== this.tenantId) {
+          throw new Error(`session belongs to another tenant: ${input.message.sessionId}`);
+        }
+        const deletedProviderContinuations = input.deleteProviderContinuationThreadKey
+          ? tx.deleteProviderContinuations(input.message.sessionId, input.deleteProviderContinuationThreadKey)
+          : 0;
+        const message = resolveDeterministicMessage(tx, input.message, "message");
+        const providerContinuation = input.providerContinuation
+          ? tx.putProviderContinuation(input.providerContinuation)
+          : null;
+        return { message, deletedProviderContinuations, providerContinuation };
+      });
+    });
+  }
+
   private finalizeRun(input: RuntimeFinalizeRunInput): Promise<RuntimeFinalizeRunResult> {
     return this.serial.run(() => {
       assertFinalizeMessagePolicy(input);
@@ -108,6 +133,20 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         }
         if (input.suspendRootRunId) {
           tx.suspendPendingInteractions(input.sessionId, input.suspendRootRunId);
+        }
+        if (input.closeDanglingToolCalls) {
+          const messages = tx.getRecentMessages(
+            input.sessionId,
+            1000,
+            input.closeDanglingToolCalls.threadKey,
+          );
+          for (const message of buildInterruptedToolMessages(messages, {
+            sessionId: input.sessionId,
+            runId: input.runId,
+            ...input.closeDanglingToolCalls,
+          })) {
+            resolveDeterministicMessage(tx, message, "interrupted tool message");
+          }
         }
         const finalMessage = resolveFinalMessage(tx, input, currentRun, replayingTerminal);
         const records: RuntimeRecordEnvelopeResult[] = [];
@@ -136,6 +175,15 @@ function recordEnvelope(
   input: RuntimeRecordEnvelopeInput,
 ): RuntimeRecordEnvelopeResult {
   if (!input.outbox.eventId?.trim()) throw new Error("execution outbox requires a stable eventId");
+  const existingStep = tx.getRunStepByEventId(input.outbox.eventId);
+  if (existingStep) {
+    if (!input.step) throw new Error(`incomplete execution event record: ${input.outbox.eventId}`);
+    const conflicts = existingStep.session_id !== input.step.sessionId
+      || existingStep.run_id !== input.step.runId
+      || existingStep.step_type !== input.step.stepType
+      || !isDeepStrictEqual(existingStep.payload, input.step.payload);
+    if (conflicts) throw new Error(`run step eventId conflict: ${input.outbox.eventId}`);
+  }
   const step = input.step ? tx.addRunStep({ ...input.step, eventId: input.outbox.eventId }) : null;
   const outbox = tx.appendOutbox(input.outbox);
   return { step, outbox };
@@ -173,6 +221,17 @@ function assertFinalizeMessagePolicy(input: RuntimeFinalizeRunInput): void {
   }
   if ((input.status === "failed" || input.status === "suspended") && input.finalMessage) {
     throw new Error(`${input.status} run must not include a final message`);
+  }
+}
+
+function assertContinuationScope(input: RuntimePersistMessageInput): void {
+  const continuation = input.providerContinuation;
+  if (!continuation) return;
+  if (continuation.messageId !== input.message.messageId) {
+    throw new Error("provider continuation message mismatch");
+  }
+  if (continuation.sessionId !== input.message.sessionId) {
+    throw new Error("provider continuation session mismatch");
   }
 }
 

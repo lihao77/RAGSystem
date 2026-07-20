@@ -99,13 +99,19 @@ describe("runtime composition roots", () => {
   it("routes SaaS execution events through the deployment-provided durable publisher", async () => {
     const dataRoot = makeTempRoot();
     const publish = vi.fn().mockResolvedValue({});
+    let factoryTenantId = "";
+    let factoryRealtimeEvents: unknown;
     const runtime = createLocalRuntimeContainer({
       tenantId: createTenantId("tnt_runtime_durable_events"),
       dbPath: ":memory:",
       dataRoot,
       startOutboxDispatcher: false,
       hostToolsEnabled: false,
-      asyncClientEventsFactory: () => ({ publish } as never),
+      asyncClientEventsFactory: (tenantId, realtimeEvents) => {
+        factoryTenantId = tenantId;
+        factoryRealtimeEvents = realtimeEvents;
+        return { publish } as never;
+      },
     });
     try {
       const eventPublisher = (runtime.agentExecution as typeof runtime.agentExecution & {
@@ -119,6 +125,8 @@ describe("runtime composition roots", () => {
         { runId: "run-1", aggregateType: "run", aggregateId: "run-1" },
       ));
       expect(runtime.conversationStore.listOutbox({ limit: 10 }).items).toEqual([]);
+      expect(factoryTenantId).toBe("tnt_runtime_durable_events");
+      expect(factoryRealtimeEvents).toBe(runtime.realtimeEvents);
     } finally {
       runtime.close();
     }
