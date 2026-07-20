@@ -42,6 +42,7 @@ import type { PathAccessPolicy } from "./path-access-policy.js";
 import type { AsyncAnalyticsRepository } from "../storage/async-persistence-ports.js";
 
 export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = IMemoryStore> {
+  readonly deploymentKind: "local" | "saas";
   readonly conversationStore: ConversationStore;
   readonly sessionApplication: AgentSessionApplication;
   readonly realtimeEvents: RealtimeEventBus;
@@ -89,6 +90,7 @@ export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = I
  * are extracted. The memory dependency is the first such boundary.
  */
 export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryRepository = MemoryRepository> {
+  deploymentKind: "local" | "saas";
   tenantId: TenantId;
   dataRoot: string;
   memoryConfig: MemoryConfig;

@@ -25,4 +25,10 @@ describe("request resources", () => {
     expect(options.resolveFileHistoryStorage).toHaveBeenCalledOnce();
     await expect(createRequestResources({} as never, options as never)).resolves.toEqual(first);
   });
+
+  it("rejects missing SaaS resources instead of exposing Local stores", async () => {
+    await expect(createRequestResources({
+      container: { deploymentKind: "saas" },
+    } as never, {} as never)).rejects.toThrow("SaaS knowledge file store resolver returned no implementation");
+  });
 });

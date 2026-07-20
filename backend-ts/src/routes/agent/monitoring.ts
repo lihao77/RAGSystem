@@ -130,14 +130,13 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
   app.get("/context-snapshot", async (request) => {
     const query = request.query as ContextSnapshotQuery;
     const sessionId = normalizeString(query.session_id);
-    const saasSession = await options.resolveSessionApplication?.(request);
-    const saasSessionInfo = sessionId && saasSession ? await saasSession.getSession(sessionId) : null;
-    if (sessionId && saasSession) {
-      if (!saasSessionInfo) throw new HttpError(404, "not_found", "会话不存在");
-      await assertSessionOwner(request, saasSessionInfo);
+    const sessionApplication = (await ensureRequestApplications(request, options)).sessions;
+    const sessionInfo = sessionId ? await sessionApplication.getSession(sessionId) : null;
+    if (sessionId) {
+      if (!sessionInfo) throw new HttpError(404, "not_found", "会话不存在");
+      await assertSessionOwner(request, sessionInfo);
     }
-    const sessionMetadata = saasSessionInfo?.metadata
-      ?? (sessionId ? request.container.conversationStore.getSession(sessionId)?.metadata ?? {} : {});
+    const sessionMetadata = sessionInfo?.metadata ?? {};
     const resolved = request.container.runtimeCore.resolveExecutionConfig({
       agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
       teamName: normalizeString(sessionMetadata.team),
@@ -173,17 +172,25 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     // conversation 注入 preview（组 LLM request）；rawMessages/sources 由 backend 自组，preview 不再返回 context。
     const threadKey = normalizeString(query.thread_key);
     const historyPort: ConversationHistoryPort & SessionMetadataPort & Partial<Pick<typeof request.container.conversationStore, "listMemoryCandidates">> = {
-      getRecentMessages: (sid, limit, tk) => saasSession
-        ? saasSession.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root")
-        : request.container.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
+      getRecentMessages: (sid, limit, tk) => sessionApplication.getRecentMessages(
+        sid,
+        limit ?? HISTORY_SCAN_LIMIT,
+        tk ?? "root",
+      ),
       getSession: (sid) => {
-        const s = saasSessionInfo && sid === sessionId
-          ? saasSessionInfo
-          : request.container.conversationStore.getSession(sid);
+        const s = sessionInfo && sid === sessionId
+          ? sessionInfo
+          : request.container.deploymentKind === "local"
+            ? request.container.conversationStore.getSession(sid)
+            : null;
         return s ? { metadata: s.metadata ?? {}, user_id: s.user_id } : null;
       },
-      ...(saasSession ? {} : { updateSessionMetadata: (sid: string, patch: Record<string, unknown>) => request.container.conversationStore.updateSessionMetadata(sid, patch) }),
-      ...(saasSession ? {} : { listMemoryCandidates: (candidateQuery: Parameters<typeof request.container.conversationStore.listMemoryCandidates>[0]) => request.container.conversationStore.listMemoryCandidates(candidateQuery) }),
+      ...(request.container.deploymentKind === "local"
+        ? { updateSessionMetadata: (sid: string, patch: Record<string, unknown>) => request.container.conversationStore.updateSessionMetadata(sid, patch) }
+        : {}),
+      ...(request.container.deploymentKind === "local"
+        ? { listMemoryCandidates: (candidateQuery: Parameters<typeof request.container.conversationStore.listMemoryCandidates>[0]) => request.container.conversationStore.listMemoryCandidates(candidateQuery) }
+        : {}),
     };
     const snapshot = sessionId
       ? await previewBackendAgentContext(agent, profile, historyPort, registry, {

@@ -37,8 +37,18 @@ export async function createRequestApplications(
   request: FastifyRequest,
   options: RouteOptions,
 ): Promise<RequestApplications> {
-  const sessions = await options.resolveSessionApplication?.(request)
-    ?? new LocalSessionApplication(request.identity.tenantId, request.container.sessionApplication, request.container.conversationStore);
+  const allowLocalFallback = request.container.deploymentKind !== "saas";
+  const resolvedSessions = await options.resolveSessionApplication?.(request);
+  const sessions = resolveApplication(
+    "session",
+    resolvedSessions,
+    allowLocalFallback,
+    () => new LocalSessionApplication(
+      request.identity.tenantId,
+      request.container.sessionApplication,
+      request.container.conversationStore,
+    ),
+  );
   const [resolvedMemory, resolvedArtifacts, resolvedAnalytics, resolvedMonitoring, resolvedExecutionRead] = await Promise.all([
     options.resolveMemoryApplication?.(request),
     options.resolveArtifactApplication?.(request),
@@ -46,20 +56,55 @@ export async function createRequestApplications(
     options.resolveMonitoringApplication?.(request),
     options.resolveExecutionRead?.(request),
   ]);
-  const memory = resolvedMemory
-    ?? new LocalMemoryApplication(
+  const memory = resolveApplication(
+    "memory",
+    resolvedMemory,
+    allowLocalFallback,
+    () => new LocalMemoryApplication(
       request.identity.tenantId,
       request.container.memoryStore,
       request.container.conversationStore,
       request.identity.userId,
       async () => (await sessions.listSessions({ userIds: [request.identity.userId], limit: 10_000, offset: 0 })).items.map((session) => session.session_id),
-    );
-  const artifacts = resolvedArtifacts ?? new LocalArtifactApplication(request.container.artifacts);
-  const analytics = resolvedAnalytics ?? new LocalAnalyticsApplication(request.container.conversationStore);
-  const monitoring = resolvedMonitoring ?? new LocalMonitoringApplication(request.container.conversationStore);
-  const executionRead = resolvedExecutionRead ?? new LocalExecutionReadApplication(request.container.agentExecution, request.container.conversationStore);
+    ),
+  );
+  const artifacts = resolveApplication(
+    "artifact",
+    resolvedArtifacts,
+    allowLocalFallback,
+    () => new LocalArtifactApplication(request.container.artifacts),
+  );
+  const analytics = resolveApplication(
+    "analytics",
+    resolvedAnalytics,
+    allowLocalFallback,
+    () => new LocalAnalyticsApplication(request.container.conversationStore),
+  );
+  const monitoring = resolveApplication(
+    "monitoring",
+    resolvedMonitoring,
+    allowLocalFallback,
+    () => new LocalMonitoringApplication(request.container.conversationStore),
+  );
+  const executionRead = resolveApplication(
+    "execution read",
+    resolvedExecutionRead,
+    allowLocalFallback,
+    () => new LocalExecutionReadApplication(request.container.agentExecution, request.container.conversationStore),
+  );
   const interactions = request.container.interactionCoordinator;
 
   const execution = new LocalExecutionApplication(request.container.agentExecution);
   return { sessions, memory, artifacts, analytics, monitoring, executionRead, interactions, execution };
+}
+
+function resolveApplication<T>(
+  name: string,
+  resolved: T | undefined,
+  allowLocalFallback: boolean,
+  createLocal: () => T,
+): T {
+  if (resolved !== undefined) return resolved;
+  if (!allowLocalFallback) throw new Error(`SaaS ${name} application resolver returned no implementation`);
+  return createLocal();
 }

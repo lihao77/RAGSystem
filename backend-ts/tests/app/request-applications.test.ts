@@ -35,4 +35,13 @@ describe("createRequestApplications", () => {
     });
     expect(options.resolveExecutionRead).toHaveBeenCalledOnce();
   });
+
+  it("rejects an undefined SaaS resolver instead of falling back to Local storage", async () => {
+    await expect(createRequestApplications({
+      identity: { tenantId: "tnt_saas" },
+      container: { deploymentKind: "saas" },
+    } as never, {
+      resolveSessionApplication: vi.fn().mockResolvedValue(undefined),
+    } as never)).rejects.toThrow("SaaS session application resolver returned no implementation");
+  });
 });

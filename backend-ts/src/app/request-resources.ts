@@ -4,6 +4,7 @@ import type { AsyncKnowledgeMarkdownPipeline } from "../contracts/knowledge/asyn
 import type { AsyncSessionFileStorage } from "../contracts/session/session-file-storage.js";
 import type { AsyncFileHistoryStore } from "../contracts/file-history-store/index.js";
 import type { RouteOptions } from "../routes/route-options.js";
+import { requireDeploymentResolution } from "./deployment-resolution.js";
 
 export interface RequestResources {
   knowledgeFileStore?: AsyncKnowledgeFileStore;
@@ -18,12 +19,20 @@ export async function ensureRequestResources(request: FastifyRequest, options: R
 }
 
 export async function createRequestResources(request: FastifyRequest, options: RouteOptions): Promise<RequestResources> {
-  const [knowledgeFileStore, sessionFileStorage, fileHistoryStorage] = await Promise.all([
+  const [resolvedKnowledgeFileStore, resolvedSessionFileStorage, resolvedFileHistoryStorage] = await Promise.all([
     options.resolveKnowledgeFileStore?.(request),
     options.resolveSessionFileStorage?.(request),
     options.resolveFileHistoryStorage?.(request),
   ]);
-  const knowledgeMarkdownPipeline = await options.resolveKnowledgeMarkdownPipeline?.(request);
+  const resolvedKnowledgeMarkdownPipeline = await options.resolveKnowledgeMarkdownPipeline?.(request);
+  const knowledgeFileStore = requireDeploymentResolution(request, "knowledge file store", resolvedKnowledgeFileStore);
+  const sessionFileStorage = requireDeploymentResolution(request, "session file storage", resolvedSessionFileStorage);
+  const fileHistoryStorage = requireDeploymentResolution(request, "file history storage", resolvedFileHistoryStorage);
+  const knowledgeMarkdownPipeline = requireDeploymentResolution(
+    request,
+    "knowledge markdown pipeline",
+    resolvedKnowledgeMarkdownPipeline,
+  );
   return {
     ...(knowledgeFileStore ? { knowledgeFileStore } : {}),
     ...(knowledgeMarkdownPipeline ? { knowledgeMarkdownPipeline } : {}),

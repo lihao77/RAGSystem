@@ -9,6 +9,7 @@ import { WidgetAuthError, type WidgetAuthService } from "../services/runtime/jwt
 import { HttpError } from "../utils/errors.js";
 import { widgetUserId } from "../identity/widget-user-id.js";
 import type { AgentRouteOptions } from "./route-options.js";
+import { resolveSessionApplication } from "./session-application.js";
 
 interface WidgetSessionParams {
   sessionId: string;
@@ -66,26 +67,15 @@ export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async
         created_via: createdVia,
       },
     };
-    const sessions = await options.resolveSessionApplication?.(request);
-    if (sessions) {
-      await sessions.createSession({ sessionId, userId: widgetUserId(appKey), metadata });
-    } else {
-      request.container.sessionApplication.createSession({
-        tenantId,
-        sessionId,
-        userId: widgetUserId(appKey),
-        metadata,
-      });
-    }
+    const sessions = await resolveSessionApplication(options, request);
+    await sessions.createSession({ sessionId, userId: widgetUserId(appKey), metadata });
     return ok({ session_id: sessionId }, "widget 会话创建成功");
   });
 
   app.post<{ Params: WidgetSessionParams }>("/sessions/:sessionId/ws-ticket", async (request) => {
     const { appKey, tenantId } = await resolveWidgetCredential(request, auth);
-    const sessions = await options.resolveSessionApplication?.(request);
-    const session = sessions
-      ? await sessions.getSession(request.params.sessionId)
-      : request.container.sessionApplication.getSession(request.params.sessionId);
+    const sessions = await resolveSessionApplication(options, request);
+    const session = await sessions.getSession(request.params.sessionId);
     const widgetMeta = session?.metadata?.widget as { app_key?: unknown } | undefined;
     if (!session || session.tenant_id !== tenantId || widgetMeta?.app_key !== appKey) {
       throw new HttpError(404, "not_found", "会话不存在");

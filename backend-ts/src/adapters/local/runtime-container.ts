@@ -153,6 +153,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
   const delegationPending = new DelegationPendingService();
 
   return createCoreRuntimeContainer({
+    deploymentKind: options.deploymentKind ?? "local",
     tenantId: options.tenantId,
     dataRoot,
     memoryConfig,

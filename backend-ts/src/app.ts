@@ -30,18 +30,16 @@ import { createWidgetAuthService, type WidgetAuthService } from "./services/runt
 import { createSessionTokenService, type SessionTokenService } from "./services/runtime/session-token-service.js";
 import { createWsTicketService, type WsTicketService } from "./services/runtime/ws-ticket-service.js";
 import { AuthError, LocalIdentityProvider, PasswordIdentityProvider, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
-import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./adapters/local/tenant-runtime-registry.js";
+import { LocalTenantRuntimeRegistry } from "./adapters/local/tenant-runtime-registry.js";
+import type { RuntimeContainerRegistry } from "./services/runtime/runtime-container-registry.js";
 import { DaemonService, type DaemonSuspendedInteraction } from "./services/daemon/daemon-service.js";
 import { createSaaSMemoryApplicationResolver } from "./adapters/saas/composition/saas-memory-resolver.js";
 import type { RouteOptions } from "./routes/route-options.js";
 import type { SaaSMemoryRuntimeHandle } from "./adapters/saas/composition/saas-memory-runtime.js";
 import type { SaaSConversationRuntimeHandle } from "./adapters/saas/composition/saas-conversation-runtime.js";
-import { AsyncKernelEventPersister } from "./services/agent/sdk/async-event-persister.js";
-import { AsyncOutboxDispatcher } from "./services/runtime/event-outbox/async-dispatcher.js";
-import { AsyncDurableClientEventPublisher } from "./services/runtime/event-outbox/async-client-event-publisher.js";
+import { SaaSTenantRuntimeRegistry } from "./adapters/saas/composition/saas-tenant-runtime-registry.js";
 import type { SaaSControlRuntimeHandle } from "./adapters/saas/composition/saas-control-runtime.js";
 import { SaaSDaemonState } from "./adapters/saas/composition/saas-daemon-state.js";
-import { createPostgresExecutionStorage } from "./adapters/saas/postgres/postgres-execution-storage.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
@@ -59,7 +57,7 @@ export interface BuildAppOptions {
   resolveAnalytics?: RouteOptions["resolveAnalytics"];
   resolveMonitoringApplication?: RouteOptions["resolveMonitoringApplication"];
   resolveArtifactApplication?: RouteOptions["resolveArtifactApplication"];
-  registry?: TenantRuntimeRegistry;
+  registry?: RuntimeContainerRegistry;
   controlStore?: ControlStore;
   controlPlane?: ControlPlane;
   controlRuntime?: SaaSControlRuntimeHandle;
@@ -82,6 +80,27 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     throw new Error(
       "saasMemoryRuntime must own Memory composition; custom registry/resolveMemoryApplication would split Memory backends",
     );
+  }
+  if (options.saasConversationRuntime && !options.saasMemoryRuntime) {
+    throw new Error("SaaS conversation runtime requires SaaS memory runtime; hybrid Local memory is not allowed");
+  }
+  if (options.saasConversationRuntime) {
+    const missingApplications = [
+      ["resolveSessionApplication", options.resolveSessionApplication],
+      ["resolveExecutionRead", options.resolveExecutionRead],
+      ["resolveAnalytics", options.resolveAnalytics],
+      ["resolveMonitoringApplication", options.resolveMonitoringApplication],
+      ["resolveArtifactApplication", options.resolveArtifactApplication],
+      ["resolveKnowledgeFileStore", options.resolveKnowledgeFileStore],
+      ["resolveSessionFileStorage", options.resolveSessionFileStorage],
+      ["resolveFileHistoryStorage", options.resolveFileHistoryStorage],
+      ["resolveKnowledgeMarkdownPipeline", options.resolveKnowledgeMarkdownPipeline],
+      ["resolveKnowledgeVectorApplication", options.resolveKnowledgeVectorApplication],
+      ["resolveProviderMcp", options.resolveProviderMcp],
+    ].filter(([, resolver]) => !resolver).map(([name]) => name);
+    if (missingApplications.length > 0) {
+      throw new Error(`SaaS application composition is incomplete: ${missingApplications.join(", ")}`);
+    }
   }
   if (options.controlRuntime && (options.controlStore || options.controlPlane || options.botRepository || options.widgetCredentials || options.widgetCredentialStore)) {
     throw new Error("controlRuntime owns Control, Bot and Widget composition; do not provide legacy stores");
@@ -137,79 +156,31 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ? createWidgetAuthService(options.env.widgetJwtKeyRing, widgetCredentials)
     : undefined);
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentials) : undefined;
-  const saasExecutionStorageFactory = options.saasConversationRuntime
-    ? (input: { tenantId: import("./identity/types.js").TenantId; runtimeStorage: import("./contracts/storage/runtime-storage.js").RuntimeStorage; asyncClientEvents: AsyncDurableClientEventPublisher }) => {
-        return createPostgresExecutionStorage({
-          tenantId: input.tenantId,
-          conversation: options.saasConversationRuntime!.conversation,
-          providerContinuations: options.saasConversationRuntime!.providerContinuations,
-          clientEvents: input.asyncClientEvents,
-          createEventPersister: (context) => new AsyncKernelEventPersister(
-            input.runtimeStorage,
-            input.asyncClientEvents,
-            context,
-            options.saasConversationRuntime!.createFileHistoryStorage(context.tenantId),
-          ),
-        });
-      }
-    : undefined;
-  const registry = options.registry ?? new DefaultTenantRuntimeRegistry(
-    options.env,
-    controlPlane.tenants,
-    app.log,
-    options.saasMemoryRuntime
-      ? {
-          ...(options.saasConversationRuntime ? {
-            prepareRuntime: async (tenantId: import("./identity/types.js").TenantId, runtime: import("./contracts/runtime/runtime-container.js").RuntimeContainer) => {
-              runtime.modelAdapter.replaceRuntimeProviders(
-                await options.saasConversationRuntime!.providerMcpApplication.listProviders(tenantId),
-              );
-            },
-          } : {}),
-          runtimeOptions: {
-            hostToolsEnabled: false,
-            memoryBindingsFactory: (input) => options.saasMemoryRuntime!.provider.createMemoryBindings(
-              input.tenantId,
-              input.sessions,
-            ),
-            ...(saasExecutionStorageFactory ? { executionStorageFactory: saasExecutionStorageFactory } : {}),
-            ...(options.saasConversationRuntime ? {
-              runtimeStorageFactory: (tenantId) => options.saasConversationRuntime!.createRuntimeStorage(tenantId),
-              asyncConversationHistory: options.saasConversationRuntime!.conversation,
-              asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
-              asyncAnalytics: options.saasConversationRuntime!.analytics,
-              asyncProviderContinuations: options.saasConversationRuntime!.providerContinuations,
-              knowledgeQueryFactory: ({ tenantId, baseKnowledge }) => options.saasConversationRuntime!.createKnowledgeQuery(tenantId, baseKnowledge),
-              asyncClientEventsFactory: (_tenantId: import("./identity/types.js").TenantId, realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }, runtimeStorage: import("./contracts/storage/runtime-storage.js").RuntimeStorage) => new AsyncDurableClientEventPublisher(
-                runtimeStorage,
-                new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
-              ),
-            } : {}),
-          },
-        }
-      : options.saasConversationRuntime
-        ? {
-          prepareRuntime: async (tenantId: import("./identity/types.js").TenantId, runtime: import("./contracts/runtime/runtime-container.js").RuntimeContainer) => {
-            runtime.modelAdapter.replaceRuntimeProviders(
-              await options.saasConversationRuntime!.providerMcpApplication.listProviders(tenantId),
-            );
-          },
-          runtimeOptions: {
-            hostToolsEnabled: false,
-            runtimeStorageFactory: (tenantId) => options.saasConversationRuntime!.createRuntimeStorage(tenantId),
-            ...(saasExecutionStorageFactory ? { executionStorageFactory: saasExecutionStorageFactory } : {}),
-            asyncConversationHistory: options.saasConversationRuntime!.conversation,
-            asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
-            asyncAnalytics: options.saasConversationRuntime!.analytics,
-            asyncProviderContinuations: options.saasConversationRuntime!.providerContinuations,
-            knowledgeQueryFactory: ({ tenantId, baseKnowledge }) => options.saasConversationRuntime!.createKnowledgeQuery(tenantId, baseKnowledge),
-            asyncClientEventsFactory: (_tenantId: import("./identity/types.js").TenantId, realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }, runtimeStorage: import("./contracts/storage/runtime-storage.js").RuntimeStorage) => new AsyncDurableClientEventPublisher(
-              runtimeStorage,
-              new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
-            ),
-          } }
-        : {},
-  );
+  const registry = options.registry
+    ?? (options.saasConversationRuntime
+      ? new SaaSTenantRuntimeRegistry(
+          options.env,
+          controlPlane.tenants,
+          options.saasConversationRuntime,
+          app.log,
+          options.saasMemoryRuntime ? { memoryRuntime: options.saasMemoryRuntime } : {},
+        )
+      : new LocalTenantRuntimeRegistry(
+          options.env,
+          controlPlane.tenants,
+          app.log,
+          options.saasMemoryRuntime
+            ? {
+                runtimeOptions: {
+                  hostToolsEnabled: false,
+                  memoryBindingsFactory: (input) => options.saasMemoryRuntime!.provider.createMemoryBindings(
+                    input.tenantId,
+                    input.sessions,
+                  ),
+                },
+              }
+            : {},
+        ));
   const resolveMemoryApplication = options.resolveMemoryApplication
     ?? (options.saasMemoryRuntime
       ? createSaaSMemoryApplicationResolver(options.saasMemoryRuntime.provider)

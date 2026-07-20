@@ -14,6 +14,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
   dependencies: CoreRuntimeDependencies<TMemoryRepository>,
 ): RuntimeContainer<TMemoryRepository> {
   const {
+    deploymentKind,
     tenantId,
     dataRoot,
     memoryConfig,
@@ -129,6 +130,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
   };
 
   return {
+    deploymentKind,
     conversationStore,
     sessionApplication,
     realtimeEvents,

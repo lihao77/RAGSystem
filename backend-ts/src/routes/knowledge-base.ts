@@ -16,6 +16,7 @@ import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import { matchesFileFilters } from "../utils/file-filter.js";
 import type { RouteOptions } from "./route-options.js";
 import { ensureRequestResources } from "../app/request-resources.js";
+import { requireDeploymentResolution } from "../app/deployment-resolution.js";
 import type { AsyncKnowledgeFileStore } from "../contracts/knowledge/async-knowledge-file-store.js";
 import type { AsyncKnowledgeMarkdownPipeline } from "../contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import { isRecord } from "../utils/guards.js";
@@ -43,7 +44,11 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   const resolveAsyncMarkdown = async (request: Parameters<NonNullable<RouteOptions["resolveKnowledgeMarkdownPipeline"]>>[0]): Promise<AsyncKnowledgeMarkdownPipeline | undefined> =>
     (await ensureRequestResources(request, options)).knowledgeMarkdownPipeline;
   const resolveVectorApplication = async (request: Parameters<NonNullable<RouteOptions["resolveKnowledgeVectorApplication"]>>[0]) =>
-    options.resolveKnowledgeVectorApplication?.(request);
+    requireDeploymentResolution(
+      request,
+      "knowledge vector application",
+      await options.resolveKnowledgeVectorApplication?.(request),
+    );
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     const pathname = request.url.split("?", 1)[0] ?? request.url;

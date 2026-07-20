@@ -11,6 +11,7 @@ import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { isRecord } from "../utils/guards.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
+import { requireDeploymentResolution } from "../app/deployment-resolution.js";
 
 interface ServerParams {
   serverName: string;
@@ -26,6 +27,11 @@ interface RegistryQuery {
 export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
+    requireDeploymentResolution(
+      request,
+      "provider MCP application",
+      await options.resolveProviderMcp?.(request),
+    );
     const pathname = request.url.split("?", 1)[0] ?? request.url;
     const isReadOperation = request.method === "GET"
       || pathname.endsWith("/resources/read")

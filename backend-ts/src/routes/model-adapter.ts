@@ -10,6 +10,7 @@ import { ModelAdapterServiceError } from "../services/integrations/model-adapter
 import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
+import { requireDeploymentResolution } from "../app/deployment-resolution.js";
 
 interface ProviderParams {
   providerKey: string;
@@ -19,6 +20,11 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     if (request.method !== "GET") requireTenantAdmin(request);
+    requireDeploymentResolution(
+      request,
+      "provider MCP application",
+      await options.resolveProviderMcp?.(request),
+    );
   });
 
   app.get("/provider-types", async (request) => ok(request.container.modelAdapter.listProviderTypes(), "获取成功"));

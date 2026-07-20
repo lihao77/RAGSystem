@@ -18,6 +18,7 @@ import type { AsyncAnalyticsRepository } from "../../contracts/storage/async-per
 import type { RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
 
 export interface LocalRuntimeContainerOptions {
+  deploymentKind?: "local" | "saas";
   tenantId: TenantId;
   dbPath: string;
   dataRoot?: string;

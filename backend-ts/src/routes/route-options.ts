@@ -7,7 +7,7 @@ import type { MemoryApplication } from "../services/memory/index.js";
 import type { AsyncKnowledgeFileStore } from "../contracts/knowledge/async-knowledge-file-store.js";
 import type { AsyncKnowledgeMarkdownPipeline } from "../contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
-import type { TenantRuntimeRegistry } from "../adapters/local/tenant-runtime-registry.js";
+import type { RuntimeContainerRegistry as TenantRuntimeRegistry } from "../services/runtime/runtime-container-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { SaaSProviderMcpApplication } from "../adapters/saas/application/provider-mcp/saas-provider-mcp-application.js";
 import type { SaaSKnowledgeVectorApplication } from "../adapters/saas/application/knowledge/saas-knowledge-vector-application.js";
