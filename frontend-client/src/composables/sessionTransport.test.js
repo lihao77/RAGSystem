@@ -82,3 +82,50 @@ test('SessionTransport discards a ticket issued for a session that is no longer 
   assert.equal(sockets.length, 1);
   assert.match(sockets[0].url, /session-2/);
 });
+
+test('SessionTransport keeps the reconnect budget when a socket opens then immediately closes', async () => {
+  const sockets = [];
+  const timers = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  let exhausted = 0;
+  globalThis.setTimeout = (callback) => {
+    timers.push(callback);
+    return timers.length;
+  };
+  globalThis.clearTimeout = () => {};
+  try {
+    const transport = createSessionTransport({
+      getCurrentSessionId: () => 'session-1',
+      issueTicket: async () => ({ data: { ticket: `ticket-${sockets.length + 1}` } }),
+      createSocket: (url) => {
+        const socket = new FakeSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      onEnvelope: () => {},
+      onReconnectExhausted: () => { exhausted += 1; },
+      maxReconnectAttempts: 2,
+    });
+
+    await transport.connect('session-1');
+    sockets[0].onopen();
+    sockets[0].onclose();
+    timers.shift()();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.match(sockets[1].url, /after_seq=0/);
+    sockets[1].onopen();
+    sockets[1].onclose();
+    timers.shift()();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    sockets[2].onopen();
+    sockets[2].onclose();
+    assert.equal(exhausted, 1);
+    assert.equal(timers.length, 0);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
+});

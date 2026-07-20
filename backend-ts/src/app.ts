@@ -464,7 +464,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     wsTickets,
     ...(widgetIdentityProvider ? { widgetIdentityProvider } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
+    ...(resolveMemoryApplication ? { resolveMemoryApplication } : {}),
     ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
+    ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
+    ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
+    ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
+    ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),
   });
 
   registerFrontendFallback(app);

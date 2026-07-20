@@ -25,7 +25,11 @@ export function buildSessionSocketUrl(sessionId, options = {}) {
   const host = options.host || '';
   const encodedSessionId = encodeURIComponent(sessionId);
   const params = new URLSearchParams();
-  const afterEventSeq = normalizeEventSeq(options.afterEventSeq);
+  const hasAfterEventSeq = options.afterEventSeq !== null && options.afterEventSeq !== undefined;
+  const rawAfterEventSeq = Number(options.afterEventSeq);
+  const afterEventSeq = hasAfterEventSeq && Number.isSafeInteger(rawAfterEventSeq) && rawAfterEventSeq >= 0
+    ? rawAfterEventSeq
+    : null;
   if (afterEventSeq !== null) params.set('after_seq', String(afterEventSeq));
   if (typeof options.ticket === 'string' && options.ticket) {
     params.set('ticket', options.ticket);

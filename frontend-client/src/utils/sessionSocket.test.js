@@ -29,6 +29,13 @@ test('已知 event_seq 时会构造 after_seq 重连 URL', () => {
   );
 });
 
+test('重连游标为零时仍会请求完整 durable replay', () => {
+  assert.equal(
+    buildSessionSocketUrl('session-1', { protocol: 'https:', host: 'example.test', afterEventSeq: 0 }),
+    'wss://example.test/api/agent/sessions/session-1/ws?after_seq=0',
+  );
+});
+
 test('WebSocket URL 使用短时 ticket 而不是 session token', () => {
   assert.equal(
     buildSessionSocketUrl('session-1', { protocol: 'https:', host: 'example.test', afterEventSeq: 12, ticket: 'ticket-1' }),

@@ -179,14 +179,13 @@ export function createSessionTransport({
     const url = buildSessionSocketUrl(sessionId, {
       protocol: currentLocation.protocol,
       host: currentLocation.host,
-      afterEventSeq: lastEventSeq > 0 ? lastEventSeq : null,
+      afterEventSeq: isReconnect ? lastEventSeq : (lastEventSeq > 0 ? lastEventSeq : null),
       ticket,
     });
     const nextSocket = createSocket(url);
     socketSessionId = sessionId;
     nextSocket.onopen = () => {
       console.debug('[WS] 连接建立', sessionId);
-      reconnectAttempts = 0;
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -196,6 +195,7 @@ export function createSessionTransport({
     nextSocket.onmessage = (message) => {
       try {
         const event = /** @type {import('./sessionCoreTypes.js').SessionEnvelope} */ (JSON.parse(message.data));
+        reconnectAttempts = 0;
         if (!shouldDeliverEvent(event, sessionId)) return;
         if (event.type === 'delegate_call' && event.payload?.phase === 'request') {
           void handleDelegateCall(nextSocket, event, sessionId);

@@ -229,8 +229,12 @@ interface WidgetRouteAssemblyOptions {
   widgetCredentialStore: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
+  resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
   resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
   resolveExecutionRead?: RouteOptions["resolveExecutionRead"];
+  resolveAnalytics?: RouteOptions["resolveAnalytics"];
+  resolveMonitoringApplication?: RouteOptions["resolveMonitoringApplication"];
+  resolveArtifactApplication?: RouteOptions["resolveArtifactApplication"];
 }
 
 export async function registerWidgetAndRealtimeRoutes(
@@ -282,8 +286,12 @@ export async function registerWidgetAndRealtimeRoutes(
     widgetCredentialStore: options.widgetCredentialStore,
     wsTickets: options.wsTickets,
     ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
+    ...(options.resolveMemoryApplication ? { resolveMemoryApplication: options.resolveMemoryApplication } : {}),
     ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
+    ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
+    ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
+    ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),
   });
 }
 
