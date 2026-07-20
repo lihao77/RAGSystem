@@ -8,6 +8,15 @@ const runColumns = `run_id, session_id, tenant_id, entrypoint, status, task_summ
   request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
   child_agent_id, final_message_id, created_at, updated_at`;
 
+interface IdempotentRunStepRow extends Record<string, unknown> {
+  id: number | string;
+  run_id: string;
+  session_id: string;
+  event_id: string | null;
+  step_order: number | string;
+  step_type: string;
+}
+
 function textOrNull(value: unknown): string | null { return value == null ? null : String(value); }
 function run(row: Record<string, unknown>): RunInfo {
   return {
@@ -67,6 +76,7 @@ export class PostgresRunRepository implements AsyncRunStore {
   async addRunStep(input: AddRunStepInput & { tenantId: string }): Promise<RunStepRecord> {
     return this.executor.transaction(async (tx) => {
       const params = [input.tenantId, input.sessionId, input.runId] as const;
+      const eventId = normalizeEventId(input.eventId);
       const lockedRun = await tx.query<{ run_id: string }>(
         "SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3 FOR UPDATE",
         params,
@@ -74,13 +84,42 @@ export class PostgresRunRepository implements AsyncRunStore {
       if (!lockedRun.rows[0]) {
         throw new Error(`run not found: ${input.runId}`);
       }
+      if (eventId) {
+        const existing = await tx.query<IdempotentRunStepRow>(
+          `SELECT id, run_id, session_id, event_id, step_order, step_type
+           FROM saas_run_steps
+           WHERE tenant_id=$1 AND event_id=$2`,
+          [input.tenantId, eventId],
+        );
+        if (existing.rows[0]) {
+          assertEventRunScope(existing.rows[0], input.sessionId, input.runId, eventId);
+          return toRunStepRecord(existing.rows[0]);
+        }
+      }
       const next = await tx.query<{ next_order: number | string }>(
         "SELECT COALESCE(MAX(step_order),0)+1 AS next_order FROM saas_run_steps WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3",
         params,
       );
       const order = Number(next.rows[0]?.next_order ?? 1);
-      const inserted = await tx.query<{ id: number | string }>(`INSERT INTO saas_run_steps (tenant_id, run_id, session_id, message_id, step_order, step_type, payload) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING id`, [input.tenantId, input.runId, input.sessionId, input.messageId ?? null, order, input.stepType, JSON.stringify(input.payload)]);
-      return { id: Number(inserted.rows[0]?.id), run_id: input.runId, step_order: order, step_type: input.stepType };
+      const inserted = await tx.query<IdempotentRunStepRow>(
+        `INSERT INTO saas_run_steps
+          (tenant_id, run_id, session_id, message_id, event_id, step_order, step_type, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+         RETURNING id, run_id, session_id, event_id, step_order, step_type`,
+        [
+          input.tenantId,
+          input.runId,
+          input.sessionId,
+          input.messageId ?? null,
+          eventId,
+          order,
+          input.stepType,
+          JSON.stringify(input.payload),
+        ],
+      );
+      const row = inserted.rows[0];
+      if (!row) throw new Error(`run step insert failed: ${input.runId}`);
+      return toRunStepRecord(row);
     });
   }
 
@@ -112,4 +151,32 @@ export class PostgresRunRepository implements AsyncRunStore {
     );
     return result.rows.map(run);
   }
+}
+
+function normalizeEventId(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  const normalized = value.trim();
+  if (!normalized) throw new Error("run step eventId must not be empty");
+  return normalized;
+}
+
+function assertEventRunScope(
+  existing: IdempotentRunStepRow,
+  sessionId: string,
+  runId: string,
+  eventId: string,
+): void {
+  if (existing.session_id !== sessionId || existing.run_id !== runId) {
+    throw new Error(`run step eventId is already owned by another run: ${eventId}`);
+  }
+}
+
+function toRunStepRecord(row: IdempotentRunStepRow): RunStepRecord {
+  return {
+    id: Number(row.id),
+    run_id: String(row.run_id),
+    event_id: row.event_id == null ? null : String(row.event_id),
+    step_order: Number(row.step_order),
+    step_type: String(row.step_type),
+  };
 }

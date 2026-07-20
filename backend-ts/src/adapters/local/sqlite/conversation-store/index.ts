@@ -39,7 +39,12 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const memoryCandidates = new MemoryCandidateOps(db);
 
   const createTransactionFacade = (): ConversationStoreTransaction => ({
+    createSession: sessions.createSession.bind(sessions),
+    getSession: sessions.getSession.bind(sessions),
     addMessage: messages.addMessageInTransaction.bind(messages),
+    getMessageById: messages.getMessageById.bind(messages),
+    createRun: runs.createRun.bind(runs),
+    getRun: runs.getRun.bind(runs),
     addRunStep: runs.addRunStepInTransaction.bind(runs),
     updateRunStepsMessageId: runs.updateRunStepsMessageId.bind(runs),
     updateRunStatus: runs.updateRunStatus.bind(runs),

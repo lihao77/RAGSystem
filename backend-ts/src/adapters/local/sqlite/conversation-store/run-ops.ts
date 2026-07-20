@@ -8,6 +8,15 @@ import type { RunRow, RunStepRow } from "./types.js";
 
 const RUN_STEP_SELECT_COLUMNS = "id, run_id, session_id, message_id, step_order, step_type, payload, created_at";
 
+interface IdempotentRunStepRow {
+  id: number;
+  run_id: string;
+  session_id: string;
+  event_id: string;
+  step_order: number;
+  step_type: string;
+}
+
 /** runs + run_steps 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
 export class RunOps implements IRunStore {
   constructor(private readonly db: ConversationDb) {}
@@ -128,19 +137,42 @@ export class RunOps implements IRunStore {
 
   /** 事务内变体（供 ConversationStoreTransaction facade 调用，故 public）。 */
   addRunStepInTransaction(input: AddRunStepInput): RunStepRecord {
+    const eventId = normalizeEventId(input.eventId);
+    if (eventId) {
+      const existing = this.db
+        .prepare(`
+          SELECT id, run_id, session_id, event_id, step_order, step_type
+          FROM run_steps
+          WHERE event_id=?
+        `)
+        .get(eventId) as IdempotentRunStepRow | undefined;
+      if (existing) {
+        assertEventRunScope(existing, input.sessionId, input.runId, eventId);
+        return toRunStepRecord(existing);
+      }
+    }
     const row = this.db
       .prepare("SELECT COALESCE(MAX(step_order), 0) + 1 AS next_order FROM run_steps WHERE session_id=? AND run_id=?")
       .get(input.sessionId, input.runId) as { next_order: number };
     const stepOrder = Number(row.next_order) || 1;
     const result = this.db
       .prepare(`
-        INSERT INTO run_steps (run_id, session_id, message_id, step_order, step_type, payload)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO run_steps (run_id, session_id, message_id, event_id, step_order, step_type, payload)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `)
-      .run(input.runId, input.sessionId, input.messageId ?? null, stepOrder, input.stepType, stringifyJson(input.payload));
+      .run(
+        input.runId,
+        input.sessionId,
+        input.messageId ?? null,
+        eventId,
+        stepOrder,
+        input.stepType,
+        stringifyJson(input.payload),
+      );
     return {
       id: Number(result.lastInsertRowid),
       run_id: input.runId,
+      event_id: eventId,
       step_order: stepOrder,
       step_type: input.stepType,
     };
@@ -236,4 +268,32 @@ export class RunOps implements IRunStore {
     }
     return refs;
   }
+}
+
+function normalizeEventId(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  const normalized = value.trim();
+  if (!normalized) throw new Error("run step eventId must not be empty");
+  return normalized;
+}
+
+function assertEventRunScope(
+  existing: IdempotentRunStepRow,
+  sessionId: string,
+  runId: string,
+  eventId: string,
+): void {
+  if (existing.session_id !== sessionId || existing.run_id !== runId) {
+    throw new Error(`run step eventId is already owned by another run: ${eventId}`);
+  }
+}
+
+function toRunStepRecord(row: IdempotentRunStepRow): RunStepRecord {
+  return {
+    id: Number(row.id),
+    run_id: row.run_id,
+    event_id: row.event_id,
+    step_order: Number(row.step_order),
+    step_type: row.step_type,
+  };
 }

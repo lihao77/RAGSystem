@@ -14,6 +14,9 @@ import { z } from "zod";
 import type { ProviderContinuationState } from "@ragsystem/agent-llm";
 
 import type { MessageInfo } from "../session/session.js";
+import type { SessionInfo } from "../session/session.js";
+import type { TenantId } from "../../identity/types.js";
+import type { PermissionMode } from "../runtime/permissions.js";
 
 // ────────────────────────────── 共享枚举 ──────────────────────────────
 
@@ -160,6 +163,7 @@ export type AddMessageInput = z.infer<typeof AddMessageInputSchema>;
 export const AddRunStepInputSchema = z.object({
   sessionId: z.string(),
   runId: z.string(),
+  eventId: z.string().trim().min(1).optional(),
   stepType: z.string(),
   payload: z.record(z.unknown()),
   messageId: z.string().nullable().optional(),
@@ -284,7 +288,13 @@ export const DailyActivityPointSchema = z.object({ date: z.string(), calls: z.nu
 export type DailyActivityPoint = z.infer<typeof DailyActivityPointSchema>;
 
 /** addRunStep 返回的精简记录（领域投影，非完整 run_step 物理行）。 */
-export const RunStepRecordSchema = z.object({ id: z.number(), run_id: z.string(), step_order: z.number(), step_type: z.string() });
+export const RunStepRecordSchema = z.object({
+  id: z.number(),
+  run_id: z.string(),
+  event_id: z.string().nullable(),
+  step_order: z.number(),
+  step_type: z.string(),
+});
 export type RunStepRecord = z.infer<typeof RunStepRecordSchema>;
 
 export const RetryOutboxResultSchema = z.object({ matched: z.number(), retried: z.number(), ids: z.array(z.number()) });
@@ -325,7 +335,40 @@ export interface ConversationStoreOptions {
  * 写入可在读后写前插入消息，令扫描结果与实际写入失配。
  */
 export interface ConversationStoreTransaction {
+  createSession(
+    tenantId: TenantId,
+    sessionId: string,
+    userId: string | null,
+    metadata?: Record<string, unknown>,
+    permissionMode?: PermissionMode | null,
+  ): void;
+  getSession(sessionId: string): SessionInfo | null;
   addMessage(input: AddMessageInput): MessageInfo;
+  getMessageById(sessionId: string, messageId: string): MessageInfo | null;
+  createRun(input: {
+    runId: string;
+    sessionId: string;
+    entrypoint?: string;
+    status?: string;
+    taskSummary?: string;
+    requestId?: string | null;
+    userId?: string | null;
+    agentName?: string | null;
+    operation?: "publish" | "archive" | null;
+    threadKey?: string | null;
+    parentRunId?: string | null;
+    parentCallId?: string | null;
+    childAgentId?: string | null;
+  }): {
+    run_id: string;
+    session_id: string;
+    status: string;
+    thread_key: string;
+    parent_run_id: string | null;
+    parent_call_id: string | null;
+    child_agent_id: string | null;
+  };
+  getRun(sessionId: string, runId: string): RunInfo | null;
   addRunStep(input: AddRunStepInput): RunStepRecord;
   updateRunStepsMessageId(sessionId: string, runId: string, messageId: string): number;
   updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): boolean;

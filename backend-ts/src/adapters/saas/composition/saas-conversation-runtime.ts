@@ -29,6 +29,7 @@ import {
   runPostgresFileHistoryMigrations,
   PostgresFileHistoryMetadataRepository,
   PostgresSessionFileMetadataRepository,
+  PostgresRuntimeStorage,
   runPostgresSessionFileMigrations,
 } from "../../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "../../../contracts/storage/object-storage.js";
@@ -45,6 +46,8 @@ import type { WorkspaceBlobStorage } from "../../../contracts/storage/workspace-
 import type { KnowledgeQueryPort } from "../../../contracts/knowledge/query-port.js";
 import type { KnowledgeBaseService } from "../../../services/knowledge/knowledge-base-service.js";
 import { PostgresKnowledgeQueryAdapter } from "../../../adapters/saas/postgres/knowledge-query-adapter.js";
+import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
+import type { TenantId } from "../../../identity/types.js";
 
 export interface SaaSConversationRuntimeOptions {
   connectionString: string;
@@ -78,6 +81,7 @@ export interface SaaSConversationRuntimeHandle {
   backgroundTasks: PostgresBackgroundTaskRepository;
   analytics: PostgresAnalyticsRepository;
   fileHistory: PostgresFileHistoryMetadataRepository;
+  createRuntimeStorage(tenantId: TenantId): RuntimeStorage;
   createFileHistoryStorage(tenantId: string): AsyncFileHistoryStore;
   createSessionFileStorage(tenantId: string): AsyncSessionFileStorage;
   createWorkspaceBlobStorage(tenantId: string): WorkspaceBlobStorage;
@@ -150,6 +154,7 @@ export async function createSaaSConversationRuntime(
       backgroundTasks,
       analytics,
       fileHistory,
+      createRuntimeStorage: (tenantId) => new PostgresRuntimeStorage(tenantId, executor),
       createFileHistoryStorage: (tenantId) => {
         if (!options.objectStorage) throw new Error("SaaS file history requires ObjectStorage");
         return new SaaSFileHistoryStorage(tenantId, fileHistory, options.objectStorage);

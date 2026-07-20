@@ -110,6 +110,17 @@ export const POSTGRES_RUN_MIGRATIONS: readonly PostgresRunMigration[] = [
         );
     `,
   },
+  {
+    version: 4,
+    name: "run-step-event-idempotency",
+    sql: `
+      ALTER TABLE saas_run_steps
+        ADD COLUMN IF NOT EXISTS event_id TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS saas_run_steps_tenant_event_id_idx
+        ON saas_run_steps(tenant_id, event_id)
+        WHERE event_id IS NOT NULL;
+    `,
+  },
 ];
 
 export function getPendingPostgresRunMigrations(appliedVersion: number): readonly PostgresRunMigration[] {

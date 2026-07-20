@@ -87,6 +87,38 @@ describe("IRunStore 契约", () => {
     expect(step2.step_order).toBe(step1.step_order + 1);
   });
 
+  it("addRunStep 按 eventId 幂等且禁止不同 run 复用", () => {
+    const store = build();
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createRun({ runId: "r1", sessionId: "s1" });
+    store.createRun({ runId: "r2", sessionId: "s1" });
+    const first = store.addRunStep({
+      sessionId: "s1",
+      runId: "r1",
+      eventId: "event-1",
+      stepType: "x",
+      payload: { first: true },
+    });
+    const retried = store.addRunStep({
+      sessionId: "s1",
+      runId: "r1",
+      eventId: "event-1",
+      stepType: "ignored",
+      payload: { first: false },
+    });
+
+    expect(retried).toEqual(first);
+    expect(first.event_id).toBe("event-1");
+    expect(store.listRunSteps({ sessionId: "s1", runId: "r1" })).toHaveLength(1);
+    expect(() => store.addRunStep({
+      sessionId: "s1",
+      runId: "r2",
+      eventId: "event-1",
+      stepType: "x",
+      payload: {},
+    })).toThrow("run step eventId is already owned by another run: event-1");
+  });
+
   it("getRun 不存在返回 null", () => {
     const runs: IRunStore = build();
     expect(runs.getRun("s1", "missing")).toBeNull();

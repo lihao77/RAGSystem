@@ -18,6 +18,7 @@ export * from "./run-repository.js";
 export * from "./outbox-schema.js";
 export * from "./outbox-migrations.js";
 export * from "./outbox-repository.js";
+export * from "./postgres-runtime-storage.js";
 export * from "./knowledge-file-schema.js";
 export * from "./knowledge-file-migrations.js";
 export * from "./knowledge-file-repository.js";

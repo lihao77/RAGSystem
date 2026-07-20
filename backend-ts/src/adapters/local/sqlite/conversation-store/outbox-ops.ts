@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { PaginatedResult } from "../../../../contracts/common.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
@@ -11,7 +12,7 @@ import {
   numericCount,
   uniquePositiveIntegers,
 } from "./shared/primitives.js";
-import { stringifyJson } from "./helpers.js";
+import { parseJsonObject, stringifyJson } from "./helpers.js";
 import type {
   AppendOutboxInput,
   ClaimOutboxInput,
@@ -48,7 +49,16 @@ export class OutboxOps implements IOutboxStore {
 
   /** 事务内变体（供 ConversationStoreTransaction facade 调用，故 public）。 */
   appendOutboxInTransaction(input: AppendOutboxInput): OutboxRow {
-    const eventId = input.eventId ?? randomUUID();
+    const suppliedEventId = input.eventId?.trim();
+    if (input.eventId !== undefined && !suppliedEventId) {
+      throw new Error("outbox eventId must not be empty");
+    }
+    const eventId = suppliedEventId ?? randomUUID();
+    const existing = this.loadOutboxRowByEventId(eventId);
+    if (existing) {
+      assertIdempotentOutbox(existing, input, eventId);
+      return existing;
+    }
     const session = this.db.prepare("SELECT tenant_id FROM sessions WHERE session_id=?").get(input.sessionId) as
       | { tenant_id: string | null }
       | undefined;
@@ -399,6 +409,29 @@ export class OutboxOps implements IOutboxStore {
       .get(id) as OutboxRow | undefined;
     return row ?? null;
   }
+
+  private loadOutboxRowByEventId(eventId: string): OutboxRow | null {
+    const row = this.db
+      .prepare(`SELECT ${OUTBOX_SELECT_COLUMNS} FROM event_outbox WHERE event_id=?`)
+      .get(eventId) as OutboxRow | undefined;
+    return row ?? null;
+  }
+}
+
+function assertIdempotentOutbox(
+  existing: OutboxRow,
+  input: AppendOutboxInput,
+  eventId: string,
+): void {
+  const conflicts = existing.session_id !== input.sessionId
+    || existing.run_id !== (input.runId ?? null)
+    || existing.event_type !== input.eventType
+    || existing.aggregate_type !== input.aggregateType
+    || existing.aggregate_id !== input.aggregateId
+    || !isDeepStrictEqual(parseJsonObject(existing.payload), input.payload)
+    || (input.sessionSeq !== undefined && existing.session_seq !== input.sessionSeq)
+    || (input.availableAt != null && existing.available_at !== input.availableAt);
+  if (conflicts) throw new Error(`outbox eventId conflict: ${eventId}`);
 }
 
 function buildOutboxFilters(input: ListOutboxInput): { clauses: string[]; values: Array<string | number> } {

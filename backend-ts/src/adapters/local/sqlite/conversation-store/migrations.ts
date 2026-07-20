@@ -279,6 +279,18 @@ export const MIGRATIONS: readonly Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_memory_candidates_review_attempt ON memory_candidates(id, status, review_attempt_id)");
     },
   },
+  {
+    version: 16,
+    name: "run_step_event_idempotency",
+    up: (db) => {
+      addColumnIfMissing(db, "run_steps", "event_id", "TEXT");
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_run_steps_event_id
+          ON run_steps(event_id)
+          WHERE event_id IS NOT NULL;
+      `);
+    },
+  },
 ];
 
 function addColumnIfMissing(db: MigrationDatabase, table: string, column: string, declaration: string): void {

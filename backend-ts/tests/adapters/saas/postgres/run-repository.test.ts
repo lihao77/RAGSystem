@@ -14,6 +14,9 @@ describe("PostgresRunRepository tenant isolation", () => {
     expect(POSTGRES_RUN_MIGRATIONS[2]).toMatchObject({ version: 3, name: "remove-duplicate-saas-boundary-messages" });
     expect(POSTGRES_RUN_MIGRATIONS[2]?.sql).toContain("SET final_message_id = canonical.id");
     expect(POSTGRES_RUN_MIGRATIONS[2]?.sql).toContain("DELETE FROM conversation_messages AS boundary");
+    expect(POSTGRES_RUN_MIGRATIONS[3]).toMatchObject({ version: 4, name: "run-step-event-idempotency" });
+    expect(POSTGRES_RUN_MIGRATIONS[3]?.sql).toContain("ADD COLUMN IF NOT EXISTS event_id TEXT");
+    expect(POSTGRES_RUN_MIGRATIONS[3]?.sql).toContain("ON saas_run_steps(tenant_id, event_id)");
   });
 
   it("includes tenant_id in every run and step operation", async () => {
@@ -27,7 +30,14 @@ describe("PostgresRunRepository tenant isolation", () => {
       if (sql.includes("COUNT(*)")) return { rows: [{ count: "1" }], rowCount: 1 };
       if (sql.includes("FROM saas_runs") && sql.includes("FOR UPDATE")) return { rows: [{ run_id: "r1" }], rowCount: 1 };
       if (sql.includes("MAX(step_order)")) return { rows: [{ next_order: 1 }], rowCount: 1 };
-      if (sql.includes("INSERT INTO saas_run_steps")) return { rows: [{ id: 1 }], rowCount: 1 };
+      if (sql.includes("INSERT INTO saas_run_steps")) return { rows: [{
+        id: 1,
+        run_id: String(params[1]),
+        session_id: String(params[2]),
+        event_id: params[4] ?? null,
+        step_order: Number(params[5]),
+        step_type: String(params[6]),
+      }], rowCount: 1 };
       if (sql.startsWith("SELECT id, run_id")) return { rows: [{ id: 1, run_id: "r1", session_id: "s1", message_id: null, step_order: 1, step_type: "event", payload: {}, created_at: "2026-01-01T00:00:00Z" }], rowCount: 1 };
       if (sql.includes("RETURNING") || sql.startsWith("SELECT")) return { rows: [row], rowCount: 1 };
       return { rows: [], rowCount: 1 };
@@ -57,7 +67,14 @@ describe("PostgresRunRepository tenant isolation", () => {
       calls.push({ sql, params });
       if (sql.includes("FROM saas_runs")) return { rows: [{ run_id: "run-1" }], rowCount: 1 };
       if (sql.includes("MAX(step_order)")) return { rows: [{ next_order: "4" }], rowCount: 1 };
-      if (sql.includes("INSERT INTO saas_run_steps")) return { rows: [{ id: "9" }], rowCount: 1 };
+      if (sql.includes("INSERT INTO saas_run_steps")) return { rows: [{
+        id: "9",
+        run_id: String(params[1]),
+        session_id: String(params[2]),
+        event_id: params[4] ?? null,
+        step_order: String(params[5]),
+        step_type: String(params[6]),
+      }], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     };
     const executor = {
@@ -75,6 +92,7 @@ describe("PostgresRunRepository tenant isolation", () => {
     })).resolves.toEqual({
       id: 9,
       run_id: "run-1",
+      event_id: null,
       step_order: 4,
       step_type: "protocol.envelope.v1",
     });
@@ -89,6 +107,63 @@ describe("PostgresRunRepository tenant isolation", () => {
     expect(calls[1]?.params).toEqual(["tenant-a", "session-1", "run-1"]);
     expect(calls[2]?.sql).toContain("INSERT INTO saas_run_steps");
     expect(calls[2]?.params.slice(0, 3)).toEqual(["tenant-a", "run-1", "session-1"]);
+  });
+
+  it("returns the original step for the same eventId and rejects reuse by another run", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    let persisted: Record<string, unknown> | null = null;
+    const query = async (sql: string, params: readonly unknown[] = []) => {
+      calls.push({ sql, params });
+      if (sql.includes("FROM saas_runs") && sql.includes("FOR UPDATE")) {
+        return { rows: [{ run_id: String(params[2]) }], rowCount: 1 };
+      }
+      if (sql.includes("WHERE tenant_id=$1 AND event_id=$2")) {
+        return { rows: persisted ? [persisted] : [], rowCount: persisted ? 1 : 0 };
+      }
+      if (sql.includes("MAX(step_order)")) return { rows: [{ next_order: "1" }], rowCount: 1 };
+      if (sql.includes("INSERT INTO saas_run_steps")) {
+        persisted = {
+          id: "11",
+          run_id: String(params[1]),
+          session_id: String(params[2]),
+          event_id: String(params[4]),
+          step_order: String(params[5]),
+          step_type: String(params[6]),
+        };
+        return { rows: [persisted], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    };
+    const executor = {
+      query,
+      transaction: async <T>(operation: (tx: { query: typeof query }) => Promise<T>) => operation({ query }),
+    };
+    const repo = new PostgresRunRepository(executor as never);
+    const input = {
+      tenantId: "tenant-a",
+      sessionId: "session-1",
+      runId: "run-1",
+      eventId: "event-1",
+      stepType: "protocol.envelope.v1",
+      payload: { type: "tool_call" },
+    };
+
+    const first = await repo.addRunStep(input);
+    const retried = await repo.addRunStep({ ...input, payload: { ignored: true } });
+
+    expect(retried).toEqual(first);
+    expect(first).toEqual({
+      id: 11,
+      run_id: "run-1",
+      event_id: "event-1",
+      step_order: 1,
+      step_type: "protocol.envelope.v1",
+    });
+    expect(calls.filter(({ sql }) => sql.includes("INSERT INTO saas_run_steps"))).toHaveLength(1);
+    expect(calls.filter(({ sql }) => sql.includes("MAX(step_order)"))).toHaveLength(1);
+
+    await expect(repo.addRunStep({ ...input, runId: "run-2" }))
+      .rejects.toThrow("run step eventId is already owned by another run: event-1");
   });
 
   it("rejects a step for a missing tenant-scoped run before allocating an order", async () => {
