@@ -1,19 +1,10 @@
 import type { TenantId } from "../../identity/types.js";
-import type { ApprovalCacheResolution, PendingInteractionPort } from "./pending-interactions.js";
+import type { InteractionCoordinator } from "./pending-interactions.js";
 
 export interface DaemonRuntime {
-  pendingInteractions: PendingInteractionPort;
+  interactionCoordinator: Pick<InteractionCoordinator, "respondApprovalAsync" | "respondUserInputAsync" | "listPendingAsync" | "peekApprovalMeta">;
   conversationStore: {
     getSession(sessionId: string): { metadata: Record<string, unknown> } | null;
-  };
-  resumeExecutor: {
-    resumeRun(input: {
-      sessionId: string;
-      approvalId: string;
-      resolution: ApprovalCacheResolution;
-      onCompleted?: (result: { content: string; success: boolean }) => void;
-      onSuspended?: (approvalId: string) => void;
-    }): unknown;
   };
 }
 

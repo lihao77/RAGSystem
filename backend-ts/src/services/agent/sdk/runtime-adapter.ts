@@ -412,7 +412,15 @@ export async function executeRunWithSdk(
   } catch (error) {
     await consumeEvents.catch(() => undefined);
     if (error instanceof RecoverableInterrupt) {
-      await persister.finalize("suspended", null, error);
+      const finalized = await persister.finalize("suspended", null, error);
+      if (input.runId === rootRunId) {
+        await deps.pendingInteractions.onRootFinalized(
+          input.sessionId,
+          rootRunId,
+          "suspended",
+          finalized.readyResumeInteractionIds,
+        );
+      }
       runtime.close();
       if (input.runId !== error.rootRunId) {
         throw error;
@@ -434,8 +442,15 @@ export async function executeRunWithSdk(
     runtime.close();
     const interrupted = input.signal.aborted;
     // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
-    await persister.finalize(interrupted ? "interrupted" : "failed", null, error);
-    if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, false);
+    const finalized = await persister.finalize(interrupted ? "interrupted" : "failed", null, error);
+    if (input.runId === rootRunId) {
+      await deps.pendingInteractions.onRootFinalized(
+        input.sessionId,
+        rootRunId,
+        interrupted ? "interrupted" : "failed",
+        finalized.readyResumeInteractionIds,
+      );
+    }
     const message = error instanceof Error ? error.message : String(error);
     return { content: message, success: false, tokenUsage, toolCalls };
   }
@@ -444,8 +459,15 @@ export async function executeRunWithSdk(
   runtime.close();
 
   // completed：终态合一落库（最终 assistant message + Envelope 关联 + updateRunStatus）。
-  await persister.finalize("completed", { content: result.content });
-  if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, true);
+  const finalized = await persister.finalize("completed", { content: result.content });
+  if (input.runId === rootRunId) {
+    await deps.pendingInteractions.onRootFinalized(
+      input.sessionId,
+      rootRunId,
+      "completed",
+      finalized.readyResumeInteractionIds,
+    );
+  }
   return { content: result.content, success: true, tokenUsage, toolCalls };
 }
 

@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 
+import { RuntimeInteractionUnavailableError } from "../../../contracts/storage/runtime-storage.js";
 import type {
   RuntimeAtomicOperations,
   RuntimeClaimResumeInput,
@@ -103,6 +104,7 @@ function createTransactionFacade(
     updatePendingInteractionStatus: pendingInteractionRepository.updatePendingInteractionStatus.bind(pendingInteractionRepository),
     markPendingBatchResuming: pendingInteractionRepository.markPendingBatchResuming.bind(pendingInteractionRepository),
     releasePendingBatch: pendingInteractionRepository.releasePendingBatch.bind(pendingInteractionRepository),
+    finalizePendingInteractions: pendingInteractionRepository.finalizePendingInteractions.bind(pendingInteractionRepository),
     suspendPendingInteractions: pendingInteractionRepository.suspendPendingInteractions.bind(pendingInteractionRepository),
     consumePendingResolution: pendingInteractionRepository.consumePendingResolution.bind(pendingInteractionRepository),
     cancelPendingInteractions: pendingInteractionRepository.cancelPendingInteractions.bind(pendingInteractionRepository),
@@ -276,7 +278,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       await lockAdvisoryKey(transactionExecutor, `interaction:${this.tenantId}:${input.interactionId}`);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       const current = await tx.pendingInteractions.getPendingInteraction(input.sessionId, input.interactionId);
-      if (!current) throw new Error(`pending interaction not found: ${input.interactionId}`);
+      if (!current) throw new RuntimeInteractionUnavailableError("not_found", input.interactionId);
       await lockAdvisoryKey(
         transactionExecutor,
         `interaction-root:${this.tenantId}:${input.sessionId}:${current.root_run_id}`,
@@ -287,17 +289,18 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       );
       const rootRun = await lockTenantRun(transactionExecutor, this.tenantId, current.root_run_id);
       if (!rootRun || rootRun.session_id !== input.sessionId) {
-        throw new Error(`interaction root run not found: ${current.root_run_id}`);
+        throw new RuntimeInteractionUnavailableError("not_found", input.interactionId);
       }
       if (current.kind !== input.resolution.kind) {
-        throw new Error(`pending interaction kind conflict: ${input.interactionId}`);
+        throw new RuntimeInteractionUnavailableError("kind_mismatch", input.interactionId);
       }
       if (current.status === "cancelled") {
-        throw new Error(`pending interaction is cancelled: ${input.interactionId}`);
+        throw new RuntimeInteractionUnavailableError("cancelled", input.interactionId);
       }
-      assertRecordScope(input.record, input.sessionId, current.run_id);
-      assertInteractionEnvelope(input.record, toCreatePendingInput(current), "responded");
-      const normalized = normalizeRecord(input.record);
+      const record = input.buildRecord(current);
+      assertRecordScope(record, input.sessionId, current.run_id);
+      assertInteractionEnvelope(record, toCreatePendingInput(current), "responded");
+      const normalized = normalizeRecord(record);
       const resolution = resolutionPayload(input.resolution);
       if (current.resolution_payload && !isDeepStrictEqual(current.resolution_payload, resolution)) {
         throw new Error(`pending interaction resolution conflict: ${input.interactionId}`);
@@ -317,7 +320,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         throw new Error(`pending interaction resolution missing: ${input.interactionId}`);
       }
       const interaction = await tx.pendingInteractions.getPendingInteraction(input.sessionId, input.interactionId);
-      if (!interaction) throw new Error(`pending interaction disappeared: ${input.interactionId}`);
+      if (!interaction) throw new RuntimeInteractionUnavailableError("not_found", input.interactionId);
       const batch = await tx.pendingInteractions.listPendingInteractions({
         sessionId: input.sessionId,
         batchId: current.batch_id,
@@ -450,22 +453,35 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     }
     return this.executor.transaction(async (transactionExecutor) => {
       await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      if (input.interactionRootRunId && input.interactionRootRunId !== input.runId) {
+        throw new Error(`root interaction finalization requires the root run: ${input.runId}`);
+      }
+      if (input.interactionRootRunId) {
+        await lockAdvisoryKey(
+          transactionExecutor,
+          `interaction-root:${this.tenantId}:${input.sessionId}:${input.interactionRootRunId}`,
+        );
+      }
       const run = await lockTenantRun(transactionExecutor, this.tenantId, input.runId);
       if (!run || run.session_id !== input.sessionId) {
         throw new Error(`run not found while finalizing: ${input.runId}`);
       }
+      if (input.interactionRootRunId && run.parent_run_id !== null) {
+        throw new Error(`root interaction finalization rejects a child run: ${input.runId}`);
+      }
       assertTerminalTransition(run.status, input.status, input.runId);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+      const readyResumeInteractionIds = input.interactionRootRunId
+        ? await tx.pendingInteractions.finalizePendingInteractions(
+            input.sessionId,
+            input.interactionRootRunId,
+            input.status,
+          )
+        : [];
       if (input.deleteProviderContinuationThreadKey) {
         await tx.providerContinuations.deleteProviderContinuations(
           input.sessionId,
           input.deleteProviderContinuationThreadKey,
-        );
-      }
-      if (input.suspendRootRunId) {
-        await tx.pendingInteractions.suspendPendingInteractions(
-          input.sessionId,
-          input.suspendRootRunId,
         );
       }
       if (input.closeDanglingToolCalls) {
@@ -510,7 +526,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           throw new Error(`run not found while finalizing: ${input.runId}`);
         }
       }
-      return { finalMessage, records };
+      return { finalMessage, records, readyResumeInteractionIds };
     });
   }
 }

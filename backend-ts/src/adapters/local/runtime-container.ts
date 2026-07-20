@@ -32,7 +32,6 @@ import { DurableClientEventPublisher } from "../../services/runtime/event-outbox
 import { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
 import { OutboxDispatcher } from "../../services/runtime/event-outbox/dispatcher.js";
 import { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
-import { PendingInteractionService } from "../../services/runtime/pending-interaction-service.js";
 import { PermissionPolicyService } from "../../services/runtime/permission-policy-service.js";
 import { RealtimeEventHub } from "../../services/runtime/realtime-event-hub.js";
 import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
@@ -57,11 +56,13 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
   }
   const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
-  const sqliteRuntimeStorage = new SqliteRuntimeStorage(options.tenantId, conversationStore);
-  const localAsyncClientEvents = new AsyncDurableClientEventPublisher(sqliteRuntimeStorage, {
+  const runtimeStorage = options.runtimeStorageFactory?.(options.tenantId)
+    ?? new SqliteRuntimeStorage(options.tenantId, conversationStore);
+  const localAsyncClientEvents = new AsyncDurableClientEventPublisher(runtimeStorage, {
     dispatchRows: async (rows) => outboxDispatcher.dispatchRows(rows),
   });
-  const asyncClientEvents = options.asyncClientEventsFactory?.(options.tenantId, realtimeEvents);
+  const asyncClientEvents = options.asyncClientEventsFactory?.(options.tenantId, realtimeEvents, runtimeStorage)
+    ?? localAsyncClientEvents;
   // Both deployments use the queued publisher so finalize can flush all prior envelope writes.
   const eventClientEvents = asyncClientEvents ?? localAsyncClientEvents;
   const permissionPolicy = new PermissionPolicyService(conversationStore);
@@ -147,7 +148,6 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     clientEvents: eventClientEvents,
   }) : null;
   const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot: options.dataRoot });
-  const pendingInteractions = new PendingInteractionService(eventClientEvents, conversationStore);
   const asyncSuspendedSessionControl = options.asyncSuspendedSessionControlFactory?.(options.tenantId);
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
@@ -160,7 +160,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     ...(options.hooks ? { hooks: options.hooks } : {}),
     ...(options.asyncConversationHistory ? { asyncConversationHistory: options.asyncConversationHistory } : {}),
     ...(options.asyncProviderContinuations ? { asyncProviderContinuations: options.asyncProviderContinuations } : {}),
-    ...(asyncClientEvents ? { asyncClientEvents } : {}),
+    asyncClientEvents,
     ...(asyncSuspendedSessionControl ? { asyncSuspendedSessionControl } : {}),
     ...(options.asyncAnalytics ? { asyncAnalytics: options.asyncAnalytics } : {}),
     conversationStore,
@@ -180,12 +180,13 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     embeddingModels,
     memoryStore,
     memoryBindings,
+    runtimeStorage,
     executionStorage: options.executionStorage
-      ?? options.executionStorageFactory?.({ tenantId: options.tenantId, ...(asyncClientEvents ? { asyncClientEvents } : {}) })
+      ?? options.executionStorageFactory?.({ tenantId: options.tenantId, runtimeStorage, asyncClientEvents })
       ?? createLocalExecutionStorage({
         tenantId: options.tenantId,
         conversation: conversationStore,
-        runtimeStorage: sqliteRuntimeStorage,
+        runtimeStorage,
         clientEvents: localAsyncClientEvents,
         fileHistory,
       }),
@@ -199,7 +200,6 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     backgroundTasks,
     taskTools,
     notificationQueue,
-    pendingInteractions,
     hostToolRegistry,
     delegationPending,
     outboxDispatcher,

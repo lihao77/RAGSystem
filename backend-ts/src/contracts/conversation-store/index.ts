@@ -286,6 +286,7 @@ export interface IPendingInteractionStore {
   /** 仅当 batch 已全部响应时原子领取 resolved 记录；返回 0 表示不可领取或已被领取。 */
   markPendingBatchResuming(sessionId: string, batchId: string): number;
   releasePendingBatch(sessionId: string, batchId: string): number;
+  finalizePendingInteractions(sessionId: string, rootRunId: string, status: "completed" | "failed" | "interrupted" | "suspended"): string[];
   suspendPendingInteractions(sessionId: string, rootRunId: string): number;
   consumePendingResolution(sessionId: string, toolCallId: string): PendingInteractionRecord | null;
   cancelPendingInteractions(sessionId: string): number;

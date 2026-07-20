@@ -63,6 +63,7 @@ export interface AsyncPendingInteractionStore {
   releasePendingBatch(sessionId: string, batchId: string): Promise<number>;
   claimPendingBatch(sessionId: string, batchId: string, claimId: string): Promise<number>;
   releasePendingClaim(sessionId: string, rootRunId: string, claimId: string): Promise<number>;
+  finalizePendingInteractions(sessionId: string, rootRunId: string, status: "completed" | "failed" | "interrupted" | "suspended"): Promise<string[]>;
   suspendPendingInteractions(sessionId: string, rootRunId: string): Promise<number>;
   consumePendingResolution(sessionId: string, toolCallId: string): Promise<PendingInteractionRecord | null>;
   cancelPendingInteractions(sessionId: string): Promise<number>;
@@ -193,6 +194,33 @@ export class PostgresPendingInteractionRepository implements AsyncPendingInterac
     return Number(result.rowCount ?? 0);
   }
 
+  async finalizePendingInteractions(
+    sessionId: string,
+    rootRunId: string,
+    status: "completed" | "failed" | "interrupted" | "suspended",
+  ): Promise<string[]> {
+    const found = await this.executor.query(
+      `SELECT ${columns} FROM pending_interactions
+       WHERE session_id=$1 AND root_run_id=$2
+       ORDER BY created_at, interaction_id FOR UPDATE`,
+      [sessionId, rootRunId],
+    );
+    const records = found.rows.map(interaction);
+    for (const record of records) {
+      const nextStatus = finalizedInteractionStatus(status, record.status);
+      if (!nextStatus || nextStatus === record.status) continue;
+      await this.updatePendingInteractionStatus({
+        sessionId,
+        interactionId: record.interaction_id,
+        from: [record.status],
+        status: nextStatus,
+      });
+      record.status = nextStatus;
+      if (nextStatus !== "resuming") record.resume_claim_id = null;
+    }
+    return status === "suspended" ? readyResumeInteractionIds(records) : [];
+  }
+
   async suspendPendingInteractions(sessionId: string, rootRunId: string): Promise<number> {
     const result = await this.executor.query(`UPDATE pending_interactions
       SET status='suspended', updated_at=CURRENT_TIMESTAMP
@@ -222,4 +250,35 @@ export class PostgresPendingInteractionRepository implements AsyncPendingInterac
       WHERE session_id=$1 AND status IN ('waiting','suspended','resolved','resuming')`, [sessionId]);
     return Number(result.rowCount ?? 0);
   }
+}
+
+function finalizedInteractionStatus(
+  finalizeStatus: "completed" | "failed" | "interrupted" | "suspended",
+  current: PendingInteractionStatus,
+): PendingInteractionStatus | null {
+  if (finalizeStatus === "suspended") {
+    if (current === "waiting") return "suspended";
+    if (current === "resuming") return "consumed";
+    return null;
+  }
+  if (finalizeStatus === "completed") {
+    if (current === "resolved" || current === "resuming") return "consumed";
+    if (current === "waiting" || current === "suspended") return "cancelled";
+    return null;
+  }
+  return current === "waiting" || current === "suspended" || current === "resolved" || current === "resuming"
+    ? "cancelled"
+    : null;
+}
+
+function readyResumeInteractionIds(records: readonly PendingInteractionRecord[]): string[] {
+  const batches = new Map<string, PendingInteractionRecord[]>();
+  for (const record of records) {
+    const batch = batches.get(record.batch_id) ?? [];
+    batch.push(record);
+    batches.set(record.batch_id, batch);
+  }
+  return [...batches.values()]
+    .filter((batch) => batch.length > 0 && batch.every((record) => record.status === "resolved"))
+    .map((batch) => batch[0]!.interaction_id);
 }

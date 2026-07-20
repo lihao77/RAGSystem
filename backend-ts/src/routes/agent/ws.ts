@@ -184,7 +184,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
         sendReconnect("end", activeReplay.events.length, activeReplay.runId);
       }
 
-      ws.on("message", (data) => {
+      ws.on("message", async (data) => {
         const raw = data.toString();
         try {
           const message = ClientToServerEnvelopeSchema.parse(JSON.parse(raw));
@@ -233,29 +233,19 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
             }
             case "interaction": {
               const payload = message.payload;
-              if (payload.kind === "approval") {
-                const result = container.pendingInteractions.respondApproval(sessionId, message.call_id, {
-                  approved: payload.approved ?? false,
-                  message: payload.message,
+              try {
+                const result = payload.kind === "approval"
+                  ? await applications.interactions.respondApprovalAsync(sessionId, message.call_id, {
+                      approved: payload.approved ?? false,
+                      message: payload.message,
+                    })
+                  : await applications.interactions.respondUserInputAsync(sessionId, message.call_id, { value: payload.value });
+                sendAck("interaction", result.resolved, { ref_call_id: message.call_id, ...(result.resolved ? {} : { error: "未找到对应的交互请求，可能已被取消或不存在" }) });
+              } catch (error) {
+                sendAck("interaction", false, {
+                  ref_call_id: message.call_id,
+                  error: error instanceof Error ? error.message : "未找到对应的交互请求，可能已被取消或不存在",
                 });
-                if (result.needsResume) {
-                  applications.execution.resumeRun({
-                    sessionId,
-                    approvalId: message.call_id,
-                    resolution: { approved: payload.approved ?? false, message: payload.message ?? "" },
-                  });
-                }
-                sendAck("interaction", result.resolved, { ref_call_id: message.call_id, ...(result.resolved ? {} : { error: "未找到对应的审批请求，可能已被取消或不存在" }) });
-              } else {
-                const result = container.pendingInteractions.respondUserInput(sessionId, message.call_id, { value: payload.value });
-                if (result.needsResume) {
-                  applications.execution.resumeRun({
-                    sessionId,
-                    approvalId: message.call_id,
-                    resolution: { value: payload.value ?? "" },
-                  });
-                }
-                sendAck("interaction", result.resolved, { ref_call_id: message.call_id, ...(result.resolved ? {} : { error: "未找到对应的输入请求，可能已被取消或不存在" }) });
               }
               break;
             }
@@ -385,8 +375,8 @@ function isPendingInteractionReplayEvent(
     return true;
   }
   return payload.kind === "approval"
-    ? container.pendingInteractions.isApprovalPending(sessionId, callId)
-    : container.pendingInteractions.isUserInputPending(sessionId, callId);
+    ? container.interactionCoordinator.isApprovalPending(sessionId, callId)
+    : container.interactionCoordinator.isUserInputPending(sessionId, callId);
 }
 
 /**

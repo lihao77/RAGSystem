@@ -18,6 +18,7 @@ describe("interaction response routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
     harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "approval-route-session", "usr_local");
+    harness.container.conversationStore.createRun({ runId: "approval-route-run", sessionId: "approval-route-session", agentName: "orchestrator_agent" });
 
     const approvalPromise = harness.container.pendingInteractions.waitForApproval({
       sessionId: "approval-route-session",
@@ -79,11 +80,7 @@ describe("interaction response routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
     harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "resume-route-session", "usr_local");
-    const resumeRun = vi.spyOn(harness.container.resumeExecutor, "resumeRun").mockReturnValue({
-      rootRunId: "resume-route-run",
-      approvalId: "approval-id",
-      toolCallId: "resume-tool-call",
-    });
+    harness.container.conversationStore.createRun({ runId: "resume-route-run", sessionId: "resume-route-session", agentName: "orchestrator_agent" });
 
     const suspended = harness.container.pendingInteractions.waitForApproval({
       sessionId: "resume-route-session",
@@ -97,6 +94,10 @@ describe("interaction response routes", () => {
       toolName: "execute_bash",
     });
     await expect(suspended).rejects.toBeDefined();
+    harness.container.conversationStore.updateRunStatus("resume-route-run", "resume-route-session", "suspended", null);
+    harness.container.interactionCoordinator.bindResumeStarter({
+      startClaim: vi.fn().mockReturnValue({ promise: Promise.resolve({ content: "resumed", success: true }) }),
+    });
     await vi.waitFor(() => expect(harness.container.realtimeEvents
       .getHistory("resume-route-session")[0]).toBeDefined());
     const approvalId = harness.container.realtimeEvents.getHistory("resume-route-session")[0]?.call_id ?? "";
@@ -109,10 +110,5 @@ describe("interaction response routes", () => {
 
     expect(responded.statusCode).toBe(200);
     expect(responded.json()).toMatchObject({ success: true, data: { resolved: true, resuming: true } });
-    expect(resumeRun).toHaveBeenCalledWith({
-      sessionId: "resume-route-session",
-      approvalId,
-      resolution: { approved: true, message: "继续" },
-    });
   });
 });

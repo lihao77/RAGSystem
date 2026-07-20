@@ -31,7 +31,7 @@ export interface ExecutionRunPersistenceContext {
 export interface ExecutionEventPersister {
   startRun(): void | Promise<void>;
   persist(event: KernelEvent): void | Promise<void>;
-  finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: { id?: string; content: string; metadata?: Record<string, unknown> } | null, error?: unknown): void | Promise<void>;
+  finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: { id?: string; content: string; metadata?: Record<string, unknown> } | null, error?: unknown): { readyResumeInteractionIds: string[] } | Promise<{ readyResumeInteractionIds: string[] }>;
   resolveFinalMessage(): { id: string; seq: number; content: string } | null | Promise<{ id: string; seq: number; content: string } | null>;
 }
 

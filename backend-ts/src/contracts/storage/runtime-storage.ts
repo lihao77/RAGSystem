@@ -104,6 +104,11 @@ export interface RuntimePendingInteractionStorage {
   }): Promise<boolean>;
   markPendingBatchResuming(sessionId: string, batchId: string): Promise<number>;
   releasePendingBatch(sessionId: string, batchId: string): Promise<number>;
+  finalizePendingInteractions(
+    sessionId: string,
+    rootRunId: string,
+    status: RuntimeFinalizeStatus,
+  ): Promise<string[]>;
   suspendPendingInteractions(sessionId: string, rootRunId: string): Promise<number>;
   consumePendingResolution(
     sessionId: string,
@@ -164,7 +169,8 @@ export interface RuntimeFinalizeRunInput {
   status: RuntimeFinalizeStatus;
   finalMessage?: (AddMessageInput & { messageId: string }) | null;
   attachStepsToFinalMessage?: boolean;
-  suspendRootRunId?: string | null;
+  /** Present only when finalizing the root run; applies the root interaction status matrix atomically. */
+  interactionRootRunId?: string | null;
   deleteProviderContinuationThreadKey?: string | null;
   closeDanglingToolCalls?: {
     threadKey: string;
@@ -182,6 +188,7 @@ export interface RuntimeFinalizeRunInput {
 export interface RuntimeFinalizeRunResult {
   finalMessage: MessageInfo | null;
   records: RuntimeRecordEnvelopeResult[];
+  readyResumeInteractionIds: string[];
 }
 
 export interface RuntimePersistMessageInput {
@@ -200,6 +207,20 @@ export type RuntimeInteractionResolution =
   | { kind: "approval"; approved: boolean; message: string }
   | { kind: "user_input"; value: string };
 
+export type RuntimeInteractionUnavailableReason = "not_found" | "kind_mismatch" | "cancelled";
+
+/** Expected response-time rejection; transports should present it as a missing interaction. */
+export class RuntimeInteractionUnavailableError extends Error {
+  override readonly name = "RuntimeInteractionUnavailableError";
+
+  constructor(
+    readonly reason: RuntimeInteractionUnavailableReason,
+    interactionId: string,
+  ) {
+    super(`pending interaction ${reason}: ${interactionId}`);
+  }
+}
+
 export interface RuntimeRecordInteractionInput {
   interaction: CreatePendingInteractionInput;
   rootCallId: string;
@@ -215,7 +236,8 @@ export interface RuntimeResolveInteractionInput {
   sessionId: string;
   interactionId: string;
   resolution: RuntimeInteractionResolution;
-  record: RuntimeRecordEnvelopeInput;
+  /** Built after loading the durable interaction, so callers do not need its run scope after restart. */
+  buildRecord(interaction: PendingInteractionRecord): RuntimeRecordEnvelopeInput;
 }
 
 export interface RuntimeResolveInteractionResult {

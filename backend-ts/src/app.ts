@@ -57,7 +57,6 @@ export interface BuildAppOptions {
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
   resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
   resolveExecutionRead?: RouteOptions["resolveExecutionRead"];
-  resolveInteractionRecovery?: RouteOptions["resolveInteractionRecovery"];
   resolveAnalytics?: RouteOptions["resolveAnalytics"];
   resolveMonitoringApplication?: RouteOptions["resolveMonitoringApplication"];
   resolveArtifactApplication?: RouteOptions["resolveArtifactApplication"];
@@ -140,16 +139,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     : undefined);
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentials) : undefined;
   const saasExecutionStorageFactory = options.saasConversationRuntime
-    ? (input: { tenantId: import("./identity/types.js").TenantId; asyncClientEvents?: AsyncDurableClientEventPublisher }) => {
-        if (!input.asyncClientEvents) throw new Error("SaaS execution storage requires durable client events");
+    ? (input: { tenantId: import("./identity/types.js").TenantId; runtimeStorage: import("./contracts/storage/runtime-storage.js").RuntimeStorage; asyncClientEvents: AsyncDurableClientEventPublisher }) => {
         return createPostgresExecutionStorage({
           tenantId: input.tenantId,
           conversation: options.saasConversationRuntime!.conversation,
           providerContinuations: options.saasConversationRuntime!.providerContinuations,
           clientEvents: input.asyncClientEvents,
           createEventPersister: (context) => new AsyncKernelEventPersister(
-            options.saasConversationRuntime!.createRuntimeStorage(context.tenantId),
-            input.asyncClientEvents!,
+            input.runtimeStorage,
+            input.asyncClientEvents,
             context,
             options.saasConversationRuntime!.createFileHistoryStorage(context.tenantId),
           ),
@@ -177,6 +175,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             ),
             ...(saasExecutionStorageFactory ? { executionStorageFactory: saasExecutionStorageFactory } : {}),
             ...(options.saasConversationRuntime ? {
+              runtimeStorageFactory: (tenantId) => options.saasConversationRuntime!.createRuntimeStorage(tenantId),
               asyncConversationHistory: options.saasConversationRuntime!.conversation,
               asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
               asyncAnalytics: options.saasConversationRuntime!.analytics,
@@ -188,8 +187,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
                 options.saasConversationRuntime!.runs,
                 options.saasConversationRuntime!.pendingInteractions,
               ),
-              asyncClientEventsFactory: (tenantId: import("./identity/types.js").TenantId, realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
-                options.saasConversationRuntime!.createRuntimeStorage(tenantId),
+              asyncClientEventsFactory: (_tenantId: import("./identity/types.js").TenantId, realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }, runtimeStorage: import("./contracts/storage/runtime-storage.js").RuntimeStorage) => new AsyncDurableClientEventPublisher(
+                runtimeStorage,
                 new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
               ),
             } : {}),
@@ -204,6 +203,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           },
           runtimeOptions: {
             hostToolsEnabled: false,
+            runtimeStorageFactory: (tenantId) => options.saasConversationRuntime!.createRuntimeStorage(tenantId),
             ...(saasExecutionStorageFactory ? { executionStorageFactory: saasExecutionStorageFactory } : {}),
             asyncConversationHistory: options.saasConversationRuntime!.conversation,
             asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
@@ -216,8 +216,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               options.saasConversationRuntime!.runs,
               options.saasConversationRuntime!.pendingInteractions,
             ),
-            asyncClientEventsFactory: (tenantId: import("./identity/types.js").TenantId, realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
-              options.saasConversationRuntime!.createRuntimeStorage(tenantId),
+            asyncClientEventsFactory: (_tenantId: import("./identity/types.js").TenantId, realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }, runtimeStorage: import("./contracts/storage/runtime-storage.js").RuntimeStorage) => new AsyncDurableClientEventPublisher(
+              runtimeStorage,
               new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
             ),
           } }
@@ -231,7 +231,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const saasDaemonState = options.saasConversationRuntime
     ? new SaaSDaemonState(
         options.saasConversationRuntime.conversation,
-        options.saasConversationRuntime.pendingInteractions,
       )
     : null;
   const botEngine = options.botEngine ?? new DaemonService({
@@ -265,26 +264,21 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             scheduledBatches.add(notice.batchId);
             queueMicrotask(() => void (async () => {
               scheduledBatches.delete(notice.batchId);
-              const metas = saasDaemonState
-                ? await saasDaemonState.listSuspendedInteractions({
-                    tenantId: input.tenantId,
-                    sessionId: input.sessionId,
-                    rootRunId: notice.rootRunId,
-                    botId: input.botId,
-                  })
-                : lease.runtime.pendingInteractions.listPendingApprovalMeta(notice.rootRunId, input.sessionId)
-                    .map((item): DaemonSuspendedInteraction => ({
-                      approvalId: item.approvalId,
-                      sessionId: item.sessionId,
-                      botId: input.botId,
-                      rootRunId: item.rootRunId,
-                      kind: item.kind,
-                      ...(item.toolName ? { toolName: item.toolName } : {}),
-                      ...(item.riskLevel ? { riskLevel: item.riskLevel } : {}),
-                      ...(item.reason ? { reason: item.reason } : {}),
-                      ...(item.prompt ? { prompt: item.prompt } : {}),
-                      ...(item.options ? { options: item.options } : {}),
-                    }));
+              const metas = (await lease.runtime.interactionCoordinator.listPendingAsync(
+                notice.rootRunId,
+                input.sessionId,
+              )).map((item): DaemonSuspendedInteraction => ({
+                approvalId: item.approvalId,
+                sessionId: item.sessionId,
+                botId: input.botId,
+                rootRunId: item.rootRunId,
+                kind: item.kind,
+                ...(item.toolName ? { toolName: item.toolName } : {}),
+                ...(item.riskLevel ? { riskLevel: item.riskLevel } : {}),
+                ...(item.reason ? { reason: item.reason } : {}),
+                ...(item.prompt ? { prompt: item.prompt } : {}),
+                ...(item.options ? { options: item.options } : {}),
+              }));
               if (metas.length === 0) return;
               input.onInteractionRequired?.(metas);
             })().catch((error: unknown) => {
@@ -302,14 +296,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           if (!result.success && !result.suspended) throw new Error(result.error ?? "agent 执行失败");
           if (result.suspended) {
             const rootRunId = result.rootRunId ?? result.run_id ?? "";
-            const metas = saasDaemonState
-              ? await saasDaemonState.listSuspendedInteractions({
-                  tenantId: input.tenantId,
-                  sessionId: input.sessionId,
-                  rootRunId,
-                  botId: input.botId,
-                })
-              : lease.runtime.pendingInteractions.listPendingApprovalMeta(rootRunId, input.sessionId);
+            const metas = await lease.runtime.interactionCoordinator.listPendingAsync(rootRunId, input.sessionId);
             const meta = metas[0];
             if (!meta) {
               throw new Error("Agent 已挂起，但未找到待处理交互");
@@ -489,7 +476,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}),
     ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
-    ...(options.resolveInteractionRecovery ? { resolveInteractionRecovery: options.resolveInteractionRecovery } : {}),
     ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
     ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
     ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),

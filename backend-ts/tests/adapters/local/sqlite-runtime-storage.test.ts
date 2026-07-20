@@ -773,13 +773,13 @@ describe("SqliteRuntimeStorage", () => {
       runId: "run-1",
       sessionId: "session-1",
       status: "suspended",
-      suspendRootRunId: "run-1",
+      interactionRootRunId: "run-1",
     });
     const firstResolution = {
       sessionId: "session-1",
       interactionId: "interaction-1",
       resolution: { kind: "approval" as const, approved: true, message: "allow one" },
-      record: interactionRecord(firstInteraction, "responded"),
+      buildRecord: () => interactionRecord(firstInteraction, "responded"),
     };
     const resolvedFirst = await storage.operations.resolveInteraction(firstResolution);
     const replayedFirst = await storage.operations.resolveInteraction(firstResolution);
@@ -792,7 +792,7 @@ describe("SqliteRuntimeStorage", () => {
       sessionId: "session-1",
       interactionId: "interaction-2",
       resolution: { kind: "approval", approved: false, message: "deny two" },
-      record: interactionRecord(secondInteraction, "responded"),
+      buildRecord: () => interactionRecord(secondInteraction, "responded"),
     });
 
     expect(resolvedFirst).toMatchObject({ changed: true, batchReady: false, rootRunStatus: "suspended" });
@@ -858,6 +858,84 @@ describe("SqliteRuntimeStorage", () => {
     ]);
   });
 
+  it("finalizes the root pending-interaction matrix atomically", async () => {
+    const cases = [
+      { status: "suspended" as const, expected: ["suspended", "consumed", "resolved", "resolved"], ready: ["resolved-1"] },
+      { status: "completed" as const, expected: ["cancelled", "consumed", "consumed", "consumed"], ready: [] },
+      { status: "failed" as const, expected: ["cancelled", "cancelled", "cancelled", "cancelled"], ready: [] },
+      { status: "interrupted" as const, expected: ["cancelled", "cancelled", "cancelled", "cancelled"], ready: [] },
+    ];
+    for (const testCase of cases) {
+      const { store, storage } = createHarness();
+      await startInteractionRun(storage);
+      const inputs = [
+        interactionInput("waiting-1", "tool-waiting", "batch-waiting"),
+        interactionInput("resuming-1", "tool-resuming", "batch-resuming"),
+        interactionInput("resolved-1", "tool-resolved-1", "batch-resolved"),
+        interactionInput("resolved-2", "tool-resolved-2", "batch-resolved"),
+      ];
+      for (const input of inputs) {
+        await storage.operations.recordInteraction({ interaction: input, rootCallId: "root-call", record: interactionRecord(input, "required") });
+      }
+      for (const interactionId of ["resuming-1", "resolved-1", "resolved-2"]) {
+        store.updatePendingInteractionStatus({
+          sessionId: "session-1",
+          interactionId,
+          from: ["waiting"],
+          status: "resolved",
+          resolution: { approved: true, message: "ok" },
+        });
+      }
+      store.updatePendingInteractionStatus({ sessionId: "session-1", interactionId: "resuming-1", from: ["resolved"], status: "resuming" });
+
+      const result = await storage.operations.finalizeRun({
+        runId: "run-1",
+        sessionId: "session-1",
+        status: testCase.status,
+        interactionRootRunId: "run-1",
+        ...(testCase.status === "completed" ? {
+          finalMessage: { messageId: `final-${testCase.status}`, sessionId: "session-1", role: "assistant" as const, content: "done" },
+        } : {}),
+      });
+
+      expect(store.listPendingInteractions({ sessionId: "session-1", rootRunId: "run-1" }).map((item) => item.status))
+        .toEqual(testCase.expected);
+      expect(result.readyResumeInteractionIds).toEqual(testCase.ready);
+    }
+  });
+
+  it("rejects interaction finalization for a child run", async () => {
+    const { storage } = createHarness();
+    await storage.operations.startRun({
+      session: { sessionId: "session-1", userId: "user-1" },
+      run: { runId: "child-run", sessionId: "session-1", status: "running", parentRunId: "root-run" },
+    });
+    await expect(storage.operations.finalizeRun({
+      runId: "child-run",
+      sessionId: "session-1",
+      status: "suspended",
+      interactionRootRunId: "child-run",
+    })).rejects.toThrow("root interaction finalization rejects a child run");
+  });
+
+  it("rolls pending interaction finalization back when terminal record building fails", async () => {
+    const { store, storage } = createHarness();
+    await startInteractionRun(storage);
+    const waiting = interactionInput("rollback-waiting", "rollback-tool", "rollback-batch");
+    await storage.operations.recordInteraction({ interaction: waiting, rootCallId: "root-call", record: interactionRecord(waiting, "required") });
+
+    await expect(storage.operations.finalizeRun({
+      runId: "run-1",
+      sessionId: "session-1",
+      status: "suspended",
+      interactionRootRunId: "run-1",
+      buildTerminalRecords: () => { throw new Error("terminal rollback sentinel"); },
+    })).rejects.toThrow("terminal rollback sentinel");
+
+    expect(store.getRun("session-1", "run-1")?.status).toBe("running");
+    expect(store.getPendingInteraction("session-1", "rollback-waiting")?.status).toBe("waiting");
+  });
+
   it("rolls back a new pending interaction when its stable event conflicts", async () => {
     const { store, storage } = createHarness();
     await startInteractionRun(storage);
@@ -906,7 +984,7 @@ describe("SqliteRuntimeStorage", () => {
       sessionId: "session-1",
       interactionId: "interaction-local",
       resolution: { kind: "approval", approved: true, message: "must reject" },
-      record: interactionRecord(interaction, "responded"),
+      buildRecord: () => interactionRecord(interaction, "responded"),
     })).rejects.toThrow("batch spans multiple root runs");
     expect(store.getPendingInteraction("session-1", "interaction-local")?.status).toBe("waiting");
     await expect(storage.operations.claimResume({

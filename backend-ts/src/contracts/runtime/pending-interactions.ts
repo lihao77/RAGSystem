@@ -1,8 +1,15 @@
 import type { ApprovalRequest, UserInputRequest } from "../execution/execution.js";
-import type { InteractionKind, InteractionResponsePayload } from "../interactions.js";
+import type { InteractionKind } from "../interactions.js";
+import type {
+  RuntimeClaimResumeResult,
+  RuntimeFinalizeStatus,
+  RuntimeInteractionResolution,
+  RuntimeStorage,
+} from "../storage/runtime-storage.js";
 
 export interface PendingUserInputRequest {
   sessionId: string; runId: string; rootRunId: string; parentRunId: string | null; parentCallId: string | null;
+  rootCallId?: string | undefined;
   taskId?: string | null | undefined; requestId?: string | null | undefined; toolCallId: string; interactionBatchId?: string | undefined;
   onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined; deadlineMs: number; task: string;
   executionKind?: string | undefined; botId?: string | undefined; chatId?: string | undefined; agentName?: string | null | undefined; prompt: string;
@@ -11,6 +18,7 @@ export interface PendingUserInputRequest {
 export interface PendingUserInputResolution { inputId: string; value: string; respondedAt: string }
 export interface PendingApprovalRequest {
   sessionId: string; runId: string; rootRunId: string; parentRunId: string | null; parentCallId: string | null;
+  rootCallId?: string | undefined;
   taskId?: string | null | undefined; requestId?: string | null | undefined; toolCallId: string; interactionBatchId?: string | undefined;
   onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined; deadlineMs: number; task: string;
   executionKind?: string | undefined; botId?: string | undefined; chatId?: string | undefined; agentName?: string | null | undefined; approvalType?: string | null | undefined;
@@ -33,6 +41,7 @@ export interface InteractionRequiredNotice { interactionId: string; sessionId: s
 export interface PendingInteractionRespondResult {
   resolved: boolean; needsResume: boolean; kind: InteractionKind; interactionId: string; rootRunId?: string | undefined;
   approvalId?: string | undefined; toolCallId?: string | undefined;
+  resumeDisposition?: "none" | "started" | "deferred" | "already_started";
 }
 
 export const DEFAULT_INTERACTION_DEADLINE_MS = 120_000;
@@ -42,19 +51,49 @@ export function resolveInteractionDeadlineMs(_executionKind: string | null | und
 
 /** Execution-side interaction port, implemented independently by each deployment adapter. */
 export interface PendingInteractionPort {
-  setApprovalCache(sessionId: string, toolCallId: string, resolution: ApprovalCacheResolution): void;
-  peekApprovalMeta(approvalId: string, sessionId: string): ApprovalMeta | null;
-  takeApprovalMeta(approvalId: string, sessionId?: string): ApprovalMeta | null;
-  releaseApprovalBatch(meta: ApprovalMeta): void;
-  findLatestApprovalMeta(rootRunId: string, sessionId?: string): ApprovalMeta | null;
-  listPendingApprovalMeta(rootRunId: string, sessionId?: string): ApprovalMeta[];
-  finalizeRoot(sessionId: string, rootRunId: string, completed: boolean): void;
+  onRootFinalized(
+    sessionId: string,
+    rootRunId: string,
+    status: RuntimeFinalizeStatus,
+    readyResumeInteractionIds?: string[],
+  ): Promise<void>;
   waitForUserInput(input: PendingUserInputRequest): Promise<PendingUserInputResolution>;
-  respondUserInput(sessionId: string, inputId: string, payload: UserInputRequest): PendingInteractionRespondResult;
   waitForApproval(input: PendingApprovalRequest): Promise<PendingApprovalResolution>;
-  respondApproval(sessionId: string, approvalId: string, payload: ApprovalRequest): PendingInteractionRespondResult;
-  respondInteraction(sessionId: string, interactionId: string, payload: InteractionResponsePayload): PendingInteractionResolutionResult;
   cancelSession(sessionId: string, reason?: string, options?: { persist?: boolean }): void;
+}
+
+export interface InteractionResumeCallbacks {
+  onCompleted?: ((result: { content: string; success: boolean }) => void) | undefined;
+  onSuspended?: ((approvalId: string) => void) | undefined;
+}
+
+export interface InteractionResumeStarter {
+  startClaim(
+    input: {
+      sessionId: string;
+      claim: Extract<RuntimeClaimResumeResult, { claimed: true }>;
+    },
+  ): { promise: Promise<{ content: string; success: boolean; suspended?: boolean }> };
+}
+
+export interface InteractionCoordinator extends PendingInteractionPort {
+  readonly runtimeStorage: RuntimeStorage;
+  peekApprovalMeta(approvalId: string, sessionId: string): ApprovalMeta | null;
+  listPendingApprovalMeta(rootRunId: string, sessionId?: string): ApprovalMeta[];
   isUserInputPending(sessionId: string, inputId: string): boolean;
   isApprovalPending(sessionId: string, approvalId: string): boolean;
+  respondApprovalAsync(
+    sessionId: string,
+    approvalId: string,
+    payload: ApprovalRequest,
+    callbacks?: InteractionResumeCallbacks,
+  ): Promise<PendingInteractionRespondResult>;
+  respondUserInputAsync(
+    sessionId: string,
+    inputId: string,
+    payload: UserInputRequest,
+    callbacks?: InteractionResumeCallbacks,
+  ): Promise<PendingInteractionRespondResult>;
+  listPendingAsync(rootRunId: string, sessionId?: string): Promise<ApprovalMeta[]>;
+  bindResumeStarter(starter: InteractionResumeStarter): void;
 }

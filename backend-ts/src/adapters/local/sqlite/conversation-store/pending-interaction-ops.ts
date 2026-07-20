@@ -156,6 +156,27 @@ export class PendingInteractionOps implements IPendingInteractionStore {
     return Number(result.changes);
   }
 
+  finalizePendingInteractions(
+    sessionId: string,
+    rootRunId: string,
+    status: "completed" | "failed" | "interrupted" | "suspended",
+  ): string[] {
+    const records = this.listPendingInteractions({ sessionId, rootRunId });
+    for (const record of records) {
+      const nextStatus = finalizedInteractionStatus(status, record.status);
+      if (!nextStatus || nextStatus === record.status) continue;
+      this.updatePendingInteractionStatus({
+        sessionId,
+        interactionId: record.interaction_id,
+        from: [record.status],
+        status: nextStatus,
+      });
+    }
+    return status === "suspended"
+      ? readyResumeInteractionIds(this.listPendingInteractions({ sessionId, rootRunId }))
+      : [];
+  }
+
   suspendPendingInteractions(sessionId: string, rootRunId: string): number {
     const result = this.db.prepare(`
       UPDATE pending_interactions SET status='suspended', updated_at=CURRENT_TIMESTAMP
@@ -198,4 +219,35 @@ function mapRow(row: PendingInteractionRow): PendingInteractionRecord {
     request_payload: parseJsonObject(row.request_payload),
     resolution_payload: row.resolution_payload ? parseJsonObject(row.resolution_payload) : null,
   };
+}
+
+function finalizedInteractionStatus(
+  finalizeStatus: "completed" | "failed" | "interrupted" | "suspended",
+  current: PendingInteractionStatus,
+): PendingInteractionStatus | null {
+  if (finalizeStatus === "suspended") {
+    if (current === "waiting") return "suspended";
+    if (current === "resuming") return "consumed";
+    return null;
+  }
+  if (finalizeStatus === "completed") {
+    if (current === "resolved" || current === "resuming") return "consumed";
+    if (current === "waiting" || current === "suspended") return "cancelled";
+    return null;
+  }
+  return current === "waiting" || current === "suspended" || current === "resolved" || current === "resuming"
+    ? "cancelled"
+    : null;
+}
+
+function readyResumeInteractionIds(records: readonly PendingInteractionRecord[]): string[] {
+  const batches = new Map<string, PendingInteractionRecord[]>();
+  for (const record of records) {
+    const batch = batches.get(record.batch_id) ?? [];
+    batch.push(record);
+    batches.set(record.batch_id, batch);
+  }
+  return [...batches.values()]
+    .filter((batch) => batch.length > 0 && batch.every((record) => record.status === "resolved"))
+    .map((batch) => batch[0]!.interaction_id);
 }

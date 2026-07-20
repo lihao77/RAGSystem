@@ -6,130 +6,299 @@ import type { ApprovalRequest, UserInputRequest } from "../../contracts/executio
 import type { InteractionKind, InteractionResponsePayload } from "../../contracts/interactions.js";
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import type { IPendingInteractionStore, PendingInteractionRecord } from "../../contracts/conversation-store/index.js";
-import type { PendingInteractionPort } from "../../contracts/runtime/pending-interactions.js";
+import type {
+  ApprovalCacheResolution,
+  ApprovalMeta,
+  InteractionCoordinator,
+  InteractionRequiredNotice,
+  InteractionResumeCallbacks,
+  InteractionResumeStarter,
+  PendingApprovalRequest,
+  PendingApprovalResolution,
+  PendingInteractionPort,
+  PendingInteractionResolutionResult,
+  PendingInteractionRespondResult,
+  PendingUserInputRequest,
+  PendingUserInputResolution,
+} from "../../contracts/runtime/pending-interactions.js";
+import { RuntimeInteractionUnavailableError, type RuntimeFinalizeStatus, type RuntimeInteractionResolution, type RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
+import { AsyncDurableClientEventPublisher } from "./event-outbox/async-client-event-publisher.js";
+import { buildExecutionEnvelopeRunStep } from "./event-outbox/execution-envelope-archive.js";
 
-export interface PendingUserInputRequest {
+interface LiveInteractionWaiter {
   sessionId: string;
-  runId: string;
-  rootRunId: string;
-  parentRunId: string | null;
-  parentCallId: string | null;
-  taskId?: string | null | undefined;
-  requestId?: string | null | undefined;
-  toolCallId: string;
-  interactionBatchId?: string | undefined;
-  onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
-  deadlineMs: number;
-  task: string;
-  executionKind?: string | undefined;
-  botId?: string | undefined;
-  chatId?: string | undefined;
-  agentName?: string | null | undefined;
-  prompt: string;
-  inputType?: string | null | undefined;
-  options?: string[] | undefined;
-  extra?: Record<string, unknown> | undefined;
-  signal?: AbortSignal | undefined;
+  meta: ApprovalMeta;
+  resolve(value: PendingUserInputResolution | PendingApprovalResolution): void;
+  reject(error: Error): void;
+  abort?: () => void;
 }
 
-export interface PendingUserInputResolution {
-  inputId: string;
-  value: string;
-  respondedAt: string;
-}
+/** Tenant-level async interaction coordinator backed by RuntimeStorage. */
+export class RuntimeInteractionCoordinator implements InteractionCoordinator {
+  private readonly liveWaiters = new Map<string, LiveInteractionWaiter>();
+  private readonly resolutionCache = new Map<string, ApprovalCacheResolution>();
+  private readonly pendingMeta = new Map<string, ApprovalMeta>();
+  private readonly deferredResume = new Map<string, Set<string>>();
+  private readonly deferredCallbacks = new Map<string, InteractionResumeCallbacks | undefined>();
+  private resumeStarter: InteractionResumeStarter | undefined;
 
-export interface PendingApprovalRequest {
-  sessionId: string;
-  runId: string;
-  rootRunId: string;
-  parentRunId: string | null;
-  parentCallId: string | null;
-  taskId?: string | null | undefined;
-  requestId?: string | null | undefined;
-  toolCallId: string;
-  interactionBatchId?: string | undefined;
-  onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
-  deadlineMs: number;
-  task: string;
-  executionKind?: string | undefined;
-  botId?: string | undefined;
-  chatId?: string | undefined;
-  agentName?: string | null | undefined;
-  approvalType?: string | null | undefined;
-  toolName: string;
-  arguments?: Record<string, unknown> | undefined;
-  riskLevel?: string | null | undefined;
-  description?: string | null | undefined;
-  permissionMode?: string | null | undefined;
-  approvalReason?: string | null | undefined;
-  approvalReasonCodes?: string[] | undefined;
-  approvalSecondaryReasons?: string[] | undefined;
-  approvalHook?: Record<string, unknown> | undefined;
-  externalPathCandidates?: string[] | undefined;
-  signal?: AbortSignal | undefined;
-}
+  constructor(
+    readonly runtimeStorage: RuntimeStorage,
+    private readonly publisher: AsyncDurableClientEventPublisher,
+  ) {}
 
-export interface PendingApprovalResolution {
-  approvalId: string;
-  approved: boolean;
-  message: string;
-  respondedAt: string;
-}
+  bindResumeStarter(starter: InteractionResumeStarter): void { this.resumeStarter = starter; }
 
-export interface PendingInteractionResolutionResult {
-  resolved: boolean;
-  needsResume: boolean;
-  kind: InteractionKind;
-  interactionId: string;
-  rootRunId?: string | undefined;
-  approvalId?: string | undefined;
-  toolCallId?: string | undefined;
-  approved?: boolean | undefined;
-  message?: string | undefined;
-  error?: string | undefined;
-}
+  private setApprovalCache(sessionId: string, toolCallId: string, resolution: ApprovalCacheResolution): void {
+    this.resolutionCache.set(cacheKey(sessionId, toolCallId), resolution);
+  }
+  peekApprovalMeta(approvalId: string, sessionId: string): ApprovalMeta | null {
+    const local = this.pendingMeta.get(approvalId);
+    if (local && local.sessionId === sessionId) return local;
+    return null;
+  }
+  private findLatestApprovalMeta(rootRunId: string, sessionId?: string): ApprovalMeta | null {
+    return Array.from(this.pendingMeta.values()).reverse().find((m) => m.rootRunId === rootRunId && (!sessionId || m.sessionId === sessionId) && !m.resolved) ?? null;
+  }
+  listPendingApprovalMeta(rootRunId: string, sessionId?: string): ApprovalMeta[] {
+    return Array.from(this.pendingMeta.values()).filter((m) => m.rootRunId === rootRunId && (!sessionId || m.sessionId === sessionId) && !m.resolved);
+  }
 
-export type ApprovalCacheResolution =
-  | { approved: boolean; message: string }
-  | { value: string };
+  async waitForUserInput(input: PendingUserInputRequest): Promise<PendingUserInputResolution> {
+    if (!input.sessionId.trim()) throw new Error("request_user_input 缺少 session_id");
+    if (input.signal?.aborted) throw new Error("request_user_input cancelled");
+    const cached = this.takeCached(input.sessionId, input.toolCallId, "user_input");
+    if (cached && "value" in cached) return { inputId: randomUUID(), value: cached.value, respondedAt: new Date().toISOString() };
+    const interactionId = randomUUID();
+    const meta = this.buildMeta(interactionId, "user_input", input);
+    const event: Envelope = {
+      type: "interaction",
+      session_id: input.sessionId,
+      call_id: interactionId,
+      run_id: input.runId,
+      payload: {
+        kind: "user_input",
+        phase: "required",
+        tool: "request_user_input",
+        prompt: input.prompt,
+        input: {
+          input_type: normalizeInputType(input.inputType),
+          options: input.options ?? [],
+          extra: input.extra ?? {},
+          tool_call_id: input.toolCallId,
+          agent_name: input.agentName ?? null,
+        },
+      },
+    };
+    const pending = this.waitLive(interactionId, input, meta, "user_input");
+    try { await this.recordRequired(meta, input, event); } catch (error) { const waiter = this.liveWaiters.get(interactionId); this.liveWaiters.delete(interactionId); this.pendingMeta.delete(interactionId); waiter?.abort?.(); waiter?.reject(error instanceof Error ? error : new Error(String(error))); return pending; }
+    return pending;
+  }
 
-export interface ApprovalMeta {
-  approvalId: string;
-  sessionId: string;
-  toolCallId: string;
-  rootRunId: string;
-  runId: string;
-  kind: InteractionKind;
-  batchId: string;
-  resolved: boolean;
-  task: string;
-  requestId: string | null;
-  executionKind?: string | undefined;
-  botId?: string | undefined;
-  chatId?: string | undefined;
-  toolName?: string | undefined;
-  riskLevel?: string | undefined;
-  reason?: string | undefined;
-  prompt?: string | undefined;
-  options?: string[] | undefined;
-}
+  async waitForApproval(input: PendingApprovalRequest): Promise<PendingApprovalResolution> {
+    if (!input.sessionId.trim()) throw new Error("approval 缺少 session_id");
+    if (input.signal?.aborted) throw new Error("approval cancelled");
+    const cached = this.takeCached(input.sessionId, input.toolCallId, "approval");
+    if (cached && "approved" in cached) return { approvalId: randomUUID(), approved: cached.approved, message: cached.message, respondedAt: new Date().toISOString() };
+    const interactionId = randomUUID();
+    const meta = this.buildMeta(interactionId, "approval", input);
+    const event: Envelope = {
+      type: "interaction",
+      session_id: input.sessionId,
+      call_id: interactionId,
+      run_id: input.runId,
+      payload: {
+        kind: "approval",
+        phase: "required",
+        tool: input.toolName,
+        risk_level: input.riskLevel === "low" || input.riskLevel === "medium" || input.riskLevel === "high" ? input.riskLevel : undefined,
+        prompt: input.description ?? "",
+        input: {
+          approval_id: interactionId,
+          approval_type: input.approvalType ?? null,
+          tool_call_id: input.toolCallId,
+          agent_name: input.agentName ?? null,
+          arguments: input.arguments ?? {},
+          permission_mode: input.permissionMode ?? null,
+          approval_reason: input.approvalReason ?? "",
+          approval_reason_codes: input.approvalReasonCodes ?? [],
+          approval_secondary_reasons: input.approvalSecondaryReasons ?? [],
+          approval_hook: input.approvalHook ?? {},
+          external_path_candidates: input.externalPathCandidates ?? [],
+        },
+        message: input.approvalReason ?? "",
+      },
+    };
+    const pending = this.waitLive(interactionId, input, meta, "approval");
+    try { await this.recordRequired(meta, input, event); } catch (error) { const waiter = this.liveWaiters.get(interactionId); this.liveWaiters.delete(interactionId); this.pendingMeta.delete(interactionId); waiter?.abort?.(); waiter?.reject(error instanceof Error ? error : new Error(String(error))); return pending; }
+    return pending;
+  }
 
-export interface InteractionRequiredNotice {
-  interactionId: string;
-  sessionId: string;
-  rootRunId: string;
-  batchId: string;
-  kind: InteractionKind;
-}
+  private async recordRequired(meta: ApprovalMeta, input: PendingApprovalRequest | PendingUserInputRequest, event: Envelope): Promise<void> {
+    this.pendingMeta.set(meta.approvalId, meta);
+    const prompt = "prompt" in input ? input.prompt : undefined;
+    const requestPayload = {
+      ...meta,
+      ...(prompt !== undefined ? { prompt } : {}),
+      ...("toolName" in input ? {
+        toolName: input.toolName,
+        approvalType: input.approvalType ?? null,
+        arguments: input.arguments ?? {},
+        permissionMode: input.permissionMode ?? null,
+        approvalReasonCodes: input.approvalReasonCodes ?? [],
+        approvalSecondaryReasons: input.approvalSecondaryReasons ?? [],
+        approvalHook: input.approvalHook ?? {},
+        externalPathCandidates: input.externalPathCandidates ?? [],
+      } : {}),
+    };
+    const record = await this.runtimeStorage.operations.recordInteraction({
+      interaction: { interactionId: meta.approvalId, sessionId: meta.sessionId, runId: meta.runId, rootRunId: meta.rootRunId, toolCallId: meta.toolCallId, batchId: meta.batchId, kind: meta.kind, requestPayload },
+      rootCallId: input.rootCallId?.trim() || `call_${meta.rootRunId}`,
+      record: this.eventRecord(meta.sessionId, event, `${meta.approvalId}:required`),
+    });
+    await this.publisher.deliver([record.record.outbox]);
+    input.onInteractionRequired?.({ interactionId: meta.approvalId, sessionId: meta.sessionId, rootRunId: meta.rootRunId, batchId: meta.batchId, kind: meta.kind });
+  }
 
-export interface PendingInteractionRespondResult {
-  resolved: boolean;
-  needsResume: boolean;
-  kind: InteractionKind;
-  interactionId: string;
-  rootRunId?: string | undefined;
-  approvalId?: string | undefined;
-  toolCallId?: string | undefined;
+  private waitLive<T extends "approval" | "user_input">(id: string, input: PendingApprovalRequest | PendingUserInputRequest, meta: ApprovalMeta, kind: T): Promise<T extends "approval" ? PendingApprovalResolution : PendingUserInputResolution> {
+    if (input.signal?.aborted) return Promise.reject(new Error(`${kind} cancelled`));
+    return new Promise((resolve, reject) => {
+      const waiter: LiveInteractionWaiter = { sessionId: meta.sessionId, meta, resolve: resolve as any, reject };
+      const timer = setTimeout(() => { this.liveWaiters.delete(id); waiter.abort?.(); reject(new RecoverableInterrupt({ sessionId: input.sessionId, runId: input.runId, rootRunId: input.rootRunId, parentRunId: input.parentRunId, parentCallId: input.parentCallId, toolCallId: input.toolCallId, kind })); }, Math.max(0, input.deadlineMs));
+      const abort = (): void => { clearTimeout(timer); this.liveWaiters.delete(id); reject(new Error(`${kind} cancelled`)); };
+      waiter.abort = () => { clearTimeout(timer); input.signal?.removeEventListener("abort", abort); };
+      input.signal?.addEventListener("abort", abort, { once: true });
+      this.liveWaiters.set(id, waiter);
+    }) as any;
+  }
+
+  async respondApprovalAsync(sessionId: string, approvalId: string, payload: ApprovalRequest, callbacks?: InteractionResumeCallbacks): Promise<PendingInteractionRespondResult> {
+    return this.respondAsync(sessionId, approvalId, { kind: "approval", approved: Boolean(payload.approved), message: payload.message ?? "" }, callbacks);
+  }
+  async respondUserInputAsync(sessionId: string, inputId: string, payload: UserInputRequest, callbacks?: InteractionResumeCallbacks): Promise<PendingInteractionRespondResult> {
+    return this.respondAsync(sessionId, inputId, { kind: "user_input", value: payload.value ?? "" }, callbacks);
+  }
+  private async respondAsync(sessionId: string, interactionId: string, resolution: RuntimeInteractionResolution, callbacks?: InteractionResumeCallbacks): Promise<PendingInteractionRespondResult> {
+    let result;
+    try {
+      result = await this.runtimeStorage.operations.resolveInteraction({ sessionId, interactionId, resolution, buildRecord: (interaction) => this.eventRecord(sessionId, { type: "interaction", session_id: sessionId, call_id: interactionId, run_id: interaction.run_id, payload: resolution.kind === "approval" ? { kind: "approval", phase: "responded", approved: resolution.approved, message: resolution.message } : { kind: "user_input", phase: "responded", value: resolution.value } }, `${interactionId}:responded`) });
+    } catch (error) {
+      if (error instanceof RuntimeInteractionUnavailableError) {
+        return { resolved: false, needsResume: false, kind: resolution.kind, interactionId };
+      }
+      throw error;
+    }
+    await this.publisher.deliver([result.record.outbox]);
+    const meta = this.pendingMeta.get(interactionId) ?? metaFromRecord(result.interaction);
+    meta.resolved = true;
+    this.pendingMeta.set(interactionId, meta);
+    if (!result.changed) {
+      const alreadyResolved = ["resolved", "resuming", "consumed"].includes(result.previousStatus);
+      const shouldResume = result.previousStatus === "resolved" && result.batchReady;
+      const resumeDisposition = shouldResume
+        ? await this.tryResume(sessionId, interactionId, callbacks)
+        : "none" as const;
+      return {
+        resolved: alreadyResolved,
+        needsResume: resumeDisposition !== "none",
+        kind: resolution.kind,
+        interactionId,
+        rootRunId: meta.rootRunId,
+        toolCallId: meta.toolCallId,
+        resumeDisposition,
+      };
+    }
+    const waiter = this.liveWaiters.get(interactionId);
+    if (waiter) { this.liveWaiters.delete(interactionId); waiter.abort?.(); waiter.resolve(resolution.kind === "approval" ? { approvalId: interactionId, approved: resolution.approved, message: resolution.message, respondedAt: new Date().toISOString() } : { inputId: interactionId, value: resolution.value, respondedAt: new Date().toISOString() }); return { resolved: true, needsResume: false, kind: resolution.kind, interactionId, rootRunId: meta.rootRunId, toolCallId: meta.toolCallId }; }
+    const resumeDisposition = result.batchReady
+      ? await this.tryResume(sessionId, interactionId, callbacks)
+      : "none" as const;
+    return {
+      resolved: true,
+      needsResume: resumeDisposition !== "none",
+      kind: resolution.kind,
+      interactionId,
+      rootRunId: meta.rootRunId,
+      toolCallId: meta.toolCallId,
+      resumeDisposition,
+    };
+  }
+
+  private async tryResume(sessionId: string, interactionId: string, callbacks?: InteractionResumeCallbacks): Promise<"none" | "started" | "deferred" | "already_started"> {
+    if (!this.resumeStarter) return "none";
+    const claim = await this.runtimeStorage.operations.claimResume({ sessionId, interactionId, claimId: randomUUID() });
+    if (!claim.claimed) {
+      if (claim.reason === "root_not_suspended") {
+        const rootRunId = this.pendingMeta.get(interactionId)?.rootRunId;
+        if (rootRunId) {
+          const key = `${sessionId}:${rootRunId}`;
+          const current = this.deferredResume.get(key) ?? new Set<string>();
+          current.add(interactionId);
+          this.deferredResume.set(key, current);
+          this.deferredCallbacks.set(`${key}:${interactionId}`, callbacks);
+        }
+        return "deferred";
+      }
+      if (claim.reason === "already_claimed") return "already_started";
+      return "none";
+    }
+    for (const item of claim.resolutions) this.setApprovalCache(sessionId, item.toolCallId, item.resolution.kind === "approval" ? { approved: item.resolution.approved, message: item.resolution.message } : { value: item.resolution.value });
+    try {
+      const started = this.resumeStarter.startClaim({ sessionId, claim });
+      void started.promise.then((result) => {
+        if (result.suspended) {
+          callbacks?.onSuspended?.(this.findLatestApprovalMeta(claim.rootRunId, sessionId)?.approvalId ?? "");
+          return;
+        }
+        callbacks?.onCompleted?.({ content: result.content, success: result.success });
+      }).catch((error: unknown) => callbacks?.onCompleted?.({
+        content: error instanceof Error ? error.message : String(error),
+        success: false,
+      }));
+    } catch (error) {
+      for (const item of claim.resolutions) this.resolutionCache.delete(cacheKey(sessionId, item.toolCallId));
+      await this.runtimeStorage.operations.rollbackResume({ sessionId, rootRunId: claim.rootRunId, claimId: claim.claimId });
+      throw error;
+    }
+    return "started";
+  }
+  async onRootFinalized(sessionId: string, rootRunId: string, status: RuntimeFinalizeStatus, readyResumeInteractionIds: string[] = []): Promise<void> {
+    const deferredKey = `${sessionId}:${rootRunId}`;
+    const retryIds = new Set([...readyResumeInteractionIds, ...(this.deferredResume.get(deferredKey) ?? [])]);
+    this.deferredResume.delete(deferredKey);
+    if (status !== "suspended") {
+      for (const id of retryIds) this.deferredCallbacks.delete(`${deferredKey}:${id}`);
+    }
+    for (const [id, waiter] of this.liveWaiters) if (waiter.sessionId === sessionId && waiter.meta.rootRunId === rootRunId) { this.liveWaiters.delete(id); waiter.abort?.(); waiter.reject(new Error(`interaction root finalized: ${status}`)); }
+    for (const [id, meta] of this.pendingMeta) {
+      if (meta.sessionId !== sessionId || meta.rootRunId !== rootRunId) continue;
+      if (status === "suspended" && !meta.resolved) continue;
+      this.pendingMeta.delete(id);
+      this.resolutionCache.delete(cacheKey(sessionId, meta.toolCallId));
+    }
+    if (status === "suspended") {
+      for (const id of retryIds) {
+        const callbackKey = `${deferredKey}:${id}`;
+        const callbacks = this.deferredCallbacks.get(callbackKey);
+        this.deferredCallbacks.delete(callbackKey);
+        await this.tryResume(sessionId, id, callbacks);
+      }
+    }
+  }
+  async listPendingAsync(rootRunId: string, sessionId?: string): Promise<ApprovalMeta[]> {
+    const sid = sessionId ?? Array.from(this.pendingMeta.values()).find((m) => m.rootRunId === rootRunId)?.sessionId;
+    if (!sid) return [];
+    return this.listPendingApprovalMeta(rootRunId, sid);
+  }
+  cancelSession(sessionId: string, reason = "interaction cancelled", _options: { persist?: boolean } = {}): void { for (const [id, waiter] of this.liveWaiters) if (waiter.sessionId === sessionId) { this.liveWaiters.delete(id); waiter.abort?.(); waiter.reject(new Error(reason)); } }
+  isUserInputPending(sessionId: string, inputId: string): boolean { const w = this.liveWaiters.get(inputId); return Boolean(w && w.sessionId === sessionId && w.meta.kind === "user_input"); }
+  isApprovalPending(sessionId: string, approvalId: string): boolean { const w = this.liveWaiters.get(approvalId); return Boolean(w && w.sessionId === sessionId && w.meta.kind === "approval"); }
+  private buildMeta(id: string, kind: InteractionKind, input: PendingApprovalRequest | PendingUserInputRequest): ApprovalMeta {
+    const meta = buildApprovalMeta(id, input.sessionId, kind, input);
+    return { ...meta, batchId: `${input.rootRunId}:${input.interactionBatchId?.trim() || input.toolCallId}` };
+  }
+  private takeCached(sessionId: string, toolCallId: string, kind: InteractionKind): ApprovalCacheResolution | null { const value = this.resolutionCache.get(cacheKey(sessionId, toolCallId)); if (value && ((kind === "approval" && "approved" in value) || (kind === "user_input" && "value" in value))) { this.resolutionCache.delete(cacheKey(sessionId, toolCallId)); return value; } return null; }
+  private eventRecord(sessionId: string, event: Envelope, eventId: string) { const runId = event.run_id ?? null; return { step: buildExecutionEnvelopeRunStep(sessionId, runId, event, eventId), outbox: { sessionId, runId, eventId, eventType: "client.interaction", aggregateType: "run", aggregateId: runId ?? sessionId, payload: { client_event: event } } }; }
 }
 
 interface PendingInputEntry {
@@ -223,6 +392,24 @@ export class PendingInteractionService implements PendingInteractionPort {
         from: ["waiting", "suspended", "resolved", "resuming"],
         status: completed && (record.status === "resolved" || record.status === "resuming") ? "consumed" : "cancelled",
       });
+    }
+  }
+
+  async onRootFinalized(
+    sessionId: string,
+    rootRunId: string,
+    status: RuntimeFinalizeStatus,
+    _readyResumeInteractionIds: string[] = [],
+  ): Promise<void> {
+    if (status === "suspended") return;
+    for (const [interactionId, meta] of this.approvalMeta) {
+      if (meta.sessionId !== sessionId || meta.rootRunId !== rootRunId) continue;
+      this.approvalMeta.delete(interactionId);
+      this.approvalCache.delete(cacheKey(sessionId, meta.toolCallId));
+      const input = this.pendingInputs.get(interactionId);
+      if (input) { this.pendingInputs.delete(interactionId); input.abortListener?.(); input.reject(new Error(`interaction root finalized: ${status}`)); }
+      const approval = this.pendingApprovals.get(interactionId);
+      if (approval) { this.pendingApprovals.delete(interactionId); approval.abortListener?.(); approval.reject(new Error(`interaction root finalized: ${status}`)); }
     }
   }
 

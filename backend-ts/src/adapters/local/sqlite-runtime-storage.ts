@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 
 import type { ConversationStore, ConversationStoreTransaction } from "../../contracts/conversation-store/index.js";
+import { RuntimeInteractionUnavailableError } from "../../contracts/storage/runtime-storage.js";
 import type {
   RuntimeAtomicOperations,
   RuntimeClaimResumeInput,
@@ -154,15 +155,16 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
     return this.serial.run(() => this.store.runInTransaction((tx) => {
       assertTenantSession(tx, this.tenantId, input.sessionId);
       const current = tx.getPendingInteraction(input.sessionId, input.interactionId);
-      if (!current) throw new Error(`pending interaction not found: ${input.interactionId}`);
+      if (!current) throw new RuntimeInteractionUnavailableError("not_found", input.interactionId);
       if (current.kind !== input.resolution.kind) {
-        throw new Error(`pending interaction kind conflict: ${input.interactionId}`);
+        throw new RuntimeInteractionUnavailableError("kind_mismatch", input.interactionId);
       }
       if (current.status === "cancelled") {
-        throw new Error(`pending interaction is cancelled: ${input.interactionId}`);
+        throw new RuntimeInteractionUnavailableError("cancelled", input.interactionId);
       }
-      assertRecordScope(input.record, input.sessionId, current.run_id);
-      assertInteractionEnvelope(input.record, toCreatePendingInput(current), "responded");
+      const record = input.buildRecord(current);
+      assertRecordScope(record, input.sessionId, current.run_id);
+      assertInteractionEnvelope(record, toCreatePendingInput(current), "responded");
       const resolution = resolutionPayload(input.resolution);
       if (current.resolution_payload && !isDeepStrictEqual(current.resolution_payload, resolution)) {
         throw new Error(`pending interaction resolution conflict: ${input.interactionId}`);
@@ -201,7 +203,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         changed,
         batchReady,
         rootRunStatus: rootRun.status,
-        record: recordEnvelope(tx, input.record),
+        record: recordEnvelope(tx, record),
       };
     }));
   }
@@ -289,6 +291,12 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       return this.store.runInTransaction((tx) => {
         const currentRun = tx.getRun(input.sessionId, input.runId);
         if (!currentRun) throw new Error(`run not found while finalizing: ${input.runId}`);
+        if (input.interactionRootRunId && input.interactionRootRunId !== input.runId) {
+          throw new Error(`root interaction finalization requires the root run: ${input.runId}`);
+        }
+        if (input.interactionRootRunId && currentRun.parent_run_id !== null) {
+          throw new Error(`root interaction finalization rejects a child run: ${input.runId}`);
+        }
         const replayingTerminal = currentRun.status === input.status;
         if (currentRun.status !== "running" && !replayingTerminal) {
           throw new Error(
@@ -298,9 +306,9 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (input.deleteProviderContinuationThreadKey) {
           tx.deleteProviderContinuations(input.sessionId, input.deleteProviderContinuationThreadKey);
         }
-        if (input.suspendRootRunId) {
-          tx.suspendPendingInteractions(input.sessionId, input.suspendRootRunId);
-        }
+        const readyResumeInteractionIds = input.interactionRootRunId
+          ? tx.finalizePendingInteractions(input.sessionId, input.interactionRootRunId, input.status)
+          : [];
         if (input.closeDanglingToolCalls) {
           const messages = tx.getRecentMessages(
             input.sessionId,
@@ -331,7 +339,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           finalMessage?.id ?? null,
         );
         if (!updated) throw new Error(`run not found while finalizing: ${input.runId}`);
-        return { finalMessage, records };
+        return { finalMessage, records, readyResumeInteractionIds };
       });
     });
   }

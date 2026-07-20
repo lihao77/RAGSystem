@@ -4,7 +4,7 @@ import type { UserId } from "../../identity/types.js";
 
 import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { ExecutionApplication } from "../../contracts/execution/execution-application.js";
-import type { InteractionRecoveryApplication } from "../../contracts/application/interaction-recovery-application.js";
+import type { InteractionCoordinator } from "../../contracts/runtime/pending-interactions.js";
 import { AguiTranslator } from "./agui-translator.js";
 import { InterruptMachine, type InterruptRecord } from "./interrupt-machine.js";
 import { openAguiSse, type AguiSseStream } from "./sse-stream.js";
@@ -30,7 +30,7 @@ export class AguiGateway {
     private readonly container: RuntimeContainer,
     private readonly userId: UserId,
     private readonly execution: ExecutionApplication,
-    private readonly interactions: InteractionRecoveryApplication,
+    private readonly interactions: InteractionCoordinator,
   ) {}
 
   async handle(input: RunAgentInput, reply: FastifyReply): Promise<void> {
@@ -219,19 +219,13 @@ export class AguiGateway {
         approved: resolved && payload.approved === true,
         message: str(payload.message) ?? "",
       };
-      const result = await this.interactions.respondApproval(sessionId, callId, resolution);
-      if (result.needsResume) {
-        this.execution.resumeRun({ sessionId, approvalId: callId, resolution });
-      }
+      await this.interactions.respondApprovalAsync(sessionId, callId, resolution);
       return;
     }
     // user_input
     const resolution = {
       value: resolved ? (str(payload.value) ?? "") : "",
     };
-    const result = await this.interactions.respondUserInput(sessionId, callId, resolution);
-    if (result.needsResume) {
-      this.execution.resumeRun({ sessionId, approvalId: callId, resolution });
-    }
+    await this.interactions.respondUserInputAsync(sessionId, callId, resolution);
   }
 }

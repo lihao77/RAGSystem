@@ -91,7 +91,6 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
   resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
   resolveExecutionRead?: RouteOptions["resolveExecutionRead"];
-  resolveInteractionRecovery?: RouteOptions["resolveInteractionRecovery"];
   resolveAnalytics?: RouteOptions["resolveAnalytics"];
   resolveMonitoringApplication?: RouteOptions["resolveMonitoringApplication"];
   resolveArtifactApplication?: RouteOptions["resolveArtifactApplication"];
@@ -118,7 +117,6 @@ export async function registerSharedBusinessRoutes(
         ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
         ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
         ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
-        ...(options.resolveInteractionRecovery ? { resolveInteractionRecovery: options.resolveInteractionRecovery } : {}),
       });
       request.resources = await createRequestResources(request, {
         ...routeOptions,
@@ -167,7 +165,6 @@ export async function registerSharedBusinessRoutes(
       ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
       ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
       ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
-      ...(options.resolveInteractionRecovery ? { resolveInteractionRecovery: options.resolveInteractionRecovery } : {}),
       ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
       ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
       ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),

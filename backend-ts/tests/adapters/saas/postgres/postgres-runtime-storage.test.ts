@@ -77,6 +77,26 @@ function interactionRecord(
   };
 }
 
+function pendingRecord(interactionId: string, status: string, batchId: string) {
+  return {
+    interaction_id: interactionId,
+    session_id: "session-1",
+    run_id: "run-1",
+    root_run_id: "run-1",
+    tool_call_id: `tool-${interactionId}`,
+    batch_id: batchId,
+    kind: "approval",
+    status,
+    request_payload: { task: "approve tools" },
+    resolution_payload: status === "waiting" ? null : { approved: true, message: "ok" },
+    created_at: NOW,
+    updated_at: NOW,
+    responded_at: status === "waiting" ? null : NOW,
+    consumed_at: null,
+    resume_claim_id: status === "resuming" ? "claim-1" : null,
+  };
+}
+
 function createExecutorHarness(options: {
   sessionExists?: boolean;
   sessionTenantId?: string;
@@ -259,7 +279,7 @@ function createExecutorHarness(options: {
         const found = interactions.get(String(params[1]));
         rows = found?.session_id === params[0] ? [found] : [];
         rowCount = rows.length;
-      } else if (sql.includes("FROM pending_interactions WHERE") && sql.includes("ORDER BY created_at")) {
+      } else if (sql.includes("FROM pending_interactions") && sql.includes("ORDER BY created_at")) {
         rows = [...interactions.values()].filter((interaction) => {
           if (interaction.session_id !== params[0]) return false;
           let nextParam = 1;
@@ -508,7 +528,7 @@ describe("PostgresRuntimeStorage", () => {
         metadata: { run_id: "run-1" },
       },
       deleteProviderContinuationThreadKey: "root",
-      suspendRootRunId: "run-1",
+      interactionRootRunId: "run-1",
       buildTerminalRecords: (message) => {
         callbackMessageSeq = message?.seq ?? null;
         return [{
@@ -553,6 +573,65 @@ describe("PostgresRuntimeStorage", () => {
       "session-1",
       "root",
     ]);
+  });
+
+  it("finalizes the root pending-interaction matrix atomically", async () => {
+    const cases = [
+      { status: "suspended" as const, expected: ["suspended", "consumed", "resolved", "resolved"], ready: ["resolved-1"] },
+      { status: "completed" as const, expected: ["cancelled", "consumed", "consumed", "consumed"], ready: [] },
+      { status: "failed" as const, expected: ["cancelled", "cancelled", "cancelled", "cancelled"], ready: [] },
+      { status: "interrupted" as const, expected: ["cancelled", "cancelled", "cancelled", "cancelled"], ready: [] },
+    ];
+    for (const testCase of cases) {
+      const harness = createExecutorHarness();
+      harness.interactions.set("waiting-1", pendingRecord("waiting-1", "waiting", "batch-waiting"));
+      harness.interactions.set("resuming-1", pendingRecord("resuming-1", "resuming", "batch-resuming"));
+      harness.interactions.set("resolved-1", pendingRecord("resolved-1", "resolved", "batch-resolved"));
+      harness.interactions.set("resolved-2", pendingRecord("resolved-2", "resolved", "batch-resolved"));
+      const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+
+      const result = await storage.operations.finalizeRun({
+        runId: "run-1",
+        sessionId: "session-1",
+        status: testCase.status,
+        interactionRootRunId: "run-1",
+        ...(testCase.status === "completed" ? {
+          finalMessage: { messageId: "matrix-final", sessionId: "session-1", role: "assistant" as const, content: "done" },
+        } : {}),
+      });
+
+      expect([...harness.interactions.values()].map((item) => item.status)).toEqual(testCase.expected);
+      expect(result.readyResumeInteractionIds).toEqual(testCase.ready);
+    }
+  });
+
+  it("rejects interaction finalization for a child run", async () => {
+    const harness = createExecutorHarness({ runPatch: { parent_run_id: "root-run" } });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+
+    await expect(storage.operations.finalizeRun({
+      runId: "run-1",
+      sessionId: "session-1",
+      status: "suspended",
+      interactionRootRunId: "run-1",
+    })).rejects.toThrow("root interaction finalization rejects a child run");
+  });
+
+  it("rolls pending interaction finalization back when terminal record building fails", async () => {
+    const harness = createExecutorHarness();
+    harness.interactions.set("rollback-waiting", pendingRecord("rollback-waiting", "waiting", "rollback-batch"));
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+
+    await expect(storage.operations.finalizeRun({
+      runId: "run-1",
+      sessionId: "session-1",
+      status: "suspended",
+      interactionRootRunId: "run-1",
+      buildTerminalRecords: () => { throw new Error("terminal rollback sentinel"); },
+    })).rejects.toThrow("terminal rollback sentinel");
+
+    expect(harness.runState?.status).toBe("running");
+    expect(harness.interactions.get("rollback-waiting")?.status).toBe("waiting");
   });
 
   it("reuses an existing deterministic final message on retry", async () => {
@@ -843,7 +922,7 @@ describe("PostgresRuntimeStorage", () => {
       sessionId: "session-1",
       interactionId: "interaction-1",
       resolution: { kind: "approval" as const, approved: true, message: "allow one" },
-      record: interactionRecord(firstInteraction, "responded"),
+      buildRecord: () => interactionRecord(firstInteraction, "responded"),
     };
     const resolvedFirst = await storage.operations.resolveInteraction(firstResolution);
     const replayedFirst = await storage.operations.resolveInteraction(firstResolution);
@@ -856,7 +935,7 @@ describe("PostgresRuntimeStorage", () => {
       sessionId: "session-1",
       interactionId: "interaction-2",
       resolution: { kind: "approval", approved: false, message: "deny two" },
-      record: interactionRecord(secondInteraction, "responded"),
+      buildRecord: () => interactionRecord(secondInteraction, "responded"),
     });
 
     expect(resolvedFirst).toMatchObject({ changed: true, batchReady: false, rootRunStatus: "suspended" });
@@ -984,7 +1063,7 @@ describe("PostgresRuntimeStorage", () => {
       sessionId: "session-1",
       interactionId: "interaction-local",
       resolution: { kind: "approval", approved: true, message: "must reject" },
-      record: interactionRecord(interaction, "responded"),
+      buildRecord: () => interactionRecord(interaction, "responded"),
     })).rejects.toThrow("batch spans multiple root runs");
     expect(harness.interactions.get("interaction-local")?.status).toBe("waiting");
     await expect(storage.operations.claimResume({

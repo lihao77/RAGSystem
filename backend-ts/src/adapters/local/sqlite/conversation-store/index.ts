@@ -58,6 +58,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     releasePendingBatch: pendingInteractions.releasePendingBatch.bind(pendingInteractions),
     claimPendingBatch: pendingInteractions.claimPendingBatch.bind(pendingInteractions),
     releasePendingClaim: pendingInteractions.releasePendingClaim.bind(pendingInteractions),
+    finalizePendingInteractions: pendingInteractions.finalizePendingInteractions.bind(pendingInteractions),
     nextSessionSeq: outbox.nextSessionSeqInTransaction.bind(outbox),
     appendOutbox: outbox.appendOutboxInTransaction.bind(outbox),
     // 纯读、不开新事务（listMessages 仅 SELECT），事务内读消除 TOCTOU，故直接 bind 无需 InTransaction 变体。
@@ -158,6 +159,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     updatePendingInteractionStatus: pendingInteractions.updatePendingInteractionStatus.bind(pendingInteractions),
     markPendingBatchResuming: pendingInteractions.markPendingBatchResuming.bind(pendingInteractions),
     releasePendingBatch: pendingInteractions.releasePendingBatch.bind(pendingInteractions),
+    finalizePendingInteractions: pendingInteractions.finalizePendingInteractions.bind(pendingInteractions),
     suspendPendingInteractions: pendingInteractions.suspendPendingInteractions.bind(pendingInteractions),
     consumePendingResolution: pendingInteractions.consumePendingResolution.bind(pendingInteractions),
     cancelPendingInteractions: pendingInteractions.cancelPendingInteractions.bind(pendingInteractions),

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createRequestApplications } from "../../src/app/request-applications.js";
 
 describe("createRequestApplications", () => {
-  it("selects tenant-bound execution and interaction applications once", async () => {
+  it("selects tenant-bound applications and uses the runtime interaction coordinator", async () => {
     const sessions = {};
     const memory = {};
     const artifacts = {};
@@ -12,7 +12,6 @@ describe("createRequestApplications", () => {
     const executionRead = {};
     const interactions = {};
     const executionCore = {};
-    const resumeExecutor = {};
     const options = {
       resolveSessionApplication: vi.fn().mockResolvedValue(sessions),
       resolveMemoryApplication: vi.fn().mockResolvedValue(memory),
@@ -20,11 +19,10 @@ describe("createRequestApplications", () => {
       resolveAnalytics: vi.fn().mockResolvedValue(analytics),
       resolveMonitoringApplication: vi.fn().mockResolvedValue(monitoring),
       resolveExecutionRead: vi.fn().mockResolvedValue(executionRead),
-      resolveInteractionRecovery: vi.fn().mockResolvedValue(interactions),
     };
 
     await expect(createRequestApplications({
-      container: { agentExecution: executionCore, resumeExecutor },
+      container: { agentExecution: executionCore, interactionCoordinator: interactions },
     } as never, options as never)).resolves.toEqual({
       sessions,
       memory,
@@ -36,6 +34,5 @@ describe("createRequestApplications", () => {
       execution: expect.anything(),
     });
     expect(options.resolveExecutionRead).toHaveBeenCalledOnce();
-    expect(options.resolveInteractionRecovery).toHaveBeenCalledOnce();
   });
 });

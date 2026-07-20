@@ -403,6 +403,7 @@ export interface ConversationStoreTransaction {
   releasePendingBatch(sessionId: string, batchId: string): number;
   claimPendingBatch(sessionId: string, batchId: string, claimId: string): number;
   releasePendingClaim(sessionId: string, rootRunId: string, claimId: string): number;
+  finalizePendingInteractions(sessionId: string, rootRunId: string, status: "completed" | "failed" | "interrupted" | "suspended"): string[];
   nextSessionSeq(sessionId: string): number;
   appendOutbox(input: AppendOutboxInput): OutboxRow;
   /** 读最近消息（对齐 IMessageStore.getRecentMessages：纯 SELECT 不开新事务，事务内读消除 TOCTOU）。 */

@@ -12,7 +12,6 @@ import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { SaaSProviderMcpApplication } from "../adapters/saas/application/provider-mcp/saas-provider-mcp-application.js";
 import type { SaaSKnowledgeVectorApplication } from "../adapters/saas/application/knowledge/saas-knowledge-vector-application.js";
 import type { SessionApplication } from "../contracts/session/session-application.js";
-import type { InteractionRecoveryApplication } from "../contracts/application/interaction-recovery-application.js";
 import type { AnalyticsApplication } from "../contracts/application/analytics-application.js";
 import type { MonitoringApplication } from "../contracts/application/monitoring-application.js";
 import type { AsyncSessionFileStorage } from "../contracts/session/session-file-storage.js";
@@ -36,7 +35,6 @@ export interface RouteOptions {
   resolveProviderMcp?: (request: FastifyRequest) => SaaSProviderMcpApplication | undefined | Promise<SaaSProviderMcpApplication | undefined>;
   resolveSessionApplication?: (request: FastifyRequest) => SessionApplication | undefined | Promise<SessionApplication | undefined>;
   resolveExecutionRead?: (request: FastifyRequest) => import("../contracts/execution/execution-read-application.js").ExecutionReadApplication | undefined | Promise<import("../contracts/execution/execution-read-application.js").ExecutionReadApplication | undefined>;
-  resolveInteractionRecovery?: (request: FastifyRequest) => InteractionRecoveryApplication | undefined | Promise<InteractionRecoveryApplication | undefined>;
   resolveAnalytics?: (request: FastifyRequest) => AnalyticsApplication | undefined | Promise<AnalyticsApplication | undefined>;
   resolveMonitoringApplication?: (request: FastifyRequest) => MonitoringApplication | undefined | Promise<MonitoringApplication | undefined>;
   resolveSessionFileStorage?: (request: FastifyRequest) => AsyncSessionFileStorage | undefined | Promise<AsyncSessionFileStorage | undefined>;

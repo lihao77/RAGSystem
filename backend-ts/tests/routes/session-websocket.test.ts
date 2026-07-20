@@ -227,6 +227,7 @@ describe("session websocket route", () => {
     const harness = await buildTestHarness();
     app = harness.app;
     harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "ws-approval-session", "usr_local");
+    harness.container.conversationStore.createRun({ runId: "run-approval", sessionId: "ws-approval-session", agentName: "orchestrator_agent" });
 
     const approvalPromise = harness.container.pendingInteractions.waitForApproval({
       sessionId: "ws-approval-session",
@@ -270,7 +271,10 @@ describe("session websocket route", () => {
       }));
 
       // The transport ack is immediate; the durable interaction event follows its async commit.
-      const ack = await client.receiveJson();
+      const first = await client.receiveJson();
+      const second = await client.receiveJson();
+      const ack = first.type === "ack" ? first : second;
+      const responded = first.type === "interaction" ? first : second;
       expect(ack).toMatchObject({
         type: "ack",
         session_id: "ws-approval-session",
@@ -281,7 +285,6 @@ describe("session websocket route", () => {
         },
       });
 
-      const responded = await client.receiveJson();
       expect(responded).toMatchObject({
         type: "interaction",
         session_id: "ws-approval-session",

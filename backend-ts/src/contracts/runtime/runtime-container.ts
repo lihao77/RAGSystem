@@ -11,7 +11,6 @@ import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import type { AgentConfigService } from "../../services/agent/config/index.js";
 import type { AgentDelegationService } from "../../services/agent/delegation/index.js";
 import type { AgentExecutionLogger, AgentExecutionService } from "../../services/agent/execution/index.js";
-import type { ResumeExecutor } from "../../services/agent/execution/resume-executor.js";
 import type { RuntimeCoreService } from "../../services/agent/execution/runtime-core-service.js";
 import type { AgentMetricsCollector } from "../../services/agent/metrics/metrics-collector.js";
 import type { MemoryRuntimeBindings } from "../../services/agent/memory/runtime-bindings.js";
@@ -30,12 +29,13 @@ import type { DelegationPendingService } from "../../services/runtime/delegation
 import type { DurableClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../services/runtime/event-outbox/dispatcher.js";
 import type { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
-import type { PendingInteractionPort } from "./pending-interactions.js";
+import type { InteractionCoordinator, PendingInteractionPort } from "./pending-interactions.js";
 import type { PermissionPolicyService } from "../../services/runtime/permission-policy-service.js";
 import type { RealtimeEventBus } from "./realtime-event-bus.js";
 import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
 import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "./runtime-async-ports.js";
+import type { RuntimeStorage } from "../storage/runtime-storage.js";
 import type { KnowledgeQueryPort } from "../knowledge/query-port.js";
 import type { ExecutionStorage } from "../execution/execution-storage.js";
 import type { PathAccessPolicy } from "./path-access-policy.js";
@@ -46,7 +46,6 @@ export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = I
   readonly sessionApplication: AgentSessionApplication;
   readonly realtimeEvents: RealtimeEventBus;
   readonly agentExecution: AgentExecutionService;
-  readonly resumeExecutor: ResumeExecutor;
   readonly metricsCollector: AgentMetricsCollector;
   readonly permissionPolicy: PermissionPolicyService;
   readonly agentConfig: AgentConfigService;
@@ -72,6 +71,7 @@ export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = I
   readonly backgroundTasks: BackgroundTaskService;
   readonly taskTools: TaskToolService;
   readonly pendingInteractions: PendingInteractionPort;
+  readonly interactionCoordinator: InteractionCoordinator;
   readonly hostToolRegistry: HostToolRegistry;
   readonly delegationPending: DelegationPendingService;
   readonly toolsDeps: Omit<import("../../tools/registry.js").BackendToolsDeps, "agent" | "teamName">;
@@ -96,9 +96,10 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   hooks?: ((registry: HookRegistry) => void) | undefined;
   asyncConversationHistory?: AsyncConversationHistoryPort;
   asyncProviderContinuations?: AsyncProviderContinuationLookupPort;
-  asyncClientEvents?: AsyncDurableClientEventPublisher;
+  asyncClientEvents: AsyncDurableClientEventPublisher;
   asyncSuspendedSessionControl?: SuspendedSessionControlPort;
   asyncAnalytics?: AsyncAnalyticsRepository;
+  runtimeStorage: RuntimeStorage;
   conversationStore: ConversationStore;
   sessionApplication: AgentSessionApplication;
   realtimeEvents: RealtimeEventBus;
@@ -127,7 +128,6 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   backgroundTasks: BackgroundTaskService;
   taskTools: TaskToolService;
   notificationQueue: SessionNotificationQueue;
-  pendingInteractions: PendingInteractionPort;
   hostToolRegistry: HostToolRegistry;
   delegationPending: DelegationPendingService;
   outboxDispatcher: OutboxDispatcher;

@@ -5,14 +5,13 @@ import { LocalArtifactApplication } from "../adapters/local/application/artifact
 import { LocalMonitoringApplication } from "../adapters/local/application/monitoring/local-monitoring-application.js";
 import { LocalSessionApplication } from "../adapters/local/application/session/local-session-application.js";
 import { LocalExecutionReadApplication } from "../adapters/local/application/execution-read/local-execution-read-application.js";
-import { LocalInteractionRecoveryApplication } from "../adapters/local/application/interaction-recovery/local-interaction-recovery-application.js";
 import { LocalExecutionApplication } from "../adapters/local/application/execution/local-execution-application.js";
 import type { AnalyticsApplication } from "../contracts/application/analytics-application.js";
 import type { ArtifactApplication } from "../contracts/artifacts/artifact-application.js";
 import type { MonitoringApplication } from "../contracts/application/monitoring-application.js";
 import type { SessionApplication } from "../contracts/session/session-application.js";
 import type { ExecutionReadApplication } from "../contracts/execution/execution-read-application.js";
-import type { InteractionRecoveryApplication } from "../contracts/application/interaction-recovery-application.js";
+import type { InteractionCoordinator } from "../contracts/runtime/pending-interactions.js";
 import type { ExecutionApplication } from "../contracts/execution/execution-application.js";
 import { LocalMemoryApplication } from "../adapters/local/application/memory/local-memory-application.js";
 import type { MemoryApplication } from "../services/memory/index.js";
@@ -25,7 +24,7 @@ export interface RequestApplications {
   analytics: AnalyticsApplication;
   monitoring: MonitoringApplication;
   executionRead: ExecutionReadApplication;
-  interactions: InteractionRecoveryApplication;
+  interactions: InteractionCoordinator;
   execution: ExecutionApplication;
 }
 
@@ -40,13 +39,12 @@ export async function createRequestApplications(
 ): Promise<RequestApplications> {
   const sessions = await options.resolveSessionApplication?.(request)
     ?? new LocalSessionApplication(request.identity.tenantId, request.container.sessionApplication, request.container.conversationStore);
-  const [resolvedMemory, resolvedArtifacts, resolvedAnalytics, resolvedMonitoring, resolvedExecutionRead, resolvedInteractions] = await Promise.all([
+  const [resolvedMemory, resolvedArtifacts, resolvedAnalytics, resolvedMonitoring, resolvedExecutionRead] = await Promise.all([
     options.resolveMemoryApplication?.(request),
     options.resolveArtifactApplication?.(request),
     options.resolveAnalytics?.(request),
     options.resolveMonitoringApplication?.(request),
     options.resolveExecutionRead?.(request),
-    options.resolveInteractionRecovery?.(request),
   ]);
   const memory = resolvedMemory
     ?? new LocalMemoryApplication(
@@ -60,9 +58,8 @@ export async function createRequestApplications(
   const analytics = resolvedAnalytics ?? new LocalAnalyticsApplication(request.container.conversationStore);
   const monitoring = resolvedMonitoring ?? new LocalMonitoringApplication(request.container.conversationStore);
   const executionRead = resolvedExecutionRead ?? new LocalExecutionReadApplication(request.container.agentExecution, request.container.conversationStore);
-  const interactions = resolvedInteractions
-    ?? new LocalInteractionRecoveryApplication(request.container.pendingInteractions, request.container.conversationStore);
+  const interactions = request.container.interactionCoordinator;
 
-  const execution = new LocalExecutionApplication(request.container.agentExecution, request.container.resumeExecutor);
+  const execution = new LocalExecutionApplication(request.container.agentExecution);
   return { sessions, memory, artifacts, analytics, monitoring, executionRead, interactions, execution };
 }

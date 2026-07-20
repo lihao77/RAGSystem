@@ -15,6 +15,7 @@ import type { ExecutionStorage } from "../../contracts/execution/execution-stora
 import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
 import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 import type { AsyncAnalyticsRepository } from "../../contracts/storage/async-persistence-ports.js";
+import type { RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
 
 export interface LocalRuntimeContainerOptions {
   tenantId: TenantId;
@@ -35,13 +36,15 @@ export interface LocalRuntimeContainerOptions {
   asyncClientEventsFactory?: (
     tenantId: TenantId,
     realtimeEvents: RealtimeEventBus,
+    runtimeStorage: RuntimeStorage,
   ) => AsyncDurableClientEventPublisher;
   asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => SuspendedSessionControlPort;
   asyncBackgroundTasks?: AsyncBackgroundTaskRepository;
   asyncAnalytics?: AsyncAnalyticsRepository;
   knowledgeQueryFactory?: KnowledgeRuntimeQueryFactory;
   executionStorage?: ExecutionStorage;
-  executionStorageFactory?: (input: { tenantId: TenantId; asyncClientEvents?: AsyncDurableClientEventPublisher }) => ExecutionStorage;
+  runtimeStorageFactory?: (tenantId: TenantId) => RuntimeStorage;
+  executionStorageFactory?: (input: { tenantId: TenantId; runtimeStorage: RuntimeStorage; asyncClientEvents: AsyncDurableClientEventPublisher }) => ExecutionStorage;
   hostToolsEnabled?: boolean;
   pathAccessPolicyFactory?: () => PathAccessPolicy;
 }

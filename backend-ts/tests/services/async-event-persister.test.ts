@@ -13,7 +13,7 @@ import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 
-function createHarness() {
+function createHarness(readyResumeInteractionIds: string[] = []) {
   const starts: RuntimeStartRunInput[] = [];
   const persists: RuntimePersistMessageInput[] = [];
   const finalizes: RuntimeFinalizeRunInput[] = [];
@@ -120,7 +120,7 @@ function createHarness() {
             created_at: NOW,
           },
         }));
-        return { finalMessage, records };
+        return { finalMessage, records, readyResumeInteractionIds };
       },
     },
   };
@@ -192,7 +192,7 @@ describe("AsyncKernelEventPersister", () => {
       observation: "result",
       metadata: { tool_result_media: [{ type: "image", path: "result.png" }] },
     } as never);
-    await persister.finalize("completed", { content: "answer" });
+    const finalizedResult = await persister.finalize("completed", { content: "answer" });
 
     expect(harness.starts[0]).toMatchObject({
       session: { sessionId: "session-1", userId: "user-1" },
@@ -221,6 +221,8 @@ describe("AsyncKernelEventPersister", () => {
       content: "answer",
       metadata: { msg_type: "assistant_final", task_id: "task-1" },
     });
+    expect(harness.finalizes[0]?.interactionRootRunId).toBe("run-1");
+    expect(finalizedResult.readyResumeInteractionIds).toEqual([]);
     const terminalInputs = harness.finalizes[0]?.buildTerminalRecords?.(
       harness.messages.get("run-1:final") ?? null,
     ) ?? [];
@@ -293,10 +295,30 @@ describe("AsyncKernelEventPersister", () => {
       runId: "child-run",
       status: "suspended",
       finalMessage: null,
-      suspendRootRunId: "root-run",
     });
+    expect(harness.finalizes[0]).not.toHaveProperty("interactionRootRunId");
     expect(harness.delivered).toEqual([[]]);
     expect(persister.resolveFinalMessage()).toBeNull();
+  });
+
+  it("passes the root interaction scope and returns ready resume ids", async () => {
+    const harness = createHarness(["interaction-ready"]);
+    const persister = new AsyncKernelEventPersister(
+      harness.storage,
+      harness.clientEvents as never,
+      context(),
+      harness.fileHistory as never,
+    );
+    await persister.startRun();
+
+    const result = await persister.finalize("suspended", null);
+
+    expect(harness.finalizes[0]).toMatchObject({
+      runId: "run-1",
+      status: "suspended",
+      interactionRootRunId: "run-1",
+    });
+    expect(result.readyResumeInteractionIds).toEqual(["interaction-ready"]);
   });
 
   it("does not finalize when queued client-event persistence fails during flush", async () => {

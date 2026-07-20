@@ -1,13 +1,11 @@
 import type { ExecutionApplication } from "../../../../contracts/execution/execution-application.js";
 import type { AgentExecutionServiceApi } from "../../../../services/agent/execution/index.js";
-import type { ResumeExecutor } from "../../../../services/agent/execution/resume-executor.js";
 
 /** Adapter over the shared execution core assembled for the current tenant runtime. */
 export class LocalExecutionApplication implements ExecutionApplication {
   constructor(
     private readonly execution: Pick<AgentExecutionServiceApi,
       "startStream" | "executeSynchronously" | "collaborateSequentially" | "startRollbackRetry" | "stopSession">,
-    private readonly resume: ResumeExecutor,
   ) {}
 
   startStream(request: Parameters<AgentExecutionServiceApi["startStream"]>[0], requestId: string) {
@@ -23,5 +21,4 @@ export class LocalExecutionApplication implements ExecutionApplication {
     return this.execution.startRollbackRetry(input);
   }
   stopSession(sessionId: string) { return this.execution.stopSession(sessionId); }
-  resumeRun(input: Parameters<ResumeExecutor["resumeRun"]>[0]) { return this.resume.resumeRun(input); }
 }

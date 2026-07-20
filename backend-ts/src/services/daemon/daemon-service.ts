@@ -427,22 +427,9 @@ export class DaemonService {
       const resolution = kind === "approval"
         ? { approved: value.decision === "approve", message: value.decision === "approve" ? "飞书卡片已批准" : "飞书卡片已拒绝" }
         : { value: typeof value.value === "string" ? value.value : "" };
-      const responded = kind === "approval"
-        ? lease.runtime.pendingInteractions.respondApproval(sessionId, approvalId, resolution as { approved: boolean; message: string })
-        : lease.runtime.pendingInteractions.respondUserInput(sessionId, approvalId, resolution as { value: string });
-      if (!responded.resolved) {
-        throw new DaemonServiceError(404, "待处理交互不存在或已完成");
-      }
-      if (!responded.needsResume) {
-        return { toast: { type: "success", content: "响应已提交" } };
-      }
-
-      const rootRunId = responded.rootRunId ?? "";
-      lease.runtime.resumeExecutor.resumeRun({
-        sessionId,
-        approvalId,
-        resolution,
-        onCompleted: (result) => {
+      let rootRunId = "";
+      const callbacks = {
+        onCompleted: (result: { content: string; success: boolean }) => {
           const metadata = lease.runtime.conversationStore.getSession(sessionId)?.metadata ?? {};
           const chatId = resolveBotChatId(state.config, metadata);
           releaseLease();
@@ -452,17 +439,46 @@ export class DaemonService {
             console.error(`[daemon][feishu][${state.botId}] 恢复结果发送失败`, error);
           });
         },
-        onSuspended: () => {
-          const next = lease.runtime.pendingInteractions.listPendingApprovalMeta(rootRunId, sessionId);
-          const metadata = lease.runtime.conversationStore.getSession(sessionId)?.metadata ?? {};
-          releaseLease();
-          if (next.length === 0) return;
-          void this.sendSuspendedCards(state, next.map((item) => toSuspendedInteraction(state.botId, item)), metadata).catch((error: unknown) => {
+        onSuspended: (nextApprovalId: string) => {
+          void (async () => {
+            const nextRootRunId = lease.runtime.interactionCoordinator.peekApprovalMeta(nextApprovalId, sessionId)?.rootRunId ?? rootRunId;
+            const next = await lease.runtime.interactionCoordinator.listPendingAsync(nextRootRunId, sessionId);
+            const metadata = lease.runtime.conversationStore.getSession(sessionId)?.metadata ?? {};
+            releaseLease();
+            if (next.length === 0) return;
+            await this.sendSuspendedCards(
+              state,
+              next.map((item) => toSuspendedInteraction(state.botId, item)),
+              metadata,
+            );
+          })().catch((error: unknown) => {
+            releaseLease();
             console.error(`[daemon][feishu][${state.botId}] 后续挂起卡片发送失败`, error);
           });
         },
-      });
-      releaseByCallback = true;
+      };
+      const responded = kind === "approval"
+        ? await lease.runtime.interactionCoordinator.respondApprovalAsync(
+            sessionId,
+            approvalId,
+            resolution as { approved: boolean; message: string },
+            callbacks,
+          )
+        : await lease.runtime.interactionCoordinator.respondUserInputAsync(
+            sessionId,
+            approvalId,
+            resolution as { value: string },
+            callbacks,
+          );
+      if (!responded.resolved) {
+        throw new DaemonServiceError(404, "待处理交互不存在或已完成");
+      }
+      if (!responded.needsResume) {
+        return { toast: { type: "success", content: "响应已提交" } };
+      }
+
+      rootRunId = responded.rootRunId ?? "";
+      releaseByCallback = responded.resumeDisposition === "started" || responded.resumeDisposition === "deferred";
       return { toast: { type: "success", content: "已恢复 Agent 执行" } };
     } finally {
       if (!releaseByCallback) {

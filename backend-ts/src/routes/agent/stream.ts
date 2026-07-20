@@ -63,20 +63,13 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
       await loadOwnedSession(request, request.params.sessionId, await resolveSessionApplication(options, request));
       const payload = ApprovalRequestSchema.parse(request.body);
       const interactions = (await ensureRequestApplications(request, options)).interactions;
-      const result = await interactions.respondApproval(
+      const result = await interactions.respondApprovalAsync(
         request.params.sessionId,
         request.params.approvalId,
         { approved: payload.approved, message: payload.message ?? "" },
       );
       if (!result.resolved) {
         throw new HttpError(404, "not_found", "未找到对应的审批请求，可能已被取消或不存在");
-      }
-      if (result.needsResume) {
-        (await ensureRequestApplications(request, options)).execution.resumeRun({
-          sessionId: request.params.sessionId,
-          approvalId: request.params.approvalId,
-          resolution: { approved: payload.approved, message: payload.message ?? "" },
-        });
       }
       return ok({
         resolved: true,
@@ -94,20 +87,13 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
     await loadOwnedSession(request, request.params.sessionId, await resolveSessionApplication(options, request));
     const payload = UserInputRequestSchema.parse(request.body);
     const interactions = (await ensureRequestApplications(request, options)).interactions;
-    const result = await interactions.respondUserInput(
+    const result = await interactions.respondUserInputAsync(
       request.params.sessionId,
       request.params.inputId,
       { value: payload.value ?? "" },
     );
     if (!result.resolved) {
       throw new HttpError(404, "not_found", "未找到对应的输入请求，可能已被取消或不存在");
-    }
-    if (result.needsResume) {
-      (await ensureRequestApplications(request, options)).execution.resumeRun({
-        sessionId: request.params.sessionId,
-        approvalId: request.params.inputId,
-        resolution: { value: payload.value ?? "" },
-      });
     }
     return ok({ resolved: true, ...(result.needsResume ? { resuming: true } : {}) });
   });
@@ -119,11 +105,11 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
       const payload = InteractionRequestSchema.parse(request.body);
       const interactions = (await ensureRequestApplications(request, options)).interactions;
       const recovered = payload.kind === "approval"
-          ? await interactions.respondApproval(request.params.sessionId, request.params.interactionId, {
+          ? await interactions.respondApprovalAsync(request.params.sessionId, request.params.interactionId, {
               approved: payload.approved ?? false,
               message: payload.message ?? "",
             })
-          : await interactions.respondUserInput(request.params.sessionId, request.params.interactionId, {
+          : await interactions.respondUserInputAsync(request.params.sessionId, request.params.interactionId, {
               value: payload.value ?? "",
             });
       const result = {
@@ -133,16 +119,7 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
           : {}),
       };
       if (!result.resolved) {
-        throw new HttpError(404, "not_found", result.error ?? "未找到对应的交互请求，可能已被取消或不存在");
-      }
-      if (result.needsResume) {
-        (await ensureRequestApplications(request, options)).execution.resumeRun({
-          sessionId: request.params.sessionId,
-          approvalId: request.params.interactionId,
-          resolution: result.kind === "approval"
-            ? { approved: result.approved ?? false, message: result.message ?? "" }
-            : { value: payload.value ?? "" },
-        });
+        throw new HttpError(404, "not_found", "未找到对应的交互请求，可能已被取消或不存在");
       }
       return ok({
         resolved: true,

@@ -187,6 +187,7 @@ describe("bot 自动化执行引擎", () => {
     const execute = vi.spyOn(harness.container.agentExecution, "executeSynchronously").mockImplementation(async (request) => {
       const sessionId = request.session_id!;
       harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId, userId: request.userId });
+      harness.container.conversationStore.createRun({ runId: "root-suspended", sessionId, agentName: "orchestrator_agent" });
       const pending = harness.container.pendingInteractions.waitForApproval({
         sessionId,
         runId: "root-suspended",
@@ -239,6 +240,7 @@ describe("bot 自动化执行引擎", () => {
     await app.botEngine.reloadBot(bot.id);
     const sessionId = "feishu-card-session";
     harness.container.conversationStore.createSession(LOCAL_TENANT_ID, sessionId, bot.id, { chatId: "oc_resume" });
+    harness.container.conversationStore.createRun({ runId: "root-run", sessionId, agentName: "orchestrator_agent", status: "suspended" });
     const suspended = harness.container.pendingInteractions.waitForApproval({
       sessionId,
       runId: "root-run",
@@ -253,10 +255,10 @@ describe("bot 自动化执行引擎", () => {
     await expect(suspended).rejects.toBeDefined();
     await vi.waitFor(() => expect(harness.container.realtimeEvents.getHistory(sessionId).at(-1)).toBeDefined());
     const approvalId = harness.container.realtimeEvents.getHistory(sessionId).at(-1)?.call_id ?? "";
-    const resumeRun = vi.spyOn(harness.container.resumeExecutor, "resumeRun").mockImplementation((input) => {
-      input.onCompleted?.({ content: "恢复完成", success: true });
-      return { rootRunId: "root-run", approvalId, toolCallId: "tool-call" };
+    const startClaim = vi.fn().mockReturnValue({
+      promise: Promise.resolve({ content: "恢复完成", success: true }),
     });
+    harness.container.interactionCoordinator.bindResumeStarter({ startClaim });
 
     const token = harness.controlStore.getBotRuntimeConfig(bot.id)!.feishu.route_token!;
     const response = await app.botEngine.handleIncomingMessage(token, {
@@ -267,11 +269,7 @@ describe("bot 自动化执行引擎", () => {
     });
 
     expect(response).toEqual({ toast: { type: "success", content: "已恢复 Agent 执行" } });
-    expect(resumeRun).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId,
-      approvalId,
-      resolution: { approved: true, message: "飞书卡片已批准" },
-    }));
+    expect(startClaim).toHaveBeenCalled();
     await vi.waitFor(() => expect(feishuMock.sent).toContainEqual({ chatId: "oc_resume", receiveIdType: "chat_id", content: "恢复完成" }));
   });
 

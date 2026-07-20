@@ -130,7 +130,7 @@ export class AsyncKernelEventPersister {
     status: RuntimeFinalizeStatus,
     finalMessage: AsyncFinalMessageInput | null,
     error: unknown = null,
-  ): Promise<void> {
+  ): Promise<{ readyResumeInteractionIds: string[] }> {
     const persistedFinal = this.buildFinalMessage(status, finalMessage);
     await this.clientEvents.flush(this.ctx.sessionId);
     const result = await this.storage.operations.finalizeRun({
@@ -139,7 +139,7 @@ export class AsyncKernelEventPersister {
       status,
       finalMessage: persistedFinal,
       ...(persistedFinal ? { attachStepsToFinalMessage: true } : {}),
-      ...(status === "suspended" ? { suspendRootRunId: this.ctx.rootRunId ?? this.ctx.runId } : {}),
+      ...(!this.ctx.childAgentId ? { interactionRootRunId: this.ctx.rootRunId ?? this.ctx.runId } : {}),
       ...(status === "completed" || status === "interrupted"
         ? { deleteProviderContinuationThreadKey: this.ctx.threadKey }
         : {}),
@@ -159,6 +159,7 @@ export class AsyncKernelEventPersister {
     if (status === "completed" && result.finalMessage) {
       await this.makeFileSnapshot(result.finalMessage.seq);
     }
+    return { readyResumeInteractionIds: result.readyResumeInteractionIds };
   }
 
   resolveFinalMessage(): { id: string; seq: number; content: string } | null {

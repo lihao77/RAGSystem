@@ -7,6 +7,7 @@ import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
 import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
 import type { CoreRuntimeDependencies, RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
+import { RuntimeInteractionCoordinator } from "./pending-interaction-service.js";
 
 /** Assemble deployment-provided services into the shared agent runtime. */
 export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepository>(
@@ -42,7 +43,6 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     backgroundTasks,
     taskTools,
     notificationQueue,
-    pendingInteractions,
     hostToolRegistry,
     delegationPending,
     outboxDispatcher,
@@ -50,13 +50,18 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
   } = dependencies;
 
   // SaaS 的用户可见事件必须进入 PostgreSQL durable outbox；Local 继续使用 SQLite outbox。
-  const eventClientEvents: ClientEventPublisher = dependencies.asyncClientEvents ?? clientEvents;
+  const eventClientEvents: ClientEventPublisher = dependencies.asyncClientEvents;
+  const interactionCoordinator = new RuntimeInteractionCoordinator(
+    dependencies.runtimeStorage,
+    dependencies.asyncClientEvents,
+  );
+  const selectedPendingInteractions = interactionCoordinator;
 
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const agentDelegation = new AgentDelegationService(conversationStore, runtimeCore, eventClientEvents);
   const toolsDeps = {
     memoryTools: memoryBindings.tools,
-    pendingInteractions,
+    pendingInteractions: selectedPendingInteractions,
     documentTools,
     bashTools,
     taskTools,
@@ -90,7 +95,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     clientEvents,
     eventClientEvents,
     permissionPolicy,
-    pendingInteractions,
+    pendingInteractions: selectedPendingInteractions,
     hostToolRegistry,
     delegationPending,
     logger: dependencies.logger,
@@ -109,10 +114,9 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
   });
   const resumeExecutor = createResumeExecutor({
     runEngine: agentExecution.runEngine,
-    conversationStore,
-    pendingInteractions,
     runtimeCore,
   });
+  interactionCoordinator.bindResumeStarter(resumeExecutor);
   agentDelegation.setRunEngine(() => agentExecution.runEngine);
   backgroundTasks.setOnTaskCompleted((sessionId) => agentExecution.triggerBgNotificationRun(sessionId));
 
@@ -128,7 +132,6 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     sessionApplication,
     realtimeEvents,
     agentExecution,
-    resumeExecutor,
     metricsCollector,
     permissionPolicy,
     agentConfig,
@@ -153,7 +156,8 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     bashTools,
     backgroundTasks,
     taskTools,
-    pendingInteractions,
+    pendingInteractions: selectedPendingInteractions,
+    interactionCoordinator,
     hostToolRegistry,
     delegationPending,
     toolsDeps,
