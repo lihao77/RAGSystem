@@ -7,7 +7,6 @@ import type {
 } from "../../../contracts/conversation-store/index.js";
 import type { Envelope } from "../../../contracts/events.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
-import type { AsyncFileHistoryStore } from "../../../contracts/file-history-store/index.js";
 import type {
   RuntimeFinalizeStatus,
   RuntimeRecordEnvelopeInput,
@@ -45,7 +44,11 @@ export interface AsyncFinalMessageInput {
   metadata?: Record<string, unknown>;
 }
 
-/** PostgreSQL-backed kernel persister using the same atomic RuntimeStorage boundary as Local. */
+interface FileSnapshotPort {
+  makeSnapshot(sessionId: string, messageSeq: number): string | null | Promise<string | null>;
+}
+
+/** Deployment-neutral kernel persister backed by a tenant-bound RuntimeStorage adapter. */
 export class AsyncKernelEventPersister {
   private finalMessage: { id: string; seq: number; content: string } | null = null;
 
@@ -53,7 +56,7 @@ export class AsyncKernelEventPersister {
     private readonly storage: RuntimeStorage,
     private readonly clientEvents: Pick<AsyncDurableClientEventPublisher, "deliver" | "flush">,
     private readonly ctx: AsyncPersisterRunContext,
-    private readonly fileHistory: AsyncFileHistoryStore | null = null,
+    private readonly fileHistory: FileSnapshotPort | null = null,
   ) {
     if (storage.tenantId !== ctx.tenantId) {
       throw new Error(`runtime storage tenant mismatch: expected ${ctx.tenantId}, received ${storage.tenantId}`);

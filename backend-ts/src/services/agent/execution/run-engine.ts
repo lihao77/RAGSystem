@@ -10,8 +10,6 @@ import { EnvelopeSchema, RecoverableInterrupt } from "@ragsystem/agent-protocol"
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
-import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
-import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
 import type { CodeExecutionPort } from "../../../contracts/runtime/tool-ports.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
@@ -67,8 +65,6 @@ export class AgentRunEngine {
     private readonly notificationQueue: SessionNotificationQueue,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly eventPublisher: AgentExecutionEventPublisher,
-    private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">,
-    private readonly clientEvents: DurableClientEventPublisher,
     private readonly permissionPolicy: PermissionPolicyService,
     private readonly pathAccessPolicyFactory: () => PathAccessPolicy,
     private readonly pendingInteractions: PendingInteractionPort,
@@ -150,7 +146,7 @@ export class AgentRunEngine {
       };
     }
 
-    if (!input.resume) {
+    const onRunPersisted = input.resume ? undefined : (): void => {
       this.eventPublisher.publishRunStarted(input.sessionId, runId, {
         request_id: input.requestId,
         task: input.task,
@@ -175,7 +171,7 @@ export class AgentRunEngine {
         task: input.task,
         threadKey: "root",
       });
-    }
+    };
 
     const promise = this.executeRun({
       sessionId: input.sessionId,
@@ -199,6 +195,7 @@ export class AgentRunEngine {
       rootTask: input.task,
       finalMetadataExtra: input.finalMetadataExtra,
       ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
+      ...(onRunPersisted ? { onRunPersisted } : {}),
       onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
     });
     this.statusTracker.register(taskId, input.sessionId, { abortController, status, promise });
@@ -333,6 +330,7 @@ export class AgentRunEngine {
     rootTask?: string | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
     onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
+    onRunPersisted?: (() => void) | undefined;
     // 终态回调（替代直接耦合 statusTracker）：root 由 startRun 壳传绑定 statusTracker 的回调，
     // child 不传。executeRun 自己用 startedAt 算 execution_time，不依赖外部 status 对象。
     onTerminal?: (finalStatus: "completed" | "failed" | "interrupted" | "suspended") => void;
@@ -383,7 +381,6 @@ export class AgentRunEngine {
           codeExecutionTools: this.codeExecutionTools,
           taskTools: this.taskTools,
           eventPublisher: this.eventPublisher,
-          clientEvents: this.clientEvents,
           providers: this.providersProvider(),
           dataRoot: this.dataRoot,
           memoryConfig: this.memoryConfig,
@@ -415,6 +412,7 @@ export class AgentRunEngine {
           ...(input.rootTask !== undefined ? { rootTask: input.rootTask } : {}),
          ...(input.userId !== undefined ? { userId: input.userId } : {}),
          ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
+         ...(input.onRunPersisted ? { onRunPersisted: input.onRunPersisted } : {}),
         signal: input.abortController.signal,
          selectedLlm: input.selectedLlm ?? null,
          // 最终 assistant 消息的调用点元数据：execution_kind + finalMetadataExtra（retry_of_* 等）。

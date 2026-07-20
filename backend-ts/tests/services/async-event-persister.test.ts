@@ -286,4 +286,29 @@ describe("AsyncKernelEventPersister", () => {
     expect(harness.delivered).toEqual([[]]);
     expect(persister.resolveFinalMessage()).toBeNull();
   });
+
+  it("does not finalize when queued client-event persistence fails during flush", async () => {
+    const harness = createHarness();
+    const writeFailure = new Error("queued event write failed");
+    harness.clientEvents.flush = async () => {
+      harness.lifecycle.push("flush");
+      throw writeFailure;
+    };
+    const persister = new AsyncKernelEventPersister(
+      harness.storage,
+      harness.clientEvents as never,
+      context(),
+      harness.fileHistory as never,
+    );
+    await persister.startRun();
+
+    await expect(persister.finalize("completed", { content: "must not commit" }))
+      .rejects.toBe(writeFailure);
+
+    expect(harness.lifecycle).toEqual(["flush"]);
+    expect(harness.finalizes).toEqual([]);
+    expect(harness.delivered).toEqual([]);
+    expect(harness.messages.has("run-1:final")).toBe(false);
+    expect(persister.resolveFinalMessage()).toBeNull();
+  });
 });

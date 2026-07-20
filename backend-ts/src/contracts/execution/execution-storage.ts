@@ -52,7 +52,12 @@ export interface DurableExecutionClientEventPort {
 
 /** Deployment-neutral execution persistence boundary. The two implementations are exclusive. */
 export type ExecutionStorage =
-  | { kind: "local"; conversation: ConversationStore }
+  | {
+      kind: "local";
+      tenantId: TenantId;
+      conversation: ConversationStore;
+      createEventPersister(context: ExecutionRunPersistenceContext): ExecutionEventPersister;
+    }
   | {
       kind: "durable";
       tenantId: TenantId;

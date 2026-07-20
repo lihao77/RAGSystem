@@ -28,7 +28,7 @@ export class AsyncDurableClientEventPublisher {
     const previous = this.sessionTails.get(sessionId) ?? Promise.resolve();
     const operation = previous.then(async () => {
       const { outbox: row } = await this.storage.operations.recordEnvelope(input);
-      await this.dispatcher.dispatchRows([row]);
+      if (row.status === "pending") await this.dispatcher.dispatchRows([row]);
       return row;
     });
     const tail = operation.then(
@@ -63,7 +63,8 @@ export class AsyncDurableClientEventPublisher {
   }
 
   async deliver(rows: OutboxRow[]): Promise<void> {
-    if (rows.length > 0) await this.dispatcher.dispatchRows(rows);
+    const pending = rows.filter((row) => row.status === "pending");
+    if (pending.length > 0) await this.dispatcher.dispatchRows(pending);
   }
 
   private toRecordInput(

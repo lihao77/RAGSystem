@@ -29,6 +29,7 @@ import { BackgroundTaskService } from "../../services/runtime/background-task-se
 import { createCoreRuntimeContainer } from "../../services/runtime/core-runtime-container.js";
 import { DelegationPendingService } from "../../services/runtime/delegation-pending-service.js";
 import { DurableClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
+import { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
 import { OutboxDispatcher } from "../../services/runtime/event-outbox/dispatcher.js";
 import { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
 import { PendingInteractionService } from "../../services/runtime/pending-interaction-service.js";
@@ -40,6 +41,7 @@ import { SessionNotificationQueue } from "../../services/runtime/session-notific
 import { LocalKnowledgeQueryAdapter } from "./local-knowledge-query-adapter.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";
 import { PathApprovalService } from "./path-approval-service.js";
+import { SqliteRuntimeStorage } from "./sqlite-runtime-storage.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): RuntimeContainer {
@@ -50,14 +52,18 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
   transientArtifacts.startPruning();
   const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory, transientArtifacts);
   const realtimeEvents = new RealtimeEventHub();
-  const asyncClientEvents = options.asyncClientEventsFactory?.(options.tenantId, realtimeEvents);
   const outboxDispatcher = new OutboxDispatcher(conversationStore, realtimeEvents);
   if (options.startOutboxDispatcher ?? true) {
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
   }
   const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
-  // SaaS 运行时通过 asyncClientEvents 将用户可见事件写入 PostgreSQL；Local 保持 SQLite 通道。
-  const eventClientEvents = asyncClientEvents ?? clientEvents;
+  const sqliteRuntimeStorage = new SqliteRuntimeStorage(options.tenantId, conversationStore);
+  const localAsyncClientEvents = new AsyncDurableClientEventPublisher(sqliteRuntimeStorage, {
+    dispatchRows: async (rows) => outboxDispatcher.dispatchRows(rows),
+  });
+  const asyncClientEvents = options.asyncClientEventsFactory?.(options.tenantId, realtimeEvents);
+  // Both deployments use the queued publisher so finalize can flush all prior envelope writes.
+  const eventClientEvents = asyncClientEvents ?? localAsyncClientEvents;
   const permissionPolicy = new PermissionPolicyService(conversationStore);
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
@@ -176,7 +182,13 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     memoryBindings,
     executionStorage: options.executionStorage
       ?? options.executionStorageFactory?.({ tenantId: options.tenantId, ...(asyncClientEvents ? { asyncClientEvents } : {}) })
-      ?? createLocalExecutionStorage(conversationStore),
+      ?? createLocalExecutionStorage({
+        tenantId: options.tenantId,
+        conversation: conversationStore,
+        runtimeStorage: sqliteRuntimeStorage,
+        clientEvents: localAsyncClientEvents,
+        fileHistory,
+      }),
     pathAccessPolicyFactory: options.pathAccessPolicyFactory ?? (() => new PathApprovalService()),
     documentTools,
     codeExecutionTools,

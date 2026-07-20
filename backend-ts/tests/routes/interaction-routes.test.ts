@@ -33,6 +33,9 @@ describe("interaction response routes", () => {
       riskLevel: "high",
       description: "Execute bash command",
     });
+    await vi.waitFor(() => expect(harness.container.realtimeEvents
+      .getHistory("approval-route-session")
+      .find((event) => event.type === "interaction")).toBeDefined());
     const approvalRequired = harness.container.realtimeEvents
       .getHistory("approval-route-session")
       .find((event) => event.type === "interaction");
@@ -93,8 +96,10 @@ describe("interaction response routes", () => {
       task: "恢复任务",
       toolName: "execute_bash",
     });
-    const approvalId = harness.container.realtimeEvents.getHistory("resume-route-session")[0]?.call_id ?? "";
     await expect(suspended).rejects.toBeDefined();
+    await vi.waitFor(() => expect(harness.container.realtimeEvents
+      .getHistory("resume-route-session")[0]).toBeDefined());
+    const approvalId = harness.container.realtimeEvents.getHistory("resume-route-session")[0]?.call_id ?? "";
 
     const responded = await app.inject({
       method: "POST",

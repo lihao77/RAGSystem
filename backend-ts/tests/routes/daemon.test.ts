@@ -250,8 +250,9 @@ describe("bot 自动化执行引擎", () => {
       task: "执行任务",
       toolName: "execute_bash",
     });
-    const approvalId = harness.container.realtimeEvents.getHistory(sessionId).at(-1)?.call_id ?? "";
     await expect(suspended).rejects.toBeDefined();
+    await vi.waitFor(() => expect(harness.container.realtimeEvents.getHistory(sessionId).at(-1)).toBeDefined());
+    const approvalId = harness.container.realtimeEvents.getHistory(sessionId).at(-1)?.call_id ?? "";
     const resumeRun = vi.spyOn(harness.container.resumeExecutor, "resumeRun").mockImplementation((input) => {
       input.onCompleted?.({ content: "恢复完成", success: true });
       return { rootRunId: "root-run", approvalId, toolCallId: "tool-call" };

@@ -240,6 +240,9 @@ describe("session websocket route", () => {
       toolName: "execute_bash",
       description: "Run command",
     });
+    await vi.waitFor(() => expect(harness.container.realtimeEvents
+      .getHistory("ws-approval-session")
+      .find((event) => event.type === "interaction")).toBeDefined());
     const approvalRequired = harness.container.realtimeEvents
       .getHistory("ws-approval-session")
       .find(
@@ -266,8 +269,18 @@ describe("session websocket route", () => {
         },
       }));
 
-      // respondApproval 同步发出 interaction(approval, responded) 事件（经 outbox→realtime→subscriber
-      // 推回 client），随后 ws 处理器再回 ack。新协议事件与传输确认分离，故两条都到达 client。
+      // The transport ack is immediate; the durable interaction event follows its async commit.
+      const ack = await client.receiveJson();
+      expect(ack).toMatchObject({
+        type: "ack",
+        session_id: "ws-approval-session",
+        payload: {
+          category: "interaction",
+          ok: true,
+          ref_call_id: approvalId,
+        },
+      });
+
       const responded = await client.receiveJson();
       expect(responded).toMatchObject({
         type: "interaction",
@@ -278,17 +291,6 @@ describe("session websocket route", () => {
           phase: "responded",
           approved: true,
           message: "ok",
-        },
-      });
-
-      const ack = await client.receiveJson();
-      expect(ack).toMatchObject({
-        type: "ack",
-        session_id: "ws-approval-session",
-        payload: {
-          category: "interaction",
-          ok: true,
-          ref_call_id: approvalId,
         },
       });
       expect(await approvalPromise).toMatchObject({

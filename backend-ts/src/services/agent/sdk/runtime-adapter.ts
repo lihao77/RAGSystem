@@ -2,9 +2,8 @@ import { asString } from "../../../utils/guards.js";
 /**
  * Runtime 适配器—— 组装投影 + ToolRegistry + createRuntime，跑 SDK 事件循环 + 落库 + 翻译推流 + terminal。
  *
- * SDK 收窄为纯计算内核（B1：Dispatcher 不再落库，只推 KernelEvent 事件流）；本适配器独占 run/message/
- * message/run 落库（KernelEventPersister）+ 翻译 KernelEvent 成 Envelope
- * 推 outbox + terminal 补终态 envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）。
+ * SDK 收窄为纯计算内核（B1：Dispatcher 不再落库，只推 KernelEvent 事件流）；本适配器通过
+ * deployment-neutral persister 完成 message/run/step/outbox 写入，并翻译 KernelEvent 推送 Envelope。
  */
 import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, resolveToolInstructionMode, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefresher } from "@ragsystem/agent-sdk";
@@ -16,9 +15,8 @@ import type { ModelProviderConfig } from "../../../contracts/integrations/model-
 import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { ExecutionEventPersister, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
-import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/events.js";
+import type { DelegatedToolDeclarationWire } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
-import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
 import type { InteractionRequiredNotice, PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
@@ -26,7 +24,6 @@ import { createBackendTools } from "../../../tools/registry.js";
 import type { CodeExecutionPort } from "../../../contracts/runtime/tool-ports.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
-import { KernelEventPersister } from "./event-persister.js";
 import { buildBackendAgentContext, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { memoryBaselineKey } from "../memory/index.js";
@@ -46,7 +43,6 @@ export interface SdkRuntimeAdapterDeps {
   /** 后台任务等待——从 taskTools 适配。 */
   taskTools: TaskToolService | null;
   eventPublisher: AgentExecutionEventPublisher;
-  clientEvents: DurableClientEventPublisher;
   /** 已加载的全部 provider（投影层解析 tier.provider 引用用）。 */
   providers: ModelProviderConfig[];
   dataRoot: string;
@@ -97,6 +93,7 @@ export interface SdkExecuteRunInput {
   messageMetadata?: Record<string, unknown> | null;
   userMessageId?: string;
   onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
+  onRunPersisted?: (() => void) | undefined;
 }
 
 export interface SdkExecuteRunResult {
@@ -349,8 +346,7 @@ export async function executeRunWithSdk(
   }
 
   // KernelEvent 落库（B1：从 SDK Dispatcher 迁回 backend）：createRun + 增量事件落库 + 终态合一全在此。
-  const persister: ExecutionEventPersister = deps.storage.kind === "durable"
-    ? deps.storage.createEventPersister({
+  const persister: ExecutionEventPersister = deps.storage.createEventPersister({
       tenantId: deps.storage.tenantId,
       sessionId: input.sessionId,
       runId: input.runId,
@@ -369,12 +365,12 @@ export async function executeRunWithSdk(
       ...(input.parentCallId !== undefined ? { parentCallId: input.parentCallId } : {}),
       ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
       ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
-      ...(input.userMessageId ? {
+      ...(deps.storage.kind === "durable" && input.userMessageId ? {
         initialUserMessage: {
           id: input.userMessageId,
           content: input.task,
           metadata: {
-            agent_name: input.agent.agent_name,
+            agent: input.agent.agent_name,
             run_id: input.runId,
             task_id: input.taskId,
             request_id: input.requestId,
@@ -382,31 +378,9 @@ export async function executeRunWithSdk(
           },
         },
       } : {}),
-    })
-    : new KernelEventPersister(deps.storage.conversation, {
-    sessionId: input.sessionId,
-    runId: input.runId,
-    threadKey: input.threadKey,
-    agentName: input.agent.agent_name,
-    agentDisplayName: input.agent.display_name ?? input.agent.agent_name,
-    providerType: input.provider.provider_type,
-    rootCallId: input.rootCallId,
-    rootRunId,
-    parentCallId: input.parentCallId ?? null,
-    ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
-    ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
-    ...(input.executionKind !== undefined ? { executionKind: input.executionKind } : {}),
-    taskSummary: input.task.slice(0, 200),
-    ...(input.userId !== undefined ? { userId: input.userId } : {}),
-    ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
-    ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
-    ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
   });
-  if (deps.storage.kind === "local" && !deps.storage.conversation.getRun(input.sessionId, input.runId)) {
-    persister.startRun();
-  } else if (deps.storage.kind === "durable") {
-    await persister.startRun();
-  }
+  await persister.startRun();
+  input.onRunPersisted?.();
   const runtime = createRuntime(runtimeOpts);
   const handle = runtime.run({
     sessionId: input.sessionId,
@@ -462,9 +436,6 @@ export async function executeRunWithSdk(
     // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
     await persister.finalize(interrupted ? "interrupted" : "failed", null, error);
     if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, false);
-    if (deps.storage.kind === "local") {
-      recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
-    }
     const message = error instanceof Error ? error.message : String(error);
     return { content: message, success: false, tokenUsage, toolCalls };
   }
@@ -475,99 +446,7 @@ export async function executeRunWithSdk(
   // completed：终态合一落库（最终 assistant message + Envelope 关联 + updateRunStatus）。
   await persister.finalize("completed", { content: result.content });
   if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, true);
-  const finalMessage = await persister.resolveFinalMessage();
-  if (deps.storage.kind === "local") recordTerminal(deps, input, "completed", finalMessage, null);
   return { content: result.content, success: true, tokenUsage, toolCalls };
-}
-
-/**
- * Terminal 推流（终态 outbox envelope；root run 的 stream_output(final)/message_saved/agent_ended/run_ended）。
- * 最终 message + run 状态由 KernelEventPersister.finalize 合一事务完成。
- */
-function recordTerminal(
-  deps: SdkRuntimeAdapterDeps,
-  input: SdkExecuteRunInput,
-  status: "completed" | "failed" | "interrupted",
-  finalMessage: { id: string; seq: number; content: string } | null,
-  error: unknown,
-): void {
-  if (deps.storage.kind !== "local") {
-    throw new Error("local terminal publisher requires local execution storage");
-  }
-  const isRoot = !input.childAgentId;
-
-  // 最终 message / run 状态由 KernelEventPersister.finalize 合一事务落库（caller 已调）。
-  // 本函数只推终态 outbox envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）到实时流。
-  const records: RecordedClientEvent[] = isRoot
-    ? deps.storage.conversation.runInTransaction((tx): RecordedClientEvent[] => {
-      const collected: RecordedClientEvent[] = [];
-      if (status === "completed" && finalMessage) {
-        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-          type: "stream_output",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          call_id: input.rootCallId,
-          agent_id: input.agent.agent_name,
-          payload: { phase: "final", content: finalMessage.content },
-        }));
-        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-          type: "state_sync",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          payload: { category: "message_saved", ref: { message_id: finalMessage.id, seq: finalMessage.seq } },
-        }));
-        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-          type: "agent_ended",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          call_id: input.rootCallId,
-          agent_id: input.agent.agent_name,
-          payload: { phase: "end", result: finalMessage.content.slice(0, 500), success: true },
-        }));
-        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-          type: "run_ended",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          payload: { status: "completed" },
-        }));
-      } else {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-          type: "agent_ended",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          call_id: input.rootCallId,
-          agent_id: input.agent.agent_name,
-          payload: {
-            phase: "end",
-            result: status === "interrupted" ? "[已停止生成]" : errorMessage.slice(0, 500),
-            success: false,
-          },
-        }));
-        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-          type: "run_ended",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          payload: { status, ...(status !== "interrupted" ? { reason: errorMessage } : {}) },
-        }));
-      }
-      return collected;
-    })
-    : [];
-  deps.clientEvents.deliver(records);
-}
-
-function appendEnvelope(
-  tx: Parameters<Parameters<ConversationStore["runInTransaction"]>[0]>[0],
-  clientEvents: DurableClientEventPublisher,
-  input: { sessionId: string; runId: string },
-  envelope: Envelope,
-): RecordedClientEvent {
-  return clientEvents.recordInTransaction(tx, input.sessionId, envelope, {
-    runId: input.runId,
-    aggregateType: "run",
-    aggregateId: input.runId,
-  });
 }
 
 /**

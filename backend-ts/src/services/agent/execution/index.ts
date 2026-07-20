@@ -161,8 +161,6 @@ export function createAgentExecutionService(
     notificationQueue,
     statusTracker,
     eventPublisher,
-    params.outboxDispatcher,
-    params.clientEvents,
     params.permissionPolicy,
     params.pathAccessPolicyFactory,
     params.pendingInteractions,

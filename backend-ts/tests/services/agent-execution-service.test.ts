@@ -18,6 +18,8 @@ import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/index.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
+import { AsyncDurableClientEventPublisher } from "../../src/services/runtime/event-outbox/async-client-event-publisher.js";
+import { SqliteRuntimeStorage } from "../../src/adapters/local/sqlite-runtime-storage.js";
 import { HostToolRegistry } from "../../src/services/runtime/host-tool-registry.js";
 import { DelegationPendingService } from "../../src/services/runtime/delegation-pending-service.js";
 import { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
@@ -128,6 +130,10 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const realtimeEvents = new RealtimeEventHub();
   const dispatcher = new OutboxDispatcher(store, realtimeEvents);
   const clientEvents = new DurableClientEventPublisher(store, dispatcher);
+  const runtimeStorage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
+  const executionClientEvents = new AsyncDurableClientEventPublisher(runtimeStorage, {
+    dispatchRows: async (rows) => dispatcher.dispatchRows(rows),
+  });
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
   const permissionPolicy = new PermissionPolicyService(store);
@@ -150,13 +156,19 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
     tenantId: LOCAL_TENANT_ID,
     sessions,
     conversationStore: store,
-    executionStorage: createLocalExecutionStorage(store),
+    executionStorage: createLocalExecutionStorage({
+      tenantId: LOCAL_TENANT_ID,
+      conversation: store,
+      runtimeStorage,
+      clientEvents: executionClientEvents,
+    }),
     runtimeCore: runtimeCoreStub(agent, ready, provider),
     dataRoot: os.tmpdir(),
     memoryConfig: { index_max_lines: 200, index_max_chars: 25600 },
    outboxDispatcher: dispatcher,
    providersProvider: () => [provider],
-   clientEvents,
+    clientEvents,
+    eventClientEvents: executionClientEvents,
    hostToolRegistry,
    delegationPending,
     permissionPolicy,
