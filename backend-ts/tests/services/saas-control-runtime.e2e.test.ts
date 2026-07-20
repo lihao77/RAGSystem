@@ -19,7 +19,7 @@ afterAll(async () => {
   await adminPool.end();
 });
 
-describe.skipIf(databaseUrl == null)("SaaS Control runtime composition", () => {
+describe.skipIf(databaseUrl == null)("PostgreSQL Control runtime composition", () => {
   it("starts v2 Control, Bot and Widget repositories from one PostgreSQL pool", async () => {
     if (!databaseUrl || !adminPool) throw new Error("DATABASE_URL is required");
     const schema = `control_runtime_e2e_${randomUUID().replaceAll("-", "")}`;
@@ -28,11 +28,10 @@ describe.skipIf(databaseUrl == null)("SaaS Control runtime composition", () => {
     const connectionString = schemaConnection(schema);
     const dataRoot = await fsTempRoot();
     const env = loadEnv({
-      DEPLOYMENT_MODE: "saas",
+      DEPLOYMENT_MODE: "enterprise",
       AUTH_MODE: "password",
       TENANCY_MODE: "multi",
       EXECUTION_MODE: "remote",
-      STORAGE_MODE: "postgres",
       DATABASE_URL: connectionString,
       CONTROL_STORAGE_MODE: "postgres",
       CONTROL_DATABASE_URL: connectionString,

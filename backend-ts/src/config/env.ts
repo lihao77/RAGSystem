@@ -112,6 +112,7 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
   }
 
   const dataRoot = path.resolve(env.RAG_DATA_ROOT?.trim() || path.join(os.homedir(), ".ragsystem"));
+  const isSaaS = env.DEPLOYMENT_MODE === "saas";
 
   const appEnv: AppEnv = {
     host: env.BACKEND_TS_HOST ?? "0.0.0.0",
@@ -125,15 +126,15 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     authMode: env.AUTH_MODE,
     tenancyMode: env.TENANCY_MODE,
     executionMode: env.EXECUTION_MODE,
-    storageMode: env.STORAGE_MODE,
-    controlStorageMode: env.CONTROL_STORAGE_MODE ?? "sqlite",
+    storageMode: env.STORAGE_MODE ?? (isSaaS ? "postgres" : "sqlite"),
+    controlStorageMode: env.CONTROL_STORAGE_MODE ?? (isSaaS ? "postgres" : "sqlite"),
     uiMode: env.UI_MODE,
     allowUnsafeLocalExecution: parseBooleanFlag(env.ALLOW_UNSAFE_LOCAL_EXECUTION),
     databaseUrl: env.DATABASE_URL?.trim() || undefined,
     controlDatabaseUrl: env.CONTROL_DATABASE_URL?.trim() || undefined,
     controlSecretMasterKey: parseSecretMasterKey(env.CONTROL_SECRET_MASTER_KEY),
     postgresPoolMax: parsePositiveInteger(env.POSTGRES_POOL_MAX, 10, "POSTGRES_POOL_MAX"),
-    objectStorageMode: env.OBJECT_STORAGE_MODE ?? "filesystem",
+    objectStorageMode: env.OBJECT_STORAGE_MODE ?? (isSaaS ? "s3" : "filesystem"),
     objectStorageBucket: env.OBJECT_STORAGE_BUCKET?.trim() || undefined,
     objectStorageEndpoint: env.OBJECT_STORAGE_ENDPOINT?.trim() || undefined,
     objectStorageAccessKeyId: env.OBJECT_STORAGE_ACCESS_KEY_ID?.trim() || undefined,
@@ -144,6 +145,13 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     sessionJwtSecret: env.SESSION_JWT_SECRET?.trim() || undefined,
     sessionTokenTtlHours: parsePositiveNumber(env.SESSION_TOKEN_TTL_HOURS, 168, "SESSION_TOKEN_TTL_HOURS"),
   };
+  if (isSaaS && appEnv.storageMode !== "postgres") {
+    throw new Error("DEPLOYMENT_MODE=saas requires STORAGE_MODE=postgres; SQLite runtime storage is not allowed");
+  }
+  if (isSaaS && appEnv.controlStorageMode !== "postgres") {
+    throw new Error("DEPLOYMENT_MODE=saas requires CONTROL_STORAGE_MODE=postgres; SQLite control storage is not allowed");
+  }
+  resolveDeploymentProfile(appEnv);
   if (appEnv.storageMode === "postgres" && !appEnv.databaseUrl) {
     throw new Error("STORAGE_MODE=postgres requires DATABASE_URL");
   }
@@ -164,7 +172,6 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
       throw new Error("OBJECT_STORAGE_MODE=s3 requires OBJECT_STORAGE_ENDPOINT, OBJECT_STORAGE_ACCESS_KEY_ID and OBJECT_STORAGE_SECRET_ACCESS_KEY");
     }
   }
-  resolveDeploymentProfile(appEnv);
   return appEnv;
 }
 

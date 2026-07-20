@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { buildTestHarness } from "../helpers/app.js";
+import { buildApp } from "../../src/app.js";
+import { buildTestHarness, testEnv } from "../helpers/app.js";
 
 const secret = "session-route-secret-0123456789abcdef0123456789";
 const close = new Array<() => Promise<void>>();
@@ -79,11 +80,10 @@ describe("认证路由", () => {
     expect(health.statusCode).toBe(200);
   });
 
-  it("保留启动时显式配置的 PostgreSQL SaaS profile", async () => {
-    const harness = await buildTestHarness({
-      autoIdentityProvider: true,
-      sessionJwtSecret: secret,
+  it("拒绝用 Local runtime 启动 PostgreSQL SaaS profile", async () => {
+    await expect(buildApp({
       env: {
+        ...testEnv,
         deploymentMode: "saas",
         authMode: "password",
         tenancyMode: "multi",
@@ -92,28 +92,7 @@ describe("认证路由", () => {
         uiMode: "saas",
         databaseUrl: "postgres://example/ragsystem",
       },
-    });
-    close.push(() => harness.app.close());
-    const installed = await harness.app.inject({
-      method: "POST",
-      url: "/api/install",
-      payload: {
-        deployment: "saas",
-        tenancy: "multi",
-        admin: { username: "admin", password: "password123" },
-      },
-    });
-
-    expect(installed.statusCode).toBe(200);
-    expect(installed.json()).toMatchObject({
-      deployment: "saas",
-      auth: "password",
-      tenancy: "multi",
-      execution: "remote",
-      storage: "postgres",
-      ui: "saas",
-    });
-    expect(harness.controlStore.getSetting("storage_mode")).toBe("postgres");
+    })).rejects.toThrow("PostgreSQL runtime and control storage");
   });
 
   it("single 安装后热刷新仍保持 local provider", async () => {

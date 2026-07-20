@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -9,6 +10,22 @@ import { makeTempRoot } from "../helpers/temp-db.js";
 import { testEnv } from "../helpers/app.js";
 
 describe("Control Plane composition", () => {
+  it("rejects an incomplete SaaS composition before creating SQLite", async () => {
+    const root = makeTempRoot();
+    await expect(buildApp({
+      env: {
+        ...testEnv,
+        dataRoot: root,
+        systemRoot: path.join(root, "system"),
+        tenantsRoot: path.join(root, "tenants"),
+        deploymentMode: "saas",
+        storageMode: "postgres",
+        controlStorageMode: "postgres",
+      },
+    })).rejects.toThrow("requires conversation, memory and control runtimes");
+    expect(existsSync(path.join(root, "system", "control.db"))).toBe(false);
+  });
+
   it("requires the SaaS Control runtime for PostgreSQL mode", async () => {
     await expect(buildApp({
       env: {

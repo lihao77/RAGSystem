@@ -2,6 +2,16 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadEnv, resolveDeploymentProfile } from "../../src/config/env.js";
 
+const validSaaSStorage = {
+  DATABASE_URL: "postgres://runtime/database",
+  CONTROL_DATABASE_URL: "postgres://control/database",
+  CONTROL_SECRET_MASTER_KEY: Buffer.alloc(32, 1).toString("base64"),
+  OBJECT_STORAGE_BUCKET: "ragsystem",
+  OBJECT_STORAGE_ENDPOINT: "http://object-storage:9000",
+  OBJECT_STORAGE_ACCESS_KEY_ID: "access-key",
+  OBJECT_STORAGE_SECRET_ACCESS_KEY: "secret-key",
+};
+
 describe("deployment profile", () => {
   it("未配置时使用完整 local 默认值", () => {
     const env = loadEnv({ RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-default") });
@@ -29,12 +39,52 @@ describe("deployment profile", () => {
 
   it("显式危险开关允许 SaaS 本地执行", () => {
     const env = loadEnv({
+      ...validSaaSStorage,
       RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-saas-unsafe"),
       DEPLOYMENT_MODE: "saas",
       EXECUTION_MODE: "local",
       ALLOW_UNSAFE_LOCAL_EXECUTION: "true",
     });
     expect(resolveDeploymentProfile(env).execution).toBe("local");
+  });
+
+  it("SaaS 默认使用 PostgreSQL 与对象存储", () => {
+    const env = loadEnv({
+      ...validSaaSStorage,
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-saas-storage-defaults"),
+      DEPLOYMENT_MODE: "saas",
+      EXECUTION_MODE: "remote",
+    });
+    expect(env.storageMode).toBe("postgres");
+    expect(env.controlStorageMode).toBe("postgres");
+    expect(env.objectStorageMode).toBe("s3");
+  });
+
+  it("拒绝 SaaS 显式回退到 SQLite", () => {
+    for (const storageMode of ["sqlite", "sqlite-per-tenant"] as const) {
+      expect(() => loadEnv({
+        ...validSaaSStorage,
+        RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", `env-saas-${storageMode}`),
+        DEPLOYMENT_MODE: "saas",
+        EXECUTION_MODE: "remote",
+        STORAGE_MODE: storageMode,
+      })).toThrow("SQLite runtime storage is not allowed");
+    }
+    expect(() => loadEnv({
+      ...validSaaSStorage,
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-saas-control-sqlite"),
+      DEPLOYMENT_MODE: "saas",
+      EXECUTION_MODE: "remote",
+      CONTROL_STORAGE_MODE: "sqlite",
+    })).toThrow("SQLite control storage is not allowed");
+  });
+
+  it("SaaS 默认 PostgreSQL 时要求连接配置", () => {
+    expect(() => loadEnv({
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-saas-postgres-required"),
+      DEPLOYMENT_MODE: "saas",
+      EXECUTION_MODE: "remote",
+    })).toThrow("STORAGE_MODE=postgres requires DATABASE_URL");
   });
 
   it("loads PostgreSQL pool settings and prefers DATABASE_URL", () => {

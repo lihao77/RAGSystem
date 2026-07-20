@@ -71,6 +71,14 @@ export interface BuildAppOptions {
   wsTickets?: WsTicketService;
 }
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
+  if (options.env.deploymentMode === "saas") {
+    if (options.env.storageMode !== "postgres" || options.env.controlStorageMode !== "postgres") {
+      throw new Error("SaaS composition requires PostgreSQL runtime and control storage; SQLite is not allowed");
+    }
+    if (!options.saasConversationRuntime || !options.saasMemoryRuntime || !options.controlRuntime) {
+      throw new Error("SaaS composition requires conversation, memory and control runtimes");
+    }
+  }
   if (options.env.controlStorageMode === "postgres" && !options.controlRuntime) {
     throw new Error(
       "CONTROL_STORAGE_MODE=postgres requires SaaSControlRuntime (PostgreSQL Control, Bot, Widget and Identity repositories)",
