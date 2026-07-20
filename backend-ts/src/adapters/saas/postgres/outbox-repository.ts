@@ -25,6 +25,7 @@ const row = (r: Record<string, unknown>): OutboxRow => ({
 });
 
 const SELECT = `id,event_id,session_id,tenant_id,run_id,session_seq,event_type,aggregate_type,aggregate_id,payload,status,attempts,available_at,locked_at,delivered_at,last_error,created_at`;
+const UPDATE_RETURNING = SELECT.split(",").map((column) => `e.${column}`).join(",");
 
 export class PostgresOutboxRepository implements AsyncOutboxStore {
   constructor(private readonly executor: PostgresMemoryExecutor) {}
@@ -59,7 +60,7 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
       const params: unknown[] = [now.toISOString(), stale.toISOString()];
       const tenantFilter = input.tenantId ? ` AND tenant_id=$${params.push(input.tenantId)}` : "";
       const limitParam = params.push(limit);
-      const claimed = await tx.query(`WITH picked AS (SELECT id FROM event_outbox WHERE status IN ('pending','retrying') AND available_at <= $1 AND (locked_at IS NULL OR locked_at <= $2)${tenantFilter} ORDER BY id FOR UPDATE SKIP LOCKED LIMIT $${limitParam}) UPDATE event_outbox e SET locked_at=$1 FROM picked WHERE e.id=picked.id RETURNING ${SELECT}`, params);
+      const claimed = await tx.query(`WITH picked AS (SELECT id FROM event_outbox WHERE status IN ('pending','retrying') AND available_at <= $1 AND (locked_at IS NULL OR locked_at <= $2)${tenantFilter} ORDER BY id FOR UPDATE SKIP LOCKED LIMIT $${limitParam}) UPDATE event_outbox e SET locked_at=$1 FROM picked WHERE e.id=picked.id RETURNING ${UPDATE_RETURNING}`, params);
       return claimed.rows.map(row);
     });
   }
@@ -88,7 +89,7 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
         )
         UPDATE event_outbox e SET locked_at=$2
         FROM picked WHERE e.id=picked.id
-        RETURNING ${SELECT}`,
+        RETURNING ${UPDATE_RETURNING}`,
         params,
       );
       return claimed.rows.map(row);

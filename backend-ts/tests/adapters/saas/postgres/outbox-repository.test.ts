@@ -10,7 +10,7 @@ class FakeExecutor implements PostgresMemoryExecutor {
     this.calls.push(sql);
     if (sql.includes("SELECT tenant_id")) return { rows: [{ tenant_id: "t1" } as T] };
     if (sql.includes("next_seq")) return { rows: [{ seq: 1 } as T] };
-    if (sql.includes("RETURNING id,event_id")) return { rows: [base as T] };
+    if (sql.includes("RETURNING id,event_id") || sql.includes("RETURNING e.id,e.event_id")) return { rows: [base as T] };
     if (sql.includes("UPDATE event_outbox")) return { rows: [], rowCount: 1 };
     return { rows: [] };
   }
@@ -45,6 +45,7 @@ describe("PostgresOutboxRepository", () => {
     const claimed = await repo.claimPendingOutbox({ limit: 2 });
     expect(claimed).toHaveLength(1);
     expect(db.calls.some((sql) => sql.includes("FOR UPDATE SKIP LOCKED"))).toBe(true);
+    expect(db.calls.some((sql) => sql.includes("RETURNING e.id,e.event_id"))).toBe(true);
     await expect(repo.markOutboxDelivered(1)).resolves.toBe(true);
     await expect(repo.markOutboxRetrying(1, "temporary", "2026-01-01T00:00:00Z")).resolves.toBe(true);
     await expect(repo.markOutboxFailed(1, "fatal")).resolves.toBe(true);
@@ -74,6 +75,7 @@ describe("PostgresOutboxRepository", () => {
 
     expect(query.mock.calls[0]?.[0]).toContain("id=ANY($1::bigint[])");
     expect(query.mock.calls[0]?.[0]).toContain("tenant_id=$4");
+    expect(query.mock.calls[0]?.[0]).toContain("RETURNING e.id,e.event_id");
     expect(query.mock.calls[0]?.[1]?.slice(3)).toEqual(["tenant-a"]);
   });
 
