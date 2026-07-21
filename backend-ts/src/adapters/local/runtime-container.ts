@@ -13,6 +13,7 @@ import { AgentConfigService } from "../../services/agent/config/index.js";
 import { MemoryIndexContextSource } from "../../services/agent/memory/index.js";
 import { ArtifactService } from "../../services/artifacts/artifact-service.js";
 import { TransientArtifactService } from "../../services/artifacts/transient-artifact-service.js";
+import { FileSystemConfigStore } from "../filesystem/config/file-system-config-store.js";
 import { SystemConfigService } from "../../services/config/system-config-service.js";
 import { McpService } from "../../services/integrations/mcp-service.js";
 import { ModelAdapterService } from "../../services/integrations/model-adapter-service.js";
@@ -72,7 +73,11 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     dataRoot: options.dataRoot,
     providersConfigPath: options.modelAdapterProvidersConfigPath,
   });
-  const systemConfig = new SystemConfigService({ dataRoot: options.dataRoot, configPath: options.systemConfigPath });
+  const systemConfig = new SystemConfigService(new FileSystemConfigStore({
+    dataRoot: options.dataRoot,
+    configPath: options.systemConfigPath,
+  }));
+  await systemConfig.initialize();
   const memoryConfig = systemConfig.getMemoryConfig();
   const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
   void mcp.autoConnectEnabledServers();

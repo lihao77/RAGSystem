@@ -20,12 +20,12 @@ export const registerSystemConfigRoutes: FastifyPluginAsync<RouteOptions> = asyn
       throw new HttpError(400, "invalid_request", "请求体必须是 JSON object");
     }
     const payload = SystemConfigUpdateSchema.parse(request.body);
-    return ok(request.container.systemConfig.updateConfig(payload), "系统配置已更新");
+    return ok(await request.container.systemConfig.updateConfig(payload), "系统配置已更新");
   });
 
   app.post("/reload", async (request) => {
     requireTenantOwner(request);
-    request.container.systemConfig.reload();
+    await request.container.systemConfig.reload();
     return ok(undefined, "系统配置已重新加载");
   });
 };

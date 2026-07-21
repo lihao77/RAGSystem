@@ -40,6 +40,8 @@ import {
   runPostgresSessionFileMigrations,
   runPostgresAgentTeamMigrations,
   PostgresAgentConfigTeamStore,
+  runPostgresSystemConfigMigrations,
+  PostgresSystemConfigStore,
 } from "../../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "../../../contracts/storage/object-storage.js";
 import { SaaSArtifactService } from "../../../adapters/saas/application/artifacts/saas-artifact-application.js";
@@ -103,6 +105,8 @@ export interface SaaSConversationRuntimeHandle {
   createWorkspaceBlobStorage(tenantId: string): WorkspaceBlobStorage;
   /** Tenant-bound agent team configuration store (Postgres source of truth). */
   createAgentConfigTeamStore(tenantId: TenantId): PostgresAgentConfigTeamStore;
+  /** Tenant-bound system configuration store (Postgres source of truth). */
+  createSystemConfigStore(tenantId: TenantId): PostgresSystemConfigStore;
   close(): Promise<void>;
 }
 
@@ -135,6 +139,7 @@ export async function createSaaSConversationRuntime(
       await runPostgresFileHistoryMigrations(executor);
       await runPostgresSessionFileMigrations(executor);
       await runPostgresAgentTeamMigrations(executor);
+      await runPostgresSystemConfigMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
     const wsTickets = new PostgresWsTicketService(executor);
@@ -209,6 +214,7 @@ export async function createSaaSConversationRuntime(
         );
       },
       createAgentConfigTeamStore: (tenantId) => new PostgresAgentConfigTeamStore(tenantId, executor),
+      createSystemConfigStore: (tenantId) => new PostgresSystemConfigStore(tenantId, executor),
       close: () => {
         closePromise ??= (async () => {
           providerMcpApplication.close();

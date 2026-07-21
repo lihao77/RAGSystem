@@ -7,8 +7,12 @@ import type { IMemoryStore } from "../../src/contracts/memory-store/index.js";
 
 describe("memory index system config assembly", () => {
   it("passes configured index limits through to loadIndexHead", async () => {
-    const systemConfig = new SystemConfigService({ configPath: "" });
-    systemConfig.updateConfig({ memory: { index_max_lines: 50, index_max_chars: 6400 } });
+    const systemConfig = new SystemConfigService({
+      load: async () => null,
+      save: async () => undefined,
+    });
+    await systemConfig.initialize();
+    await systemConfig.updateConfig({ memory: { index_max_lines: 50, index_max_chars: 6400 } });
     const loadIndexHead = vi.fn(() => "# Session Memory");
     const memoryStore = { loadIndexHead } as unknown as IMemoryStore;
     const source = new MemoryIndexContextSource(

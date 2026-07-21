@@ -1,9 +1,4 @@
 import { isRecord } from "../../utils/guards.js";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-
-import YAML from "yaml";
 
 import type {
   DocumentExtractionConfig,
@@ -16,6 +11,7 @@ import type {
   ToolsConfig,
   VectorStoreConfig,
 } from "../../contracts/runtime/system-config.js";
+import type { ISystemConfigStore } from "../../contracts/runtime/system-config-store.js";
 
 const REDACTED_VALUE = "********";
 const SENSITIVE_FIELD_NAMES = new Set([
@@ -30,13 +26,20 @@ const SENSITIVE_FIELD_NAMES = new Set([
 ]);
 const SENSITIVE_FIELD_SUFFIXES = ["_api_key", "_password", "_secret", "_secret_key", "_token"];
 
+/**
+ * In-process system config projection.
+ * Persistence is owned by ISystemConfigStore (Local YAML / SaaS Postgres).
+ * Hot-path getters stay sync; mutations and bootstrap load are async.
+ */
 export class SystemConfigService {
-  private config: SystemConfigData;
-  private readonly configPath: string | null;
+  private config: SystemConfigData = buildDefaultConfig();
+  private initialized = false;
 
-  constructor(options: { dataRoot?: string | undefined; configPath?: string | undefined } = {}) {
-    this.configPath = resolveConfigPath(options);
-    this.config = this.loadConfig();
+  constructor(private readonly store: ISystemConfigStore) {}
+
+  async initialize(): Promise<void> {
+    await this.reload();
+    this.initialized = true;
   }
 
   getSchema(): SystemConfigSchema {
@@ -44,64 +47,62 @@ export class SystemConfigService {
   }
 
   getConfig(): SystemConfigData {
+    this.ensureInitialized();
     return redactSensitiveConfig(cloneConfig(this.config));
   }
 
   /** 类型化读取 tools 组(防御:缺失/非法字段回退默认值,兼容 Python 写回的不完整 yaml)。 */
   getToolsConfig(): ToolsConfig {
+    this.ensureInitialized();
     return normalizeToolsConfig(this.config.tools);
   }
 
   /** 类型化读取 memory 组。 */
   getMemoryConfig(): MemoryConfig {
+    this.ensureInitialized();
     return normalizeMemoryConfig(this.config.memory);
   }
 
   /** 类型化读取 system 组。 */
   getSystemGroupConfig(): SystemGroupConfig {
+    this.ensureInitialized();
     return normalizeSystemGroupConfig(this.config.system);
   }
 
   /** 类型化读取 vector_store 组(向量库后端选择 + sqlite_vec 连接参数)。 */
   getVectorStoreConfig(): VectorStoreConfig {
+    this.ensureInitialized();
     return normalizeVectorStoreConfig(this.config.vector_store);
   }
 
   /** 类型化读取 document_extraction 组。 */
   getDocumentExtractionConfig(): DocumentExtractionConfig {
+    this.ensureInitialized();
     return normalizeDocumentExtractionConfig(this.config.document_extraction);
   }
 
-  updateConfig(update: SystemConfigUpdate): SystemConfigData {
-    const sanitized = retainKnownRootGroups(dropRedactedValues(update), this.config);
-    this.config = deepMerge(cloneConfig(this.config), sanitized);
-    this.saveConfig();
+  async updateConfig(update: SystemConfigUpdate): Promise<SystemConfigData> {
+    this.ensureInitialized();
+    const sanitized = retainKnownRootGroups(dropRedactedValues(update), this.config) as SystemConfigData;
+    const next = deepMerge(cloneConfig(this.config), sanitized);
+    await this.store.save(next);
+    this.config = next;
     return this.getConfig();
   }
 
-  reload(): void {
-    this.config = this.loadConfig();
-  }
-
-  private loadConfig(): SystemConfigData {
+  async reload(): Promise<void> {
     const defaults = buildDefaultConfig();
-    if (!this.configPath || !fs.existsSync(this.configPath)) {
-      return defaults;
-    }
-    try {
-      const parsed = YAML.parse(fs.readFileSync(this.configPath, "utf8")) as unknown;
-      return isRecord(parsed) ? deepMerge(defaults, retainKnownRootGroups(parsed, defaults)) : defaults;
-    } catch {
-      return defaults;
-    }
+    const stored = await this.store.load();
+    this.config = stored
+      ? deepMerge(defaults, retainKnownRootGroups(stored, defaults) as SystemConfigData)
+      : defaults;
+    this.initialized = true;
   }
 
-  private saveConfig(): void {
-    if (!this.configPath) {
-      return;
+  private ensureInitialized(): void {
+    if (!this.initialized) {
+      throw new Error("SystemConfigService.initialize() must be awaited before use");
     }
-    fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
-    fs.writeFileSync(this.configPath, YAML.stringify(this.config), "utf8");
   }
 }
 
@@ -279,17 +280,6 @@ function selectField(
     field.nullable = true;
   }
   return field;
-}
-
-function resolveConfigPath(options: { dataRoot?: string | undefined; configPath?: string | undefined }): string | null {
-  if (options.configPath !== undefined) {
-    const trimmed = options.configPath.trim();
-    return trimmed ? path.resolve(trimmed) : null;
-  }
-  if (!options.dataRoot?.trim()) {
-    return null;
-  }
-  return path.join(path.resolve(options.dataRoot || path.join(os.homedir(), ".ragsystem")), "config", "app", "config.yaml");
 }
 
 function cloneConfig(config: SystemConfigData): SystemConfigData {
