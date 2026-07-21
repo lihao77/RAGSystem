@@ -1,13 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import YAML from "yaml";
-
 import { HttpError } from "../../utils/errors.js";
+import type { ISkillPackageStore } from "../../contracts/skills/skill-package-store.js";
 import type { SkillInfo, SkillListItem, SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
-
-const SKILL_NAME_PATTERN = /^[a-z0-9-]+$/;
-const SKIP_ENTRIES = new Set([".venv", ".cache", "__pycache__", ".installed", "node_modules", ".DS_Store"]);
 
 export interface SkillFileNode {
   name: string;
@@ -41,20 +37,30 @@ export interface UpdateSkillInput {
   content?: string;
 }
 
+const SKILL_NAME_PATTERN = /^[a-z0-9-]+$/;
+
 /**
- * Skill 库管理服务：在 SkillToolService 的目录解析之上提供写操作与文件树列举。
- * 写/删硬限定 sourceType === 'user_global'；builtin/workspace 只读。
- * 根路径与解析逻辑由 SkillToolService 单一持有，本服务只在其结果上做文件操作。
+ * Skill 库管理服务。
+ * 租户 user_global 包的读写经 ISkillPackageStore（Local 文件 / SaaS PG+对象存储）。
+ * builtin/workspace 只读，仍由 SkillToolService 解析。
  */
 export class SkillLibraryService {
-  constructor(private readonly skillTools: SkillToolService) {}
+  constructor(
+    private readonly skillTools: SkillToolService,
+    private readonly packageStore: ISkillPackageStore,
+  ) {}
 
-  listSkills(): SkillListItem[] {
+  async listSkills(): Promise<SkillListItem[]> {
+    // Ensure SaaS packages are materialized into the discovery root before FS scan.
+    await this.packageStore.list();
     return this.skillTools.listAvailableSkills();
   }
 
-  getSkillDetail(name: string): SkillDetail {
+  async getSkillDetail(name: string): Promise<SkillDetail> {
     const skill = this.findSkill(name);
+    const files = skill.sourceType === "user_global"
+      ? await this.packageStore.listFiles(skill.name)
+      : listLocalSkillFiles(skill.skillDir);
     return {
       name: skill.name,
       display_name: titleCase(skill.name.replaceAll("-", " ")),
@@ -62,17 +68,25 @@ export class SkillLibraryService {
       source_type: skill.sourceType,
       source_label: skill.sourceLabel,
       content: skill.content,
-      files: listSkillFiles(skill.skillDir),
+      files,
       writable: skill.sourceType === "user_global",
     };
   }
 
-  readSkillFile(name: string, relativePath: string): { buffer: Buffer; mime: string } {
+  async readSkillFile(name: string, relativePath: string): Promise<{ buffer: Buffer; mime: string }> {
     const skill = this.findSkill(name);
-    const normalized = normalizeRelativePath(relativePath);
-    if (!normalized) {
-      throw new HttpError(400, "invalid_request", "非法的文件路径");
+    if (skill.sourceType === "user_global") {
+      try {
+        const file = await this.packageStore.readFile(skill.name, relativePath);
+        if (!file) throw new HttpError(404, "not_found", "文件不存在");
+        return { buffer: Buffer.from(file.body), mime: file.contentType };
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, "invalid_request", error instanceof Error ? error.message : String(error));
+      }
     }
+    const normalized = normalizeRelativePath(relativePath);
+    if (!normalized) throw new HttpError(400, "invalid_request", "非法的文件路径");
     const filePath = path.resolve(skill.skillDir, normalized);
     if (!isPathUnder(filePath, skill.skillDir) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
       throw new HttpError(404, "not_found", "文件不存在");
@@ -80,7 +94,7 @@ export class SkillLibraryService {
     return { buffer: fs.readFileSync(filePath), mime: guessMime(filePath) };
   }
 
-  createSkill(input: CreateSkillInput): SkillDetail {
+  async createSkill(input: CreateSkillInput): Promise<SkillDetail> {
     const name = input.name.trim();
     if (!SKILL_NAME_PATTERN.test(name)) {
       throw new HttpError(400, "invalid_request", "Skill 名称只能包含小写字母、数字和连字符");
@@ -89,62 +103,45 @@ export class SkillLibraryService {
     if (!description) {
       throw new HttpError(400, "invalid_request", "description 不能为空");
     }
-    const root = this.skillTools.getUserGlobalSkillsRoot();
-    const skillDir = path.join(root, name);
-    if (!isPathUnder(skillDir, root)) {
-      throw new HttpError(400, "invalid_request", "非法的 Skill 名称");
+    try {
+      await this.packageStore.create({ name, description, content: input.content ?? "" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("已存在")) throw new HttpError(409, "conflict", message);
+      throw new HttpError(400, "invalid_request", message);
     }
-    if (fs.existsSync(skillDir)) {
-      throw new HttpError(409, "conflict", `Skill '${name}' 已存在`);
-    }
-    fs.mkdirSync(skillDir, { recursive: true });
-    fs.writeFileSync(path.join(skillDir, "SKILL.md"), serializeSkillMd(name, description, input.content ?? ""));
     return this.getSkillDetail(name);
   }
 
-  updateSkillMd(name: string, input: UpdateSkillInput): SkillDetail {
+  async updateSkillMd(name: string, input: UpdateSkillInput): Promise<SkillDetail> {
     const skill = this.findSkill(name);
     this.assertWritable(skill);
-    const description = input.description?.trim() || skill.description;
-    const content = input.content ?? skill.content;
-    fs.writeFileSync(path.join(skill.skillDir, "SKILL.md"), serializeSkillMd(skill.name, description, content));
+    try {
+      await this.packageStore.updateMarkdown(skill.name, input);
+    } catch (error) {
+      throw new HttpError(400, "invalid_request", error instanceof Error ? error.message : String(error));
+    }
     return this.getSkillDetail(name);
   }
 
-  writeSkillFile(name: string, relativePath: string, buffer: Buffer): SkillDetail {
+  async writeSkillFile(name: string, relativePath: string, buffer: Buffer): Promise<SkillDetail> {
     const skill = this.findSkill(name);
     this.assertWritable(skill);
-    const normalized = normalizeRelativePath(relativePath);
-    if (!normalized) {
-      throw new HttpError(400, "invalid_request", "非法的文件路径");
+    try {
+      await this.packageStore.writeFile(skill.name, relativePath, buffer);
+    } catch (error) {
+      throw new HttpError(400, "invalid_request", error instanceof Error ? error.message : String(error));
     }
-    const filePath = path.resolve(skill.skillDir, normalized);
-    if (!isPathUnder(filePath, skill.skillDir)) {
-      throw new HttpError(400, "invalid_request", "文件路径越出 Skill 目录");
-    }
-    const relativeToSkill = path.relative(skill.skillDir, filePath).split(path.sep).join("/");
-    if (relativeToSkill === "SKILL.md") {
-      throw new HttpError(400, "invalid_request", "SKILL.md 请用更新正文接口修改");
-    }
-    const isRootFile = !relativeToSkill.includes("/");
-    const topSegment = relativeToSkill.split("/")[0];
-    if (!isRootFile && topSegment !== "scripts") {
-      throw new HttpError(400, "invalid_request", "文件仅可上传到 scripts/ 目录或 Skill 根目录");
-    }
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, buffer);
     return this.getSkillDetail(name);
   }
 
   async deleteSkill(name: string): Promise<{ name: string; purged_agents: string[] }> {
     const skill = this.findSkill(name);
     this.assertWritable(skill);
-    const root = this.skillTools.getUserGlobalSkillsRoot();
-    if (!isPathUnder(skill.skillDir, root)) {
-      throw new HttpError(403, "forbidden", "仅可删除用户全局 Skill");
+    const deleted = await this.packageStore.delete(skill.name);
+    if (!deleted) {
+      throw new HttpError(404, "not_found", `Skill '${name}' 不存在`);
     }
-    fs.rmSync(skill.skillDir, { recursive: true, force: true });
-    // 联动清理所有 AgentConfig 中的 enabled_skills 引用，消除悬空引用。
     const purged_agents = await this.skillTools.purgeSkillReference(name);
     return { name, purged_agents };
   }
@@ -165,12 +162,8 @@ export class SkillLibraryService {
   }
 }
 
-function serializeSkillMd(name: string, description: string, content: string): string {
-  const frontmatter = YAML.stringify({ name, description }).trimEnd();
-  return `---\n${frontmatter}\n---\n${content.trim()}\n`;
-}
-
-function listSkillFiles(skillDir: string): SkillFileNode[] {
+function listLocalSkillFiles(skillDir: string): SkillFileNode[] {
+  const skip = new Set([".venv", ".cache", "__pycache__", ".installed", "node_modules", ".DS_Store", ".materialized"]);
   const result: SkillFileNode[] = [];
   const walk = (dir: string, prefix: string): void => {
     let entries: fs.Dirent[];
@@ -180,9 +173,7 @@ function listSkillFiles(skillDir: string): SkillFileNode[] {
       return;
     }
     for (const entry of entries) {
-      if (SKIP_ENTRIES.has(entry.name)) {
-        continue;
-      }
+      if (skip.has(entry.name)) continue;
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         result.push({ name: entry.name, path: rel, type: "directory" });
@@ -196,18 +187,11 @@ function listSkillFiles(skillDir: string): SkillFileNode[] {
   return result.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-/** 规范化相对路径：反斜杠转正斜杠，禁止绝对路径/上层穿越/空字节/空段。 */
 function normalizeRelativePath(raw: string): string | null {
-  if (typeof raw !== "string" || raw.includes("\0")) {
-    return null;
-  }
+  if (typeof raw !== "string" || raw.includes("\0")) return null;
   const trimmed = raw.trim().replace(/\\/g, "/");
-  if (!trimmed || trimmed.startsWith("/")) {
-    return null;
-  }
-  if (trimmed.split("/").some((segment) => segment === ".." || segment === "")) {
-    return null;
-  }
+  if (!trimmed || trimmed.startsWith("/")) return null;
+  if (trimmed.split("/").some((segment) => segment === ".." || segment === "")) return null;
   return trimmed;
 }
 

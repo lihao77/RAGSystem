@@ -32,20 +32,19 @@ interface UpdateBody {
 }
 
 /**
- * Skill 库管理 HTTP 端点。skill 本体是文件系统目录，这里只做受限的目录读写：
-- 列/看所有来源 skill（builtin/workspace/user_global）
-- 写/删仅限 user_global（service 层硬约束）
+ * Skill 库管理 HTTP 端点。
+ * user_global 经 ISkillPackageStore（Local 文件 / SaaS PG+对象存储）；builtin/workspace 只读。
  */
 export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => { requireTenantMember(request); });
 
   app.get("/", async (request) => {
-    const skills = request.container.skillLibrary.listSkills();
+    const skills = await request.container.skillLibrary.listSkills();
     return ok(skills, `共有 ${skills.length} 个 Skill`);
   });
 
   app.get<{ Params: SkillParams }>("/:name", async (request) => {
-    return ok(request.container.skillLibrary.getSkillDetail(request.params.name), "Skill 详情");
+    return ok(await request.container.skillLibrary.getSkillDetail(request.params.name), "Skill 详情");
   });
 
   app.get<{ Params: SkillParams; Querystring: FileQuery }>("/:name/files", async (request, reply) => {
@@ -53,7 +52,7 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
     if (!rel) {
       throw new HttpError(400, "invalid_request", "缺少 path 参数");
     }
-    const { buffer, mime } = request.container.skillLibrary.readSkillFile(request.params.name, rel);
+    const { buffer, mime } = await request.container.skillLibrary.readSkillFile(request.params.name, rel);
     reply.header("content-type", mime);
     return buffer;
   });
@@ -68,7 +67,11 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
     if (!name || !description) {
       throw new HttpError(400, "invalid_request", "name 与 description 必填");
     }
-    const skill = request.container.skillLibrary.createSkill({ name, description, content: asString(request.body.content) ?? "" });
+    const skill = await request.container.skillLibrary.createSkill({
+      name,
+      description,
+      content: asString(request.body.content) ?? "",
+    });
     return ok(skill, `Skill '${skill.name}' 已创建`);
   });
 
@@ -86,7 +89,7 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
     if (content !== null) {
       patch.content = content;
     }
-    const skill = request.container.skillLibrary.updateSkillMd(request.params.name, patch);
+    const skill = await request.container.skillLibrary.updateSkillMd(request.params.name, patch);
     return ok(skill, `Skill '${skill.name}' 已更新`);
   });
 
@@ -94,12 +97,13 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
     requireTenantAdmin(request);
     const parts = await collectMultipartFiles(request);
     const dir = request.query.dir === "scripts" ? "scripts" : "";
-    const uploaded = parts.map((part) => {
+    const uploaded = [];
+    for (const part of parts) {
       const base = path.basename(part.filename);
       const rel = dir ? `${dir}/${base}` : base;
-      request.container.skillLibrary.writeSkillFile(request.params.name, rel, part.buffer);
-      return { path: rel, bytes: part.buffer.length };
-    });
+      await request.container.skillLibrary.writeSkillFile(request.params.name, rel, part.buffer);
+      uploaded.push({ path: rel, bytes: part.buffer.length });
+    }
     return ok({ uploaded }, `已上传 ${uploaded.length} 个文件`);
   });
 
@@ -109,8 +113,6 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
     return ok({ name: request.params.name }, `Skill '${request.params.name}' 已删除`);
   });
 };
-
-
 
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;

@@ -42,6 +42,7 @@ import { PathApprovalService } from "../../services/runtime/path-approval-servic
 import { SqliteRuntimeStorage } from "./sqlite-runtime-storage.js";
 import { LocalSessionApplication } from "./application/session/local-session-application.js";
 import { FileAgentConfigTeamStore } from "../filesystem/agent/file-team-store.js";
+import { FilesystemSkillPackageStore } from "../filesystem/skills/filesystem-skill-package-store.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export async function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): Promise<LocalRuntimeContainer> {
@@ -143,7 +144,8 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     clientEvents: eventClientEvents,
   });
   agentConfig.setSkillToolService(skillTools);
-  const skillLibrary = new SkillLibraryService(skillTools);
+  const skillPackageStore = new FilesystemSkillPackageStore(skillTools.getUserGlobalSkillsRoot());
+  const skillLibrary = new SkillLibraryService(skillTools, skillPackageStore);
   const searchTools = hostToolsEnabled ? new LocalSearchToolService({ dataRoot: options.dataRoot }) : null;
   const bashTools = hostToolsEnabled ? new LocalBashToolService({
     dataRoot: options.dataRoot,

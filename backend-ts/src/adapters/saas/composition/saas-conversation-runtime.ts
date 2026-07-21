@@ -42,8 +42,12 @@ import {
   PostgresAgentConfigTeamStore,
   runPostgresSystemConfigMigrations,
   PostgresSystemConfigStore,
+  runPostgresSkillPackageMigrations,
+  PostgresSkillPackageRepository,
 } from "../../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "../../../contracts/storage/object-storage.js";
+import { SaaSSkillPackageStore } from "../object-storage/skill-package-storage.js";
+import type { ISkillPackageStore } from "../../../contracts/skills/skill-package-store.js";
 import { SaaSArtifactService } from "../../../adapters/saas/application/artifacts/saas-artifact-application.js";
 import { SaaSKnowledgeFileStorage } from "../../../adapters/saas/object-storage/knowledge-file-storage.js";
 import type { AsyncKnowledgeFileStore } from "../../../contracts/knowledge/async-knowledge-file-store.js";
@@ -107,6 +111,8 @@ export interface SaaSConversationRuntimeHandle {
   createAgentConfigTeamStore(tenantId: TenantId): PostgresAgentConfigTeamStore;
   /** Tenant-bound system configuration store (Postgres source of truth). */
   createSystemConfigStore(tenantId: TenantId): PostgresSystemConfigStore;
+  /** Tenant-bound skill package store (Postgres metadata + object storage). */
+  createSkillPackageStore(tenantId: TenantId, cacheRoot: string): ISkillPackageStore;
   close(): Promise<void>;
 }
 
@@ -140,6 +146,7 @@ export async function createSaaSConversationRuntime(
       await runPostgresSessionFileMigrations(executor);
       await runPostgresAgentTeamMigrations(executor);
       await runPostgresSystemConfigMigrations(executor);
+      await runPostgresSkillPackageMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
     const wsTickets = new PostgresWsTicketService(executor);
@@ -215,6 +222,15 @@ export async function createSaaSConversationRuntime(
       },
       createAgentConfigTeamStore: (tenantId) => new PostgresAgentConfigTeamStore(tenantId, executor),
       createSystemConfigStore: (tenantId) => new PostgresSystemConfigStore(tenantId, executor),
+      createSkillPackageStore: (tenantId, cacheRoot) => {
+        if (!options.objectStorage) throw new Error("SaaS skill package store requires ObjectStorage");
+        return new SaaSSkillPackageStore(
+          tenantId,
+          new PostgresSkillPackageRepository(executor),
+          options.objectStorage,
+          cacheRoot,
+        );
+      },
       close: () => {
         closePromise ??= (async () => {
           providerMcpApplication.close();

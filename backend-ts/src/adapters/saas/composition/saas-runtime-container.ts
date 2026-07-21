@@ -20,6 +20,7 @@ import { PathApprovalService } from "../../../services/runtime/path-approval-ser
 import { SessionNotificationQueue } from "../../../services/runtime/session-notification-queue.js";
 import { SkillLibraryService } from "../../../services/skills/skill-library-service.js";
 import { SkillToolService } from "../../../tools/SkillTools/SkillExecution.js";
+import { SaaSSkillPackageStore } from "../object-storage/skill-package-storage.js";
 import { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { SaaSSessionApplication } from "../application/session/saas-session-application.js";
 import { SaaSExecutionMemoryCandidates } from "../application/memory/saas-execution-memory-candidates.js";
@@ -87,14 +88,18 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     repository: conversationRuntime.backgroundTasks,
     tenantId,
   });
+  // user_global discovery root is only a materialize cache on SaaS; durable SoT is PG + object storage.
+  const skillCacheRoot = path.join(dataRoot, "skill-cache");
   const skillTools = new SkillToolService({
     dataRoot,
+    userGlobalSkillsRoot: skillCacheRoot,
     agentConfig,
     backgroundTasks,
     clientEvents: asyncClientEvents,
   });
   agentConfig.setSkillToolService(skillTools);
-  const skillLibrary = new SkillLibraryService(skillTools);
+  const skillPackageStore = conversationRuntime.createSkillPackageStore(tenantId, skillCacheRoot);
+  const skillLibrary = new SkillLibraryService(skillTools, skillPackageStore);
   const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot });
   const memoryBindings = memoryRuntime.provider.createMemoryBindings(
     tenantId,
