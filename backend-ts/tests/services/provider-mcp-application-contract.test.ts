@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { LocalMcpApplication } from "../../src/adapters/local/application/mcp/local-mcp-application.js";
 import { LocalProviderApplication } from "../../src/adapters/local/application/provider/local-provider-application.js";
@@ -15,20 +18,21 @@ import { McpService } from "../../src/services/integrations/mcp-service.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 
 const closeables: Array<() => void> = [];
+const tempRoots: string[] = [];
 
 afterEach(() => {
   for (const close of closeables.splice(0)) close();
+  for (const root of tempRoots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 describe("provider/MCP application contract", () => {
   it("uses the same provider business rules for Local and SaaS", async () => {
     const repository = new MemoryProviderMcpRepository();
     const local = new LocalProviderApplication(new ModelAdapterService({ providersConfigPath: "" }));
-    const saas = new SaaSProviderApplication(
-      LOCAL_TENANT_ID,
-      new ModelAdapterService({ providersConfigPath: "" }),
-      repository,
-    );
+    const saasRuntime = new ModelAdapterService({ providersConfigPath: "" });
+    const saas = new SaaSProviderApplication(LOCAL_TENANT_ID, saasRuntime, repository);
     const payload = {
       name: "Main",
       provider_type: "openai",
@@ -45,6 +49,52 @@ describe("provider/MCP application contract", () => {
       provider_type: "openai_resp",
       models: ["gpt-4.1"],
     });
+    // Runtime projection is hydrated from Postgres after write.
+    expect(saasRuntime.listProviders()).toEqual(await local.listProviders());
+  });
+
+  it("treats PostgreSQL as the sole SaaS provider source of truth", async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-saas-provider-"));
+    tempRoots.push(dataRoot);
+    const repository = new MemoryProviderMcpRepository();
+    // Memory-only projection even if a dataRoot exists on disk.
+    const runtime = new ModelAdapterService({ providersConfigPath: "" });
+    const saas = new SaaSProviderApplication(LOCAL_TENANT_ID, runtime, repository);
+
+    const key = await saas.createProvider({
+      name: "Cloud",
+      provider_type: "openai_chat",
+      api_key: "sk-cloud",
+      model: "gpt-4o",
+    });
+    await saas.updateProvider(key, { temperature: 0.2 });
+    await saas.reorderProviders([key]);
+    await saas.deleteProvider(key);
+
+    expect(await saas.listProviders()).toEqual([]);
+    expect(repository.providers.size).toBe(0);
+    expect(fs.existsSync(path.join(dataRoot, "config", "model_adapter", "providers.yaml"))).toBe(false);
+  });
+
+  it("does not mutate the SaaS provider runtime when repository write fails", async () => {
+    const repository = new FailingProviderRepository();
+    const runtime = new ModelAdapterService({ providersConfigPath: "" });
+    const saas = new SaaSProviderApplication(LOCAL_TENANT_ID, runtime, repository);
+    await saas.createProvider({
+      name: "Main",
+      provider_type: "openai_chat",
+      api_key: "sk-test",
+      model: "gpt-4o",
+    });
+    repository.failWrites = true;
+    await expect(saas.createProvider({
+      name: "Other",
+      provider_type: "openai_chat",
+      api_key: "sk-other",
+      model: "gpt-4o-mini",
+    })).rejects.toThrow("write failed");
+    expect(runtime.listProviders().map((item) => item.key)).toEqual(["main_openai_chat"]);
+    expect(await saas.listProviders()).toHaveLength(1);
   });
 
   it("keeps Local and SaaS MCP configuration behavior aligned", async () => {
@@ -98,9 +148,10 @@ describe("provider/MCP application contract", () => {
     await saas.deleteServer("filesystem");
     expect(await local.listServers()).toEqual([]);
     expect(await saas.listServers()).toEqual([]);
+    expect(repository.servers.size).toBe(0);
   });
 
-  it("restores the SaaS MCP runtime when PostgreSQL persistence fails", async () => {
+  it("leaves the SaaS MCP runtime unchanged when PostgreSQL persistence fails", async () => {
     const repository = new FailingMcpRepository();
     const config = new SaaSProviderMcpApplication(repository);
     const saas = new SaaSMcpApplication(LOCAL_TENANT_ID, config, repository);
@@ -167,6 +218,14 @@ class FailingMcpRepository extends MemoryProviderMcpRepository {
   override async upsertMcpServer(tenantId: typeof LOCAL_TENANT_ID, name: string, config: Record<string, unknown>) {
     if (this.failWrites) throw new Error("write failed");
     return super.upsertMcpServer(tenantId, name, config);
+  }
+}
+
+class FailingProviderRepository extends MemoryProviderMcpRepository {
+  failWrites = false;
+  override async upsertProvider(tenantId: typeof LOCAL_TENANT_ID, key: string, config: Record<string, unknown>) {
+    if (this.failWrites) throw new Error("write failed");
+    return super.upsertProvider(tenantId, key, config);
   }
 }
 

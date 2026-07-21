@@ -67,9 +67,10 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
 
   const agentConfig = new AgentConfigService(conversationRuntime.createAgentConfigTeamStore(tenantId));
   await agentConfig.initialize();
+  // SaaS providers are Postgres-backed; ModelAdapterService is a pure in-process projection.
+  // Force memory-only (empty path) so create/update never write providers.yaml under dataRoot.
   const modelAdapter = new ModelAdapterService({
-    dataRoot,
-    providersConfigPath: options.modelAdapterProvidersConfigPath,
+    providersConfigPath: options.modelAdapterProvidersConfigPath ?? "",
   });
   const systemConfig = new SystemConfigService({ dataRoot, configPath: options.systemConfigPath });
   const mcp = await conversationRuntime.providerMcpApplication.resolveMcpRuntime(tenantId);

@@ -123,31 +123,30 @@ export class ModelAdapterService {
     };
   }
 
-  createProvider(data: ProviderPayload): string {
+  /**
+   * Validate + normalize a create payload without mutating runtime state.
+   * Callers that own persistence (SaaS Application) write the store first, then hydrate.
+   */
+  buildCreateProvider(data: ProviderPayload): { key: string; config: ModelProviderConfig } {
     const config = this.buildCreateConfig(data);
-    const providerKey = makeProviderKey(config);
-    if (!providerKey) {
+    const key = makeProviderKey(config);
+    if (!key) {
       throw new ModelAdapterServiceError("Provider 配置必须包含 name, provider_type, api_key", 400);
     }
-    if (this.providers.has(providerKey)) {
-      throw new ModelAdapterServiceError(`Provider 已存在: ${providerKey}`, 409);
-    }
-
-    this.providers.set(providerKey, config);
-    this.saveProvidersToDisk();
-    return providerKey;
+    return { key, config };
   }
 
-  updateProvider(providerKey: string, data: ProviderPayload): string {
+  /**
+   * Validate + normalize an update against an existing config without mutating runtime state.
+   */
+  buildUpdateProvider(
+    providerKey: string,
+    existing: ModelProviderConfig,
+    data: ProviderPayload,
+  ): { key: string; config: ModelProviderConfig } {
     if (Object.keys(data).length === 0) {
       throw new ModelAdapterServiceError("请求数据不能为空", 400);
     }
-
-    const existing = this.providers.get(providerKey);
-    if (!existing) {
-      throw new ModelAdapterServiceError(`Provider 不存在: ${providerKey}`, 404);
-    }
-
     this.ensureProviderRequestShape(data);
 
     const config = cloneProviderConfig(existing);
@@ -164,14 +163,12 @@ export class ModelAdapterService {
 
     rebuildModelsFromModelMap(config);
     this.ensureProviderRuntimeShape(config);
-    this.providers.set(providerKey, config);
-    externalCallPolicy.reset(providerCircuitKey(existing));
-    this.saveProvidersToDisk();
-    return providerKey;
+    return { key: providerKey, config };
   }
 
-  reorderProviders(data: { provider_keys: string[] }): string[] {
-    const normalizedKeys = data.provider_keys.map((key) => String(key).trim());
+  /** Validate a full reorder key list against the current runtime snapshot. */
+  buildReorderProviders(providerKeys: string[]): string[] {
+    const normalizedKeys = providerKeys.map((key) => String(key).trim());
     if (!normalizedKeys.every(Boolean)) {
       throw new ModelAdapterServiceError("provider_keys 包含非法 Provider key", 400);
     }
@@ -192,7 +189,33 @@ export class ModelAdapterService {
       }
       throw new ModelAdapterServiceError(details.join("; "), 400);
     }
+    return normalizedKeys;
+  }
 
+  createProvider(data: ProviderPayload): string {
+    const { key, config } = this.buildCreateProvider(data);
+    if (this.providers.has(key)) {
+      throw new ModelAdapterServiceError(`Provider 已存在: ${key}`, 409);
+    }
+    this.providers.set(key, config);
+    this.saveProvidersToDisk();
+    return key;
+  }
+
+  updateProvider(providerKey: string, data: ProviderPayload): string {
+    const existing = this.providers.get(providerKey);
+    if (!existing) {
+      throw new ModelAdapterServiceError(`Provider 不存在: ${providerKey}`, 404);
+    }
+    const { key, config } = this.buildUpdateProvider(providerKey, existing, data);
+    this.providers.set(key, config);
+    externalCallPolicy.reset(providerCircuitKey(existing));
+    this.saveProvidersToDisk();
+    return key;
+  }
+
+  reorderProviders(data: { provider_keys: string[] }): string[] {
+    const normalizedKeys = this.buildReorderProviders(data.provider_keys);
     const reordered = new Map<string, ModelProviderConfig>();
     for (const key of normalizedKeys) {
       const provider = this.providers.get(key);
