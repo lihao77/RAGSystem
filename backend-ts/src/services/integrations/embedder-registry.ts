@@ -5,8 +5,7 @@
  * - createEmbedder 按 provider.provider_type 查 EMBEDDER_REGISTRY;命中 → 对应 factory 创建;
  *   未命中 / 无 provider → HashFallbackEmbedder(semantic:false,降级);
  * - RemoteEmbedder 走 OpenAI 兼容 /embeddings,dimension 惰性缓存(首次 embed 后有效,此前为 0);
- * - HashFallbackEmbedder 固定 64 维 hash(复制自 knowledge-base-service.ts:1423-1564),semantic:false;
- *   Batch 5 编排层切换后,旧 embedText 废弃,本实现成为唯一 hash 来源。
+ * - HashFallbackEmbedder 固定 64 维 hash,semantic:false;
  */
 import type { IEmbedder } from "../../contracts/vector-store/index.js";
 import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
@@ -100,7 +99,7 @@ export class HashFallbackEmbedder implements IEmbedder {
   }
 }
 
-// —— 本地 hash embedding 实现(复制自 knowledge-base-service.ts:1423-1564,Batch 5 切换后该处废弃)。
+// —— 本地 hash embedding 实现。
 function hashEmbed(text: string): number[] {
   const vector = Array.from({ length: HASH_EMBEDDING_DIMENSION }, () => 0);
   for (const token of tokenize(text)) {

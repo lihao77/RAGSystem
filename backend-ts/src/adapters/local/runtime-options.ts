@@ -2,7 +2,7 @@ import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { TenantId } from "../../identity/types.js";
 import type { MemoryRepository } from "../../contracts/memory-store/index.js";
 import type { MemoryConfig } from "../../contracts/runtime/system-config.js";
-import type { KnowledgeBaseEmbedderFactory } from "../../services/knowledge/knowledge-base-service.js";
+import type { KnowledgeEmbedderFactory } from "../../services/knowledge/knowledge-application-service.js";
 import type { MemoryRuntimeBindings } from "../../services/agent/memory/runtime-bindings.js";
 import type { SessionMetadataPort } from "../../services/agent/context/types.js";
 import type { RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExecution.js";
@@ -28,7 +28,7 @@ export interface LocalRuntimeContainerOptions {
   startOutboxDispatcher?: boolean;
   outboxDispatcherIntervalMs?: number;
   hooks?: (registry: HookRegistry) => void;
-  embedderFactory?: KnowledgeBaseEmbedderFactory;
+  embedderFactory?: KnowledgeEmbedderFactory;
   memoryBindingsFactory?: MemoryRuntimeBindingsFactory;
   asyncConversationHistory?: AsyncConversationHistoryPort;
   asyncProviderContinuations?: AsyncProviderContinuationLookupPort;

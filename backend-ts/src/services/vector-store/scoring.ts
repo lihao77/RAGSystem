@@ -1,8 +1,8 @@
 /**
- * 向量检索打分纯函数(搬自 knowledge-base-service.ts:1508-1555 + 1434-1444)。
+ * 向量检索打分纯函数。
  *
- * driver 层(SqliteVecDriver.search)负责召回 + vector_score;keyword/hybrid/rerank 是检索策略,
- * 由编排层(KnowledgeBaseService.search)调本模块补到 VectorSearchHit。
+ * driver 层负责召回 + vector_score;keyword/hybrid/rerank 是检索策略,
+ * 由编排层(KnowledgeApplicationService.search)调本模块补到命中结果。
  *
  * 纯函数无副作用、无 DB 依赖,可独立单测。hybrid 权重 vector*0.7 + keyword*0.3(沿用现值,可调)。
  */

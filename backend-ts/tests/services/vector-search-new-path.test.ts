@@ -1,24 +1,27 @@
 import { describe, expect, it } from "vitest";
-import os from "node:os";
-import path from "node:path";
 
-import type { IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, KnowledgeFile, StoredReranker, VectorSearchHit } from "../../src/contracts/vector-store/index.js";
-import type { DocumentExtractor } from "../../src/contracts/knowledge/document-extractor.js";
+import type {
+  IKnowledgeConfig,
+  IKnowledgeFileStore,
+  IVectorStore,
+  KnowledgeFile,
+  StoredReranker,
+  VectorSearchHit,
+} from "../../src/contracts/vector-store/index.js";
+import { LocalAsyncKnowledgeConfigAdapter } from "../../src/adapters/local/knowledge/local-async-knowledge-config-adapter.js";
+import { LocalAsyncKnowledgeVectorStoreAdapter } from "../../src/adapters/local/knowledge/local-async-knowledge-vector-store-adapter.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
-import { KnowledgeBaseService } from "../../src/services/knowledge/knowledge-base-service.js";
-import { FileIndexService } from "../../src/adapters/local/files/file-index-service.js";
-
-const documentExtractor: DocumentExtractor = { extract: async () => ({ text: "", markdown: "", kind: "text" }) };
-
-function makeDataRoot(): string {
-  return path.join(os.tmpdir(), `rag-vec-search-${Math.random().toString(36).slice(2)}`);
-}
+import { KnowledgeApplicationService } from "../../src/services/knowledge/knowledge-application-service.js";
 
 /**
- * 最小 IVectorStore & IKnowledgeConfig stub:search 返回预设命中,配置面维护内存态。
- * 聚焦 service 编排(补 keyword/hybrid + rerank)——driver 配置面由 driver 单元测试覆盖。
+ * Minimal IVectorStore & IKnowledgeConfig stub: search returns preset hits, config stays in-memory.
+ * Focuses on application orchestration (keyword/hybrid + rerank) — driver config is covered elsewhere.
  */
-function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null, rerankers: StoredReranker[] = []): IVectorStore & IKnowledgeConfig & IKnowledgeFileStore {
+function makeFakeDriver(
+  hits: VectorSearchHit[],
+  dimension: number | null = null,
+  rerankers: StoredReranker[] = [],
+): IVectorStore & IKnowledgeConfig & IKnowledgeFileStore {
   const vectorizers: Array<ReturnType<IKnowledgeConfig["createVectorizer"]>> = [];
   return {
     upsertRecords: async () => {},
@@ -35,7 +38,14 @@ function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null
     countVectorsByModel: async () => [],
     countVectorsForDocument: async () => 0,
     countChunks: async () => 0,
-    listChunks: async () => [],
+    listChunks: async () => hits.map((hit, index) => ({
+      id: Number(hit.id) || index + 1,
+      collection: hit.collection,
+      document_id: hit.document_id,
+      chunk_index: index,
+      content: hit.content,
+      metadata: hit.metadata,
+    })),
     listAllDocuments: async () => [],
     getDimension: () => dimension,
     health: async () => ({ status: "healthy", runtime: "mock", ann: true, collections_count: 0 }),
@@ -83,7 +93,6 @@ function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null
     }),
     deleteReranker: () => ({ next_active_key: null }),
     activateReranker: () => {},
-    // IKnowledgeFileStore stub(search 路径测试不触发文件上传,空实现满足构造注入)
     listKnowledgeFiles: () => [],
     getKnowledgeFile: () => null,
     addKnowledgeFile: (input) => ({
@@ -103,16 +112,38 @@ function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null
   } satisfies IVectorStore & IKnowledgeConfig & IKnowledgeFileStore;
 }
 
-describe("KnowledgeBaseService search 新路径(driver 召回 + scoring 重排)", () => {
-  const activeReranker = (mode: StoredReranker["mode"]): StoredReranker => ({ reranker_key: `rr-${mode}`, mode, provider_key: "p", provider_type: null, model_name: "m", api_endpoint: "http://rerank", api_key: "k", created_at: "now", is_active: true });
+function makeService(
+  driver: IVectorStore & IKnowledgeConfig,
+  options?: {
+    embedderFactory?: ConstructorParameters<typeof KnowledgeApplicationService>[4];
+    rerankerFactory?: ConstructorParameters<typeof KnowledgeApplicationService>[5];
+  },
+) {
+  return new KnowledgeApplicationService(
+    "tnt_local",
+    new ModelAdapterService({ providersConfigPath: "" }),
+    new LocalAsyncKnowledgeConfigAdapter(driver),
+    new LocalAsyncKnowledgeVectorStoreAdapter(driver, driver),
+    options?.embedderFactory,
+    options?.rerankerFactory,
+  );
+}
+
+describe("KnowledgeApplicationService search path (async ports + scoring)", () => {
+  const activeReranker = (mode: StoredReranker["mode"]): StoredReranker => ({
+    reranker_key: `rr-${mode}`,
+    mode,
+    provider_key: "p",
+    provider_type: null,
+    model_name: "m",
+    api_endpoint: "http://rerank",
+    api_key: "k",
+    created_at: "now",
+    is_active: true,
+  });
+
   it("远端 embedder 失败时显式失败而不是写入 hash 向量", async () => {
-    const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
-    const fakeDriver = makeFakeDriver([]);
-    const service = new KnowledgeBaseService(modelAdapter, {
-      vectorStore: fakeDriver,
-      knowledgeConfig: fakeDriver,
-      knowledgeFileStore: fakeDriver,
-      documentExtractDispatcher: documentExtractor,
+    const service = makeService(makeFakeDriver([]), {
       embedderFactory: () => ({
         key: "remote:test/model",
         semantic: true,
@@ -120,18 +151,11 @@ describe("KnowledgeBaseService search 新路径(driver 召回 + scoring 重排)"
         embed: async () => { throw new Error("embedding provider unavailable"); },
       }),
     });
-    try {
-      await expect(service.search({ collection_name: "kb", query: "probe", top_k: 5 }))
-        .rejects.toThrow("embedding provider unavailable");
-    } finally {
-      service.close();
-    }
+    await expect(service.search({ collection_name: "kb", query: "probe", top_k: 5 }))
+      .rejects.toThrow("embedding provider unavailable");
   });
 
   it("driver 召回后补 keyword/hybrid 并按 hybrid 排序", async () => {
-    const dataRoot = makeDataRoot();
-    const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });
-    const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
     const hits: VectorSearchHit[] = [
       {
         id: "1", doc_id: "d1", document_id: "d1", collection: "kb",
@@ -146,30 +170,19 @@ describe("KnowledgeBaseService search 新路径(driver 召回 + scoring 重排)"
         vector_score: 0.3, keyword_score: 0, hybrid_score: 0,
       },
     ];
-    const fakeDriver = makeFakeDriver(hits);
-    const service = new KnowledgeBaseService(modelAdapter, {
-      vectorStore: fakeDriver, knowledgeConfig: fakeDriver, knowledgeFileStore: fakeDriver, documentExtractDispatcher: documentExtractor,
+    const service = makeService(makeFakeDriver(hits));
+    const result = await service.search({
+      collection_name: "kb", query: "RAG retrieval backend", top_k: 5, search_mode: "hybrid",
     });
-    try {
-      const result = (await service.search({
-        collection_name: "kb", query: "RAG retrieval backend", top_k: 5, search_mode: "hybrid",
-      })) as { results: Array<Record<string, unknown>>; count: number };
-      expect(result.count).toBe(2);
-      const first = result.results[0]!;
-      expect(first.document_id).toBe("d1");
-      expect(Number(first.vector_score)).toBeCloseTo(0.8, 4);
-      expect(Number(first.keyword_score)).toBeGreaterThan(0);
-      expect(Number(first.hybrid_score)).toBeGreaterThan(Number(first.vector_score) * 0.7);
-    } finally {
-      service.close();
-      fileIndex.close();
-    }
+    expect(result.count).toBe(2);
+    const first = result.results[0]!;
+    expect(first.document_id).toBe("d1");
+    expect(Number(first.vector_score)).toBeCloseTo(0.8, 4);
+    expect(Number(first.keyword_score)).toBeGreaterThan(0);
+    expect(Number(first.hybrid_score)).toBeGreaterThan(Number(first.vector_score) * 0.7);
   });
 
   it("rerank 开启时按 keyword 重排 hybrid 结果", async () => {
-    const dataRoot = makeDataRoot();
-    const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });
-    const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
     const hits: VectorSearchHit[] = [
       {
         id: "1", doc_id: "d1", document_id: "d1", collection: "kb",
@@ -184,89 +197,67 @@ describe("KnowledgeBaseService search 新路径(driver 召回 + scoring 重排)"
         vector_score: 0.4, keyword_score: 0, hybrid_score: 0,
       },
     ];
-    const fakeDriver = makeFakeDriver(hits, null, [activeReranker("lexical")]);
-    const service = new KnowledgeBaseService(modelAdapter, {
-      vectorStore: fakeDriver, knowledgeConfig: fakeDriver, knowledgeFileStore: fakeDriver, documentExtractDispatcher: documentExtractor,
+    const service = makeService(makeFakeDriver(hits, null, [activeReranker("lexical")]));
+    const result = await service.search({
+      collection_name: "kb", query: "keyword overlap", top_k: 5, search_mode: "hybrid", rerank: true,
     });
-    try {
-      const result = (await service.search({
-        collection_name: "kb", query: "keyword overlap", top_k: 5, search_mode: "hybrid", rerank: true,
-      })) as { results: Array<Record<string, unknown>> };
-      const ids = result.results.map((r) => r.document_id);
-      // lexicalRerank 按 keyword 重排:d2 含 query 关键词 → 排前
-      expect(ids[0]).toBe("d2");
-    } finally {
-      service.close();
-      fileIndex.close();
-    }
+    const ids = result.results.map((r) => r.document_id);
+    expect(ids[0]).toBe("d2");
   });
 
   it("vectorStore 无命中时 search 返回空候选", async () => {
-    const dataRoot = makeDataRoot();
-    const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });
-    const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
-    const vectorStore = makeFakeDriver([]);
-    const service = new KnowledgeBaseService(modelAdapter, { vectorStore, knowledgeConfig: vectorStore, knowledgeFileStore: vectorStore, documentExtractDispatcher: documentExtractor });
-    try {
-      const result = (await service.search({ collection_name: "kb", query: "anything", top_k: 5 })) as { count: number };
-      expect(result.count).toBe(0);
-    } finally {
-      service.close();
-      fileIndex.close();
-    }
+    const service = makeService(makeFakeDriver([]));
+    const result = await service.search({ collection_name: "kb", query: "anything", top_k: 5 });
+    expect(result.count).toBe(0);
   });
 
   it("listVectorizers 显示 driver 真维度(替占位 64)", async () => {
-    const dataRoot = makeDataRoot();
-    const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });
-    const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
-    const fakeDriver = makeFakeDriver([], 1536);
-    const service = new KnowledgeBaseService(modelAdapter, {
-      vectorStore: fakeDriver, knowledgeConfig: fakeDriver, knowledgeFileStore: fakeDriver, documentExtractDispatcher: documentExtractor,
-    });
-    try {
-      // search 触发 resolveActiveVectorizer 创建 local_hash_embedding(model_id=1)
-      await service.search({ collection_name: "kb", query: "probe", top_k: 5 });
-      const active = (await service.listVectorizers()).find((vectorizer) => vectorizer.vectorizer_key === "local_hash_embedding");
-      expect(active).toBeTruthy();
-      // toVectorizerConfig 用 driver.getDimension(1)=1536,非 addVectorizer 占位的 64
-      expect(active?.vector_dimension).toBe(1536);
-    } finally {
-      service.close();
-      fileIndex.close();
-    }
+    const service = makeService(makeFakeDriver([], 1536));
+    await service.search({ collection_name: "kb", query: "probe", top_k: 5 });
+    const active = (await service.listVectorizers()).find((vectorizer) => vectorizer.vectorizer_key === "local_hash_embedding");
+    expect(active).toBeTruthy();
+    expect(active?.vector_dimension).toBe(1536);
   });
 
   it("model reranker 成功返回 model", async () => {
-    const hits: VectorSearchHit[] = [{ id: "1", doc_id: "d1", document_id: "d1", collection: "kb", content: "first", metadata: {}, vector_score: 0.9, keyword_score: 0, hybrid_score: 0 }];
-    const fakeDriver = makeFakeDriver(hits, null, [activeReranker("model")]);
-    const service = new KnowledgeBaseService(new ModelAdapterService({ providersConfigPath: "" }), {
-      vectorStore: fakeDriver, knowledgeConfig: fakeDriver, knowledgeFileStore: fakeDriver, documentExtractDispatcher: documentExtractor,
-      rerankerFactory: () => ({ rerank: async (_query, results) => ({ results: results.map((result) => ({ ...result, rerank_score: 0.9 })), mode: "model" }) }),
+    const hits: VectorSearchHit[] = [{
+      id: "1", doc_id: "d1", document_id: "d1", collection: "kb", content: "first", metadata: {},
+      vector_score: 0.9, keyword_score: 0, hybrid_score: 0,
+    }];
+    const service = makeService(makeFakeDriver(hits, null, [activeReranker("model")]), {
+      rerankerFactory: () => ({
+        rerank: async (_query, results) => ({
+          results: results.map((result) => ({ ...result, rerank_score: 0.9 })),
+          mode: "model",
+        }),
+      }),
     });
-    try { await expect(service.search({ collection_name: "kb", query: "q", search_mode: "hybrid", rerank: true })).resolves.toMatchObject({ rerank_mode: "model" }); }
-    finally { service.close(); }
+    await expect(service.search({ collection_name: "kb", query: "q", search_mode: "hybrid", rerank: true }))
+      .resolves.toMatchObject({ rerank_mode: "model" });
   });
 
   it("model reranker 失败降级并标记结果", async () => {
-    const hits: VectorSearchHit[] = [{ id: "1", doc_id: "d1", document_id: "d1", collection: "kb", content: "query match", metadata: {}, vector_score: 0.9, keyword_score: 0, hybrid_score: 0 }];
-    const fakeDriver = makeFakeDriver(hits, null, [activeReranker("model")]);
-    const service = new KnowledgeBaseService(new ModelAdapterService({ providersConfigPath: "" }), {
-      vectorStore: fakeDriver, knowledgeConfig: fakeDriver, knowledgeFileStore: fakeDriver, documentExtractDispatcher: documentExtractor,
-      rerankerFactory: () => ({ rerank: async () => { throw new Error("offline"); } }),
+    const hits: VectorSearchHit[] = [{
+      id: "1", doc_id: "d1", document_id: "d1", collection: "kb", content: "query match", metadata: {},
+      vector_score: 0.9, keyword_score: 0, hybrid_score: 0,
+    }];
+    const service = makeService(makeFakeDriver(hits, null, [activeReranker("model")]), {
+      rerankerFactory: () => ({
+        rerank: async () => { throw new Error("offline"); },
+      }),
     });
-    try {
-      const output = await service.search({ collection_name: "kb", query: "query", search_mode: "hybrid", rerank: true });
-      expect(output).toMatchObject({ rerank_mode: "degraded" });
-      expect((output.results as Array<Record<string, unknown>>)[0]).toMatchObject({ rerank_degraded: true });
-    } finally { service.close(); }
+    const output = await service.search({ collection_name: "kb", query: "query", search_mode: "hybrid", rerank: true });
+    expect(output).toMatchObject({ rerank_mode: "degraded" });
+    expect(output.results[0]).toMatchObject({ rerank_degraded: true });
   });
 
   it("active mode=none 且 rerank=true 时透传并返回 none", async () => {
-    const hits: VectorSearchHit[] = [{ id: "1", doc_id: "d1", document_id: "d1", collection: "kb", content: "first", metadata: {}, vector_score: 0.9, keyword_score: 0, hybrid_score: 0 }];
-    const fakeDriver = makeFakeDriver(hits, null, [activeReranker("none")]);
-    const service = new KnowledgeBaseService(new ModelAdapterService({ providersConfigPath: "" }), { vectorStore: fakeDriver, knowledgeConfig: fakeDriver, knowledgeFileStore: fakeDriver, documentExtractDispatcher: documentExtractor });
-    try { await expect(service.search({ collection_name: "kb", query: "q", search_mode: "hybrid", rerank: true })).resolves.toMatchObject({ rerank_mode: "none" }); }
-    finally { service.close(); }
+    const hits: VectorSearchHit[] = [{
+      id: "1", doc_id: "d1", document_id: "d1", collection: "kb", content: "first", metadata: {},
+      vector_score: 0.9, keyword_score: 0, hybrid_score: 0,
+    }];
+    const service = makeService(makeFakeDriver(hits, null, [activeReranker("none")]));
+    await expect(service.search({ collection_name: "kb", query: "q", search_mode: "hybrid", rerank: true }))
+      .resolves.toMatchObject({ rerank_mode: "none" });
   });
 });

@@ -120,8 +120,7 @@ export interface RerankerConfig {
 }
 
 /**
- * 向量库服务错误(收编:原定义在 knowledge-base-service.ts:24-32,契约泄漏)。
- * 被 routes/knowledge-base.ts 统一用于 HTTP 错误映射(携带 statusCode)。
+ * 知识库业务错误。routes/knowledge-base.ts 用于 HTTP 错误映射(携带 statusCode)。
  * 注:A 类(driver 数据面)错误用 contracts/vector-store 的 VectorStoreError;本类用于 B 类配置面 + 路由层。
  */
 export class KnowledgeBaseError extends Error {
@@ -135,9 +134,8 @@ export class KnowledgeBaseError extends Error {
 }
 
 /**
- * 向量检索结果(收编:原定义在 knowledge-base-service.ts:34-48,被 KnowledgeTools 直接 import 造成契约泄漏)。
- * 这是编排层(KnowledgeBaseService.search)输出给路由/工具的最终结果,含混合打分。
- * driver 层(VectorStore.search)只产出 VectorSearchHit(仅 vector_score),编排层用 scoring.ts 补混合分后映射为本类型。
+ * 向量检索结果:编排层(KnowledgeApplicationService.search)输出给路由/工具的最终结果,含混合打分。
+ * driver 层只产出 VectorSearchHit(仅 vector_score),编排层用 scoring.ts 补混合分后映射为本类型。
  */
 export interface VectorSearchResult {
   id: string;

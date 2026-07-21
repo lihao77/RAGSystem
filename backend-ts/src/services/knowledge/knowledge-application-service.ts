@@ -8,21 +8,35 @@ import type { IEmbedder } from "../../contracts/vector-store/embedder.js";
 import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { createEmbedder } from "../integrations/embedder-registry.js";
-import { createReranker } from "../integrations/reranker-registry.js";
+import { createReranker, type IReranker } from "../integrations/reranker-registry.js";
 import { lexicalRerank } from "./rerank/lexical-rerank.js";
 import { hybridScore, keywordOverlapScore } from "../vector-store/scoring.js";
 import { KnowledgeBaseError } from "../../contracts/knowledge/knowledge-base.js";
 
+export type KnowledgeEmbedderFactory = (
+  provider: ModelProviderConfig | null | undefined,
+  modelName: string,
+) => IEmbedder;
+
+export type KnowledgeRerankerFactory = (stored: StoredReranker) => IReranker;
+
 /** Deployment-neutral knowledge orchestration over tenant-scoped storage ports. */
 export class KnowledgeApplicationService implements KnowledgeQueryPort {
   private readonly embedderCache = new Map<string, IEmbedder>();
+  private readonly embedderFactory: KnowledgeEmbedderFactory;
+  private readonly rerankerFactory: KnowledgeRerankerFactory;
+
   constructor(
     private readonly tenantId: string,
     private readonly modelAdapter: ModelAdapterService,
     private readonly config: AsyncKnowledgeConfigStore,
     private readonly vectors: AsyncKnowledgeVectorStore,
-    private readonly embedderFactory: KnowledgeBaseEmbedderFactory = createEmbedder,
-  ) {}
+    embedderFactory: KnowledgeEmbedderFactory = createEmbedder,
+    rerankerFactory: KnowledgeRerankerFactory = createReranker,
+  ) {
+    this.embedderFactory = embedderFactory;
+    this.rerankerFactory = rerankerFactory;
+  }
 
   async listCollections(): Promise<KnowledgeCollectionSummary[]> {
     const [collections, vectorizers] = await Promise.all([
@@ -227,7 +241,7 @@ export class KnowledgeApplicationService implements KnowledgeQueryPort {
       ? rerankers.find((item) => item.reranker_key === input.reranker_key) ?? null
       : rerankers.find((item) => item.is_active) ?? null;
     if (input.reranker_key && !selectedReranker) throw new KnowledgeBaseError(`重排序器不存在: ${input.reranker_key}`, 404);
-    const reranker = input.rerank !== false && selectedReranker && mode === "hybrid" ? createReranker(selectedReranker) : null;
+    const reranker = input.rerank !== false && selectedReranker && mode === "hybrid" ? this.rerankerFactory(selectedReranker) : null;
     let results = candidates;
     let rerankMode: KnowledgeSearchResponse["rerank_mode"] = "none";
     if (reranker) {
@@ -459,8 +473,6 @@ function normalizeRerankerKey(mode: StoredReranker["mode"], providerKey: string,
   if (mode === "lexical") return "bm25_local";
   return `${providerKey}_${modelName.replace(/[^\w.-]/g, "_").slice(0, 120)}`;
 }
-
-type KnowledgeBaseEmbedderFactory = (provider: ModelProviderConfig | null | undefined, modelName: string) => IEmbedder;
 
 interface MarkdownChunk { content: string; charStart: number; charEnd: number; }
 function chunkMarkdown(markdown: string, size: number, overlap: number): MarkdownChunk[] {

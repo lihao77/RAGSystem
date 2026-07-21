@@ -9,7 +9,7 @@ import {
 } from "../../src/services/vector-store/scoring.js";
 
 /**
- * scoring 单测:验证 keyword/hybrid/tokenize 纯函数(搬自 knowledge-base-service,语义不变)。
+ * scoring 单测:验证 keyword/hybrid 纯函数。
  */
 describe("scoring", () => {
   it("keywordOverlapScore 英文 token 交集占比", () => {

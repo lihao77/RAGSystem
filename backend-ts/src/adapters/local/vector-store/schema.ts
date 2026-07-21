@@ -6,8 +6,7 @@
  * - vec_chunks_${model_id}:vec0 虚拟表(per model_id,因 vec0 维度固定),rowid 关联 vec_documents.id
  * - vectorizers/rerankers:配置面下沉(IKnowledgeConfig),is_active 列替 vector_settings KV + 内存副本
  *
- * 为避免与现有 KnowledgeBaseService 的 documents/document_vectors 表(共享 ragsystem.db)冲突,
- * 本 driver 用 vec_ 前缀表名。Batch 6 迁移后清理旧表。
+ * 本 driver 用 vec_ 前缀表名，与主库业务表隔离。
  */
 
 export function documentsTableDdl(): string {

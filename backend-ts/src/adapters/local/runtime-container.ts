@@ -17,7 +17,6 @@ import { SystemConfigService } from "../../services/config/system-config-service
 import { McpService } from "../../services/integrations/mcp-service.js";
 import { ModelAdapterService } from "../../services/integrations/model-adapter-service.js";
 import { DocumentExtractDispatcher } from "../../services/knowledge/document-extract/dispatcher.js";
-import { KnowledgeBaseService } from "../../services/knowledge/knowledge-base-service.js";
 import { KnowledgeApplicationService } from "../../services/knowledge/knowledge-application-service.js";
 import { AgentSessionApplication } from "../../services/sessions/index.js";
 import { SkillLibraryService } from "../../services/skills/skill-library-service.js";
@@ -89,13 +88,6 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
       : vectorStoreConfig;
   const vectorStore = createVectorStoreFromConfig(resolvedVectorStoreConfig, options.dataRoot);
   const documentExtractDispatcher = new DocumentExtractDispatcher(systemConfig.getDocumentExtractionConfig());
-  const knowledgeBase = new KnowledgeBaseService(modelAdapter, {
-    vectorStore,
-    knowledgeConfig: vectorStore,
-    knowledgeFileStore: vectorStore,
-    documentExtractDispatcher,
-    ...(options.embedderFactory ? { embedderFactory: options.embedderFactory } : {}),
-  });
   const knowledgeService = new KnowledgeApplicationService(
     options.tenantId,
     modelAdapter,
@@ -104,7 +96,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     options.embedderFactory,
   );
   const knowledgeFiles = new LocalAsyncKnowledgeFileStoreAdapter(vectorStore);
-  const knowledgeMarkdown = new LocalAsyncKnowledgeMarkdownPipeline(vectorStore, knowledgeBase);
+  const knowledgeMarkdown = new LocalAsyncKnowledgeMarkdownPipeline(knowledgeFiles, documentExtractDispatcher);
   const knowledge = knowledgeService;
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
@@ -230,7 +222,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
       transientArtifacts.stopPruning();
       outboxDispatcher.stop();
       mcp.close();
-      knowledgeBase.close();
+      vectorStore.close();
       fileIndex.close();
       conversationStore.close();
     },

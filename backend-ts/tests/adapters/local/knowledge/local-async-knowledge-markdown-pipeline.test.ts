@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { LocalAsyncKnowledgeMarkdownPipeline } from "../../../../src/adapters/local/knowledge/local-async-knowledge-markdown-pipeline.js";
-import type {
-  IKnowledgeFileStore,
-  KnowledgeFile,
-} from "../../../../src/contracts/vector-store/index.js";
+import type { AsyncKnowledgeFileStore } from "../../../../src/contracts/knowledge/async-knowledge-file-store.js";
+import type { DocumentExtractor } from "../../../../src/contracts/knowledge/document-extractor.js";
+import type { KnowledgeFile } from "../../../../src/contracts/vector-store/index.js";
 
 function makeFixture(initialHash: string | null = null) {
   let file: KnowledgeFile = {
@@ -20,45 +19,48 @@ function makeFixture(initialHash: string | null = null) {
   const markdown = new Map<string, string>();
   if (initialHash) markdown.set(initialHash, "existing");
   const store = {
-    listKnowledgeFiles: vi.fn(() => [file]),
-    getKnowledgeFile: vi.fn((fileId: string) => fileId === file.id ? file : null),
+    listKnowledgeFiles: vi.fn(async () => [file]),
+    getKnowledgeFile: vi.fn(async (fileId: string) => fileId === file.id ? file : null),
     addKnowledgeFile: vi.fn(),
     deleteKnowledgeFile: vi.fn(),
-    getKnowledgeUploadsRoot: vi.fn(() => "C:/uploads"),
-    putKnowledgeMarkdown: vi.fn((fileId: string, content: string) => {
+    putKnowledgeMarkdown: vi.fn(async (fileId: string, content: string) => {
       if (fileId !== file.id) throw new Error("missing");
       const hash = `hash-${content}`;
       markdown.set(hash, content);
       file = { ...file, md_blob_hash: hash };
       return { md_blob_hash: hash };
     }),
-    readKnowledgeMarkdown: vi.fn((hash: string) => {
+    readKnowledgeMarkdown: vi.fn(async (hash: string) => {
       const content = markdown.get(hash);
       if (content === undefined) throw new Error("missing blob");
       return content;
     }),
-  } as unknown as IKnowledgeFileStore;
-  const knowledge = {
-    generateMarkdownForFile: vi.fn(async (fileId: string) => {
-      store.putKnowledgeMarkdown(fileId, "generated");
-    }),
+    getSource: vi.fn(async () => null),
+  } as unknown as AsyncKnowledgeFileStore;
+  const extractor: DocumentExtractor = {
+    extract: vi.fn(async () => ({ text: "generated", markdown: "generated", kind: "text" })),
   };
-  return { store, knowledge };
+  return { store, extractor };
 }
 
 describe("Local async knowledge Markdown pipeline", () => {
-  it("uses KnowledgeBaseService extraction and returns its persisted hash", async () => {
-    const { store, knowledge } = makeFixture();
-    const pipeline = new LocalAsyncKnowledgeMarkdownPipeline(store, knowledge);
+  it("extracts via DocumentExtractor and returns the persisted hash", async () => {
+    const { store, extractor } = makeFixture();
+    const pipeline = new LocalAsyncKnowledgeMarkdownPipeline(store, extractor);
 
     await expect(pipeline.generateMarkdownForFile("file-1"))
       .resolves.toEqual({ md_blob_hash: "hash-generated" });
-    expect(knowledge.generateMarkdownForFile).toHaveBeenCalledWith("file-1");
+    expect(extractor.extract).toHaveBeenCalledWith({
+      file_path: "C:/uploads/stored.txt",
+      file_name: "source.txt",
+      mime: "text/plain",
+    });
+    expect(store.putKnowledgeMarkdown).toHaveBeenCalledWith("file-1", "generated");
   });
 
   it("reads and updates canonical Markdown through the Local store", async () => {
-    const { store, knowledge } = makeFixture("hash-existing");
-    const pipeline = new LocalAsyncKnowledgeMarkdownPipeline(store, knowledge);
+    const { store, extractor } = makeFixture("hash-existing");
+    const pipeline = new LocalAsyncKnowledgeMarkdownPipeline(store, extractor);
 
     await expect(pipeline.readMarkdownForFile("file-1")).resolves.toEqual({
       markdown: "existing",
@@ -69,8 +71,8 @@ describe("Local async knowledge Markdown pipeline", () => {
   });
 
   it("rejects missing files and Markdown that has not been generated", async () => {
-    const { store, knowledge } = makeFixture();
-    const pipeline = new LocalAsyncKnowledgeMarkdownPipeline(store, knowledge);
+    const { store, extractor } = makeFixture();
+    const pipeline = new LocalAsyncKnowledgeMarkdownPipeline(store, extractor);
 
     await expect(pipeline.readMarkdownForFile("file-1")).rejects.toThrow("Markdown 尚未生成");
     await expect(pipeline.readMarkdownForFile("missing")).rejects.toThrow("知识库文件不存在");
