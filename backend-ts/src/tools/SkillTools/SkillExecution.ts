@@ -10,6 +10,7 @@ import type { AgentConfigService } from "../../services/agent/config/index.js";
 import type { ArtifactService } from "../../services/artifacts/artifact-service.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { ClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
+import type { ISkillPackageStore } from "../../contracts/skills/skill-package-store.js";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 
 type SkillSourceType = "workspace" | "user_global" | "builtin";
@@ -87,6 +88,8 @@ export class SkillToolService {
       backgroundTasks?: BackgroundTaskService | null | undefined;
       clientEvents?: ClientEventPublisher | null | undefined;
       skillIsolationMode?: SkillIsolationMode | undefined;
+      /** When set, user_global packages are hydrated from this store before FS discovery. */
+      packageStore?: ISkillPackageStore | null | undefined;
     } = {},
   ) {
     if (!options.dataRoot?.trim()) {
@@ -100,6 +103,7 @@ export class SkillToolService {
     this.backgroundTasks = options.backgroundTasks ?? null;
     this.clientEvents = options.clientEvents ?? null;
     this.skillIsolationMode = options.skillIsolationMode ?? resolveDefaultIsolationMode();
+    this.packageStore = options.packageStore ?? null;
   }
 
   private readonly agentConfig: AgentConfigService | null;
@@ -107,7 +111,21 @@ export class SkillToolService {
   private readonly backgroundTasks: BackgroundTaskService | null;
   private readonly clientEvents: ClientEventPublisher | null;
   private readonly skillIsolationMode: SkillIsolationMode;
+  private readonly packageStore: ISkillPackageStore | null;
   private readonly envLocks = new Map<string, Promise<unknown>>();
+  private hydratePromise: Promise<void> | null = null;
+
+  /**
+   * Materialize tenant user_global packages into the discovery root.
+   * Required on SaaS before FS-based discovery; Local filesystem store is a no-op-ish list.
+   */
+  async hydrateUserGlobalPackages(): Promise<void> {
+    if (!this.packageStore) return;
+    this.hydratePromise ??= this.packageStore.list().then(() => undefined).finally(() => {
+      this.hydratePromise = null;
+    });
+    await this.hydratePromise;
+  }
 
   /** builtin skill 根目录（代码库内置，只读）。 */
   getBuiltinSkillsRoot(): string {
@@ -136,6 +154,11 @@ export class SkillToolService {
     }));
   }
 
+  async listAvailableSkillsAsync(workspaceRoot?: string | null): Promise<SkillListItem[]> {
+    await this.hydrateUserGlobalPackages();
+    return this.listAvailableSkills(workspaceRoot);
+  }
+
   /** 删除 skill 时联动清理所有 AgentConfig 中的 enabled_skills 引用（委托 AgentConfigService）。 */
   async purgeSkillReference(skillName: string): Promise<string[]> {
     return this.agentConfig?.purgeSkillReference(skillName) ?? [];
@@ -153,8 +176,14 @@ export class SkillToolService {
     return this.resolveVisibleSkills(agent, workspaceRoot ?? resolveAgentWorkspaceRoot(agent));
   }
 
-  activateSkill(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): ToolExecutionResult {
+  async listVisibleSkillsAsync(agent: AgentConfig | null, workspaceRoot?: string | null): Promise<SkillInfo[]> {
+    await this.hydrateUserGlobalPackages();
+    return this.listVisibleSkills(agent, workspaceRoot);
+  }
+
+  async activateSkill(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): Promise<ToolExecutionResult> {
     const toolName = "activate_skill";
+    await this.hydrateUserGlobalPackages();
     const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
     const skill = this.findVisibleSkill(input.skillName, agent, context, workspaceRoot);
     if (!skill) {
@@ -193,12 +222,13 @@ export class SkillToolService {
     );
   }
 
-  loadSkillResource(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): ToolExecutionResult {
+  async loadSkillResource(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): Promise<ToolExecutionResult> {
     const toolName = "load_skill_resource";
     const resourceFile = input.resourceFile?.trim();
     if (!resourceFile) {
       return errorResult("resource_file 不能为空", toolName);
     }
+    await this.hydrateUserGlobalPackages();
     const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
     const skill = this.findVisibleSkill(input.skillName, agent, context, workspaceRoot);
     if (!skill) {
@@ -236,6 +266,7 @@ export class SkillToolService {
     if (!scriptName) {
       return errorResult("script_name 不能为空", toolName);
     }
+    await this.hydrateUserGlobalPackages();
     const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
     const skill = this.findVisibleSkill(input.skillName, agent, context, workspaceRoot);
     if (!skill) {

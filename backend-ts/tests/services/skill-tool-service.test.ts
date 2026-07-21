@@ -54,7 +54,7 @@ describe("SkillToolService", () => {
     ]);
   });
 
-  it("enforces Skill visibility by source and Agent config", () => {
+  it("enforces Skill visibility by source and Agent config", async () => {
     const root = makeTempRoot();
     const builtinRoot = path.join(root, "builtin");
     const globalRoot = path.join(root, "global");
@@ -69,19 +69,19 @@ describe("SkillToolService", () => {
     });
 
     expect(service.hasVisibleSkills(skillAgent([], true, workspaceRoot), workspaceRoot)).toBe(true);
-    expect(service.activateSkill({ skillName: "workspace-skill" }, toolContext({ workspaceRoot }), skillAgent([], true, workspaceRoot))).toMatchObject({
+    await expect(service.activateSkill({ skillName: "workspace-skill" }, toolContext({ workspaceRoot }), skillAgent([], true, workspaceRoot))).resolves.toMatchObject({
       success: true,
     });
-    expect(service.activateSkill({ skillName: "global-skill" }, toolContext({ workspaceRoot }), skillAgent([], true, workspaceRoot))).toMatchObject({
+    await expect(service.activateSkill({ skillName: "global-skill" }, toolContext({ workspaceRoot }), skillAgent([], true, workspaceRoot))).resolves.toMatchObject({
       success: false,
       summary: expect.stringContaining("无权使用"),
     });
     expect(service.hasVisibleSkills(skillAgent([], true), null)).toBe(false);
     expect(service.hasVisibleSkills(skillAgent(["global-skill"], false), null)).toBe(true);
-    expect(service.activateSkill({ skillName: "global-skill" }, toolContext(), skillAgent(["global-skill"], false))).toMatchObject({
+    await expect(service.activateSkill({ skillName: "global-skill" }, toolContext(), skillAgent(["global-skill"], false))).resolves.toMatchObject({
       success: true,
     });
-    expect(service.activateSkill({ skillName: "builtin-skill" }, toolContext(), skillAgent(["builtin-skill"], false))).toMatchObject({
+    await expect(service.activateSkill({ skillName: "builtin-skill" }, toolContext(), skillAgent(["builtin-skill"], false))).resolves.toMatchObject({
       success: true,
     });
   });
@@ -102,14 +102,14 @@ describe("SkillToolService", () => {
     const context = toolContext({ sessionId: "s1" });
     const agent = skillAgent(["demo-skill"]);
 
-    expect(service.activateSkill({ skillName: "demo-skill" }, context, agent)).toMatchObject({
+    await expect(service.activateSkill({ skillName: "demo-skill" }, context, agent)).resolves.toMatchObject({
       success: true,
       outputType: "markdown",
       content: {
         main_content: "# Demo\nUse resource.",
       },
     });
-    expect(service.loadSkillResource({ skillName: "demo-skill", resourceFile: "reference.md" }, context, agent)).toMatchObject({
+    await expect(service.loadSkillResource({ skillName: "demo-skill", resourceFile: "reference.md" }, context, agent)).resolves.toMatchObject({
       success: true,
       content: {
         file_name: "reference.md",

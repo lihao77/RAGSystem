@@ -84,15 +84,16 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   });
   // user_global discovery root is only a materialize cache on SaaS; durable SoT is PG + object storage.
   const skillCacheRoot = path.join(dataRoot, "skill-cache");
+  const skillPackageStore = conversationRuntime.createSkillPackageStore(tenantId, skillCacheRoot);
   const skillTools = new SkillToolService({
     dataRoot,
     userGlobalSkillsRoot: skillCacheRoot,
     agentConfig,
     backgroundTasks,
     clientEvents: asyncClientEvents,
+    packageStore: skillPackageStore,
   });
   agentConfig.setSkillToolService(skillTools);
-  const skillPackageStore = conversationRuntime.createSkillPackageStore(tenantId, skillCacheRoot);
   const skillLibrary = new SkillLibraryService(skillTools, skillPackageStore);
   const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot });
   const memoryBindings = memoryRuntime.provider.createMemoryBindings(

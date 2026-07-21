@@ -44,6 +44,40 @@ export class PostgresSkillPackageRepository {
     return result.rows[0] ? toPackageRow(result.rows[0]) : null;
   }
 
+  async insertPackage(input: {
+    tenantId: TenantId;
+    skillName: string;
+    description: string;
+    content: string;
+    metadata: Record<string, unknown>;
+    contentHash: string;
+    packagePrefix: string;
+  }): Promise<SkillPackageMetadataRow> {
+    try {
+      const result = await this.executor.query(
+        `INSERT INTO saas_skill_packages(
+           tenant_id, skill_name, description, content, metadata, content_hash, package_prefix
+         ) VALUES($1,$2,$3,$4,$5::jsonb,$6,$7)
+         RETURNING *`,
+        [
+          input.tenantId,
+          input.skillName,
+          input.description,
+          input.content,
+          JSON.stringify(input.metadata),
+          input.contentHash,
+          input.packagePrefix,
+        ],
+      );
+      return toPackageRow(result.rows[0]!);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new Error(`Skill '${input.skillName}' 已存在`);
+      }
+      throw error;
+    }
+  }
+
   async upsertPackage(input: {
     tenantId: TenantId;
     skillName: string;
@@ -156,4 +190,13 @@ function toFileRow(row: Record<string, unknown>): SkillPackageFileRow {
     size_bytes: Number(row.size_bytes ?? 0),
     updated_at: new Date(String(row.updated_at)).toISOString(),
   };
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === "object"
+    && "code" in error
+    && (error as { code?: unknown }).code === "23505",
+  );
 }

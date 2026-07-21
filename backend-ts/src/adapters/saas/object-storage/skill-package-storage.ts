@@ -51,24 +51,22 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
   }
 
   async create(input: CreateSkillPackageInput): Promise<SkillPackageRecord> {
-    if (await this.repository.get(this.tenantId, input.name)) {
-      throw new Error(`Skill '${input.name}' 已存在`);
-    }
     const markdown = serializeSkillMd(input.name, input.description, input.content);
     const packagePrefix = this.packagePrefix(input.name);
     const skillKey = this.objectKey(packagePrefix, "SKILL.md");
-    await this.objects.put(skillKey, Buffer.from(markdown, "utf8"), "text/markdown; charset=utf-8");
     const contentHash = hashText(markdown);
+    // Claim the name in Postgres first so concurrent creates race on PK (409), not silent overwrite.
+    const row = await this.repository.insertPackage({
+      tenantId: this.tenantId,
+      skillName: input.name,
+      description: input.description,
+      content: input.content,
+      metadata: {},
+      contentHash,
+      packagePrefix,
+    });
     try {
-      const row = await this.repository.upsertPackage({
-        tenantId: this.tenantId,
-        skillName: input.name,
-        description: input.description,
-        content: input.content,
-        metadata: {},
-        contentHash,
-        packagePrefix,
-      });
+      await this.objects.put(skillKey, Buffer.from(markdown, "utf8"), "text/markdown; charset=utf-8");
       await this.repository.upsertFile({
         tenantId: this.tenantId,
         skillName: input.name,
@@ -80,6 +78,7 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
       const skillDir = await this.materializeRow(row.skill_name, row.content_hash, row.package_prefix);
       return toRecord(row, skillDir);
     } catch (error) {
+      await this.repository.deletePackage(this.tenantId, input.name).catch(() => undefined);
       await this.objects.delete(skillKey).catch(() => undefined);
       throw error;
     }
@@ -219,35 +218,53 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
   /**
    * Materialize into cacheRoot/<skillName>/ so SkillToolService FS discovery
    * (listSkillDirs under userGlobalSkillsRoot=cacheRoot) keeps working.
+   * Incomplete materialization never writes the marker.
    */
   private async materializeRow(skillName: string, contentHash: string, _packagePrefix: string): Promise<string> {
     const skillDir = path.join(this.cacheRoot, skillName);
     const marker = path.join(skillDir, ".materialized");
     if (fs.existsSync(marker) && fs.readFileSync(marker, "utf8").trim() === contentHash) {
-      return skillDir;
+      if (fs.existsSync(path.join(skillDir, "SKILL.md"))) return skillDir;
+      // Stale/corrupt marker: rebuild.
+      fs.rmSync(skillDir, { recursive: true, force: true });
     }
-    fs.rmSync(skillDir, { recursive: true, force: true });
-    fs.mkdirSync(skillDir, { recursive: true });
-    const files = await this.repository.listFiles(this.tenantId, skillName);
-    for (const file of files) {
-      const object = await this.objects.get(file.object_key);
-      if (!object) continue;
-      const target = path.join(skillDir, ...file.relative_path.split("/"));
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, object.body);
-    }
-    // Ensure SKILL.md exists even if file table lagged (content is denormalized in package row).
-    if (!fs.existsSync(path.join(skillDir, "SKILL.md"))) {
-      const row = await this.repository.get(this.tenantId, skillName);
-      if (row) {
+    const stagingDir = path.join(this.cacheRoot, `.staging-${skillName}-${contentHash}`);
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    fs.mkdirSync(stagingDir, { recursive: true });
+    try {
+      const files = await this.repository.listFiles(this.tenantId, skillName);
+      const missing: string[] = [];
+      for (const file of files) {
+        const object = await this.objects.get(file.object_key);
+        if (!object) {
+          missing.push(file.relative_path);
+          continue;
+        }
+        const target = path.join(stagingDir, ...file.relative_path.split("/"));
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, object.body);
+      }
+      // Ensure SKILL.md exists even if file table lagged (content is denormalized in package row).
+      if (!fs.existsSync(path.join(stagingDir, "SKILL.md"))) {
+        const row = await this.repository.get(this.tenantId, skillName);
+        if (!row) throw new Error(`Skill '${skillName}' metadata missing during materialize`);
         fs.writeFileSync(
-          path.join(skillDir, "SKILL.md"),
+          path.join(stagingDir, "SKILL.md"),
           serializeSkillMd(row.skill_name, row.description, row.content),
         );
       }
+      if (missing.length > 0) {
+        throw new Error(`Skill '${skillName}' 物化失败，缺少对象: ${missing.join(", ")}`);
+      }
+      fs.writeFileSync(path.join(stagingDir, ".materialized"), contentHash, "utf8");
+      // Replace live cache only after a complete staging tree is ready.
+      fs.rmSync(skillDir, { recursive: true, force: true });
+      fs.renameSync(stagingDir, skillDir);
+      return skillDir;
+    } catch (error) {
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+      throw error;
     }
-    fs.writeFileSync(marker, contentHash, "utf8");
-    return skillDir;
   }
 }
 

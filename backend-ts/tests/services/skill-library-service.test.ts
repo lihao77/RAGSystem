@@ -37,14 +37,15 @@ function makeService(root: string): {
 } {
   const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot: root }));
   const userGlobal = path.join(root, "global");
+  const packageStore = new FilesystemSkillPackageStore(userGlobal);
   const skillTools = new SkillToolService({
     dataRoot: root,
     builtinSkillsRoot: path.join(root, "builtin"),
     userGlobalSkillsRoot: userGlobal,
     agentConfig,
+    packageStore,
   });
   agentConfig.setSkillToolService(skillTools);
-  const packageStore = new FilesystemSkillPackageStore(userGlobal);
   return { library: new SkillLibraryService(skillTools, packageStore), skillTools, agentConfig };
 }
 

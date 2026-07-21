@@ -136,15 +136,18 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     defaultTimeoutSeconds: toolsConfig.code_default_timeout,
     maxTimeoutSeconds: toolsConfig.code_max_timeout,
   }) : null;
+  const userGlobalSkillsRoot = path.join(dataRoot, "skills");
+  const skillPackageStore = new FilesystemSkillPackageStore(userGlobalSkillsRoot);
   const skillTools = new SkillToolService({
     dataRoot: options.dataRoot,
+    userGlobalSkillsRoot,
     agentConfig,
     artifacts,
     backgroundTasks,
     clientEvents: eventClientEvents,
+    packageStore: skillPackageStore,
   });
   agentConfig.setSkillToolService(skillTools);
-  const skillPackageStore = new FilesystemSkillPackageStore(skillTools.getUserGlobalSkillsRoot());
   const skillLibrary = new SkillLibraryService(skillTools, skillPackageStore);
   const searchTools = hostToolsEnabled ? new LocalSearchToolService({ dataRoot: options.dataRoot }) : null;
   const bashTools = hostToolsEnabled ? new LocalBashToolService({

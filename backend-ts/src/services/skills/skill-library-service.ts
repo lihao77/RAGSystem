@@ -51,12 +51,11 @@ export class SkillLibraryService {
   ) {}
 
   async listSkills(): Promise<SkillListItem[]> {
-    // Ensure SaaS packages are materialized into the discovery root before FS scan.
-    await this.packageStore.list();
-    return this.skillTools.listAvailableSkills();
+    return this.skillTools.listAvailableSkillsAsync();
   }
 
   async getSkillDetail(name: string): Promise<SkillDetail> {
+    await this.skillTools.hydrateUserGlobalPackages();
     const skill = this.findSkill(name);
     const files = skill.sourceType === "user_global"
       ? await this.packageStore.listFiles(skill.name)
@@ -74,6 +73,7 @@ export class SkillLibraryService {
   }
 
   async readSkillFile(name: string, relativePath: string): Promise<{ buffer: Buffer; mime: string }> {
+    await this.skillTools.hydrateUserGlobalPackages();
     const skill = this.findSkill(name);
     if (skill.sourceType === "user_global") {
       try {
@@ -114,6 +114,7 @@ export class SkillLibraryService {
   }
 
   async updateSkillMd(name: string, input: UpdateSkillInput): Promise<SkillDetail> {
+    await this.skillTools.hydrateUserGlobalPackages();
     const skill = this.findSkill(name);
     this.assertWritable(skill);
     try {
@@ -125,6 +126,7 @@ export class SkillLibraryService {
   }
 
   async writeSkillFile(name: string, relativePath: string, buffer: Buffer): Promise<SkillDetail> {
+    await this.skillTools.hydrateUserGlobalPackages();
     const skill = this.findSkill(name);
     this.assertWritable(skill);
     try {
@@ -136,6 +138,7 @@ export class SkillLibraryService {
   }
 
   async deleteSkill(name: string): Promise<{ name: string; purged_agents: string[] }> {
+    await this.skillTools.hydrateUserGlobalPackages();
     const skill = this.findSkill(name);
     this.assertWritable(skill);
     const deleted = await this.packageStore.delete(skill.name);
