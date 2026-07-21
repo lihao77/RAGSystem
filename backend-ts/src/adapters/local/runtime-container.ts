@@ -17,8 +17,8 @@ import { SystemConfigService } from "../../services/config/system-config-service
 import { McpService } from "../../services/integrations/mcp-service.js";
 import { ModelAdapterService } from "../../services/integrations/model-adapter-service.js";
 import { DocumentExtractDispatcher } from "../../services/knowledge/document-extract/dispatcher.js";
-import { EmbeddingModelService } from "../../services/knowledge/embedding-model-service.js";
 import { KnowledgeBaseService } from "../../services/knowledge/knowledge-base-service.js";
+import { KnowledgeApplicationService } from "../../services/knowledge/knowledge-application-service.js";
 import { AgentSessionApplication } from "../../services/sessions/index.js";
 import { SkillLibraryService } from "../../services/skills/skill-library-service.js";
 import { createConversationStore } from "./sqlite/conversation-store/index.js";
@@ -36,7 +36,10 @@ import { RealtimeEventHub } from "../../services/runtime/realtime-event-hub.js";
 import type { LocalRuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { LocalRuntimeContainerOptions } from "./runtime-options.js";
 import { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
-import { LocalKnowledgeQueryAdapter } from "./local-knowledge-query-adapter.js";
+import { LocalAsyncKnowledgeConfigAdapter } from "./knowledge/local-async-knowledge-config-adapter.js";
+import { LocalAsyncKnowledgeVectorStoreAdapter } from "./knowledge/local-async-knowledge-vector-store-adapter.js";
+import { LocalAsyncKnowledgeFileStoreAdapter } from "./knowledge/local-async-knowledge-file-store-adapter.js";
+import { LocalAsyncKnowledgeMarkdownPipeline } from "./knowledge/local-async-knowledge-markdown-pipeline.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";
 import { PathApprovalService } from "../../services/runtime/path-approval-service.js";
 import { SqliteRuntimeStorage } from "./sqlite-runtime-storage.js";
@@ -92,10 +95,17 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     documentExtractDispatcher,
     ...(options.embedderFactory ? { embedderFactory: options.embedderFactory } : {}),
   });
-  const knowledge = options.knowledgeQueryFactory?.({ tenantId: options.tenantId, baseKnowledge: knowledgeBase })
-    ?? new LocalKnowledgeQueryAdapter(knowledgeBase);
+  const knowledgeService = new KnowledgeApplicationService(
+    options.tenantId,
+    modelAdapter,
+    new LocalAsyncKnowledgeConfigAdapter(vectorStore),
+    new LocalAsyncKnowledgeVectorStoreAdapter(vectorStore, vectorStore),
+    options.embedderFactory,
+  );
+  const knowledgeFiles = new LocalAsyncKnowledgeFileStoreAdapter(vectorStore);
+  const knowledgeMarkdown = new LocalAsyncKnowledgeMarkdownPipeline(vectorStore, knowledgeBase);
+  const knowledge = knowledgeService;
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
-  const embeddingModels = new EmbeddingModelService(knowledgeBase);
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryBindings = options.memoryBindingsFactory?.({
     tenantId: options.tenantId,
@@ -207,10 +217,11 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
       sessions: sessionApplication,
       fileHistory,
       fileIndex,
-      knowledgeBase,
+      knowledgeFiles,
+      knowledgeMarkdown,
+      knowledgeService,
       artifacts,
       transientArtifacts,
-      embeddingModels,
       memoryStore,
     },
     closeInfrastructure: () => {

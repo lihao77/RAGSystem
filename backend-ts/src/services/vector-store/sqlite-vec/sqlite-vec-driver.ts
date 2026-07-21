@@ -101,6 +101,60 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
   }
 
   async upsertRecords(records: VectorRecord[]): Promise<void> {
+    if (records.length === 0) return;
+    const dimensionsBefore = new Map(this.dimensionByModel);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.upsertRecordsSync(records);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      this.restoreDimensionCache(dimensionsBefore);
+      throw error;
+    }
+  }
+
+  async replaceDocumentVectorsByModel(
+    collection: string,
+    documentId: string,
+    modelId: number,
+    records: VectorRecord[],
+  ): Promise<void> {
+    if (records.some((record) =>
+      record.collection !== collection
+      || record.doc_id !== documentId
+      || record.model_id !== modelId
+    )) {
+      throw new VectorStoreError("replacement records must match their collection, document, and model scope", 400);
+    }
+    const dimensionsBefore = new Map(this.dimensionByModel);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (this.dimensionByModel.has(modelId)) {
+        const ids = this.db
+          .prepare("SELECT id FROM vec_documents WHERE collection = ? AND document_id = ?")
+          .all(collection, documentId) as unknown as Array<{ id: number }>;
+        if (ids.length > 0) {
+          const placeholders = ids.map(() => "?").join(",");
+          this.db.prepare(`DELETE FROM ${vecTableName(modelId)} WHERE rowid IN (${placeholders})`)
+            .run(...ids.map((row) => BigInt(row.id)));
+        }
+      }
+      this.upsertRecordsSync(records);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      this.restoreDimensionCache(dimensionsBefore);
+      throw error;
+    }
+  }
+
+  private restoreDimensionCache(snapshot: ReadonlyMap<number, number>): void {
+    this.dimensionByModel.clear();
+    for (const [modelId, dimension] of snapshot) this.dimensionByModel.set(modelId, dimension);
+  }
+
+  private upsertRecordsSync(records: VectorRecord[]): void {
     if (records.length === 0) {
       return;
     }

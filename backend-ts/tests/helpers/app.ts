@@ -60,6 +60,7 @@ export async function buildTestHarness(
     identityProvider?: IdentityProvider;
     saasMemoryRuntime?: BuildAppOptions["saasMemoryRuntime"];
     resolveMemoryApplication?: BuildAppOptions["resolveMemoryApplication"];
+    resolveKnowledgeApplication?: BuildAppOptions["resolveKnowledgeApplication"];
     resolveSessionApplication?: BuildAppOptions["resolveSessionApplication"];
     resolveMonitoringApplication?: BuildAppOptions["resolveMonitoringApplication"];
     resolveFileHistoryStorage?: BuildAppOptions["resolveFileHistoryStorage"];
@@ -114,6 +115,7 @@ export async function buildTestHarness(
     widgetCredentialStore,
     ...(options.saasMemoryRuntime ? { saasMemoryRuntime: options.saasMemoryRuntime } : {}),
     ...(options.resolveMemoryApplication ? { resolveMemoryApplication: options.resolveMemoryApplication } : {}),
+    ...(options.resolveKnowledgeApplication ? { resolveKnowledgeApplication: options.resolveKnowledgeApplication } : {}),
     ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
     ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),

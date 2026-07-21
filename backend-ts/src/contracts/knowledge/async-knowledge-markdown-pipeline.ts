@@ -1,6 +1,6 @@
 import type { AsyncKnowledgeFileStore } from "./async-knowledge-file-store.js";
 
-/** Tenant-bound application port for Markdown generation and editing in SaaS. */
+/** Tenant-bound application port for Markdown generation and editing. */
 export interface AsyncKnowledgeMarkdownPipeline {
   generateMarkdownForFile(fileId: string): Promise<{ md_blob_hash: string }>;
   readMarkdownForFile(fileId: string): Promise<{ markdown: string; md_blob_hash: string }>;
@@ -13,7 +13,7 @@ export type AsyncKnowledgeMarkdownExtractor = (input: {
   mime: string;
 }) => Promise<string> | string;
 
-/** Basic SaaS pipeline; callers may inject a PDF/DOCX-capable extractor. */
+/** Object-backed pipeline; callers may inject a PDF/DOCX-capable extractor. */
 export class TenantKnowledgeMarkdownPipeline implements AsyncKnowledgeMarkdownPipeline {
   constructor(
     private readonly store: AsyncKnowledgeFileStore,

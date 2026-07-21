@@ -2,7 +2,7 @@ import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { TenantId } from "../../identity/types.js";
 import type { MemoryRepository } from "../../contracts/memory-store/index.js";
 import type { MemoryConfig } from "../../contracts/runtime/system-config.js";
-import type { KnowledgeBaseEmbedderFactory, KnowledgeBaseService } from "../../services/knowledge/knowledge-base-service.js";
+import type { KnowledgeBaseEmbedderFactory } from "../../services/knowledge/knowledge-base-service.js";
 import type { MemoryRuntimeBindings } from "../../services/agent/memory/runtime-bindings.js";
 import type { SessionMetadataPort } from "../../services/agent/context/types.js";
 import type { RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExecution.js";
@@ -12,7 +12,6 @@ import type { AsyncBackgroundTaskRepository } from "../../contracts/storage/back
 import type { RealtimeEventBus } from "../../contracts/runtime/realtime-event-bus.js";
 import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
 import type { ExecutionStorage } from "../../contracts/execution/execution-storage.js";
-import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
 import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 import type { AsyncAnalyticsRepository } from "../../contracts/storage/async-persistence-ports.js";
 import type { RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
@@ -41,7 +40,6 @@ export interface LocalRuntimeContainerOptions {
   asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => SuspendedSessionControlPort;
   asyncBackgroundTasks?: AsyncBackgroundTaskRepository;
   asyncAnalytics?: AsyncAnalyticsRepository;
-  knowledgeQueryFactory?: KnowledgeRuntimeQueryFactory;
   executionStorage?: ExecutionStorage;
   runtimeStorageFactory?: (tenantId: TenantId) => RuntimeStorage;
   executionStorageFactory?: (input: { tenantId: TenantId; runtimeStorage: RuntimeStorage; asyncClientEvents: AsyncDurableClientEventPublisher }) => ExecutionStorage;
@@ -49,8 +47,6 @@ export interface LocalRuntimeContainerOptions {
   pathAccessPolicyFactory?: () => PathAccessPolicy;
 }
 
-export interface KnowledgeRuntimeQueryFactoryInput { tenantId: TenantId; baseKnowledge: KnowledgeBaseService; }
-export type KnowledgeRuntimeQueryFactory = (input: KnowledgeRuntimeQueryFactoryInput) => KnowledgeQueryPort;
 export interface MemoryRuntimeBindingsFactoryInput<TMemoryRepository extends MemoryRepository = MemoryRepository> { tenantId: TenantId; dataRoot: string; memoryConfig: MemoryConfig; memoryRepository: TMemoryRepository; sessions: RuntimeMemorySessionPort & SessionMetadataPort; }
 export type MemoryRuntimeBindingsFactory<TMemoryRepository extends MemoryRepository = MemoryRepository> = (input: MemoryRuntimeBindingsFactoryInput<TMemoryRepository>) => MemoryRuntimeBindings;
 export type RuntimeContainerOptions = LocalRuntimeContainerOptions;

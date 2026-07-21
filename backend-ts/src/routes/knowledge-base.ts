@@ -95,8 +95,12 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.patch<{ Params: ChunkParams }>("/files/:fileId/chunks/:chunkId", async (request) => {
     const payload = UpdateChunkRequestSchema.parse(request.body);
-    const chunkId = Number.parseInt(request.params.chunkId, 10);
-    if (!Number.isSafeInteger(chunkId) || chunkId <= 0) throw new HttpError(400, "invalid_chunk_id", "切片 ID 无效");
+    const chunkId = request.params.chunkId.trim();
+    const numericId = /^[1-9]\d*$/.test(chunkId) && Number.isSafeInteger(Number(chunkId));
+    const uuidId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(chunkId);
+    if (!numericId && !uuidId) {
+      throw new HttpError(400, "invalid_chunk_id", "切片 ID 无效");
+    }
     try { return ok(await (await resolveKnowledge(request)).updateChunk(request.params.fileId, chunkId, payload.content)); } catch (error) { throw toHttpError(error); }
   });
 
@@ -286,12 +290,6 @@ function filterKnowledgeFiles(
 function toHttpError(error: unknown): HttpError {
   return httpErrorFrom(error, (e) => {
     if (!(e instanceof KnowledgeBaseError)) return null;
-    if (
-      e.message.startsWith("重排序器不存在:") ||
-      e.message === "model 模式的重排序器必须提供 provider_key 和 model_name"
-    ) {
-      return new HttpError(500, "internal_error", e.message);
-    }
     return statusHttpError(e.statusCode, e.message);
   });
 }

@@ -6,7 +6,7 @@ import { LocalMemoryApplication } from "./memory/local-memory-application.js";
 import { LocalMonitoringApplication } from "./monitoring/local-monitoring-application.js";
 import { LocalSessionApplication } from "./session/local-session-application.js";
 import type { RequestApplicationResolvers } from "../../../app/request-applications.js";
-import { LocalKnowledgeApplication } from "./knowledge/local-knowledge-application.js";
+import { KnowledgeHttpApplication } from "../../../services/knowledge/knowledge-http-application.js";
 import { LocalProviderApplication } from "./provider/local-provider-application.js";
 import { LocalMcpApplication } from "./mcp/local-mcp-application.js";
 import { LocalSessionFileApplication } from "./session-file/local-session-file-application.js";
@@ -47,7 +47,12 @@ export function createLocalRequestApplicationResolvers(): RequestApplicationReso
 export function createLocalKnowledgeApplicationResolver() {
   return (request: Parameters<RequestApplicationResolvers["resolveSessionApplication"]>[0]) => {
     if (!request.container.local) throw new Error("Local knowledge application resolver received a non-Local runtime");
-    return new LocalKnowledgeApplication(request.container.local.knowledgeBase);
+    const { knowledgeFiles, knowledgeMarkdown, knowledgeService } = request.container.local;
+    return new KnowledgeHttpApplication(
+      knowledgeService,
+      knowledgeFiles,
+      knowledgeMarkdown,
+    );
   };
 }
 

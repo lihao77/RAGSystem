@@ -29,8 +29,9 @@ import type { TransientArtifactService } from "../../services/artifacts/transien
 import type { SystemConfigService } from "../../services/config/system-config-service.js";
 import type { McpService } from "../../services/integrations/mcp-service.js";
 import type { ModelAdapterService } from "../../services/integrations/model-adapter-service.js";
-import type { EmbeddingModelService } from "../../services/knowledge/embedding-model-service.js";
-import type { KnowledgeBaseService } from "../../services/knowledge/knowledge-base-service.js";
+import type { KnowledgeApplicationService } from "../../services/knowledge/knowledge-application-service.js";
+import type { AsyncKnowledgeFileStore } from "../knowledge/async-knowledge-file-store.js";
+import type { AsyncKnowledgeMarkdownPipeline } from "../knowledge/async-knowledge-markdown-pipeline.js";
 import type { MemoryApplication } from "../../services/memory/index.js";
 import type { AgentSessionApplication } from "../../services/sessions/index.js";
 import type { SkillLibraryService } from "../../services/skills/skill-library-service.js";
@@ -59,10 +60,11 @@ export interface LocalRuntimeCapabilities {
   sessions: AgentSessionApplication;
   fileHistory: IFileHistoryStore;
   fileIndex: IFileIndexStore;
-  knowledgeBase: KnowledgeBaseService;
+  knowledgeFiles: AsyncKnowledgeFileStore;
+  knowledgeMarkdown: AsyncKnowledgeMarkdownPipeline;
+  knowledgeService: KnowledgeApplicationService;
   artifacts: ArtifactService;
   transientArtifacts: TransientArtifactService;
-  embeddingModels: EmbeddingModelService;
   memoryStore: IMemoryStore;
 }
 

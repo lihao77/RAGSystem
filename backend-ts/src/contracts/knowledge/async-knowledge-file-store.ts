@@ -1,10 +1,10 @@
 import type { KnowledgeFile } from "../vector-store/knowledge-file-store.js";
 
 /**
- * Tenant-bound asynchronous knowledge-file application port for SaaS.
+ * Tenant-bound asynchronous knowledge-file application port.
  *
- * Unlike the Local `IKnowledgeFileStore`, every operation is asynchronous:
- * metadata is persisted by a remote repository and bytes by object storage.
+ * Local implementations may adapt synchronous filesystem storage; SaaS
+ * implementations persist metadata remotely and bytes in object storage.
  * Implementations must scope all reads and writes to the tenant selected at
  * construction time.
  */

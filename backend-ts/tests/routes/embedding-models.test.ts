@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import { buildTestApp } from "../helpers/app.js";
+import { buildTestApp, buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
 
@@ -13,6 +13,31 @@ afterEach(async () => {
 });
 
 describe("embedding model compatibility routes", () => {
+  it("uses the deployment-neutral knowledge application instead of Local runtime capabilities", async () => {
+    const knowledge = {
+      listVectorizers: vi.fn().mockResolvedValue([{
+        model_id: 7, vectorizer_key: "embed", provider_key: "local", provider_type: null, model_name: "hash-64",
+        distance_metric: "cosine", created_at: "2026-01-01T00:00:00Z", is_active: true, provider_available: true,
+        vector_dimension: 64, vector_count: 2,
+      }]),
+      activateVectorizer: vi.fn().mockResolvedValue({ active_vectorizer_key: "embed" }),
+      deleteVectorizer: vi.fn().mockResolvedValue({ deleted_vectorizer_key: "embed" }),
+      getModelStats: vi.fn().mockResolvedValue({ vector_count: 2, storage_size_mb: 0, collections: { docs: 2 } }),
+      getSyncStatus: vi.fn().mockResolvedValue([]),
+      syncModel: vi.fn().mockResolvedValue({ model_id: 7, collection: "docs", synced_documents: 0 }),
+    };
+    const harness = await buildTestHarness({ resolveKnowledgeApplication: () => knowledge as never });
+    app = harness.app;
+
+    const models = await app.inject({ method: "GET", url: "/api/embedding-models/models" });
+    expect(models.statusCode).toBe(200);
+    expect(models.json().models[0]).toMatchObject({ id: 7, vectorizer_key: "embed", stats: { vector_count: 2 } });
+
+    const activated = await app.inject({ method: "POST", url: "/api/embedding-models/models/7/activate" });
+    expect(activated.statusCode).toBe(200);
+    expect(knowledge.activateVectorizer).toHaveBeenCalledWith("embed");
+  });
+
   it("serves an empty model list and sync status by default", async () => {
     app = await buildTestApp();
 

@@ -1,4 +1,8 @@
 import { buildApp } from "./app.js";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { loadEnv } from "./config/env.js";
 import { createSaaSMemoryRuntime, type SaaSMemoryRuntimeHandle } from "./adapters/saas/composition/saas-memory-runtime.js";
 import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./adapters/saas/composition/saas-control-runtime.js";
@@ -6,8 +10,9 @@ import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } fro
 import { createSaaSObjectStorage } from "./adapters/saas/composition/saas-object-storage.js";
 import type { ObjectStorage } from "./contracts/storage/object-storage.js";
 import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
-import { SaaSKnowledgeVectorApplication } from "./adapters/saas/application/knowledge/saas-knowledge-vector-application.js";
-import { SaaSKnowledgeApplication } from "./adapters/saas/application/knowledge/saas-knowledge-application.js";
+import { KnowledgeHttpApplication } from "./services/knowledge/knowledge-http-application.js";
+import { DocumentExtractDispatcher } from "./services/knowledge/document-extract/dispatcher.js";
+import type { AsyncKnowledgeFileStore } from "./contracts/knowledge/async-knowledge-file-store.js";
 import { SaaSSessionApplication } from "./adapters/saas/application/session/saas-session-application.js";
 import { SaaSAgentReadApplication } from "./adapters/saas/application/execution/saas-agent-read-application.js";
 import { SaaSAnalyticsApplication } from "./adapters/saas/application/analytics/saas-analytics-application.js";
@@ -61,23 +66,22 @@ try {
     ...(saasConversationRuntime && saasObjectStorage ? {
       resolveKnowledgeFileStore: (request) => saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId),
       resolveSessionFileStorage: (request) => saasConversationRuntime!.createSessionFileStorage(request.identity.tenantId),
-      resolveKnowledgeMarkdownPipeline: (request) => new TenantKnowledgeMarkdownPipeline(
+      resolveKnowledgeMarkdownPipeline: (request) => createSaaSKnowledgeMarkdownPipeline(
+        request,
         saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId),
       ),
       resolveKnowledgeApplication: (request) => {
         const files = saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId);
-        const markdown = new TenantKnowledgeMarkdownPipeline(files);
-        const vector = new SaaSKnowledgeVectorApplication(
+        const markdown = createSaaSKnowledgeMarkdownPipeline(request, files);
+        const knowledge = saasConversationRuntime!.createKnowledgeService(
           request.identity.tenantId,
-          saasConversationRuntime!.createKnowledgeService(
-            request.identity.tenantId,
-            request.container.modelAdapter,
-          ),
+          request.container.modelAdapter,
+        );
+        return new KnowledgeHttpApplication(
+          knowledge,
           files,
           markdown,
-          saasConversationRuntime!.vectorStore,
         );
-        return new SaaSKnowledgeApplication(vector, files, markdown);
       },
     } : {}),
     ...(saasConversationRuntime ? {
@@ -160,6 +164,19 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     process.exit(1);
   }
 };
+
+function createSaaSKnowledgeMarkdownPipeline(request: FastifyRequest, files: AsyncKnowledgeFileStore) {
+  const dispatcher = new DocumentExtractDispatcher(request.container.systemConfig.getDocumentExtractionConfig());
+  return new TenantKnowledgeMarkdownPipeline(files, async ({ body, fileName, mime }) => {
+    const temporaryPath = path.join(os.tmpdir(), `ragsystem-knowledge-${randomUUID()}-${path.basename(fileName)}`);
+    await fs.writeFile(temporaryPath, body);
+    try {
+      return (await dispatcher.extract({ file_path: temporaryPath, file_name: fileName, mime })).markdown;
+    } finally {
+      await fs.unlink(temporaryPath).catch(() => undefined);
+    }
+  });
+}
 
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);

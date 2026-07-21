@@ -32,13 +32,16 @@ export class PostgresKnowledgeConfigRepository implements AsyncKnowledgeConfigSt
     return result.rows[0] ? map(result.rows[0]) : null;
   }
   async createVectorizer(tenantId: string, input: CreateVectorizerInput): Promise<StoredVectorizer> {
-    const result = await this.executor.query(
-      `INSERT INTO knowledge_vectorizers(tenant_id,vectorizer_key,provider_key,provider_type,model_name,distance_metric,is_active)
-       VALUES($1,$2,$3,$4,$5,$6,NOT EXISTS(SELECT 1 FROM knowledge_vectorizers WHERE tenant_id=$1)) RETURNING *`,
-      [tenantId, input.vectorizer_key, input.provider_key, input.provider_type, input.model_name, input.distance_metric],
-    );
-    if (!result.rows[0]) throw new Error("knowledge vectorizer insert returned no row");
-    return map(result.rows[0]);
+    return this.executor.transaction(async (tx) => {
+      await lockVectorizerTenant(tx, tenantId);
+      const result = await tx.query(
+        `INSERT INTO knowledge_vectorizers(tenant_id,vectorizer_key,provider_key,provider_type,model_name,distance_metric,is_active)
+         VALUES($1,$2,$3,$4,$5,$6,NOT EXISTS(SELECT 1 FROM knowledge_vectorizers WHERE tenant_id=$1)) RETURNING *`,
+        [tenantId, input.vectorizer_key, input.provider_key, input.provider_type, input.model_name, input.distance_metric],
+      );
+      if (!result.rows[0]) throw new Error("knowledge vectorizer insert returned no row");
+      return map(result.rows[0]);
+    });
   }
   async setVectorDimension(tenantId: string, key: string, dimension: number): Promise<void> {
     if (!Number.isSafeInteger(dimension) || dimension <= 0) throw new Error("vector dimension must be a positive integer");
@@ -50,6 +53,7 @@ export class PostgresKnowledgeConfigRepository implements AsyncKnowledgeConfigSt
   }
   async activateVectorizer(tenantId: string, key: string): Promise<void> {
     await this.executor.transaction(async (tx) => {
+      await lockVectorizerTenant(tx, tenantId);
       const found = await tx.query("SELECT model_id FROM knowledge_vectorizers WHERE tenant_id=$1 AND vectorizer_key=$2", [tenantId, key]);
       if (!found.rows[0]) throw new Error(`vectorizer not found: ${key}`);
       await tx.query("UPDATE knowledge_vectorizers SET is_active=FALSE WHERE tenant_id=$1", [tenantId]);
@@ -58,6 +62,7 @@ export class PostgresKnowledgeConfigRepository implements AsyncKnowledgeConfigSt
   }
   async deleteVectorizer(tenantId: string, key: string): Promise<{ next_active_key: string | null }> {
     return this.executor.transaction(async (tx) => {
+      await lockVectorizerTenant(tx, tenantId);
       const deleted = await tx.query<{ is_active: boolean }>("DELETE FROM knowledge_vectorizers WHERE tenant_id=$1 AND vectorizer_key=$2 RETURNING is_active", [tenantId, key]);
       if (!deleted.rows[0]) throw new Error(`vectorizer not found: ${key}`);
       if (deleted.rows[0].is_active) await tx.query("UPDATE knowledge_vectorizers SET is_active=TRUE WHERE model_id=(SELECT model_id FROM knowledge_vectorizers WHERE tenant_id=$1 ORDER BY model_id LIMIT 1)", [tenantId]);
@@ -106,6 +111,10 @@ export class PostgresKnowledgeConfigRepository implements AsyncKnowledgeConfigSt
       return { next_active_key: active.rows[0]?.reranker_key ?? null };
     });
   }
+}
+
+function lockVectorizerTenant(executor: PostgresMemoryExecutor, tenantId: string): Promise<unknown> {
+  return executor.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 2041549321))", [tenantId]);
 }
 
 function lockRerankerTenant(executor: PostgresMemoryExecutor, tenantId: string): Promise<unknown> {

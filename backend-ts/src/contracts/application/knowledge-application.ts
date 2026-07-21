@@ -8,6 +8,7 @@ import type {
   VectorizerConfig,
   VectorizerCreate,
 } from "../knowledge/knowledge-base.js";
+import type { KnowledgeSearchResponse } from "../knowledge/query-port.js";
 import type { KnowledgeFile } from "../vector-store/knowledge-file-store.js";
 
 export interface KnowledgeUploadPart {
@@ -28,8 +29,11 @@ export interface KnowledgeApplication {
   getFile(fileId: string): Promise<KnowledgeFile | null>;
   readMarkdown(fileId: string): Promise<{ markdown: string; md_blob_hash: string }>;
   updateMarkdown(fileId: string, content: string): Promise<unknown>;
-  listChunks(fileId: string): Promise<Array<{ id: number; content: string; metadata: Record<string, unknown>; chunk_index: number }>>;
-  updateChunk(fileId: string, chunkId: number, content: string): Promise<unknown>;
+  listChunks(fileId: string): Promise<Array<{ id: string | number; content: string; metadata: Record<string, unknown>; chunk_index: number }>>;
+  updateChunk(fileId: string, chunkId: string | number, content: string): Promise<unknown>;
+  getModelStats(modelId: number): Promise<{ vector_count: number; storage_size_mb: number; collections: Record<string, number> }>;
+  getSyncStatus(collection: string): Promise<Array<{ model_id: number; vectorizer_key: string; total_documents: number; synced_documents: number; pending_documents: number; sync_percentage: number }>>;
+  syncModel(modelId: number, input: { collection: string; limit?: number | null }): Promise<Record<string, unknown>>;
   deleteFile(fileId: string): Promise<{ deleted_chunks: number } | null>;
   download(fileId: string): Promise<KnowledgeDownload | null>;
   fileStatus(): Promise<VectorFileStatusResponse>;
@@ -47,7 +51,7 @@ export interface KnowledgeApplication {
   deleteReranker(key: string): unknown;
   listCollections(): Promise<unknown>;
   deleteCollection(collectionName: string): Promise<Record<string, unknown>>;
-  search(input: SearchVectorsRequest): Promise<Record<string, unknown>>;
+  search(input: SearchVectorsRequest): Promise<KnowledgeSearchResponse>;
   indexDocument(input: GenericVectorRequest): Promise<Record<string, unknown>>;
   deleteDocument(collectionName: string, documentId: string): Promise<Record<string, unknown>>;
   listDocuments(collectionName: string): Promise<Record<string, unknown>>;

@@ -55,7 +55,7 @@ import { PostgresKnowledgeQueryAdapter } from "../../../adapters/saas/postgres/k
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { TenantId } from "../../../identity/types.js";
 import { PostgresKnowledgeConfigRepository } from "../../../adapters/saas/postgres/knowledge-config-repository.js";
-import { SaaSKnowledgeService } from "../application/knowledge/saas-knowledge-service.js";
+import { KnowledgeApplicationService } from "../../../services/knowledge/knowledge-application-service.js";
 import type { ModelAdapterService } from "../../../services/integrations/model-adapter-service.js";
 
 export interface SaaSConversationRuntimeOptions {
@@ -89,7 +89,7 @@ export interface SaaSConversationRuntimeHandle {
   vectorStore: PostgresPgVectorRepository;
   /** Tenant-bound Agent knowledge query port backed by PostgreSQL pgvector. */
   knowledgeConfig: PostgresKnowledgeConfigRepository;
-  createKnowledgeService(tenantId: string, modelAdapter: ModelAdapterService): SaaSKnowledgeService;
+  createKnowledgeService(tenantId: string, modelAdapter: ModelAdapterService): KnowledgeApplicationService;
   createKnowledgeQuery(tenantId: string, modelAdapter: ModelAdapterService): KnowledgeQueryPort;
   providerMcp: PostgresProviderMcpRepository;
   providerMcpApplication: SaaSProviderMcpApplication;
@@ -181,8 +181,8 @@ export async function createSaaSConversationRuntime(
       vectorIndex,
       vectorStore,
       knowledgeConfig,
-      createKnowledgeService: (tenantId, modelAdapter) => new SaaSKnowledgeService(tenantId, modelAdapter, knowledgeConfig, vectorStore),
-      createKnowledgeQuery: (tenantId, modelAdapter) => new PostgresKnowledgeQueryAdapter(new SaaSKnowledgeService(tenantId, modelAdapter, knowledgeConfig, vectorStore)),
+      createKnowledgeService: (tenantId, modelAdapter) => new KnowledgeApplicationService(tenantId, modelAdapter, knowledgeConfig, vectorStore),
+      createKnowledgeQuery: (tenantId, modelAdapter) => new PostgresKnowledgeQueryAdapter(new KnowledgeApplicationService(tenantId, modelAdapter, knowledgeConfig, vectorStore)),
       backgroundTasks,
       analytics,
       fileHistory,

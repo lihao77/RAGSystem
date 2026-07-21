@@ -22,6 +22,7 @@ function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null
   const vectorizers: Array<ReturnType<IKnowledgeConfig["createVectorizer"]>> = [];
   return {
     upsertRecords: async () => {},
+    replaceDocumentVectorsByModel: async () => {},
     search: async () => hits,
     deleteDocument: async () => ({ deleted_chunks: 0 }),
     deleteDocumentVectors: async () => ({ deleted_chunks: 0 }),

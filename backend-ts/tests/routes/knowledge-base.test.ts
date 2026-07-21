@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import fs from "node:fs";
 
-import { buildTestApp } from "../helpers/app.js";
+import { buildTestApp, buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
 const tempRoots: string[] = [];
@@ -22,6 +22,30 @@ afterEach(async () => {
 });
 
 describe("vector library compatibility routes", () => {
+  it("accepts opaque logical UUID chunk ids and rejects unsafe numeric ids", async () => {
+    const updateChunk = vi.fn().mockResolvedValue({ id: "018f8e25-7b2a-0a88-1f6d-8df40ed40f10", content: "updated" });
+    const harness = await buildTestHarness({
+      resolveKnowledgeApplication: () => ({ updateChunk }) as never,
+    });
+    app = harness.app;
+
+    const updated = await app.inject({
+      method: "PATCH",
+      url: "/api/knowledge-bases/files/file-1/chunks/018f8e25-7b2a-0a88-1f6d-8df40ed40f10",
+      payload: { content: "updated" },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updateChunk).toHaveBeenCalledWith("file-1", "018f8e25-7b2a-0a88-1f6d-8df40ed40f10", "updated");
+
+    const invalid = await app.inject({
+      method: "PATCH",
+      url: "/api/knowledge-bases/files/file-1/chunks/999999999999999999999999",
+      payload: { content: "updated" },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toMatchObject({ code: "invalid_chunk_id" });
+  });
+
   it("serves file-status from uploaded files and empty vectorizer config by default", async () => {
     app = await buildTestApp();
 
@@ -54,6 +78,23 @@ describe("vector library compatibility routes", () => {
         ],
       },
     });
+  });
+
+  it("preserves knowledge domain status codes for invalid reranker operations", async () => {
+    app = await buildTestApp();
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/knowledge-bases/rerankers/missing/activate",
+    });
+    expect(missing.statusCode).toBe(404);
+
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/api/knowledge-bases/rerankers",
+      payload: { mode: "model" },
+    });
+    expect(invalid.statusCode).toBe(400);
   });
 
   it("supports in-memory vectorizer config management", async () => {

@@ -53,6 +53,41 @@ describe("SqliteVecDriver", () => {
     driver.close();
   });
 
+  it("atomic replacement rolls back the old vectors when the new batch fails", async () => {
+    const driver = new SqliteVecDriver(config());
+    await driver.upsertRecords([record("d1", [1, 0])]);
+    await expect(driver.replaceDocumentVectorsByModel(
+      "col1",
+      "d1",
+      1,
+      [record("d1", [1, 0, 0], { content: "invalid replacement" })],
+    )).rejects.toThrow();
+    const hits = await driver.search({
+      collection: "col1",
+      model_id: 1,
+      query_vector: [1, 0],
+      top_k: 1,
+      search_mode: "vector",
+    });
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.content).toBe("content-d1");
+    driver.close();
+  });
+
+  it("rolls back the dimension cache when a new-model batch fails", async () => {
+    const driver = new SqliteVecDriver(config());
+    await expect(driver.upsertRecords([
+      record("d1", [1, 0], { model_id: 9 }),
+      record("d2", [1, 0, 0], { model_id: 9 }),
+    ])).rejects.toThrow("维度不一致");
+
+    await expect(driver.upsertRecords([
+      record("d1", [1, 0], { model_id: 9 }),
+    ])).resolves.toBeUndefined();
+    expect(driver.getDimension(9)).toBe(2);
+    driver.close();
+  });
+
   it("search 按 collection 过滤(跨 collection 不召回)", async () => {
     const driver = new SqliteVecDriver(config());
     await driver.upsertRecords([

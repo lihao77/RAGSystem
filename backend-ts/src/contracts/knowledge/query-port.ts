@@ -5,6 +5,8 @@ export interface KnowledgeCollectionSummary {
   document_count: number;
   chunk_count: number;
   total_chunks?: number;
+  embedding_dimension?: number;
+  model_name?: string;
   metadata?: Record<string, unknown>;
 }
 

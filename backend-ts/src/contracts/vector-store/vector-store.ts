@@ -87,6 +87,7 @@ export interface VectorStoreHealth {
 
 export interface IVectorStore {
   upsertRecords(records: VectorRecord[]): Promise<void>;
+  replaceDocumentVectorsByModel(collection: string, documentId: string, modelId: number, records: VectorRecord[]): Promise<void>;
   search(query: VectorStoreQuery): Promise<VectorSearchHit[]>;
   deleteDocument(collection: string, documentId: string): Promise<{ deleted_chunks: number }>;
   /** 按 document_id 删除其跨所有 collection 的向量+chunks(知识库文件删除联动清向量用);不存在返 0。 */

@@ -26,8 +26,10 @@ describe("Postgres knowledge config", () => {
     await repo.listVectorizers("t1");
     await repo.createVectorizer("t1", { vectorizer_key: "embed", provider_key: "local", provider_type: null, model_name: "hash-64", distance_metric: "cosine" });
     expect((db.query as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toEqual(["t1"]);
-    expect(String((db.query as ReturnType<typeof vi.fn>).mock.calls[1]?.[0])).toContain("knowledge_vectorizers");
-    expect((db.query as ReturnType<typeof vi.fn>).mock.calls[1]?.[1]?.[0]).toBe("t1");
+    expect(String((db.query as ReturnType<typeof vi.fn>).mock.calls[1]?.[0])).toContain("pg_advisory_xact_lock");
+    expect((db.query as ReturnType<typeof vi.fn>).mock.calls[1]?.[1]).toEqual(["t1"]);
+    expect(String((db.query as ReturnType<typeof vi.fn>).mock.calls[2]?.[0])).toContain("knowledge_vectorizers");
+    expect((db.query as ReturnType<typeof vi.fn>).mock.calls[2]?.[1]?.[0]).toBe("t1");
   });
 
   it("scopes reranker reads and creates by tenant", async () => {

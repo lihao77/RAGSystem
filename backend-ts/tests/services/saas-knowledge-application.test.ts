@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { SaaSKnowledgeApplication } from "../../src/adapters/saas/application/knowledge/saas-knowledge-application.js";
+import { KnowledgeHttpApplication } from "../../src/services/knowledge/knowledge-http-application.js";
 
-describe("SaaSKnowledgeApplication", () => {
-  it("owns the SaaS file, markdown, and vector workflow behind one port", async () => {
+describe("KnowledgeHttpApplication", () => {
+  it("owns the file, markdown, and vector workflow behind one shared port", async () => {
     const file = {
       id: "file-1", original_name: "a.md", stored_name: "a", stored_path: "object://a",
       size: 3, mime: "text/markdown", uploaded_at: "2026-01-01T00:00:00Z", md_blob_hash: null,
@@ -14,6 +14,7 @@ describe("SaaSKnowledgeApplication", () => {
       getKnowledgeFile: vi.fn().mockResolvedValue(indexed),
       listKnowledgeFiles: vi.fn().mockResolvedValue([indexed]),
       getSource: vi.fn().mockResolvedValue({ body: Buffer.from("# A"), contentType: "text/markdown" }),
+      deleteKnowledgeFile: vi.fn().mockResolvedValue(indexed),
     };
     const markdown = {
       generateMarkdownForFile: vi.fn().mockResolvedValue({ md_blob_hash: "hash-1" }),
@@ -21,11 +22,11 @@ describe("SaaSKnowledgeApplication", () => {
       updateMarkdown: vi.fn().mockResolvedValue({ md_blob_hash: "hash-2" }),
     };
     const vector = {
-      deleteKnowledgeFile: vi.fn().mockResolvedValue({ deleted_chunks: 2 }),
-      indexFile: vi.fn().mockResolvedValue({ indexed_chunks: 1 }),
+      deleteKnowledgeVectors: vi.fn().mockResolvedValue(2),
+      indexExternalFile: vi.fn().mockResolvedValue({ indexed_chunks: 1 }),
       fileStatus: vi.fn().mockResolvedValue({ files: [], vectorizers: [] }),
     };
-    const application = new SaaSKnowledgeApplication(vector as never, files as never, markdown as never);
+    const application = new KnowledgeHttpApplication(vector as never, files as never, markdown as never);
 
     await expect(application.upload([{ filename: "a.md", buffer: Buffer.from("# A"), mime: "text/markdown" }])).resolves.toEqual([indexed]);
     expect(markdown.generateMarkdownForFile).toHaveBeenCalledWith("file-1");
@@ -35,16 +36,20 @@ describe("SaaSKnowledgeApplication", () => {
     await expect(application.deleteFile("file-1")).resolves.toEqual({ deleted_chunks: 2 });
   });
 
-  it("delegates tenant reranker management while unsupported chunk operations remain explicit", async () => {
-    const vector = {
+  it("delegates tenant reranker and chunk management", async () => {
+    const knowledge = {
+      listFileChunks: vi.fn().mockResolvedValue([]),
+      updateChunk: vi.fn().mockResolvedValue({ id: "chunk-1" }),
       listRerankers: vi.fn().mockResolvedValue([]),
       addReranker: vi.fn().mockResolvedValue({ reranker_key: "bm25_local" }),
       getReranker: vi.fn().mockResolvedValue(null),
       activateReranker: vi.fn().mockResolvedValue({ active_reranker_key: "bm25_local" }),
       deleteReranker: vi.fn().mockResolvedValue({ deleted_reranker_key: "bm25_local" }),
     };
-    const application = new SaaSKnowledgeApplication(vector as never, {} as never, {} as never);
-    await expect(application.listChunks("file-1")).rejects.toMatchObject({ statusCode: 501 });
+    const files = { getKnowledgeFile: vi.fn().mockResolvedValue({ id: "file-1" }) };
+    const application = new KnowledgeHttpApplication(knowledge as never, files as never, {} as never);
+    await expect(application.listChunks("file-1")).resolves.toEqual([]);
+    await expect(application.updateChunk("file-1", "chunk-1", "updated")).resolves.toEqual({ id: "chunk-1" });
     await expect(application.listRerankers()).resolves.toEqual([]);
     await expect(application.addReranker({ mode: "lexical" })).resolves.toEqual({ reranker_key: "bm25_local" });
     await expect(application.getReranker("bm25_local")).resolves.toBeNull();

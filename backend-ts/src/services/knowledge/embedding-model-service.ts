@@ -4,7 +4,16 @@ import type {
   EmbeddingSyncStatus,
   SyncEmbeddingModelRequest,
 } from "../../contracts/knowledge/embedding-models.js";
-import type { KnowledgeBaseService } from "./knowledge-base-service.js";
+import type { VectorizerConfig } from "../../contracts/knowledge/knowledge-base.js";
+
+export interface EmbeddingModelKnowledgePort {
+  listVectorizers(): Promise<VectorizerConfig[]> | VectorizerConfig[];
+  activateVectorizer(key: string): Promise<unknown> | unknown;
+  deleteVectorizer(key: string): Promise<unknown> | unknown;
+  getModelStats(modelId: number): Promise<{ vector_count: number; storage_size_mb: number; collections: Record<string, number> }>;
+  getSyncStatus(collection: string): Promise<Array<{ model_id: number; vectorizer_key: string; total_documents: number; synced_documents: number; pending_documents: number; sync_percentage: number }>>;
+  syncModel(modelId: number, input: { collection: string; limit?: number | null }): Promise<Record<string, unknown>>;
+}
 
 export class EmbeddingModelServiceError extends Error {
   readonly statusCode: number;
@@ -17,7 +26,7 @@ export class EmbeddingModelServiceError extends Error {
 }
 
 export class EmbeddingModelService {
-  constructor(private readonly knowledgeBase: KnowledgeBaseService) {}
+  constructor(private readonly knowledgeBase: EmbeddingModelKnowledgePort) {}
 
   async listModels(): Promise<EmbeddingModelInfo[]> {
     const models: EmbeddingModelInfo[] = [];
@@ -60,7 +69,7 @@ export class EmbeddingModelService {
       }
       throw new EmbeddingModelServiceError(`模型不存在: ${modelId}`, 404);
     }
-    this.knowledgeBase.activateVectorizer(model.vectorizer_key);
+    await this.knowledgeBase.activateVectorizer(model.vectorizer_key);
     return { message: `模型 ${modelId} 已激活` };
   }
 
