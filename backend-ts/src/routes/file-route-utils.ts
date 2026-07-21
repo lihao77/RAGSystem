@@ -33,7 +33,7 @@ export interface StoredFileRef {
 
 /**
  * 收集 multipart/form-data 中的全部文件为内存 buffer(纯解析,与 store 解耦)。
- * 物理 blob 落盘由调用方各自调 store.add(IFileIndexStore session 附件 / IKnowledgeFileStore 知识库)。
+ * 物理 blob 落盘由调用方各自调 store.add(IFileIndexStore session 附件 / AsyncKnowledgeFileStore 知识库)。
  */
 export async function collectMultipartFiles(request: FastifyRequest): Promise<MultipartFile[]> {
   if (!request.isMultipart()) {

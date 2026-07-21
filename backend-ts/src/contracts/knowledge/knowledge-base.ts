@@ -135,7 +135,7 @@ export class KnowledgeBaseError extends Error {
 
 /**
  * 向量检索结果:编排层(KnowledgeApplicationService.search)输出给路由/工具的最终结果,含混合打分。
- * driver 层只产出 VectorSearchHit(仅 vector_score),编排层用 scoring.ts 补混合分后映射为本类型。
+ * AsyncKnowledgeVectorStore 只产出 AsyncVectorSearchHit(仅 vector_score),编排层用 scoring.ts 补混合分后映射为本类型。
  */
 export interface VectorSearchResult {
   id: string;

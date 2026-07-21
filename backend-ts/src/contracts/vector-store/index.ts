@@ -1,8 +1,9 @@
 /**
- * vector-store 契约层(re-export 聚合)。适配器实现这些独立于存储的端口。
- * 消费者(KnowledgeApplicationService + Local async adapters)依赖窄接口而非具体 driver。
+ * vector-store 契约层(re-export 聚合)。
+ *
+ * 编排层应优先使用 contracts/knowledge 的 Async* 端口。
+ * 本包保留 DTO、embedder、driver 注册表与错误类型;同步 IVectorStore 三端口已退场。
  */
-export * from "./vector-store.js";
 export * from "./knowledge-config.js";
 export * from "./knowledge-file-store.js";
 export * from "./embedder.js";

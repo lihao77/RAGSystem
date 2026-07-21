@@ -6,25 +6,27 @@ import { createRequire } from "node:module";
 import { load as loadVec } from "sqlite-vec";
 
 import type {
+  AsyncKnowledgeChunk,
+  AsyncKnowledgeCollectionSummary,
+  AsyncKnowledgeDocumentIndexSummary,
+  AsyncKnowledgeDocumentSummary,
+  AsyncKnowledgeVectorStore,
+  AsyncVectorRecord,
+  AsyncVectorSearchHit,
+  AsyncVectorSearchInput,
+} from "../../../contracts/knowledge/async-vector-store.js";
+import type { AsyncKnowledgeConfigStore } from "../../../contracts/knowledge/async-knowledge-config.js";
+import type { AsyncKnowledgeFileStore } from "../../../contracts/knowledge/async-knowledge-file-store.js";
+import type {
   AddKnowledgeFileInput,
-  CollectionInfo,
   CreateRerankerInput,
   CreateVectorizerInput,
-  DocumentInfo,
-  IKnowledgeConfig,
-  IKnowledgeFileStore,
-  IVectorStore,
   KnowledgeFile,
-  StoredChunk,
   StoredReranker,
   StoredVectorizer,
-  VectorRecord,
-  VectorSearchHit,
   VectorStoreDriverConfig,
-  VectorStoreHealth,
-  VectorStoreQuery,
 } from "../../../contracts/vector-store/index.js";
-import { VectorStoreError } from "../../../contracts/vector-store/index.js";
+import { VectorStoreError } from "../../../contracts/vector-store/errors.js";
 import { registerDriver } from "./registry.js";
 import { documentsTableDdl, kbFilesTableDdl, rerankersTableDdl, vecTableDdl, vecTableName, vectorizersTableDdl } from "./schema.js";
 import { sanitizeFilename } from "../../../utils/file-filter.js";
@@ -55,16 +57,15 @@ interface KnnRow {
 }
 
 /**
- * sqlite-vec driver:用 sqlite-vec 扩展(vec0 虚拟表)做真 ANN 检索。
+ * Local sqlite-vec knowledge driver: implements tenant-scoped Async knowledge ports directly.
  *
- * spike 验证(Node 24 / Windows):new DatabaseSync(path, { allowExtension: true }) + loadVec(db) 可行;
- * vec0 rowid 用 bigint;embedding JSON 字符串;KNN `WHERE embedding MATCH ? ORDER BY distance LIMIT k`。
+ * Local deployments are single-tenant per process; tenant_id is accepted for port parity and
+ * ignored for storage isolation (one knowledge.db per tenant runtime already).
  *
- * 维度策略:每个 model_id 一个 vec0 表(vec_chunks_${model_id}),维度由首次 upsert 的 embedding.length
- * 决定(config.vector_dimension=0 自动,对齐 Python client.py:96-142)。search 召回 vector_score(1 - distance);
- * keyword/hybrid/rerank 由编排层(scoring.ts)补。
+ * Dimensions: each model_id owns a vec0 table (vec_chunks_${model_id}); first upsert pins
+ * embedding.length. Search returns vector_score only; hybrid/rerank stay in the application layer.
  */
-export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowledgeFileStore {
+export class SqliteVecDriver implements AsyncKnowledgeVectorStore, AsyncKnowledgeConfigStore, AsyncKnowledgeFileStore {
   private readonly db: import("node:sqlite").DatabaseSync;
   private readonly dimensionByModel = new Map<number, number>();
   private readonly knowledgeUploadsRoot: string;
@@ -100,7 +101,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     warnLegacyVectorsDb(config.dataRoot);
   }
 
-  async upsertRecords(records: VectorRecord[]): Promise<void> {
+  async upsertChunks(records: AsyncVectorRecord[]): Promise<void> {
     if (records.length === 0) return;
     const dimensionsBefore = new Map(this.dimensionByModel);
     this.db.exec("BEGIN IMMEDIATE");
@@ -114,33 +115,35 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     }
   }
 
-  async replaceDocumentVectorsByModel(
-    collection: string,
-    documentId: string,
-    modelId: number,
-    records: VectorRecord[],
-  ): Promise<void> {
-    if (records.some((record) =>
-      record.collection !== collection
-      || record.doc_id !== documentId
-      || record.model_id !== modelId
+  async replaceChunks(input: {
+    tenant_id: string;
+    collection: string;
+    document_id: string;
+    model_id: number;
+    records: AsyncVectorRecord[];
+  }): Promise<void> {
+    if (input.records.some((record) =>
+      record.tenant_id !== input.tenant_id
+      || record.collection !== input.collection
+      || record.document_id !== input.document_id
+      || record.model_id !== input.model_id
     )) {
-      throw new VectorStoreError("replacement records must match their collection, document, and model scope", 400);
+      throw new VectorStoreError("replacement chunks must match their tenant, collection, document, and model scope", 400);
     }
     const dimensionsBefore = new Map(this.dimensionByModel);
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      if (this.dimensionByModel.has(modelId)) {
+      if (this.dimensionByModel.has(input.model_id)) {
         const ids = this.db
           .prepare("SELECT id FROM vec_documents WHERE collection = ? AND document_id = ?")
-          .all(collection, documentId) as unknown as Array<{ id: number }>;
+          .all(input.collection, input.document_id) as unknown as Array<{ id: number }>;
         if (ids.length > 0) {
           const placeholders = ids.map(() => "?").join(",");
-          this.db.prepare(`DELETE FROM ${vecTableName(modelId)} WHERE rowid IN (${placeholders})`)
+          this.db.prepare(`DELETE FROM ${vecTableName(input.model_id)} WHERE rowid IN (${placeholders})`)
             .run(...ids.map((row) => BigInt(row.id)));
         }
       }
-      this.upsertRecordsSync(records);
+      this.upsertRecordsSync(input.records);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -154,7 +157,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     for (const [modelId, dimension] of snapshot) this.dimensionByModel.set(modelId, dimension);
   }
 
-  private upsertRecordsSync(records: VectorRecord[]): void {
+  private upsertRecordsSync(records: AsyncVectorRecord[]): void {
     if (records.length === 0) {
       return;
     }
@@ -163,15 +166,14 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
       `INSERT INTO vec_documents (collection, document_id, chunk_index, content, metadata, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     );
-    // vec_documents 幂等:同 (collection, document_id, chunk_index) 复用现有行——migrate/sync 给已存在 chunk
-    // 补向量时 content 已在(UNIQUE 三列不含 model_id),避免冲突;向量写各自 model_id 的 vec_chunks 表。
+    // Shared chunk text rows are keyed by (collection, document_id, chunk_index) across models.
     const findDoc = this.db.prepare(
       `SELECT id FROM vec_documents WHERE collection = ? AND document_id = ? AND chunk_index = ?`,
     );
     const updateDoc = this.db.prepare(`UPDATE vec_documents SET content = ?, metadata = ? WHERE id = ?`);
     for (const record of records) {
       this.ensureVecTable(record.model_id, record.embedding.length);
-      const existing = findDoc.get(record.collection, record.doc_id, record.chunk_index) as
+      const existing = findDoc.get(record.collection, record.document_id, record.chunk_index) as
         | { id: number }
         | undefined;
       let rowid: number;
@@ -181,7 +183,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
       } else {
         const result = insertDoc.run(
           record.collection,
-          record.doc_id,
+          record.document_id,
           record.chunk_index,
           record.content,
           JSON.stringify(record.metadata ?? {}),
@@ -198,119 +200,52 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     }
   }
 
-  async search(query: VectorStoreQuery): Promise<VectorSearchHit[]> {
-    if (!this.dimensionByModel.has(query.model_id)) {
+  async search(input: AsyncVectorSearchInput): Promise<AsyncVectorSearchHit[]> {
+    if (!this.dimensionByModel.has(input.model_id)) {
       return [];
     }
-    const recall = Math.max(query.top_k * SEARCH_OVERFETCH, DEFAULT_RECALL);
-    const table = vecTableName(query.model_id);
+    const recall = Math.max(input.top_k * SEARCH_OVERFETCH, DEFAULT_RECALL);
+    const table = vecTableName(input.model_id);
     const knnRows = this.db
       .prepare(`SELECT rowid, distance FROM ${table} WHERE embedding MATCH ? ORDER BY distance LIMIT ${recall}`)
-      .all(JSON.stringify(query.query_vector)) as unknown as KnnRow[];
+      .all(JSON.stringify(input.query_vector)) as unknown as KnnRow[];
     if (knnRows.length === 0) {
       return [];
     }
     const rowids = knnRows.map((row) => row.rowid);
     const placeholders = rowids.map(() => "?").join(",");
     const docs = this.db
-      .prepare(`SELECT id, document_id, collection, content, metadata FROM vec_documents WHERE id IN (${placeholders})`)
-      .all(...rowids.map((id) => BigInt(id))) as unknown as VecDocRow[];
+      .prepare(
+        `SELECT id, document_id, collection, content, metadata, chunk_index
+         FROM vec_documents WHERE id IN (${placeholders})`,
+      )
+      .all(...rowids.map((id) => BigInt(id))) as unknown as Array<VecDocRow & { chunk_index: number }>;
     const docById = new Map(docs.map((doc) => [doc.id, doc]));
-    const hits: VectorSearchHit[] = [];
+    const hits: AsyncVectorSearchHit[] = [];
     for (const knn of knnRows) {
       const doc = docById.get(knn.rowid);
-      if (!doc || doc.collection !== query.collection) {
+      if (!doc || doc.collection !== input.collection) {
         continue;
       }
       hits.push({
         id: String(knn.rowid),
-        doc_id: doc.document_id,
-        document_id: doc.document_id,
+        tenant_id: input.tenant_id,
         collection: doc.collection,
+        document_id: doc.document_id,
+        model_id: input.model_id,
+        chunk_index: doc.chunk_index,
         content: doc.content,
         metadata: parseRecord(doc.metadata),
         vector_score: Math.max(0, 1 - knn.distance),
-        keyword_score: 0,
-        hybrid_score: 0,
       });
-      if (hits.length >= query.top_k) {
+      if (hits.length >= input.top_k) {
         break;
       }
     }
     return hits;
   }
 
-  async deleteDocument(collection: string, documentId: string): Promise<{ deleted_chunks: number }> {
-    const ids = this.db
-      .prepare(`SELECT id FROM vec_documents WHERE collection = ? AND document_id = ?`)
-      .all(collection, documentId) as unknown as Array<{ id: number }>;
-    if (ids.length === 0) {
-      return { deleted_chunks: 0 };
-    }
-    this.purgeVecRows(ids.map((row) => row.id));
-    this.db.prepare(`DELETE FROM vec_documents WHERE collection = ? AND document_id = ?`).run(collection, documentId);
-    return { deleted_chunks: ids.length };
-  }
-
-  /** 按 document_id 跨 collection 删全部 chunks+向量(知识库文件删除联动清向量);不存在返 0。 */
-  async deleteDocumentVectors(documentId: string): Promise<{ deleted_chunks: number }> {
-    const ids = this.db
-      .prepare(`SELECT id FROM vec_documents WHERE document_id = ?`)
-      .all(documentId) as unknown as Array<{ id: number }>;
-    if (ids.length === 0) {
-      return { deleted_chunks: 0 };
-    }
-    this.purgeVecRows(ids.map((row) => row.id));
-    this.db.prepare(`DELETE FROM vec_documents WHERE document_id = ?`).run(documentId);
-    return { deleted_chunks: ids.length };
-  }
-
-  /**
-   * 按 (collection, document_id, model_id) 只删该 model 的向量(重索引幂等);
-   * 不动其他 model 向量、不删共享 chunk 文本行(vec_documents)。model 无向量表返 0。
-   */
-  async deleteDocumentVectorsByModel(
-    collection: string,
-    documentId: string,
-    model_id: number,
-  ): Promise<{ deleted: number }> {
-    if (!this.dimensionByModel.has(model_id)) {
-      return { deleted: 0 };
-    }
-    const ids = this.db
-      .prepare(`SELECT id FROM vec_documents WHERE collection = ? AND document_id = ?`)
-      .all(collection, documentId) as unknown as Array<{ id: number }>;
-    if (ids.length === 0) {
-      return { deleted: 0 };
-    }
-    const placeholders = ids.map(() => "?").join(",");
-    const result = this.db
-      .prepare(`DELETE FROM ${vecTableName(model_id)} WHERE rowid IN (${placeholders})`)
-      .run(...ids.map((row) => BigInt(row.id)));
-    return { deleted: Number(result.changes) };
-  }
-
-  async deleteCollection(collection: string): Promise<{ deleted_chunks: number }> {
-    const ids = this.db
-      .prepare(`SELECT id FROM vec_documents WHERE collection = ?`)
-      .all(collection) as unknown as Array<{ id: number }>;
-    this.purgeVecRows(ids.map((row) => row.id));
-    this.db.prepare(`DELETE FROM vec_documents WHERE collection = ?`).run(collection);
-    return { deleted_chunks: ids.length };
-  }
-
-  async deleteByModel(model_id: number): Promise<{ deleted: number }> {
-    const table = vecTableName(model_id);
-    if (!this.tableExists(table)) {
-      return { deleted: 0 };
-    }
-    const count = this.countRowsSafe(table);
-    this.db.exec(`DROP TABLE IF EXISTS ${table}`);
-    this.dimensionByModel.delete(model_id);
-    return { deleted: count };
-  }
-
-  async listCollections(): Promise<CollectionInfo[]> {
+  async listCollections(_tenantId: string): Promise<AsyncKnowledgeCollectionSummary[]> {
     const rows = this.db
       .prepare(
         `SELECT collection, COUNT(*) AS total_chunks, COUNT(DISTINCT document_id) AS document_count
@@ -320,33 +255,42 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     const defaultDimension = this.dimensionByModel.values().next().value ?? null;
     return rows.map((row) => ({
       name: row.collection,
-      total_chunks: row.total_chunks,
       document_count: row.document_count,
+      chunk_count: row.total_chunks,
+      total_chunks: row.total_chunks,
       embedding_dimension: defaultDimension,
     }));
   }
 
-  async listDocuments(collection: string): Promise<DocumentInfo[]> {
-    const rows = this.db
-      .prepare(
-        `SELECT document_id, COUNT(*) AS chunk_count, MIN(metadata) AS metadata
-         FROM vec_documents WHERE collection = ? GROUP BY document_id ORDER BY document_id`,
-      )
-      .all(collection) as unknown as Array<{ document_id: string; chunk_count: number; metadata: string | null }>;
-    return rows.map((row) => ({
-      collection,
-      document_id: row.document_id,
-      chunk_count: row.chunk_count,
-      metadata: row.metadata ? parseRecord(row.metadata) : null,
-    }));
+  async listDocumentIndexes(_tenantId: string): Promise<AsyncKnowledgeDocumentIndexSummary[]> {
+    const documents = await this.listAllDocuments(_tenantId);
+    const vectorizers = await this.listVectorizers(_tenantId);
+    const indexes = await Promise.all(documents.flatMap((document) => vectorizers.map(async (vectorizer) => ({
+      collection: document.collection,
+      document_id: document.document_id,
+      model_id: vectorizer.model_id,
+      chunk_count: await this.countVectorsForDocument({
+        tenant_id: _tenantId,
+        collection: document.collection,
+        document_id: document.document_id,
+        model_id: vectorizer.model_id,
+      }),
+    }))));
+    return indexes.filter((index) => index.chunk_count > 0);
   }
 
-  /** 全量 chunk 行(migrate/sync 重嵌取数,driver 唯一文本源);collection 可选,不传=全部。 */
-  async listChunks(collection?: string): Promise<StoredChunk[]> {
-    const sql = collection
+  async listChunks(input: {
+    tenant_id: string;
+    collection?: string;
+    document_id?: string;
+    model_id?: number;
+  }): Promise<AsyncKnowledgeChunk[]> {
+    const sql = input.collection
       ? `SELECT id, collection, document_id, chunk_index, content, metadata FROM vec_documents WHERE collection = ? ORDER BY collection, document_id, chunk_index`
       : `SELECT id, collection, document_id, chunk_index, content, metadata FROM vec_documents ORDER BY collection, document_id, chunk_index`;
-    const rows = (collection ? this.db.prepare(sql).all(collection) : this.db.prepare(sql).all()) as unknown as Array<{
+    let rows = (input.collection
+      ? this.db.prepare(sql).all(input.collection)
+      : this.db.prepare(sql).all()) as unknown as Array<{
       id: number;
       collection: string;
       document_id: string;
@@ -354,18 +298,67 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
       content: string;
       metadata: string;
     }>;
+    if (input.document_id !== undefined) {
+      rows = rows.filter((row) => row.document_id === input.document_id);
+    }
+
+    if (input.model_id !== undefined) {
+      const indexed = await this.indexedDocumentKeys(rows, input.model_id);
+      return rows
+        .filter((row) => indexed.has(documentKey(row)))
+        .map((row) => this.mapChunk(row, input.tenant_id, input.model_id!));
+    }
+
+    const projected = await this.projectedModelsByDocument(rows);
+    return rows.map((row) => this.mapChunk(row, input.tenant_id, projected.get(documentKey(row)) ?? 0));
+  }
+
+  async getChunk(tenantId: string, chunkId: string): Promise<AsyncKnowledgeChunk | null> {
+    const asNumber = Number(chunkId);
+    if (!Number.isSafeInteger(asNumber) || String(asNumber) !== chunkId) {
+      return null;
+    }
+    const row = this.db
+      .prepare(
+        `SELECT id, collection, document_id, chunk_index, content, metadata FROM vec_documents WHERE id = ?`,
+      )
+      .get(asNumber) as unknown as {
+      id: number;
+      collection: string;
+      document_id: string;
+      chunk_index: number;
+      content: string;
+      metadata: string;
+    } | undefined;
+    // Opaque ids are the decimal string of the integer primary key — reject padded forms.
+    if (!row || String(row.id) !== chunkId) return null;
+    const [modelId] = await this.modelIdsForDocument(row.collection, row.document_id);
+    return this.mapChunk(row, tenantId, modelId ?? 0);
+  }
+
+  async listChunkVersions(tenantId: string, chunkId: string): Promise<AsyncKnowledgeChunk[]> {
+    const target = await this.getChunk(tenantId, chunkId);
+    if (!target) return [];
+    const modelIds = await this.modelIdsForDocument(target.collection, target.document_id);
+    return modelIds.map((modelId) => ({ ...target, model_id: modelId }));
+  }
+
+  async listDocuments(input: { tenant_id: string; collection: string }): Promise<AsyncKnowledgeDocumentSummary[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT document_id, COUNT(*) AS chunk_count, MIN(metadata) AS metadata
+         FROM vec_documents WHERE collection = ? GROUP BY document_id ORDER BY document_id`,
+      )
+      .all(input.collection) as unknown as Array<{ document_id: string; chunk_count: number; metadata: string | null }>;
     return rows.map((row) => ({
-      id: row.id,
-      collection: row.collection,
+      collection: input.collection,
       document_id: row.document_id,
-      chunk_index: row.chunk_index,
-      content: row.content,
-      metadata: parseRecord(row.metadata),
+      chunk_count: row.chunk_count,
+      metadata: row.metadata ? parseRecord(row.metadata) : null,
     }));
   }
 
-  /** 跨 collection 的 document 聚合(fileStatus 把 file 与已索引位置 join)。 */
-  async listAllDocuments(): Promise<DocumentInfo[]> {
+  async listAllDocuments(_tenantId: string): Promise<AsyncKnowledgeDocumentSummary[]> {
     const rows = this.db
       .prepare(
         `SELECT collection, document_id, COUNT(*) AS chunk_count, MIN(metadata) AS metadata
@@ -380,64 +373,226 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     }));
   }
 
-  async countVectorsForDocument(collection: string, documentId: string, model_id: number): Promise<number> {
-    const table = vecTableName(model_id);
-    if (!this.tableExists(table)) {
-      return 0;
-    }
+  async countVectors(input: { tenant_id: string; collection: string; model_id: number }): Promise<number> {
+    const table = vecTableName(input.model_id);
+    if (!this.tableExists(table)) return 0;
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM ${table} v JOIN vec_documents d ON d.id = v.rowid WHERE d.collection = ?`)
+      .get(input.collection) as unknown as { n: number } | undefined;
+    return row?.n ?? 0;
+  }
+
+  async countVectorsByModel(input: { tenant_id: string; model_id: number }): Promise<Array<{ collection: string; count: number }>> {
+    const table = vecTableName(input.model_id);
+    if (!this.tableExists(table)) return [];
+    return this.db
+      .prepare(`SELECT d.collection, COUNT(*) AS count FROM ${table} v JOIN vec_documents d ON d.id = v.rowid GROUP BY d.collection`)
+      .all() as unknown as Array<{ collection: string; count: number }>;
+  }
+
+  async countVectorsForDocument(input: {
+    tenant_id: string;
+    collection: string;
+    document_id: string;
+    model_id: number;
+  }): Promise<number> {
+    const table = vecTableName(input.model_id);
+    if (!this.tableExists(table)) return 0;
     const row = this.db
       .prepare(
         `SELECT COUNT(*) AS n FROM ${table} v JOIN vec_documents d ON d.id = v.rowid WHERE d.collection = ? AND d.document_id = ?`,
       )
-      .get(collection, documentId) as unknown as { n: number } | undefined;
+      .get(input.collection, input.document_id) as unknown as { n: number } | undefined;
     return row?.n ?? 0;
   }
 
-  async countVectors(collection: string, model_id: number): Promise<number> {
-    const table = vecTableName(model_id);
-    if (!this.tableExists(table)) {
-      return 0;
-    }
-    const row = this.db
-      .prepare(`SELECT COUNT(*) AS n FROM ${table} v JOIN vec_documents d ON d.id = v.rowid WHERE d.collection = ?`)
-      .get(collection) as unknown as { n: number } | undefined;
-    return row?.n ?? 0;
-  }
-
-  async countVectorsByModel(model_id: number): Promise<Array<{ collection: string; count: number }>> {
-    const table = vecTableName(model_id);
-    if (!this.tableExists(table)) {
-      return [];
-    }
-    const rows = this.db
-      .prepare(`SELECT d.collection, COUNT(*) AS count FROM ${table} v JOIN vec_documents d ON d.id = v.rowid GROUP BY d.collection`)
-      .all() as unknown as Array<{ collection: string; count: number }>;
-    return rows;
-  }
-
-  async countChunks(collection: string): Promise<number> {
+  async countChunks(input: { tenant_id: string; collection: string }): Promise<number> {
     const row = this.db
       .prepare(`SELECT COUNT(*) AS n FROM vec_documents WHERE collection = ?`)
-      .get(collection) as unknown as { n: number } | undefined;
+      .get(input.collection) as unknown as { n: number } | undefined;
     return row?.n ?? 0;
   }
 
-  getDimension(model_id: number): number | null {
-    return this.dimensionByModel.get(model_id) ?? null;
+  async getDimension(input: { tenant_id: string; model_id: number }): Promise<number | null> {
+    return this.dimensionByModel.get(input.model_id) ?? null;
   }
 
-  async health(): Promise<VectorStoreHealth> {
+  async health(_tenantId: string): Promise<{ status: string; runtime: string; ann: boolean; collections_count: number }> {
     const row = this.db
       .prepare(`SELECT COUNT(DISTINCT collection) AS n FROM vec_documents`)
       .get() as unknown as { n: number } | undefined;
     return { status: "healthy", runtime: "sqlite_vec", ann: true, collections_count: row?.n ?? 0 };
   }
 
+  async deleteChunks(input: {
+    tenant_id: string;
+    collection?: string;
+    document_id?: string;
+    model_id?: number;
+  }): Promise<number> {
+    if (input.model_id !== undefined) {
+      if (input.document_id !== undefined) {
+        const collections = input.collection === undefined
+          ? unique((await this.listAllDocuments(input.tenant_id))
+            .filter((document) => document.document_id === input.document_id)
+            .map((document) => document.collection))
+          : [input.collection];
+        let deleted = 0;
+        for (const collection of collections) {
+          deleted += this.deleteDocumentVectorsByModelSync(collection, input.document_id, input.model_id);
+        }
+        return deleted;
+      }
+      if (input.collection !== undefined) {
+        const documents = await this.listDocuments({ tenant_id: input.tenant_id, collection: input.collection });
+        let deleted = 0;
+        for (const document of documents) {
+          deleted += this.deleteDocumentVectorsByModelSync(input.collection, document.document_id, input.model_id);
+        }
+        return deleted;
+      }
+      return this.deleteByModelSync(input.model_id);
+    }
+
+    if (input.document_id !== undefined) {
+      if (input.collection === undefined) {
+        return this.deleteDocumentVectorsSync(input.document_id);
+      }
+      return this.deleteDocumentSync(input.collection, input.document_id);
+    }
+    if (input.collection !== undefined) {
+      return this.deleteCollectionSync(input.collection);
+    }
+
+    const collections = await this.listCollections(input.tenant_id);
+    let deleted = 0;
+    for (const collection of collections) {
+      deleted += this.deleteCollectionSync(collection.name);
+    }
+    return deleted;
+  }
+
+  async deleteCollection(input: { tenant_id: string; collection: string }): Promise<number> {
+    return this.deleteCollectionSync(input.collection);
+  }
+
+  private deleteDocumentSync(collection: string, documentId: string): number {
+    const ids = this.db
+      .prepare(`SELECT id FROM vec_documents WHERE collection = ? AND document_id = ?`)
+      .all(collection, documentId) as unknown as Array<{ id: number }>;
+    if (ids.length === 0) return 0;
+    this.purgeVecRows(ids.map((row) => row.id));
+    this.db.prepare(`DELETE FROM vec_documents WHERE collection = ? AND document_id = ?`).run(collection, documentId);
+    return ids.length;
+  }
+
+  private deleteDocumentVectorsSync(documentId: string): number {
+    const ids = this.db
+      .prepare(`SELECT id FROM vec_documents WHERE document_id = ?`)
+      .all(documentId) as unknown as Array<{ id: number }>;
+    if (ids.length === 0) return 0;
+    this.purgeVecRows(ids.map((row) => row.id));
+    this.db.prepare(`DELETE FROM vec_documents WHERE document_id = ?`).run(documentId);
+    return ids.length;
+  }
+
+  private deleteDocumentVectorsByModelSync(collection: string, documentId: string, modelId: number): number {
+    if (!this.dimensionByModel.has(modelId)) return 0;
+    const ids = this.db
+      .prepare(`SELECT id FROM vec_documents WHERE collection = ? AND document_id = ?`)
+      .all(collection, documentId) as unknown as Array<{ id: number }>;
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => "?").join(",");
+    const result = this.db
+      .prepare(`DELETE FROM ${vecTableName(modelId)} WHERE rowid IN (${placeholders})`)
+      .run(...ids.map((row) => BigInt(row.id)));
+    return Number(result.changes);
+  }
+
+  private deleteCollectionSync(collection: string): number {
+    const ids = this.db
+      .prepare(`SELECT id FROM vec_documents WHERE collection = ?`)
+      .all(collection) as unknown as Array<{ id: number }>;
+    this.purgeVecRows(ids.map((row) => row.id));
+    this.db.prepare(`DELETE FROM vec_documents WHERE collection = ?`).run(collection);
+    return ids.length;
+  }
+
+  private deleteByModelSync(modelId: number): number {
+    const table = vecTableName(modelId);
+    if (!this.tableExists(table)) return 0;
+    const count = this.countRowsSafe(table);
+    this.db.exec(`DROP TABLE IF EXISTS ${table}`);
+    this.dimensionByModel.delete(modelId);
+    return count;
+  }
+
+  private async indexedDocumentKeys(
+    chunks: Array<{ collection: string; document_id: string }>,
+    modelId: number,
+  ): Promise<Set<string>> {
+    const documents = uniqueDocuments(chunks);
+    const counts = await Promise.all(documents.map((document) =>
+      this.countVectorsForDocument({
+        tenant_id: "",
+        collection: document.collection,
+        document_id: document.document_id,
+        model_id: modelId,
+      })
+    ));
+    return new Set(documents.filter((_document, index) => (counts[index] ?? 0) > 0).map(documentKey));
+  }
+
+  private async projectedModelsByDocument(
+    chunks: Array<{ collection: string; document_id: string }>,
+  ): Promise<Map<string, number>> {
+    const documents = uniqueDocuments(chunks);
+    const models = await Promise.all(documents.map(async (document) => {
+      const [modelId] = await this.modelIdsForDocument(document.collection, document.document_id);
+      return modelId;
+    }));
+    return new Map(documents.flatMap((document, index) => {
+      const modelId = models[index];
+      return modelId === undefined ? [] : [[documentKey(document), modelId]];
+    }));
+  }
+
+  private async modelIdsForDocument(collection: string, documentId: string): Promise<number[]> {
+    const vectorizers = await this.listVectorizers("");
+    const counts = await Promise.all(vectorizers.map((vectorizer) =>
+      this.countVectorsForDocument({
+        tenant_id: "",
+        collection,
+        document_id: documentId,
+        model_id: vectorizer.model_id,
+      })
+    ));
+    return vectorizers
+      .filter((_vectorizer, index) => (counts[index] ?? 0) > 0)
+      .map((vectorizer) => vectorizer.model_id);
+  }
+
+  private mapChunk(
+    chunk: { id: number; collection: string; document_id: string; chunk_index: number; content: string; metadata: string | Record<string, unknown> },
+    tenantId: string,
+    modelId: number,
+  ): AsyncKnowledgeChunk {
+    return {
+      id: String(chunk.id),
+      tenant_id: tenantId,
+      collection: chunk.collection,
+      document_id: chunk.document_id,
+      model_id: modelId,
+      chunk_index: chunk.chunk_index,
+      content: chunk.content,
+      metadata: typeof chunk.metadata === "string" ? parseRecord(chunk.metadata) : chunk.metadata,
+    };
+  }
+
   close(): void {
     try {
       this.db.close();
     } finally {
-      // :memory: 临时库的 blob 目录随 close 清理(测试隔离);文件库 blob 持久保留。
       if (this.dbIsMemory && this.knowledgeUploadsRoot.startsWith(os.tmpdir())) {
         fs.rmSync(this.knowledgeUploadsRoot, { recursive: true, force: true });
         fs.rmSync(this.knowledgeMarkdownRoot, { recursive: true, force: true });
@@ -445,9 +600,9 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     }
   }
 
-  // ====== IKnowledgeConfig 实现(vectorizer/reranker 配置面)======
+  // ====== AsyncKnowledgeConfigStore ======
 
-  listVectorizers(): StoredVectorizer[] {
+  async listVectorizers(_tenantId: string): Promise<StoredVectorizer[]> {
     const rows = this.db
       .prepare(
         `SELECT model_id, vectorizer_key, provider_key, provider_type, model_name, distance_metric, created_at, vector_dimension, is_active
@@ -457,7 +612,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     return rows.map(rowToVectorizer);
   }
 
-  getVectorizerByKey(key: string): StoredVectorizer | null {
+  async getVectorizerByKey(_tenantId: string, key: string): Promise<StoredVectorizer | null> {
     const row = this.db
       .prepare(
         `SELECT model_id, vectorizer_key, provider_key, provider_type, model_name, distance_metric, created_at, vector_dimension, is_active
@@ -467,17 +622,8 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     return row ? rowToVectorizer(row) : null;
   }
 
-  getVectorizerByModelId(modelId: number): StoredVectorizer | null {
-    const row = this.db
-      .prepare(
-        `SELECT model_id, vectorizer_key, provider_key, provider_type, model_name, distance_metric, created_at, vector_dimension, is_active
-         FROM vectorizers WHERE model_id = ?`,
-      )
-      .get(modelId) as unknown as VectorizerRow | undefined;
-    return row ? rowToVectorizer(row) : null;
-  }
 
-  createVectorizer(input: CreateVectorizerInput): StoredVectorizer {
+  async createVectorizer(_tenantId: string, input: CreateVectorizerInput): Promise<StoredVectorizer> {
     const createdAt = new Date().toISOString();
     // 空表 → 自动激活;否则按现有激活态(partial UNIQUE 保证单例)。
     const isActive = this.countVectorizers() === 0 ? 1 : 0;
@@ -508,20 +654,29 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     };
   }
 
-  deleteVectorizer(key: string): { next_active_key: string | null } {
-    const existing = this.getVectorizerByKey(key);
+  async setVectorDimension(_tenantId: string, key: string, dimension: number): Promise<void> {
+    if (!Number.isSafeInteger(dimension) || dimension <= 0) {
+      throw new VectorStoreError("vector dimension must be a positive integer", 400);
+    }
+    const existing = await this.getVectorizerByKey(_tenantId, key);
+    if (!existing) {
+      throw new VectorStoreError(`vectorizer not found: ${key}`, 404);
+    }
+    if (existing.vector_dimension !== null && existing.vector_dimension !== dimension) {
+      throw new VectorStoreError(`vectorizer dimension mismatch: ${key}`, 400);
+    }
+    if (existing.vector_dimension === dimension) return;
+    this.db.prepare(`UPDATE vectorizers SET vector_dimension = ? WHERE vectorizer_key = ?`).run(dimension, key);
+  }
+
+  async deleteVectorizer(_tenantId: string, key: string): Promise<{ next_active_key: string | null }> {
+    const existing = await this.getVectorizerByKey(_tenantId, key);
     if (!existing) {
       throw new VectorStoreError(`vectorizer 不存在: ${key}`, 404);
     }
-    const modelId = existing.model_id;
     this.db.exec("BEGIN");
     try {
-      // 1. 清向量(同 model_id 的 vec_chunks_${model_id} + dimension 缓存)
-      this.db.exec(`DROP TABLE IF EXISTS ${vecTableName(modelId)}`);
-      this.dimensionByModel.delete(modelId);
-      // 2. 删 vectorizers 行
-      this.db.prepare(`DELETE FROM vectorizers WHERE model_id = ?`).run(modelId);
-      // 3. 清旧 active 标记 + 回退到 model_id 最小的剩余项
+      this.db.prepare(`DELETE FROM vectorizers WHERE model_id = ?`).run(existing.model_id);
       this.db.exec(`UPDATE vectorizers SET is_active = 0`);
       const next = this.db
         .prepare(`SELECT vectorizer_key FROM vectorizers ORDER BY model_id ASC LIMIT 1`)
@@ -539,8 +694,8 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     }
   }
 
-  activateVectorizer(key: string): void {
-    const existing = this.getVectorizerByKey(key);
+  async activateVectorizer(_tenantId: string, key: string): Promise<void> {
+    const existing = await this.getVectorizerByKey(_tenantId, key);
     if (!existing) {
       throw new VectorStoreError(`vectorizer 不存在: ${key}`, 404);
     }
@@ -556,7 +711,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     }
   }
 
-  listRerankers(): StoredReranker[] {
+  async listRerankers(_tenantId: string): Promise<StoredReranker[]> {
     const rows = this.db
       .prepare(
         `SELECT reranker_key, mode, provider_key, provider_type, model_name, api_endpoint, api_key, created_at, is_active
@@ -566,7 +721,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     return rows.map(rowToReranker);
   }
 
-  getReranker(key: string): StoredReranker | null {
+  async getReranker(_tenantId: string, key: string): Promise<StoredReranker | null> {
     const row = this.db
       .prepare(
         `SELECT reranker_key, mode, provider_key, provider_type, model_name, api_endpoint, api_key, created_at, is_active
@@ -576,7 +731,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     return row ? rowToReranker(row) : null;
   }
 
-  createReranker(input: CreateRerankerInput): StoredReranker {
+  async createReranker(_tenantId: string, input: CreateRerankerInput): Promise<StoredReranker> {
     const createdAt = new Date().toISOString();
     const isActive = this.countRerankers() === 0 ? 1 : 0;
     this.db
@@ -598,8 +753,8 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     return { ...input, created_at: createdAt, is_active: isActive === 1 };
   }
 
-  deleteReranker(key: string): { next_active_key: string | null } {
-    const existing = this.getReranker(key);
+  async deleteReranker(_tenantId: string, key: string): Promise<{ next_active_key: string | null }> {
+    const existing = await this.getReranker(_tenantId, key);
     if (!existing) {
       throw new VectorStoreError(`reranker 不存在: ${key}`, 404);
     }
@@ -623,8 +778,8 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     }
   }
 
-  activateReranker(key: string): void {
-    const existing = this.getReranker(key);
+  async activateReranker(_tenantId: string, key: string): Promise<void> {
+    const existing = await this.getReranker(_tenantId, key);
     if (!existing) {
       throw new VectorStoreError(`reranker 不存在: ${key}`, 404);
     }
@@ -731,12 +886,12 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     return row?.n ?? 0;
   }
 
-  // ====== IKnowledgeFileStore 实现(知识库上传源文件:元数据 + 物理 blob 自包含)======
+  // ====== AsyncKnowledgeFileStore ======
   getKnowledgeUploadsRoot(): string {
     return this.knowledgeUploadsRoot;
   }
 
-  listKnowledgeFiles(): KnowledgeFile[] {
+  async listKnowledgeFiles(): Promise<KnowledgeFile[]> {
     const rows = this.db
       .prepare(
         `SELECT id, original_name, stored_name, stored_path, size, mime, uploaded_at, md_blob_hash FROM kb_files ORDER BY uploaded_at DESC`,
@@ -745,7 +900,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     return rows.map(rowToKnowledgeFile);
   }
 
-  getKnowledgeFile(fileId: string): KnowledgeFile | null {
+  async getKnowledgeFile(fileId: string): Promise<KnowledgeFile | null> {
     const row = this.db
       .prepare(
         `SELECT id, original_name, stored_name, stored_path, size, mime, uploaded_at, md_blob_hash FROM kb_files WHERE id = ?`,
@@ -754,7 +909,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     return row ? rowToKnowledgeFile(row) : null;
   }
 
-  addKnowledgeFile(input: AddKnowledgeFileInput): KnowledgeFile {
+  async addKnowledgeFile(input: AddKnowledgeFileInput): Promise<KnowledgeFile> {
     const { originalName, buffer, mime } = input;
     const storedName = `${randomBytes(8).toString("hex")}_${sanitizeFilename(originalName)}`;
     const storedPath = path.join(this.knowledgeUploadsRoot, storedName);
@@ -775,7 +930,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
       fs.rmSync(storedPath, { force: true });
       throw err;
     }
-    const record = this.getKnowledgeFile(fileId);
+    const record = await this.getKnowledgeFile(fileId);
     if (!record) {
       // INSERT 成功却读不回(防御):删物理 + DB 行,避免孤儿
       fs.rmSync(storedPath, { force: true });
@@ -785,8 +940,8 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     return record;
   }
 
-  deleteKnowledgeFile(fileId: string): KnowledgeFile | null {
-    const record = this.getKnowledgeFile(fileId);
+  async deleteKnowledgeFile(fileId: string): Promise<KnowledgeFile | null> {
+    const record = await this.getKnowledgeFile(fileId);
     if (!record) {
       return null;
     }
@@ -796,7 +951,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     return record;
   }
 
-  putKnowledgeMarkdown(fileId: string, markdown: string): { md_blob_hash: string } {
+  async putKnowledgeMarkdown(fileId: string, markdown: string): Promise<{ md_blob_hash: string }> {
     const mdBlobHash = createHash("sha256").update(markdown, "utf8").digest("hex");
     const directory = path.join(this.knowledgeMarkdownRoot, mdBlobHash.slice(0, 2));
     const target = path.join(directory, mdBlobHash);
@@ -807,9 +962,34 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     return { md_blob_hash: mdBlobHash };
   }
 
-  readKnowledgeMarkdown(mdBlobHash: string): string {
+  async readKnowledgeMarkdown(mdBlobHash: string): Promise<string> {
     if (!/^[a-f0-9]{64}$/.test(mdBlobHash)) throw new Error("无效的 Markdown blob hash");
     return fs.readFileSync(path.join(this.knowledgeMarkdownRoot, mdBlobHash.slice(0, 2), mdBlobHash), "utf8");
+  }
+
+
+  async getSource(fileId: string): Promise<{ body: Uint8Array; contentType: string | null } | null> {
+    const file = await this.getKnowledgeFile(fileId);
+    if (!file) return null;
+
+    const uploadsRoot = path.resolve(this.knowledgeUploadsRoot);
+    const storedPath = path.resolve(file.stored_path);
+    if (!isPathWithin(storedPath, uploadsRoot)) return null;
+
+    try {
+      const realRoot = fs.realpathSync(uploadsRoot);
+      const realStoredPath = fs.realpathSync(storedPath);
+      if (!isPathWithin(realStoredPath, realRoot)) return null;
+      const stat = fs.statSync(realStoredPath);
+      if (!stat.isFile()) return null;
+      return {
+        body: fs.readFileSync(realStoredPath),
+        contentType: file.mime || null,
+      };
+    } catch (error) {
+      if (isMissingOrInvalidPath(error)) return null;
+      throw error;
+    }
   }
 
   private ensureKnowledgeFileMarkdownColumn(): void {
@@ -902,6 +1082,31 @@ function rowToKnowledgeFile(row: KbFileRow): KnowledgeFile {
     uploaded_at: row.uploaded_at,
     md_blob_hash: row.md_blob_hash,
   };
+}
+
+
+function documentKey(document: { collection: string; document_id: string }): string {
+  return `${document.collection}` + String.fromCharCode(0) + `${document.document_id}`;
+}
+
+function uniqueDocuments(chunks: Array<{ collection: string; document_id: string }>): Array<{ collection: string; document_id: string }> {
+  const documents = new Map<string, { collection: string; document_id: string }>();
+  for (const chunk of chunks) documents.set(documentKey(chunk), { collection: chunk.collection, document_id: chunk.document_id });
+  return [...documents.values()];
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function isPathWithin(candidate: string, root: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function isMissingOrInvalidPath(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP";
 }
 
 // 模块加载时自注册 sqlite-vec driver(单向依赖 driver→registry,避免循环)。

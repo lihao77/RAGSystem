@@ -4,7 +4,7 @@
  * 设计:
  * - vec_documents:存 chunk 文本/元数据(共享,跨 model_id),UNIQUE(collection, document_id, chunk_index)
  * - vec_chunks_${model_id}:vec0 虚拟表(per model_id,因 vec0 维度固定),rowid 关联 vec_documents.id
- * - vectorizers/rerankers:配置面下沉(IKnowledgeConfig),is_active 列替 vector_settings KV + 内存副本
+ * - vectorizers/rerankers:配置面下沉(AsyncKnowledgeConfigStore),is_active 列替 vector_settings KV + 内存副本
  *
  * 本 driver 用 vec_ 前缀表名，与主库业务表隔离。
  */

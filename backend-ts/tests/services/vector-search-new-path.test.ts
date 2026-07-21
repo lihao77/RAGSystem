@@ -1,60 +1,34 @@
 import { describe, expect, it } from "vitest";
 
 import type {
-  IKnowledgeConfig,
-  IKnowledgeFileStore,
-  IVectorStore,
-  KnowledgeFile,
+  AsyncKnowledgeConfigStore,
+} from "../../src/contracts/knowledge/async-knowledge-config.js";
+import type {
+  AsyncKnowledgeVectorStore,
+  AsyncVectorSearchHit,
+} from "../../src/contracts/knowledge/async-vector-store.js";
+import type {
   StoredReranker,
-  VectorSearchHit,
+  StoredVectorizer,
 } from "../../src/contracts/vector-store/index.js";
-import { LocalAsyncKnowledgeConfigAdapter } from "../../src/adapters/local/knowledge/local-async-knowledge-config-adapter.js";
-import { LocalAsyncKnowledgeVectorStoreAdapter } from "../../src/adapters/local/knowledge/local-async-knowledge-vector-store-adapter.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 import { KnowledgeApplicationService } from "../../src/services/knowledge/knowledge-application-service.js";
 
 /**
- * Minimal IVectorStore & IKnowledgeConfig stub: search returns preset hits, config stays in-memory.
+ * Minimal Async knowledge ports stub: search returns preset hits, config stays in-memory.
  * Focuses on application orchestration (keyword/hybrid + rerank) — driver config is covered elsewhere.
  */
-function makeFakeDriver(
-  hits: VectorSearchHit[],
+function makeFakePorts(
+  hits: AsyncVectorSearchHit[],
   dimension: number | null = null,
   rerankers: StoredReranker[] = [],
-): IVectorStore & IKnowledgeConfig & IKnowledgeFileStore {
-  const vectorizers: Array<ReturnType<IKnowledgeConfig["createVectorizer"]>> = [];
-  return {
-    upsertRecords: async () => {},
-    replaceDocumentVectorsByModel: async () => {},
-    search: async () => hits,
-    deleteDocument: async () => ({ deleted_chunks: 0 }),
-    deleteDocumentVectors: async () => ({ deleted_chunks: 0 }),
-    deleteDocumentVectorsByModel: async () => ({ deleted: 0 }),
-    deleteCollection: async () => ({ deleted_chunks: 0 }),
-    deleteByModel: async () => ({ deleted: 0 }),
-    listCollections: async () => [],
-    listDocuments: async () => [],
-    countVectors: async () => 0,
-    countVectorsByModel: async () => [],
-    countVectorsForDocument: async () => 0,
-    countChunks: async () => 0,
-    listChunks: async () => hits.map((hit, index) => ({
-      id: Number(hit.id) || index + 1,
-      collection: hit.collection,
-      document_id: hit.document_id,
-      chunk_index: index,
-      content: hit.content,
-      metadata: hit.metadata,
-    })),
-    listAllDocuments: async () => [],
-    getDimension: () => dimension,
-    health: async () => ({ status: "healthy", runtime: "mock", ann: true, collections_count: 0 }),
-    close: () => {},
-    listVectorizers: () => vectorizers,
-    getVectorizerByKey: (key) => vectorizers.find((v) => v.vectorizer_key === key) ?? null,
-    getVectorizerByModelId: (modelId) => vectorizers.find((v) => v.model_id === modelId) ?? null,
-    createVectorizer: (input) => {
-      const stored = {
+): { config: AsyncKnowledgeConfigStore; vectors: AsyncKnowledgeVectorStore } {
+  const vectorizers: StoredVectorizer[] = [];
+  const config: AsyncKnowledgeConfigStore = {
+    listVectorizers: async () => vectorizers,
+    getVectorizerByKey: async (_tenantId, key) => vectorizers.find((v) => v.vectorizer_key === key) ?? null,
+    createVectorizer: async (_tenantId, input) => {
+      const stored: StoredVectorizer = {
         model_id: vectorizers.length + 1,
         vectorizer_key: input.vectorizer_key,
         provider_key: input.provider_key,
@@ -68,19 +42,23 @@ function makeFakeDriver(
       vectorizers.push(stored);
       return stored;
     },
-    deleteVectorizer: (key) => {
+    setVectorDimension: async (_tenantId, key, dim) => {
+      const target = vectorizers.find((v) => v.vectorizer_key === key);
+      if (target) target.vector_dimension = dim;
+    },
+    deleteVectorizer: async (_tenantId, key) => {
       const idx = vectorizers.findIndex((v) => v.vectorizer_key === key);
       if (idx >= 0) vectorizers.splice(idx, 1);
       const next = vectorizers[0];
       if (next) next.is_active = true;
       return { next_active_key: next?.vectorizer_key ?? null };
     },
-    activateVectorizer: (key) => {
+    activateVectorizer: async (_tenantId, key) => {
       for (const v of vectorizers) v.is_active = v.vectorizer_key === key;
     },
-    listRerankers: () => rerankers,
-    getReranker: (key) => rerankers.find((reranker) => reranker.reranker_key === key) ?? null,
-    createReranker: (input) => ({
+    listRerankers: async () => rerankers,
+    getReranker: async (_tenantId, key) => rerankers.find((reranker) => reranker.reranker_key === key) ?? null,
+    createReranker: async (_tenantId, input) => ({
       reranker_key: input.reranker_key,
       mode: input.mode,
       provider_key: input.provider_key,
@@ -91,29 +69,45 @@ function makeFakeDriver(
       created_at: new Date().toISOString(),
       is_active: true,
     }),
-    deleteReranker: () => ({ next_active_key: null }),
-    activateReranker: () => {},
-    listKnowledgeFiles: () => [],
-    getKnowledgeFile: () => null,
-    addKnowledgeFile: (input) => ({
-      id: "kf1",
-      original_name: input.originalName,
-      stored_name: "stored",
-      stored_path: "/tmp/kb-test/stored",
-      size: input.buffer.byteLength,
-      mime: input.mime,
-      uploaded_at: new Date().toISOString(),
-      md_blob_hash: null,
-    }) satisfies KnowledgeFile,
-    deleteKnowledgeFile: () => null,
-    getKnowledgeUploadsRoot: () => "/tmp/kb-test",
-    putKnowledgeMarkdown: () => ({ md_blob_hash: "0".repeat(64) }),
-    readKnowledgeMarkdown: () => "",
-  } satisfies IVectorStore & IKnowledgeConfig & IKnowledgeFileStore;
+    deleteReranker: async () => ({ next_active_key: null }),
+    activateReranker: async () => {},
+  };
+
+  const vectors: AsyncKnowledgeVectorStore = {
+    upsertChunks: async () => {},
+    replaceChunks: async () => {},
+    search: async (input) => hits.map((hit) => ({ ...hit, tenant_id: input.tenant_id, model_id: input.model_id })),
+    listCollections: async () => [],
+    listDocumentIndexes: async () => [],
+    listChunks: async () => hits.map((hit, index) => ({
+      id: hit.id,
+      tenant_id: hit.tenant_id,
+      collection: hit.collection,
+      document_id: hit.document_id,
+      model_id: hit.model_id,
+      chunk_index: hit.chunk_index ?? index,
+      content: hit.content,
+      metadata: hit.metadata,
+    })),
+    getChunk: async () => null,
+    listChunkVersions: async () => [],
+    listDocuments: async () => [],
+    listAllDocuments: async () => [],
+    countVectors: async () => 0,
+    countVectorsByModel: async () => [],
+    countVectorsForDocument: async () => 0,
+    countChunks: async () => 0,
+    getDimension: async () => dimension,
+    health: async () => ({ status: "healthy", runtime: "mock", ann: true, collections_count: 0 }),
+    deleteChunks: async () => 0,
+    deleteCollection: async () => 0,
+  };
+
+  return { config, vectors };
 }
 
 function makeService(
-  driver: IVectorStore & IKnowledgeConfig,
+  ports: { config: AsyncKnowledgeConfigStore; vectors: AsyncKnowledgeVectorStore },
   options?: {
     embedderFactory?: ConstructorParameters<typeof KnowledgeApplicationService>[4];
     rerankerFactory?: ConstructorParameters<typeof KnowledgeApplicationService>[5];
@@ -122,11 +116,31 @@ function makeService(
   return new KnowledgeApplicationService(
     "tnt_local",
     new ModelAdapterService({ providersConfigPath: "" }),
-    new LocalAsyncKnowledgeConfigAdapter(driver),
-    new LocalAsyncKnowledgeVectorStoreAdapter(driver, driver),
+    ports.config,
+    ports.vectors,
     options?.embedderFactory,
     options?.rerankerFactory,
   );
+}
+
+function hit(
+  id: string,
+  documentId: string,
+  content: string,
+  vectorScore: number,
+  metadata: Record<string, unknown> = {},
+): AsyncVectorSearchHit {
+  return {
+    id,
+    tenant_id: "tnt_local",
+    collection: "kb",
+    document_id: documentId,
+    model_id: 1,
+    chunk_index: Number(id) - 1,
+    content,
+    metadata,
+    vector_score: vectorScore,
+  };
 }
 
 describe("KnowledgeApplicationService search path (async ports + scoring)", () => {
@@ -143,7 +157,7 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
   });
 
   it("远端 embedder 失败时显式失败而不是写入 hash 向量", async () => {
-    const service = makeService(makeFakeDriver([]), {
+    const service = makeService(makeFakePorts([]), {
       embedderFactory: () => ({
         key: "remote:test/model",
         semantic: true,
@@ -156,21 +170,11 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
   });
 
   it("driver 召回后补 keyword/hybrid 并按 hybrid 排序", async () => {
-    const hits: VectorSearchHit[] = [
-      {
-        id: "1", doc_id: "d1", document_id: "d1", collection: "kb",
-        content: "TypeScript RAG retrieval backend supports knowledge base search",
-        metadata: { source_file: "rag.md" },
-        vector_score: 0.8, keyword_score: 0, hybrid_score: 0,
-      },
-      {
-        id: "2", doc_id: "d2", document_id: "d2", collection: "kb",
-        content: "unrelated cooking recipe with salt and pepper",
-        metadata: {},
-        vector_score: 0.3, keyword_score: 0, hybrid_score: 0,
-      },
+    const hits = [
+      hit("1", "d1", "TypeScript RAG retrieval backend supports knowledge base search", 0.8, { source_file: "rag.md" }),
+      hit("2", "d2", "unrelated cooking recipe with salt and pepper", 0.3),
     ];
-    const service = makeService(makeFakeDriver(hits));
+    const service = makeService(makeFakePorts(hits));
     const result = await service.search({
       collection_name: "kb", query: "RAG retrieval backend", top_k: 5, search_mode: "hybrid",
     });
@@ -183,21 +187,11 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
   });
 
   it("rerank 开启时按 keyword 重排 hybrid 结果", async () => {
-    const hits: VectorSearchHit[] = [
-      {
-        id: "1", doc_id: "d1", document_id: "d1", collection: "kb",
-        content: "alpha vector space model baseline",
-        metadata: {},
-        vector_score: 0.9, keyword_score: 0, hybrid_score: 0,
-      },
-      {
-        id: "2", doc_id: "d2", document_id: "d2", collection: "kb",
-        content: "rag retrieval keyword overlap match",
-        metadata: {},
-        vector_score: 0.4, keyword_score: 0, hybrid_score: 0,
-      },
+    const hits = [
+      hit("1", "d1", "alpha vector space model baseline", 0.9),
+      hit("2", "d2", "rag retrieval keyword overlap match", 0.4),
     ];
-    const service = makeService(makeFakeDriver(hits, null, [activeReranker("lexical")]));
+    const service = makeService(makeFakePorts(hits, null, [activeReranker("lexical")]));
     const result = await service.search({
       collection_name: "kb", query: "keyword overlap", top_k: 5, search_mode: "hybrid", rerank: true,
     });
@@ -206,13 +200,13 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
   });
 
   it("vectorStore 无命中时 search 返回空候选", async () => {
-    const service = makeService(makeFakeDriver([]));
+    const service = makeService(makeFakePorts([]));
     const result = await service.search({ collection_name: "kb", query: "anything", top_k: 5 });
     expect(result.count).toBe(0);
   });
 
   it("listVectorizers 显示 driver 真维度(替占位 64)", async () => {
-    const service = makeService(makeFakeDriver([], 1536));
+    const service = makeService(makeFakePorts([], 1536));
     await service.search({ collection_name: "kb", query: "probe", top_k: 5 });
     const active = (await service.listVectorizers()).find((vectorizer) => vectorizer.vectorizer_key === "local_hash_embedding");
     expect(active).toBeTruthy();
@@ -220,11 +214,8 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
   });
 
   it("model reranker 成功返回 model", async () => {
-    const hits: VectorSearchHit[] = [{
-      id: "1", doc_id: "d1", document_id: "d1", collection: "kb", content: "first", metadata: {},
-      vector_score: 0.9, keyword_score: 0, hybrid_score: 0,
-    }];
-    const service = makeService(makeFakeDriver(hits, null, [activeReranker("model")]), {
+    const hits = [hit("1", "d1", "first", 0.9)];
+    const service = makeService(makeFakePorts(hits, null, [activeReranker("model")]), {
       rerankerFactory: () => ({
         rerank: async (_query, results) => ({
           results: results.map((result) => ({ ...result, rerank_score: 0.9 })),
@@ -237,11 +228,8 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
   });
 
   it("model reranker 失败降级并标记结果", async () => {
-    const hits: VectorSearchHit[] = [{
-      id: "1", doc_id: "d1", document_id: "d1", collection: "kb", content: "query match", metadata: {},
-      vector_score: 0.9, keyword_score: 0, hybrid_score: 0,
-    }];
-    const service = makeService(makeFakeDriver(hits, null, [activeReranker("model")]), {
+    const hits = [hit("1", "d1", "query match", 0.9)];
+    const service = makeService(makeFakePorts(hits, null, [activeReranker("model")]), {
       rerankerFactory: () => ({
         rerank: async () => { throw new Error("offline"); },
       }),
@@ -252,11 +240,8 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
   });
 
   it("active mode=none 且 rerank=true 时透传并返回 none", async () => {
-    const hits: VectorSearchHit[] = [{
-      id: "1", doc_id: "d1", document_id: "d1", collection: "kb", content: "first", metadata: {},
-      vector_score: 0.9, keyword_score: 0, hybrid_score: 0,
-    }];
-    const service = makeService(makeFakeDriver(hits, null, [activeReranker("none")]));
+    const hits = [hit("1", "d1", "first", 0.9)];
+    const service = makeService(makeFakePorts(hits, null, [activeReranker("none")]));
     await expect(service.search({ collection_name: "kb", query: "q", search_mode: "hybrid", rerank: true }))
       .resolves.toMatchObject({ rerank_mode: "none" });
   });

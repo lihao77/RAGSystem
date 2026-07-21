@@ -35,9 +35,6 @@ import { RealtimeEventHub } from "../../services/runtime/realtime-event-hub.js";
 import type { LocalRuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { LocalRuntimeContainerOptions } from "./runtime-options.js";
 import { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
-import { LocalAsyncKnowledgeConfigAdapter } from "./knowledge/local-async-knowledge-config-adapter.js";
-import { LocalAsyncKnowledgeVectorStoreAdapter } from "./knowledge/local-async-knowledge-vector-store-adapter.js";
-import { LocalAsyncKnowledgeFileStoreAdapter } from "./knowledge/local-async-knowledge-file-store-adapter.js";
 import { LocalAsyncKnowledgeMarkdownPipeline } from "./knowledge/local-async-knowledge-markdown-pipeline.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";
 import { PathApprovalService } from "../../services/runtime/path-approval-service.js";
@@ -86,16 +83,16 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     options.dbPath === ":memory:"
       ? { ...vectorStoreConfig, sqlite_vec: { ...vectorStoreConfig.sqlite_vec, database_path: ":memory:" } }
       : vectorStoreConfig;
-  const vectorStore = createVectorStoreFromConfig(resolvedVectorStoreConfig, options.dataRoot);
+  const knowledgeDriver = createVectorStoreFromConfig(resolvedVectorStoreConfig, options.dataRoot);
   const documentExtractDispatcher = new DocumentExtractDispatcher(systemConfig.getDocumentExtractionConfig());
   const knowledgeService = new KnowledgeApplicationService(
     options.tenantId,
     modelAdapter,
-    new LocalAsyncKnowledgeConfigAdapter(vectorStore),
-    new LocalAsyncKnowledgeVectorStoreAdapter(vectorStore, vectorStore),
+    knowledgeDriver,
+    knowledgeDriver,
     options.embedderFactory,
   );
-  const knowledgeFiles = new LocalAsyncKnowledgeFileStoreAdapter(vectorStore);
+  const knowledgeFiles = knowledgeDriver;
   const knowledgeMarkdown = new LocalAsyncKnowledgeMarkdownPipeline(knowledgeFiles, documentExtractDispatcher);
   const knowledge = knowledgeService;
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
@@ -222,7 +219,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
       transientArtifacts.stopPruning();
       outboxDispatcher.stop();
       mcp.close();
-      vectorStore.close();
+      knowledgeDriver.close();
       fileIndex.close();
       conversationStore.close();
     },

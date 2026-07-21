@@ -7,19 +7,17 @@
 import path from "node:path";
 
 import type { VectorStoreConfig } from "../../../contracts/runtime/system-config.js";
-import type { IKnowledgeFileStore, IVectorStore, IKnowledgeConfig } from "../../../contracts/vector-store/index.js";
-import { createVectorStore } from "./registry.js";
+import { createVectorStore, type LocalKnowledgeDriver } from "./registry.js";
 import "./sqlite-vec-driver.js";
 
 /**
  * 按 systemConfig 的 vector_store 配置实例化 driver。
  * dataRoot 必须由调用方解析后传入,driver 据此解析 knowledge.db 路径。
  *
- * 返回类型为 IVectorStore & IKnowledgeConfig & IKnowledgeFileStore——同一对象承担数据面(向量/文本) +
- * 配置面(vectorizer/reranker) + 知识库文件面(上传源文件 blob),共享 knowledge.db 单一连接,
- * 避免 runtime-container 做 `as` 类型断言。
+ * 返回类型为 Async knowledge 三端口联合——同一对象承担数据面 + 配置面 + 文件面,
+ * 共享 knowledge.db 单一连接。
  */
-export function createVectorStoreFromConfig(config: VectorStoreConfig, dataRoot?: string): IVectorStore & IKnowledgeConfig & IKnowledgeFileStore {
+export function createVectorStoreFromConfig(config: VectorStoreConfig, dataRoot?: string): LocalKnowledgeDriver {
   if (!dataRoot?.trim()) {
     throw new Error("createVectorStoreFromConfig 必须传入已解析的 dataRoot");
   }

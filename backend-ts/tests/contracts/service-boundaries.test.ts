@@ -40,4 +40,15 @@ describe("service storage boundaries", () => {
     expect(fs.existsSync(path.resolve("src/contracts/agent/config-normalize.ts"))).toBe(true);
     expect(fs.existsSync(path.resolve("src/contracts/agent/team-store.ts"))).toBe(true);
   });
+
+  it("keeps services free of sync IVectorStore orchestration ports", () => {
+    const servicesRoot = path.resolve("src/services");
+    const source = readJoined(servicesRoot);
+    expect(source).not.toMatch(/\bIVectorStore\b/);
+    expect(source).not.toMatch(/\bIKnowledgeConfig\b/);
+    expect(source).not.toMatch(/\bIKnowledgeFileStore\b/);
+    expect(source).not.toMatch(/LocalAsyncKnowledge(Config|VectorStore|FileStore)Adapter/);
+    expect(fs.existsSync(path.resolve("src/adapters/local/knowledge/local-async-knowledge-vector-store-adapter.ts"))).toBe(false);
+    expect(fs.existsSync(path.resolve("src/contracts/vector-store/vector-store.ts"))).toBe(false);
+  });
 });
