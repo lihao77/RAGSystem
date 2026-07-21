@@ -207,7 +207,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
   app.get("/skills", async (request) => {
-    const skills = request.container.agentConfig.listAvailableSkills();
+    const skills = await request.container.agentConfig.listAvailableSkills();
     return ok(skills, `共有 ${skills.length} 个可用 Skill`);
   });
 };

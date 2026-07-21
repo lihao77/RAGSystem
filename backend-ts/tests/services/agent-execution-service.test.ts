@@ -174,7 +174,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
     }),
     runtimeCore: runtimeCoreStub(agent, ready, provider),
     dataRoot: os.tmpdir(),
-    memoryConfig: { index_max_lines: 200, index_max_chars: 25600 },
+    getMemoryConfig: () => ({ index_max_lines: 200, index_max_chars: 25600 }),
    outboxDispatcher: dispatcher,
    providersProvider: () => [provider],
     clientEvents,

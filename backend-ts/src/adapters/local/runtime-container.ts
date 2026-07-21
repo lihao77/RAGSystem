@@ -79,7 +79,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     configPath: options.systemConfigPath,
   }));
   await systemConfig.initialize();
-  const memoryConfig = systemConfig.getMemoryConfig();
   const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
   void mcp.autoConnectEnabledServers();
   agentConfig.setMcpService(mcp);
@@ -107,7 +106,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const memoryBindings = options.memoryBindingsFactory?.({
     tenantId: options.tenantId,
     dataRoot,
-    memoryConfig,
+    getMemoryConfig: () => systemConfig.getMemoryConfig(),
     memoryRepository: memoryStore,
     sessions: conversationStore,
   }) ?? {
@@ -167,7 +166,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     deploymentKind: "local",
     tenantId: options.tenantId,
     dataRoot,
-    memoryConfig,
+    getMemoryConfig: () => systemConfig.getMemoryConfig(),
     logger: options.logger,
     ...(options.hooks ? { hooks: options.hooks } : {}),
     ...(options.asyncConversationHistory ? { asyncConversationHistory: options.asyncConversationHistory } : {}),

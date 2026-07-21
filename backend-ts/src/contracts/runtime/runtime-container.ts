@@ -131,7 +131,8 @@ export type RuntimeContainer = LocalRuntimeContainer | SaaSRuntimeContainer;
 interface CoreRuntimeDependenciesBase {
   tenantId: TenantId;
   dataRoot: string;
-  memoryConfig: MemoryConfig;
+  /** 每次 run 时读取最新 memory 配置（systemConfig.reload 后即时生效）。 */
+  getMemoryConfig: () => MemoryConfig;
   logger?: AgentExecutionLogger | undefined;
   hooks?: ((registry: HookRegistry) => void) | undefined;
   asyncConversationHistory?: AsyncConversationHistoryPort;

@@ -82,7 +82,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     repository: conversationRuntime.backgroundTasks,
     tenantId,
   });
-  // user_global discovery root is only a materialize cache on SaaS; durable SoT is PG + object storage.
+  // SaaS user_global cache is content-addressed under skill-cache/by-hash/<hash>/; durable SoT is PG + object storage.
   const skillCacheRoot = path.join(dataRoot, "skill-cache");
   const skillPackageStore = conversationRuntime.createSkillPackageStore(tenantId, skillCacheRoot);
   const skillTools = new SkillToolService({
@@ -109,7 +109,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     deploymentKind: "saas",
     tenantId,
     dataRoot,
-    memoryConfig: systemConfig.getMemoryConfig(),
+    getMemoryConfig: () => systemConfig.getMemoryConfig(),
     ...(options.logger ? { logger: options.logger } : {}),
     ...(options.hooks ? { hooks: options.hooks } : {}),
     asyncConversationHistory: conversationRuntime.conversation,

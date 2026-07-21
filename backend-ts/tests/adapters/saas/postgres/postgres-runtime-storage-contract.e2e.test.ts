@@ -63,7 +63,7 @@ describe.skipIf(!postgresEnabled)("PostgreSQL RuntimeStorage contract", () => {
           limit,
           ...(now ? { now } : {}),
         }),
-        markDelivered: (id: number) => outbox.markOutboxDelivered(id),
+        markDelivered: (id: number) => outbox.markOutboxDelivered(id, tenantId),
       },
       close: async () => {
         await pool.end();

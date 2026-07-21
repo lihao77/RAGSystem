@@ -149,6 +149,8 @@ try {
   address = await app.listen({ host: env.host, port: env.port });
 } catch (error) {
   await app.close().catch(() => undefined);
+  await saasDataPool?.end().catch(() => undefined);
+  saasDataPool = undefined;
   throw error;
 }
 app.log.info({
@@ -162,10 +164,17 @@ app.log.info({
 const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   app.log.info({ signal }, "backend-ts shutting down");
   try {
+    // app.onClose 先关 memory/conversation runtime（它们不 end 共享 pool），再 end 共享 data pool。
     await app.close();
+    await saasDataPool?.end().catch((error) => {
+      app.log.error({ error }, "backend-ts shared data pool end failed");
+    });
+    saasDataPool = undefined;
     process.exit(0);
   } catch (error) {
     app.log.error({ error }, "backend-ts shutdown failed");
+    await saasDataPool?.end().catch(() => undefined);
+    saasDataPool = undefined;
     process.exit(1);
   }
 };

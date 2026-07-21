@@ -234,7 +234,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         ...(query.selected_llm ? { llm_override: parseSelectedLlmForSnapshot(query.selected_llm) } : {}),
       },
       available_tools: (preview?.toolDefinitions ?? []).map((tool) => ({ name: tool.name, description: tool.description })),
-      available_skills: buildAvailableSkills(agent, request.container),
+      available_skills: await buildAvailableSkills(agent, request.container),
       ...(memorySnapshot
         ? {
             memory: {
@@ -318,8 +318,8 @@ function buildAvailableAgentTools(
   });
 }
 
-function buildAvailableSkills(agent: AgentConfig, container: FastifyRequest["container"]): Array<Record<string, unknown>> {
-  const available = container.agentConfig.listAvailableSkills();
+async function buildAvailableSkills(agent: AgentConfig, container: FastifyRequest["container"]): Promise<Array<Record<string, unknown>>> {
+  const available = await container.agentConfig.listAvailableSkills();
   const byName = new Map<string, Record<string, unknown>>();
   for (const item of available) {
     if (isRecord(item)) {

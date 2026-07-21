@@ -17,7 +17,7 @@ describe("AsyncOutboxDispatcher", () => {
     const delivered: number[] = [];
     const store = createOutboxStore({
       appendOutbox: async () => row(1), claimPendingOutbox: async () => [row(1)],
-      markOutboxDelivered: async (id) => { delivered.push(id); return true; },
+      markOutboxDelivered: async (id, _tenantId) => { delivered.push(id); return true; },
       markOutboxRetrying: async () => false, markOutboxFailed: async () => false,
     });
     const hub = new RealtimeEventHub();

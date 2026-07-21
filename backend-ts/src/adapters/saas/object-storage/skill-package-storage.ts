@@ -92,6 +92,7 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
     const markdown = serializeSkillMd(name, description, content);
     const skillKey = this.objectKey(existing.package_prefix, "SKILL.md");
     await this.objects.put(skillKey, Buffer.from(markdown, "utf8"), "text/markdown; charset=utf-8");
+    // New content → new hash directory; never mutate/rm the previous by-hash tree in place.
     const contentHash = hashText(`${existing.content_hash}:${markdown}`);
     const row = await this.repository.upsertPackage({
       tenantId: this.tenantId,
@@ -110,8 +111,6 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
       contentType: "text/markdown; charset=utf-8",
       sizeBytes: Buffer.byteLength(markdown, "utf8"),
     });
-    // Invalidate previous cache directory for this skill name.
-    fs.rmSync(path.join(this.cacheRoot, name), { recursive: true, force: true });
     const skillDir = await this.materializeRow(row.skill_name, row.content_hash, row.package_prefix);
     return toRecord(row, skillDir);
   }
@@ -137,6 +136,7 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
       contentType: guessMime(normalized),
       sizeBytes: body.byteLength,
     });
+    // New content → new hash directory; previous by-hash tree stays immutable.
     const contentHash = hashText(`${existing.content_hash}:${normalized}:${body.byteLength}`);
     const row = await this.repository.upsertPackage({
       tenantId: this.tenantId,
@@ -147,7 +147,6 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
       contentHash,
       packagePrefix: existing.package_prefix,
     });
-    fs.rmSync(path.join(this.cacheRoot, name), { recursive: true, force: true });
     const skillDir = await this.materializeRow(row.skill_name, row.content_hash, row.package_prefix);
     return toRecord(row, skillDir);
   }
@@ -197,7 +196,8 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
     for (const file of files) {
       await this.objects.delete(file.object_key).catch(() => undefined);
     }
-    fs.rmSync(path.join(this.cacheRoot, name), { recursive: true, force: true });
+    // Drop this skill's current content-addressed cache; unreferenced older hashes can GC later.
+    fs.rmSync(this.hashCacheDir(existing.content_hash), { recursive: true, force: true });
     return true;
   }
 
@@ -215,20 +215,26 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
     return `${packagePrefix}/${relativePath.split("/").map(encodeURIComponent).join("/")}`;
   }
 
+  private hashCacheDir(contentHash: string): string {
+    return path.join(this.cacheRoot, "by-hash", contentHash);
+  }
+
   /**
-   * Materialize into cacheRoot/<skillName>/ so SkillToolService FS discovery
-   * (listSkillDirs under userGlobalSkillsRoot=cacheRoot) keeps working.
-   * Incomplete materialization never writes the marker.
+   * Materialize into cacheRoot/by-hash/<contentHash>/ (content-addressed, immutable).
+   * Complete tree is staged then renamed; incomplete materialization never publishes.
    */
   private async materializeRow(skillName: string, contentHash: string, _packagePrefix: string): Promise<string> {
-    const skillDir = path.join(this.cacheRoot, skillName);
-    const marker = path.join(skillDir, ".materialized");
-    if (fs.existsSync(marker) && fs.readFileSync(marker, "utf8").trim() === contentHash) {
-      if (fs.existsSync(path.join(skillDir, "SKILL.md"))) return skillDir;
-      // Stale/corrupt marker: rebuild.
+    const skillDir = this.hashCacheDir(contentHash);
+    const skillMd = path.join(skillDir, "SKILL.md");
+    if (fs.existsSync(skillMd) && fs.statSync(skillMd).isFile()) {
+      return skillDir;
+    }
+    // Incomplete/corrupt published dir: rebuild via staging.
+    if (fs.existsSync(skillDir)) {
       fs.rmSync(skillDir, { recursive: true, force: true });
     }
-    const stagingDir = path.join(this.cacheRoot, `.staging-${skillName}-${contentHash}`);
+
+    const stagingDir = path.join(this.cacheRoot, `.staging-${contentHash}`);
     fs.rmSync(stagingDir, { recursive: true, force: true });
     fs.mkdirSync(stagingDir, { recursive: true });
     try {
@@ -256,10 +262,20 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
       if (missing.length > 0) {
         throw new Error(`Skill '${skillName}' 物化失败，缺少对象: ${missing.join(", ")}`);
       }
+      // Optional self-check marker; directory name is the content address.
       fs.writeFileSync(path.join(stagingDir, ".materialized"), contentHash, "utf8");
-      // Replace live cache only after a complete staging tree is ready.
-      fs.rmSync(skillDir, { recursive: true, force: true });
-      fs.renameSync(stagingDir, skillDir);
+      // Publish only after a complete staging tree is ready (atomic rename into by-hash).
+      fs.mkdirSync(path.dirname(skillDir), { recursive: true });
+      try {
+        fs.renameSync(stagingDir, skillDir);
+      } catch (error) {
+        // Concurrent materialize of the same hash may have won the race.
+        if (fs.existsSync(skillMd) && fs.statSync(skillMd).isFile()) {
+          fs.rmSync(stagingDir, { recursive: true, force: true });
+          return skillDir;
+        }
+        throw error;
+      }
       return skillDir;
     } catch (error) {
       fs.rmSync(stagingDir, { recursive: true, force: true });

@@ -422,8 +422,9 @@ export class AgentConfigService {
     return this.mcpService?.listServers() ?? [];
   }
 
-  listAvailableSkills(): unknown[] {
-    return this.skillToolService?.listAvailableSkills() ?? [];
+  async listAvailableSkills(): Promise<unknown[]> {
+    if (!this.skillToolService) return [];
+    return this.skillToolService.listAvailableSkillsAsync();
   }
 
   /**

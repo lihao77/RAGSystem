@@ -10,7 +10,7 @@ import type { AgentConfigService } from "../../services/agent/config/index.js";
 import type { ArtifactService } from "../../services/artifacts/artifact-service.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { ClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
-import type { ISkillPackageStore } from "../../contracts/skills/skill-package-store.js";
+import type { ISkillPackageStore, SkillPackageRecord } from "../../contracts/skills/skill-package-store.js";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 
 type SkillSourceType = "workspace" | "user_global" | "builtin";
@@ -88,7 +88,10 @@ export class SkillToolService {
       backgroundTasks?: BackgroundTaskService | null | undefined;
       clientEvents?: ClientEventPublisher | null | undefined;
       skillIsolationMode?: SkillIsolationMode | undefined;
-      /** When set, user_global packages are hydrated from this store before FS discovery. */
+      /**
+       * When set, user_global discovery uses packageStore.list() records (skillDir may be
+       * content-addressed). Without it, user_global is scanned under userGlobalSkillsRoot.
+       */
       packageStore?: ISkillPackageStore | null | undefined;
     } = {},
   ) {
@@ -114,16 +117,23 @@ export class SkillToolService {
   private readonly packageStore: ISkillPackageStore | null;
   private readonly envLocks = new Map<string, Promise<unknown>>();
   private hydratePromise: Promise<void> | null = null;
+  /** Last hydrate result from packageStore.list(); only used when packageStore is set. */
+  private userGlobalPackageCache: SkillPackageRecord[] = [];
 
   /**
-   * Materialize tenant user_global packages into the discovery root.
-   * Required on SaaS before FS-based discovery; Local filesystem store is a no-op-ish list.
+   * Load tenant user_global packages from packageStore (materialize as needed).
+   * When packageStore is set, discovery uses these records instead of scanning userGlobalSkillsRoot.
    */
   async hydrateUserGlobalPackages(): Promise<void> {
     if (!this.packageStore) return;
-    this.hydratePromise ??= this.packageStore.list().then(() => undefined).finally(() => {
-      this.hydratePromise = null;
-    });
+    this.hydratePromise ??= this.packageStore
+      .list()
+      .then((records) => {
+        this.userGlobalPackageCache = records;
+      })
+      .finally(() => {
+        this.hydratePromise = null;
+      });
     await this.hydratePromise;
   }
 
@@ -330,7 +340,10 @@ export class SkillToolService {
 
   loadAllSkills(workspaceRoot?: string | null): SkillInfo[] {
     const deduped = new Map<string, SkillInfo>();
-    for (const spec of this.skillSources(workspaceRoot)) {
+    for (const skill of this.loadUserGlobalSkills()) {
+      deduped.set(skill.name, skill);
+    }
+    for (const spec of this.diskSkillSources(workspaceRoot)) {
       for (const skillDir of listSkillDirs(spec.root)) {
         const skill = parseSkill(skillDir, spec);
         if (!skill) {
@@ -344,6 +357,28 @@ export class SkillToolService {
       }
     }
     return Array.from(deduped.values()).sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  /**
+   * user_global skills: via packageStore records when present (SaaS content-addressed cache
+   * or Local filesystem store); otherwise scan userGlobalSkillsRoot by directory name.
+   */
+  private loadUserGlobalSkills(): SkillInfo[] {
+    if (this.packageStore) {
+      return this.userGlobalPackageCache.map((record) => skillInfoFromPackageRecord(record, this.userGlobalSkillsRoot));
+    }
+    const spec: SkillSourceSpec = {
+      root: this.userGlobalSkillsRoot,
+      sourceType: "user_global",
+      sourceLabel: SKILL_SOURCE_LABELS.user_global,
+      isAutoInjectCandidate: false,
+    };
+    const skills: SkillInfo[] = [];
+    for (const skillDir of listSkillDirs(spec.root)) {
+      const skill = parseSkill(skillDir, spec);
+      if (skill) skills.push(skill);
+    }
+    return skills;
   }
 
   private findSkill(skillName: string, workspaceRoot?: string | null): SkillInfo | null {
@@ -673,7 +708,11 @@ export class SkillToolService {
     }
   }
 
-  private skillSources(workspaceRoot?: string | null): SkillSourceSpec[] {
+  /**
+   * Disk-scanned sources only. user_global is handled by loadUserGlobalSkills so SaaS
+   * by-hash cache dirs are never mistaken for skill names.
+   */
+  private diskSkillSources(workspaceRoot?: string | null): SkillSourceSpec[] {
     const specs: SkillSourceSpec[] = [];
     const workspace = normalizeString(workspaceRoot);
     if (workspace) {
@@ -685,12 +724,6 @@ export class SkillToolService {
       });
     }
     specs.push({
-      root: this.userGlobalSkillsRoot,
-      sourceType: "user_global",
-      sourceLabel: SKILL_SOURCE_LABELS.user_global,
-      isAutoInjectCandidate: false,
-    });
-    specs.push({
       root: this.builtinSkillsRoot,
       sourceType: "builtin",
       sourceLabel: SKILL_SOURCE_LABELS.builtin,
@@ -698,6 +731,21 @@ export class SkillToolService {
     });
     return specs;
   }
+}
+
+function skillInfoFromPackageRecord(record: SkillPackageRecord, originRoot: string): SkillInfo {
+  return {
+    name: record.name,
+    description: record.description,
+    content: record.content,
+    skillDir: record.skillDir,
+    metadata: record.metadata,
+    sourceType: "user_global",
+    sourceLabel: SKILL_SOURCE_LABELS.user_global,
+    isAutoInjectCandidate: false,
+    originRoot,
+    ...(record.requires ? { requires: record.requires } : {}),
+  };
 }
 
 export function readSkillToolArguments(value: Record<string, unknown> | undefined): SkillToolInput {

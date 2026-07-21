@@ -47,6 +47,12 @@ export interface LocalRuntimeContainerOptions {
   pathAccessPolicyFactory?: () => PathAccessPolicy;
 }
 
-export interface MemoryRuntimeBindingsFactoryInput<TMemoryRepository extends MemoryRepository = MemoryRepository> { tenantId: TenantId; dataRoot: string; memoryConfig: MemoryConfig; memoryRepository: TMemoryRepository; sessions: RuntimeMemorySessionPort & SessionMetadataPort; }
+export interface MemoryRuntimeBindingsFactoryInput<TMemoryRepository extends MemoryRepository = MemoryRepository> {
+  tenantId: TenantId;
+  dataRoot: string;
+  getMemoryConfig: () => MemoryConfig;
+  memoryRepository: TMemoryRepository;
+  sessions: RuntimeMemorySessionPort & SessionMetadataPort;
+}
 export type MemoryRuntimeBindingsFactory<TMemoryRepository extends MemoryRepository = MemoryRepository> = (input: MemoryRuntimeBindingsFactoryInput<TMemoryRepository>) => MemoryRuntimeBindings;
 export type RuntimeContainerOptions = LocalRuntimeContainerOptions;

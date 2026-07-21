@@ -82,7 +82,8 @@ export interface AgentExecutionServiceParams {
   executionStorage: ExecutionStorage;
   runtimeCore: RuntimeExecutionConfigResolver;
   dataRoot: string;
-  memoryConfig: MemoryConfig;
+  /** 每次 run 读取最新 memory 配置（避免 container 创建时快照）。 */
+  getMemoryConfig: () => MemoryConfig;
   memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
@@ -157,7 +158,7 @@ export function createAgentExecutionService(
     params.sessions,
     storage,
     params.dataRoot,
-    params.memoryConfig,
+    params.getMemoryConfig,
     params.memoryContextSourceFactory ?? null,
    params.toolsDeps ?? null,
    params.codeExecutionTools ?? null,

@@ -45,7 +45,8 @@ export interface SdkRuntimeAdapterDeps {
   /** 已加载的全部 provider（投影层解析 tier.provider 引用用）。 */
   providers: ModelProviderConfig[];
   dataRoot: string;
-  memoryConfig: MemoryConfig;
+  /** 每次 run 读取最新 memory 配置。 */
+  getMemoryConfig: () => MemoryConfig;
   memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
   /** 权限策略服务（SDK 审批编排判定端口用）。 */
   permissionPolicy: PermissionPolicyService;
@@ -233,7 +234,7 @@ export async function executeRunWithSdk(
     listMemoryCandidates: (query) => deps.storage.memoryCandidates.listMemoryCandidates(query),
   };
   const { built, contextBuilder, cacheTracker } = await buildBackendAgentContext(input.agent, profile, historyPort, {
-    memoryConfig: deps.memoryConfig,
+    memoryConfig: deps.getMemoryConfig(),
     dataRoot: deps.dataRoot,
     sessionId: input.sessionId,
     threadKey: input.threadKey,

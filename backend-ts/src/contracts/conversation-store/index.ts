@@ -210,9 +210,9 @@ export interface AsyncOutboxStore {
     now?: Date;
   }): Promise<OutboxRow[]>;
   listOutboxForReplay(input: { tenantId: string; sessionId: string; runIds?: readonly string[] | null; afterSeq?: number; limit?: number }): Promise<OutboxRow[]>;
-  markOutboxDelivered(id: number, tenantId?: string): Promise<boolean>;
-  markOutboxRetrying(id: number, error: string, availableAt: string, tenantId?: string): Promise<boolean>;
-  markOutboxFailed(id: number, error: string, tenantId?: string): Promise<boolean>;
+  markOutboxDelivered(id: number, tenantId: string): Promise<boolean>;
+  markOutboxRetrying(id: number, error: string, availableAt: string, tenantId: string): Promise<boolean>;
+  markOutboxFailed(id: number, error: string, tenantId: string): Promise<boolean>;
   getOutboxRow(tenantId: string, id: number): Promise<OutboxRow | null>;
   listOutbox(tenantId: string, input?: ListOutboxInput): Promise<PaginatedResult<OutboxRow>>;
   retryOutbox(tenantId: string, id: number, availableAt?: string): Promise<boolean>;

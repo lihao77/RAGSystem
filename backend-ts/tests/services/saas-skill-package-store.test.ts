@@ -30,14 +30,16 @@ describe("SaaSSkillPackageStore materialization", () => {
     const repository = new MemorySkillPackageRepository();
     const store = new SaaSSkillPackageStore("tenant-a" as TenantId, repository as never, objects, cacheRoot);
 
-    await store.create({
+    const created = await store.create({
       name: "cold-skill",
       description: "from object storage",
       content: "# Cold body\n",
     });
+    expect(created.skillDir).toContain(path.join("by-hash", path.sep));
+    expect(fs.existsSync(path.join(created.skillDir, "SKILL.md"))).toBe(true);
     // Simulate a fresh node: wipe local cache while durable SoT remains.
     fs.rmSync(cacheRoot, { recursive: true, force: true });
-    expect(fs.existsSync(path.join(cacheRoot, "cold-skill"))).toBe(false);
+    expect(fs.existsSync(created.skillDir)).toBe(false);
 
     const skillTools = new SkillToolService({
       dataRoot: root,
@@ -53,12 +55,19 @@ describe("SaaSSkillPackageStore materialization", () => {
         skills: { enabled_skills: ["cold-skill"] },
       } as never,
     );
-    expect(result.isError).not.toBe(true);
+    expect(result.success).toBe(true);
     expect(String((result.content as { main_content?: string })?.main_content ?? result.content)).toContain("Cold body");
-    expect(fs.existsSync(path.join(cacheRoot, "cold-skill", "SKILL.md"))).toBe(true);
+
+    const skills = skillTools.loadAllSkills();
+    const cold = skills.find((s) => s.name === "cold-skill");
+    expect(cold).toBeTruthy();
+    expect(cold!.skillDir).toMatch(/by-hash[/\\][a-f0-9]+$/i);
+    expect(fs.existsSync(path.join(cold!.skillDir, "SKILL.md"))).toBe(true);
+    // Must not fall back to name-based layout.
+    expect(fs.existsSync(path.join(cacheRoot, "cold-skill"))).toBe(false);
   });
 
-  it("does not write .materialized when an object is missing", async () => {
+  it("does not publish by-hash dir when an object is missing", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "saas-skill-miss-"));
     tempRoots.push(root);
     const cacheRoot = path.join(root, "skill-cache");
@@ -71,14 +80,27 @@ describe("SaaSSkillPackageStore materialization", () => {
       description: "missing object",
       content: "# Body\n",
     });
+    const row = await repository.get("tenant-a" as TenantId, "broken");
+    expect(row).toBeTruthy();
     // Drop the SKILL.md object after metadata was written.
     for (const key of objects.keys()) {
       await objects.delete(key);
     }
+    // Wipe cache so materialize must re-fetch objects.
     fs.rmSync(cacheRoot, { recursive: true, force: true });
 
     await expect(store.materialize("broken")).rejects.toThrow(/物化失败|缺少对象|metadata missing/);
-    expect(fs.existsSync(path.join(cacheRoot, "broken", ".materialized"))).toBe(false);
+    const byHashRoot = path.join(cacheRoot, "by-hash");
+    if (fs.existsSync(byHashRoot)) {
+      // No complete published hash dir for this content.
+      const published = fs.readdirSync(byHashRoot).filter((name) => !name.startsWith("."));
+      expect(published).toEqual([]);
+    }
+    // Staging leftovers must be cleaned up.
+    const leftovers = fs.existsSync(cacheRoot)
+      ? fs.readdirSync(cacheRoot).filter((name) => name.startsWith(".staging-"))
+      : [];
+    expect(leftovers).toEqual([]);
   });
 
   it("rejects concurrent create of the same skill name with 已存在", async () => {
@@ -91,6 +113,56 @@ describe("SaaSSkillPackageStore materialization", () => {
 
     await store.create({ name: "once", description: "first", content: "a" });
     await expect(store.create({ name: "once", description: "second", content: "b" })).rejects.toThrow("已存在");
+  });
+
+  it("updates into a new by-hash dir without clearing the old hash in place", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "saas-skill-upd-"));
+    tempRoots.push(root);
+    const cacheRoot = path.join(root, "skill-cache");
+    const objects = new MemoryObjectStorage();
+    const repository = new MemorySkillPackageRepository();
+    const store = new SaaSSkillPackageStore("tenant-a" as TenantId, repository as never, objects, cacheRoot);
+
+    const created = await store.create({
+      name: "mutable",
+      description: "v1",
+      content: "# Version one\n",
+    });
+    const oldHashDir = created.skillDir;
+    const oldHash = path.basename(oldHashDir);
+    expect(oldHashDir).toBe(path.join(cacheRoot, "by-hash", oldHash));
+    expect(fs.existsSync(path.join(oldHashDir, "SKILL.md"))).toBe(true);
+    const oldSkillMd = fs.readFileSync(path.join(oldHashDir, "SKILL.md"), "utf8");
+
+    const updated = await store.updateMarkdown("mutable", {
+      description: "v2",
+      content: "# Version two\n",
+    });
+    const newHashDir = updated.skillDir;
+    const newHash = path.basename(newHashDir);
+    expect(newHashDir).toBe(path.join(cacheRoot, "by-hash", newHash));
+    expect(newHash).not.toBe(oldHash);
+    expect(updated.skillDir).not.toBe(oldHashDir);
+    expect(fs.existsSync(path.join(newHashDir, "SKILL.md"))).toBe(true);
+    expect(fs.readFileSync(path.join(newHashDir, "SKILL.md"), "utf8")).toContain("Version two");
+
+    // Old content-addressed tree must remain intact (not wiped and rewritten in place).
+    expect(fs.existsSync(oldHashDir)).toBe(true);
+    expect(fs.readFileSync(path.join(oldHashDir, "SKILL.md"), "utf8")).toBe(oldSkillMd);
+
+    // writeFile also lands in a fresh by-hash dir.
+    const withScript = await store.writeFile("mutable", "scripts/run.py", Buffer.from("print(1)\n"));
+    expect(withScript.skillDir).toMatch(/by-hash[/\\][a-f0-9]+$/i);
+    expect(withScript.skillDir).not.toBe(newHashDir);
+    expect(fs.existsSync(path.join(withScript.skillDir, "scripts", "run.py"))).toBe(true);
+    // Previous hashes still present.
+    expect(fs.existsSync(oldHashDir)).toBe(true);
+    expect(fs.existsSync(newHashDir)).toBe(true);
+
+    // delete removes only the skill's current hash cache.
+    const currentHashDir = withScript.skillDir;
+    await store.delete("mutable");
+    expect(fs.existsSync(currentHashDir)).toBe(false);
   });
 });
 

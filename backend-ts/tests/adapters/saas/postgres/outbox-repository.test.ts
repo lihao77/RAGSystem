@@ -47,9 +47,12 @@ describe("PostgresOutboxRepository", () => {
     expect(db.calls.some((sql) => sql.includes("FOR UPDATE SKIP LOCKED"))).toBe(true);
     expect(db.calls.some((sql) => sql.includes("COALESCE($1::timestamptz,CURRENT_TIMESTAMP)"))).toBe(true);
     expect(db.calls.some((sql) => sql.includes("RETURNING e.id,e.event_id"))).toBe(true);
-    await expect(repo.markOutboxDelivered(1)).resolves.toBe(true);
-    await expect(repo.markOutboxRetrying(1, "temporary", "2026-01-01T00:00:00Z")).resolves.toBe(true);
-    await expect(repo.markOutboxFailed(1, "fatal")).resolves.toBe(true);
+    await expect(repo.markOutboxDelivered(1, "t1")).resolves.toBe(true);
+    await expect(repo.markOutboxRetrying(1, "temporary", "2026-01-01T00:00:00Z", "t1")).resolves.toBe(true);
+    await expect(repo.markOutboxFailed(1, "fatal", "t1")).resolves.toBe(true);
+    const markSql = db.calls.filter((sql) => sql.startsWith("UPDATE event_outbox SET status="));
+    expect(markSql).toHaveLength(3);
+    expect(markSql.every((sql) => sql.includes("tenant_id="))).toBe(true);
   });
 
   it("tenant-scopes claims used by per-tenant SaaS dispatchers", async () => {
