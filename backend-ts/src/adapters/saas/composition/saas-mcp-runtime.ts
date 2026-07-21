@@ -56,6 +56,18 @@ export class SaaSMcpRuntimeRegistry {
     return runtime.refresh();
   }
 
+  /** Drop a tenant MCP runtime when the tenant container is idle-closed. */
+  drop(tenantId: TenantId): void {
+    const runtime = this.runtimes.get(tenantId);
+    if (!runtime) return;
+    runtime.close();
+    this.runtimes.delete(tenantId);
+  }
+
+  size(): number {
+    return this.runtimes.size;
+  }
+
   close(): void {
     for (const runtime of this.runtimes.values()) runtime.close();
     this.runtimes.clear();

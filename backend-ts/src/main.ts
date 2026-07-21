@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { Pool } from "pg";
 import { loadEnv } from "./config/env.js";
 import { createSaaSMemoryRuntime, type SaaSMemoryRuntimeHandle } from "./adapters/saas/composition/saas-memory-runtime.js";
 import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./adapters/saas/composition/saas-control-runtime.js";
@@ -30,13 +31,19 @@ let saasMemoryRuntime: SaaSMemoryRuntimeHandle | undefined;
 let saasControlRuntime: SaaSControlRuntimeHandle | undefined;
 let saasConversationRuntime: SaaSConversationRuntimeHandle | undefined;
 let saasObjectStorage: ObjectStorage | undefined;
+/** Shared data-plane pool for memory + conversation (same DATABASE_URL). */
+let saasDataPool: Pool | undefined;
 let app;
 try {
   if (env.storageMode === "postgres") {
     if (!env.databaseUrl) throw new Error("STORAGE_MODE=postgres requires DATABASE_URL");
+    saasDataPool = new Pool({
+      connectionString: env.databaseUrl,
+      max: Math.max(1, env.postgresPoolMax ?? 10),
+    });
     saasMemoryRuntime = await createSaaSMemoryRuntime({
       connectionString: env.databaseUrl,
-      poolMax: env.postgresPoolMax,
+      pool: saasDataPool,
     });
     saasObjectStorage = createSaaSObjectStorage({ mode: "s3", bucket: env.objectStorageBucket!, endpoint: env.objectStorageEndpoint!, accessKeyId: env.objectStorageAccessKeyId!, secretAccessKey: env.objectStorageSecretAccessKey!, region: env.objectStorageRegion, forcePathStyle: env.objectStorageForcePathStyle });
   }
@@ -51,10 +58,10 @@ try {
     });
   }
   if (env.storageMode === "postgres") {
-    if (!env.databaseUrl) throw new Error("STORAGE_MODE=postgres requires DATABASE_URL");
+    if (!env.databaseUrl || !saasDataPool) throw new Error("STORAGE_MODE=postgres requires DATABASE_URL");
     saasConversationRuntime = await createSaaSConversationRuntime({
       connectionString: env.databaseUrl,
-      poolMax: env.postgresPoolMax,
+      pool: saasDataPool,
       ...(saasControlRuntime ? { secretResolver: saasControlRuntime.secretResolver } : {}),
       ...(saasObjectStorage ? { objectStorage: saasObjectStorage } : {}),
     });
@@ -73,10 +80,7 @@ try {
       resolveKnowledgeApplication: (request) => {
         const files = saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId);
         const markdown = createSaaSKnowledgeMarkdownPipeline(request, files);
-        const knowledge = saasConversationRuntime!.createKnowledgeService(
-          request.identity.tenantId,
-          request.container.modelAdapter,
-        );
+        const knowledge = request.container.knowledge as import("./services/knowledge/knowledge-application-service.js").KnowledgeApplicationService;
         return new KnowledgeHttpApplication(
           knowledge,
           files,
@@ -136,6 +140,7 @@ try {
   await saasMemoryRuntime?.close().catch(() => undefined);
   await saasConversationRuntime?.close().catch(() => undefined);
   await saasControlRuntime?.close().catch(() => undefined);
+  await saasDataPool?.end().catch(() => undefined);
   throw error;
 }
 

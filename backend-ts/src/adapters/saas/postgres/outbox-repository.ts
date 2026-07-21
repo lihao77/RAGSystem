@@ -116,9 +116,48 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
     return result.rows.map(row);
   }
 
-  async markOutboxDelivered(id: number): Promise<boolean> { const r = await this.executor.query("UPDATE event_outbox SET status='delivered',delivered_at=CURRENT_TIMESTAMP,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')", [id]); return Number(r.rowCount ?? 0) > 0; }
-  async markOutboxRetrying(id: number, error: string, availableAt: string): Promise<boolean> { const r = await this.executor.query("UPDATE event_outbox SET status='retrying',attempts=attempts+1,last_error=$2,available_at=$3::timestamptz,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')", [id, error, availableAt]); return Number(r.rowCount ?? 0) > 0; }
-  async markOutboxFailed(id: number, error: string): Promise<boolean> { const r = await this.executor.query("UPDATE event_outbox SET status='failed',attempts=attempts+1,last_error=$2,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')", [id, error]); return Number(r.rowCount ?? 0) > 0; }
+  async markOutboxDelivered(id: number, tenantId?: string): Promise<boolean> {
+    if (tenantId) {
+      const r = await this.executor.query(
+        "UPDATE event_outbox SET status='delivered',delivered_at=CURRENT_TIMESTAMP,locked_at=NULL WHERE id=$1 AND tenant_id=$2 AND status IN ('pending','retrying')",
+        [id, tenantId],
+      );
+      return Number(r.rowCount ?? 0) > 0;
+    }
+    const r = await this.executor.query(
+      "UPDATE event_outbox SET status='delivered',delivered_at=CURRENT_TIMESTAMP,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')",
+      [id],
+    );
+    return Number(r.rowCount ?? 0) > 0;
+  }
+  async markOutboxRetrying(id: number, error: string, availableAt: string, tenantId?: string): Promise<boolean> {
+    if (tenantId) {
+      const r = await this.executor.query(
+        "UPDATE event_outbox SET status='retrying',attempts=attempts+1,last_error=$2,available_at=$3::timestamptz,locked_at=NULL WHERE id=$1 AND tenant_id=$4 AND status IN ('pending','retrying')",
+        [id, error, availableAt, tenantId],
+      );
+      return Number(r.rowCount ?? 0) > 0;
+    }
+    const r = await this.executor.query(
+      "UPDATE event_outbox SET status='retrying',attempts=attempts+1,last_error=$2,available_at=$3::timestamptz,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')",
+      [id, error, availableAt],
+    );
+    return Number(r.rowCount ?? 0) > 0;
+  }
+  async markOutboxFailed(id: number, error: string, tenantId?: string): Promise<boolean> {
+    if (tenantId) {
+      const r = await this.executor.query(
+        "UPDATE event_outbox SET status='failed',attempts=attempts+1,last_error=$2,locked_at=NULL WHERE id=$1 AND tenant_id=$3 AND status IN ('pending','retrying')",
+        [id, error, tenantId],
+      );
+      return Number(r.rowCount ?? 0) > 0;
+    }
+    const r = await this.executor.query(
+      "UPDATE event_outbox SET status='failed',attempts=attempts+1,last_error=$2,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')",
+      [id, error],
+    );
+    return Number(r.rowCount ?? 0) > 0;
+  }
 
   async getOutboxRow(tenantId: string, id: number): Promise<OutboxRow | null> {
     const result = await this.executor.query(`SELECT ${SELECT} FROM event_outbox WHERE tenant_id=$1 AND id=$2`, [tenantId, id]);

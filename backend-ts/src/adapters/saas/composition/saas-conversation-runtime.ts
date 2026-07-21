@@ -52,13 +52,14 @@ import { SaaSArtifactService } from "../../../adapters/saas/application/artifact
 import { SaaSKnowledgeFileStorage } from "../../../adapters/saas/object-storage/knowledge-file-storage.js";
 import type { AsyncKnowledgeFileStore } from "../../../contracts/knowledge/async-knowledge-file-store.js";
 import { SaaSProviderMcpApplication } from "../../../adapters/saas/application/provider-mcp/saas-provider-mcp-application.js";
+import { AsyncOutboxDispatcher } from "../../../services/runtime/event-outbox/async-dispatcher.js";
+import type { AsyncOutboxDispatcher as AsyncOutboxDispatcherType } from "../../../services/runtime/event-outbox/async-dispatcher.js";
 import { SaaSFileHistoryStorage } from "../../../adapters/saas/object-storage/file-history-storage.js";
 import type { AsyncFileHistoryStore } from "../../../contracts/file-history-store/index.js";
 import { SaaSSessionFileStorage } from "../../../adapters/saas/object-storage/session-file-storage.js";
 import type { AsyncSessionFileStorage } from "../../../contracts/session/session-file-storage.js";
 import { SaaSWorkspaceBlobStorage } from "../../../adapters/saas/object-storage/workspace-blob-storage.js";
 import type { WorkspaceBlobStorage } from "../../../contracts/storage/workspace-blob-storage.js";
-import type { KnowledgeQueryPort } from "../../../contracts/knowledge/query-port.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { TenantId } from "../../../identity/types.js";
 import { PostgresKnowledgeConfigRepository } from "../../../adapters/saas/postgres/knowledge-config-repository.js";
@@ -83,6 +84,8 @@ export interface SaaSConversationRuntimeHandle {
   createDelegationStore(tenantId: TenantId): TenantBoundPostgresAgentDelegationStore;
   runs: PostgresRunRepository;
   outbox: PostgresOutboxRepository;
+  /** Process-level outbox recovery poller shared across all tenant runtimes. */
+  sharedOutboxDispatcher: AsyncOutboxDispatcherType;
   providerContinuations: PostgresProviderContinuationRepository;
   knowledgeFiles: PostgresKnowledgeFileMetadataRepository;
   pendingInteractions: PostgresPendingInteractionRepository;
@@ -97,7 +100,6 @@ export interface SaaSConversationRuntimeHandle {
   /** Tenant-bound Agent knowledge query port backed by PostgreSQL pgvector. */
   knowledgeConfig: PostgresKnowledgeConfigRepository;
   createKnowledgeService(tenantId: string, modelAdapter: ModelAdapterService): KnowledgeApplicationService;
-  createKnowledgeQuery(tenantId: string, modelAdapter: ModelAdapterService): KnowledgeQueryPort;
   providerMcp: PostgresProviderMcpRepository;
   providerMcpApplication: SaaSProviderMcpApplication;
   backgroundTasks: PostgresBackgroundTaskRepository;
@@ -154,6 +156,16 @@ export async function createSaaSConversationRuntime(
     const outbox = new PostgresOutboxRepository(executor);
     const realtimeRelay = new PostgresRealtimeEventRelay(realtimeListenerPool, executor, outbox);
     await realtimeRelay.start();
+    // One recovery poller for the process — not per tenant runtime.
+    const sharedOutboxDispatcher = new AsyncOutboxDispatcher(
+      outbox,
+      null,
+      undefined,
+      {
+        publishFromOutbox: (row, event) => realtimeRelay.publishOutbox(row, event),
+      },
+    );
+    sharedOutboxDispatcher.start();
     const providerContinuations = new PostgresProviderContinuationRepository(executor);
     const knowledgeFiles = new PostgresKnowledgeFileMetadataRepository(executor);
     const pendingInteractions = new PostgresPendingInteractionRepository(executor);
@@ -180,6 +192,7 @@ export async function createSaaSConversationRuntime(
       ),
       runs,
       outbox,
+      sharedOutboxDispatcher,
       providerContinuations,
       knowledgeFiles,
       pendingInteractions,
@@ -198,8 +211,6 @@ export async function createSaaSConversationRuntime(
       vectorStore,
       knowledgeConfig,
       createKnowledgeService: (tenantId, modelAdapter) => new KnowledgeApplicationService(tenantId, modelAdapter, knowledgeConfig, vectorStore),
-      // KnowledgeApplicationService already implements KnowledgeQueryPort; no empty passthrough adapter.
-      createKnowledgeQuery: (tenantId, modelAdapter) => new KnowledgeApplicationService(tenantId, modelAdapter, knowledgeConfig, vectorStore),
       backgroundTasks,
       analytics,
       fileHistory,
@@ -234,6 +245,7 @@ export async function createSaaSConversationRuntime(
       close: () => {
         closePromise ??= (async () => {
           providerMcpApplication.close();
+          sharedOutboxDispatcher.stop();
           await realtimeRelay.close();
           if (ownsRealtimeListenerPool) await realtimeListenerPool.end();
           if (ownsPool) await pool.end();

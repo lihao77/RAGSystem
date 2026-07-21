@@ -14,13 +14,11 @@ import { BackgroundTaskService } from "../../../services/runtime/background-task
 import { createCoreRuntimeContainer } from "../../../services/runtime/core-runtime-container.js";
 import { DelegationPendingService } from "../../../services/runtime/delegation-pending-service.js";
 import { AsyncDurableClientEventPublisher } from "../../../services/runtime/event-outbox/async-client-event-publisher.js";
-import { AsyncOutboxDispatcher } from "../../../services/runtime/event-outbox/async-dispatcher.js";
 import { HostToolRegistry } from "../../../services/runtime/host-tool-registry.js";
 import { PathApprovalService } from "../../../services/runtime/path-approval-service.js";
 import { SessionNotificationQueue } from "../../../services/runtime/session-notification-queue.js";
 import { SkillLibraryService } from "../../../services/skills/skill-library-service.js";
 import { SkillToolService } from "../../../tools/SkillTools/SkillExecution.js";
-import { SaaSSkillPackageStore } from "../object-storage/skill-package-storage.js";
 import { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { SaaSSessionApplication } from "../application/session/saas-session-application.js";
 import { SaaSExecutionMemoryCandidates } from "../application/memory/saas-execution-memory-candidates.js";
@@ -46,13 +44,9 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   const dataRoot = path.resolve(options.dataRoot);
   const runtimeStorage = conversationRuntime.createRuntimeStorage(tenantId);
   const realtimeEvents = conversationRuntime.createRealtimeEventBus(tenantId);
-  const asyncOutboxDispatcher = new AsyncOutboxDispatcher(
-    conversationRuntime.outbox,
-    realtimeEvents,
-    undefined,
-    { tenantId },
-  );
-  asyncOutboxDispatcher.start();
+  // Fast-path publisher: claim+deliver newly written rows via the shared process dispatcher.
+  // Recovery polling is owned by conversationRuntime.sharedOutboxDispatcher (one per process).
+  const asyncOutboxDispatcher = conversationRuntime.sharedOutboxDispatcher;
   const asyncClientEvents = new AsyncDurableClientEventPublisher(runtimeStorage, asyncOutboxDispatcher);
   const fileHistory = conversationRuntime.createFileHistoryStorage(tenantId);
   const sessionFiles = conversationRuntime.createSessionFileStorage(tenantId);
@@ -176,9 +170,10 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     },
     closeInfrastructure: () => {
       backgroundTasks.dispose();
-      asyncOutboxDispatcher.stop();
+      // Shared process-level outbox dispatcher is owned by conversationRuntime.
       realtimeEvents.close();
-      // The tenant MCP runtime is owned by the shared PostgreSQL config registry.
+      // Drop this tenant's MCP connections when the container is idle-closed.
+      conversationRuntime.providerMcpApplication.dropMcpRuntime(tenantId);
     },
   });
 }

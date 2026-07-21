@@ -70,209 +70,217 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
         ws.close(4001, "unauthorized");
         return;
       }
+      // Take ownership so HTTP onResponse will not double-release; cleanup must run on every exit path.
       request.tenantRuntimeLease = null;
-      const container = request.container;
-      const wsActivity = options.registry.trackWebSocket(lease.tenantId);
-      const applications = await ensureRequestApplications(request, options);
-      const executionRead = applications.executionRead;
-      const session = await applications.sessions.getSession(sessionId);
-      const widgetMeta = (session?.metadata as { widget?: { app_key?: string } } | undefined)?.widget;
-      if (widgetMeta?.app_key && request.identity.userId !== widgetUserId(widgetMeta.app_key)) {
-        wsActivity.release();
-        lease.release();
-        ws.close(4001, "unauthorized");
-        return;
-      }
-      if (!session) {
-        wsActivity.release();
-        lease.release();
-        ws.close(4004, "session not found");
-        return;
-      }
-      try {
-        const widgetMeta = (session.metadata as { widget?: { app_key?: string } }).widget;
-        if (widgetMeta?.app_key) {
-          request.identity = {
-            userId: widgetUserId(widgetMeta.app_key),
-            tenantId: lease.tenantId,
-            role: "widget",
-            permissions: ["sessions:create"],
-          };
-          request.userId = request.identity.userId;
-        }
-        await assertSessionOwner(request, session);
-      } catch {
-        wsActivity.release();
-        lease.release();
-        ws.close(4003, "forbidden");
-        return;
-      }
-      const afterSeq = parseSeqCursor(request.query.after_seq);
-      let lastSeq = 0;
-      let boundRunId: string | null = null;
-
-      // seq 兼任持久化去重 + 连续性游标：envelope 自带 seq（row.session_seq，由 projector 盖戳），
-      // 此处只追踪已发最大 seq 供 heartbeat/重连 cursor；不再注入连接内 stream_seq。
-      const send = (payload: Envelope): void => {
-        if (ws.readyState !== WS_OPEN) {
-          return;
-        }
-        if (typeof payload.seq === "number" && payload.seq > lastSeq) {
-          lastSeq = payload.seq;
-        }
-        ws.send(JSON.stringify(payload));
-      };
-      const sendAck = (
-        category: "send" | "stop" | "interaction" | "tool_delegate",
-        ok: boolean,
-        extra: { ref_call_id?: string; error?: string } = {},
-      ): void => {
-        send({ type: "ack", session_id: sessionId, payload: { category, ok, ...extra } });
-      };
-      const sendReconnect = (
-        phase: "start" | "end",
-        replayCount: number,
-        runId?: string | null,
-        replaySource?: "durable_outbox" | "memory",
-      ): void => {
-        send({
-          type: "session.reconnect",
-          session_id: sessionId,
-          ...(runId ? { run_id: runId } : {}),
-          payload: { phase, replay_count: replayCount, ...(replaySource ? { replay_source: replaySource } : {}) },
-        });
-      };
-
-      const unsubscribe = container.realtimeEvents.subscribe(sessionId, (event) => {
-        send(event);
-        if (event.type !== "run_started") {
-          return;
-        }
-        const runId = typeof event.run_id === "string" ? event.run_id : null;
-        if (!runId || runId === boundRunId) {
-          return;
-        }
-        boundRunId = runId;
-        sendReconnect("start", 0, runId);
-        sendReconnect("end", 0, runId);
-      });
-      const heartbeat = setInterval(() => {
-        send({
-          type: "heartbeat",
-          session_id: sessionId,
-          payload: { last_seq: lastSeq },
-        });
-      }, 20_000);
-
-      const durableReplay = await buildDurableOutboxReplay(executionRead, sessionId, afterSeq);
-      if (durableReplay) {
-        boundRunId = durableReplay.runId;
-        sendReconnect("start", durableReplay.events.length, durableReplay.runId, "durable_outbox");
-        for (const env of durableReplay.events) {
-          send(env);
-        }
-        sendReconnect("end", durableReplay.events.length, durableReplay.runId, "durable_outbox");
-      }
-
-      const activeReplay = await buildActiveRunReplay(executionRead, container, sessionId);
-      if (activeReplay) {
-        boundRunId = activeReplay.runId;
-        sendReconnect("start", activeReplay.events.length, activeReplay.runId);
-        for (const env of activeReplay.events) {
-          send(env);
-        }
-        sendReconnect("end", activeReplay.events.length, activeReplay.runId);
-      }
-
-      ws.on("message", async (data) => {
-        const raw = data.toString();
-        try {
-          const message = ClientToServerEnvelopeSchema.parse(JSON.parse(raw));
-          switch (message.type) {
-            case "user_driven_change": {
-              const payload = message.payload;
-              applications.execution
-                .startStream(
-                  {
-                    task: payload.task,
-                    session_id: sessionId,
-                    userId: request.userId,
-                    selected_llm: payload.selected_llm,
-                    attachments: payload.attachments,
-                    ui_context: payload.ui_context,
-                  },
-                  payload.request_id ?? randomUUID(),
-                )
-                .then((result) => {
-                  sendAck("send", result.started, result.started ? {} : { error: result.error ?? "Agent stream 未启动" });
-                })
-                .catch((error) => {
-                  sendAck("send", false, { error: error instanceof Error ? error.message : "Agent stream execution failed" });
-                });
-              break;
-            }
-            case "abort":
-              applications.execution.stopSession(sessionId).catch(() => undefined);
-              sendAck("stop", true);
-              break;
-            case "tools.register":
-              // 握手期前端推送本连接可委托执行的工具清单（覆盖式）。runtime-adapter per-run 取用。
-              container.hostToolRegistry.register(sessionId, message.payload.tools);
-              break;
-            case "delegate_result": {
-              // 委托执行回传：按 call_id 唤醒转发壳 Tool.call 的等待器。
-              const payload = message.payload;
-              const resolved = container.delegationPending.resolve(message.call_id, {
-                ok: payload.ok,
-                ...(payload.observation !== undefined ? { observation: payload.observation } : {}),
-                ...(payload.error !== undefined ? { error: payload.error } : {}),
-                ...(payload.elapsed_ms !== undefined ? { elapsedMs: payload.elapsed_ms } : {}),
-              });
-              sendAck("tool_delegate", resolved, { ref_call_id: message.call_id, ...(resolved ? {} : { error: "未找到对应的委托等待，可能已超时或取消" }) });
-              break;
-            }
-            case "interaction": {
-              const payload = message.payload;
-              try {
-                const result = payload.kind === "approval"
-                  ? await applications.interactions.respondApprovalAsync(sessionId, message.call_id, {
-                      approved: payload.approved ?? false,
-                      message: payload.message,
-                    })
-                  : await applications.interactions.respondUserInputAsync(sessionId, message.call_id, { value: payload.value });
-                sendAck("interaction", result.resolved, { ref_call_id: message.call_id, ...(result.resolved ? {} : { error: "未找到对应的交互请求，可能已被取消或不存在" }) });
-              } catch (error) {
-                sendAck("interaction", false, {
-                  ref_call_id: message.call_id,
-                  error: error instanceof Error ? error.message : "未找到对应的交互请求，可能已被取消或不存在",
-                });
-              }
-              break;
-            }
-          }
-        } catch (error) {
-          send({
-            type: "error",
-            session_id: sessionId,
-            payload: {
-              code: "invalid_message",
-              message: error instanceof Error ? error.message : "Invalid WebSocket payload",
-            },
-          });
-        }
-      });
-
+      let wsActivity: { release(): void } | null = null;
       let cleanedUp = false;
       const cleanup = (): void => {
         if (cleanedUp) return;
         cleanedUp = true;
-        clearInterval(heartbeat);
-        unsubscribe();
-        wsActivity.release();
+        try { clearHeartbeat(); } catch { /* ignore */ }
+        try { unsubscribe?.(); } catch { /* ignore */ }
+        wsActivity?.release();
         lease.release();
       };
-      ws.on("close", cleanup);
-      ws.on("error", cleanup);
+      let clearHeartbeat: () => void = () => undefined;
+      let unsubscribe: (() => void) | null = null;
+      try {
+        const container = request.container;
+        wsActivity = options.registry.trackWebSocket(lease.tenantId);
+        // Register close/error immediately so mid-setup failures still release the lease.
+        ws.on("close", cleanup);
+        ws.on("error", cleanup);
+
+        const applications = await ensureRequestApplications(request, options);
+        const executionRead = applications.executionRead;
+        const session = await applications.sessions.getSession(sessionId);
+        const widgetMeta = (session?.metadata as { widget?: { app_key?: string } } | undefined)?.widget;
+        if (widgetMeta?.app_key && request.identity.userId !== widgetUserId(widgetMeta.app_key)) {
+          ws.close(4001, "unauthorized");
+          cleanup();
+          return;
+        }
+        if (!session) {
+          ws.close(4004, "session not found");
+          cleanup();
+          return;
+        }
+        try {
+          const sessionWidgetMeta = (session.metadata as { widget?: { app_key?: string } }).widget;
+          if (sessionWidgetMeta?.app_key) {
+            request.identity = {
+              userId: widgetUserId(sessionWidgetMeta.app_key),
+              tenantId: lease.tenantId,
+              role: "widget",
+              permissions: ["sessions:create"],
+            };
+            request.userId = request.identity.userId;
+          }
+          await assertSessionOwner(request, session);
+        } catch {
+          ws.close(4003, "forbidden");
+          cleanup();
+          return;
+        }
+        const afterSeq = parseSeqCursor(request.query.after_seq);
+        let lastSeq = 0;
+        let boundRunId: string | null = null;
+
+        // seq 兼任持久化去重 + 连续性游标：envelope 自带 seq（row.session_seq，由 projector 盖戳），
+        // 此处只追踪已发最大 seq 供 heartbeat/重连 cursor；不再注入连接内 stream_seq。
+        const send = (payload: Envelope): void => {
+          if (ws.readyState !== WS_OPEN) {
+            return;
+          }
+          if (typeof payload.seq === "number" && payload.seq > lastSeq) {
+            lastSeq = payload.seq;
+          }
+          ws.send(JSON.stringify(payload));
+        };
+        const sendAck = (
+          category: "send" | "stop" | "interaction" | "tool_delegate",
+          ok: boolean,
+          extra: { ref_call_id?: string; error?: string } = {},
+        ): void => {
+          send({ type: "ack", session_id: sessionId, payload: { category, ok, ...extra } });
+        };
+        const sendReconnect = (
+          phase: "start" | "end",
+          replayCount: number,
+          runId?: string | null,
+          replaySource?: "durable_outbox" | "memory",
+        ): void => {
+          send({
+            type: "session.reconnect",
+            session_id: sessionId,
+            ...(runId ? { run_id: runId } : {}),
+            payload: { phase, replay_count: replayCount, ...(replaySource ? { replay_source: replaySource } : {}) },
+          });
+        };
+
+        unsubscribe = container.realtimeEvents.subscribe(sessionId, (event) => {
+          send(event);
+          if (event.type !== "run_started") {
+            return;
+          }
+          const runId = typeof event.run_id === "string" ? event.run_id : null;
+          if (!runId || runId === boundRunId) {
+            return;
+          }
+          boundRunId = runId;
+          sendReconnect("start", 0, runId);
+          sendReconnect("end", 0, runId);
+        });
+        const heartbeat = setInterval(() => {
+          send({
+            type: "heartbeat",
+            session_id: sessionId,
+            payload: { last_seq: lastSeq },
+          });
+        }, 20_000);
+        clearHeartbeat = () => clearInterval(heartbeat);
+
+        const durableReplay = await buildDurableOutboxReplay(executionRead, sessionId, afterSeq);
+        if (durableReplay) {
+          boundRunId = durableReplay.runId;
+          sendReconnect("start", durableReplay.events.length, durableReplay.runId, "durable_outbox");
+          for (const env of durableReplay.events) {
+            send(env);
+          }
+          sendReconnect("end", durableReplay.events.length, durableReplay.runId, "durable_outbox");
+        }
+
+        const activeReplay = await buildActiveRunReplay(executionRead, container, sessionId);
+        if (activeReplay) {
+          boundRunId = activeReplay.runId;
+          sendReconnect("start", activeReplay.events.length, activeReplay.runId);
+          for (const env of activeReplay.events) {
+            send(env);
+          }
+          sendReconnect("end", activeReplay.events.length, activeReplay.runId);
+        }
+
+        ws.on("message", async (data) => {
+          const raw = data.toString();
+          try {
+            const message = ClientToServerEnvelopeSchema.parse(JSON.parse(raw));
+            switch (message.type) {
+              case "user_driven_change": {
+                const payload = message.payload;
+                applications.execution
+                  .startStream(
+                    {
+                      task: payload.task,
+                      session_id: sessionId,
+                      userId: request.userId,
+                      selected_llm: payload.selected_llm,
+                      attachments: payload.attachments,
+                      ui_context: payload.ui_context,
+                    },
+                    payload.request_id ?? randomUUID(),
+                  )
+                  .then((result) => {
+                    sendAck("send", result.started, result.started ? {} : { error: result.error ?? "Agent stream 未启动" });
+                  })
+                  .catch((error) => {
+                    sendAck("send", false, { error: error instanceof Error ? error.message : "Agent stream execution failed" });
+                  });
+                break;
+              }
+              case "abort":
+                applications.execution.stopSession(sessionId).catch(() => undefined);
+                sendAck("stop", true);
+                break;
+              case "tools.register":
+                // 握手期前端推送本连接可委托执行的工具清单（覆盖式）。runtime-adapter per-run 取用。
+                container.hostToolRegistry.register(sessionId, message.payload.tools);
+                break;
+              case "delegate_result": {
+                // 委托执行回传：按 call_id 唤醒转发壳 Tool.call 的等待器。
+                const payload = message.payload;
+                const resolved = container.delegationPending.resolve(message.call_id, {
+                  ok: payload.ok,
+                  ...(payload.observation !== undefined ? { observation: payload.observation } : {}),
+                  ...(payload.error !== undefined ? { error: payload.error } : {}),
+                  ...(payload.elapsed_ms !== undefined ? { elapsedMs: payload.elapsed_ms } : {}),
+                });
+                sendAck("tool_delegate", resolved, { ref_call_id: message.call_id, ...(resolved ? {} : { error: "未找到对应的委托等待，可能已超时或取消" }) });
+                break;
+              }
+              case "interaction": {
+                const payload = message.payload;
+                try {
+                  const result = payload.kind === "approval"
+                    ? await applications.interactions.respondApprovalAsync(sessionId, message.call_id, {
+                        approved: payload.approved ?? false,
+                        message: payload.message,
+                      })
+                    : await applications.interactions.respondUserInputAsync(sessionId, message.call_id, { value: payload.value });
+                  sendAck("interaction", result.resolved, { ref_call_id: message.call_id, ...(result.resolved ? {} : { error: "未找到对应的交互请求，可能已被取消或不存在" }) });
+                } catch (error) {
+                  sendAck("interaction", false, {
+                    ref_call_id: message.call_id,
+                    error: error instanceof Error ? error.message : "未找到对应的交互请求，可能已被取消或不存在",
+                  });
+                }
+                break;
+              }
+            }
+          } catch (error) {
+            send({
+              type: "error",
+              session_id: sessionId,
+              payload: {
+                code: "invalid_message",
+                message: error instanceof Error ? error.message : "Invalid WebSocket payload",
+              },
+            });
+          }
+        });
+      } catch {
+        try { ws.close(1011, "internal error"); } catch { /* ignore */ }
+        cleanup();
+      }
     },
   );
 };

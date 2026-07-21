@@ -16,6 +16,11 @@ export class SaaSProviderMcpApplication {
     return this.runtimes.resolve(tenantId);
   }
 
+  /** Release tenant MCP connections when the tenant runtime is idle-closed. */
+  dropMcpRuntime(tenantId: TenantId): void {
+    this.runtimes.drop(tenantId);
+  }
+
   close(): void {
     this.runtimes.close();
   }

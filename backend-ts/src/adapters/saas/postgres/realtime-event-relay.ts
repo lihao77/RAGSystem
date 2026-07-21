@@ -32,6 +32,16 @@ export class PostgresRealtimeEventRelay {
     await this.ensureConnected(false);
   }
 
+  /**
+   * Fan-out a projected outbox envelope to every in-process bus registered for the tenant.
+   * Used by the shared process-level outbox dispatcher.
+   */
+  publishOutbox(row: { tenant_id: string; session_id: string }, event: Envelope): void {
+    const buses = this.buses.get(row.tenant_id);
+    if (!buses?.size) return;
+    for (const bus of buses) bus.acceptRemote(row.session_id, event);
+  }
+
   createBus(tenantId: string): PostgresRealtimeEventBus {
     const bus = new PostgresRealtimeEventBus(tenantId, this);
     const buses = this.buses.get(tenantId) ?? new Set<PostgresRealtimeEventBus>();

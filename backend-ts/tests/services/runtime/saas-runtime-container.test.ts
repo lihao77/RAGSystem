@@ -20,14 +20,20 @@ describe("SaaS runtime container composition", () => {
     expect(source).toContain("createRuntimeStorage");
     expect(source).toContain("createDelegationStore");
     expect(source).toContain("createAgentConfigTeamStore");
-    expect(source).toContain("AsyncOutboxDispatcher");
+    expect(source).toContain("sharedOutboxDispatcher");
+    expect(source).toContain("dropMcpRuntime");
     expect(source).not.toContain("FileAgentConfigTeamStore");
   });
 
   it("refreshes tenant provider configuration before use", async () => {
     const replaceRuntimeProviders = vi.fn();
     const listProviders = vi.fn(async () => [{ id: "provider-a" }]);
-    const runtime = { deploymentKind: "saas", modelAdapter: { replaceRuntimeProviders } } as unknown as RuntimeContainer;
+    const reload = vi.fn(async () => undefined);
+    const runtime = {
+      deploymentKind: "saas",
+      modelAdapter: { replaceRuntimeProviders },
+      systemConfig: { reload },
+    } as unknown as RuntimeContainer;
     const conversationRuntime = {
       providerMcpApplication: { listProviders },
     } as unknown as SaaSConversationRuntimeHandle;
@@ -36,5 +42,6 @@ describe("SaaS runtime container composition", () => {
 
     expect(listProviders).toHaveBeenCalledWith("tenant-a");
     expect(replaceRuntimeProviders).toHaveBeenCalledWith([{ id: "provider-a" }]);
+    expect(reload).toHaveBeenCalled();
   });
 });
