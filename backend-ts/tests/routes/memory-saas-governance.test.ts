@@ -128,6 +128,11 @@ async function appWith(
         })),
       },
     } as unknown as typeof request.container;
+    request.applications = {
+      sessions: request.container.sessionApplication,
+      memory,
+      artifacts: {}, analytics: {}, monitoring: {}, executionRead: {}, interactions: {}, execution: {},
+    } as never;
   });
   await app.register(registerMemoryRoutes, {
     prefix: "/api/memory",
@@ -232,7 +237,7 @@ describe("SaaS memory governance routes", () => {
       const response = await app.inject({
         method: "POST",
         url: `/api/memory/entries/${entryId}/archive`,
-        payload: { expected_version: entry.version },
+        payload: {},
       });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({ success: true, data: { status: "archived" } });
@@ -310,7 +315,7 @@ describe("SaaS memory governance routes", () => {
       const updated = await app.inject({
         method: "PATCH",
         url: `/api/memory/candidates/${candidateId}`,
-        payload: { expected_version: 1, content: "Updated" },
+        payload: { content: "Updated" },
       });
       expect(updated.statusCode).toBe(200);
       expect(memory.commands.updateCandidate).toHaveBeenCalledWith(expect.objectContaining({
@@ -322,10 +327,10 @@ describe("SaaS memory governance routes", () => {
       const withdrawn = await app.inject({
         method: "DELETE",
         url: `/api/memory/candidates/${candidateId}`,
-        payload: { expected_version: 2 },
+        payload: {},
       });
       expect(withdrawn.statusCode).toBe(200);
-      expect(memory.commands.withdrawCandidate).toHaveBeenCalledWith(expect.objectContaining({ expected_version: 2 }));
+      expect(memory.commands.withdrawCandidate).toHaveBeenCalledWith(expect.objectContaining({ expected_version: 1 }));
     } finally {
       await app.close();
     }
@@ -347,6 +352,26 @@ describe("SaaS memory governance routes", () => {
         limit: 50,
         offset: 0,
       });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("claims a candidate with the current version when the client omits it", async () => {
+    const memory = application();
+    const app = await appWith(memory);
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/memory/admin/candidates/${candidateId}/claim`,
+        payload: {},
+      });
+      expect(response.statusCode).toBe(200);
+      expect(memory.governance.claimCandidate).toHaveBeenCalledWith(expect.objectContaining({
+        candidate_id: candidateId,
+        expected_version: 1,
+        reviewer_user_id: "usr_admin",
+      }));
     } finally {
       await app.close();
     }
@@ -388,7 +413,7 @@ describe("SaaS memory governance routes", () => {
       const response = await app.inject({
         method: "POST",
         url: `/api/memory/admin/candidates/${candidateId}/approve`,
-        payload: { expected_version: 1, comment: "approved" },
+        payload: { comment: "approved" },
       });
       expect(response.statusCode).toBe(200);
       expect(memory.governance.claimCandidate).toHaveBeenCalledWith(expect.objectContaining({

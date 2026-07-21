@@ -6,6 +6,7 @@ import { KnowledgeBaseError } from "../contracts/knowledge/knowledge-base.js";
 import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
+import { requireLocalRuntime } from "./local-runtime-capabilities.js";
 
 interface ModelParams {
   modelId: string;
@@ -28,7 +29,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
 
   app.get("/models", async (request) => ({
     success: true,
-    models: await request.container.embeddingModels.listModels(),
+    models: await requireLocalRuntime(request, "embedding model administration").embeddingModels.listModels(),
   }));
 
   app.post<{ Params: ModelParams }>("/models/:modelId/activate", async (request) => {
@@ -36,7 +37,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     try {
       return {
         success: true,
-        ...(await request.container.embeddingModels.activateModel(parseModelId(request.params.modelId), { missingOk: true })),
+        ...(await requireLocalRuntime(request, "embedding model administration").embeddingModels.activateModel(parseModelId(request.params.modelId), { missingOk: true })),
       };
     } catch (error) {
       throw toHttpError(error);
@@ -48,7 +49,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     try {
       return {
         success: true,
-        ...(await request.container.embeddingModels.deleteModel(
+        ...(await requireLocalRuntime(request, "embedding model administration").embeddingModels.deleteModel(
           parseModelId(request.params.modelId),
           parseBoolean(request.query.force),
         )),
@@ -65,7 +66,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     try {
       return {
         success: true,
-        ...(await request.container.embeddingModels.syncModel(modelId, payload)),
+        ...(await requireLocalRuntime(request, "embedding model administration").embeddingModels.syncModel(modelId, payload)),
       };
     } catch (error) {
       if (error instanceof KnowledgeBaseError && error.statusCode === 404 && error.message.startsWith("模型不存在:")) {
@@ -79,7 +80,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     void request.query.collection;
     return {
       success: true,
-      stats: await request.container.embeddingModels.getModelStats(parseModelId(request.params.modelId)),
+      stats: await requireLocalRuntime(request, "embedding model administration").embeddingModels.getModelStats(parseModelId(request.params.modelId)),
     };
   });
 
@@ -88,7 +89,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     return {
       success: true,
       collection,
-      sync_status: await request.container.embeddingModels.getSyncStatus(collection),
+      sync_status: await requireLocalRuntime(request, "embedding model administration").embeddingModels.getSyncStatus(collection),
     };
   });
 };

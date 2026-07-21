@@ -8,6 +8,7 @@ const compositionFile = (name: string) => resolve(
   "src/adapters/saas/composition",
   name,
 );
+const sourceFile = (...parts: string[]) => resolve(process.cwd(), "src", ...parts);
 
 describe("SaaS runtime architecture", () => {
   it("keeps the SaaS runtime composition independent from Local and SQLite factories", async () => {
@@ -20,6 +21,14 @@ describe("SaaS runtime architecture", () => {
     expect(source).not.toContain("createConversationStore");
     expect(source).not.toContain("FileIndexService");
     expect(source).not.toContain("createVectorStoreFromConfig");
+    expect(source).not.toContain("null as unknown");
+    expect(source).not.toContain("as unknown as");
+    expect(source).not.toContain("ConversationStore");
+    expect(source).not.toContain("IFileHistoryStore");
+    expect(source).not.toContain("IFileIndexStore");
+    expect(source).not.toContain("IMemoryStore");
+    expect(source).toContain("capabilities: {");
+    expect(source).toContain("eventDispatcher: asyncOutboxDispatcher");
   });
 
   it("does not provision a tenant-local SQLite database from the SaaS registry", async () => {
@@ -31,5 +40,16 @@ describe("SaaS runtime architecture", () => {
     expect(source).not.toContain("createConversationStore");
     expect(source).not.toContain("FileIndexService");
     expect(source).not.toContain("createVectorStoreFromConfig");
+  });
+
+  it("keeps Local-only repositories outside the shared core dependency surface", async () => {
+    const source = await readFile(sourceFile("services", "runtime", "core-runtime-container.ts"), "utf8");
+
+    expect(source).not.toContain("conversationStore");
+    expect(source).not.toContain("knowledgeBase");
+    expect(source).not.toContain("transientArtifacts");
+    expect(source).not.toContain("memoryStore");
+    expect(source).toContain("sessionFiles.kind");
+    expect(source).toContain("eventDispatcher");
   });
 });

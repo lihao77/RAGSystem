@@ -18,10 +18,6 @@ describe("async session metadata resolver", () => {
     const port = await resolveSessionMetadataPort(
       "session-1",
       {
-        getSession: () => { throw new Error("Local session store must not be read"); },
-        updateSessionMetadata: () => { throw new Error("Local session store must not be written"); },
-      },
-      {
         getSession: async () => session(),
         updateSessionMetadata: async (_sessionId, patch) => {
           writes.push(patch);

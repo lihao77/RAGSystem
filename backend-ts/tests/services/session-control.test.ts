@@ -71,7 +71,10 @@ describe("SessionControl", () => {
       cancelledInteractions: 2,
       records: [],
     });
-    const asyncClientEvents = { deliver: vi.fn().mockResolvedValue(undefined) };
+    const asyncClientEvents = {
+      publish: vi.fn(async () => { throw new Error("publish is not used by suspended stop"); }),
+      deliver: vi.fn().mockResolvedValue([]),
+    };
     const control = createSessionControl({
       statusTracker: new AgentExecutionStatusTracker(),
       eventPublisher: new AgentExecutionEventPublisher(clientEvents),

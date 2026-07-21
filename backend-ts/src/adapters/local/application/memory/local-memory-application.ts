@@ -10,7 +10,6 @@ import type { JsonValue } from "../../../../contracts/common.js";
 
 /** Adapts Local filesystem memory and SQLite governance records to the async application contract. */
 export class LocalMemoryApplication implements MemoryApplication {
-  readonly requiresExpectedVersion = false;
   readonly query: MemoryQueryService;
   readonly commands: MemoryCommandService;
   readonly governance: MemoryGovernanceService;
@@ -52,8 +51,20 @@ class LocalCommandService implements MemoryCommandService {
     const candidate = this.conversation.createMemoryCandidate({ tenantId: this.tenantId, ownerUserId: value.owner_user_id, targetScope: value.scope, operation: value.operation, teamName: value.scope_id, ...(value.name !== undefined ? { name: value.name } : { name: `Archive ${value.target_memory_id ?? "memory"}` }), description: value.description ?? "", memoryType: value.memory_type ?? "fact", content: value.content ?? "", ...(resolved?.storage_key ? { targetFileName: resolved.storage_key } : {}) });
     return toPersistedCandidate(candidate);
   }
-  async updateCandidate(input: Parameters<MemoryCommandService["updateCandidate"]>[0]) { const ok = this.conversation.updateMemoryCandidate({ id: input.candidate_id, ownerUserId: input.owner_user_id, ...(input.name !== undefined ? { name: input.name } : {}), ...(input.description !== undefined ? { description: input.description } : {}), ...(input.content !== undefined ? { content: input.content } : {}), ...(input.why !== undefined ? { why: input.why } : {}), ...(input.how_to_apply !== undefined ? { howToApply: input.how_to_apply } : {}) }); return ok ? { outcome: "applied" as const, candidate: toPersistedCandidate(this.conversation.getMemoryCandidate(input.candidate_id)!) } : { outcome: "not_found" as const }; }
-  async withdrawCandidate(input: Parameters<MemoryCommandService["withdrawCandidate"]>[0]) { const ok = this.conversation.withdrawMemoryCandidate(input.candidate_id, input.owner_user_id); return ok ? { outcome: "applied" as const, candidate: toPersistedCandidate(this.conversation.getMemoryCandidate(input.candidate_id)!) } : { outcome: "not_found" as const }; }
+  async updateCandidate(input: Parameters<MemoryCommandService["updateCandidate"]>[0]) {
+    const current = this.conversation.getMemoryCandidate(input.candidate_id);
+    if (!current || current.tenant_id !== this.tenantId) return { outcome: "not_found" as const };
+    if (input.expected_version !== toPersistedCandidate(current).version) return { outcome: "state_conflict" as const };
+    const ok = this.conversation.updateMemoryCandidate({ id: input.candidate_id, ownerUserId: input.owner_user_id, ...(input.name !== undefined ? { name: input.name } : {}), ...(input.description !== undefined ? { description: input.description } : {}), ...(input.content !== undefined ? { content: input.content } : {}), ...(input.why !== undefined ? { why: input.why } : {}), ...(input.how_to_apply !== undefined ? { howToApply: input.how_to_apply } : {}) });
+    return ok ? { outcome: "applied" as const, candidate: toPersistedCandidate(this.conversation.getMemoryCandidate(input.candidate_id)!) } : { outcome: "state_conflict" as const };
+  }
+  async withdrawCandidate(input: Parameters<MemoryCommandService["withdrawCandidate"]>[0]) {
+    const current = this.conversation.getMemoryCandidate(input.candidate_id);
+    if (!current || current.tenant_id !== this.tenantId) return { outcome: "not_found" as const };
+    if (input.expected_version !== toPersistedCandidate(current).version) return { outcome: "state_conflict" as const };
+    const ok = this.conversation.withdrawMemoryCandidate(input.candidate_id, input.owner_user_id);
+    return ok ? { outcome: "applied" as const, candidate: toPersistedCandidate(this.conversation.getMemoryCandidate(input.candidate_id)!) } : { outcome: "state_conflict" as const };
+  }
 }
 
 class LocalGovernanceService implements MemoryGovernanceService {
@@ -61,7 +72,13 @@ class LocalGovernanceService implements MemoryGovernanceService {
   async getCandidate(id: string) { const row = this.conversation.getMemoryCandidate(id); return row && row.tenant_id === this.tenantId ? toPersistedCandidate(row) : null; }
   async listCandidates(query: Parameters<MemoryGovernanceService["listCandidates"]>[0] = {}) { const q = query as any; return this.conversation.listMemoryCandidates({ ...(q.owner_user_id !== undefined ? { ownerUserId: q.owner_user_id } : {}), ...(q.statuses ? { statuses: q.statuses } : {}), ...(q.scope ? { targetScope: q.scope } : {}), ...(q.scopes ? { targetScopes: q.scopes.filter((s: string) => s === "team" || s === "agent") } : {}), ...(q.operation ? { operation: q.operation } : {}), ...(q.limit !== undefined ? { limit: q.limit } : {}), ...(q.offset !== undefined ? { offset: q.offset } : {}) }).filter((row) => row.tenant_id === this.tenantId).map(toPersistedCandidate); }
   async countCandidates(query: Parameters<MemoryGovernanceService["countCandidates"]>[0] = {}) { const q = query as any; return this.conversation.countMemoryCandidates({ ...(q.owner_user_id !== undefined ? { ownerUserId: q.owner_user_id } : {}), ...(q.statuses ? { statuses: q.statuses } : {}), ...(q.scope ? { targetScope: q.scope } : {}), ...(q.scopes ? { targetScopes: q.scopes.filter((s: string) => s === "team" || s === "agent") } : {}), ...(q.operation ? { operation: q.operation } : {}) }); }
-  async claimCandidate(input: Parameters<MemoryGovernanceService["claimCandidate"]>[0]) { const claim = this.conversation.claimMemoryCandidate(input.candidate_id, input.reviewer_user_id); return claim ? { outcome: "claimed" as const, candidate: toPersistedCandidate(this.conversation.getMemoryCandidate(input.candidate_id)!), review_claim_token: claim.attemptId } : { outcome: "state_conflict" as const }; }
+  async claimCandidate(input: Parameters<MemoryGovernanceService["claimCandidate"]>[0]) {
+    const current = this.conversation.getMemoryCandidate(input.candidate_id);
+    if (!current || current.tenant_id !== this.tenantId) return { outcome: "not_found" as const };
+    if (input.expected_version !== toPersistedCandidate(current).version) return { outcome: "state_conflict" as const };
+    const claim = this.conversation.claimMemoryCandidate(input.candidate_id, input.reviewer_user_id);
+    return claim ? { outcome: "claimed" as const, candidate: toPersistedCandidate(this.conversation.getMemoryCandidate(input.candidate_id)!), review_claim_token: claim.attemptId } : { outcome: "state_conflict" as const };
+  }
   async releaseCandidate(input: Parameters<MemoryGovernanceService["releaseCandidate"]>[0]) { const ok = this.conversation.releaseMemoryCandidate(input.candidate_id, input.reviewer_user_id, input.review_claim_token); return ok ? { outcome: "applied" as const, candidate: toPersistedCandidate(this.conversation.getMemoryCandidate(input.candidate_id)!) } : { outcome: "state_conflict" as const }; }
   async rejectCandidate(input: Parameters<MemoryGovernanceService["rejectCandidate"]>[0]) { const ok = this.conversation.reviewMemoryCandidate({ id: input.candidate_id, status: "rejected", reviewerUserId: input.reviewer_user_id, attemptId: input.review_claim_token, ...(input.review_comment !== undefined ? { reviewComment: input.review_comment } : {}) }); return ok ? { outcome: "applied" as const, candidate: toPersistedCandidate(this.conversation.getMemoryCandidate(input.candidate_id)!) } : { outcome: "state_conflict" as const }; }
   async approveCandidate(input: Parameters<MemoryGovernanceService["approveCandidate"]>[0]) {
@@ -82,6 +99,8 @@ class LocalGovernanceService implements MemoryGovernanceService {
       };
       return { outcome: "archived" as const, candidate, memory: { ...resolved.memory, status: "archived" as const, archived_at: new Date().toISOString() }, scope_revision: 0 };
     }
+    if (row.tenant_id !== this.tenantId) return { outcome: "not_found" as const };
+    if (input.expected_version !== toPersistedCandidate(row).version) return { outcome: "state_conflict" as const };
     const ok = this.conversation.reviewMemoryCandidate({ id: input.candidate_id, status: "approved", reviewerUserId: input.reviewer_user_id, ...(input.review_claim_token ? { attemptId: input.review_claim_token } : {}) });
     if (!ok) return { outcome: "state_conflict" as const };
     const candidate = toPersistedCandidate(this.conversation.getMemoryCandidate(input.candidate_id)!);

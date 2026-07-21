@@ -21,10 +21,11 @@ export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async 
     ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
     ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
+    ...(options.resolveExecutionApplication ? { resolveExecutionApplication: options.resolveExecutionApplication } : {}),
     ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
     ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
-    ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),
-    ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),
+    ...(options.resolveSessionFileApplication ? { resolveSessionFileApplication: options.resolveSessionFileApplication } : {}),
+    ...(options.resolveFileChangeApplication ? { resolveFileChangeApplication: options.resolveFileChangeApplication } : {}),
   };
   await app.register(registerAgentManagementRoutes, routeOptions);
   await app.register(registerExecutionRoutes, routeOptions);

@@ -130,7 +130,7 @@ describe("suspended stop Local/SaaS parity", () => {
     await expect(control.stopSession(sessionId)).resolves.toBe(false);
 
     const storage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
-    const publisher = new AsyncDurableClientEventPublisher(storage, { dispatchRows: async () => undefined });
+    const publisher = new AsyncDurableClientEventPublisher(storage, { dispatchRows: async () => [] });
     const coordinator = new RuntimeInteractionCoordinator(storage, publisher);
     await expect(coordinator.respondApprovalAsync(sessionId, "interaction-resolved", { approved: true, message: "replay" }))
       .resolves.toMatchObject({ resolved: false, needsResume: false });
@@ -145,7 +145,7 @@ describe("suspended stop Local/SaaS parity", () => {
       { run_id: "root-run", parent_run_id: null, status: "suspended" },
       { run_id: "child-run", parent_run_id: "root-run", status: "suspended" },
     ];
-    const pending = STATUSES.map((status) => ({ status }));
+    const pending: Array<{ status: string }> = STATUSES.map((status) => ({ status }));
     const interruptSession = vi.fn().mockImplementation(async () => {
       const interruptedRuns = runs.filter((run) => run.status === "suspended");
       for (const run of interruptedRuns) run.status = "interrupted";
@@ -161,7 +161,7 @@ describe("suspended stop Local/SaaS parity", () => {
       tenantId: createTenantId("tnt_a"),
       operations: { interruptSession },
     };
-    const deliver = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue([]);
     const pendingPort = { cancelSession: vi.fn() };
     const control = createSessionControl({
       statusTracker: new AgentExecutionStatusTracker(),
@@ -169,7 +169,10 @@ describe("suspended stop Local/SaaS parity", () => {
       conversationStore: { listRuns: () => ({ items: [] }) } as never,
       pendingInteractions: pendingPort as never,
       runtimeStorage: runtimeStorage as never,
-      asyncClientEvents: { deliver },
+      asyncClientEvents: {
+        publish: vi.fn(async () => { throw new Error("publish is not used by suspended stop"); }),
+        deliver,
+      },
       executeSynchronously: vi.fn(),
     });
 

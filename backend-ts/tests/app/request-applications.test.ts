@@ -12,6 +12,9 @@ describe("createRequestApplications", () => {
     const executionRead = {};
     const interactions = {};
     const executionCore = {};
+    const execution = {};
+    const providers = {};
+    const mcp = {};
     const options = {
       resolveSessionApplication: vi.fn().mockResolvedValue(sessions),
       resolveMemoryApplication: vi.fn().mockResolvedValue(memory),
@@ -19,6 +22,9 @@ describe("createRequestApplications", () => {
       resolveAnalytics: vi.fn().mockResolvedValue(analytics),
       resolveMonitoringApplication: vi.fn().mockResolvedValue(monitoring),
       resolveExecutionRead: vi.fn().mockResolvedValue(executionRead),
+      resolveExecutionApplication: vi.fn().mockResolvedValue(execution),
+      resolveProviderApplication: vi.fn().mockResolvedValue(providers),
+      resolveMcpApplication: vi.fn().mockResolvedValue(mcp),
     };
 
     await expect(createRequestApplications({
@@ -31,17 +37,27 @@ describe("createRequestApplications", () => {
       monitoring,
       executionRead,
       interactions,
-      execution: expect.anything(),
+      execution,
+      providers,
+      mcp,
     });
     expect(options.resolveExecutionRead).toHaveBeenCalledOnce();
   });
 
-  it("rejects an undefined SaaS resolver instead of falling back to Local storage", async () => {
+  it("rejects an undefined resolver without consulting deployment kind", async () => {
     await expect(createRequestApplications({
       identity: { tenantId: "tnt_saas" },
       container: { deploymentKind: "saas" },
-    } as never, {
-      resolveSessionApplication: vi.fn().mockResolvedValue(undefined),
-    } as never)).rejects.toThrow("SaaS session application resolver returned no implementation");
+    } as never, completeResolvers({ resolveSessionApplication: vi.fn().mockResolvedValue(undefined) }) as never)).rejects.toThrow("session application resolver returned no implementation");
   });
 });
+
+function completeResolvers(overrides: Record<string, unknown> = {}) {
+  return {
+    resolveSessionApplication: vi.fn().mockResolvedValue({}), resolveMemoryApplication: vi.fn().mockResolvedValue({}),
+    resolveArtifactApplication: vi.fn().mockResolvedValue({}), resolveAnalytics: vi.fn().mockResolvedValue({}),
+    resolveMonitoringApplication: vi.fn().mockResolvedValue({}), resolveExecutionRead: vi.fn().mockResolvedValue({}),
+    resolveExecutionApplication: vi.fn().mockResolvedValue({}), ...overrides,
+    resolveProviderApplication: vi.fn().mockResolvedValue({}), resolveMcpApplication: vi.fn().mockResolvedValue({}),
+  };
+}

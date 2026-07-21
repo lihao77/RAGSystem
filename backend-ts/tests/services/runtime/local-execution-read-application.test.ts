@@ -11,7 +11,12 @@ describe("LocalExecutionReadApplication", () => {
       listRunningTasks: vi.fn(() => ({ active_only: true, count: 0, items: [] })),
       getOverview: vi.fn(() => ({ active_only: true, count: 1, by_execution_kind: {}, by_status: {}, sessions: [], items: [] })),
     };
-    const conversations = { getPersistedExecutionOverview: vi.fn() };
+    const conversations = {
+      getSession: vi.fn(() => ({ session_id: "s1" })),
+      listRuns: vi.fn(() => ({ items: [] })),
+      listOutboxForReplay: vi.fn(() => []),
+      getPersistedExecutionOverview: vi.fn(() => ({ active_only: false, count: 0, by_execution_kind: {}, by_status: {}, sessions: [], items: [] })),
+    };
     const application = new LocalExecutionReadApplication(execution as never, conversations as never);
 
     await application.getSessionTaskStatus("s1");
@@ -23,14 +28,19 @@ describe("LocalExecutionReadApplication", () => {
 
     expect(execution.getSessionTaskStatus).toHaveBeenCalledWith("s1");
     expect(execution.getTaskStatus).toHaveBeenCalledWith("t1");
-    expect(conversations.getPersistedExecutionOverview).not.toHaveBeenCalled();
+    expect(conversations.getPersistedExecutionOverview).toHaveBeenCalled();
   });
 
   it("falls back to persisted overview when no live tasks are tracked", async () => {
     const live = { active_only: false, count: 0, by_execution_kind: {}, by_status: {}, sessions: [], items: [] };
     const persisted = { ...live, count: 2 };
     const execution = { getOverview: vi.fn(() => live) };
-    const conversations = { getPersistedExecutionOverview: vi.fn(() => persisted) };
+    const conversations = {
+      getSession: vi.fn(() => ({ session_id: "s1" })),
+      listRuns: vi.fn(() => ({ items: [] })),
+      listOutboxForReplay: vi.fn(() => []),
+      getPersistedExecutionOverview: vi.fn(() => persisted),
+    };
     const application = new LocalExecutionReadApplication(execution as never, conversations as never);
 
     await expect(application.getOverview(false)).resolves.toBe(persisted);

@@ -41,7 +41,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
         let lease;
         try {
           if (request.query.ticket) {
-            const identity = options.wsTickets.consume(request.query.ticket, sessionId);
+            const identity = await options.wsTickets.consume(request.query.ticket, sessionId);
             request.identity = identity;
             request.userId = identity.userId;
             lease = await options.registry.acquire(identity.tenantId);
@@ -204,7 +204,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
                   payload.request_id ?? randomUUID(),
                 )
                 .then((result) => {
-                  sendAck("send", result.started, result.started ? {} : { error: "Agent stream 未启动" });
+                  sendAck("send", result.started, result.started ? {} : { error: result.error ?? "Agent stream 未启动" });
                 })
                 .catch((error) => {
                   sendAck("send", false, { error: error instanceof Error ? error.message : "Agent stream execution failed" });

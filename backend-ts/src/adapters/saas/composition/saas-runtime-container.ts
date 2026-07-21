@@ -2,38 +2,26 @@ import path from "node:path";
 
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 
-import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { IFileHistoryStore } from "../../../contracts/file-history-store/index.js";
-import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
-import type { IMemoryStore } from "../../../contracts/memory-store/index.js";
-import type { RuntimeContainer } from "../../../contracts/runtime/runtime-container.js";
+import type { RuntimeContainer, SaaSRuntimeContainer } from "../../../contracts/runtime/runtime-container.js";
 import type { TenantId } from "../../../identity/types.js";
 import { AgentConfigService } from "../../../services/agent/config/index.js";
 import type { AgentExecutionLogger } from "../../../services/agent/execution/index.js";
 import { AsyncKernelEventPersister } from "../../../services/agent/sdk/async-event-persister.js";
-import type { ArtifactService } from "../../../services/artifacts/artifact-service.js";
-import type { TransientArtifactService } from "../../../services/artifacts/transient-artifact-service.js";
 import { SystemConfigService } from "../../../services/config/system-config-service.js";
-import { McpService } from "../../../services/integrations/mcp-service.js";
 import { ModelAdapterService } from "../../../services/integrations/model-adapter-service.js";
-import { EmbeddingModelService } from "../../../services/knowledge/embedding-model-service.js";
-import type { KnowledgeBaseService } from "../../../services/knowledge/knowledge-base-service.js";
 import { BackgroundTaskService } from "../../../services/runtime/background-task-service.js";
 import { createCoreRuntimeContainer } from "../../../services/runtime/core-runtime-container.js";
 import { DelegationPendingService } from "../../../services/runtime/delegation-pending-service.js";
 import { AsyncDurableClientEventPublisher } from "../../../services/runtime/event-outbox/async-client-event-publisher.js";
 import { AsyncOutboxDispatcher } from "../../../services/runtime/event-outbox/async-dispatcher.js";
-import type { DurableClientEventPublisher } from "../../../services/runtime/event-outbox/client-event-publisher.js";
-import type { OutboxDispatcher } from "../../../services/runtime/event-outbox/dispatcher.js";
 import { HostToolRegistry } from "../../../services/runtime/host-tool-registry.js";
 import { PathApprovalService } from "../../../services/runtime/path-approval-service.js";
-import { RealtimeEventHub } from "../../../services/runtime/realtime-event-hub.js";
 import { SessionNotificationQueue } from "../../../services/runtime/session-notification-queue.js";
-import type { AgentSessionApplication } from "../../../services/sessions/index.js";
 import { SkillLibraryService } from "../../../services/skills/skill-library-service.js";
 import { SkillToolService } from "../../../tools/SkillTools/SkillExecution.js";
 import { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { SaaSSessionApplication } from "../application/session/saas-session-application.js";
+import { SaaSExecutionMemoryCandidates } from "../application/memory/saas-execution-memory-candidates.js";
 import { SaaSAgentMetricsStore } from "../postgres/saas-agent-metrics-store.js";
 import { SaaSPermissionPolicyStore } from "../postgres/saas-permission-policy-store.js";
 import { createPostgresExecutionStorage } from "../postgres/postgres-execution-storage.js";
@@ -54,11 +42,11 @@ export interface SaaSRuntimeContainerOptions {
 }
 
 /** Assemble a tenant runtime without constructing any Local or SQLite adapter. */
-export function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOptions): RuntimeContainer {
+export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOptions): Promise<SaaSRuntimeContainer> {
   const { tenantId, conversationRuntime, memoryRuntime } = options;
   const dataRoot = path.resolve(options.dataRoot);
   const runtimeStorage = conversationRuntime.createRuntimeStorage(tenantId);
-  const realtimeEvents = new RealtimeEventHub();
+  const realtimeEvents = conversationRuntime.createRealtimeEventBus(tenantId);
   const asyncOutboxDispatcher = new AsyncOutboxDispatcher(
     conversationRuntime.outbox,
     realtimeEvents,
@@ -69,12 +57,14 @@ export function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOptions)
   const asyncClientEvents = new AsyncDurableClientEventPublisher(runtimeStorage, asyncOutboxDispatcher);
   const fileHistory = conversationRuntime.createFileHistoryStorage(tenantId);
   const sessionFiles = conversationRuntime.createSessionFileStorage(tenantId);
+  const memoryCandidates = new SaaSExecutionMemoryCandidates(tenantId, memoryRuntime.repository);
   const sessionApplication = new SaaSSessionApplication(
     tenantId,
     conversationRuntime.conversation,
     fileHistory,
     conversationRuntime.runs,
     conversationRuntime.outbox,
+    memoryCandidates,
   );
 
   const agentConfig = new AgentConfigService({ dataRoot, configRoot: options.agentConfigRoot });
@@ -83,7 +73,7 @@ export function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOptions)
     providersConfigPath: options.modelAdapterProvidersConfigPath,
   });
   const systemConfig = new SystemConfigService({ dataRoot, configPath: options.systemConfigPath });
-  const mcp = new McpService({ dataRoot, configPath: options.mcpConfigPath });
+  const mcp = await conversationRuntime.providerMcpApplication.resolveMcpRuntime(tenantId);
   void mcp.autoConnectEnabledServers();
   agentConfig.setMcpService(mcp);
 
@@ -107,8 +97,8 @@ export function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOptions)
     sessionApplication,
   );
   const knowledge = conversationRuntime.createKnowledgeService(tenantId, modelAdapter);
-  const knowledgeBase = knowledge as unknown as KnowledgeBaseService;
-  const embeddingModels = new EmbeddingModelService(knowledgeBase);
+  const artifacts = conversationRuntime.createArtifactService(tenantId);
+  const memory = memoryRuntime.provider.memoryForTenant(tenantId);
   const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
 
   return createCoreRuntimeContainer({
@@ -122,26 +112,19 @@ export function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOptions)
     asyncProviderContinuations: conversationRuntime.providerContinuations,
     asyncClientEvents,
     runtimeStorage,
-    conversationStore: null as unknown as ConversationStore,
     delegationStore: conversationRuntime.createDelegationStore(tenantId),
     metricsStore: new SaaSAgentMetricsStore(tenantId, conversationRuntime.analytics),
     permissionPolicyStore,
     compressionHistory: null,
-    sessionApplication: sessionApplication as unknown as AgentSessionApplication,
+    executionSessions: sessionApplication,
+    sessionApplication,
     realtimeEvents,
     agentConfig,
     modelAdapter,
     systemConfig,
     mcp,
-    fileHistory: null as unknown as IFileHistoryStore,
-    fileIndex: null as unknown as IFileIndexStore,
-    asyncSessionFiles: sessionFiles,
-    knowledgeBase,
+    sessionFiles: { kind: "async", storage: sessionFiles },
     knowledge,
-    artifacts: null as unknown as ArtifactService,
-    transientArtifacts: null as unknown as TransientArtifactService,
-    embeddingModels,
-    memoryStore: memoryRuntime.repository as unknown as IMemoryStore,
     memoryBindings,
     executionStorage: createPostgresExecutionStorage({
       tenantId,
@@ -154,6 +137,12 @@ export function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOptions)
         context,
         fileHistory,
       ),
+      resultReader: {
+        getRun: (sessionId, runId) => conversationRuntime.runs.getRun(tenantId, sessionId, runId),
+        getMessageById: (sessionId, messageId) => conversationRuntime.conversation.getMessageById(sessionId, messageId),
+        listRunSteps: (input) => conversationRuntime.runs.listRunSteps({ tenantId, ...input }),
+      },
+      memoryCandidates,
     }),
     pathAccessPolicyFactory: () => new PathApprovalService(),
     documentTools: null,
@@ -167,12 +156,20 @@ export function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOptions)
     notificationQueue,
     hostToolRegistry: new HostToolRegistry(),
     delegationPending: new DelegationPendingService(),
-    outboxDispatcher: asyncOutboxDispatcher as unknown as OutboxDispatcher,
-    clientEvents: asyncClientEvents as unknown as DurableClientEventPublisher,
+    eventDispatcher: asyncOutboxDispatcher,
+    clientEvents: asyncClientEvents,
+    capabilities: {
+      sessions: sessionApplication,
+      fileHistory,
+      sessionFiles,
+      artifacts,
+      memory,
+    },
     closeInfrastructure: () => {
       backgroundTasks.dispose();
       asyncOutboxDispatcher.stop();
-      mcp.close();
+      realtimeEvents.close();
+      // The tenant MCP runtime is owned by the shared PostgreSQL config registry.
     },
   });
 }
@@ -183,7 +180,12 @@ export async function prepareSaaSRuntimeContainer(
   runtime: RuntimeContainer,
   conversationRuntime: SaaSConversationRuntimeHandle,
 ): Promise<void> {
+  if (runtime.deploymentKind !== "saas") {
+    throw new Error("SaaS runtime preparation requires a SaaS container");
+  }
   runtime.modelAdapter.replaceRuntimeProviders(
     await conversationRuntime.providerMcpApplication.listProviders(tenantId),
   );
+  const mcp = await conversationRuntime.providerMcpApplication.resolveMcpRuntime?.(tenantId);
+  if (mcp && mcp !== runtime.mcp) throw new Error("SaaS MCP runtime identity changed while the tenant runtime was leased");
 }

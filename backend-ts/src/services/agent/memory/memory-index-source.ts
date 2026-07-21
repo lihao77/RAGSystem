@@ -19,7 +19,8 @@ import type {
 } from "../../../contracts/memory-store/index.js";
 import type { AgentContextContribution, AgentContextSource, ResolvedAgentContextRequest, SessionMetadataPort } from "../context/types.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
-import type { IMemoryCandidateStore, MemoryCandidateRecord } from "../../../contracts/conversation-store/index.js";
+import type { MemoryCandidateRecord } from "../../../contracts/conversation-store/index.js";
+import type { ExecutionMemoryCandidateListPort } from "./runtime-bindings.js";
 import {
   buildMemoryPrefixFingerprint,
   buildMemoryScopeCapabilities,
@@ -51,7 +52,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
   private readonly scopeRevisionReader: MemoryScopeRevisionReader | undefined;
 
   constructor(
-    private readonly sessions: SessionMetadataPort & Partial<IMemoryCandidateStore>,
+    private readonly sessions: SessionMetadataPort & Partial<ExecutionMemoryCandidateListPort>,
     private readonly memory: MemoryConfig,
     private readonly agentName: string,
     options: MemoryIndexContextSourceOptions = {},
@@ -89,7 +90,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
     });
     const privateCandidates = memory.auto_inject === false
       ? []
-      : this.loadPrivateCandidates(userId, sessionMetadata, scopeCapabilities.allowed_scopes);
+      : await this.loadPrivateCandidates(userId, sessionMetadata, scopeCapabilities.allowed_scopes);
     const privateCandidateRevision = fingerprintCandidates(privateCandidates);
     const revisionReader = this.scopeRevisionReader;
     const scopeRevisions = revisionReader
@@ -155,17 +156,17 @@ export class MemoryIndexContextSource implements AgentContextSource {
     return snapshot;
   }
 
-  private loadPrivateCandidates(
+  private async loadPrivateCandidates(
     userId: string | null,
     sessionMetadata: Record<string, unknown>,
     allowedScopes: string[],
-  ): MemoryCandidateRecord[] {
+  ): Promise<MemoryCandidateRecord[]> {
     if (!userId || !this.sessions.listMemoryCandidates) return [];
     const teamName = typeof sessionMetadata.team === "string" ? sessionMetadata.team.trim() : "";
     if (!teamName) return [];
     const records: MemoryCandidateRecord[] = [];
     if (allowedScopes.includes("agent")) {
-      records.push(...this.sessions.listMemoryCandidates({
+      records.push(...await this.sessions.listMemoryCandidates({
         ownerUserId: userId,
         statuses: ["candidate"],
         targetScope: "agent",
@@ -177,7 +178,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
       }));
     }
     if (allowedScopes.includes("team")) {
-      records.push(...this.sessions.listMemoryCandidates({
+      records.push(...await this.sessions.listMemoryCandidates({
         ownerUserId: userId,
         statuses: ["candidate"],
         targetScope: "team",

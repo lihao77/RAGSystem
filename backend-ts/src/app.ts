@@ -39,24 +39,30 @@ import type { SaaSMemoryRuntimeHandle } from "./adapters/saas/composition/saas-m
 import type { SaaSConversationRuntimeHandle } from "./adapters/saas/composition/saas-conversation-runtime.js";
 import { SaaSTenantRuntimeRegistry } from "./adapters/saas/composition/saas-tenant-runtime-registry.js";
 import type { SaaSControlRuntimeHandle } from "./adapters/saas/composition/saas-control-runtime.js";
-import { SaaSDaemonState } from "./adapters/saas/composition/saas-daemon-state.js";
+import { createLocalFileChangeApplicationResolver, createLocalKnowledgeApplicationResolver, createLocalRequestApplicationResolvers, createLocalSessionFileApplicationResolver } from "./adapters/local/application/local-request-application-resolvers.js";
+import { SaaSSessionFileApplication } from "./adapters/saas/application/session-file/saas-session-file-application.js";
+import { SaaSFileChangeApplication } from "./adapters/saas/application/file-change/saas-file-change-application.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
   saasMemoryRuntime?: SaaSMemoryRuntimeHandle;
   saasConversationRuntime?: SaaSConversationRuntimeHandle;
-  resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
   resolveKnowledgeFileStore?: RouteOptions["resolveKnowledgeFileStore"];
   resolveSessionFileStorage?: RouteOptions["resolveSessionFileStorage"];
   resolveFileHistoryStorage?: RouteOptions["resolveFileHistoryStorage"];
   resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
-  resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
-  resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
+  resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
+  resolveKnowledgeApplication?: RouteOptions["resolveKnowledgeApplication"];
+  resolveProviderApplication?: RouteOptions["resolveProviderApplication"];
+  resolveMcpApplication?: RouteOptions["resolveMcpApplication"];
   resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
   resolveExecutionRead?: RouteOptions["resolveExecutionRead"];
+  resolveExecutionApplication?: RouteOptions["resolveExecutionApplication"];
   resolveAnalytics?: RouteOptions["resolveAnalytics"];
   resolveMonitoringApplication?: RouteOptions["resolveMonitoringApplication"];
   resolveArtifactApplication?: RouteOptions["resolveArtifactApplication"];
+  resolveSessionFileApplication?: RouteOptions["resolveSessionFileApplication"];
+  resolveFileChangeApplication?: RouteOptions["resolveFileChangeApplication"];
   registry?: RuntimeContainerRegistry;
   controlStore?: ControlStore;
   controlPlane?: ControlPlane;
@@ -71,6 +77,38 @@ export interface BuildAppOptions {
   wsTickets?: WsTicketService;
 }
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
+  const usesSaaSApplications = options.env.deploymentMode === "saas" || Boolean(options.saasConversationRuntime);
+  const localApplications = createLocalRequestApplicationResolvers();
+  const resolveKnowledgeApplication = options.resolveKnowledgeApplication
+    ?? (!usesSaaSApplications ? createLocalKnowledgeApplicationResolver() : undefined);
+  const resolveMemoryApplication = options.resolveMemoryApplication
+    ?? (options.saasMemoryRuntime
+      ? createSaaSMemoryApplicationResolver(options.saasMemoryRuntime.provider)
+      : !usesSaaSApplications ? localApplications.resolveMemoryApplication : undefined);
+  const resolveSessionApplication = options.resolveSessionApplication ?? (!usesSaaSApplications ? localApplications.resolveSessionApplication : undefined);
+  const resolveArtifactApplication = options.resolveArtifactApplication ?? (!usesSaaSApplications ? localApplications.resolveArtifactApplication : undefined);
+  const resolveAnalytics = options.resolveAnalytics ?? (!usesSaaSApplications ? localApplications.resolveAnalytics : undefined);
+  const resolveMonitoringApplication = options.resolveMonitoringApplication ?? (!usesSaaSApplications ? localApplications.resolveMonitoringApplication : undefined);
+  const resolveExecutionRead = options.resolveExecutionRead ?? (!usesSaaSApplications ? localApplications.resolveExecutionRead : undefined);
+  const resolveExecutionApplication = options.resolveExecutionApplication ?? (!usesSaaSApplications ? localApplications.resolveExecutionApplication : undefined);
+  const resolveProviderApplication = options.resolveProviderApplication ?? (!usesSaaSApplications ? localApplications.resolveProviderApplication : undefined);
+  const resolveMcpApplication = options.resolveMcpApplication ?? (!usesSaaSApplications ? localApplications.resolveMcpApplication : undefined);
+  const resolveSessionFileApplication = options.resolveSessionFileApplication
+    ?? (options.resolveSessionFileStorage
+      ? async (request) => {
+          const storage = await options.resolveSessionFileStorage!(request);
+          if (!storage) throw new Error("session file storage resolver returned no implementation");
+          return new SaaSSessionFileApplication(storage);
+        }
+      : !usesSaaSApplications ? createLocalSessionFileApplicationResolver() : undefined);
+  const resolveFileChangeApplication = options.resolveFileChangeApplication
+    ?? (options.resolveFileHistoryStorage
+      ? async (request) => {
+          const storage = await options.resolveFileHistoryStorage!(request);
+          if (!storage) throw new Error("file history storage resolver returned no implementation");
+          return new SaaSFileChangeApplication(storage);
+        }
+      : !usesSaaSApplications ? createLocalFileChangeApplicationResolver() : undefined);
   if (options.env.deploymentMode === "saas") {
     if (options.env.storageMode !== "postgres" || options.env.controlStorageMode !== "postgres") {
       throw new Error("SaaS composition requires PostgreSQL runtime and control storage; SQLite is not allowed");
@@ -94,17 +132,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   }
   if (options.saasConversationRuntime) {
     const missingApplications = [
-      ["resolveSessionApplication", options.resolveSessionApplication],
-      ["resolveExecutionRead", options.resolveExecutionRead],
-      ["resolveAnalytics", options.resolveAnalytics],
-      ["resolveMonitoringApplication", options.resolveMonitoringApplication],
-      ["resolveArtifactApplication", options.resolveArtifactApplication],
-      ["resolveKnowledgeFileStore", options.resolveKnowledgeFileStore],
-      ["resolveSessionFileStorage", options.resolveSessionFileStorage],
-      ["resolveFileHistoryStorage", options.resolveFileHistoryStorage],
-      ["resolveKnowledgeMarkdownPipeline", options.resolveKnowledgeMarkdownPipeline],
-      ["resolveKnowledgeVectorApplication", options.resolveKnowledgeVectorApplication],
-      ["resolveProviderMcp", options.resolveProviderMcp],
+      ["resolveSessionApplication", resolveSessionApplication],
+      ["resolveMemoryApplication", resolveMemoryApplication],
+      ["resolveExecutionRead", resolveExecutionRead],
+      ["resolveExecutionApplication", resolveExecutionApplication],
+      ["resolveAnalytics", resolveAnalytics],
+      ["resolveMonitoringApplication", resolveMonitoringApplication],
+      ["resolveArtifactApplication", resolveArtifactApplication],
+      ["resolveKnowledgeApplication", resolveKnowledgeApplication],
+      ["resolveProviderApplication", resolveProviderApplication],
+      ["resolveMcpApplication", resolveMcpApplication],
+      ["resolveSessionFileApplication", resolveSessionFileApplication],
+      ["resolveFileChangeApplication", resolveFileChangeApplication],
     ].filter(([, resolver]) => !resolver).map(([name]) => name);
     if (missingApplications.length > 0) {
       throw new Error(`SaaS application composition is incomplete: ${missingApplications.join(", ")}`);
@@ -189,16 +228,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               }
             : {},
         ));
-  const resolveMemoryApplication = options.resolveMemoryApplication
-    ?? (options.saasMemoryRuntime
-      ? createSaaSMemoryApplicationResolver(options.saasMemoryRuntime.provider)
-      : undefined);
-  const wsTickets = options.wsTickets ?? createWsTicketService();
-  const saasDaemonState = options.saasConversationRuntime
-    ? new SaaSDaemonState(
-        options.saasConversationRuntime.conversation,
-      )
-    : null;
+  const wsTickets = options.wsTickets ?? options.saasConversationRuntime?.wsTickets ?? createWsTicketService();
   const botEngine = options.botEngine ?? new DaemonService({
     botRepository,
     registry,
@@ -207,23 +237,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       const lease = await registry.acquire(input.tenantId);
       try {
         try {
-          if (saasDaemonState) {
-            await saasDaemonState.ensureSession({
-              tenantId: input.tenantId,
-              sessionId: input.sessionId,
-              botId: input.botId,
-              ...(input.sessionMetadata ? { metadata: input.sessionMetadata } : {}),
-              permissionMode: input.permissionMode,
-            });
-          } else if (!lease.runtime.conversationStore.getSession(input.sessionId)) {
-            lease.runtime.conversationStore.createSession(
-              input.tenantId,
-              input.sessionId,
-              input.botId,
-              {},
-              input.permissionMode,
-            );
-          }
+          await lease.runtime.sessionApplication.ensureSession({
+            sessionId: input.sessionId,
+            userId: input.botId,
+            ...(input.sessionMetadata ? { metadata: input.sessionMetadata } : {}),
+            permissionMode: input.permissionMode,
+          });
           const scheduledBatches = new Set<string>();
           const onInteractionRequired = (notice: { rootRunId: string; batchId: string }): void => {
             if (scheduledBatches.has(notice.batchId)) return;
@@ -289,11 +308,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           return { suspended: false, content: result.answer ?? "" };
         } finally {
           if (input.sessionMetadata) {
-            if (saasDaemonState) {
-              await saasDaemonState.updateMetadata(input.tenantId, input.sessionId, input.sessionMetadata);
-            } else {
-              lease.runtime.conversationStore.updateSessionMetadata(input.sessionId, input.sessionMetadata);
-            }
+            await lease.runtime.sessionApplication.updateSessionMetadata(input.sessionId, input.sessionMetadata);
           }
         }
       } finally {
@@ -322,7 +337,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     await registry.closeAll();
     await options.saasMemoryRuntime?.close();
     await options.saasConversationRuntime?.close();
-    wsTickets.close();
+    await wsTickets.close();
     if (options.controlRuntime) {
       await options.controlRuntime.close();
     } else {
@@ -433,18 +448,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     widgetCredentialStore: widgetCredentials,
     wsTickets,
     registerPublicAgui: !widgetIdentityProvider,
-    ...(resolveMemoryApplication ? { resolveMemoryApplication } : {}),
-    ...(options.resolveKnowledgeFileStore ? { resolveKnowledgeFileStore: options.resolveKnowledgeFileStore } : {}),
-    ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),
-    ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),
-    ...(options.resolveKnowledgeMarkdownPipeline ? { resolveKnowledgeMarkdownPipeline: options.resolveKnowledgeMarkdownPipeline } : {}),
-    ...(options.resolveKnowledgeVectorApplication ? { resolveKnowledgeVectorApplication: options.resolveKnowledgeVectorApplication } : {}),
-    ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}),
-    ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
-    ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
-    ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
-    ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
-    ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),
+    resolveMemoryApplication: resolveMemoryApplication!,
+    resolveKnowledgeApplication: resolveKnowledgeApplication!,
+    resolveProviderApplication: resolveProviderApplication!,
+    resolveMcpApplication: resolveMcpApplication!,
+    resolveSessionApplication: resolveSessionApplication!,
+    resolveExecutionRead: resolveExecutionRead!,
+    resolveExecutionApplication: resolveExecutionApplication!,
+    resolveAnalytics: resolveAnalytics!,
+    resolveMonitoringApplication: resolveMonitoringApplication!,
+    resolveArtifactApplication: resolveArtifactApplication!,
+    resolveSessionFileApplication: resolveSessionFileApplication!,
+    resolveFileChangeApplication: resolveFileChangeApplication!,
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await registerManagementAndPlatformRoutes(app, {
@@ -454,7 +469,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     botRepository,
     widgetCredentialStore: widgetCredentials,
     ...(widgetAuth ? { widgetAuth } : {}),
-    ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
+    ...(resolveExecutionRead ? { resolveExecutionRead } : {}),
   });
   await registerWidgetAndRealtimeRoutes(app, {
     registry,
@@ -464,12 +479,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     wsTickets,
     ...(widgetIdentityProvider ? { widgetIdentityProvider } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
-    ...(resolveMemoryApplication ? { resolveMemoryApplication } : {}),
-    ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
-    ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
-    ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
-    ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
-    ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),
+    resolveMemoryApplication: resolveMemoryApplication!,
+    resolveSessionApplication: resolveSessionApplication!,
+    resolveExecutionRead: resolveExecutionRead!,
+    resolveExecutionApplication: resolveExecutionApplication!,
+    resolveAnalytics: resolveAnalytics!,
+    resolveMonitoringApplication: resolveMonitoringApplication!,
+    resolveArtifactApplication: resolveArtifactApplication!,
+    resolveProviderApplication: resolveProviderApplication!,
+    resolveMcpApplication: resolveMcpApplication!,
   });
 
   registerFrontendFallback(app);

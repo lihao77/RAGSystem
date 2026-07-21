@@ -7,11 +7,17 @@ import { createSaaSObjectStorage } from "./adapters/saas/composition/saas-object
 import type { ObjectStorage } from "./contracts/storage/object-storage.js";
 import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import { SaaSKnowledgeVectorApplication } from "./adapters/saas/application/knowledge/saas-knowledge-vector-application.js";
+import { SaaSKnowledgeApplication } from "./adapters/saas/application/knowledge/saas-knowledge-application.js";
 import { SaaSSessionApplication } from "./adapters/saas/application/session/saas-session-application.js";
 import { SaaSAgentReadApplication } from "./adapters/saas/application/execution/saas-agent-read-application.js";
 import { SaaSAnalyticsApplication } from "./adapters/saas/application/analytics/saas-analytics-application.js";
 import { SaaSMonitoringApplication } from "./adapters/saas/application/monitoring/saas-monitoring-application.js";
 import type { FastifyRequest } from "fastify";
+import { SaaSExecutionMemoryCandidates } from "./adapters/saas/application/memory/saas-execution-memory-candidates.js";
+import { SaaSSessionFileApplication } from "./adapters/saas/application/session-file/saas-session-file-application.js";
+import { SaaSFileChangeApplication } from "./adapters/saas/application/file-change/saas-file-change-application.js";
+import { SaaSProviderApplication } from "./adapters/saas/application/provider-mcp/saas-provider-application.js";
+import { SaaSMcpApplication } from "./adapters/saas/application/provider-mcp/saas-mcp-application.js";
 
 const env = loadEnv(process.env);
 let saasMemoryRuntime: SaaSMemoryRuntimeHandle | undefined;
@@ -57,36 +63,55 @@ try {
       resolveKnowledgeMarkdownPipeline: (request) => new TenantKnowledgeMarkdownPipeline(
         saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId),
       ),
-      resolveKnowledgeVectorApplication: (request) => {
+      resolveKnowledgeApplication: (request) => {
         const files = saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId);
-        return new SaaSKnowledgeVectorApplication(
+        const markdown = new TenantKnowledgeMarkdownPipeline(files);
+        const vector = new SaaSKnowledgeVectorApplication(
           request.identity.tenantId,
           saasConversationRuntime!.createKnowledgeService(
             request.identity.tenantId,
             request.container.modelAdapter,
           ),
           files,
-          new TenantKnowledgeMarkdownPipeline(files),
+          markdown,
           saasConversationRuntime!.vectorStore,
         );
+        return new SaaSKnowledgeApplication(vector, files, markdown);
       },
     } : {}),
     ...(saasConversationRuntime ? {
       resolveArtifactApplication: (request: FastifyRequest) => saasConversationRuntime!.createArtifactService(request.identity.tenantId),
       resolveFileHistoryStorage: (request: FastifyRequest) => saasConversationRuntime!.createFileHistoryStorage(request.identity.tenantId),
-      resolveProviderMcp: (request) => saasConversationRuntime!.providerMcpApplication,
+      resolveSessionFileApplication: (request: FastifyRequest) => new SaaSSessionFileApplication(
+        saasConversationRuntime!.createSessionFileStorage(request.identity.tenantId),
+      ),
+      resolveFileChangeApplication: (request: FastifyRequest) => new SaaSFileChangeApplication(
+        saasConversationRuntime!.createFileHistoryStorage(request.identity.tenantId),
+      ),
+      resolveProviderApplication: (request) => new SaaSProviderApplication(
+        request.identity.tenantId,
+        request.container.modelAdapter,
+        saasConversationRuntime!.providerMcp,
+      ),
+      resolveMcpApplication: (request) => new SaaSMcpApplication(
+        request.identity.tenantId,
+        saasConversationRuntime!.providerMcpApplication,
+        saasConversationRuntime!.providerMcp,
+      ),
       resolveSessionApplication: (request: FastifyRequest) => new SaaSSessionApplication(
         request.identity.tenantId,
         saasConversationRuntime!.conversation,
         saasConversationRuntime!.createFileHistoryStorage(request.identity.tenantId),
         saasConversationRuntime!.runs,
         saasConversationRuntime!.outbox,
+        new SaaSExecutionMemoryCandidates(request.identity.tenantId, saasMemoryRuntime!.repository),
       ),
       resolveExecutionRead: (request: FastifyRequest) => new SaaSAgentReadApplication(
         request.identity.tenantId,
         saasConversationRuntime!.conversation,
         saasConversationRuntime!.runs,
         saasConversationRuntime!.outbox,
+        request.container.agentExecution,
       ),
       resolveAnalytics: (request: FastifyRequest) => new SaaSAnalyticsApplication(
         request.identity.tenantId,

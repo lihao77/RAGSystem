@@ -10,9 +10,9 @@ interface WsTicketRecord {
 }
 
 export interface WsTicketService {
-  issue(identity: RequestIdentity, sessionId: string): { ticket: string; expires_at: number };
-  consume(ticket: string, sessionId: string): RequestIdentity;
-  close(): void;
+  issue(identity: RequestIdentity, sessionId: string): { ticket: string; expires_at: number } | Promise<{ ticket: string; expires_at: number }>;
+  consume(ticket: string, sessionId: string): RequestIdentity | Promise<RequestIdentity>;
+  close(): void | Promise<void>;
 }
 
 export interface WsTicketServiceOptions {
@@ -36,22 +36,22 @@ export function createWsTicketService(options: WsTicketServiceOptions = {}): WsT
   };
 
   return {
-    issue(identity, sessionId) {
+    issue(identity: RequestIdentity, sessionId: string) {
       const currentTime = now();
       prune(currentTime);
       if (pending.size >= maxPending) throw new AuthError("too many pending websocket tickets");
       const ticket = randomBytes(32).toString("base64url");
       const expiresAt = currentTime + ttlMs;
-      pending.set(hashTicket(ticket), {
+      pending.set(hashWsTicket(ticket), {
         identity: { ...identity, permissions: [...identity.permissions] },
         sessionId,
         expiresAt,
       });
       return { ticket, expires_at: Math.floor(expiresAt / 1000) };
     },
-    consume(ticket, sessionId) {
+    consume(ticket: string, sessionId: string) {
       if (!ticket) throw new AuthError("missing websocket ticket");
-      const key = hashTicket(ticket);
+      const key = hashWsTicket(ticket);
       const record = pending.get(key);
       pending.delete(key);
       if (!record || record.expiresAt <= now()) throw new AuthError("invalid or expired websocket ticket");
@@ -64,6 +64,6 @@ export function createWsTicketService(options: WsTicketServiceOptions = {}): WsT
   };
 }
 
-function hashTicket(ticket: string): string {
+export function hashWsTicket(ticket: string): string {
   return createHash("sha256").update(ticket, "utf8").digest("base64url");
 }

@@ -103,43 +103,6 @@ class AgentLaunchers {
       };
     }
     const sessionMetadata = (await this.sessions.getSession(sessionId))?.metadata ?? {};
-    // 不变量：runningStatus 检查 → startRun(register) 必须同步无 await，否则与 triggerBgNotificationRun 竞态。
-    const runningStatus = this.statusTracker.getStatusBySession(sessionId);
-    if (runningStatus?.status === "running") {
-      const runningRunId = runningStatus.run_id ?? null;
-      const runningTaskId = runningStatus.task_id ?? null;
-      const currentAgentName = normalizeSessionEntryAgent(sessionMetadata.entry_agent) ?? "orchestrator_agent";
-      // followup 的 round 定位：取该 run 已归档 Envelope 的最大 payload.round。
-      const lastRound = runningRunId ? await this.sessions.getLastRunRound(sessionId, runningRunId) : 0;
-      const followupMessage = await this.sessions.addMessage({
-        sessionId,
-        role: "user",
-        content: task,
-        metadata: {
-          agent: currentAgentName,
-          ...(runningRunId ? { run_id: runningRunId } : {}),
-          request_id: requestId,
-          execution_kind: "session_followup",
-          source: "running_session",
-          round_index: lastRound,
-        },
-      });
-      this.eventPublisher.publishOutputMessageSaved(sessionId, runningRunId, {
-        message_id: followupMessage.id,
-        seq: followupMessage.seq,
-        role: followupMessage.role,
-        request_id: requestId,
-      });
-      return {
-        started: true,
-        session_id: sessionId,
-        ...(runningRunId ? { run_id: runningRunId } : {}),
-        ...(runningTaskId ? { task_id: runningTaskId } : {}),
-        request_id: requestId,
-        kind: "agent_run",
-      };
-    }
-
     const attachmentResolution = await this.attachmentResolver.resolveAsync(sessionId, request.attachments);
     if (attachmentResolution.error) {
       return {
@@ -203,8 +166,20 @@ class AgentLaunchers {
         },
       },
     });
-    const { promise: _promise, ...publicStarted } = started;
-    return publicStarted;
+    const { promise: _promise, durableStarted, ...publicStarted } = started;
+    try {
+      const disposition = await durableStarted;
+      if (disposition.kind === "followup") {
+        return { started: true, session_id: sessionId, run_id: disposition.activeRunId, request_id: requestId, kind: "agent_run" };
+      }
+      return publicStarted;
+    } catch (error) {
+      return {
+        ...publicStarted,
+        started: false,
+        error: error instanceof Error ? error.message : "Run failed before durable start",
+      };
+    }
   }
 
   async executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult> {
@@ -289,7 +264,7 @@ class AgentLaunchers {
       },
     });
     const outcome = await started.promise;
-    return this.runEngine.buildSynchronousResult({
+    return await this.runEngine.buildSynchronousResult({
       sessionId,
       runId: started.run_id ?? null,
       taskId: started.task_id ?? null,
@@ -394,46 +369,77 @@ class AgentLaunchers {
     } else if (input.uiContext) {
       prepareInput.metadataPatch = { extensions: [{ kind: "ui_context", data: input.uiContext }] };
     }
-    const prepared = await this.sessions.prepareRetry(prepareInput);
+    const retryMessage = await this.sessions.getMessageForRetry({
+      sessionId,
+      ...(input.afterSeq !== undefined ? { afterSeq: input.afterSeq } : {}),
+      ...(input.afterMessageId !== undefined ? { afterMessageId: input.afterMessageId } : {}),
+    });
+    if (!retryMessage) {
+      return { started: false, session_id: sessionId, deleted: 0, error: "未找到要重试的用户消息" };
+    }
+    if (retryMessage.role !== "user") {
+      return { started: false, session_id: sessionId, deleted: 0, error: "指定位置必须是用户消息（user），才能从此处重试" };
+    }
+    const task = input.modifyUserMessage?.trim() || retryMessage.content.trim();
+    if (!task) {
+      return { started: false, session_id: sessionId, deleted: 0, error: "无法获取要重试的任务内容" };
+    }
+    let deleted = 0;
 
     const runtimeAgent = ready.agent;
     const started = this.runEngine.startRun({
       sessionId,
       userId: input.userId,
       requestId: input.requestId,
-      task: prepared.task,
+      task,
       executionKind: "rollback_and_retry",
       entrypoint: "rollback_and_retry",
       agent: runtimeAgent,
       provider: ready.provider,
       modelName: ready.modelName,
       ...(input.selectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
-      existingUserMessageId: prepared.message.id,
+      existingUserMessageId: retryMessage.id,
       userMessageSavedPayload: {
-        id: prepared.message.id,
-        seq: prepared.message.seq,
-        role: prepared.message.role,
-        retry_of_seq: prepared.message.seq,
-        retry_of_message_id: prepared.message.id,
+        id: retryMessage.id,
+        seq: retryMessage.seq,
+        role: retryMessage.role,
+        retry_of_seq: retryMessage.seq,
+        retry_of_message_id: retryMessage.id,
       },
       startStepExtra: {
-        retry_of_seq: prepared.message.seq,
-        retry_of_message_id: prepared.message.id,
+        retry_of_seq: retryMessage.seq,
+        retry_of_message_id: retryMessage.id,
       },
       runStartExtra: {
-        retry_of_seq: prepared.message.seq,
-        retry_of_message_id: prepared.message.id,
+        retry_of_seq: retryMessage.seq,
+        retry_of_message_id: retryMessage.id,
       },
       finalMetadataExtra: {
-        retry_of_seq: prepared.message.seq,
-        retry_of_message_id: prepared.message.id,
+        retry_of_seq: retryMessage.seq,
+        retry_of_message_id: retryMessage.id,
+      },
+      prepareRun: async () => {
+        const prepared = await this.sessions.prepareRetry(prepareInput);
+        if (prepared.message.id !== retryMessage.id) throw new Error("重试锚点已被并发修改");
+        deleted = prepared.deleted;
       },
     });
-    const { promise: _promise, ...publicStarted } = started;
+    const { promise: _promise, durableStarted, ...publicStarted } = started;
+    try {
+      await durableStarted;
+    } catch (error) {
+      return {
+        ...publicStarted,
+        started: false,
+        deleted,
+        agent_name: runtimeAgent.agent_name,
+        error: error instanceof Error ? error.message : "Run failed before durable start",
+      };
+    }
 
     return {
       ...publicStarted,
-      deleted: prepared.deleted,
+      deleted,
       agent_name: runtimeAgent.agent_name,
     };
   }
@@ -503,7 +509,7 @@ class AgentLaunchers {
         return;
       }
     }
-    this.runEngine.startRun({
+    const started = this.runEngine.startRun({
       sessionId,
       requestId: `bg_notify_${randomUUID()}`,
       task,
@@ -515,6 +521,7 @@ class AgentLaunchers {
         metadata: { source: "background_notification" },
       },
     });
+    await started.durableStarted;
   }
 
 }

@@ -1,44 +1,43 @@
-import type { MemoryRepository } from "../../contracts/memory-store/index.js";
 import { AgentCompressionService } from "../agent/context-compression/compression-service.js";
 import { AgentDelegationService } from "../agent/delegation/index.js";
 import { createAgentExecutionService } from "../agent/execution/index.js";
 import { createResumeExecutor } from "../agent/execution/resume-executor.js";
 import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
 import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
-import type { CoreRuntimeDependencies, RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
+import type {
+  CoreRuntimeDependencies,
+  LocalCoreRuntimeDependencies,
+  LocalRuntimeContainer,
+  RuntimeContainer,
+  SaaSCoreRuntimeDependencies,
+  SaaSRuntimeContainer,
+} from "../../contracts/runtime/runtime-container.js";
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import { RuntimeInteractionCoordinator } from "./pending-interaction-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
 
 /** Assemble deployment-provided services into the shared agent runtime. */
-export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepository>(
-  dependencies: CoreRuntimeDependencies<TMemoryRepository>,
-): RuntimeContainer<TMemoryRepository> {
+export function createCoreRuntimeContainer(dependencies: LocalCoreRuntimeDependencies): LocalRuntimeContainer;
+export function createCoreRuntimeContainer(dependencies: SaaSCoreRuntimeDependencies): SaaSRuntimeContainer;
+export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies): RuntimeContainer {
   const {
     deploymentKind,
     tenantId,
     dataRoot,
     memoryConfig,
-    conversationStore,
     delegationStore,
     metricsStore,
     permissionPolicyStore,
     compressionHistory,
+    executionSessions,
     sessionApplication,
     realtimeEvents,
     agentConfig,
     modelAdapter,
     systemConfig,
     mcp,
-    fileHistory,
-    fileIndex,
-    asyncSessionFiles,
-    knowledgeBase,
+    sessionFiles,
     knowledge,
-    artifacts,
-    transientArtifacts,
-    embeddingModels,
-    memoryStore,
     memoryBindings,
     documentTools,
     codeExecutionTools,
@@ -51,12 +50,18 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     notificationQueue,
     hostToolRegistry,
     delegationPending,
-    outboxDispatcher,
+    eventDispatcher,
     clientEvents,
   } = dependencies;
 
   // SaaS 的用户可见事件必须进入 PostgreSQL durable outbox；Local 继续使用 SQLite outbox。
   const eventClientEvents: ClientEventPublisher = dependencies.asyncClientEvents;
+  const executionDispatcher = {
+    dispatchRows: (rows: Parameters<typeof eventDispatcher.dispatchRows>[0]) => {
+      const result = eventDispatcher.dispatchRows(rows);
+      return Array.isArray(result) ? result : [];
+    },
+  };
   const interactionCoordinator = new RuntimeInteractionCoordinator(
     dependencies.runtimeStorage,
     dependencies.asyncClientEvents,
@@ -83,8 +88,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
   const permissionPolicy = new PermissionPolicyService(permissionPolicyStore);
   const agentExecution = createAgentExecutionService({
     tenantId,
-    sessions: sessionApplication,
-    conversationStore,
+    sessions: executionSessions,
     executionStorage: dependencies.executionStorage,
     pathAccessPolicyFactory: dependencies.pathAccessPolicyFactory,
     runtimeCore,
@@ -97,9 +101,9 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     providersProvider: () => modelAdapter.listProviders(),
     backgroundTasks,
     notificationQueue,
-    fileIndex,
-    ...(asyncSessionFiles ? { asyncSessionFiles } : {}),
-    outboxDispatcher,
+    ...(sessionFiles.kind === "local" ? { fileIndex: sessionFiles.fileIndex } : {}),
+    ...(sessionFiles.kind === "async" ? { asyncSessionFiles: sessionFiles.storage } : {}),
+    outboxDispatcher: executionDispatcher,
     clientEvents,
     eventClientEvents,
     permissionPolicy,
@@ -136,9 +140,9 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     dependencies.closeInfrastructure();
   };
 
-  return {
+  const common = {
     deploymentKind,
-    conversationStore,
+    tenantId,
     sessionApplication,
     realtimeEvents,
     agentExecution,
@@ -148,14 +152,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     modelAdapter,
     systemConfig,
     mcp,
-    fileHistory,
-    fileIndex,
-    knowledgeBase,
     knowledge,
-    artifacts,
-    transientArtifacts,
-    embeddingModels,
-    memoryStore,
     memoryTools: memoryBindings.tools,
     memoryContextSourceFactory: memoryBindings.createContextSource,
     documentTools,
@@ -173,9 +170,12 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     toolsDeps,
     runtimeCore,
     agentDelegation,
-    outboxDispatcher,
+    eventDispatcher,
     clientEvents,
     dataRoot,
     close,
   };
+  return dependencies.deploymentKind === "local"
+    ? { ...common, deploymentKind: "local", local: dependencies.capabilities, saas: null }
+    : { ...common, deploymentKind: "saas", local: null, saas: dependencies.capabilities };
 }

@@ -6,19 +6,34 @@ import type { MessageInfo, SessionInfo, SessionListItem } from "../../../../cont
 import { normalizeSessionMetadata } from "../../../../contracts/session/session.js";
 import { assertSafeSessionId } from "../../../../contracts/session/session-id.js";
 import type { AsyncFileHistoryStore } from "../../../../contracts/file-history-store/index.js";
-import type { RunInfo } from "../../../../contracts/conversation-store/index.js";
+import type { ConversationStore, RunInfo } from "../../../../contracts/conversation-store/index.js";
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../../../services/runtime/event-outbox/execution-envelope-archive.js";
 import { EnvelopeProjector } from "../../../../services/runtime/event-outbox/projector.js";
+import { TenantDaemonSessionApplication } from "../../../../services/sessions/daemon-session-application.js";
+import type { SessionApplication } from "../../../../contracts/session/session-application.js";
+import type { ExecutionMemoryCandidateListPort } from "../../../../services/agent/memory/runtime-bindings.js";
 
 export class SaaSSessionApplication {
+  private readonly daemonSessions: TenantDaemonSessionApplication;
+
   constructor(
     private readonly tenantId: TenantId,
     private readonly repository: AsyncConversationRepository,
     private readonly fileHistory: AsyncFileHistoryStore | null = null,
     private readonly runs: AsyncRunStore | null = null,
     private readonly outbox: ExecutionReplayRepositoryPort | null = null,
-  ) {}
+    private readonly memoryCandidates: ExecutionMemoryCandidateListPort | null = null,
+  ) {
+    this.daemonSessions = new TenantDaemonSessionApplication(tenantId, {
+      getSession: (sessionId) => repository.getSession(sessionId),
+      createSession: (input) => repository.createSession(input.tenantId, input.sessionId, input.userId, input.metadata, input.permissionMode),
+      updateSessionMetadata: (sessionId, patch) => repository.updateSessionMetadata(sessionId, patch),
+    });
+  }
+  ensureSession(input: Parameters<SessionApplication["ensureSession"]>[0]) {
+    return this.daemonSessions.ensureSession(input);
+  }
   async createSession(input: { sessionId: string; userId: string; metadata?: Record<string, unknown>; permissionMode?: PermissionMode | null }) {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
@@ -37,6 +52,7 @@ export class SaaSSessionApplication {
   async getSession(sessionId: string): Promise<SessionInfo | null> { const row = await this.repository.getSession(sessionId); return row?.tenant_id === this.tenantId ? row : null; }
   /** Returns the raw row so route ownership validation can reject a cross-tenant session id. */
   getSessionForExecutionValidation(sessionId: string): Promise<SessionInfo | null> { return this.repository.getSession(sessionId); }
+  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>) { return this.daemonSessions.updateSessionMetadata(sessionId, patch); }
   async updateSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<boolean> { return (await this.getSession(sessionId)) ? this.repository.updateSessionPermissionMode(sessionId, mode) : false; }
   async deleteSession(sessionId: string): Promise<boolean> {
     if (!(await this.getSession(sessionId))) return false;
@@ -62,6 +78,15 @@ export class SaaSSessionApplication {
   async getRecentMessages(sessionId: string, limit = 10_000, threadKey?: string | null): Promise<MessageInfo[]> {
     if (!(await this.getSession(sessionId))) return [];
     return this.repository.getRecentMessages(sessionId, limit, threadKey ?? "root");
+  }
+  async getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<MessageInfo | null> {
+    if (!(await this.getSession(input.sessionId))) return null;
+    return input.afterSeq != null
+      ? this.repository.getMessageBySeq(input.sessionId, input.afterSeq)
+      : input.afterMessageId ? this.repository.getMessageById(input.sessionId, input.afterMessageId) : null;
+  }
+  async listMemoryCandidates(input: Parameters<ConversationStore["listMemoryCandidates"]>[0]) {
+    return await this.memoryCandidates?.listMemoryCandidates(input) ?? [];
   }
   async addMessage(input: Parameters<AsyncConversationRepository["addMessage"]>[0]): Promise<MessageInfo> {
     if (!(await this.getSession(input.sessionId))) {

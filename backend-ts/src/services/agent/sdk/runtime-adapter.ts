@@ -13,9 +13,8 @@ import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
-import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { ExecutionEventPersister, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
-import type { DelegatedToolDeclarationWire } from "../../../contracts/events.js";
+import type { ExecutionEventPersister, ExecutionStartDisposition, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
+import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
 import type { InteractionRequiredNotice, PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
@@ -31,7 +30,7 @@ import { registerGateHook } from "./gate-hook.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
-import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
+import type { ExecutionMemoryCandidateListPort, MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import { resolveSessionMetadataPort } from "../context/async-session-metadata-resolver.js";
 
 export interface SdkRuntimeAdapterDeps {
@@ -98,14 +97,19 @@ export interface SdkExecuteRunInput {
   userMessageId?: string;
   initialUserMessageContent?: string;
   initialUserMessageMetadata?: Record<string, unknown>;
+  initialEnvelopes?: readonly Envelope[];
+  /** Runs after the durable run start and before rebuilding model context. */
+  prepareRun?: () => void | Promise<void>;
   onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
   onRunPersisted?: (() => void) | undefined;
+  onStartDisposition?: ((disposition: ExecutionStartDisposition) => void) | undefined;
 }
 
 export interface SdkExecuteRunResult {
   content: string;
   success: boolean;
   suspended?: boolean;
+  followup?: Extract<ExecutionStartDisposition, { kind: "followup" }>;
   rootRunId?: string;
   runId?: string;
   parentRunId?: string | null;
@@ -136,15 +140,13 @@ export async function executeRunWithSdk(
     providers: deps.providers,
     ...(input.selectedLlm !== undefined ? { selectedLlm: input.selectedLlm } : {}),
   });
-  const localConversation = deps.storage.kind === "local" ? deps.storage.conversation : null;
   const rootRunId = input.rootRunId ?? input.parentRunId ?? input.runId;
   const isRootRun = input.runId === rootRunId && input.parentRunId == null;
   // session metadata 端口：委托真实 ConversationStore，让 memory 源能读到 team/workspace_root，
   // 解析出 team/agent/workspace scope（否则只 session scope 存活，其余静默丢弃）。
   const sessionMetadata = await resolveSessionMetadataPort(
     input.sessionId,
-    localConversation,
-    deps.storage.kind === "durable" ? deps.storage.conversation : undefined,
+    deps.storage.conversation,
   );
 
   // per-run 构建工具集合：后端工具 + 前端委托工具（source=host，其 Tool.call 转发宿主执行 + 等回传）。
@@ -218,19 +220,15 @@ export async function executeRunWithSdk(
   // backend 组装 context（memory + recent），产 conversation 注入 SDK（SDK 不再读 store/自组 context）。
   // historyPort 组合 ConversationHistoryPort + SessionMetadataPort：recent source 读历史 + microcompact 缓存指纹，
   // memory source 读 session metadata（team/workspace scope 解析）。
-  const historyPort: ConversationHistoryPort & SessionMetadataPort & Pick<ConversationStore, "listMemoryCandidates"> = {
+  const historyPort: ConversationHistoryPort & SessionMetadataPort & ExecutionMemoryCandidateListPort = {
     getRecentMessages: (sid: string, limit: number | undefined, tk: string | null | undefined) =>
       deps.storage.conversation.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
     getProviderContinuation: (sid: string, messageId: string) =>
-      deps.storage.kind === "durable"
-        ? deps.storage.providerContinuations.getProviderContinuation(deps.storage.tenantId, sid, messageId)
-        : deps.storage.conversation.getProviderContinuation(sid, messageId),
+      deps.storage.providerContinuations.getProviderContinuation(sid, messageId),
     getSession: (sid: string) => sessionMetadata.getSession(sid),
     updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
       sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
-    listMemoryCandidates: (query) => deps.storage.kind === "local"
-      ? deps.storage.conversation.listMemoryCandidates(query)
-      : [],
+    listMemoryCandidates: (query) => deps.storage.memoryCandidates.listMemoryCandidates(query),
   };
   const { built, contextBuilder, cacheTracker } = await buildBackendAgentContext(input.agent, profile, historyPort, {
     memoryConfig: deps.memoryConfig,
@@ -390,10 +388,22 @@ export async function executeRunWithSdk(
           },
         },
       } : {}),
+      ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
   });
-  await persister.startRun();
+  const startDisposition = await persister.startRun();
+  if (startDisposition.kind === "followup") {
+    input.onStartDisposition?.(startDisposition);
+    return { content: "", success: true, followup: startDisposition, tokenUsage: { inputTokens: 0, outputTokens: 0 }, toolCalls: {} };
+  }
+  try {
+    await input.prepareRun?.();
+  } catch (error) {
+    await persister.finalize("failed", null, error);
+    throw error;
+  }
+  input.onStartDisposition?.(startDisposition);
   input.onRunPersisted?.();
-  if (input.userMessageId && input.initialUserMessageMetadata) {
+  if ((input.userMessageId && input.initialUserMessageMetadata) || input.prepareRun) {
     // startRun atomically persists the initial user message. Rebuild after that
     // commit so the first model request sees the same durable history that
     // subsequent rounds and retries read.

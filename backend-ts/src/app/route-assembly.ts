@@ -33,7 +33,6 @@ import type { RuntimeContainerRegistry as TenantRuntimeRegistry } from "../servi
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import { HttpError } from "../utils/errors.js";
 import { createRequestApplications } from "./request-applications.js";
-import { createRequestResources } from "./request-resources.js";
 
 export interface AuthRuntime {
   profile: DeploymentProfile;
@@ -82,18 +81,18 @@ export interface SharedBusinessRouteAssemblyOptions {
   widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
   registerPublicAgui: boolean;
-  resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
-  resolveKnowledgeFileStore?: RouteOptions["resolveKnowledgeFileStore"];
-  resolveSessionFileStorage?: RouteOptions["resolveSessionFileStorage"];
-  resolveFileHistoryStorage?: RouteOptions["resolveFileHistoryStorage"];
-  resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
-  resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
-  resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
-  resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
-  resolveExecutionRead?: RouteOptions["resolveExecutionRead"];
-  resolveAnalytics?: RouteOptions["resolveAnalytics"];
-  resolveMonitoringApplication?: RouteOptions["resolveMonitoringApplication"];
-  resolveArtifactApplication?: RouteOptions["resolveArtifactApplication"];
+  resolveMemoryApplication: NonNullable<RouteOptions["resolveMemoryApplication"]>;
+  resolveKnowledgeApplication: NonNullable<RouteOptions["resolveKnowledgeApplication"]>;
+  resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
+  resolveMcpApplication: NonNullable<RouteOptions["resolveMcpApplication"]>;
+  resolveSessionApplication: NonNullable<RouteOptions["resolveSessionApplication"]>;
+  resolveExecutionRead: NonNullable<RouteOptions["resolveExecutionRead"]>;
+  resolveExecutionApplication: NonNullable<RouteOptions["resolveExecutionApplication"]>;
+  resolveAnalytics: NonNullable<RouteOptions["resolveAnalytics"]>;
+  resolveMonitoringApplication: NonNullable<RouteOptions["resolveMonitoringApplication"]>;
+  resolveArtifactApplication: NonNullable<RouteOptions["resolveArtifactApplication"]>;
+  resolveSessionFileApplication: NonNullable<RouteOptions["resolveSessionFileApplication"]>;
+  resolveFileChangeApplication: NonNullable<RouteOptions["resolveFileChangeApplication"]>;
 }
 
 export async function registerSharedBusinessRoutes(
@@ -106,56 +105,30 @@ export async function registerSharedBusinessRoutes(
       registry: options.registry,
       identityProvider: options.identityProvider,
       botRepository: options.botRepository,
-};
+      resolveMemoryApplication: options.resolveMemoryApplication,
+      resolveSessionApplication: options.resolveSessionApplication,
+      resolveArtifactApplication: options.resolveArtifactApplication,
+      resolveAnalytics: options.resolveAnalytics,
+      resolveMonitoringApplication: options.resolveMonitoringApplication,
+      resolveExecutionRead: options.resolveExecutionRead,
+      resolveExecutionApplication: options.resolveExecutionApplication,
+      resolveKnowledgeApplication: options.resolveKnowledgeApplication,
+      resolveProviderApplication: options.resolveProviderApplication,
+      resolveMcpApplication: options.resolveMcpApplication,
+    };
     scope.addHook("preHandler", async (request) => {
       if (isExplicitPublicRoute(request)) return;
-      request.applications = await createRequestApplications(request, {
-        ...routeOptions,
-        ...(options.resolveMemoryApplication ? { resolveMemoryApplication: options.resolveMemoryApplication } : {}),
-        ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
-        ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),
-        ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
-        ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
-        ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
-      });
-      request.resources = await createRequestResources(request, {
-        ...routeOptions,
-        ...(options.resolveKnowledgeFileStore ? { resolveKnowledgeFileStore: options.resolveKnowledgeFileStore } : {}),
-        ...(options.resolveKnowledgeMarkdownPipeline ? { resolveKnowledgeMarkdownPipeline: options.resolveKnowledgeMarkdownPipeline } : {}),
-        ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),
-        ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),
-      });
+      request.applications = await createRequestApplications(request, routeOptions);
     });
-    await scope.register(registerHealthRoutes, {
-      prefix: "/api",
-      ...routeOptions,
-      ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
-    });
-    await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions, ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}), ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}) });
+    await scope.register(registerHealthRoutes, { prefix: "/api", ...routeOptions });
+    await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions });
     await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
-    await scope.register(registerMemoryRoutes, {
-      prefix: "/api/memory",
-      ...routeOptions,
-      ...(options.resolveMemoryApplication
-        ? { resolveMemoryApplication: options.resolveMemoryApplication }
-        : {}),
-      ...(options.resolveKnowledgeFileStore
-        ? { resolveKnowledgeFileStore: options.resolveKnowledgeFileStore }
-        : {}),
-      ...(options.resolveKnowledgeMarkdownPipeline
-        ? { resolveKnowledgeMarkdownPipeline: options.resolveKnowledgeMarkdownPipeline }
-        : {}),
-    });
+    await scope.register(registerMemoryRoutes, { prefix: "/api/memory", ...routeOptions });
     await scope.register(registerSkillRoutes, { prefix: "/api/skills", ...routeOptions });
-    await scope.register(registerModelAdapterRoutes, { prefix: "/api/model-adapter", ...routeOptions, ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}) });
+    await scope.register(registerModelAdapterRoutes, { prefix: "/api/model-adapter", ...routeOptions });
     await scope.register(registerSystemConfigRoutes, { prefix: "/api/system-config", ...routeOptions });
-    await scope.register(registerMcpRoutes, { prefix: "/api/mcp", ...routeOptions, ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}) });
-    await scope.register(registerKnowledgeBaseRoutes, {
-      prefix: "/api/knowledge-bases", ...routeOptions,
-      ...(options.resolveKnowledgeFileStore ? { resolveKnowledgeFileStore: options.resolveKnowledgeFileStore } : {}),
-      ...(options.resolveKnowledgeMarkdownPipeline ? { resolveKnowledgeMarkdownPipeline: options.resolveKnowledgeMarkdownPipeline } : {}),
-      ...(options.resolveKnowledgeVectorApplication ? { resolveKnowledgeVectorApplication: options.resolveKnowledgeVectorApplication } : {}),
-    });
+    await scope.register(registerMcpRoutes, { prefix: "/api/mcp", ...routeOptions });
+    await scope.register(registerKnowledgeBaseRoutes, { prefix: "/api/knowledge-bases", ...routeOptions });
     await scope.register(registerEmbeddingModelRoutes, { prefix: "/api/embedding-models", ...routeOptions });
     await scope.register(registerAgentRoutes, {
       prefix: "/api/agent",
@@ -163,12 +136,8 @@ export async function registerSharedBusinessRoutes(
       widgetCredentialStore: options.widgetCredentialStore,
       wsTickets: options.wsTickets,
       ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
-      ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
-      ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
-      ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
-      ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
-      ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),
-      ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),
+      resolveSessionFileApplication: options.resolveSessionFileApplication,
+      resolveFileChangeApplication: options.resolveFileChangeApplication,
     });
     if (options.registerPublicAgui) {
       await scope.register(registerAguiRoutes, {
@@ -229,18 +198,32 @@ interface WidgetRouteAssemblyOptions {
   widgetCredentialStore: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
-  resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
-  resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
-  resolveExecutionRead?: RouteOptions["resolveExecutionRead"];
-  resolveAnalytics?: RouteOptions["resolveAnalytics"];
-  resolveMonitoringApplication?: RouteOptions["resolveMonitoringApplication"];
-  resolveArtifactApplication?: RouteOptions["resolveArtifactApplication"];
+  resolveMemoryApplication: NonNullable<RouteOptions["resolveMemoryApplication"]>;
+  resolveSessionApplication: NonNullable<RouteOptions["resolveSessionApplication"]>;
+  resolveExecutionRead: NonNullable<RouteOptions["resolveExecutionRead"]>;
+  resolveExecutionApplication: NonNullable<RouteOptions["resolveExecutionApplication"]>;
+  resolveAnalytics: NonNullable<RouteOptions["resolveAnalytics"]>;
+  resolveMonitoringApplication: NonNullable<RouteOptions["resolveMonitoringApplication"]>;
+  resolveArtifactApplication: NonNullable<RouteOptions["resolveArtifactApplication"]>;
+  resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
+  resolveMcpApplication: NonNullable<RouteOptions["resolveMcpApplication"]>;
 }
 
 export async function registerWidgetAndRealtimeRoutes(
   app: FastifyInstance,
   options: WidgetRouteAssemblyOptions,
 ): Promise<void> {
+  const applicationResolvers = {
+    resolveMemoryApplication: options.resolveMemoryApplication,
+    resolveSessionApplication: options.resolveSessionApplication,
+    resolveExecutionRead: options.resolveExecutionRead,
+    resolveExecutionApplication: options.resolveExecutionApplication,
+    resolveAnalytics: options.resolveAnalytics,
+    resolveMonitoringApplication: options.resolveMonitoringApplication,
+    resolveArtifactApplication: options.resolveArtifactApplication,
+    resolveProviderApplication: options.resolveProviderApplication,
+    resolveMcpApplication: options.resolveMcpApplication,
+  };
   if (options.widgetIdentityProvider && options.widgetAuth) {
     await app.register(async (scope) => {
       installIdentityScope(scope, {
@@ -254,6 +237,7 @@ export async function registerWidgetAndRealtimeRoutes(
         identityProvider: options.identityProvider,
         widgetCredentialStore: options.widgetCredentialStore,
         widgetAuth: options.widgetAuth!,
+        ...applicationResolvers,
       });
       await scope.register(registerWidgetRoutes, {
         prefix: "/api/widget",
@@ -263,7 +247,7 @@ export async function registerWidgetAndRealtimeRoutes(
         widgetCredentialStore: options.widgetCredentialStore,
         wsTickets: options.wsTickets,
         widgetAuth: options.widgetAuth!,
-        ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
+        ...applicationResolvers,
       });
     });
   } else {
@@ -274,7 +258,7 @@ export async function registerWidgetAndRealtimeRoutes(
       botRepository: options.botRepository,
       widgetCredentialStore: options.widgetCredentialStore,
       wsTickets: options.wsTickets,
-      ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
+      ...applicationResolvers,
     });
   }
 
@@ -286,12 +270,7 @@ export async function registerWidgetAndRealtimeRoutes(
     widgetCredentialStore: options.widgetCredentialStore,
     wsTickets: options.wsTickets,
     ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
-    ...(options.resolveMemoryApplication ? { resolveMemoryApplication: options.resolveMemoryApplication } : {}),
-    ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
-    ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
-    ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
-    ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
-    ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),
+    ...applicationResolvers,
   });
 }
 

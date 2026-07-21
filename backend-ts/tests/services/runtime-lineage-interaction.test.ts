@@ -169,7 +169,7 @@ describe("runtime execution lineage", () => {
     store.createSession(LOCAL_TENANT_ID, "session-1", null);
     store.createRun({ runId: "root-run", sessionId: "session-1", status: "running", agentName: "root" });
     const storage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
-    const publisher = new AsyncDurableClientEventPublisher(storage, { dispatchRows: async () => undefined });
+    const publisher = new AsyncDurableClientEventPublisher(storage, { dispatchRows: async () => [] });
     const coordinator = new RuntimeInteractionCoordinator(storage, publisher);
     const childPersister = new AsyncKernelEventPersister(storage, publisher, {
       tenantId: LOCAL_TENANT_ID,

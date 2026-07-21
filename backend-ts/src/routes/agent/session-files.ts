@@ -1,18 +1,15 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 
+import type { SessionFileApplication } from "../../contracts/application/session-file-application.js";
 import { ValidateFilesRequestSchema } from "../../contracts/storage/files.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import {
   collectMultipartFiles,
-  removeStoredFile,
   sendBufferedFileDownload,
-  sendFileDownload,
-  validateFileIds,
 } from "../file-route-utils.js";
 import { loadOwnedSession } from "../session-owner.js";
 import { resolveSessionApplication } from "../session-application.js";
-import { ensureRequestResources } from "../../app/request-resources.js";
 
 interface SessionParams {
   sessionId: string;
@@ -23,8 +20,6 @@ interface SessionFileParams extends SessionParams {
 }
 
 export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  const resolveAsyncStore = async (request: Parameters<NonNullable<RouteOptions["resolveSessionFileStorage"]>>[0]) =>
-    (await ensureRequestResources(request, options)).sessionFileStorage;
   const loadOwned = async (request: Parameters<NonNullable<RouteOptions["resolveSessionApplication"]>>[0], sessionId: string) => {
     const sessions = await resolveSessionApplication(options, request);
     return loadOwnedSession(request, sessionId, sessions);
@@ -32,62 +27,37 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/files", async (request) => {
     await loadOwned(request, request.params.sessionId);
-    const asyncStore = await resolveAsyncStore(request);
+    const files = await resolveSessionFiles(options, request);
     return {
       success: true,
-      files: asyncStore ? await asyncStore.list(request.params.sessionId) : request.container.fileIndex.list({
-        scopeType: "session",
-        scopeId: request.params.sessionId,
-      }),
+      files: await files.list(request.params.sessionId),
     };
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/files/validate", async (request) => {
     await loadOwned(request, request.params.sessionId);
     const payload = ValidateFilesRequestSchema.parse(request.body);
-    const asyncStore = await resolveAsyncStore(request);
-    if (asyncStore) {
-      const records = await Promise.all(payload.file_ids.map((id) => asyncStore.get(request.params.sessionId, id)));
-      return {
-        success: true as const,
-        valid: payload.file_ids.filter((_id, index) => records[index] !== null),
-        invalid: payload.file_ids.filter((_id, index) => records[index] === null),
-      };
-    }
-    return validateFileIds({
-      fileIndex: request.container.fileIndex,
-      fileIds: payload.file_ids,
-      scope: { scopeType: "session", scopeId: request.params.sessionId },
-    });
+    const files = await resolveSessionFiles(options, request);
+    return { success: true as const, ...await files.validate(request.params.sessionId, payload.file_ids) };
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/files/upload", async (request) => {
     await loadOwned(request, request.params.sessionId);
     const parts = await collectMultipartFiles(request);
     const sessionId = request.params.sessionId;
-    const asyncStore = await resolveAsyncStore(request);
-    const files = asyncStore ? await Promise.all(parts.map((part) => asyncStore.add(sessionId, {
+    const application = await resolveSessionFiles(options, request);
+    const files = await Promise.all(parts.map((part) => application.add(sessionId, {
       originalName: part.filename,
       buffer: part.buffer,
       mime: part.mime,
-    }))) : parts.map((part) =>
-      request.container.fileIndex.add({
-        originalName: part.filename,
-        buffer: part.buffer,
-        mime: part.mime,
-        scopeType: "session",
-        scopeId: sessionId,
-      }),
-    );
+    })));
     return { success: true, files };
   });
 
   app.get<{ Params: SessionFileParams }>("/sessions/:sessionId/files/:fileId", async (request) => {
     await loadOwned(request, request.params.sessionId);
-    const asyncStore = await resolveAsyncStore(request);
-    const record = asyncStore
-      ? await asyncStore.get(request.params.sessionId, request.params.fileId)
-      : request.container.fileIndex.get(request.params.fileId, "session", request.params.sessionId);
+    const files = await resolveSessionFiles(options, request);
+    const record = await files.get(request.params.sessionId, request.params.fileId);
     if (!record) {
       throw new HttpError(404, "not_found", "文件不存在");
     }
@@ -96,35 +66,35 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
 
   app.delete<{ Params: SessionFileParams }>("/sessions/:sessionId/files/:fileId", async (request) => {
     await loadOwned(request, request.params.sessionId);
-    const asyncStore = await resolveAsyncStore(request);
-    const record = asyncStore
-      ? await asyncStore.delete(request.params.sessionId, request.params.fileId)
-      : request.container.fileIndex.delete(request.params.fileId, "session", request.params.sessionId);
+    const files = await resolveSessionFiles(options, request);
+    const record = await files.delete(request.params.sessionId, request.params.fileId);
     if (!record) {
       throw new HttpError(404, "not_found", "文件不存在");
     }
-    if (!asyncStore) await removeStoredFile(record, request.container.fileIndex.getSessionUploadsRoot(request.params.sessionId));
     return { success: true };
   });
 
   app.get<{ Params: SessionFileParams }>("/sessions/:sessionId/files/:fileId/download", async (request, reply) => {
     await loadOwned(request, request.params.sessionId);
-    const asyncStore = await resolveAsyncStore(request);
-    const record = asyncStore
-      ? await asyncStore.get(request.params.sessionId, request.params.fileId)
-      : request.container.fileIndex.get(request.params.fileId, "session", request.params.sessionId);
-    if (!record) {
+    const files = await resolveSessionFiles(options, request);
+    const source = await files.read(request.params.sessionId, request.params.fileId);
+    if (source.status === "not_found") {
       throw new HttpError(404, "not_found", "文件不存在");
     }
-    if (asyncStore) {
-      const source = await asyncStore.read(request.params.sessionId, request.params.fileId);
-      if (!source) throw new HttpError(404, "not_found", "文件不存在");
-      return sendBufferedFileDownload({ body: source.body, filename: record.original_name, mime: source.contentType ?? record.mime, reply });
+    if (source.status === "content_missing") {
+      throw new HttpError(404, "not_found", "文件不存在于磁盘");
     }
-    return sendFileDownload({
-      record,
-      expectedRoot: request.container.fileIndex.getSessionUploadsRoot(request.params.sessionId),
+    return sendBufferedFileDownload({
+      body: source.body,
+      filename: source.record.original_name,
+      mime: source.contentType ?? source.record.mime,
       reply,
     });
   });
 };
+
+async function resolveSessionFiles(options: RouteOptions, request: FastifyRequest): Promise<SessionFileApplication> {
+  const application = await options.resolveSessionFileApplication?.(request);
+  if (!application) throw new Error("session file application resolver returned no implementation");
+  return application;
+}

@@ -11,8 +11,10 @@ import type {
   RuntimeFinalizeStatus,
   RuntimeRecordEnvelopeInput,
   RuntimeStorage,
+  RuntimeStartRunInput,
 } from "../../../contracts/storage/runtime-storage.js";
 import type { TenantId } from "../../../identity/types.js";
+import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
 import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
 import { buildExecutionEnvelopeRunStep } from "../../runtime/event-outbox/execution-envelope-archive.js";
 
@@ -36,6 +38,7 @@ export interface AsyncPersisterRunContext {
   childAgentId?: string | null;
   messageMetadata?: Record<string, unknown> | null;
   initialUserMessage?: { id: string; content: string; metadata?: Record<string, unknown> | null };
+  initialEnvelopes?: readonly Envelope[];
 }
 
 export interface AsyncFinalMessageInput {
@@ -54,7 +57,7 @@ export class AsyncKernelEventPersister {
 
   constructor(
     private readonly storage: RuntimeStorage,
-    private readonly clientEvents: Pick<AsyncDurableClientEventPublisher, "deliver" | "flush">,
+    private readonly clientEvents: Pick<AsyncDurableClientEventPublisher, "prepare" | "deliver" | "flush">,
     private readonly ctx: AsyncPersisterRunContext,
     private readonly fileHistory: FileSnapshotPort | null = null,
   ) {
@@ -63,8 +66,18 @@ export class AsyncKernelEventPersister {
     }
   }
 
-  async startRun(): Promise<void> {
-    await this.storage.operations.startRun({
+  async startRun(): Promise<ExecutionStartDisposition> {
+    const initialRecords = (this.ctx.initialEnvelopes ?? []).map((event, index) => this.clientEvents.prepare(
+      this.ctx.sessionId,
+      event,
+      {
+        eventId: `${this.ctx.runId}:initial:${index}:${event.type}`,
+        runId: this.ctx.runId,
+        aggregateType: "run",
+        aggregateId: this.ctx.runId,
+      },
+    ));
+    const startInput: RuntimeStartRunInput = {
       session: {
         sessionId: this.ctx.sessionId,
         userId: this.ctx.userId ?? null,
@@ -93,7 +106,53 @@ export class AsyncKernelEventPersister {
           metadata: this.ctx.initialUserMessage.metadata ?? {},
         },
       } : {}),
-    });
+      ...(initialRecords.length > 0 ? { initialRecords } : {}),
+    };
+    const result = this.ctx.parentRunId == null && this.ctx.initialUserMessage
+      ? await this.storage.operations.startOrAppendRoot({
+          ...startInput,
+          followupFactory: ({ activeRunId, roundIndex }) => {
+            const proposed = this.ctx.initialUserMessage!;
+            const { run_id: _runId, task_id: _taskId, execution_kind: _kind, ...baseMetadata } = proposed.metadata ?? {};
+            return {
+              message: {
+                messageId: proposed.id,
+                sessionId: this.ctx.sessionId,
+                role: "user" as const,
+                content: proposed.content,
+                threadKey: this.ctx.threadKey,
+                metadata: {
+                  ...baseMetadata,
+                  agent: this.ctx.agentName,
+                  run_id: activeRunId,
+                  request_id: this.ctx.requestId ?? null,
+                  execution_kind: "session_followup",
+                  source: "running_session",
+                  round_index: roundIndex,
+                },
+              },
+              recordFactory: (message) => [this.clientEvents.prepare(
+                this.ctx.sessionId,
+                {
+                  type: "state_sync",
+                  session_id: this.ctx.sessionId,
+                  run_id: activeRunId,
+                  payload: { category: "message_saved", ref: { message_id: message.id, seq: message.seq, role: message.role, request_id: this.ctx.requestId ?? undefined } },
+                },
+                { eventId: `${message.id}:followup-saved`, runId: activeRunId, aggregateType: "run", aggregateId: activeRunId },
+              )],
+            };
+          },
+        })
+      : { kind: "started" as const, ...await this.storage.operations.startRun(startInput) };
+    // Delivery occurs after the atomic commit. A transport failure leaves the
+    // rows pending for the dispatcher and must not roll back a durable start.
+    if (result.records.length > 0) {
+      void this.clientEvents.deliver(result.records.map((record) => record.outbox)).catch(() => undefined);
+    }
+    return result.kind === "followup"
+      ? { kind: "followup", activeRunId: result.activeRunId, messageId: result.message.id }
+      : { kind: "started" };
   }
 
   async persist(event: KernelEvent): Promise<void> {

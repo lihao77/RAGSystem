@@ -11,28 +11,32 @@ const identity: RequestIdentity = {
 };
 
 describe("WsTicketService", () => {
-  it("issues a session-bound ticket that can only be consumed once", () => {
+  it("issues a session-bound ticket that can only be consumed once", async () => {
     const service = createWsTicketService();
-    const issued = service.issue(identity, "session-1");
+    const issued = await service.issue(identity, "session-1");
 
     expect(issued.ticket).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(service.consume(issued.ticket, "session-1")).toEqual(identity);
-    expect(() => service.consume(issued.ticket, "session-1")).toThrow("invalid or expired");
+    await expect(Promise.resolve(service.consume(issued.ticket, "session-1"))).resolves.toEqual(identity);
+    await expect(Promise.resolve().then(() => service.consume(issued.ticket, "session-1")))
+      .rejects.toThrow("invalid or expired");
   });
 
-  it("invalidates a ticket when it is used for the wrong session", () => {
+  it("invalidates a ticket when it is used for the wrong session", async () => {
     const service = createWsTicketService();
-    const issued = service.issue(identity, "session-1");
+    const issued = await service.issue(identity, "session-1");
 
-    expect(() => service.consume(issued.ticket, "session-2")).toThrow("session mismatch");
-    expect(() => service.consume(issued.ticket, "session-1")).toThrow("invalid or expired");
+    await expect(Promise.resolve().then(() => service.consume(issued.ticket, "session-2")))
+      .rejects.toThrow("session mismatch");
+    await expect(Promise.resolve().then(() => service.consume(issued.ticket, "session-1")))
+      .rejects.toThrow("invalid or expired");
   });
 
-  it("rejects expired tickets", () => {
+  it("rejects expired tickets", async () => {
     let currentTime = 1_000;
     const service = createWsTicketService({ ttlMs: 100, now: () => currentTime });
-    const issued = service.issue(identity, "session-1");
+    const issued = await service.issue(identity, "session-1");
     currentTime += 101;
-    expect(() => service.consume(issued.ticket, "session-1")).toThrow("invalid or expired");
+    await expect(Promise.resolve().then(() => service.consume(issued.ticket, "session-1")))
+      .rejects.toThrow("invalid or expired");
   });
 });

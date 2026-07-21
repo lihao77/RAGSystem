@@ -16,11 +16,11 @@ describe("memory governance routes", () => {
   it("lists Local memory entries and archives a personal entry immediately", async () => {
     const harness = await buildTestHarness();
     close.push(() => harness.app.close());
-    await harness.container.memoryStore.saveMemory({
+    await harness.container.local!.memoryStore.saveMemory({
       scope: "user", user_id: "usr_local", name: "Preference", description: "personal",
       memory_type: "preference", content: "Use concise answers",
     });
-    await harness.container.memoryStore.saveMemory({
+    await harness.container.local!.memoryStore.saveMemory({
       scope: "user", user_id: "usr_other", name: "Private", description: "other user",
       memory_type: "fact", content: "must stay hidden",
     });
@@ -56,7 +56,7 @@ describe("memory governance routes", () => {
   it("creates a Local review candidate instead of directly archiving shared memory", async () => {
     const harness = await buildTestHarness();
     close.push(() => harness.app.close());
-    await harness.container.memoryStore.saveMemory({
+    await harness.container.local!.memoryStore.saveMemory({
       scope: "team", team_name: "default", name: "Shared", description: "team policy",
       memory_type: "fact", content: "Use citations",
     });
@@ -70,7 +70,7 @@ describe("memory governance routes", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ success: true, data: { status: "candidate" } });
-    const candidate = harness.container.conversationStore.getMemoryCandidate(response.json().data.candidate.id);
+    const candidate = harness.container.local!.conversationStore.getMemoryCandidate(response.json().data.candidate.id);
     expect(candidate).toMatchObject({
       tenant_id: "tnt_local",
       owner_user_id: "usr_local",
@@ -80,13 +80,13 @@ describe("memory governance routes", () => {
       target_file_name: expect.stringMatching(/\.md$/),
       status: "candidate",
     });
-    expect(harness.container.memoryStore.listEntries({ scope: "team", team_name: "default" })).toHaveLength(1);
+    expect(harness.container.local!.memoryStore.listEntries({ scope: "team", team_name: "default" })).toHaveLength(1);
   });
 
   it("keeps legacy personal candidates out of the Local admin review queue", async () => {
     const harness = await buildTestHarness();
     close.push(() => harness.app.close());
-    const create = (name: string, targetScope: "team" | "agent") => harness.container.conversationStore.createMemoryCandidate({
+    const create = (name: string, targetScope: "team" | "agent") => harness.container.local!.conversationStore.createMemoryCandidate({
       tenantId: "tnt_local", ownerUserId: "usr_local", targetScope, teamName: "default",
       ...(targetScope === "agent" ? { agentName: "orchestrator_agent" } : {}),
       name, description: name, memoryType: "fact", content: name,
@@ -113,7 +113,7 @@ describe("memory governance routes", () => {
       });
       expect(review.statusCode).toBe(400);
     }
-    expect(harness.container.conversationStore.getMemoryCandidate(legacyPersonal.id)).toMatchObject({
+    expect(harness.container.local!.conversationStore.getMemoryCandidate(legacyPersonal.id)).toMatchObject({
       status: "candidate",
       reviewer_user_id: null,
     });
@@ -122,7 +122,7 @@ describe("memory governance routes", () => {
   it("publishes the administrator-edited content and can archive it", async () => {
     const harness = await buildTestHarness();
     close.push(() => harness.app.close());
-    const candidate = harness.container.conversationStore.createMemoryCandidate({
+    const candidate = harness.container.local!.conversationStore.createMemoryCandidate({
       tenantId: "tnt_local",
       ownerUserId: "usr_local",
       targetScope: "team",
@@ -145,17 +145,50 @@ describe("memory governance routes", () => {
       description: "published description",
       content: "published content",
     });
-    expect(fs.readFileSync(harness.container.memoryStore.getIndexPath({ scope: "team", team_name: "default" }), "utf8"))
+    expect(fs.readFileSync(harness.container.local!.memoryStore.getIndexPath({ scope: "team", team_name: "default" }), "utf8"))
       .toContain("Published");
+  });
+
+  it("updates and withdraws Local candidates without a client version", async () => {
+    const harness = await buildTestHarness();
+    close.push(() => harness.app.close());
+    const create = (name: string) => harness.container.local!.conversationStore.createMemoryCandidate({
+      tenantId: "tnt_local",
+      ownerUserId: "usr_local",
+      targetScope: "team",
+      teamName: "default",
+      name,
+      description: name,
+      memoryType: "fact",
+      content: name,
+    });
+    const editable = create("Editable");
+    const removable = create("Removable");
+
+    const updated = await harness.app.inject({
+      method: "PATCH",
+      url: `/api/memory/candidates/${editable.id}`,
+      payload: { content: "updated" },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().data).toMatchObject({ id: editable.id, content: "updated" });
+
+    const withdrawn = await harness.app.inject({
+      method: "DELETE",
+      url: `/api/memory/candidates/${removable.id}`,
+      payload: {},
+    });
+    expect(withdrawn.statusCode).toBe(200);
+    expect(harness.container.local!.conversationStore.getMemoryCandidate(removable.id)).toMatchObject({ status: "withdrawn" });
   });
 
   it("applies an archive candidate only after administrator approval", async () => {
     const harness = await buildTestHarness();
     close.push(() => harness.app.close());
-    const saved = await harness.container.memoryStore.saveMemory({
+    const saved = await harness.container.local!.memoryStore.saveMemory({
       scope: "team", team_name: "default", name: "Shared", description: "shared", memory_type: "fact", content: "active",
     });
-    const candidate = harness.container.conversationStore.createMemoryCandidate({
+    const candidate = harness.container.local!.conversationStore.createMemoryCandidate({
       tenantId: "tnt_local",
       ownerUserId: "usr_local",
       targetScope: "team",

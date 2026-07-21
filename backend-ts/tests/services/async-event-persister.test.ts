@@ -23,6 +23,35 @@ function createHarness(readyResumeInteractionIds: string[] = []) {
   const messages = new Map<string, MessageInfo>();
   let nextSeq = 1;
 
+  const recordResult = (record: RuntimeRecordEnvelopeInput, index: number) => ({
+    step: record.step ? {
+      id: index + 1,
+      run_id: record.step.runId,
+      event_id: record.outbox.eventId,
+      step_order: index + 1,
+      step_type: record.step.stepType,
+    } : null,
+    outbox: {
+      id: index + 1,
+      event_id: record.outbox.eventId,
+      session_id: record.outbox.sessionId,
+      tenant_id: LOCAL_TENANT_ID,
+      run_id: record.outbox.runId ?? null,
+      session_seq: index + 1,
+      event_type: record.outbox.eventType,
+      aggregate_type: record.outbox.aggregateType,
+      aggregate_id: record.outbox.aggregateId,
+      payload: JSON.stringify(record.outbox.payload),
+      status: "pending" as const,
+      attempts: 0,
+      available_at: NOW,
+      locked_at: null,
+      delivered_at: null,
+      last_error: null,
+      created_at: NOW,
+    },
+  });
+
   const persist = (input: RuntimePersistMessageInput["message"]): MessageInfo => {
     const existing = messages.get(input.messageId);
     if (existing) return existing;
@@ -63,6 +92,17 @@ function createHarness(readyResumeInteractionIds: string[] = []) {
             child_agent_id: input.run.childAgentId ?? null,
           },
           initialUserMessage,
+          records: (input.initialRecords ?? []).map(recordResult),
+        };
+      },
+      startOrAppendRoot: async (input) => {
+        starts.push(input);
+        const initialUserMessage = input.initialUserMessage ? persist(input.initialUserMessage) : null;
+        return {
+          kind: "started" as const,
+          run: { run_id: input.run.runId, session_id: input.run.sessionId, status: input.run.status ?? "running", thread_key: input.run.threadKey ?? "root", parent_run_id: null, parent_call_id: null, child_agent_id: null },
+          initialUserMessage,
+          records: (input.initialRecords ?? []).map(recordResult),
         };
       },
       persistMessage: async (input) => {
@@ -85,6 +125,12 @@ function createHarness(readyResumeInteractionIds: string[] = []) {
       claimResume: async () => {
         throw new Error("persister must not claim resumes");
       },
+      renewResumeClaim: async () => {
+        throw new Error("persister must not renew resume claims");
+      },
+      recoverExpiredResumeClaims: async () => {
+        throw new Error("persister must not recover resume claims");
+      },
       rollbackResume: async () => {
         throw new Error("persister must not roll back resumes");
       },
@@ -93,39 +139,24 @@ function createHarness(readyResumeInteractionIds: string[] = []) {
         lifecycle.push("finalize");
         finalizes.push(input);
         const finalMessage = input.finalMessage ? persist(input.finalMessage) : null;
-        const records = (input.buildTerminalRecords?.(finalMessage) ?? []).map((record, index) => ({
-          step: record.step ? {
-            id: index + 1,
-            run_id: record.step.runId,
-            event_id: record.outbox.eventId,
-            step_order: index + 1,
-            step_type: record.step.stepType,
-          } : null,
-          outbox: {
-            id: index + 1,
-            event_id: record.outbox.eventId,
-            session_id: record.outbox.sessionId,
-            tenant_id: LOCAL_TENANT_ID,
-            run_id: record.outbox.runId ?? null,
-            session_seq: index + 1,
-            event_type: record.outbox.eventType,
-            aggregate_type: record.outbox.aggregateType,
-            aggregate_id: record.outbox.aggregateId,
-            payload: JSON.stringify(record.outbox.payload),
-            status: "pending" as const,
-            attempts: 0,
-            available_at: NOW,
-            locked_at: null,
-            delivered_at: null,
-            last_error: null,
-            created_at: NOW,
-          },
-        }));
+        const records = (input.buildTerminalRecords?.(finalMessage) ?? []).map(recordResult);
         return { finalMessage, records, readyResumeInteractionIds };
       },
     },
   };
   const clientEvents = {
+    prepare: (sessionId: string, event: Record<string, unknown>, options: { eventId: string; runId: string }) => ({
+      step: null,
+      outbox: {
+        sessionId,
+        runId: options.runId,
+        eventId: options.eventId,
+        eventType: `client.${String(event.type)}`,
+        aggregateType: "run",
+        aggregateId: options.runId,
+        payload: { client_event: event },
+      },
+    }),
     flush: async () => { lifecycle.push("flush"); },
     deliver: async (rows: Array<{ event_id: string }>) => {
       lifecycle.push("deliver");
@@ -166,7 +197,13 @@ describe("AsyncKernelEventPersister", () => {
     const persister = new AsyncKernelEventPersister(
       harness.storage,
       harness.clientEvents as never,
-      context({ initialUserMessage: { id: "user-1", content: "question" } }),
+      context({
+        initialUserMessage: { id: "user-1", content: "question" },
+        initialEnvelopes: [
+          { type: "run_started", session_id: "session-1", run_id: "run-1", payload: {} },
+          { type: "agent_started", session_id: "session-1", run_id: "run-1", payload: {} },
+        ],
+      }),
       harness.fileHistory as never,
     );
 
@@ -200,6 +237,14 @@ describe("AsyncKernelEventPersister", () => {
       run: { runId: "run-1", agentName: "agent-1" },
       initialUserMessage: { messageId: "user-1", content: "question" },
     });
+    expect(harness.starts[0]?.initialRecords?.map((record) => record.outbox.eventId)).toEqual([
+      "run-1:initial:0:run_started",
+      "run-1:initial:1:agent_started",
+    ]);
+    expect(harness.delivered[0]?.map((record) => record.event_id)).toEqual([
+      "run-1:initial:0:run_started",
+      "run-1:initial:1:agent_started",
+    ]);
     expect(harness.persists.map((item) => item.message.messageId)).toEqual([
       "run-1:intent:0",
       "run-1:tool:tool-1",
@@ -236,10 +281,10 @@ describe("AsyncKernelEventPersister", () => {
     expect(terminalInputs[2]?.outbox.payload).toMatchObject({
       client_event: { payload: { display_name: "Agent One", success: true } },
     });
-    expect(harness.delivered[0]?.map((row) => row.event_id)).toEqual(
+    expect(harness.delivered.at(-1)?.map((row) => row.event_id)).toEqual(
       terminalInputs.map((record) => record.outbox.eventId),
     );
-    expect(harness.lifecycle).toEqual(["flush", "finalize", "deliver"]);
+    expect(harness.lifecycle).toEqual(["deliver", "flush", "finalize", "deliver"]);
     expect(harness.snapshots).toEqual([["session-1", 4]]);
     expect(persister.resolveFinalMessage()).toMatchObject({ id: "run-1:final", content: "answer" });
   });

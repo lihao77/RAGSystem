@@ -235,6 +235,10 @@ export class AgentSessionApplication {
     });
   }
 
+  getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): MessageInfo | null {
+    return this.resolveRetryAnchor(input.sessionId, input.afterSeq, input.afterMessageId);
+  }
+
   prepareRetry(input: {
     sessionId: string;
     afterSeq?: number | null;

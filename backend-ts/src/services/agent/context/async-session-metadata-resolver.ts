@@ -1,10 +1,11 @@
-import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { SessionInfo } from "../../../contracts/session/session.js";
 import type { SessionMetadataPort } from "./types.js";
 
-export interface AsyncSessionMetadataRepository {
-  getSession(sessionId: string): Promise<SessionInfo | null>;
-  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
+type Awaitable<T> = T | Promise<T>;
+
+export interface SessionMetadataRepository {
+  getSession(sessionId: string): Awaitable<SessionInfo | null>;
+  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Awaitable<Record<string, unknown> | null>;
 }
 
 export interface ResolvedSessionMetadataPort extends SessionMetadataPort {
@@ -18,19 +19,9 @@ export interface ResolvedSessionMetadataPort extends SessionMetadataPort {
  */
 export async function resolveSessionMetadataPort(
   sessionId: string,
-  local: Pick<ConversationStore, "getSession" | "updateSessionMetadata"> | null,
-  asyncRepository?: AsyncSessionMetadataRepository,
+  repository: SessionMetadataRepository,
 ): Promise<ResolvedSessionMetadataPort> {
-  if (!asyncRepository) {
-    if (!local) throw new Error("local session metadata storage is required");
-    return {
-      getSession: (id) => local.getSession(id),
-      updateSessionMetadata: (id, patch) => local.updateSessionMetadata(id, patch),
-      flush: async () => undefined,
-    };
-  }
-
-  let current = await asyncRepository.getSession(sessionId);
+  let current = await repository.getSession(sessionId);
   let pending = Promise.resolve();
   return {
     getSession: (id) => id === sessionId && current
@@ -40,7 +31,7 @@ export async function resolveSessionMetadataPort(
       if (id !== sessionId || !current) return null;
       current = { ...current, metadata: mergeMetadata(current.metadata ?? {}, patch) };
       pending = pending.then(async () => {
-        await asyncRepository.updateSessionMetadata(id, patch);
+        await repository.updateSessionMetadata(id, patch);
       });
       return current.metadata;
     },

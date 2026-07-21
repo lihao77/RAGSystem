@@ -54,13 +54,13 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
 
   async claimPendingOutbox(input: ClaimOutboxInput = {}): Promise<OutboxRow[]> {
     const limit = Math.max(1, Math.floor(input.limit ?? 100));
-    const now = input.now ?? new Date();
-    const stale = new Date(now.getTime() - Math.max(0, input.lockTimeoutMs ?? 60_000));
+    const now = input.now?.toISOString() ?? null;
+    const lockTimeoutMs = Math.max(0, input.lockTimeoutMs ?? 60_000);
     return this.executor.transaction(async (tx) => {
-      const params: unknown[] = [now.toISOString(), stale.toISOString()];
+      const params: unknown[] = [now, lockTimeoutMs];
       const tenantFilter = input.tenantId ? ` AND tenant_id=$${params.push(input.tenantId)}` : "";
       const limitParam = params.push(limit);
-      const claimed = await tx.query(`WITH picked AS (SELECT id FROM event_outbox WHERE status IN ('pending','retrying') AND available_at <= $1 AND (locked_at IS NULL OR locked_at <= $2)${tenantFilter} ORDER BY id FOR UPDATE SKIP LOCKED LIMIT $${limitParam}) UPDATE event_outbox e SET locked_at=$1 FROM picked WHERE e.id=picked.id RETURNING ${UPDATE_RETURNING}`, params);
+      const claimed = await tx.query(`WITH picked AS (SELECT id FROM event_outbox WHERE status IN ('pending','retrying') AND available_at <= COALESCE($1::timestamptz,CURRENT_TIMESTAMP) AND (locked_at IS NULL OR locked_at <= COALESCE($1::timestamptz,CURRENT_TIMESTAMP)-($2::double precision*INTERVAL '1 millisecond'))${tenantFilter} ORDER BY id FOR UPDATE SKIP LOCKED LIMIT $${limitParam}) UPDATE event_outbox e SET locked_at=COALESCE($1::timestamptz,CURRENT_TIMESTAMP) FROM picked WHERE e.id=picked.id RETURNING ${UPDATE_RETURNING}`, params);
       return claimed.rows.map(row);
     });
   }
@@ -73,21 +73,21 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
   }): Promise<OutboxRow[]> {
     const ids = [...new Set(input.ids.filter((id) => Number.isSafeInteger(id) && id > 0))];
     if (ids.length === 0) return [];
-    const now = input.now ?? new Date();
-    const stale = new Date(now.getTime() - Math.max(0, input.lockTimeoutMs ?? 60_000));
+    const now = input.now?.toISOString() ?? null;
+    const lockTimeoutMs = Math.max(0, input.lockTimeoutMs ?? 60_000);
     return this.executor.transaction(async (tx) => {
-      const params: unknown[] = [ids, now.toISOString(), stale.toISOString()];
+      const params: unknown[] = [ids, now, lockTimeoutMs];
       const tenantFilter = input.tenantId ? ` AND tenant_id=$${params.push(input.tenantId)}` : "";
       const claimed = await tx.query(
         `WITH picked AS (
           SELECT id FROM event_outbox
           WHERE id=ANY($1::bigint[])
             AND status IN ('pending','retrying')
-            AND available_at <= $2
-            AND (locked_at IS NULL OR locked_at <= $3)${tenantFilter}
+            AND available_at <= COALESCE($2::timestamptz,CURRENT_TIMESTAMP)
+            AND (locked_at IS NULL OR locked_at <= COALESCE($2::timestamptz,CURRENT_TIMESTAMP)-($3::double precision*INTERVAL '1 millisecond'))${tenantFilter}
           FOR UPDATE SKIP LOCKED
         )
-        UPDATE event_outbox e SET locked_at=$2
+        UPDATE event_outbox e SET locked_at=COALESCE($2::timestamptz,CURRENT_TIMESTAMP)
         FROM picked WHERE e.id=picked.id
         RETURNING ${UPDATE_RETURNING}`,
         params,

@@ -21,7 +21,9 @@ import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
+import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
 import type { TenantId } from "../../../identity/types.js";
+import type { Envelope } from "../../../contracts/events.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import type { AsyncAnalyticsRepository } from "../../../contracts/storage/async-persistence-ports.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -103,11 +105,15 @@ export class AgentRunEngine {
     persistUserMessage?: {
       metadata?: Record<string, unknown> | undefined;
     } | undefined;
+    prepareRun?: (() => void | Promise<void>) | undefined;
     runStartExtra?: Record<string, unknown> | undefined;
     startStepExtra?: Record<string, unknown> | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
     onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
-  }): AgentRunStartResult & { promise: Promise<{ content: string; success: boolean; suspended?: boolean }> } {
+  }): AgentRunStartResult & {
+    promise: Promise<{ content: string; success: boolean; suspended?: boolean }>;
+    durableStarted: Promise<ExecutionStartDisposition>;
+  } {
     const runId = input.runId ?? randomUUID();
     const taskId = input.taskId ?? randomUUID();
     const rootCallId = input.rootCallId ?? `call_${randomUUID()}`;
@@ -142,21 +148,22 @@ export class AgentRunEngine {
       };
     }
 
-    const onRunPersisted = input.resume ? undefined : (): void => {
-      this.eventPublisher.publishRunStarted(input.sessionId, runId, {
+    const initialEnvelopes: Envelope[] = [];
+    if (!input.resume) {
+      initialEnvelopes.push(this.eventPublisher.buildRunStarted(input.sessionId, runId, {
         request_id: input.requestId,
         task: input.task,
         source: input.executionKind,
-      });
+      }));
       if (userMessageSavedPayload) {
-        this.eventPublisher.publishOutputMessageSaved(input.sessionId, runId, {
+        initialEnvelopes.push(this.eventPublisher.buildOutputMessageSaved(input.sessionId, runId, {
           message_id: typeof userMessageSavedPayload.id === "string" ? userMessageSavedPayload.id : "",
           ...(typeof userMessageSavedPayload.seq === "number" ? { seq: userMessageSavedPayload.seq } : {}),
           ...(typeof userMessageSavedPayload.role === "string" ? { role: userMessageSavedPayload.role } : {}),
           ...(input.requestId ? { request_id: input.requestId } : {}),
-        });
+        }));
       }
-      this.eventPublisher.publishRootAgentStart({
+      initialEnvelopes.push(this.eventPublisher.buildRootAgentStart({
         sessionId: input.sessionId,
         runId,
         taskId,
@@ -166,7 +173,22 @@ export class AgentRunEngine {
         agent: input.agent,
         task: input.task,
         threadKey: "root",
-      });
+      }));
+    }
+
+    let durableSettled = input.resume === true;
+    let resolveDurableStart: (disposition: ExecutionStartDisposition) => void = () => undefined;
+    let rejectDurableStart: (error: unknown) => void = () => undefined;
+    const durableStarted = input.resume
+      ? Promise.resolve({ kind: "started" as const })
+      : new Promise<ExecutionStartDisposition>((resolve, reject) => {
+          resolveDurableStart = resolve;
+          rejectDurableStart = reject;
+        });
+    const onStartDisposition = input.resume ? undefined : (disposition: ExecutionStartDisposition): void => {
+      if (durableSettled) return;
+      durableSettled = true;
+      resolveDurableStart(disposition);
     };
 
     const promise = this.executeRun({
@@ -194,10 +216,24 @@ export class AgentRunEngine {
       rootTask: input.task,
       finalMetadataExtra: input.finalMetadataExtra,
       ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
-      ...(onRunPersisted ? { onRunPersisted } : {}),
+      ...(initialEnvelopes.length > 0 ? { initialEnvelopes } : {}),
+      ...(input.prepareRun ? { prepareRun: input.prepareRun } : {}),
+      ...(onStartDisposition ? { onStartDisposition } : {}),
       onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
     });
     this.statusTracker.register(taskId, input.sessionId, { abortController, status, promise });
+    void promise.then(
+      (outcome) => {
+        if (durableSettled) return;
+        durableSettled = true;
+        rejectDurableStart(new Error(outcome.content || "run failed before durable start"));
+      },
+      (error) => {
+        if (durableSettled) return;
+        durableSettled = true;
+        rejectDurableStart(error);
+      },
+    );
     promise.finally(() => {
       this.statusTracker.unregister(taskId, input.sessionId);
       // run 结束后若仍有待投递的后台通知（active run 期间完成的），再编排一轮自动触发
@@ -214,16 +250,17 @@ export class AgentRunEngine {
       request_id: input.requestId,
       kind: "agent_run",
       promise,
+      durableStarted,
     };
   }
 
-  buildSynchronousResult(input: {
+  async buildSynchronousResult(input: {
     sessionId: string;
     runId: string | null;
     taskId: string | null;
     agentName: string;
     outcome?: { content: string; success: boolean; suspended?: boolean };
-  }): AgentExecuteResult {
+  }): Promise<AgentExecuteResult> {
     if (!input.runId) {
       return {
         success: false,
@@ -238,10 +275,7 @@ export class AgentRunEngine {
         error: "运行未启动",
       };
     }
-    if (this.storage.kind === "durable") {
-      return buildOutcomeOnly({ ...input, runId: input.runId });
-    }
-    const run = this.storage.conversation.getRun(input.sessionId, input.runId);
+    const run = await this.storage.resultReader.getRun(input.sessionId, input.runId);
     if (!run && input.outcome) {
       return {
         success: input.outcome.success,
@@ -258,9 +292,9 @@ export class AgentRunEngine {
       };
     }
     const finalMessage = run?.final_message_id
-      ? this.storage.conversation.getMessageById(input.sessionId, run.final_message_id)
+      ? await this.storage.resultReader.getMessageById(input.sessionId, run.final_message_id)
       : null;
-    const steps = this.storage.conversation.listRunSteps({
+    const steps = await this.storage.resultReader.listRunSteps({
       sessionId: input.sessionId,
       runId: input.runId,
       limit: 1000,
@@ -333,15 +367,17 @@ export class AgentRunEngine {
     userMessageId?: string | undefined;
     initialUserMessageContent?: string | undefined;
     initialUserMessageMetadata?: Record<string, unknown> | undefined;
+    initialEnvelopes?: readonly Envelope[] | undefined;
+    prepareRun?: (() => void | Promise<void>) | undefined;
     executionKind?: string | undefined;
     rootTask?: string | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
     onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
-    onRunPersisted?: (() => void) | undefined;
+    onStartDisposition?: ((disposition: ExecutionStartDisposition) => void) | undefined;
     // 终态回调（替代直接耦合 statusTracker）：root 由 startRun 壳传绑定 statusTracker 的回调，
     // child 不传。executeRun 自己用 startedAt 算 execution_time，不依赖外部 status 对象。
     onTerminal?: (finalStatus: "completed" | "failed" | "interrupted" | "suspended") => void;
-  }): Promise<{ content: string; success: boolean; suspended?: boolean }> {
+  }): Promise<{ content: string; success: boolean; suspended?: boolean; followup?: Extract<ExecutionStartDisposition, { kind: "followup" }> }> {
     // 性能监控落库:统一在此处采集(root/child 都走 executeRun),不挂 onTerminal——
     // child run 不绑 onTerminal,挂那里会漏采子智能体/委托调用。token/工具用量来自 executeRunWithSdk 返回值。
     const recordMetric = async (
@@ -427,7 +463,9 @@ export class AgentRunEngine {
          ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
          ...(input.initialUserMessageContent ? { initialUserMessageContent: input.initialUserMessageContent } : {}),
          ...(input.initialUserMessageMetadata ? { initialUserMessageMetadata: input.initialUserMessageMetadata } : {}),
-         ...(input.onRunPersisted ? { onRunPersisted: input.onRunPersisted } : {}),
+         ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
+         ...(input.prepareRun ? { prepareRun: input.prepareRun } : {}),
+         ...(input.onStartDisposition ? { onStartDisposition: input.onStartDisposition } : {}),
         signal: input.abortController.signal,
          selectedLlm: input.selectedLlm ?? null,
          // 最终 assistant 消息的调用点元数据：execution_kind + finalMetadataExtra（retry_of_* 等）。
@@ -435,6 +473,11 @@ export class AgentRunEngine {
          ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
        },
      );
+
+      if (result.followup) {
+        input.onTerminal?.("completed");
+        return result;
+      }
 
       if (result.suspended) {
         await recordMetric("suspended", result.tokenUsage, result.toolCalls, null);
@@ -517,28 +560,6 @@ export class AgentRunEngine {
       });
     }
   }
-}
-
-function buildOutcomeOnly(input: {
-  sessionId: string;
-  runId: string;
-  taskId: string | null;
-  agentName: string;
-  outcome?: { content: string; success: boolean; suspended?: boolean };
-}): AgentExecuteResult {
-  return {
-    success: input.outcome?.success ?? false,
-    ...(input.outcome?.suspended ? { suspended: true, rootRunId: input.runId } : {}),
-    answer: input.outcome?.success ? input.outcome.content : null,
-    agent_name: input.agentName,
-    execution_time: null,
-    tool_calls: [],
-    metadata: { run_id: input.runId, thread_key: "root", child_agent_id: null },
-    session_id: input.sessionId,
-    run_id: input.runId,
-    task_id: input.taskId,
-    error: input.outcome?.success ? null : input.outcome?.content || "任务执行失败",
-  };
 }
 
 function numberOrNull(value: unknown): number | null {

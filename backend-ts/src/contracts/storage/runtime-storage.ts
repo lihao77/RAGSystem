@@ -144,12 +144,31 @@ export interface RuntimeStartRunInput {
   };
   run: RuntimeCreateRunInput;
   initialUserMessage?: AddMessageInput & { messageId: string };
+  /** Initial client envelopes committed atomically with the run and first user message. */
+  initialRecords?: readonly RuntimeRecordEnvelopeInput[];
 }
 
 export interface RuntimeStartRunResult {
   run: RuntimeCreatedRun;
   initialUserMessage: MessageInfo | null;
+  records: RuntimeRecordEnvelopeResult[];
 }
+
+export interface RuntimeRootFollowupFactoryResult {
+  message: AddMessageInput & { messageId: string };
+  recordFactory(message: MessageInfo): readonly RuntimeRecordEnvelopeInput[];
+}
+
+/** Pure synchronous factory invoked under the session transaction fence. */
+export type RuntimeRootFollowupFactory = (input: { activeRunId: string; roundIndex: number }) => RuntimeRootFollowupFactoryResult;
+
+export interface RuntimeStartOrAppendRootInput extends RuntimeStartRunInput {
+  followupFactory: RuntimeRootFollowupFactory;
+}
+
+export type RuntimeStartOrAppendRootResult =
+  | ({ kind: "started" } & RuntimeStartRunResult)
+  | { kind: "followup"; activeRunId: string; message: MessageInfo; records: RuntimeRecordEnvelopeResult[] };
 
 export interface RuntimeRecordEnvelopeInput {
   step?: AddRunStepInput | null;
@@ -316,6 +335,7 @@ export interface RuntimeInterruptSessionResult {
 
 export interface RuntimeAtomicOperations {
   startRun(input: RuntimeStartRunInput): Promise<RuntimeStartRunResult>;
+  startOrAppendRoot(input: RuntimeStartOrAppendRootInput): Promise<RuntimeStartOrAppendRootResult>;
   persistMessage(input: RuntimePersistMessageInput): Promise<RuntimePersistMessageResult>;
   /** `outbox.eventId` is the shared idempotency key for the outbox row and optional run step. */
   recordEnvelope(input: RuntimeRecordEnvelopeInput): Promise<RuntimeRecordEnvelopeResult>;

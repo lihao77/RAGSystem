@@ -57,14 +57,14 @@ describe("session run step routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s1" });
-    const assistant = harness.container.sessionApplication.addMessage({
+    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s1" });
+    const assistant = harness.container.local.conversationStore.addMessage({
       sessionId: "s1",
       role: "assistant",
       content: "answer",
       metadata: { run_id: "run-1" },
     });
-    harness.container.clientEvents.publish("s1", {
+    await harness.container.clientEvents.publish("s1", {
       type: "agent_started",
       session_id: "s1",
       run_id: "run-1",
@@ -72,7 +72,7 @@ describe("session run step routes", () => {
       agent_id: "orchestrator_agent",
       payload: { phase: "start" },
     });
-    harness.container.clientEvents.publish("s1", {
+    await harness.container.clientEvents.publish("s1", {
       type: "tool_call",
       session_id: "s1",
       run_id: "run-1",
@@ -85,7 +85,7 @@ describe("session run step routes", () => {
         lineage: { parent_call_id: "root-call" },
       },
     });
-    harness.container.conversationStore.updateRunStepsMessageId("s1", "run-1", assistant.id);
+    harness.container.local.conversationStore.updateRunStepsMessageId("s1", "run-1", assistant.id);
 
     const messages = await app.inject({
       method: "GET",
@@ -133,13 +133,13 @@ describe("session run step routes", () => {
         ],
       },
     });
-    const archived = harness.container.conversationStore
+    const archived = harness.container.local.conversationStore
       .listRunSteps({ sessionId: "s1", runId: "run-1", limit: 100 })
       .filter((step) => step.step_type === "protocol.envelope.v1");
     expect(archived).toHaveLength(2);
     expect(archived.every((step) => step.payload.protocol_version === "1.0")).toBe(true);
 
-    const replayed = harness.container.sessionApplication.listMessageRunSteps({
+    const replayed = await harness.container.sessionApplication.listMessageRunSteps({
       sessionId: "s1",
       messageId: assistant.id,
     });
@@ -150,24 +150,24 @@ describe("session run step routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s2" });
-    const assistant = harness.container.sessionApplication.addMessage({
+    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s2" });
+    const assistant = harness.container.local.conversationStore.addMessage({
       sessionId: "s2",
       role: "assistant",
       content: "delegated answer",
       metadata: { run_id: "root-run" },
     });
     // root run(final message = assistant)。
-    harness.container.conversationStore.createRun({
+    harness.container.local.conversationStore.createRun({
       runId: "root-run",
       sessionId: "s2",
       status: "running",
       agentName: "orchestrator_agent",
       threadKey: "root",
     });
-    harness.container.conversationStore.updateRunStatus("root-run", "s2", "completed", assistant.id);
+    harness.container.local.conversationStore.updateRunStatus("root-run", "s2", "completed", assistant.id);
     // child run(parent_run_id=root-run):其工具 step 落子 run_id 下。
-    harness.container.conversationStore.createRun({
+    harness.container.local.conversationStore.createRun({
       runId: "child-run",
       sessionId: "s2",
       status: "running",
@@ -177,7 +177,7 @@ describe("session run step routes", () => {
       parentCallId: "agent-call-1",
       childAgentId: "child-1",
     });
-    harness.container.clientEvents.publish("s2", {
+    await harness.container.clientEvents.publish("s2", {
       type: "agent_started",
       session_id: "s2",
       run_id: "root-run",
@@ -185,7 +185,7 @@ describe("session run step routes", () => {
       agent_id: "orchestrator_agent",
       payload: { phase: "start" },
     });
-    harness.container.clientEvents.publish("s2", {
+    await harness.container.clientEvents.publish("s2", {
       type: "agent_started",
       session_id: "s2",
       run_id: "root-run",
@@ -197,7 +197,7 @@ describe("session run step routes", () => {
         lineage: { parent_call_id: "root-call" },
       },
     });
-    harness.container.clientEvents.publish("s2", {
+    await harness.container.clientEvents.publish("s2", {
       type: "tool_call",
       session_id: "s2",
       run_id: "child-run",
@@ -211,7 +211,7 @@ describe("session run step routes", () => {
       },
     });
 
-    const result = harness.container.sessionApplication.listMessageRunSteps({
+    const result = await harness.container.sessionApplication.listMessageRunSteps({
       sessionId: "s2",
       messageId: assistant.id,
     });
@@ -234,15 +234,15 @@ describe("session run step routes", () => {
     const sessionId = "s3";
     const rootRunId = "root-run";
     const childRunId = "child-run";
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId });
-    harness.container.conversationStore.createRun({
+    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId });
+    harness.container.local.conversationStore.createRun({
       runId: rootRunId,
       sessionId,
       status: "running",
       agentName: "orchestrator_agent",
       threadKey: "root",
     });
-    harness.container.conversationStore.createRun({
+    harness.container.local.conversationStore.createRun({
       runId: childRunId,
       sessionId,
       status: "running",
@@ -252,7 +252,7 @@ describe("session run step routes", () => {
       parentCallId: "child-call",
       childAgentId: "worker-1",
     });
-    const assistant = harness.container.sessionApplication.addMessage({
+    const assistant = harness.container.local.conversationStore.addMessage({
       sessionId,
       role: "assistant",
       content: "done",
@@ -305,17 +305,17 @@ describe("session run step routes", () => {
       }),
     ];
     for (const event of liveEvents) {
-      harness.container.clientEvents.publish(sessionId, event, { runId: event.run_id });
+      await harness.container.clientEvents.publish(sessionId, event, { runId: event.run_id });
     }
 
-    const deleted = harness.container.conversationStore.deleteDeliveredOutbox({
+    const deleted = harness.container.local.conversationStore.deleteDeliveredOutbox({
       before: new Date(Date.now() + 60_000).toISOString(),
       limit: 100,
     });
     expect(deleted).toBe(liveEvents.length);
-    expect(harness.container.conversationStore.listOutboxForReplay({ sessionId })).toEqual([]);
+    expect(harness.container.local.conversationStore.listOutboxForReplay({ sessionId })).toEqual([]);
 
-    const history = harness.container.sessionApplication.listMessageRunSteps({
+    const history = await harness.container.sessionApplication.listMessageRunSteps({
       sessionId,
       messageId: assistant.id,
     });

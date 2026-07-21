@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 import { buildTestHarness } from "../helpers/app.js";
+import { getRealtimeHistory } from "../helpers/realtime.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 let app: FastifyInstance | null = null;
@@ -17,8 +18,8 @@ describe("interaction response routes", () => {
   it("resolves pending approvals through the generic HTTP route", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "approval-route-session", "usr_local");
-    harness.container.conversationStore.createRun({ runId: "approval-route-run", sessionId: "approval-route-session", agentName: "orchestrator_agent" });
+    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, "approval-route-session", "usr_local");
+    harness.container.local.conversationStore.createRun({ runId: "approval-route-run", sessionId: "approval-route-session", agentName: "orchestrator_agent" });
 
     const approvalPromise = harness.container.pendingInteractions.waitForApproval({
       sessionId: "approval-route-session",
@@ -34,11 +35,9 @@ describe("interaction response routes", () => {
       riskLevel: "high",
       description: "Execute bash command",
     });
-    await vi.waitFor(() => expect(harness.container.realtimeEvents
-      .getHistory("approval-route-session")
+    await vi.waitFor(() => expect(getRealtimeHistory(harness.container.realtimeEvents, "approval-route-session")
       .find((event) => event.type === "interaction")).toBeDefined());
-    const approvalRequired = harness.container.realtimeEvents
-      .getHistory("approval-route-session")
+    const approvalRequired = getRealtimeHistory(harness.container.realtimeEvents, "approval-route-session")
       .find((event) => event.type === "interaction");
     const approvalId = approvalRequired?.call_id;
 
@@ -70,7 +69,7 @@ describe("interaction response routes", () => {
       message: "允许执行",
     });
     expect(
-      harness.container.conversationStore
+      harness.container.local.conversationStore
         .listOutboxForReplay({ sessionId: "approval-route-session" })
         .map((row) => row.event_type),
     ).toEqual(["client.interaction", "client.interaction"]);
@@ -79,8 +78,8 @@ describe("interaction response routes", () => {
   it("挂起后的响应立即返回 resuming 并触发恢复执行器", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "resume-route-session", "usr_local");
-    harness.container.conversationStore.createRun({ runId: "resume-route-run", sessionId: "resume-route-session", agentName: "orchestrator_agent" });
+    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, "resume-route-session", "usr_local");
+    harness.container.local.conversationStore.createRun({ runId: "resume-route-run", sessionId: "resume-route-session", agentName: "orchestrator_agent" });
 
     const suspended = harness.container.pendingInteractions.waitForApproval({
       sessionId: "resume-route-session",
@@ -94,13 +93,12 @@ describe("interaction response routes", () => {
       toolName: "execute_bash",
     });
     await expect(suspended).rejects.toBeDefined();
-    harness.container.conversationStore.updateRunStatus("resume-route-run", "resume-route-session", "suspended", null);
+    harness.container.local.conversationStore.updateRunStatus("resume-route-run", "resume-route-session", "suspended", null);
     harness.container.interactionCoordinator.bindResumeStarter({
       startClaim: vi.fn().mockReturnValue({ promise: Promise.resolve({ content: "resumed", success: true }) }),
     });
-    await vi.waitFor(() => expect(harness.container.realtimeEvents
-      .getHistory("resume-route-session")[0]).toBeDefined());
-    const approvalId = harness.container.realtimeEvents.getHistory("resume-route-session")[0]?.call_id ?? "";
+    await vi.waitFor(() => expect(getRealtimeHistory(harness.container.realtimeEvents, "resume-route-session")[0]).toBeDefined());
+    const approvalId = getRealtimeHistory(harness.container.realtimeEvents, "resume-route-session")[0]?.call_id ?? "";
 
     const responded = await app.inject({
       method: "POST",

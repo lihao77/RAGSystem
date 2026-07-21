@@ -4,13 +4,27 @@ import type {
   IMessageStore,
   IMetricStore,
   IRunStore,
+  OutboxRow,
   RunInfo,
 } from "../conversation-store/index.js";
 import type { PermissionMode } from "./permissions.js";
 import type { MessageInfo } from "../session/session.js";
+import type { Envelope } from "../events.js";
+import type { IFileIndexStore } from "../file-index-store/index.js";
+import type { AsyncSessionFileStorage } from "../session/session-file-storage.js";
 
 /** Values returned by the Local adapter may be synchronous; SaaS adapters are async. */
 export type Awaitable<T> = T | Promise<T>;
+
+/** Deployment-neutral durable event delivery surface. */
+export interface RuntimeEventDispatcherPort {
+  dispatchRows(rows: OutboxRow[]): Awaitable<Envelope[]>;
+}
+
+/** Explicit attachment source selected by a deployment composition root. */
+export type RuntimeSessionFilesPort =
+  | { kind: "local"; fileIndex: IFileIndexStore }
+  | { kind: "async"; storage: AsyncSessionFileStorage };
 
 /** Persistence surface required by child-agent delegation.
  *

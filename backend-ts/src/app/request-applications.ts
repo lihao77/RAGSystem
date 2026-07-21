@@ -1,11 +1,5 @@
 import type { FastifyRequest } from "fastify";
 
-import { LocalAnalyticsApplication } from "../adapters/local/application/analytics/local-analytics-application.js";
-import { LocalArtifactApplication } from "../adapters/local/application/artifact/local-artifact-application.js";
-import { LocalMonitoringApplication } from "../adapters/local/application/monitoring/local-monitoring-application.js";
-import { LocalSessionApplication } from "../adapters/local/application/session/local-session-application.js";
-import { LocalExecutionReadApplication } from "../adapters/local/application/execution-read/local-execution-read-application.js";
-import { LocalExecutionApplication } from "../adapters/local/application/execution/local-execution-application.js";
 import type { AnalyticsApplication } from "../contracts/application/analytics-application.js";
 import type { ArtifactApplication } from "../contracts/artifacts/artifact-application.js";
 import type { MonitoringApplication } from "../contracts/application/monitoring-application.js";
@@ -13,9 +7,10 @@ import type { SessionApplication } from "../contracts/session/session-applicatio
 import type { ExecutionReadApplication } from "../contracts/execution/execution-read-application.js";
 import type { InteractionCoordinator } from "../contracts/runtime/pending-interactions.js";
 import type { ExecutionApplication } from "../contracts/execution/execution-application.js";
-import { LocalMemoryApplication } from "../adapters/local/application/memory/local-memory-application.js";
 import type { MemoryApplication } from "../services/memory/index.js";
 import type { RouteOptions } from "../routes/route-options.js";
+import type { ProviderApplication } from "../contracts/application/provider-application.js";
+import type { McpApplication } from "../contracts/application/mcp-application.js";
 
 export interface RequestApplications {
   sessions: SessionApplication;
@@ -26,7 +21,21 @@ export interface RequestApplications {
   executionRead: ExecutionReadApplication;
   interactions: InteractionCoordinator;
   execution: ExecutionApplication;
+  providers: ProviderApplication;
+  mcp: McpApplication;
 }
+
+export type RequestApplicationResolvers = Required<Pick<RouteOptions,
+  | "resolveSessionApplication"
+  | "resolveMemoryApplication"
+  | "resolveArtifactApplication"
+  | "resolveAnalytics"
+  | "resolveMonitoringApplication"
+  | "resolveExecutionRead"
+  | "resolveExecutionApplication"
+  | "resolveProviderApplication"
+  | "resolveMcpApplication"
+>>;
 
 export async function ensureRequestApplications(request: FastifyRequest, options: RouteOptions): Promise<RequestApplications> {
   if (!request.applications) request.applications = await createRequestApplications(request, options);
@@ -37,74 +46,28 @@ export async function createRequestApplications(
   request: FastifyRequest,
   options: RouteOptions,
 ): Promise<RequestApplications> {
-  const allowLocalFallback = request.container.deploymentKind !== "saas";
-  const resolvedSessions = await options.resolveSessionApplication?.(request);
-  const sessions = resolveApplication(
-    "session",
-    resolvedSessions,
-    allowLocalFallback,
-    () => new LocalSessionApplication(
-      request.identity.tenantId,
-      request.container.sessionApplication,
-      request.container.conversationStore,
-    ),
-  );
-  const [resolvedMemory, resolvedArtifacts, resolvedAnalytics, resolvedMonitoring, resolvedExecutionRead] = await Promise.all([
-    options.resolveMemoryApplication?.(request),
-    options.resolveArtifactApplication?.(request),
-    options.resolveAnalytics?.(request),
-    options.resolveMonitoringApplication?.(request),
-    options.resolveExecutionRead?.(request),
+  const [sessions, memory, artifacts, analytics, monitoring, executionRead, execution, providers, mcp] = await Promise.all([
+    resolveApplication("session", options.resolveSessionApplication, request),
+    resolveApplication("memory", options.resolveMemoryApplication, request),
+    resolveApplication("artifact", options.resolveArtifactApplication, request),
+    resolveApplication("analytics", options.resolveAnalytics, request),
+    resolveApplication("monitoring", options.resolveMonitoringApplication, request),
+    resolveApplication("execution read", options.resolveExecutionRead, request),
+    resolveApplication("execution", options.resolveExecutionApplication, request),
+    resolveApplication("provider", options.resolveProviderApplication, request),
+    resolveApplication("MCP", options.resolveMcpApplication, request),
   ]);
-  const memory = resolveApplication(
-    "memory",
-    resolvedMemory,
-    allowLocalFallback,
-    () => new LocalMemoryApplication(
-      request.identity.tenantId,
-      request.container.memoryStore,
-      request.container.conversationStore,
-      request.identity.userId,
-      async () => (await sessions.listSessions({ userIds: [request.identity.userId], limit: 10_000, offset: 0 })).items.map((session) => session.session_id),
-    ),
-  );
-  const artifacts = resolveApplication(
-    "artifact",
-    resolvedArtifacts,
-    allowLocalFallback,
-    () => new LocalArtifactApplication(request.container.artifacts),
-  );
-  const analytics = resolveApplication(
-    "analytics",
-    resolvedAnalytics,
-    allowLocalFallback,
-    () => new LocalAnalyticsApplication(request.container.conversationStore),
-  );
-  const monitoring = resolveApplication(
-    "monitoring",
-    resolvedMonitoring,
-    allowLocalFallback,
-    () => new LocalMonitoringApplication(request.container.conversationStore),
-  );
-  const executionRead = resolveApplication(
-    "execution read",
-    resolvedExecutionRead,
-    allowLocalFallback,
-    () => new LocalExecutionReadApplication(request.container.agentExecution, request.container.conversationStore),
-  );
   const interactions = request.container.interactionCoordinator;
-
-  const execution = new LocalExecutionApplication(request.container.agentExecution);
-  return { sessions, memory, artifacts, analytics, monitoring, executionRead, interactions, execution };
+  return { sessions, memory, artifacts, analytics, monitoring, executionRead, interactions, execution, providers, mcp };
 }
 
-function resolveApplication<T>(
+async function resolveApplication<T>(
   name: string,
-  resolved: T | undefined,
-  allowLocalFallback: boolean,
-  createLocal: () => T,
-): T {
-  if (resolved !== undefined) return resolved;
-  if (!allowLocalFallback) throw new Error(`SaaS ${name} application resolver returned no implementation`);
-  return createLocal();
+  resolver: ((request: FastifyRequest) => T | undefined | Promise<T | undefined>) | undefined,
+  request: FastifyRequest,
+): Promise<T> {
+  if (!resolver) throw new Error(`${name} application resolver is not configured`);
+  const resolved = await resolver(request);
+  if (resolved === undefined) throw new Error(`${name} application resolver returned no implementation`);
+  return resolved;
 }

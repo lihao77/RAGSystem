@@ -76,7 +76,7 @@ describe("widget auth routes", () => {
     });
     expect(sessionRes.statusCode).toBe(200);
     const sessionId: string = sessionRes.json().data.session_id;
-    const session = harness.container.sessionApplication.getSession(sessionId);
+    const session = await harness.container.sessionApplication.getSession(sessionId);
     expect(session?.user_id).toBe(widgetUserId(created.app_key));
     expect(session?.metadata).toMatchObject({
       widget: { app_key: created.app_key, host_tools: ["get_page_title"], created_via: "widget" },

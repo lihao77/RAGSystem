@@ -35,6 +35,9 @@ export const testEnv: AppEnv = {
   systemRoot: path.join(".test-data", "system"),
   allowUnsafeLocalExecution: false,
   postgresPoolMax: 10,
+  objectStorageMode: "filesystem",
+  objectStorageRegion: "us-east-1",
+  objectStorageForcePathStyle: false,
   sessionTokenTtlHours: 168,
 };
 
@@ -60,6 +63,7 @@ export async function buildTestHarness(
     resolveSessionApplication?: BuildAppOptions["resolveSessionApplication"];
     resolveMonitoringApplication?: BuildAppOptions["resolveMonitoringApplication"];
     resolveFileHistoryStorage?: BuildAppOptions["resolveFileHistoryStorage"];
+    resolveSessionFileStorage?: BuildAppOptions["resolveSessionFileStorage"];
     env?: Partial<AppEnv>;
   } = {},
 ) {
@@ -74,7 +78,7 @@ export async function buildTestHarness(
     systemConfigPath: "",
     agentConfigRoot: "",
     startOutboxDispatcher: options.startOutboxDispatcher ?? false,
-    logger: options.logger,
+    ...(options.logger ? { logger: options.logger } : {}),
     ...(options.hooks ? { hooks: options.hooks } : {}),
     embedderFactory: () => new HashFallbackEmbedder(),
   });
@@ -113,6 +117,7 @@ export async function buildTestHarness(
     ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
     ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),
+    ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.ready();

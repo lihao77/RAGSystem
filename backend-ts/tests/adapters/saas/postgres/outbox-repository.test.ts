@@ -8,9 +8,9 @@ class FakeExecutor implements PostgresMemoryExecutor {
   calls: string[] = [];
   async query<T extends Record<string, unknown> = Record<string, unknown>>(sql: string, _params?: readonly unknown[]): Promise<PostgresQueryResult<T>> {
     this.calls.push(sql);
-    if (sql.includes("SELECT tenant_id")) return { rows: [{ tenant_id: "t1" } as T] };
-    if (sql.includes("next_seq")) return { rows: [{ seq: 1 } as T] };
-    if (sql.includes("RETURNING id,event_id") || sql.includes("RETURNING e.id,e.event_id")) return { rows: [base as T] };
+    if (sql.includes("SELECT tenant_id")) return { rows: [{ tenant_id: "t1" } as unknown as T] };
+    if (sql.includes("next_seq")) return { rows: [{ seq: 1 } as unknown as T] };
+    if (sql.includes("RETURNING id,event_id") || sql.includes("RETURNING e.id,e.event_id")) return { rows: [base as unknown as T] };
     if (sql.includes("UPDATE event_outbox")) return { rows: [], rowCount: 1 };
     return { rows: [] };
   }
@@ -19,7 +19,7 @@ class FakeExecutor implements PostgresMemoryExecutor {
 
 describe("PostgresOutboxRepository", () => {
   it("scopes durable replay by tenant, session and sequence cursor", async () => {
-    const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [], rowCount: 0 }));
     const repository = new PostgresOutboxRepository({ query } as never);
 
     await repository.listOutboxForReplay({ tenantId: "tenant-a", sessionId: "s1", afterSeq: 4, limit: 20 });
@@ -45,6 +45,7 @@ describe("PostgresOutboxRepository", () => {
     const claimed = await repo.claimPendingOutbox({ limit: 2 });
     expect(claimed).toHaveLength(1);
     expect(db.calls.some((sql) => sql.includes("FOR UPDATE SKIP LOCKED"))).toBe(true);
+    expect(db.calls.some((sql) => sql.includes("COALESCE($1::timestamptz,CURRENT_TIMESTAMP)"))).toBe(true);
     expect(db.calls.some((sql) => sql.includes("RETURNING e.id,e.event_id"))).toBe(true);
     await expect(repo.markOutboxDelivered(1)).resolves.toBe(true);
     await expect(repo.markOutboxRetrying(1, "temporary", "2026-01-01T00:00:00Z")).resolves.toBe(true);
@@ -52,7 +53,7 @@ describe("PostgresOutboxRepository", () => {
   });
 
   it("tenant-scopes claims used by per-tenant SaaS dispatchers", async () => {
-    const query = vi.fn(async () => ({ rows: [base] }));
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [base] }));
     const executor = {
       query,
       transaction: async <T>(fn: (tx: PostgresMemoryExecutor) => Promise<T>) => fn(executor as PostgresMemoryExecutor),
@@ -61,11 +62,12 @@ describe("PostgresOutboxRepository", () => {
     await new PostgresOutboxRepository(executor).claimPendingOutbox({ tenantId: "tenant-a", limit: 2 });
 
     expect(query.mock.calls[0]?.[0]).toContain("tenant_id=$3");
+    expect(query.mock.calls[0]?.[1]?.slice(0, 2)).toEqual([null, 60_000]);
     expect(query.mock.calls[0]?.[1]?.slice(2)).toEqual(["tenant-a", 2]);
   });
 
   it("claims specified rows before immediate delivery", async () => {
-    const query = vi.fn(async () => ({ rows: [base] }));
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [base] }));
     const executor = {
       query,
       transaction: async <T>(fn: (tx: PostgresMemoryExecutor) => Promise<T>) => fn(executor as PostgresMemoryExecutor),

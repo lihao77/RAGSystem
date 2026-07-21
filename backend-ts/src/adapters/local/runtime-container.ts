@@ -33,22 +33,24 @@ import { AsyncDurableClientEventPublisher } from "../../services/runtime/event-o
 import { OutboxDispatcher } from "../../services/runtime/event-outbox/dispatcher.js";
 import { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
 import { RealtimeEventHub } from "../../services/runtime/realtime-event-hub.js";
-import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
+import type { LocalRuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { LocalRuntimeContainerOptions } from "./runtime-options.js";
 import { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import { LocalKnowledgeQueryAdapter } from "./local-knowledge-query-adapter.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";
 import { PathApprovalService } from "../../services/runtime/path-approval-service.js";
 import { SqliteRuntimeStorage } from "./sqlite-runtime-storage.js";
+import { LocalSessionApplication } from "./application/session/local-session-application.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
-export function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): RuntimeContainer {
+export function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): LocalRuntimeContainer {
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot });
   const fileHistory = new FileHistoryService({ dataRoot });
   const transientArtifacts = new TransientArtifactService(dataRoot);
   transientArtifacts.startPruning();
   const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory, transientArtifacts);
+  const requestSessionApplication = new LocalSessionApplication(options.tenantId, sessionApplication, conversationStore);
   const realtimeEvents = new RealtimeEventHub();
   const outboxDispatcher = new OutboxDispatcher(conversationStore, realtimeEvents);
   if (options.startOutboxDispatcher ?? true) {
@@ -151,7 +153,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
   const delegationPending = new DelegationPendingService();
 
   return createCoreRuntimeContainer({
-    deploymentKind: options.deploymentKind ?? "local",
+    deploymentKind: "local",
     tenantId: options.tenantId,
     dataRoot,
     memoryConfig,
@@ -162,25 +164,19 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     asyncClientEvents,
     ...(asyncSuspendedSessionControl ? { asyncSuspendedSessionControl } : {}),
     ...(options.asyncAnalytics ? { asyncAnalytics: options.asyncAnalytics } : {}),
-    conversationStore,
     delegationStore: conversationStore,
     metricsStore: conversationStore,
     permissionPolicyStore: conversationStore,
     compressionHistory: conversationStore,
-    sessionApplication,
+    executionSessions: sessionApplication,
+    sessionApplication: requestSessionApplication,
     realtimeEvents,
     agentConfig,
     modelAdapter,
     systemConfig,
     mcp,
-    fileHistory,
-    fileIndex,
-    knowledgeBase,
+    sessionFiles: { kind: "local", fileIndex },
     knowledge,
-    artifacts,
-    transientArtifacts,
-    embeddingModels,
-    memoryStore,
     memoryBindings,
     runtimeStorage,
     executionStorage: options.executionStorage
@@ -204,8 +200,19 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     notificationQueue,
     hostToolRegistry,
     delegationPending,
-    outboxDispatcher,
-    clientEvents,
+    eventDispatcher: outboxDispatcher,
+    clientEvents: eventClientEvents,
+    capabilities: {
+      conversationStore,
+      sessions: sessionApplication,
+      fileHistory,
+      fileIndex,
+      knowledgeBase,
+      artifacts,
+      transientArtifacts,
+      embeddingModels,
+      memoryStore,
+    },
     closeInfrastructure: () => {
       backgroundTasks.dispose();
       transientArtifacts.stopPruning();

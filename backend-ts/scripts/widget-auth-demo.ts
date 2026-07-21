@@ -13,15 +13,16 @@ import fs from "node:fs";
 import os from "node:os";
 import { buildApp } from "../src/app.js";
 import type { AppEnv } from "../src/config/env.js";
-import { createRuntimeContainer } from "../src/services/runtime/runtime-container.js";
+import { createLocalRuntimeContainer } from "../src/adapters/local/runtime-container.js";
 import { HashFallbackEmbedder } from "../src/services/integrations/embedder-registry.js";
-import { createControlStore } from "../src/services/stores/control-store/index.js";
-import { createWidgetCredentialStore } from "../src/services/stores/widget-credential-store/index.js";
-import { SqliteControlPlaneAdapter } from "../src/adapters/local/sqlite-control-plane-adapter.js";
-import { SqliteWidgetCredentialAdapter } from "../src/adapters/local/sqlite-widget-credential-adapter.js";
+import { createControlStore } from "../src/adapters/local/sqlite/control-store/index.js";
+import { createWidgetCredentialStore } from "../src/adapters/local/sqlite/widget-credential-store/index.js";
+import { SqliteControlPlaneAdapter } from "../src/adapters/local/sqlite/sqlite-control-plane-adapter.js";
+import { SqliteWidgetCredentialAdapter } from "../src/adapters/local/sqlite/sqlite-widget-credential-adapter.js";
 import { createWidgetAuthService } from "../src/services/runtime/jwt-service.js";
+import { createJwtKeyRing } from "../src/services/runtime/jwt-key-ring.js";
 import { LOCAL_TENANT_ID, LocalIdentityProvider } from "../src/services/identity/index.js";
-import { DefaultTenantRuntimeRegistry } from "../src/services/runtime/tenant-runtime-registry.js";
+import { DefaultTenantRuntimeRegistry } from "../src/adapters/local/tenant-runtime-registry.js";
 
 /** 进程内构造完整 app（直接用 src/，避开 tests/helpers 的 vitest 顶层副作用）。 */
 async function buildHarness(widgetJwtSecret: string) {
@@ -33,8 +34,11 @@ async function buildHarness(widgetJwtSecret: string) {
     systemRoot: path.join(tempRoot, "system"),
     allowUnsafeLocalExecution: false,
     postgresPoolMax: 10,
+    objectStorageMode: "filesystem",
+    objectStorageRegion: "us-east-1",
+    objectStorageForcePathStyle: false,
   };
-  const container = createRuntimeContainer({
+  const container = createLocalRuntimeContainer({
     tenantId: LOCAL_TENANT_ID,
     dbPath: path.join(tempRoot, "test.db"),
     dataRoot: tempRoot,
@@ -50,7 +54,10 @@ async function buildHarness(widgetJwtSecret: string) {
   const identityProvider = new LocalIdentityProvider(controlPlane);
   const widgetCredentialStore = createWidgetCredentialStore(controlStore.db);
   const widgetCredentials = new SqliteWidgetCredentialAdapter(widgetCredentialStore);
-  const widgetAuth = createWidgetAuthService(widgetJwtSecret, widgetCredentials);
+  const widgetAuth = createWidgetAuthService(
+    createJwtKeyRing({ active: { kid: "widget-demo", secret: widgetJwtSecret } }),
+    widgetCredentials,
+  );
   const registry = new DefaultTenantRuntimeRegistry(env, controlPlane.tenants, undefined, { runtimeFactory: () => container });
   const app = await buildApp({
     env,
@@ -78,8 +85,8 @@ async function main() {
   const harness = await buildHarness(SECRET);
   const { app, container } = harness;
   const apps = harness.widgetCredentials.apps;
-  const meta = (id: string) =>
-    (container.sessionApplication.getSession(id)?.metadata as { widget?: { created_via?: string } } | undefined)?.widget;
+  const meta = async (id: string) =>
+    ((await container.sessionApplication.getSession(id))?.metadata as { widget?: { created_via?: string } } | undefined)?.widget;
 
   try {
     H("准备：建 widget app（控制台 POST /api/widget/apps 的等价操作）");
@@ -95,7 +102,7 @@ async function main() {
       headers: { "x-widget-key": demo.app_key, origin: ORIGIN }, payload: {},
     });
     let sid = r.json().data?.session_id as string | undefined;
-    let via = sid && meta(sid)?.created_via;
+    let via = sid ? (await meta(sid))?.created_via : undefined;
     if (r.statusCode === 200 && via === "widget_public")
       good(`正确 Origin → 200  session=${sid?.slice(0, 8)}…  created_via="${via}"`);
     else bad(`status=${r.statusCode} via=${via}（应为 200/widget_public）`);
@@ -134,7 +141,7 @@ async function main() {
       headers: { authorization: `Bearer ${token}` }, payload: {},
     });
     sid = r.json().data?.session_id as string | undefined;
-    via = sid && meta(sid)?.created_via;
+    via = sid ? (await meta(sid))?.created_via : undefined;
     if (r.statusCode === 200 && via === "widget")
       good(`Bearer 建会话 → 200  session=${sid?.slice(0, 8)}…  created_via="${via}"`);
     else bad(`status=${r.statusCode} via=${via}（应为 200/widget）`);
@@ -177,8 +184,13 @@ async function main() {
       bad("对照：verifyPublishableSession 抛 " + (e as Error).message);
     }
     type Ws = { readyState: number; on(e: "close", cb: (code: number, reason: Buffer) => void): void; terminate: () => void };
+    r = await app.inject({
+      method: "POST", url: `/api/widget/sessions/${pubSid}/ws-ticket`,
+      headers: { "x-widget-key": wsApp.app_key, origin: ORIGIN }, payload: {},
+    });
+    const pubTicket = r.json().data.ticket as string;
     const ws1 = await (app as unknown as { injectWS: (url: string, opts: Record<string, unknown>, headers: Record<string, string>) => Promise<Ws> })
-      .injectWS(`/api/agent/sessions/${pubSid}/ws`, {}, { origin: ORIGIN });
+      .injectWS(`/api/agent/sessions/${pubSid}/ws?ticket=${encodeURIComponent(pubTicket)}`, {}, { origin: ORIGIN });
     const close1 = await Promise.race([
       new Promise<{ code: number; reason: string }>((res) => ws1.on("close", (code, reason) => res({ code, reason: reason.toString() }))),
       new Promise<{ code: number; reason: string }>((res) => setTimeout(() => res({ code: -1, reason: "未关闭（timeout）" }), 800)),
@@ -197,11 +209,16 @@ async function main() {
       headers: { authorization: `Bearer ${tk}` }, payload: {},
     });
     const jwtSid = r.json().data.session_id as string;
+    r = await app.inject({
+      method: "POST", url: `/api/widget/sessions/${jwtSid}/ws-ticket`,
+      headers: { authorization: `Bearer ${tk}` }, payload: {},
+    });
+    const jwtTicket = r.json().data.ticket as string;
     const ws2 = await (app as unknown as {
       injectWS: (url: string, opts: Record<string, unknown>, headers: Record<string, string>) => Promise<{ readyState: number; terminate: () => void }>;
-    }).injectWS(`/api/agent/sessions/${jwtSid}/ws?token=${tk}`, {}, {});
+    }).injectWS(`/api/agent/sessions/${jwtSid}/ws?ticket=${encodeURIComponent(jwtTicket)}`, {}, {});
     await new Promise((res) => setTimeout(res, 300));
-    if (ws2.readyState === 1) good(`JWT session WS（凭证=token query）→ OPEN`);
+    if (ws2.readyState === 1) good(`JWT session WS（凭证=短期单次 ticket）→ OPEN`);
     else bad(`JWT WS 未 OPEN（readyState=${ws2.readyState}）`);
     ws2.terminate();
 

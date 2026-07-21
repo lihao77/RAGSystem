@@ -14,6 +14,10 @@ import {
   TenantBoundPostgresAgentDelegationStore,
   runPostgresConversationMigrations,
   runPostgresChildAgentMigrations,
+  runPostgresWsTicketMigrations,
+  PostgresWsTicketService,
+  PostgresRealtimeEventRelay,
+  PostgresRealtimeEventBus,
   runPostgresKnowledgeFileMigrations,
   runPostgresKnowledgeConfigMigrations,
   runPostgresOutboxMigrations,
@@ -66,6 +70,8 @@ export interface SaaSConversationRuntimeOptions {
 /** Shared PostgreSQL lifecycle for the async SaaS conversation/run repositories. */
 export interface SaaSConversationRuntimeHandle {
   conversation: PostgresConversationRepository;
+  wsTickets: PostgresWsTicketService;
+  createRealtimeEventBus(tenantId: string): PostgresRealtimeEventBus;
   /** Tenant-bound async child-agent/delegation persistence. */
   createDelegationStore(tenantId: TenantId): TenantBoundPostgresAgentDelegationStore;
   runs: PostgresRunRepository;
@@ -104,12 +110,15 @@ export async function createSaaSConversationRuntime(
   if (!connectionString && !options.pool) throw new Error("SaaS conversation runtime requires a PostgreSQL connection string");
   const ownsPool = options.pool === undefined;
   const pool = options.pool ?? new Pool({ connectionString, max: Math.max(1, options.poolMax ?? 10) });
+  const realtimeListenerPool = connectionString ? new Pool({ connectionString, max: 1 }) : pool;
+  const ownsRealtimeListenerPool = realtimeListenerPool !== pool;
   const executor = new PgPoolMemoryExecutor(pool);
   try {
     if (options.runMigrations !== false) {
       await runPostgresConversationMigrations(executor);
       await runPostgresRunMigrations(executor);
       await runPostgresChildAgentMigrations(executor);
+      await runPostgresWsTicketMigrations(executor);
       await runPostgresOutboxMigrations(executor);
       await runPostgresKnowledgeFileMigrations(executor);
       await runPostgresKnowledgeConfigMigrations(executor);
@@ -124,8 +133,11 @@ export async function createSaaSConversationRuntime(
       await runPostgresSessionFileMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
+    const wsTickets = new PostgresWsTicketService(executor);
     const runs = new PostgresRunRepository(executor);
     const outbox = new PostgresOutboxRepository(executor);
+    const realtimeRelay = new PostgresRealtimeEventRelay(realtimeListenerPool, executor, outbox);
+    await realtimeRelay.start();
     const providerContinuations = new PostgresProviderContinuationRepository(executor);
     const knowledgeFiles = new PostgresKnowledgeFileMetadataRepository(executor);
     const pendingInteractions = new PostgresPendingInteractionRepository(executor);
@@ -142,6 +154,8 @@ export async function createSaaSConversationRuntime(
     const providerMcpApplication = new SaaSProviderMcpApplication(providerMcp);
     return {
       conversation,
+      wsTickets,
+      createRealtimeEventBus: (tenantId) => realtimeRelay.createBus(tenantId),
       createDelegationStore: (tenantId) => new TenantBoundPostgresAgentDelegationStore(
         tenantId,
         executor,
@@ -190,12 +204,17 @@ export async function createSaaSConversationRuntime(
         );
       },
       close: () => {
-        providerMcpApplication.close();
-        closePromise ??= ownsPool ? pool.end() : Promise.resolve();
+        closePromise ??= (async () => {
+          providerMcpApplication.close();
+          await realtimeRelay.close();
+          if (ownsRealtimeListenerPool) await realtimeListenerPool.end();
+          if (ownsPool) await pool.end();
+        })();
         return closePromise;
       },
     };
   } catch (error) {
+    if (ownsRealtimeListenerPool) await realtimeListenerPool.end().catch(() => undefined);
     if (ownsPool) await pool.end().catch(() => undefined);
     throw error;
   }

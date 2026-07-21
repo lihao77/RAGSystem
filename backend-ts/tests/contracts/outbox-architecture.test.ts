@@ -8,6 +8,7 @@ const srcRoot = path.resolve("src");
 describe("outbox event architecture", () => {
   it("keeps business event delivery behind the durable outbox boundary", () => {
     const files = listTypeScriptFiles(srcRoot);
+    const postgresRealtimeRelay = normalize("src/adapters/saas/postgres/realtime-event-relay.ts");
     const realtimeHubImportAllowed = new Set([
       normalize("src/services/runtime/realtime-event-hub.ts"),
       normalize("src/services/runtime/event-outbox/dispatcher.ts"),
@@ -15,6 +16,7 @@ describe("outbox event architecture", () => {
       normalize("src/adapters/local/runtime-container.ts"),
       normalize("src/adapters/saas/composition/saas-runtime-container.ts"),
       normalize("src/contracts/runtime/runtime-container.ts"),
+      postgresRealtimeRelay,
     ]);
     const directPublishAllowed = new Set([
       normalize("src/services/runtime/event-outbox/dispatcher.ts"),
@@ -22,12 +24,14 @@ describe("outbox event architecture", () => {
     ]);
     const historyReadAllowed = new Set([
       normalize("src/services/runtime/realtime-event-hub.ts"),
+      postgresRealtimeRelay,
     ]);
     const subscribeAllowed = new Set([
       normalize("src/contracts/runtime/realtime-event-bus.ts"),
       normalize("src/services/runtime/realtime-event-hub.ts"),
       normalize("src/routes/agent/ws.ts"),
       normalize("src/services/agui-gateway/agui-handler.ts"),
+      postgresRealtimeRelay,
     ]);
 
     const violations: string[] = [];

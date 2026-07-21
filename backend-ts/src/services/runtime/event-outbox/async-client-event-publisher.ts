@@ -48,8 +48,16 @@ export class AsyncDurableClientEventPublisher {
   }
 
   async record(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): Promise<OutboxRow> {
-    const input = this.toRecordInput(sessionId, event, withStableEventId(options));
+    const input = this.prepare(sessionId, event, options);
     return (await this.storage.operations.recordEnvelope(input)).outbox;
+  }
+
+  prepare(
+    sessionId: string,
+    event: Envelope,
+    options: ClientEventPublishOptions = {},
+  ): RuntimeRecordEnvelopeInput {
+    return this.toRecordInput(sessionId, event, withStableEventId(options));
   }
 
   async flush(sessionId: string): Promise<void> {

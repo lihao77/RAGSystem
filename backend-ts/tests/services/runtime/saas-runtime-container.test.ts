@@ -25,7 +25,7 @@ describe("SaaS runtime container composition", () => {
   it("refreshes tenant provider configuration before use", async () => {
     const replaceRuntimeProviders = vi.fn();
     const listProviders = vi.fn(async () => [{ id: "provider-a" }]);
-    const runtime = { modelAdapter: { replaceRuntimeProviders } } as unknown as RuntimeContainer;
+    const runtime = { deploymentKind: "saas", modelAdapter: { replaceRuntimeProviders } } as unknown as RuntimeContainer;
     const conversationRuntime = {
       providerMcpApplication: { listProviders },
     } as unknown as SaaSConversationRuntimeHandle;

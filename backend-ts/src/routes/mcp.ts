@@ -11,7 +11,7 @@ import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { isRecord } from "../utils/guards.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
-import { requireDeploymentResolution } from "../app/deployment-resolution.js";
+import { ensureRequestApplications } from "../app/request-applications.js";
 
 interface ServerParams {
   serverName: string;
@@ -27,11 +27,6 @@ interface RegistryQuery {
 export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
-    requireDeploymentResolution(
-      request,
-      "provider MCP application",
-      await options.resolveProviderMcp?.(request),
-    );
     const pathname = request.url.split("?", 1)[0] ?? request.url;
     const isReadOperation = request.method === "GET"
       || pathname.endsWith("/resources/read")
@@ -42,7 +37,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   app.get<{ Querystring: RegistryQuery }>("/registry/servers", async (request) => {
     const limit = Number(request.query.limit ?? 8);
     const latestOnly = !["0", "false", "no", "off"].includes(String(request.query.latest_only ?? "true").toLowerCase());
-    const result = await request.container.mcp.searchRegistry({
+    const result = await (await ensureRequestApplications(request, options)).mcp.searchRegistry({
       search: request.query.search,
       cursor: request.query.cursor,
       limit: Number.isFinite(limit) ? limit : 8,
@@ -55,7 +50,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
     const payload = McpRegistryInstallSchema.parse(request.body);
     try {
       return ok(
-        await request.container.mcp.installServerFromRegistry(payload),
+        await (await ensureRequestApplications(request, options)).mcp.installServerFromRegistry(payload),
         "MCP Server installed from Registry",
       );
     } catch (error) {
@@ -64,13 +59,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   });
 
   app.get("/servers", async (request) => {
-    const providerMcp = await options.resolveProviderMcp?.(request);
-    const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId);
-    const servers = mcp
-      ? mcp.listServers()
-      : providerMcp
-      ? await providerMcp.listMcpServers(request.identity.tenantId)
-      : request.container.mcp.listServers();
+    const servers = await (await ensureRequestApplications(request, options)).mcp.listServers();
     return ok(servers.map((server) => normalizeServerListItem(
       request.identity.role === "member" ? redactServerSecrets(server) : server,
     )));
@@ -84,9 +73,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
     }
     const payload = McpServerCreateSchema.parse(request.body);
     try {
-      const providerMcp = await options.resolveProviderMcp?.(request);
-      if (providerMcp) return ok(await providerMcp.createMcpServer(request.identity.tenantId, payload), "MCP Server 添加成功");
-      return ok(await request.container.mcp.addServer(payload), "MCP Server 添加成功");
+      return ok(await (await ensureRequestApplications(request, options)).mcp.addServer(payload), "MCP Server 添加成功");
     } catch (error) {
       throw toHttpError(error);
     }
@@ -95,9 +82,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   app.put<{ Params: ServerParams }>("/servers/:serverName", async (request) => {
     const payload = McpServerPayloadSchema.parse(request.body);
     try {
-      const providerMcp = await options.resolveProviderMcp?.(request);
-      if (providerMcp) return ok(await providerMcp.updateMcpServer(request.identity.tenantId, request.params.serverName, payload), "MCP Server configuration updated");
-      const status = await request.container.mcp.updateServer(request.params.serverName, payload);
+      const status = await (await ensureRequestApplications(request, options)).mcp.updateServer(request.params.serverName, payload);
       return ok(normalizeServerStatus(request.params.serverName, status as unknown as Record<string, unknown>), "MCP Server configuration updated and applied");
     } catch (error) {
       throw toHttpError(error);
@@ -106,12 +91,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.delete<{ Params: ServerParams }>("/servers/:serverName", async (request) => {
     try {
-      const providerMcp = await options.resolveProviderMcp?.(request);
-      if (providerMcp) {
-        await providerMcp.deleteMcpServer(request.identity.tenantId, request.params.serverName);
-        return ok(undefined, "MCP Server 已删除");
-      }
-      request.container.mcp.deleteServer(request.params.serverName);
+      await (await ensureRequestApplications(request, options)).mcp.deleteServer(request.params.serverName);
       return ok(undefined, "MCP Server 已删除");
     } catch (error) {
       throw toHttpError(error);
@@ -120,9 +100,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/connect", async (request) => {
     try {
-      const providerMcp = await options.resolveProviderMcp?.(request);
-      const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
-      return ok(await mcp.connectServer(request.params.serverName), "连接成功");
+      return ok(await (await ensureRequestApplications(request, options)).mcp.connectServer(request.params.serverName), "连接成功");
     } catch (error) {
       throw toHttpError(error);
     }
@@ -130,9 +108,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/disconnect", async (request) => {
     try {
-      const providerMcp = await options.resolveProviderMcp?.(request);
-      const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
-      mcp.disconnectServer(request.params.serverName, { manual: true });
+      await (await ensureRequestApplications(request, options)).mcp.disconnectServer(request.params.serverName);
       return ok(undefined, "已断开连接");
     } catch (error) {
       throw toHttpError(error);
@@ -141,9 +117,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/test", async (request) => {
     try {
-      const providerMcp = await options.resolveProviderMcp?.(request);
-      const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
-      const result = await mcp.testServer(request.params.serverName);
+      const result = await (await ensureRequestApplications(request, options)).mcp.testServer(request.params.serverName);
       return ok(result, result.message);
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
@@ -155,9 +129,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.get<{ Params: ServerParams }>("/servers/:serverName/tools", async (request) => {
     try {
-      const providerMcp = await options.resolveProviderMcp?.(request);
-      const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
-      return ok(normalizeToolsResponse(mcp.listServerTools(request.params.serverName)));
+      return ok(normalizeToolsResponse(await (await ensureRequestApplications(request, options)).mcp.listServerTools(request.params.serverName)));
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
         return ok({ server_name: request.params.serverName, tool_count: 0, tools: [] });
@@ -167,25 +139,22 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   });
 
   app.get("/tools", async (request) => {
-    const providerMcp = await options.resolveProviderMcp?.(request);
-    const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
-    return ok(normalizeToolsResponse(mcp.listAllTools()));
+    return ok(normalizeToolsResponse(await (await ensureRequestApplications(request, options)).mcp.listAllTools()));
   });
 
   app.post<{ Params: ServerParams & { toolName: string } }>("/servers/:serverName/tools/:toolName/call", async (request) => {
-    const providerMcp = await options.resolveProviderMcp?.(request);
-    const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
+    const mcp = (await ensureRequestApplications(request, options)).mcp;
     const args = isRecord(request.body) && isRecord(request.body.arguments) ? request.body.arguments : {};
     return ok(await mcp.callTool(request.params.serverName, request.params.toolName, args));
   });
 
   app.get("/prompts", async (request) => {
-    return ok(request.container.mcp.listAllPrompts());
+    return ok(await (await ensureRequestApplications(request, options)).mcp.listAllPrompts());
   });
 
   app.get<{ Params: ServerParams }>("/servers/:serverName/metrics", async (request) => {
     try {
-      return ok(request.container.mcp.getServerMetrics(request.params.serverName));
+      return ok(await (await ensureRequestApplications(request, options)).mcp.getServerMetrics(request.params.serverName));
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
         return ok({ server_name: request.params.serverName, tools: [] });
@@ -196,7 +165,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.get<{ Params: ServerParams }>("/servers/:serverName/resources", async (request) => {
     try {
-      return ok(request.container.mcp.listServerResources(request.params.serverName));
+      return ok(await (await ensureRequestApplications(request, options)).mcp.listServerResources(request.params.serverName));
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
         return ok({ server_name: request.params.serverName, resource_count: 0, resources: [] });
@@ -214,7 +183,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
       return ok({
         server_name: request.params.serverName,
         uri,
-        contents: await request.container.mcp.readResource(request.params.serverName, uri),
+        contents: await (await ensureRequestApplications(request, options)).mcp.readResource(request.params.serverName, uri),
       });
     } catch (error) {
       throw toHttpError(error);
@@ -223,7 +192,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.get<{ Params: ServerParams }>("/servers/:serverName/prompts", async (request) => {
     try {
-      return ok(request.container.mcp.listServerPrompts(request.params.serverName));
+      return ok(await (await ensureRequestApplications(request, options)).mcp.listServerPrompts(request.params.serverName));
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
         return ok({ server_name: request.params.serverName, prompt_count: 0, prompts: [] });
@@ -243,7 +212,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
       return ok({
         server_name: request.params.serverName,
         name,
-        messages: await request.container.mcp.getPrompt(request.params.serverName, name, args),
+        messages: await (await ensureRequestApplications(request, options)).mcp.getPrompt(request.params.serverName, name, args),
       });
     } catch (error) {
       throw toHttpError(error);

@@ -1,7 +1,6 @@
 import type { OutboxRow, RunInfo } from "../../../../contracts/conversation-store/index.js";
-import type { ExecutionOverview, ExecutionTaskStatus, RunningTasksResult, ScopedExecutionDiagnostics, ScopedTaskStatus, SessionTaskStatus } from "../../../../contracts/execution/execution.js";
+import type { ExecutionOverview, RunningTasksResult, ScopedExecutionDiagnostics, ScopedTaskStatus, SessionTaskStatus } from "../../../../contracts/execution/execution.js";
 import type { SessionInfo } from "../../../../contracts/session/session.js";
-import { buildObservability } from "../../../../services/agent/execution/helpers.js";
 import type {
   ExecutionReadApplication,
 } from "../../../../contracts/execution/execution-read-application.js";
@@ -10,84 +9,72 @@ import type {
   ExecutionRunReadRepositoryPort,
   ExecutionSessionReadRepositoryPort,
 } from "../../../../contracts/storage/async-persistence-ports.js";
+import { ExecutionReadProjector, type ExecutionReadLivePort } from "../../../../services/agent/execution/execution-read-projector.js";
 
 /** Tenant-bound read facade used while the Agent execution path is still being made fully asynchronous. */
 export class SaaSAgentReadApplication implements ExecutionReadApplication {
+  private readonly projector: ExecutionReadProjector;
   constructor(
     private readonly tenantId: string,
     private readonly conversations: ExecutionSessionReadRepositoryPort,
     private readonly runs: ExecutionRunReadRepositoryPort,
     private readonly outbox: ExecutionReplayRepositoryPort,
-  ) {}
+    live: ExecutionReadLivePort = emptyLivePort,
+  ) {
+    this.projector = new ExecutionReadProjector(live, {
+      getSession: (sessionId) => this.getSessionDurable(sessionId),
+      listRuns: (sessionId, limit) => this.runs.listRuns(this.tenantId, sessionId, limit).then((result) => result.items),
+      listOutboxForReplay: (input) => this.outbox.listOutboxForReplay({
+        tenantId: this.tenantId,
+        sessionId: input.sessionId,
+        ...(input.runIds ? { runIds: input.runIds } : {}),
+        ...(input.afterSeq != null ? { afterSeq: input.afterSeq } : {}),
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      }),
+      listRunsForOverview: (activeOnly) => this.runs.listTenantRuns(this.tenantId, activeOnly),
+      getRunByTaskId: (taskId) => this.runs.getTenantRun(this.tenantId, taskId),
+    });
+  }
 
-  async getSession(sessionId: string): Promise<SessionInfo | null> {
+  private async getSessionDurable(sessionId: string): Promise<SessionInfo | null> {
     const session = await this.conversations.getSession(sessionId);
     return session?.tenant_id === this.tenantId ? session : null;
   }
 
+  async getSession(sessionId: string): Promise<SessionInfo | null> {
+    return this.projector.getSession(sessionId);
+  }
+
   async getSessionTaskStatus(sessionId: string): Promise<SessionTaskStatus> {
-    if (!(await this.getSession(sessionId))) return idleStatus(sessionId);
-    const latest = latestRootRun((await this.runs.listRuns(this.tenantId, sessionId, 500)).items);
-    if (!latest) return idleStatus(sessionId);
-    const task = toTaskStatus(latest);
-    return {
-      session_id: sessionId,
-      has_running_task: latest.status === "running",
-      has_active_system_command: false,
-      task_info: task,
-      observability: null,
-      diagnostics: null,
-    };
+    return this.projector.getSessionTaskStatus(sessionId);
   }
 
   async listRuns(sessionId: string, limit = 500): Promise<RunInfo[]> {
-    if (!(await this.getSession(sessionId))) return [];
-    return (await this.runs.listRuns(this.tenantId, sessionId, limit)).items;
+    return this.projector.listRuns(sessionId, limit);
   }
 
   async listOutboxForReplay(input: { sessionId: string; runIds?: readonly string[]; afterSeq?: number; limit?: number }): Promise<OutboxRow[]> {
-    if (!(await this.getSession(input.sessionId))) return [];
-    return this.outbox.listOutboxForReplay({ tenantId: this.tenantId, ...input });
+    return this.projector.listOutboxForReplay(input);
   }
 
   async getSessionExecutionDiagnostics(sessionId: string): Promise<ScopedExecutionDiagnostics> {
-    if (!(await this.getSession(sessionId))) return missingDiagnostics("session_id", sessionId);
-    const latest = latestRootRun((await this.runs.listRuns(this.tenantId, sessionId, 500)).items);
-    return latest ? runDiagnostics("session_id", sessionId, latest) : missingDiagnostics("session_id", sessionId);
+    return this.projector.getSessionExecutionDiagnostics(sessionId);
   }
 
   async getTaskStatus(taskId: string): Promise<ScopedTaskStatus> {
-    const row = await this.runs.getTenantRun(this.tenantId, taskId);
-    const task = row ? toTaskStatus(row) : null;
-    return {
-      task_id: taskId, scope: "task_id", scope_id: taskId, found: task !== null,
-      has_running_task: task?.status === "running", task_info: task,
-      observability: task ? buildObservability(task) : null,
-    };
+    return this.projector.getTaskStatus(taskId);
   }
 
   async getTaskExecutionDiagnostics(taskId: string): Promise<ScopedExecutionDiagnostics> {
-    const row = await this.runs.getTenantRun(this.tenantId, taskId);
-    return row ? runDiagnostics("task_id", taskId, row) : missingDiagnostics("task_id", taskId);
+    return this.projector.getTaskExecutionDiagnostics(taskId);
   }
 
   async listRunningTasks(): Promise<RunningTasksResult> {
-    const items = (await this.runs.listTenantRuns(this.tenantId, true)).map(toTaskStatus);
-    return { active_only: true, count: items.length, items };
+    return this.projector.listRunningTasks();
   }
 
   async getOverview(activeOnly: boolean): Promise<ExecutionOverview> {
-    const items = (await this.runs.listTenantRuns(this.tenantId, activeOnly)).map(toTaskStatus);
-    const byExecutionKind: Record<string, number> = {};
-    const byStatus: Record<string, number> = {};
-    const sessions: string[] = [];
-    const seen = new Set<string>();
-    for (const item of items) {
-      byExecutionKind[item.execution_kind] = (byExecutionKind[item.execution_kind] ?? 0) + 1;
-      byStatus[item.status] = (byStatus[item.status] ?? 0) + 1;
-      if (item.session_id && !seen.has(item.session_id)) { seen.add(item.session_id); sessions.push(item.session_id); }
-    }
-    return { active_only: activeOnly, count: items.length, by_execution_kind: byExecutionKind, by_status: byStatus, sessions, items };
+    return this.projector.getOverview(activeOnly);
   }
 }
 
@@ -95,36 +82,15 @@ function idleStatus(sessionId: string): SessionTaskStatus {
   return { session_id: sessionId, has_running_task: false, has_active_system_command: false, task_info: null, observability: null, diagnostics: null };
 }
 
-function latestRootRun(runs: RunInfo[]): RunInfo | null {
-  const root = runs.filter((run) => !run.parent_run_id && !run.child_agent_id);
-  return (root.length ? root : runs)[0] ?? null;
-}
-
-function toTaskStatus(run: RunInfo): ExecutionTaskStatus {
-  const running = run.status === "running";
-  return {
-    task_id: run.run_id,
-    session_id: run.session_id,
-    run_id: run.run_id,
-    request_id: run.request_id,
-    execution_kind: run.entrypoint ?? "execute",
-    task: run.task_summary ?? "",
-    status: run.status,
-    elapsed_seconds: null,
-    started_at: run.created_at,
-    finished_at: running ? null : run.updated_at,
-    thread_alive: running,
-  };
-}
-
 function missingDiagnostics(scope: "session_id" | "task_id", id: string): ScopedExecutionDiagnostics {
   return { ...(scope === "session_id" ? { session_id: id } : { task_id: id }), scope, scope_id: id, found: false, diagnostics: null };
 }
 
-function runDiagnostics(scope: "session_id" | "task_id", id: string, run: RunInfo): ScopedExecutionDiagnostics {
-  const task = toTaskStatus(run);
-  return {
-    ...(scope === "session_id" ? { session_id: id } : { task_id: id }), scope, scope_id: id, found: true,
-    diagnostics: { task, runner: null, observability: buildObservability(task), handle_registered: false, is_running: task.status === "running" },
-  };
-}
+const emptyLivePort: ExecutionReadLivePort = {
+  getSessionTaskStatus: (sessionId) => idleStatus(sessionId),
+  getSessionExecutionDiagnostics: (sessionId) => missingDiagnostics("session_id", sessionId),
+  getTaskStatus: (taskId) => ({ task_id: taskId, scope: "task_id", scope_id: taskId, found: false, has_running_task: false, task_info: null, observability: null }),
+  getTaskExecutionDiagnostics: (taskId) => missingDiagnostics("task_id", taskId),
+  listRunningTasks: () => ({ active_only: true, count: 0, items: [] }),
+  getOverview: (activeOnly) => ({ active_only: activeOnly, count: 0, by_execution_kind: {}, by_status: {}, sessions: [], items: [] }),
+};

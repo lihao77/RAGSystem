@@ -82,7 +82,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     await loadOwnedSession(request, request.params.sessionId, sessions);
     return validateResponse(
       SessionWsTicketResponseSchema,
-      ok(options.wsTickets.issue(request.identity, request.params.sessionId), "WebSocket ticket 已签发"),
+      ok(await options.wsTickets.issue(request.identity, request.params.sessionId), "WebSocket ticket 已签发"),
     );
   });
 

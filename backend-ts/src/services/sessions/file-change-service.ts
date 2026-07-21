@@ -1,28 +1,14 @@
 import fs from "node:fs";
 import { diffLines } from "diff";
 
+import type {
+  FileChangeItem,
+  FileChangeLine,
+  LatestFileChanges,
+} from "../../contracts/application/file-change-application.js";
 import type { AsyncFileHistoryStore, FileHistorySnapshot, IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 
-export interface FileChangeLine {
-  type: "added" | "removed" | "context";
-  content: string;
-  oldLine: number | null;
-  newLine: number | null;
-}
-
-export interface FileChangeItem {
-  path: string;
-  action: "modified" | "created";
-  oldContent?: string;
-  newContent: string;
-  diff: FileChangeLine[];
-}
-
-export interface LatestFileChanges {
-  snapshot_id: string | null;
-  message_seq: number | null;
-  files: FileChangeItem[];
-}
+export type { FileChangeItem, FileChangeLine, LatestFileChanges } from "../../contracts/application/file-change-application.js";
 
 export class FileChangeService {
   constructor(private readonly fileHistory: IFileHistoryStore) {}

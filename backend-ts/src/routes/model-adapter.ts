@@ -10,7 +10,7 @@ import { ModelAdapterServiceError } from "../services/integrations/model-adapter
 import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
-import { requireDeploymentResolution } from "../app/deployment-resolution.js";
+import { ensureRequestApplications } from "../app/request-applications.js";
 
 interface ProviderParams {
   providerKey: string;
@@ -20,20 +20,12 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     if (request.method !== "GET") requireTenantAdmin(request);
-    requireDeploymentResolution(
-      request,
-      "provider MCP application",
-      await options.resolveProviderMcp?.(request),
-    );
   });
 
-  app.get("/provider-types", async (request) => ok(request.container.modelAdapter.listProviderTypes(), "获取成功"));
+  app.get("/provider-types", async (request) => ok((await ensureRequestApplications(request, options)).providers.listProviderTypes(), "获取成功"));
 
   app.get("/providers", async (request) => {
-    const providerMcp = await options.resolveProviderMcp?.(request);
-    const providers = (providerMcp
-      ? await providerMcp.listProviders(request.identity.tenantId)
-      : request.container.modelAdapter.listProviders())
+    const providers = (await (await ensureRequestApplications(request, options)).providers.listProviders())
       .map((provider) => request.identity.role === "member" ? redactProviderSecrets(provider) : provider);
     return {
       ...ok(providers, "Provider 列表获取成功"),
@@ -44,12 +36,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.post("/providers", async (request) => {
     const payload = ProviderPayloadSchema.parse(request.body);
     try {
-      const providerMcp = await options.resolveProviderMcp?.(request);
-      if (providerMcp) {
-        const providerKey = await providerMcp.createProvider(request.identity.tenantId, payload);
-        return { ...ok({ provider_key: providerKey }, "Provider 创建成功"), provider_key: providerKey };
-      }
-      const providerKey = request.container.modelAdapter.createProvider(payload);
+      const providerKey = await (await ensureRequestApplications(request, options)).providers.createProvider(payload);
       return {
         ...ok({ provider_key: providerKey }, "Provider 创建成功"),
         provider_key: providerKey,
@@ -62,12 +49,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.put("/providers/order", async (request) => {
     const payload = ReorderProvidersRequestSchema.parse(request.body);
     try {
-      const providerMcp = await options.resolveProviderMcp?.(request);
-      if (providerMcp) {
-        const providerKeys = await providerMcp.reorderProviders(request.identity.tenantId, payload.provider_keys);
-        return { ...ok({ provider_keys: providerKeys }, "Provider 顺序更新成功"), provider_keys: providerKeys };
-      }
-      const providerKeys = request.container.modelAdapter.reorderProviders(payload);
+      const providerKeys = await (await ensureRequestApplications(request, options)).providers.reorderProviders(payload.provider_keys);
       return {
         ...ok({ provider_keys: providerKeys }, "Provider 顺序更新成功"),
         provider_keys: providerKeys,
@@ -80,12 +62,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.put<{ Params: ProviderParams }>("/providers/:providerKey", async (request) => {
     const payload = ProviderPayloadSchema.parse(request.body);
     try {
-      const providerMcp = await options.resolveProviderMcp?.(request);
-      if (providerMcp) {
-        const providerKey = await providerMcp.updateProvider(request.identity.tenantId, request.params.providerKey, payload);
-        return { ...ok({ provider_key: providerKey }, "Provider 更新成功"), provider_key: providerKey };
-      }
-      const providerKey = request.container.modelAdapter.updateProvider(request.params.providerKey, payload);
+      const providerKey = await (await ensureRequestApplications(request, options)).providers.updateProvider(request.params.providerKey, payload);
       return {
         ...ok({ provider_key: providerKey }, "Provider 更新成功"),
         provider_key: providerKey,
@@ -97,12 +74,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
 
   app.delete<{ Params: ProviderParams }>("/providers/:providerKey", async (request) => {
     try {
-      const providerMcp = await options.resolveProviderMcp?.(request);
-      if (providerMcp) {
-        await providerMcp.deleteProvider(request.identity.tenantId, request.params.providerKey);
-        return ok(undefined, "Provider 删除成功");
-      }
-      request.container.modelAdapter.deleteProvider(request.params.providerKey);
+      await (await ensureRequestApplications(request, options)).providers.deleteProvider(request.params.providerKey);
       return ok(undefined, "Provider 删除成功");
     } catch (error) {
       if (error instanceof ModelAdapterServiceError && error.statusCode === 404 && error.message.startsWith("Provider 不存在:")) {
@@ -114,7 +86,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
 
   app.get<{ Params: ProviderParams }>("/providers/:providerKey/check", async (request) => {
     try {
-      const result = request.container.modelAdapter.checkProviderAvailability(request.params.providerKey);
+      const result = await (await ensureRequestApplications(request, options)).providers.checkProviderAvailability(request.params.providerKey);
       return {
         ...ok(result, "检查成功"),
         ...result,
@@ -126,7 +98,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
 
   app.get<{ Params: ProviderParams }>("/providers/:providerKey/metrics", async (request) => {
     try {
-      return ok(request.container.modelAdapter.getProviderMetrics(request.params.providerKey), "获取成功");
+      return ok(await (await ensureRequestApplications(request, options)).providers.getProviderMetrics(request.params.providerKey), "获取成功");
     } catch (error) {
       throw toHttpError(error);
     }
@@ -135,7 +107,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.post("/test", async (request) => {
     const payload = TestProviderRequestSchema.parse(request.body);
     try {
-      const result = await request.container.modelAdapter.testProvider(payload);
+      const result = await (await ensureRequestApplications(request, options)).providers.testProvider(payload);
       return {
         ...ok(result, "测试成功"),
         response: result,

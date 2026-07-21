@@ -126,7 +126,6 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
     const query = request.query as Record<string, string | undefined>;
     return withTenantRuntime(options.registry, tenantId, async (runtime) => {
       const sessions = await runtime.sessionApplication.listSessions({
-        tenantId,
         limit: parseIntQuery(query.limit) ?? 20,
         offset: parseIntQuery(query.offset) ?? 0,
       });
@@ -168,7 +167,7 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
     const actor = await requirePlatformAdmin(request, options.controlPlane);
     const tenantId = await requireExistingTenant(options.controlPlane, request.params.tenantId);
     return withTenantRuntime(options.registry, tenantId, async (runtime) => {
-      const sessionsCount = (await runtime.sessionApplication.listSessions({ tenantId, limit: 1, offset: 0 })).total;
+      const sessionsCount = (await runtime.sessionApplication.listSessions({ limit: 1, offset: 0 })).total;
       await options.controlPlane.audit.record({ actorUserId: actor.id, action: "read_tenant_health", targetTenantId: tenantId, targetResource: `tenant:${tenantId}:health` });
       return { success: true, data: { status: "healthy", tenantId, sessionsCount } };
     });

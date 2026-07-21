@@ -24,6 +24,18 @@ describe("LocalMemoryApplication", () => {
     expect(candidate).toMatchObject({ tenant_id: tenant, scope: "team", status: "candidate", name: "Shared preference" });
     await expect(app.governance.getCandidate(candidate.id)).resolves.toMatchObject({ id: candidate.id, owner_user_id: "usr_owner" });
     await expect(app.governance.countCandidates({ owner_user_id: "usr_owner" })).resolves.toBe(1);
+    await expect(app.commands.updateCandidate({
+      candidate_id: candidate.id,
+      owner_user_id: "usr_owner",
+      expected_version: candidate.version + 1,
+      content: "stale",
+    })).resolves.toEqual({ outcome: "state_conflict" });
+    await expect(app.commands.updateCandidate({
+      candidate_id: candidate.id,
+      owner_user_id: "usr_owner",
+      expected_version: candidate.version,
+      content: "updated",
+    })).resolves.toMatchObject({ outcome: "applied", candidate: { content: "updated" } });
     conversation.close();
   });
 });

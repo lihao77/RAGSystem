@@ -59,7 +59,7 @@ describe("/review prompt 命令:持久化原始输入,LLM 收展开 prompt", () 
     expect(llmHistory).toContain("未提交代码");
 
     // 持久化的 user 消息存原始命令(刷新后前端显示这个,而非展开文本);展开 prompt 进 metadata.expanded_task
-    const userMessages = harness.container.conversationStore
+    const userMessages = harness.container.local.conversationStore
       .getRecentMessages("prompt-session")
       .filter((m) => m.role === "user");
     expect(userMessages).toHaveLength(1);

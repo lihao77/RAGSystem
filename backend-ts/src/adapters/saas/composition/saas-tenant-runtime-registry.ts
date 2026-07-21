@@ -34,7 +34,7 @@ export class SaaSTenantRuntimeRegistry
       ...(options.sweepIntervalMs === undefined ? {} : { sweepIntervalMs: options.sweepIntervalMs }),
       createRuntime: async (tenantId) => {
         const dataRoot = tenantRoot(tenantId);
-        const runtime = createSaaSRuntimeContainer({
+        const runtime = await createSaaSRuntimeContainer({
           tenantId,
           dataRoot,
           conversationRuntime,

@@ -43,12 +43,16 @@ export class AgentExecutionEventPublisher {
   ) {}
 
   publishRunStarted(sessionId: string, runId: string, payload: { request_id?: string; task?: string; source?: string }): void {
-    this.publish(sessionId, {
+    this.publish(sessionId, this.buildRunStarted(sessionId, runId, payload));
+  }
+
+  buildRunStarted(sessionId: string, runId: string, payload: { request_id?: string; task?: string; source?: string }): Envelope {
+    return {
       type: "run_started",
       session_id: sessionId,
       run_id: runId,
       payload: { request_id: payload.request_id, task: payload.task, ...(payload.source ? { source: payload.source } : {}) },
-    });
+    };
   }
 
   publishOutputMessageSaved(
@@ -56,7 +60,15 @@ export class AgentExecutionEventPublisher {
     runId: string | null | undefined,
     payload: { message_id: string; seq?: number; role?: string; request_id?: string },
   ): void {
-    this.publish(sessionId, {
+    this.publish(sessionId, this.buildOutputMessageSaved(sessionId, runId, payload));
+  }
+
+  buildOutputMessageSaved(
+    sessionId: string,
+    runId: string | null | undefined,
+    payload: { message_id: string; seq?: number; role?: string; request_id?: string },
+  ): Envelope {
+    return {
       type: "state_sync",
       session_id: sessionId,
       ...(runId ? { run_id: runId } : {}),
@@ -69,17 +81,21 @@ export class AgentExecutionEventPublisher {
           ...(payload.request_id ? { request_id: payload.request_id } : {}),
         },
       } satisfies StateSyncPayload,
-    });
+    };
   }
 
   publishRootAgentStart(input: ExecutionEventContext & { task: string }): void {
+    this.publish(input.sessionId, this.buildRootAgentStart(input));
+  }
+
+  buildRootAgentStart(input: ExecutionEventContext & { task: string }): Envelope {
     const { top, lineage } = contextMarkers(input);
-    this.publish(input.sessionId, {
+    return {
       type: "agent_started",
       session_id: input.sessionId,
       ...top,
       payload: { phase: "start", task: input.task, display_name: input.agent.display_name || input.agent.agent_name, lineage },
-    });
+    };
   }
 
   publishUserInterrupt(status: ExecutionTaskStatus, reason: string): void {

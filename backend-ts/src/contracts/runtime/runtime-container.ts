@@ -1,13 +1,23 @@
+import type { HookRegistry } from "@ragsystem/agent-sdk";
 
-import type { IFileHistoryStore } from "../file-history-store/index.js";
+import type { ArtifactApplication } from "../artifacts/artifact-application.js";
+import type { ConversationStore } from "../conversation-store/index.js";
+import type { ExecutionStorage } from "../execution/execution-storage.js";
+import type { IFileHistoryStore, AsyncFileHistoryStore } from "../file-history-store/index.js";
 import type { IFileIndexStore } from "../file-index-store/index.js";
-import type { IMemoryStore, MemoryRepository } from "../memory-store/index.js";
+import type { KnowledgeQueryPort } from "../knowledge/query-port.js";
+import type { IMemoryStore } from "../memory-store/index.js";
+import type { PathAccessPolicy } from "./path-access-policy.js";
+import type { InteractionCoordinator, PendingInteractionPort } from "./pending-interactions.js";
+import type { RealtimeEventBus } from "./realtime-event-bus.js";
+import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "./runtime-async-ports.js";
 import type { MemoryConfig } from "./system-config.js";
-import type { TenantId } from "../../identity/types.js";
 import type { CommandExecutionPort, CodeExecutionPort, DocumentToolPort, WorkspaceSearchPort } from "./tool-ports.js";
-import type { MemoryToolOperations, RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExecution.js";
-import type { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
-import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
+import type { AsyncSessionFileStorage } from "../session/session-file-storage.js";
+import type { ExecutionSessionPort, SessionApplication } from "../session/session-application.js";
+import type { RuntimeStorage } from "../storage/runtime-storage.js";
+import type { AsyncAnalyticsRepository } from "../storage/async-persistence-ports.js";
+import type { TenantId } from "../../identity/types.js";
 import type { AgentConfigService } from "../../services/agent/config/index.js";
 import type { AgentDelegationService } from "../../services/agent/delegation/index.js";
 import type { AgentExecutionLogger, AgentExecutionService } from "../../services/agent/execution/index.js";
@@ -21,37 +31,55 @@ import type { McpService } from "../../services/integrations/mcp-service.js";
 import type { ModelAdapterService } from "../../services/integrations/model-adapter-service.js";
 import type { EmbeddingModelService } from "../../services/knowledge/embedding-model-service.js";
 import type { KnowledgeBaseService } from "../../services/knowledge/knowledge-base-service.js";
+import type { MemoryApplication } from "../../services/memory/index.js";
 import type { AgentSessionApplication } from "../../services/sessions/index.js";
-import type { ConversationStore } from "../conversation-store/index.js";
 import type { SkillLibraryService } from "../../services/skills/skill-library-service.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { DelegationPendingService } from "../../services/runtime/delegation-pending-service.js";
-import type { DurableClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
-import type { OutboxDispatcher } from "../../services/runtime/event-outbox/dispatcher.js";
-import type { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
-import type { InteractionCoordinator, PendingInteractionPort } from "./pending-interactions.js";
-import type { PermissionPolicyService } from "../../services/runtime/permission-policy-service.js";
-import type { RealtimeEventBus } from "./realtime-event-bus.js";
-import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
-import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "./runtime-async-ports.js";
-import type { RuntimeStorage } from "../storage/runtime-storage.js";
-import type { KnowledgeQueryPort } from "../knowledge/query-port.js";
-import type { ExecutionStorage } from "../execution/execution-storage.js";
-import type { PathAccessPolicy } from "./path-access-policy.js";
-import type { AsyncAnalyticsRepository } from "../storage/async-persistence-ports.js";
-import type { AsyncSessionFileStorage } from "../session/session-file-storage.js";
+import type { ClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
+import type { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
+import type { PermissionPolicyService } from "../../services/runtime/permission-policy-service.js";
+import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
+import type { MemoryToolOperations } from "../../tools/MemoryTools/MemoryExecution.js";
+import type { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
+import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import type {
   AgentDelegationStorePort,
   AgentMetricsStorePort,
   CompressionHistoryStorePort,
   PermissionPolicyStorePort,
+  RuntimeEventDispatcherPort,
+  RuntimeSessionFilesPort,
 } from "./core-runtime-ports.js";
 
-export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = IMemoryStore> {
+/** Local-only synchronous administration and filesystem capabilities. */
+export interface LocalRuntimeCapabilities {
+  conversationStore: ConversationStore;
+  sessions: AgentSessionApplication;
+  fileHistory: IFileHistoryStore;
+  fileIndex: IFileIndexStore;
+  knowledgeBase: KnowledgeBaseService;
+  artifacts: ArtifactService;
+  transientArtifacts: TransientArtifactService;
+  embeddingModels: EmbeddingModelService;
+  memoryStore: IMemoryStore;
+}
+
+/** SaaS-only tenant-bound applications backed by PostgreSQL and object storage. */
+export interface SaaSRuntimeCapabilities {
+  sessions: SessionApplication & ExecutionSessionPort;
+  fileHistory: AsyncFileHistoryStore;
+  sessionFiles: AsyncSessionFileStorage;
+  artifacts: ArtifactApplication;
+  memory: MemoryApplication;
+}
+
+/** Deployment-neutral runtime assembled by the shared execution core. */
+export interface RuntimeContainerBase {
   readonly deploymentKind: "local" | "saas";
-  readonly conversationStore: ConversationStore;
-  readonly sessionApplication: AgentSessionApplication;
+  readonly tenantId: TenantId;
+  readonly sessionApplication: SessionApplication;
   readonly realtimeEvents: RealtimeEventBus;
   readonly agentExecution: AgentExecutionService;
   readonly metricsCollector: AgentMetricsCollector;
@@ -60,14 +88,7 @@ export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = I
   readonly modelAdapter: ModelAdapterService;
   readonly systemConfig: SystemConfigService;
   readonly mcp: McpService;
-  readonly fileHistory: IFileHistoryStore;
-  readonly fileIndex: IFileIndexStore;
-  readonly knowledgeBase: KnowledgeBaseService;
   readonly knowledge: KnowledgeQueryPort;
-  readonly artifacts: ArtifactService;
-  readonly transientArtifacts: TransientArtifactService;
-  readonly embeddingModels: EmbeddingModelService;
-  readonly memoryStore: TMemoryRepository;
   readonly memoryTools: MemoryToolOperations;
   readonly memoryContextSourceFactory: MemoryRuntimeBindings["createContextSource"];
   readonly documentTools: DocumentToolPort | null;
@@ -85,19 +106,27 @@ export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = I
   readonly toolsDeps: Omit<import("../../tools/registry.js").BackendToolsDeps, "agent" | "teamName">;
   readonly runtimeCore: RuntimeCoreService;
   readonly agentDelegation: AgentDelegationService;
-  readonly outboxDispatcher: OutboxDispatcher;
-  readonly clientEvents: DurableClientEventPublisher;
+  readonly eventDispatcher: RuntimeEventDispatcherPort;
+  readonly clientEvents: ClientEventPublisher;
   readonly dataRoot: string;
   close(): void;
 }
 
-/**
- * Services prepared by a deployment adapter before the shared agent runtime is assembled.
- * Infrastructure services are narrowed to ports as their deployment-specific implementations
- * are extracted. The memory dependency is the first such boundary.
- */
-export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryRepository = MemoryRepository> {
-  deploymentKind: "local" | "saas";
+export interface LocalRuntimeContainer extends RuntimeContainerBase {
+  readonly deploymentKind: "local";
+  readonly local: LocalRuntimeCapabilities;
+  readonly saas: null;
+}
+
+export interface SaaSRuntimeContainer extends RuntimeContainerBase {
+  readonly deploymentKind: "saas";
+  readonly local: null;
+  readonly saas: SaaSRuntimeCapabilities;
+}
+
+export type RuntimeContainer = LocalRuntimeContainer | SaaSRuntimeContainer;
+
+interface CoreRuntimeDependenciesBase {
   tenantId: TenantId;
   dataRoot: string;
   memoryConfig: MemoryConfig;
@@ -109,26 +138,19 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   asyncSuspendedSessionControl?: SuspendedSessionControlPort;
   asyncAnalytics?: AsyncAnalyticsRepository;
   runtimeStorage: RuntimeStorage;
-  conversationStore: ConversationStore;
   delegationStore: AgentDelegationStorePort;
   metricsStore: AgentMetricsStorePort;
   permissionPolicyStore: PermissionPolicyStorePort;
   compressionHistory: CompressionHistoryStorePort | null;
-  sessionApplication: AgentSessionApplication;
+  executionSessions: ExecutionSessionPort;
+  sessionApplication: SessionApplication;
   realtimeEvents: RealtimeEventBus;
   agentConfig: AgentConfigService;
   modelAdapter: ModelAdapterService;
   systemConfig: SystemConfigService;
   mcp: McpService;
-  fileHistory: IFileHistoryStore;
-  fileIndex: IFileIndexStore;
-  asyncSessionFiles?: AsyncSessionFileStorage | null;
-  knowledgeBase: KnowledgeBaseService;
+  sessionFiles: RuntimeSessionFilesPort;
   knowledge: KnowledgeQueryPort;
-  artifacts: ArtifactService;
-  transientArtifacts: TransientArtifactService;
-  embeddingModels: EmbeddingModelService;
-  memoryStore: TMemoryRepository;
   memoryBindings: MemoryRuntimeBindings;
   executionStorage: ExecutionStorage;
   pathAccessPolicyFactory: () => PathAccessPolicy;
@@ -143,8 +165,19 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   notificationQueue: SessionNotificationQueue;
   hostToolRegistry: HostToolRegistry;
   delegationPending: DelegationPendingService;
-  outboxDispatcher: OutboxDispatcher;
-  clientEvents: DurableClientEventPublisher;
+  eventDispatcher: RuntimeEventDispatcherPort;
+  clientEvents: ClientEventPublisher;
   closeInfrastructure(): void;
 }
-import type { HookRegistry } from "@ragsystem/agent-sdk";
+
+export interface LocalCoreRuntimeDependencies extends CoreRuntimeDependenciesBase {
+  deploymentKind: "local";
+  capabilities: LocalRuntimeCapabilities;
+}
+
+export interface SaaSCoreRuntimeDependencies extends CoreRuntimeDependenciesBase {
+  deploymentKind: "saas";
+  capabilities: SaaSRuntimeCapabilities;
+}
+
+export type CoreRuntimeDependencies = LocalCoreRuntimeDependencies | SaaSCoreRuntimeDependencies;

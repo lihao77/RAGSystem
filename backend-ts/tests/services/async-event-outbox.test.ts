@@ -15,11 +15,11 @@ const row = (id: number, attempts = 0): OutboxRow => ({
 describe("AsyncOutboxDispatcher", () => {
   it("projects and marks PostgreSQL rows delivered", async () => {
     const delivered: number[] = [];
-    const store: AsyncOutboxStore = {
+    const store = createOutboxStore({
       appendOutbox: async () => row(1), claimPendingOutbox: async () => [row(1)],
       markOutboxDelivered: async (id) => { delivered.push(id); return true; },
       markOutboxRetrying: async () => false, markOutboxFailed: async () => false,
-    };
+    });
     const hub = new RealtimeEventHub();
     const dispatcher = new AsyncOutboxDispatcher(store, hub);
     const events = await dispatcher.pollOnce();
@@ -30,12 +30,12 @@ describe("AsyncOutboxDispatcher", () => {
 
   it("marks malformed payloads retrying until max attempts", async () => {
     const retrying: string[] = [];
-    const store: AsyncOutboxStore = {
+    const store = createOutboxStore({
       appendOutbox: async () => row(1), claimPendingOutbox: async () => [{ ...row(1), payload: "not-json" }],
       markOutboxDelivered: async () => false,
       markOutboxRetrying: async (_id, error) => { retrying.push(error); return true; },
       markOutboxFailed: async () => false,
-    };
+    });
     const dispatcher = new AsyncOutboxDispatcher(store, new RealtimeEventHub(), undefined, { maxAttempts: 3 });
     await dispatcher.pollOnce();
     expect(retrying[0]).toContain("Invalid outbox payload");
@@ -63,3 +63,21 @@ describe("AsyncOutboxDispatcher", () => {
     expect(hub.getHistory("session-1")).toHaveLength(1);
   });
 });
+
+function createOutboxStore(overrides: Partial<AsyncOutboxStore>): AsyncOutboxStore {
+  return {
+    appendOutbox: async () => row(1),
+    claimPendingOutbox: async () => [],
+    claimOutboxRows: async () => [],
+    listOutboxForReplay: async () => [],
+    markOutboxDelivered: async () => false,
+    markOutboxRetrying: async () => false,
+    markOutboxFailed: async () => false,
+    getOutboxRow: async () => null,
+    listOutbox: async () => ({ items: [], total: 0, limit: 100, offset: 0, has_more: false }),
+    retryOutbox: async () => false,
+    retryOutboxBatch: async () => ({ ids: [], matched: 0, retried: 0 }),
+    deleteDeliveredOutbox: async () => 0,
+    ...overrides,
+  };
+}

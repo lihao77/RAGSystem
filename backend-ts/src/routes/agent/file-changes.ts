@@ -1,10 +1,9 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 
-import { AsyncFileChangeService, FileChangeService } from "../../services/sessions/file-change-service.js";
+import type { FileChangeApplication } from "../../contracts/application/file-change-application.js";
 import type { RouteOptions } from "../route-options.js";
 import { loadOwnedSession } from "../session-owner.js";
 import { resolveSessionApplication } from "../session-application.js";
-import { ensureRequestResources } from "../../app/request-resources.js";
 
 interface SessionParams {
   sessionId: string;
@@ -14,12 +13,13 @@ export const registerFileChangeRoutes: FastifyPluginAsync<RouteOptions> = async 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/file-changes", async (request) => {
     const sessions = await resolveSessionApplication(options, request);
     await loadOwnedSession(request, request.params.sessionId, sessions);
-    const asyncHistory = (await ensureRequestResources(request, options)).fileHistoryStorage;
-    if (asyncHistory) {
-      const service = new AsyncFileChangeService(asyncHistory);
-      return { success: true, ...await service.getLatest(request.params.sessionId) };
-    }
-    const service = new FileChangeService(request.container.fileHistory);
-    return { success: true, ...service.getLatest(request.params.sessionId) };
+    const fileChanges = await resolveFileChanges(options, request);
+    return { success: true, ...await fileChanges.getLatest(request.params.sessionId) };
   });
 };
+
+async function resolveFileChanges(options: RouteOptions, request: FastifyRequest): Promise<FileChangeApplication> {
+  const application = await options.resolveFileChangeApplication?.(request);
+  if (!application) throw new Error("file change application resolver returned no implementation");
+  return application;
+}

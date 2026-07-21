@@ -47,7 +47,7 @@ function seedRoot(store: ConversationStore, sessionId = "session-1", runId = "ru
 }
 
 function createCoordinator(storage: RuntimeStorage, startClaim?: InteractionResumeStarter["startClaim"]) {
-  const dispatchRows = vi.fn(async () => undefined);
+  const dispatchRows = vi.fn(async () => []);
   const coordinator = new RuntimeInteractionCoordinator(
     storage,
     new AsyncDurableClientEventPublisher(storage, { dispatchRows }),
@@ -156,7 +156,7 @@ describe("RuntimeInteractionCoordinator", () => {
       threadKey: "root",
     });
     const storage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
-    const dispatchRows = vi.fn(async () => undefined);
+    const dispatchRows = vi.fn(async () => []);
     const coordinator = new RuntimeInteractionCoordinator(
       storage,
       new AsyncDurableClientEventPublisher(storage, { dispatchRows }),
@@ -208,7 +208,7 @@ describe("RuntimeInteractionCoordinator", () => {
     const storage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
     const coordinator = new RuntimeInteractionCoordinator(
       storage,
-      new AsyncDurableClientEventPublisher(storage, { dispatchRows: async () => undefined }),
+      new AsyncDurableClientEventPublisher(storage, { dispatchRows: async () => [] }),
     );
     let interactionId = "";
     const waiting = coordinator.waitForUserInput({

@@ -27,6 +27,8 @@ import type {
   RuntimeRollbackResumeResult,
   RuntimeStartRunInput,
   RuntimeStartRunResult,
+  RuntimeStartOrAppendRootInput,
+  RuntimeStartOrAppendRootResult,
   RuntimeStorage,
 } from "../../contracts/storage/runtime-storage.js";
 import { buildInterruptedToolMessages } from "../../contracts/storage/runtime-finalization.js";
@@ -54,6 +56,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
   ) {
     this.operations = {
       startRun: (input) => this.startRun(input),
+      startOrAppendRoot: (input) => this.startOrAppendRoot(input),
       persistMessage: (input) => this.persistMessage(input),
       recordEnvelope: (input) => this.recordEnvelope(input),
       recordInteraction: (input) => this.recordInteraction(input),
@@ -73,6 +76,10 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       if (input.initialUserMessage) {
         assertSessionId(input.initialUserMessage.sessionId, input.session.sessionId, "initial user message");
       }
+      const initialRecords = input.initialRecords ?? [];
+      for (const record of initialRecords) {
+        assertRecordScope(record, input.session.sessionId, input.run.runId);
+      }
       return this.store.runInTransaction((tx) => {
         const existingSession = tx.getSession(input.session.sessionId);
         if (existingSession && existingSession.tenant_id !== this.tenantId) {
@@ -87,10 +94,10 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             input.session.permissionMode,
           );
         }
+        const existingRun = tx.getRun(input.session.sessionId, input.run.runId);
         const initialUserMessage = input.initialUserMessage
           ? resolveDeterministicMessage(tx, input.initialUserMessage, "initial user message")
           : null;
-        const existingRun = tx.getRun(input.session.sessionId, input.run.runId);
         let run: RuntimeStartRunResult["run"];
         if (existingRun) {
           assertRunScope(existingRun, input.run, this.tenantId);
@@ -102,7 +109,43 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             throw new Error(`run scope conflict: ${input.run.runId}`, { cause: error });
           }
         }
-        return { run, initialUserMessage };
+        const records = initialRecords.map((record) => recordEnvelope(tx, record));
+        return { run, initialUserMessage, records };
+      });
+    });
+  }
+
+  private startOrAppendRoot(input: RuntimeStartOrAppendRootInput): Promise<RuntimeStartOrAppendRootResult> {
+    return this.serial.run(() => {
+      assertSessionId(input.run.sessionId, input.session.sessionId, "run");
+      if (input.run.parentRunId != null) throw new Error("startOrAppendRoot requires a root run");
+      return this.store.runInTransaction((tx) => {
+        const existingSession = tx.getSession(input.session.sessionId);
+        if (existingSession && existingSession.tenant_id !== this.tenantId) throw new Error(`session belongs to another tenant: ${input.session.sessionId}`);
+        if (!existingSession) tx.createSession(this.tenantId, input.session.sessionId, input.session.userId, input.session.metadata, input.session.permissionMode);
+        const activeRoot = tx.listRuns(input.session.sessionId, 1000).items.find((run) => run.parent_run_id == null && run.status === "running");
+        if (activeRoot && activeRoot.run_id !== input.run.runId) {
+          const roundIndex = tx.getRecentMessages(input.session.sessionId, 1000, "root").reduce((max, message) => {
+            const round = asRecord(message.metadata).round;
+            return typeof round === "number" && round > max ? round : max;
+          }, 0);
+          const followup = input.followupFactory({ activeRunId: activeRoot.run_id, roundIndex });
+          assertSessionId(followup.message.sessionId, input.session.sessionId, "followup message");
+          const message = resolveDeterministicMessage(tx, followup.message, "followup message");
+          const records = followup.recordFactory(message).map((record) => {
+            assertRecordScope(record, input.session.sessionId, activeRoot.run_id);
+            return recordEnvelope(tx, record);
+          });
+          return { kind: "followup", activeRunId: activeRoot.run_id, message, records };
+        }
+        const { followupFactory: _factory, ...start } = input;
+        const initialRecords = start.initialRecords ?? [];
+        for (const record of initialRecords) assertRecordScope(record, start.session.sessionId, start.run.runId);
+        const initialUserMessage = start.initialUserMessage ? resolveDeterministicMessage(tx, start.initialUserMessage, "initial user message") : null;
+        const existingRun = tx.getRun(start.session.sessionId, start.run.runId);
+        const run = existingRun ? toCreatedRun(existingRun) : tx.createRun(start.run);
+        if (existingRun) assertRunScope(existingRun, start.run, this.tenantId);
+        return { kind: "started", run, initialUserMessage, records: initialRecords.map((record) => recordEnvelope(tx, record)) };
       });
     });
   }

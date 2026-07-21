@@ -4,6 +4,7 @@ import type { PaginatedResult } from "../common.js";
 import type { PermissionMode } from "../runtime/permissions.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
+import type { ConversationStore } from "../conversation-store/index.js";
 
 export type Awaitable<T> = T | Promise<T>;
 
@@ -28,6 +29,7 @@ export interface ExecutionSessionPort {
     threadKey?: string;
     childAgentId?: string | null;
   }): Awaitable<MessageInfo>;
+  getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Awaitable<MessageInfo | null>;
   getLastRunRound(sessionId: string, runId: string): Awaitable<number>;
   prepareRetry(input: {
     sessionId: string;
@@ -48,6 +50,7 @@ export interface SessionExport {
 
 /** Request-scoped session use cases shared by Local and SaaS deployments. */
 export interface SessionApplication {
+  ensureSession(input: { sessionId: string; userId: string; metadata?: Record<string, unknown>; permissionMode?: PermissionMode | null }): Awaitable<void>;
   createSession(input: { sessionId: string; userId: string; metadata?: Record<string, unknown>; permissionMode?: PermissionMode | null }): Awaitable<{
     session_id: string;
     user_id: string | null;
@@ -57,10 +60,15 @@ export interface SessionApplication {
   listSessions(input: { limit?: number; offset?: number; userIds?: readonly string[] | null }): Awaitable<PaginatedResult<SessionListItem>>;
   getSession(sessionId: string): Awaitable<SessionInfo | null>;
   getSessionForExecutionValidation(sessionId: string): Awaitable<SessionInfo | null>;
+  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Awaitable<Record<string, unknown>>;
   updateSessionPermissionMode(sessionId: string, mode: PermissionMode): Awaitable<boolean>;
   deleteSession(sessionId: string): Awaitable<boolean>;
   listMessages(input: { sessionId: string; limit?: number; offset?: number }): Awaitable<PaginatedResult<MessageInfo> | null>;
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Awaitable<MessageInfo[]>;
+  getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Awaitable<MessageInfo | null>;
+  listMemoryCandidates(
+    input: Parameters<ConversationStore["listMemoryCandidates"]>[0],
+  ): Awaitable<ReturnType<ConversationStore["listMemoryCandidates"]>>;
   listMessageRunSteps(input: { sessionId: string; messageId: string; limit?: number; offset?: number }): Awaitable<{
     message_id: string;
     items: Envelope[];

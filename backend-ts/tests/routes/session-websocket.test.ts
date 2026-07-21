@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildTestHarness } from "../helpers/app.js";
 import { mockLlm } from "../helpers/llm-fetch-mock.js";
+import { getRealtimeHistory } from "../helpers/realtime.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 let app: FastifyInstance | null = null;
@@ -94,7 +95,7 @@ describe("session websocket route", () => {
     app = harness.app;
 
     await createDefaultChatProvider(app);
-    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "ws-active-session", "usr_local");
+    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, "ws-active-session", "usr_local");
     // 手动注入一条旧 run 的 stream_output：不属于当前 active run 树，重放时应被排除。
     harness.container.clientEvents.publish("ws-active-session", {
       type: "stream_output",
@@ -173,7 +174,7 @@ describe("session websocket route", () => {
     app = harness.app;
 
     await createDefaultChatProvider(app);
-    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "ws-live-bind-session", "usr_local");
+    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, "ws-live-bind-session", "usr_local");
     const client = await connectWs(app, "/api/agent/sessions/ws-live-bind-session/ws");
     try {
       const started = await app.inject({
@@ -226,8 +227,8 @@ describe("session websocket route", () => {
   it("responds to approval messages with an ack and resolves the pending approval", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "ws-approval-session", "usr_local");
-    harness.container.conversationStore.createRun({ runId: "run-approval", sessionId: "ws-approval-session", agentName: "orchestrator_agent" });
+    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, "ws-approval-session", "usr_local");
+    harness.container.local.conversationStore.createRun({ runId: "run-approval", sessionId: "ws-approval-session", agentName: "orchestrator_agent" });
 
     const approvalPromise = harness.container.pendingInteractions.waitForApproval({
       sessionId: "ws-approval-session",
@@ -241,11 +242,9 @@ describe("session websocket route", () => {
       toolName: "execute_bash",
       description: "Run command",
     });
-    await vi.waitFor(() => expect(harness.container.realtimeEvents
-      .getHistory("ws-approval-session")
+    await vi.waitFor(() => expect(getRealtimeHistory(harness.container.realtimeEvents, "ws-approval-session")
       .find((event) => event.type === "interaction")).toBeDefined());
-    const approvalRequired = harness.container.realtimeEvents
-      .getHistory("ws-approval-session")
+    const approvalRequired = getRealtimeHistory(harness.container.realtimeEvents, "ws-approval-session")
       .find(
         (event) =>
           event.type === "interaction" &&
@@ -257,6 +256,21 @@ describe("session websocket route", () => {
 
     const client = await connectWs(app, "/api/agent/sessions/ws-approval-session/ws");
     try {
+      // The durable projector replays the still-pending requirement before the
+      // response, consistently for Local and SaaS runtimes.
+      await expect(client.receiveJson()).resolves.toMatchObject({
+        type: "session.reconnect",
+        payload: { phase: "start" },
+      });
+      await expect(client.receiveJson()).resolves.toMatchObject({
+        type: "interaction",
+        call_id: approvalId,
+        payload: { kind: "approval", phase: "required" },
+      });
+      await expect(client.receiveJson()).resolves.toMatchObject({
+        type: "session.reconnect",
+        payload: { phase: "end" },
+      });
       // 上行改为 ClientToServerEnvelope：interaction(approval, responded)。
       client.ws.send(JSON.stringify({
         type: "interaction",
@@ -302,7 +316,7 @@ describe("session websocket route", () => {
         message: "ok",
       });
       expect(
-        harness.container.conversationStore
+        harness.container.local.conversationStore
           .listOutboxForReplay({ sessionId: "ws-approval-session" })
           .map((row) => row.event_type),
       ).toEqual([
@@ -317,7 +331,7 @@ describe("session websocket route", () => {
   it("responds to approval for a non-existent call with ack carrying ref_call_id (ok=false)", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "ws-approval-missing", "usr_local");
+    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, "ws-approval-missing", "usr_local");
 
     const client = await connectWs(app, "/api/agent/sessions/ws-approval-missing/ws");
     try {
@@ -349,8 +363,8 @@ describe("session websocket route", () => {
   it("replays durable outbox events stamped with seq via after_seq cursor", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "ws-durable-session", "usr_local");
-    harness.container.conversationStore.appendOutbox({
+    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, "ws-durable-session", "usr_local");
+    harness.container.local.conversationStore.appendOutbox({
       sessionId: "ws-durable-session",
       runId: "run-durable",
       eventId: "event-durable-1",

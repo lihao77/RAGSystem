@@ -8,7 +8,7 @@ import { createDefaultProjectionRegistry } from "./extensions/index.js";
 import { DEFAULT_PROVIDER_CACHE_TTL_SECONDS, ProviderCacheTracker } from "./provider-cache-tracker.js";
 import { RecentMessagesContextSource } from "./recent-messages-source.js";
 import type { ConversationHistoryPort, SessionMetadataPort } from "./types.js";
-import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
+import type { ExecutionMemoryCandidateListPort, MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 
 export interface BuildBackendAgentContextOptions {
   memoryConfig: MemoryConfig;
@@ -22,7 +22,7 @@ export interface BuildBackendAgentContextOptions {
 export async function buildBackendAgentContext(
   agent: AgentConfig,
   profile: AgentProfile,
-  historyPort: ConversationHistoryPort & SessionMetadataPort,
+  historyPort: ConversationHistoryPort & SessionMetadataPort & Partial<ExecutionMemoryCandidateListPort>,
   options: BuildBackendAgentContextOptions,
 ) {
   const memorySources = isMemoryEnabled(agent.memory)

@@ -13,6 +13,7 @@ import { DefaultTenantRuntimeRegistry } from "../../../src/adapters/local/tenant
 import { createControlStore } from "../../../src/adapters/local/sqlite/control-store/index.js";
 import { HashFallbackEmbedder } from "../../../src/services/integrations/embedder-registry.js";
 import { makeTempRoot } from "../../helpers/temp-db.js";
+import { getRealtimeHistory } from "../../helpers/realtime.js";
 
 const TENANT_A = createTenantId("tnt_a");
 const TENANT_B = createTenantId("tnt_b");
@@ -47,15 +48,15 @@ describe("TenantRuntimeRegistry 多租户隔离", () => {
       expect(leaseA.runtime.dataRoot).toBe(path.join(harness.env.tenantsRoot, TENANT_A));
       expect(leaseB.runtime.dataRoot).toBe(path.join(harness.env.tenantsRoot, TENANT_B));
 
-      leaseA.runtime.sessionApplication.createSession({ tenantId: TENANT_A, userId: "usr_local", sessionId: "same-session" });
-      leaseB.runtime.sessionApplication.createSession({ tenantId: TENANT_B, userId: "usr_local", sessionId: "same-session" });
+      await leaseA.runtime.sessionApplication.createSession({ userId: "usr_local", sessionId: "same-session" });
+      await leaseB.runtime.sessionApplication.createSession({ userId: "usr_local", sessionId: "same-session" });
       leaseA.runtime.agentConfig.createTeam("same-team", "default");
       leaseB.runtime.agentConfig.createTeam("same-team", "default");
       leaseA.runtime.agentConfig.createAgent({ agent_name: "same_agent", default_entry: false });
       leaseB.runtime.agentConfig.createAgent({ agent_name: "same_agent", default_entry: false });
 
-      expect(leaseA.runtime.sessionApplication.getSession("same-session")?.tenant_id).toBe(TENANT_A);
-      expect(leaseB.runtime.sessionApplication.getSession("same-session")?.tenant_id).toBe(TENANT_B);
+      expect((await leaseA.runtime.sessionApplication.getSession("same-session"))?.tenant_id).toBe(TENANT_A);
+      expect((await leaseB.runtime.sessionApplication.getSession("same-session"))?.tenant_id).toBe(TENANT_B);
       expect(leaseA.runtime.agentConfig.listTeams().teams.map((team) => team.team_name)).toContain("same-team");
       expect(leaseB.runtime.agentConfig.listTeams().teams.map((team) => team.team_name)).toContain("same-team");
       expect(fs.existsSync(path.join(harness.env.tenantsRoot, TENANT_A, "db", "ragsystem.db"))).toBe(true);
@@ -73,9 +74,9 @@ describe("TenantRuntimeRegistry 多租户隔离", () => {
     const leaseA = await harness.registry.acquire(TENANT_A);
     const leaseB = await harness.registry.acquire(TENANT_B);
     try {
-      leaseB.runtime.sessionApplication.createSession({ tenantId: TENANT_B, userId: "usr_local", sessionId: "tenant-b-only" });
-      expect(leaseA.runtime.sessionApplication.getSession("tenant-b-only")).toBeNull();
-      expect(leaseB.runtime.sessionApplication.getSession("tenant-b-only")?.tenant_id).toBe(TENANT_B);
+      await leaseB.runtime.sessionApplication.createSession({ userId: "usr_local", sessionId: "tenant-b-only" });
+      expect(await leaseA.runtime.sessionApplication.getSession("tenant-b-only")).toBeNull();
+      expect((await leaseB.runtime.sessionApplication.getSession("tenant-b-only"))?.tenant_id).toBe(TENANT_B);
     } finally {
       leaseA.release();
       leaseB.release();
@@ -158,8 +159,8 @@ describe("TenantRuntimeRegistry 多租户隔离", () => {
     const leaseB = await harness.registry.acquire(TENANT_B);
     try {
       leaseA.runtime.realtimeEvents.publish("same-session", { type: "run_started", session_id: "same-session", run_id: "run-a", payload: {} });
-      expect(leaseA.runtime.realtimeEvents.getHistory("same-session")).toHaveLength(1);
-      expect(leaseB.runtime.realtimeEvents.getHistory("same-session")).toHaveLength(0);
+      expect(getRealtimeHistory(leaseA.runtime.realtimeEvents, "same-session")).toHaveLength(1);
+      expect(getRealtimeHistory(leaseB.runtime.realtimeEvents, "same-session")).toHaveLength(0);
     } finally {
       leaseA.release();
       leaseB.release();
@@ -198,6 +199,9 @@ function createRegistryHarness(options: {
     tenancyMode: options.localOnly ? "single" : "multi",
     allowUnsafeLocalExecution: false,
     postgresPoolMax: 10,
+    objectStorageMode: "filesystem",
+    objectStorageRegion: "us-east-1",
+    objectStorageForcePathStyle: false,
   };
   const controlStore = createControlStore(env.systemRoot);
   const controlPlane = new SqliteControlPlaneAdapter(controlStore);
@@ -207,7 +211,7 @@ function createRegistryHarness(options: {
     idleTimeoutMs: options.idleTimeoutMs ?? 60_000,
     sweepIntervalMs: 5,
     runtimeFactory: options.runtimeFactory ?? createTestRuntime,
-    prepareRuntime: options.prepareRuntime,
+    ...(options.prepareRuntime ? { prepareRuntime: options.prepareRuntime } : {}),
   });
   return { env, controlStore, registry };
 }

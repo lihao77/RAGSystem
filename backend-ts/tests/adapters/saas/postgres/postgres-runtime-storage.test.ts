@@ -282,7 +282,7 @@ function createExecutorHarness(options: {
         }
       } else if (sql.includes("FROM pending_interactions WHERE session_id=$1 AND interaction_id=$2")) {
         const found = interactions.get(String(params[1]));
-        rows = found?.session_id === params[0] ? [found] : [];
+        rows = found && found.session_id === params[0] ? [found] : [];
         rowCount = rows.length;
       } else if (sql.includes("FROM pending_interactions") && sql.includes("ORDER BY created_at")) {
         rows = [...interactions.values()].filter((interaction) => {
@@ -471,6 +471,27 @@ describe("PostgresRuntimeStorage", () => {
     const runInsert = harness.transactionQueries.find(({ sql }) => sql.includes("INSERT INTO saas_runs"));
     expect(sessionInsert?.params[1]).toBe(harness.tenantId);
     expect(runInsert?.params[0]).toBe(harness.tenantId);
+  });
+
+  it("atomically appends a second root request to the running root", async () => {
+    const harness = createExecutorHarness({ sessionExists: true, runExists: true, runStatus: "running" });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+
+    await expect(storage.operations.startOrAppendRoot({
+      session: { sessionId: "session-1", userId: "user-1" },
+      run: { runId: "run-2", sessionId: "session-1", status: "running" },
+      initialUserMessage: { messageId: "message-2", sessionId: "session-1", role: "user", content: "duplicate" },
+      followupFactory: ({ activeRunId, roundIndex }) => ({
+        message: { messageId: "message-2", sessionId: "session-1", role: "user", content: "duplicate", metadata: { run_id: activeRunId, execution_kind: "session_followup", round_index: roundIndex } },
+        recordFactory: () => [],
+      }),
+    })).resolves.toMatchObject({
+      kind: "followup",
+      activeRunId: "run-1",
+      message: { id: "message-2", metadata: { run_id: "run-1", execution_kind: "session_followup" } },
+    });
+    expect(harness.messages.has("message-2")).toBe(true);
+    expect(harness.transactionQueries.some(({ sql }) => sql.includes("parent_run_id IS NULL") && sql.includes("status='running'"))).toBe(true);
   });
 
   it("records a step and stable-id outbox event atomically", async () => {

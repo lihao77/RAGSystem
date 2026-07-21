@@ -15,6 +15,7 @@ describe("realtime route assembly", () => {
       resolveMemoryApplication: vi.fn(),
       resolveSessionApplication: vi.fn(),
       resolveExecutionRead: vi.fn(),
+      resolveExecutionApplication: vi.fn(),
       resolveAnalytics: vi.fn(),
       resolveMonitoringApplication: vi.fn(),
       resolveArtifactApplication: vi.fn(),

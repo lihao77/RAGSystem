@@ -2,7 +2,6 @@ import path from "node:path";
 
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import type { MemoryRepository } from "../../../src/contracts/memory-store/index.js";
 import type { MemoryToolOperations } from "../../../src/tools/MemoryTools/MemoryExecution.js";
 import { createTenantId } from "../../../src/identity/types.js";
 import { HashFallbackEmbedder } from "../../../src/services/integrations/embedder-registry.js";
@@ -13,19 +12,30 @@ import { PermissionPolicyService } from "../../../src/services/runtime/permissio
 import {
   createLocalRuntimeContainer,
 } from "../../../src/adapters/local/runtime-container.js";
-import type { CoreRuntimeDependencies } from "../../../src/contracts/runtime/runtime-container.js";
+import type {
+  CoreRuntimeDependencies,
+  LocalRuntimeCapabilities,
+  LocalRuntimeContainer,
+  SaaSRuntimeCapabilities,
+  SaaSRuntimeContainer,
+} from "../../../src/contracts/runtime/runtime-container.js";
 import type {
   AgentDelegationStorePort,
   AgentMetricsStorePort,
   CompressionHistoryStorePort,
   PermissionPolicyStorePort,
+  RuntimeEventDispatcherPort,
+  RuntimeSessionFilesPort,
 } from "../../../src/contracts/runtime/core-runtime-ports.js";
 import type { LocalRuntimeContainerOptions } from "../../../src/adapters/local/runtime-options.js";
 import { makeTempRoot } from "../../helpers/temp-db.js";
 
 describe("runtime composition roots", () => {
-  it("keeps the core memory dependency deployment-independent", () => {
-    expectTypeOf<CoreRuntimeDependencies["memoryStore"]>().toEqualTypeOf<MemoryRepository>();
+  it("separates deployment capabilities from the shared runtime", () => {
+    expectTypeOf<LocalRuntimeContainer["local"]>().toEqualTypeOf<LocalRuntimeCapabilities>();
+    expectTypeOf<LocalRuntimeContainer["saas"]>().toEqualTypeOf<null>();
+    expectTypeOf<SaaSRuntimeContainer["local"]>().toEqualTypeOf<null>();
+    expectTypeOf<SaaSRuntimeContainer["saas"]>().toEqualTypeOf<SaaSRuntimeCapabilities>();
   });
 
   it("exposes narrow persistence ports for shared runtime services", () => {
@@ -33,6 +43,8 @@ describe("runtime composition roots", () => {
     expectTypeOf<CoreRuntimeDependencies["metricsStore"]>().toEqualTypeOf<AgentMetricsStorePort>();
     expectTypeOf<CoreRuntimeDependencies["permissionPolicyStore"]>().toEqualTypeOf<PermissionPolicyStorePort>();
     expectTypeOf<CoreRuntimeDependencies["compressionHistory"]>().toEqualTypeOf<CompressionHistoryStorePort | null>();
+    expectTypeOf<CoreRuntimeDependencies["sessionFiles"]>().toEqualTypeOf<RuntimeSessionFilesPort>();
+    expectTypeOf<CoreRuntimeDependencies["eventDispatcher"]>().toEqualTypeOf<RuntimeEventDispatcherPort>();
     expectTypeOf<ConstructorParameters<typeof AgentDelegationService>[0]>().toEqualTypeOf<AgentDelegationStorePort>();
     expectTypeOf<ConstructorParameters<typeof AgentMetricsCollector>[0]>().toEqualTypeOf<AgentMetricsStorePort>();
     expectTypeOf<ConstructorParameters<typeof PermissionPolicyService>[0]>().toEqualTypeOf<PermissionPolicyStorePort>();
@@ -58,7 +70,7 @@ describe("runtime composition roots", () => {
       expect(runtime.dataRoot).toBe(path.resolve(dataRoot));
       expect(runtime.agentExecution).toBeDefined();
       expect(runtime.runtimeCore).toBeDefined();
-      expect(runtime.conversationStore).toBeDefined();
+      expect(runtime.local.conversationStore).toBeDefined();
     } finally {
       runtime.close();
       expect(() => runtime.close()).not.toThrow();
@@ -92,7 +104,7 @@ describe("runtime composition roots", () => {
     try {
       expect(boundTenantId).toBe("tnt_runtime_memory_bindings");
       expect(runtime.memoryTools).toBe(memoryTools);
-      expect(runtime.memoryStore).toBeDefined();
+      expect(runtime.local.memoryStore).toBeDefined();
     } finally {
       runtime.close();
     }
@@ -145,7 +157,7 @@ describe("runtime composition roots", () => {
         expect.objectContaining({ type: "run_started", run_id: "run-1" }),
         { runId: "run-1", aggregateType: "run", aggregateId: "run-1" },
       ));
-      expect(runtime.conversationStore.listOutbox({ limit: 10 }).items).toEqual([]);
+      expect(runtime.local.conversationStore.listOutbox({ limit: 10 }).items).toEqual([]);
       expect(factoryTenantId).toBe("tnt_runtime_durable_events");
       expect(factoryRealtimeEvents).toBe(runtime.realtimeEvents);
     } finally {

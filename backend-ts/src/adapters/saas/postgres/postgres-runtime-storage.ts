@@ -31,6 +31,8 @@ import type {
   RuntimeRunStorage,
   RuntimeStartRunInput,
   RuntimeStartRunResult,
+  RuntimeStartOrAppendRootInput,
+  RuntimeStartOrAppendRootResult,
   RuntimeStorage,
   RuntimeStorageRepositories,
 } from "../../../contracts/storage/runtime-storage.js";
@@ -142,6 +144,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
   ) {
     this.operations = {
       startRun: (input) => this.startRun(input),
+      startOrAppendRoot: (input) => this.startOrAppendRoot(input),
       persistMessage: (input) => this.persistMessage(input),
       recordEnvelope: (input) => this.recordEnvelope(input),
       recordInteraction: (input) => this.recordInteraction(input),
@@ -159,6 +162,10 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     assertSessionId(input.run.sessionId, input.session.sessionId, "run");
     if (input.initialUserMessage) {
       assertSessionId(input.initialUserMessage.sessionId, input.session.sessionId, "initial user message");
+    }
+    const initialRecords = (input.initialRecords ?? []).map(normalizeRecord);
+    for (const record of initialRecords) {
+      assertRecordScope(record, input.session.sessionId, input.run.runId);
     }
     return this.executor.transaction(async (transactionExecutor) => {
       // Session lifecycle operations (start/stop/resolve/resume/finalize) share
@@ -195,7 +202,67 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         );
       }
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(input.run);
-      return { run, initialUserMessage };
+      const records: RuntimeRecordEnvelopeResult[] = [];
+      for (const record of initialRecords) {
+        await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
+        records.push(await recordEnvelope(
+          tx,
+          transactionExecutor,
+          this.tenantId,
+          record,
+        ));
+      }
+      return { run, initialUserMessage, records };
+    });
+  }
+
+  private async startOrAppendRoot(input: RuntimeStartOrAppendRootInput): Promise<RuntimeStartOrAppendRootResult> {
+    assertSessionId(input.run.sessionId, input.session.sessionId, "run");
+    if (input.run.parentRunId != null) throw new Error("startOrAppendRoot requires a root run");
+    return this.executor.transaction(async (transactionExecutor) => {
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.session.sessionId}`);
+      const sessionExists = await assertTenantSession(transactionExecutor, this.tenantId, input.session.sessionId, true);
+      const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+      if (!sessionExists) await tx.conversation.createSession(input.session.sessionId, input.session.userId, input.session.metadata, input.session.permissionMode);
+      const active = await transactionExecutor.query<{ run_id: string }>(
+        `SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND session_id=$2
+         AND parent_run_id IS NULL AND status='running' ORDER BY created_at DESC LIMIT 1`,
+        [this.tenantId, input.session.sessionId],
+      );
+      const activeRunId = active.rows[0]?.run_id;
+      if (activeRunId && activeRunId !== input.run.runId) {
+        const stepRows = await transactionExecutor.query<{ payload: unknown }>(
+          "SELECT payload FROM saas_run_steps WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3",
+          [this.tenantId, input.session.sessionId, activeRunId],
+        );
+        const roundIndex = stepRows.rows.reduce((max, row) => {
+          const round = jsonObject(jsonObject(row.payload).payload).round;
+          return typeof round === "number" && round > max ? round : max;
+        }, 0);
+        const followup = input.followupFactory({ activeRunId, roundIndex });
+        assertSessionId(followup.message.sessionId, input.session.sessionId, "followup message");
+        const message = await getOrCreateMessage(transactionExecutor, tx, followup.message, "followup message");
+        const records: RuntimeRecordEnvelopeResult[] = [];
+        for (const record of followup.recordFactory(message)) {
+          assertRecordScope(record, input.session.sessionId, activeRunId);
+          await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
+          records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalizeRecord(record)));
+        }
+        return { kind: "followup", activeRunId, message, records };
+      }
+      const { followupFactory: _factory, ...start } = input;
+      await lockAdvisoryKey(transactionExecutor, `run:${this.tenantId}:${start.run.runId}`);
+      const existingRun = await lockTenantRun(transactionExecutor, this.tenantId, start.run.runId);
+      if (existingRun) assertRunScope(existingRun, start.run);
+      const initialUserMessage = start.initialUserMessage ? await getOrCreateMessage(transactionExecutor, tx, start.initialUserMessage, "initial user message") : null;
+      const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(start.run);
+      const records: RuntimeRecordEnvelopeResult[] = [];
+      for (const record of (start.initialRecords ?? []).map(normalizeRecord)) {
+        assertRecordScope(record, start.session.sessionId, start.run.runId);
+        await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
+        records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, record));
+      }
+      return { kind: "started", run, initialUserMessage, records };
     });
   }
 

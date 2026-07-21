@@ -1,11 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createUserId, type RequestIdentity } from "../../src/identity/types.js";
 import type { IdentityProvider } from "../../src/services/identity/index.js";
 import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/index.js";
 import { buildTestHarness } from "../helpers/app.js";
 import type { AsyncFileHistoryStore } from "../../src/contracts/file-history-store/index.js";
+import type { AsyncSessionFileStorage } from "../../src/contracts/session/session-file-storage.js";
 
 const USER_A = createUserId("usr_owner_a");
 const USER_B = createUserId("usr_owner_b");
@@ -38,7 +39,6 @@ describe("session ownership", () => {
     });
     expect(spoofedCreate.statusCode).toBe(400);
     harness.container.sessionApplication.createSession({
-      tenantId: LOCAL_TENANT_ID,
       sessionId: "private-session",
       userId: USER_A,
     });
@@ -65,13 +65,13 @@ describe("session ownership", () => {
       payload: { mode: "standard" },
     });
     expect(foreignUpdate.statusCode).toBe(403);
-    expect(harness.container.conversationStore.getSession("private-session")?.permission_mode).toBe("relaxed");
+    expect(harness.container.local.conversationStore.getSession("private-session")?.permission_mode).toBe("relaxed");
   });
 
   it("allows local identity to access a historical null-owner session", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "legacy-local-null", null, {});
+    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, "legacy-local-null", null, {});
 
     const response = await app.inject({ method: "GET", url: "/api/agent/sessions/legacy-local-null" });
     expect(response.statusCode).toBe(200);
@@ -118,11 +118,68 @@ describe("session ownership", () => {
     expect(reads).toBe(1);
   });
 
+  it("routes SaaS session files through the injected object-storage application after ownership", async () => {
+    const identityProvider: IdentityProvider = {
+      async resolve(request: FastifyRequest): Promise<RequestIdentity> {
+        return { userId: request.headers["x-test-user"] === "b" ? USER_B : USER_A, tenantId: LOCAL_TENANT_ID, role: "member", permissions: [] };
+      },
+    };
+    const record = {
+      id: "file-1",
+      original_name: "notes.txt",
+      stored_name: "file-1_notes.txt",
+      stored_path: "tenants/tnt_local/sessions/saas-files/attachments/file-1_notes.txt",
+      size: 5,
+      mime: "text/plain",
+      uploaded_at: "2026-01-01T00:00:00.000Z",
+      uploaded_by: null,
+      indexed_in_vector: false,
+      tags: null,
+      notes: null,
+      scope_type: "session" as const,
+      scope_id: "saas-files",
+    };
+    const list = vi.fn(async () => [record]);
+    const files: AsyncSessionFileStorage = {
+      list,
+      get: async (_sessionId, fileId) => fileId === record.id ? record : null,
+      add: async () => record,
+      delete: async (_sessionId, fileId) => fileId === record.id ? record : null,
+      read: async (_sessionId, fileId) => fileId === record.id
+        ? { body: Buffer.from("hello"), contentType: "text/plain" }
+        : null,
+    };
+    const sessions = {
+      getSession: async (sessionId: string) => ({ session_id: sessionId, tenant_id: LOCAL_TENANT_ID, user_id: USER_A, metadata: {}, permission_mode: null, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z" }),
+    };
+    const harness = await buildTestHarness({
+      identityProvider,
+      resolveSessionApplication: () => sessions as never,
+      resolveSessionFileStorage: () => files,
+    });
+    app = harness.app;
+    harness.controlStore.createTenant({ id: LOCAL_TENANT_ID, displayName: "Local" });
+
+    const owner = await app.inject({ method: "GET", url: "/api/agent/sessions/saas-files/files", headers: { "x-test-user": "a" } });
+    expect(owner.statusCode).toBe(200);
+    expect(owner.json()).toMatchObject({ files: [{ id: "file-1", original_name: "notes.txt" }] });
+    expect(list).toHaveBeenCalledWith("saas-files");
+
+    const download = await app.inject({ method: "GET", url: "/api/agent/sessions/saas-files/files/file-1/download", headers: { "x-test-user": "a" } });
+    expect(download.statusCode).toBe(200);
+    expect(download.body).toBe("hello");
+    expect(download.headers["content-type"]).toContain("text/plain");
+
+    const forbidden = await app.inject({ method: "GET", url: "/api/agent/sessions/saas-files/files", headers: { "x-test-user": "b" } });
+    expect(forbidden.statusCode).toBe(403);
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
   it("bot owner 可查看 owned-bot 会话详情与列表", async () => {
     const harness = await buildOwnershipHarness();
     app = harness.app;
     const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: USER_A, displayName: "Owner A Bot" });
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "owned-bot-session", userId: bot.id });
+    harness.container.sessionApplication.createSession({ sessionId: "owned-bot-session", userId: bot.id });
 
     const detail = await app.inject({ method: "GET", url: "/api/agent/sessions/owned-bot-session", headers: { "x-test-user": "a" } });
     expect(detail.statusCode).toBe(200);
@@ -134,7 +191,7 @@ describe("session ownership", () => {
       payload: { mode: "relaxed" },
     });
     expect(permissionUpdate.statusCode).toBe(200);
-    expect(harness.container.conversationStore.getSession("owned-bot-session")?.permission_mode).toBe("relaxed");
+    expect(harness.container.local.conversationStore.getSession("owned-bot-session")?.permission_mode).toBe("relaxed");
     const listed = await app.inject({ method: "GET", url: "/api/agent/sessions", headers: { "x-test-user": "a" } });
     expect(listed.json().data.items).toEqual([expect.objectContaining({ session_id: "owned-bot-session", user_id: bot.id })]);
   });
@@ -143,7 +200,7 @@ describe("session ownership", () => {
     const harness = await buildOwnershipHarness();
     app = harness.app;
     const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: USER_A, displayName: "Owner A Bot" });
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "foreign-bot-session", userId: bot.id });
+    harness.container.sessionApplication.createSession({ sessionId: "foreign-bot-session", userId: bot.id });
 
     const detail = await app.inject({ method: "GET", url: "/api/agent/sessions/foreign-bot-session", headers: { "x-test-user": "b" } });
     expect(detail.statusCode).toBe(403);

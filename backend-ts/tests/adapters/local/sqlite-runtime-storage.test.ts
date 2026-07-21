@@ -124,6 +124,7 @@ describe("SqliteRuntimeStorage", () => {
     expect(storage.tenantId).toBe(LOCAL_TENANT_ID);
     expect(storage.operations).toEqual({
       startRun: expect.any(Function),
+      startOrAppendRoot: expect.any(Function),
       persistMessage: expect.any(Function),
       recordEnvelope: expect.any(Function),
       recordInteraction: expect.any(Function),
@@ -315,6 +316,7 @@ describe("SqliteRuntimeStorage", () => {
       run: { runId: "run-1", sessionId: "session-1" },
       initialUserMessage,
     });
+    store.updateRunStatus("run-1", "session-1", "completed", null);
     const second = await storage.operations.startRun({
       session: { sessionId: "session-1", userId: "user-1" },
       run: { runId: "run-2", sessionId: "session-1" },
@@ -356,6 +358,7 @@ describe("SqliteRuntimeStorage", () => {
       session: { sessionId: "session-1", userId: "user-1", metadata: { source: "original" } },
       run: { runId: "run-1", sessionId: "session-1" },
     });
+    store.updateRunStatus("run-1", "session-1", "completed", null);
 
     await storage.operations.startRun({
       session: { sessionId: "session-1", userId: "user-2", metadata: { source: "retry" } },
@@ -425,6 +428,7 @@ describe("SqliteRuntimeStorage", () => {
       run: { runId: "run-original", sessionId: "session-1" },
       initialUserMessage: original,
     });
+    store.updateRunStatus("run-original", "session-1", "completed", null);
 
     const conflicts = [
       { ...original, content: "changed" },

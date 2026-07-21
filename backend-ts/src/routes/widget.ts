@@ -80,7 +80,7 @@ export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async
     if (!session || session.tenant_id !== tenantId || widgetMeta?.app_key !== appKey) {
       throw new HttpError(404, "not_found", "会话不存在");
     }
-    return ok(options.wsTickets.issue(request.identity, request.params.sessionId), "Widget WebSocket ticket 已签发");
+    return ok(await options.wsTickets.issue(request.identity, request.params.sessionId), "Widget WebSocket ticket 已签发");
   });
 };
 

@@ -8,6 +8,7 @@ import { resolveContextCompressionSettings } from "../../services/agent/context-
 import { createToolRegistry, resolveContextBudget } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
 import { HISTORY_SCAN_LIMIT, previewBackendAgentContext, type ConversationHistoryPort, type SessionMetadataPort } from "../../services/agent/context/index.js";
+import { resolveSessionMetadataPort } from "../../services/agent/context/async-session-metadata-resolver.js";
 import { createBackendTools } from "../../tools/registry.js";
 import { PathApprovalService } from "../../adapters/local/path-approval-service.js";
 import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
@@ -171,26 +172,18 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     // backend 组装 context（memory + recent）—— 与 run 路径同源（runtime-adapter 同一套 builder + source）。
     // conversation 注入 preview（组 LLM request）；rawMessages/sources 由 backend 自组，preview 不再返回 context。
     const threadKey = normalizeString(query.thread_key);
-    const historyPort: ConversationHistoryPort & SessionMetadataPort & Partial<Pick<typeof request.container.conversationStore, "listMemoryCandidates">> = {
+    const sessionMetadataPort = sessionId
+      ? await resolveSessionMetadataPort(sessionId, sessionApplication)
+      : null;
+    const historyPort: ConversationHistoryPort & SessionMetadataPort & Pick<typeof sessionApplication, "listMemoryCandidates"> = {
       getRecentMessages: (sid, limit, tk) => sessionApplication.getRecentMessages(
         sid,
         limit ?? HISTORY_SCAN_LIMIT,
         tk ?? "root",
       ),
-      getSession: (sid) => {
-        const s = sessionInfo && sid === sessionId
-          ? sessionInfo
-          : request.container.deploymentKind === "local"
-            ? request.container.conversationStore.getSession(sid)
-            : null;
-        return s ? { metadata: s.metadata ?? {}, user_id: s.user_id } : null;
-      },
-      ...(request.container.deploymentKind === "local"
-        ? { updateSessionMetadata: (sid: string, patch: Record<string, unknown>) => request.container.conversationStore.updateSessionMetadata(sid, patch) }
-        : {}),
-      ...(request.container.deploymentKind === "local"
-        ? { listMemoryCandidates: (candidateQuery: Parameters<typeof request.container.conversationStore.listMemoryCandidates>[0]) => request.container.conversationStore.listMemoryCandidates(candidateQuery) }
-        : {}),
+      getSession: (sid) => sessionMetadataPort?.getSession(sid) ?? null,
+      updateSessionMetadata: (sid, patch) => sessionMetadataPort?.updateSessionMetadata?.(sid, patch) ?? null,
+      listMemoryCandidates: (query) => sessionApplication.listMemoryCandidates(query),
     };
     const snapshot = sessionId
       ? await previewBackendAgentContext(agent, profile, historyPort, registry, {
@@ -201,6 +194,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           memoryContextSourceFactory: request.container.memoryContextSourceFactory,
         })
       : null;
+    await sessionMetadataPort?.flush();
     const built = snapshot?.built ?? null;
     const preview = snapshot?.preview ?? null;
 

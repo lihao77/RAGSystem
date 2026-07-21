@@ -121,7 +121,7 @@ function runtimeCoreStub(agent: AgentConfig, ready: boolean, provider: ModelProv
   } as RuntimeExecutionConfigResolver;
 }
 
-function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: boolean } = {}): ServiceHarness {
+function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: boolean; startFailure?: Error } = {}): ServiceHarness {
   const mode = opts.mode ?? "ok";
   const ready = opts.ready ?? true;
   const dbPath = makeTempDb();
@@ -131,6 +131,16 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const dispatcher = new OutboxDispatcher(store, realtimeEvents);
   const clientEvents = new DurableClientEventPublisher(store, dispatcher);
   const runtimeStorage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
+  const executionRuntimeStorage = opts.startFailure
+    ? {
+        tenantId: runtimeStorage.tenantId,
+        operations: {
+          ...runtimeStorage.operations,
+          startRun: async () => { throw opts.startFailure; },
+          startOrAppendRoot: async () => { throw opts.startFailure; },
+        },
+      }
+    : runtimeStorage;
   const executionClientEvents = new AsyncDurableClientEventPublisher(runtimeStorage, {
     dispatchRows: async (rows) => dispatcher.dispatchRows(rows),
   });
@@ -159,7 +169,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
     executionStorage: createLocalExecutionStorage({
       tenantId: LOCAL_TENANT_ID,
       conversation: store,
-      runtimeStorage,
+      runtimeStorage: executionRuntimeStorage,
       clientEvents: executionClientEvents,
     }),
     runtimeCore: runtimeCoreStub(agent, ready, provider),
@@ -214,6 +224,22 @@ describe("AgentExecutionService (baseline regression)", () => {
     store.close();
   });
 
+  it("routes a concurrent stream request through the storage followup path", async () => {
+    const { service, store } = buildHarness({ mode: "abort" });
+    const first = await service.startStream({ task: "first", attachments: [], userId: LOCAL_USER_ID }, "req-first");
+    const second = await service.startStream({ session_id: first.session_id, task: "second", attachments: [], userId: LOCAL_USER_ID }, "req-second");
+
+    expect(second).toMatchObject({ started: true, session_id: first.session_id, run_id: first.run_id, request_id: "req-second" });
+    expect(store.listRuns(first.session_id, 100).items).toHaveLength(1);
+    expect(store.listMessages(first.session_id, 100, 0).items).toContainEqual(expect.objectContaining({
+      role: "user",
+      content: "second",
+      metadata: expect.objectContaining({ run_id: first.run_id, execution_kind: "session_followup", round_index: 0 }),
+    }));
+    await service.stopSession(first.session_id);
+    store.close();
+  });
+
   it("records a failed run and logs the error when the runtime throws", async () => {
     const { service, store, errors } = buildHarness({ mode: "fail", logger: true });
     const started = await service.startStream({ task: "boom", attachments: [], userId: LOCAL_USER_ID }, "req-1");
@@ -235,6 +261,23 @@ describe("AgentExecutionService (baseline regression)", () => {
     store.close();
   });
 
+  it("does not report started before the durable start transaction commits", async () => {
+    const { service, store } = buildHarness({ startFailure: new Error("durable start rejected") });
+    const result = await service.startStream(
+      { task: "must persist first", attachments: [], userId: LOCAL_USER_ID },
+      "req-durable-failure",
+    );
+
+    expect(result).toMatchObject({ started: false, error: "durable start rejected" });
+    expect(store.getSession(result.session_id)).toBeNull();
+    expect(store.listMessages(result.session_id, 100, 0).items).toEqual([]);
+    expect(store.listRuns(result.session_id, 100).items).toEqual([]);
+    expect(store.listRunSteps({ sessionId: result.session_id, limit: 100 })).toEqual([]);
+    expect(store.listOutbox({ sessionId: result.session_id }).items).toEqual([]);
+    store.close();
+  });
+
+
   it("rejects an empty task with no attachments", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
     const started = await service.startStream({ task: "   ", attachments: [], userId: LOCAL_USER_ID }, "req-1");
@@ -251,25 +294,25 @@ describe("AgentExecutionService (baseline regression)", () => {
     store.close();
   });
 
-  it("builds synchronous results from the direct outcome when persistence is asynchronous", () => {
+  it("falls back to the direct outcome when the persisted run is unavailable", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
     const runEngine = (service as AgentExecutionService & {
       runEngine: { buildSynchronousResult(input: Record<string, unknown>): ReturnType<AgentExecutionService["executeSynchronously"]> extends Promise<infer T> ? T : never };
     }).runEngine;
-    expect(runEngine.buildSynchronousResult({
+    await expect(runEngine.buildSynchronousResult({
       sessionId: "saas-session",
       runId: "saas-run",
       taskId: "saas-task",
       agentName: "orchestrator_agent",
       outcome: { content: "async answer", success: true },
-    })).toMatchObject({ success: true, answer: "async answer", error: null, run_id: "saas-run" });
-    expect(runEngine.buildSynchronousResult({
+    })).resolves.toMatchObject({ success: true, answer: "async answer", error: null, run_id: "saas-run" });
+    await expect(runEngine.buildSynchronousResult({
       sessionId: "saas-session",
       runId: "failed-run",
       taskId: "failed-task",
       agentName: "orchestrator_agent",
       outcome: { content: "provider rejected request", success: false },
-    })).toMatchObject({ success: false, answer: null, error: "provider rejected request" });
+    })).resolves.toMatchObject({ success: false, answer: null, error: "provider rejected request" });
     store.close();
   });
 
