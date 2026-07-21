@@ -105,7 +105,7 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
 
   app.delete<{ Params: SkillParams }>("/:name", async (request) => {
     requireTenantAdmin(request);
-    request.container.skillLibrary.deleteSkill(request.params.name);
+    await request.container.skillLibrary.deleteSkill(request.params.name);
     return ok({ name: request.params.name }, `Skill '${request.params.name}' 已删除`);
   });
 };

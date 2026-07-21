@@ -38,7 +38,7 @@ async function buildHarness(widgetJwtSecret: string) {
     objectStorageRegion: "us-east-1",
     objectStorageForcePathStyle: false,
   };
-  const container = createLocalRuntimeContainer({
+  const container = await createLocalRuntimeContainer({
     tenantId: LOCAL_TENANT_ID,
     dbPath: path.join(tempRoot, "test.db"),
     dataRoot: tempRoot,

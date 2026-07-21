@@ -70,7 +70,7 @@ export async function buildTestHarness(
 ) {
   const tempRoot = options.root ?? makeTempRoot();
   testDataRoot = tempRoot;
-  const container = createLocalRuntimeContainer({
+  const container = await createLocalRuntimeContainer({
     tenantId: LOCAL_TENANT_ID,
     dbPath: path.join(tempRoot, "test.db"),
     dataRoot: tempRoot,

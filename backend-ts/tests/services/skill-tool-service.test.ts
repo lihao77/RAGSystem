@@ -165,6 +165,7 @@ describe("SkillToolService", () => {
       "utf8",
     );
     const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot: root }));
+    await agentConfig.initialize();
     const service = new SkillToolService({
       dataRoot: root,
       builtinSkillsRoot: builtinRoot,
@@ -193,7 +194,7 @@ describe("SkillToolService", () => {
       },
     });
 
-    expect(agentConfig.listTeams().teams.map((team) => team.team_name)).toContain("generated-team");
+    expect((await agentConfig.listTeams()).teams.map((team) => team.team_name)).toContain("generated-team");
     const team = readYaml(path.join(root, "config", "agents", "teams", "generated-team.yaml"));
     expect(team).toMatchObject({
       agents: {

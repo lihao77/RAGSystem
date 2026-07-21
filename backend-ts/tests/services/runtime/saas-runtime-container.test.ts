@@ -19,7 +19,9 @@ describe("SaaS runtime container composition", () => {
     expect(source).not.toContain("createVectorStoreFromConfig");
     expect(source).toContain("createRuntimeStorage");
     expect(source).toContain("createDelegationStore");
+    expect(source).toContain("createAgentConfigTeamStore");
     expect(source).toContain("AsyncOutboxDispatcher");
+    expect(source).not.toContain("FileAgentConfigTeamStore");
   });
 
   it("refreshes tenant provider configuration before use", async () => {

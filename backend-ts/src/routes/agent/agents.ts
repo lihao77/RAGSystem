@@ -24,7 +24,7 @@ export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = a
     requireTenantAdmin(request);
     const payload = parseCreateAgentRequest(request.body);
     try {
-      const config = request.container.agentConfig.createAgent(payload);
+      const config = await request.container.agentConfig.createAgent(payload);
       return ok(config, `智能体 ${config.agent_name} 创建成功`);
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
@@ -34,7 +34,7 @@ export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = a
   app.delete<{ Params: AgentParams }>("/agents/delete/:agentName", async (request) => {
     requireTenantAdmin(request);
     try {
-      const deleted = request.container.agentConfig.deleteAgent(request.params.agentName);
+      const deleted = await request.container.agentConfig.deleteAgent(request.params.agentName);
       if (!deleted) {
         throw new HttpError(404, "not_found", `智能体 ${request.params.agentName} 不存在`);
       }

@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe("AgentConfigService team file compatibility", () => {
-  it("loads Python-compatible team_index.yaml and active team YAML", () => {
+  it("loads Python-compatible team_index.yaml and active team YAML", async () => {
     const dataRoot = makeTempDataRoot();
     writeTeamIndex(dataRoot, {
       active_team: "default",
@@ -69,9 +69,9 @@ describe("AgentConfigService team file compatibility", () => {
       },
     });
 
-    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
+    const service = await makeService(dataRoot);
 
-    expect(service.listTeams()).toMatchObject({
+    expect(await service.listTeams()).toMatchObject({
       active_team: "default",
       teams: [
         {
@@ -100,7 +100,7 @@ describe("AgentConfigService team file compatibility", () => {
     });
   });
 
-  it("strips config-managed tools from loaded and patched enabled_tools", () => {
+  it("strips config-managed tools from loaded and patched enabled_tools", async () => {
     const dataRoot = makeTempDataRoot();
     writeTeamIndex(dataRoot, {
       active_team: "default",
@@ -125,10 +125,10 @@ describe("AgentConfigService team file compatibility", () => {
       },
     });
 
-    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
+    const service = await makeService(dataRoot);
 
     expect(service.getConfig("general_agent")?.tools.enabled_tools).toEqual(["read_file", "todo_write"]);
-    const patched = service.patchConfig("general_agent", {
+    const patched = await service.patchConfig("general_agent", {
       tools: {
         enabled_tools: ["write_file", "task_update", "execute_skill_script", "list_child_agents"],
       },
@@ -140,7 +140,7 @@ describe("AgentConfigService team file compatibility", () => {
     expect(agent.tools).toEqual({ enabled_tools: ["write_file"] });
   });
 
-  it("persists active team and config updates to the shared YAML files", () => {
+  it("persists active team and config updates to the shared YAML files", async () => {
     const dataRoot = makeTempDataRoot();
     writeTeamIndex(dataRoot, {
       active_team: "default",
@@ -152,10 +152,10 @@ describe("AgentConfigService team file compatibility", () => {
       general_agent: minimalAgent("general_agent", true),
     });
 
-    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
-    service.createTeam("research", "default");
-    service.activateTeam("research");
-    service.patchConfig("general_agent", {
+    const service = await makeService(dataRoot);
+    await service.createTeam("research", "default");
+    await service.activateTeam("research");
+    await service.patchConfig("general_agent", {
       llm_tiers: {
         default: {
           provider: "rag",
@@ -193,7 +193,7 @@ describe("AgentConfigService team file compatibility", () => {
     expect(typeof getPath(research, ["metadata", "updated_at"])).toBe("string");
   });
 
-  it("persists agent deletion to the active shared team file", () => {
+  it("persists agent deletion to the active shared team file", async () => {
     const dataRoot = makeTempDataRoot();
     writeTeamIndex(dataRoot, {
       active_team: "default",
@@ -206,16 +206,16 @@ describe("AgentConfigService team file compatibility", () => {
       orchestrator_agent: minimalAgent("orchestrator_agent", true),
     });
 
-    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
+    const service = await makeService(dataRoot);
 
-    expect(service.deleteAgent("general_agent")).toBe(true);
+    expect(await service.deleteAgent("general_agent")).toBe(true);
     const team = readYaml(path.join(dataRoot, "config", "agents", "teams", "default.yaml"));
     const agents = getRecord(team, "agents");
     expect(agents.general_agent).toBeUndefined();
     expect(agents.orchestrator_agent).toBeDefined();
   });
 
-  it("cascades deletion to purge dangling delegation references", () => {
+  it("cascades deletion to purge dangling delegation references", async () => {
     const dataRoot = makeTempDataRoot();
     writeTeamIndex(dataRoot, {
       active_team: "default",
@@ -232,9 +232,9 @@ describe("AgentConfigService team file compatibility", () => {
       },
     });
 
-    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
+    const service = await makeService(dataRoot);
 
-    expect(service.deleteAgent("general_agent")).toBe(true);
+    expect(await service.deleteAgent("general_agent")).toBe(true);
 
     // 内存中：对已删除 agent 的委派引用被清理，对其余 agent 的引用保留
     const orchestrator = service.getConfig("orchestrator_agent");
@@ -246,7 +246,7 @@ describe("AgentConfigService team file compatibility", () => {
     expect(getRecord(persistedOrchestrator, "delegation").enabled_agents).toEqual(["research_agent"]);
   });
 
-  it("self-heals dangling delegation references on load", () => {
+  it("self-heals dangling delegation references on load", async () => {
     const dataRoot = makeTempDataRoot();
     writeTeamIndex(dataRoot, {
       active_team: "default",
@@ -263,7 +263,7 @@ describe("AgentConfigService team file compatibility", () => {
       },
     });
 
-    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
+    const service = await makeService(dataRoot);
 
     // 内存中：悬空引用被剔除，合法引用保留
     const orchestrator = service.getConfig("orchestrator_agent");
@@ -275,7 +275,7 @@ describe("AgentConfigService team file compatibility", () => {
     expect(getRecord(persistedOrchestrator, "delegation").enabled_agents).toEqual(["research_agent"]);
   });
 
-  it("renames and deletes team files like the Python manager", () => {
+  it("renames and deletes team files like the Python manager", async () => {
     const dataRoot = makeTempDataRoot();
     writeTeamIndex(dataRoot, {
       active_team: "default",
@@ -287,12 +287,12 @@ describe("AgentConfigService team file compatibility", () => {
       general_agent: minimalAgent("general_agent", true),
     });
 
-    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
-    service.createTeam("research work", "default");
+    const service = await makeService(dataRoot);
+    await service.createTeam("research work", "default");
     const researchPath = path.join(dataRoot, "config", "agents", "teams", "research-work.yaml");
     expect(fs.existsSync(researchPath)).toBe(true);
 
-    service.renameTeam("research work", "final team");
+    await service.renameTeam("research work", "final team");
     const finalPath = path.join(dataRoot, "config", "agents", "teams", "final-team.yaml");
     expect(fs.existsSync(researchPath)).toBe(false);
     expect(fs.existsSync(finalPath)).toBe(true);
@@ -303,7 +303,7 @@ describe("AgentConfigService team file compatibility", () => {
       },
     });
 
-    service.deleteTeam("final team");
+    await service.deleteTeam("final team");
     expect(fs.existsSync(finalPath)).toBe(false);
     expect(readYaml(path.join(dataRoot, "config", "agents", "team_index.yaml"))).toMatchObject({
       teams: {
@@ -312,6 +312,12 @@ describe("AgentConfigService team file compatibility", () => {
     });
   });
 });
+
+async function makeService(dataRoot: string): Promise<AgentConfigService> {
+  const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
+  await service.initialize();
+  return service;
+}
 
 function makeTempDataRoot(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-agent-config-"));

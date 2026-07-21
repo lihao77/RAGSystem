@@ -45,9 +45,19 @@ function makeService(root: string): {
   return { library: new SkillLibraryService(skillTools), skillTools, agentConfig };
 }
 
-function expectHttp(statusCode: number, fn: () => unknown): void {
+async function makeInitializedService(root: string): Promise<{
+  library: SkillLibraryService;
+  skillTools: SkillToolService;
+  agentConfig: AgentConfigService;
+}> {
+  const created = makeService(root);
+  await created.agentConfig.initialize();
+  return created;
+}
+
+async function expectHttp(statusCode: number, fn: () => unknown): Promise<void> {
   try {
-    fn();
+    await fn();
     throw new Error(`expected HttpError ${statusCode}, nothing threw`);
   } catch (e) {
     if (e instanceof HttpError) {
@@ -71,19 +81,19 @@ describe("SkillLibraryService", () => {
     expect(library.listSkills().map((s) => s.name)).toContain("my-skill");
   });
 
-  it("rejects invalid skill names and empty descriptions", () => {
+  it("rejects invalid skill names and empty descriptions", async () => {
     const root = makeRoot();
     const { library } = makeService(root);
-    expectHttp(400, () => library.createSkill({ name: "BadName", description: "x", content: "" }));
-    expectHttp(400, () => library.createSkill({ name: "with/slash", description: "x", content: "" }));
-    expectHttp(400, () => library.createSkill({ name: "ok", description: "   ", content: "" }));
+    await expectHttp(400, () => library.createSkill({ name: "BadName", description: "x", content: "" }));
+    await expectHttp(400, () => library.createSkill({ name: "with/slash", description: "x", content: "" }));
+    await expectHttp(400, () => library.createSkill({ name: "ok", description: "   ", content: "" }));
   });
 
-  it("rejects duplicate name", () => {
+  it("rejects duplicate name", async () => {
     const root = makeRoot();
     const { library } = makeService(root);
     library.createSkill({ name: "dup", description: "first", content: "" });
-    expectHttp(409, () => library.createSkill({ name: "dup", description: "second", content: "" }));
+    await expectHttp(409, () => library.createSkill({ name: "dup", description: "second", content: "" }));
   });
 
   it("updates description and content of a user_global skill", () => {
@@ -95,7 +105,7 @@ describe("SkillLibraryService", () => {
     expect(updated.content).toBe("new body");
   });
 
-  it("writes and reads script files, rejecting traversal and disallowed dirs", () => {
+  it("writes and reads script files, rejecting traversal and disallowed dirs", async () => {
     const root = makeRoot();
     const { library } = makeService(root);
     library.createSkill({ name: "with-scripts", description: "d", content: "" });
@@ -104,52 +114,52 @@ describe("SkillLibraryService", () => {
     const read = library.readSkillFile("with-scripts", "scripts/foo.py");
     expect(read.buffer.toString("utf8")).toBe("print(1)");
     expect(read.mime).toContain("python");
-    expectHttp(400, () => library.writeSkillFile("with-scripts", "scripts/../foo.py", Buffer.from("x")));
-    expectHttp(400, () => library.writeSkillFile("with-scripts", "docs/x.md", Buffer.from("x")));
-    expectHttp(400, () => library.writeSkillFile("with-scripts", "SKILL.md", Buffer.from("x")));
+    await expectHttp(400, () => library.writeSkillFile("with-scripts", "scripts/../foo.py", Buffer.from("x")));
+    await expectHttp(400, () => library.writeSkillFile("with-scripts", "docs/x.md", Buffer.from("x")));
+    await expectHttp(400, () => library.writeSkillFile("with-scripts", "SKILL.md", Buffer.from("x")));
   });
 
-  it("deletes a user_global skill", () => {
+  it("deletes a user_global skill", async () => {
     const root = makeRoot();
     const { library } = makeService(root);
     library.createSkill({ name: "todelete", description: "d", content: "" });
-    library.deleteSkill("todelete");
+    await library.deleteSkill("todelete");
     expect(library.listSkills().map((s) => s.name)).not.toContain("todelete");
-    expectHttp(404, () => library.getSkillDetail("todelete"));
+    await expectHttp(404, () => library.getSkillDetail("todelete"));
   });
 
-  it("forbids writing / deleting builtin skills but allows user_global", () => {
+  it("forbids writing / deleting builtin skills but allows user_global", async () => {
     const root = makeRoot();
     const { library } = makeService(root);
     writeSkillMd(path.join(root, "builtin", "bi"), "bi", "builtin", "# Builtin\n");
     writeSkillMd(path.join(root, "global", "ug"), "ug", "global", "# Global\n");
-    expectHttp(403, () => library.updateSkillMd("bi", { content: "x" }));
-    expectHttp(403, () => library.writeSkillFile("bi", "scripts/x.py", Buffer.from("x")));
-    expectHttp(403, () => library.deleteSkill("bi"));
+    await expectHttp(403, () => library.updateSkillMd("bi", { content: "x" }));
+    await expectHttp(403, () => library.writeSkillFile("bi", "scripts/x.py", Buffer.from("x")));
+    await expectHttp(403, () => library.deleteSkill("bi"));
     expect(library.getSkillDetail("ug").writable).toBe(true);
-    library.deleteSkill("ug");
-    expectHttp(404, () => library.getSkillDetail("ug"));
+    await library.deleteSkill("ug");
+    await expectHttp(404, () => library.getSkillDetail("ug"));
   });
 
-  it("readSkillFile rejects out-of-tree and missing paths", () => {
+  it("readSkillFile rejects out-of-tree and missing paths", async () => {
     const root = makeRoot();
     const { library } = makeService(root);
     library.createSkill({ name: "rf", description: "d", content: "" });
-    expectHttp(400, () => library.readSkillFile("rf", "../outside.txt"));
-    expectHttp(404, () => library.readSkillFile("rf", "missing.txt"));
+    await expectHttp(400, () => library.readSkillFile("rf", "../outside.txt"));
+    await expectHttp(404, () => library.readSkillFile("rf", "missing.txt"));
   });
 
-  it("deletes a skill and purges its references from all agent configs", () => {
+  it("deletes a skill and purges its references from all agent configs", async () => {
     const root = makeRoot();
-    const { library, agentConfig } = makeService(root);
+    const { library, agentConfig } = await makeInitializedService(root);
     library.createSkill({ name: "will-delete", description: "d", content: "" });
-    agentConfig.createAgent({ agent_name: "a1", default_entry: false });
-    agentConfig.createAgent({ agent_name: "a2", default_entry: false });
-    agentConfig.patchConfig("a1", { skills: { enabled_skills: ["will-delete"] } });
-    agentConfig.patchConfig("a2", { skills: { enabled_skills: ["will-delete", "keep"] } });
+    await agentConfig.createAgent({ agent_name: "a1", default_entry: false });
+    await agentConfig.createAgent({ agent_name: "a2", default_entry: false });
+    await agentConfig.patchConfig("a1", { skills: { enabled_skills: ["will-delete"] } });
+    await agentConfig.patchConfig("a2", { skills: { enabled_skills: ["will-delete", "keep"] } });
     expect(agentConfig.getConfig("a1")?.skills.enabled_skills).toContain("will-delete");
 
-    const res = library.deleteSkill("will-delete");
+    const res = await library.deleteSkill("will-delete");
 
     expect(res.purged_agents.length).toBe(2);
     expect(agentConfig.getConfig("a1")?.skills.enabled_skills ?? []).not.toContain("will-delete");

@@ -137,7 +137,7 @@ export class SkillToolService {
   }
 
   /** 删除 skill 时联动清理所有 AgentConfig 中的 enabled_skills 引用（委托 AgentConfigService）。 */
-  purgeSkillReference(skillName: string): string[] {
+  async purgeSkillReference(skillName: string): Promise<string[]> {
     return this.agentConfig?.purgeSkillReference(skillName) ?? [];
   }
 
@@ -276,7 +276,7 @@ export class SkillToolService {
     if (scriptResult.returnCode === 0) {
       const parsed = parseJsonStdout(scriptResult.stdout);
       if (parsed !== null) {
-        return this.normalizeStructuredScriptResult(parsed, scriptName, skill.name, meta, context);
+        return await this.normalizeStructuredScriptResult(parsed, scriptName, skill.name, meta, context);
       }
     }
 
@@ -449,13 +449,13 @@ export class SkillToolService {
     );
   }
 
-  private normalizeStructuredScriptResult(
+  private async normalizeStructuredScriptResult(
     rawPayload: unknown,
     scriptName: string,
     skillName: string,
     metadata: Record<string, unknown>,
     context: ToolExecContext,
-  ): ToolExecutionResult {
+  ): Promise<ToolExecutionResult> {
     let payload = rawPayload;
     let rawArtifact: unknown = null;
     let rawTeam: unknown = null;
@@ -504,7 +504,7 @@ export class SkillToolService {
       }
     }
     if (rawTeam !== null) {
-      const team = this.applyTeamProtocol(rawTeam);
+      const team = await this.applyTeamProtocol(rawTeam);
       if ("error" in team) {
         metadata.team_error = team.error;
       } else {
@@ -527,7 +527,7 @@ export class SkillToolService {
     });
   }
 
-  private applyTeamProtocol(rawTeam: unknown): { info: Record<string, unknown> } | { error: string } {
+  private async applyTeamProtocol(rawTeam: unknown): Promise<{ info: Record<string, unknown> } | { error: string }> {
     if (!isRecord(rawTeam)) {
       return { error: "team 字段必须是对象" };
     }
@@ -546,7 +546,7 @@ export class SkillToolService {
       return { error: "AgentConfigService 未接入，无法应用 team" };
     }
     try {
-      const result = this.agentConfig.applyTeamPayload(teamName, rawTeam.agents, asString(rawTeam.source_team));
+      const result = await this.agentConfig.applyTeamPayload(teamName, rawTeam.agents, asString(rawTeam.source_team));
       return {
         info: {
           action,

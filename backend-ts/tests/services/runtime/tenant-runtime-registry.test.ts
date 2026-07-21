@@ -50,15 +50,15 @@ describe("TenantRuntimeRegistry 多租户隔离", () => {
 
       await leaseA.runtime.sessionApplication.createSession({ userId: "usr_local", sessionId: "same-session" });
       await leaseB.runtime.sessionApplication.createSession({ userId: "usr_local", sessionId: "same-session" });
-      leaseA.runtime.agentConfig.createTeam("same-team", "default");
-      leaseB.runtime.agentConfig.createTeam("same-team", "default");
-      leaseA.runtime.agentConfig.createAgent({ agent_name: "same_agent", default_entry: false });
-      leaseB.runtime.agentConfig.createAgent({ agent_name: "same_agent", default_entry: false });
+      await leaseA.runtime.agentConfig.createTeam("same-team", "default");
+      await leaseB.runtime.agentConfig.createTeam("same-team", "default");
+      await leaseA.runtime.agentConfig.createAgent({ agent_name: "same_agent", default_entry: false });
+      await leaseB.runtime.agentConfig.createAgent({ agent_name: "same_agent", default_entry: false });
 
       expect((await leaseA.runtime.sessionApplication.getSession("same-session"))?.tenant_id).toBe(TENANT_A);
       expect((await leaseB.runtime.sessionApplication.getSession("same-session"))?.tenant_id).toBe(TENANT_B);
-      expect(leaseA.runtime.agentConfig.listTeams().teams.map((team) => team.team_name)).toContain("same-team");
-      expect(leaseB.runtime.agentConfig.listTeams().teams.map((team) => team.team_name)).toContain("same-team");
+      expect((await leaseA.runtime.agentConfig.listTeams()).teams.map((team) => team.team_name)).toContain("same-team");
+      expect((await leaseB.runtime.agentConfig.listTeams()).teams.map((team) => team.team_name)).toContain("same-team");
       expect(fs.existsSync(path.join(harness.env.tenantsRoot, TENANT_A, "db", "ragsystem.db"))).toBe(true);
       expect(fs.existsSync(path.join(harness.env.tenantsRoot, TENANT_B, "db", "ragsystem.db"))).toBe(true);
     } finally {

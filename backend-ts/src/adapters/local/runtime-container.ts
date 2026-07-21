@@ -43,7 +43,7 @@ import { LocalSessionApplication } from "./application/session/local-session-app
 import { FileAgentConfigTeamStore } from "../filesystem/agent/file-team-store.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
-export function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): LocalRuntimeContainer {
+export async function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): Promise<LocalRuntimeContainer> {
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot });
   const fileHistory = new FileHistoryService({ dataRoot });
@@ -67,6 +67,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
   // Both deployments use the queued publisher so finalize can flush all prior envelope writes.
   const eventClientEvents = asyncClientEvents ?? localAsyncClientEvents;
   const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot }));
+  await agentConfig.initialize();
   const modelAdapter = new ModelAdapterService({
     dataRoot: options.dataRoot,
     providersConfigPath: options.modelAdapterProvidersConfigPath,

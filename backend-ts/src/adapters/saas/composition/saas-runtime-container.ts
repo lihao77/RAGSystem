@@ -27,8 +27,6 @@ import { SaaSPermissionPolicyStore } from "../postgres/saas-permission-policy-st
 import { createPostgresExecutionStorage } from "../postgres/postgres-execution-storage.js";
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
 import type { SaaSMemoryRuntimeHandle } from "./saas-memory-runtime.js";
-import { FileAgentConfigTeamStore } from "../../filesystem/agent/file-team-store.js";
-
 export interface SaaSRuntimeContainerOptions {
   tenantId: TenantId;
   dataRoot: string;
@@ -39,7 +37,6 @@ export interface SaaSRuntimeContainerOptions {
   modelAdapterProvidersConfigPath?: string;
   mcpConfigPath?: string;
   systemConfigPath?: string;
-  agentConfigRoot?: string;
 }
 
 /** Assemble a tenant runtime without constructing any Local or SQLite adapter. */
@@ -68,7 +65,8 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     memoryCandidates,
   );
 
-  const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot, configRoot: options.agentConfigRoot }));
+  const agentConfig = new AgentConfigService(conversationRuntime.createAgentConfigTeamStore(tenantId));
+  await agentConfig.initialize();
   const modelAdapter = new ModelAdapterService({
     dataRoot,
     providersConfigPath: options.modelAdapterProvidersConfigPath,

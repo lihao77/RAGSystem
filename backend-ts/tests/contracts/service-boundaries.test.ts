@@ -36,6 +36,13 @@ describe("service storage boundaries", () => {
     expect(source).not.toMatch(/from ["'][^"']*services\//);
   });
 
+  it("keeps postgres agent team store free of services imports", () => {
+    const source = fs.readFileSync(path.resolve("src/adapters/saas/postgres/agent-team-repository.ts"), "utf8");
+    expect(source).not.toMatch(/from ["'][^"']*services\//);
+    expect(fs.existsSync(path.resolve("src/adapters/saas/postgres/agent-team-schema.ts"))).toBe(true);
+    expect(fs.existsSync(path.resolve("src/adapters/saas/postgres/agent-team-migrations.ts"))).toBe(true);
+  });
+
   it("keeps pure agent config helpers in contracts", () => {
     expect(fs.existsSync(path.resolve("src/contracts/agent/config-normalize.ts"))).toBe(true);
     expect(fs.existsSync(path.resolve("src/contracts/agent/team-store.ts"))).toBe(true);

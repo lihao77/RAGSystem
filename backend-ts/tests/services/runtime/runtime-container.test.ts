@@ -51,7 +51,7 @@ describe("runtime composition roots", () => {
     expectTypeOf<ConstructorParameters<typeof AgentCompressionService>[0]>().toEqualTypeOf<CompressionHistoryStorePort | null>();
   });
 
-  it("local entrypoint creates the runtime contract", () => {
+  it("local entrypoint creates the runtime contract", async () => {
     const factory = createLocalRuntimeContainer;
     const dataRoot = makeTempRoot();
     const options: LocalRuntimeContainerOptions = {
@@ -65,7 +65,7 @@ describe("runtime composition roots", () => {
       embedderFactory: () => new HashFallbackEmbedder(),
     };
 
-    const runtime = factory(options);
+    const runtime = await factory(options);
     try {
       expect(runtime.dataRoot).toBe(path.resolve(dataRoot));
       expect(runtime.agentExecution).toBeDefined();
@@ -77,11 +77,11 @@ describe("runtime composition roots", () => {
     }
   });
 
-  it("uses deployment-provided memory bindings without changing the local repository", () => {
+  it("uses deployment-provided memory bindings without changing the local repository", async () => {
     const dataRoot = makeTempRoot();
     const memoryTools = { marker: "postgres" } as unknown as MemoryToolOperations;
     let boundTenantId = "";
-    const runtime = createLocalRuntimeContainer({
+    const runtime = await createLocalRuntimeContainer({
       tenantId: createTenantId("tnt_runtime_memory_bindings"),
       dbPath: ":memory:",
       dataRoot,
@@ -110,9 +110,9 @@ describe("runtime composition roots", () => {
     }
   });
 
-  it("can disable host filesystem and process tools for SaaS composition", () => {
+  it("can disable host filesystem and process tools for SaaS composition", async () => {
     const dataRoot = makeTempRoot();
-    const runtime = createLocalRuntimeContainer({
+    const runtime = await createLocalRuntimeContainer({
       tenantId: createTenantId("tnt_runtime_host_tools_disabled"),
       dbPath: ":memory:",
       dataRoot,
@@ -134,7 +134,7 @@ describe("runtime composition roots", () => {
     const publish = vi.fn().mockResolvedValue({});
     let factoryTenantId = "";
     let factoryRealtimeEvents: unknown;
-    const runtime = createLocalRuntimeContainer({
+    const runtime = await createLocalRuntimeContainer({
       tenantId: createTenantId("tnt_runtime_durable_events"),
       dbPath: ":memory:",
       dataRoot,

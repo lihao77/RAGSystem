@@ -32,7 +32,7 @@ export interface LocalTenantRuntimeRegistryOptions {
   idleTimeoutMs?: number;
   sweepIntervalMs?: number;
   runtimeOptions?: Omit<RuntimeContainerOptions, "tenantId" | "dbPath" | "dataRoot" | "logger">;
-  runtimeFactory?: (options: RuntimeContainerOptions) => RuntimeContainer;
+  runtimeFactory?: (options: RuntimeContainerOptions) => RuntimeContainer | Promise<RuntimeContainer>;
   prepareRuntime?: (tenantId: TenantId, runtime: RuntimeContainer) => Promise<void>;
 }
 
@@ -51,13 +51,13 @@ export class LocalTenantRuntimeRegistry extends TenantRuntimeRegistryCore<Runtim
       ...(options.sweepIntervalMs === undefined ? {} : { sweepIntervalMs: options.sweepIntervalMs }),
       createRuntime: async (tenantId) => {
         const paths = new TenantPaths(path.join(env.tenantsRoot, tenantId));
-        const container = runtimeFactory({
+        const container = await Promise.resolve(runtimeFactory({
           ...runtimeOptions,
           tenantId,
           dbPath: paths.ragsystemDbPath(),
           dataRoot: paths.dataRoot,
           ...(logger ? { logger } : {}),
-        });
+        }));
         try {
           await container.backgroundTasks.initialize();
           return container;

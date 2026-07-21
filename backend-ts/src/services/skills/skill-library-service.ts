@@ -136,7 +136,7 @@ export class SkillLibraryService {
     return this.getSkillDetail(name);
   }
 
-  deleteSkill(name: string): { name: string; purged_agents: string[] } {
+  async deleteSkill(name: string): Promise<{ name: string; purged_agents: string[] }> {
     const skill = this.findSkill(name);
     this.assertWritable(skill);
     const root = this.skillTools.getUserGlobalSkillsRoot();
@@ -145,7 +145,7 @@ export class SkillLibraryService {
     }
     fs.rmSync(skill.skillDir, { recursive: true, force: true });
     // 联动清理所有 AgentConfig 中的 enabled_skills 引用，消除悬空引用。
-    const purged_agents = this.skillTools.purgeSkillReference(name);
+    const purged_agents = await this.skillTools.purgeSkillReference(name);
     return { name, purged_agents };
   }
 

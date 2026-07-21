@@ -46,31 +46,52 @@ export class AgentConfigService {
   private readonly teamStore: IAgentConfigTeamStore;
   private skillToolService: SkillToolService | null = null;
   private mcpService: McpService | null = null;
+  private initialized = false;
+  private initializePromise: Promise<void> | null = null;
 
   constructor(teamStore: IAgentConfigTeamStore) {
     this.teamStore = teamStore;
     this.teams.set("default", new Map(Object.entries(buildDefaultAgentConfigs())));
-    this.loadTeamsFromDisk();
+  }
+
+  /** Load persisted teams before the service is used for reads/writes. */
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    if (!this.initializePromise) {
+      this.initializePromise = this.loadTeamsFromStore()
+        .then(() => {
+          this.initialized = true;
+        })
+        .catch((error) => {
+          this.initializePromise = null;
+          throw error;
+        });
+    }
+    await this.initializePromise;
   }
 
   listConfigs(options: { teamName?: string | null } = {}): Record<string, AgentConfig> {
+    this.assertInitialized();
     const configs = this.resolveConfigsForRead(options.teamName);
     return configs ? configsToRecord(configs) : {};
   }
 
   listAgents(): AgentInfo[] {
+    this.assertInitialized();
     return Array.from(this.getActiveConfigs().values())
       .map((config) => configToAgentInfo(config))
       .sort((left, right) => left.name.localeCompare(right.name));
   }
 
   getConfig(agentName: string, options: { teamName?: string | null } = {}): AgentConfig | null {
+    this.assertInitialized();
     const configs = this.resolveConfigsForRead(options.teamName);
     const config = configs?.get(agentName);
     return config ? cloneConfig(config) : null;
   }
 
-  createAgent(payload: CreateAgentRequest): AgentConfig {
+  async createAgent(payload: CreateAgentRequest): Promise<AgentConfig> {
+    await this.ensureInitialized();
     const agentName = normalizeAgentName(payload.agent_name);
     if (this.getActiveConfigs().has(agentName)) {
       throw new Error(`智能体 ${agentName} 已存在`);
@@ -82,22 +103,24 @@ export class AgentConfigService {
     });
     this.enforceSingleDefaultEntry(agentName, config.default_entry);
     this.getActiveConfigs().set(agentName, config);
-    this.saveAll();
+    await this.saveAll();
     return cloneConfig(config);
   }
 
-  replaceConfig(agentName: string, payload: AgentConfig): AgentConfig {
+  async replaceConfig(agentName: string, payload: AgentConfig): Promise<AgentConfig> {
+    await this.ensureInitialized();
     const config = normalizeConfig({
       ...payload,
       agent_name: agentName,
     });
     this.enforceSingleDefaultEntry(agentName, config.default_entry);
     this.getActiveConfigs().set(agentName, config);
-    this.saveAll();
+    await this.saveAll();
     return cloneConfig(config);
   }
 
-  patchConfig(agentName: string, patch: Record<string, unknown>): AgentConfig | null {
+  async patchConfig(agentName: string, patch: Record<string, unknown>): Promise<AgentConfig | null> {
+    await this.ensureInitialized();
     const current = this.getActiveConfigs().get(agentName);
     if (!current) {
       return null;
@@ -106,15 +129,16 @@ export class AgentConfigService {
     merged.agent_name = agentName;
     this.enforceSingleDefaultEntry(agentName, merged.default_entry);
     this.getActiveConfigs().set(agentName, merged);
-    this.saveAll();
+    await this.saveAll();
     return cloneConfig(merged);
   }
 
-  deleteConfig(agentName: string): boolean {
+  async deleteConfig(agentName: string): Promise<boolean> {
+    await this.ensureInitialized();
     const deleted = this.getActiveConfigs().delete(agentName);
     if (deleted) {
       this.purgeAgentReferences(agentName);
-      this.saveAll();
+      await this.saveAll();
     }
     return deleted;
   }
@@ -123,7 +147,8 @@ export class AgentConfigService {
     return structuredClone(agentConfigPresets);
   }
 
-  applyPreset(agentName: string, presetName: string): AgentConfig | null {
+  async applyPreset(agentName: string, presetName: string): Promise<AgentConfig | null> {
+    await this.ensureInitialized();
     const config = this.getActiveConfigs().get(agentName);
     if (!config) {
       return null;
@@ -147,11 +172,12 @@ export class AgentConfigService {
       ),
     });
     this.getActiveConfigs().set(agentName, updated);
-    this.saveAll();
+    await this.saveAll();
     return cloneConfig(updated);
   }
 
   exportConfig(agentName: string, format: ExportFormat): { content: string; contentType: string; fileExtension: string } | null {
+    this.assertInitialized();
     const config = this.getActiveConfigs().get(agentName);
     if (!config) {
       return null;
@@ -171,17 +197,19 @@ export class AgentConfigService {
     };
   }
 
-  importConfig(body: unknown, options: { formatName?: string | null; contentType?: string | undefined } = {}): AgentConfig {
+  async importConfig(body: unknown, options: { formatName?: string | null; contentType?: string | undefined } = {}): Promise<AgentConfig> {
+    await this.ensureInitialized();
     const format = resolveImportFormat(options.formatName, options.contentType);
     const parsed = parseImportBody(body, format);
     const config = normalizeConfig(AgentConfigSchema.parse(parsed));
     this.enforceSingleDefaultEntry(config.agent_name, config.default_entry);
     this.getActiveConfigs().set(config.agent_name, config);
-    this.saveAll();
+    await this.saveAll();
     return cloneConfig(config);
   }
 
-  deleteAgent(agentName: string): boolean {
+  async deleteAgent(agentName: string): Promise<boolean> {
+    await this.ensureInitialized();
     const normalized = normalizeAgentName(agentName);
     const config = this.getActiveConfigs().get(normalized);
     if (!config) {
@@ -193,41 +221,46 @@ export class AgentConfigService {
     const deleted = this.getActiveConfigs().delete(normalized);
     if (deleted) {
       this.purgeAgentReferences(normalized);
-      this.saveAll();
+      await this.saveAll();
     }
     return deleted;
   }
 
-  listTeams(): TeamSummary {
-    const teams = Array.from(this.teams.keys())
-      .sort()
-      .map((teamName) => this.toTeamInfo(teamName));
+  async listTeams(): Promise<TeamSummary> {
+    await this.ensureInitialized();
+    const teams = [];
+    for (const teamName of Array.from(this.teams.keys()).sort()) {
+      teams.push(await this.toTeamInfo(teamName));
+    }
     return {
       active_team: this.activeTeam,
       teams,
     };
   }
 
-  createTeam(teamName: string, sourceTeam?: string | null): TeamSummary {
+  async createTeam(teamName: string, sourceTeam?: string | null): Promise<TeamSummary> {
+    await this.ensureInitialized();
     const normalized = normalizeTeamName(teamName);
     if (this.teams.has(normalized)) {
       throw new Error(`team '${normalized}' 已存在`);
     }
     const source = sourceTeam?.trim() ? this.getTeamConfigs(sourceTeam.trim()) : new Map<string, AgentConfig>();
     this.teams.set(normalized, cloneConfigMap(source));
-    this.saveAll();
+    await this.saveAll();
     return this.listTeams();
   }
 
-  activateTeam(teamName: string): TeamSummary {
+  async activateTeam(teamName: string): Promise<TeamSummary> {
+    await this.ensureInitialized();
     const normalized = normalizeTeamName(teamName);
     this.getTeamConfigs(normalized);
     this.activeTeam = normalized;
-    this.teamStore.saveIndex(this.activeTeam, this.teams);
+    await this.teamStore.saveIndex(this.activeTeam, this.teams);
     return this.listTeams();
   }
 
-  deleteTeam(teamName: string): TeamSummary {
+  async deleteTeam(teamName: string): Promise<TeamSummary> {
+    await this.ensureInitialized();
     const normalized = normalizeTeamName(teamName);
     if (!this.teams.has(normalized)) {
       throw new Error(`team '${normalized}' 不存在`);
@@ -239,12 +272,13 @@ export class AgentConfigService {
     if (this.activeTeam === normalized) {
       this.activeTeam = Array.from(this.teams.keys())[0] ?? "default";
     }
-    this.teamStore.removeTeam(normalized);
-    this.saveAll();
+    await this.teamStore.removeTeam(normalized);
+    await this.saveAll();
     return this.listTeams();
   }
 
-  renameTeam(teamName: string, newTeamName: string): TeamSummary {
+  async renameTeam(teamName: string, newTeamName: string): Promise<TeamSummary> {
+    await this.ensureInitialized();
     const current = normalizeTeamName(teamName);
     const next = normalizeTeamName(newTeamName);
     if (!this.teams.has(current)) {
@@ -260,13 +294,14 @@ export class AgentConfigService {
       this.activeTeam = next;
     }
     if (current !== next) {
-      this.teamStore.renameTeam(current, next);
+      await this.teamStore.renameTeam(current, next);
     }
-    this.saveAll();
+    await this.saveAll();
     return this.listTeams();
   }
 
-  copyAgentsToTeam(targetTeam: string, sourceTeam: string, agentNames: string[]): TeamSummary {
+  async copyAgentsToTeam(targetTeam: string, sourceTeam: string, agentNames: string[]): Promise<TeamSummary> {
+    await this.ensureInitialized();
     if (agentNames.length === 0) {
       throw new Error("agent_names 不能为空");
     }
@@ -279,15 +314,16 @@ export class AgentConfigService {
       }
       target.set(agentName, cloneConfig(config));
     }
-    this.saveAll();
+    await this.saveAll();
     return this.listTeams();
   }
 
-  applyTeamPayload(
+  async applyTeamPayload(
     teamName: string,
     agentsPayload: Record<string, unknown>,
     sourceTeam?: string | null,
-  ): ApplyTeamPayloadResult {
+  ): Promise<ApplyTeamPayloadResult> {
+    await this.ensureInitialized();
     const normalizedTeamName = normalizeTeamName(teamName);
     if (Object.keys(agentsPayload).length === 0) {
       throw new Error("agents_payload 必须是非空对象");
@@ -297,7 +333,7 @@ export class AgentConfigService {
       throw new Error(`source team '${normalizedSourceTeam}' 不存在`);
     }
     if (!this.teams.has(normalizedTeamName)) {
-      this.createTeam(normalizedTeamName, normalizedSourceTeam);
+      await this.createTeam(normalizedTeamName, normalizedSourceTeam);
     }
 
     const nextConfigs = new Map<string, AgentConfig>();
@@ -324,7 +360,7 @@ export class AgentConfigService {
     }
 
     this.teams.set(normalizedTeamName, nextConfigs);
-    this.saveAll();
+    await this.saveAll();
     return {
       team_name: normalizedTeamName,
       agent_count: nextConfigs.size,
@@ -333,12 +369,13 @@ export class AgentConfigService {
     };
   }
 
-  resetDefaultTeam(): TeamSummary {
+  async resetDefaultTeam(): Promise<TeamSummary> {
+    await this.ensureInitialized();
     this.teams.set("default", new Map(Object.entries(buildDefaultAgentConfigs())));
     if (!this.teams.has(this.activeTeam)) {
       this.activeTeam = "default";
     }
-    this.saveAll();
+    await this.saveAll();
     return this.listTeams();
   }
 
@@ -394,7 +431,8 @@ export class AgentConfigService {
    * 消除悬空引用（skill 本体已删，配置里不能再留着名字导致 snapshot/可见性误判）。
    * 返回受影响的 `team/agent` 列表。
    */
-  purgeSkillReference(skillName: string): string[] {
+  async purgeSkillReference(skillName: string): Promise<string[]> {
+    await this.ensureInitialized();
     const updated: string[] = [];
     for (const [teamName, configs] of this.teams) {
       for (const [agentName, config] of configs) {
@@ -411,7 +449,7 @@ export class AgentConfigService {
       }
     }
     if (updated.length) {
-      this.saveAll();
+      await this.saveAll();
     }
     return updated;
   }
@@ -445,12 +483,12 @@ export class AgentConfigService {
     return configs;
   }
 
-  private toTeamInfo(teamName: string): TeamInfo {
+  private async toTeamInfo(teamName: string): Promise<TeamInfo> {
     const configs = this.getTeamConfigs(teamName);
     const agents = Array.from(configs.keys()).sort();
     return {
       team_name: teamName,
-      file_path: this.teamStore.getTeamLocation(teamName) ?? "",
+      file_path: (await this.teamStore.getTeamLocation(teamName)) ?? "",
       is_active: teamName === this.activeTeam,
       agent_count: agents.length,
       agents,
@@ -488,8 +526,8 @@ export class AgentConfigService {
     }
   }
 
-  private loadTeamsFromDisk(): void {
-    const loaded = this.teamStore.loadTeams();
+  private async loadTeamsFromStore(): Promise<void> {
+    const loaded = await this.teamStore.loadTeams();
     if (!loaded) {
       return;
     }
@@ -499,9 +537,9 @@ export class AgentConfigService {
       this.teams.set(teamName, configs);
     }
     this.activeTeam = loaded.activeTeam;
-    // 自愈历史脏数据：剔除 enabled_agents 中指向本 team 不存在 agent 的悬空引用，改动一次性回写磁盘。
+    // 自愈历史脏数据：剔除 enabled_agents 中指向本 team 不存在 agent 的悬空引用，改动一次性回写。
     if (this.normalizeTeamReferences()) {
-      this.saveAll();
+      await this.saveAll();
     }
   }
 
@@ -525,8 +563,20 @@ export class AgentConfigService {
     return changed;
   }
 
-  private saveAll(): void {
-    this.teamStore.saveAll(this.activeTeam, this.teams);
+  private async saveAll(): Promise<void> {
+    await this.teamStore.saveAll(this.activeTeam, this.teams);
+  }
+
+  private async ensureInitialized(): Promise<void> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+  }
+
+  private assertInitialized(): void {
+    if (!this.initialized) {
+      throw new Error("AgentConfigService 尚未 initialize()");
+    }
   }
 }
 

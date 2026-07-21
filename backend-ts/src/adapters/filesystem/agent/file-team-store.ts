@@ -25,7 +25,7 @@ export class FileAgentConfigTeamStore implements IAgentConfigTeamStore {
     this.configRoot = resolveAgentConfigRoot(options);
   }
 
-  loadTeams(): LoadedAgentConfigTeams | null {
+  async loadTeams(): Promise<LoadedAgentConfigTeams | null> {
     if (!this.configRoot) {
       return null;
     }
@@ -63,7 +63,7 @@ export class FileAgentConfigTeamStore implements IAgentConfigTeamStore {
     };
   }
 
-  saveAll(activeTeam: string, teams: Map<string, AgentConfigTeam>): void {
+  async saveAll(activeTeam: string, teams: Map<string, AgentConfigTeam>): Promise<void> {
     if (!this.configRoot) {
       return;
     }
@@ -74,7 +74,7 @@ export class FileAgentConfigTeamStore implements IAgentConfigTeamStore {
     }
   }
 
-  saveIndex(activeTeam: string, teams: Map<string, AgentConfigTeam>): void {
+  async saveIndex(activeTeam: string, teams: Map<string, AgentConfigTeam>): Promise<void> {
     if (!this.configRoot) {
       return;
     }
@@ -156,7 +156,7 @@ export class FileAgentConfigTeamStore implements IAgentConfigTeamStore {
     return this.resolveRequiredTeamPath(teamFile);
   }
 
-  removeTeam(teamName: string): void {
+  async removeTeam(teamName: string): Promise<void> {
     const teamFile = this.teamFileByName.get(teamName);
     const teamPath = this.resolveTeamPath(teamFile);
     if (teamPath && fs.existsSync(teamPath)) {
@@ -165,7 +165,7 @@ export class FileAgentConfigTeamStore implements IAgentConfigTeamStore {
     this.teamFileByName.delete(teamName);
   }
 
-  renameTeam(teamName: string, newTeamName: string): void {
+  async renameTeam(teamName: string, newTeamName: string): Promise<void> {
     const oldTeamFile = this.teamFileByName.get(teamName) ?? defaultTeamRelativePath(teamName);
     const newTeamFile = this.nextTeamRelativePath(newTeamName);
     const oldTeamPath = this.resolveTeamPath(oldTeamFile);
@@ -181,7 +181,7 @@ export class FileAgentConfigTeamStore implements IAgentConfigTeamStore {
     this.teamFileByName.set(newTeamName, newTeamFile);
   }
 
-  getTeamLocation(teamName: string): string | null {
+  async getTeamLocation(teamName: string): Promise<string | null> {
     if (!this.configRoot) {
       return null;
     }
