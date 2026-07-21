@@ -1,9 +1,23 @@
 import { isRecord } from "../../../utils/guards.js";
 export { isRecord };
 import type { AgentConfig, AgentInfo, CreateAgentRequest } from "../../../contracts/agent/agent-config.js";
-import { stripConfigManagedToolNames } from "./tools.js";
+import {
+  cloneConfig,
+  cloneConfigMap,
+  configsToRecord,
+  normalizeConfig,
+  normalizeTeamName,
+} from "../../../contracts/agent/config-normalize.js";
+import type { AgentConfigTeam } from "../../../contracts/agent/team-store.js";
 
-export type TeamConfigs = Map<string, AgentConfig>;
+export type TeamConfigs = AgentConfigTeam;
+export {
+  cloneConfig,
+  cloneConfigMap,
+  configsToRecord,
+  normalizeConfig,
+  normalizeTeamName,
+};
 
 export const agentConfigPresets = {
   fast: { temperature: 0.1, max_completion_tokens: 2048 },
@@ -132,61 +146,6 @@ export function configToAgentInfo(config: AgentConfig): AgentInfo {
   };
 }
 
-export function configsToRecord(configs: TeamConfigs): Record<string, AgentConfig> {
-  return Object.fromEntries(Array.from(configs.entries()).map(([name, config]) => [name, cloneConfig(config)]));
-}
-
-export function cloneConfigMap(configs: TeamConfigs): TeamConfigs {
-  return new Map(Array.from(configs.entries()).map(([name, config]) => [name, cloneConfig(config)]));
-}
-
-export function cloneConfig(config: AgentConfig): AgentConfig {
-  return structuredClone(config) as AgentConfig;
-}
-
-export function normalizeConfig(config: AgentConfig): AgentConfig {
-  const tools = config.tools ?? { enabled_tools: [] };
-  return {
-    ...config,
-    display_name: config.display_name ?? null,
-    description: config.description ?? null,
-    enabled: config.enabled ?? true,
-    default_entry: config.default_entry ?? false,
-    llm_tiers: config.llm_tiers ?? null,
-    tools: {
-      ...tools,
-      enabled_tools: stripConfigManagedToolNames(tools.enabled_tools),
-    },
-    skills: config.skills ?? { enabled_skills: [] },
-    mcp: config.mcp ?? { enabled_servers: [] },
-    memory: config.memory ?? {
-      auto_inject: true,
-      allowed_scopes: ["team", "session", "user"],
-      write_scopes: ["session", "user"],
-      archive_scopes: ["session", "user"],
-    },
-    tasks: config.tasks ?? { workflow: false, background: false },
-    delegation: config.delegation ?? { enabled_agents: [] },
-    knowledge_base: config.knowledge_base ?? {
-      enabled: false,
-      default_collection: "documents",
-      default_search_mode: "hybrid",
-      default_top_k: 5,
-      default_rerank: false,
-      default_reranker_key: null,
-    },
-    custom_params: config.custom_params ?? {},
-  };
-}
-
-export function normalizeTeamName(teamName: string): string {
-  const normalized = teamName.trim();
-  if (!normalized) {
-    throw new Error("team_name 不能为空");
-  }
-  return normalized;
-}
-
 export function normalizeAgentName(agentName: string): string {
   const normalized = agentName.trim();
   if (!normalized) {
@@ -205,8 +164,6 @@ export function deepMerge(base: unknown, patch: unknown): unknown {
   }
   return merged;
 }
-
-
 
 function buildSystemAgentConfig(input: {
   agent_name: string;

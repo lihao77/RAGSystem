@@ -1,26 +1,8 @@
-type ToolRiskLevel = "low" | "medium" | "high";
+import { CONFIG_MANAGED_TOOL_NAMES } from "../../../contracts/agent/config-normalize.js";
 
-export const CONFIG_MANAGED_TOOL_NAMES = new Set([
-  "list_memory_index",
-  "read_memory_entry",
-  "write_memory",
-  "archive_memory",
-  "request_user_input",
-  "task_create",
-  "task_get",
-  "task_update",
-  "task_list",
-  "task_output",
-  "task_stop",
-  "call_agent",
-  "list_child_agents",
-  "send_message",
-  "search_knowledge_base",
-  "list_knowledge_collections",
-  "activate_skill",
-  "load_skill_resource",
-  "execute_skill_script",
-]);
+export { CONFIG_MANAGED_TOOL_NAMES, stripConfigManagedToolNames } from "../../../contracts/agent/config-normalize.js";
+
+type ToolRiskLevel = "low" | "medium" | "high";
 
 export interface AvailableToolInfo {
   name: string;
@@ -33,10 +15,6 @@ export interface AvailableToolInfo {
 
 export function listAvailableTools(): AvailableToolInfo[] {
   return allRuntimeTools().filter((tool) => !CONFIG_MANAGED_TOOL_NAMES.has(tool.name));
-}
-
-export function stripConfigManagedToolNames(enabledTools: readonly string[] | undefined): string[] {
-  return (enabledTools ?? []).filter((toolName) => !CONFIG_MANAGED_TOOL_NAMES.has(toolName));
 }
 
 function allRuntimeTools(): AvailableToolInfo[] {

@@ -1,5 +1,5 @@
 /**
- * vector-store 契约层(re-export 聚合)。实现(SqliteVecDriver)implements IVectorStore + IKnowledgeConfig,
+ * vector-store 契约层(re-export 聚合)。适配器实现这些独立于存储的端口。
  * 消费者(KnowledgeBaseService 编排层)依赖窄接口而非具体 driver。
  */
 export * from "./vector-store.js";

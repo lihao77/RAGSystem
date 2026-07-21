@@ -25,7 +25,7 @@ import type {
   VectorStoreQuery,
 } from "../../../contracts/vector-store/index.js";
 import { VectorStoreError } from "../../../contracts/vector-store/index.js";
-import { registerDriver } from "../registry.js";
+import { registerDriver } from "./registry.js";
 import { documentsTableDdl, kbFilesTableDdl, rerankersTableDdl, vecTableDdl, vecTableName, vectorizersTableDdl } from "./schema.js";
 import { sanitizeFilename } from "../../../utils/file-filter.js";
 

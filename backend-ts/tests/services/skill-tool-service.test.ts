@@ -7,6 +7,7 @@ import YAML from "yaml";
 
 import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import { AgentConfigService } from "../../src/services/agent/config/index.js";
+import { FileAgentConfigTeamStore } from "../../src/adapters/filesystem/agent/file-team-store.js";
 import { ArtifactService } from "../../src/services/artifacts/artifact-service.js";
 import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
 import { SessionNotificationQueue } from "../../src/services/runtime/session-notification-queue.js";
@@ -163,7 +164,7 @@ describe("SkillToolService", () => {
       ].join("\n"),
       "utf8",
     );
-    const agentConfig = new AgentConfigService({ dataRoot: root });
+    const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot: root }));
     const service = new SkillToolService({
       dataRoot: root,
       builtinSkillsRoot: builtinRoot,

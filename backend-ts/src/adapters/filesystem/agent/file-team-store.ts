@@ -7,24 +7,19 @@ import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import { AgentConfigSchema } from "../../../contracts/agent/agent-config.js";
 import {
   configsToRecord,
-  isRecord,
   normalizeConfig,
   normalizeTeamName,
-  type TeamConfigs,
-} from "./configs.js";
+} from "../../../contracts/agent/config-normalize.js";
+import type { AgentConfigTeam, IAgentConfigTeamStore, LoadedAgentConfigTeams } from "../../../contracts/agent/team-store.js";
+import { isRecord } from "../../../utils/guards.js";
 
 const AGENT_CONFIG_RELATIVE_ROOT = path.join("config", "agents");
 const AGENT_CONFIG_SCHEMA_VERSION = "2.0";
 const TEAM_CONFIG_DIR_NAME = "teams";
 
-export interface LoadedAgentConfigTeams {
-  activeTeam: string;
-  teams: Map<string, TeamConfigs>;
-  teamFileByName: Map<string, string>;
-}
-
-export class AgentConfigTeamStore {
+export class FileAgentConfigTeamStore implements IAgentConfigTeamStore {
   private readonly configRoot: string | null;
+  private readonly teamFileByName = new Map<string, string>();
 
   constructor(options: { dataRoot?: string | undefined; configRoot?: string | undefined } = {}) {
     this.configRoot = resolveAgentConfigRoot(options);
@@ -43,8 +38,8 @@ export class AgentConfigTeamStore {
       return null;
     }
 
-    const teams = new Map<string, TeamConfigs>();
-    const teamFileByName = new Map<string, string>();
+    const teams = new Map<string, AgentConfigTeam>();
+    this.teamFileByName.clear();
     for (const [teamName, teamPathValue] of Object.entries(rawIndex.teams)) {
       const normalizedTeamName = normalizeTeamName(teamName);
       const teamFile = typeof teamPathValue === "string" && teamPathValue.trim()
@@ -55,7 +50,7 @@ export class AgentConfigTeamStore {
         continue;
       }
       teams.set(normalizedTeamName, configs);
-      teamFileByName.set(normalizedTeamName, teamFile);
+      this.teamFileByName.set(normalizedTeamName, teamFile);
     }
     if (teams.size === 0) {
       return null;
@@ -65,21 +60,37 @@ export class AgentConfigTeamStore {
     return {
       activeTeam: activeTeam && teams.has(activeTeam) ? activeTeam : (Array.from(teams.keys()).sort()[0] ?? "default"),
       teams,
-      teamFileByName,
     };
   }
 
-  saveAll(activeTeam: string, teams: Map<string, TeamConfigs>, teamFileByName: Map<string, string>): void {
+  saveAll(activeTeam: string, teams: Map<string, AgentConfigTeam>): void {
     if (!this.configRoot) {
       return;
     }
-    this.saveTeamIndex(activeTeam, teams, teamFileByName);
+    this.ensureTeamLocations(teams);
+    this.saveTeamIndex(activeTeam, teams);
     for (const teamName of teams.keys()) {
-      this.saveTeam(teamName, teams, teamFileByName);
+      this.saveTeam(teamName, teams);
     }
   }
 
-  saveTeamIndex(activeTeam: string, teamsByName: Map<string, TeamConfigs>, teamFileByName: Map<string, string>): void {
+  saveIndex(activeTeam: string, teams: Map<string, AgentConfigTeam>): void {
+    if (!this.configRoot) {
+      return;
+    }
+    this.ensureTeamLocations(teams);
+    this.saveTeamIndex(activeTeam, teams);
+  }
+
+  private ensureTeamLocations(teams: Map<string, AgentConfigTeam>): void {
+    for (const teamName of teams.keys()) {
+      if (!this.teamFileByName.has(teamName)) {
+        this.teamFileByName.set(teamName, this.nextTeamRelativePath(teamName));
+      }
+    }
+  }
+
+  private saveTeamIndex(activeTeam: string, teamsByName: Map<string, AgentConfigTeam>): void {
     if (!this.configRoot) {
       return;
     }
@@ -87,7 +98,7 @@ export class AgentConfigTeamStore {
     const teams = Object.fromEntries(
       Array.from(teamsByName.keys()).map((teamName) => [
         teamName,
-        teamFileByName.get(teamName) ?? defaultTeamRelativePath(teamName),
+        this.teamFileByName.get(teamName) ?? defaultTeamRelativePath(teamName),
       ]),
     );
     fs.writeFileSync(
@@ -104,7 +115,7 @@ export class AgentConfigTeamStore {
     );
   }
 
-  saveTeam(teamName: string, teams: Map<string, TeamConfigs>, teamFileByName: Map<string, string>): void {
+  private saveTeam(teamName: string, teams: Map<string, AgentConfigTeam>): void {
     if (!this.configRoot) {
       return;
     }
@@ -112,7 +123,7 @@ export class AgentConfigTeamStore {
     if (!configs) {
       return;
     }
-    const teamFile = teamFileByName.get(teamName) ?? defaultTeamRelativePath(teamName);
+    const teamFile = this.teamFileByName.get(teamName) ?? defaultTeamRelativePath(teamName);
     const teamPath = this.resolveRequiredTeamPath(teamFile);
     fs.mkdirSync(path.dirname(teamPath), { recursive: true });
     fs.writeFileSync(
@@ -128,9 +139,9 @@ export class AgentConfigTeamStore {
     );
   }
 
-  nextTeamRelativePath(teamName: string, teamFileByName: Map<string, string>): string {
+  private nextTeamRelativePath(teamName: string): string {
     const basePath = defaultTeamRelativePath(teamName);
-    if (!new Set(teamFileByName.values()).has(basePath)) {
+    if (!new Set(this.teamFileByName.values()).has(basePath)) {
       return basePath;
     }
     const extension = path.extname(basePath);
@@ -138,28 +149,43 @@ export class AgentConfigTeamStore {
     return `${withoutExtension}-${compactTimestamp(new Date())}${extension}`;
   }
 
-  resolveTeamPath(teamFile: string | null | undefined): string | null {
+  private resolveTeamPath(teamFile: string | null | undefined): string | null {
     if (!this.configRoot || !teamFile) {
       return null;
     }
     return this.resolveRequiredTeamPath(teamFile);
   }
 
-  removeTeamFile(teamFile: string | null | undefined): void {
+  removeTeam(teamName: string): void {
+    const teamFile = this.teamFileByName.get(teamName);
     const teamPath = this.resolveTeamPath(teamFile);
     if (teamPath && fs.existsSync(teamPath)) {
       fs.rmSync(teamPath, { force: true });
     }
+    this.teamFileByName.delete(teamName);
   }
 
-  renameTeamFile(oldTeamFile: string | null | undefined, newTeamFile: string | null | undefined): void {
+  renameTeam(teamName: string, newTeamName: string): void {
+    const oldTeamFile = this.teamFileByName.get(teamName) ?? defaultTeamRelativePath(teamName);
+    const newTeamFile = this.nextTeamRelativePath(newTeamName);
     const oldTeamPath = this.resolveTeamPath(oldTeamFile);
     const newTeamPath = this.resolveTeamPath(newTeamFile);
     if (!oldTeamPath || !newTeamPath || oldTeamPath === newTeamPath || !fs.existsSync(oldTeamPath)) {
+      this.teamFileByName.delete(teamName);
+      this.teamFileByName.set(newTeamName, newTeamFile);
       return;
     }
     fs.mkdirSync(path.dirname(newTeamPath), { recursive: true });
     fs.renameSync(oldTeamPath, newTeamPath);
+    this.teamFileByName.delete(teamName);
+    this.teamFileByName.set(newTeamName, newTeamFile);
+  }
+
+  getTeamLocation(teamName: string): string | null {
+    if (!this.configRoot) {
+      return null;
+    }
+    return this.teamFileByName.get(teamName) ?? defaultTeamRelativePath(teamName);
   }
 
   private resolveRequiredTeamPath(teamFile: string): string {
@@ -185,7 +211,7 @@ function resolveAgentConfigRoot(options: { dataRoot?: string | undefined; config
   return path.join(path.resolve(options.dataRoot), AGENT_CONFIG_RELATIVE_ROOT);
 }
 
-function loadTeamConfigFile(teamPath: string): TeamConfigs | null {
+function loadTeamConfigFile(teamPath: string): AgentConfigTeam | null {
   if (!fs.existsSync(teamPath)) {
     return null;
   }

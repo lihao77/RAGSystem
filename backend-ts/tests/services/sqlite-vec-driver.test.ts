@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { VectorRecord } from "../../src/contracts/vector-store/index.js";
-import { SqliteVecDriver } from "../../src/services/vector-store/sqlite-vec/sqlite-vec-driver.js";
+import { SqliteVecDriver } from "../../src/adapters/local/vector-store/sqlite-vec-driver.js";
 
 /**
  * SqliteVecDriver 单测:验证 vec0 真 ANN 召回、collection 过滤、删除、计数、维度约束。

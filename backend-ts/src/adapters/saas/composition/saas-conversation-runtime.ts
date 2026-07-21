@@ -51,7 +51,6 @@ import type { AsyncSessionFileStorage } from "../../../contracts/session/session
 import { SaaSWorkspaceBlobStorage } from "../../../adapters/saas/object-storage/workspace-blob-storage.js";
 import type { WorkspaceBlobStorage } from "../../../contracts/storage/workspace-blob-storage.js";
 import type { KnowledgeQueryPort } from "../../../contracts/knowledge/query-port.js";
-import { PostgresKnowledgeQueryAdapter } from "../../../adapters/saas/postgres/knowledge-query-adapter.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { TenantId } from "../../../identity/types.js";
 import { PostgresKnowledgeConfigRepository } from "../../../adapters/saas/postgres/knowledge-config-repository.js";
@@ -182,7 +181,8 @@ export async function createSaaSConversationRuntime(
       vectorStore,
       knowledgeConfig,
       createKnowledgeService: (tenantId, modelAdapter) => new KnowledgeApplicationService(tenantId, modelAdapter, knowledgeConfig, vectorStore),
-      createKnowledgeQuery: (tenantId, modelAdapter) => new PostgresKnowledgeQueryAdapter(new KnowledgeApplicationService(tenantId, modelAdapter, knowledgeConfig, vectorStore)),
+      // KnowledgeApplicationService already implements KnowledgeQueryPort; no empty passthrough adapter.
+      createKnowledgeQuery: (tenantId, modelAdapter) => new KnowledgeApplicationService(tenantId, modelAdapter, knowledgeConfig, vectorStore),
       backgroundTasks,
       analytics,
       fileHistory,

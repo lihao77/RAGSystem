@@ -16,7 +16,6 @@ import type {
   VectorSearchResult,
 } from "../../contracts/knowledge/knowledge-base.js";
 import type { IEmbedder, IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, KnowledgeFile, StoredChunk, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
-import type { AsyncKnowledgeVectorStore } from "../../contracts/knowledge/async-vector-store.js";
 import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
 import type { DocumentExtractor } from "../../contracts/knowledge/document-extractor.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
@@ -38,64 +37,37 @@ export class KnowledgeBaseService {
   private readonly knowledgeConfig: IKnowledgeConfig;
   /** 知识库文件存储(driver):路由层 CRUD(upload/list/delete/download)直连,业务编排(indexFile/fileStatus)由本 service。 */
   public readonly knowledgeFileStore: IKnowledgeFileStore;
-  private readonly vectorStore: IVectorStore | undefined;
+  private readonly vectorStore: IVectorStore;
   // 按 vectorizer_key 缓存 embedder,避免每次 search 重复解析 provider 配置。
   // 注:provider 配置(api_key 等)运行时更新后,缓存项持有旧快照——本期接受(重启生效),后续可加失效。
   private readonly embedderCache = new Map<string, IEmbedder>();
   private readonly embedderFactory: KnowledgeBaseEmbedderFactory;
   private readonly documentExtractDispatcher: DocumentExtractor;
   private readonly rerankerFactory: VectorLibraryRerankerFactory;
-  private readonly chunkRevisionService: ChunkRevisionService | null;
+  private readonly chunkRevisionService: ChunkRevisionService;
 
   constructor(
     private readonly modelAdapter: ModelAdapterService,
     options: {
-      vectorStore?: IVectorStore | undefined;
-      /** SaaS tenant-scoped vector data plane. When set, index/search use this async store. */
-      asyncVectorStore?: AsyncKnowledgeVectorStore | undefined;
-      tenantId?: string | undefined;
-      knowledgeConfig?: IKnowledgeConfig | undefined;
-      knowledgeFileStore?: IKnowledgeFileStore | undefined;
+      vectorStore: IVectorStore;
+      knowledgeConfig: IKnowledgeConfig;
+      knowledgeFileStore: IKnowledgeFileStore;
       embedderFactory?: KnowledgeBaseEmbedderFactory | undefined;
       documentExtractDispatcher: DocumentExtractor;
       rerankerFactory?: VectorLibraryRerankerFactory | undefined;
     },
   ) {
-    if (!options.knowledgeConfig) {
-      throw new Error("KnowledgeBaseService 需注入 knowledgeConfig(driver 单一配置源)");
-    }
-    if (!options.knowledgeFileStore) {
-      throw new Error("KnowledgeBaseService 需注入 knowledgeFileStore(driver 单一知识库文件源)");
-    }
     this.knowledgeConfig = options.knowledgeConfig;
     this.knowledgeFileStore = options.knowledgeFileStore;
     this.vectorStore = options.vectorStore;
-    this.asyncVectorStore = options.asyncVectorStore;
-    this.tenantId = options.tenantId;
     this.embedderFactory = options.embedderFactory ?? createEmbedder;
     this.documentExtractDispatcher = options.documentExtractDispatcher;
     this.rerankerFactory = options.rerankerFactory ?? createReranker;
-    this.chunkRevisionService = this.vectorStore ? new ChunkRevisionService(this.vectorStore, async (chunk) => this.listVectorizersForChunk(chunk), async (vectorizer, texts) => this.embed(vectorizer, texts)) : null;
+    this.chunkRevisionService = new ChunkRevisionService(this.vectorStore, async (chunk) => this.listVectorizersForChunk(chunk), async (vectorizer, texts) => this.embed(vectorizer, texts));
   }
-
-  private readonly asyncVectorStore: AsyncKnowledgeVectorStore | undefined;
-  private readonly tenantId: string | undefined;
 
   close(): void {
-    this.vectorStore?.close();
-  }
-
-  /** Create a tenant-bound SaaS orchestration view while preserving Local configuration and embedder selection. */
-  withAsyncVectorStore(asyncVectorStore: AsyncKnowledgeVectorStore, tenantId: string): KnowledgeBaseService {
-    return new KnowledgeBaseService(this.modelAdapter, {
-      asyncVectorStore,
-      tenantId,
-      knowledgeConfig: this.knowledgeConfig,
-      knowledgeFileStore: this.knowledgeFileStore,
-      embedderFactory: this.embedderFactory,
-      documentExtractDispatcher: this.documentExtractDispatcher,
-      rerankerFactory: this.rerankerFactory,
-    });
+    this.vectorStore.close();
   }
 
   async indexExternalFile(input: IndexFileRequest, file: KnowledgeFile, markdown: string): Promise<Record<string, unknown>> {
@@ -119,7 +91,7 @@ export class KnowledgeBaseService {
     // driver 唯一源:vec_documents 跨 collection 聚合出每个 document_id 的位置 + chunk 数,
     // 和 knowledgeFile join(driver kb_files ↔ 已索引位置)。知识库文件不写主库 uploaded_files。
     const locations = new Map<string, { collection: string; chunk_count: number }>(
-      (this.vectorStore ? await this.vectorStore.listAllDocuments() : []).map((doc) => [
+      (await this.vectorStore.listAllDocuments()).map((doc) => [
         doc.document_id,
         { collection: doc.collection, chunk_count: doc.chunk_count },
       ]),
@@ -204,11 +176,8 @@ export class KnowledgeBaseService {
     if (!vectorizer) {
       throw new KnowledgeBaseError(`向量化器不存在或未在 DB 注册: ${key}`, 404);
     }
-    if (!this.vectorStore) {
-      return [];
-    }
     // driver 唯一源:listAllDocuments 跨 collection 列文档,按 model_id 过滤该 vectorizer 实际索引的 + 计向量数。
-    const docs = this.vectorStore ? await this.vectorStore.listAllDocuments() : [];
+    const docs = await this.vectorStore.listAllDocuments();
     const result: Array<Record<string, unknown>> = [];
     for (const doc of docs) {
       const vectorCount = await this.vectorStore.countVectorsForDocument(doc.collection, doc.document_id, vectorizer.model_id);
@@ -249,12 +218,10 @@ export class KnowledgeBaseService {
   async updateMarkdown(fileId: string, content: string): Promise<{ md_blob_hash: string; indexed_chunks: number }> {
     const file = this.knowledgeFileStore.getKnowledgeFile(fileId);
     if (!file) throw new KnowledgeBaseError(`文件不存在: ${fileId}`, 404);
-    const locations = this.vectorStore ? (await this.vectorStore.listAllDocuments()).filter((doc) => doc.document_id === fileId) : [];
+    const locations = (await this.vectorStore.listAllDocuments()).filter((doc) => doc.document_id === fileId);
     const targets: Array<{ collection: string; vectorizer: StoredVectorizer }> = [];
-    if (this.vectorStore) {
-      for (const location of locations) for (const vectorizer of this.knowledgeConfig.listVectorizers()) if (await this.vectorStore.countVectorsForDocument(location.collection, fileId, vectorizer.model_id)) targets.push({ collection: location.collection, vectorizer });
-      await this.vectorStore.deleteDocumentVectors(fileId);
-    }
+    for (const location of locations) for (const vectorizer of this.knowledgeConfig.listVectorizers()) if (await this.vectorStore.countVectorsForDocument(location.collection, fileId, vectorizer.model_id)) targets.push({ collection: location.collection, vectorizer });
+    await this.vectorStore.deleteDocumentVectors(fileId);
     const stored = this.knowledgeFileStore.putKnowledgeMarkdown(fileId, content);
     let indexedChunks = 0;
     for (const target of targets) {
@@ -266,11 +233,10 @@ export class KnowledgeBaseService {
 
   async listFileChunks(fileId: string): Promise<StoredChunk[]> {
     if (!this.knowledgeFileStore.getKnowledgeFile(fileId)) throw new KnowledgeBaseError(`文件不存在: ${fileId}`, 404);
-    return this.vectorStore ? (await this.vectorStore.listChunks()).filter((chunk) => chunk.document_id === fileId) : [];
+    return (await this.vectorStore.listChunks()).filter((chunk) => chunk.document_id === fileId);
   }
 
   async updateChunk(fileId: string, chunkId: number, content: string): Promise<StoredChunk> {
-    if (!this.chunkRevisionService) throw new KnowledgeBaseError("向量存储不可用", 503);
     return this.chunkRevisionService.updateContent(fileId, chunkId, content);
   }
 
@@ -343,11 +309,7 @@ export class KnowledgeBaseService {
     if (!file) {
       return null;
     }
-    const deleted_chunks = this.asyncVectorStore
-      ? await this.asyncVectorStore.deleteChunks({ tenant_id: this.requireTenantId(), document_id: fileId })
-      : this.vectorStore
-        ? (await this.vectorStore.deleteDocumentVectors(fileId)).deleted_chunks
-        : 0;
+    const deleted_chunks = (await this.vectorStore.deleteDocumentVectors(fileId)).deleted_chunks;
     this.knowledgeFileStore.deleteKnowledgeFile(fileId);
     return { file, deleted_chunks };
   }
@@ -363,9 +325,6 @@ export class KnowledgeBaseService {
     const target = this.getStoredVectorizer(toKey);
     if (!source || !target) {
       throw new KnowledgeBaseError("源或目标向量化器不存在", 404);
-    }
-    if (!this.vectorStore) {
-      return { from_key: fromKey, to_key: toKey, migrated_chunks: 0 };
     }
     // driver 唯一源:listAllDocuments 找 source model 已索引的文档(countVectorsForDocument>0),
     // listChunks 取这些文档的全部 chunk 用 target 重嵌。无主库 documents 文本源。
@@ -435,18 +394,6 @@ export class KnowledgeBaseService {
   }
 
   async deleteDocument(collectionName: string, documentId: string): Promise<Record<string, unknown>> {
-    if (this.asyncVectorStore) {
-      const deleted_chunks = await this.asyncVectorStore.deleteChunks({ tenant_id: this.requireTenantId(), collection: collectionName, document_id: documentId });
-      return { message: `文档 ${documentId} 已从集合 ${collectionName} 中删除`, collection: collectionName, document_id: documentId, deleted_chunks };
-    }
-    if (!this.vectorStore) {
-      return {
-        message: `文档 ${documentId} 已从集合 ${collectionName} 中删除`,
-        collection: collectionName,
-        document_id: documentId,
-        deleted_chunks: 0,
-      };
-    }
     const { deleted_chunks } = await this.vectorStore.deleteDocument(collectionName, documentId);
     return {
       message: `文档 ${documentId} 已从集合 ${collectionName} 中删除`,
@@ -457,13 +404,6 @@ export class KnowledgeBaseService {
   }
 
   async deleteCollection(collectionName: string): Promise<Record<string, unknown>> {
-    if (!this.vectorStore) {
-      return {
-        message: `集合 ${collectionName} 已删除`,
-        collection: collectionName,
-        deleted_chunks: 0,
-      };
-    }
     const { deleted_chunks } = await this.vectorStore.deleteCollection(collectionName);
     return {
       message: `集合 ${collectionName} 已删除`,
@@ -541,11 +481,7 @@ export class KnowledgeBaseService {
 
   async listCollections(): Promise<Array<Record<string, unknown>>> {
     // driver 唯一源:vec_documents 跨 collection 聚合。collections 表分支(主库从不建)已删。
-    const collections = this.asyncVectorStore
-      ? await this.asyncVectorStore.listCollections(this.requireTenantId())
-      : this.vectorStore
-        ? await this.vectorStore.listCollections()
-        : [];
+    const collections = await this.vectorStore.listCollections();
     const active = this.resolveActiveVectorizer();
     return collections.map((row) => ({
       name: row.name,
@@ -561,7 +497,7 @@ export class KnowledgeBaseService {
   }
 
   async listDocuments(collectionName: string): Promise<Record<string, unknown>> {
-    const docs = this.vectorStore ? await this.vectorStore.listDocuments(collectionName) : [];
+    const docs = await this.vectorStore.listDocuments(collectionName);
     return {
       collection_name: collectionName,
       total_chunks: docs.reduce((sum, doc) => sum + doc.chunk_count, 0),
@@ -582,10 +518,7 @@ export class KnowledgeBaseService {
       throw new KnowledgeBaseError("search_mode 只能是 hybrid 或 vector", 400);
     }
     const vectorizer = this.resolveActiveVectorizer();
-    // driver 唯一源:sqlite-vec 必须可用(runtime 启动校验);未注入时返空候选(仅防御,生产不触达)。
-    const candidates = this.vectorStore || this.asyncVectorStore
-      ? await this.searchViaDriver(collectionName, query, topK, searchMode, vectorizer, input)
-      : [];
+    const candidates = await this.searchViaDriver(collectionName, query, topK, searchMode, vectorizer, input);
     const activeReranker = this.knowledgeConfig.listRerankers().find((stored) => stored.is_active) ?? null;
     const reranker = input.rerank !== false && activeReranker && searchMode === "hybrid" ? this.rerankerFactory(activeReranker) : null;
     let results = candidates;
@@ -626,25 +559,13 @@ export class KnowledgeBaseService {
     vectorizer: StoredVectorizer,
     input: SearchVectorsRequest,
   ): Promise<VectorSearchResult[]> {
-    if (!this.vectorStore && !this.asyncVectorStore) {
-      return [];
-    }
     const vectors = await this.embed(vectorizer, [query]);
     const queryVector = vectors[0];
     if (!queryVector) {
       return [];
     }
     const candidateLimit = input.rerank_top_k ?? Math.max(topK, 20);
-    const hits: VectorSearchHit[] = this.asyncVectorStore
-      ? (await this.asyncVectorStore.search({
-        tenant_id: this.requireTenantId(), collection: collectionName, model_id: vectorizer.model_id,
-        query_vector: queryVector, top_k: candidateLimit,
-      })).map((hit) => ({
-        id: hit.id, doc_id: hit.document_id, document_id: hit.document_id, collection: hit.collection,
-        content: hit.content, metadata: hit.metadata, vector_score: hit.vector_score,
-        keyword_score: 0, hybrid_score: 0,
-      }))
-      : await this.vectorStore!.search({
+    const hits: VectorSearchHit[] = await this.vectorStore.search({
         collection: collectionName, model_id: vectorizer.model_id, query_vector: queryVector,
         top_k: candidateLimit, search_mode: searchMode, query_text: query,
       });
@@ -689,9 +610,6 @@ export class KnowledgeBaseService {
     storage_size_mb: number;
     collections: Record<string, number>;
   }> {
-    if (!this.vectorStore) {
-      return { vector_count: 0, storage_size_mb: 0, collections: {} };
-    }
     const rows = await this.vectorStore.countVectorsByModel(modelId);
     const collections = Object.fromEntries(rows.map((row) => [row.collection, row.count]));
     const vectorCount = rows.reduce((sum, row) => sum + row.count, 0);
@@ -721,8 +639,8 @@ export class KnowledgeBaseService {
     }> = [];
     for (const vectorizer of (await this.listVectorizers()).filter((v) => v.model_id !== null)) {
       const modelId = vectorizer.model_id!;
-      const totalDocuments = this.vectorStore ? await this.vectorStore.countChunks(collection) : 0;
-      const synced = this.vectorStore ? await this.vectorStore.countVectors(collection, modelId) : 0;
+      const totalDocuments = await this.vectorStore.countChunks(collection);
+      const synced = await this.vectorStore.countVectors(collection, modelId);
       result.push({
         model_id: modelId,
         vectorizer_key: vectorizer.vectorizer_key,
@@ -741,9 +659,6 @@ export class KnowledgeBaseService {
       throw new KnowledgeBaseError(`模型不存在: ${modelId}`, 404);
     }
     const collection = input.collection || "default";
-    if (!this.vectorStore) {
-      return { model_id: modelId, collection, synced_documents: 0 };
-    }
     // driver 唯一源:collection 中 countVectorsForDocument==0 的文档(未索引该 model_id),listChunks 取其 chunk 补嵌。
     const docs = (await this.vectorStore.listAllDocuments()).filter((doc) => doc.collection === collection);
     const pendingKeys = new Set<string>();
@@ -777,12 +692,7 @@ export class KnowledgeBaseService {
     const chunks = chunkMarkdown(input.markdown, input.chunkSize, input.overlap);
     if (chunks.length === 0) {
       // 空文本:driver 清旧后返回。
-      if (this.vectorStore) {
-        await this.vectorStore.deleteDocument(input.collection, input.documentId);
-      }
-      return { chunkCount: 0 };
-    }
-    if (!this.vectorStore && !this.asyncVectorStore) {
+      await this.vectorStore.deleteDocument(input.collection, input.documentId);
       return { chunkCount: 0 };
     }
     return this.indexViaDriver(input, chunks);
@@ -800,20 +710,10 @@ export class KnowledgeBaseService {
     },
     chunks: MarkdownChunk[],
   ): Promise<{ chunkCount: number }> {
-    if (!this.vectorStore) {
-      return { chunkCount: 0 };
-    }
     // 重索引幂等:只清当前 vectorizer(model_id) 下该 document 的向量,不动其他 vectorizer 的向量
     // (一文件可被多 vectorizer 索引,向量按 model 分表)。约定:同文件多 vectorizer 必须相同 chunk 划分,
     // 否则共享 chunk 文本(vec_documents,UNIQUE 不含 model_id)会被后索引者覆盖污染。
-    if (this.asyncVectorStore) {
-      await this.asyncVectorStore.deleteChunks({
-        tenant_id: this.requireTenantId(), collection: input.collection,
-        document_id: input.documentId, model_id: input.vectorizer.model_id,
-      });
-    } else {
-      await this.vectorStore!.deleteDocumentVectorsByModel(input.collection, input.documentId, input.vectorizer.model_id);
-    }
+    await this.vectorStore.deleteDocumentVectorsByModel(input.collection, input.documentId, input.vectorizer.model_id);
     // 真 embedder 批量嵌入（一次调用替代逐 chunk 嵌入）；provider 失败时直接终止索引。
     const vectors = await this.embed(input.vectorizer, chunks.map((chunk) => chunk.content));
     const records: VectorRecord[] = [];
@@ -837,21 +737,8 @@ export class KnowledgeBaseService {
         embedding: vectors[index] ?? [],
       });
     }
-    if (this.asyncVectorStore) {
-      await this.asyncVectorStore.upsertChunks(records.map((record) => ({
-        tenant_id: this.requireTenantId(), collection: record.collection, document_id: record.doc_id,
-        model_id: record.model_id, chunk_index: record.chunk_index, content: record.content,
-        metadata: record.metadata, embedding: record.embedding,
-      })));
-    } else {
-      await this.vectorStore!.upsertRecords(records);
-    }
+    await this.vectorStore.upsertRecords(records);
     return { chunkCount: chunks.length };
-  }
-
-  private requireTenantId(): string {
-    if (!this.tenantId?.trim()) throw new KnowledgeBaseError("SaaS Knowledge vector store 缺少 tenant_id", 500);
-    return this.tenantId;
   }
 
   /**
@@ -859,7 +746,7 @@ export class KnowledgeBaseService {
    * 供 migrate(源 model 的 chunks 用 target embed 重嵌)/syncModel(未向量化的 chunks 补嵌)复用。
    */
   private async embedAndStoreDocuments(chunks: StoredChunk[], vectorizer: StoredVectorizer): Promise<void> {
-    if (chunks.length === 0 || (!this.vectorStore && !this.asyncVectorStore)) {
+    if (chunks.length === 0) {
       return;
     }
     const vectors = await this.embed(vectorizer, chunks.map((chunk) => chunk.content));
@@ -876,19 +763,10 @@ export class KnowledgeBaseService {
         embedding: vectors[index] ?? [],
       });
     }
-    if (this.asyncVectorStore) {
-      await this.asyncVectorStore.upsertChunks(records.map((record) => ({
-        tenant_id: this.requireTenantId(), collection: record.collection, document_id: record.doc_id,
-        model_id: record.model_id, chunk_index: record.chunk_index, content: record.content,
-        metadata: record.metadata, embedding: record.embedding,
-      })));
-    } else {
-      await this.vectorStore!.upsertRecords(records);
-    }
+    await this.vectorStore.upsertRecords(records);
   }
 
   private async listVectorizersForChunk(chunk: StoredChunk): Promise<StoredVectorizer[]> {
-    if (!this.vectorStore) return [];
     const result: StoredVectorizer[] = [];
     for (const vectorizer of this.knowledgeConfig.listVectorizers()) if (await this.vectorStore.countVectorsForDocument(chunk.collection, chunk.document_id, vectorizer.model_id)) result.push(vectorizer);
     return result;
@@ -918,13 +796,13 @@ export class KnowledgeBaseService {
   private async collectionInfo(collectionName: string): Promise<Record<string, unknown>> {
     const active = this.resolveActiveVectorizer();
     const all = this.knowledgeConfig.listVectorizers();
-    const docs = this.vectorStore ? await this.vectorStore.listDocuments(collectionName) : [];
+    const docs = await this.vectorStore.listDocuments(collectionName);
     return {
       name: collectionName,
       total_chunks: docs.reduce((sum, doc) => sum + doc.chunk_count, 0),
       document_count: docs.length,
       sample_ids: docs.map((doc) => doc.document_id),
-      vector_dimension: this.vectorStore?.getDimension(active.model_id) ?? 0,
+      vector_dimension: this.vectorStore.getDimension(active.model_id) ?? 0,
       active_vectorizer_key: all.find((v) => v.is_active)?.vectorizer_key ?? active.vectorizer_key,
     };
   }
@@ -950,7 +828,7 @@ export class KnowledgeBaseService {
       created_at: vectorizer.created_at,
       is_active: vectorizer.is_active,
       provider_available: vectorizer.provider_key === "local" || this.modelAdapter.hasProvider(vectorizer.provider_key),
-      vector_dimension: this.vectorStore?.getDimension(vectorizer.model_id) ?? vectorizer.vector_dimension,
+      vector_dimension: this.vectorStore.getDimension(vectorizer.model_id) ?? vectorizer.vector_dimension,
       vector_count: stats.vector_count,
       model_id: vectorizer.model_id,
     };
@@ -984,7 +862,7 @@ export class KnowledgeBaseService {
   }
 
   private async countVectorsForDocument(collection: string, documentId: string, modelId: number | null): Promise<number> {
-    if (modelId === null || !this.vectorStore) {
+    if (modelId === null) {
       return 0;
     }
     return this.vectorStore.countVectorsForDocument(collection, documentId, modelId);

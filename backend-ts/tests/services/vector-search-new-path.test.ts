@@ -103,43 +103,6 @@ function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null
   } satisfies IVectorStore & IKnowledgeConfig & IKnowledgeFileStore;
 }
 
-/** 空 knowledgeConfig stub:用于无 driver 注入场景(service 应优雅降级)。 */
-function emptyKnowledgeConfig(): IKnowledgeConfig {
-  return {
-    listVectorizers: () => [],
-    getVectorizerByKey: () => null,
-    getVectorizerByModelId: () => null,
-    createVectorizer: (input) => ({
-      model_id: 1,
-      vectorizer_key: input.vectorizer_key,
-      provider_key: input.provider_key,
-      provider_type: input.provider_type,
-      model_name: input.model_name,
-      distance_metric: input.distance_metric,
-      created_at: new Date().toISOString(),
-      vector_dimension: null,
-      is_active: true,
-    }),
-    deleteVectorizer: () => ({ next_active_key: null }),
-    activateVectorizer: () => {},
-    listRerankers: () => [],
-    getReranker: () => null,
-    createReranker: (input) => ({
-      reranker_key: input.reranker_key,
-      mode: input.mode,
-      provider_key: input.provider_key,
-      provider_type: input.provider_type,
-      model_name: input.model_name,
-      api_endpoint: input.api_endpoint,
-      api_key: input.api_key,
-      created_at: new Date().toISOString(),
-      is_active: true,
-    }),
-    deleteReranker: () => ({ next_active_key: null }),
-    activateReranker: () => {},
-  };
-}
-
 describe("KnowledgeBaseService search 新路径(driver 召回 + scoring 重排)", () => {
   const activeReranker = (mode: StoredReranker["mode"]): StoredReranker => ({ reranker_key: `rr-${mode}`, mode, provider_key: "p", provider_type: null, model_name: "m", api_endpoint: "http://rerank", api_key: "k", created_at: "now", is_active: true });
   it("远端 embedder 失败时显式失败而不是写入 hash 向量", async () => {
@@ -238,11 +201,12 @@ describe("KnowledgeBaseService search 新路径(driver 召回 + scoring 重排)"
     }
   });
 
-  it("vectorStore 未注入时 search 返回空候选", async () => {
+  it("vectorStore 无命中时 search 返回空候选", async () => {
     const dataRoot = makeDataRoot();
     const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });
     const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
-    const service = new KnowledgeBaseService(modelAdapter, { knowledgeConfig: emptyKnowledgeConfig(), knowledgeFileStore: makeFakeDriver([]), documentExtractDispatcher: documentExtractor });
+    const vectorStore = makeFakeDriver([]);
+    const service = new KnowledgeBaseService(modelAdapter, { vectorStore, knowledgeConfig: vectorStore, knowledgeFileStore: vectorStore, documentExtractDispatcher: documentExtractor });
     try {
       const result = (await service.search({ collection_name: "kb", query: "anything", top_k: 5 })) as { count: number };
       expect(result.count).toBe(0);

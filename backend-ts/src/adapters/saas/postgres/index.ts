@@ -48,7 +48,6 @@ export * from "./vector-index-repository.js";
 export * from "./pgvector-schema.js";
 export * from "./pgvector-migrations.js";
 export * from "./pgvector-repository.js";
-export * from "./knowledge-query-adapter.js";
 export * from "./background-task-schema.js";
 export * from "./background-task-migrations.js";
 export * from "./background-task-repository.js";

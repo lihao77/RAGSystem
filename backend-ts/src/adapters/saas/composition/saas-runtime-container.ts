@@ -27,6 +27,7 @@ import { SaaSPermissionPolicyStore } from "../postgres/saas-permission-policy-st
 import { createPostgresExecutionStorage } from "../postgres/postgres-execution-storage.js";
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
 import type { SaaSMemoryRuntimeHandle } from "./saas-memory-runtime.js";
+import { FileAgentConfigTeamStore } from "../../filesystem/agent/file-team-store.js";
 
 export interface SaaSRuntimeContainerOptions {
   tenantId: TenantId;
@@ -67,7 +68,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     memoryCandidates,
   );
 
-  const agentConfig = new AgentConfigService({ dataRoot, configRoot: options.agentConfigRoot });
+  const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot, configRoot: options.agentConfigRoot }));
   const modelAdapter = new ModelAdapterService({
     dataRoot,
     providersConfigPath: options.modelAdapterProvidersConfigPath,

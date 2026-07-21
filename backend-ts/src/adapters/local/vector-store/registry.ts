@@ -3,7 +3,7 @@
  * 仿 Python `_PROVIDER_CLASSES`(dict + 工厂),避开 if/else。
  *
  * 深合约:createVectorStore 按 config.backend 查表实例化;未知 backend 抛 VectorStoreError。
- * sqlite-vec driver 在 ./sqlite-vec/sqlite-vec-driver.ts 模块加载时自注册(单向依赖,避免循环)。
+ * sqlite-vec driver 在 ./sqlite-vec-driver.ts 模块加载时自注册(单向依赖,避免循环)。
  */
 import type {
   DriverRegistry,
@@ -12,8 +12,8 @@ import type {
   IKnowledgeFileStore,
   VectorStoreDriverConfig,
   VectorStoreDriverFactory,
-} from "../../contracts/vector-store/index.js";
-import { VectorStoreError } from "../../contracts/vector-store/index.js";
+} from "../../../contracts/vector-store/index.js";
+import { VectorStoreError } from "../../../contracts/vector-store/index.js";
 
 export const DRIVER_REGISTRY: DriverRegistry = new Map();
 

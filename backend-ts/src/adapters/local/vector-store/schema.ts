@@ -1,5 +1,5 @@
 /**
- * sqlite-vec driver 的表结构(DDL 辅助)。
+ * Local sqlite-vec adapter table definitions.
  *
  * 设计:
  * - vec_documents:存 chunk 文本/元数据(共享,跨 model_id),UNIQUE(collection, document_id, chunk_index)

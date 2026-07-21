@@ -24,7 +24,7 @@ import { SkillLibraryService } from "../../services/skills/skill-library-service
 import { createConversationStore } from "./sqlite/conversation-store/index.js";
 import { FileHistoryService } from "./files/file-history-service.js";
 import { FileIndexService } from "./files/file-index-service.js";
-import { createVectorStoreFromConfig } from "../../services/vector-store/vector-store-factory.js";
+import { createVectorStoreFromConfig } from "./vector-store/vector-store-factory.js";
 import { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import { createCoreRuntimeContainer } from "../../services/runtime/core-runtime-container.js";
 import { DelegationPendingService } from "../../services/runtime/delegation-pending-service.js";
@@ -44,6 +44,7 @@ import { createLocalExecutionStorage } from "./local-execution-storage.js";
 import { PathApprovalService } from "../../services/runtime/path-approval-service.js";
 import { SqliteRuntimeStorage } from "./sqlite-runtime-storage.js";
 import { LocalSessionApplication } from "./application/session/local-session-application.js";
+import { FileAgentConfigTeamStore } from "../filesystem/agent/file-team-store.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): LocalRuntimeContainer {
@@ -69,7 +70,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     ?? localAsyncClientEvents;
   // Both deployments use the queued publisher so finalize can flush all prior envelope writes.
   const eventClientEvents = asyncClientEvents ?? localAsyncClientEvents;
-  const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
+  const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot }));
   const modelAdapter = new ModelAdapterService({
     dataRoot: options.dataRoot,
     providersConfigPath: options.modelAdapterProvidersConfigPath,

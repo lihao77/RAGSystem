@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { SkillLibraryService } from "../../src/services/skills/skill-library-service.js";
 import { AgentConfigService } from "../../src/services/agent/config/index.js";
+import { FileAgentConfigTeamStore } from "../../src/adapters/filesystem/agent/file-team-store.js";
 import { SkillToolService } from "../../src/tools/SkillTools/SkillExecution.js";
 import { HttpError } from "../../src/utils/errors.js";
 
@@ -33,7 +34,7 @@ function makeService(root: string): {
   skillTools: SkillToolService;
   agentConfig: AgentConfigService;
 } {
-  const agentConfig = new AgentConfigService({ dataRoot: root });
+  const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot: root }));
   const skillTools = new SkillToolService({
     dataRoot: root,
     builtinSkillsRoot: path.join(root, "builtin"),

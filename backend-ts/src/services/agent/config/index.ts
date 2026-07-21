@@ -24,7 +24,7 @@ import {
   normalizeTeamName,
   type TeamConfigs,
 } from "./configs.js";
-import { AgentConfigTeamStore, defaultTeamRelativePath } from "./team-store.js";
+import type { IAgentConfigTeamStore } from "../../../contracts/agent/team-store.js";
 import { listAvailableTools as listAvailableRuntimeTools, type AvailableToolInfo } from "./tools.js";
 import { toYaml } from "./yaml.js";
 import type { SkillToolService } from "../../../tools/SkillTools/SkillExecution.js";
@@ -43,15 +43,13 @@ export interface ApplyTeamPayloadResult {
 export class AgentConfigService {
   private activeTeam = "default";
   private readonly teams = new Map<string, TeamConfigs>();
-  private readonly teamStore: AgentConfigTeamStore;
-  private readonly teamFileByName = new Map<string, string>();
+  private readonly teamStore: IAgentConfigTeamStore;
   private skillToolService: SkillToolService | null = null;
   private mcpService: McpService | null = null;
 
-  constructor(options: { dataRoot?: string | undefined; configRoot?: string | undefined } = {}) {
-    this.teamStore = new AgentConfigTeamStore(options);
+  constructor(teamStore: IAgentConfigTeamStore) {
+    this.teamStore = teamStore;
     this.teams.set("default", new Map(Object.entries(buildDefaultAgentConfigs())));
-    this.teamFileByName.set("default", defaultTeamRelativePath("default"));
     this.loadTeamsFromDisk();
   }
 
@@ -217,7 +215,6 @@ export class AgentConfigService {
     }
     const source = sourceTeam?.trim() ? this.getTeamConfigs(sourceTeam.trim()) : new Map<string, AgentConfig>();
     this.teams.set(normalized, cloneConfigMap(source));
-    this.teamFileByName.set(normalized, this.teamStore.nextTeamRelativePath(normalized, this.teamFileByName));
     this.saveAll();
     return this.listTeams();
   }
@@ -226,7 +223,7 @@ export class AgentConfigService {
     const normalized = normalizeTeamName(teamName);
     this.getTeamConfigs(normalized);
     this.activeTeam = normalized;
-    this.saveTeamIndex();
+    this.teamStore.saveIndex(this.activeTeam, this.teams);
     return this.listTeams();
   }
 
@@ -238,14 +235,12 @@ export class AgentConfigService {
     if (this.teams.size <= 1) {
       throw new Error("至少需要保留一个 team");
     }
-    const teamFile = this.teamFileByName.get(normalized);
     this.teams.delete(normalized);
     if (this.activeTeam === normalized) {
       this.activeTeam = Array.from(this.teams.keys())[0] ?? "default";
     }
-    this.teamFileByName.delete(normalized);
+    this.teamStore.removeTeam(normalized);
     this.saveAll();
-    this.teamStore.removeTeamFile(teamFile);
     return this.listTeams();
   }
 
@@ -259,16 +254,14 @@ export class AgentConfigService {
       throw new Error(`team '${next}' 已存在`);
     }
     const configs = this.getTeamConfigs(current);
-    const currentFile = this.teamFileByName.get(current) ?? defaultTeamRelativePath(current);
     this.teams.delete(current);
-    this.teamFileByName.delete(current);
     this.teams.set(next, configs);
-    const nextFile = current === next ? currentFile : this.teamStore.nextTeamRelativePath(next, this.teamFileByName);
-    this.teamFileByName.set(next, nextFile);
     if (this.activeTeam === current) {
       this.activeTeam = next;
     }
-    this.teamStore.renameTeamFile(currentFile, nextFile);
+    if (current !== next) {
+      this.teamStore.renameTeam(current, next);
+    }
     this.saveAll();
     return this.listTeams();
   }
@@ -342,7 +335,6 @@ export class AgentConfigService {
 
   resetDefaultTeam(): TeamSummary {
     this.teams.set("default", new Map(Object.entries(buildDefaultAgentConfigs())));
-    this.teamFileByName.set("default", defaultTeamRelativePath("default"));
     if (!this.teams.has(this.activeTeam)) {
       this.activeTeam = "default";
     }
@@ -458,7 +450,7 @@ export class AgentConfigService {
     const agents = Array.from(configs.keys()).sort();
     return {
       team_name: teamName,
-      file_path: this.teamFileByName.get(teamName) ?? defaultTeamRelativePath(teamName),
+      file_path: this.teamStore.getTeamLocation(teamName) ?? "",
       is_active: teamName === this.activeTeam,
       agent_count: agents.length,
       agents,
@@ -503,12 +495,8 @@ export class AgentConfigService {
     }
 
     this.teams.clear();
-    this.teamFileByName.clear();
     for (const [teamName, configs] of loaded.teams) {
       this.teams.set(teamName, configs);
-    }
-    for (const [teamName, teamFile] of loaded.teamFileByName) {
-      this.teamFileByName.set(teamName, teamFile);
     }
     this.activeTeam = loaded.activeTeam;
     // 自愈历史脏数据：剔除 enabled_agents 中指向本 team 不存在 agent 的悬空引用，改动一次性回写磁盘。
@@ -538,11 +526,7 @@ export class AgentConfigService {
   }
 
   private saveAll(): void {
-    this.teamStore.saveAll(this.activeTeam, this.teams, this.teamFileByName);
-  }
-
-  private saveTeamIndex(): void {
-    this.teamStore.saveTeamIndex(this.activeTeam, this.teams, this.teamFileByName);
+    this.teamStore.saveAll(this.activeTeam, this.teams);
   }
 }
 

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import YAML from "yaml";
 
 import { AgentConfigService } from "../../src/services/agent/config/index.js";
+import { FileAgentConfigTeamStore } from "../../src/adapters/filesystem/agent/file-team-store.js";
 
 const tempRoots: string[] = [];
 
@@ -68,7 +69,7 @@ describe("AgentConfigService team file compatibility", () => {
       },
     });
 
-    const service = new AgentConfigService({ dataRoot });
+    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
 
     expect(service.listTeams()).toMatchObject({
       active_team: "default",
@@ -124,7 +125,7 @@ describe("AgentConfigService team file compatibility", () => {
       },
     });
 
-    const service = new AgentConfigService({ dataRoot });
+    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
 
     expect(service.getConfig("general_agent")?.tools.enabled_tools).toEqual(["read_file", "todo_write"]);
     const patched = service.patchConfig("general_agent", {
@@ -151,7 +152,7 @@ describe("AgentConfigService team file compatibility", () => {
       general_agent: minimalAgent("general_agent", true),
     });
 
-    const service = new AgentConfigService({ dataRoot });
+    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
     service.createTeam("research", "default");
     service.activateTeam("research");
     service.patchConfig("general_agent", {
@@ -205,7 +206,7 @@ describe("AgentConfigService team file compatibility", () => {
       orchestrator_agent: minimalAgent("orchestrator_agent", true),
     });
 
-    const service = new AgentConfigService({ dataRoot });
+    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
 
     expect(service.deleteAgent("general_agent")).toBe(true);
     const team = readYaml(path.join(dataRoot, "config", "agents", "teams", "default.yaml"));
@@ -231,7 +232,7 @@ describe("AgentConfigService team file compatibility", () => {
       },
     });
 
-    const service = new AgentConfigService({ dataRoot });
+    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
 
     expect(service.deleteAgent("general_agent")).toBe(true);
 
@@ -262,7 +263,7 @@ describe("AgentConfigService team file compatibility", () => {
       },
     });
 
-    const service = new AgentConfigService({ dataRoot });
+    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
 
     // 内存中：悬空引用被剔除，合法引用保留
     const orchestrator = service.getConfig("orchestrator_agent");
@@ -286,7 +287,7 @@ describe("AgentConfigService team file compatibility", () => {
       general_agent: minimalAgent("general_agent", true),
     });
 
-    const service = new AgentConfigService({ dataRoot });
+    const service = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot }));
     service.createTeam("research work", "default");
     const researchPath = path.join(dataRoot, "config", "agents", "teams", "research-work.yaml");
     expect(fs.existsSync(researchPath)).toBe(true);
