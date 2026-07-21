@@ -23,4 +23,10 @@ describe("request application composition", () => {
     }
     expect(source).toContain("...applicationResolvers");
   });
+
+  it("binds the SaaS execution application in the production composition root", () => {
+    const source = fs.readFileSync(path.join(sourceRoot, "main.ts"), "utf8");
+    expect(source).toContain("resolveExecutionApplication:");
+    expect(source).toContain("new RuntimeExecutionApplication");
+  });
 });

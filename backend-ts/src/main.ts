@@ -16,6 +16,7 @@ import type { FastifyRequest } from "fastify";
 import { SaaSExecutionMemoryCandidates } from "./adapters/saas/application/memory/saas-execution-memory-candidates.js";
 import { SaaSSessionFileApplication } from "./adapters/saas/application/session-file/saas-session-file-application.js";
 import { SaaSFileChangeApplication } from "./adapters/saas/application/file-change/saas-file-change-application.js";
+import { RuntimeExecutionApplication } from "./services/agent/execution/runtime-execution-application.js";
 import { SaaSProviderApplication } from "./adapters/saas/application/provider-mcp/saas-provider-application.js";
 import { SaaSMcpApplication } from "./adapters/saas/application/provider-mcp/saas-mcp-application.js";
 
@@ -111,6 +112,9 @@ try {
         saasConversationRuntime!.conversation,
         saasConversationRuntime!.runs,
         saasConversationRuntime!.outbox,
+        request.container.agentExecution,
+      ),
+      resolveExecutionApplication: (request: FastifyRequest) => new RuntimeExecutionApplication(
         request.container.agentExecution,
       ),
       resolveAnalytics: (request: FastifyRequest) => new SaaSAnalyticsApplication(
