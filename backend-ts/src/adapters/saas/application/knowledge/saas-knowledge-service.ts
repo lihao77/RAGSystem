@@ -1,9 +1,9 @@
 import type { AsyncKnowledgeConfigStore } from "../../../../contracts/knowledge/async-knowledge-config.js";
 import type { AsyncKnowledgeVectorStore } from "../../../../contracts/knowledge/async-vector-store.js";
-import type { IndexFileRequest, SearchVectorsRequest, VectorizerConfig, VectorizerCreate, VectorSearchResult } from "../../../../contracts/knowledge/knowledge-base.js";
+import type { IndexFileRequest, RerankerConfig, RerankerCreate, SearchVectorsRequest, VectorFileStatusResponse, VectorizerConfig, VectorizerCreate, VectorSearchResult } from "../../../../contracts/knowledge/knowledge-base.js";
 import type { KnowledgeCollectionSummary, KnowledgeQueryPort, KnowledgeSearchResponse } from "../../../../contracts/knowledge/query-port.js";
 import type { KnowledgeFile } from "../../../../contracts/vector-store/knowledge-file-store.js";
-import type { StoredVectorizer } from "../../../../contracts/vector-store/knowledge-config.js";
+import type { StoredReranker, StoredVectorizer } from "../../../../contracts/vector-store/knowledge-config.js";
 import type { IEmbedder } from "../../../../contracts/vector-store/embedder.js";
 import type { ModelProviderConfig } from "../../../../contracts/integrations/model-adapter.js";
 import type { ModelAdapterService } from "../../../../services/integrations/model-adapter-service.js";
@@ -31,6 +31,84 @@ export class SaaSKnowledgeService implements KnowledgeQueryPort {
 
   async listVectorizers(): Promise<VectorizerConfig[]> {
     return (await this.config.listVectorizers(this.tenantId)).map((vectorizer) => this.toVectorizerConfig(vectorizer));
+  }
+
+  async fileStatus(files: KnowledgeFile[]): Promise<VectorFileStatusResponse> {
+    const [vectorizers, indexes] = await Promise.all([
+      this.listVectorizers(),
+      this.vectors.listDocumentIndexes?.(this.tenantId) ?? Promise.resolve([]),
+    ]);
+    const statusVectorizers = vectorizers.map((vectorizer) => ({
+      vectorizer_key: vectorizer.vectorizer_key,
+      model_name: vectorizer.model_name,
+      provider_key: vectorizer.provider_key,
+      dimension: vectorizer.vector_dimension ?? 0,
+      model_id: vectorizer.model_id,
+    }));
+    const fileStatuses = files.flatMap((file) => {
+      const fileIndexes = indexes.filter((index) => index.document_id === file.id);
+      const collections = [...new Set(fileIndexes.map((index) => index.collection))];
+      const locations = collections.length > 0 ? collections : ["documents"];
+      return locations.map((collection) => {
+        const collectionIndexes = fileIndexes.filter((index) => index.collection === collection);
+        const chunkCount = Math.max(0, ...collectionIndexes.map((index) => index.chunk_count));
+        const vectorizerStatus: Record<string, "已索引" | "未索引"> = {};
+        for (const vectorizer of statusVectorizers) {
+          const indexed = collectionIndexes.find((index) => index.model_id === vectorizer.model_id);
+          vectorizerStatus[vectorizer.vectorizer_key] = indexed && indexed.chunk_count >= chunkCount && chunkCount > 0
+            ? "已索引"
+            : "未索引";
+        }
+        return {
+          file_name: file.original_name,
+          file_id: file.id,
+          collection,
+          chunk_count: chunkCount,
+          vectorizer_status: vectorizerStatus,
+          uploaded_at: file.uploaded_at,
+          size: file.size,
+          mime: file.mime,
+        };
+      });
+    });
+    return { files: fileStatuses, vectorizers: statusVectorizers };
+  }
+
+  async listRerankers(): Promise<RerankerConfig[]> {
+    return (await this.requireConfig("listRerankers")(this.tenantId)).map(toRerankerConfig);
+  }
+
+  async addReranker(input: RerankerCreate): Promise<{ reranker_key: string }> {
+    const mode = normalizeRerankerMode(input.mode);
+    const providerKey = input.provider_key?.trim() || "";
+    const modelName = input.model_name?.trim() || "";
+    if (mode === "model" && (!providerKey || !modelName || !input.api_endpoint?.trim())) {
+      throw new KnowledgeBaseError("model 模式的重排序器必须提供 provider_key、model_name 和 api_endpoint", 400);
+    }
+    const key = input.reranker_key?.trim() || normalizeRerankerKey(mode, providerKey, modelName);
+    if (await this.requireConfig("getReranker")(this.tenantId, key)) throw new KnowledgeBaseError(`重排序器键已存在: ${key}`, 400);
+    await this.requireConfig("createReranker")(this.tenantId, {
+      reranker_key: key, mode, provider_key: providerKey, provider_type: input.provider_type?.trim() || null,
+      model_name: modelName, api_endpoint: input.api_endpoint?.trim() || "", api_key: input.api_key ?? null,
+    });
+    return { reranker_key: key };
+  }
+
+  async getReranker(key: string): Promise<RerankerConfig | null> {
+    const reranker = await this.requireConfig("getReranker")(this.tenantId, key);
+    return reranker ? toRerankerConfig(reranker) : null;
+  }
+
+  async activateReranker(key: string): Promise<{ active_reranker_key: string }> {
+    if (!await this.getReranker(key)) throw new KnowledgeBaseError(`重排序器不存在: ${key}`, 404);
+    await this.requireConfig("activateReranker")(this.tenantId, key);
+    return { active_reranker_key: key };
+  }
+
+  async deleteReranker(key: string): Promise<{ deleted_reranker_key: string }> {
+    if (!await this.getReranker(key)) throw new KnowledgeBaseError(`重排序器不存在: ${key}`, 404);
+    await this.requireConfig("deleteReranker")(this.tenantId, key);
+    return { deleted_reranker_key: key };
   }
 
   async addVectorizer(input: VectorizerCreate): Promise<Pick<VectorizerConfig, "vectorizer_key" | "vector_dimension" | "model_id">> {
@@ -106,6 +184,13 @@ export class SaaSKnowledgeService implements KnowledgeQueryPort {
     if (active) return active;
     return this.config.createVectorizer(this.tenantId, { vectorizer_key: "local_hash_embedding", provider_key: "local", provider_type: null, model_name: "hash-64", distance_metric: "cosine" });
   }
+  private requireConfig<K extends "listRerankers" | "getReranker" | "createReranker" | "activateReranker" | "deleteReranker">(
+    method: K,
+  ): NonNullable<AsyncKnowledgeConfigStore[K]> {
+    const candidate = this.config[method];
+    if (typeof candidate !== "function") throw new KnowledgeBaseError(`SaaS knowledge operation unavailable: ${method}`, 501);
+    return candidate.bind(this.config) as NonNullable<AsyncKnowledgeConfigStore[K]>;
+  }
   private async resolveEmbedder(vectorizer: StoredVectorizer) {
     const cached = this.embedderCache.get(vectorizer.vectorizer_key);
     if (cached) return cached;
@@ -117,6 +202,27 @@ export class SaaSKnowledgeService implements KnowledgeQueryPort {
   private toVectorizerConfig(vectorizer: StoredVectorizer): VectorizerConfig {
     return { ...vectorizer, provider_available: vectorizer.provider_key === "local" || this.modelAdapter.hasProvider(vectorizer.provider_key), vector_count: 0 };
   }
+}
+
+function toRerankerConfig(reranker: StoredReranker): RerankerConfig {
+  return {
+    reranker_key: reranker.reranker_key, mode: reranker.mode, provider_key: reranker.provider_key,
+    provider_type: reranker.provider_type, model_name: reranker.model_name, api_endpoint: reranker.api_endpoint,
+    created_at: reranker.created_at, is_active: reranker.is_active, api_key_set: Boolean(reranker.api_key),
+  };
+}
+
+function normalizeRerankerMode(value: string | undefined): StoredReranker["mode"] {
+  const mode = String(value ?? "none").trim().toLowerCase();
+  if (["lexical", "bm25", "keyword", "local"].includes(mode)) return "lexical";
+  if (["none", "noop"].includes(mode)) return "none";
+  return "model";
+}
+
+function normalizeRerankerKey(mode: StoredReranker["mode"], providerKey: string, modelName: string): string {
+  if (mode === "none") return "noop";
+  if (mode === "lexical") return "bm25_local";
+  return `${providerKey}_${modelName.replace(/[^\w.-]/g, "_").slice(0, 120)}`;
 }
 
 type KnowledgeBaseEmbedderFactory = (provider: ModelProviderConfig | null | undefined, modelName: string) => IEmbedder;

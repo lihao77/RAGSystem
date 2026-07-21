@@ -3,7 +3,6 @@ import type { AsyncKnowledgeMarkdownPipeline } from "../../../../contracts/knowl
 import type { KnowledgeApplication, KnowledgeUploadPart } from "../../../../contracts/application/knowledge-application.js";
 import type { KnowledgeFile } from "../../../../contracts/vector-store/knowledge-file-store.js";
 import { KnowledgeBaseError } from "../../../../contracts/knowledge/knowledge-base.js";
-import type { VectorFileStatusResponse } from "../../../../contracts/knowledge/knowledge-base.js";
 import type { SaaSKnowledgeVectorApplication } from "./saas-knowledge-vector-application.js";
 
 export class SaaSKnowledgeApplication implements KnowledgeApplication {
@@ -37,7 +36,7 @@ export class SaaSKnowledgeApplication implements KnowledgeApplication {
     if (!source) return null;
     return { body: source.body, filename: file.original_name, mime: source.contentType ?? file.mime };
   }
-  fileStatus() { return this.unavailable<VectorFileStatusResponse>(); }
+  fileStatus() { return this.vector.fileStatus(); }
   indexFile(input: Parameters<SaaSKnowledgeVectorApplication["indexFile"]>[0]) { return this.vector.indexFile(input); }
   listVectorizers() { return this.vector.listVectorizers(); }
   addVectorizer(input: Parameters<SaaSKnowledgeVectorApplication["addVectorizer"]>[0]) { return this.vector.addVectorizer(input); }
@@ -45,11 +44,11 @@ export class SaaSKnowledgeApplication implements KnowledgeApplication {
   listDocsByVectorizer() { return this.unavailable<Array<Record<string, unknown>>>(); }
   deleteVectorizer(key: string) { return this.vector.deleteVectorizer(key); }
   migrate() { return this.unavailable<Record<string, unknown>>(); }
-  listRerankers(): never { throw new KnowledgeBaseError("SaaS reranker operation unavailable", 501); }
-  addReranker() { throw new KnowledgeBaseError("SaaS reranker operation unavailable", 501); }
-  getReranker(_key: string): never { throw new KnowledgeBaseError("SaaS reranker operation unavailable", 501); }
-  activateReranker() { throw new KnowledgeBaseError("SaaS reranker operation unavailable", 501); }
-  deleteReranker() { throw new KnowledgeBaseError("SaaS reranker operation unavailable", 501); }
+  listRerankers() { return this.vector.listRerankers(); }
+  addReranker(input: Parameters<SaaSKnowledgeVectorApplication["addReranker"]>[0]) { return this.vector.addReranker(input); }
+  getReranker(key: string) { return this.vector.getReranker(key); }
+  activateReranker(key: string) { return this.vector.activateReranker(key); }
+  deleteReranker(key: string) { return this.vector.deleteReranker(key); }
   listCollections() { return this.vector.listCollections(); }
   deleteCollection() { return this.unavailable<Record<string, unknown>>(); }
   search(input: Parameters<SaaSKnowledgeVectorApplication["search"]>[0]) { return this.vector.search(input); }

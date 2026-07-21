@@ -171,7 +171,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
     }
   });
 
-  app.get("/rerankers", async (request) => ok((await resolveKnowledge(request)).listRerankers()));
+  app.get("/rerankers", async (request) => ok(await (await resolveKnowledge(request)).listRerankers()));
 
   app.post("/rerankers", async (request) => {
     const payload = RerankerCreateSchema.parse(request.body);
@@ -183,7 +183,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   });
 
   app.get<{ Params: KeyParams }>("/rerankers/:key", async (request) => {
-    const reranker = (await resolveKnowledge(request)).getReranker(request.params.key);
+    const reranker = await (await resolveKnowledge(request)).getReranker(request.params.key);
     if (!reranker) {
       throw new HttpError(404, "not_found", `重排序器不存在: ${request.params.key}`);
     }

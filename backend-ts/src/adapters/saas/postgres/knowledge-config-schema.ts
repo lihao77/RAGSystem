@@ -21,4 +21,25 @@ export const POSTGRES_KNOWLEDGE_CONFIG_MIGRATIONS: PostgresKnowledgeConfigMigrat
     CREATE UNIQUE INDEX IF NOT EXISTS knowledge_vectorizers_active_idx
       ON knowledge_vectorizers(tenant_id) WHERE is_active;
   `,
+}, {
+  version: 2,
+  name: "knowledge_reranker_config",
+  sql: `
+    CREATE TABLE IF NOT EXISTS knowledge_rerankers (
+      tenant_id TEXT NOT NULL,
+      reranker_key TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      provider_key TEXT NOT NULL DEFAULT '',
+      provider_type TEXT,
+      model_name TEXT NOT NULL DEFAULT '',
+      api_endpoint TEXT NOT NULL DEFAULT '',
+      api_key TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      is_active BOOLEAN NOT NULL DEFAULT FALSE,
+      PRIMARY KEY (tenant_id, reranker_key),
+      CHECK (mode IN ('model', 'lexical', 'none'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS knowledge_rerankers_active_idx
+      ON knowledge_rerankers(tenant_id) WHERE is_active;
+  `,
 }];

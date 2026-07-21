@@ -26,4 +26,20 @@ describe("SaaSKnowledgeVectorApplication", () => {
     expect(vectors.deleteChunks).toHaveBeenCalledWith({ tenant_id: "tenant-1", document_id: "file-1" });
     expect(files.deleteKnowledgeFile).toHaveBeenCalledWith("file-1");
   });
+
+  it("builds file status through the tenant knowledge service", async () => {
+    const file = { id: "file-1", original_name: "a.md" };
+    const fileStatus = vi.fn().mockResolvedValue({ files: [{ file_id: "file-1" }], vectorizers: [] });
+    const files = { listKnowledgeFiles: vi.fn().mockResolvedValue([file]) };
+    const application = new SaaSKnowledgeVectorApplication(
+      "tenant-1",
+      { indexExternalFile: vi.fn(), search: vi.fn(), deleteDocument: vi.fn(), fileStatus },
+      files as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(application.fileStatus()).resolves.toEqual({ files: [{ file_id: "file-1" }], vectorizers: [] });
+    expect(fileStatus).toHaveBeenCalledWith([file]);
+  });
 });

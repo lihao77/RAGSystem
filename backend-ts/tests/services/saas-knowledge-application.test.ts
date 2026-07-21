@@ -23,6 +23,7 @@ describe("SaaSKnowledgeApplication", () => {
     const vector = {
       deleteKnowledgeFile: vi.fn().mockResolvedValue({ deleted_chunks: 2 }),
       indexFile: vi.fn().mockResolvedValue({ indexed_chunks: 1 }),
+      fileStatus: vi.fn().mockResolvedValue({ files: [], vectorizers: [] }),
     };
     const application = new SaaSKnowledgeApplication(vector as never, files as never, markdown as never);
 
@@ -30,12 +31,24 @@ describe("SaaSKnowledgeApplication", () => {
     expect(markdown.generateMarkdownForFile).toHaveBeenCalledWith("file-1");
     await expect(application.download("file-1")).resolves.toMatchObject({ filename: "a.md", mime: "text/markdown" });
     await expect(application.indexFile({ collection: "docs", file_id: "file-1", vectorizer_key: "embed" })).resolves.toEqual({ indexed_chunks: 1 });
+    await expect(application.fileStatus()).resolves.toEqual({ files: [], vectorizers: [] });
     await expect(application.deleteFile("file-1")).resolves.toEqual({ deleted_chunks: 2 });
   });
 
-  it("reports unsupported SaaS management operations explicitly", async () => {
-    const application = new SaaSKnowledgeApplication({} as never, {} as never, {} as never);
+  it("delegates tenant reranker management while unsupported chunk operations remain explicit", async () => {
+    const vector = {
+      listRerankers: vi.fn().mockResolvedValue([]),
+      addReranker: vi.fn().mockResolvedValue({ reranker_key: "bm25_local" }),
+      getReranker: vi.fn().mockResolvedValue(null),
+      activateReranker: vi.fn().mockResolvedValue({ active_reranker_key: "bm25_local" }),
+      deleteReranker: vi.fn().mockResolvedValue({ deleted_reranker_key: "bm25_local" }),
+    };
+    const application = new SaaSKnowledgeApplication(vector as never, {} as never, {} as never);
     await expect(application.listChunks("file-1")).rejects.toMatchObject({ statusCode: 501 });
-    expect(() => application.listRerankers()).toThrow(expect.objectContaining({ statusCode: 501 }));
+    await expect(application.listRerankers()).resolves.toEqual([]);
+    await expect(application.addReranker({ mode: "lexical" })).resolves.toEqual({ reranker_key: "bm25_local" });
+    await expect(application.getReranker("bm25_local")).resolves.toBeNull();
+    await expect(application.activateReranker("bm25_local")).resolves.toEqual({ active_reranker_key: "bm25_local" });
+    await expect(application.deleteReranker("bm25_local")).resolves.toEqual({ deleted_reranker_key: "bm25_local" });
   });
 });

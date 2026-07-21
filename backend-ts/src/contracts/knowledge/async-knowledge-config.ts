@@ -1,4 +1,4 @@
-import type { CreateVectorizerInput, StoredVectorizer } from "../vector-store/knowledge-config.js";
+import type { CreateRerankerInput, CreateVectorizerInput, StoredReranker, StoredVectorizer } from "../vector-store/knowledge-config.js";
 
 /** Tenant-scoped asynchronous knowledge configuration persisted outside Local SQLite. */
 export interface AsyncKnowledgeConfigStore {
@@ -8,4 +8,9 @@ export interface AsyncKnowledgeConfigStore {
   setVectorDimension(tenantId: string, key: string, dimension: number): Promise<void>;
   activateVectorizer(tenantId: string, key: string): Promise<void>;
   deleteVectorizer(tenantId: string, key: string): Promise<{ next_active_key: string | null }>;
+  listRerankers?(tenantId: string): Promise<StoredReranker[]>;
+  getReranker?(tenantId: string, key: string): Promise<StoredReranker | null>;
+  createReranker?(tenantId: string, input: CreateRerankerInput): Promise<StoredReranker>;
+  activateReranker?(tenantId: string, key: string): Promise<void>;
+  deleteReranker?(tenantId: string, key: string): Promise<{ next_active_key: string | null }>;
 }

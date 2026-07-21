@@ -40,9 +40,9 @@ export interface KnowledgeApplication {
   listDocsByVectorizer(key: string): Promise<Array<Record<string, unknown>>>;
   deleteVectorizer(key: string): Promise<unknown>;
   migrate(input: GenericVectorRequest): Promise<Record<string, unknown>>;
-  listRerankers(): RerankerConfig[];
+  listRerankers(): Promise<RerankerConfig[]> | RerankerConfig[];
   addReranker(input: RerankerCreate): unknown;
-  getReranker(key: string): RerankerConfig | null;
+  getReranker(key: string): Promise<RerankerConfig | null> | RerankerConfig | null;
   activateReranker(key: string): unknown;
   deleteReranker(key: string): unknown;
   listCollections(): Promise<unknown>;

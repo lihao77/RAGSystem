@@ -1,7 +1,8 @@
-import type { IndexFileRequest, SearchVectorsRequest, VectorizerConfig, VectorizerCreate } from "../../../../contracts/knowledge/knowledge-base.js";
+import type { IndexFileRequest, RerankerConfig, RerankerCreate, SearchVectorsRequest, VectorFileStatusResponse, VectorizerConfig, VectorizerCreate } from "../../../../contracts/knowledge/knowledge-base.js";
 import type { AsyncKnowledgeFileStore } from "../../../../contracts/knowledge/async-knowledge-file-store.js";
 import type { AsyncKnowledgeMarkdownPipeline } from "../../../../contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import type { AsyncKnowledgeVectorStore } from "../../../../contracts/knowledge/async-vector-store.js";
+import type { KnowledgeFile } from "../../../../contracts/vector-store/knowledge-file-store.js";
 import { KnowledgeBaseError } from "../../../../contracts/knowledge/knowledge-base.js";
 
 interface SaaSKnowledgeOperations {
@@ -13,6 +14,12 @@ interface SaaSKnowledgeOperations {
   activateVectorizer?(key: string): Promise<{ active_vectorizer_key: string }>;
   deleteVectorizer?(key: string): Promise<{ deleted_vectorizer_key: string }>;
   listCollections?(): Promise<unknown>;
+  fileStatus?(files: KnowledgeFile[]): Promise<VectorFileStatusResponse>;
+  listRerankers?(): Promise<RerankerConfig[]>;
+  addReranker?(input: RerankerCreate): Promise<unknown>;
+  getReranker?(key: string): Promise<RerankerConfig | null>;
+  activateReranker?(key: string): Promise<unknown>;
+  deleteReranker?(key: string): Promise<unknown>;
 }
 
 /** Tenant-bound bridge from HTTP knowledge workflows to PostgreSQL/S3 data planes. */
@@ -48,6 +55,14 @@ export class SaaSKnowledgeVectorApplication {
   async activateVectorizer(key: string): Promise<{ active_vectorizer_key: string }> { return this.require("activateVectorizer")(key); }
   async deleteVectorizer(key: string): Promise<{ deleted_vectorizer_key: string }> { return this.require("deleteVectorizer")(key); }
   async listCollections(): Promise<unknown> { return this.require("listCollections")(); }
+  async fileStatus(): Promise<VectorFileStatusResponse> {
+    return this.require("fileStatus")(await this.files.listKnowledgeFiles());
+  }
+  async listRerankers(): Promise<RerankerConfig[]> { return this.require("listRerankers")(); }
+  async addReranker(input: RerankerCreate): Promise<unknown> { return this.require("addReranker")(input); }
+  async getReranker(key: string): Promise<RerankerConfig | null> { return this.require("getReranker")(key); }
+  async activateReranker(key: string): Promise<unknown> { return this.require("activateReranker")(key); }
+  async deleteReranker(key: string): Promise<unknown> { return this.require("deleteReranker")(key); }
 
   async deleteKnowledgeFile(fileId: string): Promise<{ deleted_chunks: number } | null> {
     const file = await this.files.getKnowledgeFile(fileId);

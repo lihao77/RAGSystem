@@ -37,4 +37,12 @@ describe("Postgres pgvector adapter", () => {
     }]);
     expect((db.query as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toEqual(["t1"]);
   });
+  it("lists document index summaries only for the requested tenant", async () => {
+    const db = executor([{ collection: "docs", document_id: "file-1", model_id: 7, chunk_count: 2 }]);
+    const documents = await new PostgresPgVectorRepository(db).listDocumentIndexes("t1");
+    expect(documents).toEqual([{ collection: "docs", document_id: "file-1", model_id: 7, chunk_count: 2 }]);
+    const call = (db.query as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(String(call?.[0])).toContain("GROUP BY collection,document_id,model_id");
+    expect(call?.[1]).toEqual(["t1"]);
+  });
 });
