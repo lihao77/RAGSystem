@@ -47,29 +47,24 @@ export class SaaSKnowledgeService implements KnowledgeQueryPort {
     }));
     const fileStatuses = files.flatMap((file) => {
       const fileIndexes = indexes.filter((index) => index.document_id === file.id);
-      const collections = [...new Set(fileIndexes.map((index) => index.collection))];
-      const locations = collections.length > 0 ? collections : ["documents"];
-      return locations.map((collection) => {
-        const collectionIndexes = fileIndexes.filter((index) => index.collection === collection);
-        const chunkCount = Math.max(0, ...collectionIndexes.map((index) => index.chunk_count));
-        const vectorizerStatus: Record<string, "已索引" | "未索引"> = {};
-        for (const vectorizer of statusVectorizers) {
-          const indexed = collectionIndexes.find((index) => index.model_id === vectorizer.model_id);
-          vectorizerStatus[vectorizer.vectorizer_key] = indexed && indexed.chunk_count >= chunkCount && chunkCount > 0
-            ? "已索引"
-            : "未索引";
-        }
-        return {
-          file_name: file.original_name,
-          file_id: file.id,
-          collection,
-          chunk_count: chunkCount,
-          vectorizer_status: vectorizerStatus,
-          uploaded_at: file.uploaded_at,
-          size: file.size,
-          mime: file.mime,
-        };
-      });
+      const collection = [...new Set(fileIndexes.map((index) => index.collection))].sort().at(-1) ?? "documents";
+      const collectionIndexes = fileIndexes.filter((index) => index.collection === collection);
+      const chunkCount = Math.max(0, ...collectionIndexes.map((index) => index.chunk_count));
+      const vectorizerStatus: Record<string, "已索引" | "未索引"> = {};
+      for (const vectorizer of statusVectorizers) {
+        const indexed = collectionIndexes.find((index) => index.model_id === vectorizer.model_id);
+        vectorizerStatus[vectorizer.vectorizer_key] = indexed && indexed.chunk_count > 0 ? "已索引" : "未索引";
+      }
+      return [{
+        file_name: file.original_name,
+        file_id: file.id,
+        collection,
+        chunk_count: chunkCount,
+        vectorizer_status: vectorizerStatus,
+        uploaded_at: file.uploaded_at,
+        size: file.size,
+        mime: file.mime,
+      }];
     });
     return { files: fileStatuses, vectorizers: statusVectorizers };
   }

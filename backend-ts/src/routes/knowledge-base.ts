@@ -176,7 +176,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.post("/rerankers", async (request) => {
     const payload = RerankerCreateSchema.parse(request.body);
     try {
-      return ok((await resolveKnowledge(request)).addReranker(payload));
+      return ok(await (await resolveKnowledge(request)).addReranker(payload));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -192,7 +192,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.post<{ Params: KeyParams }>("/rerankers/:key/activate", async (request) => {
     try {
-      return ok((await resolveKnowledge(request)).activateReranker(request.params.key));
+      return ok(await (await resolveKnowledge(request)).activateReranker(request.params.key));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -200,7 +200,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.delete<{ Params: KeyParams }>("/rerankers/:key", async (request) => {
     try {
-      return ok((await resolveKnowledge(request)).deleteReranker(request.params.key));
+      return ok(await (await resolveKnowledge(request)).deleteReranker(request.params.key));
     } catch (error) {
       throw toHttpError(error);
     }

@@ -49,6 +49,30 @@ describe("SaaSKnowledgeService", () => {
     });
   });
 
+  it("keeps Local-compatible one-row file status across collections and model chunk sizes", async () => {
+    const secondVectorizer = { ...vectorizer, model_id: 8, vectorizer_key: "embed-large", model_name: "hash-128", vector_dimension: 128 };
+    const config = { listVectorizers: vi.fn().mockResolvedValue([vectorizer, secondVectorizer]) };
+    const vectors = {
+      listDocumentIndexes: vi.fn().mockResolvedValue([
+        { collection: "archive", document_id: "file-1", model_id: 7, chunk_count: 2 },
+        { collection: "docs", document_id: "file-1", model_id: 7, chunk_count: 2 },
+        { collection: "docs", document_id: "file-1", model_id: 8, chunk_count: 3 },
+      ]),
+    };
+    const service = new SaaSKnowledgeService("tenant-a", model as never, config as never, vectors as never);
+    const result = await service.fileStatus([{
+      id: "file-1", original_name: "a.md", stored_name: "a", stored_path: "object://a",
+      size: 11, mime: "text/markdown", uploaded_at: "2026-01-01T00:00:00Z", md_blob_hash: null,
+    }]);
+
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]).toMatchObject({
+      collection: "docs",
+      chunk_count: 3,
+      vectorizer_status: { embed: "已索引", "embed-large": "已索引" },
+    });
+  });
+
   it("manages rerankers through the tenant-scoped PostgreSQL config port", async () => {
     const stored = { reranker_key: "bm25_local", mode: "lexical", provider_key: "", provider_type: null, model_name: "", api_endpoint: "", api_key: null, created_at: "2026-01-01T00:00:00Z", is_active: true };
     const config = {

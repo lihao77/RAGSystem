@@ -75,15 +75,19 @@ export class PostgresKnowledgeConfigRepository implements AsyncKnowledgeConfigSt
     return result.rows[0] ? mapReranker(result.rows[0]) : null;
   }
   async createReranker(tenantId: string, input: CreateRerankerInput): Promise<StoredReranker> {
-    const result = await this.executor.query(
-      "INSERT INTO knowledge_rerankers(tenant_id,reranker_key,mode,provider_key,provider_type,model_name,api_endpoint,api_key,is_active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOT EXISTS(SELECT 1 FROM knowledge_rerankers WHERE tenant_id=$1)) RETURNING *",
-      [tenantId, input.reranker_key, input.mode, input.provider_key, input.provider_type, input.model_name, input.api_endpoint, input.api_key],
-    );
-    if (!result.rows[0]) throw new Error("knowledge reranker insert returned no row");
-    return mapReranker(result.rows[0]);
+    return this.executor.transaction(async (tx) => {
+      await lockRerankerTenant(tx, tenantId);
+      const result = await tx.query(
+        "INSERT INTO knowledge_rerankers(tenant_id,reranker_key,mode,provider_key,provider_type,model_name,api_endpoint,api_key,is_active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOT EXISTS(SELECT 1 FROM knowledge_rerankers WHERE tenant_id=$1)) RETURNING *",
+        [tenantId, input.reranker_key, input.mode, input.provider_key, input.provider_type, input.model_name, input.api_endpoint, input.api_key],
+      );
+      if (!result.rows[0]) throw new Error("knowledge reranker insert returned no row");
+      return mapReranker(result.rows[0]);
+    });
   }
   async activateReranker(tenantId: string, key: string): Promise<void> {
     await this.executor.transaction(async (tx) => {
+      await lockRerankerTenant(tx, tenantId);
       const found = await tx.query("SELECT reranker_key FROM knowledge_rerankers WHERE tenant_id=$1 AND reranker_key=$2", [tenantId, key]);
       if (!found.rows[0]) throw new Error(`reranker not found: ${key}`);
       await tx.query("UPDATE knowledge_rerankers SET is_active=FALSE WHERE tenant_id=$1", [tenantId]);
@@ -92,6 +96,7 @@ export class PostgresKnowledgeConfigRepository implements AsyncKnowledgeConfigSt
   }
   async deleteReranker(tenantId: string, key: string): Promise<{ next_active_key: string | null }> {
     return this.executor.transaction(async (tx) => {
+      await lockRerankerTenant(tx, tenantId);
       const deleted = await tx.query<{ is_active: boolean }>("DELETE FROM knowledge_rerankers WHERE tenant_id=$1 AND reranker_key=$2 RETURNING is_active", [tenantId, key]);
       if (!deleted.rows[0]) throw new Error(`reranker not found: ${key}`);
       if (deleted.rows[0].is_active) {
@@ -101,4 +106,8 @@ export class PostgresKnowledgeConfigRepository implements AsyncKnowledgeConfigSt
       return { next_active_key: active.rows[0]?.reranker_key ?? null };
     });
   }
+}
+
+function lockRerankerTenant(executor: PostgresMemoryExecutor, tenantId: string): Promise<unknown> {
+  return executor.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 1380270923))", [tenantId]);
 }
