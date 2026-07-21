@@ -164,6 +164,69 @@ describe("SaaSSkillPackageStore materialization", () => {
     await store.delete("mutable");
     expect(fs.existsSync(currentHashDir)).toBe(false);
   });
+
+  it("single-flights concurrent materialize of the same hash", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "saas-skill-race-"));
+    tempRoots.push(root);
+    const cacheRoot = path.join(root, "skill-cache");
+    const objects = new MemoryObjectStorage();
+    const repository = new MemorySkillPackageRepository();
+    const store = new SaaSSkillPackageStore("tenant-a" as TenantId, repository as never, objects, cacheRoot);
+
+    const created = await store.create({
+      name: "race",
+      description: "race",
+      content: "# Race body\n",
+    });
+    fs.rmSync(cacheRoot, { recursive: true, force: true });
+
+    const [a, b, c] = await Promise.all([
+      store.materialize("race"),
+      store.materialize("race"),
+      store.materialize("race"),
+    ]);
+    expect(a).toBe(created.skillDir);
+    expect(b).toBe(created.skillDir);
+    expect(c).toBe(created.skillDir);
+    expect(fs.existsSync(path.join(created.skillDir, "SKILL.md"))).toBe(true);
+    // Only one published hash dir; no staging leftovers.
+    const byHashRoot = path.join(cacheRoot, "by-hash");
+    expect(fs.readdirSync(byHashRoot)).toEqual([path.basename(created.skillDir)]);
+    const leftovers = fs.readdirSync(cacheRoot).filter((name) => name.startsWith(".staging-"));
+    expect(leftovers).toEqual([]);
+  });
+
+  it("rehydrates packageStore cache after mutate/delete so discovery never stays stale", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "saas-skill-hydrate-"));
+    tempRoots.push(root);
+    const cacheRoot = path.join(root, "skill-cache");
+    const objects = new MemoryObjectStorage();
+    const repository = new MemorySkillPackageRepository();
+    const store = new SaaSSkillPackageStore("tenant-a" as TenantId, repository as never, objects, cacheRoot);
+    const skillTools = new SkillToolService({
+      dataRoot: root,
+      userGlobalSkillsRoot: cacheRoot,
+      packageStore: store,
+    });
+
+    await store.create({ name: "alive", description: "v1", content: "# one\n" });
+    await skillTools.hydrateUserGlobalPackages();
+    expect(skillTools.loadAllSkills().map((s) => s.name)).toContain("alive");
+
+    await store.updateMarkdown("alive", { content: "# two\n" });
+    // Concurrent hydrates must serialize; final snapshot sees latest contentDir.
+    await Promise.all([
+      skillTools.hydrateUserGlobalPackages(),
+      skillTools.hydrateUserGlobalPackages(),
+    ]);
+    const afterUpdate = skillTools.loadAllSkills().find((s) => s.name === "alive");
+    expect(afterUpdate).toBeTruthy();
+    expect(fs.readFileSync(path.join(afterUpdate!.skillDir, "SKILL.md"), "utf8")).toContain("two");
+
+    await store.delete("alive");
+    await skillTools.hydrateUserGlobalPackages();
+    expect(skillTools.loadAllSkills().map((s) => s.name)).not.toContain("alive");
+  });
 });
 
 class MemoryObjectStorage implements ObjectStorage {

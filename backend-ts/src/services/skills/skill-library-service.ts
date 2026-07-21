@@ -110,6 +110,8 @@ export class SkillLibraryService {
       if (message.includes("已存在")) throw new HttpError(409, "conflict", message);
       throw new HttpError(400, "invalid_request", message);
     }
+    // packageStore mutation → rehydrate before any discovery/detail read.
+    await this.skillTools.hydrateUserGlobalPackages();
     return this.getSkillDetail(name);
   }
 
@@ -122,6 +124,7 @@ export class SkillLibraryService {
     } catch (error) {
       throw new HttpError(400, "invalid_request", error instanceof Error ? error.message : String(error));
     }
+    await this.skillTools.hydrateUserGlobalPackages();
     return this.getSkillDetail(name);
   }
 
@@ -134,6 +137,7 @@ export class SkillLibraryService {
     } catch (error) {
       throw new HttpError(400, "invalid_request", error instanceof Error ? error.message : String(error));
     }
+    await this.skillTools.hydrateUserGlobalPackages();
     return this.getSkillDetail(name);
   }
 
@@ -145,6 +149,8 @@ export class SkillLibraryService {
     if (!deleted) {
       throw new HttpError(404, "not_found", `Skill '${name}' 不存在`);
     }
+    // Drop deleted package from discovery cache immediately.
+    await this.skillTools.hydrateUserGlobalPackages();
     const purged_agents = await this.skillTools.purgeSkillReference(name);
     return { name, purged_agents };
   }

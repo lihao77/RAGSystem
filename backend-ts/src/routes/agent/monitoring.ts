@@ -162,6 +162,8 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     });
     // preview 仅 projection（组请求快照）——不跑工具循环、不注册 gate-hook，
     // 故 pathService 不会被 approve/isApproved 调用；此处占位仅为满足 createBackendTools 签名。
+    // packageStore-backed user_global 必须先 hydrate，否则 skill 工具 enum/extended_usage 会空。
+    await request.container.toolsDeps.skillTools?.hydrateUserGlobalPackages?.();
     const registry = createToolRegistry({
       tools: createBackendTools({
         ...request.container.toolsDeps,

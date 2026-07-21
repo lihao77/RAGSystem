@@ -23,6 +23,9 @@ import type { PostgresSkillPackageRepository } from "../postgres/skill-package-r
  * Durable source of truth is never tenants/<id>/skills on disk.
  */
 export class SaaSSkillPackageStore implements ISkillPackageStore {
+  /** Per-hash materialize single-flight within this process. */
+  private readonly materializeInflight = new Map<string, Promise<string>>();
+
   constructor(
     private readonly tenantId: TenantId,
     private readonly repository: PostgresSkillPackageRepository,
@@ -222,20 +225,37 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
   /**
    * Materialize into cacheRoot/by-hash/<contentHash>/ (content-addressed, immutable).
    * Complete tree is staged then renamed; incomplete materialization never publishes.
+   * Same-hash concurrent callers share one in-flight promise so a rebuild never rm's a
+   * just-published tree from a peer.
    */
   private async materializeRow(skillName: string, contentHash: string, _packagePrefix: string): Promise<string> {
+    const existing = this.materializeInflight.get(contentHash);
+    if (existing) return existing;
+    const pending = this.materializeRowExclusive(skillName, contentHash).finally(() => {
+      if (this.materializeInflight.get(contentHash) === pending) {
+        this.materializeInflight.delete(contentHash);
+      }
+    });
+    this.materializeInflight.set(contentHash, pending);
+    return pending;
+  }
+
+  private async materializeRowExclusive(skillName: string, contentHash: string): Promise<string> {
     const skillDir = this.hashCacheDir(contentHash);
     const skillMd = path.join(skillDir, "SKILL.md");
     if (fs.existsSync(skillMd) && fs.statSync(skillMd).isFile()) {
       return skillDir;
     }
-    // Incomplete/corrupt published dir: rebuild via staging.
+    // Incomplete/corrupt published dir only: never delete a complete peer tree.
     if (fs.existsSync(skillDir)) {
       fs.rmSync(skillDir, { recursive: true, force: true });
     }
 
-    const stagingDir = path.join(this.cacheRoot, `.staging-${contentHash}`);
-    fs.rmSync(stagingDir, { recursive: true, force: true });
+    // Unique staging path so concurrent processes/hash rebuilds never rm each other's tree.
+    const stagingDir = path.join(
+      this.cacheRoot,
+      `.staging-${contentHash}-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    );
     fs.mkdirSync(stagingDir, { recursive: true });
     try {
       const files = await this.repository.listFiles(this.tenantId, skillName);

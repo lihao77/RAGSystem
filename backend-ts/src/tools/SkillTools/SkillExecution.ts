@@ -116,25 +116,24 @@ export class SkillToolService {
   private readonly skillIsolationMode: SkillIsolationMode;
   private readonly packageStore: ISkillPackageStore | null;
   private readonly envLocks = new Map<string, Promise<unknown>>();
-  private hydratePromise: Promise<void> | null = null;
+  /** Serializes packageStore.list() so concurrent hydrates cannot publish stale snapshots. */
+  private hydrateChain: Promise<void> = Promise.resolve();
   /** Last hydrate result from packageStore.list(); only used when packageStore is set. */
   private userGlobalPackageCache: SkillPackageRecord[] = [];
 
   /**
    * Load tenant user_global packages from packageStore (materialize as needed).
    * When packageStore is set, discovery uses these records instead of scanning userGlobalSkillsRoot.
+   * Always re-lists (queued) so create/update/delete observers never keep a coalesced stale snapshot.
    */
   async hydrateUserGlobalPackages(): Promise<void> {
     if (!this.packageStore) return;
-    this.hydratePromise ??= this.packageStore
-      .list()
-      .then((records) => {
-        this.userGlobalPackageCache = records;
-      })
-      .finally(() => {
-        this.hydratePromise = null;
-      });
-    await this.hydratePromise;
+    const run = async (): Promise<void> => {
+      this.userGlobalPackageCache = await this.packageStore!.list();
+    };
+    // Chain even after rejection so a failed list does not permanently poison later hydrates.
+    this.hydrateChain = this.hydrateChain.then(run, run);
+    await this.hydrateChain;
   }
 
   /** builtin skill 根目录（代码库内置，只读）。 */
