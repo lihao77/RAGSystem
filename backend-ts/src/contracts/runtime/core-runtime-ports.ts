@@ -4,6 +4,7 @@ import type {
   IMessageStore,
   IMetricStore,
   IRunStore,
+  ClaimOutboxInput,
   OutboxRow,
   RunInfo,
 } from "../conversation-store/index.js";
@@ -11,9 +12,6 @@ import type { PermissionMode } from "./permissions.js";
 import type { MessageInfo } from "../session/session.js";
 import type { Envelope } from "../events.js";
 import type { RuntimeRecordEnvelopeInput } from "../storage/runtime-storage.js";
-
-/** Values returned by the Local adapter may be synchronous; SaaS adapters are async. */
-export type Awaitable<T> = T | Promise<T>;
 
 export interface ClientEventPublishOptions {
   runId?: string | null | undefined;
@@ -38,29 +36,38 @@ export interface RuntimeEventDispatcherPort {
   dispatchPendingRows?(rows: OutboxRow[]): Promise<Envelope[]>;
 }
 
-/** Persistence surface required by child-agent delegation.
- *
- * Every operation is awaitable so the shared delegation service cannot accidentally
- * make a PostgreSQL call look synchronous. Local's synchronous ConversationStore
- * remains source-compatible because plain values are valid Awaitables.
- */
-export interface AgentDelegationStorePort {
-  addMessage(input: Parameters<IMessageStore["addMessage"]>[0]): Awaitable<MessageInfo>;
-  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Awaitable<MessageInfo[]>;
-  getRun(sessionId: string, runId: string): Awaitable<RunInfo | null>;
-  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): Awaitable<boolean>;
-  createChildAgent(input: Parameters<IChildAgentStore["createChildAgent"]>[0]): Awaitable<ChildAgentInfo>;
-  findChildAgentByCreator(input: Parameters<IChildAgentStore["findChildAgentByCreator"]>[0]): Awaitable<ChildAgentInfo | null>;
-  getChildAgent(sessionId: string, childAgentId: string): Awaitable<ChildAgentInfo | null>;
-  listChildAgents(input: Parameters<IChildAgentStore["listChildAgents"]>[0]): Awaitable<ReturnType<IChildAgentStore["listChildAgents"]>>;
-  updateChildAgentLastRun(input: Parameters<IChildAgentStore["updateChildAgentLastRun"]>[0]): Awaitable<boolean>;
+/** Persistence required by the dispatcher; targeted claiming is a multi-instance capability. */
+export interface OutboxDispatchStorePort {
+  claimPendingOutbox(input?: ClaimOutboxInput): Promise<OutboxRow[]>;
+  claimOutboxRows?(input: {
+    ids: readonly number[];
+    tenantId?: string;
+    lockTimeoutMs?: number;
+    now?: Date;
+  }): Promise<OutboxRow[]>;
+  markOutboxDelivered(id: number, tenantId: string): Promise<boolean>;
+  markOutboxRetrying(id: number, error: string, availableAt: string, tenantId: string): Promise<boolean>;
+  markOutboxFailed(id: number, error: string, tenantId: string): Promise<boolean>;
 }
 
-/** Metrics persistence may be synchronous (Local) or asynchronous (SaaS/PG). */
+/** Promise-only persistence surface required by child-agent delegation. */
+export interface AgentDelegationStorePort {
+  addMessage(input: Parameters<IMessageStore["addMessage"]>[0]): Promise<MessageInfo>;
+  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
+  getRun(sessionId: string, runId: string): Promise<RunInfo | null>;
+  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): Promise<boolean>;
+  createChildAgent(input: Parameters<IChildAgentStore["createChildAgent"]>[0]): Promise<ChildAgentInfo>;
+  findChildAgentByCreator(input: Parameters<IChildAgentStore["findChildAgentByCreator"]>[0]): Promise<ChildAgentInfo | null>;
+  getChildAgent(sessionId: string, childAgentId: string): Promise<ChildAgentInfo | null>;
+  listChildAgents(input: Parameters<IChildAgentStore["listChildAgents"]>[0]): Promise<ReturnType<IChildAgentStore["listChildAgents"]>>;
+  updateChildAgentLastRun(input: Parameters<IChildAgentStore["updateChildAgentLastRun"]>[0]): Promise<boolean>;
+}
+
+/** Promise-only metrics persistence surface. */
 export interface AgentMetricsStorePort {
-  insertMetric(input: Parameters<IMetricStore["insertMetric"]>[0]): Awaitable<void>;
-  aggregateMetrics(agentName?: string | null): Awaitable<ReturnType<IMetricStore["aggregateMetrics"]>>;
-  resetMetrics(agentName?: string | null): Awaitable<ReturnType<IMetricStore["resetMetrics"]>>;
+  insertMetric(input: Parameters<IMetricStore["insertMetric"]>[0]): Promise<void>;
+  aggregateMetrics(agentName?: string | null): Promise<ReturnType<IMetricStore["aggregateMetrics"]>>;
+  resetMetrics(agentName?: string | null): Promise<ReturnType<IMetricStore["resetMetrics"]>>;
 }
 
 /** Durable history required by context compression. */

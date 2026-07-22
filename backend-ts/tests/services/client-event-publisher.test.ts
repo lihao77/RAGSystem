@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
+import { SqliteRuntimeStorage } from "../../src/adapters/local/sqlite-runtime-storage.js";
 import {
   buildExecutionEnvelopeRunStep,
   EXECUTION_ENVELOPE_STEP_TYPE,
@@ -34,20 +35,20 @@ describe("client event persistence", () => {
     }, "event-2")).toBeNull();
   });
 
-  it("uses one generated event id for the archived step and outbox row", () => {
+  it("uses one generated event id for the archived step and outbox row", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     try {
       store.createSession(LOCAL_TENANT_ID, "session-1", "user-1");
       store.createRun({ runId: "run-1", sessionId: "session-1" });
       const dispatched: number[][] = [];
-      const publisher = new DurableClientEventPublisher(store, {
-        dispatchRows: (rows) => {
+      const publisher = new DurableClientEventPublisher(new SqliteRuntimeStorage(LOCAL_TENANT_ID, store), {
+        dispatchRows: async (rows) => {
           dispatched.push(rows.map((row) => row.id));
           return [];
         },
       });
 
-      const row = publisher.publish("session-1", {
+      const row = await publisher.publish("session-1", {
         type: "stream_output",
         session_id: "session-1",
         run_id: "run-1",

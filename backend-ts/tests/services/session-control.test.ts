@@ -6,9 +6,11 @@ import { AgentExecutionStatusTracker } from "../../src/services/agent/execution/
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
-import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
+import { RuntimeInteractionCoordinator } from "../../src/services/runtime/pending-interaction-service.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
+import { SqliteRuntimeStorage } from "../../src/adapters/local/sqlite-runtime-storage.js";
+import { LocalOutboxStoreAdapter } from "../../src/adapters/local/local-outbox-store-adapter.js";
 
 describe("SessionControl", () => {
   it("停止挂起 session 时中断 run 并取消 durable pending", async () => {
@@ -35,15 +37,17 @@ describe("SessionControl", () => {
     store.suspendPendingInteractions("session-suspended-stop", "run-suspended-stop");
 
     const realtimeEvents = new RealtimeEventHub();
-    const clientEvents = new DurableClientEventPublisher(
-      store,
-      new OutboxDispatcher(store, realtimeEvents),
-    );
+    const dispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(store), realtimeEvents);
+    const runtimeStorage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
+    const clientEvents = new DurableClientEventPublisher(runtimeStorage, {
+      dispatchRows: async (rows) => dispatcher.dispatchRows(rows),
+    });
     const control = createSessionControl({
       statusTracker: new AgentExecutionStatusTracker(),
       eventPublisher: new AgentExecutionEventPublisher(clientEvents),
-      conversationStore: store,
-      pendingInteractions: new PendingInteractionService(clientEvents, store),
+      pendingInteractions: new RuntimeInteractionCoordinator(runtimeStorage, clientEvents),
+      runtimeStorage,
+      clientEvents,
       executeSynchronously: vi.fn(),
     });
 
@@ -58,11 +62,6 @@ describe("SessionControl", () => {
 
   it("SaaS 停止挂起 session 时使用异步持久化端口和 durable outbox", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    const realtimeEvents = new RealtimeEventHub();
-    const clientEvents = new DurableClientEventPublisher(
-      store,
-      new OutboxDispatcher(store, realtimeEvents),
-    );
     const interruptSession = vi.fn().mockResolvedValue({
       interruptedRuns: [
         { runId: "run-root", parentRunId: null },
@@ -71,17 +70,16 @@ describe("SessionControl", () => {
       cancelledInteractions: 2,
       records: [],
     });
-    const asyncClientEvents = {
+    const clientEvents = {
       publish: vi.fn(async () => { throw new Error("publish is not used by suspended stop"); }),
       deliver: vi.fn().mockResolvedValue([]),
     };
     const control = createSessionControl({
       statusTracker: new AgentExecutionStatusTracker(),
-      eventPublisher: new AgentExecutionEventPublisher(clientEvents),
-      conversationStore: store,
-      pendingInteractions: new PendingInteractionService(clientEvents, store),
+      eventPublisher: { publishRunEnded: vi.fn(), publishUserInterrupt: vi.fn() } as never,
+      pendingInteractions: { cancelSession: vi.fn().mockResolvedValue(undefined) } as never,
       runtimeStorage: { operations: { interruptSession } } as never,
-      asyncClientEvents,
+      clientEvents,
       executeSynchronously: vi.fn(),
     });
 

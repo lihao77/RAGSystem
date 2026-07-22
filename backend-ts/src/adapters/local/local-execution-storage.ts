@@ -3,13 +3,13 @@ import type { ExecutionStorage } from "../../contracts/execution/execution-stora
 import type { RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
 import type { TenantId } from "../../identity/types.js";
 import { AsyncKernelEventPersister } from "../../services/agent/sdk/async-event-persister.js";
-import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
+import type { ClientEventPublisherPort } from "../../contracts/runtime/core-runtime-ports.js";
 
 export function createLocalExecutionStorage(input: {
   tenantId: TenantId;
   conversation: ConversationStore;
   runtimeStorage: RuntimeStorage;
-  clientEvents: Pick<AsyncDurableClientEventPublisher, "prepare" | "deliver" | "flush">;
+  clientEvents: Pick<ClientEventPublisherPort, "prepare" | "deliver" | "flush">;
   fileHistory?: ConstructorParameters<typeof AsyncKernelEventPersister>[3];
 }): ExecutionStorage {
   return {

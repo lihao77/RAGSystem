@@ -9,6 +9,8 @@ import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/ex
 import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
+import { SqliteRuntimeStorage } from "../../src/adapters/local/sqlite-runtime-storage.js";
+import { LocalOutboxStoreAdapter } from "../../src/adapters/local/local-outbox-store-adapter.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 import type { AgentDelegationStorePort } from "../../src/contracts/runtime/core-runtime-ports.js";
@@ -69,8 +71,8 @@ describe("AgentDelegationService", () => {
   it("call_agent 重执行时续原 suspended child run", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
-    const clientEvents = new DurableClientEventPublisher(store, dispatcher);
+    const dispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(store), realtimeEvents);
+    const clientEvents = new DurableClientEventPublisher(new SqliteRuntimeStorage(LOCAL_TENANT_ID, store), dispatcher);
     const workerAgent = minimalAgent("worker_agent");
     const parentAgent = minimalAgent("orchestrator_agent");
     parentAgent.delegation.enabled_agents = ["worker_agent"];
@@ -166,6 +168,7 @@ describe("AgentDelegationService", () => {
     });
     expect(store.listChildAgents({ sessionId: "resume-session" }).total).toBe(1);
     expect(store.listMessages("resume-session", 20, 0, "child:child-resume").items).toHaveLength(1);
+    await clientEvents.flush("resume-session");
     expect(realtimeEvents.getHistory("resume-session").filter((event) => event.type === "agent_started")).toEqual([]);
     store.close();
   });
@@ -173,8 +176,8 @@ describe("AgentDelegationService", () => {
   it("lists child agents and resumes an existing child thread with send_message", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
-    const clientEvents = new DurableClientEventPublisher(store, dispatcher);
+    const dispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(store), realtimeEvents);
+    const clientEvents = new DurableClientEventPublisher(new SqliteRuntimeStorage(LOCAL_TENANT_ID, store), dispatcher);
     const workerAgent = minimalAgent("worker_agent");
     const service = new AgentDelegationService(asAsyncDelegationStore(store), runtimeCoreStub(workerAgent), clientEvents);
 
@@ -282,6 +285,7 @@ describe("AgentDelegationService", () => {
       },
     });
     expect(result.llmHint).toBeNull();
+    await clientEvents.flush("session-1");
 
     // delegation 给 executeRun 传了正确的 child 归属：统一执行核心靠 parent_call_id/child_agent_id 区分父子
     expect(seenInputs).toHaveLength(1);

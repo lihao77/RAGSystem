@@ -5,7 +5,7 @@ import { createConversationStore } from "../../src/adapters/local/sqlite/convers
 import type { ConversationStore, OutboxRow } from "../../src/contracts/conversation-store/index.js";
 import { AsyncKernelEventPersister } from "../../src/services/agent/sdk/async-event-persister.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
-import { AsyncDurableClientEventPublisher } from "../../src/services/runtime/event-outbox/async-client-event-publisher.js";
+import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 
 const stores: ConversationStore[] = [];
 
@@ -25,7 +25,7 @@ function createHarness(runId: string) {
       return [];
     }),
   };
-  const publisher = new AsyncDurableClientEventPublisher(storage, dispatcher as never);
+  const publisher = new DurableClientEventPublisher(storage, dispatcher as never);
   const persister = new AsyncKernelEventPersister(storage, publisher, {
     tenantId: LOCAL_TENANT_ID,
     sessionId: `session-${runId}`,

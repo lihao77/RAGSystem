@@ -25,7 +25,6 @@ import type { ExecutionStartDisposition } from "../../../contracts/execution/exe
 import type { TenantId } from "../../../identity/types.js";
 import type { Envelope } from "../../../contracts/events.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
-import type { AsyncAnalyticsRepository } from "../../../contracts/storage/async-persistence-ports.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
   asString,
@@ -75,7 +74,6 @@ export class AgentRunEngine {
     private readonly logger: AgentExecutionLogger | null,
     private readonly hooks: ((registry: HookRegistry) => void) | null,
     private readonly metricsCollector: AgentMetricsCollector | null = null,
-    private readonly asyncAnalytics: AsyncAnalyticsRepository | null = null,
     private readonly compressionService: AgentCompressionService | null = null,
   ) {}
 
@@ -404,11 +402,7 @@ export class AgentRunEngine {
         finishedAt: finishedAt.toISOString(),
       };
       try {
-        if (this.metricsCollector) {
-          await this.metricsCollector.recordRun(metric);
-        } else {
-          await this.asyncAnalytics?.insertMetric(this.tenantId, metric);
-        }
+        await this.metricsCollector?.recordRun(metric);
       } catch (error) {
         this.logger?.error({ tenant_id: this.tenantId, run_id: input.runId, error: error instanceof Error ? error.message : String(error) }, "failed to persist SaaS agent metric");
       }

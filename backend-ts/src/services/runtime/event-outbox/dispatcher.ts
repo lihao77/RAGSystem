@@ -1,5 +1,6 @@
 import type { Envelope } from "../../../contracts/events.js";
-import type { AsyncOutboxStore, OutboxRow } from "../../../contracts/conversation-store/index.js";
+import type { OutboxRow } from "../../../contracts/conversation-store/index.js";
+import type { OutboxDispatchStorePort } from "../../../contracts/runtime/core-runtime-ports.js";
 import type { RealtimeEventBus } from "../../../contracts/runtime/realtime-event-bus.js";
 import { EnvelopeProjector } from "./projector.js";
 
@@ -39,7 +40,7 @@ export class OutboxDispatcher {
   private readonly publishFromOutbox: ((row: OutboxRow, event: Envelope) => void) | undefined;
 
   constructor(
-    private readonly outbox: AsyncOutboxStore,
+    private readonly outbox: OutboxDispatchStorePort,
     private readonly realtimeEvents: RealtimeEventBus | null,
     private readonly projector = new EnvelopeProjector(),
     options: OutboxDispatcherOptions = {},
@@ -85,8 +86,10 @@ export class OutboxDispatcher {
     const scoped = this.tenantId
       ? rows.filter((row) => row.tenant_id === this.tenantId)
       : rows;
-    const ids = scoped.filter((row) => row.status === "pending" || row.status === "retrying").map((row) => row.id);
+    const pending = scoped.filter((row) => row.status === "pending" || row.status === "retrying");
+    const ids = pending.map((row) => row.id);
     if (ids.length === 0) return [];
+    if (!this.outbox.claimOutboxRows) return this.dispatchRows(pending);
     const claimed = await this.outbox.claimOutboxRows({
       ids,
       ...(this.tenantId ? { tenantId: this.tenantId } : {}),

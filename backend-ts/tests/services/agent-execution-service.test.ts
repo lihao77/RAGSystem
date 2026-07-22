@@ -18,13 +18,13 @@ import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/index.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
-import { AsyncDurableClientEventPublisher } from "../../src/services/runtime/event-outbox/async-client-event-publisher.js";
 import { SqliteRuntimeStorage } from "../../src/adapters/local/sqlite-runtime-storage.js";
+import { LocalOutboxStoreAdapter } from "../../src/adapters/local/local-outbox-store-adapter.js";
 import { HostToolRegistry } from "../../src/services/runtime/host-tool-registry.js";
 import { DelegationPendingService } from "../../src/services/runtime/delegation-pending-service.js";
 import { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
 import { PathApprovalService } from "../../src/adapters/local/path-approval-service.js";
-import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
+import { RuntimeInteractionCoordinator } from "../../src/services/runtime/pending-interaction-service.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";
 import { createLocalExecutionStorage } from "../../src/adapters/local/local-execution-storage.js";
 
@@ -128,8 +128,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const store = createConversationStore({ dbPath, dataRoot: path.dirname(dbPath) });
   const sessions = new AgentSessionApplication(store);
   const realtimeEvents = new RealtimeEventHub();
-  const dispatcher = new OutboxDispatcher(store, realtimeEvents);
-  const clientEvents = new DurableClientEventPublisher(store, dispatcher);
+  const dispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(store), realtimeEvents);
   const runtimeStorage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
   const executionRuntimeStorage = opts.startFailure
     ? {
@@ -141,13 +140,14 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
         },
       }
     : runtimeStorage;
-  const executionClientEvents = new AsyncDurableClientEventPublisher(runtimeStorage, {
-    dispatchRows: async (rows) => dispatcher.dispatchRows(rows),
+  const executionClientEvents = new DurableClientEventPublisher(runtimeStorage, {
+    dispatchRows: async () => [],
   });
+  const clientEvents = executionClientEvents;
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
   const permissionPolicy = new PermissionPolicyService(store);
-  const pendingInteractions = new PendingInteractionService(clientEvents);
+  const pendingInteractions = new RuntimeInteractionCoordinator(runtimeStorage, executionClientEvents);
   const agent = minimalAgent("orchestrator_agent");
   const provider: ModelProviderConfig = {
     name: "my",
@@ -165,7 +165,6 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const service = createAgentExecutionService({
     tenantId: LOCAL_TENANT_ID,
     sessions,
-    conversationStore: store,
     executionStorage: createLocalExecutionStorage({
       tenantId: LOCAL_TENANT_ID,
       conversation: store,
@@ -178,12 +177,12 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
    outboxDispatcher: dispatcher,
    providersProvider: () => [provider],
     clientEvents,
-    eventClientEvents: executionClientEvents,
    hostToolRegistry,
    delegationPending,
     permissionPolicy,
     pathAccessPolicyFactory: () => new PathApprovalService(),
    pendingInteractions,
+    runtimeStorage: executionRuntimeStorage,
     logger: logger ?? null,
   });
   return { service, store, errors };

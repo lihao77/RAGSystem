@@ -1,80 +1,110 @@
 import { randomUUID } from "node:crypto";
 
 import type { Envelope } from "../../../contracts/events.js";
+import type { OutboxRow } from "../../../contracts/conversation-store/index.js";
 import type {
-  AppendOutboxInput,
-  ConversationStoreTransaction,
-  IConversationTransactionRunner,
-  IOutboxStore,
-  OutboxRow,
-} from "../../../contracts/conversation-store/index.js";
-import type { OutboxDispatcher } from "./dispatcher.js";
-import { archiveExecutionEnvelope } from "./execution-envelope-archive.js";
+  ClientEventPublisherPort,
+  ClientEventPublishOptions,
+  RuntimeEventDispatcherPort,
+} from "../../../contracts/runtime/core-runtime-ports.js";
+import type {
+  RuntimeRecordEnvelopeInput,
+  RuntimeStorage,
+} from "../../../contracts/storage/runtime-storage.js";
+import { buildExecutionEnvelopeRunStep } from "./execution-envelope-archive.js";
 
-export interface ClientEventPublishOptions {
-  runId?: string | null | undefined;
-  aggregateType?: string | undefined;
-  aggregateId?: string | undefined;
-  eventType?: string | undefined;
-  eventId?: string | undefined;
-}
+export type {
+  ClientEventPublisherPort as ClientEventPublisher,
+  ClientEventPublishOptions,
+} from "../../../contracts/runtime/core-runtime-ports.js";
 
-export interface ClientEventPublisher {
-  publish(sessionId: string, event: Envelope, options?: ClientEventPublishOptions): void;
-}
+/** Durable publisher shared by Local and SaaS runtime storage adapters. */
+export class DurableClientEventPublisher implements ClientEventPublisherPort {
+  private readonly sessionTails = new Map<string, Promise<void>>();
+  private readonly sessionFailures = new Map<string, unknown>();
 
-export interface RecordedClientEvent {
-  sessionId: string;
-  event: Envelope;
-  row: OutboxRow;
-}
-
-export class DurableClientEventPublisher {
   constructor(
-    private readonly conversationStore: IOutboxStore & IConversationTransactionRunner,
-    private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">,
+    private readonly storage: RuntimeStorage,
+    private readonly dispatcher: Pick<RuntimeEventDispatcherPort, "dispatchRows"> &
+      Partial<Pick<RuntimeEventDispatcherPort, "dispatchPendingRows">>,
   ) {}
 
-  publish(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): OutboxRow {
-    const resolvedOptions = withStableEventId(options);
-    const record = this.conversationStore.runInTransaction((tx) =>
-      this.recordInTransaction(tx, sessionId, event, resolvedOptions),
+  async publish(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): Promise<OutboxRow> {
+    const input = this.toRecordInput(sessionId, event, withStableEventId(options));
+    const previous = this.sessionTails.get(sessionId) ?? Promise.resolve();
+    const operation = previous.then(async () => {
+      const { outbox: row } = await this.storage.operations.recordEnvelope(input);
+      if (row.status === "pending") await this.dispatchPendingRows([row]);
+      return row;
+    });
+    const tail = operation.then(
+      () => undefined,
+      (error) => {
+        if (!this.sessionFailures.has(sessionId)) this.sessionFailures.set(sessionId, error);
+      },
     );
-    this.deliver([record]);
-    return record.row;
+    this.sessionTails.set(sessionId, tail);
+    void tail.then(() => {
+      if (this.sessionTails.get(sessionId) === tail && !this.sessionFailures.has(sessionId)) {
+        this.sessionTails.delete(sessionId);
+      }
+    });
+    return operation;
   }
 
-  recordInTransaction(
-    tx: ConversationStoreTransaction,
+  async record(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): Promise<OutboxRow> {
+    const input = this.prepare(sessionId, event, options);
+    return (await this.storage.operations.recordEnvelope(input)).outbox;
+  }
+
+  prepare(
     sessionId: string,
     event: Envelope,
     options: ClientEventPublishOptions = {},
-  ): RecordedClientEvent {
-    const resolvedOptions = withStableEventId(options);
-    const runId = options.runId ?? event.run_id ?? null;
-    archiveExecutionEnvelope(tx, sessionId, runId, event, resolvedOptions.eventId);
-    const row = tx.appendOutbox(this.toOutboxInput(sessionId, event, resolvedOptions));
-    return { sessionId, event, row };
+  ): RuntimeRecordEnvelopeInput {
+    return this.toRecordInput(sessionId, event, withStableEventId(options));
   }
 
-  deliver(records: RecordedClientEvent[]): void {
-    if (records.length === 0) {
+  async flush(sessionId: string): Promise<void> {
+    const tail = this.sessionTails.get(sessionId);
+    await (tail ?? Promise.resolve());
+    const failure = this.sessionFailures.get(sessionId);
+    if (failure !== undefined) {
+      this.sessionFailures.delete(sessionId);
+      if (!tail || this.sessionTails.get(sessionId) === tail) this.sessionTails.delete(sessionId);
+      throw failure;
+    }
+  }
+
+  async deliver(rows: OutboxRow[]): Promise<void> {
+    const pending = rows.filter((row) => row.status === "pending");
+    if (pending.length > 0) await this.dispatchPendingRows(pending);
+  }
+
+  private async dispatchPendingRows(rows: OutboxRow[]): Promise<void> {
+    if (this.dispatcher.dispatchPendingRows) {
+      await this.dispatcher.dispatchPendingRows(rows);
       return;
     }
-    this.outboxDispatcher.dispatchRows(records.map((record) => record.row));
+    await this.dispatcher.dispatchRows(rows);
   }
 
-  private toOutboxInput(sessionId: string, event: Envelope, options: ClientEventPublishOptions): AppendOutboxInput {
+  private toRecordInput(
+    sessionId: string,
+    event: Envelope,
+    options: ClientEventPublishOptions & { eventId: string },
+  ): RuntimeRecordEnvelopeInput {
     const runId = options.runId ?? event.run_id ?? null;
     return {
-      sessionId,
-      runId,
-      eventId: options.eventId,
-      eventType: options.eventType ?? `client.${event.type}`,
-      aggregateType: options.aggregateType ?? (runId ? "run" : "session"),
-      aggregateId: options.aggregateId ?? runId ?? sessionId,
-      payload: {
-        client_event: event,
+      step: buildExecutionEnvelopeRunStep(sessionId, runId, event, options.eventId),
+      outbox: {
+        sessionId,
+        runId,
+        eventId: options.eventId,
+        eventType: options.eventType ?? `client.${event.type}`,
+        aggregateType: options.aggregateType ?? (runId ? "run" : "session"),
+        aggregateId: options.aggregateId ?? runId ?? sessionId,
+        payload: { client_event: event },
       },
     };
   }
@@ -82,9 +112,7 @@ export class DurableClientEventPublisher {
 
 type ResolvedClientEventPublishOptions = ClientEventPublishOptions & { eventId: string };
 
-export function withStableEventId(
-  options: ClientEventPublishOptions,
-): ResolvedClientEventPublishOptions {
+export function withStableEventId(options: ClientEventPublishOptions): ResolvedClientEventPublishOptions {
   const supplied = options.eventId?.trim();
   if (options.eventId !== undefined && !supplied) {
     throw new Error("client eventId must not be empty");

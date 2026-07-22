@@ -26,7 +26,6 @@ import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
-import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
@@ -39,7 +38,6 @@ import type { TenantId } from "../../../identity/types.js";
 import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
-import type { AsyncAnalyticsRepository } from "../../../contracts/storage/async-persistence-ports.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -91,8 +89,6 @@ export interface AgentExecutionServiceParams {
   sessionFiles?: SessionFileLookupPort | null;
   outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
   clientEvents: ClientEventPublisher;
-  /** 用户可见执行事件的持久化通道；SaaS 使用异步 PostgreSQL outbox。 */
-  eventClientEvents?: ClientEventPublisher;
  /** 已加载的 provider 列表提供者（SDK 投影层解析 tier.provider 引用用）。 */
  providersProvider: () => ModelProviderConfig[];
  /** 权限策略服务（SDK 审批编排判定用）。 */
@@ -108,11 +104,9 @@ export interface AgentExecutionServiceParams {
  hooks?: (registry: HookRegistry) => void;
  /** 性能指标采集器（透传 AgentRunEngine 终态落库用）。 */
  metricsCollector?: AgentMetricsCollector | null;
- asyncAnalytics?: AsyncAnalyticsRepository | null;
  logger?: AgentExecutionLogger | null | undefined;
  /** backend 压缩服务（slash /compact + run 内 round.before 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
-  asyncClientEvents?: Pick<AsyncDurableClientEventPublisher, "publish" | "deliver">;
   runtimeStorage: RuntimeStorage;
 }
 
@@ -131,7 +125,7 @@ export function createAgentExecutionService(
     throw new Error("AgentExecutionService requires an outbox dispatcher");
   }
   const statusTracker = new AgentExecutionStatusTracker();
-  const eventPublisher = new AgentExecutionEventPublisher(params.eventClientEvents ?? params.clientEvents);
+  const eventPublisher = new AgentExecutionEventPublisher(params.clientEvents);
   const attachmentResolver = new AttachmentResolver(params.sessionFiles ?? null);
   const notificationQueue = params.notificationQueue ?? new SessionNotificationQueue();
   const storage = params.executionStorage;
@@ -167,7 +161,6 @@ export function createAgentExecutionService(
     params.logger ?? null,
     params.hooks ?? null,
     params.metricsCollector ?? null,
-    params.asyncAnalytics ?? null,
     params.compressionService ?? null,
   );
   const launchers = createLaunchers({
@@ -186,7 +179,7 @@ export function createAgentExecutionService(
     eventPublisher,
     pendingInteractions: params.pendingInteractions,
     runtimeStorage: params.runtimeStorage,
-    ...(params.asyncClientEvents ? { asyncClientEvents: params.asyncClientEvents } : {}),
+    clientEvents: params.clientEvents,
     executeSynchronously: launchers.executeSynchronously,
   });
   const query = createExecutionQueryService(statusTracker);

@@ -13,7 +13,7 @@ import { ModelAdapterService } from "../../../services/integrations/model-adapte
 import { BackgroundTaskService } from "../../../services/runtime/background-task-service.js";
 import { createCoreRuntimeContainer } from "../../../services/runtime/core-runtime-container.js";
 import { DelegationPendingService } from "../../../services/runtime/delegation-pending-service.js";
-import { AsyncDurableClientEventPublisher } from "../../../services/runtime/event-outbox/async-client-event-publisher.js";
+import { DurableClientEventPublisher } from "../../../services/runtime/event-outbox/client-event-publisher.js";
 import { HostToolRegistry } from "../../../services/runtime/host-tool-registry.js";
 import { PathApprovalService } from "../../../services/runtime/path-approval-service.js";
 import { SessionNotificationQueue } from "../../../services/runtime/session-notification-queue.js";
@@ -46,8 +46,8 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   const realtimeEvents = conversationRuntime.createRealtimeEventBus(tenantId);
   // Fast-path publisher: claim+deliver newly written rows via the shared process dispatcher.
   // Recovery polling is owned by conversationRuntime.sharedOutboxDispatcher (one per process).
-  const asyncOutboxDispatcher = conversationRuntime.sharedOutboxDispatcher;
-  const asyncClientEvents = new AsyncDurableClientEventPublisher(runtimeStorage, asyncOutboxDispatcher);
+  const outboxDispatcher = conversationRuntime.sharedOutboxDispatcher;
+  const clientEvents = new DurableClientEventPublisher(runtimeStorage, outboxDispatcher);
   const fileHistory = conversationRuntime.createFileHistoryStorage(tenantId);
   const sessionFiles = conversationRuntime.createSessionFileStorage(tenantId);
   const memoryCandidates = new SaaSExecutionMemoryCandidates(tenantId, memoryRuntime.repository);
@@ -90,7 +90,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     userGlobalSkillsRoot: skillCacheRoot,
     agentConfig,
     backgroundTasks,
-    clientEvents: asyncClientEvents,
+    clientEvents,
     packageStore: skillPackageStore,
   });
   agentConfig.setSkillToolService(skillTools);
@@ -112,7 +112,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     getMemoryConfig: () => systemConfig.getMemoryConfig(),
     ...(options.logger ? { logger: options.logger } : {}),
     ...(options.hooks ? { hooks: options.hooks } : {}),
-    asyncClientEvents,
+    clientEvents,
     runtimeStorage,
     delegationStore: conversationRuntime.createDelegationStore(tenantId),
     metricsStore: new SaaSAgentMetricsStore(tenantId, conversationRuntime.analytics),
@@ -132,10 +132,10 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
       tenantId,
       conversation: conversationRuntime.conversation,
       providerContinuations: conversationRuntime.providerContinuations,
-      clientEvents: asyncClientEvents,
+      clientEvents,
       createEventPersister: (context) => new AsyncKernelEventPersister(
         runtimeStorage,
-        asyncClientEvents,
+        clientEvents,
         context,
         fileHistory,
       ),
@@ -158,8 +158,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     notificationQueue,
     hostToolRegistry: new HostToolRegistry(),
     delegationPending: new DelegationPendingService(),
-    eventDispatcher: asyncOutboxDispatcher,
-    clientEvents: asyncClientEvents,
+    eventDispatcher: outboxDispatcher,
     capabilities: {
       sessions: sessionApplication,
       fileHistory,

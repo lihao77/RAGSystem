@@ -5,7 +5,7 @@ import { createHookRegistry, type ToolExecContext } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import { registerGateHook } from "../../src/services/agent/sdk/gate-hook.js";
 import type { PathAccessPolicy } from "../../src/contracts/runtime/path-access-policy.js";
-import type { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
+import type { PendingInteractionPort } from "../../src/contracts/runtime/pending-interactions.js";
 import type { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
 import { createRequestUserInputTools } from "../../src/tools/RequestUserInputTool/RequestUserInputTool.js";
 
@@ -55,7 +55,7 @@ describe("交互工具挂起语义", () => {
           externalPathCandidates: [],
         }),
       } as unknown as PermissionPolicyService,
-      pendingInteractions: { waitForApproval } as unknown as PendingInteractionService,
+      pendingInteractions: { waitForApproval } as unknown as PendingInteractionPort,
       pathService: { approve: vi.fn() } as unknown as PathAccessPolicy,
       agentName: "worker",
     });
@@ -90,7 +90,7 @@ describe("交互工具挂起语义", () => {
     });
     const waitForUserInput = vi.fn(async () => { throw interrupt; });
     const tool = createRequestUserInputTools({
-      pendingInteractions: { waitForUserInput } as unknown as PendingInteractionService,
+      pendingInteractions: { waitForUserInput } as unknown as PendingInteractionPort,
       agent: { agent_name: "worker" } as AgentConfig,
     })[0]!;
 

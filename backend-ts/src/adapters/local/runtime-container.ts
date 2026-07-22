@@ -30,7 +30,6 @@ import { BackgroundTaskService } from "../../services/runtime/background-task-se
 import { createCoreRuntimeContainer } from "../../services/runtime/core-runtime-container.js";
 import { DelegationPendingService } from "../../services/runtime/delegation-pending-service.js";
 import { DurableClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
-import { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
 import { OutboxDispatcher } from "../../services/runtime/event-outbox/dispatcher.js";
 import { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
 import { RealtimeEventHub } from "../../services/runtime/realtime-event-hub.js";
@@ -46,6 +45,9 @@ import { FileAgentConfigTeamStore } from "../filesystem/agent/file-team-store.js
 import { FilesystemSkillPackageStore } from "../filesystem/skills/filesystem-skill-package-store.js";
 import { LocalMemoryContextRepository } from "./local-memory-context-repository.js";
 import { LocalCompressionHistoryAdapter } from "./local-compression-history-adapter.js";
+import { LocalAgentDelegationStoreAdapter } from "./local-agent-delegation-store-adapter.js";
+import { LocalAgentMetricsStoreAdapter } from "./local-agent-metrics-store-adapter.js";
+import { LocalOutboxStoreAdapter } from "./local-outbox-store-adapter.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export async function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): Promise<LocalRuntimeContainer> {
@@ -57,20 +59,17 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory, transientArtifacts);
   const requestSessionApplication = new LocalSessionApplication(options.tenantId, sessionApplication, conversationStore);
   const realtimeEvents = new RealtimeEventHub();
-  const outboxDispatcher = new OutboxDispatcher(conversationStore, realtimeEvents);
+  const outboxDispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(conversationStore), realtimeEvents);
   if (options.startOutboxDispatcher ?? true) {
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
   }
-  const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
   const runtimeStorage = options.runtimeStorageFactory?.(options.tenantId)
     ?? new SqliteRuntimeStorage(options.tenantId, conversationStore);
-  const localAsyncClientEvents = new AsyncDurableClientEventPublisher(runtimeStorage, {
-    dispatchRows: async (rows) => outboxDispatcher.dispatchRows(rows),
+  const localClientEvents = new DurableClientEventPublisher(runtimeStorage, {
+    dispatchRows: (rows) => outboxDispatcher.dispatchRows(rows),
   });
-  const asyncClientEvents = options.asyncClientEventsFactory?.(options.tenantId, realtimeEvents, runtimeStorage)
-    ?? localAsyncClientEvents;
-  // Both deployments use the queued publisher so finalize can flush all prior envelope writes.
-  const eventClientEvents = asyncClientEvents ?? localAsyncClientEvents;
+  const clientEvents = options.clientEventsFactory?.(options.tenantId, realtimeEvents, runtimeStorage)
+    ?? localClientEvents;
   const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot }));
   await agentConfig.initialize();
   const modelAdapter = new ModelAdapterService({
@@ -147,7 +146,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     agentConfig,
     artifacts,
     backgroundTasks,
-    clientEvents: eventClientEvents,
+    clientEvents,
     packageStore: skillPackageStore,
   });
   agentConfig.setSkillToolService(skillTools);
@@ -159,7 +158,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     maxTimeoutSeconds: toolsConfig.bash_max_timeout,
     maxOutputChars: toolsConfig.bash_max_output,
     backgroundTasks,
-    clientEvents: eventClientEvents,
+    clientEvents,
   }) : null;
   const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot: options.dataRoot });
   const hostToolRegistry = new HostToolRegistry();
@@ -172,10 +171,8 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     getMemoryConfig: () => systemConfig.getMemoryConfig(),
     logger: options.logger,
     ...(options.hooks ? { hooks: options.hooks } : {}),
-    asyncClientEvents,
-    ...(options.asyncAnalytics ? { asyncAnalytics: options.asyncAnalytics } : {}),
-    delegationStore: conversationStore,
-    metricsStore: conversationStore,
+    delegationStore: new LocalAgentDelegationStoreAdapter(conversationStore),
+    metricsStore: new LocalAgentMetricsStoreAdapter(conversationStore),
     permissionPolicyStore: conversationStore,
     compressionHistory: new LocalCompressionHistoryAdapter(conversationStore),
     executionSessions: sessionApplication,
@@ -190,12 +187,12 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     memoryBindings,
     runtimeStorage,
     executionStorage: options.executionStorage
-      ?? options.executionStorageFactory?.({ tenantId: options.tenantId, runtimeStorage, asyncClientEvents })
+      ?? options.executionStorageFactory?.({ tenantId: options.tenantId, runtimeStorage, clientEvents })
       ?? createLocalExecutionStorage({
         tenantId: options.tenantId,
         conversation: conversationStore,
         runtimeStorage,
-        clientEvents: localAsyncClientEvents,
+        clientEvents: localClientEvents,
         fileHistory,
       }),
     pathAccessPolicyFactory: options.pathAccessPolicyFactory ?? (() => new PathApprovalService()),
@@ -211,7 +208,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     hostToolRegistry,
     delegationPending,
     eventDispatcher: outboxDispatcher,
-    clientEvents: eventClientEvents,
+    clientEvents,
     capabilities: {
       conversationStore,
       sessions: sessionApplication,

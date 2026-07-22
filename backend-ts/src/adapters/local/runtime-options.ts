@@ -9,10 +9,9 @@ import type { RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExe
 import type { AgentExecutionLogger } from "../../services/agent/execution/index.js";
 import type { AsyncBackgroundTaskRepository } from "../../contracts/storage/background-task-repository.js";
 import type { RealtimeEventBus } from "../../contracts/runtime/realtime-event-bus.js";
-import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
+import type { ClientEventPublisherPort } from "../../contracts/runtime/core-runtime-ports.js";
 import type { ExecutionStorage } from "../../contracts/execution/execution-storage.js";
 import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
-import type { AsyncAnalyticsRepository } from "../../contracts/storage/async-persistence-ports.js";
 import type { RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
 
 export interface LocalRuntimeContainerOptions {
@@ -29,16 +28,15 @@ export interface LocalRuntimeContainerOptions {
   hooks?: (registry: HookRegistry) => void;
   embedderFactory?: KnowledgeEmbedderFactory;
   memoryBindingsFactory?: MemoryRuntimeBindingsFactory;
-  asyncClientEventsFactory?: (
+  clientEventsFactory?: (
     tenantId: TenantId,
     realtimeEvents: RealtimeEventBus,
     runtimeStorage: RuntimeStorage,
-  ) => AsyncDurableClientEventPublisher;
+  ) => ClientEventPublisherPort;
   asyncBackgroundTasks?: AsyncBackgroundTaskRepository;
-  asyncAnalytics?: AsyncAnalyticsRepository;
   executionStorage?: ExecutionStorage;
   runtimeStorageFactory?: (tenantId: TenantId) => RuntimeStorage;
-  executionStorageFactory?: (input: { tenantId: TenantId; runtimeStorage: RuntimeStorage; asyncClientEvents: AsyncDurableClientEventPublisher }) => ExecutionStorage;
+  executionStorageFactory?: (input: { tenantId: TenantId; runtimeStorage: RuntimeStorage; clientEvents: ClientEventPublisherPort }) => ExecutionStorage;
   hostToolsEnabled?: boolean;
   pathAccessPolicyFactory?: () => PathAccessPolicy;
 }

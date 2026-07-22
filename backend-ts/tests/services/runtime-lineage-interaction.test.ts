@@ -6,11 +6,12 @@ import type { ModelProviderConfig } from "../../src/contracts/integrations/model
 import type { AgentRunEngine } from "../../src/services/agent/execution/run-engine.js";
 import { AgentDelegationService } from "../../src/services/agent/delegation/index.js";
 import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
+import { LocalAgentDelegationStoreAdapter } from "../../src/adapters/local/local-agent-delegation-store-adapter.js";
 import type { ConversationStore } from "../../src/contracts/conversation-store/index.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 import { toolContext } from "../helpers/tool-context.js";
 import { SqliteRuntimeStorage } from "../../src/adapters/local/sqlite-runtime-storage.js";
-import { AsyncDurableClientEventPublisher } from "../../src/services/runtime/event-outbox/async-client-event-publisher.js";
+import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { RuntimeInteractionCoordinator } from "../../src/services/runtime/pending-interaction-service.js";
 import { AsyncKernelEventPersister } from "../../src/services/agent/sdk/async-event-persister.js";
 
@@ -70,7 +71,7 @@ describe("runtime execution lineage", () => {
     store.createRun({ runId: "root-run", sessionId: "session-1", status: "running", agentName: "root" });
     store.createRun({ runId: "child-run", sessionId: "session-1", status: "running", agentName: "child", parentRunId: "root-run" });
     const emitted: Array<Record<string, any>> = [];
-    const delegation = new AgentDelegationService(store, runtimeCore(agent("worker")), {
+    const delegation = new AgentDelegationService(new LocalAgentDelegationStoreAdapter(store), runtimeCore(agent("worker")), {
       publish: vi.fn((_sessionId, event) => { emitted.push(event as Record<string, any>); return Promise.resolve({} as never); }),
     } as never);
     const seen: Array<Record<string, unknown>> = [];
@@ -130,7 +131,7 @@ describe("runtime execution lineage", () => {
       createdByCallId: "A1",
     });
     const emitted: Array<Record<string, any>> = [];
-    const delegation = new AgentDelegationService(store, runtimeCore(agent("worker")), {
+    const delegation = new AgentDelegationService(new LocalAgentDelegationStoreAdapter(store), runtimeCore(agent("worker")), {
       publish: vi.fn((_sessionId, event) => { emitted.push(event as Record<string, any>); return Promise.resolve({} as never); }),
     } as never);
     const seen: Array<Record<string, unknown>> = [];
@@ -169,7 +170,7 @@ describe("runtime execution lineage", () => {
     store.createSession(LOCAL_TENANT_ID, "session-1", null);
     store.createRun({ runId: "root-run", sessionId: "session-1", status: "running", agentName: "root" });
     const storage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
-    const publisher = new AsyncDurableClientEventPublisher(storage, { dispatchRows: async () => [] });
+    const publisher = new DurableClientEventPublisher(storage, { dispatchRows: async () => [] });
     const coordinator = new RuntimeInteractionCoordinator(storage, publisher);
     const childPersister = new AsyncKernelEventPersister(storage, publisher, {
       tenantId: LOCAL_TENANT_ID,

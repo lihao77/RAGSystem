@@ -6,6 +6,7 @@ import { createConversationStore } from "../../src/adapters/local/sqlite/convers
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { EnvelopeProjector } from "../../src/services/runtime/event-outbox/projector.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
+import { LocalOutboxStoreAdapter } from "../../src/adapters/local/local-outbox-store-adapter.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 describe("event outbox projection and dispatch", () => {
@@ -79,7 +80,7 @@ describe("event outbox projection and dispatch", () => {
     });
   });
 
-  it("publishes projected events to realtime fanout by default", () => {
+  it("publishes projected events to realtime fanout by default", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
@@ -90,8 +91,8 @@ describe("event outbox projection and dispatch", () => {
       payload: { status: "completed" },
     });
 
-    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
-    const projected = dispatcher.pollOnce();
+    const dispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(store), realtimeEvents);
+    const projected = await dispatcher.pollOnce();
 
     expect(projected).toHaveLength(1);
     expect(projected[0]).toMatchObject({
@@ -115,7 +116,7 @@ describe("event outbox projection and dispatch", () => {
     store.close();
   });
 
-  it("marks projected events delivered after realtime fanout", () => {
+  it("marks projected events delivered after realtime fanout", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
@@ -126,8 +127,8 @@ describe("event outbox projection and dispatch", () => {
       payload: { status: "completed" },
     });
 
-    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
-    dispatcher.pollOnce();
+    const dispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(store), realtimeEvents);
+    await dispatcher.pollOnce();
 
     expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
@@ -139,7 +140,7 @@ describe("event outbox projection and dispatch", () => {
     store.close();
   });
 
-  it("does not retry delivered rows when a realtime subscriber fails", () => {
+  it("does not retry delivered rows when a realtime subscriber fails", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
@@ -153,8 +154,8 @@ describe("event outbox projection and dispatch", () => {
       payload: { status: "completed" },
     });
 
-    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
-    expect(dispatcher.pollOnce()).toHaveLength(1);
+    const dispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(store), realtimeEvents);
+    expect(await dispatcher.pollOnce()).toHaveLength(1);
 
     expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
       expect.objectContaining({
@@ -178,7 +179,7 @@ describe("event outbox projection and dispatch", () => {
     store.close();
   });
 
-  it("retries projection failures with backoff before delivering", () => {
+  it("retries projection failures with backoff before delivering", async () => {
     let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
     const now = () => new Date(nowMs);
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
@@ -201,7 +202,7 @@ describe("event outbox projection and dispatch", () => {
     let failProjection = true;
     const projector = new EnvelopeProjector();
     const dispatcher = new OutboxDispatcher(
-      store,
+      new LocalOutboxStoreAdapter(store),
       realtimeEvents,
       {
         toEnvelope(row: OutboxRow) {
@@ -219,7 +220,7 @@ describe("event outbox projection and dispatch", () => {
       },
     );
 
-    expect(dispatcher.pollOnce()).toEqual([]);
+    expect(await dispatcher.pollOnce()).toEqual([]);
     expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
       expect.objectContaining({
         status: "retrying",
@@ -237,10 +238,10 @@ describe("event outbox projection and dispatch", () => {
     });
 
     failProjection = false;
-    expect(dispatcher.pollOnce()).toEqual([]);
+    expect(await dispatcher.pollOnce()).toEqual([]);
     nowMs += 1_000;
 
-    const projected = dispatcher.pollOnce();
+    const projected = await dispatcher.pollOnce();
     expect(projected).toHaveLength(1);
     expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
@@ -264,7 +265,7 @@ describe("event outbox projection and dispatch", () => {
     store.close();
   });
 
-  it("marks outbox rows failed after retry attempts are exhausted", () => {
+  it("marks outbox rows failed after retry attempts are exhausted", async () => {
     let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
     const now = () => new Date(nowMs);
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
@@ -284,7 +285,7 @@ describe("event outbox projection and dispatch", () => {
       now().toISOString(),
     );
     const dispatcher = new OutboxDispatcher(
-      store,
+      new LocalOutboxStoreAdapter(store),
       realtimeEvents,
       {
         toEnvelope() {
@@ -299,9 +300,9 @@ describe("event outbox projection and dispatch", () => {
       },
     );
 
-    dispatcher.pollOnce();
+    await dispatcher.pollOnce();
     nowMs += 1_000;
-    dispatcher.pollOnce();
+    await dispatcher.pollOnce();
 
     expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
       expect.objectContaining({
@@ -321,7 +322,7 @@ describe("event outbox projection and dispatch", () => {
     store.close();
   });
 
-  it("reclaims stale locked outbox rows", () => {
+  it("reclaims stale locked outbox rows", async () => {
     let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
     const now = () => new Date(nowMs);
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
@@ -348,7 +349,7 @@ describe("event outbox projection and dispatch", () => {
     ]);
 
     const dispatcher = new OutboxDispatcher(
-      store,
+      new LocalOutboxStoreAdapter(store),
       realtimeEvents,
       new EnvelopeProjector(),
       {
@@ -358,10 +359,10 @@ describe("event outbox projection and dispatch", () => {
     );
 
     nowMs += 999;
-    expect(dispatcher.pollOnce()).toEqual([]);
+    expect(await dispatcher.pollOnce()).toEqual([]);
     nowMs += 2;
 
-    expect(dispatcher.pollOnce()).toHaveLength(1);
+    expect(await dispatcher.pollOnce()).toHaveLength(1);
     expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
       expect.objectContaining({
         status: "delivered",

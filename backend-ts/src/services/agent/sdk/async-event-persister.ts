@@ -15,7 +15,7 @@ import type {
 } from "../../../contracts/storage/runtime-storage.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
-import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
+import type { ClientEventPublisherPort } from "../../../contracts/runtime/core-runtime-ports.js";
 import { buildExecutionEnvelopeRunStep } from "../../runtime/event-outbox/execution-envelope-archive.js";
 
 export interface AsyncPersisterRunContext {
@@ -57,7 +57,7 @@ export class AsyncKernelEventPersister {
 
   constructor(
     private readonly storage: RuntimeStorage,
-    private readonly clientEvents: Pick<AsyncDurableClientEventPublisher, "prepare" | "deliver" | "flush">,
+    private readonly clientEvents: Pick<ClientEventPublisherPort, "prepare" | "deliver" | "flush">,
     private readonly ctx: AsyncPersisterRunContext,
     private readonly fileHistory: FileSnapshotPort | null = null,
   ) {

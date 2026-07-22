@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AsyncOutboxStore, OutboxRow } from "../../src/contracts/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
-import { AsyncOutboxDispatcher } from "../../src/services/runtime/event-outbox/async-dispatcher.js";
+import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 
 const row = (id: number, attempts = 0): OutboxRow => ({
   id, event_id: `event-${id}`, session_id: "session-1", tenant_id: "tenant-1", run_id: "run-1", session_seq: id,
@@ -12,7 +12,7 @@ const row = (id: number, attempts = 0): OutboxRow => ({
   last_error: null, created_at: new Date().toISOString(),
 });
 
-describe("AsyncOutboxDispatcher", () => {
+describe("OutboxDispatcher async port", () => {
   it("projects and marks PostgreSQL rows delivered", async () => {
     const delivered: number[] = [];
     const store = createOutboxStore({
@@ -21,7 +21,7 @@ describe("AsyncOutboxDispatcher", () => {
       markOutboxRetrying: async () => false, markOutboxFailed: async () => false,
     });
     const hub = new RealtimeEventHub();
-    const dispatcher = new AsyncOutboxDispatcher(store, hub);
+    const dispatcher = new OutboxDispatcher(store, hub);
     const events = await dispatcher.pollOnce();
     expect(events[0]).toMatchObject({ type: "state_sync", message_id: "event-1", seq: 1 });
     expect(delivered).toEqual([1]);
@@ -36,7 +36,7 @@ describe("AsyncOutboxDispatcher", () => {
       markOutboxRetrying: async (_id, error) => { retrying.push(error); return true; },
       markOutboxFailed: async () => false,
     });
-    const dispatcher = new AsyncOutboxDispatcher(store, new RealtimeEventHub(), undefined, { maxAttempts: 3 });
+    const dispatcher = new OutboxDispatcher(store, new RealtimeEventHub(), undefined, { maxAttempts: 3 });
     await dispatcher.pollOnce();
     expect(retrying[0]).toContain("Invalid outbox payload");
     expect(dispatcher.getMetrics().retried).toBe(1);
@@ -56,11 +56,31 @@ describe("AsyncOutboxDispatcher", () => {
       markOutboxFailed: async () => false,
     } as unknown as AsyncOutboxStore;
     const hub = new RealtimeEventHub();
-    const dispatcher = new AsyncOutboxDispatcher(store, hub, undefined, { tenantId: "tenant-1" });
+    const dispatcher = new OutboxDispatcher(store, hub, undefined, { tenantId: "tenant-1" });
 
     await Promise.all([dispatcher.dispatchPendingRows([row(1)]), dispatcher.dispatchPendingRows([row(1)])]);
 
     expect(hub.getHistory("session-1")).toHaveLength(1);
+  });
+
+  it("does not redispatch non-pending rows when targeted claiming is unavailable", async () => {
+    const store = {
+      claimPendingOutbox: async () => [],
+      markOutboxDelivered: async () => true,
+      markOutboxRetrying: async () => false,
+      markOutboxFailed: async () => false,
+    };
+    const hub = new RealtimeEventHub();
+    const dispatcher = new OutboxDispatcher(store, hub);
+
+    await dispatcher.dispatchPendingRows([
+      row(1),
+      { ...row(2), status: "delivered", delivered_at: new Date().toISOString() },
+    ]);
+
+    expect(hub.getHistory("session-1")).toEqual([
+      expect.objectContaining({ message_id: "event-1" }),
+    ]);
   });
 });
 

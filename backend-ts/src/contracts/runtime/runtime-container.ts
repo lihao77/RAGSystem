@@ -15,7 +15,6 @@ import type { CommandExecutionPort, CodeExecutionPort, DocumentToolPort, Workspa
 import type { AsyncSessionFileStorage, SessionFileLookupPort } from "../session/session-file-storage.js";
 import type { ExecutionSessionPort, SessionApplication } from "../session/session-application.js";
 import type { RuntimeStorage } from "../storage/runtime-storage.js";
-import type { AsyncAnalyticsRepository } from "../storage/async-persistence-ports.js";
 import type { TenantId } from "../../identity/types.js";
 import type { AgentConfigService } from "../../services/agent/config/index.js";
 import type { AgentDelegationService } from "../../services/agent/delegation/index.js";
@@ -36,8 +35,6 @@ import type { AgentSessionApplication } from "../../services/sessions/index.js";
 import type { SkillLibraryService } from "../../services/skills/skill-library-service.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { DelegationPendingService } from "../../services/runtime/delegation-pending-service.js";
-import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
-import type { ClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
 import type { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
 import type { PermissionPolicyService } from "../../services/runtime/permission-policy-service.js";
 import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
@@ -48,6 +45,7 @@ import type {
   AgentDelegationStorePort,
   AgentMetricsStorePort,
   CompressionHistoryPort,
+  ClientEventPublisherPort,
   PermissionPolicyStorePort,
   RuntimeEventDispatcherPort,
 } from "./core-runtime-ports.js";
@@ -107,7 +105,7 @@ export interface RuntimeContainerBase {
   readonly runtimeCore: RuntimeCoreService;
   readonly agentDelegation: AgentDelegationService;
   readonly eventDispatcher: RuntimeEventDispatcherPort;
-  readonly clientEvents: ClientEventPublisher;
+  readonly clientEvents: ClientEventPublisherPort;
   readonly dataRoot: string;
   close(): void;
 }
@@ -133,8 +131,7 @@ interface CoreRuntimeDependenciesBase {
   getMemoryConfig: () => MemoryConfig;
   logger?: AgentExecutionLogger | undefined;
   hooks?: ((registry: HookRegistry) => void) | undefined;
-  asyncClientEvents: AsyncDurableClientEventPublisher;
-  asyncAnalytics?: AsyncAnalyticsRepository;
+  clientEvents: ClientEventPublisherPort;
   runtimeStorage: RuntimeStorage;
   delegationStore: AgentDelegationStorePort;
   metricsStore: AgentMetricsStorePort;
@@ -164,7 +161,6 @@ interface CoreRuntimeDependenciesBase {
   hostToolRegistry: HostToolRegistry;
   delegationPending: DelegationPendingService;
   eventDispatcher: RuntimeEventDispatcherPort;
-  clientEvents: ClientEventPublisher;
   closeInfrastructure(): void;
 }
 

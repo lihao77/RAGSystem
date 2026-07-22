@@ -9,7 +9,7 @@ import type { ConversationStore } from "../../src/contracts/conversation-store/i
 import type { InteractionResumeStarter } from "../../src/contracts/runtime/pending-interactions.js";
 import type { RuntimeFinalizeStatus, RuntimeStorage } from "../../src/contracts/storage/runtime-storage.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
-import { AsyncDurableClientEventPublisher } from "../../src/services/runtime/event-outbox/async-client-event-publisher.js";
+import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { RuntimeInteractionCoordinator } from "../../src/services/runtime/pending-interaction-service.js";
 import { makeTempRoot } from "../helpers/temp-db.js";
 
@@ -50,7 +50,7 @@ function createCoordinator(storage: RuntimeStorage, startClaim?: InteractionResu
   const dispatchRows = vi.fn(async () => []);
   const coordinator = new RuntimeInteractionCoordinator(
     storage,
-    new AsyncDurableClientEventPublisher(storage, { dispatchRows }),
+    new DurableClientEventPublisher(storage, { dispatchRows }),
   );
   if (startClaim) coordinator.bindResumeStarter({ startClaim });
   return { coordinator, dispatchRows };
@@ -159,7 +159,7 @@ describe("RuntimeInteractionCoordinator", () => {
     const dispatchRows = vi.fn(async () => []);
     const coordinator = new RuntimeInteractionCoordinator(
       storage,
-      new AsyncDurableClientEventPublisher(storage, { dispatchRows }),
+      new DurableClientEventPublisher(storage, { dispatchRows }),
     );
     const onInteractionRequired = vi.fn();
 
@@ -208,7 +208,7 @@ describe("RuntimeInteractionCoordinator", () => {
     const storage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
     const coordinator = new RuntimeInteractionCoordinator(
       storage,
-      new AsyncDurableClientEventPublisher(storage, { dispatchRows: async () => [] }),
+      new DurableClientEventPublisher(storage, { dispatchRows: async () => [] }),
     );
     let interactionId = "";
     const waiting = coordinator.waitForUserInput({

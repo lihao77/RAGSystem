@@ -6,7 +6,7 @@ import type {
   RuntimeStorage,
 } from "../../src/contracts/storage/runtime-storage.js";
 import { createTenantId } from "../../src/identity/types.js";
-import { AsyncDurableClientEventPublisher } from "../../src/services/runtime/event-outbox/async-client-event-publisher.js";
+import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 
@@ -61,10 +61,10 @@ function createHarness(beforeRecord?: (input: RuntimeRecordEnvelopeInput) => Pro
       return [];
     }),
   };
-  return { publisher: new AsyncDurableClientEventPublisher(storage, dispatcher), inputs, dispatched, recordEnvelope, dispatcher };
+  return { publisher: new DurableClientEventPublisher(storage, dispatcher), inputs, dispatched, recordEnvelope, dispatcher };
 }
 
-describe("AsyncDurableClientEventPublisher", () => {
+describe("DurableClientEventPublisher async port", () => {
   it("atomically records a step and outbox before dispatching", async () => {
     const harness = createHarness();
 

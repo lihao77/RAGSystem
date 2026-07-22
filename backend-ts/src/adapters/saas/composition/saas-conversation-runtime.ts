@@ -52,8 +52,7 @@ import { SaaSArtifactService } from "../../../adapters/saas/application/artifact
 import { SaaSKnowledgeFileStorage } from "../../../adapters/saas/object-storage/knowledge-file-storage.js";
 import type { AsyncKnowledgeFileStore } from "../../../contracts/knowledge/async-knowledge-file-store.js";
 import { SaaSProviderMcpApplication } from "../../../adapters/saas/application/provider-mcp/saas-provider-mcp-application.js";
-import { AsyncOutboxDispatcher } from "../../../services/runtime/event-outbox/async-dispatcher.js";
-import type { AsyncOutboxDispatcher as AsyncOutboxDispatcherType } from "../../../services/runtime/event-outbox/async-dispatcher.js";
+import { OutboxDispatcher } from "../../../services/runtime/event-outbox/dispatcher.js";
 import { SaaSFileHistoryStorage } from "../../../adapters/saas/object-storage/file-history-storage.js";
 import type { AsyncFileHistoryStore } from "../../../contracts/file-history-store/index.js";
 import { SaaSSessionFileStorage } from "../../../adapters/saas/object-storage/session-file-storage.js";
@@ -85,7 +84,7 @@ export interface SaaSConversationRuntimeHandle {
   runs: PostgresRunRepository;
   outbox: PostgresOutboxRepository;
   /** Process-level outbox recovery poller shared across all tenant runtimes. */
-  sharedOutboxDispatcher: AsyncOutboxDispatcherType;
+  sharedOutboxDispatcher: OutboxDispatcher;
   providerContinuations: PostgresProviderContinuationRepository;
   knowledgeFiles: PostgresKnowledgeFileMetadataRepository;
   pendingInteractions: PostgresPendingInteractionRepository;
@@ -157,7 +156,7 @@ export async function createSaaSConversationRuntime(
     const realtimeRelay = new PostgresRealtimeEventRelay(realtimeListenerPool, executor, outbox);
     await realtimeRelay.start();
     // One recovery poller for the process — not per tenant runtime.
-    const sharedOutboxDispatcher = new AsyncOutboxDispatcher(
+    const sharedOutboxDispatcher = new OutboxDispatcher(
       outbox,
       null,
       undefined,

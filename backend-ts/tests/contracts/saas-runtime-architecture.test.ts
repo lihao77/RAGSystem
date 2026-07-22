@@ -28,7 +28,7 @@ describe("SaaS runtime architecture", () => {
     expect(source).not.toContain("IFileIndexStore");
     expect(source).not.toContain("IMemoryStore");
     expect(source).toContain("capabilities: {");
-    expect(source).toContain("eventDispatcher: asyncOutboxDispatcher");
+    expect(source).toContain("eventDispatcher: outboxDispatcher");
   });
 
   it("does not provision a tenant-local SQLite database from the SaaS registry", async () => {

@@ -6,7 +6,7 @@ import type {
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
-import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
+import type { ClientEventPublisherPort } from "../../../contracts/runtime/core-runtime-ports.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import { buildExecutionEnvelopeRunStep } from "../../runtime/event-outbox/execution-envelope-archive.js";
 
@@ -23,7 +23,7 @@ export interface SessionControlDeps {
   eventPublisher: AgentExecutionEventPublisher;
   pendingInteractions: PendingInteractionPort;
   runtimeStorage: RuntimeStorage;
-  asyncClientEvents?: Pick<AsyncDurableClientEventPublisher, "publish" | "deliver">;
+  clientEvents: Pick<ClientEventPublisherPort, "publish" | "deliver">;
   /** collaborateSequentially 顺序复用 executeSynchronously（由 launchers 提供，注入打破环）。 */
   executeSynchronously: (request: ExecuteRequest, requestId: string) => Promise<AgentExecuteResult>;
 }
@@ -59,7 +59,7 @@ export function createSessionControl(deps: SessionControlDeps): SessionControlAp
           },
         });
         await deps.pendingInteractions.cancelSession(sessionId, "suspended run cancelled");
-        await deps.asyncClientEvents?.deliver(result.records.map((record) => record.outbox));
+        await deps.clientEvents.deliver(result.records.map((record) => record.outbox));
         return result.interruptedRuns.length > 0 || result.cancelledInteractions > 0;
       }
       deps.eventPublisher.publishUserInterrupt(handle.status, "user_stop");

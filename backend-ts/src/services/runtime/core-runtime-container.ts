@@ -12,7 +12,6 @@ import type {
   SaaSCoreRuntimeDependencies,
   SaaSRuntimeContainer,
 } from "../../contracts/runtime/runtime-container.js";
-import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import { RuntimeInteractionCoordinator } from "./pending-interaction-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
 
@@ -54,22 +53,14 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     clientEvents,
   } = dependencies;
 
-  // SaaS 的用户可见事件必须进入 PostgreSQL durable outbox；Local 继续使用 SQLite outbox。
-  const eventClientEvents: ClientEventPublisher = dependencies.asyncClientEvents;
-  const executionDispatcher = {
-    dispatchRows: (rows: Parameters<typeof eventDispatcher.dispatchRows>[0]) => {
-      const result = eventDispatcher.dispatchRows(rows);
-      return Array.isArray(result) ? result : [];
-    },
-  };
   const interactionCoordinator = new RuntimeInteractionCoordinator(
     dependencies.runtimeStorage,
-    dependencies.asyncClientEvents,
+    clientEvents,
   );
   const selectedPendingInteractions = interactionCoordinator;
 
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
-  const agentDelegation = new AgentDelegationService(delegationStore, runtimeCore, eventClientEvents);
+  const agentDelegation = new AgentDelegationService(delegationStore, runtimeCore, clientEvents);
   const toolsDeps = {
     memoryTools: memoryBindings.tools,
     pendingInteractions: selectedPendingInteractions,
@@ -102,23 +93,20 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     backgroundTasks,
     notificationQueue,
     sessionFiles,
-    outboxDispatcher: executionDispatcher,
+    outboxDispatcher: eventDispatcher,
     clientEvents,
-    eventClientEvents,
     permissionPolicy,
     pendingInteractions: selectedPendingInteractions,
     hostToolRegistry,
     delegationPending,
     logger: dependencies.logger,
     metricsCollector,
-    ...(dependencies.asyncAnalytics ? { asyncAnalytics: dependencies.asyncAnalytics } : {}),
     compressionService: new AgentCompressionService(
       compressionHistory,
       () => modelAdapter.listProviders(),
       systemConfig,
     ),
     ...(dependencies.hooks ? { hooks: dependencies.hooks } : {}),
-    ...(dependencies.asyncClientEvents ? { asyncClientEvents: dependencies.asyncClientEvents } : {}),
     runtimeStorage: dependencies.runtimeStorage,
   });
   const resumeExecutor = createResumeExecutor({

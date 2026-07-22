@@ -140,7 +140,7 @@ describe("runtime composition roots", () => {
       dataRoot,
       startOutboxDispatcher: false,
       hostToolsEnabled: false,
-      asyncClientEventsFactory: (tenantId, realtimeEvents) => {
+      clientEventsFactory: (tenantId, realtimeEvents) => {
         factoryTenantId = tenantId;
         factoryRealtimeEvents = realtimeEvents;
         return { publish } as never;

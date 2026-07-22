@@ -35,22 +35,20 @@ export interface SystemMetrics {
 export class AgentMetricsCollector {
   constructor(private readonly store: AgentMetricsStorePort) {}
 
-  recordRun(payload: AgentRunMetricPayload): void | Promise<void> {
-    return this.store.insertMetric(payload);
+  async recordRun(payload: AgentRunMetricPayload): Promise<void> {
+    await this.store.insertMetric(payload);
   }
 
   /**
    * 返回监控指标。无 agent_name:系统级 + agents Record;
    * 指定 agent_name:铺平返回该 agent 单对象(无数据返零值,对齐前端 agent_metrics || value 取数)。
    */
-  getSystemMetrics(agentName?: string | null): SystemMetrics | AgentMetricSummary | Promise<SystemMetrics | AgentMetricSummary> {
-    const summaries = this.store.aggregateMetrics(agentName);
-    return isPromiseLike(summaries)
-      ? summaries.then((items) => summarizeMetrics(items, agentName))
-      : summarizeMetrics(summaries, agentName);
+  async getSystemMetrics(agentName?: string | null): Promise<SystemMetrics | AgentMetricSummary> {
+    const summaries = await this.store.aggregateMetrics(agentName);
+    return summarizeMetrics(summaries, agentName);
   }
 
-  reset(agentName?: string | null): { deleted: number } | Promise<{ deleted: number }> {
+  async reset(agentName?: string | null): Promise<{ deleted: number }> {
     return this.store.resetMetrics(agentName);
   }
 }
@@ -79,10 +77,6 @@ function summarizeMetrics(
     overall_success_rate: totalCalls > 0 ? successTotal / totalCalls : 0,
     agents,
   };
-}
-
-function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
-  return typeof (value as { then?: unknown })?.then === "function";
 }
 
 function zeroSummary(agentName: string): AgentMetricSummary {

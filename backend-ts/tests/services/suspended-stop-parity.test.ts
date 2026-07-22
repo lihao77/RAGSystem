@@ -5,9 +5,8 @@ import { AgentExecutionEventPublisher } from "../../src/services/agent/execution
 import { AgentExecutionStatusTracker } from "../../src/services/agent/execution/status-tracker.js";
 import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import { SqliteRuntimeStorage } from "../../src/adapters/local/sqlite-runtime-storage.js";
-import { AsyncDurableClientEventPublisher } from "../../src/services/runtime/event-outbox/async-client-event-publisher.js";
+import { LocalOutboxStoreAdapter } from "../../src/adapters/local/local-outbox-store-adapter.js";
 import { RuntimeInteractionCoordinator } from "../../src/services/runtime/pending-interaction-service.js";
-import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
@@ -53,12 +52,17 @@ function seedLocal() {
 
 function localControl(store: ReturnType<typeof seedLocal>["store"]) {
   const realtime = new RealtimeEventHub();
-  const client = new DurableClientEventPublisher(store, new OutboxDispatcher(store, realtime));
+  const dispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(store), realtime);
+  const runtimeStorage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
+  const client = new DurableClientEventPublisher(runtimeStorage, {
+    dispatchRows: async (rows) => dispatcher.dispatchRows(rows),
+  });
   return createSessionControl({
     statusTracker: new AgentExecutionStatusTracker(),
     eventPublisher: new AgentExecutionEventPublisher(client),
-    conversationStore: store,
-    pendingInteractions: new PendingInteractionService(client, store),
+    pendingInteractions: new RuntimeInteractionCoordinator(runtimeStorage, client),
+    runtimeStorage,
+    clientEvents: client,
     executeSynchronously: vi.fn(),
   });
 }
@@ -130,7 +134,7 @@ describe("suspended stop Local/SaaS parity", () => {
     await expect(control.stopSession(sessionId)).resolves.toBe(false);
 
     const storage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
-    const publisher = new AsyncDurableClientEventPublisher(storage, { dispatchRows: async () => [] });
+    const publisher = new DurableClientEventPublisher(storage, { dispatchRows: async () => [] });
     const coordinator = new RuntimeInteractionCoordinator(storage, publisher);
     await expect(coordinator.respondApprovalAsync(sessionId, "interaction-resolved", { approved: true, message: "replay" }))
       .resolves.toMatchObject({ resolved: false, needsResume: false });
@@ -162,14 +166,13 @@ describe("suspended stop Local/SaaS parity", () => {
       operations: { interruptSession },
     };
     const deliver = vi.fn().mockResolvedValue([]);
-    const pendingPort = { cancelSession: vi.fn() };
+    const pendingPort = { cancelSession: vi.fn().mockResolvedValue(undefined) };
     const control = createSessionControl({
       statusTracker: new AgentExecutionStatusTracker(),
       eventPublisher: { publishRunEnded: vi.fn(), publishUserInterrupt: vi.fn() } as never,
-      conversationStore: { listRuns: () => ({ items: [] }) } as never,
       pendingInteractions: pendingPort as never,
       runtimeStorage: runtimeStorage as never,
-      asyncClientEvents: {
+      clientEvents: {
         publish: vi.fn(async () => { throw new Error("publish is not used by suspended stop"); }),
         deliver,
       },
