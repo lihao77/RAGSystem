@@ -2,7 +2,9 @@ import type {
   AddMessageInput,
   AddRunStepInput,
   AppendOutboxInput,
+  CreatedRun,
   CreatePendingInteractionInput,
+  CreateRunInput,
   OutboxRow,
   PendingInteractionRecord,
   PendingInteractionStatus,
@@ -15,13 +17,10 @@ import type { PermissionMode } from "../runtime/permissions.js";
 import type { MessageInfo, SessionInfo } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
 
-export type RuntimeCreateRunInput = Parameters<
-  import("../conversation-store/index.js").IRunStore["createRun"]
->[0];
-
-export type RuntimeCreatedRun = ReturnType<
-  import("../conversation-store/index.js").IRunStore["createRun"]
->;
+/** @deprecated Import CreateRunInput from conversation-store directly. */
+export type RuntimeCreateRunInput = CreateRunInput;
+/** @deprecated Import CreatedRun from conversation-store directly. */
+export type RuntimeCreatedRun = CreatedRun;
 
 /** Tenant-bound conversation operations used by the shared execution core. */
 export interface RuntimeConversationStorage {
@@ -56,7 +55,7 @@ export interface RuntimeConversationStorage {
 
 /** Tenant-bound run and execution-step operations. */
 export interface RuntimeRunStorage {
-  createRun(input: RuntimeCreateRunInput): Promise<RuntimeCreatedRun>;
+  createRun(input: CreateRunInput): Promise<CreatedRun>;
   updateRunStatus(
     runId: string,
     sessionId: string,
@@ -142,14 +141,14 @@ export interface RuntimeStartRunInput {
     metadata?: Record<string, unknown>;
     permissionMode?: PermissionMode | null;
   };
-  run: RuntimeCreateRunInput;
+  run: CreateRunInput;
   initialUserMessage?: AddMessageInput & { messageId: string };
   /** Initial client envelopes committed atomically with the run and first user message. */
   initialRecords?: readonly RuntimeRecordEnvelopeInput[];
 }
 
 export interface RuntimeStartRunResult {
-  run: RuntimeCreatedRun;
+  run: CreatedRun;
   initialUserMessage: MessageInfo | null;
   records: RuntimeRecordEnvelopeResult[];
 }

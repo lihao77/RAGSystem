@@ -65,12 +65,12 @@ describe("session message mutation routes", () => {
     app = harness.app;
 
     harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s1" });
-    const user = harness.container.local.conversationStore.addMessage({
+    const user = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "user",
       content: "old task",
     });
-    const assistant = harness.container.local.conversationStore.addMessage({
+    const assistant = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "assistant",
       content: "answer",
@@ -115,23 +115,23 @@ describe("session message mutation routes", () => {
     app = harness.app;
 
     harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s1" });
-    const anchor = harness.container.local.conversationStore.addMessage({
+    const anchor = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "user",
       content: "keep",
     });
-    const assistant = harness.container.local.conversationStore.addMessage({
+    const assistant = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "assistant",
       content: "delete",
       metadata: { run_id: "run-1" },
     });
-    harness.container.local.conversationStore.addMessage({
+    harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "user",
       content: "delete too",
     });
-    harness.container.local.conversationStore.addRunStep({
+    harness.localInfrastructure.conversationStore.addRunStep({
       sessionId: "s1",
       runId: "run-1",
       messageId: assistant.id,
@@ -162,7 +162,7 @@ describe("session message mutation routes", () => {
       message: "回退成功",
       data: { deleted: 2 },
     });
-    expect(harness.container.local.conversationStore.listRunSteps({ messageId: assistant.id, sessionId: "s1" })).toEqual([]);
+    expect(harness.localInfrastructure.conversationStore.listRunSteps({ messageId: assistant.id, sessionId: "s1" })).toEqual([]);
 
     const messages = await app.inject({
       method: "GET",
@@ -178,18 +178,18 @@ describe("session message mutation routes", () => {
     await createDefaultChatProvider(app);
 
     harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "retry-session" });
-    const anchor = harness.container.local.conversationStore.addMessage({
+    const anchor = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "retry-session",
       role: "user",
       content: "old task",
     });
-    harness.container.local.conversationStore.addMessage({
+    harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "retry-session",
       role: "assistant",
       content: "old answer",
       metadata: { run_id: "old-run" },
     });
-    harness.container.local.conversationStore.addMessage({
+    harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "retry-session",
       role: "user",
       content: "follow-up to delete",
@@ -261,7 +261,7 @@ describe("session message mutation routes", () => {
       sessionId: "file-rollback-session",
       metadata: { workspace_root: workspaceRoot },
     });
-    const firstUser = harness.container.local.conversationStore.addMessage({
+    const firstUser = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "file-rollback-session",
       role: "user",
       content: "create file",
@@ -279,7 +279,7 @@ describe("session message mutation routes", () => {
       new PathApprovalService(),
     );
     expect(firstWrite).toMatchObject({ success: true });
-    const secondUser = await harness.container.local.sessions.addMessage({
+    const secondUser = await harness.localInfrastructure.sessions.addMessage({
       sessionId: "file-rollback-session",
       role: "user",
       content: "snapshot v1",
@@ -299,7 +299,7 @@ describe("session message mutation routes", () => {
       new PathApprovalService(),
     );
     expect(secondWrite).toMatchObject({ success: true });
-    harness.container.local.conversationStore.addMessage({
+    harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "file-rollback-session",
       role: "user",
       content: "snapshot v2",
@@ -337,12 +337,12 @@ describe("session message mutation routes", () => {
       userId: "u1",
       metadata: { title: "Exported session" },
     });
-    harness.container.local.conversationStore.addMessage({
+    harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "session export!",
       role: "user",
       content: "task",
     });
-    const assistant = harness.container.local.conversationStore.addMessage({
+    const assistant = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "session export!",
       role: "assistant",
       content: "answer",

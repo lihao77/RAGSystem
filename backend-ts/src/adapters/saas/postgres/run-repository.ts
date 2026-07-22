@@ -1,5 +1,11 @@
 import type { RunStepInfo } from "../../../contracts/common.js";
-import type { AddRunStepInput, IRunStore, RunInfo, RunStepRecord } from "../../../contracts/conversation-store/index.js";
+import type {
+  AddRunStepInput,
+  CreatedRun,
+  CreateRunInput,
+  RunInfo,
+  RunStepRecord,
+} from "../../../contracts/conversation-store/index.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 import type { AsyncRunStore } from "../../../contracts/storage/async-persistence-ports.js";
 export type { AsyncRunStore } from "../../../contracts/storage/async-persistence-ports.js";
@@ -32,7 +38,7 @@ function run(row: Record<string, unknown>): RunInfo {
 export class PostgresRunRepository implements AsyncRunStore {
   constructor(private readonly executor: PostgresMemoryExecutor) {}
 
-  async createRun(input: Parameters<IRunStore["createRun"]>[0] & { tenantId: string }): Promise<ReturnType<IRunStore["createRun"]>> {
+  async createRun(input: CreateRunInput & { tenantId: string }): Promise<CreatedRun> {
     const threadKey = input.threadKey?.trim() || "root";
     const status = input.status ?? "running";
     await this.executor.query(`INSERT INTO saas_runs

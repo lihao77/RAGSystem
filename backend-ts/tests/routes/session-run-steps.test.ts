@@ -58,7 +58,7 @@ describe("session run step routes", () => {
     app = harness.app;
 
     harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s1" });
-    const assistant = harness.container.local.conversationStore.addMessage({
+    const assistant = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "assistant",
       content: "answer",
@@ -85,7 +85,7 @@ describe("session run step routes", () => {
         lineage: { parent_call_id: "root-call" },
       },
     });
-    harness.container.local.conversationStore.updateRunStepsMessageId("s1", "run-1", assistant.id);
+    harness.localInfrastructure.conversationStore.updateRunStepsMessageId("s1", "run-1", assistant.id);
 
     const messages = await app.inject({
       method: "GET",
@@ -133,7 +133,7 @@ describe("session run step routes", () => {
         ],
       },
     });
-    const archived = harness.container.local.conversationStore
+    const archived = harness.localInfrastructure.conversationStore
       .listRunSteps({ sessionId: "s1", runId: "run-1", limit: 100 })
       .filter((step) => step.step_type === "protocol.envelope.v1");
     expect(archived).toHaveLength(2);
@@ -151,23 +151,23 @@ describe("session run step routes", () => {
     app = harness.app;
 
     harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s2" });
-    const assistant = harness.container.local.conversationStore.addMessage({
+    const assistant = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s2",
       role: "assistant",
       content: "delegated answer",
       metadata: { run_id: "root-run" },
     });
     // root run(final message = assistant)。
-    harness.container.local.conversationStore.createRun({
+    harness.localInfrastructure.conversationStore.createRun({
       runId: "root-run",
       sessionId: "s2",
       status: "running",
       agentName: "orchestrator_agent",
       threadKey: "root",
     });
-    harness.container.local.conversationStore.updateRunStatus("root-run", "s2", "completed", assistant.id);
+    harness.localInfrastructure.conversationStore.updateRunStatus("root-run", "s2", "completed", assistant.id);
     // child run(parent_run_id=root-run):其工具 step 落子 run_id 下。
-    harness.container.local.conversationStore.createRun({
+    harness.localInfrastructure.conversationStore.createRun({
       runId: "child-run",
       sessionId: "s2",
       status: "running",
@@ -235,14 +235,14 @@ describe("session run step routes", () => {
     const rootRunId = "root-run";
     const childRunId = "child-run";
     harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId });
-    harness.container.local.conversationStore.createRun({
+    harness.localInfrastructure.conversationStore.createRun({
       runId: rootRunId,
       sessionId,
       status: "running",
       agentName: "orchestrator_agent",
       threadKey: "root",
     });
-    harness.container.local.conversationStore.createRun({
+    harness.localInfrastructure.conversationStore.createRun({
       runId: childRunId,
       sessionId,
       status: "running",
@@ -252,7 +252,7 @@ describe("session run step routes", () => {
       parentCallId: "child-call",
       childAgentId: "worker-1",
     });
-    const assistant = harness.container.local.conversationStore.addMessage({
+    const assistant = harness.localInfrastructure.conversationStore.addMessage({
       sessionId,
       role: "assistant",
       content: "done",
@@ -308,12 +308,12 @@ describe("session run step routes", () => {
       await harness.container.clientEvents.publish(sessionId, event, { runId: event.run_id });
     }
 
-    const deleted = harness.container.local.conversationStore.deleteDeliveredOutbox({
+    const deleted = harness.localInfrastructure.conversationStore.deleteDeliveredOutbox({
       before: new Date(Date.now() + 60_000).toISOString(),
       limit: 100,
     });
     expect(deleted).toBe(liveEvents.length);
-    expect(harness.container.local.conversationStore.listOutboxForReplay({ sessionId })).toEqual([]);
+    expect(harness.localInfrastructure.conversationStore.listOutboxForReplay({ sessionId })).toEqual([]);
 
     const history = await harness.container.sessionApplication.listMessageRunSteps({
       sessionId,

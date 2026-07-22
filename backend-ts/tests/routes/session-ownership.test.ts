@@ -65,13 +65,13 @@ describe("session ownership", () => {
       payload: { mode: "standard" },
     });
     expect(foreignUpdate.statusCode).toBe(403);
-    expect(harness.container.local.conversationStore.getSession("private-session")?.permission_mode).toBe("relaxed");
+    expect(harness.localInfrastructure.conversationStore.getSession("private-session")?.permission_mode).toBe("relaxed");
   });
 
   it("allows local identity to access a historical null-owner session", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, "legacy-local-null", null, {});
+    harness.localInfrastructure.conversationStore.createSession(LOCAL_TENANT_ID, "legacy-local-null", null, {});
 
     const response = await app.inject({ method: "GET", url: "/api/agent/sessions/legacy-local-null" });
     expect(response.statusCode).toBe(200);
@@ -191,7 +191,7 @@ describe("session ownership", () => {
       payload: { mode: "relaxed" },
     });
     expect(permissionUpdate.statusCode).toBe(200);
-    expect(harness.container.local.conversationStore.getSession("owned-bot-session")?.permission_mode).toBe("relaxed");
+    expect(harness.localInfrastructure.conversationStore.getSession("owned-bot-session")?.permission_mode).toBe("relaxed");
     const listed = await app.inject({ method: "GET", url: "/api/agent/sessions", headers: { "x-test-user": "a" } });
     expect(listed.json().data.items).toEqual([expect.objectContaining({ session_id: "owned-bot-session", user_id: bot.id })]);
   });

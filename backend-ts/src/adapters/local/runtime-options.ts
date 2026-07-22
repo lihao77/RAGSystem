@@ -13,6 +13,15 @@ import type { ClientEventPublisherPort } from "../../contracts/runtime/core-runt
 import type { ExecutionStorage } from "../../contracts/execution/execution-storage.js";
 import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 import type { RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
+import type { AgentSessionApplication } from "../../services/sessions/index.js";
+import type { MemoryStore } from "./memory-store.js";
+import type { ConversationStore } from "./sqlite/conversation-store/index.js";
+
+export interface LocalRuntimeInfrastructure {
+  conversationStore: ConversationStore;
+  memoryStore: MemoryStore;
+  sessions: AgentSessionApplication;
+}
 
 export interface LocalRuntimeContainerOptions {
   tenantId: TenantId;
@@ -39,6 +48,8 @@ export interface LocalRuntimeContainerOptions {
   executionStorageFactory?: (input: { tenantId: TenantId; runtimeStorage: RuntimeStorage; clientEvents: ClientEventPublisherPort }) => ExecutionStorage;
   hostToolsEnabled?: boolean;
   pathAccessPolicyFactory?: () => PathAccessPolicy;
+  /** Composition observer for diagnostics and test fixtures; infrastructure is not exposed on RuntimeContainer. */
+  onInfrastructureCreated?: (infrastructure: LocalRuntimeInfrastructure) => void;
 }
 
 export interface MemoryRuntimeBindingsFactoryInput<TMemoryRepository extends MemoryRepository = MemoryRepository> {

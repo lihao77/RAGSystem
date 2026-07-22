@@ -175,6 +175,66 @@ export const AddMessageInputSchema = z.object({
 });
 export type AddMessageInput = z.infer<typeof AddMessageInputSchema>;
 
+export interface CreateRunInput {
+  runId: string;
+  sessionId: string;
+  entrypoint?: string;
+  status?: string;
+  taskSummary?: string;
+  requestId?: string | null;
+  userId?: string | null;
+  agentName?: string | null;
+  operation?: "publish" | "archive" | null;
+  threadKey?: string | null;
+  parentRunId?: string | null;
+  parentCallId?: string | null;
+  childAgentId?: string | null;
+}
+
+export interface CreatedRun {
+  run_id: string;
+  session_id: string;
+  status: string;
+  thread_key: string;
+  parent_run_id: string | null;
+  parent_call_id: string | null;
+  child_agent_id: string | null;
+}
+
+export interface CreateChildAgentInput {
+  childAgentId: string;
+  sessionId: string;
+  agentName: string;
+  threadKey?: string | null;
+  createdSeq?: number | null;
+  createdByRunId?: string | null;
+  createdByCallId?: string | null;
+  parentRunId?: string | null;
+  parentCallId?: string | null;
+  lastRunId?: string | null;
+  metadata?: Record<string, unknown>;
+  status?: string;
+}
+
+export interface FindChildAgentByCreatorInput {
+  sessionId: string;
+  createdByRunId: string;
+  createdByCallId: string;
+}
+
+export interface ListChildAgentsInput {
+  sessionId: string;
+  agentName?: string | null;
+  operation?: "publish" | "archive" | null;
+  limit?: number;
+}
+
+export interface UpdateChildAgentLastRunInput {
+  sessionId: string;
+  childAgentId: string;
+  lastRunId: string;
+}
+
 export const AddRunStepInputSchema = z.object({
   sessionId: z.string(),
   runId: z.string(),
@@ -361,29 +421,7 @@ export interface ConversationStoreTransaction {
   getSession(sessionId: string): SessionInfo | null;
   addMessage(input: AddMessageInput): MessageInfo;
   getMessageById(sessionId: string, messageId: string): MessageInfo | null;
-  createRun(input: {
-    runId: string;
-    sessionId: string;
-    entrypoint?: string;
-    status?: string;
-    taskSummary?: string;
-    requestId?: string | null;
-    userId?: string | null;
-    agentName?: string | null;
-    operation?: "publish" | "archive" | null;
-    threadKey?: string | null;
-    parentRunId?: string | null;
-    parentCallId?: string | null;
-    childAgentId?: string | null;
-  }): {
-    run_id: string;
-    session_id: string;
-    status: string;
-    thread_key: string;
-    parent_run_id: string | null;
-    parent_call_id: string | null;
-    child_agent_id: string | null;
-  };
+  createRun(input: CreateRunInput): CreatedRun;
   getRun(sessionId: string, runId: string): RunInfo | null;
   listRuns(sessionId: string, limit?: number): { items: RunInfo[]; total: number };
   getRunStepByEventId(eventId: string): {

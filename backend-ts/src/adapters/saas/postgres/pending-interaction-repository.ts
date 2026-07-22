@@ -3,6 +3,7 @@ import type {
   PendingInteractionRecord,
   PendingInteractionStatus,
 } from "../../../contracts/conversation-store/index.js";
+import type { RuntimePendingInteractionStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 
 const columns = `interaction_id, session_id, run_id, root_run_id, tool_call_id,
@@ -44,34 +45,7 @@ function interaction(row: Record<string, unknown>): PendingInteractionRecord {
   };
 }
 
-export interface AsyncPendingInteractionStore {
-  createPendingInteraction(input: CreatePendingInteractionInput): Promise<PendingInteractionRecord>;
-  getPendingInteraction(sessionId: string, interactionId: string): Promise<PendingInteractionRecord | null>;
-  listPendingInteractions(input: {
-    sessionId: string;
-    rootRunId?: string | null;
-    batchId?: string | null;
-    statuses?: PendingInteractionStatus[];
-  }): Promise<PendingInteractionRecord[]>;
-  updatePendingInteractionStatus(input: {
-    sessionId: string;
-    interactionId: string;
-    from?: PendingInteractionStatus[];
-    status: PendingInteractionStatus;
-    resolution?: Record<string, unknown> | null;
-  }): Promise<boolean>;
-  markPendingBatchResuming(sessionId: string, batchId: string): Promise<number>;
-  releasePendingBatch(sessionId: string, batchId: string): Promise<number>;
-  claimPendingBatch(sessionId: string, batchId: string, claimId: string, leaseMs?: number): Promise<number>;
-  releasePendingClaim(sessionId: string, rootRunId: string, claimId: string): Promise<number>;
-  renewPendingClaim(sessionId: string, rootRunId: string, claimId: string, leaseMs?: number): Promise<number>;
-  finalizePendingInteractions(sessionId: string, rootRunId: string, status: "completed" | "failed" | "interrupted" | "suspended"): Promise<string[]>;
-  suspendPendingInteractions(sessionId: string, rootRunId: string): Promise<number>;
-  consumePendingResolution(sessionId: string, toolCallId: string): Promise<PendingInteractionRecord | null>;
-  cancelPendingInteractions(sessionId: string): Promise<number>;
-}
-
-export class PostgresPendingInteractionRepository implements AsyncPendingInteractionStore {
+export class PostgresPendingInteractionRepository implements RuntimePendingInteractionStorage {
   constructor(private readonly executor: PostgresMemoryExecutor) {}
 
   async createPendingInteraction(input: CreatePendingInteractionInput): Promise<PendingInteractionRecord> {

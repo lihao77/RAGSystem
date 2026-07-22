@@ -1,6 +1,15 @@
 import type { AgentDelegationStorePort } from "../../../contracts/runtime/core-runtime-ports.js";
 import type { TenantId } from "../../../identity/types.js";
-import type { AddMessageInput } from "../../../contracts/conversation-store/index.js";
+import type {
+  AddMessageInput,
+  ChildAgentInfo,
+  CreateChildAgentInput,
+  FindChildAgentByCreatorInput,
+  ListChildAgentsInput,
+  RunInfo,
+  UpdateChildAgentLastRunInput,
+} from "../../../contracts/conversation-store/index.js";
+import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { PostgresConversationRepository } from "./conversation-repository.js";
 import type { PostgresRunRepository } from "./run-repository.js";
 import { PostgresChildAgentRepository } from "./child-agent-repository.js";
@@ -26,41 +35,41 @@ export class TenantBoundPostgresAgentDelegationStore implements AgentDelegationS
     this.children = new PostgresChildAgentRepository(executor);
   }
 
-  async addMessage(input: AddMessageInput): Promise<Awaited<ReturnType<PostgresConversationRepository["addMessage"]>>> {
+  async addMessage(input: AddMessageInput): Promise<MessageInfo> {
     await this.children.assertTenantSession(this.tenantId, input.sessionId);
     return this.conversation.addMessage(input);
   }
 
-  async getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<Awaited<ReturnType<PostgresConversationRepository["getRecentMessages"]>>> {
+  async getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]> {
     await this.children.assertTenantSession(this.tenantId, sessionId);
     return this.conversation.getRecentMessages(sessionId, limit, threadKey);
   }
 
-  getRun(sessionId: string, runId: string): ReturnType<PostgresRunRepository["getRun"]> {
+  getRun(sessionId: string, runId: string): Promise<RunInfo | null> {
     return this.runs.getRun(this.tenantId, sessionId, runId);
   }
 
-  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): ReturnType<PostgresRunRepository["updateRunStatus"]> {
+  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): Promise<boolean> {
     return this.runs.updateRunStatus(this.tenantId, runId, sessionId, status, finalMessageId);
   }
 
-  createChildAgent(input: Parameters<AgentDelegationStorePort["createChildAgent"]>[0]): ReturnType<PostgresChildAgentRepository["createChildAgent"]> {
+  createChildAgent(input: CreateChildAgentInput): Promise<ChildAgentInfo> {
     return this.children.createChildAgent(this.tenantId, input);
   }
 
-  findChildAgentByCreator(input: Parameters<AgentDelegationStorePort["findChildAgentByCreator"]>[0]): ReturnType<PostgresChildAgentRepository["findChildAgentByCreator"]> {
+  findChildAgentByCreator(input: FindChildAgentByCreatorInput): Promise<ChildAgentInfo | null> {
     return this.children.findChildAgentByCreator(this.tenantId, input);
   }
 
-  getChildAgent(sessionId: string, childAgentId: string): ReturnType<PostgresChildAgentRepository["getChildAgent"]> {
+  getChildAgent(sessionId: string, childAgentId: string): Promise<ChildAgentInfo | null> {
     return this.children.getChildAgent(this.tenantId, sessionId, childAgentId);
   }
 
-  listChildAgents(input: Parameters<AgentDelegationStorePort["listChildAgents"]>[0]): ReturnType<PostgresChildAgentRepository["listChildAgents"]> {
+  listChildAgents(input: ListChildAgentsInput): Promise<{ items: ChildAgentInfo[]; total: number }> {
     return this.children.listChildAgents(this.tenantId, input);
   }
 
-  updateChildAgentLastRun(input: Parameters<AgentDelegationStorePort["updateChildAgentLastRun"]>[0]): ReturnType<PostgresChildAgentRepository["updateChildAgentLastRun"]> {
+  updateChildAgentLastRun(input: UpdateChildAgentLastRunInput): Promise<boolean> {
     return this.children.updateChildAgentLastRun(this.tenantId, input);
   }
 }

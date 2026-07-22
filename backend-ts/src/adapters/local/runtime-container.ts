@@ -41,9 +41,18 @@ import { createLocalExecutionStorage } from "./local-execution-storage.js";
 import { PathApprovalService } from "../../services/runtime/path-approval-service.js";
 import { SqliteRuntimeStorage } from "./sqlite-runtime-storage.js";
 import { LocalSessionApplication } from "./application/session/local-session-application.js";
+import { LocalAnalyticsApplication } from "./application/analytics/local-analytics-application.js";
+import { LocalArtifactApplication } from "./application/artifact/local-artifact-application.js";
+import { LocalExecutionReadApplication } from "./application/execution-read/local-execution-read-application.js";
+import { LocalFileChangeApplication } from "./application/file-change/local-file-change-application.js";
+import { LocalMemoryApplication } from "./application/memory/local-memory-application.js";
+import { LocalMonitoringApplication } from "./application/monitoring/local-monitoring-application.js";
+import { LocalSessionFileApplication } from "./application/session-file/local-session-file-application.js";
+import { KnowledgeHttpApplication } from "../../services/knowledge/knowledge-http-application.js";
 import { FileAgentConfigTeamStore } from "../filesystem/agent/file-team-store.js";
 import { FilesystemSkillPackageStore } from "../filesystem/skills/filesystem-skill-package-store.js";
 import { LocalMemoryContextRepository } from "./local-memory-context-repository.js";
+import { LocalMemoryCandidateCommandAdapter } from "./local-memory-candidate-command-adapter.js";
 import { LocalCompressionHistoryAdapter } from "./local-compression-history-adapter.js";
 import { LocalAgentDelegationStoreAdapter } from "./local-agent-delegation-store-adapter.js";
 import { LocalAgentMetricsStoreAdapter } from "./local-agent-metrics-store-adapter.js";
@@ -120,7 +129,12 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     memoryRepository: memoryStore,
     sessions: conversationStore,
   }) ?? {
-    tools: new MemoryToolService(memoryStore, conversationStore, conversationStore, options.tenantId),
+    tools: new MemoryToolService(
+      memoryStore,
+      conversationStore,
+      new LocalMemoryCandidateCommandAdapter(conversationStore),
+      options.tenantId,
+    ),
     createContextSource: (input) => new MemoryContextSource(
       input.sessions,
       memoryContextRepository,
@@ -174,7 +188,15 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
 
-  return createCoreRuntimeContainer({
+  const localKnowledge = new KnowledgeHttpApplication(knowledgeService, knowledgeFiles, knowledgeMarkdown);
+  const localArtifacts = new LocalArtifactApplication(artifacts);
+  const localAnalytics = new LocalAnalyticsApplication(conversationStore);
+  const localMonitoring = new LocalMonitoringApplication(conversationStore);
+  const localSessionFiles = new LocalSessionFileApplication(fileIndex);
+  const localFileChanges = new LocalFileChangeApplication(fileHistory);
+  let localExecutionRead: LocalExecutionReadApplication | null = null;
+
+  const runtime = createCoreRuntimeContainer({
     deploymentKind: "local",
     tenantId: options.tenantId,
     dataRoot,
@@ -220,16 +242,28 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     eventDispatcher: outboxDispatcher,
     clientEvents,
     capabilities: {
-      conversationStore,
-      sessions: sessionApplication,
-      fileHistory,
-      fileIndex,
-      knowledgeFiles,
-      knowledgeMarkdown,
-      knowledgeService,
-      artifacts,
-      transientArtifacts,
-      memoryStore,
+      createSessionApplication: (tenantId) => new LocalSessionApplication(
+        tenantId,
+        sessionApplication,
+        conversationStore,
+      ),
+      knowledge: localKnowledge,
+      artifacts: localArtifacts,
+      analytics: localAnalytics,
+      monitoring: localMonitoring,
+      get executionRead() {
+        if (!localExecutionRead) throw new Error("Local execution read application is not initialized");
+        return localExecutionRead;
+      },
+      sessionFiles: localSessionFiles,
+      fileChanges: localFileChanges,
+      createMemoryApplication: (input) => new LocalMemoryApplication(
+        options.tenantId,
+        memoryStore,
+        conversationStore,
+        input.viewerUserId,
+        input.viewerSessionIds,
+      ),
     },
     closeInfrastructure: () => {
       backgroundTasks.dispose();
@@ -241,4 +275,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
       conversationStore.close();
     },
   });
+  localExecutionRead = new LocalExecutionReadApplication(runtime.agentExecution, conversationStore);
+  options.onInfrastructureCreated?.({ conversationStore, memoryStore, sessions: sessionApplication });
+  return runtime;
 }

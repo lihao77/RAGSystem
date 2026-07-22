@@ -5,12 +5,12 @@ import type { ToolAccessDecision, ToolExecutionResult } from "@ragsystem/agent-s
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 import {
   getWorkspaceMemoryKey,
+  type MemoryCandidateCommandPort,
   type MemoryRepository,
   type MemoryRepositoryLocationProvider,
   type MemoryScopeName,
   type MemoryScopeSpec,
 } from "../../contracts/memory-store/index.js";
-import type { IMemoryCandidateStore } from "../../contracts/conversation-store/index.js";
 
 export interface RuntimeMemorySessionPort {
   getSession(sessionId: string): Pick<SessionInfo, "metadata"> | null;
@@ -82,7 +82,7 @@ export class MemoryToolService implements MemoryToolOperations {
   constructor(
     private readonly memoryStore: MemoryRepository & Partial<MemoryRepositoryLocationProvider>,
     private readonly sessions: RuntimeMemorySessionPort,
-    private readonly candidates?: IMemoryCandidateStore,
+    private readonly candidates?: MemoryCandidateCommandPort,
     private readonly tenantId?: string,
   ) {}
 
@@ -193,7 +193,7 @@ export class MemoryToolService implements MemoryToolOperations {
         if (!ownerUserId || !this.candidates || !this.tenantId) {
           return toolError(toolName, "当前执行缺少用户身份，无法保存共享范围 memory");
         }
-        this.candidates.createMemoryCandidate({
+        await this.candidates.createMemoryCandidate({
           tenantId: this.tenantId,
           ownerUserId,
           targetScope: setup.scopeSpec.scope,
@@ -267,7 +267,7 @@ export class MemoryToolService implements MemoryToolOperations {
         if (!ownerUserId || !this.candidates || !this.tenantId) {
           return toolError(toolName, "当前执行缺少用户身份，无法提交共享范围 memory 归档申请");
         }
-        this.candidates.createMemoryCandidate({
+        await this.candidates.createMemoryCandidate({
           tenantId: this.tenantId,
           ownerUserId,
           targetScope: setup.scopeSpec.scope,

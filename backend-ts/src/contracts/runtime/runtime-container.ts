@@ -1,12 +1,15 @@
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 
+import type { AnalyticsApplication } from "../application/analytics-application.js";
+import type { FileChangeApplication } from "../application/file-change-application.js";
+import type { KnowledgeApplication } from "../application/knowledge-application.js";
+import type { MonitoringApplication } from "../application/monitoring-application.js";
+import type { SessionFileApplication } from "../application/session-file-application.js";
 import type { ArtifactApplication } from "../artifacts/artifact-application.js";
-import type { ConversationStore } from "../conversation-store/index.js";
+import type { ExecutionReadApplication } from "../execution/execution-read-application.js";
 import type { ExecutionStorage } from "../execution/execution-storage.js";
-import type { IFileHistoryStore, AsyncFileHistoryStore } from "../file-history-store/index.js";
-import type { IFileIndexStore } from "../file-index-store/index.js";
+import type { AsyncFileHistoryStore } from "../file-history-store/index.js";
 import type { KnowledgeQueryPort } from "../knowledge/query-port.js";
-import type { IMemoryStore } from "../memory-store/index.js";
 import type { PathAccessPolicy } from "./path-access-policy.js";
 import type { InteractionCoordinator, PendingInteractionPort } from "./pending-interactions.js";
 import type { RealtimeEventBus } from "./realtime-event-bus.js";
@@ -22,16 +25,10 @@ import type { AgentExecutionLogger, AgentExecutionService } from "../../services
 import type { RuntimeCoreService } from "../../services/agent/execution/runtime-core-service.js";
 import type { AgentMetricsCollector } from "../../services/agent/metrics/metrics-collector.js";
 import type { MemoryRuntimeBindings } from "../../services/agent/memory/runtime-bindings.js";
-import type { ArtifactService } from "../../services/artifacts/artifact-service.js";
-import type { TransientArtifactService } from "../../services/artifacts/transient-artifact-service.js";
 import type { SystemConfigService } from "../../services/config/system-config-service.js";
 import type { McpService } from "../../services/integrations/mcp-service.js";
 import type { ModelAdapterService } from "../../services/integrations/model-adapter-service.js";
-import type { KnowledgeApplicationService } from "../../services/knowledge/knowledge-application-service.js";
-import type { AsyncKnowledgeFileStore } from "../knowledge/async-knowledge-file-store.js";
-import type { AsyncKnowledgeMarkdownPipeline } from "../knowledge/async-knowledge-markdown-pipeline.js";
 import type { MemoryApplication } from "../../services/memory/index.js";
-import type { AgentSessionApplication } from "../../services/sessions/index.js";
 import type { SkillLibraryService } from "../../services/skills/skill-library-service.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { DelegationPendingService } from "../../services/runtime/delegation-pending-service.js";
@@ -50,18 +47,22 @@ import type {
   RuntimeEventDispatcherPort,
 } from "./core-runtime-ports.js";
 
-/** Local-only synchronous administration and filesystem capabilities. */
+export interface LocalMemoryApplicationFactoryInput {
+  viewerUserId: string;
+  viewerSessionIds: readonly string[] | (() => Promise<readonly string[]>);
+}
+
+/** Local request applications assembled around Local infrastructure. */
 export interface LocalRuntimeCapabilities {
-  conversationStore: ConversationStore;
-  sessions: AgentSessionApplication;
-  fileHistory: IFileHistoryStore;
-  fileIndex: IFileIndexStore;
-  knowledgeFiles: AsyncKnowledgeFileStore;
-  knowledgeMarkdown: AsyncKnowledgeMarkdownPipeline;
-  knowledgeService: KnowledgeApplicationService;
-  artifacts: ArtifactService;
-  transientArtifacts: TransientArtifactService;
-  memoryStore: IMemoryStore;
+  createSessionApplication(tenantId: TenantId): SessionApplication;
+  knowledge: KnowledgeApplication;
+  artifacts: ArtifactApplication;
+  analytics: AnalyticsApplication;
+  monitoring: MonitoringApplication;
+  executionRead: ExecutionReadApplication;
+  sessionFiles: SessionFileApplication;
+  fileChanges: FileChangeApplication;
+  createMemoryApplication(input: LocalMemoryApplicationFactoryInput): MemoryApplication;
 }
 
 /** SaaS-only tenant-bound applications backed by PostgreSQL and object storage. */

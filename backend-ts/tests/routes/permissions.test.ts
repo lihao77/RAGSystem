@@ -28,7 +28,7 @@ describe("session permission routes", () => {
     });
     expect(updated.statusCode).toBe(200);
     expect(updated.json()).toMatchObject({ data: { mode: "relaxed" } });
-    expect(harness.container.local.conversationStore.getSession("permission-session")?.permission_mode).toBe("relaxed");
+    expect(harness.localInfrastructure.conversationStore.getSession("permission-session")?.permission_mode).toBe("relaxed");
   });
 
   it("全局 permission 端点已彻底移除", async () => {

@@ -53,4 +53,16 @@ describe("SaaS runtime architecture", () => {
     expect(source).not.toContain("sessionFiles.kind");
     expect(source).toContain("eventDispatcher");
   });
+
+  it("keeps synchronous Local stores out of the shared runtime contract", async () => {
+    const source = await readFile(sourceFile("contracts", "runtime", "runtime-container.ts"), "utf8");
+
+    expect(source).not.toContain("ConversationStore");
+    expect(source).not.toContain("IFileHistoryStore");
+    expect(source).not.toContain("IFileIndexStore");
+    expect(source).not.toContain("IMemoryStore");
+    expect(source).not.toContain("TransientArtifactService");
+    expect(source).toContain("AnalyticsApplication");
+    expect(source).toContain("createMemoryApplication");
+  });
 });

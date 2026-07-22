@@ -3,13 +3,24 @@ import type {
   AgentMetricSummary,
   ChildAgentInfo,
   ClaimOutboxInput,
+  CreateChildAgentInput,
+  FindChildAgentByCreatorInput,
+  ListChildAgentsInput,
   OutboxRow,
   RunInfo,
+  UpdateChildAgentLastRunInput,
 } from "../conversation-store/index.js";
 import type { PermissionMode } from "./permissions.js";
 import type { MessageInfo } from "../session/session.js";
 import type { Envelope } from "../events.js";
 import type { RuntimeRecordEnvelopeInput } from "../storage/runtime-storage.js";
+
+export type {
+  CreateChildAgentInput,
+  FindChildAgentByCreatorInput,
+  ListChildAgentsInput,
+  UpdateChildAgentLastRunInput,
+} from "../conversation-store/index.js";
 
 export interface ClientEventPublishOptions {
   runId?: string | null | undefined;
@@ -46,40 +57,6 @@ export interface OutboxDispatchStorePort {
   markOutboxDelivered(id: number, tenantId: string): Promise<boolean>;
   markOutboxRetrying(id: number, error: string, availableAt: string, tenantId: string): Promise<boolean>;
   markOutboxFailed(id: number, error: string, tenantId: string): Promise<boolean>;
-}
-
-export interface CreateChildAgentInput {
-  childAgentId: string;
-  sessionId: string;
-  agentName: string;
-  threadKey?: string | null;
-  createdSeq?: number | null;
-  createdByRunId?: string | null;
-  createdByCallId?: string | null;
-  parentRunId?: string | null;
-  parentCallId?: string | null;
-  lastRunId?: string | null;
-  metadata?: Record<string, unknown>;
-  status?: string;
-}
-
-export interface FindChildAgentByCreatorInput {
-  sessionId: string;
-  createdByRunId: string;
-  createdByCallId: string;
-}
-
-export interface ListChildAgentsInput {
-  sessionId: string;
-  agentName?: string | null;
-  operation?: "publish" | "archive" | null;
-  limit?: number;
-}
-
-export interface UpdateChildAgentLastRunInput {
-  sessionId: string;
-  childAgentId: string;
-  lastRunId: string;
 }
 
 /** Promise-only persistence surface required by child-agent delegation. */

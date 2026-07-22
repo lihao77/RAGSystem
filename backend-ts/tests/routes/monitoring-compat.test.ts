@@ -51,7 +51,7 @@ describe("monitoring compatibility routes", () => {
   it("manages event outbox rows through operations routes", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    const store = harness.container.local.conversationStore;
+    const store = harness.localInfrastructure.conversationStore;
     store.createSession(LOCAL_TENANT_ID, "ops-outbox", "usr_local");
     const failed = store.appendOutbox({
       sessionId: "ops-outbox",
@@ -170,12 +170,12 @@ describe("monitoring compatibility routes", () => {
     app = harness.app;
 
     harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s1" });
-    const systemMessage = harness.container.local.conversationStore.addMessage({
+    const systemMessage = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "system",
       content: "S".repeat(300),
     });
-    const message = harness.container.local.conversationStore.addMessage({
+    const message = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "user",
       content: "U".repeat(300),
@@ -248,7 +248,7 @@ describe("monitoring compatibility routes", () => {
       sessionId: "memory-preview",
       metadata: { team: "default" },
     });
-    await harness.container.local.memoryStore.saveMemory({
+    await harness.localInfrastructure.memoryStore.saveMemory({
       scope: "user",
       user_id: "usr_local",
       name: "User preference",
@@ -256,7 +256,7 @@ describe("monitoring compatibility routes", () => {
       memory_type: "preference",
       content: "remember-user-preview",
     });
-    harness.container.local.conversationStore.createMemoryCandidate({
+    harness.localInfrastructure.conversationStore.createMemoryCandidate({
       tenantId: "tnt_local",
       ownerUserId: "usr_local",
       targetScope: "team",
@@ -279,22 +279,22 @@ describe("monitoring compatibility routes", () => {
     app = harness.app;
 
     harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "compression-s1" });
-    harness.container.local.conversationStore.addMessage({
+    harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "compression-s1",
       role: "user",
       content: "old user",
     });
-    harness.container.local.conversationStore.addMessage({
+    harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "compression-s1",
       role: "assistant",
       content: "old assistant",
     });
-    const tailBeforeSummary = harness.container.local.conversationStore.addMessage({
+    const tailBeforeSummary = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "compression-s1",
       role: "user",
       content: "tail before summary",
     });
-    const summary = harness.container.local.conversationStore.addMessage({
+    const summary = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "compression-s1",
       role: "system",
       content: "[历史摘要]\nold user / old assistant",
@@ -303,12 +303,12 @@ describe("monitoring compatibility routes", () => {
         replaces_up_to_seq: 2,
       },
     });
-    const tailAfterSummary = harness.container.local.conversationStore.addMessage({
+    const tailAfterSummary = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "compression-s1",
       role: "assistant",
       content: "tail after summary",
     });
-    harness.container.local.conversationStore.addMessage({
+    harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "compression-s1",
       role: "user",
       content: "child internal message",
@@ -347,13 +347,13 @@ describe("monitoring compatibility routes", () => {
     app = harness.app;
 
     harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "react-runsteps-only" });
-    const runStepsOnlyUser = harness.container.local.conversationStore.addMessage({
+    const runStepsOnlyUser = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "react-runsteps-only",
       role: "user",
       content: "测试工具是否能运行",
       metadata: { run_id: "run-1" },
     });
-    const runStepsOnlyAssistant = harness.container.local.conversationStore.addMessage({
+    const runStepsOnlyAssistant = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "react-runsteps-only",
       role: "assistant",
       content: "工具测试完成",
@@ -382,13 +382,13 @@ describe("monitoring compatibility routes", () => {
     ]);
 
     harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "react-persisted" });
-    const user = harness.container.local.conversationStore.addMessage({
+    const user = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "react-persisted",
       role: "user",
       content: "测试工具是否能运行",
       metadata: { run_id: "run-2" },
     });
-    const intent = harness.container.local.conversationStore.addMessage({
+    const intent = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "react-persisted",
       role: "assistant",
       content:
@@ -400,7 +400,7 @@ describe("monitoring compatibility routes", () => {
         run_id: "run-2",
       },
     });
-    const observation = harness.container.local.conversationStore.addMessage({
+    const observation = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "react-persisted",
       role: "user",
       content:
@@ -412,7 +412,7 @@ describe("monitoring compatibility routes", () => {
         run_id: "run-2",
       },
     });
-    const assistant = harness.container.local.conversationStore.addMessage({
+    const assistant = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "react-persisted",
       role: "assistant",
       content: "工具测试完成",

@@ -1,7 +1,14 @@
 import type { ConversationDb } from "./shared/db.js";
 import { stringifyJson } from "./helpers.js";
 import { rowToChildAgent } from "./mappers.js";
-import type { ChildAgentInfo, IChildAgentStore } from "../../../../contracts/conversation-store/index.js";
+import type {
+  ChildAgentInfo,
+  CreateChildAgentInput,
+  FindChildAgentByCreatorInput,
+  IChildAgentStore,
+  ListChildAgentsInput,
+  UpdateChildAgentLastRunInput,
+} from "../../../../contracts/conversation-store/index.js";
 import type { ChildAgentRow } from "./types.js";
 
 const CHILD_AGENT_SELECT_COLUMNS = `
@@ -14,20 +21,7 @@ const CHILD_AGENT_SELECT_COLUMNS = `
 export class ChildAgentOps implements IChildAgentStore {
   constructor(private readonly db: ConversationDb) {}
 
-  createChildAgent(input: {
-    childAgentId: string;
-    sessionId: string;
-    agentName: string;
-    threadKey?: string | null;
-    createdSeq?: number | null;
-    createdByRunId?: string | null;
-    createdByCallId?: string | null;
-    parentRunId?: string | null;
-    parentCallId?: string | null;
-    lastRunId?: string | null;
-    metadata?: Record<string, unknown>;
-    status?: string;
-  }): ChildAgentInfo {
+  createChildAgent(input: CreateChildAgentInput): ChildAgentInfo {
     const threadKey = input.threadKey?.trim() || `child:${input.childAgentId}`;
     const status = input.status ?? "active";
     const metadata = input.metadata ?? {};
@@ -71,11 +65,7 @@ export class ChildAgentOps implements IChildAgentStore {
     return rowToChildAgent(row);
   }
 
-  listChildAgents(input: {
-    sessionId: string;
-    agentName?: string | null;
-    limit?: number;
-  }): { items: ChildAgentInfo[]; total: number } {
+  listChildAgents(input: ListChildAgentsInput): { items: ChildAgentInfo[]; total: number } {
     const agentName = input.agentName ?? null;
     const limit = input.limit ?? 100;
     const totalRow = this.db
@@ -111,11 +101,7 @@ export class ChildAgentOps implements IChildAgentStore {
     return row ? rowToChildAgent(row) : null;
   }
 
-  findChildAgentByCreator(input: {
-    sessionId: string;
-    createdByRunId: string;
-    createdByCallId: string;
-  }): ChildAgentInfo | null {
+  findChildAgentByCreator(input: FindChildAgentByCreatorInput): ChildAgentInfo | null {
     const row = this.db
       .prepare(
         `
@@ -130,11 +116,7 @@ export class ChildAgentOps implements IChildAgentStore {
     return row ? rowToChildAgent(row) : null;
   }
 
-  updateChildAgentLastRun(input: {
-    sessionId: string;
-    childAgentId: string;
-    lastRunId: string;
-  }): boolean {
+  updateChildAgentLastRun(input: UpdateChildAgentLastRunInput): boolean {
     const result = this.db
       .prepare(
         `

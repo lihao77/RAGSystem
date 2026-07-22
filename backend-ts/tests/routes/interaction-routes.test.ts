@@ -18,8 +18,8 @@ describe("interaction response routes", () => {
   it("resolves pending approvals through the generic HTTP route", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, "approval-route-session", "usr_local");
-    harness.container.local.conversationStore.createRun({ runId: "approval-route-run", sessionId: "approval-route-session", agentName: "orchestrator_agent" });
+    harness.localInfrastructure.conversationStore.createSession(LOCAL_TENANT_ID, "approval-route-session", "usr_local");
+    harness.localInfrastructure.conversationStore.createRun({ runId: "approval-route-run", sessionId: "approval-route-session", agentName: "orchestrator_agent" });
 
     const approvalPromise = harness.container.pendingInteractions.waitForApproval({
       sessionId: "approval-route-session",
@@ -69,7 +69,7 @@ describe("interaction response routes", () => {
       message: "允许执行",
     });
     expect(
-      harness.container.local.conversationStore
+      harness.localInfrastructure.conversationStore
         .listOutboxForReplay({ sessionId: "approval-route-session" })
         .map((row) => row.event_type),
     ).toEqual(["client.interaction", "client.interaction"]);
@@ -78,8 +78,8 @@ describe("interaction response routes", () => {
   it("挂起后的响应立即返回 resuming 并触发恢复执行器", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, "resume-route-session", "usr_local");
-    harness.container.local.conversationStore.createRun({ runId: "resume-route-run", sessionId: "resume-route-session", agentName: "orchestrator_agent" });
+    harness.localInfrastructure.conversationStore.createSession(LOCAL_TENANT_ID, "resume-route-session", "usr_local");
+    harness.localInfrastructure.conversationStore.createRun({ runId: "resume-route-run", sessionId: "resume-route-session", agentName: "orchestrator_agent" });
 
     const suspended = harness.container.pendingInteractions.waitForApproval({
       sessionId: "resume-route-session",
@@ -93,7 +93,7 @@ describe("interaction response routes", () => {
       toolName: "execute_bash",
     });
     await expect(suspended).rejects.toBeDefined();
-    harness.container.local.conversationStore.updateRunStatus("resume-route-run", "resume-route-session", "suspended", null);
+    harness.localInfrastructure.conversationStore.updateRunStatus("resume-route-run", "resume-route-session", "suspended", null);
     harness.container.interactionCoordinator.bindResumeStarter({
       startClaim: vi.fn().mockReturnValue({ promise: Promise.resolve({ content: "resumed", success: true }) }),
     });

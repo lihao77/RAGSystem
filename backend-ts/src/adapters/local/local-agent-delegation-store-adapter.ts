@@ -1,7 +1,12 @@
 import type {
+  AddMessageInput,
+  CreateChildAgentInput,
+  FindChildAgentByCreatorInput,
   IChildAgentStore,
   IMessageStore,
   IRunStore,
+  ListChildAgentsInput,
+  UpdateChildAgentLastRunInput,
 } from "../../contracts/conversation-store/index.js";
 import type { AgentDelegationStorePort } from "../../contracts/runtime/core-runtime-ports.js";
 
@@ -11,7 +16,7 @@ type LocalDelegationStore = IMessageStore & IRunStore & IChildAgentStore;
 export class LocalAgentDelegationStoreAdapter implements AgentDelegationStorePort {
   constructor(private readonly store: LocalDelegationStore) {}
 
-  async addMessage(input: Parameters<AgentDelegationStorePort["addMessage"]>[0]) {
+  async addMessage(input: AddMessageInput) {
     return this.store.addMessage(input);
   }
 
@@ -32,12 +37,12 @@ export class LocalAgentDelegationStoreAdapter implements AgentDelegationStorePor
     return this.store.updateRunStatus(runId, sessionId, status, finalMessageId);
   }
 
-  async createChildAgent(input: Parameters<AgentDelegationStorePort["createChildAgent"]>[0]) {
+  async createChildAgent(input: CreateChildAgentInput) {
     return this.store.createChildAgent(input);
   }
 
   async findChildAgentByCreator(
-    input: Parameters<AgentDelegationStorePort["findChildAgentByCreator"]>[0],
+    input: FindChildAgentByCreatorInput,
   ) {
     return this.store.findChildAgentByCreator(input);
   }
@@ -46,12 +51,12 @@ export class LocalAgentDelegationStoreAdapter implements AgentDelegationStorePor
     return this.store.getChildAgent(sessionId, childAgentId);
   }
 
-  async listChildAgents(input: Parameters<AgentDelegationStorePort["listChildAgents"]>[0]) {
+  async listChildAgents(input: ListChildAgentsInput) {
     return this.store.listChildAgents(input);
   }
 
   async updateChildAgentLastRun(
-    input: Parameters<AgentDelegationStorePort["updateChildAgentLastRun"]>[0],
+    input: UpdateChildAgentLastRunInput,
   ) {
     return this.store.updateChildAgentLastRun(input);
   }

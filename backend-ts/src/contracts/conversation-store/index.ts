@@ -26,11 +26,16 @@ import type {
   ChildAgentInfo,
   ClaimOutboxInput,
   ConversationStoreTransaction,
+  CreateChildAgentInput,
+  CreatedRun,
   DeleteDeliveredOutboxInput,
   EventOutboxStats,
   ListOutboxInput,
   OutboxRow,
   CreatePendingInteractionInput,
+  CreateRunInput,
+  FindChildAgentByCreatorInput,
+  ListChildAgentsInput,
   PendingInteractionRecord,
   PendingInteractionStatus,
   ProviderContinuationRecord,
@@ -44,6 +49,7 @@ import type {
   RetryOutboxResult,
   RunInfo,
   RunStepRecord,
+  UpdateChildAgentLastRunInput,
 } from "./types.js";
 
 export * from "./types.js";
@@ -107,29 +113,7 @@ export interface IProviderContinuationStore {
  * step_order 在 (session_id,run_id) 内自增（COALESCE(MAX)+1）。getRun 不存在返回 null。
  */
 export interface IRunStore {
-  createRun(input: {
-    runId: string;
-    sessionId: string;
-    entrypoint?: string;
-    status?: string;
-    taskSummary?: string;
-    requestId?: string | null;
-    userId?: string | null;
-    agentName?: string | null;
-    operation?: "publish" | "archive" | null;
-    threadKey?: string | null;
-    parentRunId?: string | null;
-    parentCallId?: string | null;
-    childAgentId?: string | null;
-  }): {
-    run_id: string;
-    session_id: string;
-    status: string;
-    thread_key: string;
-    parent_run_id: string | null;
-    parent_call_id: string | null;
-    child_agent_id: string | null;
-  };
+  createRun(input: CreateRunInput): CreatedRun;
   updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): boolean;
   getRun(sessionId: string, runId: string): RunInfo | null;
   listRuns(sessionId: string, limit?: number): { items: RunInfo[]; total: number };
@@ -145,37 +129,11 @@ export interface IRunStore {
 
 /** child_agents 聚合根。深合约：getChildAgent 不存在返回 null。 */
 export interface IChildAgentStore {
-  createChildAgent(input: {
-    childAgentId: string;
-    sessionId: string;
-    agentName: string;
-    threadKey?: string | null;
-    createdSeq?: number | null;
-    createdByRunId?: string | null;
-    createdByCallId?: string | null;
-    parentRunId?: string | null;
-    parentCallId?: string | null;
-    lastRunId?: string | null;
-    metadata?: Record<string, unknown>;
-    status?: string;
-  }): ChildAgentInfo;
-  listChildAgents(input: {
-    sessionId: string;
-    agentName?: string | null;
-    operation?: "publish" | "archive" | null;
-    limit?: number;
-  }): { items: ChildAgentInfo[]; total: number };
+  createChildAgent(input: CreateChildAgentInput): ChildAgentInfo;
+  listChildAgents(input: ListChildAgentsInput): { items: ChildAgentInfo[]; total: number };
   getChildAgent(sessionId: string, childAgentId: string): ChildAgentInfo | null;
-  findChildAgentByCreator(input: {
-    sessionId: string;
-    createdByRunId: string;
-    createdByCallId: string;
-  }): ChildAgentInfo | null;
-  updateChildAgentLastRun(input: {
-    sessionId: string;
-    childAgentId: string;
-    lastRunId: string;
-  }): boolean;
+  findChildAgentByCreator(input: FindChildAgentByCreatorInput): ChildAgentInfo | null;
+  updateChildAgentLastRun(input: UpdateChildAgentLastRunInput): boolean;
 }
 
 /**

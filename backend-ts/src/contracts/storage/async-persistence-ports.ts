@@ -2,6 +2,8 @@ import type { PaginatedResult, RunStepInfo } from "../common.js";
 import type {
   AddMessageInput,
   AddRunStepInput,
+  CreatedRun,
+  CreateRunInput,
   DeleteDeliveredOutboxInput,
   ListOutboxInput,
   OutboxRow,
@@ -9,9 +11,6 @@ import type {
   RetryOutboxResult,
   RunInfo,
   RunStepRecord,
-  CreatePendingInteractionInput,
-  PendingInteractionRecord,
-  PendingInteractionStatus,
 } from "../conversation-store/index.js";
 import type { AgentMetricSummary, DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "../conversation-store/index.js";
 import type { PermissionMode } from "../runtime/permissions.js";
@@ -40,7 +39,7 @@ export interface AsyncConversationRepository {
 }
 
 export interface AsyncRunStore {
-  createRun(input: AddRunInput & { tenantId: string }): Promise<CreatedRun>;
+  createRun(input: CreateRunInput & { tenantId: string }): Promise<CreatedRun>;
   updateRunStatus(tenantId: string, runId: string, sessionId: string, status: string, finalMessageId?: string | null): Promise<boolean>;
   getRun(tenantId: string, sessionId: string, runId: string): Promise<RunInfo | null>;
   listRuns(tenantId: string, sessionId: string, limit?: number): Promise<{ items: RunInfo[]; total: number }>;
@@ -51,9 +50,6 @@ export interface AsyncRunStore {
   getTenantRun(tenantId: string, runId: string): Promise<RunInfo | null>;
   listTenantRuns(tenantId: string, activeOnly: boolean): Promise<RunInfo[]>;
 }
-
-type AddRunInput = Parameters<import("../conversation-store/index.js").IRunStore["createRun"]>[0];
-type CreatedRun = ReturnType<import("../conversation-store/index.js").IRunStore["createRun"]>;
 
 export interface AsyncAnalyticsRepository {
   insertMetric(tenantId: string, input: AnalyticsMetricInput): Promise<void>;
@@ -103,12 +99,4 @@ export interface MonitoringRepositoryPort {
   retryOutbox(tenantId: string, id: number): Promise<boolean>;
   retryOutboxBatch(tenantId: string, input?: RetryOutboxBatchInput): Promise<RetryOutboxResult>;
   deleteDeliveredOutbox(tenantId: string, input: DeleteDeliveredOutboxInput): Promise<number>;
-}
-
-export interface AsyncPendingInteractionStore {
-  getPendingInteraction(sessionId: string, interactionId: string): Promise<PendingInteractionRecord | null>;
-  listPendingInteractions(input: { sessionId: string; rootRunId?: string | null; batchId?: string | null; statuses?: PendingInteractionStatus[] }): Promise<PendingInteractionRecord[]>;
-  updatePendingInteractionStatus(input: { sessionId: string; interactionId: string; from?: PendingInteractionStatus[]; status: PendingInteractionStatus; resolution?: Record<string, unknown> | null }): Promise<boolean>;
-  cancelPendingInteractions(sessionId: string): Promise<number>;
-  createPendingInteraction?(input: CreatePendingInteractionInput): Promise<PendingInteractionRecord>;
 }

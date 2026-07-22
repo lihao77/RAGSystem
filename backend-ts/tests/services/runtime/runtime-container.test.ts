@@ -70,7 +70,9 @@ describe("runtime composition roots", () => {
       expect(runtime.dataRoot).toBe(path.resolve(dataRoot));
       expect(runtime.agentExecution).toBeDefined();
       expect(runtime.runtimeCore).toBeDefined();
-      expect(runtime.local.conversationStore).toBeDefined();
+      expect(runtime.local.analytics).toBeDefined();
+      expect(runtime.local.monitoring).toBeDefined();
+      expect(runtime.local.sessionFiles).toBeDefined();
     } finally {
       runtime.close();
       expect(() => runtime.close()).not.toThrow();
@@ -104,7 +106,7 @@ describe("runtime composition roots", () => {
     try {
       expect(boundTenantId).toBe("tnt_runtime_memory_bindings");
       expect(runtime.memoryTools).toBe(memoryTools);
-      expect(runtime.local.memoryStore).toBeDefined();
+      expect(runtime.local.createMemoryApplication).toBeTypeOf("function");
     } finally {
       runtime.close();
     }
@@ -157,7 +159,7 @@ describe("runtime composition roots", () => {
         expect.objectContaining({ type: "run_started", run_id: "run-1" }),
         { runId: "run-1", aggregateType: "run", aggregateId: "run-1" },
       ));
-      expect(runtime.local.conversationStore.listOutbox({ limit: 10 }).items).toEqual([]);
+      expect((await runtime.local.monitoring.listOutbox({ limit: 10 })).items).toEqual([]);
       expect(factoryTenantId).toBe("tnt_runtime_durable_events");
       expect(factoryRealtimeEvents).toBe(runtime.realtimeEvents);
     } finally {

@@ -1,4 +1,10 @@
-import type { ChildAgentInfo, IChildAgentStore } from "../../../contracts/conversation-store/index.js";
+import type {
+  ChildAgentInfo,
+  CreateChildAgentInput,
+  FindChildAgentByCreatorInput,
+  ListChildAgentsInput,
+  UpdateChildAgentLastRunInput,
+} from "../../../contracts/conversation-store/index.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 
 const columns = `
@@ -35,8 +41,6 @@ function childAgent(row: Record<string, unknown>): ChildAgentInfo {
     updated_at: iso(row.updated_at),
   };
 }
-
-type CreateChildAgentInput = Parameters<IChildAgentStore["createChildAgent"]>[0];
 
 /** Tenant-scoped PostgreSQL child-agent aggregate. */
 export class PostgresChildAgentRepository {
@@ -82,7 +86,7 @@ export class PostgresChildAgentRepository {
 
   async listChildAgents(
     tenantId: string,
-    input: { sessionId: string; agentName?: string | null; limit?: number },
+    input: ListChildAgentsInput,
   ): Promise<{ items: ChildAgentInfo[]; total: number }> {
     const agentName = input.agentName ?? null;
     const limit = Math.max(1, Math.min(100, Math.trunc(input.limit ?? 100)));
@@ -111,7 +115,7 @@ export class PostgresChildAgentRepository {
 
   async findChildAgentByCreator(
     tenantId: string,
-    input: { sessionId: string; createdByRunId: string; createdByCallId: string },
+    input: FindChildAgentByCreatorInput,
   ): Promise<ChildAgentInfo | null> {
     const result = await this.executor.query(
       `SELECT ${columns} FROM saas_child_agents
@@ -124,7 +128,7 @@ export class PostgresChildAgentRepository {
 
   async updateChildAgentLastRun(
     tenantId: string,
-    input: { sessionId: string; childAgentId: string; lastRunId: string },
+    input: UpdateChildAgentLastRunInput,
   ): Promise<boolean> {
     const result = await this.executor.query(
       `UPDATE saas_child_agents SET last_run_id=$1, updated_at=CURRENT_TIMESTAMP

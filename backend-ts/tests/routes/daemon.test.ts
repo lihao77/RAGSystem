@@ -188,7 +188,7 @@ describe("bot 自动化执行引擎", () => {
     const execute = vi.spyOn(harness.container.agentExecution, "executeSynchronously").mockImplementation(async (request) => {
       const sessionId = request.session_id!;
       await harness.container.sessionApplication.createSession({ sessionId, userId: request.userId });
-      harness.container.local.conversationStore.createRun({ runId: "root-suspended", sessionId, agentName: "orchestrator_agent" });
+      harness.localInfrastructure.conversationStore.createRun({ runId: "root-suspended", sessionId, agentName: "orchestrator_agent" });
       const pending = harness.container.pendingInteractions.waitForApproval({
         sessionId,
         runId: "root-suspended",
@@ -240,8 +240,8 @@ describe("bot 自动化执行引擎", () => {
     configureFeishu(harness.controlStore, bot.id, "webhook");
     await app.botEngine.reloadBot(bot.id);
     const sessionId = "feishu-card-session";
-    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, sessionId, bot.id, { chatId: "oc_resume" });
-    harness.container.local.conversationStore.createRun({ runId: "root-run", sessionId, agentName: "orchestrator_agent", status: "suspended" });
+    harness.localInfrastructure.conversationStore.createSession(LOCAL_TENANT_ID, sessionId, bot.id, { chatId: "oc_resume" });
+    harness.localInfrastructure.conversationStore.createRun({ runId: "root-run", sessionId, agentName: "orchestrator_agent", status: "suspended" });
     const suspended = harness.container.pendingInteractions.waitForApproval({
       sessionId,
       runId: "root-run",
@@ -281,7 +281,7 @@ describe("bot 自动化执行引擎", () => {
     configureFeishu(harness.controlStore, bot.id, "webhook");
     harness.controlStore.updateBotConfig(bot.id, { permission_mode: "dangerously_skip_permissions" });
     const sessionId = `bot-${bot.id}-feishu-oc_chat`;
-    harness.container.local.conversationStore.createSession(LOCAL_TENANT_ID, sessionId, bot.id, {}, "standard");
+    harness.localInfrastructure.conversationStore.createSession(LOCAL_TENANT_ID, sessionId, bot.id, {}, "standard");
     const execute = vi.spyOn(harness.container.agentExecution, "executeSynchronously").mockResolvedValue({
       success: true,
       answer: "reply",
@@ -298,7 +298,7 @@ describe("bot 自动化执行引擎", () => {
     const token = harness.controlStore.getBotRuntimeConfig(bot.id)!.feishu.route_token!;
     await app.botEngine.handleIncomingMessage(token, feishuMessage("om_existing_policy"));
     await vi.waitFor(() => expect(execute).toHaveBeenCalled());
-    await vi.waitFor(() => expect(harness.container.local.conversationStore.getSession(sessionId)?.permission_mode).toBe("standard"));
+    await vi.waitFor(() => expect(harness.localInfrastructure.conversationStore.getSession(sessionId)?.permission_mode).toBe("standard"));
   });
 
   it("reloadBot 在 bot 禁用时卸载长连接，恢复后重建", async () => {

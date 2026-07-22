@@ -364,7 +364,7 @@ function minimalAgent(
 class InMemoryCandidates {
   readonly records: MemoryCandidateRecord[] = [];
 
-  createMemoryCandidate(input: CreateMemoryCandidateInput): MemoryCandidateRecord {
+  async createMemoryCandidate(input: CreateMemoryCandidateInput): Promise<MemoryCandidateRecord> {
     const record: MemoryCandidateRecord = {
       id: `candidate-${this.records.length + 1}`,
       tenant_id: input.tenantId,

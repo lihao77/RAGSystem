@@ -6,6 +6,8 @@ import { rowToRun, rowToRunStep } from "./mappers.js";
 import type {
   AddRunStepInput,
   ConversationStoreTransaction,
+  CreatedRun,
+  CreateRunInput,
   IRunStore,
   RunInfo,
   RunStepRecord,
@@ -32,28 +34,7 @@ interface IdempotentRunStepDbRow extends IdempotentRunStepRow {
 export class RunOps implements IRunStore {
   constructor(private readonly db: ConversationDb) {}
 
-  createRun(input: {
-    runId: string;
-    sessionId: string;
-    entrypoint?: string;
-    status?: string;
-    taskSummary?: string;
-    requestId?: string | null;
-    userId?: string | null;
-    agentName?: string | null;
-    threadKey?: string | null;
-    parentRunId?: string | null;
-    parentCallId?: string | null;
-    childAgentId?: string | null;
-  }): {
-    run_id: string;
-    session_id: string;
-    status: string;
-    thread_key: string;
-    parent_run_id: string | null;
-    parent_call_id: string | null;
-    child_agent_id: string | null;
-  } {
+  createRun(input: CreateRunInput): CreatedRun {
     const threadKey = input.threadKey?.trim() || "root";
     const status = input.status ?? "running";
     this.db

@@ -18,6 +18,7 @@ import { DefaultTenantRuntimeRegistry } from "../../src/adapters/local/tenant-ru
 import type { IdentityProvider } from "../../src/services/identity/index.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 import type { BuildAppOptions } from "../../src/app.js";
+import type { LocalRuntimeInfrastructure } from "../../src/adapters/local/runtime-options.js";
 
 /**
  * 当前测试 dataRoot(buildTestHarness 每次更新)。artifact 等需直接写文件的 fixture
@@ -70,6 +71,7 @@ export async function buildTestHarness(
 ) {
   const tempRoot = options.root ?? makeTempRoot();
   testDataRoot = tempRoot;
+  const infrastructureCapture: { current?: LocalRuntimeInfrastructure } = {};
   const container = await createLocalRuntimeContainer({
     tenantId: LOCAL_TENANT_ID,
     dbPath: path.join(tempRoot, "test.db"),
@@ -79,10 +81,13 @@ export async function buildTestHarness(
     systemConfigPath: "",
     agentConfigRoot: "",
     startOutboxDispatcher: options.startOutboxDispatcher ?? false,
+    onInfrastructureCreated: (infrastructure) => { infrastructureCapture.current = infrastructure; },
     ...(options.logger ? { logger: options.logger } : {}),
     ...(options.hooks ? { hooks: options.hooks } : {}),
     embedderFactory: () => new HashFallbackEmbedder(),
   });
+  const localInfrastructure = infrastructureCapture.current;
+  if (!localInfrastructure) throw new Error("Local runtime infrastructure was not captured");
   const controlStore = createControlStore(path.join(tempRoot, "system"));
   const controlPlane = new SqliteControlPlaneAdapter(controlStore);
   for (const [key, value] of Object.entries(options.settings ?? {})) controlStore.setSetting(key, value);
@@ -123,5 +128,5 @@ export async function buildTestHarness(
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.ready();
-  return { app, container, registry, controlStore, controlPlane, widgetCredentialStore, widgetCredentials, widgetAuth, root: tempRoot };
+  return { app, container, localInfrastructure, registry, controlStore, controlPlane, widgetCredentialStore, widgetCredentials, widgetAuth, root: tempRoot };
 }
