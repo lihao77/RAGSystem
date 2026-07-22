@@ -122,26 +122,6 @@
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
   overflow: hidden;
-  animation: mdBlockIn 0.32s var(--ease-material) both;
-}
-
-/* 特殊块入场：流式/渲染时微微上浮浮现，避免"定格弹出" */
-@keyframes mdBlockIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .markdown-body .md-special-block {
-    animation: none;
-  }
 }
 
 .markdown-body .md-block-head {
@@ -153,31 +133,6 @@
   padding: 0 14px;
   border-bottom: 1px solid rgba(var(--color-border-rgb, 148, 163, 184), 0.22);
   background: rgba(var(--color-bg-elevated-rgb), 0.24);
-}
-
-/* 三类特殊块的类型色：代码=accent、表格=cyan、引用=amber，打破同质 */
-.markdown-body .md-code-block .md-block-head {
-  border-left: 2px solid var(--color-accent);
-}
-
-.markdown-body .md-table-block .md-block-head {
-  border-left: 2px solid var(--color-agent-cyan, #22d3ee);
-}
-
-.markdown-body .md-quote-block .md-block-head {
-  border-left: 2px solid var(--color-warning);
-}
-
-.markdown-body .md-code-block .md-block-title {
-  color: var(--color-accent);
-}
-
-.markdown-body .md-table-block .md-block-title {
-  color: var(--color-agent-cyan, #22d3ee);
-}
-
-.markdown-body .md-quote-block .md-block-title {
-  color: var(--color-warning);
 }
 
 .markdown-body .md-block-title {

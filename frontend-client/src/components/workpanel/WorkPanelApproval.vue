@@ -42,16 +42,16 @@
         class="wpa-note"
         placeholder="附言（可选）"
         :disabled="submitting"
+        @keydown.enter.prevent="submit(true)"
+        @keydown.esc.prevent="submit(false)"
       />
 
       <!-- Actions -->
       <div class="wpa-actions">
         <Button class="wpa-btn w-full" variant="success" :disabled="submitting" @click="submit(true)">
-          <IconCheck :size="15" />
           {{ submitting && pendingApproved === true ? '…' : '允许' }}
         </Button>
         <Button class="wpa-btn w-full" variant="destructive" :disabled="submitting" @click="submit(false)">
-          <IconClose :size="15" />
           {{ submitting && pendingApproved === false ? '…' : '拒绝' }}
         </Button>
       </div>
@@ -64,8 +64,6 @@ import { ref, computed } from 'vue'
 import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 import { Button } from '../ui/button'
 import IconChevronRight from '../icons/IconChevronRight.vue'
-import IconCheck from '../icons/IconCheck.vue'
-import IconClose from '../icons/IconClose.vue'
 
 const props = defineProps({
   queue: { type: Array, default: () => [] },
