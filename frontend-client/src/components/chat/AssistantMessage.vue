@@ -3,10 +3,9 @@
     v-if="!msg.content && !msg.executionTree?.root && !msg.finished"
     class="loading-indicator"
   >
-    <div class="loading-dots" aria-hidden="true">
-      <div class="dot"></div>
-      <div class="dot"></div>
-      <div class="dot"></div>
+    <div class="loading-orb" aria-hidden="true">
+      <span class="loading-orb-core"></span>
+      <span class="loading-orb-ring"></span>
     </div>
     <span class="loading-text">{{ messageContext.getAssistantRuntimeStatusText(msg) || '正在运行...' }}</span>
   </div>
@@ -18,6 +17,7 @@
         @notify="emit('notify', $event)"
         @citation-click="emit('citation-click', $event)"
       />
+      <span v-if="isStreaming && pi === lastTextIndex" class="stream-caret" aria-hidden="true"></span>
     </div>
     <div
       v-else-if="part.type === 'viz'"
@@ -40,12 +40,24 @@
 import MarkdownContent from './MarkdownContent.vue';
 import VisualizationLoader from '../VisualizationLoader.vue';
 import { parseMessageParts } from '../../utils/message-render.js';
-import { inject } from 'vue';
+import { inject, computed } from 'vue';
 
-defineProps({
+const props = defineProps({
   msg: { type: Object, required: true },
 });
 
 const emit = defineEmits(['notify', 'citation-click']);
 const messageContext = inject('messageContext');
+
+// 流式中（未停止且未结束）→ 显示呼吸光标
+const isStreaming = computed(() => !props.msg.finished && !props.msg.stopped);
+
+// 光标只挂在最后一个文本块末尾
+const lastTextIndex = computed(() => {
+  const parts = parseMessageParts(props.msg);
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    if (parts[i].type === 'text' && parts[i].content?.trim()) return i;
+  }
+  return -1;
+});
 </script>
