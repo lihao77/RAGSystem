@@ -72,16 +72,17 @@
                             </div>
                         </div>
                     </div>
-                    <div v-else-if="searchPerformed" class="empty-state adm-state adm-state--empty glass-card" style="padding: var(--spacing-xl)">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"
-                            fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                            stroke-linejoin="round">
-                            <circle cx="11" cy="11" r="8" />
-                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                            <line x1="8" y1="11" x2="14" y2="11" />
-                        </svg>
-                        <p>未找到相关结果，尝试更换关键词或切换集合</p>
-                    </div>
+                    <EmptyState v-else-if="searchPerformed" title="未找到相关结果，尝试更换关键词或切换集合">
+                        <template #icon>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <circle cx="11" cy="11" r="8" />
+                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                <line x1="8" y1="11" x2="14" y2="11" />
+                            </svg>
+                        </template>
+                    </EmptyState>
                 </div>
 
 </template>
@@ -97,6 +98,7 @@ import IconWarning from '../icons/IconWarning.vue';
 import IconFile from '../icons/IconFile.vue';
 import IconDownload from '../icons/IconDownload.vue';
 import KnowledgeMdViewer from '../knowledge/KnowledgeMdViewer.vue';
+import EmptyState from '../EmptyState.vue';
 import KpiCards from '../admin/KpiCards.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import CustomSelect from '../ui/CustomSelect.vue';
@@ -300,7 +302,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     color: var(--color-text-muted);
     margin-top: var(--spacing-xs);
 }
-.loading-state, .empty-state {
+.loading-state {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -310,10 +312,6 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     color: var(--color-text-muted);
     text-align: center;
     min-height: 160px;
-}
-
-.empty-state svg {
-    opacity: 0.35;
 }
 @media (max-width: 720px) {
     .section-toolbar {

@@ -23,10 +23,7 @@
     </div>
    <div class="wpe-body-state">
      <Transition name="wpe-state" mode="out-in">
-        <div v-if="!executionView.hasNodes" class="wpe-empty" key="empty">
-          <span class="wpe-empty-mark" aria-hidden="true"></span>
-          <span>{{ executionView.emptyText }}</span>
-        </div>
+        <EmptyState v-if="!executionView.hasNodes" row :title="executionView.emptyText" key="empty" class="wpe-empty-host" />
         <div v-else class="wpe-list" key="list">
          <Transition name="wpe-tree-swap" mode="out-in" appear>
             <div class="wpe-scroll" :key="messageKey" ref="listRef">
@@ -66,6 +63,7 @@ import {
 } from '../../utils/executionTreePresentation'
 import ExecutionTimelineNode from './ExecutionTimelineNode.vue'
 import WorkPanelInspector from './WorkPanelInspector.vue'
+import EmptyState from '../EmptyState.vue'
 
 const props = defineProps({
   executionTree: { type: Object, default: () => ({ root: null, steps: [] }) },
@@ -436,26 +434,8 @@ button.wpe-chip:hover {
   position: relative;
 }
 
-.wpe-empty {
+.wpe-empty-host {
   margin: 0 14px;
-  padding: 14px 12px;
-  font-size: 12px;
-  color: var(--color-text-muted);
-  border: 1px solid color-mix(in srgb, var(--color-border) 52%, transparent);
-  border-radius: var(--radius-sm);
-  background:
-    linear-gradient(135deg, rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.28), rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.12));
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.wpe-empty-mark {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--color-border);
-  flex-shrink: 0;
 }
 
 .wpe-list {

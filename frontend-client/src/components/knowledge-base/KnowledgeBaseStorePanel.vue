@@ -57,12 +57,11 @@
                         <div v-if="mergedFilesLoading" class="g-table-loading">
                             <div class="g-skeleton-rows" aria-busy="true"><div v-for="n in 5" :key="n" class="g-skeleton-row"><div class="g-skeleton-bar g-skeleton-bar--title"></div><div class="g-skeleton-bar g-skeleton-bar--sub"></div></div></div>
                         </div>
-                        <div v-else-if="mergedFileList.length === 0" class="empty-state adm-state adm-state--empty">
-                            <IconFile :size="48" :stroke-width="1.5" />
-                            <p>{{ uploadedFiles.length === 0 ? '暂无文件，请先上传文档' : '当前集合下无已索引文件，尝试清空筛选' }}</p>
+                        <EmptyState v-else-if="mergedFileList.length === 0" :icon="IconFile" :icon-size="48"
+                            :title="uploadedFiles.length === 0 ? '暂无文件，请先上传文档' : '当前集合下无已索引文件，尝试清空筛选'">
                             <Button v-if="uploadedFiles.length === 0" class="primary-action-button" variant="default" size="sm"
                                 @click="triggerFileInput">上传文件</Button>
-                        </div>
+                        </EmptyState>
                         <Table v-else class="kb-table matrix-table">
                             <TableHeader>
                                 <TableRow>
@@ -196,16 +195,17 @@
                                 </div>
                             </div>
                         </div>
-                        <div v-else-if="searchPerformed" class="empty-state adm-state adm-state--empty" style="padding: var(--spacing-lg)">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"
-                                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                                stroke-linejoin="round">
-                                <circle cx="11" cy="11" r="8" />
-                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                <line x1="8" y1="11" x2="14" y2="11" />
-                            </svg>
-                            <p>未找到相关结果，尝试更换关键词或切换集合</p>
-                        </div>
+                        <EmptyState v-else-if="searchPerformed" compact title="未找到相关结果，尝试更换关键词或切换集合">
+                            <template #icon>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <circle cx="11" cy="11" r="8" />
+                                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                    <line x1="8" y1="11" x2="14" y2="11" />
+                                </svg>
+                            </template>
+                        </EmptyState>
                     </div>
                 </div>
 
@@ -222,6 +222,7 @@ import IconWarning from '../icons/IconWarning.vue';
 import IconFile from '../icons/IconFile.vue';
 import IconDownload from '../icons/IconDownload.vue';
 import KnowledgeMdViewer from '../knowledge/KnowledgeMdViewer.vue';
+import EmptyState from '../EmptyState.vue';
 import KpiCards from '../admin/KpiCards.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import CustomSelect from '../ui/CustomSelect.vue';
@@ -630,7 +631,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     color: var(--color-text-muted);
     margin-top: var(--spacing-xs);
 }
-.loading-state, .empty-state {
+.loading-state {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -640,10 +641,6 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     color: var(--color-text-muted);
     text-align: center;
     min-height: 160px;
-}
-
-.empty-state svg {
-    opacity: 0.35;
 }
 @media (max-width: 720px) {
     .section-toolbar {

@@ -20,17 +20,17 @@
                     <div v-if="vectorizersLoading" class="g-table-loading">
                         <div class="g-skeleton-rows" aria-busy="true"><div v-for="n in 5" :key="n" class="g-skeleton-row"><div class="g-skeleton-bar g-skeleton-bar--title"></div><div class="g-skeleton-bar g-skeleton-bar--sub"></div></div></div>
                     </div>
-                    <div v-else-if="vectorizers.length === 0" class="empty-state adm-state adm-state--empty glass-card"
-                        style="padding: var(--spacing-xl)">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                            <ellipse cx="12" cy="5" rx="9" ry="3" />
-                            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-                            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-                        </svg>
-                        <p>暂无向量化器，添加后即可在「知识库管理」中建立索引。</p>
+                    <EmptyState v-else-if="vectorizers.length === 0" title="暂无向量化器，添加后即可在「知识库管理」中建立索引。">
+                        <template #icon>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <ellipse cx="12" cy="5" rx="9" ry="3" />
+                                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                            </svg>
+                        </template>
                         <Button class="primary-action-button" variant="default" size="sm" @click="openAddVectorizerDialog">新增向量化器</Button>
-                    </div>
+                    </EmptyState>
                     <div v-else class="data-table-wrapper glass-card">
                         <Table class="kb-table">
                             <TableHeader>
@@ -98,6 +98,7 @@ import IconWarning from '../icons/IconWarning.vue';
 import IconFile from '../icons/IconFile.vue';
 import IconDownload from '../icons/IconDownload.vue';
 import KnowledgeMdViewer from '../knowledge/KnowledgeMdViewer.vue';
+import EmptyState from '../EmptyState.vue';
 import KpiCards from '../admin/KpiCards.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import CustomSelect from '../ui/CustomSelect.vue';
@@ -190,7 +191,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
 .status-badge {
     white-space: nowrap;
 }
-.loading-state, .empty-state {
+.loading-state {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -200,10 +201,6 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     color: var(--color-text-muted);
     text-align: center;
     min-height: 160px;
-}
-
-.empty-state svg {
-    opacity: 0.35;
 }
 @media (max-width: 720px) {
     .section-toolbar {
