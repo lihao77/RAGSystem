@@ -11,13 +11,13 @@ export type AsyncKnowledgeMarkdownExtractor = (input: {
   body: Uint8Array;
   fileName: string;
   mime: string;
-}) => Promise<string> | string;
+}) => Promise<string>;
 
 /** Object-backed pipeline; callers may inject a PDF/DOCX-capable extractor. */
 export class TenantKnowledgeMarkdownPipeline implements AsyncKnowledgeMarkdownPipeline {
   constructor(
     private readonly store: AsyncKnowledgeFileStore,
-    private readonly extract: AsyncKnowledgeMarkdownExtractor = ({ body }) => Buffer.from(body).toString("utf8"),
+    private readonly extract: AsyncKnowledgeMarkdownExtractor = async ({ body }) => Buffer.from(body).toString("utf8"),
   ) {}
 
   async generateMarkdownForFile(fileId: string): Promise<{ md_blob_hash: string }> {
