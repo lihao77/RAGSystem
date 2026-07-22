@@ -56,7 +56,10 @@ describe("provider continuation persistence", () => {
       toolCallIds: ["tool-1"],
       state: continuation,
     });
-    const source = new RecentMessagesContextSource(store, false, new ProjectionRegistry());
+    const source = new RecentMessagesContextSource({
+      getRecentMessages: async (sessionId, limit, threadKey) => store.getRecentMessages(sessionId, limit, threadKey),
+      getProviderContinuation: async (sessionId, messageId) => store.getProviderContinuation(sessionId, messageId),
+    }, false, new ProjectionRegistry());
     const pending = await source.build(request());
     expect(pending.conversation?.[1]?.provider_continuation).toEqual(continuation);
 

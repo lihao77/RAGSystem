@@ -11,7 +11,7 @@ describe("knowledge route architecture", () => {
   });
 
   it("composes the same HTTP workflow for Local and SaaS", () => {
-    const local = fs.readFileSync(path.resolve("src/adapters/local/application/local-request-application-resolvers.ts"), "utf8");
+    const local = fs.readFileSync(path.resolve("src/adapters/local/runtime-container.ts"), "utf8");
     const saas = fs.readFileSync(path.resolve("src/main.ts"), "utf8");
     expect(local).toContain("new KnowledgeHttpApplication(");
     expect(saas).toContain("new KnowledgeHttpApplication(");

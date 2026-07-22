@@ -50,7 +50,7 @@ describe("backend context memory bindings", () => {
       build: async () => ({ conversation: [{ role: "system" as const, content: "postgres memory" }] }),
     }));
     const history = {
-      getRecentMessages: () => [],
+      getRecentMessages: async () => [],
       getSession: () => ({ metadata: {}, user_id: "usr_alpha" }),
       updateSessionMetadata: () => ({}),
     };

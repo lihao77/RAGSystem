@@ -34,7 +34,7 @@ describe("ui_context 端到端投影(store → conversation)", () => {
     });
 
     const historyPort = {
-      getRecentMessages: (sid: string, limit?: number, tk?: string | null) =>
+      getRecentMessages: async (sid: string, limit?: number, tk?: string | null) =>
         store.getRecentMessages(sid, limit ?? 10_000, tk ?? "root"),
     };
     const registry = createDefaultProjectionRegistry();
@@ -62,7 +62,7 @@ describe("ui_context 端到端投影(store → conversation)", () => {
       metadata: { ui_context: { entries: [{ label: "x", value: "y" }] } },
     });
     const historyPort = {
-      getRecentMessages: (sid: string, limit?: number, tk?: string | null) =>
+      getRecentMessages: async (sid: string, limit?: number, tk?: string | null) =>
         store.getRecentMessages(sid, limit ?? 10_000, tk ?? "root"),
     };
     const source = new RecentMessagesContextSource(historyPort, true, createDefaultProjectionRegistry());
@@ -95,7 +95,7 @@ describe("image_attachment 端到端投影(store → conversation)", () => {
     });
 
     const historyPort = {
-      getRecentMessages: (sid: string, limit?: number, tk?: string | null) =>
+      getRecentMessages: async (sid: string, limit?: number, tk?: string | null) =>
         store.getRecentMessages(sid, limit ?? 10_000, tk ?? "root"),
     };
     const source = new RecentMessagesContextSource(historyPort, true, createDefaultProjectionRegistry());
@@ -137,7 +137,7 @@ describe("tool_result_media TTL projection", () => {
         },
       });
       const historyPort = {
-        getRecentMessages: (sid: string, limit?: number, tk?: string | null) => store.getRecentMessages(sid, limit ?? 10_000, tk ?? "root"),
+        getRecentMessages: async (sid: string, limit?: number, tk?: string | null) => store.getRecentMessages(sid, limit ?? 10_000, tk ?? "root"),
       };
       const source = new RecentMessagesContextSource(historyPort, true, createDefaultProjectionRegistry());
 
