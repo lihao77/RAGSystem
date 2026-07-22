@@ -3,13 +3,7 @@ import path from "node:path";
 
 import type { FastifyReply, FastifyRequest } from "fastify";
 
-import type { IFileIndexStore } from "../contracts/file-index-store/index.js";
 import { HttpError } from "../utils/errors.js";
-
-export interface FileScope {
-  scopeType: "session";
-  scopeId?: string | null;
-}
 
 export function parseCsvList(value: string | undefined): string[] {
   return (value ?? "")
@@ -33,7 +27,7 @@ export interface StoredFileRef {
 
 /**
  * 收集 multipart/form-data 中的全部文件为内存 buffer(纯解析,与 store 解耦)。
- * 物理 blob 落盘由调用方各自调 store.add(IFileIndexStore session 附件 / AsyncKnowledgeFileStore 知识库)。
+ * 物理 blob 落盘由调用方各自通过对应 application/storage Port 完成。
  */
 export async function collectMultipartFiles(request: FastifyRequest): Promise<MultipartFile[]> {
   if (!request.isMultipart()) {
@@ -50,24 +44,6 @@ export async function collectMultipartFiles(request: FastifyRequest): Promise<Mu
     throw new HttpError(400, "invalid_request", "未选择文件");
   }
   return collected;
-}
-
-export function validateFileIds(input: {
-  fileIndex: IFileIndexStore;
-  fileIds: string[];
-  scope: FileScope;
-}): { success: true; valid: string[]; invalid: string[] } {
-  const valid: string[] = [];
-  const invalid: string[] = [];
-  for (const fileId of input.fileIds) {
-    const record = input.fileIndex.get(fileId, input.scope.scopeType, input.scope.scopeId ?? null);
-    if (record) {
-      valid.push(fileId);
-    } else {
-      invalid.push(fileId);
-    }
-  }
-  return { success: true, valid, invalid };
 }
 
 export async function removeStoredFile(record: StoredFileRef, expectedRoot: string): Promise<void> {

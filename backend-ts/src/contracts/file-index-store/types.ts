@@ -5,7 +5,7 @@
  * 上传是 HTTP 外部输入 → zod 边界必要（对照 file-history 内部调用不 zod，见"何时该 zod"判据）。
  * 输出 DTO UploadedFileRecord 复用通用 contracts/storage/files.js（契约层跨模块依赖合规，对齐
  * conversation-store/types.ts 之 import contracts/session + common）。
- * 契约独立：本文件零 import services，凡 IFileIndexStore 签名引用的类型必在此定义或从 contracts 取。
+ * 契约独立：本文件零 import adapters/services，Local 文件索引与共享 application Port 复用这些 DTO。
  */
 import { z } from "zod";
 
@@ -42,11 +42,4 @@ export interface AddFileInput {
   mime: string;
   scopeType: FileScopeType;
   scopeId?: string | null;
-}
-
-// ────────────────────────────── 配置（领域，interface） ──────────────────────────────
-
-export interface FileIndexStoreOptions {
-  dbPath: string;
-  dataRoot?: string | undefined;
 }

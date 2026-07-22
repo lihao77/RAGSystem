@@ -4,15 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { IFileHistoryStore } from "../../src/contracts/file-history-store/index.js";
 import { FileHistoryService } from "../../src/adapters/local/files/file-history-service.js";
 
 /**
- * file-history-store 契约测试样本（路线图④替换验证雏形）。
- *
- * 与 conversation-store / memory-store / file-index-store 契约测试同理：只依赖 IFileHistoryStore
- * 窄接口，把 FileHistoryService 实例赋给接口类型再调用，证明实现服从契约。换实现（如换 DB 后端）
- * 注入同一组测试都应通过——可替换的可执行证明。
+ * Local file-history 行为测试。
  *
  * 重点验证深合约：trackEdit 幂等备份、makeSnapshot 关联 seq、rewind modified 恢复/created 删除、
  * 非法输入返回 null/失败（非抛异常）。
@@ -31,9 +26,9 @@ afterEach(() => {
   fs.rmSync(workDir, { recursive: true, force: true });
 });
 
-const build = (): IFileHistoryStore => new FileHistoryService({ dataRoot });
+const build = (): FileHistoryService => new FileHistoryService({ dataRoot });
 
-describe("IFileHistoryStore 契约", () => {
+describe("FileHistoryService behavior", () => {
   it("trackEdit + makeSnapshot + rewind 闭环：modified 文件恢复原始内容", () => {
     const store = build();
     const filePath = path.join(workDir, "a.txt");

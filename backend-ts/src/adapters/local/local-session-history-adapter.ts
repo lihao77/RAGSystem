@@ -1,9 +1,9 @@
-import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import type { SessionHistoryPort } from "../../contracts/session/session-history.js";
+import type { FileHistoryService } from "./files/file-history-service.js";
 
 /** Adapts synchronous filesystem snapshots to the shared async session history port. */
 export class LocalSessionHistoryAdapter implements SessionHistoryPort {
-  constructor(private readonly history: IFileHistoryStore) {}
+  constructor(private readonly history: FileHistoryService) {}
 
   async cleanup(sessionId: string) { this.history.cleanup(sessionId); }
   async makeSnapshot(sessionId: string, messageSeq: number) {

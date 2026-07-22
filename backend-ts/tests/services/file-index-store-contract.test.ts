@@ -4,14 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { IFileIndexStore } from "../../src/contracts/file-index-store/index.js";
 import { FileIndexService } from "../../src/adapters/local/files/file-index-service.js";
 
 /**
- * file-index-store 契约测试(session-only:知识库文件已独立到 driver kb_files,
+ * Local file-index 行为测试(session-only:知识库文件已独立到 driver kb_files,
  * uploaded_files 只留会话附件 session scope)。
  *
- * 只依赖 IFileIndexStore 窄接口,注入 FileIndexService 证明服从契约。
  * 重点验证 add 收编:物理 blob 落盘 + 元数据登记原子同在。
  */
 
@@ -25,13 +23,13 @@ afterEach(() => {
   fs.rmSync(dataRoot, { recursive: true, force: true });
 });
 
-const build = (): IFileIndexStore => new FileIndexService({ dbPath: ":memory:", dataRoot });
+const build = (): FileIndexService => new FileIndexService({ dbPath: ":memory:", dataRoot });
 
 const encoder = new TextEncoder();
 
 const SESSION_ID = "s1";
 
-const addSession = (store: IFileIndexStore, name: string, content: string) =>
+const addSession = (store: FileIndexService, name: string, content: string) =>
   store.add({
     originalName: name,
     buffer: encoder.encode(content),
@@ -40,7 +38,7 @@ const addSession = (store: IFileIndexStore, name: string, content: string) =>
     scopeId: SESSION_ID,
   });
 
-describe("IFileIndexStore 契约", () => {
+describe("FileIndexService behavior", () => {
   it("add 收编:物理 blob 落盘 + 元数据可 get 回(原子同在)", () => {
     const store = build();
     const record = addSession(store, "note.txt", "hello");

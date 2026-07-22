@@ -1,10 +1,11 @@
 import fs from "node:fs";
 
-import type { FileChangeHistoryPort, IFileHistoryStore } from "../../../contracts/file-history-store/index.js";
+import type { FileChangeHistoryPort } from "../../../contracts/file-history-store/index.js";
+import type { FileHistoryService } from "./file-history-service.js";
 
 /** Projects synchronous filesystem history into File Change's Promise-based read port. */
 export class LocalFileChangeHistoryAdapter implements FileChangeHistoryPort {
-  constructor(private readonly history: IFileHistoryStore) {}
+  constructor(private readonly history: FileHistoryService) {}
 
   async listSnapshots(sessionId: string) {
     return this.history.listSnapshots(sessionId);

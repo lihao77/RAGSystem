@@ -6,12 +6,14 @@ import crypto, { randomUUID } from "node:crypto";
 import type {
   FileHistoryRewindResult,
   FileHistorySnapshot,
-  FileHistoryStoreOptions,
   FileHistoryTrackedFile,
-  IFileHistoryStore,
 } from "../../../contracts/file-history-store/index.js";
 
-export class FileHistoryService implements IFileHistoryStore {
+export interface FileHistoryStoreOptions {
+  dataRoot?: string | undefined;
+}
+
+export class FileHistoryService {
   private readonly dataRoot: string;
   private readonly trackedBySession = new Map<string, Map<string, FileHistoryTrackedFile>>();
 

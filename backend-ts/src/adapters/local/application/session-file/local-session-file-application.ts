@@ -2,10 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { SessionFileApplication, SessionFileReadResult } from "../../../../contracts/application/session-file-application.js";
-import type { IFileIndexStore } from "../../../../contracts/file-index-store/index.js";
+import type { FileIndexService } from "../../files/file-index-service.js";
 
 export class LocalSessionFileApplication implements SessionFileApplication {
-  constructor(private readonly files: IFileIndexStore) {}
+  constructor(private readonly files: FileIndexService) {}
 
   async list(sessionId: string) {
     return this.files.list({ scopeType: "session", scopeId: sessionId });

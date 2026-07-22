@@ -8,9 +8,7 @@ import {
   AddFileInputSchema,
   ListFilesInputSchema,
   type AddFileInput,
-  type FileIndexStoreOptions,
   type FileScopeType,
-  type IFileIndexStore,
   type ListFilesInput,
 } from "../../../contracts/file-index-store/index.js";
 import { matchesFileFilters, sanitizeFilename } from "../../../utils/file-filter.js";
@@ -33,7 +31,12 @@ interface UploadedFileRow {
   scope_id: string | null;
 }
 
-export class FileIndexService implements IFileIndexStore {
+export interface FileIndexStoreOptions {
+  dbPath: string;
+  dataRoot?: string | undefined;
+}
+
+export class FileIndexService {
   private readonly db: import("node:sqlite").DatabaseSync;
   private readonly dataRoot: string;
 
