@@ -83,7 +83,7 @@ function submit() {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--color-brand-accent, #6366f1);
+  color: var(--color-brand-accent);
   margin-bottom: 8px;
 }
 
@@ -95,9 +95,9 @@ function submit() {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: var(--color-brand-accent, #6366f1);
-  background: rgba(var(--color-brand-accent-rgb, 99, 102, 241), 0.1);
-  border: 1px solid rgba(var(--color-brand-accent-rgb, 99, 102, 241), 0.2);
+  color: var(--color-brand-accent);
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
+  border: 1px solid rgba(var(--color-brand-accent-rgb), 0.2);
 }
 
 .wpui-section-icon :deep(svg) {
@@ -170,14 +170,14 @@ function submit() {
 }
 
 .wpui-option.selected {
-  background: rgba(var(--color-brand-accent-rgb, 99,102,241), 0.14);
-  border-color: var(--color-brand-accent, #6366f1);
-  color: var(--color-brand-accent, #6366f1);
+  background: rgba(var(--color-brand-accent-rgb), 0.14);
+  border-color: var(--color-brand-accent);
+  color: var(--color-brand-accent);
   font-weight: 600;
 }
 
 .wpui-option.selected:hover {
-  background: rgba(var(--color-brand-accent-rgb, 99,102,241), 0.18);
+  background: rgba(var(--color-brand-accent-rgb), 0.18);
 }
 
 .wpui-actions {
@@ -197,14 +197,14 @@ function submit() {
 .wpui-btn:active:not(:disabled) { transform: scale(0.97); }
 
 .wpui-btn--submit {
-  color: var(--color-brand-accent, #6366f1);
+  color: var(--color-brand-accent);
   border-right: 1px solid var(--color-border);
 }
 .wpui-btn--submit:hover {
-  background: rgba(var(--color-brand-accent-rgb, 99,102,241), 0.08);
+  background: rgba(var(--color-brand-accent-rgb), 0.08);
 }
 .wpui-btn--submit:active {
-  background: rgba(var(--color-brand-accent-rgb, 99,102,241), 0.14);
+  background: rgba(var(--color-brand-accent-rgb), 0.14);
 }
 
 .wpui-btn--cancel {

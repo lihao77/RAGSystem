@@ -192,8 +192,8 @@ const onFileChange = (event) => {
   position: relative;
 }
 .ctx-file-item--pending {
-  background: rgba(var(--color-brand-accent-rgb, 99, 102, 241), 0.08);
-  border-color: rgba(var(--color-brand-accent-rgb, 99, 102, 241), 0.24);
+  background: rgba(var(--color-brand-accent-rgb), 0.08);
+  border-color: rgba(var(--color-brand-accent-rgb), 0.24);
 }
 .ctx-file-main { min-width: 0; flex: 1; }
 .ctx-file-name {

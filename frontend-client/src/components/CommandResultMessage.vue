@@ -54,7 +54,7 @@ const statusClass = computed(() => {
 .command-name {
   font-family: var(--font-mono, monospace);
   font-weight: 600;
-  color: var(--color-brand-accent-light, var(--color-interactive, #5e6ad2));
+  color: var(--color-brand-accent-light);
   flex-shrink: 0;
 }
 
@@ -71,6 +71,6 @@ const statusClass = computed(() => {
 }
 
 .command-text {
-  color: var(--color-text-secondary, #666);
+  color: var(--color-text-secondary);
 }
 </style>

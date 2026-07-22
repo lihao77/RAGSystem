@@ -32,24 +32,24 @@
 
     <defs>
       <linearGradient :id="`${gradientId}-1`" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" style="stop-color:#5e6ad2;stop-opacity:1" />
-        <stop offset="100%" style="stop-color:#7a86e0;stop-opacity:1" />
+        <stop offset="0%" style="stop-color:var(--color-accent);stop-opacity:1" />
+        <stop offset="100%" style="stop-color:var(--color-accent-hover);stop-opacity:1" />
       </linearGradient>
       <linearGradient :id="`${gradientId}-2`" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:1" />
-        <stop offset="100%" style="stop-color:#5e6ad2;stop-opacity:1" />
+        <stop offset="100%" style="stop-color:var(--color-accent);stop-opacity:1" />
       </linearGradient>
       <linearGradient :id="`${gradientId}-3`" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" style="stop-color:#5e6ad2;stop-opacity:1" />
-        <stop offset="100%" style="stop-color:#7a86e0;stop-opacity:1" />
+        <stop offset="0%" style="stop-color:var(--color-accent);stop-opacity:1" />
+        <stop offset="100%" style="stop-color:var(--color-accent-hover);stop-opacity:1" />
       </linearGradient>
       <linearGradient :id="`${gradientId}-4`" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:1" />
-        <stop offset="100%" style="stop-color:#5e6ad2;stop-opacity:1" />
+        <stop offset="100%" style="stop-color:var(--color-accent);stop-opacity:1" />
       </linearGradient>
       <linearGradient :id="`${gradientId}-5`" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" style="stop-color:#5e6ad2;stop-opacity:0.6" />
-        <stop offset="100%" style="stop-color:#7a86e0;stop-opacity:0.6" />
+        <stop offset="0%" style="stop-color:var(--color-accent);stop-opacity:0.6" />
+        <stop offset="100%" style="stop-color:var(--color-accent-hover);stop-opacity:0.6" />
       </linearGradient>
     </defs>
   </svg>
@@ -80,7 +80,7 @@ const gradientId = computed(() => `logo-gradient-${Math.random().toString(36).su
 <style scoped>
 .icon-logo {
   flex-shrink: 0;
-  filter: drop-shadow(0 2px 8px rgba(94, 106, 210, 0.3));
+  filter: drop-shadow(0 2px 8px rgba(var(--color-accent-rgb), 0.3));
   transition: all var(--transition-normal);
 }
 

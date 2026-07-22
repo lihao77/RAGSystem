@@ -419,7 +419,7 @@ button.wpe-chip:hover {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--color-brand-accent, #6366f1);
+  background: var(--color-brand-accent);
   animation: pulse 1.5s ease-in-out infinite;
 }
 

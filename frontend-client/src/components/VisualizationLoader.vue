@@ -287,6 +287,6 @@ onMounted(fetchConfig);
 .image-caption {
   margin-top: 0.5rem;
   font-size: 0.875rem;
-  color: var(--text-secondary, #71717a);
+  color: var(--color-text-secondary);
 }
 </style>

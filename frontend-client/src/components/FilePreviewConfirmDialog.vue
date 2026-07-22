@@ -113,7 +113,7 @@ defineExpose({ show, hide });
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
-  background: linear-gradient(135deg, rgba(var(--color-accent-rgb, 99, 102, 241), 0.1) 0%, transparent 100%);
+  background: linear-gradient(135deg, rgba(var(--color-accent-rgb), 0.1) 0%, transparent 100%);
   flex-shrink: 0;
 }
 

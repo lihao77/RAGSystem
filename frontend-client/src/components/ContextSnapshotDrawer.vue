@@ -108,7 +108,7 @@
               <div class="ctx-mem-scope-title">{{ scope }} Memory Index</div>
               <pre class="ctx-code-block ctx-mem-content">{{ content }}</pre>
             </div>
-            <div v-if="!data.memory.indices || !Object.keys(data.memory.indices).length" class="ctx-v" style="font-size: 12px; color: var(--color-text-muted, #999);">
+            <div v-if="!data.memory.indices || !Object.keys(data.memory.indices).length" class="ctx-v" style="font-size: 12px; color: var(--color-text-muted);">
               无已加载的记忆索引
             </div>
           </div>
@@ -209,27 +209,27 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--color-border, #e4e7ed); flex-shrink: 0; }
 .ctx-drawer-title { margin: 0; font-size: 15px; }
 .ctx-drawer-body { flex: 1; overflow-y: auto; padding: 14px 18px; }
-.ctx-loading, .ctx-error { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 40px; color: var(--color-text-muted, #999); }
+.ctx-loading, .ctx-error { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 40px; color: var(--color-text-muted); }
 .ctx-error { color: var(--color-error); }
 .ctx-section { margin-bottom: 18px; }
-.ctx-section h4 { font-size: 13px; margin: 0 0 8px; color: var(--color-text-secondary, #666); }
+.ctx-section h4 { font-size: 13px; margin: 0 0 8px; color: var(--color-text-secondary); }
 .ctx-token-bar-wrap { display: flex; align-items: center; gap: 10px; }
 .ctx-token-bar { flex: 1; height: 8px; background: var(--color-bg-tertiary, #f0f0f0); border-radius: 4px; overflow: hidden; }
 .ctx-token-fill { height: 100%; background: var(--color-success); border-radius: 4px; transition: width .3s; }
 .ctx-token-fill.warning { background: var(--color-warning); }
 .ctx-token-fill.danger { background: var(--color-error); }
-.ctx-token-text { font-size: 12px; white-space: nowrap; color: var(--color-text-secondary, #666); }
-.ctx-token-detail { display: flex; gap: 16px; margin-top: 6px; font-size: 12px; color: var(--color-text-muted, #999); }
+.ctx-token-text { font-size: 12px; white-space: nowrap; color: var(--color-text-secondary); }
+.ctx-token-detail { display: flex; gap: 16px; margin-top: 6px; font-size: 12px; color: var(--color-text-muted); }
 .ctx-kv-list { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .ctx-kv { font-size: 12px; }
 .ctx-kv-group { width: 100%; }
 .ctx-kv-nested { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 2px; padding-left: 12px; }
 .ctx-kv-sub { font-size: 12px; }
-.ctx-k { color: var(--color-text-muted, #999); margin-right: 4px; }
+.ctx-k { color: var(--color-text-muted); margin-right: 4px; }
 .ctx-k::after { content: ':'; }
-.ctx-v { color: var(--color-text-primary, #333); }
+.ctx-v { color: var(--color-text-primary); }
 .ctx-tool-item { padding: 4px 0; font-size: 12px; }
-.ctx-tool-name { font-family: var(--font-mono); color: var(--color-text-primary, #333); }
+.ctx-tool-name { font-family: var(--font-mono); color: var(--color-text-primary); }
 .ctx-history-list { max-height: 300px; overflow-y: auto; }
 .ctx-history-item { padding: 6px 8px; margin-bottom: 4px; border-radius: 4px; background: var(--color-bg-secondary, #f9f9f9); font-size: 12px; }
 .ctx-history-item.role-user { border-left: 2px solid var(--color-active); }
@@ -239,12 +239,12 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-history-item.react-observation { border-left: 2px dashed var(--color-agent-blue); opacity: 0.75; }
 .ctx-msg-type { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--color-bg-tertiary); color: var(--color-text-secondary); margin-right: 6px; }
 .ctx-role { font-weight: 600; text-transform: uppercase; margin-right: 8px; }
-.ctx-tokens { color: var(--color-text-muted, #999); float: right; }
-.ctx-content-preview { margin-top: 4px; color: var(--color-text-secondary, #666); word-break: break-all; white-space: pre-wrap; }
+.ctx-tokens { color: var(--color-text-muted); float: right; }
+.ctx-content-preview { margin-top: 4px; color: var(--color-text-secondary); word-break: break-all; white-space: pre-wrap; }
 .ctx-tool-calls { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
 .ctx-tool-call { display: flex; flex-direction: column; gap: 1px; padding: 2px 4px; background: var(--color-bg-tertiary, #f0f0f0); border-radius: 3px; }
 .ctx-tool-name { font-weight: 600; color: var(--color-agent-violet, #7c3aed); font-size: 11px; }
-.ctx-tool-args { font-size: 11px; color: var(--color-text-secondary, #666); word-break: break-all; white-space: pre-wrap; }
+.ctx-tool-args { font-size: 11px; color: var(--color-text-secondary); word-break: break-all; white-space: pre-wrap; }
 .ctx-collapsible {
   display: block;
   width: 100%;
@@ -260,7 +260,7 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 }
 .ctx-arrow { font-size: 11px; margin-left: 4px; }
 .ctx-mem-scope { margin-bottom: 10px; }
-.ctx-mem-scope-title { font-size: 12px; font-weight: 600; color: var(--color-text-secondary, #666); margin-bottom: 4px; }
+.ctx-mem-scope-title { font-size: 12px; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 4px; }
 .ctx-mem-content { max-height: 200px; font-size: 11px; }
 .ctx-code-block { background: var(--color-bg-tertiary, #f5f5f5); padding: 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; margin: 0; }
 </style>
