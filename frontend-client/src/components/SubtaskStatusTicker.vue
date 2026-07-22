@@ -11,27 +11,21 @@
                <span v-if="currentActivity.tool_name" class="tool-name"><IconPlay :size="11" /> {{ currentActivity.tool_name }}</span>
                <span v-else>{{ currentActivity.description }}</span>
              </span>
-             <div class="loading-dots">
-               <span>.</span><span>.</span><span>.</span>
-             </div>
+             <span class="ticker-pulse" aria-hidden="true"></span>
            </div>
 
            <!-- 运行中但无活跃工具：入口 Agent 已启动 -->
            <div v-else-if="running && hasRunningRootExecution" key="run" class="ticker-item active">
              <span class="agent-badge" :class="getAgentBadgeClass(rootExecutionAgentLabel)">{{ rootExecutionAgentLabel }}</span>
              <span class="action-text">执行中</span>
-             <div class="loading-dots">
-               <span>.</span><span>.</span><span>.</span>
-             </div>
+             <span class="ticker-pulse" aria-hidden="true"></span>
            </div>
 
            <!-- 运行中但无活跃工具：正在推理 -->
            <div v-else-if="running" key="intent" class="ticker-item active">
             <span class="agent-badge" :class="getAgentBadgeClass(rootExecutionAgentLabel)">{{ rootExecutionAgentLabel }}</span>
              <span class="action-text">正在生成意图</span>
-             <div class="loading-dots">
-               <span>.</span><span>.</span><span>.</span>
-             </div>
+             <span class="ticker-pulse" aria-hidden="true"></span>
            </div>
 
            <!-- 最近完成的任务（仅 running=false 时显示，即任务真正结束后） -->
@@ -306,22 +300,35 @@ const lastCompletedTask = computed(() => {
     max-width: 260px;
 }
 
-.loading-dots {
-  display: flex;
-  gap: 2px;
+/* 呼吸指示条：与正文流式光标同源，替代廉价的三点小数点 */
+.ticker-pulse {
+  flex: none;
+  width: 3px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  box-shadow: 0 0 6px rgba(var(--color-accent-rgb), 0.5);
+  animation: tickerPulse 1.1s ease-in-out infinite;
 }
 
-.loading-dots span {
-  animation: dotFade 1.4s infinite ease-in-out both;
-  color: var(--color-text-muted);
+@keyframes tickerPulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+
+  50% {
+    opacity: 0.25;
+    transform: scaleY(0.6);
+  }
 }
 
-.loading-dots span:nth-child(1) { animation-delay: -0.32s; }
-.loading-dots span:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes dotFade {
-  0%, 80%, 100% { opacity: 0; }
-  40% { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .ticker-pulse {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 .toggle-details-btn {

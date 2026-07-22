@@ -763,59 +763,6 @@
   color: var(--color-text-secondary);
 }
 
-/* 思考状态球：内核呼吸 + 扩散环，替代三点 bounce */
-.loading-orb {
-  position: relative;
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
-
-.loading-orb-core {
-  position: absolute;
-  inset: 4px;
-  border-radius: var(--radius-full);
-  background: var(--color-accent);
-  box-shadow: 0 0 8px rgba(var(--color-accent-rgb), 0.6);
-  animation: orbCoreBreath 1.6s var(--ease-material) infinite;
-}
-
-.loading-orb-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: var(--radius-full);
-  border: 1.5px solid var(--color-accent);
-  opacity: 0;
-  animation: orbRingExpand 1.6s var(--ease-material) infinite;
-}
-
-@keyframes orbCoreBreath {
-  0%,
-  100% { transform: scale(0.8); }
-
-  50% { transform: scale(1); }
-}
-
-@keyframes orbRingExpand {
-  0% {
-    opacity: 0.7;
-    transform: scale(0.5);
-  }
-
-  70% { opacity: 0; }
-
-  100% {
-    opacity: 0;
-    transform: scale(1.4);
-  }
-}
-
-.loading-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
 .loading-text {
   font-size: var(--font-size-sm);
 }
@@ -841,14 +788,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .stream-caret,
-  .loading-orb-core,
-  .loading-orb-ring {
+  .stream-caret {
     animation: none;
+    opacity: 0.7;
   }
-
-  .stream-caret { opacity: 0.7; }
-  .loading-orb-ring { display: none; }
 }
 
 .dot {

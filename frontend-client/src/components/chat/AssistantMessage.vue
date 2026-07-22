@@ -3,10 +3,6 @@
     v-if="!msg.content && !msg.executionTree?.root && !msg.finished"
     class="loading-indicator"
   >
-    <div class="loading-orb" aria-hidden="true">
-      <span class="loading-orb-core"></span>
-      <span class="loading-orb-ring"></span>
-    </div>
     <span class="loading-text">{{ messageContext.getAssistantRuntimeStatusText(msg) || '正在运行...' }}</span>
   </div>
 
