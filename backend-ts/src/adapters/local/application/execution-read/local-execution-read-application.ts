@@ -1,4 +1,4 @@
-import type { ConversationStore } from "../../../../contracts/conversation-store/index.js";
+import type { ConversationStore } from "../../sqlite/conversation-store/index.js";
 import type { ExecutionReadApplication } from "../../../../contracts/execution/execution-read-application.js";
 import type { AgentExecutionServiceApi } from "../../../../services/agent/execution/index.js";
 import { ExecutionReadProjector } from "../../../../services/agent/execution/execution-read-projector.js";

@@ -1,6 +1,7 @@
 import type { MemoryApplication } from "../../../../services/memory/memory-application.js";
 import type { IMemoryStore } from "../../../../contracts/memory-store/index.js";
-import type { ConversationStore, MemoryCandidateRecord } from "../../../../contracts/conversation-store/index.js";
+import type { MemoryCandidateRecord } from "../../../../contracts/conversation-store/index.js";
+import type { ConversationStore } from "../../sqlite/conversation-store/index.js";
 import type { PersistedMemoryCandidate, PersistedMemoryEntry } from "../../../../contracts/memory-store/index.js";
 import { TenantMemoryQueryService, type MemoryQueryService } from "../../../../services/memory/query-service.js";
 import type { MemoryCommandService } from "../../../../services/memory/command-service.js";

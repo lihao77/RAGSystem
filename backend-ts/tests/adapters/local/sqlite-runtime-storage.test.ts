@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { SqliteRuntimeStorage } from "../../../src/adapters/local/sqlite-runtime-storage.js";
-import { createConversationStore } from "../../../src/adapters/local/sqlite/conversation-store/index.js";
-import type { ConversationStore } from "../../../src/contracts/conversation-store/index.js";
+import { createConversationStore, type ConversationStore } from "../../../src/adapters/local/sqlite/conversation-store/index.js";
 import { LOCAL_TENANT_ID } from "../../../src/services/identity/index.js";
 
 const stores: ConversationStore[] = [];

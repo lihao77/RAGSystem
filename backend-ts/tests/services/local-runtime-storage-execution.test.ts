@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SqliteRuntimeStorage } from "../../src/adapters/local/sqlite-runtime-storage.js";
-import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
-import type { ConversationStore, OutboxRow } from "../../src/contracts/conversation-store/index.js";
+import { createConversationStore, type ConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
+import type { OutboxRow } from "../../src/contracts/conversation-store/index.js";
 import { AsyncKernelEventPersister } from "../../src/services/agent/sdk/async-event-persister.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";

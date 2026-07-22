@@ -8,15 +8,12 @@
  * - 输出/领域类型现已全部用 zod schema + z.infer 单源定义，与输入边界一致。
  *
  * 契约独立：本文件只 import contracts/ 内其他文件（session），绝不 import services/。
- * 凡 IXxxStore 签名引用的类型必在此定义——否则契约反向依赖实现，破坏可替换性。
+ * Shared async ports and Local adapters both consume these DTOs; storage behavior
+ * itself is defined at the deployment boundary.
  */
 import { z } from "zod";
 import type { ProviderContinuationState } from "@ragsystem/agent-llm";
 
-import type { MessageInfo } from "../session/session.js";
-import type { SessionInfo } from "../session/session.js";
-import type { TenantId } from "../../identity/types.js";
-import type { PermissionMode } from "../runtime/permissions.js";
 
 // ────────────────────────────── 共享枚举 ──────────────────────────────
 
@@ -391,78 +388,3 @@ export const EventOutboxStatsSchema = z.object({
   oldest_failed_age_seconds: z.number().nullable(), recent_failed_errors: z.array(EventOutboxErrorSummarySchema),
 });
 export type EventOutboxStats = z.infer<typeof EventOutboxStatsSchema>;
-
-export interface ConversationStoreOptions {
-  dbPath: string;
-  dataRoot?: string | undefined;
-}
-
-// ────────────────────────────── 行为契约：跨域事务 ──────────────────────────────
-
-/**
- * 事务内协调面：runInTransaction 的 operation 回调参数。
- *
- * 深合约——原子性：同一 runInTransaction 内对 message/run/outbox 的多次写入，
- * 全部在同一 SQLite 事务提交，要么全部成功要么全部回滚（见 shared/transaction.ts）。
- * 这是「最终消息 + 步骤归档 + outbox 投递」三者一致的语义前提。
- *
- * 读亦走事务内：终态收口存在「先读历史再据之写入」的形态（如 interrupted 补悬空
- * tool_result），读与写必须同一事务，否则读在事务外有 TOCTOU 窗口——并发 session
- * 写入可在读后写前插入消息，令扫描结果与实际写入失配。
- */
-export interface ConversationStoreTransaction {
-  createSession(
-    tenantId: TenantId,
-    sessionId: string,
-    userId: string | null,
-    metadata?: Record<string, unknown>,
-    permissionMode?: PermissionMode | null,
-  ): void;
-  getSession(sessionId: string): SessionInfo | null;
-  addMessage(input: AddMessageInput): MessageInfo;
-  getMessageById(sessionId: string, messageId: string): MessageInfo | null;
-  createRun(input: CreateRunInput): CreatedRun;
-  getRun(sessionId: string, runId: string): RunInfo | null;
-  listRuns(sessionId: string, limit?: number): { items: RunInfo[]; total: number };
-  getRunStepByEventId(eventId: string): {
-    id: number;
-    run_id: string;
-    session_id: string;
-    message_id: string | null;
-    event_id: string;
-    step_order: number;
-    step_type: string;
-    payload: Record<string, unknown>;
-  } | null;
-  addRunStep(input: AddRunStepInput): RunStepRecord;
-  updateRunStepsMessageId(sessionId: string, runId: string, messageId: string): number;
-  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): boolean;
-  suspendPendingInteractions(sessionId: string, rootRunId: string): number;
-  createPendingInteraction(input: CreatePendingInteractionInput): PendingInteractionRecord;
-  getPendingInteraction(sessionId: string, interactionId: string): PendingInteractionRecord | null;
-  listPendingInteractions(input: {
-    sessionId: string;
-    rootRunId?: string | null;
-    batchId?: string | null;
-    statuses?: PendingInteractionStatus[];
-  }): PendingInteractionRecord[];
-  updatePendingInteractionStatus(input: {
-    sessionId: string;
-    interactionId: string;
-    from?: PendingInteractionStatus[];
-    status: PendingInteractionStatus;
-    resolution?: Record<string, unknown> | null;
-  }): boolean;
-  markPendingBatchResuming(sessionId: string, batchId: string): number;
-  releasePendingBatch(sessionId: string, batchId: string): number;
-  claimPendingBatch(sessionId: string, batchId: string, claimId: string, leaseMs?: number): number;
-  releasePendingClaim(sessionId: string, rootRunId: string, claimId: string): number;
-  renewPendingClaim(sessionId: string, rootRunId: string, claimId: string, leaseMs?: number): number;
-  finalizePendingInteractions(sessionId: string, rootRunId: string, status: "completed" | "failed" | "interrupted" | "suspended"): string[];
-  nextSessionSeq(sessionId: string): number;
-  appendOutbox(input: AppendOutboxInput): OutboxRow;
-  /** 读最近消息（对齐 IMessageStore.getRecentMessages：纯 SELECT 不开新事务，事务内读消除 TOCTOU）。 */
-  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[];
-  putProviderContinuation(input: PutProviderContinuationInput): ProviderContinuationRecord;
-  deleteProviderContinuations(sessionId: string, threadKey: string): number;
-}

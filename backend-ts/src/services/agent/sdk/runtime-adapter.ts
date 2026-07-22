@@ -143,7 +143,7 @@ export async function executeRunWithSdk(
   });
   const rootRunId = input.rootRunId ?? input.parentRunId ?? input.runId;
   const isRootRun = input.runId === rootRunId && input.parentRunId == null;
-  // session metadata 端口：委托真实 ConversationStore，让 memory 源能读到 team/workspace_root，
+  // session metadata 端口：委托真实会话存储，让 memory 源能读到 team/workspace_root，
   // 解析出 team/agent/workspace scope（否则只 session scope 存活，其余静默丢弃）。
   const sessionMetadata = await resolveSessionMetadataPort(
     input.sessionId,

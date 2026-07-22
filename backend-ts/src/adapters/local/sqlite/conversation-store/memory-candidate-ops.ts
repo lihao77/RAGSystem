@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import type {
   CreateMemoryCandidateInput,
-  IMemoryCandidateStore,
   MemoryCandidateRecord,
   MemoryCandidateStatus,
 } from "../../../../contracts/conversation-store/index.js";
@@ -14,7 +13,7 @@ const SELECT_COLUMNS = `id, tenant_id, owner_user_id, target_scope, team_name, a
   review_comment, published_file_name, created_at, updated_at, reviewed_at, review_claimed_at,
   review_attempt_id`;
 
-export class MemoryCandidateOps implements IMemoryCandidateStore {
+export class MemoryCandidateOps {
   constructor(private readonly db: ConversationDb) {}
 
   createMemoryCandidate(input: CreateMemoryCandidateInput): MemoryCandidateRecord {

@@ -1,9 +1,11 @@
-import type { ClaimOutboxInput, IOutboxStore, OutboxRow } from "../../contracts/conversation-store/index.js";
+import type { ClaimOutboxInput, OutboxRow } from "../../contracts/conversation-store/index.js";
 import type { OutboxDispatchStorePort } from "../../contracts/runtime/core-runtime-ports.js";
+import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 
 /** Promise-only dispatcher adapter over the synchronous Local outbox store. */
 export class LocalOutboxStoreAdapter implements OutboxDispatchStorePort {
-  constructor(private readonly store: IOutboxStore) {}
+  constructor(private readonly store: Pick<ConversationStore,
+    "claimPendingOutbox" | "markOutboxDelivered" | "markOutboxRetrying" | "markOutboxFailed">) {}
 
   async claimPendingOutbox(input?: ClaimOutboxInput): Promise<OutboxRow[]> {
     return this.store.claimPendingOutbox(input);

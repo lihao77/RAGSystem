@@ -1,8 +1,5 @@
 import { PROTOCOL_VERSION, type Envelope } from "@ragsystem/agent-protocol";
-import type {
-  AddRunStepInput,
-  ConversationStoreTransaction,
-} from "../../../contracts/conversation-store/index.js";
+import type { AddRunStepInput } from "../../../contracts/conversation-store/index.js";
 
 export const EXECUTION_ENVELOPE_STEP_TYPE = "protocol.envelope.v1";
 
@@ -13,17 +10,6 @@ const EXECUTION_ENVELOPE_TYPES = new Set<Envelope["type"]>([
   "tool_call",
   "tool_result",
 ]);
-
-export function archiveExecutionEnvelope(
-  tx: ConversationStoreTransaction,
-  sessionId: string,
-  runId: string | null,
-  envelope: Envelope,
-  eventId: string,
-): void {
-  const step = buildExecutionEnvelopeRunStep(sessionId, runId, envelope, eventId);
-  if (step) tx.addRunStep(step);
-}
 
 export function buildExecutionEnvelopeRunStep(
   sessionId: string,

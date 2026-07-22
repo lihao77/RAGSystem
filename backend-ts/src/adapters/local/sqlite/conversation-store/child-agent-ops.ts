@@ -5,7 +5,6 @@ import type {
   ChildAgentInfo,
   CreateChildAgentInput,
   FindChildAgentByCreatorInput,
-  IChildAgentStore,
   ListChildAgentsInput,
   UpdateChildAgentLastRunInput,
 } from "../../../../contracts/conversation-store/index.js";
@@ -18,7 +17,7 @@ const CHILD_AGENT_SELECT_COLUMNS = `
 `;
 
 /** child_agents 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
-export class ChildAgentOps implements IChildAgentStore {
+export class ChildAgentOps {
   constructor(private readonly db: ConversationDb) {}
 
   createChildAgent(input: CreateChildAgentInput): ChildAgentInfo {

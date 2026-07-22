@@ -2,15 +2,16 @@ import type {
   AddMessageInput,
   CreateChildAgentInput,
   FindChildAgentByCreatorInput,
-  IChildAgentStore,
-  IMessageStore,
-  IRunStore,
   ListChildAgentsInput,
   UpdateChildAgentLastRunInput,
 } from "../../contracts/conversation-store/index.js";
 import type { AgentDelegationStorePort } from "../../contracts/runtime/core-runtime-ports.js";
+import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 
-type LocalDelegationStore = IMessageStore & IRunStore & IChildAgentStore;
+type LocalDelegationStore = Pick<ConversationStore,
+  "addMessage" | "getRecentMessages" | "getRun" | "updateRunStatus" |
+  "createChildAgent" | "findChildAgentByCreator" | "getChildAgent" |
+  "listChildAgents" | "updateChildAgentLastRun">;
 
 /** Adapts Local's synchronous conversation store to the shared Promise-only port. */
 export class LocalAgentDelegationStoreAdapter implements AgentDelegationStorePort {

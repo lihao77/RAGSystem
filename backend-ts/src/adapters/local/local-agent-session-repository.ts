@@ -1,4 +1,4 @@
-import type { ConversationStore } from "../../contracts/conversation-store/index.js";
+import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 import type {
   AgentSessionMessageInput,
   AgentSessionMessageUpdate,

@@ -6,7 +6,7 @@ import { runInTransaction } from "./shared/transaction.js";
 import { asNullableString, asString, stringifyJson } from "./helpers.js";
 import { decodeChatFields, encodeChatFields } from "../../../../contracts/conversation-store/chat-message-codec.js";
 import { rowToMessage } from "./mappers.js";
-import type { AddMessageInput, IMessageStore } from "../../../../contracts/conversation-store/index.js";
+import type { AddMessageInput } from "../../../../contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "../../../../contracts/conversation-store/types.js";
 import type { MessageRow, SqlInputValue } from "./types.js";
 
@@ -18,7 +18,7 @@ import type { MessageRow, SqlInputValue } from "./types.js";
 export const DEFAULT_MESSAGE_LIST_LIMIT = 10_000;
 
 /** messages 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
-export class MessageOps implements IMessageStore {
+export class MessageOps {
   constructor(private readonly db: ConversationDb) {}
 
   addMessage(input: AddMessageInput): MessageInfo {

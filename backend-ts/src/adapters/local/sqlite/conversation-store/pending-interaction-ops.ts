@@ -1,6 +1,5 @@
 import type {
   CreatePendingInteractionInput,
-  IPendingInteractionStore,
   PendingInteractionRecord,
   PendingInteractionStatus,
 } from "../../../../contracts/conversation-store/index.js";
@@ -16,7 +15,7 @@ const SELECT_COLUMNS = `interaction_id, session_id, run_id, root_run_id, tool_ca
   batch_id, kind, status, request_payload, resolution_payload, created_at, updated_at,
   responded_at, consumed_at, resume_claim_id, resume_claim_expires_at`;
 
-export class PendingInteractionOps implements IPendingInteractionStore {
+export class PendingInteractionOps {
   constructor(private readonly db: ConversationDb) {}
 
   createPendingInteraction(input: CreatePendingInteractionInput): PendingInteractionRecord {

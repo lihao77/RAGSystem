@@ -4,8 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
 
 import { SqliteRuntimeStorage } from "../../src/adapters/local/sqlite-runtime-storage.js";
-import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
-import type { ConversationStore } from "../../src/contracts/conversation-store/index.js";
+import { createConversationStore, type ConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import type { InteractionResumeStarter } from "../../src/contracts/runtime/pending-interactions.js";
 import type { RuntimeFinalizeStatus, RuntimeStorage } from "../../src/contracts/storage/runtime-storage.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";

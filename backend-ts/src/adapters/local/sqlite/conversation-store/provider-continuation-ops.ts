@@ -1,6 +1,5 @@
 import { parseProviderContinuationState } from "@ragsystem/agent-llm";
 import type {
-  IProviderContinuationStore,
   ProviderContinuationRecord,
   PutProviderContinuationInput,
 } from "../../../../contracts/conversation-store/index.js";
@@ -17,7 +16,7 @@ interface ProviderContinuationRow {
   created_at: string;
 }
 
-export class ProviderContinuationOps implements IProviderContinuationStore {
+export class ProviderContinuationOps {
   constructor(private readonly db: ConversationDb) {}
 
   putProviderContinuation(input: PutProviderContinuationInput): ProviderContinuationRecord {

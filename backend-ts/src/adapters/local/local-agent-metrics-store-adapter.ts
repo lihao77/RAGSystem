@@ -1,9 +1,9 @@
-import type { IMetricStore } from "../../contracts/conversation-store/index.js";
 import type { AgentMetricsStorePort } from "../../contracts/runtime/core-runtime-ports.js";
+import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 
 /** Adapts Local's synchronous metric store to the shared Promise-only port. */
 export class LocalAgentMetricsStoreAdapter implements AgentMetricsStorePort {
-  constructor(private readonly store: IMetricStore) {}
+  constructor(private readonly store: Pick<ConversationStore, "insertMetric" | "aggregateMetrics" | "resetMetrics">) {}
 
   async insertMetric(input: Parameters<AgentMetricsStorePort["insertMetric"]>[0]): Promise<void> {
     this.store.insertMetric(input);

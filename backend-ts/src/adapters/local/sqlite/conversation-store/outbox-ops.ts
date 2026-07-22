@@ -19,7 +19,6 @@ import type {
   DeleteDeliveredOutboxInput,
   EventOutboxErrorSummary,
   EventOutboxStats,
-  IOutboxStore,
   ListOutboxInput,
   OutboxRow,
   OutboxStatus,
@@ -35,7 +34,7 @@ const OUTBOX_SELECT_COLUMNS = `
 `;
 
 /** event_outbox + session_event_seq 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
-export class OutboxOps implements IOutboxStore {
+export class OutboxOps {
   constructor(private readonly db: ConversationDb) {}
 
   getNextSessionSeq(sessionId: string): number {

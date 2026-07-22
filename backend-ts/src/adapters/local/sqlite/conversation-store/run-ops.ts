@@ -5,10 +5,8 @@ import { parseJsonObject, stringifyJson } from "./helpers.js";
 import { rowToRun, rowToRunStep } from "./mappers.js";
 import type {
   AddRunStepInput,
-  ConversationStoreTransaction,
   CreatedRun,
   CreateRunInput,
-  IRunStore,
   RunInfo,
   RunStepRecord,
 } from "../../../../contracts/conversation-store/index.js";
@@ -31,7 +29,7 @@ interface IdempotentRunStepDbRow extends IdempotentRunStepRow {
 }
 
 /** runs + run_steps 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
-export class RunOps implements IRunStore {
+export class RunOps {
   constructor(private readonly db: ConversationDb) {}
 
   createRun(input: CreateRunInput): CreatedRun {
@@ -170,7 +168,7 @@ export class RunOps implements IRunStore {
     };
   }
 
-  getRunStepByEventId(eventId: string): ReturnType<ConversationStoreTransaction["getRunStepByEventId"]> {
+  getRunStepByEventId(eventId: string) {
     const row = this.db
       .prepare(`
         SELECT id, run_id, session_id, message_id, event_id, step_order, step_type, payload

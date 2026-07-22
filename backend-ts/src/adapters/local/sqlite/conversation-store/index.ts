@@ -10,20 +10,18 @@ import { MetricOps } from "./metric-ops.js";
 import { PendingInteractionOps } from "./pending-interaction-ops.js";
 import { ProviderContinuationOps } from "./provider-continuation-ops.js";
 import { MemoryCandidateOps } from "./memory-candidate-ops.js";
-import type {
-  ConversationStore,
-  ConversationStoreOptions,
-  ConversationStoreTransaction,
-} from "../../../../contracts/conversation-store/index.js";
 
-// IXxxStore 窄契约与 DTO 已上移至 contracts/conversation-store/，消费者改向该处 import。
-// 本文件仅保留 ConversationStore 聚合类型转出（见末尾），供 runtime-container 组装使用。
+export interface ConversationStoreOptions {
+  dbPath: string;
+  dataRoot?: string | undefined;
+}
 
 /**
  * 组装会话存储（无主类）：创建共享 SQLite 句柄 + 6 个聚合根 ops，组合为统一 facade。
  * 类比 tools 的 createXxxTools(deps) / agent 的 createAgentExecutionService(params) 工厂。
  * ops 方法通过 bind 绑定 this；跨域方法（getRecentMessagesByChildAgent / 事务 facade）显式协调。
- * 对外契约（ConversationStore 类型）与历史完全一致。
+ * The facade type is inferred from this factory; Local SQLite does not publish
+ * a second hand-written storage contract.
  */
 export function createConversationStore(options: ConversationStoreOptions) {
   const { db, dataRoot } = createConversationDb({ dbPath: options.dbPath, dataRoot: options.dataRoot });
@@ -38,7 +36,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const providerContinuations = new ProviderContinuationOps(db);
   const memoryCandidates = new MemoryCandidateOps(db);
 
-  const createTransactionFacade = (): ConversationStoreTransaction => ({
+  const createTransactionFacade = () => ({
     createSession: sessions.createSession.bind(sessions),
     getSession: sessions.getSession.bind(sessions),
     addMessage: messages.addMessageInTransaction.bind(messages),
@@ -178,11 +176,11 @@ export function createConversationStore(options: ConversationStoreOptions) {
     withdrawMemoryCandidate: memoryCandidates.withdrawMemoryCandidate.bind(memoryCandidates),
 
     // 跨域事务（组合 message/run/outbox ops）
-    runInTransaction<T>(operation: (tx: ConversationStoreTransaction) => T): T {
+    runInTransaction<T>(operation: (tx: ReturnType<typeof createTransactionFacade>) => T): T {
       return runInTransaction(db, () => operation(createTransactionFacade()));
     },
-  } satisfies ConversationStore;
+  };
 }
 
-/** 聚合类型转出（createConversationStore facade）；窄契约/DTO 见 contracts/conversation-store。 */
-export type { ConversationStore } from "../../../../contracts/conversation-store/index.js";
+export type ConversationStore = ReturnType<typeof createConversationStore>;
+export type ConversationStoreTransaction = Parameters<Parameters<ConversationStore["runInTransaction"]>[0]>[0];

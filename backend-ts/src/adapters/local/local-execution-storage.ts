@@ -1,4 +1,4 @@
-import type { ConversationStore } from "../../contracts/conversation-store/index.js";
+import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 import type { ExecutionStorage } from "../../contracts/execution/execution-storage.js";
 import type { RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
 import type { TenantId } from "../../identity/types.js";

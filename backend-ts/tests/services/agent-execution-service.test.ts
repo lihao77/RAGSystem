@@ -7,7 +7,7 @@ import {
   type AgentExecutionService,
   type AgentExecutionLogger,
 } from "../../src/services/agent/execution/index.js";
-import type { ConversationStore } from "../../src/contracts/conversation-store/index.js";
+import type { ConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import { LocalAgentSessionRepository } from "../../src/adapters/local/local-agent-session-repository.js";
 import os from "node:os";

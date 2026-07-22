@@ -1,4 +1,4 @@
-import type { IMessageStore } from "../../contracts/conversation-store/index.js";
+import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 import type {
   CompressionHistoryPort,
   InsertCompressionMessageInput,
@@ -7,7 +7,7 @@ import type { MessageInfo } from "../../contracts/session/session.js";
 
 /** Async boundary for Local's synchronous SQLite conversation store. */
 export class LocalCompressionHistoryAdapter implements CompressionHistoryPort {
-  constructor(private readonly messages: IMessageStore) {}
+  constructor(private readonly messages: Pick<ConversationStore, "getRecentMessages" | "insertCompressionMessage">) {}
 
   async getRecentMessages(
     sessionId: string,

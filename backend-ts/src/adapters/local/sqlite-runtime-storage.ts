@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 
-import type { ConversationStore, ConversationStoreTransaction } from "../../contracts/conversation-store/index.js";
+import type { ConversationStore, ConversationStoreTransaction } from "./sqlite/conversation-store/index.js";
 import { RuntimeInteractionUnavailableError } from "../../contracts/storage/runtime-storage.js";
 import type {
   RuntimeAtomicOperations,
