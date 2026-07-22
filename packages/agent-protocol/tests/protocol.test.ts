@@ -71,4 +71,24 @@ describe("agent-protocol envelope compatibility", () => {
       payload: { kind: "approval", phase: "responded", approved: true },
     })).toThrow();
   });
+
+  it("接受带 lineage 的子 agent stream_output", () => {
+    const parsed = ServerToClientEnvelopeSchema.parse({
+      type: "stream_output",
+      session_id: "session-1",
+      run_id: "child-run",
+      call_id: "child-call",
+      agent_id: "worker",
+      payload: {
+        phase: "delta",
+        content: "child output",
+        lineage: { parent_call_id: "root-call" },
+      },
+    });
+
+    expect(parsed.payload).toMatchObject({
+      content: "child output",
+      lineage: { parent_call_id: "root-call" },
+    });
+  });
 });

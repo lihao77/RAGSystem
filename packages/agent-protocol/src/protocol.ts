@@ -225,6 +225,8 @@ export const StreamOutputPayloadSchema = z.object({
   content: z.string().optional(),
   elapsed_ms: z.number().nonnegative().optional(),
   round: z.number().int().nonnegative().optional(),
+  /** 当前 agent 的父调用；子 agent 输出据此归入父执行树，而不是 root 文本流。 */
+  lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
 });
 
 export const StateSyncPayloadSchema = z.object({

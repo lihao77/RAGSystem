@@ -115,6 +115,24 @@ describe("child-agent tool visibility in execution-tree projection", () => {
     expect(childTools.map((t) => t.callId)).toContain(CHILD_TOOL_CALL);
   });
 
+  it("preserves child lineage on streamed output", () => {
+    const [event] = translateKernelEvent(
+      { type: "output_delta", agentName: "worker", content: "child output" },
+      childCtx,
+    );
+
+    expect(event).toMatchObject({
+      type: "stream_output",
+      run_id: "child-run",
+      call_id: AGENT_CALL,
+      payload: {
+        phase: "delta",
+        content: "child output",
+        lineage: { parent_call_id: ROOT_CALL },
+      },
+    });
+  });
+
   it("does NOT nest child under root when lineage is broken (regression guard)", () => {
     // 同样序列，但 agent_started 缺 lineage（复现修复前的 rootParentCallId=null）。
     // 此时子 agent 沦为第二个 root，其工具不在 root 树里——证明 lineage 是可见性的决定因素。

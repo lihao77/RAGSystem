@@ -42,6 +42,55 @@ function buildReducer() {
   return { reducer, messages, activeRun, calls };
 }
 
+test('SessionEventReducer routes child stream output through execution projection', () => {
+  const { messages, calls } = buildReducer();
+  const currentMessage = { content: 'root output', metadata: {}, status: [], finished: false };
+  messages.value.push(currentMessage);
+
+  // Real deps.isMasterEvent uses payload.lineage.parent_call_id, which is now
+  // emitted by translateKernelEvent for child stream_output events.
+  const childReducer = createSessionEventReducer({
+    deps: {
+      isMasterEvent: event => !event.payload?.lineage?.parent_call_id,
+      isRootEvent: event => !event.payload?.lineage?.parent_call_id,
+      clearLlmRetryState: () => {},
+      setLlmRetryState: () => {},
+      findRunningExecutionAgentByAgentId: () => null,
+      applyEnvelopeToMessage: () => { calls.chunks.push('projected'); },
+      cacheMessages: () => {},
+      checkSituationScreenTrigger: () => {},
+      scrollToBottom: () => {},
+    },
+    runtime: {
+      markLlmFirstToken: () => {},
+      markOutputChunk: () => {},
+      markRecentSessionUpdated: () => {},
+      markWaitingStart: () => {},
+      markWaitingFinished: () => {},
+    },
+    activeRun: { assistantMsgIndex: 0, phase: 'llm_waiting_first_token', waiting: null },
+    messages,
+    isCompressing: reference(false),
+    contextUsage: reference({ used: 0, max: 0 }),
+    llmRetryState: reference(null),
+    handleApprovalRequired: () => {},
+    handleUserInputRequired: () => {},
+  });
+
+  childReducer({
+    type: 'stream_output',
+    call_id: 'child-call',
+    payload: {
+      phase: 'delta',
+      content: 'child output',
+      lineage: { parent_call_id: 'root-call' },
+    },
+  }, currentMessage, 'session-1');
+
+  assert.equal(currentMessage.content, 'root output');
+  assert.deepEqual(calls.chunks, ['projected']);
+});
+
 test('SessionEventReducer deterministically applies stream delta and final compensation', () => {
   const { reducer, messages, calls } = buildReducer();
   const currentMessage = { content: '', metadata: {}, status: [], finished: false };

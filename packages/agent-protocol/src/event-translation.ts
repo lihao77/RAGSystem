@@ -81,11 +81,16 @@ function toolLineage(ctx: WireTranslationContext): { parent_call_id?: string } {
   return { parent_call_id: ctx.rootCallId };
 }
 
+/** 子 run 的输出必须携带父调用，否则消费端会把它误判为 root 输出。 */
+function streamLineage(ctx: WireTranslationContext): { lineage?: { parent_call_id: string } } {
+  return ctx.parentCallId ? { lineage: { parent_call_id: ctx.parentCallId } } : {};
+}
+
 function onFirstToken(event: FirstTokenEvent, ctx: WireTranslationContext): Envelope {
   return {
     type: "stream_output",
     ...topMarkers(ctx),
-    payload: { phase: "first_token", elapsed_ms: event.elapsedMs } satisfies StreamOutputPayload,
+    payload: { phase: "first_token", elapsed_ms: event.elapsedMs, ...streamLineage(ctx) } satisfies StreamOutputPayload,
   };
 }
 
@@ -93,7 +98,7 @@ function onOutputDelta(event: OutputDeltaEvent, ctx: WireTranslationContext): En
   return {
     type: "stream_output",
     ...topMarkers(ctx),
-    payload: { phase: "delta", content: event.content } satisfies StreamOutputPayload,
+    payload: { phase: "delta", content: event.content, ...streamLineage(ctx) } satisfies StreamOutputPayload,
   };
 }
 
@@ -101,7 +106,7 @@ function onIntentDelta(event: IntentDeltaEvent, ctx: WireTranslationContext): En
   return {
     type: "stream_output",
     ...topMarkers(ctx),
-    payload: { phase: "intent_delta", content: event.content, round: event.round } satisfies StreamOutputPayload,
+    payload: { phase: "intent_delta", content: event.content, round: event.round, ...streamLineage(ctx) } satisfies StreamOutputPayload,
   };
 }
 
@@ -109,7 +114,7 @@ function onIntentComplete(event: IntentCompleteEvent, ctx: WireTranslationContex
   return {
     type: "stream_output",
     ...topMarkers(ctx),
-    payload: { phase: "intent_complete", content: event.content, round: event.round } satisfies StreamOutputPayload,
+    payload: { phase: "intent_complete", content: event.content, round: event.round, ...streamLineage(ctx) } satisfies StreamOutputPayload,
   };
 }
 
