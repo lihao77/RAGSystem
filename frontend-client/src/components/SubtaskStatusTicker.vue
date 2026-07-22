@@ -300,27 +300,27 @@ const lastCompletedTask = computed(() => {
     max-width: 260px;
 }
 
-/* 呼吸指示条：与正文流式光标同源，替代廉价的三点小数点 */
+/* 呼吸小球：与正文流式小球同源，替代廉价的三点小数点 */
 .ticker-pulse {
   flex: none;
-  width: 3px;
-  height: 14px;
+  width: 7px;
+  height: 7px;
   border-radius: var(--radius-full);
-  background: var(--color-accent);
-  box-shadow: 0 0 6px rgba(var(--color-accent-rgb), 0.5);
-  animation: tickerPulse 1.1s ease-in-out infinite;
+  background: var(--color-text-primary);
+  box-shadow: 0 0 6px rgba(var(--color-accent-rgb), 0.35);
+  animation: tickerPulse 1.5s ease-in-out infinite;
 }
 
 @keyframes tickerPulse {
   0%,
   100% {
-    opacity: 1;
-    transform: scaleY(1);
+    opacity: 0.9;
+    transform: scale(1);
   }
 
   50% {
-    opacity: 0.25;
-    transform: scaleY(0.6);
+    opacity: 0.3;
+    transform: scale(0.72);
   }
 }
 

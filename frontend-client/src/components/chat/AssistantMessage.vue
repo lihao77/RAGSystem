@@ -13,7 +13,7 @@
         @notify="emit('notify', $event)"
         @citation-click="emit('citation-click', $event)"
       />
-      <span v-if="isStreaming && pi === lastTextIndex" class="stream-caret" aria-hidden="true"></span>
+      <span v-if="isStreaming && pi === lastTextIndex" class="stream-orb" aria-hidden="true"></span>
     </div>
     <div
       v-else-if="part.type === 'viz'"

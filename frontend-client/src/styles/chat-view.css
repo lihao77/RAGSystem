@@ -767,30 +767,37 @@
   font-size: var(--font-size-sm);
 }
 
-/* ===== 流式呼吸光标 ===== */
-.stream-caret {
+/* ===== 流式呼吸小球 ===== */
+/* 跟在最后一行文字末尾的字符级小球：白色、微弱呼吸，与文字基线对齐 */
+.stream-orb {
   display: inline-block;
-  width: 3px;
-  height: 1.05em;
-  margin-left: 3px;
-  vertical-align: -0.18em;
+  width: 0.62em;
+  height: 0.62em;
+  margin-left: 0.28em;
   border-radius: var(--radius-full);
-  background: var(--color-accent);
-  box-shadow: 0 0 8px rgba(var(--color-accent-rgb), 0.55);
-  animation: streamCaretBreath 0.85s ease-in-out infinite;
+  background: var(--color-text-primary);
+  box-shadow: 0 0 6px rgba(var(--color-accent-rgb), 0.35);
+  animation: streamOrbBreath 1.5s ease-in-out infinite;
+  /* 不额外设 vertical-align：inline-block 默认落在文字基线上，随最后一行对齐 */
 }
 
-@keyframes streamCaretBreath {
+@keyframes streamOrbBreath {
   0%,
-  100% { opacity: 1; }
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
 
-  50% { opacity: 0.15; }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.78);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .stream-caret {
+  .stream-orb {
     animation: none;
-    opacity: 0.7;
+    opacity: 0.6;
   }
 }
 
