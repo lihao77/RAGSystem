@@ -14,13 +14,23 @@ export function createLocalExecutionStorage(input: {
 }): ExecutionStorage {
   return {
     tenantId: input.tenantId,
-    conversation: input.conversation,
-    providerContinuations: { getProviderContinuation: (sessionId, messageId) => input.conversation.getProviderContinuation(sessionId, messageId) },
-    memoryCandidates: { listMemoryCandidates: (query) => input.conversation.listMemoryCandidates(query) },
+    conversation: {
+      getRecentMessages: async (sessionId, limit, threadKey) => input.conversation.getRecentMessages(sessionId, limit, threadKey),
+      getSession: async (sessionId) => input.conversation.getSession(sessionId),
+      updateSessionMetadata: async (sessionId, patch) => input.conversation.updateSessionMetadata(sessionId, patch),
+      addMessage: async (message) => input.conversation.addMessage(message),
+      insertCompressionMessage: async (message) => input.conversation.insertCompressionMessage(message),
+    },
+    providerContinuations: {
+      getProviderContinuation: async (sessionId, messageId) => input.conversation.getProviderContinuation(sessionId, messageId),
+    },
+    memoryCandidates: {
+      listMemoryCandidates: async (query) => input.conversation.listMemoryCandidates(query),
+    },
     resultReader: {
-      getRun: (sessionId, runId) => input.conversation.getRun(sessionId, runId),
-      getMessageById: (sessionId, messageId) => input.conversation.getMessageById(sessionId, messageId),
-      listRunSteps: (query) => input.conversation.listRunSteps(query),
+      getRun: async (sessionId, runId) => input.conversation.getRun(sessionId, runId),
+      getMessageById: async (sessionId, messageId) => input.conversation.getMessageById(sessionId, messageId),
+      listRunSteps: async (query) => input.conversation.listRunSteps(query),
     },
     createEventPersister: (context) => new AsyncKernelEventPersister(
       input.runtimeStorage,

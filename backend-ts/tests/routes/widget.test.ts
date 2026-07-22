@@ -113,7 +113,7 @@ describe("widget auth routes", () => {
     expect(sessionRes.statusCode).toBe(200);
     expect(createdRows).toHaveLength(1);
     expect(createdRows[0]).toMatchObject({ metadata: { widget: { app_key: created.app_key } } });
-    expect(harness.container.sessionApplication.getSession(sessionRes.json().data.session_id)).toBeNull();
+    expect(await harness.container.sessionApplication.getSession(sessionRes.json().data.session_id)).toBeNull();
   });
 
   it("rejects widget session creation without Bearer token with 401", async () => {

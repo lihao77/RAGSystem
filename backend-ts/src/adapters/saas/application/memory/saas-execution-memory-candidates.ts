@@ -1,12 +1,15 @@
 import type { TransactionalMemoryRepository } from "../../../../contracts/memory-store/index.js";
+import type {
+  ExecutionMemoryCandidatePort,
+  ExecutionMemoryCandidateQuery,
+} from "../../../../contracts/execution/execution-storage.js";
 import type { TenantId } from "../../../../identity/types.js";
-import type { ExecutionMemoryCandidateListPort } from "../../../../services/agent/memory/runtime-bindings.js";
 
 /** Maps tenant PostgreSQL candidates onto the shared execution context contract. */
-export class SaaSExecutionMemoryCandidates implements ExecutionMemoryCandidateListPort {
+export class SaaSExecutionMemoryCandidates implements ExecutionMemoryCandidatePort {
   constructor(private readonly tenantId: TenantId, private readonly repository: TransactionalMemoryRepository) {}
 
-  async listMemoryCandidates(query: Parameters<ExecutionMemoryCandidateListPort["listMemoryCandidates"]>[0]) {
+  async listMemoryCandidates(query: ExecutionMemoryCandidateQuery) {
     const scopes = query.targetScopes ?? (query.targetScope ? [query.targetScope] : ["team", "agent"] as const);
     const rows = await Promise.all(scopes.map(async (scope) => {
       const teamName = query.teamName?.trim() || undefined;

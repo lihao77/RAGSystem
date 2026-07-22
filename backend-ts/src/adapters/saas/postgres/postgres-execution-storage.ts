@@ -2,12 +2,12 @@ import type {
   DurableExecutionClientEventPort,
   DurableExecutionConversationPort,
   DurableExecutionProviderContinuationPort,
+  ExecutionMemoryCandidatePort,
   ExecutionRunPersistenceContext,
   ExecutionStorage,
   ExecutionEventPersister,
 } from "../../../contracts/execution/execution-storage.js";
 import type { TenantId } from "../../../identity/types.js";
-import type { ExecutionMemoryCandidateListPort } from "../../../services/agent/memory/runtime-bindings.js";
 
 export function createPostgresExecutionStorage(input: {
   tenantId: TenantId;
@@ -16,7 +16,7 @@ export function createPostgresExecutionStorage(input: {
   clientEvents: DurableExecutionClientEventPort;
   createEventPersister(context: ExecutionRunPersistenceContext): ExecutionEventPersister;
   resultReader: ExecutionStorage["resultReader"];
-  memoryCandidates: ExecutionMemoryCandidateListPort;
+  memoryCandidates: ExecutionMemoryCandidatePort;
 }): ExecutionStorage {
   return {
     tenantId: input.tenantId,

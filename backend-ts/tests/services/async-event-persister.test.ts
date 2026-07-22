@@ -286,7 +286,7 @@ describe("AsyncKernelEventPersister", () => {
     );
     expect(harness.lifecycle).toEqual(["deliver", "flush", "finalize", "deliver"]);
     expect(harness.snapshots).toEqual([["session-1", 4]]);
-    expect(persister.resolveFinalMessage()).toMatchObject({ id: "run-1:final", content: "answer" });
+    expect(await persister.resolveFinalMessage()).toMatchObject({ id: "run-1:final", content: "answer" });
   });
 
   it("creates an interrupted anchor, clears continuations, and records failure terminal events", async () => {
@@ -344,7 +344,7 @@ describe("AsyncKernelEventPersister", () => {
     });
     expect(harness.finalizes[0]).not.toHaveProperty("interactionRootRunId");
     expect(harness.delivered).toEqual([[]]);
-    expect(persister.resolveFinalMessage()).toBeNull();
+    expect(await persister.resolveFinalMessage()).toBeNull();
   });
 
   it("passes the root interaction scope and returns ready resume ids", async () => {
@@ -389,6 +389,6 @@ describe("AsyncKernelEventPersister", () => {
     expect(harness.finalizes).toEqual([]);
     expect(harness.delivered).toEqual([]);
     expect(harness.messages.has("run-1:final")).toBe(false);
-    expect(persister.resolveFinalMessage()).toBeNull();
+    expect(await persister.resolveFinalMessage()).toBeNull();
   });
 });

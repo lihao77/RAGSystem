@@ -85,6 +85,19 @@ export interface MemoryCandidateRecord {
   review_attempt_id: string | null;
 }
 
+export interface ListMemoryCandidatesInput {
+  ownerUserId?: string | null;
+  statuses?: MemoryCandidateStatus[];
+  targetScope?: MemoryCandidateTargetScope | null;
+  targetScopes?: MemoryCandidateTargetScope[];
+  teamName?: string | null;
+  agentName?: string | null;
+  operation?: MemoryCandidateOperation | null;
+  limit?: number;
+  offset?: number;
+  contentMaxChars?: number;
+}
+
 export interface CreateMemoryCandidateInput {
   tenantId: string;
   ownerUserId: string;

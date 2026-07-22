@@ -1,9 +1,7 @@
 import type {
+  AddMessageInput,
+  AgentMetricSummary,
   ChildAgentInfo,
-  IChildAgentStore,
-  IMessageStore,
-  IMetricStore,
-  IRunStore,
   ClaimOutboxInput,
   OutboxRow,
   RunInfo,
@@ -50,24 +48,75 @@ export interface OutboxDispatchStorePort {
   markOutboxFailed(id: number, error: string, tenantId: string): Promise<boolean>;
 }
 
+export interface CreateChildAgentInput {
+  childAgentId: string;
+  sessionId: string;
+  agentName: string;
+  threadKey?: string | null;
+  createdSeq?: number | null;
+  createdByRunId?: string | null;
+  createdByCallId?: string | null;
+  parentRunId?: string | null;
+  parentCallId?: string | null;
+  lastRunId?: string | null;
+  metadata?: Record<string, unknown>;
+  status?: string;
+}
+
+export interface FindChildAgentByCreatorInput {
+  sessionId: string;
+  createdByRunId: string;
+  createdByCallId: string;
+}
+
+export interface ListChildAgentsInput {
+  sessionId: string;
+  agentName?: string | null;
+  operation?: "publish" | "archive" | null;
+  limit?: number;
+}
+
+export interface UpdateChildAgentLastRunInput {
+  sessionId: string;
+  childAgentId: string;
+  lastRunId: string;
+}
+
 /** Promise-only persistence surface required by child-agent delegation. */
 export interface AgentDelegationStorePort {
-  addMessage(input: Parameters<IMessageStore["addMessage"]>[0]): Promise<MessageInfo>;
+  addMessage(input: AddMessageInput): Promise<MessageInfo>;
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
   getRun(sessionId: string, runId: string): Promise<RunInfo | null>;
   updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): Promise<boolean>;
-  createChildAgent(input: Parameters<IChildAgentStore["createChildAgent"]>[0]): Promise<ChildAgentInfo>;
-  findChildAgentByCreator(input: Parameters<IChildAgentStore["findChildAgentByCreator"]>[0]): Promise<ChildAgentInfo | null>;
+  createChildAgent(input: CreateChildAgentInput): Promise<ChildAgentInfo>;
+  findChildAgentByCreator(input: FindChildAgentByCreatorInput): Promise<ChildAgentInfo | null>;
   getChildAgent(sessionId: string, childAgentId: string): Promise<ChildAgentInfo | null>;
-  listChildAgents(input: Parameters<IChildAgentStore["listChildAgents"]>[0]): Promise<ReturnType<IChildAgentStore["listChildAgents"]>>;
-  updateChildAgentLastRun(input: Parameters<IChildAgentStore["updateChildAgentLastRun"]>[0]): Promise<boolean>;
+  listChildAgents(input: ListChildAgentsInput): Promise<{ items: ChildAgentInfo[]; total: number }>;
+  updateChildAgentLastRun(input: UpdateChildAgentLastRunInput): Promise<boolean>;
+}
+
+export interface AgentMetricInput {
+  agentName: string;
+  model?: string;
+  sessionId?: string | null;
+  runId?: string | null;
+  taskId?: string | null;
+  executionKind: string;
+  status: string;
+  durationMs: number;
+  tokenIn?: number;
+  tokenOut?: number;
+  toolUsage?: Record<string, number>;
+  errorType?: string | null;
+  startedAt: string;
+  finishedAt?: string | null;
 }
 
 /** Promise-only metrics persistence surface. */
 export interface AgentMetricsStorePort {
-  insertMetric(input: Parameters<IMetricStore["insertMetric"]>[0]): Promise<void>;
-  aggregateMetrics(agentName?: string | null): Promise<ReturnType<IMetricStore["aggregateMetrics"]>>;
-  resetMetrics(agentName?: string | null): Promise<ReturnType<IMetricStore["resetMetrics"]>>;
+  insertMetric(input: AgentMetricInput): Promise<void>;
+  aggregateMetrics(agentName?: string | null): Promise<AgentMetricSummary[]>;
+  resetMetrics(agentName?: string | null): Promise<{ deleted: number }>;
 }
 
 /** Durable history required by context compression. */

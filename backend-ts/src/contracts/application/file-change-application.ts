@@ -1,5 +1,3 @@
-export type Awaitable<T> = T | Promise<T>;
-
 export interface FileChangeLine {
   type: "added" | "removed" | "context";
   content: string;
@@ -22,5 +20,5 @@ export interface LatestFileChanges {
 }
 
 export interface FileChangeApplication {
-  getLatest(sessionId: string): Awaitable<LatestFileChanges>;
+  getLatest(sessionId: string): Promise<LatestFileChanges>;
 }

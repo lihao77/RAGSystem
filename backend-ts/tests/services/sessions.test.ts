@@ -17,38 +17,38 @@ function createStore() {
 }
 
 describe("AgentSessionApplication", () => {
-  it("写入 tenant_id 并按租户列出会话", () => {
+  it("写入 tenant_id 并按租户列出会话", async () => {
     const store = createStore();
     const app = new AgentSessionApplication(store);
     const otherTenantId = createTenantId("tnt_other");
-    app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "local-session" });
-    app.createSession({ tenantId: otherTenantId, userId: "usr_local", sessionId: "other-session" });
+    await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "local-session" });
+    await app.createSession({ tenantId: otherTenantId, userId: "usr_local", sessionId: "other-session" });
 
-    expect(app.getSession("local-session")?.tenant_id).toBe(LOCAL_TENANT_ID);
-    expect(app.listSessions({ tenantId: LOCAL_TENANT_ID }).items.map((session) => session.session_id)).toEqual(["local-session"]);
-    expect(app.listSessions({ tenantId: otherTenantId }).items.map((session) => session.session_id)).toEqual(["other-session"]);
+    expect((await app.getSession("local-session"))?.tenant_id).toBe(LOCAL_TENANT_ID);
+    expect((await app.listSessions({ tenantId: LOCAL_TENANT_ID })).items.map((session) => session.session_id)).toEqual(["local-session"]);
+    expect((await app.listSessions({ tenantId: otherTenantId })).items.map((session) => session.session_id)).toEqual(["other-session"]);
     store.close();
   });
 
-  it("rejects unsafe session IDs before creating database or filesystem state", () => {
+  it("rejects unsafe session IDs before creating database or filesystem state", async () => {
     const store = createStore();
     const app = new AgentSessionApplication(store);
-    expect(() => app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "../../outside" })).toThrow("session_id");
+    await expect(app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "../../outside" })).rejects.toThrow("session_id");
     expect(store.getSession("../../outside")).toBeNull();
     store.close();
   });
 
-  it("removes managed session files after the database session is deleted", () => {
+  it("removes managed session files after the database session is deleted", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-session-delete-"));
     try {
       const store = createStore();
       const app = new AgentSessionApplication(store, null, new TransientArtifactService(root));
-      app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s-delete" });
+      await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s-delete" });
       const file = path.join(root, "sessions", "s-delete", "transient", "data.txt");
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, "data");
 
-      expect(app.deleteSession("s-delete")).toBe(true);
+      expect(await app.deleteSession("s-delete")).toBe(true);
       expect(fs.existsSync(path.join(root, "sessions", "s-delete"))).toBe(false);
       store.close();
     } finally {
@@ -56,11 +56,11 @@ describe("AgentSessionApplication", () => {
     }
   });
 
-  it("returns the compact create_session payload with persisted permission mode", () => {
+  it("returns the compact create_session payload with persisted permission mode", async () => {
     const store = createStore();
     const app = new AgentSessionApplication(store);
 
-    const created = app.createSession({ tenantId: LOCAL_TENANT_ID,
+    const created = await app.createSession({ tenantId: LOCAL_TENANT_ID,
       sessionId: "s1",
       userId: "u1",
       metadata: { team: "  default  " },
@@ -75,12 +75,12 @@ describe("AgentSessionApplication", () => {
     store.close();
   });
 
-  it("normalizes Python-compatible session runtime metadata", () => {
+  it("normalizes Python-compatible session runtime metadata", async () => {
     const store = createStore();
     const app = new AgentSessionApplication(store);
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-workspace-"));
     try {
-      const created = app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local",
+      const created = await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local",
         sessionId: "s-meta",
         metadata: {
           team: "  ",
@@ -93,36 +93,36 @@ describe("AgentSessionApplication", () => {
         entry_agent: "orchestrator",
         workspace_root: workspaceRoot,
       });
-      expect(() =>
+      await expect(
         app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local",
           sessionId: "s-invalid",
           metadata: { workspace_root: "relative/path" },
         }),
-      ).toThrow("metadata.workspace_root 必须是绝对路径");
-      expect(() =>
+      ).rejects.toThrow("metadata.workspace_root 必须是绝对路径");
+      await expect(
         app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local",
           sessionId: "s-missing-workspace",
           metadata: { workspace_root: path.join(workspaceRoot, "missing") },
         }),
-      ).toThrow("metadata.workspace_root 必须是已存在的目录");
+      ).rejects.toThrow("metadata.workspace_root 必须是已存在的目录");
     } finally {
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
       store.close();
     }
   });
 
-  it("filters hidden, intermediate, child, and non-root messages like Python", () => {
+  it("filters hidden, intermediate, child, and non-root messages like Python", async () => {
     const store = createStore();
     const app = new AgentSessionApplication(store);
-    app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s1" });
-    app.addMessage({ sessionId: "s1", role: "user", content: "visible" });
-    app.addMessage({ sessionId: "s1", role: "assistant", content: "hidden", metadata: { visible_to_user: false } });
-    app.addMessage({ sessionId: "s1", role: "assistant", content: "react", metadata: { react_intermediate: true } });
-    app.addMessage({ sessionId: "s1", role: "assistant", content: "child", metadata: { conversation_scope: "child" } });
-    app.addMessage({ sessionId: "s1", role: "assistant", content: "thread", threadKey: "child:1" });
-    app.addMessage({ sessionId: "s1", role: "assistant", content: "answer", metadata: { run_id: "run-1" } });
+    await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s1" });
+    await app.addMessage({ sessionId: "s1", role: "user", content: "visible" });
+    await app.addMessage({ sessionId: "s1", role: "assistant", content: "hidden", metadata: { visible_to_user: false } });
+    await app.addMessage({ sessionId: "s1", role: "assistant", content: "react", metadata: { react_intermediate: true } });
+    await app.addMessage({ sessionId: "s1", role: "assistant", content: "child", metadata: { conversation_scope: "child" } });
+    await app.addMessage({ sessionId: "s1", role: "assistant", content: "thread", threadKey: "child:1" });
+    await app.addMessage({ sessionId: "s1", role: "assistant", content: "answer", metadata: { run_id: "run-1" } });
 
-    const listed = app.listMessages({ sessionId: "s1", limit: 20, offset: 0 });
+    const listed = await app.listMessages({ sessionId: "s1", limit: 20, offset: 0 });
 
     expect(listed.items.map((item) => item.content)).toEqual(["visible", "answer"]);
     expect(listed.items[1]).toMatchObject({ has_execution: true });

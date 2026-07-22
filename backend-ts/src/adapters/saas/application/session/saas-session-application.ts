@@ -6,15 +6,15 @@ import type { MessageInfo, SessionInfo, SessionListItem } from "../../../../cont
 import { normalizeSessionMetadata } from "../../../../contracts/session/session.js";
 import { assertSafeSessionId } from "../../../../contracts/session/session-id.js";
 import type { AsyncFileHistoryStore } from "../../../../contracts/file-history-store/index.js";
-import type { ConversationStore, RunInfo } from "../../../../contracts/conversation-store/index.js";
+import type { ListMemoryCandidatesInput, RunInfo } from "../../../../contracts/conversation-store/index.js";
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../../../services/runtime/event-outbox/execution-envelope-archive.js";
 import { EnvelopeProjector } from "../../../../services/runtime/event-outbox/projector.js";
 import { TenantDaemonSessionApplication } from "../../../../services/sessions/daemon-session-application.js";
-import type { SessionApplication } from "../../../../contracts/session/session-application.js";
+import type { ExecutionSessionPort, SessionApplication } from "../../../../contracts/session/session-application.js";
 import type { ExecutionMemoryCandidateListPort } from "../../../../services/agent/memory/runtime-bindings.js";
 
-export class SaaSSessionApplication {
+export class SaaSSessionApplication implements SessionApplication, ExecutionSessionPort {
   private readonly daemonSessions: TenantDaemonSessionApplication;
 
   constructor(
@@ -85,7 +85,7 @@ export class SaaSSessionApplication {
       ? this.repository.getMessageBySeq(input.sessionId, input.afterSeq)
       : input.afterMessageId ? this.repository.getMessageById(input.sessionId, input.afterMessageId) : null;
   }
-  async listMemoryCandidates(input: Parameters<ConversationStore["listMemoryCandidates"]>[0]) {
+  async listMemoryCandidates(input: ListMemoryCandidatesInput) {
     return await this.memoryCandidates?.listMemoryCandidates(input) ?? [];
   }
   async addMessage(input: Parameters<AsyncConversationRepository["addMessage"]>[0]): Promise<MessageInfo> {

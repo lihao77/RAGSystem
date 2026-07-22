@@ -223,7 +223,7 @@ export class AsyncKernelEventPersister {
     return { readyResumeInteractionIds: result.readyResumeInteractionIds };
   }
 
-  resolveFinalMessage(): { id: string; seq: number; content: string } | null {
+  async resolveFinalMessage(): Promise<{ id: string; seq: number; content: string } | null> {
     return this.finalMessage;
   }
 

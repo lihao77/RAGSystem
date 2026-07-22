@@ -4,13 +4,13 @@ import type { PaginatedResult } from "../../contracts/common.js";
 import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type SessionListItem } from "../../contracts/session/session.js";
 import type { IMessageStore, IRunStore, ISessionStore, RunInfo } from "../../contracts/conversation-store/index.js";
 import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
-import type { MessageExtension } from "../agent/context/extensions/kinds.js";
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-envelope-archive.js";
 import type { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
 import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/runtime/permissions.js";
+import type { ExecutionSessionPort } from "../../contracts/session/session-application.js";
 
 export class WorkspaceRootValidationError extends Error {
   constructor(workspaceRoot: string) {
@@ -19,20 +19,20 @@ export class WorkspaceRootValidationError extends Error {
   }
 }
 
-export class AgentSessionApplication {
+export class AgentSessionApplication implements ExecutionSessionPort {
   constructor(
     private readonly conversationStore: ISessionStore & IMessageStore & IRunStore,
     private readonly fileHistory: IFileHistoryStore | null = null,
     private readonly transientArtifacts: TransientArtifactService | null = null,
   ) {}
 
-  createSession(input: {
+  async createSession(input: {
     tenantId: TenantId;
     sessionId: string;
     userId: string;
     metadata?: Record<string, unknown>;
     permissionMode?: PermissionMode | null;
-  }): { session_id: string; user_id: string | null; permission_mode: PermissionMode | null; metadata: Record<string, unknown> } {
+  }): Promise<{ session_id: string; user_id: string | null; permission_mode: PermissionMode | null; metadata: Record<string, unknown> }> {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
     assertWorkspaceRootExists(metadata);
@@ -45,12 +45,12 @@ export class AgentSessionApplication {
     };
   }
 
-  createSystemSession(input: {
+  async createSystemSession(input: {
     tenantId: TenantId;
     sessionId: string;
     metadata?: Record<string, unknown>;
     permissionMode?: PermissionMode | null;
-  }): { session_id: string; user_id: null; permission_mode: PermissionMode | null; metadata: Record<string, unknown> } {
+  }): Promise<{ session_id: string; user_id: null; permission_mode: PermissionMode | null; metadata: Record<string, unknown> }> {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
     assertWorkspaceRootExists(metadata);
@@ -58,30 +58,30 @@ export class AgentSessionApplication {
     return { session_id: input.sessionId, user_id: null, permission_mode: input.permissionMode ?? null, metadata };
   }
 
-  listSessions(input: { tenantId: TenantId; limit?: number; offset?: number; userIds?: readonly string[] | null }): PaginatedResult<SessionListItem> {
+  async listSessions(input: { tenantId: TenantId; limit?: number; offset?: number; userIds?: readonly string[] | null }): Promise<PaginatedResult<SessionListItem>> {
     return this.conversationStore.listSessions(input.tenantId, input.limit ?? 20, input.offset ?? 0, input.userIds ?? null);
   }
 
-  getSession(sessionId: string): SessionInfo | null {
+  async getSession(sessionId: string): Promise<SessionInfo | null> {
     return this.conversationStore.getSession(sessionId);
   }
 
-  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null {
+  async updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null> {
     return this.conversationStore.updateSessionMetadata(sessionId, patch);
   }
 
-  deleteSession(sessionId: string): boolean {
+  async deleteSession(sessionId: string): Promise<boolean> {
     this.fileHistory?.cleanup(sessionId);
     const deleted = this.conversationStore.deleteSession(sessionId);
     if (deleted) this.transientArtifacts?.deleteSessionArtifacts(sessionId);
     return deleted;
   }
 
-  listMessages(input: {
+  async listMessages(input: {
     sessionId: string;
     limit?: number;
     offset?: number;
-  }): PaginatedResult<MessageInfo> {
+  }): Promise<PaginatedResult<MessageInfo>> {
     const data = this.conversationStore.listMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0);
     data.items = data.items
       .filter((item) => isVisibleRootMessage(item))
@@ -96,12 +96,12 @@ export class AgentSessionApplication {
     return data;
   }
 
-  listMessageRunSteps(input: {
+  async listMessageRunSteps(input: {
     sessionId: string;
     messageId: string;
     limit?: number;
     offset?: number;
-  }): { message_id: string; items: Envelope[]; total: number; limit: number; offset: number; has_more: boolean } {
+  }): Promise<{ message_id: string; items: Envelope[]; total: number; limit: number; offset: number; has_more: boolean }> {
     const data = this.conversationStore.listMessages(input.sessionId, 1000, 0);
     const message = data.items.find((item) => item.id === input.messageId && isVisibleRootMessage(item));
     if (!message) {
@@ -183,7 +183,7 @@ export class AgentSessionApplication {
     return [rootRunId, ...descendants];
   }
 
-  addMessage(input: {
+  async addMessage(input: {
     sessionId: string;
     role: MessageInfo["role"];
     content: string;
@@ -194,7 +194,7 @@ export class AgentSessionApplication {
     messageId?: string;
     threadKey?: string;
     childAgentId?: string | null;
-  }): MessageInfo {
+  }): Promise<MessageInfo> {
     const message = this.conversationStore.addMessage(input);
     if ((message.role === "user" && isVisibleRootMessage(message)) || message.role === "assistant") {
       const snapshotId = this.fileHistory?.makeSnapshot(input.sessionId, message.seq);
@@ -218,7 +218,7 @@ export class AgentSessionApplication {
     return message;
   }
 
-  getLastRunRound(sessionId: string, runId: string): number {
+  async getLastRunRound(sessionId: string, runId: string): Promise<number> {
     return this.conversationStore.listRunSteps({ sessionId, runId, limit: 1000 })
       .reduce((max, step) => {
         if (step.step_type !== EXECUTION_ENVELOPE_STEP_TYPE) return max;
@@ -230,7 +230,7 @@ export class AgentSessionApplication {
       }, 0);
   }
 
-  updateUserMessage(input: { sessionId: string; messageId: string; content: string }): boolean {
+  async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> {
     return this.conversationStore.updateMessage({
       messageId: input.messageId,
       content: input.content,
@@ -239,17 +239,17 @@ export class AgentSessionApplication {
     });
   }
 
-  getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): MessageInfo | null {
+  async getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<MessageInfo | null> {
     return this.resolveRetryAnchor(input.sessionId, input.afterSeq, input.afterMessageId);
   }
 
-  prepareRetry(input: {
+  async prepareRetry(input: {
     sessionId: string;
     afterSeq?: number | null;
     afterMessageId?: string | null;
     modifyUserMessage?: string | null;
-    metadataPatch?: { attachments?: unknown[]; extensions?: MessageExtension[] };
-  }): { deleted: number; task: string; message: MessageInfo } {
+    metadataPatch?: { attachments?: unknown[]; extensions?: unknown[] };
+  }): Promise<{ deleted: number; task: string; message: MessageInfo }> {
     const originalMessage = this.resolveRetryAnchor(input.sessionId, input.afterSeq, input.afterMessageId);
     if (!originalMessage) {
       const description =
@@ -296,14 +296,14 @@ export class AgentSessionApplication {
       }
     }
 
-    const deleted = this.rollbackMessages({
+    const deleted = await this.rollbackMessages({
       sessionId: input.sessionId,
       afterSeq: message.seq,
     });
     return { deleted, task, message };
   }
 
-  rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): number {
+  async rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number> {
     const payload: { afterSeq?: number | null; afterMessageId?: string | null } = {};
     if (input.afterSeq !== undefined) {
       payload.afterSeq = input.afterSeq;
@@ -315,24 +315,24 @@ export class AgentSessionApplication {
     return this.conversationStore.deleteMessagesAfter(input.sessionId, payload);
   }
 
-  exportSession(sessionId: string): {
+  async exportSession(sessionId: string): Promise<{
     version: number;
     exported_at: string;
     session: SessionInfo;
     messages: Array<MessageInfo & { execution_events?: Envelope[] }>;
     message_count: number;
-  } {
-    const session = this.getSession(sessionId);
+  }> {
+    const session = await this.getSession(sessionId);
     if (!session) {
       throw new Error(`会话不存在: ${sessionId}`);
     }
-    let messages = this.listMessages({
+    let messages = await this.listMessages({
       sessionId,
       limit: 1000,
       offset: 0,
     });
     if (messages.has_more) {
-      messages = this.listMessages({
+      messages = await this.listMessages({
         sessionId,
         limit: Math.max(messages.total, 1000),
         offset: 0,

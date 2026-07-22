@@ -7,20 +7,20 @@ import type { IFileIndexStore } from "../../../../contracts/file-index-store/ind
 export class LocalSessionFileApplication implements SessionFileApplication {
   constructor(private readonly files: IFileIndexStore) {}
 
-  list(sessionId: string) {
+  async list(sessionId: string) {
     return this.files.list({ scopeType: "session", scopeId: sessionId });
   }
 
-  validate(sessionId: string, fileIds: readonly string[]) {
+  async validate(sessionId: string, fileIds: readonly string[]) {
     const valid: string[] = [];
     const invalid: string[] = [];
     for (const fileId of fileIds) {
-      (this.get(sessionId, fileId) ? valid : invalid).push(fileId);
+      (await this.get(sessionId, fileId) ? valid : invalid).push(fileId);
     }
     return { valid, invalid };
   }
 
-  add(sessionId: string, input: { originalName: string; buffer: Uint8Array; mime: string }) {
+  async add(sessionId: string, input: { originalName: string; buffer: Uint8Array; mime: string }) {
     return this.files.add({
       originalName: input.originalName,
       buffer: input.buffer,
@@ -30,7 +30,7 @@ export class LocalSessionFileApplication implements SessionFileApplication {
     });
   }
 
-  get(sessionId: string, fileId: string) {
+  async get(sessionId: string, fileId: string) {
     return this.files.get(fileId, "session", sessionId);
   }
 
@@ -42,7 +42,7 @@ export class LocalSessionFileApplication implements SessionFileApplication {
   }
 
   async read(sessionId: string, fileId: string): Promise<SessionFileReadResult> {
-    const record = this.get(sessionId, fileId);
+    const record = await this.get(sessionId, fileId);
     if (!record) return { status: "not_found" };
     const storedPath = path.resolve(record.stored_path);
     if (!isPathUnder(storedPath, this.files.getSessionUploadsRoot(sessionId))) {

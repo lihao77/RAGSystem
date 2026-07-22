@@ -42,11 +42,13 @@ function runSessionFileContract(label: string, createHarness: () => SessionFileH
     it("adds, scopes, validates, reads, lists, and deletes one attachment", async () => {
       const harness = createHarness();
       try {
-        const added = await harness.application.add("session-1", {
+        const addResult = harness.application.add("session-1", {
           originalName: "notes.txt",
           buffer: new TextEncoder().encode("hello"),
           mime: "text/plain",
         });
+        expect(addResult).toBeInstanceOf(Promise);
+        const added = await addResult;
 
         expect(await harness.application.list("session-1")).toEqual([
           expect.objectContaining({ id: added.id, original_name: "notes.txt", scope_id: "session-1" }),
@@ -87,7 +89,9 @@ describe("FileChangeApplication contract", () => {
       application = new SaaSFileChangeApplication(new StaticAsyncHistory(filePath));
     }
 
-    expect(await application.getLatest("session-1")).toMatchObject({
+    const latest = application.getLatest("session-1");
+    expect(latest).toBeInstanceOf(Promise);
+    expect(await latest).toMatchObject({
       message_seq: 7,
       files: [{
         path: filePath,

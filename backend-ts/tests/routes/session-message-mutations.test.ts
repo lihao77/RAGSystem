@@ -57,7 +57,7 @@ describe("session message mutation routes", () => {
     expect(rolledBack.json()).toMatchObject({ success: true, data: { deleted: 3 } });
     expect(repository.updateMessage).toHaveBeenCalledWith({ sessionId: "saas-session", messageId: "message-1", content: "new task", roleFilter: "user" });
     expect(repository.deleteMessagesAfter).toHaveBeenCalledWith("saas-session", { afterSeq: null, afterMessageId: "message-1" });
-    expect(harness.container.sessionApplication.getSession("saas-session")).toBeNull();
+    expect(await harness.container.sessionApplication.getSession("saas-session")).toBeNull();
   });
 
   it("updates only editable user messages", async () => {
@@ -257,7 +257,7 @@ describe("session message mutation routes", () => {
     const documentTools = harness.container.documentTools;
     if (!documentTools) throw new Error("Local runtime must provide document tools");
 
-    harness.container.sessionApplication.createSession({ userId: "usr_local",
+    await harness.container.sessionApplication.createSession({ userId: "usr_local",
       sessionId: "file-rollback-session",
       metadata: { workspace_root: workspaceRoot },
     });
@@ -279,7 +279,7 @@ describe("session message mutation routes", () => {
       new PathApprovalService(),
     );
     expect(firstWrite).toMatchObject({ success: true });
-    const secondUser = harness.container.local.sessions.addMessage({
+    const secondUser = await harness.container.local.sessions.addMessage({
       sessionId: "file-rollback-session",
       role: "user",
       content: "snapshot v1",

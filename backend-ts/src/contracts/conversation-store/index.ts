@@ -36,6 +36,7 @@ import type {
   ProviderContinuationRecord,
   PutProviderContinuationInput,
   CreateMemoryCandidateInput,
+  ListMemoryCandidatesInput,
   MemoryCandidateRecord,
   MemoryCandidateStatus,
   ResourceInfo,
@@ -301,18 +302,7 @@ export interface IPendingInteractionStore {
 export interface IMemoryCandidateStore {
   createMemoryCandidate(input: CreateMemoryCandidateInput): MemoryCandidateRecord;
   getMemoryCandidate(id: string): MemoryCandidateRecord | null;
-  listMemoryCandidates(input: {
-    ownerUserId?: string | null;
-    statuses?: MemoryCandidateStatus[];
-    targetScope?: "team" | "agent" | null;
-    targetScopes?: Array<"team" | "agent">;
-    teamName?: string | null;
-    agentName?: string | null;
-    operation?: "publish" | "archive" | null;
-    limit?: number;
-    offset?: number;
-    contentMaxChars?: number;
-  }): MemoryCandidateRecord[];
+  listMemoryCandidates(input: ListMemoryCandidatesInput): MemoryCandidateRecord[];
   countMemoryCandidates(input: {
     ownerUserId?: string | null;
     statuses?: MemoryCandidateStatus[];

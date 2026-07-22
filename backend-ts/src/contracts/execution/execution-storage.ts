@@ -1,11 +1,16 @@
 import type { ProviderContinuationState } from "@ragsystem/agent-llm";
 import type { KernelEvent } from "@ragsystem/agent-sdk";
 
-import type { ConversationStore } from "../conversation-store/index.js";
+import type {
+  ListMemoryCandidatesInput,
+  MemoryCandidateRecord,
+  RunInfo,
+} from "../conversation-store/index.js";
+import type { RunStepInfo } from "../common.js";
 import type { Envelope } from "../events.js";
 import type { MessageInfo, SessionInfo } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
-type Awaitable<T> = T | Promise<T>;
+
 export type ExecutionStartDisposition =
   | { kind: "started" }
   | { kind: "followup"; activeRunId: string; messageId: string };
@@ -34,16 +39,16 @@ export interface ExecutionRunPersistenceContext {
 }
 
 export interface ExecutionEventPersister {
-  startRun(): ExecutionStartDisposition | Promise<ExecutionStartDisposition>;
-  persist(event: KernelEvent): void | Promise<void>;
-  finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: { id?: string; content: string; metadata?: Record<string, unknown> } | null, error?: unknown): { readyResumeInteractionIds: string[] } | Promise<{ readyResumeInteractionIds: string[] }>;
-  resolveFinalMessage(): { id: string; seq: number; content: string } | null | Promise<{ id: string; seq: number; content: string } | null>;
+  startRun(): Promise<ExecutionStartDisposition>;
+  persist(event: KernelEvent): Promise<void>;
+  finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: { id?: string; content: string; metadata?: Record<string, unknown> } | null, error?: unknown): Promise<{ readyResumeInteractionIds: string[] }>;
+  resolveFinalMessage(): Promise<{ id: string; seq: number; content: string } | null>;
 }
 
 export interface DurableExecutionConversationPort {
-  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Awaitable<MessageInfo[]>;
-  getSession(sessionId: string): Awaitable<SessionInfo | null>;
-  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Awaitable<Record<string, unknown> | null>;
+  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
+  getSession(sessionId: string): Promise<SessionInfo | null>;
+  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
   addMessage(input: {
     sessionId: string;
     role: MessageInfo["role"];
@@ -51,8 +56,8 @@ export interface DurableExecutionConversationPort {
     metadata?: Record<string, unknown>;
     threadKey?: string;
     childAgentId?: string | null;
-  }): Awaitable<MessageInfo>;
-  insertCompressionMessage(input: { sessionId: string; summaryContent: string; replacesUpToSeq?: number | null; threadKey?: string; childAgentId?: string | null; metadata?: Record<string, unknown> }): Awaitable<MessageInfo>;
+  }): Promise<MessageInfo>;
+  insertCompressionMessage(input: { sessionId: string; summaryContent: string; replacesUpToSeq?: number | null; threadKey?: string; childAgentId?: string | null; metadata?: Record<string, unknown> }): Promise<MessageInfo>;
 }
 
 export interface DurableExecutionProviderContinuationPort {
@@ -60,17 +65,26 @@ export interface DurableExecutionProviderContinuationPort {
 }
 
 export interface ExecutionProviderContinuationPort {
-  getProviderContinuation(sessionId: string, messageId: string): Awaitable<{ state: ProviderContinuationState } | null>;
+  getProviderContinuation(sessionId: string, messageId: string): Promise<{ state: ProviderContinuationState } | null>;
 }
 
+export type ExecutionMemoryCandidateQuery = ListMemoryCandidatesInput;
+
 export interface ExecutionMemoryCandidatePort {
-  listMemoryCandidates(query: Parameters<ConversationStore["listMemoryCandidates"]>[0]): Awaitable<ReturnType<ConversationStore["listMemoryCandidates"]>>;
+  listMemoryCandidates(query: ExecutionMemoryCandidateQuery): Promise<MemoryCandidateRecord[]>;
+}
+
+export interface ExecutionRunStepQuery {
+  runId?: string | null;
+  messageId?: string | null;
+  sessionId?: string | null;
+  limit?: number;
 }
 
 export interface ExecutionResultReader {
-  getRun(sessionId: string, runId: string): Awaitable<ReturnType<ConversationStore["getRun"]>>;
-  getMessageById(sessionId: string, messageId: string): Awaitable<ReturnType<ConversationStore["getMessageById"]>>;
-  listRunSteps(input: Parameters<ConversationStore["listRunSteps"]>[0]): Awaitable<ReturnType<ConversationStore["listRunSteps"]>>;
+  getRun(sessionId: string, runId: string): Promise<RunInfo | null>;
+  getMessageById(sessionId: string, messageId: string): Promise<MessageInfo | null>;
+  listRunSteps(input: ExecutionRunStepQuery): Promise<RunStepInfo[]>;
 }
 
 export interface DurableExecutionClientEventPort {

@@ -1,11 +1,9 @@
 import type { SessionInfo } from "../../../contracts/session/session.js";
 import type { SessionMetadataPort } from "./types.js";
 
-type Awaitable<T> = T | Promise<T>;
-
 export interface SessionMetadataRepository {
-  getSession(sessionId: string): Awaitable<SessionInfo | null>;
-  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Awaitable<Record<string, unknown> | null>;
+  getSession(sessionId: string): Promise<SessionInfo | null>;
+  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
 }
 
 export interface ResolvedSessionMetadataPort extends SessionMetadataPort {

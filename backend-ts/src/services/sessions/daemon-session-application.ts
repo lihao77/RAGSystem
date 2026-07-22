@@ -1,19 +1,18 @@
 import type { PermissionMode } from "../../contracts/runtime/permissions.js";
-import type { Awaitable } from "../../contracts/session/session-application.js";
 import { normalizeSessionMetadata, type SessionInfo } from "../../contracts/session/session.js";
 import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 
 export interface DaemonSessionStoragePort {
-  getSession(sessionId: string): Awaitable<SessionInfo | null>;
+  getSession(sessionId: string): Promise<SessionInfo | null>;
   createSession(input: {
     tenantId: TenantId;
     sessionId: string;
     userId: string;
     metadata: Record<string, unknown>;
     permissionMode: PermissionMode | null;
-  }): Awaitable<void>;
-  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Awaitable<Record<string, unknown> | null>;
+  }): Promise<void>;
+  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
 }
 
 /** Shared tenant-owned session lifecycle used by daemon-triggered runs. */
