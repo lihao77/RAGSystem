@@ -227,6 +227,9 @@ describe("monitoring compatibility routes", () => {
     });
     const systemPrompt = snapshot.json().data.system_prompt as string;
     expect(systemPrompt).toContain("You are RAGSystem");
+    expect(systemPrompt).toContain("<tool_manifest>");
+    expect(systemPrompt).toContain('"enum": [');
+    expect(systemPrompt).toContain('"general_agent"');
     expect(systemPrompt).toContain("## 可直接调用的工具");
     expect(systemPrompt).toContain("request_user_input");
     // delegation 不再有独立 section：可委派清单由 call_agent 自描述进 tools 段。
@@ -237,6 +240,11 @@ describe("monitoring compatibility routes", () => {
     expect(systemPrompt).toContain("## 工具调用总规则");
     expect(systemPrompt).toContain("## 执行规则");
     expect(systemPrompt).toContain("### 数据文件传递规则");
+    const callAgent = (snapshot.json().data.available_tools as Array<{
+      name: string;
+      parameters: { properties?: Record<string, { enum?: string[] }> };
+    }>).find((tool) => tool.name === "call_agent");
+    expect(callAgent?.parameters.properties?.agent_name?.enum).toContain("general_agent");
 
   });
 

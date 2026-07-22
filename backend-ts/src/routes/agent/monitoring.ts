@@ -219,7 +219,9 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const budgetTokens = resolveContextBudget(profile.llmTiers, preview?.tokenStats.systemPromptTokens ?? 0, profile.behavior.budget);
 
     const data = {
-      system_prompt: preview?.systemPrompt ?? "",
+      // preview.systemPrompt 仅是基础 prompt；XML 协议会在首条 system message 追加
+      // runtime_instruction 与完整 tool_manifest。快照必须展示模型实际收到的版本。
+      system_prompt: getEffectiveSystemPrompt(preview?.request.messages ?? []),
       available_agent_tools: buildAvailableAgentTools(agent, teamName, request.container),
       conversation_history: history,
       token_stats: {
@@ -235,7 +237,11 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         model: resolved.modelName ?? agent.llm_tiers?.default?.model_name ?? "",
         ...(query.selected_llm ? { llm_override: parseSelectedLlmForSnapshot(query.selected_llm) } : {}),
       },
-      available_tools: (preview?.toolDefinitions ?? []).map((tool) => ({ name: tool.name, description: tool.description })),
+      available_tools: (preview?.toolDefinitions ?? []).map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      })),
       available_skills: await buildAvailableSkills(agent, request.container),
       ...(memorySnapshot
         ? {
@@ -284,6 +290,11 @@ function toContextHistoryItem(
     tool_call_id: message.tool_call_id ?? null,
     name: message.name ?? null,
   };
+}
+
+function getEffectiveSystemPrompt(messages: ChatMessage[]): string {
+  const systemMessage = messages.find((message) => message.role === "system");
+  return systemMessage ? extractText(systemMessage.content) : "";
 }
 
 function buildCompressionConfig(agent: AgentConfig, container: FastifyRequest["container"]): Record<string, unknown> {
