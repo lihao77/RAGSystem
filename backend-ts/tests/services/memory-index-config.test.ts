@@ -125,7 +125,65 @@ describe("memory index system config assembly", () => {
     expect(result.conversation?.[0]?.content).toContain("agent-specific-content");
   });
 
-  it("rebuilds an active provider-cache snapshot when the scope revision changes", async () => {
+  it("defers private candidate changes until the cache epoch expires", async () => {
+    let metadata: Record<string, unknown> = {};
+    let content = "first candidate";
+    const listMemoryCandidates = vi.fn(() => [{
+      id: "candidate-1",
+      tenant_id: "tenant",
+      owner_user_id: "user",
+      target_scope: "team" as const,
+      operation: "publish" as const,
+      target_file_name: null,
+      team_name: "default",
+      agent_name: null,
+      name: "Preference",
+      description: "Personal preference",
+      memory_type: "preference",
+      content,
+      why: null,
+      how_to_apply: null,
+      status: "candidate" as const,
+      source_session_id: null,
+      source_run_id: null,
+      source_message_id: null,
+      reviewer_user_id: null,
+      review_comment: null,
+      published_file_name: null,
+      created_at: "2026-07-17T00:00:00Z",
+      updated_at: "2026-07-17T00:00:00Z",
+      reviewed_at: null,
+      review_claimed_at: null,
+      review_attempt_id: null,
+    }]);
+    const source = new MemoryIndexContextSource(
+      {
+        getSession: () => ({ metadata, user_id: "user" }),
+        updateSessionMetadata: (_sessionId, patch) => {
+          metadata = { ...metadata, ...patch };
+          return metadata;
+        },
+        listMemoryCandidates,
+      },
+      { auto_inject: true, allowed_scopes: ["team"], write_scopes: [], archive_scopes: [] },
+      "agent",
+      { memoryRepository: { loadIndexHead: () => "" } },
+    );
+    metadata = { ...metadata, team: "default" };
+    const request = { sessionId: "session", threadKey: "root", microcompact: false, microcompactKeepRecentTools: 5, cacheAlive: true, touch: false };
+
+    const first = await source.build(request);
+    content = "second candidate";
+    const cached = await source.build(request);
+    const refreshed = await source.build({ ...request, cacheAlive: false });
+
+    expect(first.conversation?.[0]?.content).toContain("first candidate");
+    expect(cached.conversation?.[0]?.content).toContain("first candidate");
+    expect(refreshed.conversation?.[0]?.content).toContain("second candidate");
+    expect(listMemoryCandidates).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an active provider-cache snapshot stable until the cache expires", async () => {
     let metadata: Record<string, unknown> = {};
     let revision = 1;
     let index = "first index";
@@ -151,11 +209,13 @@ describe("memory index system config assembly", () => {
     index = "second index";
     revision = 2;
     const second = await source.build(request);
+    const refreshed = await source.build({ ...request, cacheAlive: false });
 
     expect(first.conversation?.[0]?.content).toContain("first index");
-    expect(second.conversation?.[0]?.content).toContain("second index");
+    expect(second.conversation?.[0]?.content).toContain("first index");
+    expect(refreshed.conversation?.[0]?.content).toContain("second index");
     expect(loadIndexHead).toHaveBeenCalledTimes(2);
-    expect((second.metadata?.snapshot as { fingerprint: { scope_revisions: unknown[] } }).fingerprint.scope_revisions).toEqual([
+    expect((refreshed.metadata?.snapshot as { fingerprint: { scope_revisions: unknown[] } }).fingerprint.scope_revisions).toEqual([
       { scope_name: "session", scope_spec: { scope: "session", session_id: "session" }, revision: "2" },
     ]);
   });

@@ -11,6 +11,7 @@ import { asString, normalizeSessionEntryAgent } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { TenantId } from "../../../identity/types.js";
+import { memoryBaselineKey } from "../memory/index.js";
 
 interface ParsedSlashCommand {
   name: string;
@@ -190,6 +191,12 @@ export class SlashCommandHandler {
           data: result,
         };
       }
+      await this.sessions.updateSessionMetadata(input.sessionId, {
+        memory_prefix_states: {
+          [memoryBaselineKey("root", ready.agent.agent_name)]: null,
+        },
+        _provider_cache: { root: null },
+      });
       this.clientEvents.publish(input.sessionId, {
         type: "state_sync",
         session_id: input.sessionId,

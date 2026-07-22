@@ -66,6 +66,10 @@ export class AgentSessionApplication {
     return this.conversationStore.getSession(sessionId);
   }
 
+  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null {
+    return this.conversationStore.updateSessionMetadata(sessionId, patch);
+  }
+
   deleteSession(sessionId: string): boolean {
     this.fileHistory?.cleanup(sessionId);
     const deleted = this.conversationStore.deleteSession(sessionId);

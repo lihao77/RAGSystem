@@ -37,6 +37,8 @@ export interface MemoryPrefixFingerprint {
   write_scopes: string[];
   archive_scopes: string[];
   scope_specs: Array<{ scope_name: string; scope_spec: MemoryScopeSpec }>;
+  /** Stable for one provider-cache epoch; excludes mutable memory content revisions. */
+  structural_fingerprint: string;
   private_candidate_revision: string;
   scope_revisions?: Array<{ scope_name: string; scope_spec: MemoryScopeSpec; revision: string }>;
   fingerprint: string;
@@ -108,13 +110,11 @@ export function buildMemoryPrefixFingerprint(input: {
   privateCandidateRevision?: string;
   scopeRevisions?: Array<{ scopeSpec: MemoryScopeSpec; revision: string }>;
 }): MemoryPrefixFingerprint {
+  const structuralPayload = buildMemoryPrefixStructuralPayload(input);
+  const structuralFingerprint = hashMemoryPrefixPayload(structuralPayload);
   const payload = {
-    agent_name: input.agentName.trim() || null,
-    auto_inject: input.memory.auto_inject !== false,
-    allowed_scopes: [...input.scopeCapabilities.allowed_scopes].sort(),
-    write_scopes: [...input.scopeCapabilities.write_scopes].sort(),
-    archive_scopes: [...input.scopeCapabilities.archive_scopes].sort(),
-    scope_specs: input.scopeSpecs.map((scopeSpec) => ({ scope_name: scopeSpec.scope, scope_spec: { ...scopeSpec } })),
+    ...structuralPayload,
+    structural_fingerprint: structuralFingerprint,
     private_candidate_revision: input.privateCandidateRevision ?? "",
     ...(input.scopeRevisions
       ? {
@@ -126,7 +126,36 @@ export function buildMemoryPrefixFingerprint(input: {
         }
       : {}),
   };
-  return { ...payload, fingerprint: crypto.createHash("sha256").update(pythonStableJsonStringify(payload), "utf8").digest("hex").slice(0, 16) };
+  return { ...payload, fingerprint: hashMemoryPrefixPayload(payload) };
+}
+
+export function buildMemoryPrefixStructuralFingerprint(input: {
+  memory: MemoryConfig;
+  scopeCapabilities: MemoryScopeCapabilities;
+  scopeSpecs: MemoryScopeSpec[];
+  agentName: string;
+}): string {
+  return hashMemoryPrefixPayload(buildMemoryPrefixStructuralPayload(input));
+}
+
+function buildMemoryPrefixStructuralPayload(input: {
+  memory: MemoryConfig;
+  scopeCapabilities: MemoryScopeCapabilities;
+  scopeSpecs: MemoryScopeSpec[];
+  agentName: string;
+}) {
+  return {
+    agent_name: input.agentName.trim() || null,
+    auto_inject: input.memory.auto_inject !== false,
+    allowed_scopes: [...input.scopeCapabilities.allowed_scopes].sort(),
+    write_scopes: [...input.scopeCapabilities.write_scopes].sort(),
+    archive_scopes: [...input.scopeCapabilities.archive_scopes].sort(),
+    scope_specs: input.scopeSpecs.map((scopeSpec) => ({ scope_name: scopeSpec.scope, scope_spec: { ...scopeSpec } })),
+  };
+}
+
+function hashMemoryPrefixPayload(payload: unknown): string {
+  return crypto.createHash("sha256").update(pythonStableJsonStringify(payload), "utf8").digest("hex").slice(0, 16);
 }
 
 export function renderMemoryPrefixBlock(input: {
@@ -172,23 +201,42 @@ export function readMemoryPrefixSnapshot(
     session_id: getString(snapshot.session_id) ?? "",
     thread_key: getString(snapshot.thread_key) ?? DEFAULT_THREAD_KEY,
     agent_name: getString(snapshot.agent_name) ?? "",
-    fingerprint: {
-      agent_name: getString(fingerprint?.agent_name),
-      auto_inject: fingerprint?.auto_inject !== false,
-      allowed_scopes: stringArray(fingerprint?.allowed_scopes),
-      write_scopes: stringArray(fingerprint?.write_scopes),
-      archive_scopes: stringArray(fingerprint?.archive_scopes),
-      scope_specs: readFingerprintScopeSpecs(fingerprint?.scope_specs),
-      private_candidate_revision: getString(fingerprint?.private_candidate_revision) ?? "",
-      ...(Array.isArray(fingerprint?.scope_revisions)
-        ? { scope_revisions: readFingerprintScopeRevisions(fingerprint.scope_revisions) }
-        : {}),
-      fingerprint: fingerprintValue,
-    },
+    fingerprint: readMemoryPrefixFingerprint(fingerprint, fingerprintValue),
     scope_capabilities: readScopeCapabilities(snapshot.scope_capabilities),
     indices: stringRecord(snapshot.indices),
     rendered_block: renderedBlock,
     rebased_reason: getString(snapshot.rebased_reason) ?? "loaded",
+  };
+}
+
+function readMemoryPrefixFingerprint(
+  fingerprint: Record<string, unknown> | null,
+  fingerprintValue: string,
+): MemoryPrefixFingerprint {
+  const parsed: Omit<MemoryPrefixFingerprint, "structural_fingerprint"> = {
+    agent_name: getString(fingerprint?.agent_name),
+    auto_inject: fingerprint?.auto_inject !== false,
+    allowed_scopes: stringArray(fingerprint?.allowed_scopes),
+    write_scopes: stringArray(fingerprint?.write_scopes),
+    archive_scopes: stringArray(fingerprint?.archive_scopes),
+    scope_specs: readFingerprintScopeSpecs(fingerprint?.scope_specs),
+    private_candidate_revision: getString(fingerprint?.private_candidate_revision) ?? "",
+    ...(Array.isArray(fingerprint?.scope_revisions)
+      ? { scope_revisions: readFingerprintScopeRevisions(fingerprint.scope_revisions) }
+      : {}),
+    fingerprint: fingerprintValue,
+  };
+  return {
+    ...parsed,
+    structural_fingerprint: getString(fingerprint?.structural_fingerprint)
+      ?? hashMemoryPrefixPayload({
+        agent_name: parsed.agent_name,
+        auto_inject: parsed.auto_inject,
+        allowed_scopes: [...parsed.allowed_scopes].sort(),
+        write_scopes: [...parsed.write_scopes].sort(),
+        archive_scopes: [...parsed.archive_scopes].sort(),
+        scope_specs: parsed.scope_specs,
+      }),
   };
 }
 

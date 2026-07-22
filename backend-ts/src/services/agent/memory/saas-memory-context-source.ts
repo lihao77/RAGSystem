@@ -11,6 +11,7 @@ import type {
 } from "../context/types.js";
 import {
   buildMemoryPrefixFingerprint,
+  buildMemoryPrefixStructuralFingerprint,
   buildMemoryScopeCapabilities,
   buildMemoryScopeSpecs,
   memoryBaselineKey,
@@ -75,6 +76,22 @@ export class SaaSMemoryContextSource implements AgentContextSource {
       const partition = toMemoryScopePartition(scopeSpec);
       return partition ? [{ scopeSpec, partition }] : [];
     });
+    const structuralFingerprint = buildMemoryPrefixStructuralFingerprint({
+      memory: this.memory,
+      scopeCapabilities,
+      scopeSpecs,
+      agentName: this.agentName,
+    });
+    const baselineKey = memoryBaselineKey(request.threadKey, this.agentName);
+    const existingSnapshot = readMemoryPrefixSnapshot(sessionMetadata, baselineKey);
+    if (existingSnapshot
+      && existingSnapshot.fingerprint.structural_fingerprint === structuralFingerprint
+      && request.cacheAlive) {
+      return {
+        conversation: existingSnapshot.rendered_block ? [{ role: "system", content: existingSnapshot.rendered_block }] : [],
+        metadata: { status: "loaded", snapshot: existingSnapshot },
+      };
+    }
     const scopeRevisions = await Promise.all(scopes.map(async ({ scopeSpec, partition }) => ({
       scopeSpec,
       revision: String(await this.query.getScopeRevision(partition)),
@@ -86,13 +103,7 @@ export class SaaSMemoryContextSource implements AgentContextSource {
       agentName: this.agentName,
       scopeRevisions,
     });
-    const baselineKey = memoryBaselineKey(request.threadKey, this.agentName);
-    const existingSnapshot = readMemoryPrefixSnapshot(sessionMetadata, baselineKey);
-    const snapshot = existingSnapshot
-      && existingSnapshot.fingerprint.fingerprint === fingerprint.fingerprint
-      && request.cacheAlive
-      ? existingSnapshot
-      : await this.buildAndPersistSnapshot({ request, baselineKey, fingerprint, scopeCapabilities, scopes });
+    const snapshot = await this.buildAndPersistSnapshot({ request, baselineKey, fingerprint, scopeCapabilities, scopes });
 
     return {
       conversation: snapshot.rendered_block

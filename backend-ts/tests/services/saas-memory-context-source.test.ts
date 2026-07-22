@@ -78,7 +78,7 @@ describe("SaaSMemoryContextSource", () => {
     expect(result.conversation?.[0]?.content).not.toContain("file_path");
   });
 
-  it("reuses a cached snapshot until a scope revision changes", async () => {
+  it("keeps the snapshot stable for an active cache epoch and refreshes after expiry", async () => {
     let metadata: Record<string, unknown> = {};
     let revision = 1;
     let current = entry({ description: "first index" });
@@ -104,15 +104,56 @@ describe("SaaSMemoryContextSource", () => {
     );
 
     const first = await source.build(request);
-    current = entry({ description: "unseen without revision" });
+    current = entry({ description: "visible after cache expiry" });
     const cached = await source.build(request);
     revision = 2;
-    const refreshed = await source.build(request);
+    const stillCached = await source.build(request);
+    const refreshed = await source.build({ ...request, cacheAlive: false });
 
     expect(first.conversation?.[0]?.content).toContain("first index");
     expect(cached.conversation?.[0]?.content).toContain("first index");
-    expect(refreshed.conversation?.[0]?.content).toContain("unseen without revision");
+    expect(stillCached.conversation?.[0]?.content).toContain("first index");
+    expect(refreshed.conversation?.[0]?.content).toContain("visible after cache expiry");
     expect(listEntries).toHaveBeenCalledTimes(2);
+    expect(query.getScopeRevision).toHaveBeenCalledTimes(2);
+  });
+
+  it("rebuilds immediately when the memory structure changes", async () => {
+    let metadata: Record<string, unknown> = {};
+    const listEntries = vi.fn(async () => [entry()]);
+    const query = {
+      getEntry: vi.fn(),
+      listEntries,
+      getScopeRevision: vi.fn(async () => 1),
+      listManagedEntries: vi.fn(),
+      countManagedEntries: vi.fn(),
+    } satisfies MemoryQueryService;
+    const sessions = {
+      getSession: () => ({ metadata }),
+      updateSessionMetadata: (_sessionId: string, patch: Record<string, unknown>) => {
+        metadata = { ...metadata, ...patch };
+        return metadata;
+      },
+    };
+    const firstSource = new SaaSMemoryContextSource(
+      sessions,
+      query,
+      { auto_inject: true, allowed_scopes: ["session"], write_scopes: [], archive_scopes: [] },
+      "agent-a",
+    );
+    const changedSource = new SaaSMemoryContextSource(
+      sessions,
+      query,
+      { auto_inject: true, allowed_scopes: ["session"], write_scopes: ["session"], archive_scopes: [] },
+      "agent-a",
+    );
+
+    await firstSource.build(request);
+    const rebuilt = await changedSource.build(request);
+
+    expect(rebuilt.conversation?.[0]?.content).toContain("可写入 scope: session");
+    expect(listEntries).toHaveBeenCalledTimes(2);
+    expect(query.getScopeRevision).toHaveBeenCalledTimes(2);
   });
 
   it("does not query entries when auto injection is disabled", async () => {

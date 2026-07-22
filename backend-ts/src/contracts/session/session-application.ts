@@ -15,6 +15,7 @@ export type Awaitable<T> = T | Promise<T>;
  */
 export interface ExecutionSessionPort {
   getSession(sessionId: string): Awaitable<SessionInfo | null>;
+  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Awaitable<Record<string, unknown> | null>;
   createSession(input: { tenantId: TenantId; sessionId: string; userId: string; metadata?: Record<string, unknown> }): Awaitable<unknown>;
   createSystemSession(input: { tenantId: TenantId; sessionId: string; metadata?: Record<string, unknown> }): Awaitable<unknown>;
   addMessage(input: {
