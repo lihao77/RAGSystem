@@ -959,7 +959,8 @@ const memoryScopeFallbackMeta = [
   { name: 'team', description: '团队级长期记忆，适合跨会话复用的共享偏好、约束与背景事实。' },
   { name: 'session', description: '当前会话记忆，适合记录本轮协作中形成的稳定偏好和上下文。' },
   { name: 'agent', description: '当前 team 内 Agent 私有记忆，仅适合该 Agent 在所属 team 中独立维护的长期信息。' },
-  { name: 'workspace', description: '当前工作区记忆，优先绑定显式 workspace_root；若 session 未提供该字段，则自动回退到默认 session workspace，并基于完整路径生成稳定 workspace key。' }
+  { name: 'workspace', description: '当前工作区记忆，优先绑定显式 workspace_root；若 session 未提供该字段，则自动回退到默认 session workspace，并基于完整路径生成稳定 workspace key。' },
+  { name: 'user', description: '当前用户的长期记忆，适合跨团队和跨工作区复用的个人偏好、习惯与背景信息。' }
 ];
 
 const extraParamTypeOptions = [
@@ -1059,9 +1060,9 @@ function createEmptyForm() {
     mcp: { enabled_servers: [] },
     memory: {
       auto_inject: true,
-      allowed_scopes: ['team', 'session'],
-      write_scopes: ['session'],
-      archive_scopes: ['session']
+      allowed_scopes: ['team', 'session', 'user'],
+      write_scopes: ['session', 'user'],
+      archive_scopes: ['session', 'user']
     },
     knowledge_base: {
       enabled: false,
@@ -1118,9 +1119,9 @@ function applyConfigToForm(config) {
     },
     memory: {
       auto_inject: safeConfig.memory?.auto_inject ?? true,
-      allowed_scopes: Array.isArray(safeConfig.memory?.allowed_scopes) ? [...safeConfig.memory.allowed_scopes] : ['team', 'session'],
-      write_scopes: Array.isArray(safeConfig.memory?.write_scopes) ? [...safeConfig.memory.write_scopes] : ['session'],
-      archive_scopes: Array.isArray(safeConfig.memory?.archive_scopes) ? [...safeConfig.memory.archive_scopes] : ['session']
+      allowed_scopes: Array.isArray(safeConfig.memory?.allowed_scopes) ? [...safeConfig.memory.allowed_scopes] : ['team', 'session', 'user'],
+      write_scopes: Array.isArray(safeConfig.memory?.write_scopes) ? [...safeConfig.memory.write_scopes] : ['session', 'user'],
+      archive_scopes: Array.isArray(safeConfig.memory?.archive_scopes) ? [...safeConfig.memory.archive_scopes] : ['session', 'user']
     },
     delegation: {
       enabled_agents: Array.isArray(safeConfig.delegation?.enabled_agents) ? [...safeConfig.delegation.enabled_agents] : []

@@ -157,6 +157,7 @@ describe("agent config compatibility routes", () => {
       "session",
       "agent",
       "workspace",
+      "user",
     ]);
 
     const tools = await app.inject({

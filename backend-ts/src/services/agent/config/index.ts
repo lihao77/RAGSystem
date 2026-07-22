@@ -414,6 +414,13 @@ export class AgentConfigService {
           write_label: "允许写入",
           archive_label: "允许归档",
         },
+        {
+          name: "user",
+          description: "当前用户的长期记忆，适合跨团队和跨工作区复用的个人偏好、习惯与背景信息。",
+          read_label: "允许读取",
+          write_label: "允许写入",
+          archive_label: "允许归档",
+        },
       ],
     };
   }
