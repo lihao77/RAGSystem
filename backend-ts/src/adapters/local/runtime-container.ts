@@ -227,7 +227,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
         conversation: conversationStore,
         runtimeStorage,
         clientEvents: localClientEvents,
-        fileHistory,
+        fileHistory: new LocalSessionHistoryAdapter(fileHistory),
       }),
     pathAccessPolicyFactory: options.pathAccessPolicyFactory ?? (() => new PathApprovalService()),
     documentTools,

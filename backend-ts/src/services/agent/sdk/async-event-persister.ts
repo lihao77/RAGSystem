@@ -16,6 +16,7 @@ import type {
 import type { TenantId } from "../../../identity/types.js";
 import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
 import type { ClientEventPublisherPort } from "../../../contracts/runtime/core-runtime-ports.js";
+import type { SessionHistoryPort } from "../../../contracts/session/session-history.js";
 import { buildExecutionEnvelopeRunStep } from "../../runtime/event-outbox/execution-envelope-archive.js";
 
 export interface AsyncPersisterRunContext {
@@ -47,10 +48,6 @@ export interface AsyncFinalMessageInput {
   metadata?: Record<string, unknown>;
 }
 
-interface FileSnapshotPort {
-  makeSnapshot(sessionId: string, messageSeq: number): string | null | Promise<string | null>;
-}
-
 /** Deployment-neutral kernel persister backed by a tenant-bound RuntimeStorage adapter. */
 export class AsyncKernelEventPersister {
   private finalMessage: { id: string; seq: number; content: string } | null = null;
@@ -59,7 +56,7 @@ export class AsyncKernelEventPersister {
     private readonly storage: RuntimeStorage,
     private readonly clientEvents: Pick<ClientEventPublisherPort, "prepare" | "deliver" | "flush">,
     private readonly ctx: AsyncPersisterRunContext,
-    private readonly fileHistory: FileSnapshotPort | null = null,
+    private readonly fileHistory: Pick<SessionHistoryPort, "makeSnapshot"> | null = null,
   ) {
     if (storage.tenantId !== ctx.tenantId) {
       throw new Error(`runtime storage tenant mismatch: expected ${ctx.tenantId}, received ${storage.tenantId}`);

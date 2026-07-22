@@ -7,14 +7,12 @@
 import type { ChatMessage, ProviderContinuationState } from "@ragsystem/agent-llm";
 import type { MessageInfo } from "../../../contracts/session/session.js";
 
-/** 历史读取端口(委托 conversationStore.listMessages)。 */
+/** Promise-only conversation history read boundary. */
 export interface ConversationHistoryPort {
-  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[] | Promise<MessageInfo[]>;
+  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
   /** Private lookup; omitted by read-only projections that must not expose provider state. */
   getProviderContinuation?(sessionId: string, messageId: string):
-    | { state: ProviderContinuationState }
-    | null
-    | Promise<{ state: ProviderContinuationState } | null>;
+    Promise<{ state: ProviderContinuationState } | null>;
 }
 
 /** 会话元数据读写端口(conversationStore 装配侧实现)。 */
