@@ -84,7 +84,7 @@ describe("SaaS memory application composition", () => {
       const bindings = createMemoryBindings.mock.results[0]?.value;
       expect(bindings?.tools).toBeInstanceOf(SaaSMemoryToolService);
       expect(bindings?.createContextSource({
-        sessions: { getSession: () => null },
+        sessions: { getSession: async () => null },
         memory: {
           auto_inject: true,
           allowed_scopes: ["session"],

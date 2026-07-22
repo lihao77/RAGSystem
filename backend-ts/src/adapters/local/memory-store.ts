@@ -10,14 +10,12 @@ import {
 } from "./files/memory-files.js";
 
 import type {
-  IMemoryStore,
   MemoryEntry,
   MemoryEntryFile,
   MemoryIndexReadOptions,
   MemoryPartition,
   MemoryScopeName,
   MemoryScopeSpec,
-  MemoryStoreOptions,
   PersistedMemoryEntry,
   PersistedMemoryManagementArchiveInput,
   PersistedMemoryManagementArchiveResult,
@@ -36,7 +34,11 @@ const DEFAULT_INDEX_MAX_CHARS = 25600;
 const ALLOWED_MEMORY_TYPES = new Set(["preference", "constraint", "goal", "fact", "profile"]);
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
-export class MemoryStore implements IMemoryStore {
+export interface MemoryStoreOptions {
+  dataRoot?: string | undefined;
+}
+
+export class MemoryStore {
   private readonly dataRoot: string;
 
   constructor(options: MemoryStoreOptions = {}) {

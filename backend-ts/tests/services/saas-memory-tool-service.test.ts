@@ -280,7 +280,7 @@ function memoryEntry(overrides: Partial<PersistedMemoryEntry> = {}): PersistedMe
 }
 
 function sessions() {
-  return { getSession: () => ({ metadata: { team: "alpha" } }) };
+  return { getSession: async () => ({ metadata: { team: "alpha" } }) };
 }
 
 function runtimeContext(scopes: {

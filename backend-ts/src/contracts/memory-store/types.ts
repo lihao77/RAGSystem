@@ -4,7 +4,7 @@
  * 输入边界用 zod schema（SaveMemoryInput / MemoryScopeSpec），既给编译期类型，也给
  * saveMemory 入口运行时校验。输出/领域（MemoryEntry 等）用 interface。
  *
- * 契约独立：本文件零 import services，凡 IMemoryStore 签名引用的类型必在此定义。
+ * 契约独立：本文件零 import services，持久化与工具 Port 引用的数据类型均在此定义。
  */
 import { z } from "zod";
 
@@ -39,10 +39,6 @@ export const SaveMemoryInputSchema = MemoryScopeSpecSchema.extend({
 export type SaveMemoryInput = z.infer<typeof SaveMemoryInputSchema>;
 
 // ────────────────────────────── 输出/领域（interface） ──────────────────────────────
-
-export interface MemoryStoreOptions {
-  dataRoot?: string | undefined;
-}
 
 export interface MemoryIndexReadOptions {
   maxLines?: number | undefined;

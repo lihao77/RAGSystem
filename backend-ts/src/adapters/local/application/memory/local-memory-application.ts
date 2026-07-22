@@ -1,5 +1,5 @@
 import type { MemoryApplication } from "../../../../services/memory/memory-application.js";
-import type { IMemoryStore } from "../../../../contracts/memory-store/index.js";
+import type { MemoryStore } from "../../memory-store.js";
 import type { MemoryCandidateRecord } from "../../../../contracts/conversation-store/index.js";
 import type { ConversationStore } from "../../sqlite/conversation-store/index.js";
 import type { PersistedMemoryCandidate, PersistedMemoryEntry } from "../../../../contracts/memory-store/index.js";
@@ -15,7 +15,7 @@ export class LocalMemoryApplication implements MemoryApplication {
   readonly commands: MemoryCommandService;
   readonly governance: MemoryGovernanceService;
 
-  constructor(private readonly tenantId: string, private readonly memory: IMemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId = "", private readonly viewerSessionIds: ViewerSessionIds = []) {
+  constructor(private readonly tenantId: string, private readonly memory: MemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId = "", private readonly viewerSessionIds: ViewerSessionIds = []) {
     this.query = new LocalQueryService(tenantId, memory, viewerUserId, viewerSessionIds);
     this.commands = new LocalCommandService(tenantId, memory, conversation, viewerUserId, viewerSessionIds);
     this.governance = new LocalGovernanceService(tenantId, memory, conversation, viewerUserId, viewerSessionIds);
@@ -26,7 +26,7 @@ type ViewerSessionIds = readonly string[] | (() => Promise<readonly string[]>);
 async function resolveViewerSessionIds(source: ViewerSessionIds): Promise<string[]> { return [...(typeof source === "function" ? await source() : source)]; }
 
 class LocalQueryService extends TenantMemoryQueryService {
-  constructor(private readonly localTenantId: string, private readonly local: IMemoryStore, private readonly viewerUserId: string, private readonly viewerSessionIds: ViewerSessionIds) { super(localTenantId, local as never); }
+  constructor(private readonly localTenantId: string, private readonly local: MemoryStore, private readonly viewerUserId: string, private readonly viewerSessionIds: ViewerSessionIds) { super(localTenantId, local as never); }
   override async getEntry(memoryId: string): Promise<PersistedMemoryEntry | null> {
     const rows = this.local.listManagedEntries({ tenant_id: this.localTenantId, viewer_user_id: this.viewerUserId, viewer_session_ids: await resolveViewerSessionIds(this.viewerSessionIds) });
     return rows.find((row) => row.id === memoryId) ?? null;
@@ -34,7 +34,7 @@ class LocalQueryService extends TenantMemoryQueryService {
 }
 
 class LocalCommandService implements MemoryCommandService {
-  constructor(private readonly tenantId: string, private readonly memory: IMemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId: string, private readonly viewerSessionIds: ViewerSessionIds) {}
+  constructor(private readonly tenantId: string, private readonly memory: MemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId: string, private readonly viewerSessionIds: ViewerSessionIds) {}
   async createCandidate(input: Parameters<MemoryCommandService["createCandidate"]>[0]): Promise<PersistedMemoryCandidate> {
     const value = input as any;
     if (value.scope === "user" || value.scope === "workspace" || value.scope === "session") {
@@ -69,7 +69,7 @@ class LocalCommandService implements MemoryCommandService {
 }
 
 class LocalGovernanceService implements MemoryGovernanceService {
-  constructor(private readonly tenantId: string, private readonly memory: IMemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId: string, private readonly viewerSessionIds: ViewerSessionIds) {}
+  constructor(private readonly tenantId: string, private readonly memory: MemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId: string, private readonly viewerSessionIds: ViewerSessionIds) {}
   async getCandidate(id: string) { const row = this.conversation.getMemoryCandidate(id); return row && row.tenant_id === this.tenantId ? toPersistedCandidate(row) : null; }
   async listCandidates(query: Parameters<MemoryGovernanceService["listCandidates"]>[0] = {}) { const q = query as any; return this.conversation.listMemoryCandidates({ ...(q.owner_user_id !== undefined ? { ownerUserId: q.owner_user_id } : {}), ...(q.statuses ? { statuses: q.statuses } : {}), ...(q.scope ? { targetScope: q.scope } : {}), ...(q.scopes ? { targetScopes: q.scopes.filter((s: string) => s === "team" || s === "agent") } : {}), ...(q.operation ? { operation: q.operation } : {}), ...(q.limit !== undefined ? { limit: q.limit } : {}), ...(q.offset !== undefined ? { offset: q.offset } : {}) }).filter((row) => row.tenant_id === this.tenantId).map(toPersistedCandidate); }
   async countCandidates(query: Parameters<MemoryGovernanceService["countCandidates"]>[0] = {}) { const q = query as any; return this.conversation.countMemoryCandidates({ ...(q.owner_user_id !== undefined ? { ownerUserId: q.owner_user_id } : {}), ...(q.statuses ? { statuses: q.statuses } : {}), ...(q.scope ? { targetScope: q.scope } : {}), ...(q.scopes ? { targetScopes: q.scopes.filter((s: string) => s === "team" || s === "agent") } : {}), ...(q.operation ? { operation: q.operation } : {}) }); }

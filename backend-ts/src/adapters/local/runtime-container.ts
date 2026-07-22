@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { MemoryStore } from "../../adapters/local/memory-store.js";
+import { LocalMemoryToolRepository } from "./local-memory-tool-repository.js";
 import { LocalBashToolService } from "../../tools/BashTool/BashExecution.js";
 import { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExecution.js";
 import { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExecution.js";
@@ -121,17 +122,18 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const knowledge = knowledgeService;
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
+  const memoryToolRepository = new LocalMemoryToolRepository(memoryStore);
   const memoryContextRepository = new LocalMemoryContextRepository(memoryStore);
   const memoryBindings = options.memoryBindingsFactory?.({
     tenantId: options.tenantId,
     dataRoot,
     getMemoryConfig: () => systemConfig.getMemoryConfig(),
     memoryRepository: memoryStore,
-    sessions: conversationStore,
+    sessions: sessionApplication,
   }) ?? {
     tools: new MemoryToolService(
-      memoryStore,
-      conversationStore,
+      memoryToolRepository,
+      sessionApplication,
       new LocalMemoryCandidateCommandAdapter(conversationStore),
       options.tenantId,
     ),

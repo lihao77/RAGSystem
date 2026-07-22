@@ -8,8 +8,8 @@ import {
 import { createMemoryApplication, type MemoryApplication } from "../../../services/memory/index.js";
 import {
   SaaSMemoryToolService,
-  type SaaSMemorySessionPort,
 } from "../../../tools/MemoryTools/SaaSMemoryExecution.js";
+import type { RuntimeMemorySessionPort } from "../../../tools/MemoryTools/MemoryExecution.js";
 import type { SessionMetadataPort } from "../../../services/agent/context/types.js";
 import type { MemoryRuntimeBindings } from "../../../services/agent/memory/runtime-bindings.js";
 import { SaaSMemoryContextRepository } from "../memory/saas-memory-context-repository.js";
@@ -21,14 +21,14 @@ import { SaaSMemoryContextRepository } from "../memory/saas-memory-context-repos
 export interface SaaSRuntime {
   readonly tenantId: TenantId;
   readonly memory: MemoryApplication;
-  createMemoryTools(sessions: SaaSMemorySessionPort): SaaSMemoryToolService;
+  createMemoryTools(sessions: RuntimeMemorySessionPort): SaaSMemoryToolService;
   createMemoryContextSource(
     sessions: SessionMetadataPort,
     memoryConfig: AgentConfig["memory"],
     agentName: string,
     options?: MemoryContextSourceOptions,
   ): MemoryContextSource;
-  createMemoryBindings(sessions: SaaSMemorySessionPort): MemoryRuntimeBindings;
+  createMemoryBindings(sessions: RuntimeMemorySessionPort): MemoryRuntimeBindings;
 }
 
 export interface SaaSMemoryApplicationProvider {
@@ -49,7 +49,7 @@ export class SaaSRuntimeProvider implements SaaSMemoryApplicationProvider {
 
   createMemoryBindings(
     rawTenantId: string,
-    sessions: SaaSMemorySessionPort,
+    sessions: RuntimeMemorySessionPort,
   ): MemoryRuntimeBindings {
     return this.createRuntime(createTenantId(rawTenantId)).createMemoryBindings(sessions);
   }

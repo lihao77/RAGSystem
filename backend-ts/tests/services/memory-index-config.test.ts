@@ -6,7 +6,7 @@ import {
 } from "../../src/services/agent/memory/memory-context-source.js";
 import { buildMemoryContextSourceOptions } from "../../src/adapters/local/memory-context-options.js";
 import { LocalMemoryContextRepository } from "../../src/adapters/local/local-memory-context-repository.js";
-import type { IMemoryStore, MemoryContextRepository } from "../../src/contracts/memory-store/index.js";
+import type { MemoryContextRepository } from "../../src/contracts/memory-store/index.js";
 
 describe("memory index system config assembly", () => {
   it("passes configured index limits through to loadIndexHead", async () => {
@@ -17,7 +17,7 @@ describe("memory index system config assembly", () => {
     await systemConfig.initialize();
     await systemConfig.updateConfig({ memory: { index_max_lines: 50, index_max_chars: 6400 } });
     const loadIndexHead = vi.fn(() => "# Session Memory");
-    const memoryStore = { loadIndexHead } as unknown as IMemoryStore;
+    const memoryStore = { loadIndexHead };
     const source = new MemoryContextSource(
       { getSession: () => ({ metadata: {} }), updateSessionMetadata: () => null },
       new LocalMemoryContextRepository(memoryStore),
@@ -45,7 +45,7 @@ describe("memory index system config assembly", () => {
     const source = new MemoryContextSource(
       {
         getSession: () => ({ metadata: { team: "default" }, user_id: "usr_alice" }),
-        listMemoryCandidates: (input) => input.ownerUserId === "usr_alice"
+        listMemoryCandidates: async (input) => input.ownerUserId === "usr_alice"
           ? [{
               id: "candidate-1",
               tenant_id: "tnt_alpha",
@@ -119,7 +119,7 @@ describe("memory index system config assembly", () => {
     const source = new MemoryContextSource(
       {
         getSession: () => ({ metadata: { team: "default" }, user_id: "usr_alice" }),
-        listMemoryCandidates: (input) => records(input.targetScope as "team" | "agent"),
+        listMemoryCandidates: async (input) => records(input.targetScope as "team" | "agent"),
       },
       emptyRepository(),
       { auto_inject: true, allowed_scopes: ["team", "agent"], write_scopes: [], archive_scopes: [] },
@@ -132,7 +132,7 @@ describe("memory index system config assembly", () => {
   it("defers private candidate changes until the cache epoch expires", async () => {
     let metadata: Record<string, unknown> = {};
     let content = "first candidate";
-    const listMemoryCandidates = vi.fn(() => [{
+    const listMemoryCandidates = vi.fn(async () => [{
       id: "candidate-1",
       tenant_id: "tenant",
       owner_user_id: "user",

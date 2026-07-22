@@ -1,9 +1,10 @@
-import type { MemoryContextRepository, MemoryIndexReader, MemoryScopeSpec } from "../../contracts/memory-store/index.js";
+import type { MemoryContextRepository, MemoryScopeSpec } from "../../contracts/memory-store/index.js";
 import { getWorkspaceMemoryKey } from "../../contracts/memory-store/index.js";
+import type { MemoryStore } from "./memory-store.js";
 
 /** Adapts the synchronous filesystem index API to the shared asynchronous context port. */
 export class LocalMemoryContextRepository implements MemoryContextRepository {
-  constructor(private readonly memory: MemoryIndexReader) {}
+  constructor(private readonly memory: Pick<MemoryStore, "loadIndexHead">) {}
 
   async resolveWorkspaceKey(sessionMetadata: Record<string, unknown>): Promise<string | null> {
     const workspaceRoot = sessionMetadata.workspace_root;

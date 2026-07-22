@@ -4,16 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { IMemoryStore, MemoryRepository, MemoryScopeSpec, SaveMemoryInput } from "../../src/contracts/memory-store/index.js";
+import type { MemoryScopeSpec, SaveMemoryInput } from "../../src/contracts/memory-store/index.js";
 import { SaveMemoryInputSchema } from "../../src/contracts/memory-store/types.js";
 import { MemoryStore } from "../../src/adapters/local/memory-store.js";
 
 /**
  * memory-store 契约测试样本（路线图④替换验证雏形）。
- *
- * 与 conversation-store 契约测试同理：只依赖 IMemoryStore 窄接口，把 MemoryStore 实例
- * 赋给接口类型再调用，证明实现服从契约。换实现（如将来换 KV/DB 后端）注入同一组测试
- * 都应通过——可替换的可执行证明。
  *
  * 深合约：readEntryFile/archiveMemory 不存在返回 null/false、loadIndexHead 缺索引返回空串、
  * saveMemory 幂等覆盖 + 重建索引、listEntries 按 updated_at 降序且默认仅 active、输入边界 zod。
@@ -29,7 +25,7 @@ afterEach(() => {
   fs.rmSync(dataRoot, { recursive: true, force: true });
 });
 
-const build = (): MemoryRepository => new MemoryStore({ dataRoot });
+const build = (): MemoryStore => new MemoryStore({ dataRoot });
 
 const sessionScope = (sessionId: string): MemoryScopeSpec => ({ scope: "session", session_id: sessionId });
 
@@ -42,7 +38,7 @@ const baseSave = (sessionId: string, name: string): SaveMemoryInput => ({
   content: "body",
 });
 
-describe("IMemoryStore 契约", () => {
+describe("MemoryStore", () => {
   it("saveMemory 写入，同名再次写入幂等（文件名稳定）", async () => {
     const store = build();
     const first = await store.saveMemory(baseSave("s1", "m1"));
@@ -155,12 +151,6 @@ describe("IMemoryStore 契约", () => {
     const store = build();
     await expect(store.saveMemory({ ...baseSave("s1", "m1"), memory_type: "invalid" })).rejects.toThrow();
   });
-});
-
-const buildLegacy = (): IMemoryStore => new MemoryStore({ dataRoot });
-
-it("IMemoryStore legacy contract remains assignable", () => {
-  expect(buildLegacy().getIndexPath(sessionScope("s1"))).toContain("MEMORY.md");
 });
 
 describe("输入边界 zod 契约", () => {

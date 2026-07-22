@@ -15,14 +15,9 @@ import type {
   MemoryToolOperations,
   MemoryToolRuntimeContext,
   ReadMemoryEntryInput,
+  RuntimeMemorySessionPort,
   WriteMemoryInput,
 } from "./MemoryExecution.js";
-
-export interface SaaSMemorySessionPort {
-  getSession(sessionId: string): { metadata: Record<string, unknown>; user_id?: string | null }
-    | null
-    | Promise<{ metadata: Record<string, unknown>; user_id?: string | null } | null>;
-}
 
 interface ResolvedSaaSMemoryScope {
   partition: MemoryScopePartition;
@@ -32,7 +27,7 @@ interface ResolvedSaaSMemoryScope {
 export class SaaSMemoryToolService implements MemoryToolOperations {
   constructor(
     private readonly memory: MemoryApplication,
-    private readonly sessions: SaaSMemorySessionPort,
+    private readonly sessions: RuntimeMemorySessionPort,
   ) {}
 
   checkMemoryScopeAccess(

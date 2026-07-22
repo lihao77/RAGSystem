@@ -6,14 +6,13 @@ import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js
 import {
   getWorkspaceMemoryKey,
   type MemoryCandidateCommandPort,
-  type MemoryRepository,
-  type MemoryRepositoryLocationProvider,
+  type MemoryToolRepositoryPort,
   type MemoryScopeName,
   type MemoryScopeSpec,
 } from "../../contracts/memory-store/index.js";
 
 export interface RuntimeMemorySessionPort {
-  getSession(sessionId: string): Pick<SessionInfo, "metadata"> | null;
+  getSession(sessionId: string): Promise<Pick<SessionInfo, "metadata"> & Partial<Pick<SessionInfo, "user_id">> | null>;
 }
 
 export interface MemoryToolRuntimeContext {
@@ -64,11 +63,11 @@ export interface MemoryToolOperations {
   listMemoryIndex(
     input: ListMemoryIndexInput,
     context: MemoryToolRuntimeContext,
-  ): ToolExecutionResult | Promise<ToolExecutionResult>;
+  ): Promise<ToolExecutionResult>;
   readMemoryEntry(
     input: ReadMemoryEntryInput,
     context: MemoryToolRuntimeContext,
-  ): ToolExecutionResult | Promise<ToolExecutionResult>;
+  ): Promise<ToolExecutionResult>;
   writeMemory(input: WriteMemoryInput, context: MemoryToolRuntimeContext): Promise<ToolExecutionResult>;
   archiveMemory(input: ArchiveMemoryInput, context: MemoryToolRuntimeContext): Promise<ToolExecutionResult>;
 }
@@ -80,7 +79,7 @@ interface ResolvedMemoryScopeInputs {
 
 export class MemoryToolService implements MemoryToolOperations {
   constructor(
-    private readonly memoryStore: MemoryRepository & Partial<MemoryRepositoryLocationProvider>,
+    private readonly memoryStore: MemoryToolRepositoryPort,
     private readonly sessions: RuntimeMemorySessionPort,
     private readonly candidates?: MemoryCandidateCommandPort,
     private readonly tenantId?: string,
@@ -129,18 +128,18 @@ export class MemoryToolService implements MemoryToolOperations {
     return { action: "allow" };
   }
 
-  listMemoryIndex(
+  async listMemoryIndex(
     input: ListMemoryIndexInput,
     context: MemoryToolRuntimeContext,
-  ): ToolExecutionResult {
+  ): Promise<ToolExecutionResult> {
     const toolName = "list_memory_index";
-    const setup = this.resolveReadableScope(input, context, toolName);
+    const setup = await this.resolveReadableScope(input, context, toolName);
     if ("error" in setup) {
       return toolError(toolName, setup.error);
     }
 
-    const content = this.memoryStore.loadIndexHead(setup.scopeSpec);
-    const indexPath = this.memoryStore.getIndexPath?.(setup.scopeSpec);
+    const content = await this.memoryStore.loadIndexHead(setup.scopeSpec);
+    const indexPath = await this.memoryStore.getIndexPath?.(setup.scopeSpec);
     return toolSuccess(content, {
       toolName,
       summary: `已读取 ${setup.scopeSpec.scope} MEMORY 索引`,
@@ -152,17 +151,17 @@ export class MemoryToolService implements MemoryToolOperations {
     });
   }
 
-  readMemoryEntry(
+  async readMemoryEntry(
     input: ReadMemoryEntryInput,
     context: MemoryToolRuntimeContext,
-  ): ToolExecutionResult {
+  ): Promise<ToolExecutionResult> {
     const toolName = "read_memory_entry";
-    const setup = this.resolveReadableScope(input, context, toolName);
+    const setup = await this.resolveReadableScope(input, context, toolName);
     if ("error" in setup) {
       return toolError(toolName, setup.error);
     }
 
-    const entry = this.memoryStore.readEntryFile(setup.scopeSpec, input.fileName);
+    const entry = await this.memoryStore.readEntryFile(setup.scopeSpec, input.fileName);
     if (!entry) {
       return toolError(toolName, `memory 文件不存在: ${input.fileName}`);
     }
@@ -182,7 +181,7 @@ export class MemoryToolService implements MemoryToolOperations {
     context: MemoryToolRuntimeContext,
   ): Promise<ToolExecutionResult> {
     const toolName = "write_memory";
-    const setup = this.resolveMemoryScope(input, context, toolName);
+    const setup = await this.resolveMemoryScope(input, context, toolName);
     if ("error" in setup) {
       return toolError(toolName, setup.error);
     }
@@ -256,7 +255,7 @@ export class MemoryToolService implements MemoryToolOperations {
     context: MemoryToolRuntimeContext,
   ): Promise<ToolExecutionResult> {
     const toolName = "archive_memory";
-    const setup = this.resolveMemoryScope(input, context, toolName);
+    const setup = await this.resolveMemoryScope(input, context, toolName);
     if ("error" in setup) {
       return toolError(toolName, setup.error);
     }
@@ -317,11 +316,11 @@ export class MemoryToolService implements MemoryToolOperations {
     }
   }
 
-  private resolveReadableScope(
+  private async resolveReadableScope(
     input: ListMemoryIndexInput,
     context: MemoryToolRuntimeContext,
     toolName: string,
-  ): { error: string } | ResolvedMemoryScopeInputs {
+  ): Promise<{ error: string } | ResolvedMemoryScopeInputs> {
     return this.resolveMemoryScope(input, context, toolName);
   }
 
@@ -329,17 +328,17 @@ export class MemoryToolService implements MemoryToolOperations {
    * 定位 memory scope（call 用）：normalizeMemoryScope + resolveScopeSpec。
    * scope 白名单校验（allowed/write/archive）已移 checkMemoryScopeAccess（checkAccess 阶段 deny）。
    */
-  private resolveMemoryScope(
+  private async resolveMemoryScope(
     input: ListMemoryIndexInput,
     context: MemoryToolRuntimeContext,
     toolName: string,
-  ): { error: string } | ResolvedMemoryScopeInputs {
+  ): Promise<{ error: string } | ResolvedMemoryScopeInputs> {
     const currentAgentName = normalizeString(input.currentAgentName) ?? normalizeString(context.currentAgentName) ?? context.agent?.agent_name ?? null;
     const normalizedScope = normalizeMemoryScope(input.scope);
     if (!normalizedScope) {
       return { error: `不支持的 memory scope: ${input.scope}` };
     }
-    const scopeSpec = this.resolveScopeSpec(input, context, normalizedScope, currentAgentName);
+    const scopeSpec = await this.resolveScopeSpec(input, context, normalizedScope, currentAgentName);
     if ("error" in scopeSpec) {
       return { error: `${toolName} 缺少 ${scopeSpec.error}` };
     }
@@ -349,14 +348,14 @@ export class MemoryToolService implements MemoryToolOperations {
     };
   }
 
-  private resolveScopeSpec(
+  private async resolveScopeSpec(
     input: ListMemoryIndexInput,
     context: MemoryToolRuntimeContext,
     scope: MemoryScopeName,
     currentAgentName: string | null,
-  ): MemoryScopeSpec | { error: string } {
+  ): Promise<MemoryScopeSpec | { error: string }> {
     const sessionId = normalizeString(context.sessionId);
-    const sessionMetadata = sessionId ? (this.sessions.getSession(sessionId)?.metadata ?? {}) : {};
+    const sessionMetadata = sessionId ? ((await this.sessions.getSession(sessionId))?.metadata ?? {}) : {};
     const teamName = normalizeString(context.teamName) ?? normalizeString(sessionMetadata.team);
     const workspaceRoot =
       normalizeString(context.workspaceRoot) ?? normalizeString(sessionMetadata.workspace_root);

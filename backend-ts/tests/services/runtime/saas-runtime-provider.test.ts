@@ -72,14 +72,17 @@ describe("SaaSRuntimeProvider", () => {
 
   it("creates tenant-bound bindings for the shared agent runtime", () => {
     const provider = new SaaSRuntimeProvider(repository());
-    const sessions = {
+    const toolSessions = {
+      getSession: async () => ({ metadata: {}, user_id: "usr_alpha" }),
+    };
+    const contextSessions = {
       getSession: () => ({ metadata: {}, user_id: "usr_alpha" }),
       updateSessionMetadata: () => ({}),
     };
 
-    const bindings = provider.createMemoryBindings("tnt_alpha", sessions);
+    const bindings = provider.createMemoryBindings("tnt_alpha", toolSessions);
     const source = bindings.createContextSource({
-      sessions,
+      sessions: contextSessions,
       memory: { auto_inject: true, allowed_scopes: ["session"], write_scopes: [], archive_scopes: [] },
       agentName: "assistant",
       memoryConfig: { index_max_lines: 25, index_max_chars: 4096 },

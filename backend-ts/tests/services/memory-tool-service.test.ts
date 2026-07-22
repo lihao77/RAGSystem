@@ -8,10 +8,13 @@ import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import type { RuntimeMemorySessionPort } from "../../src/tools/MemoryTools/MemoryExecution.js";
 import { MemoryToolService } from "../../src/tools/MemoryTools/MemoryExecution.js";
 import { MemoryStore } from "../../src/adapters/local/memory-store.js";
+import { LocalMemoryToolRepository } from "../../src/adapters/local/local-memory-tool-repository.js";
 import type { CreateMemoryCandidateInput, MemoryCandidateRecord } from "../../src/contracts/conversation-store/index.js";
-import type { MemoryRepository } from "../../src/contracts/memory-store/index.js";
+import type { MemoryToolRepositoryPort } from "../../src/contracts/memory-store/index.js";
 
 const tempRoots: string[] = [];
+
+const localRepository = (store: MemoryStore) => new LocalMemoryToolRepository(store);
 
 afterEach(() => {
   for (const root of tempRoots.splice(0)) {
@@ -22,29 +25,22 @@ afterEach(() => {
 class InMemorySessions implements RuntimeMemorySessionPort {
   constructor(private readonly metadataBySession: Record<string, Record<string, unknown>>) {}
 
-  getSession(sessionId: string) {
+  async getSession(sessionId: string) {
     return { metadata: this.metadataBySession[sessionId] ?? {} };
   }
 }
 
 describe("MemoryToolService", () => {
-  it("accepts a deployment-neutral repository without Local path capabilities", () => {
-    const repository: MemoryRepository = {
-      loadIndexHead: () => "# Remote Memory",
-      readEntryFile: () => null,
+  it("accepts a deployment-neutral repository without Local path capabilities", async () => {
+    const repository: MemoryToolRepositoryPort = {
+      loadIndexHead: async () => "# Remote Memory",
+      readEntryFile: async () => null,
       saveMemory: async () => ({ file_name: "entry", file_path: "entry", scope: "session" }),
-      listEntries: () => [],
       archiveMemory: async () => false,
-      saveMemoryWithCommit: async (input, commit) => {
-        const saved = { file_name: input.name, file_path: input.name, scope: input.scope };
-        await commit(saved);
-        return saved;
-      },
-      archiveMemoryWithCommit: async () => false,
     };
     const service = new MemoryToolService(repository, new InMemorySessions({ s1: {} }));
 
-    expect(service.listMemoryIndex(
+    expect(await service.listMemoryIndex(
       { scope: "session" },
       { agent: minimalAgent(["session"]), sessionId: "s1" },
     )).toMatchObject({
@@ -56,7 +52,7 @@ describe("MemoryToolService", () => {
 
   it("writes user memory beneath the current user identity", async () => {
     const dataRoot = makeTempDataRoot();
-    const service = new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} }));
+    const service = new MemoryToolService(localRepository(new MemoryStore({ dataRoot })), new InMemorySessions({ s1: {} }));
 
     const result = await service.writeMemory(
       { scope: "user", name: "Preference", description: "personal", memoryType: "preference", content: "compact replies" },
@@ -71,7 +67,7 @@ describe("MemoryToolService", () => {
     const dataRoot = makeTempDataRoot();
     const candidates = new InMemoryCandidates();
     const service = new MemoryToolService(
-      new MemoryStore({ dataRoot }),
+      localRepository(new MemoryStore({ dataRoot })),
       new InMemorySessions({ s1: { team: "alpha" } }),
       candidates,
       "tnt_alpha",
@@ -100,7 +96,7 @@ describe("MemoryToolService", () => {
       scope: "team", team_name: "alpha", name: "Shared", description: "shared", memory_type: "fact", content: "active",
     });
     const candidates = new InMemoryCandidates();
-    const service = new MemoryToolService(store, new InMemorySessions({ s1: { team: "alpha" } }), candidates, "tnt_alpha");
+    const service = new MemoryToolService(localRepository(store), new InMemorySessions({ s1: { team: "alpha" } }), candidates, "tnt_alpha");
     const context = {
       agent: minimalAgent(["team"], [], ["team"]), sessionId: "s1", userId: "usr_alice", runId: "run-1",
     };
@@ -118,7 +114,7 @@ describe("MemoryToolService", () => {
     });
     expect(fs.readFileSync(saved.file_path, "utf8")).toContain("status: active");
   });
-  it("lists memory indices with session-injected team and workspace scope inputs", () => {
+  it("lists memory indices with session-injected team and workspace scope inputs", async () => {
     const dataRoot = makeTempDataRoot();
     writeFile(dataRoot, ["memory", "teams", "alpha-team", "MEMORY.md"], "# Team Memory\n");
     writeFile(
@@ -127,7 +123,7 @@ describe("MemoryToolService", () => {
       "# Workspace Memory\n",
     );
     const service = new MemoryToolService(
-      new MemoryStore({ dataRoot }),
+      localRepository(new MemoryStore({ dataRoot })),
       new InMemorySessions({
         s1: {
           team: "alpha-team",
@@ -141,7 +137,7 @@ describe("MemoryToolService", () => {
       userId: "usr_alice",
     };
 
-    expect(service.listMemoryIndex({ scope: "team" }, context)).toMatchObject({
+    expect(await service.listMemoryIndex({ scope: "team" }, context)).toMatchObject({
       success: true,
       toolName: "list_memory_index",
       content: "# Team Memory",
@@ -151,7 +147,7 @@ describe("MemoryToolService", () => {
         index_file_path: path.join(dataRoot, "memory", "teams", "alpha-team", "MEMORY.md"),
       },
     });
-    expect(service.listMemoryIndex({ scope: "workspace" }, context)).toMatchObject({
+    expect(await service.listMemoryIndex({ scope: "workspace" }, context)).toMatchObject({
       success: true,
       content: "# Workspace Memory",
       metadata: {
@@ -160,7 +156,7 @@ describe("MemoryToolService", () => {
     });
   });
 
-  it("reads agent memory entries and defaults agent_name to the current agent", () => {
+  it("reads agent memory entries and defaults agent_name to the current agent", async () => {
     const dataRoot = makeTempDataRoot();
     writeFile(
       dataRoot,
@@ -168,7 +164,7 @@ describe("MemoryToolService", () => {
       "---\nname: Alpha\n---\n\nbody\n",
     );
     const service = new MemoryToolService(
-      new MemoryStore({ dataRoot }),
+      localRepository(new MemoryStore({ dataRoot })),
       new InMemorySessions({
         s1: {
           team: "alpha-team",
@@ -176,7 +172,7 @@ describe("MemoryToolService", () => {
       }),
     );
 
-    const result = service.readMemoryEntry(
+    const result = await service.readMemoryEntry(
       {
         scope: "agent",
         fileName: "../fact_alpha.md",
@@ -200,7 +196,7 @@ describe("MemoryToolService", () => {
   });
 
   it("rejects read access when the current agent memory scope does not allow it", () => {
-    const service = new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({}));
+    const service = new MemoryToolService(localRepository(new MemoryStore({ dataRoot: makeTempDataRoot() })), new InMemorySessions({}));
 
     expect(
       service.checkMemoryScopeAccess(
@@ -217,7 +213,7 @@ describe("MemoryToolService", () => {
   it("writes and archives session memory using configured write/archive scopes", async () => {
     const dataRoot = makeTempDataRoot();
     const service = new MemoryToolService(
-      new MemoryStore({ dataRoot }),
+      localRepository(new MemoryStore({ dataRoot })),
       new InMemorySessions({
         s1: {},
       }),
@@ -278,7 +274,7 @@ describe("MemoryToolService", () => {
   });
 
   it("rejects write and archive scopes independently from readable scopes", () => {
-    const service = new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({ s1: {} }));
+    const service = new MemoryToolService(localRepository(new MemoryStore({ dataRoot: makeTempDataRoot() })), new InMemorySessions({ s1: {} }));
     const context = {
       agent: minimalAgent(["session"], [], []),
       sessionId: "s1",

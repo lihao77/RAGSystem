@@ -1,10 +1,8 @@
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { TenantId } from "../../identity/types.js";
-import type { MemoryRepository } from "../../contracts/memory-store/index.js";
 import type { MemoryConfig } from "../../contracts/runtime/system-config.js";
 import type { KnowledgeEmbedderFactory } from "../../services/knowledge/knowledge-application-service.js";
 import type { MemoryRuntimeBindings } from "../../services/agent/memory/runtime-bindings.js";
-import type { SessionMetadataPort } from "../../services/agent/context/types.js";
 import type { RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExecution.js";
 import type { AgentExecutionLogger } from "../../services/agent/execution/index.js";
 import type { AsyncBackgroundTaskRepository } from "../../contracts/storage/background-task-repository.js";
@@ -52,12 +50,12 @@ export interface LocalRuntimeContainerOptions {
   onInfrastructureCreated?: (infrastructure: LocalRuntimeInfrastructure) => void;
 }
 
-export interface MemoryRuntimeBindingsFactoryInput<TMemoryRepository extends MemoryRepository = MemoryRepository> {
+export interface MemoryRuntimeBindingsFactoryInput {
   tenantId: TenantId;
   dataRoot: string;
   getMemoryConfig: () => MemoryConfig;
-  memoryRepository: TMemoryRepository;
-  sessions: RuntimeMemorySessionPort & SessionMetadataPort;
+  memoryRepository: MemoryStore;
+  sessions: RuntimeMemorySessionPort;
 }
-export type MemoryRuntimeBindingsFactory<TMemoryRepository extends MemoryRepository = MemoryRepository> = (input: MemoryRuntimeBindingsFactoryInput<TMemoryRepository>) => MemoryRuntimeBindings;
+export type MemoryRuntimeBindingsFactory = (input: MemoryRuntimeBindingsFactoryInput) => MemoryRuntimeBindings;
 export type RuntimeContainerOptions = LocalRuntimeContainerOptions;
