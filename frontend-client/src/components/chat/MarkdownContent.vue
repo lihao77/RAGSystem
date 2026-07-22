@@ -9,6 +9,7 @@ import { renderMarkdown } from '../../utils/markdown.js';
 
 const props = defineProps({
   content: { type: String, default: '' },
+  streaming: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['notify', 'citation-click']);
@@ -18,7 +19,7 @@ const COPIED_ICON_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.
 
 const feedbackTimer = ref(null);
 
-const renderedContent = computed(() => renderMarkdown(props.content));
+const renderedContent = computed(() => renderMarkdown(props.content, { streaming: props.streaming }));
 
 onUnmounted(() => {
   if (feedbackTimer.value) clearTimeout(feedbackTimer.value);

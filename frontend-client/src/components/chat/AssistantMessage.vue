@@ -10,10 +10,10 @@
     <div v-if="part.type === 'text' && part.content?.trim()" class="final-answer">
       <MarkdownContent
         :content="part.content"
+        :streaming="isStreaming && pi === lastTextIndex"
         @notify="emit('notify', $event)"
         @citation-click="emit('citation-click', $event)"
       />
-      <span v-if="isStreaming && pi === lastTextIndex" class="stream-orb" aria-hidden="true"></span>
     </div>
     <div
       v-else-if="part.type === 'viz'"

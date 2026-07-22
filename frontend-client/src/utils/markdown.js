@@ -204,19 +204,41 @@ loadPlugins().catch(err => {
  * 渲染 Markdown 文本为 HTML
  *
  * @param {string} text - Markdown 文本
+ * @param {{ streaming?: boolean }} [opts] - streaming=true 时在最后一个块元素内末尾注入呼吸小球占位符
  * @returns {string} - HTML 字符串
  */
-export function renderMarkdown(text) {
+export function renderMarkdown(text, opts = {}) {
   if (!text || typeof text !== 'string') {
     return ''
   }
 
+  let html
   try {
-    return md.render(text)
+    html = md.render(text)
   } catch (err) {
     console.error('Markdown render error:', err)
-    return md.utils.escapeHtml(text)
+    html = md.utils.escapeHtml(text)
   }
+
+  if (opts.streaming) {
+    html = appendStreamOrb(html)
+  }
+  return html
+}
+
+// 把呼吸小球塞进最后一个“文本型”块元素内部末尾，使其接在文字同一行；
+// 若末尾是代码/表格/引用等特殊块，则退化为块后独立小球。
+const STREAM_ORB = '<span class="stream-orb" aria-hidden="true"></span>'
+const TEXT_BLOCK_RE = /<(p|li|h1|h2|h3|h4|h5|h6|blockquote|td|th)[^>]*>([\s\S]*?)<\/\1>(?![\s\S]*<\/(?:p|li|h[1-6]|blockquote|td|th)>)/i
+
+function appendStreamOrb(html) {
+  const m = html.match(TEXT_BLOCK_RE)
+  if (m) {
+    const closing = `</${m[1]}>`
+    const closeStart = m.index + m[0].length - closing.length
+    return html.slice(0, closeStart) + STREAM_ORB + html.slice(closeStart)
+  }
+  return html + STREAM_ORB
 }
 
 export default md

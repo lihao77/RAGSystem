@@ -13,6 +13,39 @@
   line-height: 1.6;
 }
 
+/* ===== 流式呼吸小球 ===== */
+/* 渲染器在流式时注入到最后一个文本块内部末尾，接在文字同一行、落基线 */
+.markdown-body .stream-orb {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-left: 0.3em;
+  border-radius: var(--radius-full);
+  background: var(--color-text-primary);
+  box-shadow: 0 0 7px rgba(var(--color-accent-rgb), 0.4);
+  animation: streamOrbBreath 1.5s ease-in-out infinite;
+}
+
+@keyframes streamOrbBreath {
+  0%,
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.35;
+    transform: scale(0.78);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-body .stream-orb {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
 /* ===== 标题 ===== */
 .markdown-body h1,
 .markdown-body h2,
