@@ -85,6 +85,8 @@
     --color-map-overlay-accent: var(--color-accent);
     --color-map-overlay-border: rgba(255, 255, 255, 0.4);
     --color-map-overlay-point-stroke: #ffffff;
+    /* 风险圈/范围圈 —— 暖橙,深炭下用低饱和 agent-orange */
+    --color-map-circle: var(--color-agent-orange);
     --color-risk-badge-text: var(--color-on-color);
     --color-risk-badge-ring: rgba(255, 255, 255, 0.8);
     --color-result-text: var(--color-accent-hover);
@@ -117,18 +119,25 @@
 
     /* 智能体语义色 —— 收敛为低饱和（仅功能性区分，非装饰） */
     --color-agent-violet: #b79ce0;
+    --color-agent-violet-rgb: 183, 156, 224;
     --color-agent-violet-bg: rgba(183, 156, 224, 0.14);
     --color-agent-blue: #7fa8e0;
+    --color-agent-blue-rgb: 127, 168, 224;
     --color-agent-blue-bg: rgba(127, 168, 224, 0.14);
     --color-agent-green: #6FAE94;
+    --color-agent-green-rgb: 111, 174, 148;
     --color-agent-green-bg: rgba(111, 174, 148, 0.14);
     --color-agent-cyan: #6fbfce;
+    --color-agent-cyan-rgb: 111, 191, 206;
     --color-agent-cyan-bg: rgba(111, 191, 206, 0.14);
     --color-agent-orange: #e0a574;
+    --color-agent-orange-rgb: 224, 165, 116;
     --color-agent-orange-bg: rgba(224, 165, 116, 0.14);
     --color-agent-pink: #e09bc4;
+    --color-agent-pink-rgb: 224, 155, 196;
     --color-agent-pink-bg: rgba(224, 155, 196, 0.14);
     --color-agent-default: #9ca3af;
+    --color-agent-default-rgb: 156, 163, 175;
     --color-agent-default-bg: rgba(156, 163, 175, 0.14);
     --color-agent-success-border: rgba(93, 189, 132, 0.22);
 
@@ -349,6 +358,7 @@
     --color-map-overlay-accent: var(--color-accent);
     --color-map-overlay-border: rgba(17, 17, 17, 0.22);
     --color-map-overlay-point-stroke: #111111;
+    --color-map-circle: var(--color-agent-orange);
     --color-risk-badge-text: var(--color-on-color-strong);
     --color-risk-badge-ring: rgba(17, 17, 17, 0.16);
     --color-result-text: var(--color-accent);
@@ -381,18 +391,25 @@
 
     /* 智能体语义色 —— 低饱和 */
     --color-agent-violet: #6b4f9e;
+    --color-agent-violet-rgb: 107, 79, 158;
     --color-agent-violet-bg: rgba(107, 79, 158, 0.1);
     --color-agent-blue: #2b54a0;
+    --color-agent-blue-rgb: 43, 84, 160;
     --color-agent-blue-bg: rgba(43, 84, 160, 0.1);
     --color-agent-green: #2f7d52;
+    --color-agent-green-rgb: 47, 125, 82;
     --color-agent-green-bg: rgba(47, 125, 82, 0.1);
     --color-agent-cyan: #0e6b7a;
+    --color-agent-cyan-rgb: 14, 107, 122;
     --color-agent-cyan-bg: rgba(14, 107, 122, 0.1);
     --color-agent-orange: #a8531a;
+    --color-agent-orange-rgb: 168, 83, 26;
     --color-agent-orange-bg: rgba(168, 83, 26, 0.1);
     --color-agent-pink: #a8326b;
+    --color-agent-pink-rgb: 168, 50, 107;
     --color-agent-pink-bg: rgba(168, 50, 107, 0.1);
     --color-agent-default: #6b7280;
+    --color-agent-default-rgb: 107, 114, 128;
     --color-agent-default-bg: rgba(107, 114, 128, 0.1);
     --color-agent-success-border: rgba(47, 125, 82, 0.2);
 

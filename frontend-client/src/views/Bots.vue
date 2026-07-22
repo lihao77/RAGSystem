@@ -29,14 +29,13 @@
           <CardDescription>每个机器人拥有独立身份、飞书连接与定时任务。</CardDescription>
         </CardHeader>
         <CardContent class="bot-list-content">
-          <div v-if="loadAction.loading.value" class="empty-state">正在加载机器人…</div>
-          <div v-else-if="bots.length === 0" class="empty-state">
-            <p>尚未创建机器人</p>
+          <EmptyState v-if="loadAction.loading.value" title="正在加载机器人…" />
+          <EmptyState v-else-if="bots.length === 0" title="尚未创建机器人">
             <Button variant="outline" size="sm" @click="createDialogOpen = true">
               <IconPlus data-icon="inline-start" />
               创建第一个机器人
             </Button>
-          </div>
+          </EmptyState>
           <div v-else class="bot-list">
             <button
               v-for="bot in bots"
@@ -168,7 +167,7 @@
             </div>
           </CardHeader>
           <CardContent>
-            <div v-if="cronTasks.length === 0" class="empty-state">暂无定时任务</div>
+            <EmptyState v-if="cronTasks.length === 0" title="暂无定时任务" />
             <div v-else class="cron-list">
               <div v-for="task in cronTasks" :key="task.task_id" class="cron-item">
                 <div class="cron-copy">
@@ -294,6 +293,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
+import EmptyState from '../components/EmptyState.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import IconCopy from '../components/icons/IconCopy.vue';
 import IconEdit from '../components/icons/IconEdit.vue';
@@ -589,8 +589,6 @@ onMounted(() => loadAction.run());
 .debug-panel { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay); }
 .debug-panel h3 { margin: 0; font-size: var(--font-size-sm); }
 .debug-output, .history-output { max-height: 320px; overflow: auto; white-space: pre-wrap; padding: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay-lg); color: var(--color-text-secondary); font-family: var(--font-mono); font-size: var(--font-size-xs); }
-.empty-state { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-md); padding: var(--spacing-xl) var(--spacing-md); color: var(--color-text-muted); text-align: center; }
-.empty-state p { margin: 0; }
 .bot-placeholder { min-height: 180px; }
 @media (max-width: 960px) {
   .bots-layout { grid-template-columns: 1fr; }

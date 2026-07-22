@@ -71,10 +71,7 @@
             </div>
           </div>
         </section>
-        <div v-else-if="!pendingFiles.length" class="ctx-empty-state">
-          <div class="ctx-empty-title">还没有附件</div>
-          <div class="ctx-empty-desc">{{ emptyDesc }}</div>
-        </div>
+        <EmptyState v-else-if="!pendingFiles.length" title="还没有附件" :hint="emptyDesc" />
       </div>
     </DialogContent>
   </Dialog>
@@ -84,6 +81,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
+import EmptyState from './EmptyState.vue';
 import { formatAttachmentSize, isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
 import { getSessionFileDownloadUrl } from '../api/sessionFiles.js';
 import IconPlus from './icons/IconPlus.vue';
@@ -176,9 +174,6 @@ const onFileChange = (event) => {
 }
 
 .ctx-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 36px 20px; font-size: 13px; color: var(--color-text-muted); }
-.ctx-empty-state { padding: 36px 20px; text-align: center; }
-.ctx-empty-title { font-size: 13px; font-weight: 600; color: var(--color-text-secondary); }
-.ctx-empty-desc { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--color-text-muted); }
 
 .ctx-file-list { display: flex; flex-direction: column; }
 .ctx-file-item {

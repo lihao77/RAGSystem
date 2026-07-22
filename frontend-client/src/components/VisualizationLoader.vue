@@ -240,8 +240,8 @@ onMounted(fetchConfig);
   gap: 0.5rem;
   padding: 0.75rem 1rem;
   border-radius: 8px;
-  background: var(--error-bg, #fef2f2);
-  color: var(--error-color, #dc2626);
+  background: var(--color-error-bg);
+  color: var(--color-error);
   font-size: 0.875rem;
 }
 
@@ -268,8 +268,7 @@ onMounted(fetchConfig);
 }
 
 .retry-btn:hover {
-  background: var(--error-color, #dc2626);
-  color: var(--color-on-color);
+  background: var(--color-error-bg);
 }
 
 /* ===== 图片回退 ===== */

@@ -158,7 +158,7 @@ function onAfterLeave(el) {
   gap: 7px;
   min-width: 0;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 650;
   line-height: 1.2;
 }
@@ -194,7 +194,7 @@ function onAfterLeave(el) {
   border-radius: var(--radius-full);
   border: 1px solid var(--color-border);
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 650;
   line-height: 18px;
   text-align: center;
@@ -247,7 +247,7 @@ function onAfterLeave(el) {
   justify-content: center;
   background: rgba(var(--color-active-rgb), 0.08);
   color: var(--color-active);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
 }
 
@@ -260,14 +260,14 @@ function onAfterLeave(el) {
 
 .artifact-item-title {
   color: var(--color-text-primary);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.2;
   font-weight: 650;
 }
 
 .artifact-item-id {
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.2;
   font-family: var(--font-mono);
   overflow: hidden;

@@ -29,3 +29,8 @@ export { default as IconPlay } from './IconPlay.vue';
 export { default as IconPause } from './IconPause.vue';
 export { default as IconStop } from './IconStop.vue';
 export { default as IconSend } from './IconSend.vue';
+export { default as IconMap } from './IconMap.vue';
+export { default as IconMonitor } from './IconMonitor.vue';
+export { default as IconBarChart } from './IconBarChart.vue';
+export { default as IconExpand } from './IconExpand.vue';
+export { default as IconMinimize } from './IconMinimize.vue';

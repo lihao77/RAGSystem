@@ -3,12 +3,7 @@
     <div class="chart-header">
       <div class="chart-title">
         <span class="chart-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="18" y="13" width="4" height="9" rx="1"></rect>
-            <rect x="12" y="7" width="4" height="15" rx="1"></rect>
-            <rect x="6" y="15" width="4" height="7" rx="1"></rect>
-          </svg>
+          <IconBarChart :size="16" />
         </span>
         <span>{{ title }}</span>
       </div>
@@ -18,16 +13,10 @@
         </Button>
         <Button variant="ghost" size="icon" aria-label="全屏" title="全屏" @click="toggleFullscreen">
           <span v-if="!isFullscreen">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-            </svg>
+            <IconExpand :size="16" />
           </span>
           <span v-else>
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
-            </svg>
+            <IconMinimize :size="16" />
           </span>
         </Button>
       </div>
@@ -37,12 +26,7 @@
         <div class="chart-fullscreen-header">
           <div class="chart-title">
             <span class="chart-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="18" y="13" width="4" height="9" rx="1"></rect>
-                <rect x="12" y="7" width="4" height="15" rx="1"></rect>
-                <rect x="6" y="15" width="4" height="7" rx="1"></rect>
-              </svg>
+              <IconBarChart :size="16" />
             </span>
             <span>{{ title }}</span>
           </div>
@@ -51,11 +35,7 @@
               <IconDownload :size="16" />
             </Button>
             <Button variant="destructive" size="icon" aria-label="退出全屏" title="退出全屏" @click="toggleFullscreen">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path
-                  d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
-              </svg>
+              <IconMinimize :size="16" />
             </Button>
           </div>
         </div>
@@ -70,6 +50,9 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import IconDownload from './icons/IconDownload.vue';
+import IconBarChart from './icons/IconBarChart.vue';
+import IconExpand from './icons/IconExpand.vue';
+import IconMinimize from './icons/IconMinimize.vue';
 import { Button } from './ui/button';
 import * as echarts from 'echarts/core';
 import { useThemeStore } from '../stores/theme.js';
@@ -125,31 +108,40 @@ const chartInstance = ref(null);
 const isFullscreen = ref(false);
 const themeStore = useThemeStore();
 
+// 读 CSS token：ECharts 不接受 CSS var，需解析为具体色值；主题切换时重算自动跟随
+const readCssToken = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
 // 🔧 提取配置合并逻辑为独立函数（避免重复）
 const buildFinalOption = (userConfig) => {
-  const isDark = themeStore.isDark;
+  void themeStore.isDark; // 主题切换时重算,readCssToken 重读新主题
+
+  const textSecondary = readCssToken('--color-text-secondary');
+  const textPrimary = readCssToken('--color-text-primary');
+  const textMuted = readCssToken('--color-text-muted');
+  const bgElevated = readCssToken('--color-bg-elevated');
+  const border = readCssToken('--color-border');
 
   // 基础配置 - 适配模式
   const baseOption = {
     backgroundColor: 'transparent',
     textStyle: {
-      color: isDark ? '#a1a1aa' : '#52525b'
+      color: textSecondary
     },
     title: {
       textStyle: {
-        color: isDark ? '#f4f4f5' : '#18181b'
+        color: textPrimary
       }
     },
     legend: {
       textStyle: {
-        color: isDark ? '#f4f4f5' : '#18181b'
+        color: textPrimary
       }
     },
     tooltip: {
-      backgroundColor: isDark ? '#27272a' : '#ffffff',
-      borderColor: isDark ? '#3f3f46' : '#e4e4e7',
+      backgroundColor: bgElevated,
+      borderColor: border,
       textStyle: {
-        color: isDark ? '#f4f4f5' : '#18181b'
+        color: textPrimary
       }
     }
   };
@@ -182,9 +174,9 @@ const buildFinalOption = (userConfig) => {
   };
 
   const axisColors = {
-    axisLine: isDark ? '#52525b' : '#a1a1aa',
-    axisLabel: isDark ? '#a1a1aa' : '#52525b',
-    splitLine: isDark ? '#3f3f46' : '#e4e4e7'
+    axisLine: textMuted,
+    axisLabel: textSecondary,
+    splitLine: border
   };
 
   // 合并配置
@@ -244,8 +236,7 @@ const toggleFullscreen = async () => {
 const downloadChart = () => {
   if (!chartInstance.value) return;
 
-  const isDark = themeStore.isDark;
-  const backgroundColor = isDark ? '#18181b' : '#ffffff';
+  const backgroundColor = readCssToken('--color-bg-primary') || '#ffffff';
 
   const url = chartInstance.value.getDataURL({
     type: 'png',

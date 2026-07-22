@@ -34,13 +34,10 @@
             </div>
           </div>
         </div>
-        <div v-else-if="error" class="empty-state adm-state adm-state--empty">
-          <p>{{ error }}</p>
+        <EmptyState v-else-if="error" :title="error">
           <Button variant="outline" size="sm" @click="loadCurrentView">重试</Button>
-        </div>
-        <div v-else-if="filteredItems.length === 0" class="empty-state adm-state adm-state--empty">
-          <p>暂无记录</p>
-        </div>
+        </EmptyState>
+        <EmptyState v-else-if="filteredItems.length === 0" title="暂无记录" />
         <Table v-else class="memory-table">
             <TableHeader>
               <TableRow>
@@ -230,6 +227,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { Archive, Check, ClipboardCheck, Eye, Pencil, RefreshCw, Undo2, X } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
+import EmptyState from '../components/EmptyState.vue';
 import { UiBadge, UiTabs } from '../components/ui';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
@@ -596,18 +594,6 @@ onMounted(loadCurrentView);
   justify-content: flex-end;
   flex-wrap: nowrap;
   gap: var(--spacing-xs);
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 160px;
-  padding: var(--spacing-xl);
-  gap: var(--spacing-md);
-  color: var(--color-text-muted);
-  text-align: center;
 }
 
 .table-footer {

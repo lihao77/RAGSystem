@@ -3,14 +3,14 @@
     <div class="map-header">
       <div class="map-title">
         <span class="map-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+          <IconMap :size="16" />
         </span>
         <span>{{ title }}</span>
         <span class="map-type-badge">{{ mapTypeName }}</span>
       </div>
       <div class="map-actions">
         <Button v-if="!situationMode" variant="ghost" size="icon" aria-label="进入态势大屏" title="进入态势大屏" @click="emit('enter-situation')">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+          <IconMonitor :size="16" />
         </Button>
         <Button variant="ghost" size="icon" aria-label="下载地图截图" title="下载地图截图" @click="downloadMap">
           <IconDownload :size="16" />
@@ -20,10 +20,10 @@
         </Button>
         <Button variant="ghost" size="icon" aria-label="全屏" title="全屏" @click="toggleFullscreen">
           <span v-if="!isFullscreen">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            <IconExpand :size="16" />
           </span>
           <span v-else>
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+            <IconMinimize :size="16" />
           </span>
         </Button>
       </div>
@@ -36,7 +36,7 @@
         <div class="map-fullscreen-header">
           <div class="map-title">
             <span class="map-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+              <IconMap :size="16" />
             </span>
             <span>{{ title }}</span>
             <span class="map-type-badge">{{ mapTypeName }}</span>
@@ -49,7 +49,7 @@
               <IconRefresh :size="16" />
             </Button>
             <Button variant="destructive" size="icon" aria-label="退出全屏" title="退出全屏" @click="toggleFullscreen">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+              <IconMinimize :size="16" />
             </Button>
           </div>
         </div>
@@ -163,9 +163,16 @@ import 'leaflet.heat';
 import { useThemeStore } from '../stores/theme.js';
 import IconRefresh from './icons/IconRefresh.vue';
 import IconDownload from './icons/IconDownload.vue';
+import IconMap from './icons/IconMap.vue';
+import IconMonitor from './icons/IconMonitor.vue';
+import IconExpand from './icons/IconExpand.vue';
+import IconMinimize from './icons/IconMinimize.vue';
 import { Button } from './ui/button';
 
 const themeStore = useThemeStore();
+
+// 读 CSS token:Leaflet 不接受 CSS var,需解析为具体色值;主题切换时组件重渲染自动跟随
+const readCssToken = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 // Props
 const props = defineProps({
@@ -479,8 +486,8 @@ const renderSingleLayer = (layerData, map) => {
     markers.forEach(marker => {
       const circle = L.circle([marker.lat, marker.lng], {
         radius: marker.radius || 1000,
-        color: '#c4653e',
-        fillColor: '#c4653e',
+        color: readCssToken('--color-map-circle'),
+        fillColor: readCssToken('--color-map-circle'),
         fillOpacity: 0.5,
         weight: 2
       })
@@ -617,7 +624,7 @@ const renderSingleLayerToGroup = (layerData, group) => {
     markers.forEach(marker => {
       if (map_type === 'circle') {
         group.addLayer(L.circle([marker.lat, marker.lng], {
-          radius: marker.radius || 1000, color: '#c4653e', fillColor: '#c4653e', fillOpacity: 0.5, weight: 2
+          radius: marker.radius || 1000, color: readCssToken('--color-map-circle'), fillColor: readCssToken('--color-map-circle'), fillOpacity: 0.5, weight: 2
         }).bindPopup(`<div class="marker-popup"><strong>${escapeHtml(marker.name)}</strong><br/>${escapeHtml(value_field || '')}: ${formatNumber(marker.value)}</div>`));
       } else {
         group.addLayer(createStyledMarker(marker, layerData));
@@ -934,12 +941,11 @@ watch(() => props.mapData, () => {
 .legend-gradient {
   width: 12px;
   height: 60px;
+  /* 单色相 accent 深浅渐变表强度,替代彩虹,贴合深炭骨架 */
   background: linear-gradient(to bottom,
-    rgba(255, 0, 0, 0.9),
-    rgba(255, 255, 0, 0.9),
-    rgba(0, 255, 0, 0.9),
-    rgba(0, 255, 255, 0.9),
-    rgba(0, 0, 255, 0.9)
+    var(--color-accent),
+    rgba(var(--color-accent-rgb), 0.55),
+    rgba(var(--color-accent-rgb), 0.22)
   );
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
@@ -949,8 +955,8 @@ watch(() => props.mapData, () => {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: rgba(255, 120, 0, 0.5);
-  border: 2px solid var(--color-map-marker-fill);
+  background: var(--color-agent-orange-bg);
+  border: 2px solid var(--color-agent-orange);
   flex-shrink: 0;
 }
 

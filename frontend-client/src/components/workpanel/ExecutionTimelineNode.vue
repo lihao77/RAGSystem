@@ -624,8 +624,8 @@ function collectToolStatuses(children, statuses) {
 }
 
 .etn-type-icon.icon-agent {
-  --type-color: #a855f7;
-  --type-rgb: 168, 85, 247;
+  --type-color: var(--color-agent-violet);
+  --type-rgb: var(--color-agent-violet-rgb);
 }
 
 .etn-type-icon.icon-thought {
@@ -634,8 +634,8 @@ function collectToolStatuses(children, statuses) {
 }
 
 .etn-type-icon.icon-tool {
-  --type-color: #94a3b8;
-  --type-rgb: 148, 163, 184;
+  --type-color: var(--color-agent-default);
+  --type-rgb: var(--color-agent-default-rgb);
 }
 
 .etn-type-icon.icon-code {
@@ -649,28 +649,28 @@ function collectToolStatuses(children, statuses) {
 }
 
 .etn-type-icon.icon-search {
-  --type-color: #22d3ee;
-  --type-rgb: 34, 211, 238;
+  --type-color: var(--color-agent-cyan);
+  --type-rgb: var(--color-agent-cyan-rgb);
 }
 
 .etn-type-icon.icon-globe {
-  --type-color: #38bdf8;
-  --type-rgb: 56, 189, 248;
+  --type-color: var(--color-agent-blue);
+  --type-rgb: var(--color-agent-blue-rgb);
 }
 
 .etn-type-icon.icon-map {
-  --type-color: #34d399;
-  --type-rgb: 52, 211, 153;
+  --type-color: var(--color-agent-green);
+  --type-rgb: var(--color-agent-green-rgb);
 }
 
 .etn-type-icon.icon-chart {
-  --type-color: #f472b6;
-  --type-rgb: 244, 114, 182;
+  --type-color: var(--color-agent-pink);
+  --type-rgb: var(--color-agent-pink-rgb);
 }
 
 .etn-type-icon.icon-skill {
-  --type-color: #a78bfa;
-  --type-rgb: 167, 139, 250;
+  --type-color: var(--color-agent-violet);
+  --type-rgb: var(--color-agent-violet-rgb);
 }
 
 .etn-type-icon.icon-input {
@@ -679,18 +679,18 @@ function collectToolStatuses(children, statuses) {
 }
 
 .etn-type-icon.icon-database {
-  --type-color: #14b8a6;
-  --type-rgb: 20, 184, 166;
+  --type-color: var(--color-agent-green);
+  --type-rgb: var(--color-agent-green-rgb);
 }
 
 .etn-type-icon.icon-task {
-  --type-color: #fb923c;
-  --type-rgb: 251, 146, 60;
+  --type-color: var(--color-agent-orange);
+  --type-rgb: var(--color-agent-orange-rgb);
 }
 
 .etn-type-icon.icon-agentCall {
-  --type-color: #8b5cf6;
-  --type-rgb: 139, 92, 246;
+  --type-color: var(--color-agent-violet);
+  --type-rgb: var(--color-agent-violet-rgb);
 }
 
 .etn-type-icon.icon-step {

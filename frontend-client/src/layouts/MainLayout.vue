@@ -603,7 +603,7 @@ onUnmounted(() => {
 .mcp-prompt-args { display: flex; flex-direction: column; gap: var(--spacing-sm); }
 .mcp-prompt-args .field { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-size-sm); }
 .mcp-prompt-args .field span { color: var(--color-text-secondary); }
-.mcp-prompt-args .field em { color: #dc2626; font-style: normal; margin-left: 2px; }
+.mcp-prompt-args .field em { color: var(--color-error); font-style: normal; margin-left: 2px; }
 .history-list-group {
   position: relative;
 }
@@ -636,10 +636,11 @@ onUnmounted(() => {
   gap: 0;
 }
 
+/* scrim 透明度统一取 0.42（与下方 overlay 布局分支一致，全文件单一取值） */
 .sidebar-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(var(--color-scrim-rgb), 0.36);
+  background: rgba(var(--color-scrim-rgb), 0.42);
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--duration-base) ease;
@@ -753,7 +754,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-normal);
+  /* 过渡对齐 shadcn ghost 按钮手感（transition-colors），max-width 折叠动画走 fast 与 ghost 一致 */
+  transition: background var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast), transform var(--transition-fast), max-width var(--transition-fast), padding var(--transition-fast);
   flex-shrink: 0;
   opacity: 1;
   max-width: 32px;
@@ -771,10 +773,9 @@ onUnmounted(() => {
 }
 
 .toggle-sidebar-btn:hover {
-  background: var(--color-bg-tertiary);
+  /* 手感对齐 ghost：仅换背景与文字色，去掉 scale 弹跳（hover 背景已由上面统一规则提供） */
   border-color: var(--color-border);
   color: var(--color-text-primary);
-  transform: scale(1.05);
 }
 
 .sidebar-header {
@@ -797,7 +798,8 @@ onUnmounted(() => {
   justify-content: left;
   gap: var(--spacing-sm);
   cursor: pointer;
-  transition: all var(--transition-normal);
+  /* 过渡对齐 shadcn ghost 按钮手感（transition-colors） */
+  transition: background var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast);
   white-space: nowrap;
   overflow: hidden;
   width: 100%;
@@ -809,7 +811,7 @@ onUnmounted(() => {
   width: var(--sidebar-icon-size);
   height: var(--sidebar-icon-size);
   color: var(--color-text-primary);
-  transition: all var(--transition-normal);
+  transition: color var(--transition-fast);
 }
 
 .sidebar-btn.active {
@@ -824,7 +826,8 @@ onUnmounted(() => {
 .sidebar-btn:hover,
 .toggle-sidebar-btn:hover,
 .history-item:hover {
-  background: var(--color-hover-overlay-md);
+  /* hover 背景对齐 shadcn ghost 按钮（bg-accent = --color-active-bg） */
+  background: var(--color-active-bg);
 }
 
 .sidebar-btn-secondary,

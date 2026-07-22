@@ -59,7 +59,7 @@ const suggestions = [
 
 .new-chat-start__eyebrow {
   margin-bottom: 12px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -79,7 +79,7 @@ const suggestions = [
   max-width: 560px;
   margin: 14px 0 0;
   color: var(--color-text-secondary);
-  font-size: 15px;
+  font-size: var(--font-size-md);
   line-height: 1.7;
 }
 
@@ -127,14 +127,14 @@ const suggestions = [
 }
 
 .new-chat-prompt__title {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 700;
   line-height: 1.2;
 }
 
 .new-chat-prompt__desc {
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
 }
 

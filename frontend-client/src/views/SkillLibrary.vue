@@ -56,9 +56,7 @@
               </div>
             </button>
           </div>
-          <div v-if="searchQuery && !groups.length" class="skill-search-empty">
-            未找到匹配「{{ searchQuery }}」的 Skill
-          </div>
+          <EmptyState v-if="searchQuery && !groups.length" compact :title="`未找到匹配「${searchQuery}」的 Skill`" />
         </div>
       </EntityListLayout>
 
@@ -214,6 +212,7 @@ import { computed, ref } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
+import EmptyState from '../components/EmptyState.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import KpiCards from '../components/admin/KpiCards.vue';
 import MarkdownContent from '../components/chat/MarkdownContent.vue';
@@ -590,12 +589,6 @@ async function confirmDelete() {
 .skill-search__clear:hover {
   background: var(--color-hover-overlay-md);
   color: var(--color-text-primary);
-}
-.skill-search-empty {
-  padding: var(--spacing-lg);
-  text-align: center;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
 }
 
 .skill-list-group {

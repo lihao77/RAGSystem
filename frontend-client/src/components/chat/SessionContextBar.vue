@@ -1,5 +1,5 @@
 <template>
-  <div class="session-context-bar top-controls-bar glass-card" :class="{ scrolled }">
+  <div class="session-context-bar top-controls-bar" :class="{ scrolled }">
     <div class="left-controls glass-card">
       <Button variant="ghost" size="icon" class="rounded-full" aria-label="打开菜单" title="Open menu" @click="emit('openMobileSidebar')">
         <IconMenu :size="20" />
@@ -100,8 +100,9 @@ defineExpose({ getSelection });
   pointer-events: none;
   padding: var(--top-bar-padding-y) var(--top-bar-padding-x);
   position: relative;
+  /* 纯布局容器:不做模糊,玻璃感由 left/right 胶囊各自承担,避免双层 backdrop-filter 穿透糊边 */
   background: none;
-  backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: none;
   -webkit-backdrop-filter: none;
   letter-spacing: 0;
 }
@@ -206,7 +207,8 @@ defineExpose({ getSelection });
 
 .context-chip__label {
   flex-shrink: 0;
-  font-size: 10px;
+  /* badge 小字无更小 token，就近取 xs */
+  font-size: var(--font-size-xs);
   line-height: 1;
   font-weight: 700;
   color: var(--color-text-muted);
@@ -217,7 +219,7 @@ defineExpose({ getSelection });
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1;
   font-weight: 650;
 }
