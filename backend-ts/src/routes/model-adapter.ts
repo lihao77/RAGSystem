@@ -22,7 +22,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
     if (request.method !== "GET") requireTenantAdmin(request);
   });
 
-  app.get("/provider-types", async (request) => ok((await ensureRequestApplications(request, options)).providers.listProviderTypes(), "获取成功"));
+  app.get("/provider-types", async (request) => ok(await (await ensureRequestApplications(request, options)).providers.listProviderTypes(), "获取成功"));
 
   app.get("/providers", async (request) => {
     const providers = (await (await ensureRequestApplications(request, options)).providers.listProviders())

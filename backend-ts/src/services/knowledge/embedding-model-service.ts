@@ -7,9 +7,9 @@ import type {
 import type { VectorizerConfig } from "../../contracts/knowledge/knowledge-base.js";
 
 export interface EmbeddingModelKnowledgePort {
-  listVectorizers(): Promise<VectorizerConfig[]> | VectorizerConfig[];
-  activateVectorizer(key: string): Promise<unknown> | unknown;
-  deleteVectorizer(key: string): Promise<unknown> | unknown;
+  listVectorizers(): Promise<VectorizerConfig[]>;
+  activateVectorizer(key: string): Promise<unknown>;
+  deleteVectorizer(key: string): Promise<unknown>;
   getModelStats(modelId: number): Promise<{ vector_count: number; storage_size_mb: number; collections: Record<string, number> }>;
   getSyncStatus(collection: string): Promise<Array<{ model_id: number; vectorizer_key: string; total_documents: number; synced_documents: number; pending_documents: number; sync_percentage: number }>>;
   syncModel(modelId: number, input: { collection: string; limit?: number | null }): Promise<Record<string, unknown>>;

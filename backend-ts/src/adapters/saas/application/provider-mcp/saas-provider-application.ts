@@ -27,7 +27,7 @@ export class SaaSProviderApplication implements ProviderApplication {
     private readonly repository: ProviderMcpRepository,
   ) {}
 
-  listProviderTypes() {
+  async listProviderTypes() {
     return this.service.listProviderTypes();
   }
 
@@ -76,15 +76,15 @@ export class SaaSProviderApplication implements ProviderApplication {
     await this.hydrateRuntimeFromRepository();
   }
 
-  checkProviderAvailability(providerKey: string) {
+  async checkProviderAvailability(providerKey: string) {
     return this.service.checkProviderAvailability(providerKey);
   }
 
-  getProviderMetrics(providerKey: string) {
+  async getProviderMetrics(providerKey: string) {
     return this.service.getProviderMetrics(providerKey);
   }
 
-  testProvider(payload: TestProviderRequest) {
+  async testProvider(payload: TestProviderRequest) {
     return this.service.testProvider(payload);
   }
 

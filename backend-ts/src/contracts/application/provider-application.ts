@@ -19,13 +19,13 @@ export interface ProviderMetrics {
 
 /** Tenant-bound provider administration and runtime checks. */
 export interface ProviderApplication {
-  listProviderTypes(): ProviderTypeInfo[] | Promise<ProviderTypeInfo[]>;
-  listProviders(): ModelProviderConfig[] | Promise<ModelProviderConfig[]>;
-  createProvider(payload: ProviderPayload): string | Promise<string>;
-  reorderProviders(providerKeys: string[]): string[] | Promise<string[]>;
-  updateProvider(providerKey: string, payload: ProviderPayload): string | Promise<string>;
-  deleteProvider(providerKey: string): void | Promise<void>;
-  checkProviderAvailability(providerKey: string): ProviderAvailability | Promise<ProviderAvailability>;
-  getProviderMetrics(providerKey: string): ProviderMetrics | Promise<ProviderMetrics>;
-  testProvider(payload: TestProviderRequest): Record<string, unknown> | Promise<Record<string, unknown>>;
+  listProviderTypes(): Promise<ProviderTypeInfo[]>;
+  listProviders(): Promise<ModelProviderConfig[]>;
+  createProvider(payload: ProviderPayload): Promise<string>;
+  reorderProviders(providerKeys: string[]): Promise<string[]>;
+  updateProvider(providerKey: string, payload: ProviderPayload): Promise<string>;
+  deleteProvider(providerKey: string): Promise<void>;
+  checkProviderAvailability(providerKey: string): Promise<ProviderAvailability>;
+  getProviderMetrics(providerKey: string): Promise<ProviderMetrics>;
+  testProvider(payload: TestProviderRequest): Promise<Record<string, unknown>>;
 }

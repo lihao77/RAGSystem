@@ -28,6 +28,21 @@ afterEach(() => {
 });
 
 describe("provider/MCP application contract", () => {
+  it("exposes Promise-only Local application boundaries", async () => {
+    const provider = new LocalProviderApplication(new ModelAdapterService({ providersConfigPath: "" }));
+    const mcpService = new McpService({ configPath: "" });
+    const mcp = new LocalMcpApplication(mcpService);
+    closeables.push(() => mcpService.close());
+
+    const providerTypes = provider.listProviderTypes();
+    const servers = mcp.listServers();
+
+    expect(providerTypes).toBeInstanceOf(Promise);
+    expect(servers).toBeInstanceOf(Promise);
+    await expect(providerTypes).resolves.toBeInstanceOf(Array);
+    await expect(servers).resolves.toEqual([]);
+  });
+
   it("uses the same provider business rules for Local and SaaS", async () => {
     const repository = new MemoryProviderMcpRepository();
     const local = new LocalProviderApplication(new ModelAdapterService({ providersConfigPath: "" }));
