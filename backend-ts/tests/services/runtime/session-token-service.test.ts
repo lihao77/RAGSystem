@@ -21,8 +21,8 @@ describe("SessionTokenService", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     const service = createSessionTokenService("session-secret-0123456789abcdef0123456789", {
-      isSessionRevoked: () => false,
-      revokeSession: () => true,
+      isSessionRevoked: async () => false,
+      revokeSession: async () => true,
     }, 1);
     const issued = service.issueToken({ userId: createUserId("usr_alice"), tenantId: createTenantId("tnt_acme"), role: "owner" });
     vi.setSystemTime(new Date("2026-01-01T02:00:00Z"));

@@ -66,5 +66,5 @@ export class PostgresWsTicketService implements WsTicketService {
     };
   }
 
-  close(): void {}
+  async close(): Promise<void> {}
 }

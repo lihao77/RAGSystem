@@ -16,8 +16,8 @@ describe("WsTicketService", () => {
     const issued = await service.issue(identity, "session-1");
 
     expect(issued.ticket).toMatch(/^[A-Za-z0-9_-]+$/);
-    await expect(Promise.resolve(service.consume(issued.ticket, "session-1"))).resolves.toEqual(identity);
-    await expect(Promise.resolve().then(() => service.consume(issued.ticket, "session-1")))
+    await expect(service.consume(issued.ticket, "session-1")).resolves.toEqual(identity);
+    await expect(service.consume(issued.ticket, "session-1"))
       .rejects.toThrow("invalid or expired");
   });
 
@@ -25,9 +25,9 @@ describe("WsTicketService", () => {
     const service = createWsTicketService();
     const issued = await service.issue(identity, "session-1");
 
-    await expect(Promise.resolve().then(() => service.consume(issued.ticket, "session-2")))
+    await expect(service.consume(issued.ticket, "session-2"))
       .rejects.toThrow("session mismatch");
-    await expect(Promise.resolve().then(() => service.consume(issued.ticket, "session-1")))
+    await expect(service.consume(issued.ticket, "session-1"))
       .rejects.toThrow("invalid or expired");
   });
 
@@ -36,7 +36,7 @@ describe("WsTicketService", () => {
     const service = createWsTicketService({ ttlMs: 100, now: () => currentTime });
     const issued = await service.issue(identity, "session-1");
     currentTime += 101;
-    await expect(Promise.resolve().then(() => service.consume(issued.ticket, "session-1")))
+    await expect(service.consume(issued.ticket, "session-1"))
       .rejects.toThrow("invalid or expired");
   });
 });

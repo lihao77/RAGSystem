@@ -10,9 +10,9 @@ interface WsTicketRecord {
 }
 
 export interface WsTicketService {
-  issue(identity: RequestIdentity, sessionId: string): { ticket: string; expires_at: number } | Promise<{ ticket: string; expires_at: number }>;
-  consume(ticket: string, sessionId: string): RequestIdentity | Promise<RequestIdentity>;
-  close(): void | Promise<void>;
+  issue(identity: RequestIdentity, sessionId: string): Promise<{ ticket: string; expires_at: number }>;
+  consume(ticket: string, sessionId: string): Promise<RequestIdentity>;
+  close(): Promise<void>;
 }
 
 export interface WsTicketServiceOptions {
@@ -36,7 +36,7 @@ export function createWsTicketService(options: WsTicketServiceOptions = {}): WsT
   };
 
   return {
-    issue(identity: RequestIdentity, sessionId: string) {
+    async issue(identity: RequestIdentity, sessionId: string) {
       const currentTime = now();
       prune(currentTime);
       if (pending.size >= maxPending) throw new AuthError("too many pending websocket tickets");
@@ -49,7 +49,7 @@ export function createWsTicketService(options: WsTicketServiceOptions = {}): WsT
       });
       return { ticket, expires_at: Math.floor(expiresAt / 1000) };
     },
-    consume(ticket: string, sessionId: string) {
+    async consume(ticket: string, sessionId: string) {
       if (!ticket) throw new AuthError("missing websocket ticket");
       const key = hashWsTicket(ticket);
       const record = pending.get(key);
@@ -58,7 +58,7 @@ export function createWsTicketService(options: WsTicketServiceOptions = {}): WsT
       if (record.sessionId !== sessionId) throw new AuthError("websocket ticket session mismatch");
       return { ...record.identity, permissions: [...record.identity.permissions] };
     },
-    close() {
+    async close() {
       pending.clear();
     },
   };

@@ -16,8 +16,8 @@ export interface SessionTokenClaims {
 }
 
 export interface SessionOps {
-  isSessionRevoked(tenantId: TenantId, jti: string): boolean | Promise<boolean>;
-  revokeSession(jti: string): boolean | Promise<boolean>;
+  isSessionRevoked(tenantId: TenantId, jti: string): Promise<boolean>;
+  revokeSession(jti: string): Promise<boolean>;
 }
 
 export interface SessionTokenService {

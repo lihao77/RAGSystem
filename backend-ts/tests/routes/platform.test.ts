@@ -156,8 +156,8 @@ describe("平台控制面", () => {
     expect(ownerBotsResponse.statusCode).toBe(403);
 
     const tokenService = createSessionTokenService(secret, {
-      isSessionRevoked: (claimTenantId, jti) => harness.controlStore.isSessionRevoked(claimTenantId, jti),
-      revokeSession: (jti) => harness.controlStore.revokeSession(jti),
+      isSessionRevoked: async (claimTenantId, jti) => harness.controlStore.isSessionRevoked(claimTenantId, jti),
+      revokeSession: async (jti) => harness.controlStore.revokeSession(jti),
     });
     const forged = tokenService.issueToken({ userId, tenantId, role: "owner", platformRole: "admin" });
     harness.controlStore.recordSession({ jti: forged.claims.jti, userId, tenantId, issuedAt: forged.claims.iat, expiresAt: forged.claims.exp });
