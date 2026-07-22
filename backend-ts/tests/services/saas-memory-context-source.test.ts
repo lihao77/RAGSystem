@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { PersistedMemoryEntry } from "../../src/contracts/memory-store/index.js";
+import { MemoryContextSource } from "../../src/services/agent/memory/memory-context-source.js";
 import {
   renderPersistedMemoryIndex,
-  SaaSMemoryContextSource,
-} from "../../src/services/agent/memory/saas-memory-context-source.js";
+  SaaSMemoryContextRepository,
+} from "../../src/adapters/saas/memory/saas-memory-context-repository.js";
 import type { MemoryQueryService } from "../../src/services/memory/query-service.js";
 import { toMemoryScopePartition } from "../../src/services/memory/scope-partition.js";
 import type { MemoryScopePartition } from "../../src/services/memory/types.js";
@@ -41,19 +42,19 @@ function entry(overrides: Partial<PersistedMemoryEntry> = {}): PersistedMemoryEn
   };
 }
 
-describe("SaaSMemoryContextSource", () => {
+describe("MemoryContextSource with the SaaS repository", () => {
   it("maps allowed scopes to tenant-bound query partitions", async () => {
     const listEntries = vi.fn(async (_partition: MemoryScopePartition) => [entry()]);
     const getScopeRevision = vi.fn(async (_partition: MemoryScopePartition) => 4);
     const query = { listEntries, getScopeRevision, getEntry: vi.fn(), listManagedEntries: vi.fn(), countManagedEntries: vi.fn() } satisfies MemoryQueryService;
-    const source = new SaaSMemoryContextSource(
+    const source = new MemoryContextSource(
       {
         getSession: () => ({
           metadata: { team: "team-a", workspace_id: "workspace-a" },
           user_id: "user-a",
         }),
       },
-      query,
+      new SaaSMemoryContextRepository(query),
       {
         auto_inject: true,
         allowed_scopes: ["team", "session", "agent", "workspace", "user"],
@@ -90,7 +91,7 @@ describe("SaaSMemoryContextSource", () => {
       listManagedEntries: vi.fn(),
       countManagedEntries: vi.fn(),
     } satisfies MemoryQueryService;
-    const source = new SaaSMemoryContextSource(
+    const source = new MemoryContextSource(
       {
         getSession: () => ({ metadata }),
         updateSessionMetadata: (_sessionId, patch) => {
@@ -98,7 +99,7 @@ describe("SaaSMemoryContextSource", () => {
           return metadata;
         },
       },
-      query,
+      new SaaSMemoryContextRepository(query),
       { auto_inject: true, allowed_scopes: ["session"], write_scopes: [], archive_scopes: [] },
       "agent-a",
     );
@@ -135,15 +136,16 @@ describe("SaaSMemoryContextSource", () => {
         return metadata;
       },
     };
-    const firstSource = new SaaSMemoryContextSource(
+    const repository = new SaaSMemoryContextRepository(query);
+    const firstSource = new MemoryContextSource(
       sessions,
-      query,
+      repository,
       { auto_inject: true, allowed_scopes: ["session"], write_scopes: [], archive_scopes: [] },
       "agent-a",
     );
-    const changedSource = new SaaSMemoryContextSource(
+    const changedSource = new MemoryContextSource(
       sessions,
-      query,
+      repository,
       { auto_inject: true, allowed_scopes: ["session"], write_scopes: ["session"], archive_scopes: [] },
       "agent-a",
     );
@@ -164,9 +166,9 @@ describe("SaaSMemoryContextSource", () => {
       listManagedEntries: vi.fn(),
       countManagedEntries: vi.fn(),
     } satisfies MemoryQueryService;
-    const source = new SaaSMemoryContextSource(
+    const source = new MemoryContextSource(
       { getSession: () => ({ metadata: {} }) },
-      query,
+      new SaaSMemoryContextRepository(query),
       { auto_inject: false, allowed_scopes: ["session"], write_scopes: [], archive_scopes: [] },
       "agent-a",
     );

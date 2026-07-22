@@ -7,7 +7,6 @@ import type { MemoryRuntimeBindings } from "../../services/agent/memory/runtime-
 import type { SessionMetadataPort } from "../../services/agent/context/types.js";
 import type { RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExecution.js";
 import type { AgentExecutionLogger } from "../../services/agent/execution/index.js";
-import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "../../contracts/runtime/runtime-async-ports.js";
 import type { AsyncBackgroundTaskRepository } from "../../contracts/storage/background-task-repository.js";
 import type { RealtimeEventBus } from "../../contracts/runtime/realtime-event-bus.js";
 import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
@@ -30,14 +29,11 @@ export interface LocalRuntimeContainerOptions {
   hooks?: (registry: HookRegistry) => void;
   embedderFactory?: KnowledgeEmbedderFactory;
   memoryBindingsFactory?: MemoryRuntimeBindingsFactory;
-  asyncConversationHistory?: AsyncConversationHistoryPort;
-  asyncProviderContinuations?: AsyncProviderContinuationLookupPort;
   asyncClientEventsFactory?: (
     tenantId: TenantId,
     realtimeEvents: RealtimeEventBus,
     runtimeStorage: RuntimeStorage,
   ) => AsyncDurableClientEventPublisher;
-  asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => SuspendedSessionControlPort;
   asyncBackgroundTasks?: AsyncBackgroundTaskRepository;
   asyncAnalytics?: AsyncAnalyticsRepository;
   executionStorage?: ExecutionStorage;

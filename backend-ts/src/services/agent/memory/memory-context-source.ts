@@ -1,27 +1,14 @@
-/**
- * MemoryIndexContextSource——memory context source（实现 backend AgentContextSource）。
- * 按 agent.memory 配置加载 scope 前缀 + 指纹缓存（写 session metadata），产出 system 消息注入 prompt。
- *
- * 前缀快照的命中/重建由 provider cache 活性驱动（request.cacheAlive，由 buildContext 据
- * ProviderCacheTracker 统一设）：cache 活 → 复用 rendered_block（前缀字面稳定，命中 KV cache）；
- * cache 死或结构指纹变 → 重建读最新 memory store。内容 revision 在 cache 世代内不触发重建；
- * last_used_at 的存储/续期由 ProviderCacheTracker 统一管，
- * 本 source 不自管时间戳（失效/续期信号经 request.cacheAlive 接入，与 recent 等子系统共用同一信号）。
- *
- * 迿自 SDK memory 模块，归位 backend；字段对齐 AgentConfig.memory（snake）。
- * 由 backend AgentContextBuilder 组装（memory + recent）→ conversation 经 RunInput.conversation 注入 SDK。
- */
 import crypto from "node:crypto";
 
-import type {
-  MemoryIndexReader,
-  MemoryScopeRevisionReader,
-  MemoryScopeSpec,
-} from "../../../contracts/memory-store/index.js";
-import type { AgentContextContribution, AgentContextSource, ResolvedAgentContextRequest, SessionMetadataPort } from "../context/types.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { MemoryCandidateRecord } from "../../../contracts/conversation-store/index.js";
-import type { ExecutionMemoryCandidateListPort } from "./runtime-bindings.js";
+import type { MemoryContextRepository, MemoryScopeSpec } from "../../../contracts/memory-store/index.js";
+import type {
+  AgentContextContribution,
+  AgentContextSource,
+  ResolvedAgentContextRequest,
+  SessionMetadataPort,
+} from "../context/types.js";
 import {
   buildMemoryPrefixFingerprint,
   buildMemoryPrefixStructuralFingerprint,
@@ -30,68 +17,58 @@ import {
   memoryBaselineKey,
   readMemoryPrefixSnapshot,
   renderMemoryPrefixBlock,
-  type MemoryPrefixFingerprint,
   type MemoryPrefixSnapshot,
-  type MemoryScopeCapabilities,
 } from "./memory-prefix.js";
+import type { ExecutionMemoryCandidateListPort } from "./runtime-bindings.js";
 
 type MemoryConfig = AgentConfig["memory"];
 
-export interface MemoryIndexContextSourceOptions {
-  memoryRepository?: MemoryIndexReader;
-  /** @deprecated Use memoryRepository. */
-  memoryStore?: MemoryIndexReader;
-  scopeRevisionReader?: MemoryScopeRevisionReader;
+export interface MemoryContextSourceOptions {
   indexMaxLines?: number;
   indexMaxChars?: number;
 }
 
-export class MemoryIndexContextSource implements AgentContextSource {
+/** Shared Memory prefix orchestration for Local and SaaS deployments. */
+export class MemoryContextSource implements AgentContextSource {
   readonly name = "memory";
-  private readonly memoryStore: MemoryIndexReader;
   private readonly indexMaxLines: number;
   private readonly indexMaxChars: number;
-  private readonly scopeRevisionReader: MemoryScopeRevisionReader | undefined;
 
   constructor(
     private readonly sessions: SessionMetadataPort & Partial<ExecutionMemoryCandidateListPort>,
+    private readonly repository: MemoryContextRepository,
     private readonly memory: MemoryConfig,
     private readonly agentName: string,
-    options: MemoryIndexContextSourceOptions = {},
+    options: MemoryContextSourceOptions = {},
   ) {
-    const memoryRepository = options.memoryStore ?? options.memoryRepository;
-    if (!memoryRepository) {
-      throw new Error("MemoryIndexContextSource requires a memoryRepository");
-    }
-    this.memoryStore = memoryRepository;
-    this.scopeRevisionReader = options.scopeRevisionReader;
     this.indexMaxLines = options.indexMaxLines ?? 200;
-    this.indexMaxChars = options.indexMaxChars ?? 25600;
+    this.indexMaxChars = options.indexMaxChars ?? 25_600;
   }
 
   async build(request: ResolvedAgentContextRequest): Promise<AgentContextContribution> {
-    const memory = this.memory;
-    const scopeCapabilities = buildMemoryScopeCapabilities(memory);
+    const scopeCapabilities = buildMemoryScopeCapabilities(this.memory);
     const memoryEnabled = Boolean(
-      scopeCapabilities.allowed_scopes.length ||
-        scopeCapabilities.write_scopes.length ||
-        scopeCapabilities.archive_scopes.length,
+      scopeCapabilities.allowed_scopes.length
+        || scopeCapabilities.write_scopes.length
+        || scopeCapabilities.archive_scopes.length,
     );
-    if (!memoryEnabled && memory.auto_inject === false) {
+    if (!memoryEnabled && this.memory.auto_inject === false) {
       return { conversation: [], metadata: { status: "disabled", scope_capabilities: scopeCapabilities } };
     }
+
     const session = this.sessions.getSession(request.sessionId);
     const sessionMetadata = session?.metadata ?? {};
     const userId = session?.user_id ?? null;
     const scopeSpecs = buildMemoryScopeSpecs({
-      memory,
+      memory: this.memory,
       sessionId: request.sessionId,
       agentName: this.agentName,
       sessionMetadata,
       userId,
+      workspaceKey: await this.repository.resolveWorkspaceKey(sessionMetadata),
     });
     const structuralFingerprint = buildMemoryPrefixStructuralFingerprint({
-      memory,
+      memory: this.memory,
       scopeCapabilities,
       scopeSpecs,
       agentName: this.agentName,
@@ -103,65 +80,57 @@ export class MemoryIndexContextSource implements AgentContextSource {
     if (existingSnapshot
       && existingSnapshot.fingerprint.structural_fingerprint === structuralFingerprint
       && request.cacheAlive) {
-      return {
-        conversation: existingSnapshot.rendered_block ? [{ role: "system", content: existingSnapshot.rendered_block }] : [],
-        metadata: { status: "loaded", snapshot: existingSnapshot },
-      };
+      return contribution(existingSnapshot);
     }
-    const privateCandidates = memory.auto_inject === false
+
+    const privateCandidates = this.memory.auto_inject === false
       ? []
       : await this.loadPrivateCandidates(userId, sessionMetadata, scopeCapabilities.allowed_scopes);
-    const revisionReader = this.scopeRevisionReader;
-    const scopeRevisions = revisionReader
-      ? scopeSpecs.map((scopeSpec) => ({ scopeSpec, revision: String(revisionReader.getScopeRevision(scopeSpec)) }))
-      : undefined;
+    const revisions = await Promise.all(scopeSpecs.map(async (scopeSpec) => ({
+      scopeSpec,
+      revision: await this.repository.getScopeRevision(scopeSpec),
+    })));
+    const scopeRevisions = revisions.flatMap(({ scopeSpec, revision }) => revision === null
+      ? []
+      : [{ scopeSpec, revision: String(revision) }]);
     const fingerprint = buildMemoryPrefixFingerprint({
-      memory,
+      memory: this.memory,
       scopeCapabilities,
       scopeSpecs,
       agentName: this.agentName,
       privateCandidateRevision: fingerprintCandidates(privateCandidates),
-      ...(scopeRevisions ? { scopeRevisions } : {}),
+      ...(scopeRevisions.length ? { scopeRevisions } : {}),
     });
-    const snapshot = this.buildAndPersistSnapshot({ request, baselineKey, fingerprint, scopeCapabilities, scopeSpecs, privateCandidates });
-    const renderedBlock = snapshot.rendered_block;
-    return {
-      conversation: renderedBlock ? [{ role: "system", content: renderedBlock }] : [],
-      metadata: { status: "loaded", snapshot },
-    };
-  }
-
-  private buildAndPersistSnapshot(input: {
-    request: ResolvedAgentContextRequest;
-    baselineKey: string;
-    fingerprint: MemoryPrefixFingerprint;
-    scopeCapabilities: MemoryScopeCapabilities;
-    scopeSpecs: MemoryScopeSpec[];
-    privateCandidates: MemoryCandidateRecord[];
-  }): MemoryPrefixSnapshot {
-    const indices: Record<string, string> = {};
-    if (this.memory.auto_inject !== false) {
-      for (const scopeSpec of input.scopeSpecs) {
-        const content = this.memoryStore.loadIndexHead(scopeSpec, { maxLines: this.indexMaxLines, maxChars: this.indexMaxChars });
-        if (content) { indices[scopeSpec.scope] = content; }
-      }
-    }
-    const sharedBlock = renderMemoryPrefixBlock({ scopeCapabilities: input.scopeCapabilities, indices });
-    const privateBlock = renderPrivateMemory(input.privateCandidates);
-    const renderedBlock = [sharedBlock, privateBlock].filter(Boolean).join("\n\n");
+    const indices = await this.loadIndices(scopeSpecs);
+    const sharedBlock = renderMemoryPrefixBlock({ scopeCapabilities, indices });
+    const renderedBlock = [sharedBlock, renderPrivateMemory(privateCandidates)].filter(Boolean).join("\n\n");
     const snapshot: MemoryPrefixSnapshot = {
-      baseline_key: input.baselineKey,
-      session_id: input.request.sessionId,
-      thread_key: input.request.threadKey,
+      baseline_key: baselineKey,
+      session_id: request.sessionId,
+      thread_key: request.threadKey,
       agent_name: this.agentName,
-      fingerprint: input.fingerprint,
-      scope_capabilities: input.scopeCapabilities,
+      fingerprint,
+      scope_capabilities: scopeCapabilities,
       indices,
       rendered_block: renderedBlock,
       rebased_reason: "build_context",
     };
-    this.sessions.updateSessionMetadata?.(input.request.sessionId, { memory_prefix_states: { [input.baselineKey]: snapshot } });
-    return snapshot;
+    this.sessions.updateSessionMetadata?.(request.sessionId, {
+      memory_prefix_states: { [baselineKey]: snapshot },
+    });
+    return contribution(snapshot);
+  }
+
+  private async loadIndices(scopeSpecs: MemoryScopeSpec[]): Promise<Record<string, string>> {
+    if (this.memory.auto_inject === false) return {};
+    const loaded = await Promise.all(scopeSpecs.map(async (scopeSpec) => ({
+      scope: scopeSpec.scope,
+      content: await this.repository.loadIndex(scopeSpec, {
+        maxLines: this.indexMaxLines,
+        maxChars: this.indexMaxChars,
+      }),
+    })));
+    return Object.fromEntries(loaded.flatMap(({ scope, content }) => content ? [[scope, content]] : []));
   }
 
   private async loadPrivateCandidates(
@@ -203,6 +172,13 @@ export class MemoryIndexContextSource implements AgentContextSource {
       })
       .slice(0, 100);
   }
+}
+
+function contribution(snapshot: MemoryPrefixSnapshot): AgentContextContribution {
+  return {
+    conversation: snapshot.rendered_block ? [{ role: "system", content: snapshot.rendered_block }] : [],
+    metadata: { status: "loaded", snapshot },
+  };
 }
 
 function fingerprintCandidates(candidates: MemoryCandidateRecord[]): string {

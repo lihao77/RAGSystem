@@ -24,12 +24,10 @@ import type { PermissionPolicyService } from "../../runtime/permission-policy-se
 import type { PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
-import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
-import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
-import type { AsyncSessionFileStorage } from "../../../contracts/session/session-file-storage.js";
+import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
 import { AttachmentResolver } from "./attachment-resolver.js";
@@ -41,7 +39,6 @@ import type { TenantId } from "../../../identity/types.js";
 import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
-import type { SuspendedSessionControlPort } from "../../../contracts/runtime/runtime-async-ports.js";
 import type { AsyncAnalyticsRepository } from "../../../contracts/storage/async-persistence-ports.js";
 import {
   createLaunchers,
@@ -78,7 +75,6 @@ export type AgentExecutionService = AgentExecutionServiceApi;
 export interface AgentExecutionServiceParams {
   tenantId: TenantId;
   sessions: ExecutionSessionPort;
-  conversationStore?: ConversationStore;
   executionStorage: ExecutionStorage;
   runtimeCore: RuntimeExecutionConfigResolver;
   dataRoot: string;
@@ -92,8 +88,7 @@ export interface AgentExecutionServiceParams {
   backgroundTasks?: BackgroundTaskService | null;
   /** 后台通知暂存队列（单例，注入 launchers.triggerBgNotificationRun；与 backgroundTasks 共用同一实例）。 */
   notificationQueue?: SessionNotificationQueue | null;
-  fileIndex?: IFileIndexStore | null;
-  asyncSessionFiles?: AsyncSessionFileStorage | null;
+  sessionFiles?: SessionFileLookupPort | null;
   outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
   clientEvents: ClientEventPublisher;
   /** 用户可见执行事件的持久化通道；SaaS 使用异步 PostgreSQL outbox。 */
@@ -118,8 +113,7 @@ export interface AgentExecutionServiceParams {
  /** backend 压缩服务（slash /compact + run 内 round.before 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
   asyncClientEvents?: Pick<AsyncDurableClientEventPublisher, "publish" | "deliver">;
-  runtimeStorage?: RuntimeStorage;
-  asyncSuspendedSessionControl?: SuspendedSessionControlPort;
+  runtimeStorage: RuntimeStorage;
 }
 
 /**
@@ -138,10 +132,7 @@ export function createAgentExecutionService(
   }
   const statusTracker = new AgentExecutionStatusTracker();
   const eventPublisher = new AgentExecutionEventPublisher(params.eventClientEvents ?? params.clientEvents);
-  const attachmentResolver = new AttachmentResolver(
-    params.fileIndex ?? null,
-    params.asyncSessionFiles ?? null,
-  );
+  const attachmentResolver = new AttachmentResolver(params.sessionFiles ?? null);
   const notificationQueue = params.notificationQueue ?? new SessionNotificationQueue();
   const storage = params.executionStorage;
   const slashCommandHandler = new SlashCommandHandler(
@@ -193,10 +184,8 @@ export function createAgentExecutionService(
   const sessionControl = createSessionControl({
     statusTracker,
     eventPublisher,
-    ...(params.conversationStore ? { conversationStore: params.conversationStore } : {}),
     pendingInteractions: params.pendingInteractions,
-    ...(params.runtimeStorage ? { runtimeStorage: params.runtimeStorage } : {}),
-    ...(params.asyncSuspendedSessionControl ? { asyncSuspendedSessionControl: params.asyncSuspendedSessionControl } : {}),
+    runtimeStorage: params.runtimeStorage,
     ...(params.asyncClientEvents ? { asyncClientEvents: params.asyncClientEvents } : {}),
     executeSynchronously: launchers.executeSynchronously,
   });

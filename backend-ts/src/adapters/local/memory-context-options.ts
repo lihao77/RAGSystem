@@ -1,11 +1,11 @@
 import type { MemoryConfig as SystemMemoryConfig } from "../../contracts/runtime/system-config.js";
-import type { MemoryIndexContextSourceOptions } from "../../services/agent/memory/memory-index-source.js";
+import type { MemoryContextSourceOptions } from "../../services/agent/memory/memory-context-source.js";
 
 /** Local-only defaults for the filesystem memory context adapter. */
-export function buildMemoryIndexContextSourceOptions(
+export function buildMemoryContextSourceOptions(
   memoryConfig: SystemMemoryConfig,
   _dataRoot: string,
-): MemoryIndexContextSourceOptions {
+): MemoryContextSourceOptions {
   return {
     indexMaxLines: memoryConfig.index_max_lines,
     indexMaxChars: memoryConfig.index_max_chars,

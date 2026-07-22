@@ -22,11 +22,11 @@ import type {
 import type {
   AgentDelegationStorePort,
   AgentMetricsStorePort,
-  CompressionHistoryStorePort,
+  CompressionHistoryPort,
   PermissionPolicyStorePort,
   RuntimeEventDispatcherPort,
-  RuntimeSessionFilesPort,
 } from "../../../src/contracts/runtime/core-runtime-ports.js";
+import type { SessionFileLookupPort } from "../../../src/contracts/session/session-file-storage.js";
 import type { LocalRuntimeContainerOptions } from "../../../src/adapters/local/runtime-options.js";
 import { makeTempRoot } from "../../helpers/temp-db.js";
 
@@ -42,13 +42,13 @@ describe("runtime composition roots", () => {
     expectTypeOf<CoreRuntimeDependencies["delegationStore"]>().toEqualTypeOf<AgentDelegationStorePort>();
     expectTypeOf<CoreRuntimeDependencies["metricsStore"]>().toEqualTypeOf<AgentMetricsStorePort>();
     expectTypeOf<CoreRuntimeDependencies["permissionPolicyStore"]>().toEqualTypeOf<PermissionPolicyStorePort>();
-    expectTypeOf<CoreRuntimeDependencies["compressionHistory"]>().toEqualTypeOf<CompressionHistoryStorePort | null>();
-    expectTypeOf<CoreRuntimeDependencies["sessionFiles"]>().toEqualTypeOf<RuntimeSessionFilesPort>();
+    expectTypeOf<CoreRuntimeDependencies["compressionHistory"]>().toEqualTypeOf<CompressionHistoryPort>();
+    expectTypeOf<CoreRuntimeDependencies["sessionFiles"]>().toEqualTypeOf<SessionFileLookupPort>();
     expectTypeOf<CoreRuntimeDependencies["eventDispatcher"]>().toEqualTypeOf<RuntimeEventDispatcherPort>();
     expectTypeOf<ConstructorParameters<typeof AgentDelegationService>[0]>().toEqualTypeOf<AgentDelegationStorePort>();
     expectTypeOf<ConstructorParameters<typeof AgentMetricsCollector>[0]>().toEqualTypeOf<AgentMetricsStorePort>();
     expectTypeOf<ConstructorParameters<typeof PermissionPolicyService>[0]>().toEqualTypeOf<PermissionPolicyStorePort>();
-    expectTypeOf<ConstructorParameters<typeof AgentCompressionService>[0]>().toEqualTypeOf<CompressionHistoryStorePort | null>();
+    expectTypeOf<ConstructorParameters<typeof AgentCompressionService>[0]>().toEqualTypeOf<CompressionHistoryPort>();
   });
 
   it("local entrypoint creates the runtime contract", async () => {

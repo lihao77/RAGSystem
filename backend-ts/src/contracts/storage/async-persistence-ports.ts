@@ -1,5 +1,3 @@
-import type { ProviderContinuationState } from "@ragsystem/agent-llm";
-
 import type { PaginatedResult, RunStepInfo } from "../common.js";
 import type {
   AddMessageInput,
@@ -105,14 +103,6 @@ export interface MonitoringRepositoryPort {
   retryOutbox(tenantId: string, id: number): Promise<boolean>;
   retryOutboxBatch(tenantId: string, input?: RetryOutboxBatchInput): Promise<RetryOutboxResult>;
   deleteDeliveredOutbox(tenantId: string, input: DeleteDeliveredOutboxInput): Promise<number>;
-}
-
-export interface AsyncProviderContinuationRepository {
-  getProviderContinuation(tenantId: TenantId, sessionId: string, messageId: string): Promise<{ state: ProviderContinuationState } | null>;
-}
-
-export interface AsyncProviderContinuationStore {
-  getProviderContinuation(tenantId: TenantId, sessionId: string, messageId: string): Promise<import("../conversation-store/index.js").ProviderContinuationRecord | null>;
 }
 
 export interface AsyncPendingInteractionStore {

@@ -10,7 +10,7 @@ import { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
 import { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
 import { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import { AgentConfigService } from "../../services/agent/config/index.js";
-import { MemoryIndexContextSource } from "../../services/agent/memory/index.js";
+import { MemoryContextSource } from "../../services/agent/memory/index.js";
 import { ArtifactService } from "../../services/artifacts/artifact-service.js";
 import { TransientArtifactService } from "../../services/artifacts/transient-artifact-service.js";
 import { FileSystemConfigStore } from "../filesystem/config/file-system-config-store.js";
@@ -24,6 +24,7 @@ import { SkillLibraryService } from "../../services/skills/skill-library-service
 import { createConversationStore } from "./sqlite/conversation-store/index.js";
 import { FileHistoryService } from "./files/file-history-service.js";
 import { FileIndexService } from "./files/file-index-service.js";
+import { LocalSessionFileLookup } from "./files/session-file-lookup.js";
 import { createVectorStoreFromConfig } from "./vector-store/vector-store-factory.js";
 import { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import { createCoreRuntimeContainer } from "../../services/runtime/core-runtime-container.js";
@@ -43,6 +44,8 @@ import { SqliteRuntimeStorage } from "./sqlite-runtime-storage.js";
 import { LocalSessionApplication } from "./application/session/local-session-application.js";
 import { FileAgentConfigTeamStore } from "../filesystem/agent/file-team-store.js";
 import { FilesystemSkillPackageStore } from "../filesystem/skills/filesystem-skill-package-store.js";
+import { LocalMemoryContextRepository } from "./local-memory-context-repository.js";
+import { LocalCompressionHistoryAdapter } from "./local-compression-history-adapter.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export async function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): Promise<LocalRuntimeContainer> {
@@ -103,6 +106,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const knowledge = knowledgeService;
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
+  const memoryContextRepository = new LocalMemoryContextRepository(memoryStore);
   const memoryBindings = options.memoryBindingsFactory?.({
     tenantId: options.tenantId,
     dataRoot,
@@ -111,12 +115,12 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     sessions: conversationStore,
   }) ?? {
     tools: new MemoryToolService(memoryStore, conversationStore, conversationStore, options.tenantId),
-    createContextSource: (input) => new MemoryIndexContextSource(
+    createContextSource: (input) => new MemoryContextSource(
       input.sessions,
+      memoryContextRepository,
       input.memory,
       input.agentName,
       {
-        memoryRepository: memoryStore,
         indexMaxLines: input.memoryConfig.index_max_lines,
         indexMaxChars: input.memoryConfig.index_max_chars,
       },
@@ -158,7 +162,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     clientEvents: eventClientEvents,
   }) : null;
   const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot: options.dataRoot });
-  const asyncSuspendedSessionControl = options.asyncSuspendedSessionControlFactory?.(options.tenantId);
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
 
@@ -169,15 +172,12 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     getMemoryConfig: () => systemConfig.getMemoryConfig(),
     logger: options.logger,
     ...(options.hooks ? { hooks: options.hooks } : {}),
-    ...(options.asyncConversationHistory ? { asyncConversationHistory: options.asyncConversationHistory } : {}),
-    ...(options.asyncProviderContinuations ? { asyncProviderContinuations: options.asyncProviderContinuations } : {}),
     asyncClientEvents,
-    ...(asyncSuspendedSessionControl ? { asyncSuspendedSessionControl } : {}),
     ...(options.asyncAnalytics ? { asyncAnalytics: options.asyncAnalytics } : {}),
     delegationStore: conversationStore,
     metricsStore: conversationStore,
     permissionPolicyStore: conversationStore,
-    compressionHistory: conversationStore,
+    compressionHistory: new LocalCompressionHistoryAdapter(conversationStore),
     executionSessions: sessionApplication,
     sessionApplication: requestSessionApplication,
     realtimeEvents,
@@ -185,7 +185,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     modelAdapter,
     systemConfig,
     mcp,
-    sessionFiles: { kind: "local", fileIndex },
+    sessionFiles: new LocalSessionFileLookup(fileIndex),
     knowledge,
     memoryBindings,
     runtimeStorage,

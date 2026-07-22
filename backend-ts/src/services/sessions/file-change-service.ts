@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { diffLines } from "diff";
 
 import type {
@@ -6,28 +5,31 @@ import type {
   FileChangeLine,
   LatestFileChanges,
 } from "../../contracts/application/file-change-application.js";
-import type { AsyncFileHistoryStore, FileHistorySnapshot, IFileHistoryStore } from "../../contracts/file-history-store/index.js";
+import type { FileChangeHistoryPort, FileHistorySnapshot } from "../../contracts/file-history-store/index.js";
 
 export type { FileChangeItem, FileChangeLine, LatestFileChanges } from "../../contracts/application/file-change-application.js";
 
 export class FileChangeService {
-  constructor(private readonly fileHistory: IFileHistoryStore) {}
+  constructor(private readonly fileHistory: FileChangeHistoryPort) {}
 
-  getLatest(sessionId: string): LatestFileChanges {
-    const snapshot = latestSnapshot(this.fileHistory.listSnapshots(sessionId));
-    const pending = this.fileHistory.getPendingTracked(sessionId);
+  async getLatest(sessionId: string): Promise<LatestFileChanges> {
+    const [snapshots, pending] = await Promise.all([
+      this.fileHistory.listSnapshots(sessionId),
+      this.fileHistory.getPendingTracked(sessionId),
+    ]);
+    const snapshot = latestSnapshot(snapshots);
     const trackedFiles = { ...(snapshot?.tracked_files ?? {}), ...(pending ?? {}) };
     if (!Object.keys(trackedFiles).length) {
       return { snapshot_id: null, message_seq: null, files: [] };
     }
 
-    const files = Object.entries(trackedFiles).map(([filePath, tracked]) => {
-      const oldContent = tracked.action === "modified"
-        ? this.fileHistory.readBackup(sessionId, tracked.backup_hash) ?? ""
-        : "";
-      const newContent = fs.existsSync(filePath) && fs.statSync(filePath).isFile()
-        ? fs.readFileSync(filePath, "utf8")
-        : "";
+    const files = await Promise.all(Object.entries(trackedFiles).map(async ([filePath, tracked]) => {
+      const oldBytes = tracked.action === "modified" && tracked.backup_hash
+        ? await this.fileHistory.readBackup(sessionId, tracked.backup_hash)
+        : null;
+      const currentBytes = await this.fileHistory.readCurrent(filePath);
+      const oldContent = decode(oldBytes);
+      const newContent = decode(currentBytes);
       const item: FileChangeItem = {
         path: filePath,
         action: tracked.action,
@@ -38,42 +40,8 @@ export class FileChangeService {
         item.oldContent = oldContent;
       }
       return item;
-    });
-
-    return {
-      snapshot_id: snapshot?.snapshot_id ?? null,
-      message_seq: snapshot?.message_seq ?? null,
-      files,
-    };
-  }
-}
-
-export class AsyncFileChangeService {
-  constructor(private readonly fileHistory: AsyncFileHistoryStore) {}
-
-  async getLatest(sessionId: string): Promise<LatestFileChanges> {
-    const [snapshots, pending] = await Promise.all([
-      this.fileHistory.listSnapshots(sessionId),
-      this.fileHistory.getPendingTracked(sessionId),
-    ]);
-    const snapshot = latestSnapshot(snapshots);
-    const trackedFiles = { ...(snapshot?.tracked_files ?? {}), ...(pending ?? {}) };
-    const files = await Promise.all(Object.entries(trackedFiles).map(async ([fileKey, tracked]) => {
-      const oldBytes = tracked.action === "modified" && tracked.backup_hash
-        ? await this.fileHistory.readBackup(sessionId, tracked.backup_hash)
-        : null;
-      const currentBytes = await this.fileHistory.readCurrent(fileKey);
-      const oldContent = decode(oldBytes);
-      const newContent = decode(currentBytes);
-      const item: FileChangeItem = {
-        path: fileKey,
-        action: tracked.action,
-        newContent,
-        diff: buildLineDiff(oldContent, newContent),
-      };
-      if (tracked.action === "modified") item.oldContent = oldContent;
-      return item;
     }));
+
     return {
       snapshot_id: snapshot?.snapshot_id ?? null,
       message_seq: snapshot?.message_seq ?? null,

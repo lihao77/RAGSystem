@@ -2,9 +2,9 @@ import type { TransactionalMemoryRepository } from "../../../contracts/memory-st
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import { createTenantId, type TenantId } from "../../../identity/types.js";
 import {
-  SaaSMemoryContextSource,
-  type SaaSMemoryContextSourceOptions,
-} from "../../../services/agent/memory/saas-memory-context-source.js";
+  MemoryContextSource,
+  type MemoryContextSourceOptions,
+} from "../../../services/agent/memory/memory-context-source.js";
 import { createMemoryApplication, type MemoryApplication } from "../../../services/memory/index.js";
 import {
   SaaSMemoryToolService,
@@ -12,6 +12,7 @@ import {
 } from "../../../tools/MemoryTools/SaaSMemoryExecution.js";
 import type { SessionMetadataPort } from "../../../services/agent/context/types.js";
 import type { MemoryRuntimeBindings } from "../../../services/agent/memory/runtime-bindings.js";
+import { SaaSMemoryContextRepository } from "../memory/saas-memory-context-repository.js";
 
 /**
  * The first SaaS runtime surface is intentionally memory-only. It must not be
@@ -25,8 +26,8 @@ export interface SaaSRuntime {
     sessions: SessionMetadataPort,
     memoryConfig: AgentConfig["memory"],
     agentName: string,
-    options?: SaaSMemoryContextSourceOptions,
-  ): SaaSMemoryContextSource;
+    options?: MemoryContextSourceOptions,
+  ): MemoryContextSource;
   createMemoryBindings(sessions: SaaSMemorySessionPort): MemoryRuntimeBindings;
 }
 
@@ -55,12 +56,13 @@ export class SaaSRuntimeProvider implements SaaSMemoryApplicationProvider {
 
   private createRuntime(tenantId: TenantId): SaaSRuntime {
     const memory = createMemoryApplication(tenantId, this.memoryRepository);
+    const memoryContextRepository = new SaaSMemoryContextRepository(memory.query);
     const createMemoryContextSource: SaaSRuntime["createMemoryContextSource"] = (
       sessions,
       memoryConfig,
       agentName,
       options,
-    ) => new SaaSMemoryContextSource(sessions, memory.query, memoryConfig, agentName, options);
+    ) => new MemoryContextSource(sessions, memoryContextRepository, memoryConfig, agentName, options);
     const runtime: SaaSRuntime = {
       tenantId,
       memory,

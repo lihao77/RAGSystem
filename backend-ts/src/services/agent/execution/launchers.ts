@@ -103,7 +103,7 @@ class AgentLaunchers {
       };
     }
     const sessionMetadata = (await this.sessions.getSession(sessionId))?.metadata ?? {};
-    const attachmentResolution = await this.attachmentResolver.resolveAsync(sessionId, request.attachments);
+    const attachmentResolution = await this.attachmentResolver.resolve(sessionId, request.attachments);
     if (attachmentResolution.error) {
       return {
         started: false,
@@ -348,7 +348,7 @@ class AgentLaunchers {
     // 编辑重发可能带新附件：解析后按 image/file 拆分（复用 startStream 的拆分逻辑），
     // 打包成 metadataPatch 交给 prepareRetry 合并进用户消息 metadata。
     if (input.attachments && input.attachments.length) {
-      const attachmentResolution = await this.attachmentResolver.resolveAsync(sessionId, input.attachments);
+      const attachmentResolution = await this.attachmentResolver.resolve(sessionId, input.attachments);
       if (attachmentResolution.error) {
         return {
           started: false,

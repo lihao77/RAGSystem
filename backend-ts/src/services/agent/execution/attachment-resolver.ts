@@ -1,6 +1,5 @@
 import type { AttachmentRef } from "../../../contracts/execution/execution.js";
-import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
-import type { AsyncSessionFileStorage } from "../../../contracts/session/session-file-storage.js";
+import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 
 export interface ResolvedAttachment {
   file_id: string;
@@ -18,16 +17,13 @@ export interface AttachmentResolution {
 }
 
 export class AttachmentResolver {
-  constructor(
-    private readonly fileIndex: IFileIndexStore | null = null,
-    private readonly asyncStore: AsyncSessionFileStorage | null = null,
-  ) {}
+  constructor(private readonly files: SessionFileLookupPort | null = null) {}
 
-  resolve(sessionId: string, attachments: AttachmentRef[]): AttachmentResolution {
+  async resolve(sessionId: string, attachments: AttachmentRef[]): Promise<AttachmentResolution> {
     if (!attachments.length) {
       return { attachments: [] };
     }
-    if (!this.fileIndex) {
+    if (!this.files) {
       return { attachments: [], error: "Attachments are not supported by this TypeScript runtime instance" };
     }
     const resolved: ResolvedAttachment[] = [];
@@ -36,10 +32,8 @@ export class AttachmentResolver {
       if (!fileId) {
         return { attachments: [], error: "附件 file_id 不能为空" };
       }
-      const record = this.fileIndex.get(fileId, "session", sessionId);
-      if (!record) {
-        return { attachments: [], error: `附件不存在或不属于当前会话: ${fileId}` };
-      }
+      const record = await this.files.get(sessionId, fileId);
+      if (!record) return { attachments: [], error: `附件不存在或不属于当前会话: ${fileId}` };
       resolved.push({
         file_id: record.id,
         original_name: record.original_name,
@@ -51,30 +45,5 @@ export class AttachmentResolver {
       });
     }
     return { attachments: resolved };
-  }
-
-  /** Async deployment adapter used by SaaS object-storage backed uploads. */
-  async resolveAsync(sessionId: string, attachments: AttachmentRef[]): Promise<AttachmentResolution> {
-    if (!attachments.length) return { attachments: [] };
-    if (this.asyncStore) {
-      const resolved: ResolvedAttachment[] = [];
-      for (const attachment of attachments) {
-        const fileId = attachment.file_id.trim();
-        if (!fileId) return { attachments: [], error: "附件 file_id 不能为空" };
-        const record = await this.asyncStore.get(sessionId, fileId);
-        if (!record) return { attachments: [], error: `附件不存在或不属于当前会话: ${fileId}` };
-        resolved.push({
-          file_id: record.id,
-          original_name: record.original_name,
-          stored_name: record.stored_name,
-          stored_path: record.stored_path,
-          mime: record.mime || attachment.mime || "",
-          size: record.size,
-          kind: attachment.kind ?? (record.mime.startsWith("image/") ? "image" : "file"),
-        });
-      }
-      return { attachments: resolved };
-    }
-    return this.resolve(sessionId, attachments);
   }
 }

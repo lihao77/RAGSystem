@@ -7,7 +7,7 @@ import type {
   TransactionalMemoryRepository,
 } from "../../../src/contracts/memory-store/index.js";
 import { SaaSRuntimeProvider } from "../../../src/adapters/saas/composition/saas-runtime-provider.js";
-import { SaaSMemoryContextSource } from "../../../src/services/agent/memory/saas-memory-context-source.js";
+import { MemoryContextSource } from "../../../src/services/agent/memory/memory-context-source.js";
 import { SaaSMemoryToolService } from "../../../src/tools/MemoryTools/SaaSMemoryExecution.js";
 
 function repository(): TransactionalMemoryRepository {
@@ -87,6 +87,6 @@ describe("SaaSRuntimeProvider", () => {
     });
 
     expect(bindings.tools).toBeInstanceOf(SaaSMemoryToolService);
-    expect(source).toBeInstanceOf(SaaSMemoryContextSource);
+    expect(source).toBeInstanceOf(MemoryContextSource);
   });
 });

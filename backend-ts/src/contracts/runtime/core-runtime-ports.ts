@@ -10,21 +10,33 @@ import type {
 import type { PermissionMode } from "./permissions.js";
 import type { MessageInfo } from "../session/session.js";
 import type { Envelope } from "../events.js";
-import type { IFileIndexStore } from "../file-index-store/index.js";
-import type { AsyncSessionFileStorage } from "../session/session-file-storage.js";
+import type { RuntimeRecordEnvelopeInput } from "../storage/runtime-storage.js";
 
 /** Values returned by the Local adapter may be synchronous; SaaS adapters are async. */
 export type Awaitable<T> = T | Promise<T>;
 
-/** Deployment-neutral durable event delivery surface. */
-export interface RuntimeEventDispatcherPort {
-  dispatchRows(rows: OutboxRow[]): Awaitable<Envelope[]>;
+export interface ClientEventPublishOptions {
+  runId?: string | null | undefined;
+  aggregateType?: string | undefined;
+  aggregateId?: string | undefined;
+  eventType?: string | undefined;
+  eventId?: string | undefined;
 }
 
-/** Explicit attachment source selected by a deployment composition root. */
-export type RuntimeSessionFilesPort =
-  | { kind: "local"; fileIndex: IFileIndexStore }
-  | { kind: "async"; storage: AsyncSessionFileStorage };
+/** Deployment-neutral, Promise-only durable client-event surface. */
+export interface ClientEventPublisherPort {
+  publish(sessionId: string, event: Envelope, options?: ClientEventPublishOptions): Promise<OutboxRow>;
+  record(sessionId: string, event: Envelope, options?: ClientEventPublishOptions): Promise<OutboxRow>;
+  prepare(sessionId: string, event: Envelope, options?: ClientEventPublishOptions): RuntimeRecordEnvelopeInput;
+  flush(sessionId: string): Promise<void>;
+  deliver(rows: OutboxRow[]): Promise<void>;
+}
+
+/** Deployment-neutral, Promise-only durable event delivery surface. */
+export interface RuntimeEventDispatcherPort {
+  dispatchRows(rows: OutboxRow[]): Promise<Envelope[]>;
+  dispatchPendingRows?(rows: OutboxRow[]): Promise<Envelope[]>;
+}
 
 /** Persistence surface required by child-agent delegation.
  *
@@ -51,11 +63,20 @@ export interface AgentMetricsStorePort {
   resetMetrics(agentName?: string | null): Awaitable<ReturnType<IMetricStore["resetMetrics"]>>;
 }
 
-/** Local synchronous fallback for context compression history. */
-export type CompressionHistoryStorePort = Pick<
-  IMessageStore,
-  "getRecentMessages" | "insertCompressionMessage"
->;
+/** Durable history required by context compression. */
+export interface InsertCompressionMessageInput {
+  sessionId: string;
+  summaryContent: string;
+  replacesUpToSeq?: number | null;
+  threadKey?: string;
+  childAgentId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CompressionHistoryPort {
+  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
+  insertCompressionMessage(input: InsertCompressionMessageInput): Promise<MessageInfo>;
+}
 
 /** Session projection required to resolve a run's permission mode. */
 export interface PermissionPolicyStorePort {

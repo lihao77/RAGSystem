@@ -1,12 +1,12 @@
 import type { FileChangeApplication } from "../../../../contracts/application/file-change-application.js";
 import type { AsyncFileHistoryStore } from "../../../../contracts/file-history-store/index.js";
-import { AsyncFileChangeService } from "../../../../services/sessions/file-change-service.js";
+import { FileChangeService } from "../../../../services/sessions/file-change-service.js";
 
 export class SaaSFileChangeApplication implements FileChangeApplication {
-  private readonly service: AsyncFileChangeService;
+  private readonly service: FileChangeService;
 
   constructor(history: AsyncFileHistoryStore) {
-    this.service = new AsyncFileChangeService(history);
+    this.service = new FileChangeService(history);
   }
 
   getLatest(sessionId: string) { return this.service.getLatest(sessionId); }

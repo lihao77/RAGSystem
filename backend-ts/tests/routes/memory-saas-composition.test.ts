@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { buildApp, type BuildAppOptions } from "../../src/app.js";
 import type { TransactionalMemoryRepository } from "../../src/contracts/memory-store/index.js";
-import { SaaSMemoryContextSource } from "../../src/services/agent/memory/saas-memory-context-source.js";
+import { MemoryContextSource } from "../../src/services/agent/memory/memory-context-source.js";
 import type { MemoryApplication } from "../../src/services/memory/index.js";
 import type { SaaSMemoryRuntimeHandle } from "../../src/adapters/saas/composition/saas-memory-runtime.js";
 import { SaaSRuntimeProvider } from "../../src/adapters/saas/composition/saas-runtime-provider.js";
@@ -94,7 +94,7 @@ describe("SaaS memory application composition", () => {
         agentName: "orchestrator_agent",
         memoryConfig: { index_max_lines: 100, index_max_chars: 1_000 },
         dataRoot: root,
-      })).toBeInstanceOf(SaaSMemoryContextSource);
+      })).toBeInstanceOf(MemoryContextSource);
     } finally {
       await app.close();
     }

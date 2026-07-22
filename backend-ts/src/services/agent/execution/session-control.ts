@@ -5,10 +5,8 @@ import type {
 } from "../../../contracts/execution/execution.js";
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
-import type { IRunStore } from "../../../contracts/conversation-store/index.js";
 import type { PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
 import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
-import type { SuspendedSessionControlPort } from "../../../contracts/runtime/runtime-async-ports.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import { buildExecutionEnvelopeRunStep } from "../../runtime/event-outbox/execution-envelope-archive.js";
 
@@ -23,10 +21,8 @@ export interface SessionControlApi {
 export interface SessionControlDeps {
   statusTracker: AgentExecutionStatusTracker;
   eventPublisher: AgentExecutionEventPublisher;
-  conversationStore?: IRunStore;
   pendingInteractions: PendingInteractionPort;
-  runtimeStorage?: RuntimeStorage;
-  asyncSuspendedSessionControl?: SuspendedSessionControlPort;
+  runtimeStorage: RuntimeStorage;
   asyncClientEvents?: Pick<AsyncDurableClientEventPublisher, "publish" | "deliver">;
   /** collaborateSequentially 顺序复用 executeSynchronously（由 launchers 提供，注入打破环）。 */
   executeSynchronously: (request: ExecuteRequest, requestId: string) => Promise<AgentExecuteResult>;
@@ -38,47 +34,33 @@ export function createSessionControl(deps: SessionControlDeps): SessionControlAp
     async stopSession(sessionId) {
       const handle = deps.statusTracker.getRunningHandleBySession(sessionId);
       if (!handle) {
-        if (deps.runtimeStorage) {
-          const result = await deps.runtimeStorage.operations.interruptSession({
-            sessionId,
-            buildRunEndedRecord: (run) => {
-              const eventId = `${run.runId}:session-stop:run_ended`;
-              const event = {
-                type: "run_ended" as const,
-                session_id: sessionId,
-                run_id: run.runId,
-                payload: { status: "interrupted" },
-              };
-              return {
-                step: buildExecutionEnvelopeRunStep(sessionId, run.runId, event, eventId),
-                outbox: {
-                  sessionId,
-                  runId: run.runId,
-                  eventId,
-                  eventType: "client.run_ended",
-                  aggregateType: "run",
-                  aggregateId: run.runId,
-                  payload: { client_event: event },
-                },
-              };
-            },
-          });
-          deps.pendingInteractions.cancelSession(sessionId, "suspended run cancelled", { persist: false });
-          await deps.asyncClientEvents?.deliver(result.records.map((record) => record.outbox));
-          return result.interruptedRuns.length > 0 || result.cancelledInteractions > 0;
-        }
-        if (!deps.conversationStore) {
-          throw new Error("Session control requires RuntimeStorage for non-local runtimes");
-        }
-        const suspendedRuns = deps.conversationStore.listRuns(sessionId, 1000).items
-          .filter((run) => run.status === "suspended");
-        if (suspendedRuns.length === 0) return false;
-        deps.pendingInteractions.cancelSession(sessionId, "suspended run cancelled");
-        for (const run of suspendedRuns) {
-          deps.conversationStore.updateRunStatus(run.run_id, sessionId, "interrupted", null);
-          if (!run.parent_run_id) deps.eventPublisher.publishRunEnded(sessionId, run.run_id, "interrupted");
-        }
-        return true;
+        const result = await deps.runtimeStorage.operations.interruptSession({
+          sessionId,
+          buildRunEndedRecord: (run) => {
+            const eventId = `${run.runId}:session-stop:run_ended`;
+            const event = {
+              type: "run_ended" as const,
+              session_id: sessionId,
+              run_id: run.runId,
+              payload: { status: "interrupted" },
+            };
+            return {
+              step: buildExecutionEnvelopeRunStep(sessionId, run.runId, event, eventId),
+              outbox: {
+                sessionId,
+                runId: run.runId,
+                eventId,
+                eventType: "client.run_ended",
+                aggregateType: "run",
+                aggregateId: run.runId,
+                payload: { client_event: event },
+              },
+            };
+          },
+        });
+        await deps.pendingInteractions.cancelSession(sessionId, "suspended run cancelled");
+        await deps.asyncClientEvents?.deliver(result.records.map((record) => record.outbox));
+        return result.interruptedRuns.length > 0 || result.cancelledInteractions > 0;
       }
       deps.eventPublisher.publishUserInterrupt(handle.status, "user_stop");
       handle.abortController.abort();

@@ -5,9 +5,10 @@ import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { AsyncFileChangeService, FileChangeService } from "../../src/services/sessions/file-change-service.js";
+import { FileChangeService } from "../../src/services/sessions/file-change-service.js";
 import type { AsyncFileHistoryStore } from "../../src/contracts/file-history-store/index.js";
 import { FileHistoryService } from "../../src/adapters/local/files/file-history-service.js";
+import { LocalFileChangeHistoryAdapter } from "../../src/adapters/local/files/local-file-change-history-adapter.js";
 
 let dataRoot: string;
 let workDir: string;
@@ -37,7 +38,7 @@ describe("FileChangeService", () => {
       cleanup: async () => undefined,
     };
 
-    await expect(new AsyncFileChangeService(history).getLatest("s1")).resolves.toEqual({
+    await expect(new FileChangeService(history).getLatest("s1")).resolves.toEqual({
       snapshot_id: "snap-1",
       message_seq: 7,
       files: [{
@@ -53,7 +54,7 @@ describe("FileChangeService", () => {
     });
   });
 
-  it("合并最近 snapshot 与持久化 pending", () => {
+  it("合并最近 snapshot 与持久化 pending", async () => {
     const history = new FileHistoryService({ dataRoot });
     const oldFile = path.join(workDir, "old.txt");
     const currentFile = path.join(workDir, "current.txt");
@@ -66,7 +67,9 @@ describe("FileChangeService", () => {
     history.trackEdit("session", currentFile);
     fs.writeFileSync(currentFile, "after\n");
 
-    const result = new FileChangeService(new FileHistoryService({ dataRoot })).getLatest("session");
+    const result = await new FileChangeService(
+      new LocalFileChangeHistoryAdapter(new FileHistoryService({ dataRoot })),
+    ).getLatest("session");
 
     expect(result.snapshot_id).not.toBeNull();
     expect(result.message_seq).toBe(10);
@@ -74,14 +77,16 @@ describe("FileChangeService", () => {
     expect(result.files[1]?.diff.map((line) => line.type)).toEqual(["removed", "added"]);
   });
 
-  it("无 snapshot 但有持久化 pending 时返回 pending 文件", () => {
+  it("无 snapshot 但有持久化 pending 时返回 pending 文件", async () => {
     const history = new FileHistoryService({ dataRoot });
     const filePath = path.join(workDir, "pending-only.txt");
     fs.writeFileSync(filePath, "before\n");
     history.trackEdit("session", filePath);
     fs.writeFileSync(filePath, "after\n");
 
-    const result = new FileChangeService(new FileHistoryService({ dataRoot })).getLatest("session");
+    const result = await new FileChangeService(
+      new LocalFileChangeHistoryAdapter(new FileHistoryService({ dataRoot })),
+    ).getLatest("session");
 
     expect(result.snapshot_id).toBeNull();
     expect(result.message_seq).toBeNull();
@@ -89,7 +94,7 @@ describe("FileChangeService", () => {
     expect(result.files[0]?.path).toBe(filePath);
   });
 
-  it("同路径 pending 覆盖最近 snapshot 的 tracked 文件", () => {
+  it("同路径 pending 覆盖最近 snapshot 的 tracked 文件", async () => {
     const history = new FileHistoryService({ dataRoot });
     const filePath = path.join(workDir, "same-path.txt");
     fs.writeFileSync(filePath, "v0\n");
@@ -99,7 +104,9 @@ describe("FileChangeService", () => {
     history.trackEdit("session", filePath);
     fs.writeFileSync(filePath, "v2\n");
 
-    const result = new FileChangeService(new FileHistoryService({ dataRoot })).getLatest("session");
+    const result = await new FileChangeService(
+      new LocalFileChangeHistoryAdapter(new FileHistoryService({ dataRoot })),
+    ).getLatest("session");
 
     expect(result.files).toHaveLength(1);
     expect(result.files[0]?.oldContent).toBe("v1\n");

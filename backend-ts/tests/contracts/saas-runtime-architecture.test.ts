@@ -49,7 +49,8 @@ describe("SaaS runtime architecture", () => {
     expect(source).not.toContain("knowledgeBase");
     expect(source).not.toContain("transientArtifacts");
     expect(source).not.toContain("memoryStore");
-    expect(source).toContain("sessionFiles.kind");
+    expect(source).toContain("sessionFiles,");
+    expect(source).not.toContain("sessionFiles.kind");
     expect(source).toContain("eventDispatcher");
   });
 });

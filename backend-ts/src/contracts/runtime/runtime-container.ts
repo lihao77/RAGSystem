@@ -10,10 +10,9 @@ import type { IMemoryStore } from "../memory-store/index.js";
 import type { PathAccessPolicy } from "./path-access-policy.js";
 import type { InteractionCoordinator, PendingInteractionPort } from "./pending-interactions.js";
 import type { RealtimeEventBus } from "./realtime-event-bus.js";
-import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "./runtime-async-ports.js";
 import type { MemoryConfig } from "./system-config.js";
 import type { CommandExecutionPort, CodeExecutionPort, DocumentToolPort, WorkspaceSearchPort } from "./tool-ports.js";
-import type { AsyncSessionFileStorage } from "../session/session-file-storage.js";
+import type { AsyncSessionFileStorage, SessionFileLookupPort } from "../session/session-file-storage.js";
 import type { ExecutionSessionPort, SessionApplication } from "../session/session-application.js";
 import type { RuntimeStorage } from "../storage/runtime-storage.js";
 import type { AsyncAnalyticsRepository } from "../storage/async-persistence-ports.js";
@@ -48,10 +47,9 @@ import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import type {
   AgentDelegationStorePort,
   AgentMetricsStorePort,
-  CompressionHistoryStorePort,
+  CompressionHistoryPort,
   PermissionPolicyStorePort,
   RuntimeEventDispatcherPort,
-  RuntimeSessionFilesPort,
 } from "./core-runtime-ports.js";
 
 /** Local-only synchronous administration and filesystem capabilities. */
@@ -135,16 +133,13 @@ interface CoreRuntimeDependenciesBase {
   getMemoryConfig: () => MemoryConfig;
   logger?: AgentExecutionLogger | undefined;
   hooks?: ((registry: HookRegistry) => void) | undefined;
-  asyncConversationHistory?: AsyncConversationHistoryPort;
-  asyncProviderContinuations?: AsyncProviderContinuationLookupPort;
   asyncClientEvents: AsyncDurableClientEventPublisher;
-  asyncSuspendedSessionControl?: SuspendedSessionControlPort;
   asyncAnalytics?: AsyncAnalyticsRepository;
   runtimeStorage: RuntimeStorage;
   delegationStore: AgentDelegationStorePort;
   metricsStore: AgentMetricsStorePort;
   permissionPolicyStore: PermissionPolicyStorePort;
-  compressionHistory: CompressionHistoryStorePort | null;
+  compressionHistory: CompressionHistoryPort;
   executionSessions: ExecutionSessionPort;
   sessionApplication: SessionApplication;
   realtimeEvents: RealtimeEventBus;
@@ -152,7 +147,7 @@ interface CoreRuntimeDependenciesBase {
   modelAdapter: ModelAdapterService;
   systemConfig: SystemConfigService;
   mcp: McpService;
-  sessionFiles: RuntimeSessionFilesPort;
+  sessionFiles: SessionFileLookupPort;
   knowledge: KnowledgeQueryPort;
   memoryBindings: MemoryRuntimeBindings;
   executionStorage: ExecutionStorage;

@@ -59,7 +59,7 @@ export interface PendingInteractionPort {
   ): Promise<void>;
   waitForUserInput(input: PendingUserInputRequest): Promise<PendingUserInputResolution>;
   waitForApproval(input: PendingApprovalRequest): Promise<PendingApprovalResolution>;
-  cancelSession(sessionId: string, reason?: string, options?: { persist?: boolean }): void;
+  cancelSession(sessionId: string, reason?: string): Promise<void>;
 }
 
 export interface InteractionResumeCallbacks {
