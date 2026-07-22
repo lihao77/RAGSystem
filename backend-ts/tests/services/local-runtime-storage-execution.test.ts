@@ -6,6 +6,7 @@ import type { OutboxRow } from "../../src/contracts/conversation-store/index.js"
 import { AsyncKernelEventPersister } from "../../src/services/agent/sdk/async-event-persister.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
+import { buildExecutionTree } from "@ragsystem/agent-protocol";
 
 const stores: ConversationStore[] = [];
 
@@ -135,6 +136,20 @@ describe("local RuntimeStorage execution parity", () => {
         tool_calls: [{ id: "tool-pending", type: "function", function: { name: "write", arguments: "{}" } }],
       },
     } as never);
+    await harness.publisher.publish(harness.sessionId, {
+      type: "tool_call",
+      session_id: harness.sessionId,
+      run_id: harness.runId,
+      call_id: "tool-pending",
+      agent_id: "agent-1",
+      payload: {
+        tool: "write",
+        input: {},
+        phase: "start",
+        status: "running",
+        lineage: { parent_call_id: `call-${harness.runId}` },
+      },
+    }, { eventId: `${harness.runId}:tool-pending`, runId: harness.runId });
 
     await harness.persister.finalize("interrupted", null, new Error("aborted"));
     await harness.persister.finalize("interrupted", null, new Error("aborted"));
@@ -153,12 +168,22 @@ describe("local RuntimeStorage execution parity", () => {
       final_message_id: "run-interrupted:interrupted",
     });
     expect(terminalRows(harness).map((row) => row.event_id)).toEqual([
-      "run-interrupted:terminal:0:agent_ended",
-      "run-interrupted:terminal:1:run_ended",
+      "run-interrupted:terminal:0:tool_result",
+      "run-interrupted:terminal:1:agent_ended",
+      "run-interrupted:terminal:2:run_ended",
     ]);
     expect(harness.delivered.flat()
       .filter((row) => row.event_id.startsWith("run-interrupted:terminal:")))
-      .toHaveLength(2);
+      .toHaveLength(3);
+    const executionTree = buildExecutionTree(
+      harness.store.listRunSteps({ sessionId: harness.sessionId, runId: harness.runId })
+        .map((step) => step.payload as never),
+    );
+    expect(executionTree.root?.rounds[0]?.toolCalls[0]).toMatchObject({
+      callId: "tool-pending",
+      status: "failed",
+      observation: "工具执行被中断",
+    });
   });
 
   it("suspends without a final message or terminal event set", async () => {

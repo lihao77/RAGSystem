@@ -725,18 +725,29 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           input.deleteProviderContinuationThreadKey,
         );
       }
+      const closedToolMessages: MessageInfo[] = [];
       if (input.closeDanglingToolCalls) {
         const messages = await tx.conversation.getRecentMessages(
           input.sessionId,
           1000,
           input.closeDanglingToolCalls.threadKey,
         );
+        closedToolMessages.push(...messages.filter((message) => (
+          message.role === "tool"
+          && message.metadata.run_id === input.runId
+          && message.metadata.interrupted === true
+        )));
         for (const message of buildInterruptedToolMessages(messages, {
           sessionId: input.sessionId,
           runId: input.runId,
           ...input.closeDanglingToolCalls,
         })) {
-          await getOrCreateMessage(transactionExecutor, tx, message, "interrupted tool message");
+          closedToolMessages.push(await getOrCreateMessage(
+            transactionExecutor,
+            tx,
+            message,
+            "interrupted tool message",
+          ));
         }
       }
       const finalMessage = input.finalMessage
@@ -745,7 +756,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (run.status === input.status && run.final_message_id !== (finalMessage?.id ?? null)) {
         throw new Error(`run final message conflicts with idempotent finalize: ${input.runId}`);
       }
-      const terminalRecords = input.buildTerminalRecords?.(finalMessage) ?? [];
+      const terminalRecords = input.buildTerminalRecords?.(finalMessage, closedToolMessages) ?? [];
       const records: RuntimeRecordEnvelopeResult[] = [];
       for (const terminalRecord of terminalRecords) {
         const normalized = normalizeRecord(terminalRecord);

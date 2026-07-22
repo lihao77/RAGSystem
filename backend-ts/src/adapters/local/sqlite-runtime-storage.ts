@@ -33,6 +33,7 @@ import type {
 } from "../../contracts/storage/runtime-storage.js";
 import { buildInterruptedToolMessages } from "../../contracts/storage/runtime-finalization.js";
 import type { TenantId } from "../../identity/types.js";
+import type { MessageInfo } from "../../contracts/session/session.js";
 
 class SerialExecutor {
   private tail: Promise<void> = Promise.resolve();
@@ -456,23 +457,29 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         const readyResumeInteractionIds = input.interactionRootRunId
           ? tx.finalizePendingInteractions(input.sessionId, input.interactionRootRunId, input.status)
           : [];
+        const closedToolMessages: MessageInfo[] = [];
         if (input.closeDanglingToolCalls) {
           const messages = tx.getRecentMessages(
             input.sessionId,
             1000,
             input.closeDanglingToolCalls.threadKey,
           );
+          closedToolMessages.push(...messages.filter((message) => (
+            message.role === "tool"
+            && message.metadata.run_id === input.runId
+            && message.metadata.interrupted === true
+          )));
           for (const message of buildInterruptedToolMessages(messages, {
             sessionId: input.sessionId,
             runId: input.runId,
             ...input.closeDanglingToolCalls,
           })) {
-            resolveDeterministicMessage(tx, message, "interrupted tool message");
+            closedToolMessages.push(resolveDeterministicMessage(tx, message, "interrupted tool message"));
           }
         }
         const finalMessage = resolveFinalMessage(tx, input, currentRun, replayingTerminal);
         const records: RuntimeRecordEnvelopeResult[] = [];
-        for (const terminalRecord of input.buildTerminalRecords?.(finalMessage) ?? []) {
+        for (const terminalRecord of input.buildTerminalRecords?.(finalMessage, closedToolMessages) ?? []) {
           assertRecordScope(terminalRecord, input.sessionId, input.runId);
           records.push(recordEnvelope(tx, terminalRecord));
         }

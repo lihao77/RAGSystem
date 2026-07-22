@@ -207,7 +207,12 @@ export class AsyncKernelEventPersister {
           agentName: this.ctx.agentName,
         },
       } : {}),
-      buildTerminalRecords: (message) => this.buildTerminalRecords(status, message, error),
+      buildTerminalRecords: (message, closedToolMessages) => this.buildTerminalRecords(
+        status,
+        message,
+        closedToolMessages,
+        error,
+      ),
     });
 
     this.finalMessage = result.finalMessage
@@ -306,10 +311,15 @@ export class AsyncKernelEventPersister {
   private buildTerminalRecords(
     status: RuntimeFinalizeStatus,
     finalMessage: { id: string; seq: number; content: string } | null,
+    closedToolMessages: readonly {
+      tool_call_id?: string | undefined;
+      name?: string | undefined;
+      content: string;
+    }[] | undefined,
     error: unknown,
   ): RuntimeRecordEnvelopeInput[] {
     if (status === "suspended" || this.ctx.childAgentId) return [];
-    const events = buildTerminalEnvelopes(this.ctx, status, finalMessage, error);
+    const events = buildTerminalEnvelopes(this.ctx, status, finalMessage, closedToolMessages ?? [], error);
     return events.map((event, index) => {
       const eventId = `${this.ctx.runId}:terminal:${index}:${event.type}`;
       return {
@@ -366,6 +376,11 @@ function buildTerminalEnvelopes(
   ctx: AsyncPersisterRunContext,
   status: RuntimeFinalizeStatus,
   finalMessage: { id: string; seq: number; content: string } | null,
+  closedToolMessages: readonly {
+    tool_call_id?: string | undefined;
+    name?: string | undefined;
+    content: string;
+  }[],
   error: unknown,
 ): Envelope[] {
   if (status === "completed" && finalMessage) {
@@ -408,6 +423,25 @@ function buildTerminalEnvelopes(
   if (status === "suspended") return [];
   const errorMessage = error instanceof Error ? error.message : String(error);
   return [
+    ...closedToolMessages.flatMap((message) => {
+      if (!message.tool_call_id) return [];
+      return [{
+        type: "tool_result" as const,
+        session_id: ctx.sessionId,
+        run_id: ctx.runId,
+        call_id: message.tool_call_id,
+        agent_id: ctx.agentName,
+        payload: {
+          tool: message.name ?? "",
+          phase: "end" as const,
+          ok: false,
+          status: "failed" as const,
+          observation: message.content,
+          summary: "工具执行被中断",
+          lineage: { parent_call_id: ctx.rootCallId },
+        },
+      }];
+    }),
     {
       type: "agent_ended",
       session_id: ctx.sessionId,

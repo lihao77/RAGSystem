@@ -87,6 +87,9 @@ export function useSessionMessages(deps) {
           const meta = item.metadata || {};
           if (meta.visible_to_user === false && !meta.display_only) return false;
           if (meta.hidden) return false;
+          // Tool observations are execution/context records, not chat bubbles.
+          // They are rendered through the assistant message's execution tree.
+          if (item.role === 'tool') return false;
           return true;
         })
         .map(item => {

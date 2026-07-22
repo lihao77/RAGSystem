@@ -195,11 +195,12 @@ export interface RuntimeFinalizeRunInput {
     agentName: string;
   } | null;
   /**
-   * Builds terminal step/outbox records after the final message has been inserted.
+   * Builds terminal step/outbox records after final and interrupted-tool messages have been inserted.
    * This callback runs inside the database transaction and must be synchronous and free of I/O.
    */
   buildTerminalRecords?: (
     finalMessage: MessageInfo | null,
+    closedToolMessages?: readonly MessageInfo[],
   ) => readonly RuntimeRecordEnvelopeInput[];
 }
 
