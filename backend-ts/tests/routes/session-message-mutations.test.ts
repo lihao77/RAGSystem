@@ -266,7 +266,7 @@ describe("session message mutation routes", () => {
       role: "user",
       content: "create file",
     });
-    const firstWrite = documentTools.writeFile(
+    const firstWrite = await documentTools.writeFile(
       {
         filePath: "notes.txt",
         content: "v1",
@@ -286,7 +286,7 @@ describe("session message mutation routes", () => {
     });
     expect(secondUser.metadata.snapshot_id).toEqual(expect.any(String));
 
-    const secondWrite = documentTools.writeFile(
+    const secondWrite = await documentTools.writeFile(
       {
         filePath: "notes.txt",
         content: "v2",

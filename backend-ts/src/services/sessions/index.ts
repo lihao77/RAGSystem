@@ -1,9 +1,12 @@
 import fs from "node:fs";
 
-import type { PaginatedResult } from "../../contracts/common.js";
+import type { PaginatedResult, RunStepInfo } from "../../contracts/common.js";
 import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type SessionListItem } from "../../contracts/session/session.js";
-import type { IMessageStore, IRunStore, ISessionStore, RunInfo } from "../../contracts/conversation-store/index.js";
-import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
+import type {
+  AgentSessionRepositoryPort,
+  AgentSessionRunRecord,
+} from "../../contracts/session/agent-session-repository.js";
+import type { SessionHistoryPort } from "../../contracts/session/session-history.js";
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-envelope-archive.js";
 import type { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
@@ -21,8 +24,8 @@ export class WorkspaceRootValidationError extends Error {
 
 export class AgentSessionApplication implements ExecutionSessionPort {
   constructor(
-    private readonly conversationStore: ISessionStore & IMessageStore & IRunStore,
-    private readonly fileHistory: IFileHistoryStore | null = null,
+    private readonly repository: AgentSessionRepositoryPort,
+    private readonly history: SessionHistoryPort | null = null,
     private readonly transientArtifacts: TransientArtifactService | null = null,
   ) {}
 
@@ -36,7 +39,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
     assertWorkspaceRootExists(metadata);
-    this.conversationStore.createSession(input.tenantId, input.sessionId, input.userId, metadata, input.permissionMode ?? null);
+    await this.repository.createSession(input.tenantId, input.sessionId, input.userId, metadata, input.permissionMode ?? null);
     return {
       session_id: input.sessionId,
       user_id: input.userId,
@@ -54,25 +57,25 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
     assertWorkspaceRootExists(metadata);
-    this.conversationStore.createSession(input.tenantId, input.sessionId, null, metadata, input.permissionMode ?? null);
+    await this.repository.createSession(input.tenantId, input.sessionId, null, metadata, input.permissionMode ?? null);
     return { session_id: input.sessionId, user_id: null, permission_mode: input.permissionMode ?? null, metadata };
   }
 
   async listSessions(input: { tenantId: TenantId; limit?: number; offset?: number; userIds?: readonly string[] | null }): Promise<PaginatedResult<SessionListItem>> {
-    return this.conversationStore.listSessions(input.tenantId, input.limit ?? 20, input.offset ?? 0, input.userIds ?? null);
+    return this.repository.listSessions(input.tenantId, input.limit ?? 20, input.offset ?? 0, input.userIds ?? null);
   }
 
   async getSession(sessionId: string): Promise<SessionInfo | null> {
-    return this.conversationStore.getSession(sessionId);
+    return this.repository.getSession(sessionId);
   }
 
   async updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null> {
-    return this.conversationStore.updateSessionMetadata(sessionId, patch);
+    return this.repository.updateSessionMetadata(sessionId, patch);
   }
 
   async deleteSession(sessionId: string): Promise<boolean> {
-    this.fileHistory?.cleanup(sessionId);
-    const deleted = this.conversationStore.deleteSession(sessionId);
+    await this.history?.cleanup(sessionId);
+    const deleted = await this.repository.deleteSession(sessionId);
     if (deleted) this.transientArtifacts?.deleteSessionArtifacts(sessionId);
     return deleted;
   }
@@ -82,7 +85,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     limit?: number;
     offset?: number;
   }): Promise<PaginatedResult<MessageInfo>> {
-    const data = this.conversationStore.listMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0);
+    const data = await this.repository.listMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0);
     data.items = data.items
       .filter((item) => isVisibleRootMessage(item))
       .map((item) =>
@@ -102,7 +105,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     limit?: number;
     offset?: number;
   }): Promise<{ message_id: string; items: Envelope[]; total: number; limit: number; offset: number; has_more: boolean }> {
-    const data = this.conversationStore.listMessages(input.sessionId, 1000, 0);
+    const data = await this.repository.listMessages(input.sessionId, 1000, 0);
     const message = data.items.find((item) => item.id === input.messageId && isVisibleRootMessage(item));
     if (!message) {
       throw new Error(`消息不存在: ${input.messageId}`);
@@ -114,7 +117,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     const limit = input.limit ?? 500;
     const offset = input.offset ?? 0;
     const rootRunId = message.metadata.run_id ? String(message.metadata.run_id) : null;
-    const envelopes = this.collectRunTreeExecutionEnvelopes(
+    const envelopes = await this.collectRunTreeExecutionEnvelopes(
       input.sessionId,
       rootRunId,
       limit + offset,
@@ -135,14 +138,14 @@ export class AgentSessionApplication implements ExecutionSessionPort {
    * 聚合 root/child run 的持久化 Envelope。系统只支持 protocol.envelope.v1，
    * 数据库 v5 迁移会一次性删除旧 execution.step。
    */
-  private collectRunTreeExecutionEnvelopes(
+  private async collectRunTreeExecutionEnvelopes(
     sessionId: string,
     rootRunId: string | null,
     perRunLimit: number,
     fallbackMessageId?: string | null,
-  ): Envelope[] {
+  ): Promise<Envelope[]> {
     if (!rootRunId) {
-      const steps = this.conversationStore.listRunSteps({
+      const steps = await this.repository.listRunSteps({
         messageId: fallbackMessageId ?? null,
         sessionId,
         limit: perRunLimit,
@@ -153,11 +156,12 @@ export class AgentSessionApplication implements ExecutionSessionPort {
       return archived;
     }
 
-    const allRuns = this.conversationStore.listRuns(sessionId, 1000).items;
+    const allRuns = (await this.repository.listRuns(sessionId, 1000)).items;
     const runIds = this.collectRunTreeRunIds(allRuns, rootRunId);
-    const steps = runIds.flatMap((runId) =>
-      this.conversationStore.listRunSteps({ runId, sessionId, limit: perRunLimit }),
-    );
+    const steps: RunStepInfo[] = [];
+    for (const runId of runIds) {
+      steps.push(...await this.repository.listRunSteps({ runId, sessionId, limit: perRunLimit }));
+    }
     const archived = steps
       .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
       .map((step) => parseArchivedEnvelope(step.payload));
@@ -165,7 +169,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   }
 
   /** root + 递归子孙 run_id;rootRunId 始终首位,子孙按 created_at 升序(父先于子,applyStep 依赖此序)。 */
-  private collectRunTreeRunIds(allRuns: RunInfo[], rootRunId: string): string[] {
+  private collectRunTreeRunIds(allRuns: AgentSessionRunRecord[], rootRunId: string): string[] {
     const idSet = new Set<string>([rootRunId]);
     for (let changed = true; changed; ) {
       changed = false;
@@ -195,15 +199,15 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     threadKey?: string;
     childAgentId?: string | null;
   }): Promise<MessageInfo> {
-    const message = this.conversationStore.addMessage(input);
+    const message = await this.repository.addMessage(input);
     if ((message.role === "user" && isVisibleRootMessage(message)) || message.role === "assistant") {
-      const snapshotId = this.fileHistory?.makeSnapshot(input.sessionId, message.seq);
+      const snapshotId = await this.history?.makeSnapshot(input.sessionId, message.seq);
       if (snapshotId) {
         const metadata = {
           ...message.metadata,
           snapshot_id: snapshotId,
         };
-        this.conversationStore.updateMessage({
+        await this.repository.updateMessage({
           messageId: message.id,
           metadata,
           sessionId: input.sessionId,
@@ -219,7 +223,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   }
 
   async getLastRunRound(sessionId: string, runId: string): Promise<number> {
-    return this.conversationStore.listRunSteps({ sessionId, runId, limit: 1000 })
+    return (await this.repository.listRunSteps({ sessionId, runId, limit: 1000 }))
       .reduce((max, step) => {
         if (step.step_type !== EXECUTION_ENVELOPE_STEP_TYPE) return max;
         const payload = step.payload.payload;
@@ -231,7 +235,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   }
 
   async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> {
-    return this.conversationStore.updateMessage({
+    return this.repository.updateMessage({
       messageId: input.messageId,
       content: input.content,
       sessionId: input.sessionId,
@@ -250,7 +254,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     modifyUserMessage?: string | null;
     metadataPatch?: { attachments?: unknown[]; extensions?: unknown[] };
   }): Promise<{ deleted: number; task: string; message: MessageInfo }> {
-    const originalMessage = this.resolveRetryAnchor(input.sessionId, input.afterSeq, input.afterMessageId);
+    const originalMessage = await this.resolveRetryAnchor(input.sessionId, input.afterSeq, input.afterMessageId);
     if (!originalMessage) {
       const description =
         input.afterSeq !== undefined && input.afterSeq !== null
@@ -280,11 +284,11 @@ export class AgentSessionApplication implements ExecutionSessionPort {
         }
       : originalMessage;
     if (modifiedTask) {
-      const snapshotId = this.fileHistory?.makeSnapshot(input.sessionId, originalMessage.seq);
+      const snapshotId = await this.history?.makeSnapshot(input.sessionId, originalMessage.seq);
       if (snapshotId) {
         message.metadata.snapshot_id = snapshotId;
       }
-      const updated = this.conversationStore.updateMessage({
+      const updated = await this.repository.updateMessage({
         messageId: originalMessage.id,
         content: task,
         metadata: message.metadata,
@@ -311,8 +315,8 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     if (input.afterMessageId !== undefined) {
       payload.afterMessageId = input.afterMessageId;
     }
-    this.rollbackFileSnapshot(input.sessionId, input.afterSeq, input.afterMessageId);
-    return this.conversationStore.deleteMessagesAfter(input.sessionId, payload);
+    await this.rollbackFileSnapshot(input.sessionId, input.afterSeq, input.afterMessageId);
+    return this.repository.deleteMessagesAfter(input.sessionId, payload);
   }
 
   async exportSession(sessionId: string): Promise<{
@@ -338,19 +342,21 @@ export class AgentSessionApplication implements ExecutionSessionPort {
         offset: 0,
       });
     }
-    const exportedMessages = messages.items.map((message) => {
+    const exportedMessages: Array<MessageInfo & { execution_events?: Envelope[] }> = [];
+    for (const message of messages.items) {
       if (message.role !== "assistant" || !message.metadata.run_id) {
-        return message;
+        exportedMessages.push(message);
+        continue;
       }
-      return {
+      exportedMessages.push({
         ...message,
-        execution_events: this.collectRunTreeExecutionEnvelopes(
+        execution_events: await this.collectRunTreeExecutionEnvelopes(
           sessionId,
           String(message.metadata.run_id),
           500,
         ),
-      };
-    });
+      });
+    }
     return {
       version: 2,
       exported_at: new Date().toISOString(),
@@ -360,45 +366,53 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     };
   }
 
-  private resolveRetryAnchor(sessionId: string, afterSeq?: number | null, afterMessageId?: string | null): MessageInfo | null {
+  private async resolveRetryAnchor(
+    sessionId: string,
+    afterSeq?: number | null,
+    afterMessageId?: string | null,
+  ): Promise<MessageInfo | null> {
     if (afterSeq !== undefined && afterSeq !== null) {
-      return this.conversationStore.getMessageBySeq(sessionId, afterSeq);
+      return this.repository.getMessageBySeq(sessionId, afterSeq);
     }
     const messageId = afterMessageId?.trim();
     if (!messageId) {
       return null;
     }
-    return this.conversationStore.getMessageById(sessionId, messageId);
+    return this.repository.getMessageById(sessionId, messageId);
   }
 
-  private rollbackFileSnapshot(sessionId: string, afterSeq?: number | null, afterMessageId?: string | null): void {
-    if (!this.fileHistory?.hasSnapshots(sessionId)) {
-      return;
-    }
-    const anchor = this.resolveSnapshotAnchorUserMessage(sessionId, afterSeq, afterMessageId);
-    if (!anchor) {
-      return;
-    }
-    this.fileHistory.rewind(sessionId, anchor.seq);
-  }
-
-  private resolveSnapshotAnchorUserMessage(
+  private async rollbackFileSnapshot(
     sessionId: string,
     afterSeq?: number | null,
     afterMessageId?: string | null,
-  ): MessageInfo | null {
+  ): Promise<void> {
+    if (!this.history || !await this.history.hasSnapshots(sessionId)) {
+      return;
+    }
+    const anchor = await this.resolveSnapshotAnchorUserMessage(sessionId, afterSeq, afterMessageId);
+    if (!anchor) {
+      return;
+    }
+    await this.history.rewind(sessionId, anchor.seq);
+  }
+
+  private async resolveSnapshotAnchorUserMessage(
+    sessionId: string,
+    afterSeq?: number | null,
+    afterMessageId?: string | null,
+  ): Promise<MessageInfo | null> {
     let targetMessage: MessageInfo | null = null;
     if (afterSeq !== undefined && afterSeq !== null) {
-      targetMessage = this.conversationStore.getMessageBySeq(sessionId, afterSeq);
+      targetMessage = await this.repository.getMessageBySeq(sessionId, afterSeq);
     } else {
       const messageId = afterMessageId?.trim();
       if (messageId) {
-        targetMessage = this.conversationStore.getMessageById(sessionId, messageId);
+        targetMessage = await this.repository.getMessageById(sessionId, messageId);
       }
     }
 
     if (!targetMessage && afterSeq !== undefined && afterSeq !== null) {
-      targetMessage = this.conversationStore.getFirstMessageAfterSeq(sessionId, afterSeq);
+      targetMessage = await this.repository.getFirstMessageAfterSeq(sessionId, afterSeq);
     }
     if (!targetMessage) {
       return null;
@@ -407,14 +421,12 @@ export class AgentSessionApplication implements ExecutionSessionPort {
       return targetMessage;
     }
 
-    const nextUser = this.conversationStore
-      .listMessagesAfterSeq(sessionId, targetMessage.seq, 20)
+    const nextUser = (await this.repository.listMessagesAfterSeq(sessionId, targetMessage.seq, 20))
       .find((message) => message.role === "user" && isVisibleRootMessage(message));
     if (nextUser) {
       return nextUser;
     }
-    return this.conversationStore
-      .listMessagesBeforeOrAtSeq(sessionId, targetMessage.seq, 20)
+    return (await this.repository.listMessagesBeforeOrAtSeq(sessionId, targetMessage.seq, 20))
       .find((message) => message.role === "user" && isVisibleRootMessage(message)) ?? null;
   }
 }

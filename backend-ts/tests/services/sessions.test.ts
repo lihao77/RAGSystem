@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
+import { LocalAgentSessionRepository } from "../../src/adapters/local/local-agent-session-repository.js";
 import { TransientArtifactService } from "../../src/services/artifacts/transient-artifact-service.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -16,10 +17,14 @@ function createStore() {
   return createConversationStore({ dbPath: ":memory:", dataRoot });
 }
 
+function createApplication(store: ReturnType<typeof createStore>, transientArtifacts?: TransientArtifactService) {
+  return new AgentSessionApplication(new LocalAgentSessionRepository(store), null, transientArtifacts ?? null);
+}
+
 describe("AgentSessionApplication", () => {
   it("写入 tenant_id 并按租户列出会话", async () => {
     const store = createStore();
-    const app = new AgentSessionApplication(store);
+    const app = createApplication(store);
     const otherTenantId = createTenantId("tnt_other");
     await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "local-session" });
     await app.createSession({ tenantId: otherTenantId, userId: "usr_local", sessionId: "other-session" });
@@ -32,7 +37,7 @@ describe("AgentSessionApplication", () => {
 
   it("rejects unsafe session IDs before creating database or filesystem state", async () => {
     const store = createStore();
-    const app = new AgentSessionApplication(store);
+    const app = createApplication(store);
     await expect(app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "../../outside" })).rejects.toThrow("session_id");
     expect(store.getSession("../../outside")).toBeNull();
     store.close();
@@ -42,7 +47,7 @@ describe("AgentSessionApplication", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-session-delete-"));
     try {
       const store = createStore();
-      const app = new AgentSessionApplication(store, null, new TransientArtifactService(root));
+      const app = createApplication(store, new TransientArtifactService(root));
       await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s-delete" });
       const file = path.join(root, "sessions", "s-delete", "transient", "data.txt");
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -58,7 +63,7 @@ describe("AgentSessionApplication", () => {
 
   it("returns the compact create_session payload with persisted permission mode", async () => {
     const store = createStore();
-    const app = new AgentSessionApplication(store);
+    const app = createApplication(store);
 
     const created = await app.createSession({ tenantId: LOCAL_TENANT_ID,
       sessionId: "s1",
@@ -77,7 +82,7 @@ describe("AgentSessionApplication", () => {
 
   it("normalizes Python-compatible session runtime metadata", async () => {
     const store = createStore();
-    const app = new AgentSessionApplication(store);
+    const app = createApplication(store);
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-workspace-"));
     try {
       const created = await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local",
@@ -113,7 +118,7 @@ describe("AgentSessionApplication", () => {
 
   it("filters hidden, intermediate, child, and non-root messages like Python", async () => {
     const store = createStore();
-    const app = new AgentSessionApplication(store);
+    const app = createApplication(store);
     await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s1" });
     await app.addMessage({ sessionId: "s1", role: "user", content: "visible" });
     await app.addMessage({ sessionId: "s1", role: "assistant", content: "hidden", metadata: { visible_to_user: false } });

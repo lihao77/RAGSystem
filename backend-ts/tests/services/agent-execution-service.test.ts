@@ -9,6 +9,7 @@ import {
 } from "../../src/services/agent/execution/index.js";
 import type { ConversationStore } from "../../src/contracts/conversation-store/index.js";
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
+import { LocalAgentSessionRepository } from "../../src/adapters/local/local-agent-session-repository.js";
 import os from "node:os";
 import path from "node:path";
 import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
@@ -126,7 +127,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const ready = opts.ready ?? true;
   const dbPath = makeTempDb();
   const store = createConversationStore({ dbPath, dataRoot: path.dirname(dbPath) });
-  const sessions = new AgentSessionApplication(store);
+  const sessions = new AgentSessionApplication(new LocalAgentSessionRepository(store));
   const realtimeEvents = new RealtimeEventHub();
   const dispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(store), realtimeEvents);
   const runtimeStorage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);

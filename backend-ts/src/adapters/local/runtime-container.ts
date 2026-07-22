@@ -48,6 +48,9 @@ import { LocalCompressionHistoryAdapter } from "./local-compression-history-adap
 import { LocalAgentDelegationStoreAdapter } from "./local-agent-delegation-store-adapter.js";
 import { LocalAgentMetricsStoreAdapter } from "./local-agent-metrics-store-adapter.js";
 import { LocalOutboxStoreAdapter } from "./local-outbox-store-adapter.js";
+import { LocalDocumentEditHistoryAdapter } from "./files/local-document-edit-history-adapter.js";
+import { LocalAgentSessionRepository } from "./local-agent-session-repository.js";
+import { LocalSessionHistoryAdapter } from "./local-session-history-adapter.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export async function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): Promise<LocalRuntimeContainer> {
@@ -56,7 +59,11 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const fileHistory = new FileHistoryService({ dataRoot });
   const transientArtifacts = new TransientArtifactService(dataRoot);
   transientArtifacts.startPruning();
-  const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory, transientArtifacts);
+  const sessionApplication = new AgentSessionApplication(
+    new LocalAgentSessionRepository(conversationStore),
+    new LocalSessionHistoryAdapter(fileHistory),
+    transientArtifacts,
+  );
   const requestSessionApplication = new LocalSessionApplication(options.tenantId, sessionApplication, conversationStore);
   const realtimeEvents = new RealtimeEventHub();
   const outboxDispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(conversationStore), realtimeEvents);
@@ -126,7 +133,10 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     ),
   };
   const hostToolsEnabled = options.hostToolsEnabled !== false;
-  const documentTools = hostToolsEnabled ? new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory }) : null;
+  const documentTools = hostToolsEnabled ? new LocalDocumentToolService({
+    dataRoot: options.dataRoot,
+    fileHistory: new LocalDocumentEditHistoryAdapter(fileHistory),
+  }) : null;
   const notificationQueue = new SessionNotificationQueue();
   const backgroundTasks = new BackgroundTaskService({
     notificationQueue,

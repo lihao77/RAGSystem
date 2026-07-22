@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { LocalSessionApplication } from "../../src/adapters/local/application/session/local-session-application.js";
 import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
+import { LocalAgentSessionRepository } from "../../src/adapters/local/local-agent-session-repository.js";
 import { SaaSSessionApplication } from "../../src/adapters/saas/application/session/saas-session-application.js";
 import type { SessionApplication } from "../../src/contracts/session/session-application.js";
 import type { SessionInfo } from "../../src/contracts/session/session.js";
@@ -86,7 +87,7 @@ describe("daemon session composition", () => {
 
 function createLocalHarness(): Harness {
   const conversations = createConversationStore({ dbPath: makeTempDb(), dataRoot: makeTempRoot() });
-  const sessions = new AgentSessionApplication(conversations);
+  const sessions = new AgentSessionApplication(new LocalAgentSessionRepository(conversations));
   return {
     application: new LocalSessionApplication(tenantId, sessions, conversations),
     readRaw: (sessionId) => conversations.getSession(sessionId),

@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 import type { AgentConfig } from "../../contracts/agent/agent-config.js";
-import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
+import type { DocumentEditHistoryPort } from "../../contracts/runtime/tool-ports.js";
 import {
   buildDataStructurePreview,
   DEFAULT_STRUCTURE_PREVIEW_DEPTH,
@@ -19,9 +19,9 @@ const DEFAULT_READ_MAX_LINES = 2000;
 
 export class LocalDocumentToolService {
   private readonly pathManager: LocalDocumentPathManager;
-  private readonly fileHistory: IFileHistoryStore | null;
+  private readonly fileHistory: DocumentEditHistoryPort | null;
 
-  constructor(options: { dataRoot?: string | undefined; fileHistory?: IFileHistoryStore | null | undefined } = {}) {
+  constructor(options: { dataRoot?: string | undefined; fileHistory?: DocumentEditHistoryPort | null | undefined } = {}) {
     if (!options.dataRoot?.trim()) {
       throw new Error("LocalDocumentToolService 必须传入已解析的 dataRoot");
     }
@@ -123,7 +123,7 @@ export class LocalDocumentToolService {
     }
   }
 
-  writeFile(
+  async writeFile(
     input: {
       content: unknown;
       filePath?: string | null;
@@ -134,7 +134,7 @@ export class LocalDocumentToolService {
     context: ToolExecContext,
     agent: AgentConfig,
     pathService: PathAccessPolicy,
-  ): ToolExecutionResult {
+  ): Promise<ToolExecutionResult> {
     const toolName = "write_file";
     try {
       const mode = normalizeString(input.mode)?.toLowerCase() === "json" ? "json" : "text";
@@ -147,7 +147,7 @@ export class LocalDocumentToolService {
       }, pathService);
       fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
       const encoding = normalizeEncoding(input.encoding);
-      this.fileHistory?.trackEdit(context.sessionId, resolvedPath);
+      await this.fileHistory?.trackEdit(context.sessionId, resolvedPath);
       fs.writeFileSync(resolvedPath, renderWritableContent(input.content, mode), { encoding });
       const stat = fs.statSync(resolvedPath);
       const displayPath = this.pathManager.toDisplayPath(resolvedPath);
@@ -173,7 +173,7 @@ export class LocalDocumentToolService {
     }
   }
 
-  editFile(
+  async editFile(
     input: {
       filePath: string;
       oldString: string;
@@ -185,7 +185,7 @@ export class LocalDocumentToolService {
     context: ToolExecContext,
     agent: AgentConfig,
     pathService: PathAccessPolicy,
-  ): ToolExecutionResult {
+  ): Promise<ToolExecutionResult> {
     const toolName = "edit_file";
     try {
       const resolvedPath = this.pathManager.resolveManagedPath(input.filePath, {
@@ -221,7 +221,7 @@ export class LocalDocumentToolService {
       const updatedContent = input.replaceAll
         ? originalContent.split(input.oldString).join(input.newString)
         : originalContent.replace(input.oldString, input.newString);
-      this.fileHistory?.trackEdit(context.sessionId, resolvedPath);
+      await this.fileHistory?.trackEdit(context.sessionId, resolvedPath);
       fs.writeFileSync(resolvedPath, updatedContent, { encoding });
       const updatedStat = fs.statSync(resolvedPath);
       const diffPreview = buildDiffPreview(originalContent, updatedContent, path.basename(resolvedPath));
