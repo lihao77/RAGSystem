@@ -19,6 +19,9 @@ import {
   type ProviderConfig,
 } from "@ragsystem/agent-llm";
 import { DEFAULT_ENDPOINTS, PROVIDER_TYPES, PROVIDER_TYPE_SET } from "@ragsystem/agent-llm";
+import type { StoredReranker } from "../../contracts/vector-store/index.js";
+import { OpenAiCompatibleEmbeddingClient } from "./embedding-client.js";
+import { OpenAiCompatibleRerankClient } from "./reranker-client.js";
 
 const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "providers.yaml");
 
@@ -69,7 +72,7 @@ export class ModelAdapterService {
       value: providerType,
       label: labelProviderType(providerType),
       default_endpoint: DEFAULT_ENDPOINTS[providerType] ?? "",
-      config_fields: [],
+      config_fields: providerConfigFields(providerType),
     }));
   }
 
@@ -334,28 +337,59 @@ export class ModelAdapterService {
     }
 
     if (task === "embedding") {
-      return {
-        embeddings: deterministicEmbedding(data.prompt ?? ""),
-        error: null,
-        model,
-        provider: provider.name,
-        latency: 0,
-        usage: null,
-      };
+      const startedAt = Date.now();
+      try {
+        const embeddings = await new OpenAiCompatibleEmbeddingClient().embed({
+          texts: [data.prompt ?? ""],
+          model,
+          provider,
+        });
+        return {
+          embeddings,
+          error: null,
+          model,
+          provider: provider.name,
+          latency: (Date.now() - startedAt) / 1000,
+          usage: null,
+        };
+      } catch (error) {
+        return {
+          embeddings: null,
+          error: error instanceof Error ? error.message : String(error),
+          model,
+          provider: provider.name,
+          latency: (Date.now() - startedAt) / 1000,
+          usage: null,
+        };
+      }
     }
 
     if (task === "rerank") {
+      const startedAt = Date.now();
       const documents = normalizeRerankDocuments(data.documents, data.prompt ?? "");
-      return {
-        results: documents.map((document, index) => ({
-          ...document,
-          score: index === 0 ? 1 : 0,
-        })),
-        error: null,
-        model,
-        provider: provider.name,
-        latency: 0,
-      };
+      try {
+        const scores = await new OpenAiCompatibleRerankClient().rerank({
+          query: data.prompt ?? "",
+          documents: documents.map((document) => document.text),
+          reranker: providerAsStoredReranker(provider, model),
+          topN: documents.length,
+        });
+        return {
+          results: documents.map((document, index) => ({ ...document, score: scores[index] })),
+          error: null,
+          model,
+          provider: provider.name,
+          latency: (Date.now() - startedAt) / 1000,
+        };
+      } catch (error) {
+        return {
+          results: null,
+          error: error instanceof Error ? error.message : String(error),
+          model,
+          provider: provider.name,
+          latency: (Date.now() - startedAt) / 1000,
+        };
+      }
     }
 
     throw new ModelAdapterServiceError(`不支持的任务类型: ${task}`, 400);
@@ -537,6 +571,85 @@ function labelProviderType(providerType: string): string {
     rerank_api: "Rerank API",
   };
   return labels[providerType] ?? providerType.charAt(0).toUpperCase() + providerType.slice(1);
+}
+
+function providerConfigFields(providerType: string): ProviderTypeInfo["config_fields"] {
+  const fields: ProviderTypeInfo["config_fields"] = [
+    {
+      key: "retry_attempts",
+      label: "重试次数",
+      type: "number",
+      default: 2,
+      help: "可重试错误发生后的最大重试次数。",
+      options: [],
+    },
+    {
+      key: "retry_delay",
+      label: "初始重试延迟 (s)",
+      type: "number",
+      default: 0.5,
+      help: "第一次重试前的等待时间。",
+      options: [],
+    },
+    {
+      key: "retry_backoff_factor",
+      label: "退避倍率",
+      type: "number",
+      default: 2,
+      help: "后续重试等待时间的指数退避倍率。",
+      options: [],
+    },
+  ];
+
+  if (providerType === "openai_resp") {
+    fields.unshift({
+      key: "reasoning_effort",
+      label: "推理强度",
+      type: "select",
+      default: "",
+      help: "仅对支持 reasoning_effort 的 OpenAI 推理模型生效。",
+      options: [
+        { value: "", label: "模型默认" },
+        { value: "none", label: "None" },
+        { value: "minimal", label: "Minimal" },
+        { value: "low", label: "Low" },
+        { value: "medium", label: "Medium" },
+        { value: "high", label: "High" },
+        { value: "xhigh", label: "XHigh" },
+      ],
+    });
+  }
+
+  if (providerType === "anthropic") {
+    fields.unshift(
+      {
+        key: "thinking_budget_tokens",
+        label: "Thinking Budget Tokens",
+        type: "number",
+        default: 0,
+        help: "Anthropic 扩展思考预算；0 表示使用模型默认行为。",
+        options: [],
+      },
+      {
+        key: "supports_prompt_caching",
+        label: "启用 Prompt Cache",
+        type: "boolean",
+        default: true,
+        help: "控制 Anthropic prompt cache 标记与缓存复用。",
+        options: [],
+      },
+      {
+        key: "cache_ttl_seconds",
+        label: "Cache TTL (s)",
+        type: "number",
+        default: 300,
+        help: "Provider KV cache 的滑动失效阈值。",
+        options: [],
+      },
+    );
+  }
+
+  return fields;
 }
 
 function makeProviderKey(config: Pick<ModelProviderConfig, "name" | "provider_type">): string {
@@ -757,15 +870,6 @@ function summarizeAvailabilityFailure(
   return "Provider 不可用";
 }
 
-function deterministicEmbedding(text: string): number[][] {
-  const digest = Buffer.from(text || "test", "utf8");
-  const vector = Array.from({ length: 16 }, (_, index) => {
-    const byte = digest[index % Math.max(1, digest.length)] ?? index;
-    return Number(((byte % 64) / 63).toFixed(6));
-  });
-  return [vector];
-}
-
 function normalizeRerankDocuments(documents: unknown, prompt: string): Array<{ id: string; text: string; metadata: Record<string, unknown> }> {
   if (!Array.isArray(documents) || documents.length === 0) {
     return [
@@ -789,6 +893,21 @@ function normalizeRerankDocuments(documents: unknown, prompt: string): Array<{ i
   });
 }
 
+function providerAsStoredReranker(provider: ModelProviderConfig, model: string): StoredReranker {
+  const providerKey = provider.key ?? provider.name;
+  return {
+    reranker_key: providerKey,
+    mode: "model",
+    provider_key: providerKey,
+    provider_type: provider.provider_type || null,
+    model_name: model,
+    api_endpoint: String(provider.api_endpoint ?? ""),
+    api_key: provider.api_key == null ? null : String(provider.api_key),
+    created_at: "",
+    is_active: true,
+  };
+}
+
 function normalizeProviderRef(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, "_");
 }
@@ -796,4 +915,3 @@ function normalizeProviderRef(value: string): string {
 function providerCircuitKey(provider: ModelProviderConfig): string {
   return `provider:${provider.key ?? provider.name ?? provider.provider_type}`;
 }
-

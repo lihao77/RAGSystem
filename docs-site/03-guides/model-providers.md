@@ -58,11 +58,12 @@ interface ProviderTypeInfo {
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/provider-types` | 列出所有支持的 provider 类型（含表单字段定义） |
-| `GET` | `/providers` | 列出已配置的 provider（响应同时含 `data` 和顶层 `providers`） |
+| `GET` | `/providers` | 列出已配置的 provider（API Key 不回传，仅返回 `api_key_configured`） |
 | `POST` | `/providers` | 创建 provider（body 走 `ProviderPayloadSchema`） |
 | `PUT` | `/providers/order` | 调整 provider 优先级顺序（body: `{ provider_keys: string[] }`） |
 | `PUT` | `/providers/:providerKey` | 更新 provider |
-| `DELETE` | `/providers/:providerKey` | 删除 provider |
+| `DELETE` | `/providers/:providerKey` | 删除 provider；存在 Agent/向量化器/Reranker 引用时返回 409 |
+| `GET` | `/providers/:providerKey/usages` | 列出引用该 provider 的配置 |
 | `GET` | `/providers/:providerKey/check` | 检查 provider 可用性 |
 | `POST` | `/test` | 测试调用（body 走 `TestProviderRequestSchema`） |
 
@@ -81,7 +82,9 @@ interface ProviderTypeInfo {
 }
 ```
 
-返回 `response` 含 `content`/`model`/`cost`/`latency`/`usage`/`finish_reason`。Provider 不存在时返回带 `error` 的空结果（而非报错）。
+返回 `response` 含 `content`/`embeddings`/`results`、`model`、`latency` 和 `error` 等任务相关字段。Chat、Embedding 与 Rerank 都会调用对应的真实 Provider 接口；调用失败时 HTTP 请求仍可成功返回，但 `response.error` 会携带厂商错误，调用方必须据此判定测试失败。Provider 不存在时同样返回带 `error` 的空结果。
+
+Provider 列表接口不会返回 API Key 明文或掩码值。管理端通过 `api_key_configured` 判断密钥是否已配置，编辑时留空表示保持现有密钥。
 
 ## 在运行时中的角色
 

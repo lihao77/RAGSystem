@@ -4,6 +4,7 @@
 
 import { http } from './http.js';
 import { normalizeModelList } from '../utils/modelList.js';
+import { normalizeProviderTestResult } from '../utils/providerTestResult.js';
 
 const API_BASE = '/api/model-adapter'
 
@@ -109,8 +110,14 @@ export async function deleteProvider(providerKey) {
   return http.del(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`)
 }
 
+export async function getProviderUsages(providerKey) {
+  const data = await http.get(`${API_BASE}/providers/${encodeURIComponent(providerKey)}/usages`)
+  return data.data?.usages || data.usages || []
+}
+
 export async function checkProviderAvailability(providerKey) {
-  return http.get(`${API_BASE}/providers/${encodeURIComponent(providerKey)}/check`)
+  const data = await http.get(`${API_BASE}/providers/${encodeURIComponent(providerKey)}/check`)
+  return data.data || data
 }
 
 export async function testProvider(provider, model, prompt = 'Hello', providerType = '', task = 'chat') {
@@ -123,10 +130,7 @@ export async function testProvider(provider, model, prompt = 'Hello', providerTy
       task
     })
 
-    return {
-      ...data,
-      response: data.response || data.data || null
-    }
+    return normalizeProviderTestResult(data)
   } catch (error) {
     console.error('Error testing provider:', error)
     throw error

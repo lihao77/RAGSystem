@@ -77,6 +77,41 @@ const shots = [
     ],
   },
   { name: 'model-providers-narrow', path: '/model-providers', width: 768, height: 900 },
+  {
+    name: 'model-providers-create-dialog',
+    path: '/model-providers',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'click', selector: '[aria-label="添加 Provider"]' },
+      { type: 'expectText', selector: '[role="dialog"]', text: '基础配置' },
+      { type: 'expectText', selector: '[role="dialog"]', text: '模型映射' },
+      { type: 'expectVisible', selector: '[role="dialog"] .provider-dialog-submit' },
+    ],
+  },
+  {
+    name: 'model-providers-edit-dialog-bottom',
+    path: '/model-providers',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'click', selector: '.provider-row .provider-row-actions button:nth-child(2)' },
+      { type: 'expectText', selector: '[role="dialog"]', text: '编辑 Provider' },
+      { type: 'scrollToBottom', selector: '[role="dialog"]' },
+      { type: 'expectVisible', selector: '[role="dialog"] .model-map-editor' },
+      { type: 'expectVisible', selector: '[role="dialog"] .provider-dialog-submit' },
+    ],
+  },
+  {
+    name: 'model-providers-delete-dialog',
+    path: '/model-providers',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'click', selector: '.provider-row .provider-row-actions button:nth-child(3)', waitMs: 750 },
+      { type: 'expectText', selector: '[role="dialog"]', text: '确认删除' },
+    ],
+  },
   { name: 'knowledge-base-mobile', path: '/knowledge-base', width: 390, height: 844 },
   {
     name: 'desktop-mcp-manager',
@@ -151,6 +186,18 @@ const shots = [
     actions: [
       { type: 'click', selector: '.page-mobile-nav__more' },
       { type: 'expectText', selector: '.page-mobile-menu__list', text: '添加 Provider' },
+    ],
+  },
+  {
+    name: 'model-providers-mobile-dialog',
+    path: '/model-providers',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'click', selector: '.page-mobile-nav__more' },
+      { type: 'click', selector: '.page-mobile-menu__list .pl-menu-item:first-child' },
+      { type: 'expectText', selector: '[role="dialog"]', text: '基础配置' },
+      { type: 'expectVisible', selector: '[role="dialog"] .provider-dialog-submit' },
     ],
   },
   {
@@ -696,7 +743,21 @@ async function main() {
 
   try {
     await waitForServer(baseUrl);
-    for (const shot of shots) {
+    const requestedShots = new Set(
+      String(process.env.SCREENSHOT_SHOTS || '')
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean),
+    );
+    const selectedShots = requestedShots.size > 0
+      ? shots.filter((shot) => requestedShots.has(shot.name))
+      : shots;
+    if (requestedShots.size > 0 && selectedShots.length !== requestedShots.size) {
+      const known = new Set(selectedShots.map((shot) => shot.name));
+      const missing = [...requestedShots].filter((name) => !known.has(name));
+      throw new Error(`Unknown screenshot names: ${missing.join(', ')}`);
+    }
+    for (const shot of selectedShots) {
       const result = await captureShot(browserPath, baseUrl, shot);
       console.log(`${shot.name}: ok, ${result.size} bytes -> ${result.output}`);
     }

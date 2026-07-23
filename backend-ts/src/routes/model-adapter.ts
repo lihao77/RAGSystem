@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 
 import {
   ProviderPayloadSchema,
@@ -26,7 +26,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
 
   app.get("/providers", async (request) => {
     const providers = (await (await ensureRequestApplications(request, options)).providers.listProviders())
-      .map((provider) => request.identity.role === "member" ? redactProviderSecrets(provider) : provider);
+      .map(redactProviderSecrets);
     return {
       ...ok(providers, "Provider 列表获取成功"),
       providers,
@@ -74,6 +74,15 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
 
   app.delete<{ Params: ProviderParams }>("/providers/:providerKey", async (request) => {
     try {
+      const usages = await collectProviderUsages(request, options, request.params.providerKey);
+      if (usages.length > 0) {
+        throw new HttpError(
+          409,
+          "provider_in_use",
+          `Provider 仍被 ${usages.length} 个配置引用，请先解除引用`,
+          usages.map((usage) => `${usage.kind}:${usage.label}`),
+        );
+      }
       await (await ensureRequestApplications(request, options)).providers.deleteProvider(request.params.providerKey);
       return ok(undefined, "Provider 删除成功");
     } catch (error) {
@@ -82,6 +91,15 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
       }
       throw toHttpError(error);
     }
+  });
+
+  app.get<{ Params: ProviderParams }>("/providers/:providerKey/usages", async (request) => {
+    const usages = await collectProviderUsages(request, options, request.params.providerKey);
+    return {
+      ...ok({ provider_key: request.params.providerKey, usages }, "获取成功"),
+      provider_key: request.params.providerKey,
+      usages,
+    };
   });
 
   app.get<{ Params: ProviderParams }>("/providers/:providerKey/check", async (request) => {
@@ -134,11 +152,78 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   });
 };
 
-function redactProviderSecrets<T extends Record<string, unknown>>(provider: T): T {
+function redactProviderSecrets<T extends Record<string, unknown>>(provider: T): Omit<T, "api_key"> & { api_key_configured: boolean } {
+  const { api_key: apiKey, ...visible } = provider;
   return {
-    ...provider,
-    ...(provider.api_key ? { api_key: "********" } : {}),
+    ...visible,
+    api_key_configured: Boolean(String(apiKey ?? "").trim()),
   };
+}
+
+interface ProviderUsage {
+  kind: "agent" | "vectorizer" | "reranker";
+  key: string;
+  label: string;
+  detail: string;
+}
+
+async function collectProviderUsages(
+  request: FastifyRequest,
+  options: RouteOptions,
+  providerKey: string,
+): Promise<ProviderUsage[]> {
+  const applications = await ensureRequestApplications(request, options);
+  const providers = await applications.providers.listProviders();
+  const provider = providers.find((item) => item.key === providerKey);
+  if (!provider) {
+    throw new HttpError(404, "not_found", `Provider 不存在: ${providerKey}`);
+  }
+  const aliases = new Set([providerKey, provider.name].map(normalizeProviderRef).filter(Boolean));
+  const usages: ProviderUsage[] = [];
+
+  for (const agent of request.container.agentConfig.listAgents()) {
+    for (const [tierName, tier] of Object.entries(agent.config.llm_tiers ?? {})) {
+      if (!aliases.has(normalizeProviderRef(tier.provider))) continue;
+      usages.push({
+        kind: "agent",
+        key: agent.agent_name,
+        label: agent.display_name || agent.agent_name,
+        detail: `${tierName} 模型档位`,
+      });
+    }
+  }
+
+  const knowledge = await options.resolveKnowledgeApplication?.(request);
+  if (knowledge) {
+    const [vectorizers, rerankers] = await Promise.all([
+      knowledge.listVectorizers(),
+      knowledge.listRerankers(),
+    ]);
+    for (const vectorizer of vectorizers) {
+      if (!aliases.has(normalizeProviderRef(vectorizer.provider_key))) continue;
+      usages.push({
+        kind: "vectorizer",
+        key: vectorizer.vectorizer_key,
+        label: vectorizer.vectorizer_key,
+        detail: vectorizer.model_name,
+      });
+    }
+    for (const reranker of rerankers) {
+      if (reranker.mode !== "model" || !aliases.has(normalizeProviderRef(reranker.provider_key))) continue;
+      usages.push({
+        kind: "reranker",
+        key: reranker.reranker_key,
+        label: reranker.reranker_key,
+        detail: reranker.model_name,
+      });
+    }
+  }
+
+  return usages;
+}
+
+function normalizeProviderRef(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, "_");
 }
 
 function toHttpError(error: unknown): HttpError {

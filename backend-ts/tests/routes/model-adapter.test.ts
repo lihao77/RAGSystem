@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 import { buildTestApp } from "../helpers/app.js";
@@ -10,6 +10,7 @@ afterEach(async () => {
     await app.close();
     app = null;
   }
+  vi.unstubAllGlobals();
 });
 
 describe("model adapter compatibility routes", () => {
@@ -34,6 +35,11 @@ describe("model adapter compatibility routes", () => {
         }),
       ]),
     );
+    const openAiResponses = types.json().data.find((item: { value: string }) => item.value === "openai_resp");
+    expect(openAiResponses.config_fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "reasoning_effort", type: "select" }),
+      expect.objectContaining({ key: "retry_attempts", type: "number" }),
+    ]));
 
     const providers = await app.inject({
       method: "GET",
@@ -144,13 +150,14 @@ describe("model adapter compatibility routes", () => {
     const first = afterUpdate.json().providers[0];
     expect(first).toMatchObject({
       key: "my_deepseek_deepseek",
-      api_key: "sk-test",
+      api_key_configured: true,
       max_context_tokens: 64000,
       models: ["deepseek-chat"],
       model_map: {
         chat: "deepseek-chat",
       },
     });
+    expect(first).not.toHaveProperty("api_key");
 
     const reordered = await app.inject({
       method: "PUT",
@@ -261,8 +268,65 @@ describe("model adapter compatibility routes", () => {
     expect(badOrder.json().message).toContain("未知 Provider: missing_deepseek");
   });
 
+  it("reports provider usages and blocks deletion while an agent still references it", async () => {
+    app = await buildTestApp();
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/model-adapter/providers",
+      payload: {
+        name: "my",
+        provider_type: "deepseek",
+        api_key: "sk-test",
+        model_map: { chat: "deepseek-chat" },
+      },
+    });
+    expect(created.statusCode).toBe(200);
+
+    const usages = await app.inject({
+      method: "GET",
+      url: "/api/model-adapter/providers/my_deepseek/usages",
+    });
+    expect(usages.statusCode).toBe(200);
+    expect(usages.json().usages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "agent", detail: expect.stringContaining("模型档位") }),
+    ]));
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: "/api/model-adapter/providers/my_deepseek",
+    });
+    expect(deleted.statusCode).toBe(409);
+    expect(deleted.json()).toMatchObject({
+      success: false,
+      code: "provider_in_use",
+    });
+  });
+
   it("checks provider availability and runs embedding/rerank tests", async () => {
     app = await buildTestApp();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/embeddings")) {
+        return new Response(JSON.stringify({ data: [{ embedding: [0.1, 0.2, 0.3] }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/rerank")) {
+        return new Response(JSON.stringify({
+          results: [
+            { index: 0, relevance_score: 0.9 },
+            { index: 1, relevance_score: 0.1 },
+          ],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ message: `unexpected URL: ${url}` }), { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     await app.inject({
       method: "POST",
@@ -271,6 +335,7 @@ describe("model adapter compatibility routes", () => {
         name: "Test",
         provider_type: "deepseek",
         api_key: "sk-test",
+        api_endpoint: "https://provider.example.test/v1",
         model_map: {
           chat: "deepseek-chat",
           embedding: "embed-model",
@@ -329,7 +394,7 @@ describe("model adapter compatibility routes", () => {
       error: null,
       model: "embed-model",
       provider: "Test",
-      embeddings: [expect.any(Array)],
+      embeddings: [[0.1, 0.2, 0.3]],
     });
 
     const rerank = await app.inject({
@@ -350,9 +415,10 @@ describe("model adapter compatibility routes", () => {
       model: "rerank-model",
       provider: "Test",
       results: [
-        { id: "d1", score: 1 },
-        { id: "d2", score: 0 },
+        { id: "d1", score: 0.9 },
+        { id: "d2", score: 0.1 },
       ],
     });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

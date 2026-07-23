@@ -5,9 +5,11 @@
         <SelectValue :placeholder="placeholder" />
       </SelectTrigger>
       <SelectContent :side="side" :style="contentStyle" class="dropdown-menu">
-        <SelectItem v-for="opt in options" :key="opt.value" :value="itemValue(opt.value)" class="option-item">
-          {{ opt.label }}
-        </SelectItem>
+        <SelectGroup>
+          <SelectItem v-for="opt in options" :key="opt.value" :value="itemValue(opt.value)" class="option-item">
+            {{ opt.label }}
+          </SelectItem>
+        </SelectGroup>
         <div v-if="options.length === 0" class="no-options">暂无选项</div>
       </SelectContent>
     </Select>
@@ -16,7 +18,7 @@
 
 <script setup>
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './select';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectItem } from './select';
 
 // reka SelectItem 禁 value=''（会抛错），用 sentinel 在组件边界做 '' <-> NONE 映射。
 const NONE = '__custom_select_none__';

@@ -29,7 +29,7 @@ export interface ProviderConfigField {
   key: string;
   label: string;
   type: string;
-  default: string;
+  default: string | number | boolean | null;
   help: string;
   options: ProviderConfigFieldOption[];
 }
@@ -52,6 +52,7 @@ export interface ModelProviderConfig {
   provider_type: string;
   key?: string;
   api_key?: string;
+  api_key_configured?: boolean;
   api_endpoint?: string;
   model?: string;
   models: string[];
