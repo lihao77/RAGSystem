@@ -3,7 +3,7 @@
                 <div v-if="activeTab === 'rerankers'" class="tab-panel">
                     <div class="section-toolbar">
                         <div class="toolbar-left">
-                            <p class="section-desc">配置重排序器，激活后搜索时自动使用；支持本地 BM25 和远程模型两种模式。</p>
+                            <p class="section-desc">配置重排序器，模型模式直接跟随 Model Provider；激活后混合搜索会自动使用。</p>
                         </div>
                         <div class="toolbar-right">
                             <Button variant="secondary" size="icon" aria-label="刷新重排序器" :disabled="rerankersLoading"
@@ -65,13 +65,20 @@
                                             {{ r.mode === 'model' ? '模型' : r.mode === 'lexical' ? '本地' : '无' }}
                                         </UiBadge>
                                     </TableCell>
-                                    <TableCell>{{ r.provider_key || '-' }}</TableCell>
+                                    <TableCell>
+                                        <span class="reranker-provider-cell">
+                                            <span>{{ r.provider_key || '-' }}</span>
+                                            <UiBadge v-if="r.provider_managed" size="sm" tone="info">Provider 托管</UiBadge>
+                                            <UiBadge v-if="r.provider_managed && !r.provider_available" size="sm" tone="error">不可用</UiBadge>
+                                        </span>
+                                    </TableCell>
                                     <TableCell>{{ r.model_name || '-' }}</TableCell>
                                     <TableCell class="font-mono cell-endpoint" :title="r.api_endpoint || ''">{{ r.api_endpoint || '-' }}</TableCell>
                                     <TableCell class="text-center">
                                         <UiBadge v-if="r.is_active" class="status-badge" size="sm" tone="success">当前</UiBadge>
                                         <Button v-else variant="link"
-                                            :disabled="activatingReranker === r.reranker_key"
+                                            :disabled="activatingReranker === r.reranker_key || (r.provider_managed && !r.provider_available)"
+                                            :title="r.provider_managed && !r.provider_available ? '请先修复对应 Model Provider 配置' : '激活重排序器'"
                                             @click="handleActivateReranker(r.reranker_key)">
                                             {{ activatingReranker === r.reranker_key ? '激活中…' : '激活' }}
                                         </Button>
@@ -139,6 +146,12 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
 
 .active-bar__label {
     color: var(--color-text-secondary);
+}
+.reranker-provider-cell {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    flex-wrap: wrap;
 }
 
 .active-bar__tag {

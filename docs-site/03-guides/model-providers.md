@@ -84,6 +84,10 @@ interface ProviderTypeInfo {
 
 返回 `response` 含 `content`/`embeddings`/`results`、`model`、`latency` 和 `error` 等任务相关字段。Chat、Embedding 与 Rerank 都会调用对应的真实 Provider 接口；调用失败时 HTTP 请求仍可成功返回，但 `response.error` 会携带厂商错误，调用方必须据此判定测试失败。Provider 不存在时同样返回带 `error` 的空结果。
 
+管理页面会按 Provider 已配置的 `model_map` 列出 Chat、Embedding、Rerank 测试任务，不再隐式只测其中一个。Embedding 测试校验向量维度和数值；Rerank 测试同时提交相关与无关文档，并校验相关文档得分更高。
+
+配置了 `model_map.rerank`、Endpoint 与 API Key 的 Provider 可以直接在知识库“重排序器”页面接入。知识库只保存 Provider 引用，运行时动态读取 Provider 的模型、Endpoint 与密钥。
+
 Provider 列表接口不会返回 API Key 明文或掩码值。管理端通过 `api_key_configured` 判断密钥是否已配置，编辑时留空表示保持现有密钥。
 
 ## 在运行时中的角色

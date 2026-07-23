@@ -160,35 +160,31 @@
           <DialogContent class="max-w-[480px]">
             <DialogHeader>
               <DialogTitle>新增重排序器</DialogTitle>
+              <DialogDescription>模型模式直接引用模型 Provider，模型、Endpoint 与 API Key 始终跟随 Provider 当前配置。</DialogDescription>
             </DialogHeader>
-                    <div class="form-grid">
-                            <div class="field field--full">
-                                <label>模式 <em>*</em></label>
-                                <CustomSelect v-model="addRerankerForm.mode" :options="rerankerModeSelectOptions" />
-                            </div>
-                            <template v-if="addRerankerForm.mode === 'model'">
-                                <div class="field field--full">
-                                    <label>Provider Key <em>*</em></label>
-                                    <Input v-model="addRerankerForm.provider_key" placeholder="如 jina" />
-                                </div>
-                                <div class="field field--full">
-                                    <label>Provider Type</label>
-                                    <Input v-model="addRerankerForm.provider_type" placeholder="如 jina（可选）" />
-                                </div>
-                                <div class="field field--full">
-                                    <label>模型名称 <em>*</em></label>
-                                    <Input v-model="addRerankerForm.model_name" placeholder="如 jina-reranker-v2-base-multilingual" />
-                                </div>
-                                <div class="field field--full">
-                                    <label>API Endpoint <em>*</em></label>
-                                    <Input v-model="addRerankerForm.api_endpoint" placeholder="如 https://api.jina.ai/v1/rerank" />
-                                </div>
-                                <div class="field field--full">
-                                    <label>API Key <em>*</em></label>
-                                    <Input v-model="addRerankerForm.api_key" type="password" autocomplete="off" placeholder="可填写明文或 ${RERANK_API_KEY}" />
-                                </div>
-                            </template>
-                    </div>
+                    <FieldGroup>
+                        <Field>
+                            <FieldLabel>模式 <em>*</em></FieldLabel>
+                            <CustomSelect v-model="addRerankerForm.mode" :options="rerankerModeSelectOptions" />
+                        </Field>
+                        <Field v-if="addRerankerForm.mode === 'model'">
+                            <FieldLabel>Rerank Provider <em>*</em></FieldLabel>
+                            <CustomSelect
+                                v-model="addRerankerForm.provider_key"
+                                :options="availableRerankProviderSelectOptions"
+                                :disabled="availableRerankProviderSelectOptions.length === 0"
+                                placeholder="-- 选择已就绪的 Rerank Provider --"
+                            />
+                            <FieldDescription v-if="selectedRerankProvider">
+                                模型 {{ selectedRerankModel }} · {{ selectedRerankProvider.api_endpoint }}
+                            </FieldDescription>
+                            <FieldDescription v-else-if="availableRerankProviderSelectOptions.length === 0 && !hasReadyRerankProviders">
+                                请先在“模型 Provider 管理”中配置 Rerank 模型、Endpoint 和 API Key。
+                            </FieldDescription>
+                            <FieldDescription v-else-if="availableRerankProviderSelectOptions.length === 0">所有已就绪的 Rerank Provider 都已接入知识库。</FieldDescription>
+                            <FieldDescription v-else>知识库不会保存 Provider 的模型、Endpoint 或密钥副本。</FieldDescription>
+                        </Field>
+                    </FieldGroup>
                     <DialogFooter>
                         <Button size="sm" @click="showAddRerankerDialog = false">取消</Button>
                         <Button size="sm" variant="default"
@@ -213,7 +209,8 @@ import IconFile from '../icons/IconFile.vue';
 import IconDownload from '../icons/IconDownload.vue';
 import KnowledgeMdViewer from '../knowledge/KnowledgeMdViewer.vue';
 import KpiCards from '../admin/KpiCards.vue';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '../ui/field';
 import CustomSelect from '../ui/CustomSelect.vue';
 import { UiBadge } from '../ui';
 import { Button } from '../ui/button';
@@ -222,7 +219,7 @@ import { Textarea } from '../ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 
 const props = defineProps({ context: { type: Object, required: true } });
-const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoading, tabs, kpiItems, activeVectorizerDisplay, isDragOver, fileInputRef, handleFileDrop, triggerFileInput, handleFileSelect, mergedFilesLoading, refreshFilesAndStatus, filterCollection, collectionSelectOptions, showIndexDialog, fileStatusVectorizers, uploadedFiles, mergedFileList, formatFileSize, formatTime, openMarkdownPreview, openSearchTest, indexingFileKey, handleIndexFileWithVectorizer, downloadFile, handleDeleteMergedFile, searchCollection, searchResults, searchQuery, handleSearch, searchLoading, searchTopK, searchMode, searchModeOptions, searchRerank, searchRerankerOptions, searchRerankSelection, resultSimilarity, scoreClass, resultSimilarityLabel, searchPerformed, vectorizersLoading, vectorizers, openAddVectorizerDialog, handleActivateVectorizer, activatingVectorizer, openMigrateDialog, deletingVectorizer, handleDeleteVectorizer, rerankersLoading, rerankers, openAddRerankerDialog, activeRerankerDisplay, activatingReranker, deletingReranker, handleActivateReranker, handleDeleteReranker, indexModes, indexMode, indexUploadFile, indexFileInputRef, triggerIndexFileInput, handleIndexFileSelect, handleIndexFileDrop, indexForm, uploadedFileSelectOptions, loadUploadedFilesIfEmpty, autoSetCollectionName, documentTypeOptions, indexing, handleIndexDocument, showAddVectorizerDialog, addVectorizerForm, availableProviderSelectOptions, onAddFormProviderChange, addFormRecommendedModel, addFormModelList, addingVectorizer, showMigrateDialog, migrateFromKey, migrateToKey, migrateTargetOptions, migrating, handleMigrate, showAddRerankerDialog, addRerankerForm, rerankerModeSelectOptions, addRerankerFormValid, addingReranker, handleAddReranker, handleMarkdownNotify, handlePreviewCitation, showToast, handleAddVectorizer } = props.context;
+const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoading, tabs, kpiItems, activeVectorizerDisplay, isDragOver, fileInputRef, handleFileDrop, triggerFileInput, handleFileSelect, mergedFilesLoading, refreshFilesAndStatus, filterCollection, collectionSelectOptions, showIndexDialog, fileStatusVectorizers, uploadedFiles, mergedFileList, formatFileSize, formatTime, openMarkdownPreview, openSearchTest, indexingFileKey, handleIndexFileWithVectorizer, downloadFile, handleDeleteMergedFile, searchCollection, searchResults, searchQuery, handleSearch, searchLoading, searchTopK, searchMode, searchModeOptions, searchRerank, searchRerankerOptions, searchRerankSelection, resultSimilarity, scoreClass, resultSimilarityLabel, searchPerformed, vectorizersLoading, vectorizers, openAddVectorizerDialog, handleActivateVectorizer, activatingVectorizer, openMigrateDialog, deletingVectorizer, handleDeleteVectorizer, rerankersLoading, rerankers, openAddRerankerDialog, activeRerankerDisplay, activatingReranker, deletingReranker, handleActivateReranker, handleDeleteReranker, indexModes, indexMode, indexUploadFile, indexFileInputRef, triggerIndexFileInput, handleIndexFileSelect, handleIndexFileDrop, indexForm, uploadedFileSelectOptions, loadUploadedFilesIfEmpty, autoSetCollectionName, documentTypeOptions, indexing, handleIndexDocument, showAddVectorizerDialog, addVectorizerForm, availableProviderSelectOptions, onAddFormProviderChange, addFormRecommendedModel, addFormModelList, addingVectorizer, showMigrateDialog, migrateFromKey, migrateToKey, migrateTargetOptions, migrating, handleMigrate, showAddRerankerDialog, addRerankerForm, rerankerModeSelectOptions, availableRerankProviderSelectOptions, selectedRerankProvider, selectedRerankModel, hasReadyRerankProviders, addRerankerFormValid, addingReranker, handleAddReranker, handleMarkdownNotify, handlePreviewCitation, showToast, handleAddVectorizer } = props.context;
 </script>
 
 <style scoped>

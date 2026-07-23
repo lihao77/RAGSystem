@@ -450,6 +450,7 @@ export function useKnowledgeBaseManager() {
   const addingVectorizer = ref(false);
   const addVectorizerForm = reactive({ provider_key: '', model_name: '' });
   const availableProviders = ref([]);
+  const availableRerankProviders = ref([]);
   const addFormRecommendedModel = ref('');
   const addFormModelList = ref([]);
   const availableProviderSelectOptions = computed(() =>
@@ -461,14 +462,19 @@ export function useKnowledgeBaseManager() {
       if (availableProviders.value.length === 0) await loadProviders();
   }
 
-  async function loadProviders() {
+  async function loadProviders(force = false) {
       try {
-          const providers = await dictStore.ensureProviders();
+          const providers = await dictStore.ensureProviders(force);
           availableProviders.value = providers.filter(p => {
               const emb = p.model_map?.embedding;
               const embeddingModels = normalizeModelList(emb);
               return embeddingModels.length > 0 || p.models?.length > 0;
           });
+          availableRerankProviders.value = providers.filter(p => (
+              normalizeModelList(p.model_map?.rerank).length > 0
+              && Boolean(String(p.api_endpoint || '').trim())
+              && p.api_key_configured === true
+          ));
       } catch (e) {
           showToast('加载 Provider 列表失败');
       }
@@ -570,22 +576,36 @@ export function useKnowledgeBaseManager() {
   const addRerankerForm = reactive({
       mode: 'model',
       provider_key: '',
-      provider_type: '',
-      model_name: '',
-      api_endpoint: '',
-      api_key: '',
   });
 
   const rerankerModeSelectOptions = [
-      { value: 'model', label: '模型 (远程 API)' },
+      { value: 'model', label: '模型 Provider' },
       { value: 'lexical', label: '本地 (BM25)' },
       { value: 'none', label: '无 (直通)' },
   ];
 
+  const availableRerankProviderSelectOptions = computed(() => (
+      availableRerankProviders.value
+          .filter(provider => !rerankers.value.some(reranker => (
+              reranker.mode === 'model' && reranker.provider_key === provider.key
+          )))
+          .map(provider => ({
+              value: provider.key,
+              label: `${provider.name} · ${normalizeModelList(provider.model_map?.rerank)[0]}`,
+          }))
+  ));
+  const selectedRerankProvider = computed(() => (
+      availableRerankProviders.value.find(provider => provider.key === addRerankerForm.provider_key) || null
+  ));
+  const selectedRerankModel = computed(() => (
+      normalizeModelList(selectedRerankProvider.value?.model_map?.rerank)[0] || ''
+  ));
+  const hasReadyRerankProviders = computed(() => availableRerankProviders.value.length > 0);
+
   const addRerankerFormValid = computed(() => {
       if (!addRerankerForm.mode) return false;
       if (addRerankerForm.mode === 'model') {
-          return !!(addRerankerForm.provider_key && addRerankerForm.model_name && addRerankerForm.api_endpoint && addRerankerForm.api_key);
+          return !!addRerankerForm.provider_key;
       }
       return true;
   });
@@ -610,14 +630,11 @@ export function useKnowledgeBaseManager() {
       }
   }
 
-  function openAddRerankerDialog() {
+  async function openAddRerankerDialog() {
       addRerankerForm.mode = 'model';
       addRerankerForm.provider_key = '';
-      addRerankerForm.provider_type = '';
-      addRerankerForm.model_name = '';
-      addRerankerForm.api_endpoint = '';
-      addRerankerForm.api_key = '';
       showAddRerankerDialog.value = true;
+      await loadProviders(true);
   }
 
   async function handleAddReranker() {
@@ -626,10 +643,6 @@ export function useKnowledgeBaseManager() {
           const body = { mode: addRerankerForm.mode };
           if (addRerankerForm.mode === 'model') {
               body.provider_key = addRerankerForm.provider_key;
-              body.provider_type = addRerankerForm.provider_type || undefined;
-              body.model_name = addRerankerForm.model_name;
-              body.api_endpoint = addRerankerForm.api_endpoint;
-              body.api_key = addRerankerForm.api_key;
           }
           await addReranker(body);
           showAddRerankerDialog.value = false;
@@ -656,7 +669,8 @@ export function useKnowledgeBaseManager() {
   }
 
   async function handleDeleteReranker(key) {
-      if (!confirm(`确定删除重排序器「${key}」吗？`)) return;
+      const ok = await confirm({ message: `确定删除重排序器“${key}”？`, confirmText: '删除', danger: true });
+      if (!ok) return;
       deletingReranker.value = key;
       try {
           await deleteReranker(key);
@@ -682,7 +696,7 @@ export function useKnowledgeBaseManager() {
   const searchRerankerOptions = computed(() => {
       return rerankers.value.map(r => ({
           value: r.reranker_key,
-          label: `${r.reranker_key} (${r.mode === 'model' ? r.model_name || r.provider_key : r.mode})`,
+          label: `${r.reranker_key} (${r.mode === 'model' ? r.model_name || r.provider_key : r.mode})${r.provider_managed && !r.provider_available ? ' · Provider 不可用' : ''}`,
       }));
   });
   const searchCollection = ref('');
@@ -775,5 +789,5 @@ export function useKnowledgeBaseManager() {
       refreshAll();
   });
 
-    return { context: { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoading, refreshAll, tabs, kpiItems, deletingFileId, deletingUploadedFile, formatScore, refreshVectorizers, refreshRerankers, handleAddVectorizer, activeVectorizerDisplay, isDragOver, fileInputRef, handleFileDrop, triggerFileInput, handleFileSelect, mergedFilesLoading, refreshFilesAndStatus, filterCollection, collectionSelectOptions, showIndexDialog, fileStatusVectorizers, uploadedFiles, mergedFileList, formatFileSize, formatTime, openMarkdownPreview, openSearchTest, indexingFileKey, handleIndexFileWithVectorizer, downloadFile, handleDeleteMergedFile, searchCollection, searchResults, searchQuery, handleSearch, searchLoading, searchTopK, searchMode, searchModeOptions, searchRerank, searchRerankerOptions, searchRerankSelection, resultSimilarity, scoreClass, resultSimilarityLabel, searchPerformed, vectorizersLoading, vectorizers, openAddVectorizerDialog, handleActivateVectorizer, activatingVectorizer, openMigrateDialog, deletingVectorizer, handleDeleteVectorizer, rerankersLoading, rerankers, openAddRerankerDialog, activeRerankerDisplay, activatingReranker, deletingReranker, handleActivateReranker, handleDeleteReranker, indexModes, indexMode, indexUploadFile, indexFileInputRef, triggerIndexFileInput, handleIndexFileSelect, handleIndexFileDrop, indexForm, uploadedFileSelectOptions, loadUploadedFilesIfEmpty, autoSetCollectionName, documentTypeOptions, indexing, handleIndexDocument, showAddVectorizerDialog, addVectorizerForm, availableProviderSelectOptions, onAddFormProviderChange, addFormRecommendedModel, addFormModelList, addingVectorizer, showMigrateDialog, migrateFromKey, migrateToKey, migrateTargetOptions, migrating, handleMigrate, showAddRerankerDialog, addRerankerForm, rerankerModeSelectOptions, addRerankerFormValid, addingReranker, handleAddReranker, handleMarkdownNotify, handlePreviewCitation, showToast } };
+    return { context: { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoading, refreshAll, tabs, kpiItems, deletingFileId, deletingUploadedFile, formatScore, refreshVectorizers, refreshRerankers, handleAddVectorizer, activeVectorizerDisplay, isDragOver, fileInputRef, handleFileDrop, triggerFileInput, handleFileSelect, mergedFilesLoading, refreshFilesAndStatus, filterCollection, collectionSelectOptions, showIndexDialog, fileStatusVectorizers, uploadedFiles, mergedFileList, formatFileSize, formatTime, openMarkdownPreview, openSearchTest, indexingFileKey, handleIndexFileWithVectorizer, downloadFile, handleDeleteMergedFile, searchCollection, searchResults, searchQuery, handleSearch, searchLoading, searchTopK, searchMode, searchModeOptions, searchRerank, searchRerankerOptions, searchRerankSelection, resultSimilarity, scoreClass, resultSimilarityLabel, searchPerformed, vectorizersLoading, vectorizers, openAddVectorizerDialog, handleActivateVectorizer, activatingVectorizer, openMigrateDialog, deletingVectorizer, handleDeleteVectorizer, rerankersLoading, rerankers, openAddRerankerDialog, activeRerankerDisplay, activatingReranker, deletingReranker, handleActivateReranker, handleDeleteReranker, indexModes, indexMode, indexFileInputRef, triggerIndexFileInput, handleIndexFileSelect, handleIndexFileDrop, indexForm, uploadedFileSelectOptions, loadUploadedFilesIfEmpty, autoSetCollectionName, documentTypeOptions, indexing, handleIndexDocument, showAddVectorizerDialog, addVectorizerForm, availableProviderSelectOptions, onAddFormProviderChange, addFormRecommendedModel, addFormModelList, addingVectorizer, showMigrateDialog, migrateFromKey, migrateToKey, migrateTargetOptions, migrating, handleMigrate, showAddRerankerDialog, addRerankerForm, rerankerModeSelectOptions, availableRerankProviderSelectOptions, selectedRerankProvider, selectedRerankModel, hasReadyRerankProviders, addRerankerFormValid, addingReranker, handleAddReranker, handleMarkdownNotify, handlePreviewCitation, showToast } };
 }

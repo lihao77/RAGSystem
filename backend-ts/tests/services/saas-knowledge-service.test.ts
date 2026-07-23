@@ -129,6 +129,53 @@ describe("KnowledgeApplicationService with SaaS adapters", () => {
     expect(config.createReranker).toHaveBeenCalledWith("tenant-a", expect.objectContaining({ mode: "lexical" }));
   });
 
+  it("creates model rerankers as Provider references and resolves current Provider config", async () => {
+    const stored = {
+      reranker_key: "ranker_rerank_api_jina-reranker-v2-base-multilingual",
+      mode: "model",
+      provider_key: "ranker_rerank_api",
+      provider_type: "rerank_api",
+      model_name: "",
+      api_endpoint: "",
+      api_key: null,
+      created_at: "2026-01-01T00:00:00Z",
+      is_active: true,
+    };
+    const config = {
+      listRerankers: vi.fn().mockResolvedValue([stored]),
+      getReranker: vi.fn().mockResolvedValue(null),
+      createReranker: vi.fn().mockResolvedValue(stored),
+    };
+    const provider = {
+      key: "ranker_rerank_api",
+      name: "Ranker",
+      provider_type: "rerank_api",
+      api_endpoint: "https://api.example.test/v1/rerank",
+      api_key: "rk-current",
+      models: ["jina-reranker-v2-base-multilingual"],
+      model_map: { rerank: "jina-reranker-v2-base-multilingual" },
+    };
+    const modelAdapter = { getProvider: vi.fn().mockReturnValue(provider), hasProvider: vi.fn().mockReturnValue(true) };
+    const service = new KnowledgeApplicationService("tenant-a", modelAdapter as never, config as never, {} as never);
+
+    await expect(service.addReranker({ mode: "model", provider_key: "ranker_rerank_api" })).resolves.toEqual({
+      reranker_key: "ranker_rerank_api_jina-reranker-v2-base-multilingual",
+    });
+    expect(config.createReranker).toHaveBeenCalledWith("tenant-a", expect.objectContaining({
+      provider_key: "ranker_rerank_api",
+      model_name: "",
+      api_endpoint: "",
+      api_key: null,
+    }));
+    await expect(service.listRerankers()).resolves.toEqual([expect.objectContaining({
+      model_name: "jina-reranker-v2-base-multilingual",
+      api_endpoint: "https://api.example.test/v1/rerank",
+      api_key_set: true,
+      provider_managed: true,
+      provider_available: true,
+    })]);
+  });
+
   it("updates every model version of an opaque PostgreSQL chunk id", async () => {
     const secondVectorizer = { ...vectorizer, model_id: 8, vectorizer_key: "embed-large", model_name: "hash-128", vector_dimension: 128 };
     const baseChunk = { id: "018f8e25-7b2a-4a88-9f6d-8df40ed40f10", tenant_id: "tenant-a", collection: "docs", document_id: "file-1", model_id: 7, chunk_index: 0, content: "old", metadata: {} };

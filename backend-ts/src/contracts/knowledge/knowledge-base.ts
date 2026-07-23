@@ -30,12 +30,8 @@ export const RerankerCreateSchema = z
     mode: z.string().trim().optional().default("none"),
     reranker_key: z.string().trim().optional(),
     provider_key: z.string().trim().optional(),
-    provider_type: z.string().trim().nullable().optional(),
-    model_name: z.string().trim().optional(),
-    api_endpoint: z.string().trim().optional(),
-    api_key: z.string().optional(),
   })
-  .catchall(z.unknown());
+  .strict();
 
 export const SearchVectorsRequestSchema = z
   .object({
@@ -117,6 +113,10 @@ export interface RerankerConfig {
   created_at: string;
   is_active: boolean;
   api_key_set: boolean;
+  /** true 表示运行时从 Model Provider 动态解析模型、Endpoint 与 API key。 */
+  provider_managed: boolean;
+  /** Provider 托管配置是否具备可执行的 Provider、Rerank 模型、Endpoint 与 API key。 */
+  provider_available: boolean;
 }
 
 /**

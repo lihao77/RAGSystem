@@ -51,8 +51,19 @@ driver 模块加载失败（vec0 不可用、Node/Windows ABI 不兼容）会**�
 | `DELETE` | `/rerankers/:key` | 删除 |
 
 ::: warning 重排序器校验
-`model` 模式的重排序器必须提供 `provider_key` 和 `model_name`，否则报错（路由层将其映射为 500）。
+`model` 模式只接受 `provider_key`，该 Provider 必须配置 `model_map.rerank`、`api_endpoint` 和 API Key。知识库不再保存独立的模型名、Endpoint 或 API Key；每次执行都会读取 Provider 的当前配置。旧式独立 Reranker 请求字段会被拒绝为 400。
 :::
+
+模型重排序器创建示例：
+
+```json
+{
+  "mode": "model",
+  "provider_key": "jina_rerank_api"
+}
+```
+
+Provider 更新模型、Endpoint 或密钥后，知识库无需重新创建 Reranker。删除被知识库引用的 Provider 会返回 409。
 
 ## 文件索引管理（路由前缀 `/api/knowledge-bases`）
 

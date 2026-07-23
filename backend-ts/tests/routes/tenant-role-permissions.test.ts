@@ -87,7 +87,8 @@ describe("管理中心租户角色权限", () => {
       headers: bearer(memberToken),
     });
     expect(memberProviders.statusCode).toBe(200);
-    expect(memberProviders.json().providers[0].api_key).toBe("********");
+    expect(memberProviders.json().providers[0].api_key).toBeUndefined();
+    expect(memberProviders.json().providers[0].api_key_configured).toBe(true);
     const memberServers = await harness.app.inject({
       method: "GET",
       url: "/api/mcp/servers",

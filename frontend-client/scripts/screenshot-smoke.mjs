@@ -78,6 +78,19 @@ const shots = [
   },
   { name: 'model-providers-narrow', path: '/model-providers', width: 768, height: 900 },
   {
+    name: 'model-providers-test-menu',
+    path: '/model-providers',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'click', selector: '.provider-row:nth-child(3) .provider-row-actions button:first-child' },
+      { type: 'expectText', selector: '[role="menu"]', text: '选择真实调用任务' },
+      { type: 'expectText', selector: '[role="menu"]', text: 'Chat' },
+      { type: 'expectText', selector: '[role="menu"]', text: 'Embedding' },
+      { type: 'expectVisible', selector: '[role="menu"]' },
+    ],
+  },
+  {
     name: 'model-providers-create-dialog',
     path: '/model-providers',
     width: 1440,
@@ -113,6 +126,30 @@ const shots = [
     ],
   },
   { name: 'knowledge-base-mobile', path: '/knowledge-base', width: 390, height: 844 },
+  {
+    name: 'knowledge-base-reranker-dialog',
+    path: '/knowledge-base',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'click', selector: '.kb-manager-page nav button:nth-child(3)', waitMs: 500 },
+      { type: 'click', selector: '.toolbar-primary-action' },
+      { type: 'expectText', selector: '[role="dialog"]', text: 'Rerank Provider' },
+      { type: 'expectText', selector: '[role="dialog"]', text: '始终跟随 Provider 当前配置' },
+    ],
+  },
+  {
+    name: 'knowledge-base-reranker-dialog-mobile',
+    path: '/knowledge-base',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'click', selector: '.kb-manager-page nav button:nth-child(3)', waitMs: 500 },
+      { type: 'click', selector: '.toolbar-primary-action' },
+      { type: 'expectText', selector: '[role="dialog"]', text: 'Rerank Provider' },
+      { type: 'expectVisible', selector: '[role="dialog"]' },
+    ],
+  },
   {
     name: 'desktop-mcp-manager',
     path: '/mcp',

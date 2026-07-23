@@ -121,7 +121,7 @@ export async function listRerankers() {
 
 /**
  * 添加重排序器
- * @param {Object} body - { mode, provider_key?, provider_type?, model_name?, api_endpoint? }
+ * @param {Object} body - { mode, provider_key? }; model 模式只引用已配置 Rerank 能力的 Model Provider
  */
 export async function addReranker(body) {
   return http.post('/api/knowledge-bases/rerankers', body);

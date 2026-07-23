@@ -116,11 +116,36 @@
             </div>
 
             <div class="provider-row-actions">
-              <Button variant="action-success" size="action" :disabled="isTesting(provider)" @click="quickTest(provider)">
-                <IconRefresh v-if="isTesting(provider)" data-icon="inline-start" class="spin" />
-                <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                {{ isTesting(provider) ? '测试中' : '真实测试' }}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                  <Button
+                    variant="action-success"
+                    size="action"
+                    :disabled="isTesting(provider) || providerTestTargets(provider).length === 0"
+                    :aria-label="providerTestTargets(provider).length === 0 ? '未配置可测试任务' : '选择真实测试任务'"
+                  >
+                    <IconRefresh v-if="isTesting(provider)" data-icon="inline-start" class="spin" />
+                    <Play v-else data-icon="inline-start" />
+                    {{ isTesting(provider) ? '测试中' : providerTestTargets(provider).length ? '真实测试' : '无可测任务' }}
+                    <ChevronDown v-if="!isTesting(provider) && providerTestTargets(provider).length" data-icon="inline-end" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" class="min-w-[250px]">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>选择真实调用任务</DropdownMenuLabel>
+                    <DropdownMenuItem
+                      v-for="target in providerTestTargets(provider)"
+                      :key="target.task"
+                      @click="quickTest(provider, target)"
+                    >
+                      <span class="test-task-option">
+                        <strong>{{ target.label }}</strong>
+                        <small>{{ target.model }}</small>
+                      </span>
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button variant="action-neutral" size="action" @click="openEditDialog(provider)">
                 <IconEdit data-icon="inline-start" />
                 编辑
@@ -135,7 +160,7 @@
           <div v-if="testResults[getProviderKey(provider)]" class="provider-test-result" :class="testResults[getProviderKey(provider)].ok ? 'result--ok' : 'result--err'">
             <span class="result-icon"><IconCheck v-if="testResults[getProviderKey(provider)].ok" /><IconClose v-else /></span>
             <span class="result-msg">
-              <strong>{{ testResults[getProviderKey(provider)].task }} · {{ testResults[getProviderKey(provider)].model }}</strong>
+              <strong>{{ testResults[getProviderKey(provider)].taskLabel }} · {{ testResults[getProviderKey(provider)].model }}</strong>
               {{ testResults[getProviderKey(provider)].msg }}
             </span>
           </div>
@@ -285,12 +310,26 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ChevronDown, Play } from 'lucide-vue-next';
 import { normalizeModelList } from '../utils/modelList.js';
+import {
+  getProviderTestTargets,
+  providerTestTaskLabel,
+  summarizeProviderTestResult,
+} from '../utils/providerTestTargets.js';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import { Switch } from '../components/ui/switch';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
 import {
   Field, FieldContent, FieldDescription, FieldError, FieldGroup,
   FieldLabel, FieldLegend, FieldSet, FieldTitle,
@@ -414,6 +453,7 @@ function providerModelEntries(provider) {
 function visibleModelEntries(provider) { return providerModelEntries(provider).slice(0, 5); }
 function hiddenModelCount(provider) { return Math.max(0, providerModelEntries(provider).length - 5); }
 function isTesting(provider) { return testingKeys.value.has(getProviderKey(provider)); }
+function providerTestTargets(provider) { return getProviderTestTargets(provider); }
 function providerStatus(provider) {
   const key = getProviderKey(provider);
   if (availabilityLoadingKeys.value.has(key)) return { label: '检查中', detail: '正在检查配置完整性', variant: 'secondary' };
@@ -448,7 +488,6 @@ function isSameProviderOrder(left, right) {
   if (left.length !== right.length) return false;
   return left.every((p, i) => getProviderKey(p) === getProviderKey(right[i]));
 }
-function getDefaultModel(value) { return normalizeModelList(value)[0] || ''; }
 
 async function persistProviderOrder(nextProviders, previousProviders, options = {}) {
   if (reordering.value) return;
@@ -581,36 +620,39 @@ function cleanupProviderDrag(options = {}) {
   window.removeEventListener('pointercancel', cancelProviderDrag);
 }
 
-function getPreferredTestTarget(provider) {
-  const rerankModel = getDefaultModel(provider.model_map?.rerank);
-  if ((provider.provider_type === 'rerank_api' || rerankModel) && rerankModel) return { task: 'rerank', model: rerankModel, prompt: '三级响应启动条件' };
-  const chatModel = getDefaultModel(provider.model_map?.chat);
-  if (chatModel) return { task: 'chat', model: chatModel, prompt: 'Hi' };
-  const embeddingModel = getDefaultModel(provider.model_map?.embedding);
-  if (embeddingModel) return { task: 'embedding', model: embeddingModel, prompt: '测试向量化' };
-  return { task: 'chat', model: normalizeModelList(provider.models)[0] || '', prompt: 'Hi' };
-}
-
-async function quickTest(provider) {
+async function quickTest(provider, target) {
   const key = getProviderKey(provider);
   if (testingKeys.value.has(key)) return;
   testingKeys.value = new Set([...testingKeys.value, key]);
   testResults.value = { ...testResults.value, [key]: null };
-  const target = getPreferredTestTarget(provider);
   try {
-    if (!target.model) throw new Error(`请先配置 ${target.task} 模型`);
-    const result = await testProvider(key, target.model, target.prompt, provider.provider_type || '', target.task);
+    if (!target?.model) throw new Error('请先选择已配置模型的测试任务');
+    const result = await testProvider(
+      key,
+      target.model,
+      target.prompt,
+      provider.provider_type || '',
+      target.task,
+      target.documents,
+    );
     if (result.error) throw new Error(result.error);
-    const latency = Number(result.latency);
-    const latencyText = Number.isFinite(latency) ? ` · ${latency.toFixed(2)}s` : '';
-    let message = `响应：${String(result.content || '').slice(0, 80) || '调用成功'}${latencyText}`;
-    if (target.task === 'embedding') message = `返回 ${result.embeddings?.[0]?.length || 0} 维向量${latencyText}`;
-    else if (target.task === 'rerank') message = `返回 ${result.results?.length || 0} 条排序结果${latencyText}`;
-    testResults.value = { ...testResults.value, [key]: { ok: true, msg: message, task: target.task, model: target.model } };
+    const message = summarizeProviderTestResult(target, result);
+    testResults.value = {
+      ...testResults.value,
+      [key]: { ok: true, msg: message, taskLabel: providerTestTaskLabel(target.task), model: target.model },
+    };
     toast.success(`${provider.name || key} 真实调用成功`);
   } catch (e) {
     const message = e?.message || '测试失败';
-    testResults.value = { ...testResults.value, [key]: { ok: false, msg: message, task: target.task, model: target.model || '未配置' } };
+    testResults.value = {
+      ...testResults.value,
+      [key]: {
+        ok: false,
+        msg: message,
+        taskLabel: providerTestTaskLabel(target?.task),
+        model: target?.model || '未配置',
+      },
+    };
     toast.error(message);
   } finally {
     const next = new Set(testingKeys.value);
@@ -844,6 +886,8 @@ onBeforeUnmount(() => cleanupProviderDrag());
 .provider-endpoint { min-width: 120px; max-width: min(420px, 55vw); color: var(--color-text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-models-empty { color: var(--color-text-muted); font-size: 12px; }
 .provider-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; flex-wrap: nowrap; }
+.test-task-option { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.test-task-option small { max-width: 220px; overflow: hidden; color: var(--color-text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 
 .provider-test-result { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 0 60px; padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; font-size: 12px; line-height: 1.5; word-break: break-word; }

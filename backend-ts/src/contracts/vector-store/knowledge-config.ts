@@ -27,9 +27,11 @@ export interface StoredReranker {
   mode: RerankerMode;
   provider_key: string;
   provider_type: string | null;
+  /** model 模式持久化为空；仅运行时从 Model Provider 水合后赋值。 */
   model_name: string;
+  /** model 模式持久化为空；仅运行时从 Model Provider 水合后赋值。 */
   api_endpoint: string;
-  /** 仅落 DB,不入任何 YAML。编排层读取后用完即弃,不回显给未授权客户端。 */
+  /** model 模式持久化为 null；仅运行时从 Model Provider 水合后赋值。 */
   api_key: string | null;
   created_at: string;
   is_active: boolean;

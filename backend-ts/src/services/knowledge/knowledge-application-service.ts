@@ -93,33 +93,46 @@ export class KnowledgeApplicationService implements KnowledgeQueryPort {
   }
 
   async listRerankers(): Promise<RerankerConfig[]> {
-    return (await this.config.listRerankers(this.tenantId)).map(toRerankerConfig);
+    return (await this.config.listRerankers(this.tenantId)).map((reranker) => this.toRerankerConfig(reranker));
   }
 
   async addReranker(input: RerankerCreate): Promise<{ reranker_key: string }> {
     const mode = normalizeRerankerMode(input.mode);
-    const providerKey = input.provider_key?.trim() || "";
-    const modelName = input.model_name?.trim() || "";
+    const providerKey = mode === "model" ? input.provider_key?.trim() || "" : "";
+    let keyModelName = "";
+    let providerType: string | null = null;
     if (mode === "model") {
-      if (!providerKey || !modelName) throw new KnowledgeBaseError("model 模式的重排序器必须提供 provider_key 和 model_name", 400);
-      if (!input.api_endpoint?.trim()) throw new KnowledgeBaseError("model 模式的重排序器必须提供 api_endpoint", 400);
+      if (!providerKey) throw new KnowledgeBaseError("model 模式的重排序器必须提供 provider_key", 400);
+      const provider = this.requireRerankProvider(providerKey);
+      keyModelName = firstProviderTaskModel(provider, "rerank");
+      providerType = provider.provider_type;
     }
-    const key = input.reranker_key?.trim() || normalizeRerankerKey(mode, providerKey, modelName);
+    const key = input.reranker_key?.trim() || normalizeRerankerKey(mode, providerKey, keyModelName);
     if (await this.config.getReranker(this.tenantId, key)) throw new KnowledgeBaseError(`重排序器键已存在: ${key}`, 400);
     await this.config.createReranker(this.tenantId, {
-      reranker_key: key, mode, provider_key: providerKey, provider_type: input.provider_type?.trim() || null,
-      model_name: modelName, api_endpoint: input.api_endpoint?.trim() || "", api_key: input.api_key ?? null,
+      reranker_key: key,
+      mode,
+      provider_key: providerKey,
+      provider_type: providerType,
+      model_name: "",
+      api_endpoint: "",
+      api_key: null,
     });
     return { reranker_key: key };
   }
 
   async getReranker(key: string): Promise<RerankerConfig | null> {
     const reranker = await this.config.getReranker(this.tenantId, key);
-    return reranker ? toRerankerConfig(reranker) : null;
+    return reranker ? this.toRerankerConfig(reranker) : null;
   }
 
   async activateReranker(key: string): Promise<{ active_reranker_key: string }> {
-    if (!await this.getReranker(key)) throw new KnowledgeBaseError(`重排序器不存在: ${key}`, 404);
+    const stored = await this.config.getReranker(this.tenantId, key);
+    if (!stored) throw new KnowledgeBaseError(`重排序器不存在: ${key}`, 404);
+    const reranker = this.toRerankerConfig(stored);
+    if (reranker.provider_managed && !reranker.provider_available) {
+      throw new KnowledgeBaseError(`重排序器引用的 Provider 当前不可用: ${reranker.provider_key}`, 400);
+    }
     await this.config.activateReranker(this.tenantId, key);
     return { active_reranker_key: key };
   }
@@ -241,11 +254,12 @@ export class KnowledgeApplicationService implements KnowledgeQueryPort {
       ? rerankers.find((item) => item.reranker_key === input.reranker_key) ?? null
       : rerankers.find((item) => item.is_active) ?? null;
     if (input.reranker_key && !selectedReranker) throw new KnowledgeBaseError(`重排序器不存在: ${input.reranker_key}`, 404);
-    const reranker = input.rerank !== false && selectedReranker && mode === "hybrid" ? this.rerankerFactory(selectedReranker) : null;
+    const shouldRerank = input.rerank !== false && selectedReranker !== null && mode === "hybrid";
     let results = candidates;
     let rerankMode: KnowledgeSearchResponse["rerank_mode"] = "none";
-    if (reranker) {
+    if (shouldRerank && selectedReranker) {
       try {
+        const reranker = this.rerankerFactory(this.resolveRerankerForExecution(selectedReranker));
         const reranked = await reranker.rerank(query, candidates);
         results = reranked.results;
         rerankMode = reranked.mode;
@@ -255,7 +269,7 @@ export class KnowledgeApplicationService implements KnowledgeQueryPort {
       }
     }
     results = results.slice(0, input.final_top_k ?? topK);
-    return { results, count: results.length, collection_name: collection, query, search_mode: mode, rerank: reranker !== null, rerank_mode: rerankMode };
+    return { results, count: results.length, collection_name: collection, query, search_mode: mode, rerank: shouldRerank, rerank_mode: rerankMode };
   }
 
   async indexExternalFile(input: IndexFileRequest, file: KnowledgeFile, markdown: string): Promise<Record<string, unknown>> {
@@ -410,6 +424,66 @@ export class KnowledgeApplicationService implements KnowledgeQueryPort {
     this.embedderCache.set(vectorizer.vectorizer_key, embedder);
     return embedder;
   }
+  private requireRerankProvider(providerKey: string): ModelProviderConfig {
+    const provider = this.modelAdapter.getProvider(providerKey);
+    if (!provider) throw new KnowledgeBaseError(`重排序器引用的 Provider 不存在: ${providerKey}`, 400);
+    if (!firstProviderTaskModel(provider, "rerank")) {
+      throw new KnowledgeBaseError(`Provider 未配置 Rerank 模型: ${providerKey}`, 400);
+    }
+    if (!String(provider.api_endpoint ?? "").trim()) {
+      throw new KnowledgeBaseError(`Provider 未配置 Rerank API Endpoint: ${providerKey}`, 400);
+    }
+    if (!String(provider.api_key ?? "").trim()) {
+      throw new KnowledgeBaseError(`Provider 未配置 API key: ${providerKey}`, 400);
+    }
+    return provider;
+  }
+  private resolveRerankerForExecution(reranker: StoredReranker): StoredReranker {
+    if (reranker.mode !== "model") return reranker;
+    const provider = this.requireRerankProvider(reranker.provider_key);
+    return {
+      ...reranker,
+      provider_type: provider.provider_type,
+      model_name: firstProviderTaskModel(provider, "rerank"),
+      api_endpoint: String(provider.api_endpoint ?? "").trim(),
+      api_key: String(provider.api_key ?? ""),
+    };
+  }
+  private toRerankerConfig(reranker: StoredReranker): RerankerConfig {
+    const providerManaged = reranker.mode === "model";
+    if (!providerManaged) {
+      return {
+        reranker_key: reranker.reranker_key,
+        mode: reranker.mode,
+        provider_key: reranker.provider_key,
+        provider_type: reranker.provider_type,
+        model_name: reranker.model_name,
+        api_endpoint: reranker.api_endpoint,
+        created_at: reranker.created_at,
+        is_active: reranker.is_active,
+        api_key_set: Boolean(reranker.api_key),
+        provider_managed: false,
+        provider_available: true,
+      };
+    }
+    const provider = this.modelAdapter.getProvider(reranker.provider_key);
+    const modelName = provider ? firstProviderTaskModel(provider, "rerank") : "";
+    const apiEndpoint = String(provider?.api_endpoint ?? "").trim();
+    const apiKeySet = Boolean(String(provider?.api_key ?? "").trim());
+    return {
+      reranker_key: reranker.reranker_key,
+      mode: reranker.mode,
+      provider_key: reranker.provider_key,
+      provider_type: provider?.provider_type ?? reranker.provider_type,
+      model_name: modelName,
+      api_endpoint: apiEndpoint,
+      created_at: reranker.created_at,
+      is_active: reranker.is_active,
+      api_key_set: apiKeySet,
+      provider_managed: true,
+      provider_available: Boolean(provider && modelName && apiEndpoint && apiKeySet),
+    };
+  }
   private async toVectorizerConfig(vectorizer: StoredVectorizer): Promise<VectorizerConfig> {
     const stats = await this.getModelStats(vectorizer.model_id);
     const dimension = await this.vectors.getDimension({ tenant_id: this.tenantId, model_id: vectorizer.model_id });
@@ -453,14 +527,6 @@ export class KnowledgeApplicationService implements KnowledgeQueryPort {
   }
 }
 
-function toRerankerConfig(reranker: StoredReranker): RerankerConfig {
-  return {
-    reranker_key: reranker.reranker_key, mode: reranker.mode, provider_key: reranker.provider_key,
-    provider_type: reranker.provider_type, model_name: reranker.model_name, api_endpoint: reranker.api_endpoint,
-    created_at: reranker.created_at, is_active: reranker.is_active, api_key_set: Boolean(reranker.api_key),
-  };
-}
-
 function normalizeRerankerMode(value: string | undefined): StoredReranker["mode"] {
   const mode = String(value ?? "none").trim().toLowerCase();
   if (["lexical", "bm25", "keyword", "local"].includes(mode)) return "lexical";
@@ -472,6 +538,12 @@ function normalizeRerankerKey(mode: StoredReranker["mode"], providerKey: string,
   if (mode === "none") return "noop";
   if (mode === "lexical") return "bm25_local";
   return `${providerKey}_${modelName.replace(/[^\w.-]/g, "_").slice(0, 120)}`;
+}
+
+function firstProviderTaskModel(provider: ModelProviderConfig, task: string): string {
+  const value = provider.model_map?.[task];
+  const models = Array.isArray(value) ? value : [value];
+  return models.map((item) => String(item ?? "").trim()).find(Boolean) ?? "";
 }
 
 interface MarkdownChunk { content: string; charStart: number; charEnd: number; }

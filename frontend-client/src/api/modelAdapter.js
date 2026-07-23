@@ -120,14 +120,15 @@ export async function checkProviderAvailability(providerKey) {
   return data.data || data
 }
 
-export async function testProvider(provider, model, prompt = 'Hello', providerType = '', task = 'chat') {
+export async function testProvider(provider, model, prompt = 'Hello', providerType = '', task = 'chat', documents = undefined) {
   try {
     const data = await http.post(`${API_BASE}/test`, {
       provider,
       provider_type: providerType,
       model: normalizeModelList(model)[0] || '',
       prompt,
-      task
+      task,
+      ...(documents ? { documents } : {})
     })
 
     return normalizeProviderTestResult(data)

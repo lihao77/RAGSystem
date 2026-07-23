@@ -178,6 +178,7 @@ describe("vector library compatibility routes", () => {
 
   it("supports in-memory reranker config management", async () => {
     app = await buildTestApp();
+    await createRerankProvider();
 
     const lexical = await app.inject({
       method: "POST",
@@ -189,15 +190,23 @@ describe("vector library compatibility routes", () => {
     expect(lexical.statusCode).toBe(200);
     expect(lexical.json().data.reranker_key).toBe("bm25_local");
 
-    const model = await app.inject({
+    const legacyPayload = await app.inject({
       method: "POST",
       url: "/api/knowledge-bases/rerankers",
       payload: {
         mode: "model",
         provider_key: "ranker_rerank_api",
         model_name: "jina-reranker-v2-base-multilingual",
-        api_endpoint: "https://api.example.test/rerank",
-        api_key: "rk-test",
+      },
+    });
+    expect(legacyPayload.statusCode).toBe(400);
+
+    const model = await app.inject({
+      method: "POST",
+      url: "/api/knowledge-bases/rerankers",
+      payload: {
+        mode: "model",
+        provider_key: "ranker_rerank_api",
       },
     });
     expect(model.statusCode).toBe(200);
@@ -220,6 +229,8 @@ describe("vector library compatibility routes", () => {
         provider_key: "ranker_rerank_api",
         model_name: "jina-reranker-v2-base-multilingual",
         api_endpoint: "https://api.example.test/rerank",
+        provider_managed: true,
+        provider_available: true,
         is_active: false,
       },
     ]);
@@ -612,6 +623,26 @@ async function createEmbeddingProvider(): Promise<void> {
       api_key: "sk-test",
       model_map: {
         embedding: "text-embedding-3-small",
+      },
+    },
+  });
+  expect(provider.statusCode).toBe(200);
+}
+
+async function createRerankProvider(): Promise<void> {
+  if (!app) {
+    throw new Error("test app not initialized");
+  }
+  const provider = await app.inject({
+    method: "POST",
+    url: "/api/model-adapter/providers",
+    payload: {
+      name: "Ranker",
+      provider_type: "rerank_api",
+      api_key: "rk-test",
+      api_endpoint: "https://api.example.test/rerank",
+      model_map: {
+        rerank: "jina-reranker-v2-base-multilingual",
       },
     },
   });

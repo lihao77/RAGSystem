@@ -111,11 +111,12 @@ function makeService(
   options?: {
     embedderFactory?: ConstructorParameters<typeof KnowledgeApplicationService>[4];
     rerankerFactory?: ConstructorParameters<typeof KnowledgeApplicationService>[5];
+    modelAdapter?: ConstructorParameters<typeof KnowledgeApplicationService>[1];
   },
 ) {
   return new KnowledgeApplicationService(
     "tnt_local",
-    new ModelAdapterService({ providersConfigPath: "" }),
+    options?.modelAdapter ?? new ModelAdapterService({ providersConfigPath: "" }),
     ports.config,
     ports.vectors,
     options?.embedderFactory,
@@ -144,6 +145,18 @@ function hit(
 }
 
 describe("KnowledgeApplicationService search path (async ports + scoring)", () => {
+  const rerankProviderAdapter = {
+    getProvider: () => ({
+      key: "p",
+      name: "Provider",
+      provider_type: "rerank_api",
+      api_endpoint: "https://provider.example.test/v1/rerank",
+      api_key: "provider-key",
+      models: ["provider-rerank-model"],
+      model_map: { rerank: "provider-rerank-model" },
+    }),
+    hasProvider: () => true,
+  } as never;
   const activeReranker = (mode: StoredReranker["mode"]): StoredReranker => ({
     reranker_key: `rr-${mode}`,
     mode,
@@ -216,12 +229,20 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
   it("model reranker 成功返回 model", async () => {
     const hits = [hit("1", "d1", "first", 0.9)];
     const service = makeService(makeFakePorts(hits, null, [activeReranker("model")]), {
-      rerankerFactory: () => ({
-        rerank: async (_query, results) => ({
-          results: results.map((result) => ({ ...result, rerank_score: 0.9 })),
-          mode: "model",
-        }),
-      }),
+      modelAdapter: rerankProviderAdapter,
+      rerankerFactory: stored => {
+        expect(stored).toMatchObject({
+          model_name: "provider-rerank-model",
+          api_endpoint: "https://provider.example.test/v1/rerank",
+          api_key: "provider-key",
+        });
+        return {
+          rerank: async (_query, results) => ({
+            results: results.map((result) => ({ ...result, rerank_score: 0.9 })),
+            mode: "model",
+          }),
+        };
+      },
     });
     await expect(service.search({ collection_name: "kb", query: "q", search_mode: "hybrid", rerank: true }))
       .resolves.toMatchObject({ rerank_mode: "model" });
@@ -230,6 +251,7 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
   it("model reranker 失败降级并标记结果", async () => {
     const hits = [hit("1", "d1", "query match", 0.9)];
     const service = makeService(makeFakePorts(hits, null, [activeReranker("model")]), {
+      modelAdapter: rerankProviderAdapter,
       rerankerFactory: () => ({
         rerank: async () => { throw new Error("offline"); },
       }),
