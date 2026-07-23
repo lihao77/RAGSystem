@@ -14,7 +14,11 @@
     <div class="wp-body">
       <ArtifactPanel
         :message="currentMessage"
+        :session-id="sessionId"
+        :refresh-key="messageKey"
+        :running="activeRun.active"
         @select="emit('artifactSelect', $event)"
+        @file-changes="emit('fileChanges')"
       />
 
      <Transition name="wp-content" mode="out-in">
@@ -67,7 +71,7 @@ const props = defineProps({
   sessionId: { type: String, default: '' },
 })
 
-const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel', 'artifactSelect'])
+const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel', 'artifactSelect', 'fileChanges'])
 
 const messageHasError = computed(() => {
   const msg = props.currentMessage

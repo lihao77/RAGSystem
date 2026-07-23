@@ -9,7 +9,7 @@
       @leave="onLeave"
       @after-leave="onAfterLeave"
     >
-      <div v-if="artifacts.length" class="artifact-reveal-inner">
+      <div v-if="outputCount" class="artifact-reveal-inner">
         <div class="artifact-panel-header">
       <div class="artifact-panel-title">
         <span class="artifact-panel-icon" aria-hidden="true">
@@ -22,9 +22,36 @@
         </span>
         <span>产物</span>
       </div>
-      <span class="artifact-count">{{ artifacts.length }}</span>
+      <span class="artifact-count">{{ outputCount }}</span>
         </div>
         <div class="artifact-list">
+      <button
+        v-if="files.length"
+        type="button"
+        class="artifact-item"
+        data-output-kind="file-changes"
+        title="查看本轮文件变更"
+        @click="emit('fileChanges')"
+      >
+        <span class="artifact-item-index artifact-item-index--files" aria-hidden="true">
+          <svg viewBox="0 0 20 20">
+            <path d="M6 3.5h5.5L15 7v9.5H6z" />
+            <path d="M11.5 3.5V7H15" />
+            <path d="M8.5 10h4M8.5 12.5h4" />
+          </svg>
+        </span>
+        <span class="artifact-item-main">
+          <span class="artifact-item-title">文件变更</span>
+          <span class="artifact-item-id">{{ fileChangeSummary }}</span>
+        </span>
+        <span class="artifact-item-action" aria-hidden="true">
+          <svg viewBox="0 0 20 20">
+            <path d="M7 4.5h8.5V13" />
+            <path d="M15.5 4.5 5 15" />
+          </svg>
+        </span>
+      </button>
+
       <button
         v-for="artifact in artifacts"
         :key="artifact.artifactId"
@@ -52,13 +79,19 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { getLatestFileChanges } from '../../api/fileChanges.js';
 
 const props = defineProps({
   message: { type: Object, default: null },
+  sessionId: { type: String, default: '' },
+  refreshKey: { type: String, default: '' },
+  running: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['select']);
+const emit = defineEmits(['select', 'fileChanges']);
+const files = ref([]);
+let fileChangesRequest = 0;
 
 const artifacts = computed(() => {
   const content = props.message?.content || '';
@@ -80,6 +113,40 @@ const artifacts = computed(() => {
 
   return items;
 });
+
+const outputCount = computed(() => artifacts.value.length + (files.value.length ? 1 : 0));
+const fileChangeSummary = computed(() => {
+  const created = files.value.filter(file => file.action === 'created').length;
+  const modified = files.value.length - created;
+  const parts = [`${files.value.length} 个文件`];
+  if (created) parts.push(`${created} 新增`);
+  if (modified) parts.push(`${modified} 修改`);
+  return parts.join(' · ');
+});
+
+async function loadFileChanges(sessionId) {
+  const request = ++fileChangesRequest;
+  try {
+    const result = await getLatestFileChanges(sessionId);
+    if (request !== fileChangesRequest) return;
+    files.value = Array.isArray(result.files) ? result.files : [];
+  } catch {
+    if (request === fileChangesRequest) files.value = [];
+  }
+}
+
+watch(
+  () => [props.sessionId, props.refreshKey, props.running],
+  ([sessionId, , running]) => {
+    if (!sessionId || running) {
+      fileChangesRequest += 1;
+      files.value = [];
+      return;
+    }
+    void loadFileChanges(sessionId);
+  },
+  { immediate: true },
+);
 
 const ARTIFACT_REVEAL_MS = 300;
 const ARTIFACT_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
@@ -249,6 +316,16 @@ function onAfterLeave(el) {
   color: var(--color-active);
   font-size: var(--font-size-xs);
   font-weight: 700;
+}
+
+.artifact-item-index--files svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .artifact-item-main {

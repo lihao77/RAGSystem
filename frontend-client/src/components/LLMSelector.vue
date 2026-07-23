@@ -1,5 +1,5 @@
 <template>
-  <div class="llm-selector">
+  <div class="llm-selector" :class="{ 'llm-selector--composer': presentation === 'composer' }">
     <Popover v-model:open="open">
       <PopoverTrigger as-child>
         <button
@@ -7,7 +7,7 @@
           class="llm-select-trigger"
           :class="{ open, disabled: loading || models.length === 0 }"
           :disabled="loading || models.length === 0"
-          :title="selectedModel || 'Select LLM Model'"
+          :title="selectedModelTitle"
           role="combobox"
           :aria-expanded="open"
         >
@@ -16,14 +16,22 @@
           <div v-if="loading" class="loading-spinner"></div>
         </button>
       </PopoverTrigger>
-      <PopoverContent class="llm-popover" align="start" :side-offset="8">
+      <PopoverContent
+        class="llm-popover"
+        align="start"
+        :side="presentation === 'composer' ? 'top' : 'bottom'"
+        :side-offset="8"
+      >
         <Command>
           <CommandInput v-if="models.length > 5" placeholder="Search models..." />
           <CommandList>
             <CommandEmpty>No models found</CommandEmpty>
             <CommandGroup>
               <CommandItem class="llm-option" value="__default__" @select="() => selectModel('')">
-                <span class="option-label">默认<span class="option-sub">使用智能体配置</span></span>
+                <span class="option-copy">
+                  <span class="option-label">默认</span>
+                  <span class="option-sub">使用智能体配置</span>
+                </span>
                 <IconCheck v-if="!selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
               </CommandItem>
               <CommandSeparator />
@@ -34,8 +42,10 @@
                 :value="m.value"
                 @select="() => selectModel(m.value)"
               >
-                <span class="option-label">{{ m.label }}</span>
-                <span class="sr-only">{{ m.provider }} {{ m.model }}</span>
+                <span class="option-copy">
+                  <span class="option-label">{{ m.model }}</span>
+                  <span class="option-sub">{{ m.provider }}</span>
+                </span>
                 <IconCheck v-if="m.value === selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
               </CommandItem>
             </CommandGroup>
@@ -53,11 +63,19 @@ import { ref, computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator } from './ui/command';
-import { getAvailableModels } from '../api/modelAdapter';
+import { findProviderModelByValue, getAvailableModels } from '../api/modelAdapter';
 import { useLlmStore } from '../stores/llm.js';
 import IconChevronDown from './icons/IconChevronDown.vue';
 import IconCheck from './icons/IconCheck.vue';
 import IconWarning from './icons/IconWarning.vue';
+
+defineProps({
+  presentation: {
+    type: String,
+    default: 'toolbar',
+    validator: value => ['toolbar', 'composer'].includes(value),
+  },
+});
 
 const llmStore = useLlmStore();
 const { selectedLLM: selectedModel } = storeToRefs(llmStore);
@@ -68,11 +86,19 @@ const error = ref('');
 const open = ref(false);
 
 const displayText = computed(() => {
-  if (loading.value) return 'Loading...';
-  if (models.value.length === 0) return 'No models available';
+  if (loading.value) return '加载中';
+  if (models.value.length === 0) return '无可用模型';
   if (!selectedModel.value) return '默认';
   const model = models.value.find(m => m.value === selectedModel.value);
-  return model ? model.label : selectedModel.value;
+  return model?.model || findProviderModelByValue(selectedModel.value).model || selectedModel.value;
+});
+
+const selectedModelTitle = computed(() => {
+  if (!selectedModel.value) return '默认模型（使用智能体配置）';
+  const model = models.value.find(item => item.value === selectedModel.value);
+  if (model) return `${model.model} · ${model.provider}`;
+  const parsed = findProviderModelByValue(selectedModel.value);
+  return [parsed.model, parsed.provider].filter(Boolean).join(' · ') || selectedModel.value;
 });
 
 const selectModel = (value) => {
@@ -153,6 +179,35 @@ defineExpose({ getSelection });
   cursor: not-allowed;
 }
 
+.llm-selector--composer .llm-select-trigger {
+  width: auto;
+  min-width: 0;
+  max-width: 160px;
+  height: 32px;
+  padding: 0 30px 0 10px;
+  border-color: transparent;
+  border-radius: var(--control-radius);
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--font-size-xs);
+}
+
+.llm-selector--composer .llm-select-trigger:hover:not(.disabled) {
+  border-color: transparent;
+  background: var(--color-hover-overlay);
+  box-shadow: none;
+}
+
+.llm-selector--composer .llm-select-trigger.open {
+  border-color: var(--color-border-focus);
+  background: var(--color-hover-overlay);
+}
+
+.llm-selector--composer .arrow-icon,
+.llm-selector--composer .loading-spinner {
+  right: 9px;
+}
+
 .selected-text {
   flex: 1;
   white-space: nowrap;
@@ -218,8 +273,14 @@ defineExpose({ getSelection });
   background: var(--color-interactive-hover) !important;
 }
 
-.option-label {
+.option-copy {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.option-label {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -228,7 +289,9 @@ defineExpose({ getSelection });
   font-size: 11px;
   color: var(--color-text-muted);
   font-weight: 400;
-  margin-left: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .check-icon {
   flex-shrink: 0;
@@ -265,6 +328,12 @@ defineExpose({ getSelection });
   }
   .arrow-icon {
     right: 10px;
+  }
+
+  .llm-selector--composer .llm-select-trigger {
+    min-width: 0;
+    max-width: 132px;
+    padding-left: 8px;
   }
 }
 </style>

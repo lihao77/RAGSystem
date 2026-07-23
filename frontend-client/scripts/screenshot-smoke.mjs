@@ -28,6 +28,30 @@ const shots = [
     ],
   },
   {
+    name: 'chat-mobile-session',
+    path: '/?__smoke=artifact',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'expectText', selector: '.conversation-title', text: '生成一张水位趋势图' },
+      { type: 'expectVisible', selector: '.composer-run-controls' },
+    ],
+  },
+  {
+    name: 'chat-mobile-session-menu',
+    path: '/?__smoke=artifact',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'expectText', selector: '.conversation-title', text: '生成一张水位趋势图' },
+      { type: 'click', selector: '[aria-label="更多会话操作"]' },
+      { type: 'expectText', selector: '[role="menu"]', text: '文件变更' },
+      { type: 'expectText', selector: '[role="menu"]', text: '导出会话' },
+    ],
+  },
+  {
     name: 'desktop-workbench-artifact',
     path: '/?__smoke=artifact',
     width: 1440,
@@ -37,6 +61,7 @@ const shots = [
       { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
       { type: 'expectVisible', selector: '[data-artifact-id="viz_smoke_chart"]' },
       { type: 'expectText', selector: '.artifact-panel', text: '可视化' },
+      { type: 'expectText', selector: '.artifact-panel', text: '文件变更' },
       { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
     ],
   },
@@ -50,6 +75,7 @@ const shots = [
       { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
       { type: 'expectVisible', selector: '[data-artifact-id="viz_smoke_chart"]' },
       { type: 'expectText', selector: '.artifact-panel', text: '可视化' },
+      { type: 'expectText', selector: '.artifact-panel', text: '文件变更' },
       { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
     ],
   },
@@ -535,10 +561,16 @@ async function setupShotMocks(client, shot) {
 
   await client.send('Fetch.enable', {
     patterns: [
-      ...(mockArtifactApi ? [{
-        urlPattern: '*://*/api/artifacts/visualizations/viz_smoke_chart*',
-        requestStage: 'Request',
-      }] : []),
+      ...(mockArtifactApi ? [
+        {
+          urlPattern: '*://*/api/artifacts/visualizations/viz_smoke_chart*',
+          requestStage: 'Request',
+        },
+        {
+          urlPattern: '*://*/api/agent/sessions/smoke-artifact-session/file-changes*',
+          requestStage: 'Request',
+        },
+      ] : []),
       ...(mockKnowledgeSearchApi ? [{
         urlPattern: '*://*/api/knowledge-bases/search*',
         requestStage: 'Request',
@@ -612,6 +644,40 @@ async function setupShotMocks(client, shot) {
             timings_ms: { embedding: 18.4, retrieval: 7.2, vector_retrieval: 6.8, keyword_retrieval: 4.1, scoring: 0.8, rerank: 31.5, total: 58.3 },
           },
         },
+      });
+      await client.send('Fetch.fulfillRequest', {
+        requestId: event.requestId,
+        responseCode: 200,
+        responseHeaders: [
+          { name: 'Content-Type', value: 'application/json; charset=utf-8' },
+          { name: 'Cache-Control', value: 'no-store' },
+        ],
+        body: Buffer.from(body, 'utf8').toString('base64'),
+      });
+      return;
+    }
+
+    if (event.request?.url?.includes('/api/agent/sessions/smoke-artifact-session/file-changes')) {
+      const body = JSON.stringify({
+        success: true,
+        files: [
+          {
+            path: 'src/components/WaterLevelChart.vue',
+            action: 'created',
+            diff: [
+              { type: 'added', oldLine: null, newLine: 1, content: '<template>' },
+              { type: 'added', oldLine: null, newLine: 2, content: '  <ChartRenderer :config="config" />' },
+            ],
+          },
+          {
+            path: 'src/views/DashboardView.vue',
+            action: 'modified',
+            diff: [
+              { type: 'context', oldLine: 18, newLine: 18, content: '<main>' },
+              { type: 'added', oldLine: null, newLine: 19, content: '  <WaterLevelChart />' },
+            ],
+          },
+        ],
       });
       await client.send('Fetch.fulfillRequest', {
         requestId: event.requestId,

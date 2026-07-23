@@ -18,6 +18,7 @@
       @user-input-submit="emit('userInputSubmit', $event)"
       @user-input-cancel="emit('userInputCancel')"
       @artifact-select="emit('artifactSelect', $event)"
+      @file-changes="emit('fileChanges')"
     />
   </Transition>
 
@@ -45,7 +46,7 @@ defineProps({
   disableTransition: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel', 'artifactSelect']);
+const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel', 'artifactSelect', 'fileChanges']);
 
 const approvalDialogRef = ref(null);
 const userInputDialogRef = ref(null);

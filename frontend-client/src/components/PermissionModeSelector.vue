@@ -5,7 +5,7 @@
       :disabled="!sessionId"
       :title="triggerTitle"
     >
-      <ShieldCheck />
+      <component :is="modeIcon" :class="triggerToneClass" />
       <span class="flex min-w-0 flex-1 items-center justify-between gap-3">
         <span>会话权限</span>
         <span class="text-xs text-muted-foreground">{{ modeLabel }}</span>
@@ -43,12 +43,13 @@
     <DropdownMenuTrigger as-child>
       <Button
         variant="ghost"
-        size="sm"
+        size="icon"
+        :class="cn('permission-mode-trigger', triggerToneClass)"
         :disabled="!sessionId"
         :title="triggerTitle"
+        :aria-label="triggerTitle"
       >
-        <ShieldCheck data-icon="inline-start" />
-        {{ modeLabel }}
+        <component :is="modeIcon" />
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" class="w-72">
@@ -82,8 +83,9 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { ShieldCheck } from 'lucide-vue-next';
+import { Shield, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-vue-next';
 import { Button } from './ui/button';
+import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -119,6 +121,20 @@ const modes = [
   { value: 'dangerously_skip_permissions', label: '跳过审批', description: '自动放行常规风险审批，请谨慎使用。' },
 ];
 
+const modeIcons = {
+  strict: ShieldCheck,
+  standard: Shield,
+  relaxed: ShieldAlert,
+  dangerously_skip_permissions: ShieldOff,
+};
+
+const modeToneClasses = {
+  strict: 'tone-strict',
+  standard: 'tone-standard',
+  relaxed: 'tone-relaxed',
+  dangerously_skip_permissions: 'tone-skip',
+};
+
 const authStore = useAuthStore();
 const bootstrapStore = useBootstrapStore();
 const sessionListStore = useSessionListStore();
@@ -127,6 +143,8 @@ const currentSession = computed(() => sessionListStore.getById(props.sessionId))
 const canEdit = computed(() => bootstrapStore.profile.auth !== 'password'
   || currentSession.value?.user_id === authStore.user?.id);
 const modeLabel = computed(() => modes.find(mode => mode.value === currentMode.value)?.label || '标准');
+const modeIcon = computed(() => modeIcons[currentMode.value] || Shield);
+const triggerToneClass = computed(() => modeToneClasses[currentMode.value] || 'tone-standard');
 const triggerTitle = computed(() => props.sessionId
   ? `当前会话权限：${modeLabel.value}${canEdit.value ? '' : '（只读）'}`
   : '当前无会话');
@@ -154,3 +172,25 @@ watch(() => props.sessionId, sessionId => {
   if (sessionId) void loadAction.run();
 }, { immediate: true });
 </script>
+
+<style scoped>
+.permission-mode-trigger.tone-strict,
+.tone-strict {
+  color: var(--color-success);
+}
+
+.permission-mode-trigger.tone-standard,
+.tone-standard {
+  color: var(--color-brand-accent);
+}
+
+.permission-mode-trigger.tone-relaxed,
+.tone-relaxed {
+  color: var(--color-warning);
+}
+
+.permission-mode-trigger.tone-skip,
+.tone-skip {
+  color: var(--color-error);
+}
+</style>

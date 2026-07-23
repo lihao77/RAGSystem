@@ -3,8 +3,8 @@
     <main id="main-content" tabindex="-1" class="chat-main" :class="chatMainClasses">
     <div class="chat-conversation-column">
       <SessionContextBar
-        ref="sessionContextBarRef"
         :current-session-id="currentSessionId || ''"
+        :session-title="currentSessionTitle"
         :is-exporting-session="isExportingSession"
         :scrolled="topControlsBarScrolled"
         @open-mobile-sidebar="openMobileSidebar"
@@ -79,6 +79,12 @@
             @pasteFiles="handleSessionFileSelect"
           >
             <template #footerMeta>
+              <div class="composer-run-controls" role="group" aria-label="本次发送设置">
+                <LLMSelector presentation="composer" />
+                <PermissionModeSelector v-if="currentSessionId" :session-id="currentSessionId" />
+              </div>
+            </template>
+            <template #rightActions>
               <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="openCtxDrawer" title="点击查看上下文详情">
                 <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
                   <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
@@ -101,8 +107,6 @@
                   压缩中
                 </span>
               </div>
-            </template>
-            <template #rightActions>
               <SessionContextInfoButton
                 :current-session-id="currentSessionId || ''"
                 :team="currentSessionTeam"
@@ -134,6 +138,7 @@
       @user-input-submit="handleWorkPanelUserInputSubmit"
       @user-input-cancel="handleWorkPanelUserInputCancel"
       @artifact-select="handleArtifactSelect"
+      @file-changes="fileChangesOpen = true"
     />
     </main>
 
@@ -202,6 +207,8 @@ import { useMessageListView } from '../composables/useMessageListView';
 import { useRuntimeStatusView } from '../composables/useRuntimeStatusView';
 import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
 import ChatInput from '../components/ChatInput.vue';
+import LLMSelector from '../components/LLMSelector.vue';
+import PermissionModeSelector from '../components/PermissionModeSelector.vue';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import FileChangesPanel from '../components/agent/FileChangesPanel.vue';
 import ImageLightbox from '../components/common/ImageLightbox.vue';
@@ -222,6 +229,8 @@ import TaskLauncher from '../components/chat/TaskLauncher.vue';
 import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
+import { useSessionListStore } from '../stores/session-list.js';
+import { useLlmStore } from '../stores/llm.js';
 
 const SituationScreen = defineAsyncComponent(() => import('../components/SituationScreen.vue'));
 
@@ -231,6 +240,8 @@ const shellSidebarControl = inject('shellSidebarControl', null);
 
 const inputMessage = ref('');
 const sessionRunStore = useSessionRunStore();
+const sessionListStore = useSessionListStore();
+const llmStore = useLlmStore();
 const {
   messages,
   currentSessionId,
@@ -241,6 +252,16 @@ const {
   contextUsage,
   pendingFollowupCandidates,
 } = storeToRefs(sessionRunStore);
+
+const currentSessionTitle = computed(() => {
+  if (!currentSessionId.value) return '新聊天';
+  const session = sessionListStore.getById(currentSessionId.value);
+  const storedTitle = String(session?.title || '').trim();
+  if (storedTitle && !['New Conversation', '新会话', '新聊天'].includes(storedTitle)) return storedTitle;
+  const firstUserMessage = messages.value.find(message => message?.role === 'user' && String(message.content || '').trim());
+  const messageTitle = String(firstUserMessage?.content || '').replace(/\s+/g, ' ').trim();
+  return messageTitle ? messageTitle.slice(0, 60) : '未命名会话';
+});
 
 // 输入草稿持久化：按 sessionId 分片存 localStorage，切会话/刷新后恢复，发送清空
 const DRAFT_PREFIX = 'chat-draft:';
@@ -256,7 +277,6 @@ watch(inputMessage, (val) => {
     else localStorage.removeItem(draftKey.value);
   } catch (e) { /* localStorage 不可用时静默 */ }
 });
-const sessionContextBarRef = ref(null);
 const topControlsBarScrolled = ref(false);
 const {
   messagesRef,
@@ -294,7 +314,7 @@ let sessionScrollRestoreTimer = null;
 let pendingSessionScrollRestores = 0;
 
 function getCurrentSelectedLlm() {
-  return sessionContextBarRef.value?.getSelection?.() || '';
+  return llmStore.selectedLLM || '';
 }
 
 function openCtxDrawer() {
@@ -1176,6 +1196,14 @@ onUnmounted(() => {
   background: var(--color-bg-secondary);
 } */
 
+.composer-run-controls {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+}
+
 .context-usage-content {
   display: inline-flex;
   align-items: center;
@@ -1236,6 +1264,10 @@ onUnmounted(() => {
 }
 
 @media (max-width: 480px) {
+  .composer-run-controls {
+    max-width: 220px;
+  }
+
   .context-usage-content {
     flex: 0 0 auto;
   }
