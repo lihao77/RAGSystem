@@ -176,6 +176,21 @@ describe("vector library compatibility routes", () => {
     expect(deleted.json().data.deleted_vectorizer_key).toBe("embedding_openai_proxy_text-embedding-3-small");
   });
 
+  it("rejects non-cosine vectorizer distance metrics", async () => {
+    app = await buildTestApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/knowledge-bases/vectorizers",
+      payload: {
+        provider_key: "embedding_openai_proxy",
+        model_name: "text-embedding-3-small",
+        distance_metric: "l2",
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ success: false });
+  });
+
   it("supports in-memory reranker config management", async () => {
     app = await buildTestApp();
     await createRerankProvider();

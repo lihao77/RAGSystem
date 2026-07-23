@@ -9,9 +9,8 @@ import type { AsyncKnowledgeFileStore } from "../knowledge/async-knowledge-file-
 import type { AsyncKnowledgeVectorStore } from "../knowledge/async-vector-store.js";
 
 /**
- * driver 工厂配置:由 config.vector_store 解析后传给 factory.create。
- * backend 决定选哪个 driver(查 DRIVER_REGISTRY);options 是该 driver 的连接参数
- * (sqlite_vec: {database_path, vector_dimension, distance_metric};未来 qdrant: {url, collection, api_key})。
+ * driver 工厂配置由运行时 composition root 生成。
+ * backend 决定选哪个 driver(查 DRIVER_REGISTRY);options 是内部运行参数。
  */
 export interface VectorStoreDriverConfig {
   backend: string;

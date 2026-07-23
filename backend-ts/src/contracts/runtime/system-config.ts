@@ -65,18 +65,6 @@ export interface SystemGroupConfig {
   max_content_length: number;
 }
 
-export interface SqliteVecConfig {
-  database_path: string;
-  vector_dimension: number;
-  distance_metric: string;
-}
-
-/** 向量库后端选择 + driver 连接参数。由 SystemConfigService.getVectorStoreConfig() 类型化读取。 */
-export interface VectorStoreConfig {
-  backend: string;
-  sqlite_vec: SqliteVecConfig;
-}
-
 export interface DocumentExtractionConfig {
   engine: "builtin" | "cli" | "http";
   cli: { command: string; timeout: number; applies_to: string[] };

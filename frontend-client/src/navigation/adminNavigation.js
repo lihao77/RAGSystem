@@ -221,7 +221,7 @@ export const managementNavItems = [
     path: '/system-config',
     label: '系统配置',
     title: '系统配置',
-    description: '管理全局 LLM、向量存储、反思机制等系统级参数。',
+    description: '管理文档解析、记忆、工具限制与上下文预算等系统级参数。',
     group: 'operations',
     requireTenantRole: 'owner',
     icon: createAdminIcon([

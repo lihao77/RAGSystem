@@ -191,9 +191,8 @@ function formatSearchResults(results: VectorSearchResult[]): string {
   }
   return results.map((item, index) => {
     const source = String(item.metadata.source_file ?? item.metadata.source ?? "").trim();
-    const score = item.similarity || item.hybrid_score || item.rerank_score || 0;
+    const score = item.final_score ?? item.score;
     const header = `[${index + 1}]${source ? ` ${source}` : ""}${score ? ` (score: ${score.toFixed(4)})` : ""}`;
     return `${header}\n${item.content.trim()}`;
   }).join("\n\n");
 }
-

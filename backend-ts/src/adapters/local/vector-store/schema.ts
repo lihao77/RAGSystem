@@ -27,6 +27,11 @@ export function documentsTableDdl(): string {
   `;
 }
 
+/** Contentless FTS index populated by SqliteVecDriver with normalized lexical terms. */
+export function documentsFtsTableDdl(): string {
+  return `CREATE VIRTUAL TABLE IF NOT EXISTS vec_documents_fts USING fts5(search_terms, tokenize='unicode61')`;
+}
+
 /** vec0 虚拟表名(per model_id,维度固定)。 */
 export function vecTableName(modelId: number): string {
   return `vec_chunks_${modelId}`;
@@ -34,7 +39,7 @@ export function vecTableName(modelId: number): string {
 
 /** 创建某 model_id 的 vec0 表(维度 = 该 model embedding 维度)。幂等。 */
 export function vecTableDdl(modelId: number, dimension: number): string {
-  return `CREATE VIRTUAL TABLE IF NOT EXISTS ${vecTableName(modelId)} USING vec0(embedding float[${dimension}])`;
+  return `CREATE VIRTUAL TABLE IF NOT EXISTS ${vecTableName(modelId)} USING vec0(embedding float[${dimension}] distance_metric=cosine)`;
 }
 
 /**

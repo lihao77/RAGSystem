@@ -12,3 +12,7 @@ export function parseKnowledgeSearchFilters(value) {
   }
   return parsed;
 }
+
+export function hasKnowledgeRetrievalSource(result, source) {
+  return Array.isArray(result?.retrieval_sources) && result.retrieval_sources.includes(source);
+}

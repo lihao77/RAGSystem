@@ -4,7 +4,7 @@ export const VectorizerCreateSchema = z
   .object({
     provider_key: z.string().trim().min(1),
     model_name: z.string().trim().min(1),
-    distance_metric: z.string().trim().optional().default("cosine"),
+    distance_metric: z.literal("cosine").optional().default("cosine"),
     vectorizer_key: z.string().trim().optional(),
     provider_type: z.string().trim().nullable().optional(),
   })
@@ -146,15 +146,15 @@ export interface VectorSearchResult {
   content: string;
   metadata: Record<string, unknown>;
   score: number;
-  similarity: number;
-  keyword_score: number;
-  vector_score: number;
+  similarity: number | null;
+  keyword_score: number | null;
+  vector_score: number | null;
   hybrid_score: number;
   final_score: number;
   score_type: "vector" | "hybrid" | "rerank";
   final_rank: number;
-  vector_rank: number;
-  keyword_rank: number;
+  vector_rank: number | null;
+  keyword_rank: number | null;
   hybrid_rank: number;
   retrieval_sources: Array<"vector" | "keyword">;
   rerank_score?: number;

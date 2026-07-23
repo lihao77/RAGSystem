@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  HYBRID_KEYWORD_WEIGHT,
-  HYBRID_VECTOR_WEIGHT,
-  hybridScore,
   keywordOverlapScore,
+  reciprocalRankFusionScore,
+  RRF_K,
   tokenize,
 } from "../../src/services/vector-store/scoring.js";
 
@@ -21,12 +20,6 @@ describe("scoring", () => {
     expect(keywordOverlapScore("你好世界", "你好")).toBeGreaterThan(0);
   });
 
-  it("hybridScore = vector*0.7 + keyword*0.3", () => {
-    expect(hybridScore(1, 0)).toBeCloseTo(HYBRID_VECTOR_WEIGHT, 5);
-    expect(hybridScore(0, 1)).toBeCloseTo(HYBRID_KEYWORD_WEIGHT, 5);
-    expect(hybridScore(0.5, 0.5)).toBeCloseTo(0.5, 5);
-  });
-
   it("tokenize 中文保留整词 + bigram + 英文 token", () => {
     const tokens = tokenize("机器学习 machine learning");
     expect(tokens).toContain("机器学习");
@@ -34,5 +27,19 @@ describe("scoring", () => {
     expect(tokens).toContain("器学");
     expect(tokens).toContain("machine");
     expect(tokens).toContain("learning");
+  });
+
+  it("tokenize 按书写系统边界拆分连续中英文", () => {
+    expect(tokenize("RAG知识库")).toEqual(["rag", "知识库", "知识", "识库"]);
+    expect(tokenize("知识库RAG")).toEqual(["知识库", "知识", "识库", "rag"]);
+  });
+
+  it("RRF prioritizes chunks recalled by both sources and stays normalized", () => {
+    const both = reciprocalRankFusionScore({ vectorRank: 1, keywordRank: 1, activeSources: 2 });
+    const vectorOnly = reciprocalRankFusionScore({ vectorRank: 1, keywordRank: null, activeSources: 2 });
+    expect(RRF_K).toBe(60);
+    expect(both).toBeCloseTo(1, 5);
+    expect(vectorOnly).toBeCloseTo(0.5, 5);
+    expect(both).toBeGreaterThan(vectorOnly);
   });
 });

@@ -10,7 +10,7 @@ import type { ModelAdapterService } from "../integrations/model-adapter-service.
 import { createEmbedder } from "../integrations/embedder-registry.js";
 import { createReranker, type IReranker } from "../integrations/reranker-registry.js";
 import { lexicalRerank } from "./rerank/lexical-rerank.js";
-import { hybridScore, keywordOverlapScore } from "../vector-store/scoring.js";
+import { reciprocalRankFusionScore, RRF_K } from "../vector-store/scoring.js";
 import { KnowledgeBaseError } from "../../contracts/knowledge/knowledge-base.js";
 
 export type KnowledgeEmbedderFactory = (
@@ -246,51 +246,57 @@ export class KnowledgeApplicationService implements KnowledgeQueryPort {
     const embeddingStarted = performance.now();
     const [queryVector] = await embedder.embed([query]);
     const embeddingMs = durationMs(embeddingStarted);
-    if (!queryVector?.length) {
-      return {
-        results: [],
-        count: 0,
-        collection_name: collection,
-        collection_scope: collectionScope,
-        query,
-        search_mode: mode,
-        rerank_requested: rerankRequested,
-        rerank: false,
-        rerank_mode: "none",
-        rerank_error: null,
-        diagnostics: {
-          candidate_count: 0,
-          filters_applied: Object.keys(filters ?? {}).sort(),
-          vectorizer: searchVectorizerDiagnostic(vectorizer),
-          reranker: null,
-          timings_ms: { embedding: embeddingMs, retrieval: 0, scoring: 0, rerank: 0, total: durationMs(totalStarted) },
-        },
-      };
-    }
     const topK = Math.max(1, Math.min(100, input.top_k ?? 5));
     const defaultCandidateLimit = mode === "hybrid" || rerankRequested ? Math.max(topK, 20) : topK;
     const candidateLimit = Math.max(topK, Math.min(100, input.rerank_top_k ?? defaultCandidateLimit));
     const retrievalStarted = performance.now();
-    const hits = await this.vectors.search({
-      tenant_id: this.tenantId,
-      model_id: vectorizer.model_id,
-      query_vector: queryVector,
-      top_k: candidateLimit,
-      ...(collection ? { collection } : {}),
-      ...(filters ? { filters } : {}),
-    });
+    const vectorStagePromise = queryVector?.length
+      ? timedAsync(() => this.vectors.search({
+        tenant_id: this.tenantId,
+        model_id: vectorizer.model_id,
+        query_vector: queryVector,
+        top_k: candidateLimit,
+        ...(collection ? { collection } : {}),
+        ...(filters ? { filters } : {}),
+      }))
+      : Promise.resolve({ value: [], duration: 0 });
+    const keywordStagePromise = mode === "hybrid"
+      ? timedAsync(() => this.vectors.lexicalSearch({
+        tenant_id: this.tenantId,
+        model_id: vectorizer.model_id,
+        query,
+        top_k: candidateLimit,
+        ...(collection ? { collection } : {}),
+        ...(filters ? { filters } : {}),
+      }))
+      : Promise.resolve({ value: [], duration: 0 });
+    const [vectorStage, keywordStage] = await Promise.all([vectorStagePromise, keywordStagePromise]);
+    const vectorHits = vectorStage.value.filter((hit) => Number.isFinite(hit.vector_score) && hit.vector_score > 0);
+    const keywordHits = keywordStage.value;
     const retrievalMs = durationMs(retrievalStarted);
     const scoringStarted = performance.now();
-    const scored = hits.map((hit) => {
-      const keyword = keywordOverlapScore(query, hit.content);
-      const hybrid = hybridScore(hit.vector_score, keyword);
-      return { hit, keyword, hybrid };
-    }).filter(({ hit, keyword }) => hit.vector_score > 0 || keyword > 0);
-    const vectorRanks = scoreRanks(scored, ({ hit }) => hit.vector_score, ({ hit }) => hit.id);
-    const keywordRanks = scoreRanks(scored, ({ keyword }) => keyword, ({ hit }) => hit.id);
-    const hybridRanks = scoreRanks(scored, ({ hybrid }) => hybrid, ({ hit }) => hit.id);
-    const candidates: VectorSearchResult[] = scored.map(({ hit, keyword, hybrid }) => {
-      const baseScore = mode === "vector" ? hit.vector_score : hybrid;
+    const vectorById = new Map(vectorHits.map((hit, index) => [hit.id, { hit, rank: index + 1 }]));
+    const keywordById = new Map(keywordHits.map((hit, index) => [hit.id, { hit, rank: index + 1 }]));
+    const candidateIds = [...new Set([...vectorById.keys(), ...keywordById.keys()])];
+    const activeRecallSources = Math.max(1, Number(vectorHits.length > 0) + Number(keywordHits.length > 0));
+    const scored = candidateIds.map((id) => {
+      const vector = vectorById.get(id) ?? null;
+      const keyword = keywordById.get(id) ?? null;
+      const hit = vector?.hit ?? keyword?.hit;
+      if (!hit) throw new KnowledgeBaseError(`检索候选缺少内容: ${id}`, 500);
+      const vectorScore = vector?.hit.vector_score ?? null;
+      const keywordScore = keyword?.hit.keyword_score ?? null;
+      const fusionScore = mode === "hybrid"
+        ? reciprocalRankFusionScore({
+          vectorRank: vector?.rank ?? null,
+          keywordRank: keyword?.rank ?? null,
+          activeSources: activeRecallSources,
+        })
+        : (vectorScore ?? 0);
+      const baseScore = mode === "vector" ? (vectorScore ?? 0) : fusionScore;
+      const retrievalSources: Array<"vector" | "keyword"> = [];
+      if (vector) retrievalSources.push("vector");
+      if (keyword) retrievalSources.push("keyword");
       return {
         id: hit.id,
         doc_id: hit.document_id,
@@ -300,19 +306,25 @@ export class KnowledgeApplicationService implements KnowledgeQueryPort {
         content: hit.content,
         metadata: hit.metadata,
         score: baseScore,
-        similarity: hit.vector_score,
-        keyword_score: keyword,
-        vector_score: hit.vector_score,
-        hybrid_score: hybrid,
+        similarity: vectorScore,
+        keyword_score: keywordScore,
+        vector_score: vectorScore,
+        hybrid_score: fusionScore,
         final_score: baseScore,
         score_type: mode,
         final_rank: 0,
-        vector_rank: vectorRanks.get(hit.id) ?? 0,
-        keyword_rank: keywordRanks.get(hit.id) ?? 0,
-        hybrid_rank: hybridRanks.get(hit.id) ?? 0,
-        retrieval_sources: ["vector"] as Array<"vector" | "keyword">,
+        vector_rank: vector?.rank ?? null,
+        keyword_rank: keyword?.rank ?? null,
+        hybrid_rank: 0,
+        retrieval_sources: retrievalSources,
       };
-    }).sort((left, right) => right.score - left.score).slice(0, candidateLimit);
+    });
+    const sorted = [...scored].sort(compareSearchCandidates);
+    const hybridRanks = new Map(sorted.map((item, index) => [item.id, index + 1]));
+    const candidates: VectorSearchResult[] = sorted
+      .map((item) => ({ ...item, hybrid_rank: hybridRanks.get(item.id) ?? 0 }))
+      .slice(0, candidateLimit);
+    const fusedCandidateCount = scored.length;
     const scoringMs = durationMs(scoringStarted);
     const rerankers = await this.config.listRerankers(this.tenantId);
     const selectedReranker = input.reranker_key
@@ -349,7 +361,7 @@ export class KnowledgeApplicationService implements KnowledgeQueryPort {
     results = results.slice(0, Math.max(1, Math.min(100, input.final_top_k ?? topK))).map((result, index) => {
       const rerankScore = Number(result.rerank_score);
       const usesRerankScore = hasRerankOrder && Number.isFinite(rerankScore);
-      const finalScore = usesRerankScore ? rerankScore : (mode === "vector" ? result.vector_score : result.hybrid_score);
+      const finalScore = usesRerankScore ? rerankScore : (mode === "vector" ? (result.vector_score ?? 0) : result.hybrid_score);
       return {
         ...result,
         score: finalScore,
@@ -372,12 +384,18 @@ export class KnowledgeApplicationService implements KnowledgeQueryPort {
       rerank_error: rerankError,
       diagnostics: {
         candidate_count: candidates.length,
+        vector_candidate_count: vectorHits.length,
+        keyword_candidate_count: keywordHits.length,
+        fused_candidate_count: fusedCandidateCount,
         filters_applied: Object.keys(filters ?? {}).sort(),
+        fusion: mode === "hybrid" ? { method: "rrf", rrf_k: RRF_K } : null,
         vectorizer: searchVectorizerDiagnostic(vectorizer),
         reranker: rerankerDiagnostic,
         timings_ms: {
           embedding: embeddingMs,
           retrieval: retrievalMs,
+          vector_retrieval: vectorStage.duration,
+          keyword_retrieval: keywordStage.duration,
           scoring: scoringMs,
           rerank: rerankMs,
           total: durationMs(totalStarted),
@@ -696,12 +714,15 @@ function normalizeSearchFilters(value: Record<string, unknown> | undefined): Rec
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
-function scoreRanks<T>(items: T[], score: (item: T) => number, id: (item: T) => string): Map<string, number> {
-  return new Map(
-    [...items]
-      .sort((left, right) => score(right) - score(left))
-      .map((item, index) => [id(item), index + 1]),
-  );
+function compareSearchCandidates(left: VectorSearchResult, right: VectorSearchResult): number {
+  return right.score - left.score
+    || right.retrieval_sources.length - left.retrieval_sources.length
+    || candidateQualityScore(right) - candidateQualityScore(left)
+    || left.id.localeCompare(right.id);
+}
+
+function candidateQualityScore(result: VectorSearchResult): number {
+  return Math.max(result.vector_score ?? 0, result.keyword_score ?? 0);
 }
 
 function searchVectorizerDiagnostic(vectorizer: StoredVectorizer) {
@@ -724,6 +745,12 @@ function searchRerankerDiagnostic(reranker: StoredReranker) {
 
 function durationMs(started: number): number {
   return Math.round((performance.now() - started) * 100) / 100;
+}
+
+async function timedAsync<T>(operation: () => Promise<T>): Promise<{ value: T; duration: number }> {
+  const started = performance.now();
+  const value = await operation();
+  return { value, duration: durationMs(started) };
 }
 
 function errorMessage(error: unknown): string {

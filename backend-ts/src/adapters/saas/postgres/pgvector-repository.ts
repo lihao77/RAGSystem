@@ -4,11 +4,14 @@ import type {
   AsyncKnowledgeDocumentIndexSummary,
   AsyncKnowledgeDocumentSummary,
   AsyncKnowledgeVectorStore,
+  AsyncLexicalSearchHit,
+  AsyncLexicalSearchInput,
   AsyncVectorRecord,
   AsyncVectorSearchHit,
   AsyncVectorSearchInput,
 } from "../../../contracts/knowledge/async-vector-store.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import { tokenize } from "../../../services/vector-store/scoring.js";
 
 const vectorParam = (vector: number[]) => `[${vector.join(",")}]`;
 const logicalChunkId = (alias = "") => {
@@ -126,6 +129,51 @@ export class PostgresPgVectorRepository implements AsyncKnowledgeVectorStore {
     return result.rows.map((row) => ({
       ...chunkFrom(row),
       vector_score: Number(row.vector_score),
+    }));
+  }
+
+  async lexicalSearch(input: AsyncLexicalSearchInput): Promise<AsyncLexicalSearchHit[]> {
+    const limit = Math.max(1, Math.min(100, Math.floor(input.top_k)));
+    const terms = [...new Set(tokenize(input.query))].slice(0, 64);
+    if (terms.length === 0) return [];
+    const params: unknown[] = [input.tenant_id, input.model_id];
+    const predicates = ["tenant_id=$1", "model_id=$2"];
+    if (input.collection !== undefined) {
+      params.push(input.collection);
+      predicates.push(`collection=$${params.length}`);
+    }
+    if (input.filters && Object.keys(input.filters).length > 0) {
+      params.push(JSON.stringify(input.filters));
+      predicates.push(`metadata @> $${params.length}::jsonb`);
+    }
+    params.push(input.query);
+    const queryIndex = params.length;
+    params.push(terms.map((term) => `%${term}%`));
+    const patternsIndex = params.length;
+    params.push(limit);
+    const limitIndex = params.length;
+    const result = await this.executor.query(
+      `WITH lexical_query AS (
+         SELECT plainto_tsquery('simple'::regconfig, $${queryIndex}) AS tsq
+       )
+       SELECT id,tenant_id,collection,document_id,model_id,chunk_index,content,metadata,
+         GREATEST(
+           ts_rank_cd(to_tsvector('simple'::regconfig, content), lexical_query.tsq, 32),
+           similarity(content, $${queryIndex})
+         ) AS keyword_score
+       FROM knowledge_vector_chunks, lexical_query
+       WHERE ${predicates.join(" AND ")}
+         AND (
+           to_tsvector('simple'::regconfig, content) @@ lexical_query.tsq
+           OR content ILIKE ANY($${patternsIndex}::text[])
+         )
+       ORDER BY keyword_score DESC, chunk_index ASC
+       LIMIT $${limitIndex}`,
+      params,
+    );
+    return result.rows.map((row) => ({
+      ...chunkFrom(row),
+      keyword_score: Math.max(0, Math.min(1, Number(row.keyword_score))),
     }));
   }
 

@@ -86,7 +86,7 @@ CORS_ORIGINS=https://console.example.com
 
 | 文件/目录 | 消费模块 | 内容 |
 |---|---|---|
-| `system/config.yaml` 或 app config | `SystemConfigService` | memory、tools、vector、document extraction |
+| `system/config.yaml` 或 app config | `SystemConfigService` | document extraction、system、memory、tools、context |
 | `config/model_adapter/providers.yaml` | `ModelAdapterService` | Provider endpoint、model、能力和密钥引用 |
 | `config/mcp/mcp_servers.yaml` | `McpService` | MCP server、transport、自动连接 |
 | `config/daemon/daemon.yaml` | `DaemonService` | 守护任务 |

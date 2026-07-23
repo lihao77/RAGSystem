@@ -15,6 +15,8 @@ describe("Postgres pgvector adapter", () => {
   it("defines vector extension and tenant-scoped table", () => {
     expect(POSTGRES_PGVECTOR_MIGRATIONS[0]?.sql).toContain("CREATE EXTENSION IF NOT EXISTS vector");
     expect(POSTGRES_PGVECTOR_MIGRATIONS[0]?.sql).toContain("tenant_id TEXT NOT NULL");
+    expect(POSTGRES_PGVECTOR_MIGRATIONS[1]?.sql).toContain("CREATE EXTENSION IF NOT EXISTS pg_trgm");
+    expect(POSTGRES_PGVECTOR_MIGRATIONS[1]?.sql).toContain("to_tsvector");
   });
   it("upserts vectors and scopes search by tenant", async () => {
     const db = executor([{ id: "v1", tenant_id: "t1", collection: "docs", document_id: "d1", model_id: 2, chunk_index: 0, content: "hello", metadata: {}, vector_score: 0.9 }]);
@@ -37,6 +39,22 @@ describe("Postgres pgvector adapter", () => {
     expect(String(sql)).not.toContain("collection=");
     expect(String(sql)).toContain("metadata @>");
     expect(params).toContain(JSON.stringify({ category: "guide" }));
+  });
+  it("performs independent lexical recall with full-text and trigram ranking", async () => {
+    const db = executor([{ id: "v1", tenant_id: "t1", collection: "docs", document_id: "d1", model_id: 2, chunk_index: 0, content: "knowledge retrieval", metadata: {}, keyword_score: 0.8 }]);
+    const hits = await new PostgresPgVectorRepository(db).lexicalSearch({
+      tenant_id: "t1",
+      model_id: 2,
+      query: "knowledge retrieval",
+      top_k: 3,
+      filters: { category: "guide" },
+    });
+    const [sql, params] = (db.query as ReturnType<typeof vi.fn>).mock.calls[0] ?? [];
+    expect(String(sql)).toContain("ts_rank_cd");
+    expect(String(sql)).toContain("similarity(content");
+    expect(String(sql)).toContain("metadata @>");
+    expect(params).toContain(JSON.stringify({ category: "guide" }));
+    expect(hits[0]).toMatchObject({ document_id: "d1", keyword_score: 0.8 });
   });
   it("replaces one document model atomically", async () => {
     const transactionQuery = vi.fn(async () => ({ rows: [], rowCount: 0 }));

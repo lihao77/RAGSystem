@@ -20,6 +20,25 @@ export interface AsyncVectorSearchInput {
   filters?: Record<string, unknown>;
 }
 export interface AsyncVectorSearchHit { id: string; tenant_id: string; collection: string; document_id: string; model_id: number; chunk_index: number; content: string; metadata: Record<string, unknown>; vector_score: number; }
+export interface AsyncLexicalSearchInput {
+  tenant_id: string;
+  collection?: string;
+  model_id: number;
+  query: string;
+  top_k: number;
+  filters?: Record<string, unknown>;
+}
+export interface AsyncLexicalSearchHit {
+  id: string;
+  tenant_id: string;
+  collection: string;
+  document_id: string;
+  model_id: number;
+  chunk_index: number;
+  content: string;
+  metadata: Record<string, unknown>;
+  keyword_score: number;
+}
 export interface AsyncKnowledgeCollectionSummary { name: string; document_count: number; chunk_count: number; total_chunks: number; embedding_dimension: number | null; }
 export interface AsyncKnowledgeDocumentIndexSummary {
   collection: string;
@@ -54,6 +73,7 @@ export interface AsyncKnowledgeVectorStore {
     records: AsyncVectorRecord[];
   }): Promise<void>;
   search(input: AsyncVectorSearchInput): Promise<AsyncVectorSearchHit[]>;
+  lexicalSearch(input: AsyncLexicalSearchInput): Promise<AsyncLexicalSearchHit[]>;
   listCollections(tenantId: string): Promise<AsyncKnowledgeCollectionSummary[]>;
   listDocumentIndexes(tenantId: string): Promise<AsyncKnowledgeDocumentIndexSummary[]>;
   listChunks(input: { tenant_id: string; collection?: string; document_id?: string; model_id?: number }): Promise<AsyncKnowledgeChunk[]>;

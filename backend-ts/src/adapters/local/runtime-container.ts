@@ -26,7 +26,7 @@ import { createConversationStore } from "./sqlite/conversation-store/index.js";
 import { FileHistoryService } from "./files/file-history-service.js";
 import { FileIndexService } from "./files/file-index-service.js";
 import { LocalSessionFileLookup } from "./files/session-file-lookup.js";
-import { createVectorStoreFromConfig } from "./vector-store/vector-store-factory.js";
+import { createLocalVectorStore } from "./vector-store/vector-store-factory.js";
 import { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import { createCoreRuntimeContainer } from "../../services/runtime/core-runtime-container.js";
 import { DelegationPendingService } from "../../services/runtime/delegation-pending-service.js";
@@ -103,12 +103,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   agentConfig.setMcpService(mcp);
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
 
-  const vectorStoreConfig = systemConfig.getVectorStoreConfig();
-  const resolvedVectorStoreConfig =
-    options.dbPath === ":memory:"
-      ? { ...vectorStoreConfig, sqlite_vec: { ...vectorStoreConfig.sqlite_vec, database_path: ":memory:" } }
-      : vectorStoreConfig;
-  const knowledgeDriver = createVectorStoreFromConfig(resolvedVectorStoreConfig, options.dataRoot);
+  const knowledgeDriver = createLocalVectorStore(dataRoot, { inMemory: options.dbPath === ":memory:" });
   const documentExtractDispatcher = new DocumentExtractDispatcher(systemConfig.getDocumentExtractionConfig());
   const knowledgeService = new KnowledgeApplicationService(
     options.tenantId,

@@ -22,7 +22,7 @@ RAGSystem 的知识问答由“入库、检索、生成、观测”四段组成�
 
 ## 检索
 
-`POST /api/knowledge-bases/search` 接收查询和检索参数，先由当前 vectorizer 生成查询向量，再执行 sqlite-vec 召回；配置 reranker 时进行二次排序。Agent 的 `KnowledgeTools` 复用同一 service，因此 UI 检索与 Agent 检索不会产生两套行为。
+`POST /api/knowledge-bases/search` 接收查询和检索参数。向量模式只执行当前 vectorizer 的向量召回；混合模式会并行执行向量召回与独立关键词召回，Local 使用 FTS5/BM25，SaaS 使用 PostgreSQL FTS + pg_trgm。两路候选通过 RRF 融合，再按需执行 reranker。Agent 的 `KnowledgeTools` 复用同一 service，因此 UI 检索与 Agent 检索使用同一条召回、融合和重排链路。
 
 常用配置面：
 

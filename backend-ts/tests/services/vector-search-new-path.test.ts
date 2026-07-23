@@ -5,6 +5,7 @@ import type {
 } from "../../src/contracts/knowledge/async-knowledge-config.js";
 import type {
   AsyncKnowledgeVectorStore,
+  AsyncLexicalSearchHit,
   AsyncVectorSearchHit,
 } from "../../src/contracts/knowledge/async-vector-store.js";
 import type {
@@ -13,6 +14,7 @@ import type {
 } from "../../src/contracts/vector-store/index.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 import { KnowledgeApplicationService } from "../../src/services/knowledge/knowledge-application-service.js";
+import { keywordOverlapScore } from "../../src/services/vector-store/scoring.js";
 
 /**
  * Minimal Async knowledge ports stub: search returns preset hits, config stays in-memory.
@@ -22,6 +24,7 @@ function makeFakePorts(
   hits: AsyncVectorSearchHit[],
   dimension: number | null = null,
   rerankers: StoredReranker[] = [],
+  lexicalHits?: AsyncLexicalSearchHit[],
 ): { config: AsyncKnowledgeConfigStore; vectors: AsyncKnowledgeVectorStore } {
   const vectorizers: StoredVectorizer[] = [];
   const config: AsyncKnowledgeConfigStore = {
@@ -77,6 +80,10 @@ function makeFakePorts(
     upsertChunks: async () => {},
     replaceChunks: async () => {},
     search: async (input) => hits.map((hit) => ({ ...hit, tenant_id: input.tenant_id, model_id: input.model_id })),
+    lexicalSearch: async (input) => (lexicalHits ?? hits.flatMap((hit) => {
+      const keywordScore = keywordOverlapScore(input.query, hit.content);
+      return keywordScore > 0 ? [{ ...hit, keyword_score: keywordScore }] : [];
+    })).map((hit) => ({ ...hit, tenant_id: input.tenant_id, model_id: input.model_id })),
     listCollections: async () => [],
     listDocumentIndexes: async () => [],
     listChunks: async () => hits.map((hit, index) => ({
@@ -144,6 +151,26 @@ function hit(
   };
 }
 
+function lexicalHit(
+  id: string,
+  documentId: string,
+  content: string,
+  keywordScore: number,
+  metadata: Record<string, unknown> = {},
+): AsyncLexicalSearchHit {
+  return {
+    id,
+    tenant_id: "tnt_local",
+    collection: "kb",
+    document_id: documentId,
+    model_id: 1,
+    chunk_index: Number(id) - 1,
+    content,
+    metadata,
+    keyword_score: keywordScore,
+  };
+}
+
 describe("KnowledgeApplicationService search path (async ports + scoring)", () => {
   const rerankProviderAdapter = {
     getProvider: () => ({
@@ -197,9 +224,46 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
     expect(Number(first.vector_score)).toBeCloseTo(0.8, 4);
     expect(Number(first.keyword_score)).toBeGreaterThan(0);
     expect(Number(first.hybrid_score)).toBeGreaterThan(Number(first.vector_score) * 0.7);
-    expect(first).toMatchObject({ final_rank: 1, vector_rank: 1, hybrid_rank: 1, score_type: "hybrid", retrieval_sources: ["vector"] });
-    expect(result.diagnostics).toMatchObject({ candidate_count: 2, vectorizer: { vectorizer_key: "local_hash_embedding" } });
+    expect(first).toMatchObject({ final_rank: 1, vector_rank: 1, keyword_rank: 1, hybrid_rank: 1, score_type: "hybrid", retrieval_sources: ["vector", "keyword"] });
+    expect(result.diagnostics).toMatchObject({
+      candidate_count: 2,
+      vector_candidate_count: 2,
+      keyword_candidate_count: 1,
+      fusion: { method: "rrf", rrf_k: 60 },
+      vectorizer: { vectorizer_key: "local_hash_embedding" },
+    });
     expect(result.diagnostics.timings_ms.total).toBeGreaterThanOrEqual(0);
+  });
+
+  it("hybrid search merges lexical-only chunks outside vector recall", async () => {
+    const vectorHits = [
+      hit("1", "d1", "vector-only semantic candidate", 0.95),
+      hit("2", "d2", "shared RAG candidate", 0.7),
+    ];
+    const lexicalHits = [
+      lexicalHit("3", "d3", "exact keyword retrieval match", 0.8),
+      lexicalHit("2", "d2", "shared RAG candidate", 0.5),
+    ];
+    const result = await makeService(makeFakePorts(vectorHits, null, [], lexicalHits)).search({
+      collection_name: "kb",
+      query: "keyword retrieval match",
+      top_k: 5,
+      search_mode: "hybrid",
+      rerank: false,
+    });
+    expect(result.results.map((item) => item.document_id)).toContain("d3");
+    expect(result.results.find((item) => item.document_id === "d3")).toMatchObject({
+      keyword_score: 0.8,
+      vector_score: null,
+      similarity: null,
+      vector_rank: null,
+      keyword_rank: 1,
+      retrieval_sources: ["keyword"],
+    });
+    expect(result.results.find((item) => item.document_id === "d2")).toMatchObject({
+      retrieval_sources: ["vector", "keyword"],
+    });
+    expect(result.diagnostics).toMatchObject({ vector_candidate_count: 2, keyword_candidate_count: 2, fused_candidate_count: 3 });
   });
 
   it("集合留空时执行全局搜索并把元数据过滤器下传", async () => {
@@ -212,10 +276,30 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
       filters: { category: "guide" },
     });
     expect(result).toMatchObject({ collection_name: null, collection_scope: "all" });
+    expect(result.results[0]).toMatchObject({ keyword_score: null, keyword_rank: null, retrieval_sources: ["vector"] });
     expect(result.diagnostics.filters_applied).toEqual(["category"]);
     const vectorInput = searchSpy.mock.calls[0]?.[0];
     expect(vectorInput).not.toHaveProperty("collection");
     expect(vectorInput).toMatchObject({ filters: { category: "guide" } });
+  });
+
+  it("hybrid 丢弃非正向量候选并用阶段质量打破 RRF 平局", async () => {
+    const zeroVectorResult = await makeService(makeFakePorts(
+      [hit("1", "vector-zero", "unrelated vector", 0)],
+      null,
+      [],
+      [lexicalHit("2", "keyword", "exact keyword match", 0.9)],
+    )).search({ collection_name: "kb", query: "exact keyword", top_k: 1, search_mode: "hybrid", rerank: false });
+    expect(zeroVectorResult.results[0]).toMatchObject({ document_id: "keyword", retrieval_sources: ["keyword"] });
+    expect(zeroVectorResult.diagnostics.vector_candidate_count).toBe(0);
+
+    const tieResult = await makeService(makeFakePorts(
+      [hit("1", "vector-low", "weak semantic candidate", 0.2)],
+      null,
+      [],
+      [lexicalHit("2", "keyword-strong", "exact keyword match", 0.9)],
+    )).search({ collection_name: "kb", query: "exact keyword", top_k: 1, search_mode: "hybrid", rerank: false });
+    expect(tieResult.results[0]).toMatchObject({ document_id: "keyword-strong", keyword_score: 0.9 });
   });
 
   it("rerank 开启时按 keyword 重排 hybrid 结果", async () => {

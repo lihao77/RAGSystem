@@ -1,10 +1,15 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { AsyncVectorRecord } from "../../src/contracts/knowledge/async-vector-store.js";
 import { SqliteVecDriver } from "../../src/adapters/local/vector-store/sqlite-vec-driver.js";
+
+const require = createRequire(import.meta.url);
+const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+const { load: loadVec } = require("sqlite-vec") as typeof import("sqlite-vec");
 
 /**
  * SqliteVecDriver 单测:验证 Async knowledge 端口、vec0 真 ANN 召回、删除、计数、维度约束。
@@ -14,7 +19,7 @@ const TENANT = "tnt_local";
 
 const config = (dbPath = ":memory:") => ({
   backend: "sqlite_vec",
-  options: { database_path: dbPath, vector_dimension: 0, distance_metric: "cosine" },
+  options: { database_path: dbPath },
   dataRoot: "/tmp/vector-test",
 });
 
@@ -35,23 +40,27 @@ const record = (
 });
 
 describe("SqliteVecDriver", () => {
-  it("upsert + search KNN 召回最近邻,相同向量 cosine distance=0 → similarity=1", async () => {
+  it("upsert + search 使用 cosine 距离并返回正确相似度", async () => {
     const driver = new SqliteVecDriver(config());
     await driver.upsertChunks([
       record("d1", [1, 0, 0, 0]),
-      record("d2", [0, 1, 0, 0]),
-      record("d3", [0, 0, 1, 0]),
+      record("d2", [0.8, 0.6, 0, 0]),
+      record("d3", [0, 1, 0, 0]),
     ]);
     const hits = await driver.search({
       tenant_id: TENANT,
       collection: "col1",
       model_id: 1,
       query_vector: [1, 0, 0, 0],
-      top_k: 1,
+      top_k: 3,
     });
-    expect(hits).toHaveLength(1);
+    expect(hits).toHaveLength(3);
     expect(hits[0]?.document_id).toBe("d1");
     expect(hits[0]?.vector_score).toBeCloseTo(1, 5);
+    expect(hits[1]?.document_id).toBe("d2");
+    expect(hits[1]?.vector_score).toBeCloseTo(0.8, 5);
+    expect(hits[2]?.document_id).toBe("d3");
+    expect(hits[2]?.vector_score).toBeCloseTo(0, 5);
     driver.close();
   });
 
@@ -70,6 +79,57 @@ describe("SqliteVecDriver", () => {
       filters: { category: "guide", tags: ["ts"] },
     });
     expect(hits.map((item) => `${item.collection}/${item.document_id}`)).toEqual(["col1/d1"]);
+    driver.close();
+  });
+
+  it("recalls lexical-only chunks with FTS5 BM25 independently from vector top-k", async () => {
+    const driver = new SqliteVecDriver(config());
+    await driver.upsertChunks([
+      record("lexical-doc", [0, 1], { content: "incident response handbook with exact recovery steps" }),
+      record("vector-doc", [1, 0], { content: "unrelated semantic nearest neighbour" }),
+      record("zh-doc", [0.5, 0.5], { content: "知识库混合检索配置与调试说明" }),
+      record("mixed-doc", [0.2, 0.8], { content: "RAG向量数据库配置" }),
+    ]);
+    const vectorHits = await driver.search({
+      tenant_id: TENANT,
+      collection: "col1",
+      model_id: 1,
+      query_vector: [1, 0],
+      top_k: 1,
+    });
+    const lexicalHits = await driver.lexicalSearch({
+      tenant_id: TENANT,
+      collection: "col1",
+      model_id: 1,
+      query: "incident response recovery",
+      top_k: 2,
+    });
+    const chineseHits = await driver.lexicalSearch({
+      tenant_id: TENANT,
+      collection: "col1",
+      model_id: 1,
+      query: "混合检索",
+      top_k: 2,
+    });
+    const mixedChineseHits = await driver.lexicalSearch({
+      tenant_id: TENANT,
+      collection: "col1",
+      model_id: 1,
+      query: "向量数据库",
+      top_k: 2,
+    });
+    const mixedEnglishHits = await driver.lexicalSearch({
+      tenant_id: TENANT,
+      collection: "col1",
+      model_id: 1,
+      query: "RAG",
+      top_k: 2,
+    });
+    expect(vectorHits[0]?.document_id).toBe("vector-doc");
+    expect(lexicalHits[0]).toMatchObject({ document_id: "lexical-doc", keyword_score: 1 });
+    expect(chineseHits[0]?.document_id).toBe("zh-doc");
+    expect(mixedChineseHits[0]?.document_id).toBe("mixed-doc");
+    expect(mixedEnglishHits[0]?.document_id).toBe("mixed-doc");
     driver.close();
   });
 
@@ -309,6 +369,40 @@ describe("SqliteVecDriver", () => {
       for (const ext of ["", "-wal", "-shm"]) {
         fs.rmSync(dbPath + ext, { force: true });
       }
+    }
+  });
+
+  it("启动时删除旧 L2 vec0 表并允许按 cosine 新维度重建", async () => {
+    const dbPath = path.join(os.tmpdir(), `vec-l2-reset-${process.pid}-${Math.random().toString(36).slice(2)}.db`);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const initial = new SqliteVecDriver(config(dbPath));
+      await initial.upsertChunks([record("d1", [1, 0])]);
+      initial.close();
+
+      const legacyDb = new DatabaseSync(dbPath, { allowExtension: true });
+      loadVec(legacyDb);
+      const document = legacyDb.prepare("SELECT id FROM vec_documents WHERE document_id = ?").get("d1") as { id: number };
+      legacyDb.exec("DROP TABLE vec_chunks_1");
+      legacyDb.exec("CREATE VIRTUAL TABLE vec_chunks_1 USING vec0(embedding float[2])");
+      legacyDb.prepare("INSERT INTO vec_chunks_1(rowid, embedding) VALUES (?, ?)").run(BigInt(document.id), "[1,0]");
+      legacyDb.close();
+
+      const migrated = new SqliteVecDriver(config(dbPath));
+      await expect(migrated.getDimension({ tenant_id: TENANT, model_id: 1 })).resolves.toBeNull();
+      await expect(migrated.search({ tenant_id: TENANT, model_id: 1, query_vector: [1, 0], top_k: 1 })).resolves.toEqual([]);
+      await migrated.upsertChunks([record("d2", [1, 0, 0])]);
+      migrated.close();
+
+      const verifyDb = new DatabaseSync(dbPath, { allowExtension: true });
+      loadVec(verifyDb);
+      const ddl = verifyDb.prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_chunks_1'").get() as { sql: string };
+      expect(ddl.sql).toContain("distance_metric=cosine");
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("已删除不兼容"));
+      verifyDb.close();
+    } finally {
+      warn.mockRestore();
+      for (const ext of ["", "-wal", "-shm"]) fs.rmSync(dbPath + ext, { force: true });
     }
   });
 

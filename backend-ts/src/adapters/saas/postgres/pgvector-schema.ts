@@ -10,4 +10,10 @@ export const POSTGRES_PGVECTOR_MIGRATIONS: PostgresPgVectorMigration[] = [{ vers
       UNIQUE (tenant_id, collection, document_id, model_id, chunk_index)
     );
     CREATE INDEX IF NOT EXISTS knowledge_vector_chunks_tenant_model_idx ON knowledge_vector_chunks(tenant_id, collection, model_id);
+  ` }, { version: 2, name: "knowledge_vector_chunks_lexical_search", sql: `
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    CREATE INDEX IF NOT EXISTS knowledge_vector_chunks_content_fts_idx
+      ON knowledge_vector_chunks USING GIN (to_tsvector('simple'::regconfig, content));
+    CREATE INDEX IF NOT EXISTS knowledge_vector_chunks_content_trgm_idx
+      ON knowledge_vector_chunks USING GIN (content gin_trgm_ops);
   ` }];

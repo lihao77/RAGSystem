@@ -23,7 +23,14 @@ export interface KnowledgeSearchResponse {
   rerank_error: string | null;
   diagnostics: {
     candidate_count: number;
+    vector_candidate_count: number;
+    keyword_candidate_count: number;
+    fused_candidate_count: number;
     filters_applied: string[];
+    fusion: {
+      method: "rrf";
+      rrf_k: number;
+    } | null;
     vectorizer: {
       vectorizer_key: string;
       provider_key: string;
@@ -39,6 +46,8 @@ export interface KnowledgeSearchResponse {
     timings_ms: {
       embedding: number;
       retrieval: number;
+      vector_retrieval: number;
+      keyword_retrieval: number;
       scoring: number;
       rerank: number;
       total: number;

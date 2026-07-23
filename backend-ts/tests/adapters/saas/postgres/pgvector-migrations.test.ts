@@ -13,18 +13,41 @@ class MigrationExecutor implements PostgresMemoryExecutor {
   async transaction<T>(fn: (executor: PostgresMemoryExecutor) => Promise<T>): Promise<T> { return fn(this); }
 }
 
+class PgTrgmFailureExecutor extends MigrationExecutor {
+  override async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+    sql: string,
+    params?: readonly unknown[],
+  ): Promise<PostgresQueryResult<Row>> {
+    if (sql.includes("CREATE EXTENSION IF NOT EXISTS pg_trgm")) {
+      throw new Error('permission denied to create extension "pg_trgm"');
+    }
+    return super.query<Row>(sql, params);
+  }
+}
+
 describe("PostgreSQL pgvector migration runner", () => {
   it("locks and applies the pgvector schema", async () => {
     const executor = new MigrationExecutor();
-    await expect(runPostgresPgVectorMigrations(executor)).resolves.toEqual({ current_version: 1, applied_versions: [1] });
+    await expect(runPostgresPgVectorMigrations(executor)).resolves.toEqual({ current_version: 2, applied_versions: [1, 2] });
     expect(executor.calls[0]?.sql).toBe("SELECT pg_advisory_xact_lock($1)");
     expect(executor.calls.some((call) => call.sql.includes("CREATE EXTENSION IF NOT EXISTS vector"))).toBe(true);
+    expect(executor.calls.some((call) => call.sql.includes("CREATE EXTENSION IF NOT EXISTS pg_trgm"))).toBe(true);
     expect(executor.calls.some((call) => call.sql.startsWith("INSERT INTO ragsystem_pgvector_schema_migrations"))).toBe(true);
   });
 
   it("does not rerun an up-to-date schema", async () => {
-    const executor = new MigrationExecutor([{ version: 1, name: "knowledge_vector_chunks_pgvector" }]);
-    await expect(runPostgresPgVectorMigrations(executor)).resolves.toEqual({ current_version: 1, applied_versions: [] });
+    const executor = new MigrationExecutor([
+      { version: 1, name: "knowledge_vector_chunks_pgvector" },
+      { version: 2, name: "knowledge_vector_chunks_lexical_search" },
+    ]);
+    await expect(runPostgresPgVectorMigrations(executor)).resolves.toEqual({ current_version: 2, applied_versions: [] });
     expect(executor.calls.some((call) => call.sql.startsWith("INSERT INTO ragsystem_pgvector_schema_migrations"))).toBe(false);
+  });
+
+  it("attributes lexical migration dependency failures to pg_trgm", async () => {
+    const executor = new PgTrgmFailureExecutor([
+      { version: 1, name: "knowledge_vector_chunks_pgvector" },
+    ]);
+    await expect(runPostgresPgVectorMigrations(executor)).rejects.toThrow(/^PostgreSQL pg_trgm is required/);
   });
 });

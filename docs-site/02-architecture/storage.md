@@ -95,7 +95,7 @@ outboxDispatcher.stop()
 
 ## sqlite-vec 驱动
 
-`services/vector-store/sqlite-vec/sqlite-vec-driver.ts` 是唯一向量驱动。
+`adapters/local/vector-store/sqlite-vec-driver.ts` 是 Local 部署的唯一向量驱动。
 
 ### 关键行为
 
@@ -110,20 +110,18 @@ outboxDispatcher.stop()
 
 sqlite-vec 是**唯一向量源**。driver 模块加载失败（vec0 不可用、Node/Windows ABI 不兼容）会**直接抛错**让启动报错，而非静默降级到无向量的空检索（`runtime-container.ts:146-147`）。应用层降级路径已被删除。
 
-## 配置驱动的存储选择
+## 固定的 Local 向量存储
 
-`runtime-container.ts:150-155` 读取 `systemConfig.getVectorStoreConfig()` 决定向量后端：
+SQLite 向量存储不再暴露为系统配置。Local composition root 固定使用租户数据目录下的
+`knowledge.db`，向量维度由首次写入自动确定，距离度量固定为 cosine：
 
 ```ts
-const vectorStoreConfig = systemConfig.getVectorStoreConfig();
-const resolvedVectorStoreConfig =
-  options.dbPath === ":memory:"
-    ? { ...vectorStoreConfig, sqlite_vec: { ...vectorStoreConfig.sqlite_vec, database_path: ":memory:" } }
-    : vectorStoreConfig;
-const vectorStore = createVectorStoreFromConfig(resolvedVectorStoreConfig, options.dataRoot);
+const knowledgeDriver = createLocalVectorStore(dataRoot, {
+  inMemory: options.dbPath === ":memory:",
+});
 ```
 
-`createVectorStoreFromConfig`（`vector-store-factory.ts`）据 config 实例化 driver，触发 driver 模块自注册。
+`createLocalVectorStore`（`vector-store-factory.ts`）负责装配固定的 sqlite-vec driver，并触发 driver 模块自注册。
 
 ## widget 凭证存储
 

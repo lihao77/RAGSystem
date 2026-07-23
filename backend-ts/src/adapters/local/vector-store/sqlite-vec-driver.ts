@@ -11,6 +11,8 @@ import type {
   AsyncKnowledgeDocumentIndexSummary,
   AsyncKnowledgeDocumentSummary,
   AsyncKnowledgeVectorStore,
+  AsyncLexicalSearchHit,
+  AsyncLexicalSearchInput,
   AsyncVectorRecord,
   AsyncVectorSearchHit,
   AsyncVectorSearchInput,
@@ -28,9 +30,10 @@ import type {
 } from "../../../contracts/vector-store/index.js";
 import { VectorStoreError } from "../../../contracts/vector-store/errors.js";
 import { registerDriver } from "./registry.js";
-import { documentsTableDdl, kbFilesTableDdl, rerankersTableDdl, vecTableDdl, vecTableName, vectorizersTableDdl } from "./schema.js";
+import { documentsFtsTableDdl, documentsTableDdl, kbFilesTableDdl, rerankersTableDdl, vecTableDdl, vecTableName, vectorizersTableDdl } from "./schema.js";
 import { sanitizeFilename } from "../../../utils/file-filter.js";
 import { metadataMatchesFilter } from "../../../services/vector-store/metadata-filter.js";
+import { tokenize } from "../../../services/vector-store/scoring.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -41,8 +44,6 @@ const SQLITE_IN_BATCH = 500;
 
 interface SqliteVecOptions {
   databasePath: string;
-  vectorDimension: number;
-  distanceMetric: string;
 }
 
 interface VecDocRow {
@@ -95,6 +96,8 @@ export class SqliteVecDriver implements AsyncKnowledgeVectorStore, AsyncKnowledg
     this.db.exec("PRAGMA synchronous = NORMAL");
     loadVec(this.db);
     this.db.exec(documentsTableDdl());
+    this.db.exec(documentsFtsTableDdl());
+    this.ensureFtsIndex();
     this.db.exec(kbFilesTableDdl());
     this.ensureKnowledgeFileMarkdownColumn();
     this.db.exec(vectorizersTableDdl());
@@ -193,6 +196,7 @@ export class SqliteVecDriver implements AsyncKnowledgeVectorStore, AsyncKnowledg
         );
         rowid = Number(result.lastInsertRowid);
       }
+      this.upsertFtsRow(rowid, record.content);
       const table = vecTableName(record.model_id);
       this.db.prepare(`DELETE FROM ${table} WHERE rowid = ?`).run(BigInt(rowid));
       this.db.prepare(`INSERT INTO ${table} (rowid, embedding) VALUES (?, ?)`).run(
@@ -252,6 +256,60 @@ export class SqliteVecDriver implements AsyncKnowledgeVectorStore, AsyncKnowledg
       }
 
       if (recall >= total) return hits;
+      recall = Math.min(total, recall * 2);
+    }
+    return [];
+  }
+
+  async lexicalSearch(input: AsyncLexicalSearchInput): Promise<AsyncLexicalSearchHit[]> {
+    if (!this.dimensionByModel.has(input.model_id)) return [];
+    const ftsQuery = sqliteFtsQuery(input.query);
+    if (!ftsQuery) return [];
+    const table = vecTableName(input.model_id);
+    const collectionPredicate = input.collection === undefined ? "" : " AND d.collection = ?";
+    const params = input.collection === undefined ? [ftsQuery] : [ftsQuery, input.collection];
+    const countRow = this.db.prepare(
+      `SELECT COUNT(*) AS n
+       FROM vec_documents_fts
+       JOIN vec_documents d ON d.id = vec_documents_fts.rowid
+       JOIN ${table} v ON v.rowid = d.id
+       WHERE vec_documents_fts MATCH ?${collectionPredicate}`,
+    ).get(...params) as unknown as { n: number } | undefined;
+    const total = Number(countRow?.n ?? 0);
+    if (total === 0) return [];
+
+    let recall = Math.min(total, Math.max(input.top_k * SEARCH_OVERFETCH, DEFAULT_RECALL));
+    while (recall > 0) {
+      const rows = this.db.prepare(
+        `SELECT d.id, d.document_id, d.collection, d.content, d.metadata, d.chunk_index,
+                bm25(vec_documents_fts) AS bm25_rank
+         FROM vec_documents_fts
+         JOIN vec_documents d ON d.id = vec_documents_fts.rowid
+         JOIN ${table} v ON v.rowid = d.id
+         WHERE vec_documents_fts MATCH ?${collectionPredicate}
+         ORDER BY bm25_rank ASC
+         LIMIT ${recall}`,
+      ).all(...params) as unknown as Array<VecDocRow & { chunk_index: number; bm25_rank: number }>;
+      const filtered = rows.flatMap((row) => {
+        const metadata = parseRecord(row.metadata);
+        return metadataMatchesFilter(metadata, input.filters) ? [{ row, metadata }] : [];
+      });
+      if (filtered.length >= input.top_k || recall >= total) {
+        const selected = filtered.slice(0, input.top_k);
+        const rawScores = selected.map(({ row }) => Math.max(0, -Number(row.bm25_rank)));
+        const maximum = Math.max(0, ...rawScores);
+        return selected.map(({ row, metadata }, index) => ({
+          id: String(row.id),
+          tenant_id: input.tenant_id,
+          collection: row.collection,
+          document_id: row.document_id,
+          model_id: input.model_id,
+          chunk_index: row.chunk_index,
+          content: row.content,
+          metadata,
+          keyword_score: maximum > 0 ? (rawScores[index] ?? 0) / maximum : 0,
+        }));
+      }
       recall = Math.min(total, recall * 2);
     }
     return [];
@@ -494,6 +552,7 @@ export class SqliteVecDriver implements AsyncKnowledgeVectorStore, AsyncKnowledg
       .all(collection, documentId) as unknown as Array<{ id: number }>;
     if (ids.length === 0) return 0;
     this.purgeVecRows(ids.map((row) => row.id));
+    this.deleteFtsRows(ids.map((row) => row.id));
     this.db.prepare(`DELETE FROM vec_documents WHERE collection = ? AND document_id = ?`).run(collection, documentId);
     return ids.length;
   }
@@ -504,6 +563,7 @@ export class SqliteVecDriver implements AsyncKnowledgeVectorStore, AsyncKnowledg
       .all(documentId) as unknown as Array<{ id: number }>;
     if (ids.length === 0) return 0;
     this.purgeVecRows(ids.map((row) => row.id));
+    this.deleteFtsRows(ids.map((row) => row.id));
     this.db.prepare(`DELETE FROM vec_documents WHERE document_id = ?`).run(documentId);
     return ids.length;
   }
@@ -526,6 +586,7 @@ export class SqliteVecDriver implements AsyncKnowledgeVectorStore, AsyncKnowledg
       .prepare(`SELECT id FROM vec_documents WHERE collection = ?`)
       .all(collection) as unknown as Array<{ id: number }>;
     this.purgeVecRows(ids.map((row) => row.id));
+    this.deleteFtsRows(ids.map((row) => row.id));
     this.db.prepare(`DELETE FROM vec_documents WHERE collection = ?`).run(collection);
     return ids.length;
   }
@@ -831,13 +892,17 @@ export class SqliteVecDriver implements AsyncKnowledgeVectorStore, AsyncKnowledg
     // 缓存未命中:表可能已物理存在但构造期推断漏记(如空表曾被读行推断跳过)。
     // 再次从 DDL 读真实维度——避免 CREATE VIRTUAL TABLE IF NOT EXISTS 对已存在表静默 no-op、
     // 却把脏维度写入缓存、最终绕过本处中文拦截、由 sqlite-vec 抛原生 Dimension mismatch。
-    const physical = this.readDimensionFromSchema(modelId);
-    if (physical !== null) {
-      this.dimensionByModel.set(modelId, physical);
-      if (physical !== dimension) {
-        throw new VectorStoreError(`model_id ${modelId} 维度不一致:已存在 ${physical},本次 ${dimension}`, 400);
+    const physical = this.readVecTableSchema(modelId);
+    if (physical) {
+      if (physical.dimension === null || physical.distanceMetric !== "cosine") {
+        this.dropIncompatibleVecTable(modelId, physical);
+      } else {
+        this.dimensionByModel.set(modelId, physical.dimension);
+        if (physical.dimension !== dimension) {
+          throw new VectorStoreError(`model_id ${modelId} 维度不一致:已存在 ${physical.dimension},本次 ${dimension}`, 400);
+        }
+        return;
       }
-      return;
     }
     this.db.exec(vecTableDdl(modelId, dimension));
     this.dimensionByModel.set(modelId, dimension);
@@ -857,19 +922,41 @@ export class SqliteVecDriver implements AsyncKnowledgeVectorStore, AsyncKnowledg
         continue; // 影子表跳过
       }
       const modelId = Number(match[1]);
-      const dimension = this.readDimensionFromSchema(modelId);
-      if (dimension !== null) {
-        this.dimensionByModel.set(modelId, dimension);
+      const schema = this.readVecTableSchema(modelId);
+      if (!schema) continue;
+      if (schema.dimension === null || schema.distanceMetric !== "cosine") {
+        this.dropIncompatibleVecTable(modelId, schema);
+        continue;
       }
+      this.dimensionByModel.set(modelId, schema.dimension);
     }
   }
 
-  /** 从 sqlite_master 的 vec_chunks_<modelId> DDL 提取维度(float[N]);表不存在或无维度声明 → null。 */
-  private readDimensionFromSchema(modelId: number): number | null {
+  private readVecTableSchema(modelId: number): {
+    dimension: number | null;
+    distanceMetric: string | null;
+  } | null {
     const row = this.db
       .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name = ?`)
       .get(vecTableName(modelId)) as unknown as { sql: string | null } | undefined;
-    return row?.sql ? inferDimensionFromDdl(row.sql) : null;
+    if (!row?.sql) return null;
+    return {
+      dimension: inferDimensionFromDdl(row.sql),
+      distanceMetric: inferDistanceMetricFromDdl(row.sql),
+    };
+  }
+
+  private dropIncompatibleVecTable(
+    modelId: number,
+    schema: { dimension: number | null; distanceMetric: string | null },
+  ): void {
+    this.db.exec(`DROP TABLE IF EXISTS ${vecTableName(modelId)}`);
+    this.db.prepare(`UPDATE vectorizers SET vector_dimension = NULL WHERE model_id = ?`).run(modelId);
+    this.dimensionByModel.delete(modelId);
+    console.warn(
+      `[vector-store] 已删除不兼容的 model_id=${modelId} 向量索引`
+      + `（dimension=${schema.dimension ?? "unknown"}, distance_metric=${schema.distanceMetric ?? "l2(default)"}），请重新索引。`,
+    );
   }
 
   private purgeVecRows(ids: number[]): void {
@@ -881,6 +968,32 @@ export class SqliteVecDriver implements AsyncKnowledgeVectorStore, AsyncKnowledg
       this.db
         .prepare(`DELETE FROM ${vecTableName(modelId)} WHERE rowid IN (${placeholders})`)
         .run(...ids.map((id) => BigInt(id)));
+    }
+  }
+
+  private ensureFtsIndex(): void {
+    const documents = this.db.prepare("SELECT id, content FROM vec_documents ORDER BY id")
+      .all() as unknown as Array<{ id: number; content: string }>;
+    const indexed = Number((this.db.prepare("SELECT COUNT(*) AS n FROM vec_documents_fts").get() as { n: number } | undefined)?.n ?? 0);
+    if (indexed === documents.length) return;
+    this.db.exec("DELETE FROM vec_documents_fts");
+    const insert = this.db.prepare("INSERT INTO vec_documents_fts(rowid, search_terms) VALUES (?, ?)");
+    for (const document of documents) insert.run(BigInt(document.id), lexicalTermsText(document.content));
+  }
+
+  private upsertFtsRow(rowid: number, content: string): void {
+    this.db.prepare("DELETE FROM vec_documents_fts WHERE rowid = ?").run(BigInt(rowid));
+    this.db.prepare("INSERT INTO vec_documents_fts(rowid, search_terms) VALUES (?, ?)")
+      .run(BigInt(rowid), lexicalTermsText(content));
+  }
+
+  private deleteFtsRows(ids: number[]): void {
+    if (ids.length === 0) return;
+    for (let start = 0; start < ids.length; start += SQLITE_IN_BATCH) {
+      const batch = ids.slice(start, start + SQLITE_IN_BATCH);
+      const placeholders = batch.map(() => "?").join(",");
+      this.db.prepare(`DELETE FROM vec_documents_fts WHERE rowid IN (${placeholders})`)
+        .run(...batch.map((id) => BigInt(id)));
     }
   }
 
@@ -1029,8 +1142,6 @@ function parseOptions(config: VectorStoreDriverConfig): SqliteVecOptions {
   const opts = (config.options ?? {}) as Record<string, unknown>;
   return {
     databasePath: typeof opts.database_path === "string" ? opts.database_path : "",
-    vectorDimension: typeof opts.vector_dimension === "number" ? opts.vector_dimension : 0,
-    distanceMetric: typeof opts.distance_metric === "string" ? opts.distance_metric : "cosine",
   };
 }
 
@@ -1066,10 +1177,26 @@ function parseRecord(value: string): Record<string, unknown> {
   }
 }
 
+function lexicalTermsText(content: string): string {
+  return tokenize(content).join(" ");
+}
+
+function sqliteFtsQuery(query: string): string {
+  return unique(tokenize(query))
+    .slice(0, 64)
+    .map((term) => `"${term.replaceAll('"', '""')}"`)
+    .join(" OR ");
+}
+
 /** 从 vec0 DDL 提取维度:匹配 `embedding float[N]`,如 `CREATE VIRTUAL TABLE ... USING vec0(embedding float[1536])`。 */
 function inferDimensionFromDdl(sql: string): number | null {
   const match = sql.match(/float\[(\d+)\]/);
   return match ? Number(match[1]) : null;
+}
+
+function inferDistanceMetricFromDdl(sql: string): string | null {
+  const match = sql.match(/\bdistance_metric\s*=\s*["']?([a-z0-9_]+)["']?/i);
+  return match?.[1]?.toLowerCase() ?? null;
 }
 
 interface KbFileRow {

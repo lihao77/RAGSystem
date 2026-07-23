@@ -7,7 +7,7 @@ const model = { getProvider: vi.fn(), hasProvider: vi.fn().mockReturnValue(true)
 describe("KnowledgeApplicationService with SaaS adapters", () => {
   it("searches PGVector through tenant-scoped async ports", async () => {
     const config = { listVectorizers: vi.fn().mockResolvedValue([vectorizer]), listRerankers: vi.fn().mockResolvedValue([]), getVectorizerByKey: vi.fn(), createVectorizer: vi.fn() };
-    const vectors = { search: vi.fn().mockResolvedValue([{ id: "v1", tenant_id: "tenant-a", collection: "docs", document_id: "file-1", model_id: 7, chunk_index: 0, content: "hello world", metadata: {}, vector_score: 0.9 }]), listCollections: vi.fn().mockResolvedValue([]), listDocumentIndexes: vi.fn().mockResolvedValue([]), countVectorsByModel: vi.fn().mockResolvedValue([]), getDimension: vi.fn().mockResolvedValue(null), deleteChunks: vi.fn(), upsertChunks: vi.fn() };
+    const vectors = { search: vi.fn().mockResolvedValue([{ id: "v1", tenant_id: "tenant-a", collection: "docs", document_id: "file-1", model_id: 7, chunk_index: 0, content: "hello world", metadata: {}, vector_score: 0.9 }]), lexicalSearch: vi.fn().mockResolvedValue([{ id: "v1", tenant_id: "tenant-a", collection: "docs", document_id: "file-1", model_id: 7, chunk_index: 0, content: "hello world", metadata: {}, keyword_score: 1 }]), listCollections: vi.fn().mockResolvedValue([]), listDocumentIndexes: vi.fn().mockResolvedValue([]), countVectorsByModel: vi.fn().mockResolvedValue([]), getDimension: vi.fn().mockResolvedValue(null), deleteChunks: vi.fn(), upsertChunks: vi.fn() };
     const service = new KnowledgeApplicationService("tenant-a", model as never, config as never, vectors as never);
     const result = await service.search({ query: "hello", collection: "docs", top_k: 3 });
     expect(result.count).toBe(1);
@@ -240,6 +240,8 @@ describe("KnowledgeApplicationService with SaaS adapters", () => {
     const vectors = { search: vi.fn().mockResolvedValue([
       { id: "v1", tenant_id: "tenant-a", collection: "docs", document_id: "file-1", model_id: 7, chunk_index: 0, content: "unrelated", metadata: {}, vector_score: 0.9 },
       { id: "v2", tenant_id: "tenant-a", collection: "docs", document_id: "file-2", model_id: 7, chunk_index: 0, content: "hello hello", metadata: {}, vector_score: 0.5 },
+    ]), lexicalSearch: vi.fn().mockResolvedValue([
+      { id: "v2", tenant_id: "tenant-a", collection: "docs", document_id: "file-2", model_id: 7, chunk_index: 0, content: "hello hello", metadata: {}, keyword_score: 1 },
     ]) };
     const service = new KnowledgeApplicationService("tenant-a", model as never, config as never, vectors as never);
 

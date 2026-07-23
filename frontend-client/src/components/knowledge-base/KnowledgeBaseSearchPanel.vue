@@ -105,7 +105,19 @@
             <UiBadge size="sm" tone="info">
               {{ searchResponse.collection_scope === 'all' ? '全部集合' : searchResponse.collection_name }}
             </UiBadge>
-            <UiBadge size="sm">候选 {{ searchResponse.diagnostics?.candidate_count ?? 0 }}</UiBadge>
+            <UiBadge size="sm">向量 {{ searchResponse.diagnostics?.vector_candidate_count ?? 0 }}</UiBadge>
+            <UiBadge v-if="searchResponse.search_mode === 'hybrid'" size="sm">
+              关键词 {{ searchResponse.diagnostics?.keyword_candidate_count ?? 0 }}
+            </UiBadge>
+            <UiBadge v-if="searchResponse.diagnostics?.fusion" size="sm" tone="info">
+              RRF k={{ searchResponse.diagnostics.fusion.rrf_k }}
+            </UiBadge>
+            <UiBadge v-if="searchResponse.search_mode === 'hybrid'" size="sm">
+              融合池 {{ searchResponse.diagnostics?.fused_candidate_count ?? 0 }}
+            </UiBadge>
+            <UiBadge size="sm">
+              {{ searchResponse.rerank_mode !== 'none' ? '入排' : '候选' }} {{ searchResponse.diagnostics?.candidate_count ?? 0 }}
+            </UiBadge>
             <UiBadge v-if="searchResponse.diagnostics?.vectorizer" size="sm">
               Embedding · {{ searchResponse.diagnostics.vectorizer.model_name }}
             </UiBadge>
@@ -163,9 +175,15 @@
 
         <CardContent class="flex flex-col gap-4">
           <div class="flex flex-wrap gap-2">
-            <UiBadge v-if="result.vector_score != null" size="sm">Vector {{ formatScore(result.vector_score) }}</UiBadge>
-            <UiBadge v-if="result.keyword_score != null" size="sm">Keyword {{ formatScore(result.keyword_score) }}</UiBadge>
-            <UiBadge v-if="result.hybrid_score != null" size="sm">Hybrid {{ formatScore(result.hybrid_score) }}</UiBadge>
+            <UiBadge v-if="hasKnowledgeRetrievalSource(result, 'vector') && result.vector_score != null" size="sm">
+              Vector {{ formatScore(result.vector_score) }}
+            </UiBadge>
+            <UiBadge v-if="hasKnowledgeRetrievalSource(result, 'keyword') && result.keyword_score != null" size="sm">
+              Keyword {{ formatScore(result.keyword_score) }}
+            </UiBadge>
+            <UiBadge v-if="searchResponse.search_mode === 'hybrid' && result.hybrid_score != null" size="sm">
+              RRF {{ formatScore(result.hybrid_score) }}
+            </UiBadge>
             <UiBadge v-if="result.rerank_score != null" size="sm" tone="info">Rerank {{ formatScore(result.rerank_score) }}</UiBadge>
             <UiBadge v-if="result.vector_rank != null" size="sm">Vector #{{ result.vector_rank }}</UiBadge>
             <UiBadge v-if="result.keyword_rank != null" size="sm">Keyword #{{ result.keyword_rank }}</UiBadge>
@@ -198,6 +216,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { Search as SearchIcon, SlidersHorizontal as SlidersHorizontalIcon } from 'lucide-vue-next';
+import { hasKnowledgeRetrievalSource } from '../../utils/knowledgeSearch.js';
 
 import EmptyState from '../EmptyState.vue';
 import CustomSelect from '../ui/CustomSelect.vue';

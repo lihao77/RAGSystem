@@ -9,7 +9,6 @@ import type {
   SystemConfigValue,
   SystemGroupConfig,
   ToolsConfig,
-  VectorStoreConfig,
 } from "../../contracts/runtime/system-config.js";
 import type { ISystemConfigStore } from "../../contracts/runtime/system-config-store.js";
 
@@ -69,12 +68,6 @@ export class SystemConfigService {
     return normalizeSystemGroupConfig(this.config.system);
   }
 
-  /** 类型化读取 vector_store 组(向量库后端选择 + sqlite_vec 连接参数)。 */
-  getVectorStoreConfig(): VectorStoreConfig {
-    this.ensureInitialized();
-    return normalizeVectorStoreConfig(this.config.vector_store);
-  }
-
   /** 类型化读取 document_extraction 组。 */
   getDocumentExtractionConfig(): DocumentExtractionConfig {
     this.ensureInitialized();
@@ -108,14 +101,6 @@ export class SystemConfigService {
 
 function buildDefaultConfig(): SystemConfigData {
   return {
-    vector_store: {
-      backend: "sqlite_vec",
-      sqlite_vec: {
-        database_path: "",
-        vector_dimension: 0,
-        distance_metric: "cosine",
-      },
-    },
     document_extraction: {
       engine: "builtin",
       cli: { command: "", timeout: 120, applies_to: [] },
@@ -171,16 +156,6 @@ function buildSystemConfigSchema(): SystemConfigSchema {
           textField("endpoint", "Endpoint", "文档解析服务地址", ""),
           numberField("timeout", "Timeout", "请求超时（秒）", 120, { min: 1, step: 1 }),
           stringListField("applies_to", "Applies To", "适用类型，逗号分隔；留空表示全部", []),
-        ],
-      },
-      {
-        key: "vector_store.sqlite_vec",
-        label: "SQLite 向量存储",
-        description: "SQLite 向量存储配置",
-        fields: [
-          textField("database_path", "Database Path", "数据库路径（留空使用默认，相对路径解析到 DB_ROOT）", ""),
-          numberField("vector_dimension", "Vector Dimension", "向量维度（0=自动匹配 Embedding 模型）", 0, { min: 0, step: 1 }),
-          selectField("distance_metric", "Distance Metric", "距离度量", "cosine", ["cosine", "l2", "ip"], false),
         ],
       },
       {
@@ -385,25 +360,6 @@ function normalizeSystemGroupConfig(value: unknown): SystemGroupConfig {
   const record = isRecord(value) ? value : {};
   return {
     max_content_length: positiveIntOrDefault(record.max_content_length, 104857600),
-  };
-}
-
-// 默认值须与 buildDefaultConfig() 的 vector_store 段保持同步(单一来源在 buildDefaultConfig)。
-function normalizeVectorStoreConfig(value: unknown): VectorStoreConfig {
-  const record = isRecord(value) ? value : {};
-  const sqliteVecRecord = isRecord(record.sqlite_vec) ? record.sqlite_vec : {};
-  const dimension = sqliteVecRecord.vector_dimension;
-  return {
-    backend: typeof record.backend === "string" && record.backend.trim() ? record.backend.trim() : "sqlite_vec",
-    sqlite_vec: {
-      database_path: typeof sqliteVecRecord.database_path === "string" ? sqliteVecRecord.database_path : "",
-      vector_dimension:
-        typeof dimension === "number" && Number.isFinite(dimension) && dimension >= 0 ? Math.floor(dimension) : 0,
-      distance_metric:
-        typeof sqliteVecRecord.distance_metric === "string" && sqliteVecRecord.distance_metric.trim()
-          ? sqliteVecRecord.distance_metric.trim()
-          : "cosine",
-    },
   };
 }
 

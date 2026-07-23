@@ -21,22 +21,12 @@ describe("system config compatibility routes", () => {
       url: "/api/system-config/schema",
     });
     expect(schema.statusCode).toBe(200);
-    expect(schema.json()).toMatchObject({
-      success: true,
-      message: "系统配置 schema",
-      data: {
-        groups: expect.arrayContaining([
-          expect.objectContaining({
-            key: "vector_store.sqlite_vec",
-            label: "SQLite 向量存储",
-          }),
-        ]),
-      },
-    });
-
-    expect(schema.json().data.groups.map((group: { key: string }) => group.key)).not.toEqual(
-      expect.arrayContaining(["llm", "embedding", "waiting", "reflection"]),
-    );
+    expect(schema.json()).toMatchObject({ success: true, message: "系统配置 schema" });
+    const groupKeys = schema.json().data.groups.map((group: { key: string }) => group.key);
+    expect(groupKeys).toEqual(expect.arrayContaining(["document_extraction", "system", "memory", "tools", "context"]));
+    for (const removedGroup of ["vector_store.sqlite_vec", "llm", "embedding", "waiting", "reflection"]) {
+      expect(groupKeys).not.toContain(removedGroup);
+    }
     const cliGroup = schema.json().data.groups.find(
       (group: { key: string }) => group.key === "document_extraction.cli",
     );
@@ -55,14 +45,11 @@ describe("system config compatibility routes", () => {
       success: true,
       message: "当前系统配置",
       data: {
-        vector_store: {
-          backend: "sqlite_vec",
-          sqlite_vec: {
-            distance_metric: "cosine",
-          },
-        },
+        document_extraction: { engine: "builtin" },
+        memory: { index_max_lines: 200 },
       },
     });
+    expect(config.json().data).not.toHaveProperty("vector_store");
   });
 
   it("deep-merges updates in memory and supports reload to defaults", async () => {
@@ -78,6 +65,7 @@ describe("system config compatibility routes", () => {
             distance_metric: "l2",
           },
         },
+        memory: { index_max_lines: 42 },
       },
     });
     expect(updated.statusCode).toBe(200);
@@ -85,16 +73,11 @@ describe("system config compatibility routes", () => {
       success: true,
       message: "系统配置已更新",
       data: {
-        vector_store: {
-          backend: "sqlite_vec",
-          sqlite_vec: {
-            distance_metric: "l2",
-            vector_dimension: 0,
-          },
-        },
+        memory: { index_max_lines: 42, index_max_chars: 25600 },
       },
     });
     expect(updated.json().data).not.toHaveProperty("llm");
+    expect(updated.json().data).not.toHaveProperty("vector_store");
 
     const reloaded = await app.inject({
       method: "POST",
@@ -111,7 +94,8 @@ describe("system config compatibility routes", () => {
       url: "/api/system-config",
     });
     expect(config.json().data).not.toHaveProperty("llm");
-    expect(config.json().data.vector_store.sqlite_vec.distance_metric).toBe("cosine");
+    expect(config.json().data).not.toHaveProperty("vector_store");
+    expect(config.json().data.memory.index_max_lines).toBe(200);
   });
 
   it("rejects non-object update payloads", async () => {

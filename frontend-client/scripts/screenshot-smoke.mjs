@@ -558,7 +558,7 @@ async function setupShotMocks(client, shot) {
               similarity: 0.82,
               keyword_score: 0.88,
               vector_score: 0.82,
-              hybrid_score: 0.838,
+              hybrid_score: 0.9919,
               final_score: 0.94,
               score_type: 'rerank',
               final_rank: 1,
@@ -567,7 +567,7 @@ async function setupShotMocks(client, shot) {
               hybrid_rank: 1,
               rerank_score: 0.94,
               rerank_rank: 1,
-              retrieval_sources: ['vector'],
+              retrieval_sources: ['vector', 'keyword'],
             },
           ],
           count: 1,
@@ -581,7 +581,11 @@ async function setupShotMocks(client, shot) {
           rerank_error: null,
           diagnostics: {
             candidate_count: 20,
+            vector_candidate_count: 20,
+            keyword_candidate_count: 14,
+            fused_candidate_count: 24,
             filters_applied: [],
+            fusion: { method: 'rrf', rrf_k: 60 },
             vectorizer: {
               vectorizer_key: 'openai_embedding',
               provider_key: 'openrouter_openrouter',
@@ -594,7 +598,7 @@ async function setupShotMocks(client, shot) {
               model_name: 'bge-reranker-v2-m3',
               mode: 'model',
             },
-            timings_ms: { embedding: 18.4, retrieval: 7.2, scoring: 0.8, rerank: 31.5, total: 58.3 },
+            timings_ms: { embedding: 18.4, retrieval: 7.2, vector_retrieval: 6.8, keyword_retrieval: 4.1, scoring: 0.8, rerank: 31.5, total: 58.3 },
           },
         },
       });

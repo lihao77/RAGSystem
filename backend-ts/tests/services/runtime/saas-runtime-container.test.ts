@@ -16,7 +16,7 @@ describe("SaaS runtime container composition", () => {
     expect(source).not.toContain("createLocalRuntimeContainer");
     expect(source).not.toContain("createConversationStore");
     expect(source).not.toContain("FileIndexService");
-    expect(source).not.toContain("createVectorStoreFromConfig");
+    expect(source).not.toContain("createLocalVectorStore");
     expect(source).toContain("createRuntimeStorage");
     expect(source).toContain("createDelegationStore");
     expect(source).toContain("createAgentConfigTeamStore");
