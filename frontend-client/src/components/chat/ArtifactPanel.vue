@@ -124,10 +124,10 @@ const fileChangeSummary = computed(() => {
   return parts.join(' · ');
 });
 
-async function loadFileChanges(sessionId) {
+async function loadFileChanges(sessionId, messageSeq) {
   const request = ++fileChangesRequest;
   try {
-    const result = await getLatestFileChanges(sessionId);
+    const result = await getLatestFileChanges(sessionId, messageSeq);
     if (request !== fileChangesRequest) return;
     files.value = Array.isArray(result.files) ? result.files : [];
   } catch {
@@ -136,14 +136,19 @@ async function loadFileChanges(sessionId) {
 }
 
 watch(
-  () => [props.sessionId, props.refreshKey, props.running],
-  ([sessionId, , running]) => {
+  () => [props.sessionId, props.refreshKey, props.message?.seq, props.running],
+  ([sessionId, , messageSeq, running]) => {
     if (!sessionId || running) {
       fileChangesRequest += 1;
       files.value = [];
       return;
     }
-    void loadFileChanges(sessionId);
+    if (!Number.isSafeInteger(messageSeq) || messageSeq <= 0) {
+      fileChangesRequest += 1;
+      files.value = [];
+      return;
+    }
+    void loadFileChanges(sessionId, messageSeq);
   },
   { immediate: true },
 );

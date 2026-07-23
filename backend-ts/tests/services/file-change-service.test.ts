@@ -112,4 +112,36 @@ describe("FileChangeService", () => {
     expect(result.files[0]?.oldContent).toBe("v1\n");
     expect(result.files[0]?.newContent).toBe("v2\n");
   });
+
+  it("按 message_seq 只返回选中 run，并使用该 run 结束时的文件内容", async () => {
+    const history = new FileHistoryService({ dataRoot });
+    const filePath = path.join(workDir, "same-path.txt");
+    fs.writeFileSync(filePath, "v0\n");
+    history.trackEdit("session", filePath);
+    fs.writeFileSync(filePath, "v1\n");
+    history.makeSnapshot("session", 7);
+    history.trackEdit("session", filePath);
+    fs.writeFileSync(filePath, "v2\n");
+    history.makeSnapshot("session", 12);
+
+    const service = new FileChangeService(
+      new LocalFileChangeHistoryAdapter(new FileHistoryService({ dataRoot })),
+    );
+    const selected = await service.getLatest("session", 7);
+
+    expect(selected).toMatchObject({ snapshot_id: expect.any(String), message_seq: 7 });
+    expect(selected.files).toHaveLength(1);
+    expect(selected.files[0]?.oldContent).toBe("v0\n");
+    expect(selected.files[0]?.newContent).toBe("v1\n");
+    expect(selected.files[0]?.diff.map((line) => [line.type, line.content])).toEqual([
+      ["removed", "v0"],
+      ["added", "v1"],
+    ]);
+
+    await expect(service.getLatest("session", 99)).resolves.toEqual({
+      snapshot_id: null,
+      message_seq: null,
+      files: [],
+    });
+  });
 });

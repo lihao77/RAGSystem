@@ -167,7 +167,11 @@
       @reuse="reuseSessionFileAsAttachment"
       @removePending="sessionFilesDrawerTarget === 'message-edit' ? removeEditingAttachment($event) : removePendingAttachment($event)"
     />
-    <FileChangesPanel v-model:open="fileChangesOpen" :session-id="currentSessionId || ''" />
+    <FileChangesPanel
+      v-model:open="fileChangesOpen"
+      :session-id="currentSessionId || ''"
+      :message-seq="currentRunMessage?.seq ?? null"
+    />
     <ImageLightbox :open="imageLightbox.open.value" :images="imageLightbox.images.value" :index="imageLightbox.index.value" :current="imageLightbox.current.value" @close="imageLightbox.close" @previous="imageLightbox.previous" @next="imageLightbox.next" />
     <KnowledgeMdViewer v-model:open="showCitationViewer" :file-id="citationFile.file_id" :file-name="citationFile.file_name" :initial-char-start="citationFile.char_start" :initial-heading="citationFile.heading" @citation-click="openCitation" />
 

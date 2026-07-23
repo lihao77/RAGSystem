@@ -20,5 +20,9 @@ export interface LatestFileChanges {
 }
 
 export interface FileChangeApplication {
-  getLatest(sessionId: string): Promise<LatestFileChanges>;
+  /**
+   * Returns the latest session-wide changes, or the changes captured by the
+   * snapshot belonging to `messageSeq` when a run is selected in the UI.
+   */
+  getLatest(sessionId: string, messageSeq?: number): Promise<LatestFileChanges>;
 }

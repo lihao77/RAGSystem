@@ -3,7 +3,7 @@
     <SheetContent side="right" class="flex w-full flex-col p-0 sm:max-w-[1000px]">
       <SheetHeader class="border-b p-5">
         <SheetTitle>本轮文件变更</SheetTitle>
-        <SheetDescription>最近一次 Agent 消息修改的文件与行级差异</SheetDescription>
+        <SheetDescription>当前选中 Agent 消息修改的文件与行级差异</SheetDescription>
       </SheetHeader>
       <div class="grid min-h-0 flex-1 md:grid-cols-[280px_minmax(0,1fr)]">
         <aside class="flex min-h-0 flex-col border-r">
@@ -48,30 +48,43 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import IconRefresh from '../icons/IconRefresh.vue';
 import IconFile from '../icons/IconFile.vue';
 
-const props = defineProps({ open: Boolean, sessionId: { type: String, default: '' } });
+const props = defineProps({
+  open: Boolean,
+  sessionId: { type: String, default: '' },
+  messageSeq: { type: Number, default: null },
+});
 const emit = defineEmits(['update:open']);
 const files = ref([]);
 const loading = ref(false);
 const error = ref('');
 const selectedPath = ref('');
 const selectedFile = computed(() => files.value.find(file => file.path === selectedPath.value) || files.value[0] || null);
+let loadRequest = 0;
 
 async function load() {
   if (!props.sessionId) return;
+  const request = ++loadRequest;
   loading.value = true;
   error.value = '';
   try {
-    const result = await getLatestFileChanges(props.sessionId);
+    const result = await getLatestFileChanges(props.sessionId, props.messageSeq);
+    if (request !== loadRequest) return;
     files.value = result.files || [];
     if (!files.value.some(file => file.path === selectedPath.value)) selectedPath.value = files.value[0]?.path || '';
   } catch (loadError) {
-    error.value = loadError.message || '加载文件变更失败';
+    if (request === loadRequest) error.value = loadError.message || '加载文件变更失败';
   } finally {
-    loading.value = false;
+    if (request === loadRequest) loading.value = false;
   }
 }
 
-watch(() => [props.open, props.sessionId], ([open]) => { if (open) load(); });
+watch(() => [props.open, props.sessionId, props.messageSeq], ([open]) => {
+  if (open) {
+    void load();
+  } else {
+    loadRequest += 1;
+  }
+});
 const actionLabel = action => action === 'created' ? '新增' : '修改';
 const lineMark = type => type === 'added' ? '+' : type === 'removed' ? '-' : ' ';
 const lineClass = type => ({

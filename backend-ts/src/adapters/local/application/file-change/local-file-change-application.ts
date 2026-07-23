@@ -10,5 +10,5 @@ export class LocalFileChangeApplication implements FileChangeApplication {
     this.service = new FileChangeService(new LocalFileChangeHistoryAdapter(history));
   }
 
-  async getLatest(sessionId: string) { return this.service.getLatest(sessionId); }
+  async getLatest(sessionId: string, messageSeq?: number) { return this.service.getLatest(sessionId, messageSeq); }
 }

@@ -9,5 +9,5 @@ export class SaaSFileChangeApplication implements FileChangeApplication {
     this.service = new FileChangeService(history);
   }
 
-  getLatest(sessionId: string) { return this.service.getLatest(sessionId); }
+  getLatest(sessionId: string, messageSeq?: number) { return this.service.getLatest(sessionId, messageSeq); }
 }
