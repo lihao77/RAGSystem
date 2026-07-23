@@ -13,11 +13,37 @@ export interface KnowledgeCollectionSummary {
 export interface KnowledgeSearchResponse {
   results: VectorSearchResult[];
   count: number;
-  collection_name: string;
+  collection_name: string | null;
+  collection_scope: "single" | "all";
   query: string;
   search_mode: "hybrid" | "vector";
+  rerank_requested: boolean;
   rerank: boolean;
   rerank_mode: "model" | "lexical" | "none" | "degraded";
+  rerank_error: string | null;
+  diagnostics: {
+    candidate_count: number;
+    filters_applied: string[];
+    vectorizer: {
+      vectorizer_key: string;
+      provider_key: string;
+      model_name: string;
+      model_id: number;
+    };
+    reranker: {
+      reranker_key: string;
+      provider_key: string;
+      model_name: string;
+      mode: "model" | "lexical" | "none";
+    } | null;
+    timings_ms: {
+      embedding: number;
+      retrieval: number;
+      scoring: number;
+      rerank: number;
+      total: number;
+    };
+  };
 }
 
 /** Read-only knowledge boundary consumed by Agent tools. */

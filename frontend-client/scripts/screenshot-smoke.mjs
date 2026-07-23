@@ -73,7 +73,18 @@ const shots = [
     height: 900,
     actions: [
       { type: 'expectText', selector: 'body', text: '知识库管理' },
-      { type: 'expectText', selector: 'body', text: '向量库管理' },
+      { type: 'expectText', selector: 'body', text: '文件与索引' },
+    ],
+  },
+  {
+    name: 'knowledge-base-search-desktop',
+    path: '/knowledge-base',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'click', selector: '.kb-manager-page nav button:nth-child(4)', waitMs: 500 },
+      { type: 'expectText', selector: 'body', text: '检索工作台' },
+      { type: 'expectVisible', selector: 'input[aria-label="搜索查询"]' },
     ],
   },
   { name: 'model-providers-narrow', path: '/model-providers', width: 768, height: 900 },
@@ -126,6 +137,50 @@ const shots = [
     ],
   },
   { name: 'knowledge-base-mobile', path: '/knowledge-base', width: 390, height: 844 },
+  {
+    name: 'knowledge-base-search-mobile',
+    path: '/knowledge-base',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'click', selector: '.kb-manager-page nav button:nth-child(4)', waitMs: 500 },
+      { type: 'expectText', selector: 'body', text: '检索工作台' },
+      { type: 'expectVisible', selector: 'input[aria-label="搜索查询"]' },
+    ],
+  },
+  {
+    name: 'knowledge-base-search-results-desktop',
+    path: '/knowledge-base',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockKnowledgeSearchApi' },
+      { type: 'click', selector: '.kb-manager-page nav button:nth-child(4)', waitMs: 500 },
+      { type: 'click', selector: '[role="switch"]' },
+      { type: 'setValue', selector: 'input[aria-label="搜索查询"]', value: '如何配置 RAG 检索？' },
+      { type: 'click', selector: 'input[aria-label="搜索查询"] + button', waitMs: 500 },
+      { type: 'expectText', selector: 'body', text: '检索结果' },
+      { type: 'expectText', selector: 'body', text: 'handbook.md' },
+      { type: 'scrollToBottom', selector: '.page-content-scroll' },
+      { type: 'expectVisible', selector: '[data-result-id="kb-smoke-1"]' },
+    ],
+  },
+  {
+    name: 'knowledge-base-search-results-mobile',
+    path: '/knowledge-base',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'mockKnowledgeSearchApi' },
+      { type: 'click', selector: '.kb-manager-page nav button:nth-child(4)', waitMs: 500 },
+      { type: 'click', selector: '[role="switch"]' },
+      { type: 'setValue', selector: 'input[aria-label="搜索查询"]', value: '如何配置 RAG 检索？' },
+      { type: 'click', selector: 'input[aria-label="搜索查询"] + button', waitMs: 500 },
+      { type: 'expectText', selector: 'body', text: '检索结果' },
+      { type: 'scrollToBottom', selector: '.page-content-scroll' },
+      { type: 'expectVisible', selector: '[data-result-id="kb-smoke-1"]' },
+    ],
+  },
   {
     name: 'knowledge-base-reranker-dialog',
     path: '/knowledge-base',
@@ -463,18 +518,98 @@ class CdpClient {
 }
 
 async function setupShotMocks(client, shot) {
-  if (!(shot.actions || []).some(action => action.type === 'mockArtifactApi')) return;
+  const mockArtifactApi = (shot.actions || []).some(action => action.type === 'mockArtifactApi');
+  const mockKnowledgeSearchApi = (shot.actions || []).some(action => action.type === 'mockKnowledgeSearchApi');
+  if (!mockArtifactApi && !mockKnowledgeSearchApi) return;
 
   await client.send('Fetch.enable', {
     patterns: [
-      {
+      ...(mockArtifactApi ? [{
         urlPattern: '*://*/api/artifacts/visualizations/viz_smoke_chart*',
         requestStage: 'Request',
-      },
+      }] : []),
+      ...(mockKnowledgeSearchApi ? [{
+        urlPattern: '*://*/api/knowledge-bases/search*',
+        requestStage: 'Request',
+      }] : []),
     ],
   });
 
   client.on('Fetch.requestPaused', async (event) => {
+    if (event.request?.url?.includes('/api/knowledge-bases/search')) {
+      const body = JSON.stringify({
+        success: true,
+        data: {
+          results: [
+            {
+              id: 'kb-smoke-1',
+              doc_id: 'doc-handbook',
+              document_id: 'doc-handbook',
+              collection: 'documents',
+              text: '先配置 Embedding Provider，再为集合建立索引。检索阶段可选择向量或混合模式，并在召回后启用 Rerank。',
+              content: '先配置 Embedding Provider，再为集合建立索引。检索阶段可选择向量或混合模式，并在召回后启用 Rerank。',
+              metadata: {
+                source_file: 'handbook.md',
+                heading_path: '知识库 / 检索配置',
+                chunk_index: 1,
+                chunk_total: 8,
+              },
+              score: 0.94,
+              similarity: 0.82,
+              keyword_score: 0.88,
+              vector_score: 0.82,
+              hybrid_score: 0.838,
+              final_score: 0.94,
+              score_type: 'rerank',
+              final_rank: 1,
+              vector_rank: 2,
+              keyword_rank: 1,
+              hybrid_rank: 1,
+              rerank_score: 0.94,
+              rerank_rank: 1,
+              retrieval_sources: ['vector'],
+            },
+          ],
+          count: 1,
+          collection_name: null,
+          collection_scope: 'all',
+          query: '如何配置 RAG 检索？',
+          search_mode: 'hybrid',
+          rerank_requested: true,
+          rerank: true,
+          rerank_mode: 'model',
+          rerank_error: null,
+          diagnostics: {
+            candidate_count: 20,
+            filters_applied: [],
+            vectorizer: {
+              vectorizer_key: 'openai_embedding',
+              provider_key: 'openrouter_openrouter',
+              model_name: 'text-embedding-3-small',
+              model_id: 1,
+            },
+            reranker: {
+              reranker_key: 'provider_rerank',
+              provider_key: 'rerank-provider',
+              model_name: 'bge-reranker-v2-m3',
+              mode: 'model',
+            },
+            timings_ms: { embedding: 18.4, retrieval: 7.2, scoring: 0.8, rerank: 31.5, total: 58.3 },
+          },
+        },
+      });
+      await client.send('Fetch.fulfillRequest', {
+        requestId: event.requestId,
+        responseCode: 200,
+        responseHeaders: [
+          { name: 'Content-Type', value: 'application/json; charset=utf-8' },
+          { name: 'Cache-Control', value: 'no-store' },
+        ],
+        body: Buffer.from(body, 'utf8').toString('base64'),
+      });
+      return;
+    }
+
     if (!event.request?.url?.includes('/api/artifacts/visualizations/viz_smoke_chart')) {
       await client.send('Fetch.continueRequest', { requestId: event.requestId });
       return;
@@ -620,7 +755,23 @@ function jsString(value) {
 
 async function runShotActions(client, shot) {
   for (const action of shot.actions || []) {
-    if (action.type === 'mockArtifactApi') {
+    if (action.type === 'mockArtifactApi' || action.type === 'mockKnowledgeSearchApi') {
+      continue;
+    }
+
+    if (action.type === 'setValue') {
+      const updated = await evaluate(client, `(() => {
+        const element = document.querySelector(${jsString(action.selector)});
+        if (!element) return false;
+        element.value = ${jsString(action.value)};
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      })()`);
+      if (!updated) {
+        throw new Error(`${shot.name} could not find value selector: ${action.selector}`);
+      }
+      await wait(action.waitMs ?? 100);
       continue;
     }
 

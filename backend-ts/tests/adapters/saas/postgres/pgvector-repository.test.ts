@@ -24,6 +24,20 @@ describe("Postgres pgvector adapter", () => {
     expect(hits[0]?.tenant_id).toBe("t1");
     expect(String((db.query as ReturnType<typeof vi.fn>).mock.calls[1]?.[0])).toContain("tenant_id=$1");
   });
+  it("supports all-collection search with JSON metadata containment", async () => {
+    const db = executor([]);
+    await new PostgresPgVectorRepository(db).search({
+      tenant_id: "t1",
+      model_id: 2,
+      query_vector: [1, 0],
+      top_k: 3,
+      filters: { category: "guide" },
+    });
+    const [sql, params] = (db.query as ReturnType<typeof vi.fn>).mock.calls[0] ?? [];
+    expect(String(sql)).not.toContain("collection=");
+    expect(String(sql)).toContain("metadata @>");
+    expect(params).toContain(JSON.stringify({ category: "guide" }));
+  });
   it("replaces one document model atomically", async () => {
     const transactionQuery = vi.fn(async () => ({ rows: [], rowCount: 0 }));
     const db = {

@@ -30,12 +30,14 @@ import { VectorStoreError } from "../../../contracts/vector-store/errors.js";
 import { registerDriver } from "./registry.js";
 import { documentsTableDdl, kbFilesTableDdl, rerankersTableDdl, vecTableDdl, vecTableName, vectorizersTableDdl } from "./schema.js";
 import { sanitizeFilename } from "../../../utils/file-filter.js";
+import { metadataMatchesFilter } from "../../../services/vector-store/metadata-filter.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 const SEARCH_OVERFETCH = 5;
 const DEFAULT_RECALL = 50;
+const SQLITE_IN_BATCH = 500;
 
 interface SqliteVecOptions {
   databasePath: string;
@@ -204,45 +206,55 @@ export class SqliteVecDriver implements AsyncKnowledgeVectorStore, AsyncKnowledg
     if (!this.dimensionByModel.has(input.model_id)) {
       return [];
     }
-    const recall = Math.max(input.top_k * SEARCH_OVERFETCH, DEFAULT_RECALL);
     const table = vecTableName(input.model_id);
-    const knnRows = this.db
-      .prepare(`SELECT rowid, distance FROM ${table} WHERE embedding MATCH ? ORDER BY distance LIMIT ${recall}`)
-      .all(JSON.stringify(input.query_vector)) as unknown as KnnRow[];
-    if (knnRows.length === 0) {
-      return [];
-    }
-    const rowids = knnRows.map((row) => row.rowid);
-    const placeholders = rowids.map(() => "?").join(",");
-    const docs = this.db
-      .prepare(
-        `SELECT id, document_id, collection, content, metadata, chunk_index
-         FROM vec_documents WHERE id IN (${placeholders})`,
-      )
-      .all(...rowids.map((id) => BigInt(id))) as unknown as Array<VecDocRow & { chunk_index: number }>;
-    const docById = new Map(docs.map((doc) => [doc.id, doc]));
-    const hits: AsyncVectorSearchHit[] = [];
-    for (const knn of knnRows) {
-      const doc = docById.get(knn.rowid);
-      if (!doc || doc.collection !== input.collection) {
-        continue;
+    const totalRow = this.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number } | undefined;
+    const total = Number(totalRow?.n ?? 0);
+    if (total === 0) return [];
+
+    let recall = Math.min(total, Math.max(input.top_k * SEARCH_OVERFETCH, DEFAULT_RECALL));
+    while (recall > 0) {
+      const knnRows = this.db
+        .prepare(`SELECT rowid, distance FROM ${table} WHERE embedding MATCH ? ORDER BY distance LIMIT ${recall}`)
+        .all(JSON.stringify(input.query_vector)) as unknown as KnnRow[];
+      if (knnRows.length === 0) return [];
+
+      const rowids = knnRows.map((row) => row.rowid);
+      const docs: Array<VecDocRow & { chunk_index: number }> = [];
+      for (let start = 0; start < rowids.length; start += SQLITE_IN_BATCH) {
+        const batch = rowids.slice(start, start + SQLITE_IN_BATCH);
+        const placeholders = batch.map(() => "?").join(",");
+        docs.push(...this.db
+          .prepare(
+            `SELECT id, document_id, collection, content, metadata, chunk_index
+             FROM vec_documents WHERE id IN (${placeholders})`,
+          )
+          .all(...batch.map((id) => BigInt(id))) as unknown as Array<VecDocRow & { chunk_index: number }>);
       }
-      hits.push({
-        id: String(knn.rowid),
-        tenant_id: input.tenant_id,
-        collection: doc.collection,
-        document_id: doc.document_id,
-        model_id: input.model_id,
-        chunk_index: doc.chunk_index,
-        content: doc.content,
-        metadata: parseRecord(doc.metadata),
-        vector_score: Math.max(0, 1 - knn.distance),
-      });
-      if (hits.length >= input.top_k) {
-        break;
+      const docById = new Map(docs.map((doc) => [doc.id, doc]));
+      const hits: AsyncVectorSearchHit[] = [];
+      for (const knn of knnRows) {
+        const doc = docById.get(knn.rowid);
+        if (!doc || (input.collection !== undefined && doc.collection !== input.collection)) continue;
+        const metadata = parseRecord(doc.metadata);
+        if (!metadataMatchesFilter(metadata, input.filters)) continue;
+        hits.push({
+          id: String(knn.rowid),
+          tenant_id: input.tenant_id,
+          collection: doc.collection,
+          document_id: doc.document_id,
+          model_id: input.model_id,
+          chunk_index: doc.chunk_index,
+          content: doc.content,
+          metadata,
+          vector_score: Math.max(0, 1 - knn.distance),
+        });
+        if (hits.length >= input.top_k) return hits;
       }
+
+      if (recall >= total) return hits;
+      recall = Math.min(total, recall * 2);
     }
-    return hits;
+    return [];
   }
 
   async listCollections(_tenantId: string): Promise<AsyncKnowledgeCollectionSummary[]> {

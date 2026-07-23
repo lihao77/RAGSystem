@@ -6,7 +6,7 @@ export function lexicalRerank(results: VectorSearchResult[], query: string): Vec
   return results
     .map((result) => {
       const rerankScore = keywordOverlapScore(query, result.content);
-      return { ...result, rerank_score: rerankScore, score: result.score + rerankScore };
+      return { ...result, rerank_score: rerankScore };
     })
-    .sort((left, right) => (right.rerank_score ?? 0) - (left.rerank_score ?? 0));
+    .sort((left, right) => (right.rerank_score ?? 0) - (left.rerank_score ?? 0) || right.score - left.score);
 }

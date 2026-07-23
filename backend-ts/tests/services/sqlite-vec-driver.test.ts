@@ -55,6 +55,24 @@ describe("SqliteVecDriver", () => {
     driver.close();
   });
 
+  it("supports global collection search and exact metadata filters", async () => {
+    const driver = new SqliteVecDriver(config());
+    await driver.upsertChunks([
+      record("d1", [1, 0], { collection: "col1", metadata: { category: "guide", tags: ["rag", "ts"] } }),
+      record("d2", [0.99, 0.01], { collection: "col2", metadata: { category: "guide", tags: ["rag"] } }),
+      record("d3", [0.98, 0.02], { collection: "col2", metadata: { category: "note", tags: ["rag"] } }),
+    ]);
+    const hits = await driver.search({
+      tenant_id: TENANT,
+      model_id: 1,
+      query_vector: [1, 0],
+      top_k: 5,
+      filters: { category: "guide", tags: ["ts"] },
+    });
+    expect(hits.map((item) => `${item.collection}/${item.document_id}`)).toEqual(["col1/d1"]);
+    driver.close();
+  });
+
   it("atomic replacement rolls back the old vectors when the new batch fails", async () => {
     const driver = new SqliteVecDriver(config());
     await driver.upsertChunks([record("d1", [1, 0])]);

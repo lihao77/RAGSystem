@@ -155,7 +155,8 @@ export async function deleteReranker(key) {
 
 /**
  * 向量相似度搜索
- * @param {Object} body - { query, top_k?, collection?, search_mode?, filters?, rerank?, rerank_mode?, rerank_top_k?, rerank_provider?, rerank_model? }
+ * @param {Object} body - { query, top_k?, collection?, search_mode?, filters?, rerank?, rerank_top_k?, final_top_k?, reranker_key? }
+ * collection 留空时跨全部集合检索；filters 对 chunk metadata 做 JSON 包含匹配。
  */
 export async function searchVectors(body) {
   return http.post('/api/knowledge-bases/search', body);

@@ -41,7 +41,7 @@ export const SearchVectorsRequestSchema = z
     collection_name: z.string().trim().optional(),
     search_mode: z.enum(["hybrid", "vector"]).optional(),
     mode: z.enum(["hybrid", "vector"]).optional(),
-    filters: z.unknown().optional(),
+    filters: z.record(z.unknown()).optional(),
     rerank: z.boolean().optional(),
     rerank_top_k: z.number().int().positive().optional(),
     final_top_k: z.number().int().positive().optional(),
@@ -150,7 +150,15 @@ export interface VectorSearchResult {
   keyword_score: number;
   vector_score: number;
   hybrid_score: number;
+  final_score: number;
+  score_type: "vector" | "hybrid" | "rerank";
+  final_rank: number;
+  vector_rank: number;
+  keyword_rank: number;
+  hybrid_rank: number;
+  retrieval_sources: Array<"vector" | "keyword">;
   rerank_score?: number;
+  rerank_rank?: number;
   rerank_degraded?: boolean;
 }
 

@@ -98,3 +98,7 @@ dist/
 
 # Tool-generated plans (local only)
 /.zcode/
+
+# Local secrets (extracted for docker compose)
+.env
+.env.*

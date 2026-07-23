@@ -5,7 +5,27 @@ import type { RerankClient } from "../../src/services/integrations/reranker-clie
 import { createReranker, LexicalReranker, NoopReranker, RemoteReranker } from "../../src/services/integrations/reranker-registry.js";
 
 const stored = (mode: StoredReranker["mode"]): StoredReranker => ({ reranker_key: "rr", mode, provider_key: "p", provider_type: null, model_name: "m", api_endpoint: "http://x", api_key: "k", created_at: "now", is_active: true });
-const result = (id: string, content: string): VectorSearchResult => ({ id, doc_id: id, document_id: id, collection: "c", text: content, content, metadata: {}, score: 0, similarity: 0, keyword_score: 0, vector_score: 0, hybrid_score: 0 });
+const result = (id: string, content: string): VectorSearchResult => ({
+  id,
+  doc_id: id,
+  document_id: id,
+  collection: "c",
+  text: content,
+  content,
+  metadata: {},
+  score: 0,
+  similarity: 0,
+  keyword_score: 0,
+  vector_score: 0,
+  hybrid_score: 0,
+  final_score: 0,
+  score_type: "vector",
+  final_rank: 0,
+  vector_rank: 0,
+  keyword_rank: 0,
+  hybrid_rank: 0,
+  retrieval_sources: ["vector"],
+});
 
 describe("reranker-registry", () => {
   it("按 mode 分派实现", () => {

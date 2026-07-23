@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   AsyncKnowledgeConfigStore,
@@ -197,6 +197,25 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
     expect(Number(first.vector_score)).toBeCloseTo(0.8, 4);
     expect(Number(first.keyword_score)).toBeGreaterThan(0);
     expect(Number(first.hybrid_score)).toBeGreaterThan(Number(first.vector_score) * 0.7);
+    expect(first).toMatchObject({ final_rank: 1, vector_rank: 1, hybrid_rank: 1, score_type: "hybrid", retrieval_sources: ["vector"] });
+    expect(result.diagnostics).toMatchObject({ candidate_count: 2, vectorizer: { vectorizer_key: "local_hash_embedding" } });
+    expect(result.diagnostics.timings_ms.total).toBeGreaterThanOrEqual(0);
+  });
+
+  it("集合留空时执行全局搜索并把元数据过滤器下传", async () => {
+    const ports = makeFakePorts([hit("1", "d1", "global result", 0.8, { category: "guide" })]);
+    const searchSpy = vi.spyOn(ports.vectors, "search");
+    const result = await makeService(ports).search({
+      query: "global",
+      search_mode: "vector",
+      rerank: false,
+      filters: { category: "guide" },
+    });
+    expect(result).toMatchObject({ collection_name: null, collection_scope: "all" });
+    expect(result.diagnostics.filters_applied).toEqual(["category"]);
+    const vectorInput = searchSpy.mock.calls[0]?.[0];
+    expect(vectorInput).not.toHaveProperty("collection");
+    expect(vectorInput).toMatchObject({ filters: { category: "guide" } });
   });
 
   it("rerank 开启时按 keyword 重排 hybrid 结果", async () => {
@@ -210,6 +229,19 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
     });
     const ids = result.results.map((r) => r.document_id);
     expect(ids[0]).toBe("d2");
+  });
+
+  it("vector 模式同样支持 rerank", async () => {
+    const hits = [
+      hit("1", "d1", "vector only baseline", 0.9),
+      hit("2", "d2", "keyword overlap match", 0.4),
+    ];
+    const service = makeService(makeFakePorts(hits, null, [activeReranker("lexical")]));
+    const result = await service.search({
+      collection_name: "kb", query: "keyword overlap", top_k: 5, search_mode: "vector", rerank: true,
+    });
+    expect(result).toMatchObject({ rerank_requested: true, rerank: true, rerank_mode: "lexical" });
+    expect(result.results[0]).toMatchObject({ document_id: "d2", score_type: "rerank", rerank_rank: 1 });
   });
 
   it("vectorStore 无命中时 search 返回空候选", async () => {
@@ -257,8 +289,14 @@ describe("KnowledgeApplicationService search path (async ports + scoring)", () =
       }),
     });
     const output = await service.search({ collection_name: "kb", query: "query", search_mode: "hybrid", rerank: true });
-    expect(output).toMatchObject({ rerank_mode: "degraded" });
+    expect(output).toMatchObject({ rerank_mode: "degraded", rerank_error: "offline" });
     expect(output.results[0]).toMatchObject({ rerank_degraded: true });
+  });
+
+  it("请求 rerank 但没有配置时显式返回原因", async () => {
+    const service = makeService(makeFakePorts([hit("1", "d1", "first", 0.9)]));
+    await expect(service.search({ collection_name: "kb", query: "q", search_mode: "vector", rerank: true }))
+      .resolves.toMatchObject({ rerank: false, rerank_mode: "none", rerank_error: "未配置可用的重排序器" });
   });
 
   it("active mode=none 且 rerank=true 时透传并返回 none", async () => {

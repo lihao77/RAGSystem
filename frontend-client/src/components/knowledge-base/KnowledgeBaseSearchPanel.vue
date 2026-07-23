@@ -1,355 +1,268 @@
-<!-- eslint-disable no-unused-vars, @typescript-eslint/no-unused-vars -->
 <template>
-                <!-- ══ Tab 5: 搜索测试 ════════════════════════════ -->
-                <div v-if="activeTab === 'search'" class="tab-panel">
-                    <div class="section-toolbar">
-                        <div class="toolbar-left">
-                            <p class="section-desc">输入查询文本，测试向量检索效果。</p>
-                        </div>
-                    </div>
+  <div v-if="activeTab === 'search'" class="flex flex-col gap-6">
+    <Card>
+      <CardHeader class="flex-row items-start justify-between gap-4">
+        <div class="flex min-w-0 flex-col gap-1.5">
+          <CardTitle>检索工作台</CardTitle>
+          <CardDescription>用同一条查询验证召回、融合与重排序效果，并查看实际执行链路。</CardDescription>
+        </div>
+        <UiBadge size="sm" tone="info">{{ activeSearchModeLabel }}</UiBadge>
+      </CardHeader>
 
-                    <div class="search-form-card glass-card">
-                        <div class="search-box">
-                            <input v-model="searchQuery" class="search-input" placeholder="输入搜索关键词..."
-                                @keyup.enter="handleSearch" />
-                            <Button class="search-submit-button" variant="default" size="sm" :disabled="searchLoading" @click="handleSearch">
-                                <IconSearch :size="15" />
-                                <span>{{ searchLoading ? '搜索中...' : '搜索' }}</span>
-                            </Button>
-                        </div>
-                        <div class="search-options-row">
-                            <div class="search-option">
-                                <label>Top K：</label>
-                                <input v-model.number="searchTopK" type="number" min="1" max="20"
-                                    class="option-input" />
-                            </div>
-                            <div class="search-option">
-                                <label>模式：</label>
-                                <CustomSelect v-model="searchMode" :options="searchModeOptions" />
-                            </div>
-                            <div class="search-option search-option--toggle">
-                                <label class="search-toggle" :class="{ 'search-toggle--disabled': searchMode !== 'hybrid' }">
-                                    <input v-model="searchRerank" type="checkbox" :disabled="searchMode !== 'hybrid'" />
-                                    <span>重排序</span>
-                                </label>
-                            </div>
-                            <div v-if="searchRerank && searchMode === 'hybrid'" class="search-option">
-                                <label>重排序器：</label>
-                                <CustomSelect v-model="searchRerankSelection" :options="searchRerankerOptions"
-                                    placeholder="使用激活的重排序器" />
-                            </div>
-                            <div class="search-option">
-                                <label>集合：</label>
-                                <input v-model="searchCollection" class="option-input option-input--wide"
-                                    placeholder="留空全局搜索" />
-                            </div>
-                        </div>
-                    </div>
+      <CardContent class="flex flex-col gap-5">
+        <div class="flex flex-col gap-3 sm:flex-row">
+          <Input
+            v-model="searchQuery"
+            class="h-11 flex-1"
+            placeholder="输入问题、关键词或一段待匹配文本…"
+            aria-label="搜索查询"
+            @keyup.enter="handleSearch"
+          />
+          <Button class="w-full sm:w-auto" size="lg" :disabled="searchLoading" @click="handleSearch">
+            <SearchIcon data-icon="inline-start" />
+            {{ searchLoading ? '正在检索' : '开始检索' }}
+          </Button>
+        </div>
 
-                    <div v-if="searchResults.length > 0" class="search-results">
-                        <p class="results-count">共 {{ searchResults.length }} 条结果</p>
-                        <div v-for="(r, i) in searchResults" :key="i" class="result-item glass-card">
-                            <div class="result-header">
-                                <span class="result-rank">#{{ i + 1 }}</span>
-                                <span :class="['result-score', scoreClass(resultSimilarity(r))]">
-                                    {{ resultSimilarityLabel(r) }}
-                                </span>
-                                <span class="result-source">{{ r.metadata?.source || r.metadata?.document_id || '未知来源'
-                                }}</span>
-                            </div>
-                            <div class="result-meta-row">
-                                <span v-if="r.hybrid_score != null" class="result-meta-chip">Hybrid {{ formatScore(r.hybrid_score) }}</span>
-                                <span v-if="r.rerank_score != null" class="result-meta-chip">Rerank {{ formatScore(r.rerank_score) }}</span>
-                                <span v-if="r.rerank_rank != null" class="result-meta-chip">Rerank #{{ r.rerank_rank }}</span>
-                                <span v-if="r.vector_rank != null" class="result-meta-chip">Vector #{{ r.vector_rank }}</span>
-                                <span v-if="r.keyword_rank != null" class="result-meta-chip">Keyword #{{ r.keyword_rank }}</span>
-                                <span v-for="source in (r.retrieval_sources || [])" :key="source" class="result-meta-chip">{{ source }}</span>
-                            </div>
-                            <div v-if="r.metadata?.section_path" class="result-section">{{ r.metadata.section_path }}</div>
-                            <div class="result-content">{{ r.content || r.text }}</div>
-                            <div v-if="r.metadata?.chunk_index != null" class="result-footer">
-                                分块 {{ r.metadata.chunk_index }} / {{ r.metadata.chunk_total }}
-                            </div>
-                        </div>
-                    </div>
-                    <EmptyState v-else-if="searchPerformed" title="未找到相关结果，尝试更换关键词或切换集合">
-                        <template #icon>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"
-                                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                                stroke-linejoin="round">
-                                <circle cx="11" cy="11" r="8" />
-                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                <line x1="8" y1="11" x2="14" y2="11" />
-                            </svg>
-                        </template>
-                    </EmptyState>
-                </div>
+        <FieldGroup class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Field>
+            <FieldLabel for="knowledge-search-top-k">返回数量</FieldLabel>
+            <Input id="knowledge-search-top-k" v-model="searchTopK" type="number" min="1" max="100" />
+            <FieldDescription>最终返回的结果数量，范围 1–100。</FieldDescription>
+          </Field>
 
+          <Field>
+            <FieldLabel>检索模式</FieldLabel>
+            <CustomSelect v-model="searchMode" :options="searchModeOptions" />
+            <FieldDescription>混合模式会同时计算关键词融合分。</FieldDescription>
+          </Field>
+
+          <Field>
+            <FieldLabel for="knowledge-search-collection">集合范围</FieldLabel>
+            <Input id="knowledge-search-collection" v-model="searchCollection" placeholder="全部集合" />
+            <FieldDescription>留空会跨全部集合检索。</FieldDescription>
+          </Field>
+
+          <Field
+            orientation="horizontal"
+            class="min-h-20 items-center rounded-lg border p-3"
+            :data-disabled="searchRerankerOptions.length === 0 ? true : undefined"
+          >
+            <FieldContent>
+              <FieldTitle>结果重排序</FieldTitle>
+              <FieldDescription>
+                {{ searchRerankerOptions.length ? '向量与混合模式均可使用。' : '请先配置可用的重排序器。' }}
+              </FieldDescription>
+            </FieldContent>
+            <Switch
+              v-model:checked="searchRerank"
+              :disabled="searchRerankerOptions.length === 0"
+              aria-label="启用结果重排序"
+            />
+          </Field>
+        </FieldGroup>
+
+        <Field v-if="searchRerank">
+          <FieldLabel>重排序器</FieldLabel>
+          <CustomSelect
+            v-model="searchRerankSelection"
+            :options="searchRerankerOptions"
+            placeholder="使用当前激活的重排序器"
+          />
+          <FieldDescription>不选择时使用当前激活配置；失败时会保留召回结果并显示降级原因。</FieldDescription>
+        </Field>
+
+        <Separator />
+
+        <div class="flex flex-col gap-3">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-col gap-1">
+              <span class="text-sm font-medium">高级过滤</span>
+              <span class="text-sm text-muted-foreground">按 chunk metadata 做 JSON 包含匹配。</span>
+            </div>
+            <Button variant="ghost" size="sm" @click="advancedFiltersOpen = !advancedFiltersOpen">
+              <SlidersHorizontalIcon data-icon="inline-start" />
+              {{ advancedFiltersOpen ? '收起过滤' : '配置过滤' }}
+              <UiBadge v-if="hasSearchFilters" size="sm" tone="success">已设置</UiBadge>
+            </Button>
+          </div>
+
+          <Field v-if="advancedFiltersOpen">
+            <FieldLabel for="knowledge-search-filters">元数据过滤 JSON</FieldLabel>
+            <Input
+              id="knowledge-search-filters"
+              v-model="searchFiltersText"
+              placeholder='例如 {"category":"guide","tags":["rag"]}'
+            />
+            <FieldDescription>对象和数组使用包含语义；输入非法 JSON 时不会发起请求。</FieldDescription>
+          </Field>
+        </div>
+      </CardContent>
+
+      <CardFooter v-if="searchResponse" class="flex-col items-stretch gap-3 border-t pt-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <UiBadge size="sm" tone="info">
+              {{ searchResponse.collection_scope === 'all' ? '全部集合' : searchResponse.collection_name }}
+            </UiBadge>
+            <UiBadge size="sm">候选 {{ searchResponse.diagnostics?.candidate_count ?? 0 }}</UiBadge>
+            <UiBadge v-if="searchResponse.diagnostics?.vectorizer" size="sm">
+              Embedding · {{ searchResponse.diagnostics.vectorizer.model_name }}
+            </UiBadge>
+            <UiBadge
+              v-if="searchResponse.rerank_mode !== 'none'"
+              size="sm"
+              :tone="searchResponse.rerank_mode === 'degraded' ? 'warning' : 'success'"
+            >
+              Rerank · {{ searchResponse.rerank_mode }}
+            </UiBadge>
+          </div>
+          <span class="text-sm text-muted-foreground">
+            总耗时 {{ formatScore(searchResponse.diagnostics?.timings_ms?.total) }} ms
+          </span>
+        </div>
+
+        <div v-if="searchResponse.rerank_error" class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <UiBadge size="sm" tone="warning">重排序未完成</UiBadge>
+          <span>{{ searchResponse.rerank_error }}</span>
+        </div>
+      </CardFooter>
+    </Card>
+
+    <section v-if="searchResults.length > 0" class="flex flex-col gap-4">
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <div class="flex flex-col gap-1">
+          <h3 class="text-base font-semibold">检索结果</h3>
+          <p class="text-sm text-muted-foreground">主得分已按向量、融合或重排阶段明确标注。</p>
+        </div>
+        <UiBadge size="sm" tone="info">{{ searchResults.length }} 条</UiBadge>
+      </div>
+
+      <Card
+        v-for="(result, index) in searchResults"
+        :key="result.id || `${result.document_id}-${index}`"
+        :data-result-id="result.id"
+      >
+        <CardHeader class="flex-row items-start justify-between gap-4">
+          <div class="flex min-w-0 flex-col gap-1.5">
+            <CardTitle class="truncate text-base">{{ resultSource(result) }}</CardTitle>
+            <CardDescription class="flex flex-wrap items-center gap-2">
+              <span>{{ result.collection }}</span>
+              <span v-if="result.metadata?.section_path || result.metadata?.heading_path">
+                · {{ result.metadata.section_path || result.metadata.heading_path }}
+              </span>
+            </CardDescription>
+          </div>
+          <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <UiBadge size="sm">#{{ result.final_rank || index + 1 }}</UiBadge>
+            <UiBadge size="sm" :tone="resultScoreTone(resultSimilarity(result))">
+              {{ resultSimilarityLabel(result) }}
+            </UiBadge>
+          </div>
+        </CardHeader>
+
+        <CardContent class="flex flex-col gap-4">
+          <div class="flex flex-wrap gap-2">
+            <UiBadge v-if="result.vector_score != null" size="sm">Vector {{ formatScore(result.vector_score) }}</UiBadge>
+            <UiBadge v-if="result.keyword_score != null" size="sm">Keyword {{ formatScore(result.keyword_score) }}</UiBadge>
+            <UiBadge v-if="result.hybrid_score != null" size="sm">Hybrid {{ formatScore(result.hybrid_score) }}</UiBadge>
+            <UiBadge v-if="result.rerank_score != null" size="sm" tone="info">Rerank {{ formatScore(result.rerank_score) }}</UiBadge>
+            <UiBadge v-if="result.vector_rank != null" size="sm">Vector #{{ result.vector_rank }}</UiBadge>
+            <UiBadge v-if="result.keyword_rank != null" size="sm">Keyword #{{ result.keyword_rank }}</UiBadge>
+            <UiBadge v-if="result.rerank_rank != null" size="sm">Rerank #{{ result.rerank_rank }}</UiBadge>
+            <UiBadge v-for="source in (result.retrieval_sources || [])" :key="source" size="sm" tone="info">
+              召回 · {{ source }}
+            </UiBadge>
+          </div>
+
+          <div class="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-4 text-sm leading-7">
+            {{ result.content || result.text }}
+          </div>
+        </CardContent>
+
+        <CardFooter v-if="result.metadata?.chunk_index != null" class="border-t pt-4 text-sm text-muted-foreground">
+          分块 {{ Number(result.metadata.chunk_index) + 1 }}
+          <span v-if="result.metadata?.chunk_total != null"> / {{ result.metadata.chunk_total }}</span>
+        </CardFooter>
+      </Card>
+    </section>
+
+    <EmptyState v-else-if="searchPerformed && !searchLoading" title="未找到相关结果，尝试调整关键词、集合或过滤条件">
+      <template #icon>
+        <SearchIcon />
+      </template>
+    </EmptyState>
+  </div>
 </template>
 
 <script setup>
-/* eslint-disable @typescript-eslint/no-unused-vars */
+import { computed, ref } from 'vue';
+import { Search as SearchIcon, SlidersHorizontal as SlidersHorizontalIcon } from 'lucide-vue-next';
 
-import IconRefresh from '../icons/IconRefresh.vue';
-import IconPlus from '../icons/IconPlus.vue';
-import IconSearch from '../icons/IconSearch.vue';
-import IconTrash from '../icons/IconTrash.vue';
-import IconWarning from '../icons/IconWarning.vue';
-import IconFile from '../icons/IconFile.vue';
-import IconDownload from '../icons/IconDownload.vue';
-import KnowledgeMdViewer from '../knowledge/KnowledgeMdViewer.vue';
 import EmptyState from '../EmptyState.vue';
-import KpiCards from '../admin/KpiCards.vue';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import CustomSelect from '../ui/CustomSelect.vue';
 import { UiBadge } from '../ui';
 import { Button } from '../ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../ui/card';
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldTitle,
+} from '../ui/field';
 import { Input } from '../ui/input';
-import { Textarea } from '../ui/textarea';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import { Separator } from '../ui/separator';
+import { Switch } from '../ui/switch';
 
 const props = defineProps({ context: { type: Object, required: true } });
-const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoading, tabs, kpiItems, activeVectorizerDisplay, isDragOver, fileInputRef, handleFileDrop, triggerFileInput, handleFileSelect, mergedFilesLoading, refreshFilesAndStatus, filterCollection, collectionSelectOptions, showIndexDialog, fileStatusVectorizers, uploadedFiles, mergedFileList, formatFileSize, formatTime, openMarkdownPreview, openSearchTest, indexingFileKey, handleIndexFileWithVectorizer, downloadFile, handleDeleteMergedFile, searchCollection, searchResults, searchQuery, handleSearch, searchLoading, searchTopK, searchMode, searchModeOptions, searchRerank, searchRerankerOptions, searchRerankSelection, resultSimilarity, scoreClass, resultSimilarityLabel, searchPerformed, vectorizersLoading, vectorizers, openAddVectorizerDialog, handleActivateVectorizer, activatingVectorizer, openMigrateDialog, deletingVectorizer, handleDeleteVectorizer, rerankersLoading, rerankers, openAddRerankerDialog, activeRerankerDisplay, activatingReranker, deletingReranker, handleActivateReranker, handleDeleteReranker, indexModes, indexMode, indexUploadFile, indexFileInputRef, triggerIndexFileInput, handleIndexFileSelect, handleIndexFileDrop, indexForm, uploadedFileSelectOptions, loadUploadedFilesIfEmpty, autoSetCollectionName, documentTypeOptions, indexing, handleIndexDocument, showAddVectorizerDialog, addVectorizerForm, availableProviderSelectOptions, onAddFormProviderChange, addFormRecommendedModel, addFormModelList, addingVectorizer, showMigrateDialog, migrateFromKey, migrateToKey, migrateTargetOptions, migrating, handleMigrate, showAddRerankerDialog, addRerankerForm, rerankerModeSelectOptions, addRerankerFormValid, addingReranker, handleAddReranker, handleMarkdownNotify, handlePreviewCitation, showToast, formatScore } = props.context;
+const {
+  activeTab,
+  searchCollection,
+  searchResults,
+  searchResponse,
+  searchQuery,
+  handleSearch,
+  searchLoading,
+  searchTopK,
+  searchMode,
+  searchModeOptions,
+  searchRerank,
+  searchRerankerOptions,
+  searchRerankSelection,
+  searchFiltersText,
+  resultSimilarity,
+  resultSimilarityLabel,
+  searchPerformed,
+  formatScore,
+} = props.context;
+
+const advancedFiltersOpen = ref(false);
+const hasSearchFilters = computed(() => Boolean(searchFiltersText.value?.trim()));
+const activeSearchModeLabel = computed(() => (
+  searchModeOptions.find(option => option.value === searchMode.value)?.label || '检索'
+));
+
+function resultSource(result) {
+  return result.metadata?.source
+    || result.metadata?.source_file
+    || result.metadata?.original_filename
+    || result.document_id
+    || '未知来源';
+}
+
+function resultScoreTone(score) {
+  if (score == null) return 'neutral';
+  if (score >= 0.75) return 'success';
+  if (score >= 0.45) return 'info';
+  return 'warning';
+}
 </script>
-
-<style scoped>
-
-
-.tab-panel {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-}
-.section-toolbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: var(--spacing-md);
-}
-
-.toolbar-left {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.section-desc {
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-sm);
-    margin: 0;
-}
-.search-form-card {
-    padding: var(--spacing-lg);
-    border-radius: var(--radius-lg);
-}
-
-.search-box {
-    display: flex;
-    gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-md);
-}
-
-.search-input {
-    flex: 1;
-    height: 44px;
-    padding: 0 var(--spacing-md);
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--color-border);
-    background: var(--color-bg-secondary);
-    color: var(--color-text-primary);
-    font: inherit;
-    font-size: var(--font-size-md);
-    outline: none;
-    transition: all 0.2s;
-}
-
-.search-input:focus {
-    border-color: var(--color-border-focus);
-    box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16);
-}
-
-.search-input::placeholder {
-    color: var(--color-text-muted);
-}
-
-.search-options-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--spacing-md);
-}
-
-.search-option {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    font-size: var(--font-size-sm);
-    color: var(--color-text-secondary);
-}
-
-.search-option--toggle {
-    min-height: 34px;
-}
-
-.search-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-    user-select: none;
-}
-
-.search-toggle input {
-    width: 14px;
-    height: 14px;
-    margin: 0;
-    accent-color: var(--color-brand-accent);
-}
-
-.option-input {
-    width: 72px;
-    height: 34px;
-    padding: 0 var(--spacing-sm);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--color-border);
-    background: var(--color-bg-secondary);
-    color: var(--color-text-primary);
-    font: inherit;
-}
-
-.option-input--wide {
-    width: 160px;
-}
-.results-count {
-    font-size: var(--font-size-sm);
-    color: var(--color-text-secondary);
-    margin: 0 0 var(--spacing-sm) 0;
-}
-
-.search-results {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-}
-
-.result-item {
-    padding: var(--spacing-md);
-}
-
-.result-header {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-sm);
-    flex-wrap: wrap;
-}
-
-.result-rank {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: rgba(var(--color-brand-accent-rgb), 0.15);
-    color: var(--color-brand-accent-light);
-    font-size: 11px;
-    font-weight: 700;
-    flex-shrink: 0;
-}
-
-.result-source {
-    font-size: var(--font-size-xs);
-    color: var(--color-text-muted);
-    margin-left: auto;
-}
-
-.result-meta-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: var(--spacing-xs);
-}
-
-.result-meta-chip {
-    display: inline-flex;
-    align-items: center;
-    min-height: 20px;
-    padding: 1px 7px;
-    border-radius: var(--radius-full);
-    background: var(--color-bg-tertiary);
-    color: var(--color-text-secondary);
-    font-size: 11px;
-    font-weight: 500;
-}
-
-.result-section {
-    margin-bottom: var(--spacing-xs);
-    color: var(--color-brand-accent-light);
-    font-size: var(--font-size-xs);
-    line-height: 1.5;
-}
-
-.result-content {
-    font-size: var(--font-size-sm);
-    color: var(--color-text-primary);
-    line-height: 1.7;
-    max-height: 180px;
-    overflow-y: auto;
-}
-
-.result-footer {
-    font-size: var(--font-size-xs);
-    color: var(--color-text-muted);
-    margin-top: var(--spacing-xs);
-}
-.loading-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: var(--spacing-xl);
-    gap: var(--spacing-md);
-    color: var(--color-text-muted);
-    text-align: center;
-    min-height: 160px;
-}
-@media (max-width: 720px) {
-    .section-toolbar {
-        flex-direction: column;
-        align-items: stretch;
-        gap: var(--spacing-sm);
-    }
-    .search-inline-card .search-box {
-        flex-wrap: wrap;
-    }
-
-    .search-inline-card .search-input {
-        flex: 1 1 100%;
-    }
-    .search-box {
-        flex-wrap: wrap;
-        justify-content: flex-end;
-    }
-
-    .search-input {
-        flex: 1 1 100%;
-    }
-
-    .search-options-row {
-        flex-wrap: wrap;
-        gap: var(--spacing-sm);
-    }
-}
-@media (max-width: 480px) {
-    .primary-action-button, .toolbar-primary-action, .search-submit-button {
-        font-size: 12px;
-    }
-
-    .search-box .search-submit-button {
-        width: 100%;
-    }
-    .result-item {
-        padding: var(--spacing-sm);
-    }
-}
-</style>

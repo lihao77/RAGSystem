@@ -1,6 +1,7 @@
-import { computed, h, onMounted, reactive, ref, watch } from 'vue';
+import { computed, h, onMounted, reactive, ref } from 'vue';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { normalizeModelList } from '../utils/modelList.js';
+import { parseKnowledgeSearchFilters } from '../utils/knowledgeSearch.js';
 import { showToast as showToastMessage } from '../utils/toast.js';
 import {
     activateVectorizer,
@@ -689,6 +690,7 @@ export function useKnowledgeBaseManager() {
   const searchMode = ref('hybrid');
   const searchRerank = ref(false);
   const searchRerankSelection = ref('');
+  const searchFiltersText = ref('');
   const searchModeOptions = [
       { value: 'hybrid', label: '混合' },
       { value: 'vector', label: '向量' },
@@ -702,36 +704,51 @@ export function useKnowledgeBaseManager() {
   const searchCollection = ref('');
   const searchLoading = ref(false);
   const searchResults = ref([]);
+  const searchResponse = ref(null);
   const searchPerformed = ref(false);
-
-  watch(searchMode, mode => {
-      if (mode !== 'hybrid') searchRerank.value = false;
-  });
 
   function openSearchTest(collection) {
       searchCollection.value = collection;
       searchResults.value = [];
+      searchResponse.value = null;
       searchPerformed.value = false;
       searchQuery.value = '';
+      searchFiltersText.value = '';
+      activeTab.value = 'search';
   }
 
   async function handleSearch() {
       if (!searchQuery.value.trim()) { showToast('请输入搜索关键词'); return; }
+      let filters;
+      try {
+          filters = parseKnowledgeSearchFilters(searchFiltersText.value);
+      } catch (error) {
+          showToast(error.message, 'warning');
+          return;
+      }
       searchLoading.value = true;
       searchPerformed.value = true;
+      searchResults.value = [];
+      searchResponse.value = null;
       try {
           const topK = Number(searchTopK.value) || 5;
-          const shouldRerank = searchMode.value === 'hybrid' && searchRerank.value;
+          const shouldRerank = searchRerank.value;
           const res = await searchVectors({
               query: searchQuery.value,
               top_k: topK,
               collection: searchCollection.value || undefined,
               search_mode: searchMode.value,
+              filters,
               rerank: shouldRerank,
               rerank_top_k: shouldRerank ? Math.max(topK * 3, 10) : undefined,
               reranker_key: shouldRerank ? (searchRerankSelection.value || undefined) : undefined,
           });
-          searchResults.value = res.data?.results || res.results || [];
+          const payload = res.data || res || {};
+          searchResponse.value = payload;
+          searchResults.value = payload.results || [];
+          if (payload.rerank_error) {
+              showToast(`重排序未按预期执行：${payload.rerank_error}`, 'warning');
+          }
           if (searchResults.value.length === 0) showToast('未找到相关结果', 'warning');
       } catch (e) {
           showToast(e.message || '搜索失败');
@@ -749,14 +766,17 @@ export function useKnowledgeBaseManager() {
   }
 
   function resultSimilarity(result) {
-      const value = Number(result?.score ?? result?.similarity);
+      const value = Number(result?.final_score ?? result?.score ?? result?.vector_score ?? result?.similarity);
       return Number.isFinite(value) ? value : null;
   }
 
   function resultSimilarityLabel(result) {
       const score = resultSimilarity(result);
-      if (score == null) return '相似度 -';
-      return `相似度 ${(score * 100).toFixed(2)}%`;
+      if (score == null) return '得分 -';
+      if (result?.score_type === 'vector') return `向量 ${(score * 100).toFixed(2)}%`;
+      if (result?.score_type === 'hybrid') return `融合 ${formatScore(score)}`;
+      if (result?.score_type === 'rerank') return `重排 ${formatScore(score)}`;
+      return `得分 ${formatScore(score)}`;
   }
 
   function formatScore(score) {
@@ -789,5 +809,5 @@ export function useKnowledgeBaseManager() {
       refreshAll();
   });
 
-    return { context: { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoading, refreshAll, tabs, kpiItems, deletingFileId, deletingUploadedFile, formatScore, refreshVectorizers, refreshRerankers, handleAddVectorizer, activeVectorizerDisplay, isDragOver, fileInputRef, handleFileDrop, triggerFileInput, handleFileSelect, mergedFilesLoading, refreshFilesAndStatus, filterCollection, collectionSelectOptions, showIndexDialog, fileStatusVectorizers, uploadedFiles, mergedFileList, formatFileSize, formatTime, openMarkdownPreview, openSearchTest, indexingFileKey, handleIndexFileWithVectorizer, downloadFile, handleDeleteMergedFile, searchCollection, searchResults, searchQuery, handleSearch, searchLoading, searchTopK, searchMode, searchModeOptions, searchRerank, searchRerankerOptions, searchRerankSelection, resultSimilarity, scoreClass, resultSimilarityLabel, searchPerformed, vectorizersLoading, vectorizers, openAddVectorizerDialog, handleActivateVectorizer, activatingVectorizer, openMigrateDialog, deletingVectorizer, handleDeleteVectorizer, rerankersLoading, rerankers, openAddRerankerDialog, activeRerankerDisplay, activatingReranker, deletingReranker, handleActivateReranker, handleDeleteReranker, indexModes, indexMode, indexFileInputRef, triggerIndexFileInput, handleIndexFileSelect, handleIndexFileDrop, indexForm, uploadedFileSelectOptions, loadUploadedFilesIfEmpty, autoSetCollectionName, documentTypeOptions, indexing, handleIndexDocument, showAddVectorizerDialog, addVectorizerForm, availableProviderSelectOptions, onAddFormProviderChange, addFormRecommendedModel, addFormModelList, addingVectorizer, showMigrateDialog, migrateFromKey, migrateToKey, migrateTargetOptions, migrating, handleMigrate, showAddRerankerDialog, addRerankerForm, rerankerModeSelectOptions, availableRerankProviderSelectOptions, selectedRerankProvider, selectedRerankModel, hasReadyRerankProviders, addRerankerFormValid, addingReranker, handleAddReranker, handleMarkdownNotify, handlePreviewCitation, showToast } };
+    return { context: { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoading, refreshAll, tabs, kpiItems, deletingFileId, deletingUploadedFile, formatScore, refreshVectorizers, refreshRerankers, handleAddVectorizer, activeVectorizerDisplay, isDragOver, fileInputRef, handleFileDrop, triggerFileInput, handleFileSelect, mergedFilesLoading, refreshFilesAndStatus, filterCollection, collectionSelectOptions, showIndexDialog, fileStatusVectorizers, uploadedFiles, mergedFileList, formatFileSize, formatTime, openMarkdownPreview, openSearchTest, indexingFileKey, handleIndexFileWithVectorizer, downloadFile, handleDeleteMergedFile, searchCollection, searchResults, searchResponse, searchQuery, handleSearch, searchLoading, searchTopK, searchMode, searchModeOptions, searchRerank, searchRerankerOptions, searchRerankSelection, searchFiltersText, resultSimilarity, scoreClass, resultSimilarityLabel, searchPerformed, vectorizersLoading, vectorizers, openAddVectorizerDialog, handleActivateVectorizer, activatingVectorizer, openMigrateDialog, deletingVectorizer, handleDeleteVectorizer, rerankersLoading, rerankers, openAddRerankerDialog, activeRerankerDisplay, activatingReranker, deletingReranker, handleActivateReranker, handleDeleteReranker, indexModes, indexMode, indexFileInputRef, triggerIndexFileInput, handleIndexFileSelect, handleIndexFileDrop, indexForm, uploadedFileSelectOptions, loadUploadedFilesIfEmpty, autoSetCollectionName, documentTypeOptions, indexing, handleIndexDocument, showAddVectorizerDialog, addVectorizerForm, availableProviderSelectOptions, onAddFormProviderChange, addFormRecommendedModel, addFormModelList, addingVectorizer, showMigrateDialog, migrateFromKey, migrateToKey, migrateTargetOptions, migrating, handleMigrate, showAddRerankerDialog, addRerankerForm, rerankerModeSelectOptions, availableRerankProviderSelectOptions, selectedRerankProvider, selectedRerankModel, hasReadyRerankProviders, addRerankerFormValid, addingReranker, handleAddReranker, handleMarkdownNotify, handlePreviewCitation, showToast } };
 }

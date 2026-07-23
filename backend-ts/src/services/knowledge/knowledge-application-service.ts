@@ -232,44 +232,158 @@ export class KnowledgeApplicationService implements KnowledgeQueryPort {
   }
 
   async search(input: SearchVectorsRequest): Promise<KnowledgeSearchResponse> {
+    const totalStarted = performance.now();
     const query = input.query.trim();
     if (!query) throw new KnowledgeBaseError("查询内容不能为空", 400);
-    const collection = input.collection_name?.trim() || input.collection?.trim() || "documents";
+    const collection = stringValue(input.collection_name) ?? stringValue(input.collection);
+    const collectionScope: KnowledgeSearchResponse["collection_scope"] = collection ? "single" : "all";
     const mode = input.search_mode ?? input.mode ?? "hybrid";
     if (mode !== "hybrid" && mode !== "vector") throw new KnowledgeBaseError("search_mode 只能是 hybrid 或 vector", 400);
+    const rerankRequested = input.rerank === true;
+    const filters = normalizeSearchFilters(input.filters);
     const vectorizer = await this.activeVectorizer();
     const embedder = await this.resolveEmbedder(vectorizer);
+    const embeddingStarted = performance.now();
     const [queryVector] = await embedder.embed([query]);
-    if (!queryVector) return { results: [], count: 0, collection_name: collection, query, search_mode: mode, rerank: false, rerank_mode: "none" };
-    const topK = input.top_k ?? 5;
-    const candidateLimit = Math.max(1, Math.min(100, input.rerank_top_k ?? Math.max(topK, 20)));
-    const hits = await this.vectors.search({ tenant_id: this.tenantId, collection, model_id: vectorizer.model_id, query_vector: queryVector, top_k: candidateLimit });
-    const candidates: VectorSearchResult[] = hits.map((hit) => {
+    const embeddingMs = durationMs(embeddingStarted);
+    if (!queryVector?.length) {
+      return {
+        results: [],
+        count: 0,
+        collection_name: collection,
+        collection_scope: collectionScope,
+        query,
+        search_mode: mode,
+        rerank_requested: rerankRequested,
+        rerank: false,
+        rerank_mode: "none",
+        rerank_error: null,
+        diagnostics: {
+          candidate_count: 0,
+          filters_applied: Object.keys(filters ?? {}).sort(),
+          vectorizer: searchVectorizerDiagnostic(vectorizer),
+          reranker: null,
+          timings_ms: { embedding: embeddingMs, retrieval: 0, scoring: 0, rerank: 0, total: durationMs(totalStarted) },
+        },
+      };
+    }
+    const topK = Math.max(1, Math.min(100, input.top_k ?? 5));
+    const defaultCandidateLimit = mode === "hybrid" || rerankRequested ? Math.max(topK, 20) : topK;
+    const candidateLimit = Math.max(topK, Math.min(100, input.rerank_top_k ?? defaultCandidateLimit));
+    const retrievalStarted = performance.now();
+    const hits = await this.vectors.search({
+      tenant_id: this.tenantId,
+      model_id: vectorizer.model_id,
+      query_vector: queryVector,
+      top_k: candidateLimit,
+      ...(collection ? { collection } : {}),
+      ...(filters ? { filters } : {}),
+    });
+    const retrievalMs = durationMs(retrievalStarted);
+    const scoringStarted = performance.now();
+    const scored = hits.map((hit) => {
       const keyword = keywordOverlapScore(query, hit.content);
       const hybrid = hybridScore(hit.vector_score, keyword);
-      return { id: hit.id, doc_id: hit.document_id, document_id: hit.document_id, collection: hit.collection, text: hit.content, content: hit.content, metadata: hit.metadata, score: mode === "vector" ? hit.vector_score : hybrid, similarity: hit.vector_score, keyword_score: keyword, vector_score: hit.vector_score, hybrid_score: hybrid };
-    }).filter((hit) => hit.vector_score > 0 || hit.keyword_score > 0).sort((a, b) => b.score - a.score).slice(0, candidateLimit);
+      return { hit, keyword, hybrid };
+    }).filter(({ hit, keyword }) => hit.vector_score > 0 || keyword > 0);
+    const vectorRanks = scoreRanks(scored, ({ hit }) => hit.vector_score, ({ hit }) => hit.id);
+    const keywordRanks = scoreRanks(scored, ({ keyword }) => keyword, ({ hit }) => hit.id);
+    const hybridRanks = scoreRanks(scored, ({ hybrid }) => hybrid, ({ hit }) => hit.id);
+    const candidates: VectorSearchResult[] = scored.map(({ hit, keyword, hybrid }) => {
+      const baseScore = mode === "vector" ? hit.vector_score : hybrid;
+      return {
+        id: hit.id,
+        doc_id: hit.document_id,
+        document_id: hit.document_id,
+        collection: hit.collection,
+        text: hit.content,
+        content: hit.content,
+        metadata: hit.metadata,
+        score: baseScore,
+        similarity: hit.vector_score,
+        keyword_score: keyword,
+        vector_score: hit.vector_score,
+        hybrid_score: hybrid,
+        final_score: baseScore,
+        score_type: mode,
+        final_rank: 0,
+        vector_rank: vectorRanks.get(hit.id) ?? 0,
+        keyword_rank: keywordRanks.get(hit.id) ?? 0,
+        hybrid_rank: hybridRanks.get(hit.id) ?? 0,
+        retrieval_sources: ["vector"] as Array<"vector" | "keyword">,
+      };
+    }).sort((left, right) => right.score - left.score).slice(0, candidateLimit);
+    const scoringMs = durationMs(scoringStarted);
     const rerankers = await this.config.listRerankers(this.tenantId);
     const selectedReranker = input.reranker_key
       ? rerankers.find((item) => item.reranker_key === input.reranker_key) ?? null
       : rerankers.find((item) => item.is_active) ?? null;
     if (input.reranker_key && !selectedReranker) throw new KnowledgeBaseError(`重排序器不存在: ${input.reranker_key}`, 404);
-    const shouldRerank = input.rerank !== false && selectedReranker !== null && mode === "hybrid";
     let results = candidates;
     let rerankMode: KnowledgeSearchResponse["rerank_mode"] = "none";
-    if (shouldRerank && selectedReranker) {
+    let rerankError: string | null = null;
+    let rerankApplied = false;
+    let rerankMs = 0;
+    let rerankerDiagnostic = selectedReranker ? searchRerankerDiagnostic(selectedReranker) : null;
+    if (rerankRequested && selectedReranker) {
+      const rerankStarted = performance.now();
       try {
-        const reranker = this.rerankerFactory(this.resolveRerankerForExecution(selectedReranker));
+        const executableReranker = this.resolveRerankerForExecution(selectedReranker);
+        rerankerDiagnostic = searchRerankerDiagnostic(executableReranker);
+        const reranker = this.rerankerFactory(executableReranker);
         const reranked = await reranker.rerank(query, candidates);
         results = reranked.results;
         rerankMode = reranked.mode;
-      } catch {
+        rerankApplied = reranked.mode !== "none";
+      } catch (error) {
+        rerankError = errorMessage(error);
         results = lexicalRerank(candidates, query).map((result) => ({ ...result, rerank_degraded: true }));
         rerankMode = "degraded";
+        rerankApplied = true;
       }
+      rerankMs = durationMs(rerankStarted);
+    } else if (rerankRequested) {
+      rerankError = "未配置可用的重排序器";
     }
-    results = results.slice(0, input.final_top_k ?? topK);
-    return { results, count: results.length, collection_name: collection, query, search_mode: mode, rerank: shouldRerank, rerank_mode: rerankMode };
+    const hasRerankOrder = rerankMode !== "none";
+    results = results.slice(0, Math.max(1, Math.min(100, input.final_top_k ?? topK))).map((result, index) => {
+      const rerankScore = Number(result.rerank_score);
+      const usesRerankScore = hasRerankOrder && Number.isFinite(rerankScore);
+      const finalScore = usesRerankScore ? rerankScore : (mode === "vector" ? result.vector_score : result.hybrid_score);
+      return {
+        ...result,
+        score: finalScore,
+        final_score: finalScore,
+        score_type: usesRerankScore ? "rerank" : mode,
+        final_rank: index + 1,
+        ...(hasRerankOrder ? { rerank_rank: index + 1 } : {}),
+      };
+    });
+    return {
+      results,
+      count: results.length,
+      collection_name: collection,
+      collection_scope: collectionScope,
+      query,
+      search_mode: mode,
+      rerank_requested: rerankRequested,
+      rerank: rerankApplied,
+      rerank_mode: rerankMode,
+      rerank_error: rerankError,
+      diagnostics: {
+        candidate_count: candidates.length,
+        filters_applied: Object.keys(filters ?? {}).sort(),
+        vectorizer: searchVectorizerDiagnostic(vectorizer),
+        reranker: rerankerDiagnostic,
+        timings_ms: {
+          embedding: embeddingMs,
+          retrieval: retrievalMs,
+          scoring: scoringMs,
+          rerank: rerankMs,
+          total: durationMs(totalStarted),
+        },
+      },
+    };
   }
 
   async indexExternalFile(input: IndexFileRequest, file: KnowledgeFile, markdown: string): Promise<Record<string, unknown>> {
@@ -574,4 +688,45 @@ function stringValue(value: unknown): string | null {
 
 function recordValue(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : {};
+}
+
+function normalizeSearchFilters(value: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  const entries = Object.entries(value).filter(([, filterValue]) => filterValue !== undefined);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function scoreRanks<T>(items: T[], score: (item: T) => number, id: (item: T) => string): Map<string, number> {
+  return new Map(
+    [...items]
+      .sort((left, right) => score(right) - score(left))
+      .map((item, index) => [id(item), index + 1]),
+  );
+}
+
+function searchVectorizerDiagnostic(vectorizer: StoredVectorizer) {
+  return {
+    vectorizer_key: vectorizer.vectorizer_key,
+    provider_key: vectorizer.provider_key,
+    model_name: vectorizer.model_name,
+    model_id: vectorizer.model_id,
+  };
+}
+
+function searchRerankerDiagnostic(reranker: StoredReranker) {
+  return {
+    reranker_key: reranker.reranker_key,
+    provider_key: reranker.provider_key,
+    model_name: reranker.model_name,
+    mode: reranker.mode,
+  };
+}
+
+function durationMs(started: number): number {
+  return Math.round((performance.now() - started) * 100) / 100;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  return String(error || "重排序执行失败");
 }

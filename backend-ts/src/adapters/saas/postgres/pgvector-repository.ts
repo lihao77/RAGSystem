@@ -101,13 +101,27 @@ export class PostgresPgVectorRepository implements AsyncKnowledgeVectorStore {
 
   async search(input: AsyncVectorSearchInput): Promise<AsyncVectorSearchHit[]> {
     const limit = Math.max(1, Math.min(100, Math.floor(input.top_k)));
+    const params: unknown[] = [input.tenant_id, input.model_id];
+    const predicates = ["tenant_id=$1", "model_id=$2"];
+    if (input.collection !== undefined) {
+      params.push(input.collection);
+      predicates.push(`collection=$${params.length}`);
+    }
+    if (input.filters && Object.keys(input.filters).length > 0) {
+      params.push(JSON.stringify(input.filters));
+      predicates.push(`metadata @> $${params.length}::jsonb`);
+    }
+    params.push(vectorParam(input.query_vector));
+    const vectorIndex = params.length;
+    params.push(limit);
+    const limitIndex = params.length;
     const result = await this.executor.query(
       `SELECT id,tenant_id,collection,document_id,model_id,chunk_index,content,metadata,
-        1 - (embedding <=> $5::vector) AS vector_score
+        1 - (embedding <=> $${vectorIndex}::vector) AS vector_score
        FROM knowledge_vector_chunks
-       WHERE tenant_id=$1 AND collection=$2 AND model_id=$3
-       ORDER BY embedding <=> $5::vector LIMIT $4`,
-      [input.tenant_id, input.collection, input.model_id, limit, vectorParam(input.query_vector)],
+       WHERE ${predicates.join(" AND ")}
+       ORDER BY embedding <=> $${vectorIndex}::vector LIMIT $${limitIndex}`,
+      params,
     );
     return result.rows.map((row) => ({
       ...chunkFrom(row),
