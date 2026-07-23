@@ -11,8 +11,8 @@
     "lint": "eslint . --max-warnings=0",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json",
     "typecheck:core": "tsc --noEmit -p tsconfig.core.json",
-    "test": "node --require ./test-setup.cjs --test src/utils/*.test.js src/composables/*.test.js src/components/*.test.js",
-    "test:coverage": "node --require ./test-setup.cjs --experimental-test-coverage --test-coverage-include=src/**/*.js --test-coverage-exclude=src/**/*.test.js --test-coverage-lines=65 --test-coverage-branches=60 --test-coverage-functions=50 --test src/utils/*.test.js src/composables/*.test.js src/components/*.test.js",
+    "test": "node --require ./test-setup.cjs --test src/utils/*.test.js src/composables/*.test.js src/components/*.test.js src/stores/*.test.js",
+    "test:coverage": "node --require ./test-setup.cjs --experimental-test-coverage --test-coverage-include=src/**/*.js --test-coverage-exclude=src/**/*.test.js --test-coverage-lines=65 --test-coverage-branches=60 --test-coverage-functions=50 --test src/utils/*.test.js src/composables/*.test.js src/components/*.test.js src/stores/*.test.js",
     "check": "npm run lint && npm run typecheck && npm run typecheck:core && npm run test:coverage && npm run build && npm run check:bundle-size",
     "screenshot:smoke": "node scripts/screenshot-smoke.mjs"
   },

@@ -347,8 +347,9 @@ import { Input } from '../components/ui/input';
 import { useToast } from '../composables/useToast.js';
 import { useEntityList } from '../composables/useEntityList.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
+import { useDictionariesStore } from '../stores/dictionaries.js';
 import {
-  getProviderTypes, getProviders, createProvider, updateProvider,
+  getProviderTypes, createProvider, updateProvider,
   checkProviderAvailability, deleteProvider, getProviderUsages, reorderProviders, testProvider,
 } from '../api/modelAdapter.js';
 
@@ -358,6 +359,7 @@ defineProps({
 });
 
 const toast = useToast();
+const dictStore = useDictionariesStore();
 
 const providerTypeMeta = ref({});
 const providerTypeOptions = ref([]);
@@ -406,7 +408,10 @@ async function loadProviderTypes() {
   }
 }
 
-const { items: providers, loading, error, refresh: fetchProviders } = useEntityList(getProviders, { errorPrefix: '加载失败', immediate: false });
+const { items: providers, loading, error, refresh: fetchProviders } = useEntityList(
+  () => dictStore.ensureProviders(true),
+  { errorPrefix: '加载失败', immediate: false },
+);
 
 const availabilityByKey = ref({});
 const availabilityLoadingKeys = ref(new Set());
