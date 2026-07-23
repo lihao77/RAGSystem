@@ -1,5 +1,45 @@
 <template>
-  <DropdownMenu>
+  <DropdownMenuSub v-if="presentation === 'submenu'">
+    <DropdownMenuSubTrigger
+      class="data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+      :disabled="!sessionId"
+      :title="triggerTitle"
+    >
+      <ShieldCheck />
+      <span class="flex min-w-0 flex-1 items-center justify-between gap-3">
+        <span>会话权限</span>
+        <span class="text-xs text-muted-foreground">{{ modeLabel }}</span>
+      </span>
+    </DropdownMenuSubTrigger>
+    <DropdownMenuSubContent class="w-72">
+      <DropdownMenuLabel>
+        <span class="flex flex-col gap-1">
+          <span>会话权限</span>
+          <span class="text-xs font-normal text-muted-foreground">
+            {{ canEdit ? '仅影响当前会话，修改后立即持久化。' : '当前会话归属其他身份，仅可查看。' }}
+          </span>
+        </span>
+      </DropdownMenuLabel>
+      <DropdownMenuSeparator />
+      <DropdownMenuGroup>
+        <DropdownMenuRadioGroup :model-value="currentMode" @update:model-value="selectMode">
+          <DropdownMenuRadioItem
+            v-for="mode in modes"
+            :key="mode.value"
+            :value="mode.value"
+            :disabled="!canEdit || updateAction.loading.value"
+          >
+            <span class="flex flex-col gap-0.5">
+              <span>{{ mode.label }}</span>
+              <span class="text-xs text-muted-foreground">{{ mode.description }}</span>
+            </span>
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuGroup>
+    </DropdownMenuSubContent>
+  </DropdownMenuSub>
+
+  <DropdownMenu v-else>
     <DropdownMenuTrigger as-child>
       <Button
         variant="ghost"
@@ -52,6 +92,9 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { getSessionPermissions, updateSessionPermissions } from '../api/session.js';
@@ -62,6 +105,11 @@ import { useSessionListStore } from '../stores/session-list.js';
 
 const props = defineProps({
   sessionId: { type: String, default: '' },
+  presentation: {
+    type: String,
+    default: 'dropdown',
+    validator: value => ['dropdown', 'submenu'].includes(value),
+  },
 });
 
 const modes = [

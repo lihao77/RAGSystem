@@ -1,16 +1,23 @@
 <template>
   <div class="session-context-bar top-controls-bar" :class="{ scrolled }">
     <div class="left-controls glass-card">
-      <Button variant="ghost" size="icon" class="rounded-full" aria-label="打开菜单" title="Open menu" @click="emit('openMobileSidebar')">
-        <IconMenu :size="20" />
+      <Button
+        variant="ghost"
+        size="icon"
+        class="sidebar-menu-trigger rounded-full"
+        aria-label="打开菜单"
+        title="打开菜单"
+        @click="emit('openMobileSidebar')"
+      >
+        <IconMenu />
       </Button>
 
       <LLMSelector ref="llmSelectorRef" />
     </div>
 
-    <div class="right-controls glass-card">
+    <div v-if="!isCompactToolbar" class="right-controls desktop-actions glass-card">
       <Button variant="ghost" size="sm" :disabled="!currentSessionId" title="查看最近一次 Agent 消息的文件变更" @click="emit('openFileChanges')">
-        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="9" y1="13" x2="15" y2="13" /><line x1="9" y1="17" x2="13" y2="17" /></svg>
+        <FileText data-icon="inline-start" />
         本轮变更
       </Button>
       <PermissionModeSelector :session-id="currentSessionId" />
@@ -23,12 +30,7 @@
         :title="currentSessionId ? '导出当前会话' : '当前无会话可导出'"
         @click="emit('exportSession')"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 3v12"></path>
-          <path d="m7 10 5 5 5-5"></path>
-          <path d="M5 21h14"></path>
-        </svg>
+        <Download />
       </Button>
       <Button
         variant="ghost"
@@ -38,36 +40,63 @@
         :title="themeStore.isDark ? '切换到亮色模式' : '切换到暗色模式'"
         @click="themeStore.toggle()"
       >
-        <svg v-if="themeStore.isDark" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="5"></circle>
-          <line x1="12" y1="1" x2="12" y2="3"></line>
-          <line x1="12" y1="21" x2="12" y2="23"></line>
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-          <line x1="1" y1="12" x2="3" y2="12"></line>
-          <line x1="21" y1="12" x2="23" y2="12"></line>
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-        </svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-        </svg>
+        <Sun v-if="themeStore.isDark" />
+        <Moon v-else />
       </Button>
+    </div>
+
+    <div v-else class="right-controls mobile-actions glass-card">
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <Button variant="ghost" size="icon" class="rounded-full" aria-label="更多会话操作" title="更多会话操作">
+            <Ellipsis />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" class="w-56">
+          <DropdownMenuGroup>
+            <DropdownMenuItem :disabled="!currentSessionId" @select="emit('openFileChanges')">
+              <FileText />
+              本轮变更
+            </DropdownMenuItem>
+            <PermissionModeSelector presentation="submenu" :session-id="currentSessionId" />
+            <DropdownMenuItem
+              :disabled="!currentSessionId || isExportingSession"
+              @select="emit('exportSession')"
+            >
+              <Download />
+              导出会话
+            </DropdownMenuItem>
+            <DropdownMenuItem @select="themeStore.toggle()">
+              <Sun v-if="themeStore.isDark" />
+              <Moon v-else />
+              {{ themeStore.isDark ? '切换到亮色模式' : '切换到暗色模式' }}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue';
+import { useMediaQuery } from '@vueuse/core';
+import { Download, Ellipsis, FileText, Moon, Sun } from 'lucide-vue-next';
 import LLMSelector from '../LLMSelector.vue';
 import PermissionModeSelector from '../PermissionModeSelector.vue';
 import { IconMenu } from '../icons';
 import { Button } from '../ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import { useThemeStore } from '../../stores/theme.js';
 
 const themeStore = useThemeStore();
+const isCompactToolbar = useMediaQuery('(max-width: 900px)');
 
 defineProps({
   currentSessionId: { type: String, default: '' },
@@ -146,6 +175,11 @@ defineExpose({ getSelection });
 .right-controls {
   grid-column: 3;
   justify-self: end;
+}
+
+.sidebar-menu-trigger,
+.mobile-actions {
+  display: none;
 }
 
 .left-controls .llm-selector {
@@ -461,6 +495,23 @@ defineExpose({ getSelection });
 }
 
 @media (max-width: 900px) {
+  .session-context-bar {
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    flex: 0 0 auto;
+  }
+
+  .sidebar-menu-trigger,
+  .mobile-actions {
+    display: inline-flex;
+  }
+
+  .desktop-actions {
+    display: none;
+  }
+
   .context-chip--team,
   .context-chip--agent {
     display: none;
@@ -473,10 +524,10 @@ defineExpose({ getSelection });
   }
 
   .session-context-bar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
     display: flex;
     justify-content: space-between;
     gap: 8px;

@@ -1,7 +1,12 @@
 <template>
   <div ref="wrapperRef" class="custom-select">
     <Select :model-value="selectValue" :disabled="disabled" @update:model-value="onChange">
-      <SelectTrigger class="select-trigger" :class="{ disabled }">
+      <SelectTrigger
+        :id="triggerId || undefined"
+        :aria-label="triggerAriaLabel || undefined"
+        class="select-trigger"
+        :class="{ disabled }"
+      >
         <SelectValue :placeholder="placeholder" />
       </SelectTrigger>
       <SelectContent :side="side" :style="contentStyle" class="dropdown-menu">
@@ -28,6 +33,8 @@ const props = defineProps({
   options: { type: Array, default: () => [] },
   placeholder: { type: String, default: '请选择' },
   disabled: { type: Boolean, default: false },
+  triggerId: { type: String, default: '' },
+  triggerAriaLabel: { type: String, default: '' },
   dropdownMaxHeight: { type: [Number, String], default: 260 },
   dropdownMinWidth: { type: [Number, String], default: '' },
   dropdownMaxWidth: { type: [Number, String], default: '' },

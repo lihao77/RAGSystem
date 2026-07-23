@@ -82,6 +82,16 @@ router.beforeEach(async (to) => {
   const bootstrapStore = useBootstrapStore();
   const authStore = useAuthStore();
 
+  if (import.meta.env.DEV && ['empty', 'artifact'].includes(String(to.query?.__smoke || ''))) {
+    bootstrapStore.$patch({
+      profile: { auth: 'local', ui: 'local', deployment: 'local' },
+      capabilities: {},
+      installed: true,
+      loaded: true,
+    });
+    return true;
+  }
+
   await bootstrapStore.load();
 
   if (bootstrapStore.needsInstall && to.path !== '/install') {

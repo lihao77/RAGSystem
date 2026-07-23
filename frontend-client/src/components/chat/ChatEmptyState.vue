@@ -3,6 +3,9 @@
     <div class="new-chat-start__eyebrow">New chat</div>
     <h1>想让 Agent 做什么？</h1>
     <p>代码库、知识库、自动化任务，先定一个清晰目标。</p>
+    <div v-if="$slots.setup" class="new-chat-setup">
+      <slot name="setup" />
+    </div>
     <div class="new-chat-prompts" aria-label="快捷开始">
       <button
         v-for="item in suggestions"
@@ -83,6 +86,10 @@ const suggestions = [
   line-height: 1.7;
 }
 
+.new-chat-setup {
+  margin-top: 24px;
+}
+
 .new-chat-prompts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -150,12 +157,20 @@ const suggestions = [
 }
 
 @media (max-width: 767px) {
+  .new-chat-start {
+    align-self: flex-start;
+  }
+
   .new-chat-start h1 {
     font-size: 34px;
   }
 
   .new-chat-prompts {
     grid-template-columns: 1fr;
+    margin-top: 20px;
+  }
+
+  .new-chat-setup {
     margin-top: 20px;
   }
 

@@ -21,11 +21,21 @@
           @citation-click="openCitation"
         >
           <template #empty>
-            <ChatEmptyState @select-prompt="applyNewChatSuggestion" />
+            <ChatEmptyState @select-prompt="applyNewChatSuggestion">
+              <template #setup>
+                <TaskLauncher
+                  v-model:entry-agent="pendingEntryAgent"
+                  v-model:workspace-root="pendingWorkspaceRoot"
+                  :entry-agent-options="entryAgentOptions"
+                  :entry-agent-loading="entryAgentLoading"
+                  :normalize-workspace-root-input="normalizeWorkspaceRootInput"
+                />
+              </template>
+            </ChatEmptyState>
           </template>
         </ChatMessageList>
-        <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
-        <div class="bottom-dock" :class="{ 'bottom-dock--new-chat': !hasMessages, 'bottom-dock--launching': newChatLaunching && hasMessages }">
+      </div>
+      <div class="bottom-dock" :class="{ 'bottom-dock--new-chat': !hasMessages, 'bottom-dock--launching': newChatLaunching && hasMessages }">
          <transition name="scroll-btn-fade">
             <LiquidGlass v-if="showScrollToBottomButton" :width="40" :height="40" :radius="999"
               extra-filter="blur(2px) contrast(1.15) brightness(1.06) saturate(1.1)"
@@ -69,37 +79,27 @@
             @pasteFiles="handleSessionFileSelect"
           >
             <template #footerMeta>
-              <div class="composer-status-row">
-                 <TaskLauncher
-                  v-if="!hasMessages"
-                  v-model:entry-agent="pendingEntryAgent"
-                  v-model:workspace-root="pendingWorkspaceRoot"
-                  :entry-agent-options="entryAgentOptions"
-                  :entry-agent-loading="entryAgentLoading"
-                  :normalize-workspace-root-input="normalizeWorkspaceRootInput"
-                />
-                <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="openCtxDrawer" title="点击查看上下文详情">
-                  <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
-                    <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
-                    <circle
-                      cx="11"
-                      cy="11"
-                      r="9"
-                      fill="none"
-                      :stroke="contextUsageClass === 'danger' ? 'var(--ctx-ring-danger)' : contextUsageClass === 'warning' ? 'var(--ctx-ring-warning)' : 'var(--ctx-ring-success)'"
-                      stroke-width="2.5"
-                      stroke-linecap="round"
-                      :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
-                      stroke-dashoffset="0"
-                      :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
-                    />
-                  </svg>
-                  <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
-                  <span v-if="isCompressing" class="compressing-indicator">
-                    <span class="compressing-dot"></span>
-                    压缩中
-                  </span>
-                </div>
+              <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="openCtxDrawer" title="点击查看上下文详情">
+                <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
+                  <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
+                  <circle
+                    cx="11"
+                    cy="11"
+                    r="9"
+                    fill="none"
+                    :stroke="contextUsageClass === 'danger' ? 'var(--ctx-ring-danger)' : contextUsageClass === 'warning' ? 'var(--ctx-ring-warning)' : 'var(--ctx-ring-success)'"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
+                    stroke-dashoffset="0"
+                    :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
+                  />
+                </svg>
+                <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
+                <span v-if="isCompressing" class="compressing-indicator">
+                  <span class="compressing-dot"></span>
+                  压缩中
+                </span>
               </div>
             </template>
             <template #rightActions>
@@ -116,7 +116,6 @@
           </ChatInput>
         </div>
       </div>
-    </div>
     </div><!-- end .chat-conversation-column -->
     <ApprovalQueueHost
       ref="approvalQueueHostRef"
@@ -702,6 +701,19 @@ const handleSituationSendMessage = (text) => {
 watch(
   () => route.params.id || null,
   async (routeSessionId, previousRouteSessionId) => {
+    if (import.meta.env.DEV && route.query?.__smoke === 'empty') {
+      disconnectSessionWS();
+      invalidateActiveStream();
+      clearExecutionState();
+      currentSessionId.value = null;
+      messages.value = [];
+      contextUsage.value = null;
+      isLoading.value = false;
+      await nextTick();
+      resetScrollPosition(false);
+      return;
+    }
+
     if (import.meta.env.DEV && route.query?.__smoke === 'artifact') {
       const { createSmokeArtifactMessages } = await import('../utils/smokeFixtures');
       disconnectSessionWS();
@@ -727,7 +739,7 @@ watch(
     await syncSessionFromRoute(nextSessionId);
     if (isEnteringBlankChat) {
       await nextTick();
-      resetScrollPosition();
+      resetScrollPosition(false);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           switchingToNewChat.value = false;
@@ -741,7 +753,8 @@ watch(
 onMounted(() => {
   resetFollowing();
   updateScrollBottomGap();
-  scrollToBottom(true);
+  if (route.params.id) scrollToBottom(true);
+  else resetScrollPosition(false);
   loadEntryAgentOptions();
   loadActiveTeam();
   loadRecentSessions(true);
@@ -1089,15 +1102,6 @@ onUnmounted(() => {
   text-overflow: ellipsis;
 }
 
-.composer-status-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  flex-wrap: wrap;
-}
-
 .execution-pill {
   position: relative;
   display: inline-flex;
@@ -1226,10 +1230,6 @@ onUnmounted(() => {
 }
 
 @media (max-width: 640px) {
-  .composer-status-row {
-    align-items: center;
-  }
-
   .execution-pill {
     margin-left: 0;
   }

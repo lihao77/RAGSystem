@@ -1,41 +1,60 @@
 <template>
-  <section class="session-setup-bar" aria-label="启动参数">
-    <label class="setup-field setup-field--agent" title="入口 Agent">
-      <CustomSelect
-        :model-value="entryAgent"
-        :options="entryAgentOptions"
-        :disabled="entryAgentLoading"
-        :dropdown-max-height="320"
-        dropdown-placement="auto"
-        placeholder="默认 agent"
-        @update:modelValue="emit('update:entryAgent', $event)"
-      />
-    </label>
+  <section class="session-setup-panel" aria-labelledby="session-setup-title">
+    <div class="session-setup-heading">
+      <h2 id="session-setup-title">启动设置</h2>
+      <p>仅影响即将创建的新会话</p>
+    </div>
 
-    <label class="setup-field setup-field--path" title="工作区">
-      <Input
-        :model-value="workspaceRoot"
-        placeholder="工作目录"
-        autocomplete="off"
-        spellcheck="false"
-        @update:model-value="emit('update:workspaceRoot', $event)"
-        @blur="emit('update:workspaceRoot', normalizeWorkspaceRootInput($event.target.value))"
-      />
-    </label>
-    <button
-      v-if="isDesktop"
-      type="button"
-      class="project-picker-button"
-      title="打开项目文件夹"
-      @click="selectProjectFolder"
-    >
-      打开项目
-    </button>
+    <FieldGroup class="session-setup-fields">
+      <Field class="setup-field">
+        <FieldLabel for="new-chat-entry-agent">入口 Agent</FieldLabel>
+        <CustomSelect
+          trigger-id="new-chat-entry-agent"
+          trigger-aria-label="入口 Agent"
+          :model-value="entryAgent"
+          :options="entryAgentOptions"
+          :disabled="entryAgentLoading"
+          :dropdown-max-height="320"
+          dropdown-placement="auto"
+          placeholder="使用默认 Agent"
+          @update:modelValue="emit('update:entryAgent', $event)"
+        />
+      </Field>
+
+      <Field class="setup-field">
+        <FieldLabel for="new-chat-workspace-root">工作目录</FieldLabel>
+        <div class="workspace-control">
+          <Input
+            id="new-chat-workspace-root"
+            class="workspace-input"
+            :model-value="workspaceRoot"
+            placeholder="输入项目路径"
+            autocomplete="off"
+            spellcheck="false"
+            @update:model-value="emit('update:workspaceRoot', $event)"
+            @blur="emit('update:workspaceRoot', normalizeWorkspaceRootInput($event.target.value))"
+          />
+          <Button
+            v-if="isDesktop"
+            type="button"
+            variant="outline"
+            title="选择项目目录"
+            @click="selectProjectFolder"
+          >
+            <FolderOpen data-icon="inline-start" />
+            选择目录
+          </Button>
+        </div>
+      </Field>
+    </FieldGroup>
   </section>
 </template>
 
 <script setup>
+import { FolderOpen } from 'lucide-vue-next';
 import CustomSelect from '../ui/CustomSelect.vue';
+import { Button } from '../ui/button';
+import { Field, FieldGroup, FieldLabel } from '../ui/field';
 import { Input } from '../ui/input';
 
 const props = defineProps({
@@ -62,140 +81,76 @@ const selectProjectFolder = async () => {
 </script>
 
 <style scoped>
-.session-setup-bar {
+.session-setup-panel {
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: rgba(var(--color-bg-elevated-rgb), 0.46);
+}
+
+.session-setup-heading {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-  overflow: visible;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.session-setup-heading h2 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
+
+.session-setup-heading p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.session-setup-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
+  gap: 12px;
 }
 
 .setup-field {
   min-width: 0;
+  gap: 7px;
+}
+
+.workspace-control {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-bg-elevated);
-  transition: border-color 180ms ease, box-shadow 180ms ease;
-}
-
-.setup-field:hover {
-  border-color: var(--color-border-hover);
-}
-
-.setup-field:focus-within {
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(var(--color-accent-rgb), 0.12);
-}
-
-.setup-field--agent {
-  width: 154px;
-  flex: 0 0 auto;
-}
-
-.setup-field--path {
-  width: min(230px, 34vw);
-  flex: 1 1 170px;
-}
-
-.project-picker-button {
-  height: 32px;
-  flex: 0 0 auto;
-  padding: 0 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-bg-elevated);
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.project-picker-button:hover {
-  border-color: var(--color-border-hover);
-  color: var(--color-text-primary);
-}
-
-.setup-field input {
-  width: 100%;
-  height: 30px;
-  min-height: 0;
+  gap: 8px;
   min-width: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.setup-field input::placeholder {
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
-
-.setup-field input:focus {
-  outline: none;
-  background: transparent;
-  box-shadow: none;
-}
-
-.setup-field :deep(.select-trigger) {
-  height: 30px;
+.workspace-input {
   min-width: 0;
-  width: 100%;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0;
-  padding: 0;
+  flex: 1 1 auto;
 }
 
-.setup-field :deep(.arrow-icon) {
-  right: 0;
-}
-
-.setup-field :deep(.select-trigger:hover) {
-  background: transparent;
-}
-
-.setup-field :deep(.select-trigger:focus),
-.setup-field :deep(.select-trigger:focus-visible),
-.setup-field :deep(.select-trigger[data-state='open']) {
-  outline: none;
-  box-shadow: none;
+.workspace-control > :last-child {
+  flex: 0 0 auto;
 }
 
 @media (max-width: 767px) {
-  .session-setup-bar {
-    width: 100%;
-    flex-wrap: wrap;
+  .session-setup-panel {
+    padding: 14px;
   }
 
-  .setup-field {
-    height: 30px;
+  .session-setup-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
   }
 
-  .project-picker-button {
-    height: 30px;
-  }
-
-  .setup-field--agent,
-  .setup-field--path {
-    width: auto;
-    flex: 1 1 145px;
+  .session-setup-fields {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

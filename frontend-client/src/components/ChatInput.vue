@@ -374,7 +374,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 .input-wrapper {
   display: flex;
   align-items: stretch;
-  min-height: 72px;
+  min-height: 60px;
   background-color: transparent;
 }
 
@@ -390,7 +390,7 @@ textarea {
   overflow-y: auto;
   line-height: 1.55;
   color: var(--color-text-primary);
-  min-height: 64px;
+  min-height: 52px;
 }
 
 textarea:focus {
@@ -458,7 +458,7 @@ textarea::placeholder {
   }
 
   textarea {
-    min-height: 56px;
+    min-height: 48px;
     padding-left: 8px;
     padding-right: 8px;
   }

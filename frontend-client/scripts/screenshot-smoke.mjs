@@ -15,7 +15,18 @@ const minScreenshotBytes = 8 * 1024;
 const maxHorizontalOverflowPx = 2;
 
 const shots = [
-  { name: 'chat-mobile', path: '/', width: 390, height: 844 },
+  {
+    name: 'chat-mobile',
+    path: '/?__smoke=empty',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'expectText', selector: 'body', text: '想让 Agent 做什么？' },
+      { type: 'expectVisible', selector: '.new-chat-start h1' },
+      { type: 'expectVisible', selector: '.session-setup-panel' },
+      { type: 'expectVisible', selector: '[aria-label="更多会话操作"]' },
+    ],
+  },
   {
     name: 'desktop-workbench-artifact',
     path: '/?__smoke=artifact',
@@ -753,6 +764,15 @@ async function evaluate(client, expression) {
   return result.result?.value;
 }
 
+async function waitForEvaluation(client, expression, timeoutMs = 30000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await evaluate(client, expression)) return true;
+    await wait(100);
+  }
+  return false;
+}
+
 function jsString(value) {
   return JSON.stringify(String(value));
 }
@@ -794,12 +814,21 @@ async function runShotActions(client, shot) {
     }
 
     if (action.type === 'expectText') {
-      const found = await evaluate(client, `(() => {
+      const found = await waitForEvaluation(client, `(() => {
         const element = document.querySelector(${jsString(action.selector)});
         return !!element && element.textContent.includes(${jsString(action.text)});
-      })()`);
+      })()`, action.timeoutMs ?? 30000);
       if (!found) {
-        throw new Error(`${shot.name} did not find text "${action.text}" in ${action.selector}`);
+        const pageState = await evaluate(client, `(() => ({
+          href: window.location.href,
+          title: document.title,
+          bodyText: String(document.body?.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 240),
+          appHtml: String(document.querySelector('#app')?.innerHTML || '').slice(0, 240),
+        }))()`);
+        throw new Error(
+          `${shot.name} did not find text "${action.text}" in ${action.selector}. ` +
+          `Page state: ${JSON.stringify(pageState)}`,
+        );
       }
       continue;
     }
@@ -819,14 +848,31 @@ async function runShotActions(client, shot) {
     }
 
     if (action.type === 'expectVisible') {
-      const visible = await evaluate(client, `(() => {
+      const visible = await waitForEvaluation(client, `(() => {
         const element = document.querySelector(${jsString(action.selector)});
         if (!element) return false;
         const rect = element.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
-      })()`);
+      })()`, action.timeoutMs ?? 30000);
       if (!visible) {
-        throw new Error(`${shot.name} selector is not visible in viewport: ${action.selector}`);
+        const visibilityState = await evaluate(client, `(() => {
+          const element = document.querySelector(${jsString(action.selector)});
+          const rect = element?.getBoundingClientRect();
+          const wrapper = document.querySelector('.chat-messages-wrapper');
+          return {
+            href: window.location.href,
+            bodyText: String(document.body?.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 240),
+            appHtml: String(document.querySelector('#app')?.innerHTML || '').slice(0, 240),
+            rect: rect ? { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height } : null,
+            wrapperScrollTop: wrapper?.scrollTop ?? null,
+            wrapperScrollHeight: wrapper?.scrollHeight ?? null,
+            viewportHeight: window.innerHeight,
+          };
+        })()`);
+        throw new Error(
+          `${shot.name} selector is not visible in viewport: ${action.selector}. ` +
+          `Visibility state: ${JSON.stringify(visibilityState)}`,
+        );
       }
       continue;
     }
@@ -863,10 +909,15 @@ async function captureShot(browserPath, baseUrl, shot) {
   browser.stderr.resume();
 
   let client;
+  const runtimeErrors = [];
   try {
     const webSocketUrl = await waitForDevtools(debugPort);
     client = new CdpClient(webSocketUrl);
     await client.open();
+    client.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
+      const description = exceptionDetails?.exception?.description || exceptionDetails?.text;
+      if (description) runtimeErrors.push(String(description).slice(0, 1200));
+    });
     await client.send('Page.enable');
     await client.send('Runtime.enable');
     await setupShotMocks(client, shot);
@@ -899,6 +950,11 @@ async function captureShot(browserPath, baseUrl, shot) {
       fromSurface: true,
     });
     writeFileSync(output, screenshot.data, 'base64');
+  } catch (error) {
+    if (runtimeErrors.length) {
+      error.message += ` Runtime errors: ${runtimeErrors.join(' | ')}`;
+    }
+    throw error;
   } finally {
     client?.close();
     stopProcessTree(browser);

@@ -22,6 +22,7 @@ export function useChatScrolling(deps) {
   let resizeObs = null;
   let observedChild = null;
   let lastObsScrollHeight = 0;   // Observer 用的高度基线
+  let lastObsClientHeight = 0;   // 滚动区自身高度变化（如底部输入区变高）
   let lastHandleHeight = 0;      // handleScroll 用的高度基线（独立，避免竞态）
   let pendingRaf = null;
 
@@ -33,13 +34,16 @@ export function useChatScrolling(deps) {
       const container = messagesRef.value;
       if (!container) return;
       const h = container.scrollHeight;
-      if (h !== lastObsScrollHeight && isFollowing.value) {
+      const clientHeight = container.clientHeight;
+      const geometryChanged = h !== lastObsScrollHeight || clientHeight !== lastObsClientHeight;
+      if (geometryChanged && isFollowing.value) {
         isProgrammaticScroll = true;
         scrollContainerTo(container, h, 'auto');
         lastScrollTop = container.scrollTop;
         updateScrollBottomGap();
       }
       lastObsScrollHeight = h;
+      lastObsClientHeight = clientHeight;
     });
   };
 
@@ -61,6 +65,7 @@ export function useChatScrolling(deps) {
     cleanupObservers();
     if (!el) return;
     lastObsScrollHeight = el.scrollHeight;
+    lastObsClientHeight = el.clientHeight;
     lastHandleHeight = el.scrollHeight;
 
     // MutationObserver：捕获 DOM 树变化（组件挂载、异步组件替换等）
@@ -78,6 +83,7 @@ export function useChatScrolling(deps) {
 
     // ResizeObserver：捕获尺寸变化（ECharts canvas resize、图片加载、CSS 过渡等）
     resizeObs = new ResizeObserver(scheduleFollowScroll);
+    resizeObs.observe(el);
     reobserveChild(el);
   });
 
@@ -134,6 +140,7 @@ export function useChatScrolling(deps) {
       scrollContainerTo(container, container.scrollHeight, behavior);
       lastScrollTop = container.scrollTop;
       lastObsScrollHeight = container.scrollHeight;
+      lastObsClientHeight = container.clientHeight;
       lastHandleHeight = container.scrollHeight;
       updateScrollBottomGap();
     }
@@ -144,12 +151,13 @@ export function useChatScrolling(deps) {
     isFollowing.value = true;
   };
 
-  const resetScrollPosition = () => {
+  const resetScrollPosition = (follow = true) => {
     userScrollUpAccum = 0;
-    isFollowing.value = true;
+    isFollowing.value = follow;
     isProgrammaticScroll = false;
     lastScrollTop = 0;
     lastObsScrollHeight = 0;
+    lastObsClientHeight = 0;
     lastHandleHeight = 0;
     scrollBottomGap.value = 0;
     unreadCount.value = 0;
