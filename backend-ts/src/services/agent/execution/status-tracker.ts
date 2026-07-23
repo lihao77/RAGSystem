@@ -27,7 +27,9 @@ export class AgentExecutionStatusTracker {
   }
 
   unregister(taskId: string, sessionId: string): void {
-    this.taskBySession.delete(sessionId);
+    if (this.taskBySession.get(sessionId) === taskId) {
+      this.taskBySession.delete(sessionId);
+    }
     this.handlesByTask.delete(taskId);
   }
 

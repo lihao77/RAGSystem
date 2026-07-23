@@ -18,6 +18,8 @@ export function createSessionEnvelopeDispatcher({
   interaction,
   taskState,
   getStop,
+  takeFollowupCandidate,
+  bindUnassignedFollowupCandidates,
 }) {
   const {
     currentSessionId,
@@ -119,6 +121,80 @@ export function createSessionEnvelopeDispatcher({
     );
     if (pendingFollowup) return pendingFollowup;
     return messages.value[activeRun.assistantMsgIndex - 1] || null;
+  };
+
+  /** @param {import('./sessionCoreTypes.js').SessionMessage} message */
+  const getMessageRunId = message => message?.run_id || message?.metadata?.run_id || null;
+
+  /** @param {import('./sessionCoreTypes.js').SessionMessage} candidate @param {AnyRecord} eventData @returns {import('./sessionCoreTypes.js').SessionMessage} */
+  const asConfirmedRunInjection = (candidate, eventData) => {
+    const { persistence_status: _persistenceStatus, ...metadata } = candidate.metadata || {};
+    return {
+      ...candidate,
+      status: [],
+      metadata: {
+        ...metadata,
+        ...(eventData.request_id ? { request_id: eventData.request_id } : {}),
+        ...(eventData.run_id ? { run_id: eventData.run_id } : {}),
+        ...(eventData.task_id ? { task_id: eventData.task_id } : {}),
+        ...(Number.isInteger(eventData.round_index) ? { round_index: eventData.round_index } : {}),
+        execution_kind: 'session_followup',
+        source: 'running_session',
+      },
+    };
+  };
+
+  /** @param {import('./sessionCoreTypes.js').SessionMessage} candidate @param {AnyRecord} eventData @returns {import('./sessionCoreTypes.js').SessionMessage} */
+  const asNewRunUserMessage = (candidate, eventData) => {
+    const {
+      persistence_status: _persistenceStatus,
+      source: _source,
+      round_index: _roundIndex,
+      ...metadata
+    } = candidate.metadata || {};
+    return {
+      ...candidate,
+      status: [],
+      metadata: {
+        ...metadata,
+        ...(eventData.request_id ? { request_id: eventData.request_id } : {}),
+        ...(eventData.run_id ? { run_id: eventData.run_id } : {}),
+        ...(eventData.task_id ? { task_id: eventData.task_id } : {}),
+        execution_kind: 'agent_stream',
+      },
+    };
+  };
+
+  /** @param {import('./sessionCoreTypes.js').SessionMessage} message @param {string | null | undefined} runId @returns {import('./sessionCoreTypes.js').SessionMessage} */
+  const insertNewRunUserMessage = (message, runId) => {
+    const assistantIndex = messages.value.findIndex(
+      item => item?.role === 'assistant' && getMessageRunId(item) === runId,
+    );
+    if (assistantIndex < 0) {
+      messages.value.push(message);
+      return message;
+    }
+    messages.value.splice(assistantIndex, 0, message);
+    if (activeRun.assistantMsgIndex >= assistantIndex) activeRun.assistantMsgIndex += 1;
+    return message;
+  };
+
+  /**
+   * 服务端以实际落库时是否仍有活跃 root run 决定 followup 或新 run。
+   * 相同 run_id 表示并入既有 run；不同 run_id 表示旧 run 已结束，需按普通用户消息展示。
+   * @param {import('./sessionCoreTypes.js').SessionMessage} candidate @param {AnyRecord} eventData
+   */
+  const commitFollowupCandidate = (candidate, eventData) => {
+    const expectedRunId = candidate.metadata?.run_id || null;
+    const persistedRunId = eventData.run_id || null;
+    if (expectedRunId && persistedRunId && expectedRunId === persistedRunId) {
+      const injection = asConfirmedRunInjection(candidate, eventData);
+      messages.value.push(injection);
+      return { message: injection, kind: 'run_injection' };
+    }
+    const userMessage = asNewRunUserMessage(candidate, eventData);
+    insertNewRunUserMessage(userMessage, persistedRunId);
+    return { message: userMessage, kind: 'new_run' };
   };
 
   /** @param {AnyRecord | null | undefined} target @param {AnyRecord} eventData @param {string} sessionId */
@@ -262,11 +338,24 @@ export function createSessionEnvelopeDispatcher({
     if (eventType === 'run_started') {
       runtime.resetPendingReconciliation();
       const nextRunId = event.run_id || null;
+      bindUnassignedFollowupCandidates(nextRunId);
       const shouldStartNewMessage = !activeRun.active
         || (activeRun.runId && nextRunId && activeRun.runId !== nextRunId);
       if (shouldStartNewMessage) {
         const currentMsg = messages.value[activeRun.assistantMsgIndex];
         if (currentMsg && !currentMsg.finished) currentMsg.finished = true;
+        const startedCandidate = payload.request_id
+          ? takeFollowupCandidate(payload.request_id)
+          : null;
+        if (startedCandidate) {
+          const userMessage = asNewRunUserMessage(startedCandidate, {
+            request_id: payload.request_id,
+            run_id: nextRunId,
+          });
+          insertNewRunUserMessage(userMessage, nextRunId);
+          deps.cacheMessages(sessionId, messages.value);
+          deps.updateRecentSession(sessionId, userMessage.content, new Date().toISOString());
+        }
         if (event.payload?.source === 'system.bg_notification' && event.payload?.task) {
           messages.value.push(createUserMessage(event.payload.task, [], {
             source: 'background_notification',
@@ -295,10 +384,18 @@ export function createSessionEnvelopeDispatcher({
     if (eventType === 'state_sync') {
       const category = payload.category;
       if (category === 'message_saved') {
-        const ref = payload.ref || {};
+        const ref = { ...(payload.ref || {}), ...(event.run_id ? { run_id: event.run_id } : {}) };
         const currentMsg = messages.value[activeRun.assistantMsgIndex];
-        const target = ref.role === 'user' ? findUserMessageSavedTarget(ref) : currentMsg;
+        const candidate = ref.role === 'user' && ref.request_id
+          ? takeFollowupCandidate(ref.request_id)
+          : null;
+        const committedCandidate = candidate ? commitFollowupCandidate(candidate, ref) : null;
+        const target = committedCandidate?.message
+          || (ref.role === 'user' ? findUserMessageSavedTarget(ref) : currentMsg);
         applyMessageSaved(target, ref, sessionId);
+        if (committedCandidate) {
+          deps.updateRecentSession(sessionId, committedCandidate.message.content, new Date().toISOString());
+        }
         return;
       }
       if (category === 'session_updated') {

@@ -244,6 +244,8 @@ export const StateSyncPayloadSchema = z.object({
       seq: z.number().int().nonnegative().optional(),
       role: z.string().optional(),
       request_id: z.string().optional(),
+      /** Server-confirmed execution round for a run-injected user message. */
+      round_index: z.number().int().nonnegative().optional(),
     })
     .optional(),
   metrics: z.record(z.number()).optional(),

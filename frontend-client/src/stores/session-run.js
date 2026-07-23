@@ -43,12 +43,55 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const contextUsage = ref({ used: 0, max: 0 });
   const activeRun = reactive(createActiveRunState());
   const llmRetryState = ref(null);
+  // 正在等待服务端 message_saved 确认的运行中补充消息。它们不属于主消息列表。
+  const pendingFollowupCandidates = ref([]);
 
   const resetContextUsage = () => {
     contextUsage.value = { used: 0, max: 0 };
   };
 
   const resetActiveRun = () => resetActiveRunState(activeRun);
+
+  const enqueueFollowupCandidate = (candidate) => {
+    const requestId = candidate?.metadata?.request_id;
+    if (requestId && pendingFollowupCandidates.value.some(
+      item => item?.metadata?.request_id === requestId,
+    )) return;
+    pendingFollowupCandidates.value.push(candidate);
+  };
+
+  const takeFollowupCandidate = (requestId) => {
+    const index = pendingFollowupCandidates.value.findIndex(
+      item => item?.metadata?.request_id === requestId,
+    );
+    if (index < 0) return null;
+    return pendingFollowupCandidates.value.splice(index, 1)[0] || null;
+  };
+
+  const markFollowupCandidateFailed = (requestId, error) => {
+    const candidate = pendingFollowupCandidates.value.find(
+      item => item?.metadata?.request_id === requestId,
+    );
+    if (!candidate) return;
+    candidate.metadata = { ...candidate.metadata, persistence_status: 'failed' };
+    candidate.status = [
+      ...(candidate.status || []),
+      { type: 'error', content: error || '补充说明发送失败' },
+    ];
+  };
+
+  const bindUnassignedFollowupCandidates = (runId) => {
+    if (!runId) return;
+    for (const candidate of pendingFollowupCandidates.value) {
+      if (!candidate?.metadata?.run_id) {
+        candidate.metadata = { ...candidate.metadata, run_id: runId };
+      }
+    }
+  };
+
+  const clearFollowupCandidates = () => {
+    pendingFollowupCandidates.value = [];
+  };
 
   return {
     currentSessionId,
@@ -60,7 +103,13 @@ export const useSessionRunStore = defineStore('session-run', () => {
     contextUsage,
     activeRun,
     llmRetryState,
+    pendingFollowupCandidates,
     resetContextUsage,
     resetActiveRun,
+    enqueueFollowupCandidate,
+    takeFollowupCandidate,
+    markFollowupCandidateFailed,
+    bindUnassignedFollowupCandidates,
+    clearFollowupCandidates,
   };
 });

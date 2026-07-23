@@ -58,7 +58,7 @@ export class AgentExecutionEventPublisher {
   publishOutputMessageSaved(
     sessionId: string,
     runId: string | null | undefined,
-    payload: { message_id: string; seq?: number; role?: string; request_id?: string },
+    payload: { message_id: string; seq?: number; role?: string; request_id?: string; round_index?: number },
   ): void {
     this.publish(sessionId, this.buildOutputMessageSaved(sessionId, runId, payload));
   }
@@ -66,7 +66,7 @@ export class AgentExecutionEventPublisher {
   buildOutputMessageSaved(
     sessionId: string,
     runId: string | null | undefined,
-    payload: { message_id: string; seq?: number; role?: string; request_id?: string },
+    payload: { message_id: string; seq?: number; role?: string; request_id?: string; round_index?: number },
   ): Envelope {
     return {
       type: "state_sync",
@@ -79,6 +79,7 @@ export class AgentExecutionEventPublisher {
           ...(payload.seq !== undefined ? { seq: payload.seq } : {}),
           ...(payload.role ? { role: payload.role } : {}),
           ...(payload.request_id ? { request_id: payload.request_id } : {}),
+          ...(payload.round_index !== undefined ? { round_index: payload.round_index } : {}),
         },
       } satisfies StateSyncPayload,
     };

@@ -269,7 +269,8 @@ export interface EventSink {
 
 /** 消息增量补充端口：循环②步补后台通知 + followup。 */
 export interface MessageRefresher {
-  refresh(ctx: KernelContext): Promise<ChatMessage[]>;
+  /** Invoked at the start of each model round, before round.before hooks. */
+  refresh(ctx: KernelContext, round: number): Promise<ChatMessage[]>;
 }
 
 /* ============================================================

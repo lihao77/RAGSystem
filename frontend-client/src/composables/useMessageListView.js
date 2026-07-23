@@ -9,6 +9,23 @@ import { copyToClipboard } from '../utils/clipboard.js';
  */
 const INJECTION_SOURCES = new Set(['running_session']);
 
+const isRunInjection = (message) => INJECTION_SOURCES.has(message?.metadata?.source || '');
+
+const groupInjectionsByRunId = (items) => {
+  const map = {};
+  for (const message of items) {
+    if (!isRunInjection(message)) continue;
+    const runId = message.metadata?.run_id;
+    if (!runId) continue;
+    if (!map[runId]) map[runId] = [];
+    map[runId].push(message);
+  }
+  for (const runId of Object.keys(map)) {
+    map[runId].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+  }
+  return map;
+};
+
 export function useMessageListView({ messages, showToast }) {
   let messageKeyCounter = 0;
 
@@ -22,52 +39,15 @@ export function useMessageListView({ messages, showToast }) {
    * 注入消息 = metadata.source ∈ INJECTION_SOURCES 且带 run_id。按 seq 升序(同 run 多条注入的时间线)。
    */
   const injectionsByRunId = computed(() => {
-    const map = {};
-    for (const m of messages.value) {
-      const source = m.metadata?.source;
-      if (!source || !INJECTION_SOURCES.has(source)) continue;
-      const runId = m.metadata?.run_id;
-      if (!runId) continue;
-      if (!map[runId]) map[runId] = [];
-      map[runId].push(m);
-    }
-    // 每 run 内按 seq 排序(executionTreeBuilder 也会排一次,这里先排保证注入顺序稳定)
-    for (const runId of Object.keys(map)) {
-      map[runId].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-    }
-    return map;
+    return groupInjectionsByRunId(messages.value);
   });
 
   const visibleMessages = computed(() => {
     const list = messages.value;
     if (!list.length) return [];
 
-    // Assistant 通常在 run 结束时才落库，因此 followup 的 seq 可能排在它之前。
-    // 顶层仍需显示这些用户消息，并稳定放到对应 assistant 后面。
-    const assistantsByRunId = new Map();
-    for (const m of list) {
-      if (m.role === 'assistant') {
-        const rid = m.run_id || m.metadata?.run_id;
-        if (rid) assistantsByRunId.set(rid, m);
-      }
-    }
-    const followupsByAssistant = new Map();
-    const movedFollowups = new Set();
-    for (const m of list) {
-      const source = m.metadata?.source;
-      if (!source || !INJECTION_SOURCES.has(source)) continue;
-      const rid = m.metadata?.run_id;
-      const assistant = rid ? assistantsByRunId.get(rid) : null;
-      if (!assistant) continue;
-      const group = followupsByAssistant.get(assistant) || [];
-      group.push(m);
-      followupsByAssistant.set(assistant, group);
-      movedFollowups.add(m);
-    }
-    const reordered = list.flatMap((m) => {
-      if (movedFollowups.has(m)) return [];
-      return [m, ...(followupsByAssistant.get(m) || [])];
-    });
+    // run 内补充只显示于 WPE 执行时间线，不能作为主会话消息气泡渲染。
+    const reordered = list.filter(message => !isRunInjection(message));
 
     // compression 摘要折叠(对 followup 重排后的列表)
     const withSeq = reordered.filter((message) => message.seq != null);

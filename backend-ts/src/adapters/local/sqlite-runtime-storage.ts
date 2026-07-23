@@ -126,6 +126,9 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (!existingSession) tx.createSession(this.tenantId, input.session.sessionId, input.session.userId, input.session.metadata, input.session.permissionMode);
         const activeRoot = tx.listRuns(input.session.sessionId, 1000).items.find((run) => run.parent_run_id == null && run.status === "running");
         if (activeRoot && activeRoot.run_id !== input.run.runId) {
+          if (input.deferFollowup) {
+            return { kind: "followup" as const, activeRunId: activeRoot.run_id };
+          }
           const roundIndex = tx.getRecentMessages(input.session.sessionId, 1000, "root").reduce((max, message) => {
             const round = asRecord(message.metadata).round;
             return typeof round === "number" && round > max ? round : max;

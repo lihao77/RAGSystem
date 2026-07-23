@@ -97,6 +97,8 @@ export interface DispatcherOptions {
   interaction: InteractionContext;
   taskState: TaskStateContext;
   getStop: () => () => Promise<void>;
+  takeFollowupCandidate: (requestId: string) => SessionMessage | null;
+  bindUnassignedFollowupCandidates: (runId: string | null) => void;
 }
 
 export interface EventReducerOptions {
@@ -124,6 +126,8 @@ export interface SessionCommandControllerOptions extends OpenRecord {
   mergeExecutionObservability: (payload?: OpenRecord) => void;
   beginOptimisticExecutionState: (sessionId: string) => void;
   scheduleCommandFallback: (sessionId: string, messageIndex: number, timeout?: number) => void;
+  enqueueFollowupCandidate: (candidate: SessionMessage) => void;
+  markFollowupCandidateFailed: (requestId: string, error: string) => void;
 }
 
 export interface SessionRunRecoveryOptions extends OpenRecord {

@@ -28,6 +28,9 @@ import { PathApprovalService } from "../../src/adapters/local/path-approval-serv
 import { RuntimeInteractionCoordinator } from "../../src/services/runtime/pending-interaction-service.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";
 import { createLocalExecutionStorage } from "../../src/adapters/local/local-execution-storage.js";
+import { AgentMetricsCollector } from "../../src/services/agent/metrics/metrics-collector.js";
+import type { AgentMetricsStorePort } from "../../src/contracts/runtime/core-runtime-ports.js";
+import type { LlmMock } from "../helpers/llm-fetch-mock.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -39,6 +42,7 @@ interface ServiceHarness {
   service: AgentExecutionService;
   store: ConversationStore;
   errors: Array<Record<string, unknown>>;
+  llm: LlmMock;
 }
 
 function minimalAgent(agentName: string): AgentConfig {
@@ -122,7 +126,13 @@ function runtimeCoreStub(agent: AgentConfig, ready: boolean, provider: ModelProv
   } as RuntimeExecutionConfigResolver;
 }
 
-function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: boolean; startFailure?: Error } = {}): ServiceHarness {
+function buildHarness(opts: {
+  mode?: RuntimeMode;
+  ready?: boolean;
+  logger?: boolean;
+  startFailure?: Error;
+  metricsCollector?: AgentMetricsCollector | null;
+} = {}): ServiceHarness {
   const mode = opts.mode ?? "ok";
   const ready = opts.ready ?? true;
   const dbPath = makeTempDb();
@@ -162,7 +172,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const logger: AgentExecutionLogger | null = opts.logger
     ? { error: (bindings, message) => errors.push({ ...bindings, message }) }
     : null;
-  mockLlm({ mode, contents: ["the answer"] });
+  const llm = mockLlm({ mode, contents: ["the answer"] });
   const service = createAgentExecutionService({
     tenantId: LOCAL_TENANT_ID,
     sessions,
@@ -185,8 +195,9 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
    pendingInteractions,
     runtimeStorage: executionRuntimeStorage,
     logger: logger ?? null,
+    metricsCollector: opts.metricsCollector ?? null,
   });
-  return { service, store, errors };
+  return { service, store, errors, llm };
 }
 
 const WAIT = { timeout: 4000, interval: 20 };
@@ -224,19 +235,87 @@ describe("AgentExecutionService (baseline regression)", () => {
     store.close();
   });
 
-  it("routes a concurrent stream request through the storage followup path", async () => {
+  it("keeps a concurrent followup out of history until the active run reaches a boundary", async () => {
     const { service, store } = buildHarness({ mode: "abort" });
     const first = await service.startStream({ task: "first", attachments: [], userId: LOCAL_USER_ID }, "req-first");
     const second = await service.startStream({ session_id: first.session_id, task: "second", attachments: [], userId: LOCAL_USER_ID }, "req-second");
 
     expect(second).toMatchObject({ started: true, session_id: first.session_id, run_id: first.run_id, request_id: "req-second" });
     expect(store.listRuns(first.session_id, 100).items).toHaveLength(1);
-    expect(store.listMessages(first.session_id, 100, 0).items).toContainEqual(expect.objectContaining({
+    expect(store.listMessages(first.session_id, 100, 0).items).not.toContainEqual(expect.objectContaining({
       role: "user",
       content: "second",
-      metadata: expect.objectContaining({ run_id: first.run_id, execution_kind: "session_followup", round_index: 0 }),
     }));
     await service.stopSession(first.session_id);
+    await vi.waitFor(() => {
+      expect(store.listMessages(first.session_id, 100, 0).items).toContainEqual(expect.objectContaining({
+        role: "user",
+        content: "second",
+        metadata: expect.objectContaining({ execution_kind: "agent_stream" }),
+      }));
+    }, WAIT);
+    store.close();
+  });
+
+  it("claims the new session handle after storage starts a root while the prior run is finishing", async () => {
+    let resolveFirstMetric!: () => void;
+    let resolveMetricGate!: () => void;
+    const firstMetricReached = new Promise<void>((resolve) => {
+      resolveFirstMetric = resolve;
+    });
+    const firstMetricGate = new Promise<void>((resolve) => {
+      resolveMetricGate = resolve;
+    });
+    let metricCount = 0;
+    const metricsCollector = new AgentMetricsCollector({
+      insertMetric: async () => {
+        metricCount += 1;
+        if (metricCount === 1) {
+          resolveFirstMetric();
+          await firstMetricGate;
+        }
+      },
+      aggregateMetrics: async () => [],
+      resetMetrics: async () => ({ deleted: 0 }),
+    } satisfies AgentMetricsStorePort);
+    const { service, store, llm } = buildHarness({ metricsCollector });
+
+    const first = await service.startStream({ task: "first", attachments: [], userId: LOCAL_USER_ID }, "req-first");
+    await firstMetricReached;
+    expect(store.getRun(first.session_id, first.run_id!)?.status).toBe("completed");
+    expect(service.getSessionTaskStatus(first.session_id)).toMatchObject({
+      has_running_task: true,
+      task_info: { run_id: first.run_id, status: "running" },
+    });
+    llm.hold();
+
+    const second = await service.startStream({
+      session_id: first.session_id,
+      task: "second",
+      attachments: [],
+      userId: LOCAL_USER_ID,
+    }, "req-second");
+    await vi.waitFor(() => {
+      expect(llm.requests).toHaveLength(2);
+      expect(service.getSessionTaskStatus(first.session_id).task_info).toMatchObject({
+        run_id: second.run_id,
+        status: "running",
+      });
+    }, WAIT);
+
+    resolveMetricGate();
+    await vi.waitFor(() => {
+      expect(service.getTaskStatus(first.task_id!).task_info?.status).toBe("completed");
+    }, WAIT);
+    expect(service.getSessionTaskStatus(first.session_id)).toMatchObject({
+      has_running_task: true,
+      task_info: { run_id: second.run_id, status: "running" },
+    });
+
+    llm.release();
+    await vi.waitFor(() => {
+      expect(service.getSessionTaskStatus(first.session_id).has_running_task).toBe(false);
+    }, WAIT);
     store.close();
   });
 

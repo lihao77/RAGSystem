@@ -107,6 +107,8 @@ export function createSessionCommandController({
   mergeExecutionObservability,
   beginOptimisticExecutionState,
   scheduleCommandFallback,
+  enqueueFollowupCandidate,
+  markFollowupCandidateFailed,
   fetchTaskStatus = getSessionTaskStatus,
   startExecution = startStream,
   stopExecution = stopStream,
@@ -158,7 +160,6 @@ export function createSessionCommandController({
     let assistantMsgIndex = -1;
     let userMsgIndex = -1;
     let attachments = draftAttachments;
-    let followupMsgIndex = -1;
 
     if (startsDraftSession) {
       userMsgIndex = messages.value.push(createUserMessage(content, draftAttachments, userMetadata)) - 1;
@@ -249,22 +250,20 @@ export function createSessionCommandController({
     } else if (isRunningFollowup) {
       const rounds = messages.value[activeRun.assistantMsgIndex]?.executionTree?.root?.rounds;
       const roundIndex = Array.isArray(rounds) && rounds.length ? rounds.at(-1).round : null;
-      const followupMessage = createUserMessage(content, [], {
+      enqueueFollowupCandidate(createUserMessage(content, [], {
         ...userMetadata,
         ...(roundIndex != null ? { round_index: roundIndex } : {}),
-      });
-      followupMsgIndex = messages.value.push(followupMessage) - 1;
+      }));
       deps.inputMessage.value = '';
       deps.clearComposerAttachments();
-      deps.cacheMessages(sessionId, messages.value);
-      deps.stickToBottom();
     } else {
       messages.value.push(createUserMessage(content, attachments, userMetadata));
       deps.inputMessage.value = '';
       deps.clearComposerAttachments();
       deps.stickToBottom();
     }
-    deps.updateRecentSession(sessionId, content, new Date().toISOString());
+    // 运行中补充先留在候选区，等服务端落库确认后再更新会话摘要。
+    if (!isRunningFollowup) deps.updateRecentSession(sessionId, content, new Date().toISOString());
 
     if (!startsDraftSession && !isRunningFollowup) {
       assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
@@ -318,14 +317,7 @@ export function createSessionCommandController({
     } catch (error) {
       console.error('Error sending message:', error);
       if (isRunningFollowup) {
-        const followupMessage = messages.value[followupMsgIndex];
-        if (followupMessage) {
-          followupMessage.status = [
-            ...(followupMessage.status || []),
-            { type: 'error', content: errorMessage(error) || '补充说明发送失败' },
-          ];
-          followupMessage.metadata = { ...followupMessage.metadata, persistence_status: 'failed' };
-        }
+        markFollowupCandidateFailed(requestId, errorMessage(error));
       } else {
         const currentMessage = messages.value[assistantMsgIndex];
         if (currentMessage) {

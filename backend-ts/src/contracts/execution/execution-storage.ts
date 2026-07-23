@@ -13,7 +13,7 @@ import type { TenantId } from "../../identity/types.js";
 
 export type ExecutionStartDisposition =
   | { kind: "started" }
-  | { kind: "followup"; activeRunId: string; messageId: string };
+  | { kind: "followup"; activeRunId: string };
 
 export interface ExecutionRunPersistenceContext {
   tenantId: TenantId;

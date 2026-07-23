@@ -92,6 +92,24 @@ export function runRuntimeStorageBehaviorContract(
       )).resolves.toMatchObject({ kind: "started", run: { run_id: "run-second", status: "running" } });
     });
 
+    it("defers an active-root followup without persisting a message or event", async () => {
+      await harness.storage.operations.startOrAppendRoot(
+        startOrAppendInput("session-deferred", "run-first", "message-first"),
+      );
+
+      await expect(harness.storage.operations.startOrAppendRoot({
+        ...startOrAppendInput("session-deferred", "run-second", "message-deferred"),
+        deferFollowup: true,
+      })).resolves.toEqual({ kind: "followup", activeRunId: "run-first" });
+
+      await expect(harness.inspection.getMessage("session-deferred", "message-deferred")).resolves.toBeNull();
+      await expect(harness.inspection.listMessages("session-deferred")).resolves.toEqual([
+        expect.objectContaining({ id: "message-first", role: "user" }),
+      ]);
+      await expect(harness.inspection.getRun("session-deferred", "run-second")).resolves.toBeNull();
+      await expect(harness.inspection.listOutbox("session-deferred")).resolves.toEqual([]);
+    });
+
     it("grants the session root slot to only one concurrent storage instance", async () => {
       const [left, right] = await Promise.allSettled([
         harness.storage.operations.startOrAppendRoot(startOrAppendInput("session-concurrent", "run-left", "message-left")),

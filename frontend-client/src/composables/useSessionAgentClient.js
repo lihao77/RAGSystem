@@ -40,6 +40,12 @@ export function useSessionAgentClient(deps) {
     llmRetryState,
   } = storeToRefs(sessionRunStore);
   const activeRun = sessionRunStore.activeRun;
+  const {
+    enqueueFollowupCandidate,
+    takeFollowupCandidate,
+    markFollowupCandidateFailed,
+    bindUnassignedFollowupCandidates,
+  } = sessionRunStore;
 
   const taskState = createSessionTaskState({
     currentSessionId,
@@ -110,6 +116,8 @@ export function useSessionAgentClient(deps) {
     mergeExecutionObservability,
     beginOptimisticExecutionState,
     scheduleCommandFallback,
+    enqueueFollowupCandidate,
+    markFollowupCandidateFailed,
   });
   const send = commandController.send;
   const stop = commandController.stop;
@@ -130,6 +138,8 @@ export function useSessionAgentClient(deps) {
     interaction: interactionController,
     taskState,
     getStop: () => stop,
+    takeFollowupCandidate,
+    bindUnassignedFollowupCandidates,
   });
   const { handleEnvelope, handleRunEvent, resetStreamSessionState } = envelopeDispatcher;
 

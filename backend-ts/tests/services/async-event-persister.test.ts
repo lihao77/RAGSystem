@@ -289,6 +289,25 @@ describe("AsyncKernelEventPersister", () => {
     expect(await persister.resolveFinalMessage()).toMatchObject({ id: "run-1:final", content: "answer" });
   });
 
+  it("defers an active-root followup without writing its user message", async () => {
+    const harness = createHarness();
+    let startInput: { deferFollowup?: boolean } | null = null;
+    harness.storage.operations.startOrAppendRoot = async (input) => {
+      startInput = input;
+      return { kind: "followup", activeRunId: "active-run" };
+    };
+    const persister = new AsyncKernelEventPersister(
+      harness.storage,
+      harness.clientEvents as never,
+      context({ initialUserMessage: { id: "followup-user", content: "later" } }),
+    );
+
+    await expect(persister.startRun()).resolves.toEqual({ kind: "followup", activeRunId: "active-run" });
+    expect(startInput).toMatchObject({ deferFollowup: true });
+    expect(harness.messages.has("followup-user")).toBe(false);
+    expect(harness.delivered).toEqual([]);
+  });
+
   it("creates an interrupted anchor, clears continuations, and records failure terminal events", async () => {
     const harness = createHarness();
     const persister = new AsyncKernelEventPersister(

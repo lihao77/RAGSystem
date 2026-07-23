@@ -37,6 +37,25 @@
             </LiquidGlass>
           </transition>
           <div class="input-area-wrapper">
+          <TransitionGroup
+            v-if="pendingFollowupCandidates.length"
+            name="followup-candidate"
+            tag="div"
+            class="followup-candidate-area"
+            aria-live="polite"
+          >
+            <div
+              v-for="candidate in pendingFollowupCandidates"
+              :key="candidate.metadata?.request_id"
+              class="followup-candidate"
+              :class="{ 'is-failed': candidate.metadata?.persistence_status === 'failed' }"
+            >
+              <span class="followup-candidate-state">
+                {{ candidate.metadata?.persistence_status === 'failed' ? '发送失败' : '待确认' }}
+              </span>
+              <span class="followup-candidate-content">{{ candidate.content }}</span>
+            </div>
+          </TransitionGroup>
           <ChatInput
             ref="chatInputRef"
             v-model="inputMessage"
@@ -104,7 +123,7 @@
       :show-work-panel="visibleWorkPanel"
       :disable-transition="switchingToNewChat"
       :active-run="_activeRun"
-     :current-message="currentRunMessage"
+      :current-message="currentRunMessage"
       :injections-by-run-id="injectionsByRunId"
       :message-key="selectedWorkPanelMessageKey"
      :approval-queue="approvalQueue"
@@ -221,6 +240,7 @@ const {
   sessionTaskInfo,
   sessionExecutionObservability,
   contextUsage,
+  pendingFollowupCandidates,
 } = storeToRefs(sessionRunStore);
 
 // 输入草稿持久化：按 sessionId 分片存 localStorage，切会话/刷新后恢复，发送清空
@@ -283,7 +303,7 @@ function openCtxDrawer() {
   ctxDrawerVisible.value = true;
 }
 
-const { activeRun: _activeRun, resetActiveRun } = sessionRunStore;
+const { activeRun: _activeRun, resetActiveRun, clearFollowupCandidates } = sessionRunStore;
 
 // 被下方 composable deps 引用的工具函数前置定义，消除延迟闭包。
 // 仅被 view 内部引用的辅助函数（openMobileSidebar/clearNewChatLaunchTimer 等）保留原位置。
@@ -555,6 +575,7 @@ const clearExecutionState = (opts) => {
   _clearExecutionStateBase(opts);
   resetStreamSessionState();
   resetActiveRun();
+  clearFollowupCandidates();
   isCompressing.value = false;
 };
 
@@ -742,6 +763,59 @@ onUnmounted(() => {
 
 <style src="../styles/chat-view.css"></style>
 <style>
+.followup-candidate-area {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 auto 8px;
+  width: min(100%, 920px);
+}
+
+.followup-candidate {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-left: 2px solid var(--color-brand-accent);
+  background: var(--surface-shell);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.followup-candidate.is-failed {
+  border-left-color: var(--color-error);
+}
+
+.followup-candidate-state {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-weight: 650;
+}
+
+.followup-candidate.is-failed .followup-candidate-state {
+  color: var(--color-error);
+}
+
+.followup-candidate-content {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.followup-candidate-enter-active,
+.followup-candidate-leave-active {
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.followup-candidate-enter-from,
+.followup-candidate-leave-to {
+  opacity: 0;
+  transform: translateY(5px);
+}
+
 /* #9: 压缩摘要 - 已移除独立卡片样式，走通用 assistant 渲染路径 */
 .user-edit-shell {
   display: flex;

@@ -29,6 +29,7 @@ import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
+import { SessionFollowupQueue } from "./session-followup-queue.js";
 import { AttachmentResolver } from "./attachment-resolver.js";
 import { SlashCommandHandler } from "./slash-command-handler.js";
 import { AgentRunEngine, type AgentExecutionLogger } from "./run-engine.js";
@@ -128,6 +129,7 @@ export function createAgentExecutionService(
   const eventPublisher = new AgentExecutionEventPublisher(params.clientEvents);
   const attachmentResolver = new AttachmentResolver(params.sessionFiles ?? null);
   const notificationQueue = params.notificationQueue ?? new SessionNotificationQueue();
+  const followupQueue = new SessionFollowupQueue();
   const storage = params.executionStorage;
   const slashCommandHandler = new SlashCommandHandler(
     params.tenantId,
@@ -151,6 +153,7 @@ export function createAgentExecutionService(
    params.providersProvider,
    params.backgroundTasks ?? null,
     notificationQueue,
+    followupQueue,
     statusTracker,
     eventPublisher,
     params.permissionPolicy,

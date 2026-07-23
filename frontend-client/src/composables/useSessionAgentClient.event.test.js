@@ -32,6 +32,7 @@ function createDeps(overrides = {}) {
     contextUsage,
     sessionTaskInfo,
     llmRetryState,
+    pendingFollowupCandidates,
   } = storeToRefs(sessionRunStore);
   currentSessionId.value = 'session-1';
   contextUsage.value = null;
@@ -59,6 +60,7 @@ function createDeps(overrides = {}) {
     sessionTaskInfo,
     activeRun: sessionRunStore.activeRun,
     llmRetryState,
+    pendingFollowupCandidates,
     userInputDialogRef: ref(null),
     getWS: () => null,
     createAssistantMessage,
@@ -220,29 +222,31 @@ test('stream_output(final) 会用完整内容补偿并保留已有 metadata', ()
   assert.equal(deps.messages.value[0].finished, true);
 });
 
-test('state_sync(message_saved) 会按 request_id 合并运行中 followup 的 id 和 seq', () => {
+test('state_sync(message_saved) 会将确认的 run 内 followup 移入执行树注入列表', () => {
   const { deps, calls } = createDeps();
   deps.messages.value = [
     { role: 'user', content: '原始任务', metadata: {}, attachments: [] },
     createAssistantMessage({ content: 'partial answer' }),
-    {
-      role: 'user',
-      content: '运行中补充',
-      metadata: {
-        request_id: 'req-followup',
-        execution_kind: 'session_followup',
-        source: 'running_session',
-        persistence_status: 'pending',
-      },
-      attachments: [],
-    },
   ];
+  deps.pendingFollowupCandidates.value = [{
+    role: 'user',
+    content: '运行中补充',
+    metadata: {
+      request_id: 'req-followup',
+      execution_kind: 'session_followup',
+      source: 'running_session',
+      persistence_status: 'pending',
+      run_id: 'run-1',
+    },
+    attachments: [],
+  }];
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 1;
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
     type: 'state_sync',
+    run_id: 'run-1',
     payload: {
       category: 'message_saved',
       ref: {
@@ -252,6 +256,7 @@ test('state_sync(message_saved) 会按 request_id 合并运行中 followup 的 i
         request_id: 'req-followup',
         run_id: 'run-1',
         task_id: 'task-1',
+        round_index: 4,
       },
     },
   }, 'session-1');
@@ -262,7 +267,68 @@ test('state_sync(message_saved) 会按 request_id 合并运行中 followup 的 i
   assert.equal(deps.messages.value[2].metadata.persistence_status, undefined);
   assert.equal(deps.messages.value[2].metadata.run_id, 'run-1');
   assert.equal(deps.messages.value[2].metadata.task_id, 'task-1');
+  assert.equal(deps.messages.value[2].metadata.round_index, 4);
+  assert.equal(deps.pendingFollowupCandidates.value.length, 0);
   assert.deepEqual(calls.cacheMessages, [['session-1', deps.messages.value]]);
+});
+
+test('run_started 后的 message_saved 只确认一次已结束 followup 的新 run 主消息', () => {
+  const { deps } = createDeps();
+  deps.messages.value = [
+    { role: 'user', content: '原始任务', metadata: {}, attachments: [] },
+    createAssistantMessage({ content: '旧 run 输出', metadata: { run_id: 'run-old' } }),
+  ];
+  deps.pendingFollowupCandidates.value = [{
+    role: 'user',
+    content: '旧 run 结束后发送的补充',
+    metadata: {
+      request_id: 'req-new-run',
+      execution_kind: 'session_followup',
+      source: 'running_session',
+      persistence_status: 'pending',
+      run_id: 'run-old',
+    },
+    attachments: [],
+  }];
+  Object.assign(deps.activeRun, { active: true, assistantMsgIndex: 1, runId: 'run-old' });
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'run_started',
+    run_id: 'run-new',
+    payload: { request_id: 'req-new-run', task: '旧 run 结束后发送的补充' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'state_sync',
+    run_id: 'run-new',
+    payload: {
+      category: 'message_saved',
+      ref: {
+        message_id: 'msg-new',
+        seq: 20,
+        role: 'user',
+        request_id: 'req-new-run',
+      },
+    },
+  }, 'session-1');
+
+  assert.deepEqual(deps.messages.value.map(message => [message.role, message.content]), [
+    ['user', '原始任务'],
+    ['assistant', '旧 run 输出'],
+    ['user', '旧 run 结束后发送的补充'],
+    ['assistant', ''],
+  ]);
+  assert.equal(deps.messages.value[1].finished, true);
+  assert.equal(deps.messages.value[2].metadata.execution_kind, 'agent_stream');
+  assert.equal(deps.messages.value[2].metadata.source, undefined);
+  assert.equal(deps.messages.value[2].metadata.run_id, 'run-new');
+  assert.equal(deps.messages.value[2].id, 'msg-new');
+  assert.equal(deps.messages.value[2].seq, 20);
+  assert.equal(deps.messages.value.filter(message => message.role === 'user' && message.metadata?.run_id === 'run-new').length, 1);
+  assert.equal(deps.messages.value.filter(message => message.role === 'assistant' && message.run_id === 'run-new').length, 1);
+  assert.equal(deps.messages.value[3].run_id, 'run-new');
+  assert.equal(deps.activeRun.assistantMsgIndex, 3);
+  assert.equal(deps.pendingFollowupCandidates.value.length, 0);
 });
 
 test('run_ended 会收尾 active run 并标记完成状态', () => {

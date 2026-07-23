@@ -32,6 +32,7 @@ import {
   renderBackgroundNotification,
 } from "./helpers.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
+import { SessionFollowupQueue } from "./session-followup-queue.js";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../runtime/event-outbox/execution-envelope-archive.js";
 
 export interface AgentExecutionLogger {
@@ -64,6 +65,7 @@ export class AgentRunEngine {
    private readonly providersProvider: () => ModelProviderConfig[],
    private readonly backgroundTasks: BackgroundTaskService | null,
     private readonly notificationQueue: SessionNotificationQueue,
+    private readonly followupQueue: SessionFollowupQueue,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly eventPublisher: AgentExecutionEventPublisher,
     private readonly permissionPolicy: PermissionPolicyService,
@@ -183,7 +185,25 @@ export class AgentRunEngine {
           resolveDurableStart = resolve;
           rejectDurableStart = reject;
         });
+    // The database fence, rather than a potentially stale in-memory handle,
+    // decides whether this invocation owns the session's root-run slot.
+    let ownsSessionHandle = false;
+    let shouldOwnSessionHandle = input.resume === true;
+    let handlePromise: Promise<unknown> | null = null;
+    const claimSessionHandle = (): void => {
+      if (!shouldOwnSessionHandle || ownsSessionHandle || !handlePromise) return;
+      ownsSessionHandle = true;
+      this.statusTracker.register(taskId, input.sessionId, {
+        abortController,
+        status,
+        promise: handlePromise,
+      });
+    };
     const onStartDisposition = input.resume ? undefined : (disposition: ExecutionStartDisposition): void => {
+      if (disposition.kind === "started") {
+        shouldOwnSessionHandle = true;
+        claimSessionHandle();
+      }
       if (durableSettled) return;
       durableSettled = true;
       resolveDurableStart(disposition);
@@ -219,7 +239,9 @@ export class AgentRunEngine {
       ...(onStartDisposition ? { onStartDisposition } : {}),
       onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
     });
-    this.statusTracker.register(taskId, input.sessionId, { abortController, status, promise });
+    handlePromise = promise;
+    // Handles resume runs, and a (defensive) synchronous start disposition.
+    claimSessionHandle();
     void promise.then(
       (outcome) => {
         if (durableSettled) return;
@@ -232,8 +254,23 @@ export class AgentRunEngine {
         rejectDurableStart(error);
       },
     );
+    // A root can finish after storage fenced this request as a follow-up but
+    // before the request reaches the in-memory queue. In that case its normal
+    // terminal drain has already happened, so schedule the queued item as a
+    // new run once the target root is no longer active.
+    void promise.then(
+      (outcome) => {
+        if (outcome.followup) {
+          this.scheduleDeferredFollowupFallback(outcome.followup.activeRunId, input.sessionId);
+        }
+      },
+      () => undefined,
+    );
     promise.finally(() => {
-      this.statusTracker.unregister(taskId, input.sessionId);
+      if (ownsSessionHandle) {
+        this.statusTracker.unregister(taskId, input.sessionId);
+        void this.startDeferredFollowups(runId);
+      }
       // run 结束后若仍有待投递的后台通知（active run 期间完成的），再编排一轮自动触发
       if (this.backgroundTasks?.hasPendingNotifications(input.sessionId)) {
         this.backgroundTasks.scheduleAutoTrigger(input.sessionId);
@@ -420,6 +457,7 @@ export class AgentRunEngine {
           toolsDeps: this.toolsDeps ?? emptyToolsDeps,
           codeExecutionTools: this.codeExecutionTools,
           taskTools: this.taskTools,
+          followupQueue: this.followupQueue,
           eventPublisher: this.eventPublisher,
           providers: this.providersProvider(),
           dataRoot: this.dataRoot,
@@ -537,6 +575,54 @@ export class AgentRunEngine {
      return { content: errorMessage, success: false };
     }
  }
+
+  private async startDeferredFollowups(runId: string): Promise<void> {
+    const deferred = this.followupQueue.drain(runId);
+    for (const entry of deferred) {
+      const {
+        agent: _agent,
+        run_id: _runId,
+        task_id: _taskId,
+        request_id: _requestId,
+        execution_kind: _executionKind,
+        source: _source,
+        round_index: _roundIndex,
+        ...metadata
+      } = entry.metadata;
+      try {
+        const started = this.startRun({
+          sessionId: entry.sessionId,
+          userId: entry.userId,
+          requestId: entry.requestId,
+          task: entry.displayTask,
+          ...(entry.modelTask !== entry.displayTask ? { modelTask: entry.modelTask } : {}),
+          executionKind: "agent_stream",
+          agent: entry.agent,
+          provider: entry.provider,
+          modelName: entry.modelName,
+          ...(entry.selectedLlm ? { selectedLlm: entry.selectedLlm } : {}),
+          persistUserMessage: { metadata },
+        });
+        await started.durableStarted;
+      } catch (error) {
+        this.logger?.error(
+          {
+            session_id: entry.sessionId,
+            request_id: entry.requestId,
+            active_run_id: runId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "failed to start deferred followup",
+        );
+      }
+    }
+  }
+
+  private scheduleDeferredFollowupFallback(activeRunId: string, sessionId: string): void {
+    const active = this.statusTracker.getRunningHandleBySession(sessionId);
+    if (active?.status.run_id === activeRunId) return;
+    void this.startDeferredFollowups(activeRunId);
+  }
 
   private async persistBackgroundNotifications(sessionId: string, threadKey: string): Promise<void> {
     const payloads = this.notificationQueue.drain(sessionId, new Set());

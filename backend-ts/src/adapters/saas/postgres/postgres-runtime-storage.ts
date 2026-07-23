@@ -231,6 +231,9 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       );
       const activeRunId = active.rows[0]?.run_id;
       if (activeRunId && activeRunId !== input.run.runId) {
+        if (input.deferFollowup) {
+          return { kind: "followup" as const, activeRunId };
+        }
         const stepRows = await transactionExecutor.query<{ payload: unknown }>(
           "SELECT payload FROM saas_run_steps WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3",
           [this.tenantId, input.session.sessionId, activeRunId],

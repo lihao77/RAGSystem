@@ -92,7 +92,7 @@ export class AgentKernel {
       }
       for (let round = 0; ; round++) {
         ctx.throwIfAborted();
-        ctx.appendMessages(await this.refresher.refresh(ctx));
+        ctx.appendMessages(await this.refresher.refresh(ctx, round));
         const roundBeforeOut = await this.hooks.emit("round.before", { ctx, round });
         ctx.setRequestMessages(this.context.buildMessages(ctx));
         // round.before hook 可注入 additionalContext：以 user role + 语义标签追加。

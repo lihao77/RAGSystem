@@ -162,12 +162,24 @@ export interface RuntimeRootFollowupFactoryResult {
 export type RuntimeRootFollowupFactory = (input: { activeRunId: string; roundIndex: number }) => RuntimeRootFollowupFactoryResult;
 
 export interface RuntimeStartOrAppendRootInput extends RuntimeStartRunInput {
+  /**
+   * When set, an active root run is reported without writing a user message.
+   * The execution service queues the message and persists it at the next round boundary.
+   */
+  deferFollowup?: boolean;
   followupFactory: RuntimeRootFollowupFactory;
 }
 
 export type RuntimeStartOrAppendRootResult =
   | ({ kind: "started" } & RuntimeStartRunResult)
-  | { kind: "followup"; activeRunId: string; message: MessageInfo; records: RuntimeRecordEnvelopeResult[] };
+  | {
+      kind: "followup";
+      activeRunId: string;
+      /** Present for legacy callers that persist follow-ups inside the transaction. */
+      message?: MessageInfo;
+      /** Present for legacy callers that persist follow-ups inside the transaction. */
+      records?: RuntimeRecordEnvelopeResult[];
+    };
 
 export interface RuntimeRecordEnvelopeInput {
   step?: AddRunStepInput | null;

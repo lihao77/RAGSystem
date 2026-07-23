@@ -32,6 +32,7 @@ import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 import type { ExecutionMemoryCandidateListPort, MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import { resolveSessionMetadataPort } from "../context/async-session-metadata-resolver.js";
+import type { SessionFollowupQueue } from "../execution/session-followup-queue.js";
 
 export interface SdkRuntimeAdapterDeps {
   storage: ExecutionStorage;
@@ -61,6 +62,8 @@ export interface SdkRuntimeAdapterDeps {
   hooks?: (registry: HookRegistry) => void;
   /** backend 压缩服务（run 内 round.before 触发 + /compact 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
+  /** Follow-ups remain here until the active root run starts its next model round. */
+  followupQueue: SessionFollowupQueue;
 }
 
 export interface SdkExecuteRunInput {
@@ -121,6 +124,62 @@ export interface SdkExecuteRunResult {
   tokenUsage: { inputTokens: number; outputTokens: number };
   /** 本 run 的工具调用次数分布(toolName → count)。 */
   toolCalls: Record<string, number>;
+}
+
+/**
+ * Makes queued follow-ups durable at the boundary before a model round.
+ * The caller appends the returned messages to the SDK working context.
+ */
+export async function persistQueuedFollowupsAtRound(
+  deps: Pick<SdkRuntimeAdapterDeps, "storage" | "eventPublisher" | "followupQueue">,
+  input: {
+    sessionId: string;
+    threadKey: string;
+    runId: string;
+    agentName: string;
+    round: number;
+  },
+): Promise<Array<{ message: ChatMessage; seq: number }>> {
+  const deferred = deps.followupQueue.drain(input.runId);
+  const injected: Array<{ message: ChatMessage; seq: number }> = [];
+  const roundIndex = Math.max(0, input.round - 1);
+  for (const entry of deferred) {
+    const {
+      agent: _agent,
+      run_id: _runId,
+      task_id: _taskId,
+      request_id: _requestId,
+      execution_kind: _executionKind,
+      source: _source,
+      round_index: _roundIndex,
+      ...baseMetadata
+    } = entry.metadata;
+    const message = await deps.storage.conversation.addMessage({
+      sessionId: input.sessionId,
+      role: "user",
+      content: entry.displayTask,
+      threadKey: input.threadKey,
+      metadata: {
+        ...baseMetadata,
+        agent: input.agentName,
+        run_id: input.runId,
+        request_id: entry.requestId,
+        execution_kind: "session_followup",
+        source: "running_session",
+        // The message is read before this round, so it belongs after the prior one.
+        round_index: roundIndex,
+      },
+    });
+    deps.eventPublisher.publishOutputMessageSaved(input.sessionId, input.runId, {
+      message_id: message.id,
+      seq: message.seq,
+      role: message.role,
+      request_id: entry.requestId,
+      round_index: roundIndex,
+    });
+    injected.push({ message: { role: "user", content: message.content ?? "" }, seq: message.seq });
+  }
+  return injected;
 }
 
 /**
@@ -247,20 +306,33 @@ export async function executeRunWithSdk(
     (max, m) => (m && typeof m.seq === "number" && m.seq > max ? m.seq : max),
     0,
   );
-  // per-run refresher:持 store,每轮从 store 拉本 run 启动后新落库的 user 消息 append 进 SDK 工作副本。
-  // SDK 零数据库(纯计算),store 读在 backend;返回的 user 消息不重复落库(已由 startStream running 分支落)。
+  // Per-run refresher: follow-ups first become durable at this round boundary,
+  // then enter the SDK working copy. This prevents them from being sequenced
+  // between tool calls and tool results of the preceding round.
   const refresher: MessageRefresher = {
-    refresh: async (ctx) => {
+    refresh: async (ctx, round) => {
       const sid = ctx.session.sessionId;
       const tk = ctx.session.threadKey;
+      const injected = await persistQueuedFollowupsAtRound(deps, {
+        sessionId: sid,
+        threadKey: tk,
+        runId: input.runId,
+        agentName: input.agent.agent_name,
+        round,
+      });
+      let newestSeq = lastSeq;
+      for (const entry of injected) newestSeq = Math.max(newestSeq, entry.seq);
       const recent = await deps.storage.conversation.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
       const newer = recent
-        .filter((m) => typeof m.seq === "number" && m.seq > lastSeq && m.role === "user")
+        .filter((m) => typeof m.seq === "number" && m.seq > newestSeq && m.role === "user")
         .sort((a, b) => (a.seq as number) - (b.seq as number));
-      if (newer.length === 0) return [];
-      const lastMsg = newer[newer.length - 1];
-      if (lastMsg && typeof lastMsg.seq === "number") lastSeq = lastMsg.seq;
-      return newer.map((m): ChatMessage => ({ role: "user", content: m.content ?? "" }));
+      const lastMsg = newer.at(-1);
+      if (lastMsg && typeof lastMsg.seq === "number") newestSeq = lastMsg.seq;
+      lastSeq = newestSeq;
+      return [
+        ...injected.map((entry) => entry.message),
+        ...newer.map((m): ChatMessage => ({ role: "user", content: m.content ?? "" })),
+      ];
     },
   };
   // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。
@@ -395,6 +467,22 @@ export async function executeRunWithSdk(
   });
   const startDisposition = await persister.startRun();
   if (startDisposition.kind === "followup") {
+    if (!input.initialUserMessageMetadata) {
+      throw new Error("deferred followup requires an initial user message");
+    }
+    deps.followupQueue.enqueue({
+      activeRunId: startDisposition.activeRunId,
+      sessionId: input.sessionId,
+      requestId: input.requestId,
+      displayTask: input.initialUserMessageContent ?? input.task,
+      modelTask: input.task,
+      metadata: input.initialUserMessageMetadata,
+      userId: input.userId ?? null,
+      agent: input.agent,
+      provider: input.provider,
+      modelName: input.modelName,
+      selectedLlm: input.selectedLlm ?? null,
+    });
     input.onStartDisposition?.(startDisposition);
     return { content: "", success: true, followup: startDisposition, tokenUsage: { inputTokens: 0, outputTokens: 0 }, toolCalls: {} };
   }

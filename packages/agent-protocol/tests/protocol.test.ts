@@ -91,4 +91,24 @@ describe("agent-protocol envelope compatibility", () => {
       lineage: { parent_call_id: "root-call" },
     });
   });
+
+  it("保留 message_saved 的服务端 round_index", () => {
+    const parsed = ServerToClientEnvelopeSchema.parse({
+      type: "state_sync",
+      session_id: "session-1",
+      run_id: "run-1",
+      payload: {
+        category: "message_saved",
+        ref: {
+          message_id: "message-1",
+          role: "user",
+          round_index: 2,
+        },
+      },
+    });
+
+    expect(parsed.payload).toMatchObject({
+      ref: { message_id: "message-1", round_index: 2 },
+    });
+  });
 });

@@ -39,7 +39,14 @@ function withMock(setup, run) {
 function createDeps(overrides = {}) {
   setActivePinia(createPinia());
   const sessionRunStore = useSessionRunStore();
-  const { currentSessionId, messages, isLoading, sessionTaskInfo, contextUsage } = storeToRefs(sessionRunStore);
+  const {
+    currentSessionId,
+    messages,
+    isLoading,
+    sessionTaskInfo,
+    contextUsage,
+    pendingFollowupCandidates,
+  } = storeToRefs(sessionRunStore);
   currentSessionId.value = 'session-1';
 
   const calls = {
@@ -66,6 +73,7 @@ function createDeps(overrides = {}) {
     isLoading,
     sessionTaskInfo,
     contextUsage,
+    pendingFollowupCandidates,
     activeRun: sessionRunStore.activeRun,
     ensureSession: async () => deps.currentSessionId.value,
     getWS: () => ws,
@@ -89,7 +97,7 @@ function createDeps(overrides = {}) {
   return { deps, calls };
 }
 
-test('运行中发送会作为 session followup 追加到当前 assistant 后并复用当前 run', async (t) => {
+test('运行中发送先进入 followup 候选区，等待服务端确认', async (t) => {
   installBrowserGlobals(t);
 
   await withMock((mock) => {
@@ -112,15 +120,18 @@ test('运行中发送会作为 session followup 追加到当前 assistant 后并
     const sender = useSessionAgentClient(deps);
     await sender.send({ content: '补充：优先处理 A', attachments: [] });
 
-    assert.equal(deps.messages.value.length, 3);
+    assert.equal(deps.messages.value.length, 2);
     assert.equal(deps.messages.value[1].role, 'assistant');
     assert.equal(deps.messages.value[1].content, '正在处理');
-    assert.equal(deps.messages.value[2].role, 'user');
-    assert.equal(deps.messages.value[2].content, '补充：优先处理 A');
-    assert.equal(deps.messages.value[2].metadata.execution_kind, 'session_followup');
-    assert.equal(deps.messages.value[2].metadata.source, 'running_session');
-    assert.equal(deps.messages.value[2].metadata.run_id, 'run-1');
-    assert.equal(typeof deps.messages.value[2].metadata.request_id, 'string');
+    assert.equal(deps.pendingFollowupCandidates.value.length, 1);
+    const candidate = deps.pendingFollowupCandidates.value[0];
+    assert.equal(candidate.role, 'user');
+    assert.equal(candidate.content, '补充：优先处理 A');
+    assert.equal(candidate.metadata.execution_kind, 'session_followup');
+    assert.equal(candidate.metadata.source, 'running_session');
+    assert.equal(candidate.metadata.run_id, 'run-1');
+    assert.equal(candidate.metadata.persistence_status, 'pending');
+    assert.equal(typeof candidate.metadata.request_id, 'string');
     assert.equal(deps.activeRun.assistantMsgIndex, 1);
     assert.equal(deps.activeRun.runId, 'run-1');
     assert.equal(deps.isLoading.value, true);
@@ -129,7 +140,7 @@ test('运行中发送会作为 session followup 追加到当前 assistant 后并
     assert.equal(calls.wsSend[0].type, 'user_driven_change');
     assert.equal(calls.wsSend[0].payload.category, 'task_submit');
     assert.equal(calls.wsSend[0].payload.task, '补充：优先处理 A');
-    assert.equal(calls.wsSend[0].payload.request_id, deps.messages.value[2].metadata.request_id);
+    assert.equal(calls.wsSend[0].payload.request_id, candidate.metadata.request_id);
   });
 });
 
@@ -156,14 +167,15 @@ test('本地 activeRun 丢失但服务端仍 running 时发送会升级为 sessi
     const sender = useSessionAgentClient(deps);
     await sender.send({ content: '后台仍在跑时补充', attachments: [] });
 
-    assert.equal(deps.messages.value.length, 3);
-    assert.equal(deps.messages.value[2].role, 'user');
-    assert.equal(deps.messages.value[2].metadata.execution_kind, 'session_followup');
-    assert.equal(deps.messages.value[2].metadata.source, 'running_session');
-    assert.equal(deps.messages.value[2].metadata.run_id, 'run-from-status');
+    assert.equal(deps.messages.value.length, 2);
+    assert.equal(deps.pendingFollowupCandidates.value.length, 1);
+    const candidate = deps.pendingFollowupCandidates.value[0];
+    assert.equal(candidate.metadata.execution_kind, 'session_followup');
+    assert.equal(candidate.metadata.source, 'running_session');
+    assert.equal(candidate.metadata.run_id, 'run-from-status');
     assert.equal(deps.isLoading.value, false);
     assert.equal(calls.wsSend.length, 1);
-    assert.equal(calls.wsSend[0].payload.request_id, deps.messages.value[2].metadata.request_id);
+    assert.equal(calls.wsSend[0].payload.request_id, candidate.metadata.request_id);
   });
 });
 
@@ -210,9 +222,10 @@ test('连续发送按调用顺序串行化且第二条复用首个 active run', 
     assert.deepEqual(deps.messages.value.map(message => [message.role, message.content]), [
       ['user', '第一条'],
       ['assistant', ''],
-      ['user', '第二条'],
     ]);
-    assert.equal(deps.messages.value[2].metadata.execution_kind, 'session_followup');
+    assert.equal(deps.pendingFollowupCandidates.value.length, 1);
+    assert.equal(deps.pendingFollowupCandidates.value[0].content, '第二条');
+    assert.equal(deps.pendingFollowupCandidates.value[0].metadata.execution_kind, 'session_followup');
     assert.equal(deps.activeRun.assistantMsgIndex, 1);
     assert.deepEqual(calls.wsSend.map(event => event.payload.task), ['第一条', '第二条']);
   });

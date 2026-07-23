@@ -108,47 +108,22 @@ export class AsyncKernelEventPersister {
     const result = this.ctx.parentRunId == null && this.ctx.initialUserMessage
       ? await this.storage.operations.startOrAppendRoot({
           ...startInput,
-          followupFactory: ({ activeRunId, roundIndex }) => {
-            const proposed = this.ctx.initialUserMessage!;
-            const { run_id: _runId, task_id: _taskId, execution_kind: _kind, ...baseMetadata } = proposed.metadata ?? {};
-            return {
-              message: {
-                messageId: proposed.id,
-                sessionId: this.ctx.sessionId,
-                role: "user" as const,
-                content: proposed.content,
-                threadKey: this.ctx.threadKey,
-                metadata: {
-                  ...baseMetadata,
-                  agent: this.ctx.agentName,
-                  run_id: activeRunId,
-                  request_id: this.ctx.requestId ?? null,
-                  execution_kind: "session_followup",
-                  source: "running_session",
-                  round_index: roundIndex,
-                },
-              },
-              recordFactory: (message) => [this.clientEvents.prepare(
-                this.ctx.sessionId,
-                {
-                  type: "state_sync",
-                  session_id: this.ctx.sessionId,
-                  run_id: activeRunId,
-                  payload: { category: "message_saved", ref: { message_id: message.id, seq: message.seq, role: message.role, request_id: this.ctx.requestId ?? undefined } },
-                },
-                { eventId: `${message.id}:followup-saved`, runId: activeRunId, aggregateType: "run", aggregateId: activeRunId },
-              )],
-            };
+          deferFollowup: true,
+          // The deferred branch never calls this factory. Keep the legacy contract
+          // satisfied while moving follow-up persistence to the round boundary.
+          followupFactory: () => {
+            throw new Error("deferred followup factory must not be invoked");
           },
         })
       : { kind: "started" as const, ...await this.storage.operations.startRun(startInput) };
     // Delivery occurs after the atomic commit. A transport failure leaves the
     // rows pending for the dispatcher and must not roll back a durable start.
-    if (result.records.length > 0) {
-      void this.clientEvents.deliver(result.records.map((record) => record.outbox)).catch(() => undefined);
+    const records = result.kind === "started" ? result.records : [];
+    if (records.length > 0) {
+      void this.clientEvents.deliver(records.map((record) => record.outbox)).catch(() => undefined);
     }
     return result.kind === "followup"
-      ? { kind: "followup", activeRunId: result.activeRunId, messageId: result.message.id }
+      ? { kind: "followup", activeRunId: result.activeRunId }
       : { kind: "started" };
   }
 
