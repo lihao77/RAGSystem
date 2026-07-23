@@ -66,6 +66,19 @@ const shots = [
     ],
   },
   {
+    name: 'file-changes-desktop',
+    path: '/?__smoke=artifact',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'expectText', selector: '.artifact-panel', text: '文件变更' },
+      { type: 'click', selector: '[data-output-kind="file-changes"]', waitMs: 500 },
+      { type: 'expectVisible', selector: '.file-changes-sheet' },
+      { type: 'expectText', selector: '.file-changes-sheet', text: 'WaterLevelChart.vue' },
+    ],
+  },
+  {
     name: 'chat-artifact-narrow',
     path: '/?__smoke=artifact',
     width: 1280,
