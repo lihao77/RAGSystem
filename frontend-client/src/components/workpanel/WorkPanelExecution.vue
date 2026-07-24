@@ -26,7 +26,12 @@
         <EmptyState v-if="!executionView.hasNodes" row :title="executionView.emptyText" key="empty" class="wpe-empty-host" />
         <div v-else class="wpe-list" key="list">
          <Transition name="wpe-tree-swap" mode="out-in" appear>
-            <div class="wpe-scroll" :key="messageKey" ref="listRef">
+            <div
+              :key="messageKey"
+              ref="listRef"
+              :class="cn('wpe-scroll', { 'has-return-current': showReturnToCurrent })"
+              @scroll.passive="handleListScroll"
+            >
               <TransitionGroup name="wpe-node" tag="div" class="wpe-node-stack">
                 <ExecutionTimelineNode
                   v-for="(node, i) in executionView.nodes"
@@ -43,6 +48,21 @@
           </Transition>
         </div>
       </Transition>
+
+      <Transition name="wpe-return-current">
+        <Button
+          v-if="showReturnToCurrent"
+          class="wpe-return-current"
+          variant="secondary"
+          size="action"
+          type="button"
+          title="定位正在执行的步骤"
+          @click="returnToCurrentStep"
+        >
+          <LocateFixed data-icon="inline-start" />
+          当前步骤
+        </Button>
+      </Transition>
     </div>
 
     <div class="wpe-inspector-slot" :class="{ 'is-open': selectedNode }">
@@ -54,7 +74,9 @@
 </template>
 
 <script setup>
+import { LocateFixed } from 'lucide-vue-next'
 import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
+import { cn } from '@/lib/utils'
 import { buildExecutionTree } from '../../utils/executionTreeBuilder'
 import {
   flattenExecutionNodes as flattenNodes,
@@ -64,6 +86,7 @@ import {
 import ExecutionTimelineNode from './ExecutionTimelineNode.vue'
 import WorkPanelInspector from './WorkPanelInspector.vue'
 import EmptyState from '../EmptyState.vue'
+import { Button } from '../ui/button'
 
 const props = defineProps({
   executionTree: { type: Object, default: () => ({ root: null, steps: [] }) },
@@ -75,6 +98,7 @@ const props = defineProps({
 
 const listRef = ref(null)
 const selectedNodeKey = ref('')
+const showReturnToCurrent = ref(false)
 let selectionScrollTimer = null
 const nodes = computed(() => buildExecutionTree(props.executionTree, props.injections))
 
@@ -156,11 +180,20 @@ const scrollSignature = computed(() => flatNodes.value.map((node, index) => [
 ].join(':')).join('|'))
 
 watch(scrollSignature, async () => {
-  if (!props.running) return
+  if (!props.running) {
+    showReturnToCurrent.value = false
+    return
+  }
   const shouldFollow = !listRef.value || isListNearBottom(listRef.value)
   await nextTick()
   const el = listRef.value
   if (el && shouldFollow) el.scrollTop = el.scrollHeight
+  updateReturnToCurrentVisibility()
+})
+
+watch([focusKey, () => props.running], async () => {
+  await nextTick()
+  updateReturnToCurrentVisibility()
 })
 
 watch(selectedNode, (node) => {
@@ -171,6 +204,7 @@ watch(selectedNode, (node) => {
 
 watch(() => props.messageKey, () => {
   clearSelectedNode()
+  showReturnToCurrent.value = false
 })
 
 function findNodeByKey(items, key) {
@@ -235,15 +269,46 @@ function findLastByStatus(status) {
 
 function scrollNodeIntoView(key) {
   if (!key || !listRef.value) return
-  const selectorKey = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(key) : key.replace(/"/g, '\\"')
-  const target = listRef.value.querySelector(`[data-node-key="${selectorKey}"]`)
+  const target = findNodeElement(key)
   if (!target) return
   const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  const viewportRect = listRef.value.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
   const viewportHeight = listRef.value.clientHeight
-  const targetTop = target.offsetTop
-  const targetHeight = target.offsetHeight
+  const targetTop = listRef.value.scrollTop + targetRect.top - viewportRect.top
+  const targetHeight = targetRect.height
   const nextTop = Math.max(0, targetTop - Math.max(0, (viewportHeight - targetHeight) / 2))
   listRef.value.scrollTo({ top: nextTop, behavior: reduceMotion ? 'auto' : 'smooth' })
+}
+
+function findNodeElement(key) {
+  if (!key || !listRef.value) return null
+  const selectorKey = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(key) : key.replace(/"/g, '\\"')
+  return listRef.value.querySelector(`[data-node-key="${selectorKey}"]`)
+}
+
+function handleListScroll() {
+  updateReturnToCurrentVisibility()
+}
+
+function updateReturnToCurrentVisibility() {
+  const viewport = listRef.value
+  const target = findNodeElement(focusKey.value)
+  if (!props.running || !viewport || !target) {
+    showReturnToCurrent.value = false
+    return
+  }
+  const viewportRect = viewport.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  const inset = 8
+  showReturnToCurrent.value = targetRect.bottom < viewportRect.top + inset
+    || targetRect.top > viewportRect.bottom - inset
+}
+
+async function returnToCurrentStep() {
+  if (!focusNode.value) return
+  await focusNodeInList(focusNode.value)
+  showReturnToCurrent.value = false
 }
 
 function scheduleSelectionScrollCorrection(key) {
@@ -264,6 +329,11 @@ function isListNearBottom(el) {
 }
 
 function findFocusNode(items) {
+  if (props.running) {
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      if (normalizeStatus(items[i]?.status) === 'running') return items[i]
+    }
+  }
   for (let i = items.length - 1; i >= 0; i -= 1) {
     if (normalizeStatus(items[i]?.status) === 'error') return items[i]
   }
@@ -453,6 +523,29 @@ button.wpe-chip:hover {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
   padding: 0 12px 12px 10px;
+  transition: padding-bottom var(--transition-fast);
+}
+
+.wpe-scroll.has-return-current {
+  padding-bottom: 48px;
+}
+
+.wpe-return-current {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  box-shadow: var(--shadow-md);
+}
+
+.wpe-return-current-enter-active,
+.wpe-return-current-leave-active {
+  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) ease;
+}
+
+.wpe-return-current-enter-from,
+.wpe-return-current-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 .wpe-node-stack {
@@ -583,6 +676,7 @@ button.wpe-chip:hover {
 
   .wpe-summary,
   .wpe-chip,
+  .wpe-scroll,
   .wpe-inspector-slot,
   .wpe-list-state-enter-active,
   .wpe-list-state-leave-active,
@@ -593,6 +687,8 @@ button.wpe-chip:hover {
  .wpe-tree-swap-leave-active,
   .wpe-state-enter-active,
   .wpe-state-leave-active,
+  .wpe-return-current-enter-active,
+  .wpe-return-current-leave-active,
  .wpe-inspector-enter-active,
   .wpe-inspector-leave-active {
     transition-duration: 1ms;
@@ -603,7 +699,9 @@ button.wpe-chip:hover {
   .wpe-tree-swap-enter-from,
   .wpe-tree-swap-leave-to,
   .wpe-node-enter-from,
-  .wpe-node-leave-to {
+  .wpe-node-leave-to,
+  .wpe-return-current-enter-from,
+  .wpe-return-current-leave-to {
     transform: none;
   }
 }
