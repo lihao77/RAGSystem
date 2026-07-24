@@ -21,6 +21,19 @@
         variant="ghost"
         size="sm"
         class="runtime-trigger"
+        title="打开执行过程"
+        aria-label="打开执行过程"
+        @click="emit('openRuntimeCenter', 'execution')"
+      >
+        <Activity />
+        <span class="runtime-trigger-label">执行</span>
+      </Button>
+
+      <Button
+        v-if="currentSessionId"
+        variant="ghost"
+        size="sm"
+        class="runtime-trigger"
         :title="goalTriggerTitle"
         aria-label="打开 Goal"
         @click="emit('openRuntimeCenter', 'goal')"
@@ -90,7 +103,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useMediaQuery } from '@vueuse/core';
-import { Download, Ellipsis, FileText, ListTodo, Moon, Sun, Target } from 'lucide-vue-next';
+import { Activity, Download, Ellipsis, FileText, ListTodo, Moon, Sun, Target } from 'lucide-vue-next';
 import { IconMenu } from '../icons';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';

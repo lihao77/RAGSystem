@@ -395,7 +395,6 @@ const {
   createAssistantMessage,
   normalizeAssistantExecutionState,
   applyEnvelopeToMessage,
-  toggleExecutionView,
   createAssistantMessageFromHistory,
   isRootEvent,
   isMasterEvent,
@@ -667,7 +666,6 @@ const {
 
 const messageContext = reactive({
   messageKey,
-  toggleExecutionView,
   getAssistantRuntimeStatusText,
   handleEnterSituation,
   getAttachmentPreviewUrl,
@@ -686,14 +684,12 @@ const messageContext = reactive({
   },
   rollbackAndRetry,
   currentSessionId,
-  showWorkPanel: visibleWorkPanel,
   isLoading,
   selectedWorkPanelMessageKey,
   editingMessage,
   editingDraft,
   editingAttachmentsDraft,
   editingSubmitting,
-  injectionsByRunId,
 });
 provide('messageContext', messageContext);
 

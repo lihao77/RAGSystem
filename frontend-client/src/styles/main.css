@@ -291,10 +291,6 @@
     --top-bar-divider-left: var(--spacing-md);
     --top-bar-divider-right: var(--spacing-md);
     --hamburger-display: none;
-    --step-tools-margin-left: var(--spacing-md);
-    --step-tools-padding-left: var(--spacing-md);
-    --subtasks-padding: var(--spacing-md);
-    --round-header-font-size: 13px;
     --user-message-max-width: 85%;
 }
 
@@ -954,12 +950,6 @@ input[type='number'] {
 
         --hamburger-display: flex;
 
-        --step-tools-margin-left: var(--spacing-xs);
-        --step-tools-padding-left: var(--spacing-xs);
-
-        --subtasks-padding: 12px;
-        --round-header-font-size: 12px;
-
         --user-message-max-width: 95%;
 
         --font-size-base: 0.9375rem;
@@ -990,12 +980,6 @@ input[type='number'] {
         --top-bar-divider-left: var(--spacing-xs);
         --top-bar-divider-right: var(--spacing-xs);
 
-        --step-tools-margin-left: var(--spacing-xs);
-        --step-tools-padding-left: var(--spacing-xs);
-
-        --subtasks-padding: var(--spacing-sm);
-        --round-header-font-size: 11px;
-
         --font-size-base: 0.875rem;
         /* 14px */
         --font-size-sm: 0.75rem;
@@ -1018,12 +1002,6 @@ input[type='number'] {
         --top-bar-padding-x: var(--spacing-xs);
         --top-bar-divider-left: var(--spacing-xs);
         --top-bar-divider-right: var(--spacing-xs);
-
-        --step-tools-margin-left: var(--spacing-xs);
-        --step-tools-padding-left: var(--spacing-xs);
-
-        --subtasks-padding: var(--spacing-xs);
-        --round-header-font-size: 10px;
 
         --font-size-base: 0.8125rem;
         /* 13px */

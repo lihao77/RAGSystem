@@ -13,10 +13,7 @@ export function useChatMessageRuntime({
   showToast,
 }) {
   const { currentSessionId, messages } = storeToRefs(useSessionRunStore());
-  const execution = useMessageExecution({
-    currentSessionId,
-    showToast,
-  });
+  const execution = useMessageExecution({ currentSessionId });
 
   const workPanel = useWorkPanelSelection({
     messages,

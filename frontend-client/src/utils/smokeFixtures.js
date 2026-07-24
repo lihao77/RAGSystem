@@ -132,7 +132,6 @@ export function createSmokeArtifactMessages() {
       '图表下方应继续显示文本内容，移动端和桌面端都不能出现横向溢出。',
     ].join('\n'),
     executionTree,
-    showFullSubtasks: false,
     status: [],
     finished: true,
     stopped: false,

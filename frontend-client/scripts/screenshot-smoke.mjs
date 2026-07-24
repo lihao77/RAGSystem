@@ -39,6 +39,19 @@ const shots = [
     ],
   },
   {
+    name: 'chat-mobile-runtime-execution',
+    path: '/?__smoke=artifact',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'expectVisible', selector: '[aria-label="打开执行过程"]' },
+      { type: 'click', selector: '[aria-label="打开执行过程"]', waitMs: 400 },
+      { type: 'expectVisible', selector: '.work-panel--mobile' },
+      { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
+    ],
+  },
+  {
     name: 'chat-mobile-session-menu',
     path: '/?__smoke=artifact',
     width: 390,

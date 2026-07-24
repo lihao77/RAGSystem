@@ -13,9 +13,9 @@
       </Button>
     </template>
 
-    <template v-if="msg.role === 'assistant' && msg.finished">
+    <template v-if="msg.role === 'assistant'">
       <Button
-        v-if="hasExecutionContent(msg)"
+        v-if="hasExecutionContent(msg) || !msg.finished"
         variant="ghost"
         size="icon-xs"
         :active="messageContext.selectedWorkPanelMessageKey === messageContext.getWorkPanelMessageKey(msg)"
@@ -30,33 +30,35 @@
           <circle cx="17" cy="9" r="3" />
         </svg>
       </Button>
-      <Button variant="ghost" size="icon-xs" :aria-label="copied ? '已复制' : '复制'" :title="copied ? '已复制' : '复制'" @click="onCopy(msg)">
-        <IconCheck v-if="copied" :size="14" />
-        <IconCopy v-else :size="14" />
-      </Button>
-      <Button
-        v-if="retryMessage"
-        variant="ghost"
-        size="icon-xs"
-        :disabled="messageContext.isLoading"
-        aria-label="重试"
-        title="重试"
-        @click="messageContext.rollbackAndRetry(retryMessage)"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-          <path d="M3 3v5h5" />
-          <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-          <path d="M16 16h5v5" />
-        </svg>
-      </Button>
-      <span
-        v-if="getMessageExecutionTimeText(msg)"
-        class="message-execution-time"
-        :title="getMessageExecutionTimeTitle(msg)"
-      >
-        {{ getMessageExecutionTimeText(msg) }}
-      </span>
+      <template v-if="msg.finished">
+        <Button variant="ghost" size="icon-xs" :aria-label="copied ? '已复制' : '复制'" :title="copied ? '已复制' : '复制'" @click="onCopy(msg)">
+          <IconCheck v-if="copied" :size="14" />
+          <IconCopy v-else :size="14" />
+        </Button>
+        <Button
+          v-if="retryMessage"
+          variant="ghost"
+          size="icon-xs"
+          :disabled="messageContext.isLoading"
+          aria-label="重试"
+          title="重试"
+          @click="messageContext.rollbackAndRetry(retryMessage)"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+            <path d="M16 16h5v5" />
+          </svg>
+        </Button>
+        <span
+          v-if="getMessageExecutionTimeText(msg)"
+          class="message-execution-time"
+          :title="getMessageExecutionTimeTitle(msg)"
+        >
+          {{ getMessageExecutionTimeText(msg) }}
+        </span>
+      </template>
     </template>
   </div>
 </template>

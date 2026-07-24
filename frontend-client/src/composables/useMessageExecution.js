@@ -10,7 +10,6 @@ export const createAssistantMessage = (overrides = {}) => ({
   role: 'assistant',
   content: '',
   executionTree: { root: null, steps: [] },
-  showFullSubtasks: false,
   status: [],
   finished: false,
   has_execution: false,
@@ -82,23 +81,6 @@ export function useMessageExecution(deps) {
     }
   };
 
-  const toggleExecutionView = async (msg) => {
-    if (!msg) return;
-    if (msg.showFullSubtasks) {
-      msg.showFullSubtasks = false;
-      return;
-    }
-    if (msg.has_execution && !msg.executionStepsLoaded) {
-      try {
-        await ensureExecutionStepsLoaded(msg);
-      } catch (_) {
-        deps.showToast(msg.executionStepsLoadError || '加载执行过程失败');
-        return;
-      }
-    }
-    msg.showFullSubtasks = true;
-  };
-
   const createAssistantMessageFromHistory = (item) => {
     const interrupted = Boolean(item.metadata?.interrupted);
     return createAssistantMessage({
@@ -145,7 +127,6 @@ export function useMessageExecution(deps) {
     ensureExecutionTreeState,
     applyEnvelopeToMessage,
     ensureExecutionStepsLoaded,
-    toggleExecutionView,
     createAssistantMessageFromHistory,
     isRootEvent,
     isMasterEvent,

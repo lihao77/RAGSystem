@@ -455,7 +455,6 @@
 .message {
   display: flex;
   flex-direction: column;
-  /* 改为纵向布局，让 subtasks-container-full 和 message-content-wrapper 上下排列 */
   gap: var(--spacing-md);
   opacity: 0;
   /* Apple-style smooth entrance */
@@ -483,12 +482,6 @@
     opacity: 1;
     transform: translateY(0) scale(1);
   }
-}
-
-/* Subtasks Container - Assistant 消息固定占满 85% */
-.message.assistant .subtasks-container-full {
-  width: 100%;
-  display: block;
 }
 
 .message.user {
@@ -796,167 +789,6 @@
   }
 }
 
-/* Subtasks Container */
-
-.subtasks-full-view {
-  /* 与 Ticker 形成统一容器 */
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--color-border);
-  border-top: none;
-  /* 移除顶部边框以衔接 Ticker */
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-  /* 下方圆角 */
-  padding: 0 var(--subtasks-padding);
-  margin-top: 0;
-  /* 移除 transition，由 JS 钩子控制动画 */
-  overflow: hidden;
-}
-
-/* 动画类名对应 Vue transition name="expand" */
-.expand-enter-active,
-.expand-leave-active {
-  overflow: hidden;
-  /* 使用较大上限以保留展开/收起动画，不限制内容高度 */
-  max-height: 3000px;
-  transition: max-height 0.35s var(--ease-material),
-              opacity 0.3s var(--ease-material),
-              padding 0.3s var(--ease-material),
-              transform 0.3s var(--ease-material);
-}
-
-.expand-enter-from,
-.expand-leave-to {
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
-  transform: translateY(-6px);
-  max-height: 0 !important;
-}
-
-.expand-enter-to,
-.expand-leave-from {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.subtasks-list-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--spacing-md);
-  /* 移除下划线，让界面更干净 */
-  /* padding-bottom: var(--spacing-sm); */
-  /* border-bottom: 1px solid var(--color-border); */
-  padding-left: var(--spacing-sm);
-}
-
-.subtasks-list-header h4 {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  margin: 0;
-}
-
-.toggle-minimal-btn {
-  background: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-  font-size: 0.8rem;
-  padding: 4px 10px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.toggle-minimal-btn:hover {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-}
-
-.execution-steps-section {
-  margin-bottom: var(--spacing-lg);
-  padding-bottom: var(--spacing-md);
-  border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
-}
-
-.execution-steps-label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-sm);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
-.execution-steps-label .pulse-icon {
-  font-size: var(--font-size-base);
-}
-
-.subtasks-list {
-  display: flex;
-  flex-direction: column;
-  /* gap: var(--spacing-md); */
-  /* 移除原有间距，由分割线或 padding 控制 */
-}
-
-/* 🎯 V2: 轮次分组样式 */
-.round-group {
-  margin-bottom: var(--spacing-lg);
-}
-
-.round-group:last-child {
-  margin-bottom: 0;
-}
-
-.round-header {
-  font-size: var(--round-header-font-size);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-sm);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-left: 2px solid var(--color-interactive);
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-sm);
-}
-
-/* 覆盖 SubtaskCard 样式以适应列表视图 */
-/* 让卡片背景透明，避免嵌套卡片效果 */
-/* NOTE: !important 是必要的 —— SubtaskCard 使用 scoped 样式，其 [data-v-xxx] 属性
-   选择器与  选择器具有相同优先级，且组件自身样式加载顺序靠后，
-   不加 !important 会被组件内部样式覆盖 */
-.subtasks-list .subtask-card {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  border-radius: 0 !important;
-  margin-bottom: 0 !important;
-  animation: none !important;
-}
-
-.subtasks-list .subtask-card:last-child {
-  border-bottom: none !important;
-}
-
-.subtasks-list .subtask-header {
-  background: transparent !important;
-  padding: var(--spacing-sm) var(--spacing-xs) !important;
-}
-
-.subtasks-list .subtask-body,
-.subtasks-list .subtask-details,
-.subtasks-list .subtask-preview {
-  background: transparent !important;
-  padding-left: var(--spacing-md) !important;
-  padding-right: var(--spacing-xs) !important;
-  padding-top: 0 !important;
-  padding-bottom: var(--spacing-md) !important;
-}
-
-
 /* ===== Status Updates ===== */
 .status-updates {
   display: flex;
@@ -1154,11 +986,6 @@
     border-radius: 0;
   }
 
-  .step-tools {
-    margin-left: var(--step-tools-margin-left);
-    padding-left: var(--step-tools-padding-left);
-  }
-
   /* 移动端消息布局调整 */
   .chat-messages {
     padding-top: calc(2 * var(--spacing-sm) + var(--chat-mobile-top-offset));
@@ -1175,7 +1002,7 @@
     height: var(--welcome-logo-size);
   }
 
-  /* 聊天内容和子任务区域在手机上进一步压缩留白 */
+  /* 移动端聊天内容进一步压缩留白 */
   .message-stream {
     gap: var(--spacing-sm);
   }
@@ -1187,29 +1014,6 @@
   .message-content {
     font-size: 0.9rem;
     line-height: 1.6;
-  }
-
-  .subtasks-full-view {
-    padding: 0 var(--spacing-md);
-  }
-
-  .execution-steps-section {
-    margin-bottom: var(--spacing-md);
-    padding-bottom: var(--spacing-sm);
-  }
-
-  .execution-steps-label {
-    font-size: 0.8rem;
-    margin-bottom: var(--spacing-xs);
-  }
-
-  .round-group {
-    margin-bottom: var(--spacing-md);
-  }
-
-  .round-header {
-    margin-bottom: var(--spacing-xs);
-    padding: var(--spacing-xs) var(--spacing-sm);
   }
 
   /* 状态标签移动端优化 */
@@ -1233,21 +1037,8 @@
     overflow: visible;
   }
 
-  .subtasks-full-view {
-    padding: 0 var(--spacing-sm);
-  }
-
-  .step-tools {
-    margin-left: var(--step-tools-margin-left);
-    padding-left: var(--step-tools-padding-left);
-  }
-
   .message-content {
     font-size: 0.85rem;
-  }
-
-  .execution-steps-label {
-    font-size: var(--font-size-xs);
   }
 
   .status-tag {
