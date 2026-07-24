@@ -11,7 +11,7 @@ export const AgentLlmConfigSchema = z.object({
   extra_params: z.record(z.unknown()).optional().default({}),
 });
 
-export const AgentConfigSchema = z.object({
+const AgentConfigObjectSchema = z.object({
   agent_name: z.string().min(1),
   display_name: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
@@ -40,13 +40,18 @@ export const AgentConfigSchema = z.object({
       write_scopes: ["session", "user"],
       archive_scopes: ["session", "user"],
     }),
+  goals: z
+    .object({
+      enabled: z.boolean().optional().default(false),
+    })
+    .optional()
+    .default({ enabled: false }),
   tasks: z
     .object({
-      workflow: z.boolean().optional().default(false),
       background: z.boolean().optional().default(false),
     })
     .optional()
-    .default({ workflow: false, background: false }),
+    .default({ background: false }),
   delegation: z
     .object({ enabled_agents: z.array(z.string()).optional().default([]) })
     .optional()
@@ -71,6 +76,18 @@ export const AgentConfigSchema = z.object({
     }),
   custom_params: z.record(z.unknown()).optional().default({}),
 });
+
+/** Preserve the old workflow capability when reading pre-Goal agent configs. */
+export const AgentConfigSchema = z.preprocess((value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const config = value as Record<string, unknown>;
+  if (config.goals !== undefined) return value;
+  const tasks = config.tasks;
+  if (!tasks || typeof tasks !== "object" || Array.isArray(tasks)) return value;
+  const workflow = (tasks as Record<string, unknown>).workflow;
+  if (typeof workflow !== "boolean") return value;
+  return { ...config, goals: { enabled: workflow } };
+}, AgentConfigObjectSchema);
 
 export const CreateTeamRequestSchema = z.object({
   team_name: z.string().min(1),

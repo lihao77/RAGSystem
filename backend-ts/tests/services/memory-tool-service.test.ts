@@ -343,7 +343,8 @@ function minimalAgent(
       write_scopes: writeScopes,
       archive_scopes: archiveScopes,
     },
-    tasks: { workflow: false, background: false },
+    goals: { enabled: false },
+    tasks: { background: false },
     delegation: { enabled_agents: [] },
     knowledge_base: {
       enabled: false,

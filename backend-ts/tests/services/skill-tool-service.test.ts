@@ -332,7 +332,8 @@ describe("SkillToolService", () => {
     });
 
     const agent = skillAgent(["demo-skill"]);
-    agent.tasks = { workflow: false, background: true };
+    agent.goals = { enabled: false };
+    agent.tasks = { background: true };
     const started = await service.executeSkillScript(
       { skillName: "demo-skill", scriptName: "report.py", arguments: [], runInBackground: true },
       toolContext({ sessionId: "bg-session", runId: "run-1", taskId: "task-1" }),
@@ -507,7 +508,8 @@ function skillAgent(enabledSkills: string[], defaultEntry = false, workspaceRoot
       write_scopes: ["session"],
       archive_scopes: ["session"],
     },
-    tasks: { workflow: false, background: false },
+    goals: { enabled: false },
+    tasks: { background: false },
     delegation: { enabled_agents: [] },
     knowledge_base: {
       enabled: false,

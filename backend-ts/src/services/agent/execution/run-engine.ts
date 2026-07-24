@@ -271,10 +271,10 @@ export class AgentRunEngine {
         this.statusTracker.unregister(taskId, input.sessionId);
         void this.startDeferredFollowups(runId);
       }
-      // run 结束后若仍有待投递的后台通知（active run 期间完成的），再编排一轮自动触发
-      if (this.backgroundTasks?.hasPendingNotifications(input.sessionId)) {
-        this.backgroundTasks.scheduleAutoTrigger(input.sessionId);
-      }
+      // 根 run 结束后统一触发 Session idle 检查。实际是否需要新 run 由 launcher
+      // 根据后台任务、待消费通知和 active Goal 再次判定；BackgroundTaskService
+      // 的 session 级定时器会合并重复 terminal/notification 事件。
+      this.backgroundTasks?.scheduleAutoTrigger(input.sessionId);
     });
 
     return {

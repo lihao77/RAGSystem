@@ -118,6 +118,21 @@ export class BackgroundTaskService {
   }
 
   /**
+   * 判断会话下是否仍有未结束的后台任务。Goal continuation 只能在整个
+   * Session 真正 idle 时启动，因此不能只看通知队列是否为空。
+   */
+  hasRunningTasks(sessionId: string): boolean {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      return false;
+    }
+    this.cleanupExpiredTasks();
+    return Array.from(this.tasks.values()).some(
+      (task) => task.session_id === normalizedSessionId && task.status === "running",
+    );
+  }
+
+  /**
    * 编排自动触发：triggeringSessions 去重 + setTimeout 1s 后调 onTaskCompleted（给当前 run 收尾
    * 留窗口，对齐 Python notification_trigger.time.sleep(1.0)）。由后台完成（publishCompleted）与
    * run 结束（run-engine promise.finally）两处调用。
@@ -457,7 +472,6 @@ function positiveInt(value: unknown, fallback: number): number {
 function positiveIntOrNull(value: unknown): number | null {
   return Number.isInteger(value) && Number(value) >= 1 ? Number(value) : null;
 }
-
 
 
 

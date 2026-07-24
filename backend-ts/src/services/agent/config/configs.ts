@@ -48,7 +48,8 @@ export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
       default_entry: true,
       tools: ["read_file", "write_file", "edit_file", "preview_data_structure", "execute_bash", "execute_code", "glob", "grep", "web_fetch", "todo_write"],
       delegation: specialistAgents,
-      tasks: { workflow: true, background: true },
+      goals: { enabled: true },
+      tasks: { background: true },
     }),
     team_maker: buildSystemAgentConfig({
       agent_name: "team_maker",
@@ -114,7 +115,8 @@ export function buildCustomAgentConfig(input: CreateAgentRequest): AgentConfig {
       write_scopes: ["session", "user"],
       archive_scopes: ["session", "user"],
     },
-    tasks: { workflow: false, background: false },
+    goals: { enabled: false },
+    tasks: { background: false },
     delegation: { enabled_agents: [] },
     knowledge_base: {
       enabled: false,
@@ -174,7 +176,8 @@ function buildSystemAgentConfig(input: {
   tools?: string[];
   skills?: string[];
   delegation?: string[];
-  tasks?: { workflow?: boolean; background?: boolean };
+  goals?: { enabled?: boolean };
+  tasks?: { background?: boolean };
 }): AgentConfig {
   return normalizeConfig({
     agent_name: input.agent_name,
@@ -192,7 +195,8 @@ function buildSystemAgentConfig(input: {
       write_scopes: ["session", "user"],
       archive_scopes: ["session", "user"],
     },
-    tasks: { workflow: false, background: false, ...(input.tasks ?? {}) },
+    goals: { enabled: false, ...(input.goals ?? {}) },
+    tasks: { background: false, ...(input.tasks ?? {}) },
     delegation: { enabled_agents: input.delegation ?? [] },
     knowledge_base: {
       enabled: false,

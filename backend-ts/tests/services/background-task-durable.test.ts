@@ -50,6 +50,31 @@ describe("durable BackgroundTaskService", () => {
     expect(service.cancel("stale")).toBe(false);
     service.dispose();
   });
+
+  it("reports running work per session until the callable finishes", async () => {
+    const service = new BackgroundTaskService();
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-bg-idle-"));
+    roots.push(outputDir);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    service.runCallable({
+      outputDir,
+      sessionId: "session-a",
+      run: async () => {
+        await gate;
+        return { success: true };
+      },
+    });
+
+    expect(service.hasRunningTasks("session-a")).toBe(true);
+    expect(service.hasRunningTasks("session-b")).toBe(false);
+    release();
+    await eventually(() => !service.hasRunningTasks("session-a"));
+    service.dispose();
+  });
 });
 
 class InMemoryBackgroundTaskRepository implements AsyncBackgroundTaskRepository {

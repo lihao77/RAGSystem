@@ -120,7 +120,8 @@ export function createSessionEnvelopeDispatcher({
         && message.metadata?.persistence_status === 'pending',
     );
     if (pendingFollowup) return pendingFollowup;
-    return messages.value[activeRun.assistantMsgIndex - 1] || null;
+    const precedingMessage = messages.value[activeRun.assistantMsgIndex - 1] || null;
+    return precedingMessage?.role === 'user' ? precedingMessage : null;
   };
 
   /** @param {import('./sessionCoreTypes.js').SessionMessage} message */
@@ -356,9 +357,14 @@ export function createSessionEnvelopeDispatcher({
           deps.cacheMessages(sessionId, messages.value);
           deps.updateRecentSession(sessionId, userMessage.content, new Date().toISOString());
         }
-        if (event.payload?.source === 'system.bg_notification' && event.payload?.task) {
+        const systemUserMessageSource = event.payload?.source === 'system.bg_notification'
+          ? 'background_notification'
+          : event.payload?.source === 'system.goal_continuation'
+            ? 'goal_continuation'
+            : null;
+        if (systemUserMessageSource && event.payload?.task) {
           messages.value.push(createUserMessage(event.payload.task, [], {
-            source: 'background_notification',
+            source: systemUserMessageSource,
             request_id: event.payload?.request_id || null,
             run_id: nextRunId,
           }));

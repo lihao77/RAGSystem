@@ -38,6 +38,7 @@ import type { SessionNotificationQueue } from "../../services/runtime/session-no
 import type { MemoryToolOperations } from "../../tools/MemoryTools/MemoryExecution.js";
 import type { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
 import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
+import type { GoalStore } from "./goals.js";
 import type {
   AgentDelegationStorePort,
   AgentMetricsStorePort,
@@ -98,6 +99,7 @@ export interface RuntimeContainerBase {
   readonly bashTools: CommandExecutionPort | null;
   readonly backgroundTasks: BackgroundTaskService;
   readonly taskTools: TaskToolService;
+  readonly goalStore: GoalStore;
   readonly pendingInteractions: PendingInteractionPort;
   readonly interactionCoordinator: InteractionCoordinator;
   readonly hostToolRegistry: HostToolRegistry;
@@ -158,6 +160,7 @@ interface CoreRuntimeDependenciesBase {
   bashTools: CommandExecutionPort | null;
   backgroundTasks: BackgroundTaskService;
   taskTools: TaskToolService;
+  goalStore: GoalStore;
   notificationQueue: SessionNotificationQueue;
   hostToolRegistry: HostToolRegistry;
   delegationPending: DelegationPendingService;

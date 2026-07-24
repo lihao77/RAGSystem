@@ -254,7 +254,8 @@ function minimalAgent(): AgentConfig {
       write_scopes: [],
       archive_scopes: [],
     },
-    tasks: { workflow: false, background: false },
+    goals: { enabled: false },
+    tasks: { background: false },
     delegation: { enabled_agents: [] },
     knowledge_base: {
       enabled: false,

@@ -1,5 +1,9 @@
 const TOOL_DISPLAY_NAMES = {
   request_user_input: '请求用户输入',
+  goal_create: '创建 Goal',
+  goal_get: '读取 Goal',
+  goal_update: '更新 Goal',
+  goal_list: 'Goal 历史',
 }
 
 const SKILL_TOOL_TEMPLATES = {
@@ -65,6 +69,7 @@ export function getToolInspectorLabel(toolName = '') {
   if (name === 'request_user_input') return '输入详情'
   if (name === 'call_agent') return 'Agent 调用'
   if (name.includes('skill')) return 'Skill 详情'
+  if (name.startsWith('goal_')) return 'Goal 详情'
   if (name === 'todo_write' || name.startsWith('task_')) return '任务详情'
   if (name.includes('memory')) return '记忆详情'
   return '工具详情'
@@ -83,7 +88,7 @@ export function getToolIconKind(toolName = '') {
   if (name.includes('grep') || name.includes('glob') || name.includes('search') || name.includes('query') || name.includes('explore')) return 'search'
   if (name.includes('web') || name.includes('fetch') || name.includes('http') || name.includes('url')) return 'globe'
   if (name.includes('memory') || name.includes('vector') || name.includes('database') || name.includes('store')) return 'database'
-  if (name.includes('task') || name.includes('todo') || name.includes('plan') || name.includes('approval')) return 'task'
+  if (name.includes('goal') || name.includes('task') || name.includes('todo') || name.includes('plan') || name.includes('approval')) return 'task'
   return 'tool'
 }
 
@@ -109,7 +114,7 @@ export function getToolSubtitle(node, options = {}) {
   if (name === 'grep' || name === 'glob') return previewSearchTool(name, args, content, running)
   if (name === 'web_fetch') return previewWebFetch(args, content, running)
   if (name.includes('skill')) return previewSkillTool(name, args, content, metadata, running)
-  if (name === 'todo_write' || name.startsWith('task_')) return previewTaskTool(name, args, content, metadata, running)
+  if (name === 'todo_write' || name.startsWith('task_') || name.startsWith('goal_')) return previewTaskTool(name, args, content, metadata, running)
   if (name.includes('memory')) return previewMemoryTool(name, args, content, metadata, running)
 
   if (VISUALIZATION_TOOLS.includes(name)) {
@@ -248,6 +253,15 @@ function buildToolMeta(node, args, content, metadata, payload) {
     add('任务 ID', pickString(args.task_id, task.id, content?.task_id, metadata.task_id))
     add('状态', statusLabel(pickString(args.status, task.status, metadata.status)))
     add('数量', countLabel(firstNumber(content?.total, content?.items?.length, metadata.total), '项'))
+    return meta
+  }
+
+  if (name.startsWith('goal_')) {
+    const goal = asRecord(content?.goal)
+    add('Goal ID', pickString(args.goal_id, goal.id, metadata.goal_id))
+    add('状态', statusLabel(pickString(args.status, goal.status, metadata.status)))
+    add('阶段', countLabel(firstNumber(goal.steps?.length), '项'))
+    add('数量', countLabel(firstNumber(content?.goals?.length, metadata.count), '项'))
     return meta
   }
 
@@ -451,6 +465,17 @@ function buildToolInputSections(node, args) {
     return compactSections(sections)
   }
 
+  if (name.startsWith('goal_')) {
+    if (name === 'goal_create') {
+      sections.push(section('input-goal-objective', '最终目标', args.objective))
+      sections.push(section('input-goal-criteria', '验收标准', formatList(args.success_criteria || args.successCriteria), 'code'))
+      sections.push(section('input-goal-steps', '阶段', formatContent(args.steps, 1200), 'code'))
+      return compactSections(sections)
+    }
+    sections.push(section('input-goal-args', 'Goal 参数', formatContent(args, 1200), 'code'))
+    return compactSections(sections)
+  }
+
   return []
 }
 
@@ -581,7 +606,7 @@ function buildToolOutputSections(node, args, content, metadata, payload) {
     return compactSections(sections)
   }
 
-  if (name === 'todo_write' || name.startsWith('task_') || name.includes('memory')) {
+  if (name === 'todo_write' || name.startsWith('task_') || name.startsWith('goal_') || name.includes('memory')) {
     if (content !== null && content !== undefined && content !== '') {
       sections.push(section('output-structured-content', '结构化结果', formatContent(content, 1800), 'code'))
     }
@@ -748,6 +773,27 @@ function previewTaskTool(name, args, content, metadata, running) {
     const inProgress = firstNumber(metadata.in_progress)
     const completed = firstNumber(metadata.completed)
     return joinParts([total != null ? `待办 ${total} 项` : '待办已更新', inProgress != null ? `进行中 ${inProgress}` : '', completed != null ? `完成 ${completed}` : ''])
+  }
+
+  if (name.startsWith('goal_')) {
+    const goal = content?.goal || {}
+    const goalId = pickString(args.goal_id, goal.id, metadata.goal_id)
+    const objective = pickString(args.objective, goal.objective)
+    if (running) {
+      const verb = {
+        goal_create: '创建 Goal',
+        goal_get: '读取 Goal',
+        goal_update: '更新 Goal',
+        goal_list: '读取 Goal 历史',
+      }[name] || '处理 Goal'
+      return joinParts([verb, truncateText(objective, 34)])
+    }
+    if (name === 'goal_list') {
+      const total = firstNumber(content?.goals?.length, metadata.count)
+      return total != null ? `Goal 历史 ${total} 项` : 'Goal 历史已更新'
+    }
+    const status = pickString(args.status, content?.status_change?.to, goal.status, metadata.status)
+    return joinParts([goalId ? `Goal ${goalId.slice(0, 8)}` : 'Goal', truncateText(objective, 34), statusLabel(status)])
   }
 
   const task = content?.task || {}

@@ -2,11 +2,12 @@ import type { BackgroundTaskService } from "../../services/runtime/background-ta
 import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import type { ToolWaitResult as RuntimeToolWaitResult, ToolExecutionResult, ToolExecContext } from "@ragsystem/agent-sdk";
 import {
-  isWorkflowTaskId,
-  type UpdateWorkflowTaskInput,
-  type WorkflowTaskStatus,
-  type WorkflowTaskStore,
-} from "../../contracts/runtime/workflow-tasks.js";
+  isGoalId,
+  type GoalStatus,
+  type GoalStep,
+  type GoalStore,
+  type UpdateGoalInput,
+} from "../../contracts/runtime/goals.js";
 import { toolSuccess, toolError } from "../../services/agent/sdk/tool-results.js";
 import {
   asString,
@@ -15,27 +16,26 @@ import {
   isBackgroundTerminalStatus,
 } from "./background-output.js";
 
-export interface TaskCreateInput {
-  subject: string;
-  description: string;
-  activeForm?: string | null | undefined;
-  metadata?: Record<string, unknown> | null | undefined;
+export interface GoalCreateInput {
+  objective: string;
+  successCriteria: string[];
+  steps?: GoalStep[] | null | undefined;
+  checkpoint?: Record<string, unknown> | null | undefined;
+  progress?: Record<string, unknown> | null | undefined;
 }
 
-export interface TaskGetInput {
-  taskId: string;
+export interface GoalGetInput {
+  goalId?: string | null | undefined;
 }
 
-export interface TaskUpdateInput {
-  taskId: string;
-  subject?: string | null | undefined;
-  description?: string | null | undefined;
-  activeForm?: string | null | undefined;
-  owner?: string | null | undefined;
+export interface GoalUpdateInput {
+  goalId?: string | null | undefined;
+  objective?: string | null | undefined;
+  successCriteria?: string[] | null | undefined;
+  steps?: GoalStep[] | null | undefined;
+  checkpoint?: Record<string, unknown> | null | undefined;
+  progress?: Record<string, unknown> | null | undefined;
   status?: string | null | undefined;
-  addBlocks?: string[] | null | undefined;
-  addBlockedBy?: string[] | null | undefined;
-  metadata?: Record<string, unknown> | null | undefined;
 }
 
 export interface TaskOutputInput {
@@ -53,176 +53,132 @@ export class TaskToolService {
   constructor(
     private readonly backgroundTasks: BackgroundTaskService,
     private readonly notificationQueue: SessionNotificationQueue,
-    private readonly workflowTasks: WorkflowTaskStore,
+    private readonly goals: GoalStore,
   ) {}
 
-  async taskCreate(input: TaskCreateInput, context: ToolExecContext): Promise<ToolExecutionResult> {
-    const toolName = "task_create";
+  async goalCreate(input: GoalCreateInput, context: ToolExecContext): Promise<ToolExecutionResult> {
+    const toolName = "goal_create";
     try {
       const sessionId = resolveTaskSessionId(context);
-      const subject = input.subject.trim();
-      const description = input.description.trim();
-      if (!subject || !description) {
-        return toolError(toolName, "task_create 缺少 subject 或 description");
+      const objective = input.objective.trim();
+      if (!objective) {
+        return toolError(toolName, "goal_create 缺少 objective");
       }
-      const task = await this.workflowTasks.create(sessionId, {
-        subject,
-        description,
-        activeForm: input.activeForm?.trim() ?? "",
-        metadata: input.metadata ?? {},
+      const goal = await this.goals.create(sessionId, {
+        objective,
+        successCriteria: input.successCriteria,
+        steps: input.steps ?? [],
+        checkpoint: input.checkpoint ?? {},
+        progress: input.progress ?? {},
       });
       return toolSuccess(
-        { task },
+        { goal },
         {
           toolName,
-          summary: `已创建任务 #${task.id}: ${subject}`,
+          summary: `已创建 Goal：${objective}`,
           outputType: "json",
-          metadata: { task_id: task.id, session_id: sessionId },
+          metadata: { goal_id: goal.id, session_id: sessionId, status: goal.status },
         },
       );
     } catch (error) {
-      return toolError(toolName, `创建任务失败: ${error instanceof Error ? error.message : String(error)}`);
+      return toolError(toolName, `创建 Goal 失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  async taskGet(input: TaskGetInput, context: ToolExecContext): Promise<ToolExecutionResult> {
-    const toolName = "task_get";
+  async goalGet(input: GoalGetInput, context: ToolExecContext): Promise<ToolExecutionResult> {
+    const toolName = "goal_get";
     try {
-      const taskId = input.taskId.trim();
-      assertWorkflowTaskId(taskId);
-      const task = await this.workflowTasks.get(resolveTaskSessionId(context), taskId);
-      if (!task) {
+      const sessionId = resolveTaskSessionId(context);
+      const goalId = input.goalId?.trim() || null;
+      if (goalId) assertGoalId(goalId);
+      const goal = goalId ? await this.goals.get(sessionId, goalId) : await this.goals.getCurrent(sessionId);
+      if (!goal) {
         return toolSuccess(
-          { task: null },
+          { goal: null },
           {
             toolName,
-            summary: `任务 #${taskId} 不存在`,
+            summary: goalId ? `Goal ${goalId} 不存在` : "当前 Session 没有进行中或已暂停的 Goal",
             outputType: "json",
-            metadata: { task_id: taskId, found: false },
+            metadata: { ...(goalId ? { goal_id: goalId } : {}), found: false },
           },
         );
       }
       return toolSuccess(
-        { task },
+        { goal },
         {
           toolName,
-          summary: `已获取任务 #${taskId}: ${task.subject}`,
+          summary: `已获取 Goal：${goal.objective}`,
           outputType: "json",
-          metadata: { task_id: taskId, status: task.status },
+          metadata: { goal_id: goal.id, status: goal.status },
         },
       );
     } catch (error) {
-      return toolError(toolName, `获取任务失败: ${error instanceof Error ? error.message : String(error)}`);
+      return toolError(toolName, `获取 Goal 失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  async taskUpdate(input: TaskUpdateInput, context: ToolExecContext): Promise<ToolExecutionResult> {
-    const toolName = "task_update";
+  async goalUpdate(input: GoalUpdateInput, context: ToolExecContext): Promise<ToolExecutionResult> {
+    const toolName = "goal_update";
     try {
       const sessionId = resolveTaskSessionId(context);
-      const taskId = input.taskId.trim();
-      assertWorkflowTaskId(taskId);
-      assertWorkflowTaskStatus(input.status);
-      assertWorkflowDependencies(taskId, input.addBlocks, input.addBlockedBy);
-      if (input.status === "deleted") {
-        const oldTask = await this.workflowTasks.get(sessionId, taskId);
-        if (!oldTask) {
-          return toolError(toolName, `任务 #${taskId} 不存在`);
-        }
-        const deleted = await this.workflowTasks.delete(sessionId, taskId);
-        if (!deleted) {
-          return toolError(toolName, `任务 #${taskId} 不存在`);
-        }
-        return toolSuccess(
-          {
-            success: true,
-            task_id: taskId,
-            updated_fields: ["status"],
-            status_change: { from: oldTask.status, to: "deleted" },
-          },
-          {
-            toolName,
-            summary: `已删除任务 #${taskId}`,
-            outputType: "json",
-            metadata: { task_id: taskId, status: "deleted" },
-          },
-        );
+      const goalId = input.goalId?.trim() || null;
+      if (goalId) assertGoalId(goalId);
+      const current = goalId
+        ? await this.goals.get(sessionId, goalId)
+        : await this.goals.getCurrent(sessionId);
+      if (!current) return toolError(toolName, "Goal 不存在");
+      assertGoalStatus(input.status);
+      if (input.status === "active" && current.status !== "active") {
+        return toolError(toolName, "已暂停的 Goal 只能由用户通过会话控件恢复");
       }
-      const oldTask = await this.workflowTasks.get(sessionId, taskId);
-      const oldStatus = oldTask?.status ?? null;
-      const updates: UpdateWorkflowTaskInput = {};
+      if ((current.status === "completed" || current.status === "blocked")
+        && input.status != null && input.status !== current.status) {
+        return toolError(toolName, `终态 Goal 不能从 ${current.status} 回退为 ${input.status}`);
+      }
+      const updates: UpdateGoalInput = {};
       const updatedFields: string[] = [];
-
-      addOptionalStringUpdate(updates, updatedFields, "subject", input.subject);
-      addOptionalStringUpdate(updates, updatedFields, "description", input.description);
-      addOptionalStringUpdate(updates, updatedFields, "active_form", input.activeForm);
-      addOptionalStringUpdate(updates, updatedFields, "owner", input.owner);
-      addOptionalStringUpdate(updates, updatedFields, "status", input.status);
-
-      if ((input.addBlocks ?? []).length) {
-        updatedFields.push("blocks");
-      }
-      if ((input.addBlockedBy ?? []).length) {
-        updatedFields.push("blocked_by");
-      }
-      if (input.metadata !== null && input.metadata !== undefined) {
-        updatedFields.push("metadata");
-      }
-      updates.addBlocks = input.addBlocks ?? [];
-      updates.addBlockedBy = input.addBlockedBy ?? [];
-      updates.metadata = input.metadata;
-
-      const result = await this.workflowTasks.update(sessionId, taskId, updates);
-      if (!result) {
-        return toolError(toolName, `任务 #${taskId} 不存在`);
-      }
-
-      const statusChange = oldStatus !== result.status ? { from: oldStatus, to: result.status } : null;
+      if (input.objective != null) { updates.objective = input.objective; updatedFields.push("objective"); }
+      if (input.successCriteria != null) { updates.successCriteria = input.successCriteria; updatedFields.push("success_criteria"); }
+      if (input.steps != null) { updates.steps = input.steps; updatedFields.push("steps"); }
+      if (input.checkpoint != null) { updates.checkpoint = input.checkpoint; updatedFields.push("checkpoint"); }
+      if (input.progress != null) { updates.progress = input.progress; updatedFields.push("progress"); }
+      if (input.status != null) { updates.status = input.status as GoalStatus; updatedFields.push("status"); }
+      const result = await this.goals.update(sessionId, current.id, updates);
+      if (!result) return toolError(toolName, `Goal ${current.id} 不存在`);
+      const statusChange = current.status !== result.status ? { from: current.status, to: result.status } : null;
       return toolSuccess(
-        {
-          success: true,
-          task_id: taskId,
-          updated_fields: updatedFields,
-          status_change: statusChange,
-        },
+        { goal: result, updated_fields: updatedFields, status_change: statusChange },
         {
           toolName,
-          summary: `已更新任务 #${taskId}（${updatedFields.join(", ") || "无变更"}）`,
+          summary: `已更新 Goal（${updatedFields.join(", ") || "无变更"}）`,
           outputType: "json",
-          metadata: { task_id: taskId, status: result.status },
+          metadata: { goal_id: result.id, status: result.status },
         },
       );
     } catch (error) {
-      return toolError(toolName, `更新任务失败: ${error instanceof Error ? error.message : String(error)}`);
+      return toolError(toolName, `更新 Goal 失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  async taskList(context: ToolExecContext): Promise<ToolExecutionResult> {
-    const toolName = "task_list";
+  async goalList(context: ToolExecContext): Promise<ToolExecutionResult> {
+    const toolName = "goal_list";
     try {
       const sessionId = resolveTaskSessionId(context);
-      const tasks = await this.workflowTasks.list(sessionId);
-      const statusById = new Map(tasks.map((task) => [task.id, task.status]));
-      const summaries = tasks
-        .filter((task) => !task.metadata._internal)
-        .map((task) => ({
-          id: task.id,
-          subject: task.subject,
-          status: task.status,
-          owner: task.owner,
-          blocked_by: task.blocked_by.filter((id) => statusById.get(String(id)) !== "completed"),
-        }));
+      const goals = await this.goals.list(sessionId);
+      const summaries = goals.map((goal) => ({ id: goal.id, objective: goal.objective, status: goal.status,
+        completed_steps: goal.steps.filter((step) => step.status === "completed").length, total_steps: goal.steps.length,
+        updated_at: goal.updated_at }));
       return toolSuccess(
-        { tasks: summaries },
+        { goals: summaries },
         {
           toolName,
-          summary: `共 ${summaries.length} 个任务`,
+          summary: `共 ${summaries.length} 个 Goal`,
           outputType: "json",
           metadata: { count: summaries.length, session_id: sessionId },
         },
       );
     } catch (error) {
-      return toolError(toolName, `列出任务失败: ${error instanceof Error ? error.message : String(error)}`);
+      return toolError(toolName, `列出 Goal 失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -392,45 +348,15 @@ function resolveTaskSessionId(context: ToolExecContext): string {
   return context.sessionId?.trim() || "default";
 }
 
-function addOptionalStringUpdate(
-  updates: UpdateWorkflowTaskInput,
-  updatedFields: string[],
-  key: "subject" | "description" | "active_form" | "owner" | "status",
-  value: string | null | undefined,
-): void {
-  if (value === null || value === undefined) {
-    return;
-  }
-  if (key === "active_form") {
-    updates.activeForm = value;
-  } else if (key === "status") {
-    updates.status = value as WorkflowTaskStatus;
-  } else {
-    updates[key] = value;
-  }
-  updatedFields.push(key);
+function assertGoalId(goalId: string): void {
+  if (!isGoalId(goalId)) throw new Error("goal_id 必须是有效 UUID");
 }
 
-function assertWorkflowTaskId(taskId: string): void {
-  if (!isWorkflowTaskId(taskId)) {
-    throw new Error("task_id 必须是正整数任务 ID");
-  }
-}
-
-function assertWorkflowTaskStatus(
+function assertGoalStatus(
   status: string | null | undefined,
-): asserts status is WorkflowTaskStatus | "deleted" | null | undefined {
-  if (status !== null && status !== undefined && !["pending", "in_progress", "completed", "deleted"].includes(status)) {
-    throw new Error("status 必须是 pending、in_progress、completed 或 deleted");
-  }
-}
-
-function assertWorkflowDependencies(taskId: string, addBlocks?: readonly string[] | null, addBlockedBy?: readonly string[] | null): void {
-  for (const dependencyId of [...(addBlocks ?? []), ...(addBlockedBy ?? [])]) {
-    assertWorkflowTaskId(dependencyId);
-    if (dependencyId === taskId) {
-      throw new Error("任务不能依赖自身");
-    }
+): asserts status is GoalStatus | null | undefined {
+  if (status !== null && status !== undefined && !["active", "paused", "completed", "blocked"].includes(status)) {
+    throw new Error("status 必须是 active、paused、completed 或 blocked");
   }
 }
 

@@ -12,6 +12,7 @@ import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import { LocalAgentSessionRepository } from "../../src/adapters/local/local-agent-session-repository.js";
 import os from "node:os";
 import path from "node:path";
+import fs from "node:fs";
 import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import { mockLlm } from "../helpers/llm-fetch-mock.js";
 import { makeTempDb } from "../helpers/temp-db.js";
@@ -31,6 +32,11 @@ import { createLocalExecutionStorage } from "../../src/adapters/local/local-exec
 import { AgentMetricsCollector } from "../../src/services/agent/metrics/metrics-collector.js";
 import type { AgentMetricsStorePort } from "../../src/contracts/runtime/core-runtime-ports.js";
 import type { LlmMock } from "../helpers/llm-fetch-mock.js";
+import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
+import { SessionNotificationQueue } from "../../src/services/runtime/session-notification-queue.js";
+import { LocalGoalStore } from "../../src/adapters/local/local-goal-store.js";
+import type { GoalStore } from "../../src/contracts/runtime/goals.js";
+import { TaskToolService } from "../../src/tools/TaskTools/TaskExecution.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -43,6 +49,8 @@ interface ServiceHarness {
   store: ConversationStore;
   errors: Array<Record<string, unknown>>;
   llm: LlmMock;
+  backgroundTasks: BackgroundTaskService | null;
+  goalStore: GoalStore | null;
 }
 
 function minimalAgent(agentName: string): AgentConfig {
@@ -64,7 +72,8 @@ function minimalAgent(agentName: string): AgentConfig {
     skills: { enabled_skills: [] },
     mcp: { enabled_servers: [] },
     memory: { auto_inject: false, allowed_scopes: [], write_scopes: [], archive_scopes: [] },
-    tasks: { workflow: false, background: false },
+    goals: { enabled: false },
+    tasks: { background: false },
     delegation: { enabled_agents: [] },
     knowledge_base: {
       enabled: false,
@@ -132,6 +141,7 @@ function buildHarness(opts: {
   logger?: boolean;
   startFailure?: Error;
   metricsCollector?: AgentMetricsCollector | null;
+  goalMode?: boolean;
 } = {}): ServiceHarness {
   const mode = opts.mode ?? "ok";
   const ready = opts.ready ?? true;
@@ -160,6 +170,10 @@ function buildHarness(opts: {
   const permissionPolicy = new PermissionPolicyService(store);
   const pendingInteractions = new RuntimeInteractionCoordinator(runtimeStorage, executionClientEvents);
   const agent = minimalAgent("orchestrator_agent");
+  if (opts.goalMode) {
+    agent.goals = { enabled: true };
+    agent.tasks = { background: true };
+  }
   const provider: ModelProviderConfig = {
     name: "my",
     key: "my_deepseek",
@@ -173,6 +187,12 @@ function buildHarness(opts: {
     ? { error: (bindings, message) => errors.push({ ...bindings, message }) }
     : null;
   const llm = mockLlm({ mode, contents: ["the answer"] });
+  const notificationQueue = opts.goalMode ? new SessionNotificationQueue() : null;
+  const backgroundTasks = notificationQueue ? new BackgroundTaskService({ notificationQueue }) : null;
+  const goalStore = opts.goalMode ? new LocalGoalStore(LOCAL_TENANT_ID, store) : null;
+  const taskTools = backgroundTasks && notificationQueue && goalStore
+    ? new TaskToolService(backgroundTasks, notificationQueue, goalStore)
+    : null;
   const service = createAgentExecutionService({
     tenantId: LOCAL_TENANT_ID,
     sessions,
@@ -196,8 +216,13 @@ function buildHarness(opts: {
     runtimeStorage: executionRuntimeStorage,
     logger: logger ?? null,
     metricsCollector: opts.metricsCollector ?? null,
+    taskTools,
+    goalStore,
+    backgroundTasks,
+    notificationQueue,
   });
-  return { service, store, errors, llm };
+  backgroundTasks?.setOnTaskCompleted((sessionId) => service.triggerBgNotificationRun(sessionId));
+  return { service, store, errors, llm, backgroundTasks, goalStore };
 }
 
 const WAIT = { timeout: 4000, interval: 20 };
@@ -403,5 +428,106 @@ describe("AgentExecutionService (baseline regression)", () => {
     const messages = store.listMessages(result.session_id, 50, 0).items;
     expect(messages.some((m) => m.role === "system" && String(m.content).includes("可用命令"))).toBe(true);
     store.close();
+  });
+
+  it("starts one continuation run when an active Goal becomes idle", async () => {
+    const { service, store, llm, goalStore, backgroundTasks } = buildHarness({ goalMode: true });
+    store.createSession(LOCAL_TENANT_ID, "goal-active-session", LOCAL_USER_ID);
+    const goal = await goalStore!.create("goal-active-session", {
+      objective: "Finish the durable Goal",
+      successCriteria: ["verified"],
+      steps: [{ id: "1", title: "Verify", description: "Run checks", status: "in_progress", evidence: null }],
+    });
+
+    await service.startStream({ session_id: "goal-active-session", task: "begin", attachments: [], userId: LOCAL_USER_ID }, "goal-root");
+    await vi.waitFor(() => expect(llm.requests.length).toBe(2), { timeout: 4_000, interval: 20 });
+    await goalStore!.update("goal-active-session", goal.id, { status: "paused" });
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+
+    expect(llm.requests).toHaveLength(2);
+    expect(await goalStore!.get("goal-active-session", goal.id)).toMatchObject({
+      continuation_count: 1,
+      continuation_generation: 1,
+      continuation_pending: false,
+      status: "paused",
+    });
+    backgroundTasks?.dispose();
+    store.close();
+  });
+
+  it("does not continue a paused Goal after the root run ends", async () => {
+    const { service, store, llm, goalStore, backgroundTasks } = buildHarness({ goalMode: true });
+    store.createSession(LOCAL_TENANT_ID, "goal-paused-session", LOCAL_USER_ID);
+    const goal = await goalStore!.create("goal-paused-session", {
+      objective: "Wait for resume",
+      successCriteria: ["resumed"],
+    });
+    await goalStore!.update("goal-paused-session", goal.id, { status: "paused" });
+
+    await service.startStream({ session_id: "goal-paused-session", task: "one run", attachments: [], userId: LOCAL_USER_ID }, "paused-root");
+    await vi.waitFor(() => expect(service.getSessionTaskStatus("goal-paused-session").has_running_task).toBe(false), WAIT);
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+
+    expect(llm.requests).toHaveLength(1);
+    expect(await goalStore!.get("goal-paused-session", goal.id)).toMatchObject({ status: "paused", continuation_count: 0 });
+    backgroundTasks?.dispose();
+    store.close();
+  });
+
+  it("deduplicates repeated idle triggers for the same active Goal", async () => {
+    const { service, store, llm, goalStore, backgroundTasks } = buildHarness({ goalMode: true });
+    store.createSession(LOCAL_TENANT_ID, "goal-dedupe-session", LOCAL_USER_ID);
+    const goal = await goalStore!.create("goal-dedupe-session", {
+      objective: "Run exactly one continuation",
+      successCriteria: ["one continuation"],
+    });
+
+    await service.startStream({ session_id: "goal-dedupe-session", task: "root", attachments: [], userId: LOCAL_USER_ID }, "dedupe-root");
+    await vi.waitFor(() => expect(service.getSessionTaskStatus("goal-dedupe-session").has_running_task).toBe(false), WAIT);
+    backgroundTasks!.scheduleAutoTrigger("goal-dedupe-session");
+    backgroundTasks!.scheduleAutoTrigger("goal-dedupe-session");
+    service.triggerBgNotificationRun("goal-dedupe-session");
+    service.triggerBgNotificationRun("goal-dedupe-session");
+    await vi.waitFor(() => expect(llm.requests.length).toBe(2), { timeout: 4_000, interval: 20 });
+    await goalStore!.update("goal-dedupe-session", goal.id, { status: "paused" });
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+
+    expect(llm.requests).toHaveLength(2);
+    expect((await goalStore!.get("goal-dedupe-session", goal.id))?.continuation_count).toBe(1);
+    backgroundTasks?.dispose();
+    store.close();
+  });
+
+  it("waits for all session background tasks before continuing the Goal", async () => {
+    const { service, store, llm, goalStore, backgroundTasks } = buildHarness({ goalMode: true });
+    store.createSession(LOCAL_TENANT_ID, "goal-background-session", LOCAL_USER_ID);
+    const goal = await goalStore!.create("goal-background-session", {
+      objective: "Consume background work before continuing",
+      successCriteria: ["background result consumed"],
+    });
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "goal-background-"));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    backgroundTasks!.runCallable({
+      outputDir,
+      sessionId: "goal-background-session",
+      run: async () => { await gate; return { success: true }; },
+    });
+
+    await service.startStream({ session_id: "goal-background-session", task: "root", attachments: [], userId: LOCAL_USER_ID }, "background-root");
+    await vi.waitFor(() => expect(service.getSessionTaskStatus("goal-background-session").has_running_task).toBe(false), WAIT);
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    expect(llm.requests).toHaveLength(1);
+
+    release();
+    await vi.waitFor(() => expect(llm.requests.length).toBe(2), { timeout: 4_000, interval: 20 });
+    await goalStore!.update("goal-background-session", goal.id, { status: "paused" });
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    expect(llm.requests).toHaveLength(2);
+    expect(backgroundTasks!.hasRunningTasks("goal-background-session")).toBe(false);
+
+    backgroundTasks?.dispose();
+    store.close();
+    fs.rmSync(outputDir, { recursive: true, force: true });
   });
 });

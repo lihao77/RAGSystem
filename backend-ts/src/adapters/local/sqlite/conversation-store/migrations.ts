@@ -342,6 +342,38 @@ export const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 20,
+    name: "durable_workflow_goals",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE workflow_goals (
+          goal_id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          objective TEXT NOT NULL,
+          success_criteria TEXT NOT NULL DEFAULT '[]',
+          steps TEXT NOT NULL DEFAULT '[]',
+          checkpoint TEXT NOT NULL DEFAULT '{}',
+          progress TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL CHECK(status IN ('active', 'paused', 'completed', 'blocked')),
+          continuation_count INTEGER NOT NULL DEFAULT 0,
+          no_progress_count INTEGER NOT NULL DEFAULT 0,
+          continuation_generation INTEGER NOT NULL DEFAULT 0,
+          continuation_pending INTEGER NOT NULL DEFAULT 0 CHECK(continuation_pending IN (0, 1)),
+          continuation_claimed_at TEXT,
+          last_progress_fingerprint TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_workflow_goals_session_created
+          ON workflow_goals(session_id, created_at DESC);
+        CREATE UNIQUE INDEX workflow_goals_session_current_idx
+          ON workflow_goals(session_id)
+          WHERE status IN ('active', 'paused');
+      `);
+    },
+  },
 ];
 
 function addColumnIfMissing(db: MigrationDatabase, table: string, column: string, declaration: string): void {

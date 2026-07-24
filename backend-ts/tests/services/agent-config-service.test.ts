@@ -17,6 +17,27 @@ afterEach(() => {
 });
 
 describe("AgentConfigService team file compatibility", () => {
+  it("migrates legacy tasks.workflow into goals.enabled", async () => {
+    const dataRoot = makeTempDataRoot();
+    writeTeamIndex(dataRoot, {
+      active_team: "default",
+      teams: { default: "teams/default.yaml" },
+    });
+    writeTeam(dataRoot, "default", {
+      legacy_agent: {
+        ...minimalAgent("legacy_agent", true),
+        tasks: { workflow: true, background: true },
+      },
+    });
+
+    const service = await makeService(dataRoot);
+
+    expect(service.getConfig("legacy_agent")).toMatchObject({
+      goals: { enabled: true },
+      tasks: { background: true },
+    });
+  });
+
   it("loads Python-compatible team_index.yaml and active team YAML", async () => {
     const dataRoot = makeTempDataRoot();
     writeTeamIndex(dataRoot, {
@@ -51,7 +72,8 @@ describe("AgentConfigService team file compatibility", () => {
           write_scopes: ["session"],
           archive_scopes: ["session"],
         },
-        tasks: { workflow: true, background: true },
+        goals: { enabled: true },
+        tasks: { background: true },
         delegation: { enabled_agents: [] },
         knowledge_base: {
           enabled: true,

@@ -2,52 +2,46 @@ import { asString, asRecord } from "../../../utils/guards.js";
 import type { BashExecutionInput } from "../../../tools/BashTool/BashExecution.js";
 import { readCodeExecutionArguments } from "../../../tools/CodeExecutionTool/CodeExecution.js";
 import { readSkillToolArguments } from "../../../tools/SkillTools/SkillExecution.js";
+import type { GoalStep } from "../../../contracts/runtime/goals.js";
 
-export function readTaskCreateArguments(value: Record<string, unknown> | undefined): {
-  subject: string;
-  description: string;
-  activeForm?: string | null;
-  metadata?: Record<string, unknown> | null;
+export function readGoalCreateArguments(value: Record<string, unknown> | undefined): {
+  objective: string;
+  successCriteria: string[];
+  steps: GoalStep[];
+  checkpoint?: Record<string, unknown> | null;
+  progress?: Record<string, unknown> | null;
 } {
   return {
-    subject: asString(value?.subject) ?? "",
-    description: asString(value?.description) ?? "",
-    activeForm: asString(value?.active_form) ?? asString(value?.activeForm),
-    metadata: asRecord(value?.metadata),
+    objective: asString(value?.objective) ?? "",
+    successCriteria: asStringArray(value?.success_criteria) ?? asStringArray(value?.successCriteria) ?? [],
+    steps: readGoalSteps(value?.steps),
+    checkpoint: asRecord(value?.checkpoint),
+    progress: asRecord(value?.progress),
   };
 }
 
-export function readTaskGetArguments(value: Record<string, unknown> | undefined): { taskId: string } {
-  return {
-    taskId: asString(value?.task_id) ?? asString(value?.taskId) ?? "",
-  };
+export function readGoalGetArguments(value: Record<string, unknown> | undefined): { goalId?: string | null } {
+  return { goalId: asString(value?.goal_id) ?? asString(value?.goalId) };
 }
 
-export function readTaskUpdateArguments(value: Record<string, unknown> | undefined): {
-  taskId: string;
-  subject?: string | null;
-  description?: string | null;
-  activeForm?: string | null;
-  owner?: string | null;
+export function readGoalUpdateArguments(value: Record<string, unknown> | undefined): {
+  goalId?: string | null;
+  objective?: string | null;
+  successCriteria?: string[] | null;
+  steps?: GoalStep[] | null;
+  checkpoint?: Record<string, unknown> | null;
+  progress?: Record<string, unknown> | null;
   status?: string | null;
-  addBlocks?: string[] | null;
-  addBlockedBy?: string[] | null;
-  metadata?: Record<string, unknown> | null;
 } {
-  const subject = asProvidedString(value, "subject");
-  const description = asProvidedString(value, "description");
-  const activeForm = asProvidedString(value, "active_form", "activeForm");
-  const owner = asProvidedString(value, "owner");
+  const objective = asProvidedString(value, "objective");
   return {
-    taskId: asString(value?.task_id) ?? asString(value?.taskId) ?? "",
+    goalId: asString(value?.goal_id) ?? asString(value?.goalId),
+    successCriteria: asStringArray(value?.success_criteria) ?? asStringArray(value?.successCriteria),
+    steps: Object.prototype.hasOwnProperty.call(value ?? {}, "steps") ? readGoalSteps(value?.steps) : null,
+    checkpoint: asRecord(value?.checkpoint),
+    progress: asRecord(value?.progress),
     status: asString(value?.status),
-    addBlocks: asStringArray(value?.add_blocks) ?? asStringArray(value?.addBlocks),
-    addBlockedBy: asStringArray(value?.add_blocked_by) ?? asStringArray(value?.addBlockedBy),
-    metadata: asRecord(value?.metadata),
-    ...(subject !== undefined ? { subject } : {}),
-    ...(description !== undefined ? { description } : {}),
-    ...(activeForm !== undefined ? { activeForm } : {}),
-    ...(owner !== undefined ? { owner } : {}),
+    ...(objective !== undefined ? { objective } : {}),
   };
 }
 
@@ -415,4 +409,19 @@ function asStringArray(value: unknown): string[] | null {
   return value.map((item) => String(item)).filter((item) => item.trim().length > 0);
 }
 
-
+function readGoalSteps(value: unknown): GoalStep[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const step = entry as Record<string, unknown>;
+    const status = asString(step.status) ?? "pending";
+    if (!["pending", "in_progress", "completed", "blocked"].includes(status)) return [];
+    return [{
+      id: asString(step.id) ?? String(index + 1),
+      title: asString(step.title) ?? "",
+      description: asString(step.description) ?? "",
+      status: status as GoalStep["status"],
+      evidence: asString(step.evidence),
+    }];
+  });
+}

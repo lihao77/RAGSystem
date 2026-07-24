@@ -66,6 +66,11 @@
               <span class="followup-candidate-content">{{ candidate.content }}</span>
             </div>
           </TransitionGroup>
+          <GoalControl
+            v-if="currentSessionId"
+            :session-id="currentSessionId"
+            :run-active="_activeRun.active || isLoading"
+          />
           <ChatInput
             ref="chatInputRef"
             v-model="inputMessage"
@@ -230,6 +235,7 @@ import SessionContextBar from '../components/chat/SessionContextBar.vue';
 import SessionContextInfoButton from '../components/chat/SessionContextInfoButton.vue';
 import ApprovalQueueHost from '../components/chat/ApprovalQueueHost.vue';
 import TaskLauncher from '../components/chat/TaskLauncher.vue';
+import GoalControl from '../components/chat/GoalControl.vue';
 import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';

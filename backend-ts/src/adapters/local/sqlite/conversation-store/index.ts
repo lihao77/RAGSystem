@@ -11,6 +11,7 @@ import { PendingInteractionOps } from "./pending-interaction-ops.js";
 import { ProviderContinuationOps } from "./provider-continuation-ops.js";
 import { MemoryCandidateOps } from "./memory-candidate-ops.js";
 import { WorkflowTaskOps } from "./workflow-task-ops.js";
+import { GoalOps } from "./goal-ops.js";
 
 export interface ConversationStoreOptions {
   dbPath: string;
@@ -37,6 +38,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const providerContinuations = new ProviderContinuationOps(db);
   const memoryCandidates = new MemoryCandidateOps(db);
   const workflowTasks = new WorkflowTaskOps(db);
+  const goals = new GoalOps(db);
 
   const createTransactionFacade = () => ({
     createSession: sessions.createSession.bind(sessions),
@@ -120,6 +122,15 @@ export function createConversationStore(options: ConversationStoreOptions) {
     updateWorkflowTask: workflowTasks.update.bind(workflowTasks),
     deleteWorkflowTask: workflowTasks.delete.bind(workflowTasks),
     listWorkflowTasks: workflowTasks.list.bind(workflowTasks),
+
+    // durable session Goals
+    createGoal: goals.create.bind(goals),
+    getGoal: goals.get.bind(goals),
+    getCurrentGoal: goals.getCurrent.bind(goals),
+    updateGoal: goals.update.bind(goals),
+    listGoals: goals.list.bind(goals),
+    claimGoalContinuation: goals.claimContinuation.bind(goals),
+    releaseGoalContinuation: goals.releaseContinuation.bind(goals),
 
     /** 跨域：按 child agent 的 thread_key 取最近消息。 */
     getRecentMessagesByChildAgent: (sessionId: string, childAgentId: string, limit = DEFAULT_MESSAGE_LIST_LIMIT) => {

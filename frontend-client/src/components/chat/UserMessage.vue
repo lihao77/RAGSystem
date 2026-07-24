@@ -17,6 +17,21 @@
     </div>
   </div>
 
+  <div v-else-if="msg.metadata?.source === 'goal_continuation'" class="task-notification-block">
+    <div class="task-notification-header">
+      <span>Goal 自动续跑</span>
+    </div>
+    <div class="task-notification-body">
+      <div class="task-notification-item">
+        <span class="tn-status running">进行中</span>
+        <code v-if="msg.metadata?.goal_id" class="tn-task-id">
+          {{ String(msg.metadata.goal_id).slice(0, 8) }}
+        </code>
+        <span class="tn-type">继续检查并推进未完成目标</span>
+      </div>
+    </div>
+  </div>
+
   <div v-else-if="messageContext.editingMessage !== msg" class="user-bubble-wrapper message-view-mode">
     <div class="user-text">{{ msg.content }}</div>
     <div v-if="msg.attachments?.length" class="user-attachments">

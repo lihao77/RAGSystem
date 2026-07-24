@@ -349,20 +349,20 @@
 
           <section id="section-tasks" class="form-section">
             <div class="section-head">
-              <h2>任务</h2>
-              <span>配置 task capability；task 工具不再通过普通工具白名单单独勾选</span>
+              <h2>Goal</h2>
+              <span>配置 Goal capability；Goal 工具不再通过普通工具白名单单独勾选</span>
             </div>
             <div class="section-body toggle-grid">
               <div
                 class="toggle-card"
-                :class="{ active: configForm.tasks.workflow }"
-                @click="configForm.tasks.workflow = !configForm.tasks.workflow"
+                :class="{ active: configForm.goals.enabled }"
+                @click="configForm.goals.enabled = !configForm.goals.enabled"
               >
                 <div class="toggle-card__indicator">
-                  <IconCheck v-if="configForm.tasks.workflow" :size="13" />
+                  <IconCheck v-if="configForm.goals.enabled" :size="13" />
                 </div>
-                <div class="toggle-card__name">workflow</div>
-                <div class="toggle-card__desc">暴露 task_create / task_get / task_update / task_list，用于任务编排与状态追踪</div>
+                <div class="toggle-card__name">goal mode</div>
+                <div class="toggle-card__desc">暴露 goal_create / goal_get / goal_update / goal_list，用于持久目标编排、阶段推进与状态追踪</div>
               </div>
 
               <div
@@ -722,7 +722,7 @@ const sections = [
   { id: 'section-llm', label: 'LLM' },
   { id: 'section-prompt', label: '提示词' },
   { id: 'section-tools', label: '工具' },
-  { id: 'section-tasks', label: '任务' },
+  { id: 'section-tasks', label: 'Goal' },
   { id: 'section-skills', label: '技能' },
   { id: 'section-memory', label: '记忆' },
   { id: 'section-mcp', label: 'MCP' },
@@ -981,10 +981,10 @@ const configManagedToolNames = new Set([
   'write_memory',
   'archive_memory',
   'request_user_input',
-  'task_create',
-  'task_get',
-  'task_update',
-  'task_list',
+  'goal_create',
+  'goal_get',
+  'goal_update',
+  'goal_list',
   'task_output',
   'task_stop',
   'call_agent',
@@ -1055,7 +1055,8 @@ function createEmptyForm() {
     default_entry: false,
     llm_tiers: { default: createEmptyLLM(), fast: null, powerful: null },
     tools: { enabled_tools: [] },
-    tasks: { workflow: false, background: false },
+    goals: { enabled: false },
+    tasks: { background: false },
     skills: { enabled_skills: [] },
     mcp: { enabled_servers: [] },
     memory: {
@@ -1107,10 +1108,8 @@ function applyConfigToForm(config) {
     tools: {
       enabled_tools: sanitizeEnabledTools(safeConfig.tools?.enabled_tools)
     },
-    tasks: {
-      workflow: !!safeConfig.tasks?.workflow,
-      background: !!safeConfig.tasks?.background
-    },
+    goals: { enabled: !!safeConfig.goals?.enabled },
+    tasks: { background: !!safeConfig.tasks?.background },
     skills: {
       enabled_skills: Array.isArray(safeConfig.skills?.enabled_skills) ? [...safeConfig.skills.enabled_skills] : []
     },
@@ -1240,11 +1239,8 @@ function buildPayload() {
     enabled_tools: sanitizeEnabledTools(configForm.value.tools.enabled_tools)
   };
 
-  merged.tasks = {
-    ...(merged.tasks || {}),
-    workflow: !!configForm.value.tasks.workflow,
-    background: !!configForm.value.tasks.background
-  };
+  merged.goals = { enabled: !!configForm.value.goals.enabled };
+  merged.tasks = { background: !!configForm.value.tasks.background };
 
   merged.skills = {
     ...(merged.skills || {}),

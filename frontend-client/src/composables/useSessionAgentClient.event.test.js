@@ -5,6 +5,8 @@ import MockAdapter from 'axios-mock-adapter';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
 import { useSessionAgentClient } from './useSessionAgentClient.js';
+import { useMessageExecution } from './useMessageExecution.js';
+import { useWorkPanelSelection } from './useWorkPanelSelection.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { httpClient } from '../api/http.js';
 
@@ -329,6 +331,120 @@ test('run_started 后的 message_saved 只确认一次已结束 followup 的新 
   assert.equal(deps.messages.value[3].run_id, 'run-new');
   assert.equal(deps.activeRun.assistantMsgIndex, 3);
   assert.equal(deps.pendingFollowupCandidates.value.length, 0);
+});
+
+test('goal continuation 的 run_started 会立即插入可见通知，无需刷新消息列表', () => {
+  const { deps } = createDeps();
+  deps.messages.value = [
+    { role: 'user', content: '初始任务', metadata: {}, attachments: [] },
+    createAssistantMessage({ content: '上一轮完成', finished: true, run_id: 'run-old' }),
+  ];
+  Object.assign(deps.activeRun, { active: false, assistantMsgIndex: 1, runId: 'run-old' });
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'run_started',
+    run_id: 'run-goal-2',
+    payload: {
+      source: 'system.goal_continuation',
+      request_id: 'req-goal-2',
+      task: '<goal-continuation>继续推进</goal-continuation>',
+    },
+  }, 'session-1');
+
+  assert.deepEqual(deps.messages.value.map(message => message.role), [
+    'user',
+    'assistant',
+    'user',
+    'assistant',
+  ]);
+  assert.equal(deps.messages.value[2].metadata.source, 'goal_continuation');
+  assert.equal(deps.messages.value[2].metadata.request_id, 'req-goal-2');
+  assert.equal(deps.messages.value[2].metadata.run_id, 'run-goal-2');
+  assert.equal(deps.activeRun.assistantMsgIndex, 3);
+});
+
+test('连续 Goal 自动续跑后，工作栏仍用 assistant message id 加载 execution steps', async () => {
+  const requestedUrls = [];
+  await withMock((mock) => {
+    mock.onGet().reply((config) => {
+      requestedUrls.push(config.url);
+      return [200, { data: { items: [] } }];
+    });
+  }, async () => {
+    const { deps } = createDeps();
+    const previousAssistant = createAssistantMessage({
+      id: 'assistant-goal-1',
+      content: '第一轮 Goal 结果',
+      finished: true,
+      has_execution: true,
+      executionStepsLoaded: true,
+      run_id: 'run-goal-1',
+      metadata: { run_id: 'run-goal-1' },
+    });
+    deps.messages.value = [
+      {
+        id: 'goal-user-1',
+        role: 'user',
+        content: '<goal-continuation>第一轮</goal-continuation>',
+        metadata: { source: 'goal_continuation', request_id: 'req-goal-1', run_id: 'run-goal-1' },
+        attachments: [],
+      },
+      previousAssistant,
+    ];
+    Object.assign(deps.activeRun, { active: false, assistantMsgIndex: 1, runId: 'run-goal-1' });
+
+    const stream = useSessionAgentClient(deps);
+    stream.handleEnvelope({
+      type: 'run_started',
+      run_id: 'run-goal-2',
+      payload: {
+        source: 'system.goal_continuation',
+        request_id: 'req-goal-2',
+        task: '<goal-continuation>第二轮</goal-continuation>',
+      },
+    }, 'session-1');
+    stream.handleEnvelope({
+      type: 'state_sync',
+      run_id: 'run-goal-2',
+      payload: {
+        category: 'message_saved',
+        ref: {
+          message_id: 'goal-user-2',
+          seq: 3,
+          role: 'user',
+          request_id: 'req-goal-2',
+          run_id: 'run-goal-2',
+        },
+      },
+    }, 'session-1');
+
+    const nextGoalUser = deps.messages.value.find(
+      message => message.role === 'user' && message.metadata?.request_id === 'req-goal-2',
+    );
+    assert.equal(nextGoalUser?.id, 'goal-user-2');
+    assert.equal(previousAssistant.id, 'assistant-goal-1');
+
+    const execution = useMessageExecution({
+      currentSessionId: deps.currentSessionId,
+      showToast: () => {},
+    });
+    const selection = useWorkPanelSelection({
+      messages: deps.messages,
+      activeRun: deps.activeRun,
+      hasExecutionContent: execution.hasExecutionContent,
+      ensureExecutionStepsLoaded: execution.ensureExecutionStepsLoaded,
+      showToast: () => {},
+    });
+    await nextTick();
+    previousAssistant.executionStepsLoaded = false;
+
+    await selection.selectWorkPanelMessage(previousAssistant);
+
+    assert.deepEqual(requestedUrls.filter(url => url?.includes('/run-steps')), [
+      '/api/agent/sessions/session-1/messages/assistant-goal-1/run-steps',
+    ]);
+  });
 });
 
 test('run_ended 会收尾 active run 并标记完成状态', () => {

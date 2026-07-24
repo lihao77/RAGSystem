@@ -39,6 +39,7 @@ import type { TenantId } from "../../../identity/types.js";
 import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
+import type { GoalStore } from "../../../contracts/runtime/goals.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -57,7 +58,7 @@ export interface AgentExecutionServiceApi {
     requestId: string,
   ): Promise<{ results: AgentExecuteResult[]; session_id: string; total_tasks: number }>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
-  /** 后台任务完成通知拉起的 system run（通道 A，由 BackgroundTaskService.scheduleAutoTrigger 触发）。 */
+  /** Session idle 时消费后台通知，并在 Goal active 时拉起 continuation system run。 */
   triggerBgNotificationRun(sessionId: string): void;
   stopSession(sessionId: string): Promise<boolean>;
   getSessionTaskStatus(sessionId: string): SessionTaskStatus;
@@ -84,6 +85,7 @@ export interface AgentExecutionServiceParams {
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
   codeExecutionTools?: import("../../../contracts/runtime/tool-ports.js").CodeExecutionPort | null;
   taskTools?: TaskToolService | null;
+  goalStore?: GoalStore | null;
   backgroundTasks?: BackgroundTaskService | null;
   /** 后台通知暂存队列（单例，注入 launchers.triggerBgNotificationRun；与 backgroundTasks 共用同一实例）。 */
   notificationQueue?: SessionNotificationQueue | null;
@@ -176,6 +178,8 @@ export function createAgentExecutionService(
     eventPublisher,
     runEngine,
     notificationQueue,
+    backgroundTasks: params.backgroundTasks ?? null,
+    goalStore: params.goalStore ?? null,
   });
   const sessionControl = createSessionControl({
     statusTracker,

@@ -26,6 +26,8 @@ import type { MessageExtension } from "../context/extensions/kinds.js";
 import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type { TenantId } from "../../../identity/types.js";
+import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
+import type { Goal, GoalStore } from "../../../contracts/runtime/goals.js";
 
 export interface RollbackRetryInput {
   sessionId: string;
@@ -43,7 +45,7 @@ export interface LauncherApi {
   startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult>;
   executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
-  /** 后台任务完成通知拉起的 system run（通道 A 消费者，由 BackgroundTaskService.scheduleAutoTrigger 触发）。 */
+  /** Session idle 检查：消费后台通知，并在 Goal active 时拉起 continuation run。 */
   triggerBgNotificationRun(sessionId: string): void;
 }
 
@@ -57,6 +59,8 @@ export interface LauncherDeps {
   eventPublisher: AgentExecutionEventPublisher;
   runEngine: AgentRunEngine;
   notificationQueue: SessionNotificationQueue;
+  backgroundTasks: BackgroundTaskService | null;
+  goalStore: GoalStore | null;
 }
 
 /**
@@ -64,6 +68,8 @@ export interface LauncherDeps {
  * 方法体原样来自原 AgentExecutionService（this.xxx 字段访问保持不变）。
  */
 class AgentLaunchers {
+  private readonly idleLaunches = new Set<string>();
+
   constructor(
     private readonly tenantId: TenantId,
     private readonly sessions: ExecutionSessionPort,
@@ -74,6 +80,8 @@ class AgentLaunchers {
     private readonly eventPublisher: AgentExecutionEventPublisher,
     private readonly runEngine: AgentRunEngine,
     private readonly notificationQueue: SessionNotificationQueue,
+    private readonly backgroundTasks: BackgroundTaskService | null,
+    private readonly goalStore: GoalStore | null,
   ) {}
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -445,85 +453,143 @@ class AgentLaunchers {
   }
 
   /**
-   * 通道 A 消费者：后台任务完成通知拉起的 system run。由 BackgroundTaskService.scheduleAutoTrigger
-   * （后台完成 + run 结束两处）延迟 1s 触发。idle 才执行（不抢用户的 run），drain 队列渲染成
-   * <task-notification>XML 作为 task，经 persistUserMessage 落库为 user 消息（source:background_notification），
-   * 与前端发送同构——SDK 读历史看到、message_saved 推前端、UserMessage.vue 渲染。
-   *
-   * 不变量：本方法的「idle 判定 → runEngine.startRun(register)」整段必须同步、不可插入 await——
-   * Node 单线程据此保证不与 startStream 的 idle 检查交错（否则会双 register、statusTracker 状态错乱）。
-   * 若将来要把 ready 解析/drain 改成异步，须先改用 statusTracker 的原子 registerIfIdle。
+   * BackgroundTaskService 的单一 session-level trigger 消费者。本地 Set 合并同一进程的
+   * 重复 idle 事件，GoalStore.claimContinuation 再用持久化 generation/pending 防止多实例
+   * 重复续跑。只有 root run、后台任务和待消费通知都空闲时，active Goal 才会续跑。
    */
   triggerBgNotificationRun(sessionId: string): void {
-    if (!sessionId) {
-      return;
-    }
-    if (this.statusTracker.getStatusBySession(sessionId)?.status === "running") {
-      return;
-    }
-    if (!this.notificationQueue.peek(sessionId)) {
-      return;
-    }
-    const payloads = this.notificationQueue.drain(sessionId);
-    if (!payloads.length) {
-      return;
-    }
-    void this.startBgNotificationRun(sessionId, payloads).catch(() => {
-      for (const payload of payloads) this.notificationQueue.add(sessionId, payload);
-    });
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId || this.idleLaunches.has(normalizedSessionId)) return;
+    const status = this.statusTracker.getStatusBySession(normalizedSessionId)?.status;
+    if (status === "running" || status === "suspended") return;
+    if (this.backgroundTasks?.hasRunningTasks(normalizedSessionId)) return;
+    this.idleLaunches.add(normalizedSessionId);
+    void this.startSessionIdleRun(normalizedSessionId)
+      .catch(() => undefined)
+      .finally(() => this.idleLaunches.delete(normalizedSessionId));
   }
 
-  private async startBgNotificationRun(
-    sessionId: string,
-    payloads: Parameters<SessionNotificationQueue["add"]>[1][],
-  ): Promise<void> {
-    const task = payloads.map(renderBackgroundNotification).join("\n\n");
-    const existingSession = await this.sessions.getSession(sessionId);
-    const sessionMetadata = existingSession?.metadata ?? {};
-    const ready = resolveReadyAgent(
-      this.runtimeCore,
-      {
-        agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
-        teamName: asString(sessionMetadata.team),
-        selectedLlm: null,
-      },
-      sessionMetadata,
-    );
-    if (!ready.ok) {
-      // ready 失败：回填队列，下次触发或下次 run drain 再消费（对齐 Python notification_trigger.py:79-85）
-      for (const payload of payloads) {
-        this.notificationQueue.add(sessionId, payload);
+  private async startSessionIdleRun(sessionId: string): Promise<void> {
+    let claimedGoal: Goal | null = null;
+    let payloads: Parameters<SessionNotificationQueue["add"]>[1][] = [];
+    let releaseOwned = true;
+    const releaseClaim = async (): Promise<void> => {
+      if (!claimedGoal || !this.goalStore) return;
+      await this.goalStore.releaseContinuation(
+        sessionId,
+        claimedGoal.id,
+        claimedGoal.continuation_generation,
+      );
+    };
+
+    try {
+      const status = this.statusTracker.getStatusBySession(sessionId)?.status;
+      if (status === "running" || status === "suspended" || this.backgroundTasks?.hasRunningTasks(sessionId)) return;
+      const currentGoal = await this.goalStore?.getCurrent(sessionId) ?? null;
+      const hasNotifications = this.notificationQueue.peek(sessionId);
+      if (!hasNotifications && currentGoal?.status !== "active") return;
+
+      const existingSession = await this.sessions.getSession(sessionId);
+      const sessionMetadata = existingSession?.metadata ?? {};
+      const ready = resolveReadyAgent(
+        this.runtimeCore,
+        {
+          agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
+          teamName: asString(sessionMetadata.team),
+          selectedLlm: null,
+        },
+        sessionMetadata,
+      );
+      if (!ready.ok) return;
+
+      if (!existingSession) {
+        await this.sessions.createSystemSession({ tenantId: this.tenantId, sessionId });
       }
-      return;
-    }
-    // Session I/O may be asynchronous in SaaS. Re-check immediately before
-    // synchronous startRun registration so an intervening user run wins.
-    if (this.statusTracker.getStatusBySession(sessionId)?.status === "running") {
+
+      // Session/agent readiness may require SaaS I/O. Claim only after those checks pass so a
+      // configuration failure or an intervening user run does not consume a continuation attempt.
+      const readyStatus = this.statusTracker.getStatusBySession(sessionId)?.status;
+      if (readyStatus === "running" || readyStatus === "suspended" || this.backgroundTasks?.hasRunningTasks(sessionId)) return;
+      if (currentGoal?.status === "active" && this.goalStore) {
+        claimedGoal = await this.goalStore.claimContinuation(sessionId, {
+          maxContinuations: 20,
+          maxNoProgress: 3,
+          leaseTimeoutMs: 120_000,
+        });
+      }
+
+      // claimContinuation is asynchronous in SaaS. From this final idle check through startRun
+      // registration there are no awaits, so a same-process user run cannot interleave.
+      const latestStatus = this.statusTracker.getStatusBySession(sessionId)?.status;
+      if (latestStatus === "running" || latestStatus === "suspended" || this.backgroundTasks?.hasRunningTasks(sessionId)) return;
+      if (!hasNotifications && !claimedGoal) return;
+
+      payloads = this.notificationQueue.drain(sessionId);
+      if (!payloads.length && !claimedGoal) return;
+      const task = [
+        ...payloads.map(renderBackgroundNotification),
+        ...(claimedGoal ? [renderGoalContinuation(claimedGoal)] : []),
+      ].filter(Boolean).join("\n\n");
+      const source = claimedGoal ? "goal_continuation" : "background_notification";
+      const started = this.runEngine.startRun({
+        sessionId,
+        requestId: `${claimedGoal ? "goal_continue" : "bg_notify"}_${randomUUID()}`,
+        task,
+        executionKind: claimedGoal ? "system.goal_continuation" : "system.bg_notification",
+        agent: ready.agent,
+        provider: ready.provider,
+        modelName: ready.modelName,
+        persistUserMessage: {
+          metadata: {
+            source,
+            ...(claimedGoal ? {
+              goal_id: claimedGoal.id,
+              goal_generation: claimedGoal.continuation_generation,
+            } : {}),
+          },
+        },
+      });
+      releaseOwned = false;
+      void started.promise.finally(async () => {
+        await releaseClaim();
+        this.backgroundTasks?.scheduleAutoTrigger(sessionId);
+      }).catch(() => undefined);
+      await started.durableStarted;
+    } catch (error) {
       for (const payload of payloads) this.notificationQueue.add(sessionId, payload);
-      return;
+      throw error;
+    } finally {
+      if (releaseOwned) await releaseClaim();
     }
-    if (!existingSession) {
-      await this.sessions.createSystemSession({ tenantId: this.tenantId, sessionId });
-      if (this.statusTracker.getStatusBySession(sessionId)?.status === "running") {
-        for (const payload of payloads) this.notificationQueue.add(sessionId, payload);
-        return;
-      }
-    }
-    const started = this.runEngine.startRun({
-      sessionId,
-      requestId: `bg_notify_${randomUUID()}`,
-      task,
-      executionKind: "system.bg_notification",
-      agent: ready.agent,
-      provider: ready.provider,
-      modelName: ready.modelName,
-      persistUserMessage: {
-        metadata: { source: "background_notification" },
-      },
-    });
-    await started.durableStarted;
   }
 
+}
+
+export function renderGoalContinuation(goal: Goal): string {
+  const criteria = goal.success_criteria.map((item, index) => `${index + 1}. ${item}`).join("\n");
+  const steps = goal.steps.map((step) => (
+    `- [${step.status}] ${step.id}: ${step.title}${step.description ? ` — ${step.description}` : ""}`
+  )).join("\n");
+  return `<goal-continuation goal-id="${goal.id}" generation="${goal.continuation_generation}">
+当前 Session 的 Goal 尚未完成，请继续推进，不要只复述计划。
+
+最终目标：${goal.objective}
+
+验收标准：
+${criteria || "- 尚未设置，请先用 goal_update 补充可验证标准"}
+
+当前阶段：
+${steps || "- 尚未设置，请根据上下文创建阶段"}
+
+checkpoint: ${JSON.stringify(goal.checkpoint)}
+progress: ${JSON.stringify(goal.progress)}
+
+执行规则：
+1. 先检查最新会话、产物、后台结果和阶段状态，然后立即执行下一个可推进的动作。
+2. 使用 goal_update 动态更新 steps、checkpoint 和 progress，记录实际证据。
+3. 只有所有验收标准都有证据时才设为 completed。确实无法继续时设为 blocked；需要用户时请求输入，不要空转。
+4. 本轮结束前必须更新 Goal，否则系统会将重复无进展计入循环保护。
+</goal-continuation>`;
 }
 
 export function createLaunchers(deps: LauncherDeps): LauncherApi {
@@ -537,6 +603,8 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.eventPublisher,
     deps.runEngine,
     deps.notificationQueue,
+    deps.backgroundTasks,
+    deps.goalStore,
   );
   return {
     startStream: impl.startStream.bind(impl),

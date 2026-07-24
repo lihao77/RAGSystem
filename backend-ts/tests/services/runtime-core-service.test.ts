@@ -163,7 +163,8 @@ function minimalAgent(agentName: string, defaultEntry: boolean): AgentConfig {
       write_scopes: ["session"],
       archive_scopes: ["session"],
     },
-    tasks: { workflow: false, background: false },
+    goals: { enabled: false },
+    tasks: { background: false },
     delegation: { enabled_agents: [] },
     knowledge_base: {
       enabled: false,

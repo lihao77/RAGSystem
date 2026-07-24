@@ -5,81 +5,53 @@ import path from "node:path";
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
 import { describe, expect, it } from "vitest";
 
+import { LocalGoalStore } from "../../src/adapters/local/local-goal-store.js";
 import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
-import { LocalWorkflowTaskStore } from "../../src/adapters/local/local-workflow-task-store.js";
 import type {
-  CreateWorkflowTaskInput,
-  UpdateWorkflowTaskInput,
-  WorkflowTask,
-  WorkflowTaskStore,
-} from "../../src/contracts/runtime/workflow-tasks.js";
-import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
-import { SessionNotificationQueue } from "../../src/services/runtime/session-notification-queue.js";
-import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
-import { TaskToolService } from "../../src/tools/TaskTools/TaskExecution.js";
-import { createTaskTools } from "../../src/tools/TaskTools/TaskTools.js";
+  ClaimGoalContinuationOptions,
+  CreateGoalInput,
+  Goal,
+  GoalStore,
+  UpdateGoalInput,
+} from "../../src/contracts/runtime/goals.js";
 import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import { createTenantId } from "../../src/identity/types.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
+import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
+import { SessionNotificationQueue } from "../../src/services/runtime/session-notification-queue.js";
+import { TaskToolService } from "../../src/tools/TaskTools/TaskExecution.js";
+import { createTaskTools } from "../../src/tools/TaskTools/TaskTools.js";
 
-describe("durable local workflow tasks", () => {
-  it("persists CRUD and dependency links across a database reopen", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "backend-ts-workflow-tasks-"));
+describe("durable local Goals", () => {
+  it("persists Goal lifecycle and permits only one current Goal per session", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "backend-ts-goals-"));
     const dbPath = path.join(root, "conversation.db");
     let first: ReturnType<typeof createConversationStore> | null = null;
     let reopened: ReturnType<typeof createConversationStore> | null = null;
     try {
       first = createConversationStore({ dbPath, dataRoot: root });
       first.createSession(LOCAL_TENANT_ID, "session-a", "user-a");
-      first.createSession(LOCAL_TENANT_ID, "session-b", "user-b");
+      const goal = first.createGoal("session-a", {
+        objective: "Ship Goal mode",
+        successCriteria: ["tests pass"],
+        steps: [{ id: "1", title: "Implement", description: "Build it", status: "in_progress", evidence: null }],
+      });
+      expect(first.getCurrentGoal("session-a")).toMatchObject({ id: goal.id, status: "active" });
+      expect(() => first!.createGoal("session-a", { objective: "Second", successCriteria: ["done"] })).toThrow();
 
-      const blocker = first.createWorkflowTask("session-a", {
-        subject: "Prepare",
-        description: "Prepare inputs",
-        metadata: { keep: true, remove: true },
-      });
-      const blocked = first.createWorkflowTask("session-a", {
-        subject: "Execute",
-        description: "Run the workflow",
-      });
-      const downstream = first.createWorkflowTask("session-a", {
-        subject: "Publish",
-        description: "Publish results",
-      });
-      const updated = first.updateWorkflowTask("session-a", blocked.id, {
-        owner: "agent-a",
-        status: "in_progress",
-        addBlockedBy: [blocker.id],
-        addBlocks: [downstream.id],
-        metadata: { phase: 2 },
-      });
-
-      expect(updated).toMatchObject({
-        id: blocked.id,
-        owner: "agent-a",
-        status: "in_progress",
-        blocked_by: [blocker.id],
-        blocks: [downstream.id],
-        metadata: { phase: 2 },
-      });
-      expect(first.getWorkflowTask("session-a", blocker.id)?.blocks).toEqual([blocked.id]);
-      expect(first.getWorkflowTask("session-a", downstream.id)?.blocked_by).toEqual([blocked.id]);
-      expect(first.getWorkflowTask("session-b", blocker.id)).toBeNull();
-      expect(first.listWorkflowTasks("session-a").map((task) => task.id)).toEqual([blocker.id, blocked.id, downstream.id]);
+      expect(first.updateGoal("session-a", goal.id, {
+        checkpoint: { files: ["src/goal.ts"] },
+        progress: { summary: "implemented" },
+        steps: [{ id: "1", title: "Implement", description: "Build it", status: "completed", evidence: "tests" }],
+        status: "completed",
+      })).toMatchObject({ status: "completed", progress: { summary: "implemented" } });
+      const next = first.createGoal("session-a", { objective: "Document it", successCriteria: ["docs published"] });
 
       first.close();
       first = null;
       reopened = createConversationStore({ dbPath, dataRoot: root });
-      expect(reopened.getWorkflowTask("session-a", blocked.id)).toMatchObject({
-        subject: "Execute",
-        owner: "agent-a",
-        status: "in_progress",
-        blocked_by: [blocker.id],
-        blocks: [downstream.id],
-      });
-      expect(reopened.deleteWorkflowTask("session-a", blocked.id)).toBe(true);
-      expect(reopened.getWorkflowTask("session-a", blocked.id)).toBeNull();
-      expect(reopened.getWorkflowTask("session-a", blocker.id)?.blocks).toEqual([]);
-      expect(reopened.getWorkflowTask("session-a", downstream.id)?.blocked_by).toEqual([]);
+      expect(reopened.getCurrentGoal("session-a")).toMatchObject({ id: next.id, status: "active" });
+      expect(reopened.listGoals("session-a")).toHaveLength(2);
     } finally {
       first?.close();
       reopened?.close();
@@ -87,109 +59,103 @@ describe("durable local workflow tasks", () => {
     }
   });
 
-  it("binds the local adapter to the owning tenant", async () => {
+  it("atomically claims, releases, and guards automatic continuation", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    const tenantA = createTenantId("tnt_workflow_a");
-    const tenantB = createTenantId("tnt_workflow_b");
     try {
-      store.createSession(tenantA, "session-a", "user-a");
-      store.createSession(tenantB, "session-b", "user-b");
-      const tenantAStore = new LocalWorkflowTaskStore(tenantA, store);
-      const task = await tenantAStore.create("session-a", {
-        subject: "Tenant A",
-        description: "Owned by tenant A",
-      });
+      store.createSession(LOCAL_TENANT_ID, "session-a", "user-a");
+      const goal = store.createGoal("session-a", { objective: "Finish", successCriteria: ["verified"] });
+      const first = store.claimGoalContinuation("session-a");
+      expect(first).toMatchObject({ continuation_count: 1, continuation_generation: 1, continuation_pending: true });
+      expect(store.claimGoalContinuation("session-a")).toBeNull();
+      expect(store.releaseGoalContinuation("session-a", goal.id, 1)).toBe(true);
+      expect(store.claimGoalContinuation("session-a", { maxContinuations: 1 })).toBeNull();
+      expect(store.getGoal("session-a", goal.id)?.status).toBe("blocked");
 
-      await expect(tenantAStore.get("session-b", task.id)).resolves.toBeNull();
-      await expect(tenantAStore.list("session-b")).resolves.toEqual([]);
-      await expect(tenantAStore.create("session-b", {
-        subject: "Cross tenant",
-        description: "Must fail",
-      })).rejects.toThrow("不属于当前租户");
+      store.createSession(LOCAL_TENANT_ID, "session-b", "user-b");
+      const stalled = store.createGoal("session-b", { objective: "Detect no progress", successCriteria: ["verified"] });
+      for (let generation = 1; generation <= 3; generation += 1) {
+        const claim = store.claimGoalContinuation("session-b", { maxNoProgress: 3 });
+        expect(claim?.continuation_generation).toBe(generation);
+        expect(store.releaseGoalContinuation("session-b", stalled.id, generation)).toBe(true);
+      }
+      expect(store.claimGoalContinuation("session-b", { maxNoProgress: 3 })).toBeNull();
+      expect(store.getGoal("session-b", stalled.id)).toMatchObject({ status: "blocked", no_progress_count: 3 });
     } finally {
       store.close();
     }
   });
+
+  it("binds the local adapter to the owning tenant", async () => {
+    const source = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    const tenantA = createTenantId("tnt_goal_a");
+    const tenantB = createTenantId("tnt_goal_b");
+    try {
+      source.createSession(tenantA, "session-a", "user-a");
+      source.createSession(tenantB, "session-b", "user-b");
+      const store = new LocalGoalStore(tenantA, source);
+      const goal = await store.create("session-a", { objective: "Tenant A Goal", successCriteria: ["done"] });
+      await expect(store.get("session-b", goal.id)).resolves.toBeNull();
+      await expect(store.list("session-b")).resolves.toEqual([]);
+      await expect(store.create("session-b", { objective: "Cross tenant", successCriteria: ["must fail"] }))
+        .rejects.toThrow("不属于当前租户");
+    } finally {
+      source.close();
+    }
+  });
 });
 
-describe("workflow task id validation", () => {
-  it.each(["../x", "0", "-1", "550e8400-e29b-41d4-a716-446655440000", "9223372036854775808"])(
-    "rejects %s before calling persistence",
-    async (taskId) => {
-      const store = new RecordingWorkflowTaskStore();
-      const service = new TaskToolService(
-        new BackgroundTaskService(),
-        new SessionNotificationQueue(),
-        store,
+describe("Goal tools", () => {
+  it("does not let an Agent revive a completed Goal through an explicit historical id", async () => {
+    const source = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    try {
+      source.createSession(LOCAL_TENANT_ID, "session-terminal", "user-a");
+      const goals = new LocalGoalStore(LOCAL_TENANT_ID, source);
+      const goal = await goals.create("session-terminal", {
+        objective: "Keep history terminal",
+        successCriteria: ["completed remains completed"],
+      });
+      await goals.update("session-terminal", goal.id, { status: "completed" });
+      const service = new TaskToolService(new BackgroundTaskService(), new SessionNotificationQueue(), goals);
+
+      const result = await service.goalUpdate(
+        { goalId: goal.id, status: "paused" },
+        { sessionId: "session-terminal" } as ToolExecContext,
       );
-      const context = { sessionId: "session-a" } as ToolExecContext;
 
-      const result = await service.taskGet({ taskId }, context);
-
-      expect(result.success).toBe(false);
-      expect(result.summary).toContain("task_id 必须是正整数任务 ID");
-      expect(store.reads).toEqual([]);
-    },
-  );
-
-  it("rejects invalid and self-referential dependency ids before updating", async () => {
-    const store = new RecordingWorkflowTaskStore();
-    const service = new TaskToolService(
-      new BackgroundTaskService(),
-      new SessionNotificationQueue(),
-      store,
-    );
-    const context = { sessionId: "session-a" } as ToolExecContext;
-
-    await expect(service.taskUpdate({ taskId: "1", addBlocks: ["../2"] }, context))
-      .resolves.toMatchObject({ success: false });
-    await expect(service.taskUpdate({ taskId: "1", addBlockedBy: ["1"] }, context))
-      .resolves.toMatchObject({ success: false });
-    expect(store.updates).toEqual([]);
+      expect(result).toMatchObject({ success: false });
+      await expect(goals.get("session-terminal", goal.id)).resolves.toMatchObject({ status: "completed" });
+    } finally {
+      source.close();
+    }
   });
 
-  it("keeps background task ids generic while workflow ids stay numeric", () => {
-    const service = new TaskToolService(
-      new BackgroundTaskService(),
-      new SessionNotificationQueue(),
-      new RecordingWorkflowTaskStore(),
-    );
-    const tools = createTaskTools({
-      taskTools: service,
-      agent: { tasks: { workflow: true, background: true } } as AgentConfig,
-    });
-    const workflowGet = tools.find((tool) => tool.name === "task_get");
-    const backgroundStop = tools.find((tool) => tool.name === "task_stop");
-    const backgroundId = "550e8400-e29b-41d4-a716-446655440000";
+  it("validates Goal ids without restricting background task ids", async () => {
+    const goals = new RecordingGoalStore();
+    const service = new TaskToolService(new BackgroundTaskService(), new SessionNotificationQueue(), goals);
+    const context = { sessionId: "session-a" } as ToolExecContext;
+    const result = await service.goalGet({ goalId: "../x" }, context);
+    expect(result).toMatchObject({ success: false });
+    expect(goals.reads).toEqual([]);
 
-    expect(workflowGet?.inputSchema?.safeParse({ task_id: backgroundId }).success).toBe(false);
-    expect(backgroundStop?.inputSchema?.safeParse({ task_id: backgroundId }).success).toBe(true);
+    const tools = createTaskTools({ taskTools: service, agent: { goals: { enabled: true }, tasks: { background: true } } as AgentConfig });
+    const goalCreate = tools.find((tool) => tool.name === "goal_create");
+    const goalGet = tools.find((tool) => tool.name === "goal_get");
+    const backgroundStop = tools.find((tool) => tool.name === "task_stop");
+    const uuid = "550e8400-e29b-41d4-a716-446655440000";
+    expect(goalCreate?.inputSchema?.safeParse({ objective: "Ship", success_criteria: ["verified"] }).success).toBe(true);
+    expect(goalGet?.inputSchema?.safeParse({ goal_id: uuid }).success).toBe(true);
+    expect(backgroundStop?.inputSchema?.safeParse({ task_id: uuid }).success).toBe(true);
+    expect(tools.map((tool) => tool.name)).not.toContain("task_create");
   });
 });
 
-class RecordingWorkflowTaskStore implements WorkflowTaskStore {
-  readonly reads: Array<{ sessionId: string; taskId: string }> = [];
-  readonly updates: Array<{ sessionId: string; taskId: string }> = [];
-
-  async create(_sessionId: string, _input: CreateWorkflowTaskInput): Promise<WorkflowTask> {
-    throw new Error("not implemented");
-  }
-
-  async get(sessionId: string, taskId: string): Promise<WorkflowTask | null> {
-    this.reads.push({ sessionId, taskId });
-    return null;
-  }
-
-  async update(sessionId: string, taskId: string, _input: UpdateWorkflowTaskInput): Promise<WorkflowTask | null> {
-    this.updates.push({ sessionId, taskId });
-    return null;
-  }
-
-  async delete(_sessionId: string, _taskId: string): Promise<boolean> {
-    return false;
-  }
-
-  async list(_sessionId: string): Promise<WorkflowTask[]> {
-    return [];
-  }
+class RecordingGoalStore implements GoalStore {
+  readonly reads: Array<{ sessionId: string; goalId: string }> = [];
+  async create(_sessionId: string, _input: CreateGoalInput): Promise<Goal> { throw new Error("not implemented"); }
+  async get(sessionId: string, goalId: string): Promise<Goal | null> { this.reads.push({ sessionId, goalId }); return null; }
+  async getCurrent(_sessionId: string): Promise<Goal | null> { return null; }
+  async update(_sessionId: string, _goalId: string, _patch: UpdateGoalInput): Promise<Goal | null> { return null; }
+  async list(_sessionId: string): Promise<Goal[]> { return []; }
+  async claimContinuation(_sessionId: string, _options?: ClaimGoalContinuationOptions): Promise<Goal | null> { return null; }
+  async releaseContinuation(_sessionId: string, _goalId: string, _generation: number): Promise<boolean> { return false; }
 }

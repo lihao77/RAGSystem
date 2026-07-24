@@ -2,19 +2,19 @@ import { z } from "zod";
 
 import type { TaskToolService } from "./TaskExecution.js";
 import {
-  readTaskCreateArguments,
-  readTaskGetArguments,
+  readGoalCreateArguments,
+  readGoalGetArguments,
+  readGoalUpdateArguments,
   readTaskOutputArguments,
   readTaskStopArguments,
-  readTaskUpdateArguments,
 } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import {
-  TASK_CREATE_TOOL_NAME,
-  TASK_GET_TOOL_NAME,
-  TASK_LIST_TOOL_NAME,
+  GOAL_CREATE_TOOL_NAME,
+  GOAL_GET_TOOL_NAME,
+  GOAL_LIST_TOOL_NAME,
+  GOAL_UPDATE_TOOL_NAME,
   TASK_OUTPUT_TOOL_NAME,
   TASK_STOP_TOOL_NAME,
-  TASK_UPDATE_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import {
   buildTool,
@@ -24,47 +24,37 @@ import {
 } from "@ragsystem/agent-sdk";
 import { metadataFrom, optionalBoolean, optionalInteger, optionalRecord, optionalString } from "../schema-helpers.js";
 import type { AgentConfig } from "../../contracts/agent/agent-config.js";
-import { isWorkflowTaskId } from "../../contracts/runtime/workflow-tasks.js";
+import { isGoalId } from "../../contracts/runtime/goals.js";
 
 interface TaskToolDeps {
   taskTools: TaskToolService | null;
   agent: AgentConfig;
 }
 
-const taskCreateSchema = z.object({
-  subject: z.string(),
-  description: z.string(),
-  active_form: optionalString,
-  activeForm: optionalString,
-  metadata: optionalRecord,
+const goalIdSchema = z.string().refine(isGoalId, { message: "goal_id 必须是有效 UUID" });
+const goalStepSchema = z.object({
+  id: z.string(), title: z.string(), description: z.string().optional().default(""),
+  status: z.enum(["pending", "in_progress", "completed", "blocked"]).optional().default("pending"),
+  evidence: optionalString,
 }).strict();
-
-const workflowTaskIdSchema = z.string().refine(isWorkflowTaskId, {
-  message: "task_id 必须是正整数任务 ID",
+const goalCreateSchema = z.object({
+  objective: z.string().min(1),
+  success_criteria: z.array(z.string().min(1)).min(1).optional(),
+  successCriteria: z.array(z.string().min(1)).min(1).optional(),
+  steps: z.array(goalStepSchema).optional(),
+  checkpoint: optionalRecord,
+  progress: optionalRecord,
+}).strict().refine((value) => Boolean(value.success_criteria?.length || value.successCriteria?.length), {
+  message: "success_criteria 至少需要一项",
 });
-
-const taskGetSchema = z.object({
-  task_id: workflowTaskIdSchema,
-  taskId: workflowTaskIdSchema.optional(),
+const goalGetSchema = z.object({ goal_id: goalIdSchema.optional(), goalId: goalIdSchema.optional() }).strict();
+const goalUpdateSchema = z.object({
+  goal_id: goalIdSchema.optional(), goalId: goalIdSchema.optional(), objective: optionalString,
+  success_criteria: z.array(z.string().min(1)).min(1).nullable().optional(), successCriteria: z.array(z.string().min(1)).min(1).nullable().optional(),
+  steps: z.array(goalStepSchema).nullable().optional(), checkpoint: optionalRecord, progress: optionalRecord,
+  status: z.enum(["active", "paused", "completed", "blocked"]).optional().nullable(),
 }).strict();
-
-const taskUpdateSchema = z.object({
-  task_id: workflowTaskIdSchema,
-  taskId: workflowTaskIdSchema.optional(),
-  subject: optionalString,
-  description: optionalString,
-  active_form: optionalString,
-  activeForm: optionalString,
-  owner: optionalString,
-  status: z.enum(["pending", "in_progress", "completed", "deleted"]).optional().nullable(),
-  add_blocks: z.array(workflowTaskIdSchema).nullable().optional(),
-  addBlocks: z.array(workflowTaskIdSchema).nullable().optional(),
-  add_blocked_by: z.array(workflowTaskIdSchema).nullable().optional(),
-  addBlockedBy: z.array(workflowTaskIdSchema).nullable().optional(),
-  metadata: optionalRecord,
-}).strict();
-
-const taskListSchema = z.object({}).strict();
+const goalListSchema = z.object({}).strict();
 const taskOutputSchema = z.object({
   task_id: z.string(),
   taskId: z.string().optional(),
@@ -78,73 +68,80 @@ const taskStopSchema = z.object({
   taskId: z.string().min(1).optional(),
 }).strict();
 
-const TASK_WORKFLOW_TOOLS: RuntimeToolDefinition[] = [
+const GOAL_TOOLS: RuntimeToolDefinition[] = [
   {
-    name: TASK_CREATE_TOOL_NAME,
+    name: GOAL_CREATE_TOOL_NAME,
     source: "runtime_builtin",
-    category: "task",
+    category: "goal",
     riskLevel: "low",
     allowed_callers: ["direct"],
-    description: "Create a session-scoped task record for multi-step work tracking.",
+    description: "Create the session's durable multi-run Goal. Include verifiable success criteria and staged steps; only one active/paused Goal may exist per session.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      required: ["subject", "description"],
+      required: ["objective", "success_criteria"],
       properties: {
-        subject: { type: "string", description: "Short task title." },
-        description: { type: "string", description: "Detailed task description and acceptance criteria." },
-        active_form: { type: "string", description: "Display text while the task is in progress." },
-        metadata: { type: "object", description: "Optional metadata." },
+        objective: { type: "string", description: "The user's final objective." },
+        success_criteria: { type: "array", items: { type: "string" }, description: "Verifiable completion criteria." },
+        steps: {
+          type: "array",
+          description: "Current staged execution plan; update it dynamically as new work is discovered.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["id", "title", "description", "status"],
+            properties: {
+              id: { type: "string" }, title: { type: "string" }, description: { type: "string" },
+              status: { type: "string", enum: ["pending", "in_progress", "completed", "blocked"] },
+              evidence: { type: "string" },
+            },
+          },
+        },
+        checkpoint: { type: "object" },
+        progress: { type: "object" },
       },
     },
   },
   {
-    name: TASK_GET_TOOL_NAME,
+    name: GOAL_GET_TOOL_NAME,
     source: "runtime_builtin",
-    category: "task",
+    category: "goal",
     riskLevel: "low",
     allowed_callers: ["direct"],
-    description: "Read a session-scoped task by id.",
+    description: "Read a Goal by id, or the current active/paused Goal when omitted.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      required: ["task_id"],
       properties: {
-        task_id: { type: "string", pattern: "^[1-9][0-9]*$", description: "Positive integer task id returned by task_create." },
+        goal_id: { type: "string", format: "uuid" },
       },
     },
   },
   {
-    name: TASK_UPDATE_TOOL_NAME,
+    name: GOAL_UPDATE_TOOL_NAME,
     source: "runtime_builtin",
-    category: "task",
+    category: "goal",
     riskLevel: "low",
     allowed_callers: ["direct"],
-    description: "Update task fields, status, dependency links, or metadata.",
+    description: "Update the Goal after meaningful progress. Keep steps/checkpoint current; set completed only when success criteria have evidence, paused on user request, and blocked only when progress is impossible.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      required: ["task_id"],
       properties: {
-        task_id: { type: "string", pattern: "^[1-9][0-9]*$" },
-        subject: { type: "string" },
-        description: { type: "string" },
-        active_form: { type: "string" },
-        owner: { type: "string" },
-        status: { type: "string", enum: ["pending", "in_progress", "completed", "deleted"] },
-        add_blocks: { type: "array", items: { type: "string", pattern: "^[1-9][0-9]*$" } },
-        add_blocked_by: { type: "array", items: { type: "string", pattern: "^[1-9][0-9]*$" } },
-        metadata: { type: "object" },
+        goal_id: { type: "string", format: "uuid" }, objective: { type: "string" },
+        success_criteria: { type: "array", items: { type: "string" } },
+        steps: { type: "array", items: { type: "object" } }, checkpoint: { type: "object" }, progress: { type: "object" },
+        status: { type: "string", enum: ["active", "paused", "completed", "blocked"] },
       },
     },
   },
   {
-    name: TASK_LIST_TOOL_NAME,
+    name: GOAL_LIST_TOOL_NAME,
     source: "runtime_builtin",
-    category: "task",
+    category: "goal",
     riskLevel: "low",
     allowed_callers: ["direct"],
-    description: "List session-scoped task summaries.",
+    description: "List current and historical Goals for this session.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -196,35 +193,31 @@ export function createTaskTools(deps: TaskToolDeps): Tool[] {
   if (!taskTools) {
     return [];
   }
-  const workflowDefinitions = new Map(TASK_WORKFLOW_TOOLS.map((definition) => [definition.name, definition]));
+  const goalDefinitions = new Map(GOAL_TOOLS.map((definition) => [definition.name, definition]));
   const enabledTools = new Set(agent.tools?.enabled_tools ?? []);
   const tools: Tool[] = [];
 
-  if (agent.tasks?.workflow === true) {
+  if (agent.goals?.enabled === true) {
     tools.push(
       buildTool({
-        ...metadataFrom(workflowDefinitions.get(TASK_CREATE_TOOL_NAME)!),
-        inputSchema: taskCreateSchema,
-        call: (input, ctx: ToolExecContext) => taskTools.taskCreate(readTaskCreateArguments(input), ctx),
+        ...metadataFrom(goalDefinitions.get(GOAL_CREATE_TOOL_NAME)!), inputSchema: goalCreateSchema,
+        call: (input, ctx: ToolExecContext) => taskTools.goalCreate(readGoalCreateArguments(input), ctx),
       }),
       buildTool({
-        ...metadataFrom(workflowDefinitions.get(TASK_GET_TOOL_NAME)!),
-        inputSchema: taskGetSchema,
+        ...metadataFrom(goalDefinitions.get(GOAL_GET_TOOL_NAME)!), inputSchema: goalGetSchema,
         isReadOnly: () => true,
         isConcurrencySafe: () => true,
-        call: (input, ctx: ToolExecContext) => taskTools.taskGet(readTaskGetArguments(input), ctx),
+        call: (input, ctx: ToolExecContext) => taskTools.goalGet(readGoalGetArguments(input), ctx),
       }),
       buildTool({
-        ...metadataFrom(workflowDefinitions.get(TASK_UPDATE_TOOL_NAME)!),
-        inputSchema: taskUpdateSchema,
-        call: (input, ctx: ToolExecContext) => taskTools.taskUpdate(readTaskUpdateArguments(input), ctx),
+        ...metadataFrom(goalDefinitions.get(GOAL_UPDATE_TOOL_NAME)!), inputSchema: goalUpdateSchema,
+        call: (input, ctx: ToolExecContext) => taskTools.goalUpdate(readGoalUpdateArguments(input), ctx),
       }),
       buildTool({
-        ...metadataFrom(workflowDefinitions.get(TASK_LIST_TOOL_NAME)!),
-        inputSchema: taskListSchema,
+        ...metadataFrom(goalDefinitions.get(GOAL_LIST_TOOL_NAME)!), inputSchema: goalListSchema,
         isReadOnly: () => true,
         isConcurrencySafe: () => true,
-        call: (_input, ctx: ToolExecContext) => taskTools.taskList(ctx),
+        call: (_input, ctx: ToolExecContext) => taskTools.goalList(ctx),
       }),
     );
   }

@@ -8,6 +8,11 @@ export const CONFIG_MANAGED_TOOL_NAMES = new Set([
   "write_memory",
   "archive_memory",
   "request_user_input",
+  "goal_create",
+  "goal_get",
+  "goal_update",
+  "goal_list",
+  // Retired workflow tool names are still stripped from older development configs.
   "task_create",
   "task_get",
   "task_update",
@@ -62,7 +67,8 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
       write_scopes: ["session", "user"],
       archive_scopes: ["session", "user"],
     },
-    tasks: config.tasks ?? { workflow: false, background: false },
+    goals: config.goals ?? { enabled: false },
+    tasks: config.tasks ?? { background: false },
     delegation: config.delegation ?? { enabled_agents: [] },
     knowledge_base: config.knowledge_base ?? {
       enabled: false,

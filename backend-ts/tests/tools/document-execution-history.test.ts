@@ -86,7 +86,8 @@ function agent(workspaceRoot: string): AgentConfig {
     skills: { enabled_skills: [] },
     mcp: { enabled_servers: [] },
     memory: { auto_inject: false, allowed_scopes: [], write_scopes: [], archive_scopes: [] },
-    tasks: { workflow: false, background: false },
+    goals: { enabled: false },
+    tasks: { background: false },
     delegation: { enabled_agents: [] },
     knowledge_base: {
       enabled: false,
