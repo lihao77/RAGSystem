@@ -58,20 +58,36 @@
             <Button
               class="wpe-copy-btn"
               variant="ghost"
-              size="icon"
+              size="icon-xs"
               :aria-label="copiedSectionId === section.id ? '已复制' : '复制'"
               :title="copiedSectionId === section.id ? '已复制' : '复制'"
               @click="copySectionText(section)"
             >
-              <svg v-if="copiedSectionId === section.id" viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">
-                <path d="m4.5 10.5 3.2 3.2 7.8-8.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <svg v-else viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">
-                <rect x="7" y="7" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
-                <path d="M4 12V5.8C4 4.8 4.8 4 5.8 4H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-              </svg>
+              <Check v-if="copiedSectionId === section.id" aria-hidden="true" />
+              <Copy v-else aria-hidden="true" />
             </Button>
-            <pre class="wpe-code">{{ section.text }}</pre>
+            <pre :id="sectionContentId(section)" class="wpe-code">{{ visibleSectionText(section) }}</pre>
+            <div v-if="isLongSection(section)" class="wpe-code-toggle-wrap">
+              <span class="wpe-code-toggle-rule" aria-hidden="true"></span>
+            <Button
+              class="wpe-code-toggle"
+              variant="ghost"
+              size="sm"
+              type="button"
+              :active="isSectionExpanded(section)"
+              :data-state="isSectionExpanded(section) ? 'open' : 'closed'"
+              :aria-expanded="isSectionExpanded(section)"
+              :aria-controls="sectionContentId(section)"
+              @click="toggleSection(section)"
+            >
+              <span>{{ isSectionExpanded(section) ? '收起内容' : '展开内容' }}</span>
+              <span v-if="!isSectionExpanded(section)" class="wpe-code-toggle-meta">
+                {{ sectionLengthLabel(section) }}
+              </span>
+              <ChevronDown data-icon="inline-end" aria-hidden="true" />
+            </Button>
+              <span class="wpe-code-toggle-rule" aria-hidden="true"></span>
+            </div>
           </div>
           <div v-else class="wpe-detail-text">{{ section.text }}</div>
           <div v-if="section.options?.length" class="wpe-options">
@@ -98,20 +114,36 @@
             <Button
               class="wpe-copy-btn"
               variant="ghost"
-              size="icon"
+              size="icon-xs"
               :aria-label="copiedSectionId === section.id ? '已复制' : '复制'"
               :title="copiedSectionId === section.id ? '已复制' : '复制'"
               @click="copySectionText(section)"
             >
-              <svg v-if="copiedSectionId === section.id" viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">
-                <path d="m4.5 10.5 3.2 3.2 7.8-8.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <svg v-else viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">
-                <rect x="7" y="7" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
-                <path d="M4 12V5.8C4 4.8 4.8 4 5.8 4H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-              </svg>
+              <Check v-if="copiedSectionId === section.id" aria-hidden="true" />
+              <Copy v-else aria-hidden="true" />
             </Button>
-            <pre class="wpe-code result">{{ section.text }}</pre>
+            <pre :id="sectionContentId(section)" class="wpe-code result">{{ visibleSectionText(section) }}</pre>
+            <div v-if="isLongSection(section)" class="wpe-code-toggle-wrap">
+              <span class="wpe-code-toggle-rule" aria-hidden="true"></span>
+            <Button
+              class="wpe-code-toggle"
+              variant="ghost"
+              size="sm"
+              type="button"
+              :active="isSectionExpanded(section)"
+              :data-state="isSectionExpanded(section) ? 'open' : 'closed'"
+              :aria-expanded="isSectionExpanded(section)"
+              :aria-controls="sectionContentId(section)"
+              @click="toggleSection(section)"
+            >
+              <span>{{ isSectionExpanded(section) ? '收起内容' : '展开内容' }}</span>
+              <span v-if="!isSectionExpanded(section)" class="wpe-code-toggle-meta">
+                {{ sectionLengthLabel(section) }}
+              </span>
+              <ChevronDown data-icon="inline-end" aria-hidden="true" />
+            </Button>
+              <span class="wpe-code-toggle-rule" aria-hidden="true"></span>
+            </div>
           </div>
           <div v-else class="wpe-detail-text" :class="{ muted: section.muted }">{{ section.text }}</div>
         </div>
@@ -121,6 +153,7 @@
 </template>
 
 <script setup>
+import { Check, ChevronDown, Copy } from 'lucide-vue-next'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import {
   formatToolContent,
@@ -148,6 +181,10 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const copiedSectionId = ref('')
+const expandedSectionIds = ref([])
+const COLLAPSED_SECTION_CHAR_LIMIT = 520
+const COLLAPSED_SECTION_LINE_LIMIT = 16
+const COLLAPSED_SECTION_PREVIEW_CHARS = 360
 let copiedResetTimer = null
 
 const selectedToolPayload = computed(() => props.node.type === 'tool_call' ? parseToolPayload(props.node) : null)
@@ -250,6 +287,7 @@ watch(
   () => props.node,
   () => {
     copiedSectionId.value = ''
+    expandedSectionIds.value = []
   }
 )
 
@@ -303,6 +341,43 @@ async function copySectionText(section) {
   copiedResetTimer = setTimeout(() => {
     if (copiedSectionId.value === section.id) copiedSectionId.value = ''
   }, 1200)
+}
+
+function isLongSection(section) {
+  const text = String(section?.text || '')
+  return text.length > COLLAPSED_SECTION_CHAR_LIMIT
+    || text.split('\n').length > COLLAPSED_SECTION_LINE_LIMIT
+}
+
+function isSectionExpanded(section) {
+  return expandedSectionIds.value.includes(section.id)
+}
+
+function visibleSectionText(section) {
+  const text = String(section?.text || '')
+  if (!isLongSection(section) || isSectionExpanded(section)) return text
+  return text.slice(0, COLLAPSED_SECTION_PREVIEW_CHARS).trimEnd()
+}
+
+function sectionContentId(section) {
+  return `wpe-section-${String(section?.id || 'content').replace(/[^a-zA-Z0-9_-]/g, '-')}`
+}
+
+function sectionLengthLabel(section) {
+  const text = String(section?.text || '')
+  const lineCount = text.split('\n').length
+  if (lineCount > 1) return `${lineCount} 行`
+  if (text.length >= 1000) return `${(text.length / 1000).toFixed(1)}k 字符`
+  return `${text.length} 字符`
+}
+
+function toggleSection(section) {
+  if (!isLongSection(section)) return
+  if (isSectionExpanded(section)) {
+    expandedSectionIds.value = expandedSectionIds.value.filter(id => id !== section.id)
+    return
+  }
+  expandedSectionIds.value = [...expandedSectionIds.value, section.id]
 }
 
 function metaItemClass(item) {
@@ -683,6 +758,64 @@ function dedupeMeta(items) {
   border-color: var(--color-result-border);
 }
 
+.wpe-code-toggle-wrap {
+  position: relative;
+  z-index: 2;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wpe-code-toggle-rule {
+  height: 1px;
+  min-width: 8px;
+  flex: 1;
+  background: color-mix(in srgb, var(--color-border) 62%, transparent);
+}
+
+.wpe-code-toggle {
+  min-width: 124px;
+  height: 26px;
+  flex-shrink: 0;
+  gap: 5px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-bg-elevated) 88%, transparent);
+  color: var(--color-text-secondary);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast),
+    background var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.wpe-code-toggle:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-hover-overlay);
+  color: var(--color-text-primary);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.wpe-code-toggle-meta {
+  padding-left: 5px;
+  border-left: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wpe-code-toggle svg {
+  transition: transform var(--transition-fast);
+}
+
+.wpe-code-toggle[data-state='open'] svg {
+  transform: rotate(180deg);
+}
+
 .wpe-options {
   display: flex;
   flex-wrap: wrap;
@@ -738,7 +871,9 @@ function dedupeMeta(items) {
 
 @media (prefers-reduced-motion: reduce) {
   .wpe-inspector-close,
-  .wpe-context-fill {
+  .wpe-context-fill,
+  .wpe-code-toggle,
+  .wpe-code-toggle svg {
     transition-duration: 1ms;
   }
 }

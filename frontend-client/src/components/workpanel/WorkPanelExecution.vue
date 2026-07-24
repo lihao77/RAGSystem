@@ -1,5 +1,9 @@
 <template>
-  <div class="wpe-root">
+  <div
+    ref="rootRef"
+    :class="cn('wpe-root', { 'is-resizing-inspector': isInspectorResizing })"
+    :style="inspectorStyle"
+  >
     <div class="wpe-header">
       <div class="wpe-heading">
         <span class="wpe-title">{{ executionView.title }}</span>
@@ -25,8 +29,43 @@
      <Transition name="wpe-state" mode="out-in">
         <EmptyState v-if="!executionView.hasNodes" row :title="executionView.emptyText" key="empty" class="wpe-empty-host" />
         <div v-else class="wpe-list" key="list">
-         <Transition name="wpe-tree-swap" mode="out-in" appear>
+          <Transition name="wpe-tree-swap" mode="out-in" appear>
+            <DynamicScroller
+              v-if="shouldVirtualize"
+              :key="`virtual-${messageKey}`"
+              ref="listRef"
+              :class="cn('wpe-scroll', 'wpe-scroll--virtual', { 'has-return-current': showReturnToCurrent })"
+              :items="virtualNodes"
+              :min-item-size="54"
+              :buffer="240"
+              key-field="key"
+              list-class="wpe-node-stack"
+              @scroll.passive="handleListScroll"
+            >
+              <template #default="{ item, index, active }">
+                <DynamicScrollerItem
+                  :item="item"
+                  :active="active"
+                  :data-index="index"
+                  :size-dependencies="[item.measureKey, item.layoutVersion]"
+                >
+                  <div class="wpe-virtual-item">
+                    <ExecutionTimelineNode
+                      :node="item.node"
+                      :depth="0"
+                      :session-id="sessionId"
+                      :focus-key="focusKey"
+                      :selected-key="selectedKey"
+                      @inspect="selectNode"
+                      @layout-change="handleNodeLayoutChange(item.key)"
+                    />
+                  </div>
+                </DynamicScrollerItem>
+              </template>
+            </DynamicScroller>
+
             <div
+              v-else
               :key="messageKey"
               ref="listRef"
               :class="cn('wpe-scroll', { 'has-return-current': showReturnToCurrent })"
@@ -66,6 +105,23 @@
     </div>
 
     <div class="wpe-inspector-slot" :class="{ 'is-open': selectedNode }">
+      <div
+        v-if="selectedNode"
+        class="wpe-inspector-resize"
+        role="separator"
+        tabindex="0"
+        aria-label="调整执行详情高度"
+        aria-orientation="horizontal"
+        :aria-valuemin="INSPECTOR_MIN_HEIGHT"
+        :aria-valuemax="inspectorMaxHeight"
+        :aria-valuenow="Math.round(inspectorHeight)"
+        title="拖动调整详情高度，双击恢复默认"
+        @dblclick="resetInspectorHeight"
+        @keydown="handleInspectorResizeKeydown"
+        @pointerdown="startInspectorResize"
+      >
+        <span aria-hidden="true"></span>
+      </div>
       <Transition name="wpe-inspector">
         <WorkPanelInspector v-if="selectedNode" :node="selectedNode" @close="clearSelectedNode" />
       </Transition>
@@ -75,7 +131,9 @@
 
 <script setup>
 import { LocateFixed } from 'lucide-vue-next'
-import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { DynamicScroller, DynamicScrollerItem } from 'vue-virtual-scroller'
+import 'vue-virtual-scroller/index.css'
 import { cn } from '@/lib/utils'
 import { buildExecutionTree } from '../../utils/executionTreeBuilder'
 import {
@@ -97,8 +155,22 @@ const props = defineProps({
 })
 
 const listRef = ref(null)
+const rootRef = ref(null)
 const selectedNodeKey = ref('')
 const showReturnToCurrent = ref(false)
+const inspectorHeight = ref(0)
+const isInspectorResizing = ref(false)
+const rootHeight = ref(0)
+const virtualLayoutVersions = ref({})
+const VIRTUALIZE_NODE_THRESHOLD = 80
+const VIRTUALIZE_BRANCH_THRESHOLD = 4
+const INSPECTOR_MIN_HEIGHT = 190
+const INSPECTOR_LIST_MIN_HEIGHT = 160
+const INSPECTOR_MAX_HEIGHT = 560
+const INSPECTOR_KEY_STEP = 24
+let inspectorResizeStartY = 0
+let inspectorResizeStartHeight = 0
+let rootResizeObserver = null
 let selectionScrollTimer = null
 const nodes = computed(() => buildExecutionTree(props.executionTree, props.injections))
 
@@ -107,6 +179,31 @@ const focusNode = computed(() => findFocusNode(flatNodes.value))
 const focusKey = computed(() => focusNode.value ? getNodeKey(focusNode.value) : '')
 const selectedNode = computed(() => findNodeByKey(flatNodes.value, selectedNodeKey.value))
 const selectedKey = computed(() => selectedNodeKey.value)
+const inspectorMaxHeight = computed(() => {
+  if (!rootHeight.value) return 420
+  return Math.max(INSPECTOR_MIN_HEIGHT, Math.min(INSPECTOR_MAX_HEIGHT, rootHeight.value - INSPECTOR_LIST_MIN_HEIGHT))
+})
+const inspectorStyle = computed(() => ({
+  '--wpe-inspector-height': `${Math.round(inspectorHeight.value)}px`,
+}))
+const shouldVirtualize = computed(() => (
+  flatNodes.value.length >= VIRTUALIZE_NODE_THRESHOLD
+  && nodes.value.length >= VIRTUALIZE_BRANCH_THRESHOLD
+))
+const virtualNodes = computed(() => nodes.value.map((node, index) => {
+  const key = getNodeKey(node) || timelineNodeKey(node, index)
+  return {
+    key,
+    node,
+    layoutVersion: virtualLayoutVersions.value[key] || 0,
+    measureKey: [
+      node.status || '',
+      node.children?.length || 0,
+      node.description || '',
+      node.result_summary || '',
+    ].join(':'),
+  }
+}))
 
 const stats = computed(() => {
   const values = { total: 0, agent: 0, tool: 0, running: 0, success: 0, error: 0 }
@@ -168,7 +265,7 @@ function formatExecutionSummary(values) {
   const parts = [`${values.total} 步`]
   if (values.agent) parts.push(`${values.agent} Agent`)
   if (values.tool) parts.push(`${values.tool} 工具`)
-  return parts.join(' / ')
+  return parts.join(' · ')
 }
 
 const scrollSignature = computed(() => flatNodes.value.map((node, index) => [
@@ -184,10 +281,13 @@ watch(scrollSignature, async () => {
     showReturnToCurrent.value = false
     return
   }
-  const shouldFollow = !listRef.value || isListNearBottom(listRef.value)
+  const shouldFollow = !getListElement() || isListNearBottom(getListElement())
   await nextTick()
-  const el = listRef.value
-  if (el && shouldFollow) el.scrollTop = el.scrollHeight
+  const el = getListElement()
+  if (el && shouldFollow) {
+    if (shouldVirtualize.value && listRef.value?.scrollToBottom) listRef.value.scrollToBottom()
+    else el.scrollTop = el.scrollHeight
+  }
   updateReturnToCurrentVisibility()
 })
 
@@ -200,11 +300,13 @@ watch(selectedNode, (node) => {
   if (selectedNodeKey.value && !node) {
     clearSelectedNode()
   }
+  if (node) initializeInspectorHeight()
 })
 
 watch(() => props.messageKey, () => {
   clearSelectedNode()
   showReturnToCurrent.value = false
+  virtualLayoutVersions.value = {}
 })
 
 function findNodeByKey(items, key) {
@@ -236,10 +338,59 @@ function clearSelectedNode() {
   }
 }
 
+async function initializeInspectorHeight() {
+  await nextTick()
+  inspectorHeight.value = clampInspectorHeight(inspectorHeight.value || defaultInspectorHeight())
+}
+
+function defaultInspectorHeight() {
+  if (!rootHeight.value) return 320
+  return Math.round(rootHeight.value * 0.38)
+}
+
+function clampInspectorHeight(value) {
+  return Math.min(inspectorMaxHeight.value, Math.max(INSPECTOR_MIN_HEIGHT, Number(value) || INSPECTOR_MIN_HEIGHT))
+}
+
+function startInspectorResize(event) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  inspectorResizeStartY = event.clientY
+  inspectorResizeStartHeight = inspectorHeight.value
+  isInspectorResizing.value = true
+  window.addEventListener('pointermove', handleInspectorResizeMove)
+  window.addEventListener('pointerup', stopInspectorResize, { once: true })
+}
+
+function handleInspectorResizeMove(event) {
+  if (!isInspectorResizing.value) return
+  inspectorHeight.value = clampInspectorHeight(inspectorResizeStartHeight + inspectorResizeStartY - event.clientY)
+}
+
+function stopInspectorResize() {
+  isInspectorResizing.value = false
+  window.removeEventListener('pointermove', handleInspectorResizeMove)
+}
+
+function resetInspectorHeight() {
+  inspectorHeight.value = clampInspectorHeight(defaultInspectorHeight())
+}
+
+function handleInspectorResizeKeydown(event) {
+  let nextHeight = null
+  if (event.key === 'ArrowUp') nextHeight = inspectorHeight.value + INSPECTOR_KEY_STEP
+  if (event.key === 'ArrowDown') nextHeight = inspectorHeight.value - INSPECTOR_KEY_STEP
+  if (event.key === 'Home') nextHeight = INSPECTOR_MIN_HEIGHT
+  if (event.key === 'End') nextHeight = inspectorMaxHeight.value
+  if (nextHeight === null) return
+  event.preventDefault()
+  inspectorHeight.value = clampInspectorHeight(nextHeight)
+}
+
 async function focusNodeInList(node) {
   if (!node) return
   await nextTick()
-  scrollNodeIntoView(getNodeKey(node))
+  await scrollNodeIntoView(getNodeKey(node))
 }
 
 function focusErrorNode() {
@@ -267,24 +418,55 @@ function findLastByStatus(status) {
   return null
 }
 
-function scrollNodeIntoView(key) {
+async function scrollNodeIntoView(key) {
   if (!key || !listRef.value) return
+  if (shouldVirtualize.value) {
+    const branchIndex = findVirtualBranchIndex(key)
+    if (branchIndex >= 0) {
+      listRef.value.scrollToItem(branchIndex)
+      await nextTick()
+      await new Promise(resolve => requestAnimationFrame(resolve))
+    }
+  }
   const target = findNodeElement(key)
-  if (!target) return
+  const viewport = getListElement()
+  if (!target || !viewport) return
   const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  const viewportRect = listRef.value.getBoundingClientRect()
+  const viewportRect = viewport.getBoundingClientRect()
   const targetRect = target.getBoundingClientRect()
-  const viewportHeight = listRef.value.clientHeight
-  const targetTop = listRef.value.scrollTop + targetRect.top - viewportRect.top
+  const viewportHeight = viewport.clientHeight
+  const targetTop = viewport.scrollTop + targetRect.top - viewportRect.top
   const targetHeight = targetRect.height
   const nextTop = Math.max(0, targetTop - Math.max(0, (viewportHeight - targetHeight) / 2))
-  listRef.value.scrollTo({ top: nextTop, behavior: reduceMotion ? 'auto' : 'smooth' })
+  viewport.scrollTo({ top: nextTop, behavior: reduceMotion ? 'auto' : 'smooth' })
 }
 
 function findNodeElement(key) {
-  if (!key || !listRef.value) return null
+  const viewport = getListElement()
+  if (!key || !viewport) return null
   const selectorKey = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(key) : key.replace(/"/g, '\\"')
-  return listRef.value.querySelector(`[data-node-key="${selectorKey}"]`)
+  return viewport.querySelector(`[data-node-key="${selectorKey}"]`)
+}
+
+function getListElement() {
+  return listRef.value?.$el || listRef.value || null
+}
+
+function findVirtualBranchIndex(key) {
+  return nodes.value.findIndex(node => containsNodeKey(node, key))
+}
+
+function containsNodeKey(node, key) {
+  if (!node || !key) return false
+  if (getNodeKey(node) === key) return true
+  return Array.isArray(node.children) && node.children.some(child => containsNodeKey(child, key))
+}
+
+function handleNodeLayoutChange(key) {
+  virtualLayoutVersions.value = {
+    ...virtualLayoutVersions.value,
+    [key]: (virtualLayoutVersions.value[key] || 0) + 1,
+  }
 }
 
 function handleListScroll() {
@@ -292,10 +474,14 @@ function handleListScroll() {
 }
 
 function updateReturnToCurrentVisibility() {
-  const viewport = listRef.value
+  const viewport = getListElement()
   const target = findNodeElement(focusKey.value)
-  if (!props.running || !viewport || !target) {
+  if (!props.running || !viewport || !focusKey.value) {
     showReturnToCurrent.value = false
+    return
+  }
+  if (!target) {
+    showReturnToCurrent.value = shouldVirtualize.value
     return
   }
   const viewportRect = viewport.getBoundingClientRect()
@@ -319,8 +505,23 @@ function scheduleSelectionScrollCorrection(key) {
   }, 220)
 }
 
+onMounted(() => {
+  const updateRootHeight = () => {
+    rootHeight.value = rootRef.value?.clientHeight || 0
+    if (inspectorHeight.value) inspectorHeight.value = clampInspectorHeight(inspectorHeight.value)
+  }
+  updateRootHeight()
+  if (typeof ResizeObserver !== 'undefined' && rootRef.value) {
+    rootResizeObserver = new ResizeObserver(updateRootHeight)
+    rootResizeObserver.observe(rootRef.value)
+  }
+})
+
 onUnmounted(() => {
   if (selectionScrollTimer) clearTimeout(selectionScrollTimer)
+  window.removeEventListener('pointermove', handleInspectorResizeMove)
+  window.removeEventListener('pointerup', stopInspectorResize)
+  rootResizeObserver?.disconnect()
 })
 
 function isListNearBottom(el) {
@@ -356,7 +557,6 @@ function isWaitingUserInputNode(node) {
 
 <style scoped>
 .wpe-root {
-  --wpe-inspector-height: clamp(220px, 38%, 420px);
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -365,6 +565,11 @@ function isWaitingUserInputNode(node) {
   border-top: none;
   letter-spacing: 0;
   position: relative;
+}
+
+.wpe-root.is-resizing-inspector {
+  cursor: row-resize;
+  user-select: none;
 }
 
 .wpe-root::before {
@@ -530,6 +735,44 @@ button.wpe-chip:hover {
   padding-bottom: 48px;
 }
 
+.wpe-scroll--virtual :deep(.wpe-node-stack) {
+  --rail-width: 22px;
+  --rail-dot-top: 17px;
+  --rail-dot-size: 9px;
+  --rail-dot-center: calc(var(--rail-dot-top) + (var(--rail-dot-size) / 2));
+  --timeline-rail-thickness: 2px;
+  position: relative;
+  box-sizing: border-box;
+  padding: 0 12px 48px 10px;
+}
+
+.wpe-scroll--virtual {
+  padding: 0;
+}
+
+.wpe-scroll--virtual.has-return-current {
+  padding-bottom: 0;
+}
+
+.wpe-scroll--virtual :deep(.wpe-node-stack)::before {
+  content: '';
+  position: absolute;
+  left: calc((var(--rail-width) - var(--timeline-rail-thickness)) / 2);
+  top: var(--rail-dot-center);
+  bottom: 0;
+  width: var(--timeline-rail-thickness);
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  opacity: 0.7;
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
+}
+
+.wpe-virtual-item {
+  padding-bottom: 6px;
+}
+
 .wpe-return-current {
   position: absolute;
   right: 14px;
@@ -647,12 +890,46 @@ button.wpe-chip:hover {
 .wpe-inspector-slot {
   flex: 0 0 0;
   min-height: 0;
+  position: relative;
   overflow: hidden;
   transition: flex-basis var(--duration-base) cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .wpe-inspector-slot.is-open {
   flex-basis: var(--wpe-inspector-height);
+}
+
+.wpe-inspector-resize {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  height: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 3px;
+  cursor: row-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.wpe-inspector-resize span {
+  width: 34px;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: var(--color-border-hover);
+  opacity: 0.72;
+  transition: width var(--transition-fast), background var(--transition-fast), opacity var(--transition-fast);
+}
+
+.wpe-inspector-resize:hover span,
+.wpe-inspector-resize:focus-visible span,
+.wpe-root.is-resizing-inspector .wpe-inspector-resize span {
+  width: 48px;
+  background: var(--color-brand-accent);
+  opacity: 1;
 }
 
 .wpe-inspector-enter-active,

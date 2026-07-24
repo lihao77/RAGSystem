@@ -53,7 +53,14 @@
             </div>
 
             <div class="etn-side">
-              <span v-if="elapsedText" class="etn-time">{{ elapsedText }}</span>
+              <span
+                v-if="elapsedText"
+                class="etn-time"
+                :aria-label="`步骤耗时 ${elapsedText}`"
+                :title="`步骤耗时 ${elapsedText}`"
+              >
+                {{ elapsedText }}
+              </span>
               <Transition name="etn-status" mode="out-in">
                 <span
                   v-if="normalizedStatus === 'success'"
@@ -116,6 +123,7 @@
           :focus-key="focusKey"
           :selected-key="selectedKey"
           @inspect="emit('inspect', $event)"
+          @layout-change="emit('layoutChange')"
         />
       </div>
     </Transition>
@@ -150,7 +158,7 @@ const props = defineProps({
   focusKey: { type: String, default: '' },
   selectedKey: { type: String, default: '' },
 })
-const emit = defineEmits(['inspect'])
+const emit = defineEmits(['inspect', 'layoutChange'])
 
 const expanded = ref(defaultExpanded(props.node))
 const EXPAND_TRANSITION_MS = 230
@@ -252,6 +260,10 @@ watch(
   { immediate: true }
 )
 
+watch(nodeKeyValue, () => {
+  expanded.value = defaultExpanded(props.node)
+})
+
 const toolStatuses = computed(() => {
   if (props.node.type !== 'agent_call') return []
   const statuses = []
@@ -280,6 +292,12 @@ const toolProgressTone = computed(() => {
   if (toolProgress.value.stopped) return 'warning'
   return 'muted'
 })
+
+watch(
+  [titleText, subtitleText, toolProgressText, normalizedStatus],
+  () => emit('layoutChange'),
+  { flush: 'post' }
+)
 
 function handleSummaryClick() {
   emit('inspect', props.node)
@@ -347,6 +365,7 @@ function finishExpandTransition(el) {
   animatedStyles.forEach((name) => {
     el.style[name] = ''
   })
+  emit('layoutChange')
 }
 
 function finishAfterHeightTransition(el, done) {
@@ -450,6 +469,8 @@ function collectToolStatuses(children, statuses) {
   --branch-opacity: 0.48;
   position: relative;
   letter-spacing: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 54px;
 }
 
 .etn + .etn {
