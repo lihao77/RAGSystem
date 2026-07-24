@@ -87,3 +87,9 @@ test('work panel auto-selects the active run when its execution data appears', a
   assert.equal(state.selectedWorkPanelMessageKey.value, 'id:running');
   assert.equal(state.currentRunMessage.value.id, 'running');
 });
+
+test('selection ignores non-assistant messages', async () => {
+  const { state } = createSelection([]);
+  await state.selectWorkPanelMessage({ id: 'goal-user', role: 'user', has_execution: true });
+  assert.equal(state.selectedWorkPanelMessageKey.value, '');
+});

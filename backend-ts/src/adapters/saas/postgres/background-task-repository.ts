@@ -38,6 +38,20 @@ export class PostgresBackgroundTaskRepository implements AsyncBackgroundTaskRepo
     return result.rows.map(toRecord);
   }
 
+  async listBySession(
+    tenantId: string,
+    sessionId: string,
+    now: number,
+  ): Promise<DurableBackgroundTaskRecord[]> {
+    const result = await this.executor.query(
+      `SELECT * FROM saas_background_tasks
+       WHERE tenant_id = $1 AND session_id = $2 AND (expires_at IS NULL OR expires_at > $3)
+       ORDER BY started_at DESC, task_id DESC`,
+      [tenantId, sessionId, now],
+    );
+    return result.rows.map(toRecord);
+  }
+
   async failExpiredRunning(tenantId: string, now: number, error: string): Promise<string[]> {
     const result = await this.executor.query<{ task_id: string }>(
       `UPDATE saas_background_tasks SET status = 'failed', error = $3, return_code = 1,

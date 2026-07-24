@@ -66,6 +66,18 @@ const shots = [
     ],
   },
   {
+    name: 'desktop-runtime-background',
+    path: '/?__smoke=artifact',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'click', selector: '[aria-label="打开后台任务"]', waitMs: 250 },
+      { type: 'expectText', selector: '.runtime-tab-panel', text: '后台任务' },
+      { type: 'expectTop', selector: '.runtime-tab-panel .runtime-panel-header', maxTop: 120 },
+    ],
+  },
+  {
     name: 'file-changes-desktop',
     path: '/?__smoke=artifact',
     width: 1440,
@@ -951,6 +963,21 @@ async function runShotActions(client, shot) {
         throw new Error(
           `${shot.name} selector is not visible in viewport: ${action.selector}. ` +
           `Visibility state: ${JSON.stringify(visibilityState)}`,
+        );
+      }
+      continue;
+    }
+
+    if (action.type === 'expectTop') {
+      const withinTopBoundary = await waitForEvaluation(client, `(() => {
+        const element = document.querySelector(${jsString(action.selector)});
+        return !!element && element.getBoundingClientRect().top <= ${Number(action.maxTop)};
+      })()`, action.timeoutMs ?? 30000);
+      if (!withinTopBoundary) {
+        const top = await evaluate(client, `document.querySelector(${jsString(action.selector)})?.getBoundingClientRect().top ?? null`);
+        throw new Error(
+          `${shot.name} selector starts too low: ${action.selector}; ` +
+          `top=${top}, expected <= ${Number(action.maxTop)}`,
         );
       }
       continue;

@@ -24,6 +24,12 @@ export interface DurableBackgroundTaskRecord {
 export interface AsyncBackgroundTaskRepository {
   upsert(task: DurableBackgroundTaskRecord): Promise<void>;
   listActive(tenantId: string, now: number): Promise<DurableBackgroundTaskRecord[]>;
+  /** Query retained tasks for one Session without exposing another tenant's work. */
+  listBySession(
+    tenantId: string,
+    sessionId: string,
+    now: number,
+  ): Promise<DurableBackgroundTaskRecord[]>;
   failExpiredRunning(tenantId: string, now: number, error: string): Promise<string[]>;
   deleteExpired(tenantId: string, now: number): Promise<number>;
 }

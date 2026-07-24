@@ -31,6 +31,10 @@ export function useApprovalQueue(deps) {
     deps.filePreviewDialogRef.value?.hide?.();
   };
 
+  const openExecutionPanel = () => {
+    deps.openExecutionPanel?.();
+  };
+
   const removeApprovalFromQueue = (approvalId) => {
     if (!approvalId) return;
     approvalQueue.value = approvalQueue.value.filter(item => item?.approval_id !== approvalId);
@@ -53,12 +57,14 @@ export function useApprovalQueue(deps) {
     if (!sessionId || approvalSubmittingId.value) return;
     // WorkPanel 模式：审批框靠 approvalQueue prop 自动渲染（currentApproval = queue[0]），
     // resolve 后 queue[0] 自动切到下一个，不触发 ApprovalQueueHost 弹窗——避免窄屏弹窗覆盖工作栏。
-    if (deps.showWorkPanel.value) return;
     const nextApproval = approvalQueue.value[0] || null;
     if (!nextApproval) {
       hideApprovalDialogs();
       return;
     }
+    // File preview confirmations keep their dedicated dialog even while the unified runtime
+    // center is open; ordinary approvals render inline in the execution tab.
+    if (deps.showWorkPanel.value && nextApproval.approval_type !== 'file_read_confirm') return;
     hideApprovalDialogs();
     showQueuedApproval(nextApproval, sessionId);
   };
@@ -120,6 +126,7 @@ export function useApprovalQueue(deps) {
   };
 
   const showUserInput = (eventData, submitFn, cancelFn) => {
+    openExecutionPanel();
     if (deps.showWorkPanel.value) {
       pendingUserInput.value = { data: eventData, submit: submitFn, cancel: cancelFn };
       return;
@@ -141,9 +148,8 @@ export function useApprovalQueue(deps) {
     if (!exists) {
       approvalQueue.value = [...approvalQueue.value, approval];
     }
-    if (!deps.showWorkPanel.value) {
-      showNextApproval(sessionId);
-    }
+    openExecutionPanel();
+    showNextApproval(sessionId);
   };
 
   return {

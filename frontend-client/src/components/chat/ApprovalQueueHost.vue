@@ -4,7 +4,7 @@
     :css="!disableTransition"
   >
     <WorkPanel
-      v-if="showWorkPanel"
+      v-if="isWideScreen && showWorkPanel"
       :active-run="activeRun"
       :current-message="currentMessage"
       :injections-by-run-id="injectionsByRunId"
@@ -14,6 +14,10 @@
       :context-usage="contextUsage"
       :session-id="sessionId"
       :message-key="messageKey"
+      :active-tab="activeTab"
+      :task-state="taskState"
+      :goal-state="goalState"
+      @update:active-tab="emit('update:activeTab', $event)"
       @approval-submit="emit('approvalSubmit', $event)"
       @user-input-submit="emit('userInputSubmit', $event)"
       @user-input-cancel="emit('userInputCancel')"
@@ -21,6 +25,36 @@
       @file-changes="emit('fileChanges')"
     />
   </Transition>
+
+  <Sheet v-if="!isWideScreen" :open="mobileOpen" @update:open="emit('update:mobileOpen', $event)">
+    <SheetContent side="right" class="w-[min(92vw,430px)] max-w-none p-0 sm:max-w-[430px]">
+      <SheetHeader class="sr-only">
+        <SheetTitle>运行中心</SheetTitle>
+        <SheetDescription>查看执行过程、后台任务与当前 Goal</SheetDescription>
+      </SheetHeader>
+      <WorkPanel
+        mobile
+        :active-run="activeRun"
+        :current-message="currentMessage"
+        :injections-by-run-id="injectionsByRunId"
+        :approval-queue="approvalQueue"
+        :approval-submitting-id="approvalSubmittingId"
+        :pending-user-input="pendingUserInput"
+        :context-usage="contextUsage"
+        :session-id="sessionId"
+        :message-key="messageKey"
+        :active-tab="activeTab"
+        :task-state="taskState"
+        :goal-state="goalState"
+        @update:active-tab="emit('update:activeTab', $event)"
+        @approval-submit="emit('approvalSubmit', $event)"
+        @user-input-submit="emit('userInputSubmit', $event)"
+        @user-input-cancel="emit('userInputCancel')"
+        @artifact-select="emit('artifactSelect', $event)"
+        @file-changes="emit('fileChanges')"
+      />
+    </SheetContent>
+  </Sheet>
 
   <ApprovalDialog ref="approvalDialogRef" />
   <UserInputDialog ref="userInputDialogRef" />
@@ -31,6 +65,13 @@ import { ref } from 'vue';
 import ApprovalDialog from '../ApprovalDialog.vue';
 import UserInputDialog from '../UserInputDialog.vue';
 import WorkPanel from '../workpanel/WorkPanel.vue';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '../ui/sheet';
 
 defineProps({
   showWorkPanel: { type: Boolean, default: false },
@@ -44,9 +85,22 @@ defineProps({
   sessionId: { type: String, default: '' },
   messageKey: { type: String, default: '' },
   disableTransition: { type: Boolean, default: false },
+  isWideScreen: { type: Boolean, default: false },
+  mobileOpen: { type: Boolean, default: false },
+  activeTab: { type: String, default: 'execution' },
+  taskState: { type: Object, required: true },
+  goalState: { type: Object, required: true },
 });
 
-const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel', 'artifactSelect', 'fileChanges']);
+const emit = defineEmits([
+  'update:mobileOpen',
+  'update:activeTab',
+  'approvalSubmit',
+  'userInputSubmit',
+  'userInputCancel',
+  'artifactSelect',
+  'fileChanges',
+]);
 
 const approvalDialogRef = ref(null);
 const userInputDialogRef = ref(null);

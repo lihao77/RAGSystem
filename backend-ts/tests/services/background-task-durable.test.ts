@@ -75,6 +75,98 @@ describe("durable BackgroundTaskService", () => {
     await eventually(() => !service.hasRunningTasks("session-a"));
     service.dispose();
   });
+
+  it("uses the durable Session snapshot and expires abandoned leases for the idle gate", async () => {
+    const repository = new InMemoryBackgroundTaskRepository();
+    repository.records.set("tenant-a:remote-running", record({
+      task_id: "remote-running",
+      session_id: "session-a",
+      lease_expires_at: Date.now() / 1000 + 60,
+    }));
+    repository.records.set("tenant-a:remote-stale", record({
+      task_id: "remote-stale",
+      session_id: "session-b",
+      lease_expires_at: 1,
+    }));
+    const service = new BackgroundTaskService({ repository, tenantId: "tenant-a" });
+
+    expect(await service.hasRunningTasksDurable("session-a")).toBe(true);
+    expect(await service.hasRunningTasksDurable("session-b")).toBe(false);
+    expect(repository.records.get("tenant-a:remote-stale")).toMatchObject({
+      status: "failed",
+      owner_instance_id: null,
+      lease_expires_at: null,
+    });
+
+    repository.records.set("tenant-a:remote-running", record({
+      task_id: "remote-running",
+      session_id: "session-a",
+      status: "completed",
+      return_code: 0,
+      completed_at: Date.now() / 1000,
+      owner_instance_id: null,
+      lease_expires_at: null,
+    }));
+    expect(await service.hasRunningTasksDurable("session-a")).toBe(false);
+    service.dispose();
+  });
+
+  it("keeps Session task queries tenant- and Session-scoped", async () => {
+    const repository = new InMemoryBackgroundTaskRepository();
+    repository.records.set("tenant-a:visible", record({ task_id: "visible", session_id: "session-a" }));
+    repository.records.set("tenant-a:other-session", record({ task_id: "other-session", session_id: "session-b" }));
+    repository.records.set("tenant-b:other-tenant", record({ tenant_id: "tenant-b", task_id: "other-tenant", session_id: "session-a" }));
+    const service = new BackgroundTaskService({ repository, tenantId: "tenant-a" });
+
+    expect((await service.listSessionTasks("session-a")).map((task) => task.task_id)).toEqual(["visible"]);
+    service.dispose();
+  });
+
+  it("reports durable remote cancellation reasons in request order", async () => {
+    const repository = new InMemoryBackgroundTaskRepository();
+    const lease = Date.now() / 1000 + 60;
+    repository.records.set("tenant-a:remote-owned", record({
+      task_id: "remote-owned",
+      session_id: "session-a",
+      lease_expires_at: lease,
+    }));
+    repository.records.set("tenant-a:remote-callable", record({
+      task_id: "remote-callable",
+      session_id: "session-a",
+      kind: "callable",
+      cancel_supported: false,
+      lease_expires_at: lease,
+    }));
+    repository.records.set("tenant-a:remote-done", record({
+      task_id: "remote-done",
+      session_id: "session-a",
+      status: "completed",
+      return_code: 0,
+      completed_at: 5,
+      owner_instance_id: null,
+      lease_expires_at: null,
+    }));
+    const service = new BackgroundTaskService({ repository, tenantId: "tenant-a" });
+
+    expect((await service.listSessionTasks("session-a")).find((task) => task.task_id === "remote-owned")).toMatchObject({
+      cancel_supported: true,
+      cancel_available: false,
+      cancel_unavailable_reason: "not_owned",
+    });
+    const results = await service.cancelSessionTasks("session-a", [
+      "remote-callable",
+      "missing",
+      "remote-owned",
+      "remote-done",
+    ]);
+    expect(results).toEqual([
+      { task_id: "remote-callable", cancelled: false, status: "running", reason: "not_cancellable" },
+      { task_id: "missing", cancelled: false, status: null, reason: "not_found" },
+      { task_id: "remote-owned", cancelled: false, status: "running", reason: "not_owned" },
+      { task_id: "remote-done", cancelled: false, status: "completed", reason: "already_finished" },
+    ]);
+    service.dispose();
+  });
 });
 
 class InMemoryBackgroundTaskRepository implements AsyncBackgroundTaskRepository {
@@ -84,6 +176,13 @@ class InMemoryBackgroundTaskRepository implements AsyncBackgroundTaskRepository 
   }
   async listActive(tenantId: string, now: number): Promise<DurableBackgroundTaskRecord[]> {
     return [...this.records.values()].filter((task) => task.tenant_id === tenantId && (task.expires_at == null || task.expires_at > now));
+  }
+  async listBySession(tenantId: string, sessionId: string, now: number): Promise<DurableBackgroundTaskRecord[]> {
+    return [...this.records.values()].filter((task) => (
+      task.tenant_id === tenantId
+      && task.session_id === sessionId
+      && (task.expires_at == null || task.expires_at > now)
+    ));
   }
   async failExpiredRunning(tenantId: string, now: number, error: string): Promise<string[]> {
     const ids: string[] = [];

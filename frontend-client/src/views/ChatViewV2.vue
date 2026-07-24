@@ -7,9 +7,12 @@
         :session-title="currentSessionTitle"
         :is-exporting-session="isExportingSession"
         :scrolled="topControlsBarScrolled"
+        :goal-state="goalState"
+        :task-state="backgroundTaskState"
         @open-mobile-sidebar="openMobileSidebar"
         @export-session="exportCurrentSession"
         @open-file-changes="fileChangesOpen = true"
+        @open-runtime-center="openRuntimeCenter"
       />
       <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll">
         <ChatMessageList
@@ -66,11 +69,6 @@
               <span class="followup-candidate-content">{{ candidate.content }}</span>
             </div>
           </TransitionGroup>
-          <GoalControl
-            v-if="currentSessionId"
-            :session-id="currentSessionId"
-            :run-active="_activeRun.active || isLoading"
-          />
           <ChatInput
             ref="chatInputRef"
             v-model="inputMessage"
@@ -139,6 +137,11 @@
       :pending-user-input="pendingUserInput"
       :context-usage="contextUsage"
       :session-id="currentSessionId || ''"
+      :is-wide-screen="isWideScreen"
+      v-model:mobile-open="runtimeMobileOpen"
+      v-model:active-tab="runtimeActiveTab"
+      :task-state="backgroundTaskState"
+      :goal-state="goalState"
       @approval-submit="({ approvalId, approved, message }) => submitApproval(approvalId, approved, message, currentSessionId)"
       @user-input-submit="handleWorkPanelUserInputSubmit"
       @user-input-cancel="handleWorkPanelUserInputCancel"
@@ -235,8 +238,10 @@ import SessionContextBar from '../components/chat/SessionContextBar.vue';
 import SessionContextInfoButton from '../components/chat/SessionContextInfoButton.vue';
 import ApprovalQueueHost from '../components/chat/ApprovalQueueHost.vue';
 import TaskLauncher from '../components/chat/TaskLauncher.vue';
-import GoalControl from '../components/chat/GoalControl.vue';
 import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
+import { useSessionBackgroundTasks } from '../composables/useSessionBackgroundTasks.js';
+import { useSessionGoal } from '../composables/useSessionGoal.js';
+import { useSessionRuntimeCenter } from '../composables/useSessionRuntimeCenter.js';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { useSessionListStore } from '../stores/session-list.js';
@@ -455,7 +460,17 @@ const {
   contextUsage,
 });
 
-const { showWorkPanel } = useWorkbenchLayout();
+const { isWideScreen, showWorkPanel } = useWorkbenchLayout();
+const goalState = reactive(useSessionGoal(currentSessionId));
+const backgroundTaskState = reactive(useSessionBackgroundTasks(currentSessionId));
+const {
+  activeTab: runtimeActiveTab,
+  mobileOpen: runtimeMobileOpen,
+  open: openRuntimeCenter,
+  closeMobile: closeRuntimeCenterMobile,
+} = useSessionRuntimeCenter(isWideScreen);
+const desktopWorkPanelVisible = computed(() => isWideScreen.value && showWorkPanel.value);
+const visibleWorkPanel = computed(() => desktopWorkPanelVisible.value || runtimeMobileOpen.value);
 
 const {
   approvalQueue,
@@ -469,7 +484,8 @@ const {
   handleWorkPanelUserInputSubmit,
   handleWorkPanelUserInputCancel,
 } = useApprovalQueue({
-  showWorkPanel,
+  showWorkPanel: visibleWorkPanel,
+  openExecutionPanel: () => openRuntimeCenter('execution'),
   currentSessionId,
   approvalQueueHostRef,
   filePreviewDialogRef,
@@ -477,13 +493,12 @@ const {
   showToast,
 });
 
-const visibleWorkPanel = computed(() => showWorkPanel.value);
 const hasMessages = computed(() => messages.value.length > 0);
 // Layout phase (has-messages/workbench) + transient motion flags on .chat-main,
 // consolidated to a single source of truth. is-new-chat dropped (== !has-messages).
 const chatMainClasses = computed(() => ({
   'has-messages': hasMessages.value,
-  'workbench-layout': visibleWorkPanel.value,
+  'workbench-layout': desktopWorkPanelVisible.value,
   'is-launching-chat': newChatLaunching.value,
   'is-switching-to-new-chat': switchingToNewChat.value,
   'is-restoring-session-scroll': restoringSessionScroll.value,
@@ -527,6 +542,7 @@ const {
   stickToBottom,
   scrollToBottom,
   showToast,
+  handleBackgroundTaskLifecycle: backgroundTaskState.handleLifecycleEvent,
 });
 const {
   sessionFiles,
@@ -664,6 +680,10 @@ const messageContext = reactive({
   copyMessage,
   getWorkPanelMessageKey,
   selectWorkPanelMessage,
+  openWorkPanelMessage: async (message) => {
+    openRuntimeCenter('execution');
+    await selectWorkPanelMessage(message);
+  },
   rollbackAndRetry,
   currentSessionId,
   showWorkPanel: visibleWorkPanel,
@@ -779,6 +799,18 @@ watch(
   },
   { immediate: true }
 );
+
+watch(
+  () => _activeRun.active || isLoading.value,
+  (active, wasActive) => {
+    if (wasActive && !active) goalState.loadGoal({ silent: true });
+  },
+);
+
+watch(currentSessionId, () => {
+  runtimeActiveTab.value = 'execution';
+  closeRuntimeCenterMobile();
+});
 
 onMounted(() => {
   resetFollowing();

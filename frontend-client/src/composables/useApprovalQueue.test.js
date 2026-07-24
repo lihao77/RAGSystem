@@ -41,3 +41,22 @@ test('工作面板用户输入提交成功后清理 pendingUserInput', async () 
 
   assert.equal(queue.pendingUserInput.value, null);
 });
+
+test('窄屏收到用户输入时先打开运行中心执行标签', () => {
+  const showWorkPanel = ref(false);
+  const opened = [];
+  const deps = createDeps({
+    showWorkPanel,
+    openExecutionPanel: () => {
+      opened.push('execution');
+      showWorkPanel.value = true;
+    },
+  });
+  const queue = useApprovalQueue(deps);
+
+  queue.showUserInput({ input_id: 'input-1', prompt: 'scope?' }, async () => {}, async () => {});
+
+  assert.deepEqual(opened, ['execution']);
+  assert.equal(queue.pendingUserInput.value.data.input_id, 'input-1');
+  assert.equal(queue.approvalQueue.value.length, 0);
+});

@@ -6,11 +6,12 @@ import { randomUUID } from "node:crypto";
 import type { AsyncBackgroundTaskRepository, DurableBackgroundTaskRecord } from "../../contracts/storage/background-task-repository.js";
 
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
+import type { StateSyncPayload } from "../../contracts/events.js";
 import { SessionNotificationQueue } from "./session-notification-queue.js";
 import type { BackgroundTaskNotificationPayload } from "./session-notification-queue.js";
 import { terminateProcessTree } from "./process-tree.js";
 
-type BackgroundTaskStatus = "running" | "completed" | "failed" | "cancelled";
+export type BackgroundTaskStatus = "running" | "completed" | "failed" | "cancelled";
 
 export interface BackgroundTask {
   task_id: string;
@@ -29,6 +30,31 @@ export interface BackgroundTask {
   kind: string;
   cancel_supported: boolean;
 }
+
+export type BackgroundTaskCancelUnavailableReason =
+  | "already_finished"
+  | "not_cancellable"
+  | "not_owned";
+
+export interface PublicBackgroundTask extends Omit<BackgroundTask, "output_path" | "session_id"> {
+  cancel_available: boolean;
+  cancel_unavailable_reason: BackgroundTaskCancelUnavailableReason | null;
+}
+
+export type BackgroundTaskCancelReason =
+  | "not_found"
+  | "already_finished"
+  | "not_cancellable"
+  | "not_owned";
+
+export interface BackgroundTaskCancelResult {
+  task_id: string;
+  cancelled: boolean;
+  status: BackgroundTaskStatus | null;
+  reason: BackgroundTaskCancelReason | null;
+}
+
+type BackgroundTaskLifecycleAction = "started" | "completed" | "failed" | "cancelled";
 
 export interface SpawnBashInput {
   command: string;
@@ -60,6 +86,7 @@ export class BackgroundTaskService {
   private readonly tasks = new Map<string, BackgroundTask>();
   private readonly processes = new Map<string, ChildProcess>();
   private readonly ownedTaskIds = new Set<string>();
+  private readonly taskClientEvents = new Map<string, ClientEventPublisher>();
   private readonly retentionSeconds: number;
   private readonly notificationQueue: SessionNotificationQueue;
   private readonly triggeringSessions = new Set<string>();
@@ -68,6 +95,7 @@ export class BackgroundTaskService {
   private readonly tenantId: string | null;
   private readonly instanceId = randomUUID();
   private readonly leaseSeconds: number;
+  private readonly clientEvents: ClientEventPublisher | null;
   private readonly heartbeatTimer: ReturnType<typeof setInterval> | null;
   private persistence = Promise.resolve();
   private onTaskCompleted: ((sessionId: string) => void) | null = null;
@@ -78,12 +106,14 @@ export class BackgroundTaskService {
     repository?: AsyncBackgroundTaskRepository | null | undefined;
     tenantId?: string | null | undefined;
     leaseSeconds?: number | undefined;
+    clientEvents?: ClientEventPublisher | null | undefined;
   } = {}) {
     this.retentionSeconds = positiveInt(options.retentionSeconds, 2 * 60 * 60);
     this.notificationQueue = options.notificationQueue ?? new SessionNotificationQueue();
     this.repository = options.repository ?? null;
     this.tenantId = normalizeString(options.tenantId);
     this.leaseSeconds = positiveInt(options.leaseSeconds, 30);
+    this.clientEvents = options.clientEvents ?? null;
     if (this.repository && !this.tenantId) {
       throw new Error("durable BackgroundTaskService requires tenantId");
     }
@@ -130,6 +160,44 @@ export class BackgroundTaskService {
     return Array.from(this.tasks.values()).some(
       (task) => task.session_id === normalizedSessionId && task.status === "running",
     );
+  }
+
+  /**
+   * Durable idle gate for Goal continuation. It reconciles expired owner leases and refreshes
+   * the complete Session snapshot so another runtime instance's work cannot be missed.
+   */
+  async hasRunningTasksDurable(sessionId: string): Promise<boolean> {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) return false;
+    await this.refreshSessionTasks(normalizedSessionId, true);
+    return this.hasRunningTasks(normalizedSessionId);
+  }
+
+  /** Durable Session-scoped query used by the HTTP management API. */
+  async listSessionTasks(sessionId: string): Promise<PublicBackgroundTask[]> {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) return [];
+    await this.refreshSessionTasks(normalizedSessionId, true);
+    this.cleanupExpiredTasks();
+    return Array.from(this.tasks.values())
+      .filter((task) => task.session_id === normalizedSessionId)
+      .sort((left, right) => right.started_at - left.started_at || right.task_id.localeCompare(left.task_id))
+      .map((task) => toPublicBackgroundTask(task, this.ownedTaskIds.has(task.task_id)));
+  }
+
+  async cancelSessionTask(sessionId: string, taskId: string): Promise<BackgroundTaskCancelResult> {
+    const [result] = await this.cancelSessionTasks(sessionId, [taskId]);
+    return result ?? cancelResult(taskId.trim(), null, "not_found");
+  }
+
+  /** Cancels only the requested tasks and preserves one result per input id, in input order. */
+  async cancelSessionTasks(sessionId: string, taskIds: readonly string[]): Promise<BackgroundTaskCancelResult[]> {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      return taskIds.map((taskId) => cancelResult(taskId.trim(), null, "not_found"));
+    }
+    await this.refreshSessionTasks(normalizedSessionId, true);
+    return Promise.all(taskIds.map((taskId) => this.cancelTaskForSession(normalizedSessionId, taskId.trim())));
   }
 
   /**
@@ -183,7 +251,9 @@ export class BackgroundTaskService {
     };
     this.tasks.set(taskId, task);
     this.ownedTaskIds.add(taskId);
+    this.registerClientEvents(taskId, input.clientEvents);
     this.persistTask(task);
+    this.publishTaskLifecycle(task, "started");
 
     const output = fs.createWriteStream(outputPath, { encoding: "utf8" });
     const env = {
@@ -257,6 +327,7 @@ export class BackgroundTaskService {
       task.result_type = "bash_output";
       task.completed_at = nowSeconds();
       this.persistTask(task);
+      this.publishCompleted(task);
     }
 
     return { ...task };
@@ -285,7 +356,9 @@ export class BackgroundTaskService {
     };
     this.tasks.set(taskId, task);
     this.ownedTaskIds.add(taskId);
+    this.registerClientEvents(taskId, input.clientEvents);
     this.persistTask(task);
+    this.publishTaskLifecycle(task, "started");
 
     void this.executeCallableTask(taskId, outputPath, input.run);
     return { ...task };
@@ -335,18 +408,7 @@ export class BackgroundTaskService {
 
   cancel(taskId: string): boolean {
     const task = this.tasks.get(taskId);
-    const proc = this.processes.get(taskId);
-    if (!task || !this.ownedTaskIds.has(taskId) || isDone(task.status) || !task.cancel_supported) {
-      return false;
-    }
-    if (proc) {
-      terminateProcessTree(proc.pid, false);
-      setTimeout(() => terminateProcessTree(proc.pid, true), 500);
-    }
-    task.status = "cancelled";
-    task.completed_at = nowSeconds();
-    this.persistTask(task);
-    return true;
+    return task ? this.cancelKnownTask(task) : false;
   }
 
   private cleanupExpiredTasks(): void {
@@ -355,6 +417,8 @@ export class BackgroundTaskService {
       if (isDone(task.status) && task.expires_at !== null && task.expires_at <= now) {
         this.tasks.delete(taskId);
         this.processes.delete(taskId);
+        this.ownedTaskIds.delete(taskId);
+        this.taskClientEvents.delete(taskId);
       }
     }
   }
@@ -407,6 +471,10 @@ export class BackgroundTaskService {
   }
 
   private publishCompleted(task: BackgroundTask): void {
+    // Cancellation is an explicit user action, not a result for the agent to consume.
+    // The process close callback may still arrive after cancelKnownTask, so guard here.
+    if (task.status === "cancelled") return;
+    this.publishTaskLifecycle(task, task.status === "failed" ? "failed" : "completed");
     const payload: BackgroundTaskNotificationPayload = {
       task_id: task.task_id,
       background_task_id: task.task_id,
@@ -444,6 +512,119 @@ export class BackgroundTaskService {
     this.persistence = this.persistence.catch(() => undefined).then(() => this.repository!.upsert(snapshot));
     void this.persistence.catch(() => undefined);
   }
+
+  private async refreshSessionTasks(sessionId: string, reconcileExpiredLeases = false): Promise<void> {
+    if (!this.repository || !this.tenantId) return;
+    // Renew locally owned work before expiring leases so a delayed idle/list request cannot mark
+    // this instance's still-running task as abandoned.
+    if (reconcileExpiredLeases) this.persistRunningTasks();
+    await this.waitForPersistence();
+    const now = nowSeconds();
+    if (reconcileExpiredLeases) {
+      await this.repository.failExpiredRunning(
+        this.tenantId,
+        now,
+        "background task owner lease expired",
+      );
+    }
+    const records = await this.repository.listBySession(this.tenantId, sessionId, now);
+    const retainedIds = new Set(records.map((record) => record.task_id));
+    for (const record of records) {
+      this.tasks.set(record.task_id, fromDurableRecord(record));
+    }
+    for (const [taskId, task] of this.tasks) {
+      if (task.session_id === sessionId && !this.ownedTaskIds.has(taskId) && !retainedIds.has(taskId)) {
+        this.tasks.delete(taskId);
+        this.taskClientEvents.delete(taskId);
+      }
+    }
+  }
+
+  private async cancelTaskForSession(sessionId: string, taskId: string): Promise<BackgroundTaskCancelResult> {
+    const task = this.tasks.get(taskId);
+    if (!task || task.session_id !== sessionId) return cancelResult(taskId, null, "not_found");
+    if (isDone(task.status)) return cancelResult(taskId, task.status, "already_finished");
+    if (!task.cancel_supported) return cancelResult(taskId, task.status, "not_cancellable");
+    if (!this.ownedTaskIds.has(taskId)) return cancelResult(taskId, task.status, "not_owned");
+    const process = this.processes.get(taskId);
+    if (!this.cancelKnownTask(task)) return cancelResult(taskId, task.status, "not_owned");
+    // The management endpoint acknowledges cancellation only after the owned process has exited
+    // (or a bounded wait elapses), so callers do not immediately race open log handles on Windows.
+    if (process) await waitForProcessClose(process, 5_000);
+    return { task_id: taskId, cancelled: true, status: "cancelled", reason: null };
+  }
+
+  private cancelKnownTask(task: BackgroundTask): boolean {
+    if (!this.ownedTaskIds.has(task.task_id) || isDone(task.status) || !task.cancel_supported) return false;
+    const proc = this.processes.get(task.task_id);
+    if (proc) {
+      // User cancellation is explicit: terminate the complete process tree immediately. The
+      // short delayed retry covers Windows shell processes that have not propagated the first
+      // taskkill yet, while the close handler remains guarded by the cancelled status.
+      terminateProcessTree(proc.pid, true);
+      setTimeout(() => terminateProcessTree(proc.pid, true), 500);
+    }
+    task.status = "cancelled";
+    task.completed_at = nowSeconds();
+    this.persistTask(task);
+    this.publishTaskLifecycle(task, "cancelled");
+    // Cancellation is not an agent notification, but it can make an active Goal idle and eligible
+    // for continuation after the last running task disappears.
+    if (task.session_id) this.scheduleAutoTrigger(task.session_id);
+    return true;
+  }
+
+  private registerClientEvents(taskId: string, publisher: ClientEventPublisher | null | undefined): void {
+    const selected = publisher ?? this.clientEvents;
+    if (selected) this.taskClientEvents.set(taskId, selected);
+  }
+
+  private publishTaskLifecycle(task: BackgroundTask, action: BackgroundTaskLifecycleAction): void {
+    if (!task.session_id) return;
+    const publisher = this.taskClientEvents.get(task.task_id) ?? this.clientEvents;
+    if (!publisher) return;
+    const payload = {
+      category: "session_updated",
+      detail: {
+        entity: "background_task",
+        action,
+        task: toPublicBackgroundTask(task, this.ownedTaskIds.has(task.task_id)),
+      },
+    } satisfies StateSyncPayload;
+    try {
+      void publisher.publish(task.session_id, {
+        type: "state_sync",
+        session_id: task.session_id,
+        payload,
+      }, {
+        aggregateType: "session",
+        aggregateId: task.session_id,
+      }).catch(() => undefined);
+    } catch {
+      // Lifecycle delivery is best effort; listSessionTasks remains the source of truth.
+    }
+  }
+}
+
+export function toPublicBackgroundTask(task: BackgroundTask, owned = false): PublicBackgroundTask {
+  const cancelUnavailableReason = getCancelUnavailableReason(task, owned);
+  return {
+    task_id: task.task_id,
+    description: task.description,
+    started_at: task.started_at,
+    status: task.status,
+    return_code: task.return_code,
+    error: task.error,
+    expires_at: task.expires_at,
+    run_id: task.run_id,
+    owner_task_id: task.owner_task_id,
+    completed_at: task.completed_at,
+    result_type: task.result_type,
+    kind: task.kind,
+    cancel_supported: task.cancel_supported,
+    cancel_available: cancelUnavailableReason === null,
+    cancel_unavailable_reason: cancelUnavailableReason,
+  };
 }
 
 function fromDurableRecord(record: DurableBackgroundTaskRecord): BackgroundTask {
@@ -461,6 +642,41 @@ function isDone(status: BackgroundTaskStatus): boolean {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
+function getCancelUnavailableReason(
+  task: BackgroundTask,
+  owned: boolean,
+): BackgroundTaskCancelUnavailableReason | null {
+  if (isDone(task.status)) return "already_finished";
+  if (!task.cancel_supported) return "not_cancellable";
+  if (!owned) return "not_owned";
+  return null;
+}
+
+function cancelResult(
+  taskId: string,
+  status: BackgroundTaskStatus | null,
+  reason: BackgroundTaskCancelReason,
+): BackgroundTaskCancelResult {
+  return { task_id: taskId, cancelled: false, status, reason };
+}
+
+async function waitForProcessClose(process: ChildProcess, timeoutMs: number): Promise<void> {
+  if (process.exitCode !== null || process.signalCode !== null) return;
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      process.off("close", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    process.once("close", finish);
+    if (process.exitCode !== null || process.signalCode !== null) finish();
+  });
+}
+
 function nowSeconds(): number {
   return Date.now() / 1000;
 }
@@ -472,6 +688,3 @@ function positiveInt(value: unknown, fallback: number): number {
 function positiveIntOrNull(value: unknown): number | null {
   return Number.isInteger(value) && Number(value) >= 1 ? Number(value) : null;
 }
-
-
-

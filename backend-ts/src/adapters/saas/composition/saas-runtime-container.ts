@@ -81,6 +81,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     notificationQueue,
     repository: conversationRuntime.backgroundTasks,
     tenantId,
+    clientEvents,
   });
   // SaaS user_global cache is content-addressed under skill-cache/by-hash/<hash>/; durable SoT is PG + object storage.
   const skillCacheRoot = path.join(dataRoot, "skill-cache");

@@ -23,7 +23,7 @@ import {
 import { HttpError } from "../../utils/errors.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
 import type { AgentRouteOptions } from "../route-options.js";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import { WorkspaceRootValidationError } from "../../services/sessions/index.js";
 import { assertSessionOwner, loadOwnedSession } from "../session-owner.js";
 import { resolveSessionApplication } from "../session-application.js";
@@ -35,6 +35,27 @@ interface SessionParams {
 interface MessageParams extends SessionParams {
   messageId: string;
 }
+
+interface BackgroundTaskParams extends SessionParams {
+  taskId: string;
+}
+
+const BackgroundTaskIdSchema = z.string().uuid();
+const CancelBackgroundTasksRequestSchema = z.object({
+  task_ids: z.array(BackgroundTaskIdSchema).min(1).max(100),
+}).strict().superRefine((value, context) => {
+  const seen = new Set<string>();
+  value.task_ids.forEach((taskId, index) => {
+    if (seen.has(taskId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["task_ids", index],
+        message: "任务 ID 不能重复",
+      });
+    }
+    seen.add(taskId);
+  });
+});
 
 export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = async (app, options) => {
   app.post("/sessions", async (request) => {
@@ -277,6 +298,35 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     }
   });
 
+  app.get<{ Params: SessionParams }>("/sessions/:sessionId/background-tasks", async (request) => {
+    const sessions = await resolveSessionApplication(options, request);
+    await loadOwnedSession(request, request.params.sessionId, sessions);
+    const tasks = await request.container.backgroundTasks.listSessionTasks(request.params.sessionId);
+    return ok({ tasks }, "获取后台任务成功");
+  });
+
+  app.post<{ Params: BackgroundTaskParams }>(
+    "/sessions/:sessionId/background-tasks/:taskId/cancel",
+    async (request) => {
+      const sessions = await resolveSessionApplication(options, request);
+      await loadOwnedSession(request, request.params.sessionId, sessions);
+      const taskId = parseBackgroundTaskId(request.params.taskId);
+      const result = await request.container.backgroundTasks.cancelSessionTask(request.params.sessionId, taskId);
+      return ok({ result }, result.cancelled ? "后台任务已取消" : "后台任务未取消");
+    },
+  );
+
+  app.post<{ Params: SessionParams }>("/sessions/:sessionId/background-tasks/cancel", async (request) => {
+    const sessions = await resolveSessionApplication(options, request);
+    await loadOwnedSession(request, request.params.sessionId, sessions);
+    const payload = parseCancelBackgroundTasksRequest(request.body);
+    const results = await request.container.backgroundTasks.cancelSessionTasks(
+      request.params.sessionId,
+      payload.task_ids,
+    );
+    return ok({ results }, "后台任务批量取消完成");
+  });
+
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/goals/current", async (request) => {
     const sessions = await resolveSessionApplication(options, request);
     await loadOwnedSession(request, request.params.sessionId, sessions);
@@ -348,6 +398,30 @@ function parseRollbackAndRetryRequest(body: unknown) {
         "validation_error",
         "请求参数验证失败",
         error.issues.map((issue) => `body -> ${issue.path.join(" -> ") || "body"}: ${issue.message}`),
+      );
+    }
+    throw error;
+  }
+}
+
+function parseBackgroundTaskId(taskId: string): string {
+  return parseBackgroundTaskInput(BackgroundTaskIdSchema, taskId, "params -> taskId");
+}
+
+function parseCancelBackgroundTasksRequest(body: unknown): z.infer<typeof CancelBackgroundTasksRequestSchema> {
+  return parseBackgroundTaskInput(CancelBackgroundTasksRequestSchema, body, "body");
+}
+
+function parseBackgroundTaskInput<T>(schema: z.ZodType<T>, input: unknown, location: string): T {
+  try {
+    return schema.parse(input);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      throw new HttpError(
+        422,
+        "validation_error",
+        "请求参数验证失败",
+        error.issues.map((issue) => `${location}${issue.path.length ? ` -> ${issue.path.join(" -> ")}` : ""}: ${issue.message}`),
       );
     }
     throw error;

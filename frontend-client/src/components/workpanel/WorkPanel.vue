@@ -1,77 +1,97 @@
 <template>
-  <aside class="work-panel">
-    <WorkPanelRunStatus
-      :phase="activeRun.phase"
-      :run-started-at="activeRun.runStartedAt"
-      :context-usage="contextUsage"
-      :pending-input="Boolean(pendingUserInput)"
-      :approval-count="approvalQueue.length"
-      :has-error="messageHasError"
-      :completed="messageCompleted"
-      :stopped="Boolean(currentMessage?.stopped)"
-    />
+  <aside :class="cn('work-panel', { 'work-panel--mobile': mobile })" aria-label="运行中心">
+    <BackgroundTasksPanel v-if="activeTab === 'background'" :task-state="taskState" />
 
-    <div class="wp-body">
-      <ArtifactPanel
-        :message="currentMessage"
-        :session-id="sessionId"
-        :refresh-key="messageKey"
-        :running="activeRun.active"
-        @select="emit('artifactSelect', $event)"
-        @file-changes="emit('fileChanges')"
+    <GoalPanel v-else-if="activeTab === 'goal'" :goal-state="goalState" />
+
+    <div v-else class="runtime-execution-view">
+      <WorkPanelRunStatus
+        :phase="activeRun.phase"
+        :run-started-at="activeRun.runStartedAt"
+        :context-usage="contextUsage"
+        :pending-input="Boolean(pendingUserInput)"
+        :approval-count="approvalQueue.length"
+        :has-error="messageHasError"
+        :completed="messageCompleted"
+        :stopped="Boolean(currentMessage?.stopped)"
       />
 
-     <Transition name="wp-content" mode="out-in">
-        <WorkPanelExecution
-          :execution-tree="executionTree"
-          :injections="currentInjections"
-          :running="activeRun.active"
+      <div class="wp-body">
+        <ArtifactPanel
+          :message="currentMessage"
           :session-id="sessionId"
-          :message-key="messageKey"
+          :refresh-key="messageKey"
+          :running="activeRun.active"
+          @select="emit('artifactSelect', $event)"
+          @file-changes="emit('fileChanges')"
         />
-      </Transition>
 
-      <Transition name="wp-overlay">
-        <div v-if="pendingUserInput || approvalQueue.length > 0" class="wp-overlay-stack">
-          <WorkPanelUserInput
-            v-if="pendingUserInput"
-            :input-data="pendingUserInput.data"
-            @submit="emit('userInputSubmit', $event)"
-            @cancel="emit('userInputCancel')"
+        <Transition name="wp-content" mode="out-in">
+          <WorkPanelExecution
+            :execution-tree="executionTree"
+            :injections="currentInjections"
+            :running="activeRun.active"
+            :session-id="sessionId"
+            :message-key="messageKey"
           />
-          <WorkPanelApproval
-            v-if="approvalQueue.length > 0"
-            :queue="approvalQueue"
-            :submitting-id="approvalSubmittingId"
-            @submit="emit('approvalSubmit', $event)"
-          />
-        </div>
-      </Transition>
+        </Transition>
+
+        <Transition name="wp-overlay">
+          <div v-if="pendingUserInput || approvalQueue.length > 0" class="wp-overlay-stack">
+            <WorkPanelUserInput
+              v-if="pendingUserInput"
+              :input-data="pendingUserInput.data"
+              @submit="emit('userInputSubmit', $event)"
+              @cancel="emit('userInputCancel')"
+            />
+            <WorkPanelApproval
+              v-if="approvalQueue.length > 0"
+              :queue="approvalQueue"
+              :submitting-id="approvalSubmittingId"
+              @submit="emit('approvalSubmit', $event)"
+            />
+          </div>
+        </Transition>
+      </div>
     </div>
   </aside>
 </template>
 
 <script setup>
 import { computed } from 'vue'
+import { cn } from '@/lib/utils'
 import WorkPanelRunStatus from './WorkPanelRunStatus.vue'
 import WorkPanelExecution from './WorkPanelExecution.vue'
 import WorkPanelApproval from './WorkPanelApproval.vue'
 import WorkPanelUserInput from './WorkPanelUserInput.vue'
+import BackgroundTasksPanel from './BackgroundTasksPanel.vue'
+import GoalPanel from './GoalPanel.vue'
 import ArtifactPanel from '../chat/ArtifactPanel.vue'
 
 const props = defineProps({
- activeRun: { type: Object, required: true },
- currentMessage: { type: Object, default: null },
+  activeRun: { type: Object, required: true },
+  currentMessage: { type: Object, default: null },
   injectionsByRunId: { type: Object, default: () => ({}) },
   messageKey: { type: String, default: '' },
- approvalQueue: { type: Array, default: () => [] },
+  approvalQueue: { type: Array, default: () => [] },
   approvalSubmittingId: { type: String, default: '' },
   pendingUserInput: { type: Object, default: null },
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
   sessionId: { type: String, default: '' },
+  activeTab: { type: String, default: 'execution' },
+  taskState: { type: Object, required: true },
+  goalState: { type: Object, required: true },
+  mobile: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel', 'artifactSelect', 'fileChanges'])
+const emit = defineEmits([
+  'update:activeTab',
+  'approvalSubmit',
+  'userInputSubmit',
+  'userInputCancel',
+  'artifactSelect',
+  'fileChanges',
+])
 
 const messageHasError = computed(() => {
   const msg = props.currentMessage
@@ -97,10 +117,33 @@ const currentInjections = computed(() => {
 
 <style scoped>
 .work-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
   background: var(--surface-workpanel);
   border-left: 1px solid rgba(var(--color-border-rgb, 255, 255, 255), 0.12);
   box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.04);
   letter-spacing: 0;
+}
+
+.work-panel--mobile {
+  width: 100%;
+  border-left: 0;
+  box-shadow: none;
+}
+
+.runtime-execution-view {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.work-panel--mobile :deep(.wpr-root),
+.work-panel--mobile :deep(.runtime-panel-header) {
+  padding-right: 52px;
 }
 
 .wp-body {

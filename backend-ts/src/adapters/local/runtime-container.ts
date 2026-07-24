@@ -152,6 +152,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const notificationQueue = new SessionNotificationQueue();
   const backgroundTasks = new BackgroundTaskService({
     notificationQueue,
+    clientEvents,
     ...(options.asyncBackgroundTasks ? { repository: options.asyncBackgroundTasks, tenantId: options.tenantId } : {}),
   });
   const toolsConfig = systemConfig.getToolsConfig();

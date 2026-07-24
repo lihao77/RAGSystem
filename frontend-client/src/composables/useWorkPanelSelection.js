@@ -96,6 +96,7 @@ export function useWorkPanelSelection(deps) {
   });
 
   async function selectWorkPanelMessage(msgOrKey) {
+    if (typeof msgOrKey !== 'string' && msgOrKey?.role !== 'assistant') return;
     const key = typeof msgOrKey === 'string' ? msgOrKey : getWorkPanelMessageKey(msgOrKey);
     selectedWorkPanelMessageKey.value = key || '';
     selectedByUser.value = Boolean(key);

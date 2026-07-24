@@ -62,7 +62,7 @@ export function useMessageExecution(deps) {
   };
 
   const ensureExecutionStepsLoaded = async (msg) => {
-    if (!msg || !msg.id || !deps.currentSessionId.value || msg.executionStepsLoaded || msg.executionStepsLoading || !msg.has_execution) {
+    if (!msg || msg.role !== 'assistant' || !msg.id || !deps.currentSessionId.value || msg.executionStepsLoaded || msg.executionStepsLoading || !msg.has_execution) {
       return;
     }
     msg.executionStepsLoading = true;

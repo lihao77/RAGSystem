@@ -405,6 +405,10 @@ export function createSessionEnvelopeDispatcher({
         return;
       }
       if (category === 'session_updated') {
+        if (payload.detail?.entity === 'background_task') {
+          deps.handleBackgroundTaskLifecycle?.(payload.detail);
+          return;
+        }
         if (runtime.isRecentlyFinalizedUpdate(event, sessionId)) {
           if (typeof deps.mergeMessageIdsFromServer === 'function') deps.mergeMessageIdsFromServer(sessionId);
           refreshSessionExecutionState(sessionId, { silent: true });

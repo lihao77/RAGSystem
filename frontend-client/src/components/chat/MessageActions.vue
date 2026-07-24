@@ -15,13 +15,13 @@
 
     <template v-if="msg.role === 'assistant' && msg.finished">
       <Button
-        v-if="messageContext.showWorkPanel && hasExecutionContent(msg)"
+        v-if="hasExecutionContent(msg)"
         variant="ghost"
         size="icon-xs"
         :active="messageContext.selectedWorkPanelMessageKey === messageContext.getWorkPanelMessageKey(msg)"
-        aria-label="在工作栏查看执行树"
-        title="在工作栏查看执行树"
-        @click="messageContext.selectWorkPanelMessage(msg)"
+        aria-label="在运行中心查看执行树"
+        title="在运行中心查看执行树"
+        @click="messageContext.openWorkPanelMessage(msg)"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M6 3v12" />

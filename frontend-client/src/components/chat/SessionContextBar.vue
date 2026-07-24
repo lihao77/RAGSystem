@@ -15,48 +15,84 @@
       <span class="conversation-title" :title="sessionTitle">{{ sessionTitle }}</span>
     </div>
 
-    <DropdownMenu>
-      <DropdownMenuTrigger as-child>
-        <Button variant="ghost" size="icon" aria-label="更多会话操作" title="更多会话操作">
-          <Ellipsis />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" class="w-52">
-        <DropdownMenuLabel>会话操作</DropdownMenuLabel>
-        <DropdownMenuGroup>
-          <DropdownMenuItem
-            v-if="!isWideWorkbench"
-            :disabled="!currentSessionId"
-            @select="emit('openFileChanges')"
-          >
-            <FileText />
-            文件变更
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            :disabled="!currentSessionId || isExportingSession"
-            @select="emit('exportSession')"
-          >
-            <Download />
-            导出会话
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuItem @select="themeStore.toggle()">
-            <Sun v-if="themeStore.isDark" />
-            <Moon v-else />
-            {{ themeStore.isDark ? '切换到亮色模式' : '切换到暗色模式' }}
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div class="session-runtime-actions">
+      <Button
+        v-if="currentSessionId"
+        variant="ghost"
+        size="sm"
+        class="runtime-trigger"
+        :title="goalTriggerTitle"
+        aria-label="打开 Goal"
+        @click="emit('openRuntimeCenter', 'goal')"
+      >
+        <Target />
+        <span class="runtime-trigger-label">Goal</span>
+        <Badge v-if="goalState.goal" :variant="goalBadge.variant" class="runtime-trigger-badge">
+          {{ goalBadge.label }}
+        </Badge>
+      </Button>
+
+      <Button
+        v-if="currentSessionId"
+        variant="ghost"
+        size="sm"
+        class="runtime-trigger"
+        :title="backgroundTriggerTitle"
+        aria-label="打开后台任务"
+        @click="emit('openRuntimeCenter', 'background')"
+      >
+        <ListTodo />
+        <span class="runtime-trigger-label">后台</span>
+        <Badge v-if="taskState.runningCount" variant="secondary" class="runtime-trigger-badge">
+          {{ taskState.runningCount }}
+        </Badge>
+      </Button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <Button variant="ghost" size="icon" aria-label="更多会话操作" title="更多会话操作">
+            <Ellipsis />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" class="w-52">
+          <DropdownMenuLabel>会话操作</DropdownMenuLabel>
+          <DropdownMenuGroup>
+            <DropdownMenuItem
+              v-if="!isWideWorkbench"
+              :disabled="!currentSessionId"
+              @select="emit('openFileChanges')"
+            >
+              <FileText />
+              文件变更
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              :disabled="!currentSessionId || isExportingSession"
+              @select="emit('exportSession')"
+            >
+              <Download />
+              导出会话
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem @select="themeStore.toggle()">
+              <Sun v-if="themeStore.isDark" />
+              <Moon v-else />
+              {{ themeStore.isDark ? '切换到亮色模式' : '切换到暗色模式' }}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   </header>
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { useMediaQuery } from '@vueuse/core';
-import { Download, Ellipsis, FileText, Moon, Sun } from 'lucide-vue-next';
+import { Download, Ellipsis, FileText, ListTodo, Moon, Sun, Target } from 'lucide-vue-next';
 import { IconMenu } from '../icons';
+import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import {
   DropdownMenu,
@@ -72,18 +108,35 @@ import { useThemeStore } from '../../stores/theme.js';
 const themeStore = useThemeStore();
 const isWideWorkbench = useMediaQuery('(min-width: 1200px)');
 
-defineProps({
+const props = defineProps({
   currentSessionId: { type: String, default: '' },
   sessionTitle: { type: String, default: '新聊天' },
   isExportingSession: { type: Boolean, default: false },
   scrolled: { type: Boolean, default: false },
+  goalState: { type: Object, required: true },
+  taskState: { type: Object, required: true },
 });
 
 const emit = defineEmits([
   'openMobileSidebar',
   'exportSession',
   'openFileChanges',
+  'openRuntimeCenter',
 ]);
+
+const goalBadge = computed(() => ({
+  active: { label: '进行中', variant: 'success' },
+  paused: { label: '暂停', variant: 'warning' },
+  completed: { label: '完成', variant: 'secondary' },
+  blocked: { label: '阻塞', variant: 'destructive' },
+}[props.goalState.goal?.status] || { label: '未知', variant: 'outline' }));
+
+const goalTriggerTitle = computed(() => props.goalState.goal
+  ? `Goal：${props.goalState.goal.objective || goalBadge.value.label}`
+  : '当前会话暂无 Goal');
+const backgroundTriggerTitle = computed(() => props.taskState.runningCount
+  ? `${props.taskState.runningCount} 个后台任务正在运行`
+  : '当前没有运行中的后台任务');
 </script>
 
 <style scoped>
@@ -136,6 +189,23 @@ const emit = defineEmits([
   white-space: nowrap;
 }
 
+.session-runtime-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.runtime-trigger {
+  min-width: 0;
+}
+
+.runtime-trigger-badge {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sidebar-menu-trigger {
   display: none;
 }
@@ -165,6 +235,16 @@ const emit = defineEmits([
 @media (max-width: 480px) {
   .session-context-bar {
     gap: 6px;
+  }
+
+  .runtime-trigger {
+    width: 36px;
+    padding-inline: 0;
+  }
+
+  .runtime-trigger-label,
+  .runtime-trigger-badge {
+    display: none;
   }
 }
 

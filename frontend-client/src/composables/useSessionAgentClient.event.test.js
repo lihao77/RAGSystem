@@ -167,6 +167,28 @@ test('state_sync(session_updated) 在 active run 期间不重拉消息', () => {
   assert.deepEqual(calls.loadSessionMessages, []);
 });
 
+test('后台任务 lifecycle 事件只更新运行中心，不重拉消息列表', () => {
+  const lifecycle = [];
+  const { deps, calls } = createDeps({
+    handleBackgroundTaskLifecycle: detail => lifecycle.push(detail),
+  });
+  const detail = {
+    entity: 'background_task',
+    action: 'completed',
+    task: { task_id: 'task-1', status: 'completed' },
+  };
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'state_sync',
+    payload: { category: 'session_updated', detail },
+  }, 'session-1');
+
+  assert.deepEqual(lifecycle, [detail]);
+  assert.deepEqual(calls.deleteMessageCache, []);
+  assert.deepEqual(calls.loadSessionMessages, []);
+});
+
 test('已送达但由顶层处理的事件会推进 seq，避免后续输出误判 gap', () => {
   const { deps, calls } = createDeps();
   deps.messages.value = [createAssistantMessage()];

@@ -462,7 +462,6 @@ class AgentLaunchers {
     if (!normalizedSessionId || this.idleLaunches.has(normalizedSessionId)) return;
     const status = this.statusTracker.getStatusBySession(normalizedSessionId)?.status;
     if (status === "running" || status === "suspended") return;
-    if (this.backgroundTasks?.hasRunningTasks(normalizedSessionId)) return;
     this.idleLaunches.add(normalizedSessionId);
     void this.startSessionIdleRun(normalizedSessionId)
       .catch(() => undefined)
@@ -484,7 +483,11 @@ class AgentLaunchers {
 
     try {
       const status = this.statusTracker.getStatusBySession(sessionId)?.status;
-      if (status === "running" || status === "suspended" || this.backgroundTasks?.hasRunningTasks(sessionId)) return;
+      if (
+        status === "running"
+        || status === "suspended"
+        || await this.backgroundTasks?.hasRunningTasksDurable(sessionId)
+      ) return;
       const currentGoal = await this.goalStore?.getCurrent(sessionId) ?? null;
       const hasNotifications = this.notificationQueue.peek(sessionId);
       if (!hasNotifications && currentGoal?.status !== "active") return;
@@ -509,7 +512,11 @@ class AgentLaunchers {
       // Session/agent readiness may require SaaS I/O. Claim only after those checks pass so a
       // configuration failure or an intervening user run does not consume a continuation attempt.
       const readyStatus = this.statusTracker.getStatusBySession(sessionId)?.status;
-      if (readyStatus === "running" || readyStatus === "suspended" || this.backgroundTasks?.hasRunningTasks(sessionId)) return;
+      if (
+        readyStatus === "running"
+        || readyStatus === "suspended"
+        || await this.backgroundTasks?.hasRunningTasksDurable(sessionId)
+      ) return;
       if (currentGoal?.status === "active" && this.goalStore) {
         claimedGoal = await this.goalStore.claimContinuation(sessionId, {
           maxContinuations: 20,
@@ -518,10 +525,13 @@ class AgentLaunchers {
         });
       }
 
-      // claimContinuation is asynchronous in SaaS. From this final idle check through startRun
-      // registration there are no awaits, so a same-process user run cannot interleave.
+      // Re-read durable background work after the asynchronous continuation claim. If another
+      // instance started work meanwhile, finally releases this claim for a later idle attempt.
+      if (await this.backgroundTasks?.hasRunningTasksDurable(sessionId)) return;
+      // The durable gate above yields. Re-read local status after it resolves, then keep the
+      // remaining path synchronous through startRun so a same-process user run cannot interleave.
       const latestStatus = this.statusTracker.getStatusBySession(sessionId)?.status;
-      if (latestStatus === "running" || latestStatus === "suspended" || this.backgroundTasks?.hasRunningTasks(sessionId)) return;
+      if (latestStatus === "running" || latestStatus === "suspended") return;
       if (!hasNotifications && !claimedGoal) return;
 
       payloads = this.notificationQueue.drain(sessionId);
