@@ -16,89 +16,56 @@
       </div>
 
       <section class="etn-card" :class="{ 'is-interactive': true, 'is-selected': selectedKey === nodeKeyValue }">
-        <div class="etn-summary-shell">
-          <button
-            type="button"
-            :class="cn('etn-summary', { 'etn-summary--leaf': !hasChildren })"
-            :aria-label="`查看 ${titleText} 详情`"
-            @click="handleSummaryClick"
-          >
-            <div class="etn-main">
-              <span
-                class="etn-type-icon"
-                :class="`icon-${nodeIconKind}`"
-                :title="typeLabel"
-                :aria-label="typeLabel"
-                role="img"
-              >
-                <WorkPanelTimelineIcon :kind="nodeIconKind" />
-              </span>
+        <button
+          type="button"
+          class="etn-summary"
+          :class="{ 'etn-summary--compact': !hasChildren }"
+          :aria-expanded="hasChildren ? expanded : undefined"
+          @click="handleSummaryClick"
+        >
+          <div class="etn-main">
+            <span
+              class="etn-type-icon"
+              :class="`icon-${nodeIconKind}`"
+              :title="typeLabel"
+              :aria-label="typeLabel"
+              role="img"
+            >
+              <WorkPanelTimelineIcon :kind="nodeIconKind" />
+            </span>
 
-              <div class="etn-content">
-                <div class="etn-title-row">
-                  <div class="etn-title">{{ titleText }}</div>
-                  <span v-if="agentLabel" class="agent-badge" :class="agentBadgeClass">{{ agentLabel }}</span>
-                </div>
+            <div class="etn-content">
+              <div class="etn-title-row">
+                <div class="etn-title">{{ titleText }}</div>
+                <span v-if="agentLabel" class="agent-badge" :class="agentBadgeClass">{{ agentLabel }}</span>
+              </div>
 
-                <div v-if="subtitleText" class="etn-subtitle">{{ subtitleText }}</div>
+              <div v-if="subtitleText" class="etn-subtitle">{{ subtitleText }}</div>
 
-                <div
-                  v-if="node.type === 'agent_call' && toolStatuses.length > 0"
-                  class="etn-agent-progress"
-                  :class="`tone-${toolProgressTone}`"
-                >
-                  {{ toolProgressText }}
-                </div>
+              <div v-if="node.type === 'agent_call' && toolStatuses.length > 0" class="etn-substeps">
+                <span
+                  v-for="(status, index) in toolStatuses.slice(0, 8)"
+                  :key="`${status}-${index}`"
+                  class="etn-substep-dot"
+                  :class="`substep-${normalizeStatus(status)}`"
+                ></span>
+                <span v-if="toolStatuses.length > 8" class="etn-substep-more">+{{ toolStatuses.length - 8 }}</span>
               </div>
             </div>
+          </div>
 
-            <div class="etn-side">
-              <span
-                v-if="elapsedText"
-                class="etn-time"
-                :aria-label="`步骤耗时 ${elapsedText}`"
-                :title="`步骤耗时 ${elapsedText}`"
-              >
-                {{ elapsedText }}
-              </span>
-              <Transition name="etn-status" mode="out-in">
-                <span
-                  v-if="normalizedStatus === 'success'"
-                  key="success"
-                  class="etn-status-success"
-                  aria-label="完成"
-                  title="完成"
-                >
-                  <Check aria-hidden="true" />
-                </span>
-                <Badge
-                  v-else-if="statusText"
-                  :key="normalizedStatus"
-                  :variant="statusBadgeVariant"
-                  class="etn-status-badge"
-                >
-                  {{ statusText }}
-                </Badge>
-              </Transition>
-            </div>
-          </button>
-
-          <Button
-            v-if="hasChildren"
-            class="etn-expand-toggle"
-            variant="ghost"
-            size="icon-xs"
-            type="button"
-            :active="expanded"
-            :data-state="expanded ? 'open' : 'closed'"
-            :aria-expanded="expanded"
-            :aria-label="expanded ? '收起子步骤' : '展开子步骤'"
-            :title="expanded ? '收起子步骤' : '展开子步骤'"
-            @click="toggleExpanded"
-          >
-            <ChevronRight aria-hidden="true" />
-          </Button>
-        </div>
+          <div class="etn-side" :class="sideClasses">
+            <span class="etn-time" :class="{ 'is-empty': !elapsedText }">{{ elapsedText || '0ms' }}</span>
+            <Transition name="etn-status" mode="out-in">
+              <span :key="statusText || 'empty'" class="etn-status-pill" :class="{ 'is-empty': !statusText }">{{ statusText || '等待' }}</span>
+            </Transition>
+            <span class="etn-chevron" :class="{ expanded, 'is-empty': !hasChildren }" aria-hidden="true">
+              <svg viewBox="0 0 20 20" width="14" height="14">
+                <path d="M7 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+          </div>
+        </button>
       </section>
     </div>
 
@@ -131,9 +98,7 @@
 </template>
 
 <script setup>
-import { Check, ChevronRight } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
-import { cn } from '@/lib/utils'
 import { getAgentBadgeClass } from '../../utils/agentBadge'
 import {
   formatExecutionElapsed as formatElapsed,
@@ -141,8 +106,6 @@ import {
   normalizeExecutionStatus as normalizeStatus,
 } from '../../utils/executionTreePresentation'
 import WorkPanelTimelineIcon from './WorkPanelTimelineIcon.vue'
-import { Badge } from '../ui/badge'
-import { Button } from '../ui/button'
 import {
   getToolDisplayName as resolveToolDisplayName,
   getToolIconKind as resolveToolIconKind,
@@ -235,7 +198,7 @@ const subtitleText = computed(() => {
 const statusText = computed(() => {
   const text = {
     running: '执行中',
-    success: '',
+    success: '完成',
     error: '失败',
     stopped: '已停止',
     pending: '',
@@ -243,13 +206,11 @@ const statusText = computed(() => {
   return text[normalizedStatus.value] ?? ''
 })
 
-const statusBadgeVariant = computed(() => {
-  if (normalizedStatus.value === 'error') return 'destructive'
-  if (normalizedStatus.value === 'stopped') return 'warning'
-  return 'default'
-})
-
 const hasChildren = computed(() => Array.isArray(props.node.children) && props.node.children.length > 0)
+const sideClasses = computed(() => ({
+  'etn-side--compact': !hasChildren.value,
+  'etn-side--has-chevron': hasChildren.value,
+}))
 watch(
   () => [props.focusKey, props.node.status, props.node.children?.length],
   () => {
@@ -271,39 +232,15 @@ const toolStatuses = computed(() => {
   return statuses
 })
 
-const toolProgress = computed(() => toolStatuses.value.reduce((counts, status) => {
-  const normalized = normalizeStatus(status)
-  counts[normalized] = (counts[normalized] || 0) + 1
-  return counts
-}, { success: 0, running: 0, error: 0, stopped: 0, pending: 0 }))
-
-const toolProgressText = computed(() => {
-  const counts = toolProgress.value
-  const parts = [`${counts.success}/${toolStatuses.value.length} 工具完成`]
-  if (counts.running) parts.push(`${counts.running} 执行中`)
-  if (counts.error) parts.push(`${counts.error} 失败`)
-  if (counts.stopped) parts.push(`${counts.stopped} 已停止`)
-  return parts.join(' · ')
-})
-
-const toolProgressTone = computed(() => {
-  if (toolProgress.value.error) return 'error'
-  if (toolProgress.value.running) return 'running'
-  if (toolProgress.value.stopped) return 'warning'
-  return 'muted'
-})
-
 watch(
-  [titleText, subtitleText, toolProgressText, normalizedStatus],
+  [titleText, subtitleText, toolStatuses, normalizedStatus, expanded],
   () => emit('layoutChange'),
   { flush: 'post' }
 )
 
 function handleSummaryClick() {
   emit('inspect', props.node)
-}
-
-function toggleExpanded() {
+  if (!hasChildren.value) return
   expanded.value = !expanded.value
 }
 
@@ -611,16 +548,6 @@ function collectToolStatuses(children, statuses) {
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.14);
 }
 
-.etn--agent_call > .etn-row .etn-card {
-  border-color: color-mix(in srgb, var(--color-border) 62%, transparent);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.3);
-}
-
-.etn--agent_call > .etn-row .etn-card.is-interactive:not(.is-selected):hover {
-  border-color: var(--color-border-hover);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.4);
-}
-
 .etn-card.is-selected,
 .etn--nested .etn-card.is-selected,
 .etn--tool_call .etn-card.is-selected,
@@ -632,21 +559,14 @@ function collectToolStatuses(children, statuses) {
     0 0 10px rgba(var(--color-brand-accent-rgb), 0.06);
 }
 
-.etn-summary-shell {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-}
-
 .etn-summary {
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) var(--etn-side-width, 110px);
   align-items: start;
-  gap: 8px;
-  padding: 8px 4px 8px 10px;
+  gap: 10px;
+  padding: 8px 10px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -655,30 +575,12 @@ function collectToolStatuses(children, statuses) {
   cursor: pointer;
 }
 
-.etn-summary--leaf {
-  padding-right: 10px;
+.etn-summary--compact {
+  grid-template-columns: minmax(0, 1fr) var(--etn-side-width, 110px);
 }
 
 .etn-summary:disabled {
   cursor: default;
-}
-
-.etn--tool_call .etn-summary {
-  padding-top: 6px;
-  padding-bottom: 6px;
-}
-
-.etn-expand-toggle {
-  align-self: center;
-  margin-right: 4px;
-}
-
-.etn-expand-toggle svg {
-  transition: transform var(--transition-fast);
-}
-
-.etn-expand-toggle[data-state='open'] svg {
-  transform: rotate(90deg);
 }
 
 .etn-main {
@@ -859,17 +761,30 @@ function collectToolStatuses(children, statuses) {
 }
 
 .etn-side {
-  min-width: 0;
+  --etn-side-time-width: 38px;
+  --etn-side-status-width: 46px;
+  --etn-side-chevron-width: 16px;
+  --etn-side-gap: 5px;
+  width: var(--etn-side-width, 110px);
+  min-width: var(--etn-side-width, 110px);
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: var(--etn-side-gap);
   padding-top: 1px;
   flex-shrink: 0;
 }
 
+.etn--agent_call .etn-side {
+  --etn-side-time-width: 34px;
+  --etn-side-status-width: 40px;
+  --etn-side-chevron-width: 12px;
+  --etn-side-gap: 4px;
+}
+
 .etn-time {
   flex: 0 0 auto;
+  width: var(--etn-side-time-width);
   font-size: 11px;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
@@ -877,41 +792,102 @@ function collectToolStatuses(children, statuses) {
   text-align: right;
 }
 
-.etn-status-badge {
+.etn-time.is-empty {
+  visibility: hidden;
+}
+
+.etn-status-pill {
   flex: 0 0 auto;
+  width: var(--etn-side-status-width);
   min-width: 0;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
+  padding: 0 8px;
+  border-radius: var(--radius-full);
+  color: var(--status-color);
+  border: 1px solid var(--status-border);
+  background: var(--status-bg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.etn-status-pill.is-empty {
+  visibility: hidden;
+}
+
+.etn-chevron {
+  flex: 0 0 auto;
+  display: inline-flex;
+  width: var(--etn-side-chevron-width);
+  justify-content: center;
+  color: var(--color-text-muted);
+  transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+.etn-chevron.is-empty {
+  visibility: hidden;
 }
 
 .etn--agent_call .etn-time {
   font-size: 10px;
 }
 
-.etn-status-success {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-success);
+.etn--agent_call .etn-status-pill {
+  height: 18px;
+  padding: 0 6px;
+  font-size: 9px;
 }
 
-.etn-status-success svg {
-  width: 13px;
-  height: 13px;
+.etn--agent_call .etn-chevron :deep(svg) {
+  width: 12px;
+  height: 12px;
 }
 
-.etn-agent-progress {
+.etn-chevron.expanded {
+  transform: rotate(90deg);
+  color: var(--color-text-secondary);
+}
+
+.etn-substeps {
   display: flex;
   align-items: center;
+  gap: 3px;
   min-width: 0;
   padding-top: 1px;
-  font-size: 10px;
-  color: var(--color-text-muted);
-  line-height: 1.25;
+  opacity: 0.82;
 }
 
-.etn-agent-progress.tone-running { color: var(--color-brand-accent); }
-.etn-agent-progress.tone-error { color: var(--color-error); }
-.etn-agent-progress.tone-warning { color: var(--color-warning); }
+.etn-substep-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-border);
+  transition: background var(--transition-fast), opacity var(--transition-fast);
+}
+
+.substep-running {
+  background: var(--color-brand-accent);
+  animation: etn-substep-pulse 1.5s ease-in-out infinite;
+}
+
+.substep-success { background: var(--color-success); }
+.substep-error { background: var(--color-error); }
+.substep-stopped { background: var(--color-warning); }
+
+.etn-substep-more {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  line-height: 1;
+  padding-left: 1px;
+}
 
 .etn-children {
   --child-gap: 5px;
@@ -983,8 +959,20 @@ function collectToolStatuses(children, statuses) {
   overflow: hidden;
 }
 
+@keyframes etn-substep-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.75);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .etn-status-pulse {
+  .etn-status-pulse,
+  .substep-running {
     animation: none;
   }
 
@@ -994,7 +982,9 @@ function collectToolStatuses(children, statuses) {
 
   .etn-status-dot,
   .etn-card,
-  .etn-expand-toggle svg,
+  .etn-status-pill,
+  .etn-substep-dot,
+  .etn-chevron,
   .etn-status-enter-active,
   .etn-status-leave-active {
     transition-duration: 1ms;
