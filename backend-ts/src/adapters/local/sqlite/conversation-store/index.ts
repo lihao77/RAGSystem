@@ -10,6 +10,7 @@ import { MetricOps } from "./metric-ops.js";
 import { PendingInteractionOps } from "./pending-interaction-ops.js";
 import { ProviderContinuationOps } from "./provider-continuation-ops.js";
 import { MemoryCandidateOps } from "./memory-candidate-ops.js";
+import { WorkflowTaskOps } from "./workflow-task-ops.js";
 
 export interface ConversationStoreOptions {
   dbPath: string;
@@ -35,6 +36,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const pendingInteractions = new PendingInteractionOps(db);
   const providerContinuations = new ProviderContinuationOps(db);
   const memoryCandidates = new MemoryCandidateOps(db);
+  const workflowTasks = new WorkflowTaskOps(db);
 
   const createTransactionFacade = () => ({
     createSession: sessions.createSession.bind(sessions),
@@ -111,6 +113,13 @@ export function createConversationStore(options: ConversationStoreOptions) {
     getChildAgent: childAgents.getChildAgent.bind(childAgents),
     findChildAgentByCreator: childAgents.findChildAgentByCreator.bind(childAgents),
     updateChildAgentLastRun: childAgents.updateChildAgentLastRun.bind(childAgents),
+
+    // durable workflow tasks
+    createWorkflowTask: workflowTasks.create.bind(workflowTasks),
+    getWorkflowTask: workflowTasks.get.bind(workflowTasks),
+    updateWorkflowTask: workflowTasks.update.bind(workflowTasks),
+    deleteWorkflowTask: workflowTasks.delete.bind(workflowTasks),
+    listWorkflowTasks: workflowTasks.list.bind(workflowTasks),
 
     /** 跨域：按 child agent 的 thread_key 取最近消息。 */
     getRecentMessagesByChildAgent: (sessionId: string, childAgentId: string, limit = DEFAULT_MESSAGE_LIST_LIMIT) => {

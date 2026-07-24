@@ -30,7 +30,6 @@ describe("TenantPaths", () => {
     expect(paths.sessionVisualizations("sid")).toBe(path.join(root, "sessions", "sid", "visualizations"));
     expect(paths.memoryRoot()).toBe(path.join(root, "memory"));
     expect(paths.memorySession("sid")).toBe(path.join(root, "memory", "sessions", "sid"));
-    expect(paths.tasksSession("sid")).toBe(path.join(root, "tasks", "sid"));
     expect(paths.fileHistorySession("sid")).toBe(path.join(root, "file-history", "sid"));
     expect(paths.configApp()).toBe(path.join(root, "config", "app", "config.yaml"));
     expect(paths.configMcp()).toBe(path.join(root, "config", "mcp", "mcp_servers.yaml"));

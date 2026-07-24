@@ -1,8 +1,12 @@
-import path from "node:path";
-
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import type { ToolWaitResult as RuntimeToolWaitResult, ToolExecutionResult, ToolExecContext } from "@ragsystem/agent-sdk";
+import {
+  isWorkflowTaskId,
+  type UpdateWorkflowTaskInput,
+  type WorkflowTaskStatus,
+  type WorkflowTaskStore,
+} from "../../contracts/runtime/workflow-tasks.js";
 import { toolSuccess, toolError } from "../../services/agent/sdk/tool-results.js";
 import {
   asString,
@@ -10,7 +14,6 @@ import {
   buildBackgroundOutputContent,
   isBackgroundTerminalStatus,
 } from "./background-output.js";
-import { TaskStore, type StoredTask } from "./task-store.js";
 
 export interface TaskCreateInput {
   subject: string;
@@ -47,22 +50,13 @@ export interface TaskStopInput {
 }
 
 export class TaskToolService {
-  private readonly dataRoot: string;
-  private readonly taskStore: TaskStore;
-
   constructor(
     private readonly backgroundTasks: BackgroundTaskService,
     private readonly notificationQueue: SessionNotificationQueue,
-    options: { dataRoot?: string | undefined } = {},
-  ) {
-    if (!options.dataRoot?.trim()) {
-      throw new Error("TaskToolService 必须传入已解析的 dataRoot");
-    }
-    this.dataRoot = path.resolve(options.dataRoot);
-    this.taskStore = new TaskStore(this.dataRoot);
-  }
+    private readonly workflowTasks: WorkflowTaskStore,
+  ) {}
 
-  taskCreate(input: TaskCreateInput, context: ToolExecContext): ToolExecutionResult {
+  async taskCreate(input: TaskCreateInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "task_create";
     try {
       const sessionId = resolveTaskSessionId(context);
@@ -71,14 +65,10 @@ export class TaskToolService {
       if (!subject || !description) {
         return toolError(toolName, "task_create 缺少 subject 或 description");
       }
-      const task = this.taskStore.createTask(sessionId, {
+      const task = await this.workflowTasks.create(sessionId, {
         subject,
         description,
-        active_form: input.activeForm?.trim() ?? "",
-        owner: "",
-        status: "pending",
-        blocks: [],
-        blocked_by: [],
+        activeForm: input.activeForm?.trim() ?? "",
         metadata: input.metadata ?? {},
       });
       return toolSuccess(
@@ -95,11 +85,12 @@ export class TaskToolService {
     }
   }
 
-  taskGet(input: TaskGetInput, context: ToolExecContext): ToolExecutionResult {
+  async taskGet(input: TaskGetInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "task_get";
     try {
       const taskId = input.taskId.trim();
-      const task = this.taskStore.getTask(resolveTaskSessionId(context), taskId);
+      assertWorkflowTaskId(taskId);
+      const task = await this.workflowTasks.get(resolveTaskSessionId(context), taskId);
       if (!task) {
         return toolSuccess(
           { task: null },
@@ -125,14 +116,41 @@ export class TaskToolService {
     }
   }
 
-  taskUpdate(input: TaskUpdateInput, context: ToolExecContext): ToolExecutionResult {
+  async taskUpdate(input: TaskUpdateInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "task_update";
     try {
       const sessionId = resolveTaskSessionId(context);
       const taskId = input.taskId.trim();
-      const oldTask = this.taskStore.getTask(sessionId, taskId);
+      assertWorkflowTaskId(taskId);
+      assertWorkflowTaskStatus(input.status);
+      assertWorkflowDependencies(taskId, input.addBlocks, input.addBlockedBy);
+      if (input.status === "deleted") {
+        const oldTask = await this.workflowTasks.get(sessionId, taskId);
+        if (!oldTask) {
+          return toolError(toolName, `任务 #${taskId} 不存在`);
+        }
+        const deleted = await this.workflowTasks.delete(sessionId, taskId);
+        if (!deleted) {
+          return toolError(toolName, `任务 #${taskId} 不存在`);
+        }
+        return toolSuccess(
+          {
+            success: true,
+            task_id: taskId,
+            updated_fields: ["status"],
+            status_change: { from: oldTask.status, to: "deleted" },
+          },
+          {
+            toolName,
+            summary: `已删除任务 #${taskId}`,
+            outputType: "json",
+            metadata: { task_id: taskId, status: "deleted" },
+          },
+        );
+      }
+      const oldTask = await this.workflowTasks.get(sessionId, taskId);
       const oldStatus = oldTask?.status ?? null;
-      const updates: Partial<StoredTask> = {};
+      const updates: UpdateWorkflowTaskInput = {};
       const updatedFields: string[] = [];
 
       addOptionalStringUpdate(updates, updatedFields, "subject", input.subject);
@@ -141,38 +159,20 @@ export class TaskToolService {
       addOptionalStringUpdate(updates, updatedFields, "owner", input.owner);
       addOptionalStringUpdate(updates, updatedFields, "status", input.status);
 
-      const updateOptions = {
-        addBlocks: input.addBlocks ?? [],
-        addBlockedBy: input.addBlockedBy ?? [],
-        metadata: input.metadata,
-      };
-      if (updateOptions.addBlocks.length) {
+      if ((input.addBlocks ?? []).length) {
         updatedFields.push("blocks");
       }
-      if (updateOptions.addBlockedBy.length) {
+      if ((input.addBlockedBy ?? []).length) {
         updatedFields.push("blocked_by");
       }
-      if (updateOptions.metadata !== null && updateOptions.metadata !== undefined) {
+      if (input.metadata !== null && input.metadata !== undefined) {
         updatedFields.push("metadata");
       }
+      updates.addBlocks = input.addBlocks ?? [];
+      updates.addBlockedBy = input.addBlockedBy ?? [];
+      updates.metadata = input.metadata;
 
-      const result = this.taskStore.updateTask(sessionId, taskId, updates, updateOptions);
-      if (input.status === "deleted") {
-        return toolSuccess(
-          {
-            success: true,
-            task_id: taskId,
-            updated_fields: ["status"],
-            status_change: { from: oldStatus, to: "deleted" },
-          },
-          {
-            toolName,
-            summary: `已删除任务 #${taskId}`,
-            outputType: "json",
-            metadata: {},
-          },
-        );
-      }
+      const result = await this.workflowTasks.update(sessionId, taskId, updates);
       if (!result) {
         return toolError(toolName, `任务 #${taskId} 不存在`);
       }
@@ -197,11 +197,11 @@ export class TaskToolService {
     }
   }
 
-  taskList(context: ToolExecContext): ToolExecutionResult {
+  async taskList(context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "task_list";
     try {
       const sessionId = resolveTaskSessionId(context);
-      const tasks = this.taskStore.listTasks(sessionId);
+      const tasks = await this.workflowTasks.list(sessionId);
       const statusById = new Map(tasks.map((task) => [task.id, task.status]));
       const summaries = tasks
         .filter((task) => !task.metadata._internal)
@@ -393,7 +393,7 @@ function resolveTaskSessionId(context: ToolExecContext): string {
 }
 
 function addOptionalStringUpdate(
-  updates: Partial<StoredTask>,
+  updates: UpdateWorkflowTaskInput,
   updatedFields: string[],
   key: "subject" | "description" | "active_form" | "owner" | "status",
   value: string | null | undefined,
@@ -401,8 +401,37 @@ function addOptionalStringUpdate(
   if (value === null || value === undefined) {
     return;
   }
-  updates[key] = value;
+  if (key === "active_form") {
+    updates.activeForm = value;
+  } else if (key === "status") {
+    updates.status = value as WorkflowTaskStatus;
+  } else {
+    updates[key] = value;
+  }
   updatedFields.push(key);
+}
+
+function assertWorkflowTaskId(taskId: string): void {
+  if (!isWorkflowTaskId(taskId)) {
+    throw new Error("task_id 必须是正整数任务 ID");
+  }
+}
+
+function assertWorkflowTaskStatus(
+  status: string | null | undefined,
+): asserts status is WorkflowTaskStatus | "deleted" | null | undefined {
+  if (status !== null && status !== undefined && !["pending", "in_progress", "completed", "deleted"].includes(status)) {
+    throw new Error("status 必须是 pending、in_progress、completed 或 deleted");
+  }
+}
+
+function assertWorkflowDependencies(taskId: string, addBlocks?: readonly string[] | null, addBlockedBy?: readonly string[] | null): void {
+  for (const dependencyId of [...(addBlocks ?? []), ...(addBlockedBy ?? [])]) {
+    assertWorkflowTaskId(dependencyId);
+    if (dependencyId === taskId) {
+      throw new Error("任务不能依赖自身");
+    }
+  }
 }
 
 function clampInteger(value: unknown, min: number, max: number): number {

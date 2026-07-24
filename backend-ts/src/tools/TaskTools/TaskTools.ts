@@ -22,8 +22,9 @@ import {
   type ToolExecContext,
   type RuntimeToolDefinition,
 } from "@ragsystem/agent-sdk";
-import { metadataFrom, nullableStringArray, optionalBoolean, optionalInteger, optionalRecord, optionalString } from "../schema-helpers.js";
+import { metadataFrom, optionalBoolean, optionalInteger, optionalRecord, optionalString } from "../schema-helpers.js";
 import type { AgentConfig } from "../../contracts/agent/agent-config.js";
+import { isWorkflowTaskId } from "../../contracts/runtime/workflow-tasks.js";
 
 interface TaskToolDeps {
   taskTools: TaskToolService | null;
@@ -38,24 +39,28 @@ const taskCreateSchema = z.object({
   metadata: optionalRecord,
 }).strict();
 
+const workflowTaskIdSchema = z.string().refine(isWorkflowTaskId, {
+  message: "task_id 必须是正整数任务 ID",
+});
+
 const taskGetSchema = z.object({
-  task_id: z.string(),
-  taskId: z.string().optional(),
+  task_id: workflowTaskIdSchema,
+  taskId: workflowTaskIdSchema.optional(),
 }).strict();
 
 const taskUpdateSchema = z.object({
-  task_id: z.string(),
-  taskId: z.string().optional(),
+  task_id: workflowTaskIdSchema,
+  taskId: workflowTaskIdSchema.optional(),
   subject: optionalString,
   description: optionalString,
   active_form: optionalString,
   activeForm: optionalString,
   owner: optionalString,
   status: z.enum(["pending", "in_progress", "completed", "deleted"]).optional().nullable(),
-  add_blocks: nullableStringArray(),
-  addBlocks: nullableStringArray(),
-  add_blocked_by: nullableStringArray(),
-  addBlockedBy: nullableStringArray(),
+  add_blocks: z.array(workflowTaskIdSchema).nullable().optional(),
+  addBlocks: z.array(workflowTaskIdSchema).nullable().optional(),
+  add_blocked_by: z.array(workflowTaskIdSchema).nullable().optional(),
+  addBlockedBy: z.array(workflowTaskIdSchema).nullable().optional(),
   metadata: optionalRecord,
 }).strict();
 
@@ -68,7 +73,10 @@ const taskOutputSchema = z.object({
   max_chars: optionalInteger,
   maxChars: optionalInteger,
 }).strict();
-const taskStopSchema = taskGetSchema;
+const taskStopSchema = z.object({
+  task_id: z.string().min(1),
+  taskId: z.string().min(1).optional(),
+}).strict();
 
 const TASK_WORKFLOW_TOOLS: RuntimeToolDefinition[] = [
   {
@@ -102,7 +110,7 @@ const TASK_WORKFLOW_TOOLS: RuntimeToolDefinition[] = [
       additionalProperties: false,
       required: ["task_id"],
       properties: {
-        task_id: { type: "string", description: "Task id returned by task_create." },
+        task_id: { type: "string", pattern: "^[1-9][0-9]*$", description: "Positive integer task id returned by task_create." },
       },
     },
   },
@@ -118,14 +126,14 @@ const TASK_WORKFLOW_TOOLS: RuntimeToolDefinition[] = [
       additionalProperties: false,
       required: ["task_id"],
       properties: {
-        task_id: { type: "string" },
+        task_id: { type: "string", pattern: "^[1-9][0-9]*$" },
         subject: { type: "string" },
         description: { type: "string" },
         active_form: { type: "string" },
         owner: { type: "string" },
         status: { type: "string", enum: ["pending", "in_progress", "completed", "deleted"] },
-        add_blocks: { type: "array", items: { type: "string" } },
-        add_blocked_by: { type: "array", items: { type: "string" } },
+        add_blocks: { type: "array", items: { type: "string", pattern: "^[1-9][0-9]*$" } },
+        add_blocked_by: { type: "array", items: { type: "string", pattern: "^[1-9][0-9]*$" } },
         metadata: { type: "object" },
       },
     },

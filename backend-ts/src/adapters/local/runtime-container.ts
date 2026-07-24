@@ -39,6 +39,7 @@ import type { LocalRuntimeContainerOptions } from "./runtime-options.js";
 import { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import { LocalAsyncKnowledgeMarkdownPipeline } from "./knowledge/local-async-knowledge-markdown-pipeline.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";
+import { LocalWorkflowTaskStore } from "./local-workflow-task-store.js";
 import { PathApprovalService } from "../../services/runtime/path-approval-service.js";
 import { SqliteRuntimeStorage } from "./sqlite-runtime-storage.js";
 import { LocalSessionApplication } from "./application/session/local-session-application.js";
@@ -181,7 +182,11 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     backgroundTasks,
     clientEvents,
   }) : null;
-  const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot: options.dataRoot });
+  const taskTools = new TaskToolService(
+    backgroundTasks,
+    notificationQueue,
+    new LocalWorkflowTaskStore(options.tenantId, conversationStore),
+  );
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
 

@@ -31,6 +31,8 @@ import {
   runPostgresRunMigrations,
   runPostgresBackgroundTaskMigrations,
   PostgresBackgroundTaskRepository,
+  runPostgresWorkflowTaskMigrations,
+  PostgresWorkflowTaskRepository,
   runPostgresAnalyticsMigrations,
   PostgresAnalyticsRepository,
   runPostgresFileHistoryMigrations,
@@ -61,6 +63,7 @@ import { SaaSWorkspaceBlobStorage } from "../../../adapters/saas/object-storage/
 import type { WorkspaceBlobStorage } from "../../../contracts/storage/workspace-blob-storage.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { TenantId } from "../../../identity/types.js";
+import type { WorkflowTaskStore } from "../../../contracts/runtime/workflow-tasks.js";
 import { PostgresKnowledgeConfigRepository } from "../../../adapters/saas/postgres/knowledge-config-repository.js";
 import { KnowledgeApplicationService } from "../../../services/knowledge/knowledge-application-service.js";
 import type { ModelAdapterService } from "../../../services/integrations/model-adapter-service.js";
@@ -102,6 +105,7 @@ export interface SaaSConversationRuntimeHandle {
   providerMcp: PostgresProviderMcpRepository;
   providerMcpApplication: SaaSProviderMcpApplication;
   backgroundTasks: PostgresBackgroundTaskRepository;
+  createWorkflowTaskStore(tenantId: TenantId): WorkflowTaskStore;
   analytics: PostgresAnalyticsRepository;
   fileHistory: PostgresFileHistoryMetadataRepository;
   createRuntimeStorage(tenantId: TenantId): RuntimeStorage;
@@ -142,6 +146,7 @@ export async function createSaaSConversationRuntime(
       await runPostgresVectorIndexMigrations(executor);
       await runPostgresPgVectorMigrations(executor);
       await runPostgresBackgroundTaskMigrations(executor);
+      await runPostgresWorkflowTaskMigrations(executor);
       await runPostgresAnalyticsMigrations(executor);
       await runPostgresFileHistoryMigrations(executor);
       await runPostgresSessionFileMigrations(executor);
@@ -211,6 +216,7 @@ export async function createSaaSConversationRuntime(
       knowledgeConfig,
       createKnowledgeService: (tenantId, modelAdapter) => new KnowledgeApplicationService(tenantId, modelAdapter, knowledgeConfig, vectorStore),
       backgroundTasks,
+      createWorkflowTaskStore: (tenantId) => new PostgresWorkflowTaskRepository(tenantId, executor),
       analytics,
       fileHistory,
       createRuntimeStorage: (tenantId) => new PostgresRuntimeStorage(tenantId, executor),

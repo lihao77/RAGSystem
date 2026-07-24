@@ -317,6 +317,31 @@ export const MIGRATIONS: readonly Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_pending_interactions_resume_claim_expiry ON pending_interactions(session_id, status, resume_claim_expires_at)");
     },
   },
+  {
+    version: 19,
+    name: "durable_workflow_tasks",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE workflow_tasks (
+          task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          subject TEXT NOT NULL,
+          description TEXT NOT NULL,
+          active_form TEXT NOT NULL DEFAULT '',
+          owner TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL CHECK(status IN ('pending', 'in_progress', 'completed')),
+          blocks TEXT NOT NULL DEFAULT '[]',
+          blocked_by TEXT NOT NULL DEFAULT '[]',
+          metadata TEXT NOT NULL DEFAULT '{}',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_workflow_tasks_session_task
+          ON workflow_tasks(session_id, task_id);
+      `);
+    },
+  },
 ];
 
 function addColumnIfMissing(db: MigrationDatabase, table: string, column: string, declaration: string): void {

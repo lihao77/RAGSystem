@@ -95,7 +95,11 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   });
   agentConfig.setSkillToolService(skillTools);
   const skillLibrary = new SkillLibraryService(skillTools, skillPackageStore);
-  const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot });
+  const taskTools = new TaskToolService(
+    backgroundTasks,
+    notificationQueue,
+    conversationRuntime.createWorkflowTaskStore(tenantId),
+  );
   const memoryBindings = memoryRuntime.provider.createMemoryBindings(
     tenantId,
     sessionApplication,
