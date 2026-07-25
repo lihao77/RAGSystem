@@ -87,8 +87,24 @@
               </div>
             </div>
             <div class="form-item">
+              <label>Team</label>
+              <CustomSelect
+                v-model="form.team"
+                :options="teamOptions"
+                :disabled="teamLoading"
+                :placeholder="teamLoading ? '加载 Team…' : '使用默认激活 Team'"
+                @update:modelValue="handleTeamChange"
+              />
+              <small>新建会话会把所选 Team 写入 metadata.team；留空则快照当时激活 Team。</small>
+            </div>
+            <div class="form-item">
               <label>入口 Agent</label>
-              <CustomSelect v-model="form.entry_agent" :options="agentOptions" placeholder="使用默认 Agent" />
+              <CustomSelect
+                v-model="form.entry_agent"
+                :options="agentOptions"
+                :disabled="agentLoading"
+                :placeholder="agentLoading ? '加载 Agent…' : '使用默认 Agent'"
+              />
             </div>
             <div class="form-item">
               <label for="bot-session-id">固定 Session ID（可选）</label>
@@ -312,14 +328,18 @@ import { Input } from '../components/ui/input';
 import { Switch } from '../components/ui/switch';
 import { Textarea } from '../components/ui/textarea';
 import * as botApi from '../api/bots.js';
-import { getAllAgentConfigs } from '../api/agentConfig.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { useToast } from '../composables/useToast.js';
+import { useDictionariesStore } from '../stores/dictionaries.js';
 
 const toast = useToast();
+const dictStore = useDictionariesStore();
 const bots = ref([]);
 const selectedBotId = ref('');
 const agentNames = ref([]);
+const teamOptions = ref([]);
+const teamLoading = ref(false);
+const agentLoading = ref(false);
 const cronTasks = ref([]);
 const createDialogOpen = ref(false);
 const cronDialogOpen = ref(false);
@@ -357,12 +377,57 @@ const webhookUrl = computed(() => {
 });
 const webhookPlaceholder = computed(() => form.feishu.receive_mode === 'webhook' ? '保存配置后生成 routeToken' : '长连接模式无需 Webhook 地址');
 
+const loadTeams = async () => {
+  teamLoading.value = true;
+  try {
+    const result = await dictStore.ensureTeams();
+    const teams = Array.isArray(result?.teams) ? result.teams : [];
+    teamOptions.value = [
+      { value: '', label: result?.active_team ? `使用默认激活 Team（${result.active_team}）` : '使用默认激活 Team' },
+      ...teams.map((team) => ({
+        value: team.team_name,
+        label: team.is_active ? `${team.team_name}（当前激活）` : team.team_name,
+      })),
+    ];
+  } finally {
+    teamLoading.value = false;
+  }
+};
+
+const loadAgentsForTeam = async (teamName = form.team) => {
+  agentLoading.value = true;
+  try {
+    const team = (teamName || '').trim();
+    const configs = team
+      ? await dictStore.ensureAgents(false, team)
+      : await dictStore.ensureAgents();
+    agentNames.value = Object.keys(configs || {});
+    if (form.entry_agent && !agentNames.value.includes(form.entry_agent)) {
+      form.entry_agent = '';
+    }
+    if (cronForm.entry_agent && !agentNames.value.includes(cronForm.entry_agent)) {
+      cronForm.entry_agent = '';
+    }
+  } catch (error) {
+    console.warn('加载机器人 Agent 列表失败:', error);
+    agentNames.value = [];
+  } finally {
+    agentLoading.value = false;
+  }
+};
+
+const handleTeamChange = async (teamName) => {
+  form.team = teamName || '';
+  form.entry_agent = '';
+  await loadAgentsForTeam(form.team);
+};
+
 const loadAction = useAsyncAction(async () => {
-  const [nextBots, configs] = await Promise.all([botApi.listBots(), getAllAgentConfigs()]);
+  const [nextBots] = await Promise.all([botApi.listBots(), loadTeams()]);
   bots.value = nextBots;
-  agentNames.value = Object.keys(configs || {});
   if (!selectedBotId.value || !bots.value.some(bot => bot.id === selectedBotId.value)) selectedBotId.value = bots.value[0]?.id || '';
   applySelectedBot();
+  await loadAgentsForTeam(form.team);
 }, { errorPrefix: '加载机器人失败' });
 
 const createAction = useAsyncAction(async () => {
@@ -431,7 +496,7 @@ const sendAction = useAsyncAction(async () => botApi.sendBotMessage(requireBotId
 
 function emptyForm() {
   return {
-    displayName: '', enabled: false, entry_agent: '', session_id: '', default_session_ttl: 86400, permission_mode: 'relaxed',
+    displayName: '', enabled: false, team: '', entry_agent: '', session_id: '', default_session_ttl: 86400, permission_mode: 'relaxed',
     feishu: { enabled: false, app_id: '', app_secret: '', token: '', encoding_aes_key: '', receive_mode: 'webhook' },
   };
 }
@@ -446,6 +511,7 @@ function applySelectedBot() {
   Object.assign(form, emptyForm(), {
     displayName: bot?.displayName || '',
     enabled: Boolean(config?.enabled),
+    team: config?.team || '',
     entry_agent: config?.entry_agent || '',
     session_id: config?.session_id || '',
     default_session_ttl: config?.default_session_ttl || 86400,
@@ -466,7 +532,7 @@ function applySelectedBot() {
 async function selectBot(botId) {
   selectedBotId.value = botId;
   applySelectedBot();
-  await loadCronTasks();
+  await Promise.all([loadCronTasks(), loadAgentsForTeam(form.team)]);
 }
 
 async function refreshSelectedBot(botId) {
@@ -477,6 +543,7 @@ async function refreshSelectedBot(botId) {
   else bots.value.push(next);
   selectedBotId.value = botId;
   applySelectedBot();
+  await loadAgentsForTeam(form.team);
 }
 
 async function loadCronTasks() {
@@ -496,6 +563,7 @@ function buildConfigPayload() {
   if (form.feishu.encoding_aes_key) feishu.encoding_aes_key = form.feishu.encoding_aes_key;
   return {
     enabled: Boolean(form.enabled),
+    team: form.team || null,
     entry_agent: form.entry_agent || null,
     session_id: form.session_id || null,
     default_session_ttl: Number(form.default_session_ttl) || 86400,

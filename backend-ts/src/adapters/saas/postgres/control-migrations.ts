@@ -196,6 +196,14 @@ export const POSTGRES_CONTROL_MIGRATIONS: readonly PostgresControlMigration[] = 
         ON control_bot_cron_tasks(enabled, next_run, lease_expires_at);
     `,
   },
+  {
+    version: 4,
+    name: "control-bot-team",
+    sql: `
+      ALTER TABLE control_bot_configs
+        ADD COLUMN team TEXT;
+    `,
+  },
 ];
 
 export const POSTGRES_CONTROL_LATEST_SCHEMA_VERSION = POSTGRES_CONTROL_MIGRATIONS.length;

@@ -237,10 +237,31 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       const lease = await registry.acquire(input.tenantId);
       try {
         try {
+          const existing = await lease.runtime.sessionApplication.getSession(input.sessionId);
+          // 会话绑定字段只在创建时写入：team 缺省时快照当前激活 team；entry_agent 写本轮入口。
+          // 已有会话不回写 team/entry_agent，避免 bot 配置变更污染历史会话。
+          let createMetadata = input.sessionMetadata ? { ...input.sessionMetadata } : {};
+          if (!existing) {
+            const teams = await lease.runtime.agentConfig.listTeams();
+            const configuredTeam = typeof input.team === "string" ? input.team.trim() : "";
+            const team = configuredTeam || teams.active_team || "";
+            if (team) createMetadata = { ...createMetadata, team };
+            let entryAgent = typeof input.entryAgent === "string" ? input.entryAgent.trim() : "";
+            if (!entryAgent) {
+              const configs = lease.runtime.agentConfig.listConfigs({ teamName: team || null });
+              const defaultEntry = Object.values(configs).find((config) => config.default_entry);
+              entryAgent = defaultEntry?.agent_name?.trim() || "";
+            }
+            if (entryAgent) createMetadata = { ...createMetadata, entry_agent: entryAgent };
+          } else {
+            // 已有会话：只同步通道元数据（chatId 等），剥离绑定字段
+            const { team: _team, entry_agent: _entry, ...channelMeta } = createMetadata as Record<string, unknown>;
+            createMetadata = channelMeta;
+          }
           await lease.runtime.sessionApplication.ensureSession({
             sessionId: input.sessionId,
             userId: input.botId,
-            ...(input.sessionMetadata ? { metadata: input.sessionMetadata } : {}),
+            ...(Object.keys(createMetadata).length > 0 ? { metadata: createMetadata } : {}),
             permissionMode: input.permissionMode,
           });
           const scheduledBatches = new Set<string>();
@@ -307,8 +328,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           }
           return { suspended: false, content: result.answer ?? "" };
         } finally {
+          // 仅同步通道侧元数据；team/entry_agent 只在创建时写入，禁止 finally 回写覆盖
           if (input.sessionMetadata) {
-            await lease.runtime.sessionApplication.updateSessionMetadata(input.sessionId, input.sessionMetadata);
+            const { team: _team, entry_agent: _entry, ...channelMeta } = input.sessionMetadata as Record<string, unknown>;
+            if (Object.keys(channelMeta).length > 0) {
+              await lease.runtime.sessionApplication.updateSessionMetadata(input.sessionId, channelMeta);
+            }
           }
         }
       } finally {

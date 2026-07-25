@@ -97,6 +97,13 @@ export const CONTROL_MIGRATIONS: readonly ControlMigration[] = [
       db.exec("ALTER TABLE bot_configs ADD COLUMN feishu_default_chat_id TEXT");
     },
   },
+  {
+    version: 9,
+    name: "bot-team",
+    up: (db) => {
+      db.exec("ALTER TABLE bot_configs ADD COLUMN team TEXT");
+    },
+  },
 ];
 
 export function runControlMigrations(db: ControlMigrationDatabase): void {

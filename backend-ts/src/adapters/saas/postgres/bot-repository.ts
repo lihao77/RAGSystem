@@ -172,11 +172,11 @@ export class PostgresBotRepository implements BotRepository {
       : patch.feishu.route_token;
     await this.pool.query(`
       UPDATE control_bot_configs SET
-        enabled=$1, entry_agent=$2, session_id=$3, default_session_ttl=$4, permission_mode=$5,
-        feishu_app_id=$6, feishu_receive_mode=$7, route_token_digest=$8,
-        feishu_default_chat_id=$9, feishu_enabled=$10, updated_at=$11
-      WHERE bot_id=$12
-    `, [next.enabled, next.entry_agent, next.session_id, next.default_session_ttl, next.permission_mode,
+        enabled=$1, team=$2, entry_agent=$3, session_id=$4, default_session_ttl=$5, permission_mode=$6,
+        feishu_app_id=$7, feishu_receive_mode=$8, route_token_digest=$9,
+        feishu_default_chat_id=$10, feishu_enabled=$11, updated_at=$12
+      WHERE bot_id=$13
+    `, [next.enabled, next.team, next.entry_agent, next.session_id, next.default_session_ttl, next.permission_mode,
       next.feishu.app_id, next.feishu.receive_mode, routeToken ? digest(routeToken) : null,
       next.feishu.default_chat_id, next.feishu.enabled, next.updated_at, botId]);
     const updated = await this.getRuntimeConfig(botId);
@@ -322,7 +322,7 @@ export class PostgresBotRepository implements BotRepository {
 const BOT_SELECT = "SELECT id, display_name, created_at, status, type, owner_id FROM control_users";
 const BOT_SUMMARY_SELECT = `SELECT b.id, b.display_name, b.created_at, b.status,
   o.display_name AS owner_name, bc.enabled, bc.feishu_enabled, bc.feishu_receive_mode, bc.entry_agent`;
-const BOT_CONFIG_SELECT = `SELECT bot_id, tenant_id, enabled, entry_agent, session_id,
+const BOT_CONFIG_SELECT = `SELECT bot_id, tenant_id, enabled, team, entry_agent, session_id,
   default_session_ttl, permission_mode, feishu_app_id, feishu_receive_mode,
   feishu_default_chat_id, feishu_enabled, created_at, updated_at FROM control_bot_configs`;
 const BOT_CRON_COLUMNS = `bot_id, task_id, cron, task, entry_agent, enabled, push_platform,
@@ -332,7 +332,7 @@ const BOT_CRON_SELECT = `SELECT ${BOT_CRON_COLUMNS} FROM control_bot_cron_tasks`
 interface BotRow extends QueryResultRow { id: string; display_name: string; created_at: Date | string; status: string; type: string; owner_id: string | null }
 interface TenantBotSummaryRow extends QueryResultRow { id: string; display_name: string; created_at: Date | string; status: string; owner_name: string; enabled: boolean; feishu_enabled: boolean; feishu_receive_mode: string; entry_agent: string | null }
 interface BotSummaryRow extends TenantBotSummaryRow { tenant_id: string; tenant_name: string }
-interface BotConfigRow extends QueryResultRow { bot_id: string; tenant_id: string; enabled: boolean; entry_agent: string | null; session_id: string | null; default_session_ttl: number; permission_mode: BotConfig["permission_mode"]; feishu_app_id: string | null; feishu_receive_mode: "webhook" | "long_connection"; feishu_default_chat_id: string | null; feishu_enabled: boolean; created_at: Date | string; updated_at: Date | string }
+interface BotConfigRow extends QueryResultRow { bot_id: string; tenant_id: string; enabled: boolean; team: string | null; entry_agent: string | null; session_id: string | null; default_session_ttl: number; permission_mode: BotConfig["permission_mode"]; feishu_app_id: string | null; feishu_receive_mode: "webhook" | "long_connection"; feishu_default_chat_id: string | null; feishu_enabled: boolean; created_at: Date | string; updated_at: Date | string }
 interface BotCronTaskRow extends QueryResultRow { bot_id: string; task_id: string; cron: string; task: string; entry_agent: string | null; enabled: boolean; push_platform: "feishu" | null; push_chat_id: string | null; next_run: number | null; last_run: number | null; last_result: string | null }
 
 function mapBot(row: BotRow): Bot {
@@ -355,7 +355,7 @@ function mapBotConfig(
   secrets: { appSecret: string | null; token: string | null; encodingKey: string | null; routeToken: string | null },
 ): BotConfig {
   return { bot_id: createUserId(row.bot_id), tenant_id: createTenantId(row.tenant_id), enabled: row.enabled,
-    entry_agent: row.entry_agent, session_id: row.session_id, default_session_ttl: row.default_session_ttl,
+    team: row.team, entry_agent: row.entry_agent, session_id: row.session_id, default_session_ttl: row.default_session_ttl,
     permission_mode: row.permission_mode, feishu: { enabled: row.feishu_enabled, app_id: row.feishu_app_id,
       app_secret: secrets.appSecret, token: secrets.token, encoding_aes_key: secrets.encodingKey,
       receive_mode: row.feishu_receive_mode, route_token: secrets.routeToken,
@@ -379,6 +379,7 @@ function mergeConfig(current: BotConfig, patch: BotConfigUpdate): BotConfig {
   return {
     ...current,
     enabled: patch.enabled ?? current.enabled,
+    team: patch.team === undefined ? current.team : patch.team,
     entry_agent: patch.entry_agent === undefined ? current.entry_agent : patch.entry_agent,
     session_id: patch.session_id ?? current.session_id,
     default_session_ttl: patch.default_session_ttl ?? current.default_session_ttl,

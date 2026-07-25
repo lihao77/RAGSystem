@@ -41,6 +41,8 @@ export const BotConfigSchema = z.object({
   bot_id: UserIdSchema,
   tenant_id: TenantIdSchema,
   enabled: z.boolean().optional().default(false),
+  /** 绑定 team；null 表示新建会话时快照租户当前激活 team。 */
+  team: z.string().nullable().optional().default(null),
   entry_agent: z.string().nullable().optional().default(null),
   session_id: z.string().nullable().optional().default(null),
   default_session_ttl: z.number().int().positive().optional().default(86400),
@@ -53,6 +55,7 @@ export const BotConfigSchema = z.object({
 
 export const BotConfigUpdateSchema = z.object({
   enabled: z.boolean().optional(),
+  team: z.string().nullable().optional(),
   entry_agent: z.string().nullable().optional(),
   session_id: z.string().nullable().optional(),
   default_session_ttl: z.number().int().positive().optional(),

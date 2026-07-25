@@ -38,6 +38,8 @@ export interface DaemonRunAgentInput {
   tenantId: TenantId;
   botId: UserId;
   task: string;
+  /** bot 绑定的 team；null 表示由运行时快照当前激活 team。 */
+  team: string | null;
   entryAgent: string | null;
   sessionId: string;
   source: string;
@@ -537,6 +539,7 @@ export class DaemonService {
       tenantId: state.tenantId,
       botId: state.botId,
       task,
+      team: state.config.team ?? null,
       entryAgent,
       sessionId,
       source,
