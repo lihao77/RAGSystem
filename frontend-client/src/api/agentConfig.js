@@ -83,12 +83,15 @@ export async function resetDefaultTeam() {
 }
 
 /**
- * 获取所有智能体配置
+ * 获取智能体配置
+ * @param {string} [teamName] - 指定 team；省略则返回当前激活 team
  * @returns {Promise<Object>} 配置映射
  */
-export async function getAllAgentConfigs() {
+export async function getAllAgentConfigs(teamName) {
   try {
-    const result = await http.get(`${API_BASE}/configs`);
+    const team = typeof teamName === 'string' ? teamName.trim() : '';
+    const query = team ? `?team=${encodeURIComponent(team)}` : '';
+    const result = await http.get(`${API_BASE}/configs${query}`);
     return result.data || result;
   } catch (error) {
     console.error('Error fetching agent configs:', error);

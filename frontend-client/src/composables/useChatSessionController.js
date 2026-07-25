@@ -19,6 +19,14 @@ const stripWrappedQuotes = (value) => {
 
 export const normalizeWorkspaceRootInput = (value) => stripWrappedQuotes(value);
 
+const toEntryAgentOptions = (configs) => Object.values(configs || {})
+  .filter(config => config && config.enabled)
+  .map(config => ({
+    value: config.agent_name,
+    label: config.display_name || config.agent_name,
+    defaultEntry: Boolean(config.default_entry),
+  }));
+
 /**
  * 聊天页的会话入口、历史、创建与导出控制。
  */
@@ -28,43 +36,82 @@ export function useChatSessionController(deps) {
   const sessionListStore = useSessionListStore();
   const { currentSessionId, isLoading, messages } = storeToRefs(useSessionRunStore());
   const currentSessionTeam = ref('');
+  const teamOptions = ref([]);
+  const teamLoading = ref(false);
   const pendingWorkspaceRoot = ref('');
   const pendingEntryAgent = ref('');
   const entryAgentOptions = ref([]);
   const entryAgentLoading = ref(false);
   const isExportingSession = ref(false);
+  let entryAgentLoadSeq = 0;
 
   const getChatSessionPath = (sessionId) => (sessionId
     ? `/chat/${encodeURIComponent(sessionId)}`
     : '/');
 
-  const loadEntryAgentOptions = async () => {
+  const syncTeamOptions = (result) => {
+    const teams = Array.isArray(result?.teams) ? result.teams : [];
+    teamOptions.value = teams.map((team) => ({
+      value: team.team_name,
+      label: team.is_active ? `${team.team_name}（默认）` : team.team_name,
+      isActive: Boolean(team.is_active),
+    }));
+    return result;
+  };
+
+  const loadEntryAgentOptions = async (teamName = currentSessionTeam.value) => {
+    const team = (teamName || '').trim();
+    const seq = ++entryAgentLoadSeq;
     entryAgentLoading.value = true;
     try {
-      const configs = await dictStore.ensureAgents();
-      const items = Object.values(configs || {})
-        .filter(config => config && config.enabled)
-        .map(config => ({
-          value: config.agent_name,
-          label: config.display_name || config.agent_name,
-          defaultEntry: Boolean(config.default_entry),
-        }));
+      const configs = team
+        ? await dictStore.ensureAgents(false, team)
+        : await dictStore.ensureAgents();
+      // 竞态守卫：只应用最新一次请求，且 team 仍匹配当前选择
+      if (seq !== entryAgentLoadSeq) return;
+      if (team !== (currentSessionTeam.value || '').trim()) return;
+
+      const items = toEntryAgentOptions(configs);
       entryAgentOptions.value = items;
+      if (pendingEntryAgent.value && !items.some((item) => item.value === pendingEntryAgent.value)) {
+        pendingEntryAgent.value = '';
+      }
     } catch (error) {
+      if (seq !== entryAgentLoadSeq) return;
       console.warn('加载入口 Agent 列表失败:', error);
       entryAgentOptions.value = [];
     } finally {
-      entryAgentLoading.value = false;
+      if (seq === entryAgentLoadSeq) {
+        entryAgentLoading.value = false;
+      }
     }
   };
 
+  /**
+   * 加载 team 列表与 active team。
+   * 仅在「新会话且用户尚未选择 team」时回填默认 active team；
+   * 绝不给已有 session 用 active team 冒充 metadata.team。
+   */
   const loadActiveTeam = async () => {
+    teamLoading.value = true;
     try {
-      const result = await dictStore.ensureTeams();
-      currentSessionTeam.value = result?.active_team || '';
+      const result = syncTeamOptions(await dictStore.ensureTeams());
+      if (!currentSessionId.value && !currentSessionTeam.value.trim()) {
+        currentSessionTeam.value = result?.active_team || '';
+      }
     } catch (error) {
       console.warn('加载当前 Team 失败:', error);
+    } finally {
+      teamLoading.value = false;
     }
+  };
+
+  const setPendingTeam = async (teamName) => {
+    const next = (teamName || '').trim();
+    if (next === currentSessionTeam.value.trim()) return;
+    currentSessionTeam.value = next;
+    pendingEntryAgent.value = '';
+    await loadEntryAgentOptions(next);
   };
 
   const loadRecentSessions = async (reset = false) => {
@@ -78,7 +125,8 @@ export function useChatSessionController(deps) {
       if (matched) {
         pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(matched.metadata?.workspace_root || pendingWorkspaceRoot.value);
         pendingEntryAgent.value = matched.metadata?.entry_agent || pendingEntryAgent.value;
-        currentSessionTeam.value = matched.metadata?.team || currentSessionTeam.value;
+        // 只读真实 metadata.team；空则保持空（显示未绑定/默认），不回填 active
+        currentSessionTeam.value = matched.metadata?.team || '';
       }
     }
   };
@@ -87,6 +135,10 @@ export function useChatSessionController(deps) {
     loadRecentSessions(true);
   };
 
+  /**
+   * 消息流更新列表摘要。不回写 team/entry_agent——
+   * 绑定字段只在 ensureSession 创建时写入，避免把 UI 回填值污染进列表 metadata。
+   */
   const updateRecentSession = (sessionId, content, timestamp) => {
     if (!sessionId) return;
     const time = timestamp || new Date().toISOString();
@@ -96,13 +148,6 @@ export function useChatSessionController(deps) {
     if (currentSessionId.value === sessionId && pendingWorkspaceRoot.value !== normalizedWorkspaceRoot) {
       pendingWorkspaceRoot.value = normalizedWorkspaceRoot;
     }
-    const currentMetadata = currentSessionId.value === sessionId
-      ? {
-          ...(currentSessionTeam.value.trim() ? { team: currentSessionTeam.value.trim() } : {}),
-          ...(normalizedWorkspaceRoot ? { workspace_root: normalizedWorkspaceRoot } : {}),
-          ...(pendingEntryAgent.value.trim() ? { entry_agent: pendingEntryAgent.value.trim() } : {}),
-        }
-      : {};
     sessionListStore.upsert({
       session_id: sessionId,
       title: summary,
@@ -110,7 +155,6 @@ export function useChatSessionController(deps) {
       last_message: normalizedContent,
       last_message_at: time,
       unread_count: 0,
-      metadata: currentMetadata,
     });
   };
 
@@ -148,6 +192,15 @@ export function useChatSessionController(deps) {
     }
   };
 
+  const resetNewSessionSetup = async () => {
+    pendingWorkspaceRoot.value = '';
+    pendingEntryAgent.value = '';
+    currentSessionTeam.value = '';
+    entryAgentOptions.value = [];
+    await loadActiveTeam();
+    await loadEntryAgentOptions(currentSessionTeam.value);
+  };
+
   const syncSessionFromRoute = async (sessionId) => {
     if (sessionId && sessionId !== currentSessionId.value) {
       deps.disconnectSessionWS();
@@ -176,9 +229,7 @@ export function useChatSessionController(deps) {
      isLoading.value = false;
      currentSessionId.value = null;
       deps.sessionFiles.value = [];
-      pendingWorkspaceRoot.value = '';
-      pendingEntryAgent.value = '';
-      loadActiveTeam();
+      await resetNewSessionSetup();
       deps.clearComposerAttachments();
       messages.value = [];
       deps.sessionFilesDrawerVisible.value = false;
@@ -211,6 +262,7 @@ export function useChatSessionController(deps) {
     const sessionId = result.data?.session_id || null;
     if (sessionId) {
       const now = new Date().toISOString();
+      // 服务端返回优先，本地选择作兜底
       const sessionMetadata = {
         ...(team ? { team } : {}),
         ...(workspaceRoot ? { workspace_root: workspaceRoot } : {}),
@@ -244,6 +296,8 @@ export function useChatSessionController(deps) {
 
   return {
     currentSessionTeam,
+    teamOptions,
+    teamLoading,
     pendingWorkspaceRoot,
     pendingEntryAgent,
     entryAgentOptions,
@@ -252,6 +306,7 @@ export function useChatSessionController(deps) {
     normalizeWorkspaceRootInput,
     loadEntryAgentOptions,
     loadActiveTeam,
+    setPendingTeam,
     loadRecentSessions,
     exportCurrentSession,
     updateRecentSession,

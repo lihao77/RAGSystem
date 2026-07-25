@@ -27,11 +27,15 @@
             <ChatEmptyState @select-prompt="applyNewChatSuggestion">
               <template #setup>
                 <TaskLauncher
+                  :team="currentSessionTeam"
+                  :team-options="teamOptions"
+                  :team-loading="teamLoading"
                   v-model:entry-agent="pendingEntryAgent"
                   v-model:workspace-root="pendingWorkspaceRoot"
                   :entry-agent-options="entryAgentOptions"
                   :entry-agent-loading="entryAgentLoading"
                   :normalize-workspace-root-input="normalizeWorkspaceRootInput"
+                  @update:team="setPendingTeam"
                 />
               </template>
             </ChatEmptyState>
@@ -625,6 +629,8 @@ const clearExecutionState = (opts) => {
 
 const {
   currentSessionTeam,
+  teamOptions,
+  teamLoading,
   pendingWorkspaceRoot,
   pendingEntryAgent,
   entryAgentOptions,
@@ -633,6 +639,7 @@ const {
   normalizeWorkspaceRootInput,
   loadEntryAgentOptions,
   loadActiveTeam,
+  setPendingTeam,
   loadRecentSessions,
   exportCurrentSession,
   updateRecentSession,
@@ -813,8 +820,13 @@ onMounted(() => {
   updateScrollBottomGap();
   if (route.params.id) scrollToBottom(true);
   else resetScrollPosition(false);
-  loadEntryAgentOptions();
-  loadActiveTeam();
+  (async () => {
+    await loadActiveTeam();
+    // 已有 session 不展示启动设置，无需拉 entry agent 列表（也减少竞态面）
+    if (!route.params.id) {
+      await loadEntryAgentOptions(currentSessionTeam.value);
+    }
+  })();
   loadRecentSessions(true);
 });
 

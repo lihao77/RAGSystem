@@ -1380,6 +1380,7 @@ async function handleSave() {
 
   try {
     await updateAgentConfig(selectedAgent.value, buildPayload());
+    dictStore.invalidateAgents();
     const latest = await getAgentConfig(selectedAgent.value);
     applyConfigToForm(latest);
     showToast('保存成功', 'success');
@@ -1512,7 +1513,8 @@ async function handleCreateAgent() {
     if (createDialog.value.displayName) payload.display_name = createDialog.value.displayName;
     if (createDialog.value.description) payload.description = createDialog.value.description;
     await createAgent(payload);
-    // 刷新 agent 列表并切换到新 agent
+    // 刷新 agent 列表并切换到新 agent；force 会清空按 team 缓存
+    dictStore.invalidateAgents();
     const configs = await dictStore.ensureAgents(true);
     agents.value = Object.keys(configs || {});
     agentDisplayMap.value = Object.fromEntries(
@@ -1545,6 +1547,7 @@ async function handleDeleteAgent() {
   deleteDialog.value.loading = true;
   try {
     await deleteAgent(name);
+    dictStore.invalidateAgents();
     const configs = await dictStore.ensureAgents(true);
     agents.value = Object.keys(configs || {});
     closeDeleteDialog();

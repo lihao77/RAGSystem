@@ -269,6 +269,7 @@ const { run: runLoadTeams } = useAsyncAction(
     const result = await dictStore.ensureTeams(force);
     activeTeam.value = result.active_team || '';
     teams.value = Array.isArray(result.teams) ? result.teams : [];
+    // force 时 ensureAgents 会清空按 team 缓存，避免对话页命中过期 agents
     const configs = await dictStore.ensureAgents(force).catch(() => ({}));
     agentDisplayMap.value = Object.fromEntries(
       Object.entries(configs || {}).map(([name, cfg]) => [name, cfg?.display_name || name]),

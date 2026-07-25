@@ -29,19 +29,30 @@ interface ImportQuery {
   format?: string;
 }
 
+interface TeamQuery {
+  team?: string;
+}
+
+function readTeamQuery(query: TeamQuery | undefined): string | null {
+  const team = typeof query?.team === "string" ? query.team.trim() : "";
+  return team || null;
+}
+
 export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     if (request.method !== "GET") requireTenantAdmin(request);
   });
 
-  app.get("/configs", async (request) => {
-    const configs = request.container.agentConfig.listConfigs();
+  app.get<{ Querystring: TeamQuery }>("/configs", async (request) => {
+    const teamName = readTeamQuery(request.query);
+    const configs = request.container.agentConfig.listConfigs({ teamName });
     return ok(configs, `共有 ${Object.keys(configs).length} 个智能体配置`);
   });
 
-  app.get<{ Params: AgentParams }>("/configs/:agentName", async (request) => {
-    const config = request.container.agentConfig.getConfig(request.params.agentName);
+  app.get<{ Params: AgentParams; Querystring: TeamQuery }>("/configs/:agentName", async (request) => {
+    const teamName = readTeamQuery(request.query);
+    const config = request.container.agentConfig.getConfig(request.params.agentName, { teamName });
     if (!config) {
       throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
     }

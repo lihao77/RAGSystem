@@ -7,21 +7,36 @@
 
     <FieldGroup class="session-setup-fields">
       <Field class="setup-field">
+        <FieldLabel for="new-chat-team">Team</FieldLabel>
+        <CustomSelect
+          trigger-id="new-chat-team"
+          trigger-aria-label="Team"
+          :model-value="team"
+          :options="teamOptions"
+          :disabled="teamSelectDisabled"
+          :dropdown-max-height="320"
+          dropdown-placement="auto"
+          :placeholder="teamPlaceholder"
+          @update:modelValue="emit('update:team', $event)"
+        />
+      </Field>
+
+      <Field class="setup-field">
         <FieldLabel for="new-chat-entry-agent">入口 Agent</FieldLabel>
         <CustomSelect
           trigger-id="new-chat-entry-agent"
           trigger-aria-label="入口 Agent"
           :model-value="entryAgent"
           :options="entryAgentOptions"
-          :disabled="entryAgentLoading"
+          :disabled="entryAgentLoading || teamLoading"
           :dropdown-max-height="320"
           dropdown-placement="auto"
-          placeholder="使用默认 Agent"
+          :placeholder="entryAgentPlaceholder"
           @update:modelValue="emit('update:entryAgent', $event)"
         />
       </Field>
 
-      <Field class="setup-field">
+      <Field class="setup-field setup-field--workspace">
         <FieldLabel for="new-chat-workspace-root">工作目录</FieldLabel>
         <div class="workspace-control">
           <Input
@@ -51,6 +66,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { FolderOpen } from 'lucide-vue-next';
 import CustomSelect from '../ui/CustomSelect.vue';
 import { Button } from '../ui/button';
@@ -58,6 +74,9 @@ import { Field, FieldGroup, FieldLabel } from '../ui/field';
 import { Input } from '../ui/input';
 
 const props = defineProps({
+  team: { type: String, default: '' },
+  teamOptions: { type: Array, default: () => [] },
+  teamLoading: { type: Boolean, default: false },
   entryAgent: { type: String, default: '' },
   entryAgentOptions: { type: Array, default: () => [] },
   entryAgentLoading: { type: Boolean, default: false },
@@ -66,11 +85,26 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
+  'update:team',
   'update:entryAgent',
   'update:workspaceRoot',
 ]);
 
 const isDesktop = typeof window !== 'undefined' && typeof window.ragsystemDesktop?.selectProjectFolder === 'function';
+
+const teamSelectDisabled = computed(() => props.teamLoading || props.teamOptions.length === 0);
+
+const teamPlaceholder = computed(() => {
+  if (props.teamLoading) return '加载 Team…';
+  if (props.teamOptions.length === 0) return '暂无 Team';
+  return '使用默认 Team';
+});
+
+const entryAgentPlaceholder = computed(() => {
+  if (props.teamLoading || props.entryAgentLoading) return '加载 Agent…';
+  if (props.entryAgentOptions.length === 0) return '使用服务端默认 Agent';
+  return '使用默认 Agent';
+});
 
 const selectProjectFolder = async () => {
   const result = await window.ragsystemDesktop.selectProjectFolder();
@@ -112,13 +146,17 @@ const selectProjectFolder = async () => {
 
 .session-setup-fields {
   display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.9fr);
   gap: 12px;
 }
 
 .setup-field {
   min-width: 0;
   gap: 7px;
+}
+
+.setup-field--workspace {
+  grid-column: 1 / -1;
 }
 
 .workspace-control {
@@ -151,6 +189,10 @@ const selectProjectFolder = async () => {
 
   .session-setup-fields {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .setup-field--workspace {
+    grid-column: auto;
   }
 }
 </style>

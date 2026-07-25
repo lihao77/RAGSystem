@@ -113,6 +113,60 @@ describe("agent config compatibility routes", () => {
     expect(deleted.json().data.teams.map((team: { team_name: string }) => team.team_name)).not.toContain("scratch");
   });
 
+  it("lists configs for a non-active team via ?team= without activating it", async () => {
+    app = await buildTestApp();
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/agent-config/teams",
+      payload: {
+        team_name: "research",
+      },
+    });
+    expect(created.statusCode).toBe(200);
+
+    const copied = await app.inject({
+      method: "POST",
+      url: "/api/agent-config/teams/research/copy-agents",
+      payload: {
+        source_team: "default",
+        agent_names: ["general_agent"],
+      },
+    });
+    expect(copied.statusCode).toBe(200);
+
+    const teams = await app.inject({
+      method: "GET",
+      url: "/api/agent-config/teams",
+    });
+    expect(teams.json().data.active_team).toBe("default");
+
+    const researchConfigs = await app.inject({
+      method: "GET",
+      url: "/api/agent-config/configs?team=research",
+    });
+    expect(researchConfigs.statusCode).toBe(200);
+    expect(Object.keys(researchConfigs.json().data)).toEqual(["general_agent"]);
+    expect(researchConfigs.json().data.general_agent).toMatchObject({
+      agent_name: "general_agent",
+    });
+
+    const activeConfigs = await app.inject({
+      method: "GET",
+      url: "/api/agent-config/configs",
+    });
+    expect(activeConfigs.statusCode).toBe(200);
+    expect(activeConfigs.json().data.orchestrator_agent).toBeTruthy();
+    expect(Object.keys(activeConfigs.json().data).length).toBeGreaterThan(1);
+
+    const missing = await app.inject({
+      method: "GET",
+      url: "/api/agent-config/configs?team=does-not-exist",
+    });
+    expect(missing.statusCode).toBe(200);
+    expect(missing.json().data).toEqual({});
+  });
+
   it("updates configs and keeps a single default entry in the active team", async () => {
     app = await buildTestApp();
 
