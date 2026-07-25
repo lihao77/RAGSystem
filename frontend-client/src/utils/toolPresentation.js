@@ -99,7 +99,7 @@ export function getToolSubtitle(node, options = {}) {
   const running = options.running ?? normalizeStatus(node.status) === 'running'
   const errorText = normalizeStatus(node.status) === 'error' ? getErrorText(payload, preview) : ''
 
-  if (errorText) return truncateText(`失败: ${errorText}`, 58)
+  if (errorText) return truncateText(errorText, 58)
   const mcpName = parseMcpToolName(name)
   if (mcpName) {
     if (running) return `调用 ${mcpName.server}/${mcpName.tool}`
@@ -633,23 +633,14 @@ function previewUserInput(args, metadata, running) {
 }
 
 function previewBash(args, content, metadata, running) {
-  const command = pickString(args.description, args.command, metadata.command)
-  if (running) return command ? `运行: ${truncateText(command, 50)}` : '运行命令'
+  const command = pickString(args.command, args.description, metadata.command)
+  if (command) return truncateText(command, 56)
 
   const backgroundId = pickString(content?.background_task_id, metadata.background_task_id)
   if (content?.background_started || metadata.background_started) {
     return joinParts(['后台任务已启动', backgroundId])
   }
-
-  const code = firstNumber(content?.return_code, content?.exit_code, metadata.return_code, metadata.exit_code)
-  const stdout = firstLine(content?.stdout)
-  const stderr = firstLine(content?.stderr)
-  if (code != null) {
-    const lead = code === 0 ? '执行成功' : `退出码 ${code}`
-    return joinParts([lead, truncateText(stdout || stderr, 34)])
-  }
-
-  return truncateText(pickString(content?.summary, metadata.summary), 42)
+  return running ? '运行命令' : ''
 }
 
 function previewCode(args, content, metadata, running) {
@@ -943,13 +934,30 @@ function toPreviewText(value) {
 }
 
 function firstLine(value) {
-  const text = stripToolHeader(toPreviewText(value))
+  // 先剥信封(tool_result/CDATA),再剥行首都 [xxx] 头(如 [ERROR] 可能藏在信封内)。
+  const text = stripToolHeader(stripResultEnvelope(toPreviewText(value)))
   if (!text) return ''
   return text.split(/\r?\n/).map(line => line.trim()).find(Boolean) || ''
 }
 
 function stripToolHeader(value) {
   return String(value || '').replace(/^\[[^\]]+\]\s*/, '').trim()
+}
+
+// 剥除 XML 协议透出的包装壳:<tool_result ...>...</tool_result> 信封与 <![CDATA[...]]>。
+// 只去包装、保留真实内容;循环剥以处理嵌套(tool_result 内套 CDATA)。不误伤正文尖括号。
+function stripResultEnvelope(value) {
+  let text = String(value || '').trim()
+  for (let i = 0; i < 3; i += 1) {
+    const before = text
+    text = text.replace(/^\s*<tool_result\b[^>]*>/i, '')
+    text = text.replace(/<\/tool_result>\s*$/i, '')
+    text = text.replace(/^\s*<!\[CDATA\[/i, '')
+    text = text.replace(/\]\]>\s*$/i, '')
+    text = text.trim()
+    if (text === before) break
+  }
+  return text
 }
 
 function joinParts(parts) {
@@ -1136,7 +1144,8 @@ function getErrorText(payload, preview) {
     payload?.content,
     preview
   )
-  return firstLine(text)
+  // 剥掉后端错误前缀的冗余包装:"<tool> 执行失败: <真实原因>" → 只留真实原因。
+  return firstLine(text).replace(/^\S+\s+执行失败[:：]\s*/, '')
 }
 
 function normalizeStatus(status) {

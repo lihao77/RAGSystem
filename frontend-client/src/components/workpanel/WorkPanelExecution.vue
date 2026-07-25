@@ -36,7 +36,7 @@
               ref="listRef"
               :class="cn('wpe-scroll', 'wpe-scroll--virtual', { 'has-return-current': showReturnToCurrent })"
               :items="virtualNodes"
-              :min-item-size="54"
+              :min-item-size="34"
               :buffer="240"
               key-field="key"
               list-class="wpe-node-stack"
@@ -50,13 +50,15 @@
                   :size-dependencies="[item.measureKey, item.layoutVersion]"
                 >
                   <div class="wpe-virtual-item">
-                    <ExecutionTimelineNode
-                      :node="item.node"
+                    <ExecutionNodeRows
+                      :nodes="[item.node]"
                       :depth="0"
                       :session-id="sessionId"
                       :focus-key="focusKey"
                       :selected-key="selectedKey"
+                      :expanded-groups="expandedGroups"
                       @inspect="selectNode"
+                      @toggle-group="toggleGroup"
                       @layout-change="handleNodeLayoutChange(item.key)"
                     />
                   </div>
@@ -72,16 +74,18 @@
               @scroll.passive="handleListScroll"
             >
               <TransitionGroup name="wpe-node" tag="div" class="wpe-node-stack">
-                <ExecutionTimelineNode
-                  v-for="(node, i) in executionView.nodes"
-                  :key="timelineNodeKey(node, i)"
-                  :node="node"
-                  :depth="0"
-                  :session-id="sessionId"
-                  :focus-key="focusKey"
-                  :selected-key="selectedKey"
-                  @inspect="selectNode"
-                />
+                <div v-for="(node, i) in executionView.nodes" :key="timelineNodeKey(node, i)" class="wpe-top-item">
+                  <ExecutionNodeRows
+                    :nodes="[node]"
+                    :depth="0"
+                    :session-id="sessionId"
+                    :focus-key="focusKey"
+                    :selected-key="selectedKey"
+                    :expanded-groups="expandedGroups"
+                    @inspect="selectNode"
+                    @toggle-group="toggleGroup"
+                  />
+                </div>
               </TransitionGroup>
             </div>
           </Transition>
@@ -137,11 +141,12 @@ import 'vue-virtual-scroller/index.css'
 import { cn } from '@/lib/utils'
 import { buildExecutionTree } from '../../utils/executionTreeBuilder'
 import {
+  buildActionRows,
   flattenExecutionNodes as flattenNodes,
   getExecutionNodeKey as getNodeKey,
   normalizeExecutionStatus as normalizeStatus,
 } from '../../utils/executionTreePresentation'
-import ExecutionTimelineNode from './ExecutionTimelineNode.vue'
+import ExecutionNodeRows from './ExecutionNodeRows.vue'
 import WorkPanelInspector from './WorkPanelInspector.vue'
 import EmptyState from '../EmptyState.vue'
 import { Button } from '../ui/button'
@@ -162,6 +167,8 @@ const inspectorHeight = ref(0)
 const isInspectorResizing = ref(false)
 const rootHeight = ref(0)
 const virtualLayoutVersions = ref({})
+// 折叠组展开态:集中持有(跨层级选中组内节点时需统一展开),key 为组 id。
+const expandedGroups = ref({})
 const VIRTUALIZE_NODE_THRESHOLD = 80
 const VIRTUALIZE_BRANCH_THRESHOLD = 4
 const INSPECTOR_MIN_HEIGHT = 190
@@ -190,6 +197,14 @@ const shouldVirtualize = computed(() => (
   flatNodes.value.length >= VIRTUALIZE_NODE_THRESHOLD
   && nodes.value.length >= VIRTUALIZE_BRANCH_THRESHOLD
 ))
+
+// 组展开态签名:任一折叠组开合都变化,驱动虚拟滚动重新测量行高。
+const groupExpandSignature = computed(() => (
+  Object.keys(expandedGroups.value)
+    .filter(id => expandedGroups.value[id])
+    .sort()
+    .join(',')
+))
 const virtualNodes = computed(() => nodes.value.map((node, index) => {
   const key = getNodeKey(node) || timelineNodeKey(node, index)
   return {
@@ -201,6 +216,7 @@ const virtualNodes = computed(() => nodes.value.map((node, index) => {
       node.children?.length || 0,
       node.description || '',
       node.result_summary || '',
+      groupExpandSignature.value,
     ].join(':'),
   }
 }))
@@ -307,6 +323,7 @@ watch(() => props.messageKey, () => {
   clearSelectedNode()
   showReturnToCurrent.value = false
   virtualLayoutVersions.value = {}
+  expandedGroups.value = {}
 })
 
 function findNodeByKey(items, key) {
@@ -324,10 +341,41 @@ function timelineNodeKey(node, index) {
 
 async function selectNode(node) {
   const key = getNodeKey(node)
+  revealGroupContaining(key)
   selectedNodeKey.value = key
   await nextTick()
   scrollNodeIntoView(key)
   scheduleSelectionScrollCorrection(key)
+}
+
+function toggleGroup(groupId) {
+  expandedGroups.value = {
+    ...expandedGroups.value,
+    [groupId]: !expandedGroups.value[groupId],
+  }
+}
+
+// 选中组内节点时,先展开它所在的折叠组,确保 DOM 存在可被定位。
+function revealGroupContaining(key) {
+  if (!key) return
+  walkLevel(nodes.value, key)
+}
+
+// 对每层 children 调 buildActionRows 找含目标 key 的组并展开;递归进有子树的节点。
+function walkLevel(nodeList, key) {
+  if (!Array.isArray(nodeList) || !nodeList.length) return
+  buildActionRows(nodeList).forEach((row) => {
+    if (row.kind === 'group') {
+      if (row.nodes.some(n => getNodeKey(n) === key)) {
+        const id = `${row.groupKey}:${getNodeKey(row.nodes[0])}`
+        if (!expandedGroups.value[id]) {
+          expandedGroups.value = { ...expandedGroups.value, [id]: true }
+        }
+      }
+      return
+    }
+    if (row.node?.children?.length) walkLevel(row.node.children, key)
+  })
 }
 
 function clearSelectedNode() {
@@ -736,11 +784,6 @@ button.wpe-chip:hover {
 }
 
 .wpe-scroll--virtual :deep(.wpe-node-stack) {
-  --rail-width: 22px;
-  --rail-dot-top: 17px;
-  --rail-dot-size: 9px;
-  --rail-dot-center: calc(var(--rail-dot-top) + (var(--rail-dot-size) / 2));
-  --timeline-rail-thickness: 2px;
   position: relative;
   box-sizing: border-box;
   padding: 0 12px 48px 10px;
@@ -754,23 +797,12 @@ button.wpe-chip:hover {
   padding-bottom: 0;
 }
 
-.wpe-scroll--virtual :deep(.wpe-node-stack)::before {
-  content: '';
-  position: absolute;
-  left: calc((var(--rail-width) - var(--timeline-rail-thickness)) / 2);
-  top: var(--rail-dot-center);
-  bottom: 0;
-  width: var(--timeline-rail-thickness);
-  border-radius: var(--radius-full);
-  background: var(--color-border);
-  opacity: 0.7;
-  pointer-events: none;
-  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
+.wpe-virtual-item {
+  padding-bottom: 2px;
 }
 
-.wpe-virtual-item {
-  padding-bottom: 6px;
+.wpe-top-item + .wpe-top-item {
+  margin-top: 2px;
 }
 
 .wpe-return-current {
@@ -792,27 +824,7 @@ button.wpe-chip:hover {
 }
 
 .wpe-node-stack {
-  --rail-width: 22px;
-  --rail-dot-top: 17px;
-  --rail-dot-size: 9px;
-  --rail-dot-center: calc(var(--rail-dot-top) + (var(--rail-dot-size) / 2));
-  --timeline-rail-thickness: 2px;
   position: relative;
-}
-
-.wpe-node-stack::before {
-  content: '';
-  position: absolute;
-  left: calc((var(--rail-width) - var(--timeline-rail-thickness)) / 2);
-  top: var(--rail-dot-center);
-  bottom: 0;
-  width: var(--timeline-rail-thickness);
-  border-radius: var(--radius-full);
-  background: var(--color-border);
-  opacity: 0.7;
-  pointer-events: none;
-  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
 }
 
 .wpe-scroll::-webkit-scrollbar { width: 3px; }
