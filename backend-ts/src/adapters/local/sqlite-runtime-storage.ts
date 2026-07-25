@@ -71,6 +71,71 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
     };
   }
 
+  /**
+   * Local runtime 是单进程所有者；容器刚创建时仍为 running 的 run 只可能来自上个已退出进程。
+   * 在接受新消息前将它们收敛为 interrupted，并产生 durable run_ended 供重连客户端恢复。
+   */
+  recoverOrphanedRuns(
+    buildRunEndedRecord: (run: {
+      sessionId: string;
+      runId: string;
+      parentRunId: string | null;
+    }) => RuntimeRecordEnvelopeInput,
+  ): Promise<RuntimeInterruptSessionResult> {
+    return this.serial.run(() => {
+      const sessions = this.store.listSessions(this.tenantId, Number.MAX_SAFE_INTEGER, 0).items;
+      const interruptedRuns: RuntimeInterruptSessionResult["interruptedRuns"] = [];
+      const records: RuntimeRecordEnvelopeResult[] = [];
+      let cancelledInteractions = 0;
+      for (const session of sessions) {
+        const recovered = this.store.runInTransaction((tx) => {
+          const activeRuns = tx.listRuns(session.session_id, 1000).items
+            .filter((run) => run.status === "running")
+            .sort((left, right) => left.run_id.localeCompare(right.run_id));
+          if (activeRuns.length === 0) {
+            return { interruptedRuns: [], cancelledInteractions: 0, records: [] };
+          }
+          const rootRunIds = new Set(activeRuns
+            .filter((run) => run.parent_run_id === null)
+            .map((run) => run.run_id));
+          let sessionCancelledInteractions = 0;
+          for (const rootRunId of rootRunIds) {
+            sessionCancelledInteractions += tx.listPendingInteractions({
+              sessionId: session.session_id,
+              rootRunId,
+              statuses: ["waiting", "suspended", "resolved", "resuming"],
+            }).length;
+            tx.finalizePendingInteractions(session.session_id, rootRunId, "interrupted");
+          }
+          const sessionInterruptedRuns: RuntimeInterruptSessionResult["interruptedRuns"] = [];
+          const sessionRecords: RuntimeRecordEnvelopeResult[] = [];
+          for (const run of activeRuns) {
+            if (!tx.updateRunStatus(run.run_id, session.session_id, "interrupted", null)) {
+              throw new Error(`orphaned run not found while recovering session: ${run.run_id}`);
+            }
+            const interrupted = { runId: run.run_id, parentRunId: run.parent_run_id };
+            sessionInterruptedRuns.push(interrupted);
+            if (run.parent_run_id === null) {
+              sessionRecords.push(recordEnvelope(tx, buildRunEndedRecord({
+                sessionId: session.session_id,
+                ...interrupted,
+              })));
+            }
+          }
+          return {
+            interruptedRuns: sessionInterruptedRuns,
+            cancelledInteractions: sessionCancelledInteractions,
+            records: sessionRecords,
+          };
+        });
+        interruptedRuns.push(...recovered.interruptedRuns);
+        cancelledInteractions += recovered.cancelledInteractions;
+        records.push(...recovered.records);
+      }
+      return { interruptedRuns, cancelledInteractions, records };
+    });
+  }
+
   private startRun(input: RuntimeStartRunInput): Promise<RuntimeStartRunResult> {
     return this.serial.run(() => {
       assertSessionId(input.run.sessionId, input.session.sessionId, "run");

@@ -428,6 +428,22 @@ function handleEvent(env) {
     if (last && last.role === "assistant") last.finished = true;
     return;
   }
+  if (env.type === "state_sync" && env.payload?.category === "command_result") {
+    flushStream();
+    streamTarget = null;
+    streamBuffer = "";
+    const detail = env.payload.detail || {};
+    messages.value.push({
+      id: env.payload.ref?.message_id || `a${Date.now()}`,
+      role: "assistant",
+      content: detail.content || "",
+      finished: true,
+      executionTree: null,
+      execOpen: false,
+    });
+    scrollToBottom();
+    return;
+  }
   if (env.type === "error") {
     const payload = env.payload || {};
     pushError(payload.message || "错误");

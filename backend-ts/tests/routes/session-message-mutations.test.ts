@@ -211,7 +211,7 @@ describe("session message mutation routes", () => {
       message: "重试已启动",
       data: {
         started: true,
-        deleted: 2,
+        deleted: 3,
         request_id: "req-retry-1",
         kind: "agent_run",
         status: "started",
@@ -229,10 +229,11 @@ describe("session message mutation routes", () => {
     });
     expect(messages.json().data.items).toEqual([
       expect.objectContaining({
-        id: anchor.id,
         role: "user",
         content: "new task",
         metadata: expect.objectContaining({
+          retry_of_seq: anchor.seq,
+          retry_of_message_id: anchor.id,
           retry_modified_at: expect.any(String),
         }),
       }),
@@ -247,6 +248,7 @@ describe("session message mutation routes", () => {
         }),
       }),
     ]);
+    expect(messages.json().data.items[0].id).not.toBe(anchor.id);
   });
 
   it("restores file history snapshots when rolling back a session", async () => {

@@ -62,6 +62,7 @@ import { LocalOutboxStoreAdapter } from "./local-outbox-store-adapter.js";
 import { LocalDocumentEditHistoryAdapter } from "./files/local-document-edit-history-adapter.js";
 import { LocalAgentSessionRepository } from "./local-agent-session-repository.js";
 import { LocalSessionHistoryAdapter } from "./local-session-history-adapter.js";
+import { buildExecutionEnvelopeRunStep } from "../../services/runtime/event-outbox/execution-envelope-archive.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export async function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): Promise<LocalRuntimeContainer> {
@@ -78,14 +79,38 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const requestSessionApplication = new LocalSessionApplication(options.tenantId, sessionApplication, conversationStore);
   const realtimeEvents = new RealtimeEventHub();
   const outboxDispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(conversationStore), realtimeEvents);
-  if (options.startOutboxDispatcher ?? true) {
-    outboxDispatcher.start(options.outboxDispatcherIntervalMs);
-  }
   const runtimeStorage = options.runtimeStorageFactory?.(options.tenantId)
     ?? new SqliteRuntimeStorage(options.tenantId, conversationStore);
   const localClientEvents = new DurableClientEventPublisher(runtimeStorage, {
     dispatchRows: (rows) => outboxDispatcher.dispatchRows(rows),
   });
+  if (runtimeStorage instanceof SqliteRuntimeStorage) {
+    const recovered = await runtimeStorage.recoverOrphanedRuns((run) => {
+      const eventId = `${run.runId}:local-startup-recovery:run_ended`;
+      const event = {
+        type: "run_ended" as const,
+        session_id: run.sessionId,
+        run_id: run.runId,
+        payload: { status: "interrupted" as const, reason: "backend_restarted" },
+      };
+      return {
+        step: buildExecutionEnvelopeRunStep(run.sessionId, run.runId, event, eventId),
+        outbox: {
+          sessionId: run.sessionId,
+          runId: run.runId,
+          eventId,
+          eventType: "client.run_ended",
+          aggregateType: "run",
+          aggregateId: run.runId,
+          payload: { client_event: event },
+        },
+      };
+    });
+    await localClientEvents.deliver(recovered.records.map((record) => record.outbox));
+  }
+  if (options.startOutboxDispatcher ?? true) {
+    outboxDispatcher.start(options.outboxDispatcherIntervalMs);
+  }
   const clientEvents = options.clientEventsFactory?.(options.tenantId, realtimeEvents, runtimeStorage)
     ?? localClientEvents;
   const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot }));

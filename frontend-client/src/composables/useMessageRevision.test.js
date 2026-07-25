@@ -18,6 +18,7 @@ function createDeps(overrides = {}) {
   const toasts = [];
   const cacheCalls = [];
   const materializeCalls = [];
+  const reloadCalls = [];
   const activeRun = { active: false, assistantMsgIndex: -1, runId: null, phase: 'idle' };
   const isLoading = ref(false);
 
@@ -32,12 +33,13 @@ function createDeps(overrides = {}) {
     activeRun,
     isLoading,
     materializeAttachmentsForSend: async (attachments) => { materializeCalls.push(attachments); return attachments; },
+    reloadSessionMessages: async (sessionId) => { reloadCalls.push(sessionId); },
     getCurrentSelectedLlm: () => null,
     stickToBottom: () => {},
     ...overrides,
   };
 
-  return { deps, toasts, cacheCalls, materializeCalls, activeRun, isLoading };
+  return { deps, toasts, cacheCalls, materializeCalls, reloadCalls, activeRun, isLoading };
 }
 
 function withMock(setup, run) {
@@ -48,13 +50,13 @@ function withMock(setup, run) {
     .finally(() => { mock.restore(); });
 }
 
-test('confirmEditAndResend 走原子端点，锚点指向被编辑消息本身并透传 modify_user_message 与附件', async () => {
+test('confirmEditAndResend 锚定旧消息并将编辑内容交给统一发送入口', async () => {
   let capturedBody = null;
   await withMock((mock) => {
     mock.onPost(/\/rollback-and-retry$/).reply((config) => {
       assert.equal(config.url, '/api/agent/sessions/session-1/rollback-and-retry');
       capturedBody = JSON.parse(config.data);
-      return [200, { data: { started: true, run_id: 'run-new', task_id: 'task-new', deleted: 1 } }];
+      return [200, { data: { started: true, session_id: 'session-1', request_id: 'req-new', run_id: 'run-new', task_id: 'task-new', deleted: 2 } }];
     });
   }, async () => {
     const attachment = { id: 'file-2', original_name: 'draft.txt', mime: 'text/plain', size: 12 };
@@ -76,11 +78,13 @@ test('confirmEditAndResend 走原子端点，锚点指向被编辑消息本身�
     assert.equal(capturedBody.modify_user_message, 'updated');
     assert.equal(capturedBody.attachments[0].file_id, 'file-2');
 
-    // 本地：保留被编辑消息（内容更新、id 不变），删其后回复，push 新 assistant 占位
+    // 本地投影与后端一致：旧锚点被删除，新 user 消息等待 message_saved 回填新 id/seq。
     assert.equal(deps.messages.value.length, 3);
     assert.equal(deps.messages.value[1].role, 'user');
-    assert.equal(deps.messages.value[1].id, 'msg-2');
+    assert.equal(deps.messages.value[1].id, undefined);
     assert.equal(deps.messages.value[1].content, 'updated');
+    assert.equal(deps.messages.value[1].metadata.request_id, 'req-new');
+    assert.equal(deps.messages.value[1].metadata.retry_of_message_id, 'msg-2');
     assert.equal(deps.messages.value[2].role, 'assistant');
     assert.equal(activeRun.active, true);
     assert.equal(activeRun.runId, 'run-new');
@@ -89,11 +93,17 @@ test('confirmEditAndResend 走原子端点，锚点指向被编辑消息本身�
   });
 });
 
-test('rollbackAndRetry 失败时本地保持不动并提示错误', async () => {
+test('rollbackAndRetry 失败时重新加载服务端消息并提示错误', async () => {
   await withMock((mock) => {
     mock.onPost(/\/rollback-and-retry$/).reply(400, { message: '重试失败啦' });
   }, async () => {
-    const { deps, toasts } = createDeps();
+    const serverMessages = [{ role: 'user', seq: 1, id: 'msg-server', content: 'server state' }];
+    const { deps, toasts, reloadCalls } = createDeps({
+      reloadSessionMessages: async (sessionId) => {
+        reloadCalls.push(sessionId);
+        deps.messages.value = serverMessages;
+      },
+    });
     const originalMessages = [
       { role: 'user', seq: 1, id: 'msg-1', content: 'question' },
       { role: 'assistant', seq: 2, id: 'msg-2', content: 'answer', finished: true },
@@ -103,7 +113,8 @@ test('rollbackAndRetry 失败时本地保持不动并提示错误', async () => 
     const revision = useMessageRevision(deps);
     await revision.rollbackAndRetry(deps.messages.value[0]);
 
-    assert.deepEqual(deps.messages.value, originalMessages);
+    assert.deepEqual(deps.messages.value, serverMessages);
+    assert.deepEqual(reloadCalls, ['session-1']);
     assert.deepEqual(toasts, ['重试失败啦']);
   });
 });

@@ -5,4 +5,5 @@ export * from "./event-translation.js";
 export * from "./agent-client.js";
 export * from "./abort.js";
 export * from "./recoverable-interrupt.js";
+export * from "./envelope-delivery.js";
 export * from "./execution-tree.js";

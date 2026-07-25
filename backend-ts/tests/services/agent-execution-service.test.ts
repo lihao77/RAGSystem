@@ -398,6 +398,45 @@ describe("AgentExecutionService (baseline regression)", () => {
     store.close();
   });
 
+  it("routes stream and synchronous starts through the same run engine", async () => {
+    const { service, store } = buildHarness({ mode: "ok" });
+    const runEngine = (service as ReturnType<typeof createAgentExecutionService>).runEngine;
+    const startRun = vi.spyOn(runEngine, "startRun");
+
+    const streamed = await service.startStream({
+      session_id: "unified-stream-session",
+      task: "stream task",
+      attachments: [],
+      userId: LOCAL_USER_ID,
+    }, "req-stream");
+    const synchronous = await service.executeSynchronously({
+      session_id: "unified-sync-session",
+      task: "sync task",
+      executionKind: "daemon.feishu",
+      userId: LOCAL_USER_ID,
+    }, "req-sync");
+
+    expect(streamed.started).toBe(true);
+    expect(synchronous.success).toBe(true);
+    expect(startRun).toHaveBeenCalledTimes(2);
+    expect(startRun.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "unified-stream-session",
+      requestId: "req-stream",
+      executionKind: "agent_stream",
+    });
+    expect(startRun.mock.calls[1]?.[0]).toMatchObject({
+      sessionId: "unified-sync-session",
+      requestId: "req-sync",
+      executionKind: "daemon.feishu",
+      entrypoint: "execute",
+    });
+
+    await vi.waitFor(() => {
+      expect(service.getSessionTaskStatus(streamed.session_id).task_info?.status).toBe("completed");
+    }, WAIT);
+    store.close();
+  });
+
   it("falls back to the direct outcome when the persisted run is unavailable", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
     const runEngine = (service as AgentExecutionService & {
@@ -425,8 +464,59 @@ describe("AgentExecutionService (baseline regression)", () => {
     const result = await service.startStream({ task: "/help", attachments: [], userId: LOCAL_USER_ID }, "req-1");
     expect(result.started).toBe(true);
     expect(result.kind).toBe("command");
+    expect(result.command_result).toMatchObject({ success: true, content: expect.stringContaining("可用命令") });
     const messages = store.listMessages(result.session_id, 50, 0).items;
     expect(messages.some((m) => m.role === "system" && String(m.content).includes("可用命令"))).toBe(true);
+    store.close();
+  });
+
+  it("handles slash commands through the same entry for synchronous callers", async () => {
+    const { service, store, llm } = buildHarness({ mode: "ok" });
+    const result = await service.executeSynchronously({
+      session_id: "sync-command-session",
+      task: "/help",
+      userId: LOCAL_USER_ID,
+    }, "req-sync-command");
+
+    expect(result).toMatchObject({
+      success: true,
+      session_id: "sync-command-session",
+      run_id: null,
+      task_id: null,
+    });
+    expect(result.answer).toContain("可用命令");
+    expect(llm.requests).toHaveLength(0);
+    store.close();
+  });
+
+  it("rolls back first and resends through the shared slash-aware entry", async () => {
+    const { service, store, llm } = buildHarness({ mode: "ok" });
+    store.createSession(LOCAL_TENANT_ID, "retry-command-session", LOCAL_USER_ID);
+    const anchor = store.addMessage({
+      sessionId: "retry-command-session",
+      role: "user",
+      content: "old task",
+    });
+    store.addMessage({
+      sessionId: "retry-command-session",
+      role: "assistant",
+      content: "old answer",
+    });
+
+    const result = await service.startRollbackRetry({
+      sessionId: "retry-command-session",
+      userId: LOCAL_USER_ID,
+      requestId: "req-retry-command",
+      afterMessageId: anchor.id,
+      modifyUserMessage: "/help",
+    });
+
+    expect(result).toMatchObject({ started: true, kind: "command", deleted: 2 });
+    expect(store.listMessages("retry-command-session", 20, 0).items.map((message) => [message.role, message.content])).toEqual([
+      ["user", "/help"],
+      ["system", expect.stringContaining("可用命令")],
+    ]);
+    expect(llm.requests).toHaveLength(0);
     store.close();
   });
 

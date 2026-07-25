@@ -1,23 +1,24 @@
+import {
+  getEnvelopeCursorSeq,
+  getEnvelopeEventSeq,
+  normalizeEnvelopeSeq,
+} from '@ragsystem/agent-protocol/wire';
+
 const WS_OPEN = 1;
 const WS_CONNECTING = 0;
 
 export function normalizeEventSeq(value) {
-  const seq = Number(value);
-  return Number.isSafeInteger(seq) && seq > 0 ? seq : null;
+  return normalizeEnvelopeSeq(value);
 }
 
 export function getDurableEventSeq(event) {
   if (!event || typeof event !== 'object') return null;
-  return normalizeEventSeq(event.seq);
+  return getEnvelopeEventSeq(event);
 }
 
 export function getDurableCursorSeq(event) {
-  const eventSeq = getDurableEventSeq(event);
-  if (eventSeq !== null) return eventSeq;
   if (!event || typeof event !== 'object') return null;
-  if (event.type !== 'heartbeat') return null;
-  const payload = event.payload || {};
-  return normalizeEventSeq(payload.last_seq);
+  return getEnvelopeCursorSeq(event);
 }
 
 export function buildSessionSocketUrl(sessionId, options = {}) {

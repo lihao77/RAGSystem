@@ -8,7 +8,11 @@ import type {
   RollbackRetryStartResult,
   StreamExecuteRequest,
 } from "../../../contracts/execution/execution.js";
-import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/execution/execution.js";
+import {
+  AttachmentRefSchema,
+  getSelectedLlm as resolveSelectedLlm,
+} from "../../../contracts/execution/execution.js";
+import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import {
@@ -28,6 +32,50 @@ import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { Goal, GoalStore } from "../../../contracts/runtime/goals.js";
+
+type StartedRunHandle = ReturnType<AgentRunEngine["startRun"]>;
+
+interface UnifiedRunStartInput {
+  sessionId: string;
+  sessionMetadata: Record<string, unknown>;
+  userId: string;
+  requestId: string;
+  task: string;
+  executionKind: string;
+  selectedLlm: string;
+  agentName?: string | null;
+  modelTask?: string;
+  entrypoint?: string;
+  persistMetadata: Record<string, unknown>;
+  traceMetadata?: Record<string, unknown>;
+  onInteractionRequired?: ExecuteRequest["onInteractionRequired"];
+}
+
+type UnifiedRunStartResult =
+  | { ok: false; error: string }
+  | { ok: true; agentName: string; handle: StartedRunHandle };
+
+interface SendUserMessageInput {
+  sessionId?: string | null;
+  userId: string;
+  requestId: string;
+  task: string;
+  attachments: AttachmentRef[];
+  selectedLlm: string;
+  executionKind: string;
+  uiContext?: Record<string, unknown> | null;
+  agentName?: string | null;
+  entrypoint?: string;
+  messageMetadata?: Record<string, unknown>;
+  traceMetadata?: Record<string, unknown>;
+  followupPolicy: "queue" | "reject";
+  onInteractionRequired?: ExecuteRequest["onInteractionRequired"];
+}
+
+type SendUserMessageResult =
+  | { kind: "error"; sessionId: string; error: string; runId?: string | null; taskId?: string | null }
+  | { kind: "command"; sessionId: string; start: AgentRunStartResult; success: boolean; content: string }
+  | { kind: "run"; sessionId: string; agentName: string; handle: StartedRunHandle };
 
 export interface RollbackRetryInput {
   sessionId: string;
@@ -64,8 +112,8 @@ export interface LauncherDeps {
 }
 
 /**
- * 3 个启动入口（startStream/executeSynchronously/startRollbackRetry）。
- * 方法体原样来自原 AgentExecutionService（this.xxx 字段访问保持不变）。
+ * 执行启动适配层。startStream / executeSynchronously 只负责各自的输入预处理与返回值适配，
+ * readiness、session override 和 AgentRunEngine.startRun 统一经过 launchRun。
  */
 class AgentLaunchers {
   private readonly idleLaunches = new Set<string>();
@@ -84,101 +132,185 @@ class AgentLaunchers {
     private readonly goalStore: GoalStore | null,
   ) {}
 
-  async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
-    const sessionId = request.session_id?.trim() || randomUUID();
-    const task = request.task.trim();
-    const slashCommand = parseSlashCommand(task);
-    // prompt 模式斜杠命令(/review 等):user 消息持久化原始命令(前端显示),展开后的完整 prompt 进 metadata.expanded_task,
-    // 由 recent-messages-source 组装 LLM conversation 时投影替换 content(见 history-view messagesToConversation)。
-    if (slashCommand) {
-      const commandResult = await this.slashCommandHandler.handle({
-        sessionId,
-        userId: request.userId,
-        requestId,
-        selectedLlm: resolveSelectedLlm(request),
-        command: slashCommand,
-        originalTask: task,
-      });
-      if (commandResult) {
-        return commandResult;
-      }
-    }
-    if (!task && request.attachments.length === 0) {
-      return {
-        started: false,
-        session_id: sessionId,
-        error: "Task and attachments cannot both be empty",
-      };
-    }
-    const sessionMetadata = (await this.sessions.getSession(sessionId))?.metadata ?? {};
-    const attachmentResolution = await this.attachmentResolver.resolve(sessionId, request.attachments);
-    if (attachmentResolution.error) {
-      return {
-        started: false,
-        session_id: sessionId,
-        error: attachmentResolution.error,
-      };
-    }
-
-    const requestSelectedLlm = resolveSelectedLlm(request);
+  private launchRun(input: UnifiedRunStartInput): UnifiedRunStartResult {
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {
-        agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
-        teamName: asString(sessionMetadata.team),
-        selectedLlm: requestSelectedLlm,
+        agentName: input.agentName?.trim() || normalizeSessionEntryAgent(input.sessionMetadata.entry_agent),
+        teamName: asString(input.sessionMetadata.team),
+        selectedLlm: input.selectedLlm,
       },
-      sessionMetadata,
+      input.sessionMetadata,
     );
     if (!ready.ok) {
+      return { ok: false, error: ready.reason };
+    }
+
+    const handle = this.runEngine.startRun({
+      sessionId: input.sessionId,
+      userId: input.userId,
+      requestId: input.requestId,
+      task: input.task,
+      ...(input.modelTask ? { modelTask: input.modelTask } : {}),
+      executionKind: input.executionKind,
+      ...(input.entrypoint ? { entrypoint: input.entrypoint } : {}),
+      agent: ready.agent,
+      provider: ready.provider,
+      modelName: ready.modelName,
+      ...(input.selectedLlm
+        ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } }
+        : {}),
+      persistUserMessage: { metadata: input.persistMetadata },
+      ...(input.traceMetadata
+        ? {
+            startStepExtra: input.traceMetadata,
+            runStartExtra: input.traceMetadata,
+            finalMetadataExtra: input.traceMetadata,
+          }
+        : {}),
+      ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
+    });
+    return { ok: true, agentName: ready.agent.agent_name, handle };
+  }
+
+  private async waitForRunResult(
+    sessionId: string,
+    started: Extract<UnifiedRunStartResult, { ok: true }>,
+  ): Promise<AgentExecuteResult> {
+    const outcome = await started.handle.promise;
+    return this.runEngine.buildSynchronousResult({
+      sessionId,
+      runId: started.handle.run_id ?? null,
+      taskId: started.handle.task_id ?? null,
+      agentName: started.agentName,
+      outcome,
+    });
+  }
+
+  /** 所有外部用户消息的唯一处理入口；各通道只适配启动确认或最终结果。 */
+  private async sendUserMessage(input: SendUserMessageInput): Promise<SendUserMessageResult> {
+    const sessionId = input.sessionId?.trim() || randomUUID();
+    const task = input.task.trim();
+    const slashCommand = parseSlashCommand(task);
+
+    if (slashCommand) {
+      const commandResult = await this.slashCommandHandler.handle({
+        sessionId,
+        userId: input.userId,
+        requestId: input.requestId,
+        selectedLlm: input.selectedLlm,
+        command: slashCommand,
+        originalTask: task,
+        ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
+      });
+      if (commandResult) {
+        return {
+          kind: "command",
+          sessionId,
+          start: commandResult.start,
+          success: commandResult.success,
+          content: commandResult.content,
+        };
+      }
+    }
+
+    if (!task && input.attachments.length === 0) {
+      return { kind: "error", sessionId, error: "Task and attachments cannot both be empty" };
+    }
+
+    if (input.followupPolicy === "reject") {
+      const runningStatus = this.statusTracker.getStatusBySession(sessionId);
+      if (runningStatus?.status === "running") {
+        return {
+          kind: "error",
+          sessionId,
+          runId: runningStatus.run_id,
+          taskId: runningStatus.task_id,
+          error: "该会话正在执行任务，请等待完成或停止当前任务",
+        };
+      }
+    }
+
+    const sessionMetadata = (await this.sessions.getSession(sessionId))?.metadata ?? {};
+    const attachmentResolution = await this.attachmentResolver.resolve(sessionId, input.attachments);
+    if (attachmentResolution.error) {
+      return { kind: "error", sessionId, error: attachmentResolution.error };
+    }
+
+    const imageAttachments = attachmentResolution.attachments.filter((attachment) => attachment.kind === "image");
+    const fileAttachments = attachmentResolution.attachments.filter((attachment) => attachment.kind !== "image");
+    const extensions: MessageExtension[] = [];
+    if (input.uiContext) extensions.push({ kind: "ui_context", data: input.uiContext });
+    if (imageAttachments.length) {
+      extensions.push({ kind: "image_attachment", data: { attachments: imageAttachments } });
+    }
+
+    const started = this.launchRun({
+      sessionId,
+      sessionMetadata,
+      userId: input.userId,
+      requestId: input.requestId,
+      task,
+      ...(slashCommand?.mode === "prompt" ? { modelTask: slashCommand.expandedTask } : {}),
+      executionKind: input.executionKind,
+      selectedLlm: input.selectedLlm,
+      ...(input.agentName ? { agentName: input.agentName } : {}),
+      ...(input.entrypoint ? { entrypoint: input.entrypoint } : {}),
+      persistMetadata: {
+        ...(input.messageMetadata ?? {}),
+        ...(slashCommand
+          ? {
+              msg_type: MSG_TYPE.COMMAND,
+              command: slashCommand.name,
+              command_mode: slashCommand.mode,
+              ...(slashCommand.mode === "prompt" ? { expanded_task: slashCommand.expandedTask } : {}),
+            }
+          : {}),
+        ...(fileAttachments.length ? { attachments: fileAttachments } : {}),
+        ...(extensions.length ? { extensions } : {}),
+      },
+      ...(input.traceMetadata ? { traceMetadata: input.traceMetadata } : {}),
+      ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
+    });
+    if (!started.ok) {
+      return { kind: "error", sessionId, error: started.error };
+    }
+    return { kind: "run", sessionId, agentName: started.agentName, handle: started.handle };
+  }
+
+  async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
+    const submitted = await this.sendUserMessage({
+      ...(request.session_id !== undefined ? { sessionId: request.session_id } : {}),
+      userId: request.userId,
+      requestId,
+      task: request.task,
+      attachments: request.attachments,
+      executionKind: "agent_stream",
+      selectedLlm: resolveSelectedLlm(request),
+      ...(request.ui_context !== undefined ? { uiContext: request.ui_context } : {}),
+      followupPolicy: "queue",
+    });
+    if (submitted.kind === "error") {
+      return { started: false, session_id: submitted.sessionId, error: submitted.error };
+    }
+    if (submitted.kind === "command") {
       return {
-        started: false,
-        session_id: sessionId,
-        error: ready.reason,
+        ...submitted.start,
+        command_result: { success: submitted.success, content: submitted.content },
       };
     }
 
-    const runtimeAgent = ready.agent;
-
-    // 写入侧拆分:image 进 metadata.extensions(image_attachment),file 留 metadata.attachments。
-    // 内容扩展(image/ui_context)统一落 extensions[];消息类型/追溯字段(msg_type/command)留 metadata 顶层。
-    const imageAttachments = attachmentResolution.attachments.filter((a) => a.kind === "image");
-    const fileAttachments = attachmentResolution.attachments.filter((a) => a.kind !== "image");
-    const extensions: MessageExtension[] = [];
-    if (request.ui_context) extensions.push({ kind: "ui_context", data: request.ui_context });
-    if (imageAttachments.length) extensions.push({ kind: "image_attachment", data: { attachments: imageAttachments } });
-
-    const started = this.runEngine.startRun({
-      sessionId,
-      userId: request.userId,
-      requestId,
-      task,
-      ...(slashCommand?.mode === "prompt" ? { modelTask: slashCommand.expandedTask } : {}),
-      executionKind: "agent_stream",
-      agent: runtimeAgent,
-      provider: ready.provider,
-      modelName: ready.modelName,
-      ...(requestSelectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
-      persistUserMessage: {
-        metadata: {
-          ...(slashCommand
-            ? {
-                msg_type: MSG_TYPE.COMMAND,
-                command: slashCommand.name,
-                command_mode: slashCommand.mode,
-                ...(slashCommand.mode === "prompt" ? { expanded_task: slashCommand.expandedTask } : {}),
-              }
-            : {}),
-          ...(fileAttachments.length ? { attachments: fileAttachments } : {}),
-          ...(extensions.length ? { extensions } : {}),
-        },
-      },
-    });
-    const { promise: _promise, durableStarted, ...publicStarted } = started;
+    const { promise: _promise, durableStarted, ...publicStarted } = submitted.handle;
     try {
       const disposition = await durableStarted;
       if (disposition.kind === "followup") {
-        return { started: true, session_id: sessionId, run_id: disposition.activeRunId, request_id: requestId, kind: "agent_run" };
+        return {
+          started: true,
+          session_id: submitted.sessionId,
+          run_id: disposition.activeRunId,
+          request_id: requestId,
+          kind: "agent_run",
+        };
       }
       return publicStarted;
     } catch (error) {
@@ -191,9 +323,21 @@ class AgentLaunchers {
   }
 
   async executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult> {
-    const sessionId = request.session_id?.trim() || randomUUID();
-    const task = request.task.trim();
-    if (!task) {
+    const executionKind = request.executionKind?.trim() || "execute";
+    const submitted = await this.sendUserMessage({
+      ...(request.session_id !== undefined ? { sessionId: request.session_id } : {}),
+      userId: request.userId,
+      requestId,
+      task: request.task,
+      attachments: [],
+      executionKind,
+      selectedLlm: resolveSelectedLlm(request),
+      ...(request.agent ? { agentName: request.agent } : {}),
+      entrypoint: "execute",
+      followupPolicy: "reject",
+      ...(request.onInteractionRequired ? { onInteractionRequired: request.onInteractionRequired } : {}),
+    });
+    if (submitted.kind === "error") {
       return {
         success: false,
         answer: null,
@@ -201,83 +345,61 @@ class AgentLaunchers {
         execution_time: null,
         tool_calls: [],
         metadata: {},
-        session_id: sessionId,
-        run_id: null,
-        task_id: null,
-        error: "Task cannot be empty",
+        session_id: submitted.sessionId,
+        run_id: submitted.runId ?? null,
+        task_id: submitted.taskId ?? null,
+        error: submitted.error,
       };
     }
-    const runningStatus = this.statusTracker.getStatusBySession(sessionId);
-    if (runningStatus?.status === "running") {
+    if (submitted.kind === "command") {
       return {
-        success: false,
-        answer: null,
+        success: submitted.success,
+        answer: submitted.content,
         agent_name: null,
-        execution_time: null,
+        execution_time: 0,
         tool_calls: [],
-        metadata: {},
-        session_id: sessionId,
-        run_id: runningStatus.run_id,
-        task_id: runningStatus.task_id,
-        error: "该会话正在执行任务，请等待完成或停止当前任务",
-      };
-    }
-    const session = await this.sessions.getSession(sessionId);
-    const sessionMetadata = session?.metadata ?? {};
-    const requestSelectedLlm = resolveSelectedLlm(request);
-    const ready = resolveReadyAgent(
-      this.runtimeCore,
-      {
-        agentName: request.agent?.trim() || normalizeSessionEntryAgent(sessionMetadata.entry_agent),
-        teamName: asString(sessionMetadata.team),
-        selectedLlm: requestSelectedLlm,
-      },
-      sessionMetadata,
-    );
-    if (!ready.ok) {
-      return {
-        success: false,
-        answer: null,
-        agent_name: null,
-        execution_time: null,
-        tool_calls: [],
-        metadata: {},
-        session_id: sessionId,
+        metadata: { command: true },
+        session_id: submitted.sessionId,
         run_id: null,
         task_id: null,
-        error: ready.reason,
+        error: submitted.success ? null : submitted.content,
       };
     }
 
-    const runtimeAgent = ready.agent;
-    const executionKind = request.executionKind?.trim() || "execute";
-    const started = this.runEngine.startRun({
-      sessionId,
-      userId: request.userId,
-      requestId,
-      task,
-      executionKind,
-      ...(request.onInteractionRequired ? { onInteractionRequired: request.onInteractionRequired } : {}),
-      entrypoint: "execute",
-      agent: runtimeAgent,
-      provider: ready.provider,
-      modelName: ready.modelName,
-      ...(requestSelectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
-      persistUserMessage: {
-        metadata: {
-          agent: runtimeAgent.agent_name,
-          request_id: requestId,
-          execution_kind: executionKind,
-        },
-      },
-    });
-    const outcome = await started.promise;
-    return await this.runEngine.buildSynchronousResult({
-      sessionId,
-      runId: started.run_id ?? null,
-      taskId: started.task_id ?? null,
-      agentName: runtimeAgent.agent_name,
-      outcome,
+    try {
+      const disposition = await submitted.handle.durableStarted;
+      if (disposition.kind === "followup") {
+        return {
+          success: false,
+          answer: null,
+          agent_name: submitted.agentName,
+          execution_time: null,
+          tool_calls: [],
+          metadata: {},
+          session_id: submitted.sessionId,
+          run_id: disposition.activeRunId,
+          task_id: null,
+          error: "该会话正在执行任务，消息已进入后续队列",
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        answer: null,
+        agent_name: submitted.agentName,
+        execution_time: null,
+        tool_calls: [],
+        metadata: {},
+        session_id: submitted.sessionId,
+        run_id: submitted.handle.run_id ?? null,
+        task_id: submitted.handle.task_id ?? null,
+        error: error instanceof Error ? error.message : "Run failed before durable start",
+      };
+    }
+    return this.waitForRunResult(submitted.sessionId, {
+      ok: true,
+      agentName: submitted.agentName,
+      handle: submitted.handle,
     });
   }
 
@@ -309,74 +431,6 @@ class AgentLaunchers {
       };
     }
 
-    // 先解析 ready 与确保会话存在——这两步不依赖消息内容，失败时直接返回不触碰消息 DB，
-    // 避免 prepareRetry 已改写内容/删除回复、却因 ready 失败留下“内容改了、回复没了、新 run 没起”的中间态。
-    const existingSession = await this.sessions.getSession(sessionId);
-    const sessionMetadata = existingSession?.metadata ?? {};
-    const resolveInput: {
-      agentName?: string | null;
-      teamName?: string | null;
-      selectedLlm?: string | null;
-    } = {
-      agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
-      teamName: asString(sessionMetadata.team),
-    };
-    if (input.selectedLlm !== undefined) {
-      resolveInput.selectedLlm = input.selectedLlm;
-    }
-    const ready = resolveReadyAgent(this.runtimeCore, resolveInput, sessionMetadata);
-    if (!ready.ok) {
-      return {
-        started: false,
-        session_id: sessionId,
-        deleted: 0,
-        error: ready.reason,
-      };
-    }
-    if (!existingSession) {
-      await this.sessions.createSession({ tenantId: this.tenantId, sessionId, userId: input.userId });
-    }
-
-    const prepareInput: {
-      sessionId: string;
-      afterSeq?: number | null;
-      afterMessageId?: string | null;
-      modifyUserMessage?: string | null;
-      metadataPatch?: { attachments?: unknown[]; extensions?: MessageExtension[] };
-    } = { sessionId };
-    if (input.afterSeq !== undefined) {
-      prepareInput.afterSeq = input.afterSeq;
-    }
-    if (input.afterMessageId !== undefined) {
-      prepareInput.afterMessageId = input.afterMessageId;
-    }
-    if (input.modifyUserMessage !== undefined) {
-      prepareInput.modifyUserMessage = input.modifyUserMessage;
-    }
-    // 编辑重发可能带新附件：解析后按 image/file 拆分（复用 startStream 的拆分逻辑），
-    // 打包成 metadataPatch 交给 prepareRetry 合并进用户消息 metadata。
-    if (input.attachments && input.attachments.length) {
-      const attachmentResolution = await this.attachmentResolver.resolve(sessionId, input.attachments);
-      if (attachmentResolution.error) {
-        return {
-          started: false,
-          session_id: sessionId,
-          deleted: 0,
-          error: attachmentResolution.error,
-        };
-      }
-      const imageAttachments = attachmentResolution.attachments.filter((a) => a.kind === "image");
-      const fileAttachments = attachmentResolution.attachments.filter((a) => a.kind !== "image");
-      const extensions: MessageExtension[] = [];
-      if (input.uiContext) extensions.push({ kind: "ui_context", data: input.uiContext });
-      if (imageAttachments.length) extensions.push({ kind: "image_attachment", data: { attachments: imageAttachments } });
-      prepareInput.metadataPatch = {
-        ...(fileAttachments.length ? { attachments: fileAttachments } : {}),
-        ...(extensions.length ? { extensions } : {}),
-      };
-    } else if (input.uiContext) {
-      prepareInput.metadataPatch = { extensions: [{ kind: "ui_context", data: input.uiContext }] };
-    }
     const retryMessage = await this.sessions.getMessageForRetry({
       sessionId,
       ...(input.afterSeq !== undefined ? { afterSeq: input.afterSeq } : {}),
@@ -392,47 +446,55 @@ class AgentLaunchers {
     if (!task) {
       return { started: false, session_id: sessionId, deleted: 0, error: "无法获取要重试的任务内容" };
     }
-    let deleted = 0;
 
-    const runtimeAgent = ready.agent;
-    const started = this.runEngine.startRun({
+    const attachments = input.attachments ?? extractMessageAttachments(retryMessage);
+    const uiContext = input.uiContext === undefined
+      ? extractMessageUiContext(retryMessage)
+      : input.uiContext;
+    const traceMetadata = {
+      retry_of_seq: retryMessage.seq,
+      retry_of_message_id: retryMessage.id,
+    };
+
+    // 回滚是独立会话操作：删除目标用户消息及其后的内容，再从统一用户消息入口重新发送。
+    const deleted = await this.sessions.rollbackMessages({
+      sessionId,
+      afterSeq: retryMessage.seq - 1,
+    });
+    const submitted = await this.sendUserMessage({
       sessionId,
       userId: input.userId,
       requestId: input.requestId,
       task,
+      attachments,
+      selectedLlm: input.selectedLlm ?? "",
       executionKind: "rollback_and_retry",
       entrypoint: "rollback_and_retry",
-      agent: runtimeAgent,
-      provider: ready.provider,
-      modelName: ready.modelName,
-      ...(input.selectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
-      existingUserMessageId: retryMessage.id,
-      userMessageSavedPayload: {
-        id: retryMessage.id,
-        seq: retryMessage.seq,
-        role: retryMessage.role,
-        retry_of_seq: retryMessage.seq,
-        retry_of_message_id: retryMessage.id,
+      uiContext,
+      messageMetadata: {
+        ...traceMetadata,
+        ...(input.modifyUserMessage?.trim() ? { retry_modified_at: new Date().toISOString() } : {}),
       },
-      startStepExtra: {
-        retry_of_seq: retryMessage.seq,
-        retry_of_message_id: retryMessage.id,
-      },
-      runStartExtra: {
-        retry_of_seq: retryMessage.seq,
-        retry_of_message_id: retryMessage.id,
-      },
-      finalMetadataExtra: {
-        retry_of_seq: retryMessage.seq,
-        retry_of_message_id: retryMessage.id,
-      },
-      prepareRun: async () => {
-        const prepared = await this.sessions.prepareRetry(prepareInput);
-        if (prepared.message.id !== retryMessage.id) throw new Error("重试锚点已被并发修改");
-        deleted = prepared.deleted;
-      },
+      traceMetadata,
+      followupPolicy: "reject",
     });
-    const { promise: _promise, durableStarted, ...publicStarted } = started;
+    if (submitted.kind === "error") {
+      return {
+        started: false,
+        session_id: submitted.sessionId,
+        deleted,
+        error: submitted.error,
+      };
+    }
+    if (submitted.kind === "command") {
+      return {
+        ...submitted.start,
+        deleted,
+        command_result: { success: submitted.success, content: submitted.content },
+      };
+    }
+
+    const { promise: _promise, durableStarted, ...publicStarted } = submitted.handle;
     try {
       await durableStarted;
     } catch (error) {
@@ -440,7 +502,7 @@ class AgentLaunchers {
         ...publicStarted,
         started: false,
         deleted,
-        agent_name: runtimeAgent.agent_name,
+        agent_name: submitted.agentName,
         error: error instanceof Error ? error.message : "Run failed before durable start",
       };
     }
@@ -448,7 +510,7 @@ class AgentLaunchers {
     return {
       ...publicStarted,
       deleted,
-      agent_name: runtimeAgent.agent_name,
+      agent_name: submitted.agentName,
     };
   }
 
@@ -600,6 +662,35 @@ progress: ${JSON.stringify(goal.progress)}
 3. 只有所有验收标准都有证据时才设为 completed。确实无法继续时设为 blocked；需要用户时请求输入，不要空转。
 4. 本轮结束前必须更新 Goal，否则系统会将重复无进展计入循环保护。
 </goal-continuation>`;
+}
+
+function extractMessageAttachments(message: MessageInfo): AttachmentRef[] {
+  const candidates: unknown[] = Array.isArray(message.metadata.attachments)
+    ? [...message.metadata.attachments]
+    : [];
+  const extensions = Array.isArray(message.metadata.extensions) ? message.metadata.extensions : [];
+  for (const extension of extensions) {
+    if (!isRecord(extension) || extension.kind !== "image_attachment" || !isRecord(extension.data)) continue;
+    if (Array.isArray(extension.data.attachments)) candidates.push(...extension.data.attachments);
+  }
+  return candidates.flatMap((candidate) => {
+    const parsed = AttachmentRefSchema.safeParse(candidate);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
+function extractMessageUiContext(message: MessageInfo): Record<string, unknown> | null {
+  const extensions = Array.isArray(message.metadata.extensions) ? message.metadata.extensions : [];
+  for (const extension of extensions) {
+    if (isRecord(extension) && extension.kind === "ui_context" && isRecord(extension.data)) {
+      return extension.data;
+    }
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function createLaunchers(deps: LauncherDeps): LauncherApi {

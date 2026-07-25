@@ -103,6 +103,23 @@ export class AguiGateway {
       { task, session_id: threadId, userId: this.userId, attachments: [] },
       externalRunId,
     );
+    if (started.kind === "command") {
+      const command = started.command_result;
+      send({ type: "RUN_STARTED", ...baseFields(threadId, externalRunId) });
+      if (command?.content) {
+        const messageId = randomUUID();
+        send({ type: "TEXT_MESSAGE_START", ...baseFields(threadId, externalRunId), messageId, role: "assistant" });
+        send({ type: "TEXT_MESSAGE_CONTENT", ...baseFields(threadId, externalRunId), messageId, delta: command.content });
+        send({ type: "TEXT_MESSAGE_END", ...baseFields(threadId, externalRunId), messageId });
+      }
+      if (command?.success ?? started.started) {
+        send({ type: "RUN_FINISHED", ...baseFields(threadId, externalRunId), outcome: { type: "success" } });
+      } else {
+        send({ type: "RUN_ERROR", ...baseFields(threadId, externalRunId), message: command?.content || started.error || "command failed" });
+      }
+      sse.end();
+      return;
+    }
     if (!started.started || !started.run_id) {
       unsubscribe();
       send({ type: "RUN_STARTED", ...baseFields(threadId, externalRunId) });

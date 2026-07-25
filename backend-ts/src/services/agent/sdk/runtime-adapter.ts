@@ -102,8 +102,6 @@ export interface SdkExecuteRunInput {
   initialUserMessageContent?: string;
   initialUserMessageMetadata?: Record<string, unknown>;
   initialEnvelopes?: readonly Envelope[];
-  /** Runs after the durable run start and before rebuilding model context. */
-  prepareRun?: () => void | Promise<void>;
   onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
   onRunPersisted?: (() => void) | undefined;
   onStartDisposition?: ((disposition: ExecutionStartDisposition) => void) | undefined;
@@ -486,18 +484,11 @@ export async function executeRunWithSdk(
     input.onStartDisposition?.(startDisposition);
     return { content: "", success: true, followup: startDisposition, tokenUsage: { inputTokens: 0, outputTokens: 0 }, toolCalls: {} };
   }
-  try {
-    await input.prepareRun?.();
-  } catch (error) {
-    await persister.finalize("failed", null, error);
-    throw error;
-  }
   input.onStartDisposition?.(startDisposition);
   input.onRunPersisted?.();
-  if ((input.userMessageId && input.initialUserMessageMetadata) || input.prepareRun) {
+  if (input.userMessageId && input.initialUserMessageMetadata) {
     // startRun atomically persists the initial user message. Rebuild after that
-    // commit so the first model request sees the same durable history that
-    // subsequent rounds and retries read.
+    // commit so the first model request sees the same durable history as subsequent rounds.
     const startedContext = await contextBuilder.buildContext({
       sessionId: input.sessionId,
       threadKey: input.threadKey,

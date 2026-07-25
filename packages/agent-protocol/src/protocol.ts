@@ -200,6 +200,7 @@ export const AckPayloadSchema = z.object({
   ref_call_id: z.string().optional(),
   category: z.enum(["send", "stop", "interaction", "tool_delegate"]),
   ok: z.boolean(),
+  kind: z.enum(["agent_run", "command"]).optional(),
   error: z.string().optional(),
 });
 

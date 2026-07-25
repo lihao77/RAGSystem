@@ -12,6 +12,7 @@ import { PermissionPolicyService } from "../../../src/services/runtime/permissio
 import {
   createLocalRuntimeContainer,
 } from "../../../src/adapters/local/runtime-container.js";
+import { createConversationStore } from "../../../src/adapters/local/sqlite/conversation-store/index.js";
 import type {
   CoreRuntimeDependencies,
   LocalRuntimeCapabilities,
@@ -28,7 +29,7 @@ import type {
 } from "../../../src/contracts/runtime/core-runtime-ports.js";
 import type { SessionFileLookupPort } from "../../../src/contracts/session/session-file-storage.js";
 import type { LocalRuntimeContainerOptions } from "../../../src/adapters/local/runtime-options.js";
-import { makeTempRoot } from "../../helpers/temp-db.js";
+import { makeTempDb, makeTempRoot } from "../../helpers/temp-db.js";
 
 describe("runtime composition roots", () => {
   it("separates deployment capabilities from the shared runtime", () => {
@@ -76,6 +77,61 @@ describe("runtime composition roots", () => {
     } finally {
       runtime.close();
       expect(() => runtime.close()).not.toThrow();
+    }
+  });
+
+  it("recovers runs orphaned by a previous local backend process", async () => {
+    const tenantId = createTenantId("tnt_runtime_restart_recovery");
+    const dbPath = makeTempDb();
+    const dataRoot = path.dirname(dbPath);
+    const previous = createConversationStore({ dbPath, dataRoot });
+    previous.createSession(tenantId, "restart-session", "user-1");
+    previous.createRun({
+      runId: "orphaned-root",
+      sessionId: "restart-session",
+      status: "running",
+      threadKey: "root",
+    });
+    previous.createRun({
+      runId: "orphaned-child",
+      sessionId: "restart-session",
+      status: "running",
+      threadKey: "child:worker",
+      parentRunId: "orphaned-root",
+      childAgentId: "worker",
+    });
+    previous.close();
+
+    const runtime = await createLocalRuntimeContainer({
+      tenantId,
+      dbPath,
+      dataRoot,
+      modelAdapterProvidersConfigPath: "",
+      mcpConfigPath: "",
+      systemConfigPath: "",
+      startOutboxDispatcher: false,
+      hostToolsEnabled: false,
+      embedderFactory: () => new HashFallbackEmbedder(),
+    });
+    try {
+      const status = await runtime.local.executionRead.getSessionTaskStatus("restart-session");
+      expect(status.has_running_task).toBe(false);
+      expect(status.task_info).toMatchObject({ run_id: "orphaned-root", status: "interrupted", thread_alive: false });
+      const runs = await runtime.local.executionRead.listRuns("restart-session", 10);
+      expect(runs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ run_id: "orphaned-root", status: "interrupted" }),
+        expect.objectContaining({ run_id: "orphaned-child", status: "interrupted" }),
+      ]));
+      const outbox = await runtime.local.monitoring.listOutbox({ limit: 20 });
+      expect(outbox.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          run_id: "orphaned-root",
+          event_type: "client.run_ended",
+          status: "delivered",
+        }),
+      ]));
+    } finally {
+      runtime.close();
     }
   });
 

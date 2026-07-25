@@ -7,8 +7,7 @@ import { resetActiveRunForSend, serializeAttachmentForSend } from './useSessionA
 
 /**
  * 构造 rollback-and-retry 的锚点：指向被编辑/重试的用户消息本身（messages[index]）。
- * 后端 prepareRetry 用 after 定位被改写的 user 消息，故锚点必须指向自身，而不是前一条
- * （旧的指向前一条的语义是为"裸 rollback 删 index 及之后 + 重发新消息"两步走服务的，与原子端点不符）。
+ * 后端会删除该锚点及其后历史，再通过统一用户消息入口创建一条新消息。
  * 返回 null 表示该消息尚未持久化（无 id/seq），调用方应拦截。
  */
 function buildRetryAnchorBody(messages, index) {
@@ -29,6 +28,42 @@ export function useMessageRevision(deps) {
   const editingDraft = ref('');
   const editingAttachmentsDraft = ref([]);
   const editingSubmitting = ref(false);
+
+  const reloadMessagesAfterRetryFailure = async (sessionId) => {
+    if (typeof deps.reloadSessionMessages !== 'function') return;
+    try {
+      await deps.reloadSessionMessages(sessionId);
+    } catch (reloadError) {
+      console.warn('重试失败后刷新会话消息失败:', reloadError);
+    }
+  };
+
+  const projectRetriedRun = ({ sessionId, index, content, attachments, result, retrySource }) => {
+    const retryMetadata = {
+      execution_kind: 'rollback_and_retry',
+      ...(result.request_id ? { request_id: result.request_id } : {}),
+      ...(result.run_id ? { run_id: result.run_id } : {}),
+      ...(retrySource?.seq != null ? { retry_of_seq: retrySource.seq } : {}),
+      ...(retrySource?.id ? { retry_of_message_id: retrySource.id } : {}),
+    };
+    const retriedUserMessage = {
+      role: 'user',
+      content,
+      attachments,
+      metadata: retryMetadata,
+    };
+    messages.value = [
+      ...messages.value.slice(0, index),
+      retriedUserMessage,
+      createAssistantMessage({ run_id: result.run_id }),
+    ];
+    const assistantMsgIndex = messages.value.length - 1;
+    resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
+    deps.activeRun.runId = result.run_id;
+    deps.isLoading.value = true;
+    deps.cacheMessages(sessionId, messages.value);
+    deps.stickToBottom?.();
+  };
 
   const editingMessage = computed(() => {
     const index = editingMessageIndex.value;
@@ -97,7 +132,7 @@ export function useMessageRevision(deps) {
 
     editingSubmitting.value = true;
     try {
-      // 物化附件（上传本地文件拿 file_id）后整体随原子端点提交
+      // 先物化附件（上传本地文件拿 file_id），再交给后端执行“回滚 -> 统一发送”。
       const materialized = await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
       const selectedLlm = deps.getCurrentSelectedLlm?.();
       const resp = await rollbackAndRetrySession(sessionId, {
@@ -111,23 +146,16 @@ export function useMessageRevision(deps) {
         throw new Error(result.error || '操作失败');
       }
 
-      // 本地同步：保留被编辑消息（更新内容/附件，id/seq 不变），删其后回复，push 新 assistant 占位。
-      // HTTP 成功才动本地；失败时后端 prepareRetry/startRun 同事务，要么全成要么全不成，本地无须回滚。
-      messages.value = messages.value.slice(0, index + 1);
-      const userMsg = messages.value[index];
-      if (userMsg) {
-        userMsg.content = content;
-        userMsg.attachments = materialized;
+      if (result.kind === 'command') {
+        await deps.reloadSessionMessages?.(sessionId);
+        resetEditingState();
+        return;
       }
-      const assistantMsgIndex = messages.value.push(createAssistantMessage({ run_id: result.run_id })) - 1;
-      resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
-      deps.activeRun.runId = result.run_id;
-      deps.isLoading.value = true;
-      deps.cacheMessages(sessionId, messages.value);
-      deps.stickToBottom?.();
+      projectRetriedRun({ sessionId, index, content, attachments: materialized, result, retrySource: msg });
       resetEditingState();
     } catch (error) {
       editingSubmitting.value = false;
+      await reloadMessagesAfterRetryFailure(sessionId);
       deps.showToast(error.message || '操作失败');
     }
   };
@@ -162,15 +190,20 @@ export function useMessageRevision(deps) {
       if (!result.started) {
         throw new Error(result.error || '重试失败');
       }
-      // 保留原 user 消息对象（id/seq 不变），删其后回复，push 新 assistant 占位
-      messages.value = messages.value.slice(0, index + 1);
-      const assistantMsgIndex = messages.value.push(createAssistantMessage({ run_id: result.run_id })) - 1;
-      resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
-      deps.activeRun.runId = result.run_id;
-      deps.isLoading.value = true;
-      deps.cacheMessages(sessionId, messages.value);
-      deps.stickToBottom?.();
+      if (result.kind === 'command') {
+        await deps.reloadSessionMessages?.(sessionId);
+        return;
+      }
+      projectRetriedRun({
+        sessionId,
+        index,
+        content: msg.content || '',
+        attachments: Array.isArray(msg.attachments) ? msg.attachments : [],
+        result,
+        retrySource: msg,
+      });
     } catch (error) {
+      await reloadMessagesAfterRetryFailure(sessionId);
       deps.showToast(error.message || '重试失败');
     }
   };

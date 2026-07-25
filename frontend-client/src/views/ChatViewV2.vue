@@ -597,6 +597,7 @@ const {
   isLoading,
   materializeAttachmentsForSend,
   getCurrentSelectedLlm,
+  reloadSessionMessages: (sessionId) => loadSessionMessages(sessionId),
   stickToBottom,
 });
 

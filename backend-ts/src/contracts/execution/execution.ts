@@ -79,6 +79,7 @@ export interface AgentRunStartResult {
   task_id?: string;
   request_id?: string;
   kind?: "agent_run" | "command";
+  command_result?: { success: boolean; content: string };
   error?: string;
 }
 

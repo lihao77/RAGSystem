@@ -1,4 +1,5 @@
 import type { Envelope } from "@ragsystem/agent-protocol/wire";
+import { getEnvelopeCursorSeq } from "@ragsystem/agent-protocol/wire";
 
 /**
  * widget WS 连接参数。ticket 每次建连前签发；cursor 来自最近收到的 envelope seq。
@@ -36,14 +37,5 @@ export function buildWidgetWsUrl(options: WidgetWsUrlOptions): string {
 
 /** 顶层 seq 优先，heartbeat 帧回退 payload.last_seq（ws.ts 每 20s 回吐）。 */
 export function extractCursor(envelope: Envelope): number | null {
-  if (typeof envelope.seq === "number" && Number.isFinite(envelope.seq)) {
-    return envelope.seq;
-  }
-  if (envelope.type === "heartbeat" && envelope.payload && typeof envelope.payload === "object") {
-    const payload = envelope.payload as { last_seq?: unknown };
-    return typeof payload.last_seq === "number" && Number.isFinite(payload.last_seq)
-      ? payload.last_seq
-      : null;
-  }
-  return null;
+  return getEnvelopeCursorSeq(envelope);
 }

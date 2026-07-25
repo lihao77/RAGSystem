@@ -100,12 +100,9 @@ export class AgentRunEngine {
      *（保留 tier 的 max_context_tokens 等配置，budget 据此计算）。
      */
     selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
-    existingUserMessageId?: string | undefined;
-    userMessageSavedPayload?: Record<string, unknown> | undefined;
     persistUserMessage?: {
       metadata?: Record<string, unknown> | undefined;
     } | undefined;
-    prepareRun?: (() => void | Promise<void>) | undefined;
     runStartExtra?: Record<string, unknown> | undefined;
     startStepExtra?: Record<string, unknown> | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
@@ -129,11 +126,11 @@ export class AgentRunEngine {
       startedAt,
     });
 
-    let userMessageSavedPayload = input.userMessageSavedPayload;
-    let existingUserMessageId = input.existingUserMessageId;
+    let userMessageSavedPayload: Record<string, unknown> | undefined;
+    let userMessageId: string | undefined;
     let initialUserMessageMetadata: Record<string, unknown> | undefined;
     if (!input.resume && input.persistUserMessage) {
-      existingUserMessageId = randomUUID();
+      userMessageId = randomUUID();
       initialUserMessageMetadata = {
         ...(input.persistUserMessage.metadata ?? {}),
         agent: input.agent.agent_name,
@@ -143,7 +140,7 @@ export class AgentRunEngine {
         execution_kind: input.executionKind,
       };
       userMessageSavedPayload = {
-        id: existingUserMessageId,
+        id: userMessageId,
         role: "user",
       };
     }
@@ -227,7 +224,7 @@ export class AgentRunEngine {
       parentRunId: null,
       childAgentId: null,
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
-      userMessageId: existingUserMessageId,
+      userMessageId,
       initialUserMessageContent: input.task,
       ...(initialUserMessageMetadata ? { initialUserMessageMetadata } : {}),
       executionKind: input.executionKind,
@@ -235,7 +232,6 @@ export class AgentRunEngine {
       finalMetadataExtra: input.finalMetadataExtra,
       ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
       ...(initialEnvelopes.length > 0 ? { initialEnvelopes } : {}),
-      ...(input.prepareRun ? { prepareRun: input.prepareRun } : {}),
       ...(onStartDisposition ? { onStartDisposition } : {}),
       onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
     });
@@ -403,7 +399,6 @@ export class AgentRunEngine {
     initialUserMessageContent?: string | undefined;
     initialUserMessageMetadata?: Record<string, unknown> | undefined;
     initialEnvelopes?: readonly Envelope[] | undefined;
-    prepareRun?: (() => void | Promise<void>) | undefined;
     executionKind?: string | undefined;
     rootTask?: string | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
@@ -496,7 +491,6 @@ export class AgentRunEngine {
          ...(input.initialUserMessageContent ? { initialUserMessageContent: input.initialUserMessageContent } : {}),
          ...(input.initialUserMessageMetadata ? { initialUserMessageMetadata: input.initialUserMessageMetadata } : {}),
          ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
-         ...(input.prepareRun ? { prepareRun: input.prepareRun } : {}),
          ...(input.onStartDisposition ? { onStartDisposition: input.onStartDisposition } : {}),
         signal: input.abortController.signal,
          selectedLlm: input.selectedLlm ?? null,

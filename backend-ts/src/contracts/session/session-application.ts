@@ -29,14 +29,8 @@ export interface ExecutionSessionPort {
     childAgentId?: string | null;
   }): Promise<MessageInfo>;
   getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<MessageInfo | null>;
+  rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number>;
   getLastRunRound(sessionId: string, runId: string): Promise<number>;
-  prepareRetry(input: {
-    sessionId: string;
-    afterSeq?: number | null;
-    afterMessageId?: string | null;
-    modifyUserMessage?: string | null;
-    metadataPatch?: { attachments?: unknown[]; extensions?: unknown[] };
-  }): Promise<{ deleted: number; task: string; message: MessageInfo }>;
 }
 
 export interface SessionExport {

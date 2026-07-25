@@ -247,66 +247,6 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     return this.resolveRetryAnchor(input.sessionId, input.afterSeq, input.afterMessageId);
   }
 
-  async prepareRetry(input: {
-    sessionId: string;
-    afterSeq?: number | null;
-    afterMessageId?: string | null;
-    modifyUserMessage?: string | null;
-    metadataPatch?: { attachments?: unknown[]; extensions?: unknown[] };
-  }): Promise<{ deleted: number; task: string; message: MessageInfo }> {
-    const originalMessage = await this.resolveRetryAnchor(input.sessionId, input.afterSeq, input.afterMessageId);
-    if (!originalMessage) {
-      const description =
-        input.afterSeq !== undefined && input.afterSeq !== null
-          ? `序号为 ${input.afterSeq}`
-          : `ID 为 ${input.afterMessageId ?? ""}`;
-      throw new Error(`未找到会话 ${input.sessionId} 中${description}的消息`);
-    }
-    if (originalMessage.role !== "user") {
-      throw new Error("指定位置必须是用户消息（user），才能从此处重试");
-    }
-
-    const modifiedTask = input.modifyUserMessage?.trim();
-    const task = modifiedTask || originalMessage.content.trim();
-    if (!task) {
-      throw new Error("无法获取要重试的任务内容");
-    }
-
-    const message = modifiedTask
-      ? {
-          ...originalMessage,
-          content: task,
-          metadata: {
-            ...originalMessage.metadata,
-            ...(input.metadataPatch ?? {}),
-            retry_modified_at: new Date().toISOString(),
-          },
-        }
-      : originalMessage;
-    if (modifiedTask) {
-      const snapshotId = await this.history?.makeSnapshot(input.sessionId, originalMessage.seq);
-      if (snapshotId) {
-        message.metadata.snapshot_id = snapshotId;
-      }
-      const updated = await this.repository.updateMessage({
-        messageId: originalMessage.id,
-        content: task,
-        metadata: message.metadata,
-        sessionId: input.sessionId,
-        roleFilter: "user",
-      });
-      if (!updated) {
-        throw new Error("消息不存在或不可编辑");
-      }
-    }
-
-    const deleted = await this.rollbackMessages({
-      sessionId: input.sessionId,
-      afterSeq: message.seq,
-    });
-    return { deleted, task, message };
-  }
-
   async rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number> {
     const payload: { afterSeq?: number | null; afterMessageId?: string | null } = {};
     if (input.afterSeq !== undefined) {

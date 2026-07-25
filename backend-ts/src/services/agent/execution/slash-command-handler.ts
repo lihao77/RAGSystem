@@ -28,6 +28,12 @@ interface SystemSlashCommandResult {
   data?: unknown;
 }
 
+export interface SlashCommandDispatchResult {
+  start: AgentRunStartResult;
+  success: boolean;
+  content: string;
+}
+
 const PROMPT_SLASH_COMMANDS: Record<string, { description: string; template: string }> = {
   review: {
     description: "代码审查",
@@ -61,7 +67,8 @@ export class SlashCommandHandler {
     selectedLlm: string;
     command: ParsedSlashCommand;
     originalTask: string;
-  }): Promise<AgentRunStartResult | null> {
+    messageMetadata?: Record<string, unknown>;
+  }): Promise<SlashCommandDispatchResult | null> {
     if (input.command.mode === "prompt") {
       return Promise.resolve(null);
     }
@@ -75,7 +82,8 @@ export class SlashCommandHandler {
     selectedLlm: string;
     command: ParsedSlashCommand;
     originalTask: string;
-  }): Promise<AgentRunStartResult> {
+    messageMetadata?: Record<string, unknown>;
+  }): Promise<SlashCommandDispatchResult> {
     if (!(await this.sessions.getSession(input.sessionId))) {
       await this.sessions.createSession({ tenantId: this.tenantId, sessionId: input.sessionId, userId: input.userId });
     }
@@ -84,6 +92,7 @@ export class SlashCommandHandler {
       role: "user",
       content: input.originalTask,
       metadata: {
+        ...(input.messageMetadata ?? {}),
         msg_type: MSG_TYPE.COMMAND,
         command: input.command.name,
         command_mode: input.command.mode,
@@ -120,9 +129,13 @@ export class SlashCommandHandler {
       aggregateId: input.sessionId,
     });
     return {
-      started: result.success,
-      session_id: input.sessionId,
-      kind: "command",
+      start: {
+        started: result.success,
+        session_id: input.sessionId,
+        kind: "command",
+      },
+      success: result.success,
+      content: result.content,
     };
   }
 

@@ -140,7 +140,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
         const sendAck = (
           category: "send" | "stop" | "interaction" | "tool_delegate",
           ok: boolean,
-          extra: { ref_call_id?: string; error?: string } = {},
+          extra: { ref_call_id?: string; kind?: "agent_run" | "command"; error?: string } = {},
         ): void => {
           send({ type: "ack", session_id: sessionId, payload: { category, ok, ...extra } });
         };
@@ -220,7 +220,11 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
                     payload.request_id ?? randomUUID(),
                   )
                   .then((result) => {
-                    sendAck("send", result.started, result.started ? {} : { error: result.error ?? "Agent stream 未启动" });
+                    const accepted = result.started || result.kind === "command";
+                    sendAck("send", accepted, {
+                      ...(result.kind ? { kind: result.kind } : {}),
+                      ...(!accepted ? { error: result.error ?? "Agent stream 未启动" } : {}),
+                    });
                   })
                   .catch((error) => {
                     sendAck("send", false, { error: error instanceof Error ? error.message : "Agent stream execution failed" });

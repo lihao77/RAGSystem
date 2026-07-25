@@ -1,5 +1,8 @@
 import type { Envelope } from "@ragsystem/agent-protocol/wire";
-import { ServerToClientEnvelopeSchema } from "@ragsystem/agent-protocol/wire";
+import {
+  EnvelopeDeliveryCursor,
+  ServerToClientEnvelopeSchema,
+} from "@ragsystem/agent-protocol/wire";
 import type { ConnectionStatus, ReconnectPolicy } from "@ragsystem/agent-protocol/client";
 
 /** 收到合法下行 Envelope（已 zod 校验）+ 连接状态变化时回调 client。 */
@@ -40,7 +43,7 @@ export class WidgetWsTransport {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
-  private lastSeq: number | null = null;
+  private readonly deliveryCursor = new EnvelopeDeliveryCursor();
   private readonly policy: Required<ReconnectPolicy>;
 
   constructor(private readonly options: WidgetWsTransportOptions) {
@@ -116,7 +119,7 @@ export class WidgetWsTransport {
       this.emitStatus({
         state: "connected",
         sessionId: this.options.sessionId,
-        lastEventSeq: this.lastSeq,
+        lastEventSeq: this.deliveryCursor.lastSeq || null,
       });
     };
     ws.onmessage = (event: MessageEvent) => {
@@ -128,9 +131,7 @@ export class WidgetWsTransport {
       } catch {
         return; // 非 envelope / 校验失败：静默丢弃，不影响连接
       }
-      if (typeof env.seq === "number") {
-        this.lastSeq = env.seq;
-      }
+      if (!this.deliveryCursor.accept(env)) return;
       this.options.handlers.onEnvelope(env);
     };
     ws.onclose = () => {

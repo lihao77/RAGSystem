@@ -81,7 +81,7 @@ export class WidgetAgentClient implements AgentClient {
   private readonly pendingValue: ObservableValue<PendingInteraction[]>;
 
   /** 待决议的 send ack 等待器（widget 单 run 串行，至多一个 pending）。 */
-  private pendingSendAck: ((result: { ok: boolean; error?: string }) => void) | null = null;
+  private pendingSendAck: ((result: { ok: boolean; kind?: "agent_run" | "command"; error?: string }) => void) | null = null;
 
   private delegationEnabled = false;
   private readonly hostTools = new Map<string, HostToolEntry>();
@@ -192,7 +192,7 @@ export class WidgetAgentClient implements AgentClient {
     if (this.statusValue.get().state !== "connected") {
       return { started: false, requestId, error: "连接未就绪" };
     }
-    const ackPromise = new Promise<{ ok: boolean; error?: string }>((resolve) => {
+    const ackPromise = new Promise<{ ok: boolean; kind?: "agent_run" | "command"; error?: string }>((resolve) => {
       this.pendingSendAck = resolve;
     });
     this.transport?.send(encodeSend(this.sessionId, {
@@ -212,7 +212,9 @@ export class WidgetAgentClient implements AgentClient {
       this.pendingSendAck = null;
     }
     if (result.ok) {
-      this.runStatusValue.set({ runId: null, state: "running" });
+      if (result.kind !== "command") {
+        this.runStatusValue.set({ runId: null, state: "running" });
+      }
       return { started: true, requestId };
     }
     this.runStatusValue.set({ runId: null, state: "idle" });
@@ -356,11 +358,15 @@ export class WidgetAgentClient implements AgentClient {
   }
 
   private handleAck(env: Envelope): void {
-    const payload = env.payload as { category?: string; ok?: boolean; error?: string } | undefined;
+    const payload = env.payload as { category?: string; ok?: boolean; kind?: "agent_run" | "command"; error?: string } | undefined;
     if (payload?.category === "send" && this.pendingSendAck) {
       const resolve = this.pendingSendAck;
       this.pendingSendAck = null;
-      resolve({ ok: payload.ok ?? false, ...(payload.error ? { error: payload.error } : {}) });
+      resolve({
+        ok: payload.ok ?? false,
+        ...(payload.kind ? { kind: payload.kind } : {}),
+        ...(payload.error ? { error: payload.error } : {}),
+      });
     }
   }
 
@@ -425,6 +431,14 @@ export class WidgetAgentClient implements AgentClient {
         runId: typeof env.run_id === "string" ? env.run_id : null,
         state,
       });
+    } else if (env.type === "state_sync") {
+      const payload = env.payload as { category?: string; detail?: { success?: boolean } } | undefined;
+      if (payload?.category === "command_result") {
+        this.runStatusValue.set({
+          runId: null,
+          state: payload.detail?.success === false ? "failed" : "completed",
+        });
+      }
     }
   }
 

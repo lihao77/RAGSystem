@@ -28,7 +28,7 @@ export async function getSessionTaskStatus(sessionId, { signal } = {}) {
 }
 
 /**
- * 编辑重发/原样重试的原子端点（回滚到锚点用户消息 + 改内容/附件 + 启动新 run，单次请求完成）。
+ * 编辑重发/原样重试：后端先回滚锚点用户消息及其后历史，再通过统一用户消息入口重新发送。
  * body: { after_seq?, after_message_id?, modify_user_message?, attachments?, ui_context?, selected_llm? }。
  * 返回 JSON 整体（data.started / data.run_id / data.task_id / data.deleted / data.error）。
  */

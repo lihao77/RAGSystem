@@ -84,19 +84,8 @@ describe("SaaSSessionApplication", () => {
       role: "user",
       content: "retry me",
     })).resolves.toEqual(userMessage);
-    await expect(application.prepareRetry({
-      sessionId: "session-1",
-      afterSeq: 4,
-      modifyUserMessage: "changed",
-    })).resolves.toMatchObject({ deleted: 2, task: "changed", message: { content: "changed" } });
-
     expect(repository.createSession).toHaveBeenCalledWith("tenant-a", "system-session", null, {}, null);
     expect(repository.addMessage).toHaveBeenCalledTimes(1);
-    expect(repository.updateMessage).toHaveBeenCalledWith(expect.objectContaining({
-      messageId: "message-1",
-      content: "changed",
-      roleFilter: "user",
-    }));
   });
 
   it("returns only repository-filtered root messages and marks final assistant execution", async () => {

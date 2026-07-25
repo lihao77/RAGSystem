@@ -1,9 +1,8 @@
 // @ts-check
+import { EnvelopeDeliveryCursor } from '@ragsystem/agent-protocol/wire';
 import {
   buildSessionSocketUrl,
   canReuseSessionSocket,
-  getDurableCursorSeq,
-  getDurableEventSeq,
 } from '../utils/sessionSocket.js';
 import { issueSessionWsTicket } from '../api/session.js';
 import { getHostTool, getHostToolDeclarations } from '../utils/hostTools.js';
@@ -84,41 +83,28 @@ export function createSessionTransport({
   /** @type {ReturnType<typeof setTimeout> | null} */
   let reconnectTimer = null;
   let reconnectAttempts = 0;
-  /** @type {Map<string, number>} */
-  const lastEventSeqBySession = new Map();
+  /** @type {Map<string, EnvelopeDeliveryCursor>} */
+  const deliveryCursors = new Map();
 
   /** @param {string} sessionId */
-  const getLastEventSeq = (sessionId) => lastEventSeqBySession.get(sessionId) || 0;
+  const getDeliveryCursor = (sessionId) => {
+    const current = deliveryCursors.get(sessionId);
+    if (current) return current;
+    const created = new EnvelopeDeliveryCursor();
+    deliveryCursors.set(sessionId, created);
+    return created;
+  };
+
+  /** @param {string} sessionId */
+  const getLastEventSeq = (sessionId) => deliveryCursors.get(sessionId)?.lastSeq || 0;
 
   /** @param {string} sessionId */
   const resetSessionEventCursor = (sessionId) => {
-    if (sessionId) lastEventSeqBySession.delete(sessionId);
+    if (sessionId) deliveryCursors.delete(sessionId);
   };
 
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
-  const observeDurableCursor = (event, sessionId) => {
-    const cursorSeq = getDurableCursorSeq(event);
-    if (cursorSeq === null) return getLastEventSeq(sessionId);
-    const lastEventSeq = getLastEventSeq(sessionId);
-    if (cursorSeq > lastEventSeq) {
-      lastEventSeqBySession.set(sessionId, cursorSeq);
-      return cursorSeq;
-    }
-    return lastEventSeq;
-  };
-
-  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
-  const shouldDeliverEvent = (event, sessionId) => {
-    const eventSeq = getDurableEventSeq(event);
-    if (eventSeq !== null) {
-      const lastEventSeq = getLastEventSeq(sessionId);
-      if (eventSeq <= lastEventSeq) return false;
-      lastEventSeqBySession.set(sessionId, eventSeq);
-      return true;
-    }
-    observeDurableCursor(event, sessionId);
-    return true;
-  };
+  const shouldDeliverEvent = (event, sessionId) => getDeliveryCursor(sessionId).accept(event);
 
   /** @param {string} sessionId */
   const scheduleReconnect = (sessionId) => {

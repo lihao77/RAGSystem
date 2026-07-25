@@ -4,6 +4,10 @@ import {
   ClientToServerEnvelopeSchema,
   ServerToClientEnvelopeSchema,
 } from "../src/protocol.js";
+import {
+  EnvelopeDeliveryCursor,
+  getEnvelopeCursorSeq,
+} from "../src/envelope-delivery.js";
 
 describe("agent-protocol envelope compatibility", () => {
   it("保留 typed envelope 的公共游标和路由字段", () => {
@@ -110,5 +114,37 @@ describe("agent-protocol envelope compatibility", () => {
     expect(parsed.payload).toMatchObject({
       ref: { message_id: "message-1", round_index: 2 },
     });
+  });
+
+  it("保留 send ack 的 command 适配类型", () => {
+    const parsed = ServerToClientEnvelopeSchema.parse({
+      type: "ack",
+      session_id: "session-1",
+      payload: { category: "send", ok: true, kind: "command" },
+    });
+
+    expect(parsed.payload).toMatchObject({ category: "send", ok: true, kind: "command" });
+  });
+});
+
+describe("Envelope delivery cursor", () => {
+  it("deduplicates durable events and advances from heartbeat cursors", () => {
+    const cursor = new EnvelopeDeliveryCursor();
+
+    expect(cursor.accept({ type: "stream_output", seq: 4 })).toBe(true);
+    expect(cursor.accept({ type: "stream_output", seq: 4 })).toBe(false);
+    expect(cursor.accept({ type: "stream_output", seq: 3 })).toBe(false);
+    expect(cursor.accept({ type: "heartbeat", payload: { last_seq: 8 } })).toBe(true);
+    expect(cursor.lastSeq).toBe(8);
+    expect(cursor.accept({ type: "run_ended", seq: 7 })).toBe(false);
+    expect(cursor.accept({ type: "session.reconnect" })).toBe(true);
+  });
+
+  it("uses top-level seq before heartbeat last_seq", () => {
+    expect(getEnvelopeCursorSeq({
+      type: "heartbeat",
+      seq: 5,
+      payload: { last_seq: 9 },
+    })).toBe(5);
   });
 });
