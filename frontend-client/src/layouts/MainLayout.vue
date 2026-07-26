@@ -21,11 +21,6 @@
           <IconNewConversation class="icon" />
           <span class="btn-text">新聊天</span>
         </button>
-        <div class="sidebar-context" :title="sidebarContextTitle">
-          <div class="sidebar-context__label">Current</div>
-          <div class="sidebar-context__team">{{ currentTeamLabel }}</div>
-          <div class="sidebar-context__workspace">{{ currentWorkspaceLabel }}</div>
-        </div>
       </div>
 
       <SessionList
@@ -37,12 +32,6 @@
         </div>
 
         <div v-else key="admin" class="sidebar-mode">
-        <div class="sidebar-header">
-          <div class="sidebar-context">
-            <div class="sidebar-context__label">管理中心</div>
-            <div class="sidebar-context__team">Agent · 基础设施 · 运维</div>
-          </div>
-        </div>
         <div class="admin-nav-list">
           <button
             v-if="canViewAdminOverview"
@@ -132,7 +121,6 @@ import { storeToRefs } from 'pinia';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useThemeStore } from '../stores/theme.js';
-import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { useBootstrapStore } from '../stores/bootstrap.js';
 import { useAuthStore } from '../stores/auth.js';
@@ -157,7 +145,6 @@ const router = useRouter();
 const route = useRoute();
 const toast = useToast();
 const { confirm } = useConfirm();
-const dictStore = useDictionariesStore();
 const sessionListStore = useSessionListStore();
 const bootstrapStore = useBootstrapStore();
 const authStore = useAuthStore();
@@ -166,7 +153,6 @@ const { items: history } = storeToRefs(sessionListStore);
 const sidebarCollapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true');
 const mobileOpen = ref(false);
 const isMobile = ref(false);
-const activeTeam = ref('');
 const lastChatSessionId = ref(null);
 
 const isChatRoute = computed(() => (route.meta?.mainView || 'chat') === 'chat');
@@ -257,30 +243,6 @@ const toggleSidebar = () => {
 const formatTitle = (item) => {
   const content = (item.first_message || item.last_message || '').trim();
   return content ? content.slice(0, 30) : '';
-};
-
-const activeSessionItem = computed(() => {
-  const sessionId = activeSessionId.value;
-  if (!sessionId) return null;
-  return history.value.find((item) => item.session_id === sessionId) || null;
-});
-const currentTeamLabel = computed(() => {
-  const team = activeTeam.value;
-  return team ? `Team: ${team}` : 'Team: 未选择';
-});
-const currentWorkspaceLabel = computed(() => activeSessionItem.value?.workspace?.display_name || '未绑定工作区');
-const sidebarContextTitle = computed(() => {
-  const workspace = activeSessionItem.value?.workspace;
-  return `${currentTeamLabel.value}\n工作区: ${workspace?.root_path || workspace?.display_name || '未绑定'}`;
-});
-
-const loadActiveTeam = async () => {
-  try {
-    const result = await dictStore.ensureTeams();
-    activeTeam.value = result?.active_team || '';
-  } catch (error) {
-    console.warn('加载当前 Team 失败:', error);
-  }
 };
 
 const startNewChat = async () => {
@@ -472,7 +434,6 @@ async function submitPromptArgs() {
 onMounted(() => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
-  loadActiveTeam();
   mcpStore.reloadPrompts();
   installCommandPaletteHotkey();
   installGlobalHotkeys();
@@ -709,52 +670,6 @@ onUnmounted(() => {
   opacity: 1;
 }
 
-.sidebar-context {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  margin-top: var(--spacing-sm);
-  padding: var(--spacing-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-hover-overlay);
-  max-height: 120px;
-  transition: opacity var(--transition-fast), max-height var(--transition-fast), padding var(--transition-fast), margin var(--transition-fast);
-}
-
-.sidebar-context__label {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-context__team,
-.sidebar-context__workspace {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.35;
-}
-
-.sidebar-context__team {
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-}
-
-.sidebar-context__workspace {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
-}
-
 .btn-text {
   overflow: hidden;
   white-space: nowrap;
@@ -764,18 +679,10 @@ onUnmounted(() => {
   will-change: opacity;
 }
 
-.sidebar.collapsed .btn-text,
-.sidebar.collapsed .sidebar-context {
+.sidebar.collapsed .btn-text {
   opacity: 0;
   max-width: 0;
   overflow: hidden;
-}
-
-.sidebar.collapsed .sidebar-context {
-  max-height: 0;
-  margin: 0;
-  padding: 0;
-  border-color: transparent;
 }
 
 .sidebar.collapsed .btn-text {

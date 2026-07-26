@@ -28,6 +28,8 @@ export const resetActiveRunState = (activeRun) => {
  * 收编原散落在 ChatViewV2 顶层(messages/currentSessionId/isLoading/isCompressing)、
  * useSessionTaskStatus 内部(sessionTaskInfo/sessionExecutionObservability/contextUsage)、
  * useActiveRunState 内部(activeRun reactive)的状态字段。
+ * 会话上下文(team/workspace/entry_agent)也放这里，供对话页各区域同源消费；
+ * 列表投影不含 metadata.team，team 以 session detail 为准。
  * llmRetryState(带定时器) 有行为，留阶段 2.3b。
  *
  * 各消费 composable 直接 useSessionRunStore() 取，不再走 deps 透传。业务行为（事件分发、
@@ -45,6 +47,11 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const llmRetryState = ref(null);
   // 正在等待服务端 message_saved 确认的运行中补充消息。它们不属于主消息列表。
   const pendingFollowupCandidates = ref([]);
+  // 会话上下文：已有 session 取 detail.metadata / workspace；新会话是创建前的 pending 选择
+  const currentSessionTeam = ref('');
+  const pendingWorkspaceRoot = ref('');
+  const pendingEntryAgent = ref('');
+  const sessionWorkspaceDisplay = ref('');
 
   const resetContextUsage = () => {
     contextUsage.value = { used: 0, max: 0 };
@@ -93,6 +100,25 @@ export const useSessionRunStore = defineStore('session-run', () => {
     pendingFollowupCandidates.value = [];
   };
 
+  const clearSessionContext = () => {
+    currentSessionTeam.value = '';
+    pendingWorkspaceRoot.value = '';
+    pendingEntryAgent.value = '';
+    sessionWorkspaceDisplay.value = '';
+  };
+
+  const applySessionContext = ({
+    team = '',
+    entryAgent = '',
+    workspaceRoot = '',
+    workspaceDisplay = '',
+  } = {}) => {
+    currentSessionTeam.value = typeof team === 'string' ? team : '';
+    pendingEntryAgent.value = typeof entryAgent === 'string' ? entryAgent : '';
+    pendingWorkspaceRoot.value = typeof workspaceRoot === 'string' ? workspaceRoot : '';
+    sessionWorkspaceDisplay.value = typeof workspaceDisplay === 'string' ? workspaceDisplay : '';
+  };
+
   return {
     currentSessionId,
     messages,
@@ -104,6 +130,10 @@ export const useSessionRunStore = defineStore('session-run', () => {
     activeRun,
     llmRetryState,
     pendingFollowupCandidates,
+    currentSessionTeam,
+    pendingWorkspaceRoot,
+    pendingEntryAgent,
+    sessionWorkspaceDisplay,
     resetContextUsage,
     resetActiveRun,
     enqueueFollowupCandidate,
@@ -111,5 +141,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
     markFollowupCandidateFailed,
     bindUnassignedFollowupCandidates,
     clearFollowupCandidates,
+    clearSessionContext,
+    applySessionContext,
   };
 });

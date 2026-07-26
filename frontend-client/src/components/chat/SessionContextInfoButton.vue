@@ -2,27 +2,27 @@
   <div v-if="hasContextPopover" class="session-context-info">
     <Popover v-model:open="metaExpanded">
       <PopoverTrigger as-child>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          :size="showSummary && compactSummary ? 'sm' : 'icon'"
           class="session-context-summary"
           :class="{ 'is-expanded': metaExpanded }"
           :title="summaryTitle"
           aria-label="查看会话与执行信息"
           :aria-expanded="metaExpanded ? 'true' : 'false'"
         >
-          <svg class="session-context-summary__icon" viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8" />
-            <path d="M12 10.5v5.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            <path d="M12 7.25h.01" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" />
-          </svg>
+          <Info data-icon="inline-start" aria-hidden="true" />
+          <span v-if="showSummary && compactSummary" class="session-context-summary__text">
+            {{ compactSummary }}
+          </span>
           <span v-if="showStatusChip" class="session-context-status-dot" :class="`tone-${statusTone}`" aria-hidden="true"></span>
-        </button>
+        </Button>
       </PopoverTrigger>
 
       <PopoverContent
         class="session-context-popover w-[420px] max-h-[360px]"
-        align="end"
-        side="top"
+        :align="align"
+        :side="side"
         :side-offset="12"
       >
         <div v-if="hasContextItems" class="session-meta-section">
@@ -34,6 +34,10 @@
           <div v-if="entryAgent" class="session-meta-item">
             <span class="session-meta-label">Agent</span>
             <span class="session-meta-value">{{ entryAgent }}</span>
+          </div>
+          <div v-if="workspaceDisplay" class="session-meta-item">
+            <span class="session-meta-label">工作区</span>
+            <span class="session-meta-value session-meta-value--path" :title="workspaceDisplay">{{ workspaceDisplay }}</span>
           </div>
           <div v-if="workspaceRoot" class="session-meta-item">
             <span class="session-meta-label">目录</span>
@@ -67,6 +71,8 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import { Info } from 'lucide-vue-next';
+import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 
 const props = defineProps({
@@ -74,16 +80,28 @@ const props = defineProps({
   team: { type: String, default: '' },
   entryAgent: { type: String, default: '' },
   workspaceRoot: { type: String, default: '' },
+  workspaceDisplay: { type: String, default: '' },
   executionStatusText: { type: String, default: '' },
   showExecutionStatus: { type: Boolean, default: false },
   executionObservability: { type: Object, default: null },
+  showSummary: { type: Boolean, default: false },
+  side: { type: String, default: 'top' },
+  align: { type: String, default: 'end' },
 });
 
 const metaExpanded = ref(false);
 
-const hasContextItems = computed(() => Boolean(props.team || props.entryAgent || props.workspaceRoot));
+const hasContextItems = computed(() => Boolean(
+  props.team || props.entryAgent || props.workspaceDisplay || props.workspaceRoot,
+));
 const showStatusChip = computed(() => Boolean(props.currentSessionId && props.showExecutionStatus));
 const hasContextPopover = computed(() => hasContextItems.value || showStatusChip.value);
+const workspaceSummary = computed(() => {
+  if (props.workspaceDisplay) return props.workspaceDisplay;
+  const parts = props.workspaceRoot.split(/[\\/]/).filter(Boolean);
+  return parts.at(-1) || props.workspaceRoot;
+});
+const compactSummary = computed(() => [props.team, workspaceSummary.value].filter(Boolean).join(' · '));
 const statusTone = computed(() => {
   const text = props.executionStatusText || '';
   if (text.includes('失败') || text.includes('异常')) return 'error';
@@ -96,6 +114,7 @@ const summaryTitle = computed(() => {
   const lines = [];
   if (props.team) lines.push(`Team: ${props.team}`);
   if (props.entryAgent) lines.push(`Agent: ${props.entryAgent}`);
+  if (props.workspaceDisplay) lines.push(`工作区: ${props.workspaceDisplay}`);
   if (props.workspaceRoot) lines.push(`目录: ${props.workspaceRoot}`);
   if (showStatusChip.value) lines.push(`状态: ${props.executionStatusText || '空闲'}`);
   return lines.join('\n') || '会话信息';
@@ -110,41 +129,15 @@ const summaryTitle = computed(() => {
 
 .session-context-summary {
   position: relative;
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  opacity: 0.72;
-  transition:
-    opacity var(--transition-fast),
-    color var(--transition-fast),
-    background var(--transition-fast),
-    border-color var(--transition-fast),
-    transform var(--transition-fast);
+  min-width: 0;
+  max-width: 260px;
 }
 
-.session-context-summary:hover,
-.session-context-summary.is-expanded {
-  opacity: 1;
-  color: var(--color-text-secondary);
-  background: var(--color-hover-overlay);
-  border-color: transparent;
-}
-
-.session-context-summary:active {
-  opacity: 0.6;
-}
-
-.session-context-summary__icon {
-  width: 18px;
-  height: 18px;
+.session-context-summary__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-context-status-dot {
@@ -240,6 +233,12 @@ const summaryTitle = computed(() => {
 @media (prefers-reduced-motion: reduce) {
   .session-context-summary {
     transition-duration: 1ms;
+  }
+}
+
+@media (max-width: 1100px) {
+  .session-context-summary__text {
+    display: none;
   }
 }
 </style>

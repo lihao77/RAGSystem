@@ -43,12 +43,18 @@ export function useChatSessionController(deps) {
   const router = useRouter();
   const dictStore = useDictionariesStore();
   const sessionListStore = useSessionListStore();
-  const { currentSessionId, isLoading, messages } = storeToRefs(useSessionRunStore());
-  const currentSessionTeam = ref('');
+  const sessionRunStore = useSessionRunStore();
+  const {
+    currentSessionId,
+    isLoading,
+    messages,
+    currentSessionTeam,
+    pendingWorkspaceRoot,
+    pendingEntryAgent,
+    sessionWorkspaceDisplay,
+  } = storeToRefs(sessionRunStore);
   const teamOptions = ref([]);
   const teamLoading = ref(false);
-  const pendingWorkspaceRoot = ref('');
-  const pendingEntryAgent = ref('');
   const entryAgentOptions = ref([]);
   const entryAgentLoading = ref(false);
   const isExportingSession = ref(false);
@@ -129,9 +135,13 @@ export function useChatSessionController(deps) {
     if (!isCurrent()) return false;
     const detail = result.data;
     const workspace = detail.workspace || listItem?.workspace || null;
-    pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(workspace?.root_path || '');
-    pendingEntryAgent.value = detail.metadata?.entry_agent || '';
-    currentSessionTeam.value = detail.metadata?.team || '';
+    const workspaceRoot = normalizeWorkspaceRootInput(workspace?.root_path || '');
+    sessionRunStore.applySessionContext({
+      team: detail.metadata?.team || '',
+      entryAgent: detail.metadata?.entry_agent || '',
+      workspaceRoot,
+      workspaceDisplay: workspace?.display_name || workspaceRoot || '',
+    });
     return true;
   };
 
@@ -182,9 +192,7 @@ export function useChatSessionController(deps) {
   };
 
   const resetNewSessionSetup = async () => {
-    pendingWorkspaceRoot.value = '';
-    pendingEntryAgent.value = '';
-    currentSessionTeam.value = '';
+    sessionRunStore.clearSessionContext();
     entryAgentOptions.value = [];
     await loadActiveTeam();
     await loadEntryAgentOptions(currentSessionTeam.value);
@@ -200,7 +208,14 @@ export function useChatSessionController(deps) {
       deps.clearExecutionState();
       isLoading.value = false;
       currentSessionId.value = sessionId;
+      // 不先清空上下文：列表无 team，清空会先闪「未选择」；
+      // workspace 能从列表立刻 seed，team 等 hydrate 覆盖（短暂保留上一会话 team 优于假空）。
       const matched = sessionListStore.getById(sessionId);
+      if (matched?.workspace) {
+        const seedRoot = normalizeWorkspaceRootInput(matched.workspace.root_path || '');
+        pendingWorkspaceRoot.value = seedRoot;
+        sessionWorkspaceDisplay.value = matched.workspace.display_name || seedRoot || '';
+      }
       if (!await hydrateSessionContext(sessionId, matched, isCurrent)) return;
       deps.clearComposerAttachments();
       await deps.loadSessionMessages(sessionId);
@@ -275,9 +290,13 @@ export function useChatSessionController(deps) {
       sessionListStore.upsert(createdListItem);
       sessionListStore.syncCreatedSessionFacets(createdListItem);
       void sessionListStore.loadFacets().catch(() => undefined);
-      pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(result.data.workspace?.root_path || workspaceRoot);
-      pendingEntryAgent.value = sessionMetadata.entry_agent || '';
-      currentSessionTeam.value = sessionMetadata.team || '';
+      const nextWorkspaceRoot = normalizeWorkspaceRootInput(result.data.workspace?.root_path || workspaceRoot);
+      sessionRunStore.applySessionContext({
+        team: sessionMetadata.team || '',
+        entryAgent: sessionMetadata.entry_agent || '',
+        workspaceRoot: nextWorkspaceRoot,
+        workspaceDisplay: result.data.workspace?.display_name || nextWorkspaceRoot || '',
+      });
       if (currentSessionId.value !== sessionId) {
         currentSessionId.value = sessionId;
       }
@@ -295,6 +314,7 @@ export function useChatSessionController(deps) {
     teamLoading,
     pendingWorkspaceRoot,
     pendingEntryAgent,
+    sessionWorkspaceDisplay,
     entryAgentOptions,
     entryAgentLoading,
     isExportingSession,

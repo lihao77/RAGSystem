@@ -9,6 +9,13 @@
         :scrolled="topControlsBarScrolled"
         :goal-state="goalState"
         :task-state="backgroundTaskState"
+        :team="currentSessionTeam"
+        :entry-agent="pendingEntryAgent"
+        :workspace-root="pendingWorkspaceRoot"
+        :workspace-display="sessionWorkspaceDisplay"
+        :execution-status-text="executionStatusText"
+        :show-execution-status="showExecutionPill"
+        :execution-observability="sessionExecutionObservability"
         @open-mobile-sidebar="openMobileSidebar"
         @export-session="exportCurrentSession"
         @open-file-changes="fileChangesOpen = true"
@@ -114,15 +121,6 @@
                   压缩中
                 </span>
               </div>
-              <SessionContextInfoButton
-                :current-session-id="currentSessionId || ''"
-                :team="currentSessionTeam"
-                :entry-agent="pendingEntryAgent"
-                :workspace-root="pendingWorkspaceRoot"
-                :execution-status-text="executionStatusText"
-                :show-execution-status="showExecutionPill"
-                :execution-observability="sessionExecutionObservability"
-              />
             </template>
           </ChatInput>
         </div>
@@ -239,7 +237,6 @@ import { useToast } from '../composables/useToast.js';
 import ChatMessageList from '../components/chat/ChatMessageList.vue';
 import ChatEmptyState from '../components/chat/ChatEmptyState.vue';
 import SessionContextBar from '../components/chat/SessionContextBar.vue';
-import SessionContextInfoButton from '../components/chat/SessionContextInfoButton.vue';
 import ApprovalQueueHost from '../components/chat/ApprovalQueueHost.vue';
 import TaskLauncher from '../components/chat/TaskLauncher.vue';
 import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
@@ -634,6 +631,7 @@ const {
   teamLoading,
   pendingWorkspaceRoot,
   pendingEntryAgent,
+  sessionWorkspaceDisplay,
   entryAgentOptions,
   entryAgentLoading,
   isExportingSession,
@@ -1033,212 +1031,6 @@ onUnmounted(() => {
   color: var(--color-text-muted);
 }
 
-.session-meta-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.session-meta-section + .session-meta-section {
-  margin-top: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-border);
-}
-
-.session-meta-section-title {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  font-weight: 600;
-}
-
-.session-meta-popover-anchor {
-  position: relative;
-  flex-shrink: 0;
-  z-index: calc(var(--z-sticky, 10) + 4);
-}
-
-.session-meta-popover-anchor--inline-end {
-  margin-left: auto;
-}
-
-.execution-pill--popover {
-  width: 20px;
-  height: 20px;
-  margin-left: 0;
-  color: var(--color-text-muted);
-}
-
-.execution-pill--popover:hover,
-.execution-pill--popover.is-expanded {
-  color: var(--color-text-primary);
-  opacity: 1;
-}
-
-.execution-pill__icon {
-  width: 14px;
-  height: 14px;
-}
-
-.session-meta-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-
-.session-meta-toggle--icon {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  justify-content: center;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.session-meta-toggle-arrow {
-  font-size: 11px;
-  color: var(--color-text-muted);
-}
-
-.session-meta-toggle:hover,
-.session-meta-toggle.is-expanded {
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-  background: var(--color-bg-tertiary);
-}
-
-.session-meta-panel {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 14px);
-  z-index: 120;
-  min-width: 260px;
-  max-width: min(420px, calc(100vw - 48px));
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-lg);
-}
-
-.session-meta-panel--end {
-  left: auto;
-  right: 0;
-  transform: translateY(-2px);
-}
-
-.session-meta-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-width: 0;
-}
-
-.session-meta-label {
-  flex-shrink: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-}
-
-.session-meta-value {
-  min-width: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-}
-
-.session-meta-value--path {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.execution-pill {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  margin-left: auto;
-  padding: 0;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: opacity 0.2s ease, color 0.2s ease;
-}
-
-.execution-pill::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: currentColor;
-  opacity: 0.9;
-}
-
-.execution-pill--popover::before {
-  display: none;
-}
-
-.execution-pill.is-running {
-  color: var(--color-brand-accent-light);
-}
-
-.execution-pill.is-running::before {
-  animation: execution-pill-breathe 1.8s ease-in-out infinite;
-}
-
-.execution-pill.is-warning {
-  color: var(--color-warning);
-}
-
-.execution-pill.is-warning::before {
-  animation: execution-pill-breathe 1.6s ease-in-out infinite;
-}
-
-.execution-pill.is-error {
-  color: var(--color-error);
-}
-
-.execution-pill.is-error::before {
-  animation: execution-pill-breathe 1.35s ease-in-out infinite;
-}
-
-.execution-pill.is-success {
-  color: var(--color-success);
-}
-
-@keyframes execution-pill-breathe {
-  0%, 100% {
-    opacity: 0.45;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.08);
-  }
-}
-/* .context-usage-bar:hover {
-  background: var(--color-bg-secondary);
-} */
-
 .composer-run-controls {
   display: flex;
   min-width: 0;
@@ -1298,12 +1090,6 @@ onUnmounted(() => {
   outline: 1px solid rgba(var(--color-active-rgb), 0.34);
   outline-offset: 4px;
   transition: outline-color 0.2s ease;
-}
-
-@media (max-width: 640px) {
-  .execution-pill {
-    margin-left: 0;
-  }
 }
 
 @media (max-width: 480px) {

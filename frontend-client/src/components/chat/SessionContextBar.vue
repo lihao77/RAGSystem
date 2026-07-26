@@ -13,6 +13,20 @@
       </Button>
 
       <span class="conversation-title" :title="sessionTitle">{{ sessionTitle }}</span>
+      <SessionContextInfoButton
+        v-if="currentSessionId"
+        :current-session-id="currentSessionId"
+        :team="team"
+        :entry-agent="entryAgent"
+        :workspace-root="workspaceRoot"
+        :workspace-display="workspaceDisplay"
+        :execution-status-text="executionStatusText"
+        :show-execution-status="showExecutionStatus"
+        :execution-observability="executionObservability"
+        show-summary
+        side="bottom"
+        align="start"
+      />
     </div>
 
     <div class="session-runtime-actions">
@@ -117,6 +131,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { useThemeStore } from '../../stores/theme.js';
+import SessionContextInfoButton from './SessionContextInfoButton.vue';
 
 const themeStore = useThemeStore();
 const isWideWorkbench = useMediaQuery('(min-width: 1200px)');
@@ -128,6 +143,13 @@ const props = defineProps({
   scrolled: { type: Boolean, default: false },
   goalState: { type: Object, required: true },
   taskState: { type: Object, required: true },
+  team: { type: String, default: '' },
+  entryAgent: { type: String, default: '' },
+  workspaceRoot: { type: String, default: '' },
+  workspaceDisplay: { type: String, default: '' },
+  executionStatusText: { type: String, default: '' },
+  showExecutionStatus: { type: Boolean, default: false },
+  executionObservability: { type: Object, default: null },
 });
 
 const emit = defineEmits([
