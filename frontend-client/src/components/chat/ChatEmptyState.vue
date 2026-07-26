@@ -6,46 +6,11 @@
     <div v-if="$slots.setup" class="new-chat-setup">
       <slot name="setup" />
     </div>
-    <div class="new-chat-prompts" aria-label="快捷开始">
-      <button
-        v-for="item in suggestions"
-        :key="item.title"
-        type="button"
-        class="new-chat-prompt"
-        @click="emit('selectPrompt', item.prompt)"
-      >
-        <span class="new-chat-prompt__title">{{ item.title }}</span>
-        <span class="new-chat-prompt__desc">{{ item.desc }}</span>
-      </button>
-    </div>
   </section>
 </template>
 
 <script setup>
-const emit = defineEmits(['selectPrompt']);
-
-const suggestions = [
-  {
-    title: '梳理代码库',
-    desc: '找出入口、模块关系和下一步改造点',
-    prompt: '请先梳理这个代码库的结构，说明主要模块、启动入口和最值得优先改进的地方。',
-  },
-  {
-    title: '实现一个改动',
-    desc: '描述目标后直接进入修改和验证',
-    prompt: '请根据当前项目实现这个改动：',
-  },
-  {
-    title: '排查问题',
-    desc: '从现象定位原因并给出修复',
-    prompt: '请帮我排查这个问题，先定位原因，再给出最小修复方案：',
-  },
-  {
-    title: '生成方案',
-    desc: '把模糊需求拆成可执行步骤',
-    prompt: '请把下面这个需求拆成清晰的实施方案，并指出风险点：',
-  },
-];
+// 起始页只保留标题 + 启动设置；快捷 prompt 卡片已移除
 </script>
 
 <style scoped>
@@ -90,61 +55,6 @@ const suggestions = [
   margin-top: 24px;
 }
 
-.new-chat-prompts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 28px;
-}
-
-.new-chat-prompt {
-  min-height: 84px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 7px;
-  padding: 16px 18px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: rgba(var(--color-bg-elevated-rgb), 0.46);
-  color: var(--color-text-primary);
-  text-align: left;
-  cursor: pointer;
-  box-shadow: none;
-  transition:
-    background-color 180ms ease,
-    border-color 180ms ease,
-    transform 180ms ease;
-}
-
-.new-chat-prompt:hover {
-  transform: translateY(-1px);
-  border-color: var(--color-border-hover);
-  background: rgba(var(--color-bg-elevated-rgb), 0.7);
-}
-
-.new-chat-prompt:active {
-  transform: translateY(0);
-}
-
-.new-chat-prompt:focus-visible {
-  outline: 2px solid rgba(var(--color-brand-accent-rgb), 0.42);
-  outline-offset: 2px;
-}
-
-.new-chat-prompt__title {
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.new-chat-prompt__desc {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  line-height: 1.45;
-}
-
 @keyframes titleFadeIn {
   from {
     opacity: 0;
@@ -165,18 +75,8 @@ const suggestions = [
     font-size: 34px;
   }
 
-  .new-chat-prompts {
-    grid-template-columns: 1fr;
-    margin-top: 20px;
-  }
-
   .new-chat-setup {
     margin-top: 20px;
-  }
-
-  .new-chat-prompt {
-    min-height: 72px;
-    padding: 13px 14px;
   }
 }
 

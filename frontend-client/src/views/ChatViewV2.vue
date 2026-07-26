@@ -24,7 +24,7 @@
           @citation-click="openCitation"
         >
           <template #empty>
-            <ChatEmptyState @select-prompt="applyNewChatSuggestion">
+            <ChatEmptyState>
               <template #setup>
                 <TaskLauncher
                   :team="currentSessionTeam"
@@ -737,12 +737,6 @@ const handleSend = async (payload = null) => {
       finishNewChatLaunchSoon(messages.value.length > 0 ? 620 : 220);
     }
   }
-};
-
-const applyNewChatSuggestion = async (prompt) => {
-  inputMessage.value = prompt;
-  await nextTick();
-  await focusInput();
 };
 
 const handleSituationSendMessage = (text) => {

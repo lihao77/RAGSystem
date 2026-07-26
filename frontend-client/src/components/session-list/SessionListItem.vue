@@ -17,7 +17,7 @@
         <span class="truncate text-sm font-medium leading-5">{{ displayTitle }}</span>
         <span
           v-if="secondaryLabel"
-          class="truncate text-xs leading-4 text-muted-foreground/80"
+          class="session-secondary truncate text-xs leading-4"
         >
           {{ secondaryLabel }}
         </span>
@@ -120,6 +120,11 @@ const timeLabel = computed(() => formatSessionTime(props.item.activity_at, props
 </script>
 
 <style scoped>
+/* 次行辅助信息：比 muted 再淡一档；不用 text-muted/xx（token 是实色 hex，opacity 修饰不生效） */
+.session-secondary {
+  color: color-mix(in srgb, var(--color-text-muted) 58%, transparent);
+}
+
 /* icon-xs = size-7 = 1.75rem；默认槽宽 0，hover 展开把时间挤向左 */
 .session-delete-slot {
   display: flex;
