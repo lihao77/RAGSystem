@@ -29,7 +29,7 @@ export class RemoteHttpSandboxProvider implements SandboxProvider {
   private readonly token: string;
   private readonly requestTimeoutMs: number;
 
-  constructor(input: { baseUrl: string; token: string; requestTimeoutMs?: number }) {
+  constructor(input: { baseUrl: string; token: string; requestTimeoutMs?: number; allowInsecureHttp?: boolean }) {
     const baseUrl = input.baseUrl.trim().replace(/\/+$/, "");
     const token = input.token.trim();
     let parsedUrl: URL;
@@ -38,7 +38,7 @@ export class RemoteHttpSandboxProvider implements SandboxProvider {
       throw new Error("Sandbox baseUrl must not contain credentials, query parameters, or fragments");
     }
     const localHttp = parsedUrl.protocol === "http:" && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsedUrl.hostname);
-    if (parsedUrl.protocol !== "https:" && !localHttp) {
+    if (parsedUrl.protocol !== "https:" && !localHttp && input.allowInsecureHttp !== true) {
       throw new Error("Sandbox baseUrl must use HTTPS (plain HTTP is only allowed for localhost)");
     }
     if (!token) throw new Error("Sandbox bearer token is required");
@@ -122,11 +122,23 @@ export class RemoteHttpSandboxProvider implements SandboxProvider {
   }
 
   async exec(lease: SandboxLease, input: Parameters<SandboxProvider["exec"]>[1]): Promise<SandboxExecResult> {
-    return requireExecResult(await this.request("POST", `${this.sandboxPath(lease)}/exec`, withoutSignal(input), input.signal));
+    return requireExecResult(await this.request(
+      "POST",
+      `${this.sandboxPath(lease)}/exec`,
+      withoutSignal(input),
+      input.signal,
+      Math.max(this.requestTimeoutMs, (input.timeoutSeconds + 25) * 1_000),
+    ));
   }
 
   async executeCode(lease: SandboxLease, input: Parameters<SandboxProvider["executeCode"]>[1]): Promise<SandboxCodeResult> {
-    const body = requireRecord(await this.request("POST", `${this.sandboxPath(lease)}/code`, withoutSignal(input), input.signal), "code response");
+    const body = requireRecord(await this.request(
+      "POST",
+      `${this.sandboxPath(lease)}/code`,
+      withoutSignal(input),
+      input.signal,
+      Math.max(this.requestTimeoutMs, (input.timeoutSeconds + 25) * 1_000),
+    ), "code response");
     return { ...requireExecResult(body), result: body.result };
   }
 
@@ -134,9 +146,9 @@ export class RemoteHttpSandboxProvider implements SandboxProvider {
     return `/v1/sandboxes/${encodeURIComponent(lease.id)}`;
   }
 
-  private async request(method: string, endpoint: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
+  private async request(method: string, endpoint: string, body?: unknown, signal?: AbortSignal, timeoutMs = this.requestTimeoutMs): Promise<unknown> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error("Sandbox request timed out")), this.requestTimeoutMs);
+    const timeout = setTimeout(() => controller.abort(new Error("Sandbox request timed out")), timeoutMs);
     const onAbort = (): void => controller.abort(signal?.reason);
     signal?.addEventListener("abort", onAbort, { once: true });
     try {

@@ -115,14 +115,25 @@ Local 模式使用默认 compose：
 docker compose up --build
 ```
 
-Hybrid SaaS 测试模式使用独立 compose。启动前必须设置足够长的随机 session 密钥：
+Hybrid SaaS 测试模式使用独立 compose。启动前在仓库根目录的 `.env` 中配置三个独立随机密钥：
 
-```powershell
-$env:SESSION_JWT_SECRET="replace-with-a-long-random-secret"
+```dotenv
+SESSION_JWT_SECRET=replace-with-a-long-random-secret
+CONTROL_SECRET_MASTER_KEY=replace-with-a-base64-encoded-32-byte-key
+SANDBOX_REMOTE_TOKEN=replace-with-an-independent-long-random-token
+```
+
+然后构建并启动：
+
+```bash
 docker compose -f docker-compose.saas.yml up --build
 ```
 
-前端地址为 `http://localhost:8080`，首次访问通过安装向导创建管理员和默认租户。SaaS compose 使用独立的 `ragsystem-saas-data` 和 `ragsystem-saas-postgres` volumes，不会读取默认 Local compose 的数据。
+前端地址为 `http://localhost:8080`，首次访问通过安装向导创建管理员和默认租户。SaaS compose 使用独立的 `ragsystem-saas-data`、`ragsystem-saas-postgres` 和对象存储 volumes，不会读取默认 Local compose 的数据。
+
+该 compose 会同时启动沙箱控制面与执行镜像。Backend 不挂载 Docker Socket；只有沙箱控制面可以创建一次性执行容器。每个 lease 使用独立 named volumes，执行容器默认禁网、只读根文件系统、非 root 用户、移除 capabilities，并限制内存、CPU 与 PID。上传文件会通过租户存储复制到该 lease 的只读输入卷，不会直接挂载宿主机 workspace、upload 等目录。
+
+默认 Docker `runc` 配置适合单机开发与可信/半可信任务的租户文件隔离，但不能视为针对恶意代码的生产级内核隔离。生产环境应将沙箱部署到独立 Linux 节点，安装 gVisor 或 Kata Containers，并通过 `SANDBOX_DOCKER_RUNTIME=runsc`（或相应 Kata runtime）启用；不要将沙箱控制端口暴露到公网。远程部署还必须使用 HTTPS，并移除 `SANDBOX_ALLOW_INSECURE_HTTP`。
 
 停止但保留数据：
 
@@ -130,7 +141,7 @@ docker compose -f docker-compose.saas.yml up --build
 docker compose -f docker-compose.saas.yml down
 ```
 
-该模式当前仅将 Memory 存入 PostgreSQL；Control、Conversation、Run、Outbox、Knowledge 和文件仍使用容器 `/data` 下的 SQLite/目录，因此不能作为完整多实例 SaaS 部署。
+该配置仍是单机 SaaS 开发拓扑，不是完整的多节点高可用部署。尤其是 Docker Socket 控制面、沙箱容量调度、磁盘配额和 gVisor/Kata 节点需要在生产环境单独规划。
 
 ### 6. 构建 Windows 安装包
 

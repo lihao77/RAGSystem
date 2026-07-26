@@ -36,6 +36,7 @@ export class SaaSTenantRuntimeRegistry
           baseUrl: env.sandboxRemoteUrl,
           token: env.sandboxRemoteToken,
           requestTimeoutMs: env.sandboxRequestTimeoutMs ?? 30_000,
+          allowInsecureHttp: env.sandboxAllowInsecureHttp,
         })
       : undefined);
     const tenantRoot = (tenantId: TenantId) => path.join(env.tenantsRoot, tenantId);

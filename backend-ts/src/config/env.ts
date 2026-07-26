@@ -56,6 +56,7 @@ const EnvSchema = z.object({
   SANDBOX_REMOTE_TOKEN: z.string().optional(),
   SANDBOX_REQUEST_TIMEOUT_MS: z.string().optional(),
   SANDBOX_LEASE_TIMEOUT_SECONDS: z.string().optional(),
+  SANDBOX_ALLOW_INSECURE_HTTP: z.string().optional(),
 });
 
 export interface AppEnv {
@@ -94,6 +95,7 @@ export interface AppEnv {
   sandboxRemoteToken?: string | undefined;
   sandboxRequestTimeoutMs?: number | undefined;
   sandboxLeaseTimeoutSeconds?: number | undefined;
+  sandboxAllowInsecureHttp: boolean;
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
@@ -156,6 +158,7 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     sandboxRemoteToken: env.SANDBOX_REMOTE_TOKEN?.trim() || undefined,
     sandboxRequestTimeoutMs: parsePositiveInteger(env.SANDBOX_REQUEST_TIMEOUT_MS, 30_000, "SANDBOX_REQUEST_TIMEOUT_MS"),
     sandboxLeaseTimeoutSeconds: parsePositiveInteger(env.SANDBOX_LEASE_TIMEOUT_SECONDS, 900, "SANDBOX_LEASE_TIMEOUT_SECONDS"),
+    sandboxAllowInsecureHttp: parseBooleanFlag(env.SANDBOX_ALLOW_INSECURE_HTTP),
   };
   if (Boolean(appEnv.sandboxRemoteUrl) !== Boolean(appEnv.sandboxRemoteToken)) {
     throw new Error("SANDBOX_REMOTE_URL and SANDBOX_REMOTE_TOKEN must be configured together");

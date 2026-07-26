@@ -58,6 +58,8 @@ skills-lock.json
 tests/
 !backend-ts/tests/
 !backend-ts/tests/**
+!sandbox-service/tests/
+!sandbox-service/tests/**
 !packages/agent-widget/tests/
 packages/agent-widget/tests/*
 !packages/agent-widget/tests/widget-agent-client.test.ts

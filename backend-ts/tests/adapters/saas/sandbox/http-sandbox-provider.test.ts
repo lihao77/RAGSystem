@@ -64,6 +64,7 @@ describe("RemoteHttpSandboxProvider", () => {
 
   it("forbids cleartext remote endpoints but permits local development HTTP", () => {
     expect(() => new RemoteHttpSandboxProvider({ baseUrl: "http://sandbox.internal", token: "x" })).toThrow("HTTPS");
+    expect(() => new RemoteHttpSandboxProvider({ baseUrl: "http://sandbox.internal", token: "x", allowInsecureHttp: true })).not.toThrow();
     expect(() => new RemoteHttpSandboxProvider({ baseUrl: "http://127.0.0.1:8080", token: "x" })).not.toThrow();
     expect(() => new RemoteHttpSandboxProvider({ baseUrl: "http://[::1]:8080", token: "x" })).not.toThrow();
   });

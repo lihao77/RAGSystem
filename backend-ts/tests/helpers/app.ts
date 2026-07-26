@@ -35,6 +35,7 @@ export const testEnv: AppEnv = {
   tenantsRoot: path.join(".test-data", "tenants"),
   systemRoot: path.join(".test-data", "system"),
   allowUnsafeLocalExecution: false,
+  sandboxAllowInsecureHttp: false,
   postgresPoolMax: 10,
   objectStorageMode: "filesystem",
   objectStorageRegion: "us-east-1",

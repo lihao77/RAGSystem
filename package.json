@@ -6,6 +6,7 @@
     "packages/*",
     "examples/*",
     "backend-ts",
+    "sandbox-service",
     "frontend-client",
     "host-tool-mcp-server"
   ],

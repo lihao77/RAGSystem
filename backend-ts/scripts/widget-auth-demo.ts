@@ -37,6 +37,7 @@ async function buildHarness(widgetJwtSecret: string) {
     objectStorageMode: "filesystem",
     objectStorageRegion: "us-east-1",
     objectStorageForcePathStyle: false,
+    sandboxAllowInsecureHttp: false,
   };
   const container = await createLocalRuntimeContainer({
     tenantId: LOCAL_TENANT_ID,

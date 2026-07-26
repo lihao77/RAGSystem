@@ -109,12 +109,14 @@ describe("deployment profile", () => {
       SANDBOX_REMOTE_TOKEN: "secret",
       SANDBOX_REQUEST_TIMEOUT_MS: "45000",
       SANDBOX_LEASE_TIMEOUT_SECONDS: "600",
+      SANDBOX_ALLOW_INSECURE_HTTP: "true",
     });
     expect(env).toMatchObject({
       sandboxRemoteUrl: "https://sandbox.example",
       sandboxRemoteToken: "secret",
       sandboxRequestTimeoutMs: 45_000,
       sandboxLeaseTimeoutSeconds: 600,
+      sandboxAllowInsecureHttp: true,
     });
     expect(() => loadEnv({ SANDBOX_REMOTE_URL: "https://sandbox.example" })).toThrow("configured together");
     expect(() => loadEnv({ SANDBOX_REMOTE_TOKEN: "secret" })).toThrow("configured together");

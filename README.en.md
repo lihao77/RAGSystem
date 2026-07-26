@@ -113,14 +113,25 @@ Use the default compose file for Local mode:
 docker compose up --build
 ```
 
-Use the standalone compose file for the Hybrid SaaS test profile. Set a long random session secret before startup:
+Use the standalone compose file for the Hybrid SaaS test profile. Before startup, put three independent random secrets in the repository root `.env` file:
 
-```powershell
-$env:SESSION_JWT_SECRET="replace-with-a-long-random-secret"
+```dotenv
+SESSION_JWT_SECRET=replace-with-a-long-random-secret
+CONTROL_SECRET_MASTER_KEY=replace-with-a-base64-encoded-32-byte-key
+SANDBOX_REMOTE_TOKEN=replace-with-an-independent-long-random-token
+```
+
+Then build and start the stack:
+
+```bash
 docker compose -f docker-compose.saas.yml up --build
 ```
 
-Open `http://localhost:8080` and use the installation wizard to create the initial administrator and default tenant. The SaaS compose uses separate `ragsystem-saas-data` and `ragsystem-saas-postgres` volumes, so it does not read data from the default Local compose.
+Open `http://localhost:8080` and use the installation wizard to create the initial administrator and default tenant. The SaaS compose uses separate `ragsystem-saas-data`, `ragsystem-saas-postgres`, and object-storage volumes, so it does not read data from the default Local compose.
+
+The composition also starts the sandbox control plane and runtime image. The Backend does not mount the Docker Socket; only the sandbox control plane can create disposable execution containers. Each lease receives independent named volumes. Execution containers have networking disabled, a read-only root filesystem, a non-root user, all capabilities dropped, and memory, CPU, and PID limits. Uploaded files are copied from tenant storage into the lease's read-only input volume instead of mounting host workspace or upload directories.
+
+The default Docker `runc` setup is intended for single-host development and tenant file isolation for trusted or semi-trusted workloads. It is not production-grade kernel isolation for hostile code. In production, run the sandbox on a dedicated Linux node, install gVisor or Kata Containers, and select it with `SANDBOX_DOCKER_RUNTIME=runsc` (or the corresponding Kata runtime). Never expose the sandbox control port publicly. A remote deployment must use HTTPS and remove `SANDBOX_ALLOW_INSECURE_HTTP`.
 
 Stop the stack while preserving its data:
 
@@ -128,7 +139,7 @@ Stop the stack while preserving its data:
 docker compose -f docker-compose.saas.yml down
 ```
 
-This profile currently stores only Memory in PostgreSQL. Control, Conversation, Run, Outbox, Knowledge, and files still use SQLite or directories under the container's `/data`, so this is not yet a complete multi-instance SaaS deployment.
+This remains a single-host SaaS development topology, not a complete multi-node high-availability deployment. Production requires separate planning for the Docker Socket control plane, sandbox capacity scheduling, disk quotas, and gVisor/Kata worker nodes.
 
 ### 6. Build a Windows Installer
 

@@ -198,6 +198,7 @@ function createRegistryHarness(options: {
     systemRoot: path.join(dataRoot, "system"),
     tenancyMode: options.localOnly ? "single" : "multi",
     allowUnsafeLocalExecution: false,
+    sandboxAllowInsecureHttp: false,
     postgresPoolMax: 10,
     objectStorageMode: "filesystem",
     objectStorageRegion: "us-east-1",
