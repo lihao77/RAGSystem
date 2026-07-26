@@ -10,11 +10,14 @@ import type { RuntimeContainerRegistry } from "../../../services/runtime/runtime
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
 import type { SaaSMemoryRuntimeHandle } from "./saas-memory-runtime.js";
 import { createSaaSRuntimeContainer, prepareSaaSRuntimeContainer } from "./saas-runtime-container.js";
+import type { SandboxProvider } from "../../../contracts/sandbox/sandbox-provider.js";
+import { RemoteHttpSandboxProvider } from "../sandbox/http-sandbox-provider.js";
 
 export interface SaaSTenantRuntimeRegistryOptions {
   idleTimeoutMs?: number;
   sweepIntervalMs?: number;
   memoryRuntime?: SaaSMemoryRuntimeHandle;
+  sandboxProvider?: SandboxProvider;
 }
 
 /** SaaS deployment adapter around the shared tenant runtime lifecycle. */
@@ -28,6 +31,13 @@ export class SaaSTenantRuntimeRegistry
     logger?: AgentExecutionLogger,
     options: SaaSTenantRuntimeRegistryOptions = {},
   ) {
+    const sandboxProvider = options.sandboxProvider ?? (env.sandboxRemoteUrl && env.sandboxRemoteToken
+      ? new RemoteHttpSandboxProvider({
+          baseUrl: env.sandboxRemoteUrl,
+          token: env.sandboxRemoteToken,
+          requestTimeoutMs: env.sandboxRequestTimeoutMs ?? 30_000,
+        })
+      : undefined);
     const tenantRoot = (tenantId: TenantId) => path.join(env.tenantsRoot, tenantId);
     super(tenantDirectory, {
       ...(options.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.idleTimeoutMs }),
@@ -39,6 +49,7 @@ export class SaaSTenantRuntimeRegistry
           dataRoot,
           conversationRuntime,
           memoryRuntime: requireMemoryRuntime(options.memoryRuntime),
+          ...(sandboxProvider ? { sandboxProvider, sandboxLeaseTimeoutSeconds: env.sandboxLeaseTimeoutSeconds ?? 900 } : {}),
           ...(logger ? { logger } : {}),
         });
         try {

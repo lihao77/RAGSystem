@@ -10,7 +10,7 @@ import { isAbsolutePathLike, isPathUnder, resolvePathLike } from "../shared/path
 const DISPLAY_PATH_PREFIX = "./data/";
 
 export type ManagedOperation = "read" | "write" | "edit";
-type ManagedSpace = "workspace" | "transient" | "exports";
+type ManagedSpace = "uploads" | "workspace" | "transient" | "exports";
 
 export class LocalDocumentPathManager {
   constructor(private readonly dataRoot: string) {}
@@ -37,6 +37,9 @@ export class LocalDocumentPathManager {
       normalizeString(input.customParams?.workspace_root);
     const explicitSpace = normalizeManagedSpace(input.explicitSpace);
     const defaultOutputSpace = normalizeManagedSpace(input.customParams?.default_output_space) ?? null;
+    if (explicitSpace === "uploads" && input.operation !== "read") {
+      throw new Error("uploads 是只读空间，禁止写入或编辑");
+    }
 
     if (!rawPath) {
       const root = this.allocateOutputRoot({
@@ -250,6 +253,9 @@ export class LocalDocumentPathManager {
     if (!input.sessionId) {
       throw new Error(`${space} 路径缺少 session_id`);
     }
+    if (space === "uploads") {
+      return path.join(this.dataRoot, "sessions", input.sessionId, "uploads");
+    }
     if (space === "transient") {
       return path.join(this.dataRoot, "sessions", input.sessionId, "transient");
     }
@@ -309,7 +315,7 @@ function randomSuffix(): string {
 
 function normalizeManagedSpace(value: unknown): ManagedSpace | null {
   const normalized = normalizeString(value)?.toLowerCase();
-  if (normalized === "workspace" || normalized === "transient" || normalized === "exports") {
+  if (normalized === "uploads" || normalized === "workspace" || normalized === "transient" || normalized === "exports") {
     return normalized;
   }
   if (normalized) {

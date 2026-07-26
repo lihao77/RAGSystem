@@ -102,6 +102,24 @@ describe("deployment profile", () => {
     expect(() => loadEnv({ POSTGRES_POOL_MAX: "1.5" })).toThrow("POSTGRES_POOL_MAX");
   });
 
+  it("loads sandbox provider settings and requires URL/token together", () => {
+    const env = loadEnv({
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-sandbox"),
+      SANDBOX_REMOTE_URL: "https://sandbox.example",
+      SANDBOX_REMOTE_TOKEN: "secret",
+      SANDBOX_REQUEST_TIMEOUT_MS: "45000",
+      SANDBOX_LEASE_TIMEOUT_SECONDS: "600",
+    });
+    expect(env).toMatchObject({
+      sandboxRemoteUrl: "https://sandbox.example",
+      sandboxRemoteToken: "secret",
+      sandboxRequestTimeoutMs: 45_000,
+      sandboxLeaseTimeoutSeconds: 600,
+    });
+    expect(() => loadEnv({ SANDBOX_REMOTE_URL: "https://sandbox.example" })).toThrow("configured together");
+    expect(() => loadEnv({ SANDBOX_REMOTE_TOKEN: "secret" })).toThrow("configured together");
+  });
+
   it("requires a database URL when PostgreSQL storage is selected", () => {
     expect(() => loadEnv({
       RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-postgres-required"),

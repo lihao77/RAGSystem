@@ -27,6 +27,14 @@ import { SaaSPermissionPolicyStore } from "../postgres/saas-permission-policy-st
 import { createPostgresExecutionStorage } from "../postgres/postgres-execution-storage.js";
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
 import type { SaaSMemoryRuntimeHandle } from "./saas-memory-runtime.js";
+import type { SandboxProvider } from "../../../contracts/sandbox/sandbox-provider.js";
+import { SandboxLeaseManager } from "../sandbox/sandbox-lease-manager.js";
+import {
+  SaaSSandboxBashToolService,
+  SaaSSandboxCodeExecutionService,
+  SaaSSandboxDocumentToolService,
+  SaaSSandboxSearchToolService,
+} from "../sandbox/sandbox-tool-services.js";
 export interface SaaSRuntimeContainerOptions {
   tenantId: TenantId;
   dataRoot: string;
@@ -36,6 +44,8 @@ export interface SaaSRuntimeContainerOptions {
   hooks?: (registry: HookRegistry) => void;
   modelAdapterProvidersConfigPath?: string;
   mcpConfigPath?: string;
+  sandboxProvider?: SandboxProvider;
+  sandboxLeaseTimeoutSeconds?: number;
 }
 
 /** Assemble a tenant runtime without constructing any Local or SQLite adapter. */
@@ -111,6 +121,13 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   const artifacts = conversationRuntime.createArtifactService(tenantId);
   const memory = memoryRuntime.provider.memoryForTenant(tenantId);
   const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
+  const sandboxLeases = options.sandboxProvider
+    ? new SandboxLeaseManager(tenantId, options.sandboxProvider, options.sandboxLeaseTimeoutSeconds)
+    : null;
+  const documentTools = sandboxLeases ? new SaaSSandboxDocumentToolService(sandboxLeases) : null;
+  const searchTools = sandboxLeases ? new SaaSSandboxSearchToolService(sandboxLeases) : null;
+  const bashTools = sandboxLeases ? new SaaSSandboxBashToolService(sandboxLeases) : null;
+  const codeExecutionTools = sandboxLeases ? new SaaSSandboxCodeExecutionService(sandboxLeases) : null;
 
   return createCoreRuntimeContainer({
     deploymentKind: "saas",
@@ -118,7 +135,12 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     dataRoot,
     getMemoryConfig: () => systemConfig.getMemoryConfig(),
     ...(options.logger ? { logger: options.logger } : {}),
-    ...(options.hooks ? { hooks: options.hooks } : {}),
+    ...((options.hooks || sandboxLeases) ? { hooks: (registry: HookRegistry) => {
+      options.hooks?.(registry);
+      if (sandboxLeases) {
+        registry.on("run.after", ({ session }) => sandboxLeases.releaseRun(session.sessionId, session.runId));
+      }
+    } } : {}),
     clientEvents,
     runtimeStorage,
     delegationStore: conversationRuntime.createDelegationStore(tenantId),
@@ -156,12 +178,12 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
         (await runtimeStorage.operations.consumePendingFollowups(followups)).messages,
     }),
     pathAccessPolicyFactory: () => new PathApprovalService(),
-    documentTools: null,
-    codeExecutionTools: null,
+    documentTools,
+    codeExecutionTools,
     skillTools,
     skillLibrary,
-    searchTools: null,
-    bashTools: null,
+    searchTools,
+    bashTools,
     backgroundTasks,
     taskTools,
     goalStore,
@@ -182,6 +204,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
       realtimeEvents.close();
       // Drop this tenant's MCP connections when the container is idle-closed.
       conversationRuntime.providerMcpApplication.dropMcpRuntime(tenantId);
+      void sandboxLeases?.closeAll();
     },
   });
 }

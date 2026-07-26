@@ -52,6 +52,10 @@ const EnvSchema = z.object({
   OBJECT_STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
   OBJECT_STORAGE_REGION: z.string().optional(),
   OBJECT_STORAGE_FORCE_PATH_STYLE: z.string().optional(),
+  SANDBOX_REMOTE_URL: z.string().optional(),
+  SANDBOX_REMOTE_TOKEN: z.string().optional(),
+  SANDBOX_REQUEST_TIMEOUT_MS: z.string().optional(),
+  SANDBOX_LEASE_TIMEOUT_SECONDS: z.string().optional(),
 });
 
 export interface AppEnv {
@@ -86,6 +90,10 @@ export interface AppEnv {
   /** 用户 session JWT 签名密钥；password 模式必须可解析。 */
   sessionJwtSecret?: string | undefined;
   sessionTokenTtlHours?: number | undefined;
+  sandboxRemoteUrl?: string | undefined;
+  sandboxRemoteToken?: string | undefined;
+  sandboxRequestTimeoutMs?: number | undefined;
+  sandboxLeaseTimeoutSeconds?: number | undefined;
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
@@ -144,7 +152,14 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     widgetJwtKeyRing: parseWidgetJwtKeyRing(env.WIDGET_JWT_KEY_RING),
     sessionJwtSecret: env.SESSION_JWT_SECRET?.trim() || undefined,
     sessionTokenTtlHours: parsePositiveNumber(env.SESSION_TOKEN_TTL_HOURS, 168, "SESSION_TOKEN_TTL_HOURS"),
+    sandboxRemoteUrl: env.SANDBOX_REMOTE_URL?.trim() || undefined,
+    sandboxRemoteToken: env.SANDBOX_REMOTE_TOKEN?.trim() || undefined,
+    sandboxRequestTimeoutMs: parsePositiveInteger(env.SANDBOX_REQUEST_TIMEOUT_MS, 30_000, "SANDBOX_REQUEST_TIMEOUT_MS"),
+    sandboxLeaseTimeoutSeconds: parsePositiveInteger(env.SANDBOX_LEASE_TIMEOUT_SECONDS, 900, "SANDBOX_LEASE_TIMEOUT_SECONDS"),
   };
+  if (Boolean(appEnv.sandboxRemoteUrl) !== Boolean(appEnv.sandboxRemoteToken)) {
+    throw new Error("SANDBOX_REMOTE_URL and SANDBOX_REMOTE_TOKEN must be configured together");
+  }
   if (isSaaS && appEnv.storageMode !== "postgres") {
     throw new Error("DEPLOYMENT_MODE=saas requires STORAGE_MODE=postgres; SQLite runtime storage is not allowed");
   }
