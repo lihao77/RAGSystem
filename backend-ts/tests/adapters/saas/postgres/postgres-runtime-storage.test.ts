@@ -46,6 +46,28 @@ function interactionInput(interactionId: string, toolCallId: string, batchId = "
   };
 }
 
+function expiredRunRecord(sessionId: string, runId: string) {
+  const eventId = `${runId}:lease-expired:run_ended`;
+  const event = {
+    type: "run_ended",
+    session_id: sessionId,
+    run_id: runId,
+    payload: { status: "interrupted", reason: "run_lease_expired" },
+  };
+  return {
+    step: { sessionId, runId, stepType: "protocol.envelope.v1", payload: event },
+    outbox: {
+      eventId,
+      sessionId,
+      runId,
+      eventType: "client.run_ended",
+      aggregateType: "run",
+      aggregateId: runId,
+      payload: { client_event: event },
+    },
+  };
+}
+
 function interactionRecord(
   interaction: ReturnType<typeof interactionInput>,
   phase: "required" | "responded",
@@ -132,6 +154,8 @@ function createExecutorHarness(options: {
     parent_call_id: null,
     child_agent_id: null,
     final_message_id: null,
+    owner_instance_id: options.runPatch?.owner_instance_id ?? null,
+    lease_expires_at: options.runPatch?.lease_expires_at ?? null,
     created_at: NOW,
     updated_at: NOW,
     ...(options.runPatch ?? {}),
@@ -166,8 +190,92 @@ function createExecutorHarness(options: {
         rows = additional ? [additional] : runState?.run_id === requestedRunId ? [runState] : [];
       } else if (sql.includes("SELECT run_id, parent_run_id FROM saas_runs")) {
         rows = runState ? [{ run_id: runState.run_id, parent_run_id: runState.parent_run_id ?? null }] : [];
+      } else if (sql.includes("SELECT run_id, owner_instance_id, status FROM saas_runs")) {
+        rows = runState && (runState.status === "running" || runState.status === "suspended") ? [{
+          run_id: runState.run_id,
+          owner_instance_id: runState.owner_instance_id ?? null,
+          status: runState.status,
+        }] : [];
+      } else if (sql.includes("SET owner_instance_id=$1")) {
+        const owner = String(params[0]);
+        const requestedRunId = String(params[4]);
+        const currentOwner = runState?.owner_instance_id;
+        const expiresAt = runState?.lease_expires_at;
+        const claimable = runState?.run_id === requestedRunId
+          && runState.status === "running"
+          && runState.parent_run_id == null
+          && (currentOwner === owner || expiresAt == null || new Date(String(expiresAt)).getTime() <= Date.now());
+        if (claimable && runState) {
+          runState = { ...runState, owner_instance_id: owner, lease_expires_at: "2099-01-01T00:00:00.000Z" };
+          rows = [{ run_id: requestedRunId }];
+        } else {
+          rowCount = 0;
+        }
+      } else if (sql.includes("SET lease_expires_at=CURRENT_TIMESTAMP")) {
+        const requestedRunId = String(params[3]);
+        const owner = String(params[4]);
+        if (runState?.run_id === requestedRunId && runState.status === "running" && runState.owner_instance_id === owner) {
+          runState = { ...runState, lease_expires_at: "2099-01-01T00:00:00.000Z" };
+          rows = [{ lease_expires_at: runState.lease_expires_at }];
+        } else {
+          rowCount = 0;
+        }
+      } else if (sql.includes("WITH RECURSIVE run_tree") && sql.includes("UPDATE saas_runs")) {
+        if (runState?.run_id === String(params[2]) && runState.status === "running") {
+          rows = [{ run_id: runState.run_id, parent_run_id: runState.parent_run_id ?? null }];
+          runState = {
+            ...runState,
+            status: "interrupted",
+            final_message_id: null,
+            owner_instance_id: null,
+            lease_expires_at: null,
+          };
+          const interruptedIds = new Set([String(params[2])]);
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (const [runId, additional] of Object.entries(options.additionalRuns ?? {})) {
+              const status = String(additional.status);
+              if ((status !== "running" && status !== "suspended")
+                || !interruptedIds.has(String(additional.parent_run_id))) continue;
+              interruptedIds.add(runId);
+              rows.push({ run_id: runId, parent_run_id: additional.parent_run_id as string });
+              Object.assign(additional, {
+                status: "interrupted",
+                final_message_id: null,
+                owner_instance_id: null,
+                lease_expires_at: null,
+              });
+              changed = true;
+            }
+          }
+        } else {
+          rowCount = 0;
+        }
+      } else if (sql.includes("SELECT run_id FROM saas_runs") && sql.includes("owner_instance_id=$4")) {
+        const requestedRunId = String(params[2]);
+        const owner = String(params[3]);
+        rows = runState?.run_id === requestedRunId
+          && runState.status === "running"
+          && runState.owner_instance_id === owner
+          && runState.lease_expires_at != null
+          ? [{ run_id: requestedRunId }]
+          : [];
+      } else if (sql.includes("SELECT run_id FROM saas_runs") && sql.includes("lease_expires_at")) {
+        const deadline = params[2] == null ? Date.now() : new Date(String(params[2])).getTime();
+        const expiresAt = runState?.lease_expires_at;
+        const expired = runState?.status === "running"
+          && runState.parent_run_id == null
+          && (expiresAt == null || new Date(String(expiresAt)).getTime() <= deadline);
+        rows = expired && runState ? [{ run_id: runState.run_id }] : [];
       } else if (sql.includes("SELECT run_id FROM saas_runs")) {
-        rows = runState ? [{ run_id: "run-1" }] : [];
+        if (sql.includes("run_id=$3")) {
+          const requestedRunId = String(params[2]);
+          const additional = options.additionalRuns?.[requestedRunId];
+          rows = additional ? [{ run_id: requestedRunId }] : runState?.run_id === requestedRunId ? [{ run_id: requestedRunId }] : [];
+        } else {
+          rows = runState?.status === "running" ? [{ run_id: runState.run_id }] : [];
+        }
       } else if (sql.includes("INSERT INTO saas_runs")) {
         runState = {
           run_id: String(params[1]),
@@ -184,12 +292,20 @@ function createExecutorHarness(options: {
           parent_call_id: params[11] ?? null,
           child_agent_id: params[12] ?? null,
           final_message_id: null,
+          owner_instance_id: null,
+          lease_expires_at: null,
           created_at: NOW,
           updated_at: NOW,
         };
       } else if (sql.startsWith("UPDATE saas_runs")) {
         if (runState) {
-          runState = { ...runState, status: String(params[0]), final_message_id: params[1] ?? null };
+          runState = {
+            ...runState,
+            status: String(params[0]),
+            final_message_id: params[1] ?? null,
+            owner_instance_id: null,
+            lease_expires_at: null,
+          };
         }
       } else if (sql.startsWith("SELECT session_id FROM conversation_messages")) {
         const found = messages.get(String(params[0]));
@@ -383,8 +499,16 @@ function createExecutorHarness(options: {
     transaction: async (operation) => operation(transactionExecutor),
   };
   const rootExecutor: PostgresMemoryExecutor = {
-    query: async <Row extends Record<string, unknown> = Record<string, unknown>>(): Promise<PostgresQueryResult<Row>> => {
+    query: async <Row extends Record<string, unknown> = Record<string, unknown>>(
+      sql: string,
+    ): Promise<PostgresQueryResult<Row>> => {
       rootQueryCount += 1;
+      if (sql.includes("SELECT DISTINCT session_id FROM saas_runs")) {
+        const expired = runState?.status === "running"
+          && runState.parent_run_id == null
+          && (runState.lease_expires_at == null || new Date(String(runState.lease_expires_at)).getTime() <= Date.now());
+        return { rows: (expired ? [{ session_id: String(runState?.session_id) }] : []) as unknown as Row[], rowCount: expired ? 1 : 0 };
+      }
       throw new Error("pool executor query must not be used inside an atomic operation");
     },
     transaction: async (operation) => {
@@ -423,6 +547,7 @@ function createExecutorHarness(options: {
     eventOutboxes,
     interactions,
     providerContinuations,
+    patchRunState(patch: Record<string, unknown>) { if (runState) runState = { ...runState, ...patch }; },
     get runState() { return runState; },
     get rootQueryCount() { return rootQueryCount; },
     get transactionCount() { return transactionCount; },
@@ -443,6 +568,135 @@ describe("PostgresRuntimeStorage", () => {
       name: "pending_interaction_resume_claim_expiry",
     });
     expect(POSTGRES_PENDING_INTERACTION_MIGRATIONS[2]?.sql).toContain("resume_claim_expires_at");
+  });
+
+  it("recovers an expired root lease exactly once and emits a durable run_ended", async () => {
+    const harness = createExecutorHarness({
+      runPatch: { owner_instance_id: "dead-instance", lease_expires_at: "2025-12-31T23:59:00.000Z" },
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "live-instance");
+
+    const first = await storage.operations.recoverExpiredRunLeases!({
+      now: NOW,
+      buildRunEndedRecord: (run) => expiredRunRecord(run.sessionId, run.runId),
+    });
+    const second = await storage.operations.recoverExpiredRunLeases!({
+      now: NOW,
+      buildRunEndedRecord: (run) => expiredRunRecord(run.sessionId, run.runId),
+    });
+
+    expect(first.interruptedRuns).toEqual([{ sessionId: "session-1", runId: "run-1", parentRunId: null }]);
+    expect(first.records.map((record) => record.outbox.event_id)).toEqual(["run-1:lease-expired:run_ended"]);
+    expect(harness.runState).toMatchObject({ status: "interrupted", owner_instance_id: null, lease_expires_at: null });
+    expect(second).toEqual({ interruptedRuns: [], cancelledInteractions: 0, records: [] });
+    expect(harness.eventOutboxes.size).toBe(1);
+  });
+
+  it("interrupts running descendants when their root lease expires", async () => {
+    const child = {
+      run_id: "child-run", session_id: "session-1", tenant_id: "tnt_runtime_storage",
+      status: "running", thread_key: "child", parent_run_id: "run-1", parent_call_id: "call-1",
+      child_agent_id: "child-agent", final_message_id: null, created_at: NOW, updated_at: NOW,
+    };
+    const grandchild = {
+      ...child,
+      run_id: "grandchild-run",
+      parent_run_id: "child-run",
+      status: "suspended",
+    };
+    const harness = createExecutorHarness({
+      runPatch: { owner_instance_id: null, lease_expires_at: null },
+      additionalRuns: { "child-run": child, "grandchild-run": grandchild },
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "live-instance");
+
+    const recovered = await storage.operations.recoverExpiredRunLeases!({
+      now: NOW,
+      buildRunEndedRecord: (run) => expiredRunRecord(run.sessionId, run.runId),
+    });
+
+    expect(recovered.interruptedRuns.map((run) => run.runId).sort())
+      .toEqual(["child-run", "grandchild-run", "run-1"]);
+    expect(child.status).toBe("interrupted");
+    expect(grandchild.status).toBe("interrupted");
+    expect(recovered.records).toHaveLength(1);
+  });
+
+  it("does not recover a fresh lease owned by another instance", async () => {
+    const harness = createExecutorHarness({
+      runPatch: { owner_instance_id: "instance-a", lease_expires_at: "2099-01-01T00:00:00.000Z" },
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "instance-b");
+
+    await expect(storage.operations.recoverExpiredRunLeases!({
+      now: NOW,
+      buildRunEndedRecord: (run) => expiredRunRecord(run.sessionId, run.runId),
+    })).resolves.toEqual({ interruptedRuns: [], cancelledInteractions: 0, records: [] });
+    expect(harness.runState).toMatchObject({ status: "running", owner_instance_id: "instance-a" });
+  });
+
+  it("renews only the current owner's running root lease", async () => {
+    const owned = createExecutorHarness({
+      runPatch: { owner_instance_id: "instance-a", lease_expires_at: "2099-01-01T00:00:00.000Z" },
+    });
+    const ownerStorage = new PostgresRuntimeStorage(owned.tenantId, owned.rootExecutor, "instance-a");
+    await expect(ownerStorage.operations.renewRunLease!({ sessionId: "session-1", rootRunId: "run-1" }))
+      .resolves.toMatchObject({ renewed: true });
+
+    const otherStorage = new PostgresRuntimeStorage(owned.tenantId, owned.rootExecutor, "instance-b");
+    await expect(otherStorage.operations.renewRunLease!({ sessionId: "session-1", rootRunId: "run-1" }))
+      .resolves.toEqual({ renewed: false, expiresAt: null });
+  });
+
+  it("rejects stale execution writes inside their PostgreSQL transactions", async () => {
+    const harness = createExecutorHarness({
+      runPatch: { owner_instance_id: "instance-a", lease_expires_at: "2099-01-01T00:00:00.000Z" },
+    });
+    const stale = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "instance-b");
+
+    await expect(stale.operations.persistMessage({
+      leaseRootRunId: "run-1",
+      message: { messageId: "stale-message", sessionId: "session-1", role: "assistant", content: "late" },
+    })).rejects.toThrow("root run lease was lost");
+    await expect(stale.operations.recordEnvelope({
+      requireRunLease: true,
+      outbox: {
+        eventId: "stale-event", sessionId: "session-1", runId: "run-1",
+        eventType: "client.stream_output", aggregateType: "run", aggregateId: "run-1",
+        payload: { client_event: { type: "stream_output" } },
+      },
+    })).rejects.toThrow("root run lease was lost");
+    await expect(stale.operations.finalizeRun({
+      runId: "run-1", sessionId: "session-1", status: "failed", leaseRootRunId: "run-1",
+    })).rejects.toThrow("root run lease was lost");
+    await expect(stale.operations.startRun({
+      session: { sessionId: "session-1", userId: null },
+      run: { runId: "stale-child", sessionId: "session-1", parentRunId: "run-1" },
+      leaseRootRunId: "run-1",
+    })).rejects.toThrow("root run lease was lost");
+
+    expect(harness.messages.has("stale-message")).toBe(false);
+    expect(harness.eventOutboxes.has("stale-event")).toBe(false);
+    expect(harness.runState?.status).toBe("running");
+  });
+
+  it("recovers an expired root before starting a new root in the same session", async () => {
+    const harness = createExecutorHarness({
+      runPatch: { owner_instance_id: "dead-instance", lease_expires_at: "2025-12-31T23:59:00.000Z" },
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "live-instance");
+
+    const result = await storage.operations.startOrAppendRoot({
+      session: { sessionId: "session-1", userId: null },
+      run: { runId: "run-2", sessionId: "session-1" },
+      followupFactory: () => { throw new Error("must start after recovery"); },
+      buildExpiredRunEndedRecord: (run) => expiredRunRecord(run.sessionId, run.runId),
+    });
+
+    expect(result.kind).toBe("started");
+    if (result.kind !== "started") throw new Error("expected a new root after expired lease recovery");
+    expect(result.records.map((record) => record.outbox.event_id)).toContain("run-1:lease-expired:run_ended");
+    expect(harness.runState).toMatchObject({ run_id: "run-2", status: "running", owner_instance_id: "live-instance" });
   });
 
   it("starts a run atomically with tenant binding and a deterministic initial message", async () => {
@@ -474,8 +728,13 @@ describe("PostgresRuntimeStorage", () => {
   });
 
   it("atomically appends a second root request to the running root", async () => {
-    const harness = createExecutorHarness({ sessionExists: true, runExists: true, runStatus: "running" });
-    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+    const harness = createExecutorHarness({
+      sessionExists: true,
+      runExists: true,
+      runStatus: "running",
+      runPatch: { owner_instance_id: "instance-a", lease_expires_at: "2099-01-01T00:00:00.000Z" },
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "instance-a");
 
     await expect(storage.operations.startOrAppendRoot({
       session: { sessionId: "session-1", userId: "user-1" },
@@ -491,7 +750,38 @@ describe("PostgresRuntimeStorage", () => {
       message: { id: "message-2", metadata: { run_id: "run-1", execution_kind: "session_followup" } },
     });
     expect(harness.messages.has("message-2")).toBe(true);
-    expect(harness.transactionQueries.some(({ sql }) => sql.includes("parent_run_id IS NULL") && sql.includes("status='running'"))).toBe(true);
+    expect(harness.transactionQueries.some(({ sql }) =>
+      sql.includes("parent_run_id IS NULL") && sql.includes("status IN ('running','suspended')")
+    )).toBe(true);
+  });
+
+  it("does not acknowledge or persist a followup through a different live owner", async () => {
+    const harness = createExecutorHarness({
+      sessionExists: true,
+      runExists: true,
+      runStatus: "running",
+      runPatch: { owner_instance_id: "instance-a", lease_expires_at: "2099-01-01T00:00:00.000Z" },
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "instance-b");
+
+    const result = await storage.operations.startOrAppendRoot({
+      session: { sessionId: "session-1", userId: "user-1" },
+      run: { runId: "run-2", sessionId: "session-1", status: "running" },
+      initialUserMessage: { messageId: "message-2", sessionId: "session-1", role: "user", content: "duplicate" },
+      followupFactory: ({ activeRunId }) => ({
+        message: { messageId: "message-2", sessionId: "session-1", role: "user", content: "duplicate", metadata: { run_id: activeRunId } },
+        recordFactory: () => [],
+      }),
+    });
+
+    expect(result).toMatchObject({
+      kind: "followup",
+      activeRunId: "run-1",
+      ownedByCurrentInstance: false,
+    });
+    if (result.kind !== "followup") throw new Error("expected followup disposition");
+    expect(result.message).toBeUndefined();
+    expect(harness.messages.has("message-2")).toBe(false);
   });
 
   it("records a step and stable-id outbox event atomically", async () => {
@@ -948,16 +1238,18 @@ describe("PostgresRuntimeStorage", () => {
 
   it("records and resolves a batch idempotently, allows one resume claim, and rolls it back by token", async () => {
     const harness = createExecutorHarness({
-      runStatus: "suspended",
+      runStatus: "running",
       runPatch: {
         agent_name: "agent-1",
         task_summary: "approve tools",
         request_id: "request-1",
         user_id: "user-1",
         entrypoint: "agent_stream",
+        owner_instance_id: "test-instance",
+        lease_expires_at: "2099-01-01T00:00:00.000Z",
       },
     });
-    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "test-instance");
     const firstInteraction = interactionInput("interaction-1", "tool-1");
     const secondInteraction = interactionInput("interaction-2", "tool-2");
 
@@ -981,6 +1273,7 @@ describe("PostgresRuntimeStorage", () => {
     expect(harness.interactions).toHaveLength(2);
     expect([...harness.eventOutboxes.keys()].filter((eventId) => eventId.endsWith(":required")))
       .toHaveLength(2);
+    harness.patchRunState({ status: "suspended", owner_instance_id: null, lease_expires_at: null });
 
     const firstResolution = {
       sessionId: "session-1",
@@ -1039,6 +1332,11 @@ describe("PostgresRuntimeStorage", () => {
         expect.objectContaining({ interactionId: "interaction-2", toolCallId: "tool-2" }),
       ]),
     });
+    expect(harness.runState).toMatchObject({
+      status: "running",
+      owner_instance_id: expect.any(String),
+      lease_expires_at: "2099-01-01T00:00:00.000Z",
+    });
 
     await expect(storage.operations.rollbackResume({
       sessionId: "session-1",
@@ -1082,10 +1380,11 @@ describe("PostgresRuntimeStorage", () => {
       runPatch: {
         agent_name: "root-agent", task_summary: "root task", request_id: "request-1",
         user_id: "user-1", entrypoint: "agent_stream",
+        owner_instance_id: "test-instance", lease_expires_at: "2099-01-01T00:00:00.000Z",
       },
       additionalRuns: { "child-run": childRun, "grandchild-run": grandchildRun },
     });
-    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "test-instance");
     const interaction = {
       ...interactionInput("grandchild-interaction", "grandchild-tool", "grandchild-batch"),
       runId: "grandchild-run",
@@ -1119,8 +1418,11 @@ describe("PostgresRuntimeStorage", () => {
 
   it("rolls back pending, step, and outbox writes when interaction recording fails", async () => {
     const interaction = interactionInput("interaction-rollback", "tool-rollback");
-    const harness = createExecutorHarness({ failOutboxEventId: "interaction-rollback:required" });
-    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+    const harness = createExecutorHarness({
+      failOutboxEventId: "interaction-rollback:required",
+      runPatch: { owner_instance_id: "test-instance", lease_expires_at: "2099-01-01T00:00:00.000Z" },
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "test-instance");
 
     await expect(storage.operations.recordInteraction({
       interaction,
@@ -1134,7 +1436,9 @@ describe("PostgresRuntimeStorage", () => {
   });
 
   it("rejects a pending batch that mixes root runs", async () => {
-    const harness = createExecutorHarness();
+    const harness = createExecutorHarness({
+      runPatch: { owner_instance_id: "test-instance", lease_expires_at: "2099-01-01T00:00:00.000Z" },
+    });
     harness.interactions.set("foreign-root-interaction", {
       interaction_id: "foreign-root-interaction",
       session_id: "session-1",
@@ -1152,7 +1456,7 @@ describe("PostgresRuntimeStorage", () => {
       consumed_at: null,
       resume_claim_id: null,
     });
-    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "test-instance");
     const interaction = interactionInput("interaction-local", "tool-local", "batch-mixed");
 
     await expect(storage.operations.recordInteraction({

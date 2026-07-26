@@ -151,6 +151,8 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
         listRunSteps: (input) => conversationRuntime.runs.listRunSteps({ tenantId, ...input }),
       },
       memoryCandidates,
+      consumePendingFollowups: async (followups) =>
+        (await runtimeStorage.operations.consumePendingFollowups(followups)).messages,
     }),
     pathAccessPolicyFactory: () => new PathApprovalService(),
     documentTools: null,

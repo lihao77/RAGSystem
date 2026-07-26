@@ -17,6 +17,9 @@ describe("PostgresRunRepository tenant isolation", () => {
     expect(POSTGRES_RUN_MIGRATIONS[3]).toMatchObject({ version: 4, name: "run-step-event-idempotency" });
     expect(POSTGRES_RUN_MIGRATIONS[3]?.sql).toContain("ADD COLUMN IF NOT EXISTS event_id TEXT");
     expect(POSTGRES_RUN_MIGRATIONS[3]?.sql).toContain("ON saas_run_steps(tenant_id, event_id)");
+    expect(POSTGRES_RUN_MIGRATIONS[4]).toMatchObject({ version: 5, name: "root-run-owner-lease" });
+    expect(POSTGRES_RUN_MIGRATIONS[4]?.sql).toContain("owner_instance_id");
+    expect(POSTGRES_RUN_MIGRATIONS[4]?.sql).toContain("lease_expires_at");
   });
 
   it("includes tenant_id in every run and step operation", async () => {

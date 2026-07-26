@@ -10,6 +10,7 @@ import { InterruptMachine, type InterruptRecord } from "./interrupt-machine.js";
 import { openAguiSse, type AguiSseStream } from "./sse-stream.js";
 import { lastUserTask, mapClientTools, type AguiResumeItem, type RunAgentInput } from "./agui-input.js";
 import { encodeAguiSse, type AguiEvent } from "./agui-events.js";
+import type { Envelope } from "../../contracts/events.js";
 
 type Rec = Record<string, unknown>;
 const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
@@ -73,28 +74,35 @@ export class AguiGateway {
     let internalRunId: string | null = null;
     let translator: AguiTranslator | null = null;
     let done = false;
+    let startedSent = false;
+    const buffered: Envelope[] = [];
 
-    const unsubscribe = this.container.realtimeEvents.subscribe(threadId, (env) => {
-      if (done || internalRunId === null || translator === null) {
-        return;
-      }
-      if (env.run_id !== internalRunId) {
-        return;
-      }
+    const processEnvelope = (env: Envelope): void => {
+      if (done || internalRunId === null || translator === null || env.run_id !== internalRunId) return;
       const result = translator.translate(env);
       for (const aguiEvent of result.events) {
+        if (aguiEvent.type === "RUN_STARTED" && startedSent) continue;
+        if (aguiEvent.type === "RUN_STARTED") startedSent = true;
         send(aguiEvent);
       }
-      if (result.interruptRecord) {
-        this.interruptMachine.record(result.interruptRecord);
-      }
+      if (result.interruptRecord) this.interruptMachine.record(result.interruptRecord);
       if (result.done) {
         done = true;
         unsubscribe();
         sse.end();
       }
+    };
+
+    const unsubscribe = this.container.realtimeEvents.subscribe(threadId, (env) => {
+      if (done) return;
+      if (internalRunId === null || translator === null) {
+        buffered.push(env);
+        return;
+      }
+      processEnvelope(env);
     });
     sse.onClose(() => {
+      if (done) return;
       done = true;
       unsubscribe();
     });
@@ -102,6 +110,7 @@ export class AguiGateway {
     const started = await this.execution.startStream(
       { task, session_id: threadId, userId: this.userId, attachments: [] },
       externalRunId,
+      { followupPolicy: "reject" },
     );
     if (started.kind === "command") {
       const command = started.command_result;
@@ -117,6 +126,8 @@ export class AguiGateway {
       } else {
         send({ type: "RUN_ERROR", ...baseFields(threadId, externalRunId), message: command?.content || started.error || "command failed" });
       }
+      done = true;
+      unsubscribe();
       sse.end();
       return;
     }
@@ -134,6 +145,11 @@ export class AguiGateway {
       internalRunId,
       genInterruptId: () => randomUUID(),
     });
+    if (!done) {
+      send({ type: "RUN_STARTED", ...baseFields(threadId, externalRunId) });
+      startedSent = true;
+      for (const env of buffered.splice(0)) processEnvelope(env);
+    }
     // 此后事件流由 subscribe 回调异步驱动至 interrupt/terminal。
   }
 

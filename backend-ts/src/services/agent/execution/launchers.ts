@@ -32,6 +32,8 @@ import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { Goal, GoalStore } from "../../../contracts/runtime/goals.js";
+import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
+import type { ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
 
 type StartedRunHandle = ReturnType<AgentRunEngine["startRun"]>;
 
@@ -48,6 +50,8 @@ interface UnifiedRunStartInput {
   entrypoint?: string;
   persistMetadata: Record<string, unknown>;
   traceMetadata?: Record<string, unknown>;
+  sessionMaintenanceToken?: string;
+  awaitFollowupCompletion?: boolean;
   onInteractionRequired?: ExecuteRequest["onInteractionRequired"];
 }
 
@@ -68,6 +72,8 @@ interface SendUserMessageInput {
   entrypoint?: string;
   messageMetadata?: Record<string, unknown>;
   traceMetadata?: Record<string, unknown>;
+  sessionMaintenanceToken?: string;
+  awaitFollowupCompletion?: boolean;
   followupPolicy: "queue" | "reject";
   onInteractionRequired?: ExecuteRequest["onInteractionRequired"];
 }
@@ -90,7 +96,7 @@ export interface RollbackRetryInput {
 }
 
 export interface LauncherApi {
-  startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult>;
+  startStream(request: StreamExecuteRequest, requestId: string, options?: ExecutionStartOptions): Promise<AgentRunStartResult>;
   executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
   /** Session idle 检查：消费后台通知，并在 Goal active 时拉起 continuation run。 */
@@ -109,6 +115,7 @@ export interface LauncherDeps {
   notificationQueue: SessionNotificationQueue;
   backgroundTasks: BackgroundTaskService | null;
   goalStore: GoalStore | null;
+  runtimeStorage: RuntimeStorage;
 }
 
 /**
@@ -130,7 +137,12 @@ class AgentLaunchers {
     private readonly notificationQueue: SessionNotificationQueue,
     private readonly backgroundTasks: BackgroundTaskService | null,
     private readonly goalStore: GoalStore | null,
+    private readonly runtimeStorage: RuntimeStorage,
   ) {}
+
+  private async durableActiveRunId(sessionId: string): Promise<string | null> {
+    return (await this.runtimeStorage.operations.getActiveRootRun?.(sessionId))?.runId ?? null;
+  }
 
   private launchRun(input: UnifiedRunStartInput): UnifiedRunStartResult {
     const ready = resolveReadyAgent(
@@ -169,6 +181,8 @@ class AgentLaunchers {
           }
         : {}),
       ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
+      ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
+      ...(input.awaitFollowupCompletion ? { awaitFollowupCompletion: true } : {}),
     });
     return { ok: true, agentName: ready.agent.agent_name, handle };
   }
@@ -180,7 +194,7 @@ class AgentLaunchers {
     const outcome = await started.handle.promise;
     return this.runEngine.buildSynchronousResult({
       sessionId,
-      runId: started.handle.run_id ?? null,
+      runId: outcome.runId ?? started.handle.run_id ?? null,
       taskId: started.handle.task_id ?? null,
       agentName: started.agentName,
       outcome,
@@ -202,6 +216,7 @@ class AgentLaunchers {
         command: slashCommand,
         originalTask: task,
         ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
+        ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
       });
       if (commandResult) {
         return {
@@ -220,12 +235,13 @@ class AgentLaunchers {
 
     if (input.followupPolicy === "reject") {
       const runningStatus = this.statusTracker.getStatusBySession(sessionId);
-      if (runningStatus?.status === "running") {
+      const durableRunId = await this.durableActiveRunId(sessionId);
+      if (runningStatus?.status === "running" || durableRunId) {
         return {
           kind: "error",
           sessionId,
-          runId: runningStatus.run_id,
-          taskId: runningStatus.task_id,
+          runId: runningStatus?.run_id ?? durableRunId,
+          taskId: runningStatus?.task_id ?? null,
           error: "该会话正在执行任务，请等待完成或停止当前任务",
         };
       }
@@ -270,6 +286,8 @@ class AgentLaunchers {
         ...(extensions.length ? { extensions } : {}),
       },
       ...(input.traceMetadata ? { traceMetadata: input.traceMetadata } : {}),
+      ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
+      ...(input.awaitFollowupCompletion ? { awaitFollowupCompletion: true } : {}),
       ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
     });
     if (!started.ok) {
@@ -278,7 +296,11 @@ class AgentLaunchers {
     return { kind: "run", sessionId, agentName: started.agentName, handle: started.handle };
   }
 
-  async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
+  async startStream(
+    request: StreamExecuteRequest,
+    requestId: string,
+    options: ExecutionStartOptions = {},
+  ): Promise<AgentRunStartResult> {
     const submitted = await this.sendUserMessage({
       ...(request.session_id !== undefined ? { sessionId: request.session_id } : {}),
       userId: request.userId,
@@ -288,7 +310,7 @@ class AgentLaunchers {
       executionKind: "agent_stream",
       selectedLlm: resolveSelectedLlm(request),
       ...(request.ui_context !== undefined ? { uiContext: request.ui_context } : {}),
-      followupPolicy: "queue",
+      followupPolicy: options.followupPolicy ?? "queue",
     });
     if (submitted.kind === "error") {
       return { started: false, session_id: submitted.sessionId, error: submitted.error };
@@ -304,6 +326,14 @@ class AgentLaunchers {
     try {
       const disposition = await durableStarted;
       if (disposition.kind === "followup") {
+        if (disposition.queueAccepted === false) {
+          return {
+            ...publicStarted,
+            started: false,
+            run_id: disposition.activeRunId,
+            error: "该会话正在其他实例执行任务，请等待完成后重试",
+          };
+        }
         return {
           started: true,
           session_id: submitted.sessionId,
@@ -334,7 +364,8 @@ class AgentLaunchers {
       selectedLlm: resolveSelectedLlm(request),
       ...(request.agent ? { agentName: request.agent } : {}),
       entrypoint: "execute",
-      followupPolicy: "reject",
+      followupPolicy: "queue",
+      awaitFollowupCompletion: true,
       ...(request.onInteractionRequired ? { onInteractionRequired: request.onInteractionRequired } : {}),
     });
     if (submitted.kind === "error") {
@@ -369,18 +400,21 @@ class AgentLaunchers {
     try {
       const disposition = await submitted.handle.durableStarted;
       if (disposition.kind === "followup") {
-        return {
-          success: false,
-          answer: null,
-          agent_name: submitted.agentName,
-          execution_time: null,
-          tool_calls: [],
-          metadata: {},
-          session_id: submitted.sessionId,
-          run_id: disposition.activeRunId,
-          task_id: null,
-          error: "该会话正在执行任务，消息已进入后续队列",
-        };
+        const accepted = disposition.queueAccepted !== false;
+        if (!accepted) {
+          return {
+            success: false,
+            answer: null,
+            agent_name: submitted.agentName,
+            execution_time: null,
+            tool_calls: [],
+            metadata: {},
+            session_id: submitted.sessionId,
+            run_id: disposition.activeRunId,
+            task_id: null,
+            error: "该会话正在其他实例执行任务，请等待完成后重试",
+          };
+        }
       }
     } catch (error) {
       return {
@@ -422,7 +456,8 @@ class AgentLaunchers {
       };
     }
     const runningStatus = this.statusTracker.getStatusBySession(sessionId);
-    if (runningStatus?.status === "running") {
+    const durableRunId = await this.durableActiveRunId(sessionId);
+    if (runningStatus?.status === "running" || durableRunId) {
       return {
         started: false,
         session_id: sessionId,
@@ -456,62 +491,124 @@ class AgentLaunchers {
       retry_of_message_id: retryMessage.id,
     };
 
-    // 回滚是独立会话操作：删除目标用户消息及其后的内容，再从统一用户消息入口重新发送。
-    const deleted = await this.sessions.rollbackMessages({
+    const maintenanceToken = randomUUID();
+    const maintenanceTtlMs = 60_000;
+    const maintenance = await this.runtimeStorage.operations.claimSessionMaintenance({
       sessionId,
-      afterSeq: retryMessage.seq - 1,
+      token: maintenanceToken,
+      kind: "rollback",
+      ttlMs: maintenanceTtlMs,
     });
-    const submitted = await this.sendUserMessage({
-      sessionId,
-      userId: input.userId,
-      requestId: input.requestId,
-      task,
-      attachments,
-      selectedLlm: input.selectedLlm ?? "",
-      executionKind: "rollback_and_retry",
-      entrypoint: "rollback_and_retry",
-      uiContext,
-      messageMetadata: {
-        ...traceMetadata,
-        ...(input.modifyUserMessage?.trim() ? { retry_modified_at: new Date().toISOString() } : {}),
-      },
-      traceMetadata,
-      followupPolicy: "reject",
-    });
-    if (submitted.kind === "error") {
+    if (!maintenance.claimed) {
       return {
         started: false,
-        session_id: submitted.sessionId,
-        deleted,
-        error: submitted.error,
-      };
-    }
-    if (submitted.kind === "command") {
-      return {
-        ...submitted.start,
-        deleted,
-        command_result: { success: submitted.success, content: submitted.content },
+        session_id: sessionId,
+        deleted: 0,
+        error: "该会话正在执行任务，请等待完成或停止当前任务",
       };
     }
 
-    const { promise: _promise, durableStarted, ...publicStarted } = submitted.handle;
+    let maintenanceLost = false;
+    const maintenanceHeartbeat = setInterval(() => {
+      void this.runtimeStorage.operations.renewSessionMaintenance({
+        sessionId,
+        token: maintenanceToken,
+        ttlMs: maintenanceTtlMs,
+      }).then((renewed) => {
+        if (!renewed) maintenanceLost = true;
+      }, () => {
+        maintenanceLost = true;
+      });
+    }, 20_000);
+    maintenanceHeartbeat.unref?.();
+
     try {
-      await durableStarted;
-    } catch (error) {
+      // 回滚是独立会话操作：删除目标用户消息及其后的内容，再从统一用户消息入口重新发送。
+      const deleted = await this.sessions.rollbackMessages({
+        sessionId,
+        afterSeq: retryMessage.seq - 1,
+      });
+      if (maintenanceLost || !await this.runtimeStorage.operations.renewSessionMaintenance({
+        sessionId,
+        token: maintenanceToken,
+        ttlMs: maintenanceTtlMs,
+      })) {
+        return {
+          started: false,
+          session_id: sessionId,
+          deleted,
+          error: "会话维护租约已丢失，回滚完成但未继续启动重试",
+        };
+      }
+      const submitted = await this.sendUserMessage({
+        sessionId,
+        userId: input.userId,
+        requestId: input.requestId,
+        task,
+        attachments,
+        selectedLlm: input.selectedLlm ?? "",
+        executionKind: "rollback_and_retry",
+        entrypoint: "rollback_and_retry",
+        uiContext,
+        messageMetadata: {
+          ...traceMetadata,
+          ...(input.modifyUserMessage?.trim() ? { retry_modified_at: new Date().toISOString() } : {}),
+        },
+        traceMetadata,
+        followupPolicy: "reject",
+        sessionMaintenanceToken: maintenanceToken,
+      });
+      if (submitted.kind === "error") {
+        return {
+          started: false,
+          session_id: submitted.sessionId,
+          deleted,
+          error: submitted.error,
+        };
+      }
+      if (submitted.kind === "command") {
+        return {
+          ...submitted.start,
+          deleted,
+          command_result: { success: submitted.success, content: submitted.content },
+        };
+      }
+
+      const { promise: _promise, durableStarted, ...publicStarted } = submitted.handle;
+      try {
+        const disposition = await durableStarted;
+        if (disposition.kind === "followup") {
+          return {
+            started: false,
+            session_id: submitted.sessionId,
+            run_id: disposition.activeRunId,
+            request_id: input.requestId,
+            kind: "agent_run",
+            deleted,
+            error: disposition.queueAccepted === false
+              ? "该会话正在其他实例执行任务，请等待完成后重试"
+              : "该会话正在执行任务，重试消息已进入后续队列",
+          };
+        }
+      } catch (error) {
+        return {
+          ...publicStarted,
+          started: false,
+          deleted,
+          agent_name: submitted.agentName,
+          error: error instanceof Error ? error.message : "Run failed before durable start",
+        };
+      }
+
       return {
         ...publicStarted,
-        started: false,
         deleted,
         agent_name: submitted.agentName,
-        error: error instanceof Error ? error.message : "Run failed before durable start",
       };
+    } finally {
+      clearInterval(maintenanceHeartbeat);
+      await this.runtimeStorage.operations.releaseSessionMaintenance({ sessionId, token: maintenanceToken });
     }
-
-    return {
-      ...publicStarted,
-      deleted,
-      agent_name: submitted.agentName,
-    };
   }
 
   /**
@@ -706,6 +803,7 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.notificationQueue,
     deps.backgroundTasks,
     deps.goalStore,
+    deps.runtimeStorage,
   );
   return {
     startStream: impl.startStream.bind(impl),

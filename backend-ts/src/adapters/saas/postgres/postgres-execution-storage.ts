@@ -17,6 +17,7 @@ export function createPostgresExecutionStorage(input: {
   createEventPersister(context: ExecutionRunPersistenceContext): ExecutionEventPersister;
   resultReader: ExecutionStorage["resultReader"];
   memoryCandidates: ExecutionMemoryCandidatePort;
+  consumePendingFollowups: ExecutionStorage["consumePendingFollowups"];
 }): ExecutionStorage {
   return {
     tenantId: input.tenantId,
@@ -24,6 +25,7 @@ export function createPostgresExecutionStorage(input: {
     providerContinuations: { getProviderContinuation: (sessionId, messageId) => input.providerContinuations.getProviderContinuation(input.tenantId, sessionId, messageId) },
     resultReader: input.resultReader,
     memoryCandidates: input.memoryCandidates,
+    consumePendingFollowups: input.consumePendingFollowups,
     createEventPersister: input.createEventPersister,
   };
 }

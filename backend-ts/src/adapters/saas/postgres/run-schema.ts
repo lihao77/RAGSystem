@@ -121,6 +121,18 @@ export const POSTGRES_RUN_MIGRATIONS: readonly PostgresRunMigration[] = [
         WHERE event_id IS NOT NULL;
     `,
   },
+  {
+    version: 5,
+    name: "root-run-owner-lease",
+    sql: `
+      ALTER TABLE saas_runs
+        ADD COLUMN IF NOT EXISTS owner_instance_id TEXT,
+        ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ;
+      CREATE INDEX IF NOT EXISTS saas_runs_expired_root_lease_idx
+        ON saas_runs(tenant_id, lease_expires_at)
+        WHERE parent_run_id IS NULL AND status = 'running';
+    `,
+  },
 ];
 
 export function getPendingPostgresRunMigrations(appliedVersion: number): readonly PostgresRunMigration[] {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
+import type { AgentExecuteResult } from "../../src/contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../src/contracts/integrations/model-adapter.js";
 import {
   createAgentExecutionService,
@@ -260,25 +261,32 @@ describe("AgentExecutionService (baseline regression)", () => {
     store.close();
   });
 
-  it("keeps a concurrent followup out of history until the active run reaches a boundary", async () => {
+  it("makes a concurrent followup durable before the active run reaches a boundary", async () => {
     const { service, store } = buildHarness({ mode: "abort" });
     const first = await service.startStream({ task: "first", attachments: [], userId: LOCAL_USER_ID }, "req-first");
     const second = await service.startStream({ session_id: first.session_id, task: "second", attachments: [], userId: LOCAL_USER_ID }, "req-second");
 
     expect(second).toMatchObject({ started: true, session_id: first.session_id, run_id: first.run_id, request_id: "req-second" });
     expect(store.listRuns(first.session_id, 100).items).toHaveLength(1);
-    expect(store.listMessages(first.session_id, 100, 0).items).not.toContainEqual(expect.objectContaining({
+    expect(store.listMessages(first.session_id, 100, 0).items).toContainEqual(expect.objectContaining({
       role: "user",
       content: "second",
+      metadata: expect.objectContaining({ execution_kind: "session_followup" }),
     }));
     await service.stopSession(first.session_id);
     await vi.waitFor(() => {
+      expect(store.listRuns(first.session_id, 100).items).toHaveLength(2);
       expect(store.listMessages(first.session_id, 100, 0).items).toContainEqual(expect.objectContaining({
         role: "user",
         content: "second",
-        metadata: expect.objectContaining({ execution_kind: "agent_stream" }),
+        metadata: expect.objectContaining({
+          execution_kind: "session_followup",
+          followup_pending: false,
+        }),
       }));
     }, WAIT);
+    expect(store.listMessages(first.session_id, 100, 0).items.filter((message) => message.content === "second")).toHaveLength(1);
+    await service.stopSession(first.session_id);
     store.close();
   });
 
@@ -395,6 +403,176 @@ describe("AgentExecutionService (baseline regression)", () => {
     const result = await service.executeSynchronously({ task: "sync task", userId: LOCAL_USER_ID }, "req-2");
     expect(result.success).toBe(true);
     expect(result.answer).toBe("the answer");
+    store.close();
+  });
+
+  it("waits for the durable followup completion for a synchronous bot message", async () => {
+    const { service, store, llm } = buildHarness({ mode: "ok" });
+    llm.hold();
+    const first = await service.startStream({ task: "first", attachments: [], userId: LOCAL_USER_ID }, "req-first");
+    const completed = service.executeSynchronously({
+      session_id: first.session_id,
+      task: "bot followup",
+      executionKind: "daemon.feishu.incoming",
+      userId: LOCAL_USER_ID,
+    }, "req-bot-followup");
+
+    await vi.waitFor(() => {
+      expect(store.listMessages(first.session_id, 100, 0).items).toContainEqual(expect.objectContaining({
+        role: "user",
+        content: "bot followup",
+        metadata: expect.objectContaining({ execution_kind: "session_followup", followup_pending: true }),
+      }));
+    }, WAIT);
+    llm.release();
+    const result = await completed;
+    expect(result).toMatchObject({
+      success: true,
+      answer: "the answer",
+      session_id: first.session_id,
+      error: null,
+    });
+    expect(store.listMessages(first.session_id, 100, 0).items.filter((message) => message.content === "bot followup")).toHaveLength(1);
+    store.close();
+  });
+
+  it("keeps a joined synchronous followup as a successful queue acknowledgement", async () => {
+    const { service, store } = buildHarness({ mode: "ok" });
+    store.createSession(LOCAL_TENANT_ID, "joined-followup-session", LOCAL_USER_ID);
+    store.createRun({
+      runId: "joined-active-run",
+      sessionId: "joined-followup-session",
+      status: "running",
+      agentName: "orchestrator_agent",
+    });
+    const runEngine = (service as AgentExecutionService & {
+      runEngine: {
+        buildSynchronousResult(input: Record<string, unknown>): Promise<AgentExecuteResult>;
+      };
+    }).runEngine;
+
+    await expect(runEngine.buildSynchronousResult({
+      sessionId: "joined-followup-session",
+      runId: "joined-active-run",
+      taskId: "joined-task",
+      agentName: "orchestrator_agent",
+      outcome: {
+        content: "消息已进入后续队列",
+        success: true,
+        followupJoined: true,
+      },
+    })).resolves.toMatchObject({
+      success: true,
+      answer: "消息已进入后续队列",
+      error: null,
+      metadata: { followup_joined: true },
+    });
+    store.close();
+  });
+
+  it("returns one continuation final while joined synchronous followups receive an acknowledgement", async () => {
+    const { service, store } = buildHarness({ mode: "ok" });
+    store.createSession(LOCAL_TENANT_ID, "multi-followup-session", LOCAL_USER_ID);
+    store.createRun({
+      runId: "continuation-run",
+      sessionId: "multi-followup-session",
+      status: "running",
+      agentName: "orchestrator_agent",
+    });
+    const final = store.addMessage({
+      sessionId: "multi-followup-session",
+      role: "assistant",
+      content: "continuation answer",
+      metadata: { run_id: "continuation-run" },
+    });
+    store.updateRunStatus("continuation-run", "multi-followup-session", "completed", final.id);
+    for (const [messageId, trigger] of [["followup-trigger", true], ["followup-joined", false]] as const) {
+      store.addMessage({
+        messageId,
+        sessionId: "multi-followup-session",
+        role: "user",
+        content: messageId,
+        metadata: {
+          execution_kind: "session_followup",
+          followup_pending: false,
+          consumed_by_run_id: "continuation-run",
+          followup_continuation_trigger: trigger,
+        },
+      });
+    }
+    const runEngine = (service as unknown as {
+      runEngine: {
+        waitForFollowupCompletion(
+          sessionId: string,
+          messageId: string,
+          initiallyActiveRunId: string,
+          continuation: Record<string, unknown>,
+        ): Promise<Record<string, unknown>>;
+      };
+    }).runEngine;
+
+    await expect(runEngine.waitForFollowupCompletion(
+      "multi-followup-session",
+      "followup-trigger",
+      "old-run",
+      {},
+    )).resolves.toMatchObject({
+      content: "continuation answer",
+      success: true,
+      runId: "continuation-run",
+    });
+    await expect(runEngine.waitForFollowupCompletion(
+      "multi-followup-session",
+      "followup-joined",
+      "old-run",
+      {},
+    )).resolves.toMatchObject({
+      content: "消息已进入后续队列",
+      success: true,
+      runId: "continuation-run",
+      followupJoined: true,
+    });
+    store.close();
+  });
+
+  it("does not wait forever when a pending synchronous followup reaches a suspended root", async () => {
+    const { service, store } = buildHarness({ mode: "ok" });
+    store.createSession(LOCAL_TENANT_ID, "suspended-followup-session", LOCAL_USER_ID);
+    store.createRun({
+      runId: "suspended-root",
+      sessionId: "suspended-followup-session",
+      status: "suspended",
+      agentName: "orchestrator_agent",
+    });
+    store.addMessage({
+      messageId: "suspended-followup",
+      sessionId: "suspended-followup-session",
+      role: "user",
+      content: "wait for resume",
+      metadata: { execution_kind: "session_followup", followup_pending: true },
+    });
+    const runEngine = (service as unknown as {
+      runEngine: {
+        waitForFollowupCompletion(
+          sessionId: string,
+          messageId: string,
+          initiallyActiveRunId: string,
+          continuation: Record<string, unknown>,
+        ): Promise<Record<string, unknown>>;
+      };
+    }).runEngine;
+
+    await expect(runEngine.waitForFollowupCompletion(
+      "suspended-followup-session",
+      "suspended-followup",
+      "suspended-root",
+      {},
+    )).resolves.toMatchObject({
+      success: true,
+      runId: "suspended-root",
+      followupJoined: true,
+      content: expect.stringContaining("等待交互"),
+    });
     store.close();
   });
 
@@ -517,6 +695,45 @@ describe("AgentExecutionService (baseline regression)", () => {
       ["system", expect.stringContaining("可用命令")],
     ]);
     expect(llm.requests).toHaveLength(0);
+    store.close();
+  });
+
+  it("reuses the rollback maintenance reservation for a retried /compact command", async () => {
+    const { service, store } = buildHarness({ mode: "ok" });
+    store.createSession(LOCAL_TENANT_ID, "retry-compact-session", LOCAL_USER_ID);
+    const anchor = store.addMessage({
+      sessionId: "retry-compact-session",
+      role: "user",
+      content: "old task",
+    });
+    store.addMessage({
+      sessionId: "retry-compact-session",
+      role: "assistant",
+      content: "old answer",
+    });
+
+    const result = await service.startRollbackRetry({
+      sessionId: "retry-compact-session",
+      userId: LOCAL_USER_ID,
+      requestId: "req-retry-compact",
+      afterMessageId: anchor.id,
+      modifyUserMessage: "/compact",
+    });
+
+    expect(result).toMatchObject({
+      started: false,
+      kind: "command",
+      deleted: 2,
+      command_result: {
+        success: false,
+        content: "压缩服务未装配",
+      },
+    });
+    expect(result.command_result?.content).not.toContain("维护操作");
+    expect(store.listMessages("retry-compact-session", 20, 0).items.map((message) => [message.role, message.content])).toEqual([
+      ["user", "/compact"],
+      ["system", "压缩服务未装配"],
+    ]);
     store.close();
   });
 

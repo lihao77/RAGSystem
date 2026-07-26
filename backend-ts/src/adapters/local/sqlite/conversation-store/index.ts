@@ -43,8 +43,10 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const createTransactionFacade = () => ({
     createSession: sessions.createSession.bind(sessions),
     getSession: sessions.getSession.bind(sessions),
+    updateSessionMetadata: sessions.updateSessionMetadata.bind(sessions),
     addMessage: messages.addMessageInTransaction.bind(messages),
     getMessageById: messages.getMessageById.bind(messages),
+    updateMessage: messages.updateMessage.bind(messages),
     createRun: runs.createRun.bind(runs),
     getRun: runs.getRun.bind(runs),
     listRuns: runs.listRuns.bind(runs),

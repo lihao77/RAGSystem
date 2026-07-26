@@ -10,6 +10,7 @@ import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageR
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import { RecoverableInterrupt, translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
+import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
@@ -23,7 +24,7 @@ import { createBackendTools } from "../../../tools/registry.js";
 import type { CodeExecutionPort } from "../../../contracts/runtime/tool-ports.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
-import { buildBackendAgentContext, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
+import { buildBackendAgentContext, filterHistoryMessages, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { memoryBaselineKey } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
@@ -32,7 +33,6 @@ import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 import type { ExecutionMemoryCandidateListPort, MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import { resolveSessionMetadataPort } from "../context/async-session-metadata-resolver.js";
-import type { SessionFollowupQueue } from "../execution/session-followup-queue.js";
 
 export interface SdkRuntimeAdapterDeps {
   storage: ExecutionStorage;
@@ -62,8 +62,6 @@ export interface SdkRuntimeAdapterDeps {
   hooks?: (registry: HookRegistry) => void;
   /** backend 压缩服务（run 内 round.before 触发 + /compact 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
-  /** Follow-ups remain here until the active root run starts its next model round. */
-  followupQueue: SessionFollowupQueue;
 }
 
 export interface SdkExecuteRunInput {
@@ -101,6 +99,8 @@ export interface SdkExecuteRunInput {
   userMessageId?: string;
   initialUserMessageContent?: string;
   initialUserMessageMetadata?: Record<string, unknown>;
+  pendingUserMessageId?: string;
+  sessionMaintenanceToken?: string;
   initialEnvelopes?: readonly Envelope[];
   onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
   onRunPersisted?: (() => void) | undefined;
@@ -112,6 +112,7 @@ export interface SdkExecuteRunResult {
   success: boolean;
   suspended?: boolean;
   followup?: Extract<ExecutionStartDisposition, { kind: "followup" }>;
+  pendingFollowup?: MessageInfo;
   rootRunId?: string;
   runId?: string;
   parentRunId?: string | null;
@@ -122,62 +123,6 @@ export interface SdkExecuteRunResult {
   tokenUsage: { inputTokens: number; outputTokens: number };
   /** 本 run 的工具调用次数分布(toolName → count)。 */
   toolCalls: Record<string, number>;
-}
-
-/**
- * Makes queued follow-ups durable at the boundary before a model round.
- * The caller appends the returned messages to the SDK working context.
- */
-export async function persistQueuedFollowupsAtRound(
-  deps: Pick<SdkRuntimeAdapterDeps, "storage" | "eventPublisher" | "followupQueue">,
-  input: {
-    sessionId: string;
-    threadKey: string;
-    runId: string;
-    agentName: string;
-    round: number;
-  },
-): Promise<Array<{ message: ChatMessage; seq: number }>> {
-  const deferred = deps.followupQueue.drain(input.runId);
-  const injected: Array<{ message: ChatMessage; seq: number }> = [];
-  const roundIndex = Math.max(0, input.round - 1);
-  for (const entry of deferred) {
-    const {
-      agent: _agent,
-      run_id: _runId,
-      task_id: _taskId,
-      request_id: _requestId,
-      execution_kind: _executionKind,
-      source: _source,
-      round_index: _roundIndex,
-      ...baseMetadata
-    } = entry.metadata;
-    const message = await deps.storage.conversation.addMessage({
-      sessionId: input.sessionId,
-      role: "user",
-      content: entry.displayTask,
-      threadKey: input.threadKey,
-      metadata: {
-        ...baseMetadata,
-        agent: input.agentName,
-        run_id: input.runId,
-        request_id: entry.requestId,
-        execution_kind: "session_followup",
-        source: "running_session",
-        // The message is read before this round, so it belongs after the prior one.
-        round_index: roundIndex,
-      },
-    });
-    deps.eventPublisher.publishOutputMessageSaved(input.sessionId, input.runId, {
-      message_id: message.id,
-      seq: message.seq,
-      role: message.role,
-      request_id: entry.requestId,
-      round_index: roundIndex,
-    });
-    injected.push({ message: { role: "user", content: message.content ?? "" }, seq: message.seq });
-  }
-  return injected;
 }
 
 /**
@@ -304,33 +249,35 @@ export async function executeRunWithSdk(
     (max, m) => (m && typeof m.seq === "number" && m.seq > max ? m.seq : max),
     0,
   );
-  // Per-run refresher: follow-ups first become durable at this round boundary,
-  // then enter the SDK working copy. This prevents them from being sequenced
-  // between tool calls and tool results of the preceding round.
+  // Follow-ups are persisted atomically before their sender receives an ACK.
+  // At each round boundary, read newer durable user messages into the SDK copy
+  // so they cannot be inserted between a tool call and its result.
   const refresher: MessageRefresher = {
-    refresh: async (ctx, round) => {
+    refresh: async (ctx) => {
       const sid = ctx.session.sessionId;
       const tk = ctx.session.threadKey;
-      const injected = await persistQueuedFollowupsAtRound(deps, {
-        sessionId: sid,
-        threadKey: tk,
-        runId: input.runId,
-        agentName: input.agent.agent_name,
-        round,
-      });
-      let newestSeq = lastSeq;
-      for (const entry of injected) newestSeq = Math.max(newestSeq, entry.seq);
       const recent = await deps.storage.conversation.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
-      const newer = recent
-        .filter((m) => typeof m.seq === "number" && m.seq > newestSeq && m.role === "user")
+      const newerRaw = recent
+        .filter((m) => typeof m.seq === "number" && m.seq > lastSeq)
         .sort((a, b) => (a.seq as number) - (b.seq as number));
-      const lastMsg = newer.at(-1);
-      if (lastMsg && typeof lastMsg.seq === "number") newestSeq = lastMsg.seq;
-      lastSeq = newestSeq;
-      return [
-        ...injected.map((entry) => entry.message),
-        ...newer.map((m): ChatMessage => ({ role: "user", content: m.content ?? "" })),
-      ];
+      const lastMsg = newerRaw.at(-1);
+      const newer = filterHistoryMessages(newerRaw).filter((message) => message.role === "user");
+      const pendingIds = newer
+        .filter((message) => message.metadata.followup_pending === true)
+        .map((message) => message.id);
+      const claimed = pendingIds.length > 0
+        ? await deps.storage.consumePendingFollowups({
+            sessionId: sid,
+            rootRunId: input.rootRunId ?? input.runId,
+            messageIds: pendingIds,
+          })
+        : [];
+      const claimedIds = new Set(claimed.map((message) => message.id));
+      const result = newer
+        .filter((message) => message.metadata.followup_pending !== true || claimedIds.has(message.id))
+        .map((message): ChatMessage => ({ role: "user", content: message.content ?? "" }));
+      if (lastMsg && typeof lastMsg.seq === "number") lastSeq = lastMsg.seq;
+      return result;
     },
   };
   // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。
@@ -461,32 +408,21 @@ export async function executeRunWithSdk(
           },
         },
       } : {}),
+      ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
+      ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
       ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
   });
   const startDisposition = await persister.startRun();
   if (startDisposition.kind === "followup") {
-    if (!input.initialUserMessageMetadata) {
+    if (!input.initialUserMessageMetadata && !input.pendingUserMessageId) {
       throw new Error("deferred followup requires an initial user message");
     }
-    deps.followupQueue.enqueue({
-      activeRunId: startDisposition.activeRunId,
-      sessionId: input.sessionId,
-      requestId: input.requestId,
-      displayTask: input.initialUserMessageContent ?? input.task,
-      modelTask: input.task,
-      metadata: input.initialUserMessageMetadata,
-      userId: input.userId ?? null,
-      agent: input.agent,
-      provider: input.provider,
-      modelName: input.modelName,
-      selectedLlm: input.selectedLlm ?? null,
-    });
     input.onStartDisposition?.(startDisposition);
     return { content: "", success: true, followup: startDisposition, tokenUsage: { inputTokens: 0, outputTokens: 0 }, toolCalls: {} };
   }
   input.onStartDisposition?.(startDisposition);
   input.onRunPersisted?.();
-  if (input.userMessageId && input.initialUserMessageMetadata) {
+  if ((input.userMessageId && input.initialUserMessageMetadata) || input.pendingUserMessageId) {
     // startRun atomically persists the initial user message. Rebuild after that
     // commit so the first model request sees the same durable history as subsequent rounds.
     const startedContext = await contextBuilder.buildContext({
@@ -572,7 +508,16 @@ export async function executeRunWithSdk(
       );
     }
     const message = error instanceof Error ? error.message : String(error);
-    return { content: message, success: false, tokenUsage, toolCalls };
+    const pendingFollowup = isRootRun
+      ? await findPendingFollowup(deps.storage, input.sessionId, input.threadKey)
+      : null;
+    return {
+      content: message,
+      success: false,
+      tokenUsage,
+      toolCalls,
+      ...(pendingFollowup ? { pendingFollowup } : {}),
+    };
   }
 
   await consumeEvents;
@@ -588,7 +533,27 @@ export async function executeRunWithSdk(
       finalized.readyResumeInteractionIds,
     );
   }
-  return { content: result.content, success: true, tokenUsage, toolCalls };
+  const pendingFollowup = isRootRun
+    ? await findPendingFollowup(deps.storage, input.sessionId, input.threadKey)
+    : null;
+  return {
+    content: result.content,
+    success: true,
+    tokenUsage,
+    toolCalls,
+    ...(pendingFollowup ? { pendingFollowup } : {}),
+  };
+}
+
+async function findPendingFollowup(
+  storage: ExecutionStorage,
+  sessionId: string,
+  threadKey: string,
+): Promise<MessageInfo | null> {
+  const messages = await storage.conversation.getRecentMessages(sessionId, HISTORY_SCAN_LIMIT, threadKey);
+  return messages.find((message) =>
+    message.role === "user" && message.metadata.followup_pending === true
+  ) ?? null;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { MessageInfo } from "../../src/contracts/session/session.js";
 import type {
@@ -169,7 +169,7 @@ function createHarness(readyResumeInteractionIds: string[] = []) {
       return "snapshot";
     },
   };
-  return { storage, clientEvents, fileHistory, starts, persists, finalizes, delivered, snapshots, messages, lifecycle };
+  return { storage, clientEvents, fileHistory, starts, persists, finalizes, delivered, snapshots, messages, lifecycle, persistMessage: persist };
 }
 
 function context(overrides: Record<string, unknown> = {}) {
@@ -237,6 +237,7 @@ describe("AsyncKernelEventPersister", () => {
       run: { runId: "run-1", agentName: "agent-1" },
       initialUserMessage: { messageId: "user-1", content: "question" },
     });
+    expect(harness.starts[0]).toHaveProperty("buildExpiredRunEndedRecord");
     expect(harness.starts[0]?.initialRecords?.map((record) => record.outbox.eventId)).toEqual([
       "run-1:initial:0:run_started",
       "run-1:initial:1:agent_started",
@@ -289,12 +290,29 @@ describe("AsyncKernelEventPersister", () => {
     expect(await persister.resolveFinalMessage()).toMatchObject({ id: "run-1:final", content: "answer" });
   });
 
-  it("defers an active-root followup without writing its user message", async () => {
+  it("persists an active-root followup before acknowledging it", async () => {
     const harness = createHarness();
     let startInput: { deferFollowup?: boolean } | null = null;
     harness.storage.operations.startOrAppendRoot = async (input) => {
       startInput = input;
-      return { kind: "followup", activeRunId: "active-run" };
+      const built = input.followupFactory({ activeRunId: "active-run", roundIndex: 3 });
+      const message = harness.persistMessage(built.message);
+      return {
+        kind: "followup",
+        activeRunId: "active-run",
+        message,
+        records: built.recordFactory(message).map((record, index) => ({
+          step: null,
+          outbox: {
+            id: index + 1, event_id: record.outbox.eventId, session_id: record.outbox.sessionId,
+            tenant_id: LOCAL_TENANT_ID, run_id: record.outbox.runId ?? null, session_seq: index + 1,
+            event_type: record.outbox.eventType, aggregate_type: record.outbox.aggregateType,
+            aggregate_id: record.outbox.aggregateId, payload: JSON.stringify(record.outbox.payload),
+            status: "pending" as const, attempts: 0, available_at: NOW, locked_at: null,
+            delivered_at: null, last_error: null, created_at: NOW,
+          },
+        })),
+      };
     };
     const persister = new AsyncKernelEventPersister(
       harness.storage,
@@ -302,10 +320,50 @@ describe("AsyncKernelEventPersister", () => {
       context({ initialUserMessage: { id: "followup-user", content: "later" } }),
     );
 
-    await expect(persister.startRun()).resolves.toEqual({ kind: "followup", activeRunId: "active-run" });
-    expect(startInput).toMatchObject({ deferFollowup: true });
-    expect(harness.messages.has("followup-user")).toBe(false);
-    expect(harness.delivered).toEqual([]);
+    await expect(persister.startRun()).resolves.toEqual({
+      kind: "followup",
+      activeRunId: "active-run",
+      queueAccepted: true,
+      messageId: "followup-user",
+      messageSeq: 1,
+    });
+    expect(startInput).not.toHaveProperty("deferFollowup", true);
+    expect(harness.messages.get("followup-user")).toMatchObject({
+      content: "later",
+      metadata: { run_id: "active-run", execution_kind: "session_followup", round_index: 3 },
+    });
+    expect(harness.delivered[0]?.map((row) => row.event_id)).toEqual(["followup-user:followup:state_sync"]);
+  });
+
+  it("renews the root lease before persistence and refuses writes after ownership is lost", async () => {
+    const harness = createHarness();
+    const renewals: string[] = [];
+    let owned = true;
+    harness.storage.operations.renewRunLease = async (input) => {
+      renewals.push(input.rootRunId);
+      return { renewed: owned, expiresAt: owned ? "2099-01-01T00:00:00.000Z" : null };
+    };
+    const persister = new AsyncKernelEventPersister(
+      harness.storage,
+      harness.clientEvents as never,
+      context({ initialUserMessage: { id: "user-1", content: "question" } }),
+    );
+    await persister.startRun();
+
+    await persister.persist({
+      type: "assistant_intermediate",
+      round: 0,
+      message: { role: "assistant", content: "working" },
+    } as never);
+    owned = false;
+    await expect(persister.persist({
+      type: "assistant_intermediate",
+      round: 1,
+      message: { role: "assistant", content: "stale write" },
+    } as never)).rejects.toThrow("root run lease was lost");
+
+    expect(renewals).toEqual(["run-1", "run-1"]);
+    expect(harness.persists.map((item) => item.message.content)).toEqual(["working"]);
   });
 
   it("creates an interrupted anchor, clears continuations, and records failure terminal events", async () => {
@@ -409,5 +467,31 @@ describe("AsyncKernelEventPersister", () => {
     expect(harness.delivered).toEqual([]);
     expect(harness.messages.has("run-1:final")).toBe(false);
     expect(await persister.resolveFinalMessage()).toBeNull();
+  });
+
+  it("stops the lease heartbeat when finalization fails before the terminal transaction", async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = createHarness();
+      let renewals = 0;
+      harness.storage.operations.renewRunLease = async () => {
+        renewals += 1;
+        return { renewed: true, expiresAt: "2099-01-01T00:00:00.000Z" };
+      };
+      harness.clientEvents.flush = async () => { throw new Error("flush failed"); };
+      const persister = new AsyncKernelEventPersister(
+        harness.storage,
+        harness.clientEvents as never,
+        context(),
+      );
+      await persister.startRun();
+      await expect(persister.finalize("failed", null)).rejects.toThrow("flush failed");
+      const stoppedAt = renewals;
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(renewals).toBe(stoppedAt);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

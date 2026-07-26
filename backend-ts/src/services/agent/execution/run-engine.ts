@@ -24,6 +24,7 @@ import type { ExecutionStorage } from "../../../contracts/execution/execution-st
 import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { Envelope } from "../../../contracts/events.js";
+import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
@@ -32,7 +33,6 @@ import {
   renderBackgroundNotification,
 } from "./helpers.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
-import { SessionFollowupQueue } from "./session-followup-queue.js";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../runtime/event-outbox/execution-envelope-archive.js";
 
 export interface AgentExecutionLogger {
@@ -63,9 +63,8 @@ export class AgentRunEngine {
    private readonly taskTools: TaskToolService | null,
    /** 已加载的 provider 列表提供者（投影层解析 tier.provider 引用用）。 */
    private readonly providersProvider: () => ModelProviderConfig[],
-   private readonly backgroundTasks: BackgroundTaskService | null,
+    private readonly backgroundTasks: BackgroundTaskService | null,
     private readonly notificationQueue: SessionNotificationQueue,
-    private readonly followupQueue: SessionFollowupQueue,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly eventPublisher: AgentExecutionEventPublisher,
     private readonly permissionPolicy: PermissionPolicyService,
@@ -103,12 +102,23 @@ export class AgentRunEngine {
     persistUserMessage?: {
       metadata?: Record<string, unknown> | undefined;
     } | undefined;
+    /** Durable follow-up already visible in history; claimed atomically with this continuation root. */
+    pendingUserMessageId?: string | undefined;
+    sessionMaintenanceToken?: string | undefined;
+    awaitFollowupCompletion?: boolean | undefined;
     runStartExtra?: Record<string, unknown> | undefined;
     startStepExtra?: Record<string, unknown> | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
     onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
   }): AgentRunStartResult & {
-    promise: Promise<{ content: string; success: boolean; suspended?: boolean }>;
+    promise: Promise<{
+      content: string;
+      success: boolean;
+      suspended?: boolean;
+      runId?: string;
+      followupJoined?: boolean;
+      followupFailed?: boolean;
+    }>;
     durableStarted: Promise<ExecutionStartDisposition>;
   } {
     const runId = input.runId ?? randomUUID();
@@ -206,7 +216,7 @@ export class AgentRunEngine {
       resolveDurableStart(disposition);
     };
 
-    const promise = this.executeRun({
+    const basePromise = this.executeRun({
       sessionId: input.sessionId,
       runId,
       taskId,
@@ -227,6 +237,8 @@ export class AgentRunEngine {
       userMessageId,
       initialUserMessageContent: input.task,
       ...(initialUserMessageMetadata ? { initialUserMessageMetadata } : {}),
+      ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
+      ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
       executionKind: input.executionKind,
       rootTask: input.task,
       finalMetadataExtra: input.finalMetadataExtra,
@@ -234,6 +246,23 @@ export class AgentRunEngine {
       ...(initialEnvelopes.length > 0 ? { initialEnvelopes } : {}),
       ...(onStartDisposition ? { onStartDisposition } : {}),
       onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
+    });
+    const promise = basePromise.then((outcome) => {
+      if (input.awaitFollowupCompletion && outcome.followup?.queueAccepted !== false && outcome.followup?.messageId) {
+        return this.waitForFollowupCompletion(
+          input.sessionId,
+          outcome.followup.messageId,
+          outcome.followup.activeRunId,
+          {
+            userId: input.userId ?? null,
+            agent: input.agent,
+            provider: input.provider,
+            modelName: input.modelName,
+            selectedLlm: input.selectedLlm ?? null,
+          },
+        );
+      }
+      return outcome;
     });
     handlePromise = promise;
     // Handles resume runs, and a (defensive) synchronous start disposition.
@@ -250,22 +279,9 @@ export class AgentRunEngine {
         rejectDurableStart(error);
       },
     );
-    // A root can finish after storage fenced this request as a follow-up but
-    // before the request reaches the in-memory queue. In that case its normal
-    // terminal drain has already happened, so schedule the queued item as a
-    // new run once the target root is no longer active.
-    void promise.then(
-      (outcome) => {
-        if (outcome.followup) {
-          this.scheduleDeferredFollowupFallback(outcome.followup.activeRunId, input.sessionId);
-        }
-      },
-      () => undefined,
-    );
     promise.finally(() => {
       if (ownsSessionHandle) {
         this.statusTracker.unregister(taskId, input.sessionId);
-        void this.startDeferredFollowups(runId);
       }
       // 根 run 结束后统一触发 Session idle 检查。实际是否需要新 run 由 launcher
       // 根据后台任务、待消费通知和 active Goal 再次判定；BackgroundTaskService
@@ -290,7 +306,13 @@ export class AgentRunEngine {
     runId: string | null;
     taskId: string | null;
     agentName: string;
-    outcome?: { content: string; success: boolean; suspended?: boolean };
+    outcome?: {
+      content: string;
+      success: boolean;
+      suspended?: boolean;
+      followupJoined?: boolean;
+      followupFailed?: boolean;
+    };
   }): Promise<AgentExecuteResult> {
     if (!input.runId) {
       return {
@@ -307,7 +329,7 @@ export class AgentRunEngine {
       };
     }
     const run = await this.storage.resultReader.getRun(input.sessionId, input.runId);
-    if (!run && input.outcome) {
+    if (input.outcome && (!run || input.outcome.followupJoined || input.outcome.followupFailed)) {
       return {
         success: input.outcome.success,
         ...(input.outcome.suspended ? { suspended: true, rootRunId: input.runId } : {}),
@@ -315,7 +337,12 @@ export class AgentRunEngine {
         agent_name: input.agentName,
         execution_time: null,
         tool_calls: [],
-        metadata: { run_id: input.runId, thread_key: "root", child_agent_id: null },
+        metadata: {
+          run_id: input.runId,
+          thread_key: "root",
+          child_agent_id: null,
+          ...(input.outcome.followupJoined ? { followup_joined: true } : {}),
+        },
         session_id: input.sessionId,
         run_id: input.runId,
         task_id: input.taskId,
@@ -398,6 +425,8 @@ export class AgentRunEngine {
     userMessageId?: string | undefined;
     initialUserMessageContent?: string | undefined;
     initialUserMessageMetadata?: Record<string, unknown> | undefined;
+    pendingUserMessageId?: string | undefined;
+    sessionMaintenanceToken?: string | undefined;
     initialEnvelopes?: readonly Envelope[] | undefined;
     executionKind?: string | undefined;
     rootTask?: string | undefined;
@@ -452,7 +481,6 @@ export class AgentRunEngine {
           toolsDeps: this.toolsDeps ?? emptyToolsDeps,
           codeExecutionTools: this.codeExecutionTools,
           taskTools: this.taskTools,
-          followupQueue: this.followupQueue,
           eventPublisher: this.eventPublisher,
           providers: this.providersProvider(),
           dataRoot: this.dataRoot,
@@ -490,6 +518,8 @@ export class AgentRunEngine {
          ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
          ...(input.initialUserMessageContent ? { initialUserMessageContent: input.initialUserMessageContent } : {}),
          ...(input.initialUserMessageMetadata ? { initialUserMessageMetadata: input.initialUserMessageMetadata } : {}),
+         ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
+         ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
          ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
          ...(input.onStartDisposition ? { onStartDisposition: input.onStartDisposition } : {}),
         signal: input.abortController.signal,
@@ -535,10 +565,32 @@ export class AgentRunEngine {
           result.toolCalls,
           interrupted ? null : result.content || null,
         );
+        if (input.parentRunId == null && result.pendingFollowup) {
+          await this.startPendingFollowupContinuation({
+            sessionId: input.sessionId,
+            userId: input.userId ?? null,
+            agent: input.agent,
+            provider: input.provider,
+            modelName: input.modelName,
+            selectedLlm: input.selectedLlm ?? null,
+            pending: result.pendingFollowup,
+          });
+        }
         input.onTerminal?.(interrupted ? "interrupted" : "failed");
         return result;
       }
       await recordMetric("completed", result.tokenUsage, result.toolCalls, null);
+      if (input.parentRunId == null && result.pendingFollowup) {
+        await this.startPendingFollowupContinuation({
+          sessionId: input.sessionId,
+          userId: input.userId ?? null,
+          agent: input.agent,
+          provider: input.provider,
+          modelName: input.modelName,
+          selectedLlm: input.selectedLlm ?? null,
+          pending: result.pendingFollowup,
+        });
+      }
       input.onTerminal?.("completed");
       return result;
     } catch (error) {
@@ -570,52 +622,156 @@ export class AgentRunEngine {
     }
  }
 
-  private async startDeferredFollowups(runId: string): Promise<void> {
-    const deferred = this.followupQueue.drain(runId);
-    for (const entry of deferred) {
-      const {
-        agent: _agent,
-        run_id: _runId,
-        task_id: _taskId,
-        request_id: _requestId,
-        execution_kind: _executionKind,
-        source: _source,
-        round_index: _roundIndex,
-        ...metadata
-      } = entry.metadata;
+  private async startPendingFollowupContinuation(input: {
+    sessionId: string;
+    userId: string | null;
+    agent: AgentConfig;
+    provider: ModelProviderConfig;
+    modelName: string;
+    selectedLlm: { provider: ModelProviderConfig; modelName: string } | null;
+    pending: MessageInfo;
+  }): Promise<{ activeRunId: string } | null> {
+    const pending = input.pending;
+    const requestId = typeof pending.metadata.request_id === "string"
+      ? pending.metadata.request_id
+      : randomUUID();
+    const modelTask = typeof pending.metadata.expanded_task === "string"
+      ? pending.metadata.expanded_task
+      : pending.content;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         const started = this.startRun({
-          sessionId: entry.sessionId,
-          userId: entry.userId,
-          requestId: entry.requestId,
-          task: entry.displayTask,
-          ...(entry.modelTask !== entry.displayTask ? { modelTask: entry.modelTask } : {}),
-          executionKind: "agent_stream",
-          agent: entry.agent,
-          provider: entry.provider,
-          modelName: entry.modelName,
-          ...(entry.selectedLlm ? { selectedLlm: entry.selectedLlm } : {}),
-          persistUserMessage: { metadata },
+          sessionId: input.sessionId,
+          userId: input.userId,
+          requestId,
+          task: pending.content,
+          ...(modelTask !== pending.content ? { modelTask } : {}),
+          executionKind: "session_followup",
+          agent: input.agent,
+          provider: input.provider,
+          modelName: input.modelName,
+          ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
+          pendingUserMessageId: pending.id,
         });
-        await started.durableStarted;
+        const disposition = await started.durableStarted;
+        const activeRunId = disposition.kind === "followup" ? disposition.activeRunId : started.run_id;
+        if (!activeRunId) throw new Error("followup continuation did not expose a run id");
+        return { activeRunId };
       } catch (error) {
-        this.logger?.error(
-          {
-            session_id: entry.sessionId,
-            request_id: entry.requestId,
-            active_run_id: runId,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          "failed to start deferred followup",
-        );
+        this.logger?.error({
+          session_id: input.sessionId,
+          message_id: pending.id,
+          attempt,
+          error: error instanceof Error ? error.message : String(error),
+        }, "failed to start durable followup continuation");
+        if (attempt < 3) {
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, 100 * attempt);
+            timer.unref?.();
+          });
+        }
       }
     }
+    return null;
   }
 
-  private scheduleDeferredFollowupFallback(activeRunId: string, sessionId: string): void {
-    const active = this.statusTracker.getRunningHandleBySession(sessionId);
-    if (active?.status.run_id === activeRunId) return;
-    void this.startDeferredFollowups(activeRunId);
+  private async waitForFollowupCompletion(
+    sessionId: string,
+    messageId: string,
+    initiallyActiveRunId: string,
+    continuation: {
+      userId: string | null;
+      agent: AgentConfig;
+      provider: ModelProviderConfig;
+      modelName: string;
+      selectedLlm: { provider: ModelProviderConfig; modelName: string } | null;
+    },
+  ): Promise<{
+    content: string;
+    success: boolean;
+    runId?: string;
+    followupJoined?: boolean;
+    followupFailed?: boolean;
+  }> {
+    let watchedRunId = initiallyActiveRunId;
+    for (;;) {
+      const message = await this.storage.resultReader.getMessageById(sessionId, messageId);
+      if (!message) {
+        return {
+          content: "queued followup message was removed",
+          success: false,
+          runId: initiallyActiveRunId,
+          followupFailed: true,
+        };
+      }
+      const consumedRunId = typeof message.metadata.consumed_by_run_id === "string"
+        ? message.metadata.consumed_by_run_id
+        : null;
+      if (consumedRunId) {
+        const continuationTrigger = message.metadata.followup_continuation_trigger === true;
+        if (consumedRunId === initiallyActiveRunId || !continuationTrigger) {
+          return {
+            content: "消息已进入后续队列",
+            success: true,
+            runId: consumedRunId,
+            followupJoined: true,
+          };
+        }
+        const run = await this.storage.resultReader.getRun(sessionId, consumedRunId);
+        if (run?.status === "suspended") {
+          return {
+            content: "消息已进入后续队列，任务正在等待交互",
+            success: true,
+            runId: consumedRunId,
+            followupJoined: true,
+          };
+        }
+        if (run && run.status !== "running" && run.status !== "suspended") {
+          const finalMessage = run.final_message_id
+            ? await this.storage.resultReader.getMessageById(sessionId, run.final_message_id)
+            : null;
+          if (finalMessage) {
+            return { content: finalMessage.content, success: run.status === "completed", runId: consumedRunId };
+          }
+          return {
+            content: `followup run ended with status ${run.status}`,
+            success: false,
+            runId: consumedRunId,
+          };
+        }
+      } else {
+        const watchedRun = await this.storage.resultReader.getRun(sessionId, watchedRunId);
+        if (watchedRun?.status === "suspended") {
+          return {
+            content: "消息已进入后续队列，任务正在等待交互",
+            success: true,
+            runId: watchedRunId,
+            followupJoined: true,
+          };
+        }
+        if (!watchedRun || watchedRun.status !== "running") {
+          const started = await this.startPendingFollowupContinuation({
+            sessionId,
+            ...continuation,
+            pending: message,
+          });
+          if (!started) {
+            return {
+              content: "后续消息已持久化，但续跑启动失败",
+              success: false,
+              runId: initiallyActiveRunId,
+              followupFailed: true,
+            };
+          }
+          watchedRunId = started.activeRunId;
+          continue;
+        }
+      }
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 100);
+        timer.unref?.();
+      });
+    }
   }
 
   private async persistBackgroundNotifications(sessionId: string, threadKey: string): Promise<void> {

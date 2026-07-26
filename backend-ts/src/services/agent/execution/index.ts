@@ -29,7 +29,6 @@ import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
-import { SessionFollowupQueue } from "./session-followup-queue.js";
 import { AttachmentResolver } from "./attachment-resolver.js";
 import { SlashCommandHandler } from "./slash-command-handler.js";
 import { AgentRunEngine, type AgentExecutionLogger } from "./run-engine.js";
@@ -39,6 +38,7 @@ import type { TenantId } from "../../../identity/types.js";
 import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
+import type { ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
 import type { GoalStore } from "../../../contracts/runtime/goals.js";
 import {
   createLaunchers,
@@ -51,7 +51,7 @@ export type { AgentExecutionLogger } from "./run-engine.js";
 export type { RollbackRetryInput } from "./launchers.js";
 
 export interface AgentExecutionServiceApi {
-  startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult>;
+  startStream(request: StreamExecuteRequest, requestId: string, options?: ExecutionStartOptions): Promise<AgentRunStartResult>;
   executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult>;
   collaborateSequentially(
     request: CollaborateRequest,
@@ -114,7 +114,7 @@ export interface AgentExecutionServiceParams {
 }
 
 /**
- * 组装 agent 执行服务（无主类）：创建共享实例（statusTracker/followupQueue/eventPublisher/...）
+ * 组装 agent 执行服务（无主类）：创建共享实例（statusTracker/eventPublisher/...）
  * + runEngine + slash/attachment handler，组合 launchers/sessionControl/query 为统一 Api。
  * 类比 tools 的 createXxxTools(deps) 工厂。
  */
@@ -131,7 +131,6 @@ export function createAgentExecutionService(
   const eventPublisher = new AgentExecutionEventPublisher(params.clientEvents);
   const attachmentResolver = new AttachmentResolver(params.sessionFiles ?? null);
   const notificationQueue = params.notificationQueue ?? new SessionNotificationQueue();
-  const followupQueue = new SessionFollowupQueue();
   const storage = params.executionStorage;
   const slashCommandHandler = new SlashCommandHandler(
     params.tenantId,
@@ -141,6 +140,7 @@ export function createAgentExecutionService(
     params.providersProvider,
     params.compressionService ?? null,
     params.clientEvents,
+    params.runtimeStorage,
   );
   const runEngine = new AgentRunEngine(
     params.tenantId,
@@ -155,7 +155,6 @@ export function createAgentExecutionService(
    params.providersProvider,
    params.backgroundTasks ?? null,
     notificationQueue,
-    followupQueue,
     statusTracker,
     eventPublisher,
     params.permissionPolicy,
@@ -180,6 +179,7 @@ export function createAgentExecutionService(
     notificationQueue,
     backgroundTasks: params.backgroundTasks ?? null,
     goalStore: params.goalStore ?? null,
+    runtimeStorage: params.runtimeStorage,
   });
   const sessionControl = createSessionControl({
     statusTracker,

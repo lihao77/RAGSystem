@@ -1,10 +1,14 @@
 import { isDeepStrictEqual } from "node:util";
+import { randomUUID } from "node:crypto";
 
 import { RuntimeInteractionUnavailableError } from "../../../contracts/storage/runtime-storage.js";
 import type {
   RuntimeAtomicOperations,
   RuntimeClaimResumeInput,
   RuntimeClaimResumeResult,
+  RuntimeClaimSessionMaintenanceResult,
+  RuntimeConsumePendingFollowupsInput,
+  RuntimeConsumePendingFollowupsResult,
   RuntimeConversationStorage,
   RuntimeFinalizeRunInput,
   RuntimeFinalizeRunResult,
@@ -22,6 +26,10 @@ import type {
   RuntimeRecordInteractionResult,
   RuntimeRecoverExpiredResumeClaimsInput,
   RuntimeRecoverExpiredResumeClaimsResult,
+  RuntimeRecoverExpiredRunLeasesInput,
+  RuntimeRecoverExpiredRunLeasesResult,
+  RuntimeRenewRunLeaseInput,
+  RuntimeRenewRunLeaseResult,
   RuntimeRenewResumeClaimInput,
   RuntimeRenewResumeClaimResult,
   RuntimeResolveInteractionInput,
@@ -34,6 +42,7 @@ import type {
   RuntimeStartOrAppendRootInput,
   RuntimeStartOrAppendRootResult,
   RuntimeStorage,
+  RuntimeSessionMaintenanceInput,
   RuntimeStorageRepositories,
 } from "../../../contracts/storage/runtime-storage.js";
 import type { TenantId } from "../../../identity/types.js";
@@ -141,7 +150,10 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
   constructor(
     readonly tenantId: TenantId,
     private readonly executor: PostgresMemoryExecutor,
+    private readonly ownerInstanceId = `runtime-${randomUUID()}`,
+    private readonly rootLeaseMs = 60_000,
   ) {
+    validateRunLeaseMs(rootLeaseMs);
     this.operations = {
       startRun: (input) => this.startRun(input),
       startOrAppendRoot: (input) => this.startOrAppendRoot(input),
@@ -154,8 +166,145 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       interruptSession: (input) => this.interruptSession(input),
       renewResumeClaim: (input) => this.renewResumeClaim(input),
       recoverExpiredResumeClaims: (input) => this.recoverExpiredResumeClaims(input),
+      renewRunLease: (input) => this.renewRunLease(input),
+      recoverExpiredRunLeases: (input) => this.recoverExpiredRunLeases(input),
+      getActiveRootRun: (sessionId) => this.getActiveRootRun(sessionId),
+      consumePendingFollowups: (input) => this.consumePendingFollowups(input),
+      claimSessionMaintenance: (input) => this.claimSessionMaintenance(input),
+      renewSessionMaintenance: (input) => this.renewSessionMaintenance(input),
+      releaseSessionMaintenance: (input) => this.releaseSessionMaintenance(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
+  }
+
+  private async getActiveRootRun(sessionId: string): Promise<{ runId: string | null }> {
+    return this.executor.transaction(async (transactionExecutor) => {
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${sessionId}`);
+      const exists = await assertTenantSession(transactionExecutor, this.tenantId, sessionId, true);
+      if (!exists) return { runId: null };
+      const active = await transactionExecutor.query<{ run_id: string }>(
+        `SELECT run_id FROM saas_runs
+         WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND status IN ('running','suspended')
+         ORDER BY created_at DESC LIMIT 1`,
+        [this.tenantId, sessionId],
+      );
+      return { runId: active.rows[0]?.run_id ?? null };
+    });
+  }
+
+  private async consumePendingFollowups(
+    input: RuntimeConsumePendingFollowupsInput,
+  ): Promise<RuntimeConsumePendingFollowupsResult> {
+    return this.executor.transaction(async (transactionExecutor) => {
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      await assertOwnedRunLeaseForRun(
+        transactionExecutor,
+        this.tenantId,
+        this.ownerInstanceId,
+        input.sessionId,
+        input.rootRunId,
+      );
+      const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+      const messages: MessageInfo[] = [];
+      for (const messageId of input.messageIds) {
+        await lockAdvisoryKey(transactionExecutor, `message:${messageId}`);
+        const pending = await tx.conversation.getMessageById(input.sessionId, messageId);
+        if (!pending || pending.role !== "user" || jsonObject(pending.metadata).followup_pending !== true) continue;
+        const metadata = {
+          ...pending.metadata,
+          followup_pending: false,
+          run_id: input.rootRunId,
+          consumed_by_run_id: input.rootRunId,
+          followup_continuation_trigger: false,
+        };
+        const updated = await transactionExecutor.query(
+          `UPDATE conversation_messages
+           SET metadata=$1::jsonb
+           WHERE session_id=$2 AND id=$3 AND role='user'
+             AND metadata->>'followup_pending'='true'`,
+          [JSON.stringify(metadata), input.sessionId, messageId],
+        );
+        if (Number(updated.rowCount ?? 0) !== 1) continue;
+        messages.push({ ...pending, metadata });
+      }
+      return { messages };
+    });
+  }
+
+  private async claimSessionMaintenance(
+    input: RuntimeSessionMaintenanceInput,
+  ): Promise<RuntimeClaimSessionMaintenanceResult> {
+    const ttlMs = validateMaintenanceTtlMs(input.ttlMs);
+    return this.executor.transaction(async (transactionExecutor) => {
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      const exists = await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId, true);
+      if (!exists) return { claimed: false, activeRunId: null };
+      const active = await transactionExecutor.query<{ run_id: string }>(
+        `SELECT run_id FROM saas_runs
+         WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND status IN ('running','suspended')
+         ORDER BY created_at DESC LIMIT 1`,
+        [this.tenantId, input.sessionId],
+      );
+      if (active.rows[0]) return { claimed: false, activeRunId: active.rows[0].run_id };
+      const claimed = await transactionExecutor.query(
+        `UPDATE conversation_sessions
+         SET metadata=jsonb_set(
+               COALESCE(metadata, '{}'::jsonb),
+               '{runtime_maintenance}',
+               jsonb_build_object(
+                 'token', $1::text,
+                 'kind', $2::text,
+                 'expires_at', (CURRENT_TIMESTAMP + ($3::bigint * INTERVAL '1 millisecond'))::text
+               ),
+               true
+             ),
+             updated_at=CURRENT_TIMESTAMP
+         WHERE tenant_id=$4 AND session_id=$5
+           AND (
+             metadata->'runtime_maintenance' IS NULL
+             OR metadata->'runtime_maintenance'='null'::jsonb
+             OR metadata#>>'{runtime_maintenance,token}'=$6
+             OR NULLIF(metadata#>>'{runtime_maintenance,expires_at}', '')::timestamptz <= CURRENT_TIMESTAMP
+           )`,
+        [input.token, input.kind, ttlMs, this.tenantId, input.sessionId, input.token],
+      );
+      return { claimed: Number(claimed.rowCount ?? 0) === 1, activeRunId: null };
+    });
+  }
+
+  private async releaseSessionMaintenance(input: { sessionId: string; token: string }): Promise<void> {
+    await this.executor.transaction(async (transactionExecutor) => {
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await transactionExecutor.query(
+        `UPDATE conversation_sessions
+         SET metadata=COALESCE(metadata, '{}'::jsonb) - 'runtime_maintenance', updated_at=CURRENT_TIMESTAMP
+         WHERE tenant_id=$1 AND session_id=$2
+           AND metadata#>>'{runtime_maintenance,token}'=$3`,
+        [this.tenantId, input.sessionId, input.token],
+      );
+    });
+  }
+
+  private async renewSessionMaintenance(input: { sessionId: string; token: string; ttlMs?: number }): Promise<boolean> {
+    const ttlMs = validateMaintenanceTtlMs(input.ttlMs);
+    return this.executor.transaction(async (transactionExecutor) => {
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      const renewed = await transactionExecutor.query(
+        `UPDATE conversation_sessions
+         SET metadata=jsonb_set(
+               COALESCE(metadata, '{}'::jsonb),
+               '{runtime_maintenance,expires_at}',
+               to_jsonb((CURRENT_TIMESTAMP + ($1::bigint * INTERVAL '1 millisecond'))::text),
+               true
+             ),
+             updated_at=CURRENT_TIMESTAMP
+         WHERE tenant_id=$2 AND session_id=$3
+           AND metadata#>>'{runtime_maintenance,token}'=$4`,
+        [ttlMs, this.tenantId, input.sessionId, input.token],
+      );
+      return Number(renewed.rowCount ?? 0) === 1;
+    });
   }
 
   private async startRun(input: RuntimeStartRunInput): Promise<RuntimeStartRunResult> {
@@ -181,6 +330,15 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         true,
       );
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+      if (input.leaseRootRunId) {
+        await assertOwnedRunLeaseForRun(
+          transactionExecutor,
+          this.tenantId,
+          this.ownerInstanceId,
+          input.session.sessionId,
+          input.leaseRootRunId,
+        );
+      }
       if (!sessionExists) {
         await tx.conversation.createSession(
           input.session.sessionId,
@@ -202,6 +360,13 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         );
       }
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(input.run);
+      if (input.run.parentRunId == null) {
+        await this.claimRootRunLease(
+          transactionExecutor,
+          input.session.sessionId,
+          input.run.runId,
+        );
+      }
       const records: RuntimeRecordEnvelopeResult[] = [];
       for (const record of initialRecords) {
         await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
@@ -224,15 +389,63 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       const sessionExists = await assertTenantSession(transactionExecutor, this.tenantId, input.session.sessionId, true);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       if (!sessionExists) await tx.conversation.createSession(input.session.sessionId, input.session.userId, input.session.metadata, input.session.permissionMode);
-      const active = await transactionExecutor.query<{ run_id: string }>(
-        `SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND session_id=$2
-         AND parent_run_id IS NULL AND status='running' ORDER BY created_at DESC LIMIT 1`,
+      const maintenance = await transactionExecutor.query(
+        `SELECT 1 FROM conversation_sessions
+         WHERE tenant_id=$1 AND session_id=$2
+           AND metadata->'runtime_maintenance' IS NOT NULL
+           AND metadata->'runtime_maintenance'<>'null'::jsonb
+           AND NULLIF(metadata#>>'{runtime_maintenance,expires_at}', '')::timestamptz > CURRENT_TIMESTAMP
+           AND metadata#>>'{runtime_maintenance,token}' IS DISTINCT FROM $3`,
+        [this.tenantId, input.session.sessionId, input.sessionMaintenanceToken ?? null],
+      );
+      if (maintenance.rows[0]) throw new Error("session maintenance is in progress");
+      const recovered = input.buildExpiredRunEndedRecord
+        ? await this.recoverExpiredSessionRunLeases(
+            transactionExecutor,
+            input.session.sessionId,
+            null,
+            input.buildExpiredRunEndedRecord,
+          )
+        : { interruptedRuns: [], cancelledInteractions: 0, records: [] };
+      const active = await transactionExecutor.query<{ run_id: string; owner_instance_id: string | null; status: string }>(
+        `SELECT run_id, owner_instance_id, status FROM saas_runs WHERE tenant_id=$1 AND session_id=$2
+         AND parent_run_id IS NULL AND status IN ('running','suspended') ORDER BY created_at DESC LIMIT 1`,
         [this.tenantId, input.session.sessionId],
       );
       const activeRunId = active.rows[0]?.run_id;
+      const activeOwnedHere = active.rows[0]?.owner_instance_id === this.ownerInstanceId;
       if (activeRunId && activeRunId !== input.run.runId) {
+        if (active.rows[0]?.status === "suspended") {
+          return {
+            kind: "followup" as const,
+            activeRunId,
+            ownedByCurrentInstance: activeOwnedHere,
+            records: recovered.records,
+          };
+        }
+        if (input.pendingUserMessageId) {
+          return {
+            kind: "followup" as const,
+            activeRunId,
+            ownedByCurrentInstance: activeOwnedHere,
+            records: recovered.records,
+          };
+        }
         if (input.deferFollowup) {
-          return { kind: "followup" as const, activeRunId };
+          return {
+            kind: "followup" as const,
+            activeRunId,
+            ownedByCurrentInstance: activeOwnedHere,
+            records: recovered.records,
+          };
+        }
+        if (!activeOwnedHere) {
+          return {
+            kind: "followup" as const,
+            activeRunId,
+            ownedByCurrentInstance: false,
+            records: recovered.records,
+          };
         }
         const stepRows = await transactionExecutor.query<{ payload: unknown }>(
           "SELECT payload FROM saas_run_steps WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3",
@@ -251,15 +464,61 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
           records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalizeRecord(record)));
         }
-        return { kind: "followup", activeRunId, message, records };
+        return { kind: "followup", activeRunId, ownedByCurrentInstance: activeOwnedHere, message, records: [...recovered.records, ...records] };
       }
       const { followupFactory: _factory, ...start } = input;
       await lockAdvisoryKey(transactionExecutor, `run:${this.tenantId}:${start.run.runId}`);
       const existingRun = await lockTenantRun(transactionExecutor, this.tenantId, start.run.runId);
       if (existingRun) assertRunScope(existingRun, start.run);
-      const initialUserMessage = start.initialUserMessage ? await getOrCreateMessage(transactionExecutor, tx, start.initialUserMessage, "initial user message") : null;
+      let initialUserMessage = start.initialUserMessage ? await getOrCreateMessage(transactionExecutor, tx, start.initialUserMessage, "initial user message") : null;
+      if (start.pendingUserMessageId && initialUserMessage) {
+        throw new Error("pending followup continuation cannot insert another initial user message");
+      }
+      const pendingRows = await transactionExecutor.query<{ id: string }>(
+        `SELECT id FROM conversation_messages
+         WHERE session_id=$1 AND role='user' AND metadata->>'followup_pending'='true'
+         ORDER BY seq FOR UPDATE`,
+        [start.session.sessionId],
+      );
+      if (start.pendingUserMessageId && !pendingRows.rows.some((row) => row.id === start.pendingUserMessageId)) {
+        throw new Error(`pending followup is no longer available: ${start.pendingUserMessageId}`);
+      }
+      for (const row of pendingRows.rows) {
+        const pending = await tx.conversation.getMessageById(start.session.sessionId, row.id);
+        if (!pending) continue;
+        const claimedMetadata = {
+          ...pending.metadata,
+          followup_pending: false,
+          run_id: start.run.runId,
+          consumed_by_run_id: start.run.runId,
+          followup_continuation_trigger: pending.id === start.pendingUserMessageId,
+        };
+        const claimed = await transactionExecutor.query(
+          `UPDATE conversation_messages
+           SET metadata=$1::jsonb
+           WHERE session_id=$2 AND id=$3 AND role='user'
+             AND metadata->>'followup_pending'='true'`,
+          [JSON.stringify(claimedMetadata), start.session.sessionId, pending.id],
+        );
+        if (Number(claimed.rowCount ?? 0) !== 1) {
+          throw new Error(`failed to claim pending followup: ${pending.id}`);
+        }
+        if (pending.id === start.pendingUserMessageId) {
+          initialUserMessage = { ...pending, metadata: claimedMetadata };
+        }
+      }
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(start.run);
-      const records: RuntimeRecordEnvelopeResult[] = [];
+      await this.claimRootRunLease(transactionExecutor, start.session.sessionId, start.run.runId);
+      if (input.sessionMaintenanceToken) {
+        await transactionExecutor.query(
+          `UPDATE conversation_sessions
+           SET metadata=COALESCE(metadata, '{}'::jsonb) - 'runtime_maintenance', updated_at=CURRENT_TIMESTAMP
+           WHERE tenant_id=$1 AND session_id=$2
+             AND metadata#>>'{runtime_maintenance,token}'=$3`,
+          [this.tenantId, start.session.sessionId, input.sessionMaintenanceToken],
+        );
+      }
+      const records: RuntimeRecordEnvelopeResult[] = [...recovered.records];
       for (const record of (start.initialRecords ?? []).map(normalizeRecord)) {
         assertRecordScope(record, start.session.sessionId, start.run.runId);
         await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
@@ -269,12 +528,159 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     });
   }
 
+  private async renewRunLease(input: RuntimeRenewRunLeaseInput): Promise<RuntimeRenewRunLeaseResult> {
+    const leaseMs = validateRunLeaseMs(input.leaseMs ?? this.rootLeaseMs);
+    return this.executor.transaction(async (transactionExecutor) => {
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      const result = await transactionExecutor.query<{ lease_expires_at: unknown }>(
+        `UPDATE saas_runs
+         SET lease_expires_at=CURRENT_TIMESTAMP + ($1::bigint * INTERVAL '1 millisecond'),
+             updated_at=CURRENT_TIMESTAMP
+         WHERE tenant_id=$2 AND session_id=$3 AND run_id=$4
+           AND parent_run_id IS NULL AND status='running' AND owner_instance_id=$5
+         RETURNING lease_expires_at`,
+        [leaseMs, this.tenantId, input.sessionId, input.rootRunId, this.ownerInstanceId],
+      );
+      const expiresAt = result.rows[0]?.lease_expires_at;
+      return { renewed: expiresAt != null, expiresAt: expiresAt == null ? null : iso(expiresAt) };
+    });
+  }
+
+  private async recoverExpiredRunLeases(
+    input: RuntimeRecoverExpiredRunLeasesInput,
+  ): Promise<RuntimeRecoverExpiredRunLeasesResult> {
+    const now = input.now ? new Date(input.now).toISOString() : null;
+    const candidates = await this.executor.query<{ session_id: string }>(
+      `SELECT DISTINCT session_id FROM saas_runs
+       WHERE tenant_id=$1 AND parent_run_id IS NULL AND status='running'
+         AND (lease_expires_at IS NULL OR lease_expires_at <= COALESCE($2::timestamptz, CURRENT_TIMESTAMP))
+       ORDER BY session_id`,
+      [this.tenantId, now],
+    );
+    const result: RuntimeRecoverExpiredRunLeasesResult = {
+      interruptedRuns: [],
+      cancelledInteractions: 0,
+      records: [],
+    };
+    for (const candidate of candidates.rows) {
+      const recovered = await this.executor.transaction(async (transactionExecutor) => {
+        await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${candidate.session_id}`);
+        return this.recoverExpiredSessionRunLeases(
+          transactionExecutor,
+          candidate.session_id,
+          now,
+          input.buildRunEndedRecord,
+        );
+      });
+      result.interruptedRuns.push(...recovered.interruptedRuns);
+      result.cancelledInteractions += recovered.cancelledInteractions;
+      result.records.push(...recovered.records);
+    }
+    return result;
+  }
+
+  private async recoverExpiredSessionRunLeases(
+    transactionExecutor: PostgresMemoryExecutor,
+    sessionId: string,
+    now: string | null,
+    buildRunEndedRecord: RuntimeRecoverExpiredRunLeasesInput["buildRunEndedRecord"],
+  ): Promise<RuntimeRecoverExpiredRunLeasesResult> {
+    const expiredRoots = await transactionExecutor.query<{ run_id: string }>(
+      `SELECT run_id FROM saas_runs
+       WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND status='running'
+         AND (lease_expires_at IS NULL OR lease_expires_at <= COALESCE($3::timestamptz, CURRENT_TIMESTAMP))
+       ORDER BY created_at, run_id FOR UPDATE`,
+      [this.tenantId, sessionId, now],
+    );
+    const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+    const result: RuntimeRecoverExpiredRunLeasesResult = {
+      interruptedRuns: [],
+      cancelledInteractions: 0,
+      records: [],
+    };
+    for (const root of expiredRoots.rows) {
+      const rootRunId = String(root.run_id);
+      await lockAdvisoryKey(transactionExecutor, `interaction-root:${this.tenantId}:${sessionId}:${rootRunId}`);
+      const pending = await tx.pendingInteractions.listPendingInteractions({
+        sessionId,
+        rootRunId,
+        statuses: ["waiting", "suspended", "resolved", "resuming"],
+      });
+      result.cancelledInteractions += pending.length;
+      await tx.pendingInteractions.finalizePendingInteractions(sessionId, rootRunId, "interrupted");
+      const interrupted = await transactionExecutor.query<{ run_id: string; parent_run_id: string | null }>(
+        `WITH RECURSIVE run_tree AS (
+           SELECT run_id FROM saas_runs
+           WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
+           UNION ALL
+           SELECT child.run_id FROM saas_runs AS child
+           JOIN run_tree AS parent ON child.parent_run_id=parent.run_id
+           WHERE child.tenant_id=$1 AND child.session_id=$2
+         )
+         UPDATE saas_runs AS run
+         SET status='interrupted', final_message_id=NULL, owner_instance_id=NULL,
+             lease_expires_at=NULL, updated_at=CURRENT_TIMESTAMP
+         FROM run_tree
+         WHERE run.tenant_id=$1 AND run.session_id=$2 AND run.run_id=run_tree.run_id
+           AND run.status IN ('running','suspended')
+         RETURNING run.run_id, run.parent_run_id`,
+        [this.tenantId, sessionId, rootRunId],
+      );
+      if (!interrupted.rows.some((row) => row.run_id === rootRunId)) continue;
+      result.interruptedRuns.push(...interrupted.rows.map((row) => ({
+        sessionId,
+        runId: String(row.run_id),
+        parentRunId: row.parent_run_id == null ? null : String(row.parent_run_id),
+      })));
+      const record = normalizeRecord(buildRunEndedRecord({ sessionId, runId: rootRunId, parentRunId: null }));
+      assertRecordScope(record, sessionId, rootRunId);
+      await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
+      result.records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, record));
+    }
+    return result;
+  }
+
+  private async claimRootRunLease(
+    transactionExecutor: PostgresMemoryExecutor,
+    sessionId: string,
+    rootRunId: string,
+  ): Promise<void> {
+    const result = await transactionExecutor.query<{ run_id: string }>(
+      `UPDATE saas_runs
+       SET owner_instance_id=$1,
+           lease_expires_at=CURRENT_TIMESTAMP + ($2::bigint * INTERVAL '1 millisecond'),
+           updated_at=CURRENT_TIMESTAMP
+       WHERE tenant_id=$3 AND session_id=$4 AND run_id=$5
+         AND parent_run_id IS NULL AND status='running'
+         AND (owner_instance_id=$1 OR lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
+       RETURNING run_id`,
+      [this.ownerInstanceId, this.rootLeaseMs, this.tenantId, sessionId, rootRunId],
+    );
+    if (!result.rows[0]) throw new Error(`root run lease is owned by another instance: ${rootRunId}`);
+  }
+
   private async recordEnvelope(input: RuntimeRecordEnvelopeInput): Promise<RuntimeRecordEnvelopeResult> {
     const normalized = normalizeRecord(input);
     assertRecordScope(normalized);
     return this.executor.transaction(async (transactionExecutor) => {
+      if (normalized.requireRunLease) {
+        await lockAdvisoryKey(
+          transactionExecutor,
+          `session-control:${this.tenantId}:${normalized.outbox.sessionId}`,
+        );
+      }
       await assertTenantSession(transactionExecutor, this.tenantId, normalized.outbox.sessionId);
       if (normalized.outbox.runId) {
+        if (normalized.requireRunLease) {
+          await assertOwnedRunLeaseForRun(
+            transactionExecutor,
+            this.tenantId,
+            this.ownerInstanceId,
+            normalized.outbox.sessionId,
+            normalized.outbox.runId,
+          );
+        }
         const run = await lockTenantRun(transactionExecutor, this.tenantId, normalized.outbox.runId);
         if (!run || run.session_id !== normalized.outbox.sessionId) {
           throw new Error(`run does not belong to session: ${normalized.outbox.runId}`);
@@ -293,7 +699,22 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
   private async persistMessage(input: RuntimePersistMessageInput): Promise<RuntimePersistMessageResult> {
     assertContinuationScope(input);
     return this.executor.transaction(async (transactionExecutor) => {
+      if (input.leaseRootRunId) {
+        await lockAdvisoryKey(
+          transactionExecutor,
+          `session-control:${this.tenantId}:${input.message.sessionId}`,
+        );
+      }
       await assertTenantSession(transactionExecutor, this.tenantId, input.message.sessionId);
+      if (input.leaseRootRunId) {
+        await assertOwnedRunLeaseForRun(
+          transactionExecutor,
+          this.tenantId,
+          this.ownerInstanceId,
+          input.message.sessionId,
+          input.leaseRootRunId,
+        );
+      }
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       const deletedProviderContinuations = input.deleteProviderContinuationThreadKey
         ? await tx.providerContinuations.deleteProviderContinuations(
@@ -320,8 +741,15 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       requestPayload: { ...input.interaction.requestPayload, rootCallId },
     };
     return this.executor.transaction(async (transactionExecutor) => {
-      await assertTenantSession(transactionExecutor, this.tenantId, expected.sessionId);
       await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${expected.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, expected.sessionId);
+      await assertOwnedRunLeaseForRun(
+        transactionExecutor,
+        this.tenantId,
+        this.ownerInstanceId,
+        expected.sessionId,
+        expected.rootRunId,
+      );
       await lockAdvisoryKey(transactionExecutor, `interaction:${this.tenantId}:${expected.interactionId}`);
       await lockAdvisoryKey(
         transactionExecutor,
@@ -359,8 +787,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
 
   private async resolveInteraction(input: RuntimeResolveInteractionInput): Promise<RuntimeResolveInteractionResult> {
     return this.executor.transaction(async (transactionExecutor) => {
-      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       await lockAdvisoryKey(transactionExecutor, `interaction:${this.tenantId}:${input.interactionId}`);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       const current = await tx.pendingInteractions.getPendingInteraction(input.sessionId, input.interactionId);
@@ -433,8 +861,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     const claimId = input.claimId.trim();
     if (!claimId) throw new Error("resume claimId must not be empty");
     return this.executor.transaction(async (transactionExecutor): Promise<RuntimeClaimResumeResult> => {
-      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       const session = await tx.conversation.getSession(input.sessionId);
       if (!session) return { claimed: false, reason: "not_found" };
@@ -468,6 +896,17 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (rootRun.status !== "suspended") {
         return { claimed: false, reason: rootRun.status !== "running" ? "terminal" : "root_not_suspended" };
       }
+      const maintenance = jsonObject(session.metadata).runtime_maintenance;
+      if (jsonObject(maintenance).token && Date.parse(String(jsonObject(maintenance).expires_at ?? "")) > Date.now()) {
+        return { claimed: false, reason: "already_claimed" };
+      }
+      const competing = await transactionExecutor.query<{ run_id: string }>(
+        `SELECT run_id FROM saas_runs
+         WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL
+           AND run_id<>$3 AND status='running' LIMIT 1`,
+        [this.tenantId, input.sessionId, rootRun.run_id],
+      );
+      if (competing.rows[0]) return { claimed: false, reason: "already_claimed" };
       const repository = new PostgresPendingInteractionRepository(transactionExecutor);
       const claimed = await repository.claimPendingBatch(
         input.sessionId,
@@ -481,6 +920,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (!await tx.runs.updateRunStatus(rootRun.run_id, input.sessionId, "running", null)) {
         throw new Error(`resume root run update failed: ${rootRun.run_id}`);
       }
+      await this.claimRootRunLease(transactionExecutor, input.sessionId, rootRun.run_id);
       const request = interaction.request_payload;
       if (!rootRun.agent_name) throw new Error(`resume root run has no agent: ${rootRun.run_id}`);
       return {
@@ -506,8 +946,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
 
   private async rollbackResume(input: RuntimeRollbackResumeInput): Promise<RuntimeRollbackResumeResult> {
     return this.executor.transaction(async (transactionExecutor) => {
-      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       await lockAdvisoryKey(
         transactionExecutor,
         `interaction-root:${this.tenantId}:${input.sessionId}:${input.rootRunId}`,
@@ -541,8 +981,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
 
   private async interruptSession(input: RuntimeInterruptSessionInput): Promise<RuntimeInterruptSessionResult> {
     return this.executor.transaction(async (transactionExecutor) => {
-      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       const runIds = new Set<string>();
       const activeRuns = await transactionExecutor.query<{ run_id: string; parent_run_id: string | null }>(
@@ -597,8 +1037,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
 
   private async recoverExpiredResumeClaims(input: RuntimeRecoverExpiredResumeClaimsInput): Promise<RuntimeRecoverExpiredResumeClaimsResult> {
     return this.executor.transaction(async (transactionExecutor) => {
-      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       const cutoffMs = input.now === undefined ? null : Date.parse(input.now);
       if (cutoffMs !== null && !Number.isFinite(cutoffMs)) {
         throw new Error("resume claim now must be a valid timestamp");
@@ -670,8 +1110,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
 
   private async renewResumeClaim(input: RuntimeRenewResumeClaimInput): Promise<RuntimeRenewResumeClaimResult> {
     return this.executor.transaction(async (transactionExecutor) => {
-      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       await lockAdvisoryKey(transactionExecutor, `interaction-root:${this.tenantId}:${input.sessionId}:${input.rootRunId}`);
       const repository = new PostgresPendingInteractionRepository(transactionExecutor);
       const renewed = await repository.renewPendingClaim(
@@ -695,8 +1135,17 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       assertSessionId(input.finalMessage.sessionId, input.sessionId, "final message");
     }
     return this.executor.transaction(async (transactionExecutor) => {
-      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      if (input.leaseRootRunId) {
+        await assertOwnedRunLeaseForRun(
+          transactionExecutor,
+          this.tenantId,
+          this.ownerInstanceId,
+          input.sessionId,
+          input.leaseRootRunId,
+        );
+      }
       if (input.interactionRootRunId && input.interactionRootRunId !== input.runId) {
         throw new Error(`root interaction finalization requires the root run: ${input.runId}`);
       }
@@ -894,6 +1343,33 @@ async function lockTenantRun(
   );
   const row = result.rows[0];
   return row ? mapRun(row) : null;
+}
+
+async function assertOwnedRunLeaseForRun(
+  executor: PostgresMemoryExecutor,
+  tenantId: TenantId,
+  ownerInstanceId: string,
+  sessionId: string,
+  runId: string,
+): Promise<void> {
+  let run = await lockTenantRun(executor, tenantId, runId);
+  if (!run || run.session_id !== sessionId) throw new Error(`run not found while checking lease: ${runId}`);
+  const visited = new Set<string>();
+  while (run.parent_run_id) {
+    if (visited.has(run.run_id)) throw new Error(`run lineage cycle while checking lease: ${runId}`);
+    visited.add(run.run_id);
+    run = await lockTenantRun(executor, tenantId, run.parent_run_id);
+    if (!run || run.session_id !== sessionId) throw new Error(`run root not found while checking lease: ${runId}`);
+  }
+  const owned = await executor.query<{ run_id: string }>(
+    `SELECT run_id FROM saas_runs
+     WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
+       AND parent_run_id IS NULL AND status='running'
+       AND owner_instance_id=$4 AND lease_expires_at > CURRENT_TIMESTAMP
+     FOR UPDATE`,
+    [tenantId, sessionId, run.run_id, ownerInstanceId],
+  );
+  if (!owned.rows[0]) throw new Error(`root run lease was lost: ${run.run_id}`);
 }
 
 function assertRunScope(existing: RunInfo, expected: RuntimeStartRunInput["run"]): void {
@@ -1144,6 +1620,21 @@ function resumeLeaseMs(value: number | undefined): number {
     throw new Error("resume leaseMs must be between 1 and 86400000 milliseconds");
   }
   return Math.trunc(leaseMs);
+}
+
+function validateRunLeaseMs(value: number): number {
+  if (!Number.isFinite(value) || value < 1 || value > 86_400_000) {
+    throw new Error("run leaseMs must be between 1 and 86400000 milliseconds");
+  }
+  return Math.trunc(value);
+}
+
+function validateMaintenanceTtlMs(value: number | undefined): number {
+  const ttl = value ?? 300_000;
+  if (!Number.isFinite(ttl) || ttl < 1 || ttl > 3_600_000) {
+    throw new Error("session maintenance ttlMs must be between 1 and 3600000 milliseconds");
+  }
+  return Math.trunc(ttl);
 }
 
 function normalizeRecord(input: RuntimeRecordEnvelopeInput): RuntimeRecordEnvelopeInput {

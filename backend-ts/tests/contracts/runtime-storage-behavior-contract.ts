@@ -100,7 +100,7 @@ export function runRuntimeStorageBehaviorContract(
       await expect(harness.storage.operations.startOrAppendRoot({
         ...startOrAppendInput("session-deferred", "run-second", "message-deferred"),
         deferFollowup: true,
-      })).resolves.toEqual({ kind: "followup", activeRunId: "run-first" });
+      })).resolves.toMatchObject({ kind: "followup", activeRunId: "run-first" });
 
       await expect(harness.inspection.getMessage("session-deferred", "message-deferred")).resolves.toBeNull();
       await expect(harness.inspection.listMessages("session-deferred")).resolves.toEqual([

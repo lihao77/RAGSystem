@@ -17,7 +17,10 @@ import type { TenantId } from "../../../identity/types.js";
 import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
 import type { ClientEventPublisherPort } from "../../../contracts/runtime/core-runtime-ports.js";
 import type { SessionHistoryPort } from "../../../contracts/session/session-history.js";
-import { buildExecutionEnvelopeRunStep } from "../../runtime/event-outbox/execution-envelope-archive.js";
+import {
+  buildExecutionEnvelopeRunStep,
+  buildExpiredRunLeaseRecord,
+} from "../../runtime/event-outbox/execution-envelope-archive.js";
 
 export interface AsyncPersisterRunContext {
   tenantId: TenantId;
@@ -39,6 +42,8 @@ export interface AsyncPersisterRunContext {
   childAgentId?: string | null;
   messageMetadata?: Record<string, unknown> | null;
   initialUserMessage?: { id: string; content: string; metadata?: Record<string, unknown> | null };
+  pendingUserMessageId?: string | null;
+  sessionMaintenanceToken?: string | null;
   initialEnvelopes?: readonly Envelope[];
 }
 
@@ -51,6 +56,9 @@ export interface AsyncFinalMessageInput {
 /** Deployment-neutral kernel persister backed by a tenant-bound RuntimeStorage adapter. */
 export class AsyncKernelEventPersister {
   private finalMessage: { id: string; seq: number; content: string } | null = null;
+  private leaseHeartbeat: ReturnType<typeof setInterval> | null = null;
+  private leaseLostError: Error | null = null;
+  private leaseRenewal: Promise<void> | null = null;
 
   constructor(
     private readonly storage: RuntimeStorage,
@@ -64,6 +72,7 @@ export class AsyncKernelEventPersister {
   }
 
   async startRun(): Promise<ExecutionStartDisposition> {
+    if (this.ctx.parentRunId != null) await this.ensureRunLease();
     const initialRecords = (this.ctx.initialEnvelopes ?? []).map((event, index) => this.clientEvents.prepare(
       this.ctx.sessionId,
       event,
@@ -93,6 +102,9 @@ export class AsyncKernelEventPersister {
         ...(this.ctx.parentCallId !== undefined ? { parentCallId: this.ctx.parentCallId } : {}),
         ...(this.ctx.childAgentId !== undefined ? { childAgentId: this.ctx.childAgentId } : {}),
       },
+      ...(this.ctx.pendingUserMessageId ? { pendingUserMessageId: this.ctx.pendingUserMessageId } : {}),
+      ...(this.ctx.sessionMaintenanceToken ? { sessionMaintenanceToken: this.ctx.sessionMaintenanceToken } : {}),
+      ...(this.ctx.parentRunId != null ? { leaseRootRunId: this.ctx.rootRunId ?? null } : {}),
       ...(this.ctx.initialUserMessage ? {
         initialUserMessage: {
           messageId: this.ctx.initialUserMessage.id,
@@ -105,34 +117,79 @@ export class AsyncKernelEventPersister {
       } : {}),
       ...(initialRecords.length > 0 ? { initialRecords } : {}),
     };
-    const result = this.ctx.parentRunId == null && this.ctx.initialUserMessage
+    const result = this.ctx.parentRunId == null && (this.ctx.initialUserMessage || this.ctx.pendingUserMessageId)
       ? await this.storage.operations.startOrAppendRoot({
           ...startInput,
-          deferFollowup: true,
-          // The deferred branch never calls this factory. Keep the legacy contract
-          // satisfied while moving follow-up persistence to the round boundary.
-          followupFactory: () => {
-            throw new Error("deferred followup factory must not be invoked");
-          },
+          followupFactory: ({ activeRunId, roundIndex }) => ({
+            message: {
+              messageId: this.ctx.initialUserMessage!.id,
+              sessionId: this.ctx.sessionId,
+              role: "user",
+              content: this.ctx.initialUserMessage!.content,
+              threadKey: this.ctx.threadKey,
+              metadata: {
+                ...(this.ctx.initialUserMessage!.metadata ?? {}),
+                agent: this.ctx.agentName,
+                run_id: activeRunId,
+                request_id: this.ctx.requestId ?? null,
+                execution_kind: "session_followup",
+                source: "running_session",
+                followup_pending: true,
+                round_index: roundIndex,
+              },
+            },
+            recordFactory: (message) => [{
+              ...this.clientEvents.prepare(this.ctx.sessionId, {
+                type: "state_sync",
+                session_id: this.ctx.sessionId,
+                run_id: activeRunId,
+                payload: {
+                  category: "message_saved",
+                  ref: {
+                    message_id: message.id,
+                    seq: message.seq,
+                    role: message.role,
+                    request_id: this.ctx.requestId ?? undefined,
+                    round_index: roundIndex,
+                  },
+                },
+              }, {
+                eventId: `${message.id}:followup:state_sync`,
+                runId: activeRunId,
+                aggregateType: "run",
+                aggregateId: activeRunId,
+              }),
+            }],
+          }),
+          buildExpiredRunEndedRecord: (run) => buildExpiredRunLeaseRecord(run.sessionId, run.runId),
         })
       : { kind: "started" as const, ...await this.storage.operations.startRun(startInput) };
     // Delivery occurs after the atomic commit. A transport failure leaves the
     // rows pending for the dispatcher and must not roll back a durable start.
-    const records = result.kind === "started" ? result.records : [];
+    const records = result.records ?? [];
     if (records.length > 0) {
       void this.clientEvents.deliver(records.map((record) => record.outbox)).catch(() => undefined);
     }
-    return result.kind === "followup"
-      ? { kind: "followup", activeRunId: result.activeRunId }
-      : { kind: "started" };
+    if (result.kind === "followup") {
+      return {
+        kind: "followup",
+        activeRunId: result.activeRunId,
+        queueAccepted: result.message !== undefined || this.ctx.pendingUserMessageId != null,
+        ...(result.message ? { messageId: result.message.id, messageSeq: result.message.seq } : {}),
+      };
+    }
+    if (this.isRootRun()) this.startLeaseHeartbeat();
+    return { kind: "started" };
   }
 
   async persist(event: KernelEvent): Promise<void> {
+    await this.ensureRunLease();
     if (event.type === "tool_result") {
       const toolMedia = Array.isArray(event.metadata.tool_result_media)
         ? event.metadata.tool_result_media
         : [];
       await this.storage.operations.persistMessage({
+        leaseRootRunId: this.ctx.rootRunId ?? this.ctx.runId,
         message: {
           messageId: `${this.ctx.runId}:tool:${event.toolCallId}`,
           sessionId: this.ctx.sessionId,
@@ -162,14 +219,18 @@ export class AsyncKernelEventPersister {
     finalMessage: AsyncFinalMessageInput | null,
     error: unknown = null,
   ): Promise<{ readyResumeInteractionIds: string[] }> {
-    const persistedFinal = this.buildFinalMessage(status, finalMessage);
-    const rootRunId = this.ctx.rootRunId ?? this.ctx.runId;
-    const isRootRun = this.ctx.runId === rootRunId && this.ctx.parentRunId == null;
-    await this.clientEvents.flush(this.ctx.sessionId);
-    const result = await this.storage.operations.finalizeRun({
+    try {
+      await this.ensureRunLease();
+      const persistedFinal = this.buildFinalMessage(status, finalMessage);
+      const rootRunId = this.ctx.rootRunId ?? this.ctx.runId;
+      const isRootRun = this.ctx.runId === rootRunId && this.ctx.parentRunId == null;
+      await this.clientEvents.flush(this.ctx.sessionId);
+      await this.ensureRunLease();
+      const result = await this.storage.operations.finalizeRun({
       runId: this.ctx.runId,
       sessionId: this.ctx.sessionId,
       status,
+      leaseRootRunId: rootRunId,
       finalMessage: persistedFinal,
       ...(persistedFinal ? { attachStepsToFinalMessage: true } : {}),
       ...(isRootRun ? { interactionRootRunId: rootRunId } : {}),
@@ -188,20 +249,69 @@ export class AsyncKernelEventPersister {
         closedToolMessages,
         error,
       ),
-    });
+      });
 
-    this.finalMessage = result.finalMessage
-      ? { id: result.finalMessage.id, seq: result.finalMessage.seq, content: result.finalMessage.content }
-      : null;
-    await this.clientEvents.deliver(result.records.map((record) => record.outbox));
-    if (status === "completed" && result.finalMessage) {
-      await this.makeFileSnapshot(result.finalMessage.seq);
+      this.finalMessage = result.finalMessage
+        ? { id: result.finalMessage.id, seq: result.finalMessage.seq, content: result.finalMessage.content }
+        : null;
+      await this.clientEvents.deliver(result.records.map((record) => record.outbox));
+      if (status === "completed" && result.finalMessage) {
+        await this.makeFileSnapshot(result.finalMessage.seq);
+      }
+      return { readyResumeInteractionIds: result.readyResumeInteractionIds };
+    } finally {
+      this.stopLeaseHeartbeat();
     }
-    return { readyResumeInteractionIds: result.readyResumeInteractionIds };
   }
 
   async resolveFinalMessage(): Promise<{ id: string; seq: number; content: string } | null> {
     return this.finalMessage;
+  }
+
+  private isRootRun(): boolean {
+    const rootRunId = this.ctx.rootRunId ?? this.ctx.runId;
+    return this.ctx.parentRunId == null && this.ctx.runId === rootRunId;
+  }
+
+  private startLeaseHeartbeat(): void {
+    if (!this.storage.operations.renewRunLease || this.leaseHeartbeat) return;
+    this.leaseHeartbeat = setInterval(() => {
+      void this.renewRunLease().catch(() => undefined);
+    }, 20_000);
+    this.leaseHeartbeat.unref?.();
+  }
+
+  private stopLeaseHeartbeat(): void {
+    if (!this.leaseHeartbeat) return;
+    clearInterval(this.leaseHeartbeat);
+    this.leaseHeartbeat = null;
+  }
+
+  private async ensureRunLease(): Promise<void> {
+    if (!this.storage.operations.renewRunLease) return;
+    if (this.leaseLostError) throw this.leaseLostError;
+    await this.renewRunLease();
+    if (this.leaseLostError) throw this.leaseLostError;
+  }
+
+  private async renewRunLease(): Promise<void> {
+    if (!this.storage.operations.renewRunLease) return;
+    if (this.leaseRenewal) return this.leaseRenewal;
+    this.leaseRenewal = (async () => {
+      const result = await this.storage.operations.renewRunLease!({
+        sessionId: this.ctx.sessionId,
+        rootRunId: this.ctx.rootRunId ?? this.ctx.runId,
+      });
+      if (!result.renewed) {
+        this.stopLeaseHeartbeat();
+        this.leaseLostError = new Error(`root run lease was lost: ${this.ctx.rootRunId ?? this.ctx.runId}`);
+      }
+    })();
+    try {
+      await this.leaseRenewal;
+    } finally {
+      this.leaseRenewal = null;
+    }
   }
 
   private async persistAssistant(message: ChatMessage, round: number): Promise<void> {
@@ -219,6 +329,7 @@ export class AsyncKernelEventPersister {
     }
     const providerContinuation = this.buildProviderContinuation(message, messageId);
     await this.storage.operations.persistMessage({
+      leaseRootRunId: this.ctx.rootRunId ?? this.ctx.runId,
       message: input,
       deleteProviderContinuationThreadKey: this.ctx.threadKey,
       ...(providerContinuation ? { providerContinuation } : {}),

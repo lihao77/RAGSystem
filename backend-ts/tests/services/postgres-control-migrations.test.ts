@@ -6,12 +6,13 @@ import {
 } from "../../src/adapters/saas/postgres/control-migrations.js";
 
 describe("PostgreSQL Control Plane migrations", () => {
-  it("keeps v2 as the Bot/Widget and v3 as the lease boundary", () => {
-    expect(POSTGRES_CONTROL_LATEST_SCHEMA_VERSION).toBe(3);
+  it("keeps v2 as Bot/Widget, v3 as the lease boundary, and v4 as bot team", () => {
+    expect(POSTGRES_CONTROL_LATEST_SCHEMA_VERSION).toBe(4);
     expect(POSTGRES_CONTROL_MIGRATIONS.map((migration) => [migration.version, migration.name])).toEqual([
       [1, "control-plane-core"],
       [2, "bot-widget-and-secret-storage"],
       [3, "control-cron-lease"],
+      [4, "control-bot-team"],
     ]);
     const sql = POSTGRES_CONTROL_MIGRATIONS[1]?.sql ?? "";
     for (const table of [
@@ -33,5 +34,6 @@ describe("PostgreSQL Control Plane migrations", () => {
     expect(leaseSql).toContain("attempt_count");
     expect(leaseSql).toContain("control_bot_cron_attempt_idx");
     expect(leaseSql).not.toContain("control_import_checkpoints");
+    expect(POSTGRES_CONTROL_MIGRATIONS[3]?.sql).toContain("ADD COLUMN team TEXT");
   });
 });

@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { randomUUID } from "node:crypto";
 import type { SecretResolver } from "../../../contracts/integrations/secret-resolver.js";
 
 import {
@@ -64,12 +65,13 @@ import type { AsyncSessionFileStorage } from "../../../contracts/session/session
 import { SaaSWorkspaceBlobStorage } from "../../../adapters/saas/object-storage/workspace-blob-storage.js";
 import type { WorkspaceBlobStorage } from "../../../contracts/storage/workspace-blob-storage.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
-import type { TenantId } from "../../../identity/types.js";
+import { createTenantId, type TenantId } from "../../../identity/types.js";
 import type { WorkflowTaskStore } from "../../../contracts/runtime/workflow-tasks.js";
 import type { GoalStore } from "../../../contracts/runtime/goals.js";
 import { PostgresKnowledgeConfigRepository } from "../../../adapters/saas/postgres/knowledge-config-repository.js";
 import { KnowledgeApplicationService } from "../../../services/knowledge/knowledge-application-service.js";
 import type { ModelAdapterService } from "../../../services/integrations/model-adapter-service.js";
+import { buildExpiredRunLeaseRecord } from "../../../services/runtime/event-outbox/execution-envelope-archive.js";
 
 export interface SaaSConversationRuntimeOptions {
   connectionString: string;
@@ -135,6 +137,7 @@ export async function createSaaSConversationRuntime(
   const realtimeListenerPool = connectionString ? new Pool({ connectionString, max: 1 }) : pool;
   const ownsRealtimeListenerPool = realtimeListenerPool !== pool;
   const executor = new PgPoolMemoryExecutor(pool);
+  const runtimeOwnerInstanceId = `saas-${process.pid}-${randomUUID()}`;
   try {
     if (options.runMigrations !== false) {
       await runPostgresConversationMigrations(executor);
@@ -175,6 +178,46 @@ export async function createSaaSConversationRuntime(
       },
     );
     sharedOutboxDispatcher.start();
+    let runLeaseRecoveryRunning = false;
+    const recoverExpiredRunLeases = async (): Promise<void> => {
+      if (runLeaseRecoveryRunning) return;
+      runLeaseRecoveryRunning = true;
+      try {
+        const tenants = await executor.query<{ tenant_id: string }>(
+          `SELECT DISTINCT tenant_id FROM saas_runs
+           WHERE parent_run_id IS NULL AND status='running'
+             AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
+           ORDER BY tenant_id`,
+        );
+        for (const row of tenants.rows) {
+          try {
+            const storage = new PostgresRuntimeStorage(
+              createTenantId(row.tenant_id),
+              executor,
+              runtimeOwnerInstanceId,
+            );
+            const recovered = await storage.operations.recoverExpiredRunLeases!({
+              buildRunEndedRecord: (run) => buildExpiredRunLeaseRecord(run.sessionId, run.runId),
+            });
+            if (recovered.records.length > 0) {
+              await sharedOutboxDispatcher.dispatchPendingRows(recovered.records.map((record) => record.outbox));
+            }
+          } catch (error) {
+            console.error("[saas-runtime] expired run lease recovery failed", {
+              tenant_id: row.tenant_id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      } finally {
+        runLeaseRecoveryRunning = false;
+      }
+    };
+    await recoverExpiredRunLeases();
+    const runLeaseRecoveryTimer = setInterval(() => {
+      void recoverExpiredRunLeases().catch(() => undefined);
+    }, 20_000);
+    runLeaseRecoveryTimer.unref?.();
     const providerContinuations = new PostgresProviderContinuationRepository(executor);
     const knowledgeFiles = new PostgresKnowledgeFileMetadataRepository(executor);
     const pendingInteractions = new PostgresPendingInteractionRepository(executor);
@@ -225,7 +268,7 @@ export async function createSaaSConversationRuntime(
       createGoalStore: (tenantId) => new PostgresGoalRepository(tenantId, executor),
       analytics,
       fileHistory,
-      createRuntimeStorage: (tenantId) => new PostgresRuntimeStorage(tenantId, executor),
+      createRuntimeStorage: (tenantId) => new PostgresRuntimeStorage(tenantId, executor, runtimeOwnerInstanceId),
       createFileHistoryStorage: (tenantId) => {
         if (!options.objectStorage) throw new Error("SaaS file history requires ObjectStorage");
         return new SaaSFileHistoryStorage(tenantId, fileHistory, options.objectStorage);
@@ -256,6 +299,7 @@ export async function createSaaSConversationRuntime(
       close: () => {
         closePromise ??= (async () => {
           providerMcpApplication.close();
+          clearInterval(runLeaseRecoveryTimer);
           sharedOutboxDispatcher.stop();
           await realtimeRelay.close();
           if (ownsRealtimeListenerPool) await realtimeListenerPool.end();

@@ -8,9 +8,13 @@ import type {
 } from "./execution.js";
 import type { RollbackRetryInput } from "../../services/agent/execution/launchers.js";
 
+export interface ExecutionStartOptions {
+  followupPolicy?: "queue" | "reject";
+}
+
 /** Deployment-neutral execution write boundary for HTTP and realtime transports. */
 export interface ExecutionApplication {
-  startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult>;
+  startStream(request: StreamExecuteRequest, requestId: string, options?: ExecutionStartOptions): Promise<AgentRunStartResult>;
   executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult>;
   collaborateSequentially(request: CollaborateRequest, requestId: string): Promise<{
     results: AgentExecuteResult[];

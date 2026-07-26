@@ -213,7 +213,7 @@ describe("runtime composition roots", () => {
       await vi.waitFor(() => expect(publish).toHaveBeenCalledWith(
         "session-1",
         expect.objectContaining({ type: "run_started", run_id: "run-1" }),
-        { runId: "run-1", aggregateType: "run", aggregateId: "run-1" },
+        { runId: "run-1", aggregateType: "run", aggregateId: "run-1", requireRunLease: true },
       ));
       expect((await runtime.local.monitoring.listOutbox({ limit: 10 })).items).toEqual([]);
       expect(factoryTenantId).toBe("tnt_runtime_durable_events");

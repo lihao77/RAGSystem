@@ -96,6 +96,7 @@ export class DurableClientEventPublisher implements ClientEventPublisherPort {
   ): RuntimeRecordEnvelopeInput {
     const runId = options.runId ?? event.run_id ?? null;
     return {
+      ...(options.requireRunLease ? { requireRunLease: true } : {}),
       step: buildExecutionEnvelopeRunStep(sessionId, runId, event, options.eventId),
       outbox: {
         sessionId,

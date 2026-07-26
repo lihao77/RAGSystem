@@ -7,6 +7,7 @@ import type { RuntimeContainer } from "../../src/contracts/runtime/runtime-conta
 import type { InteractionCoordinator } from "../../src/contracts/runtime/pending-interactions.js";
 import type { UserId } from "../../src/identity/types.js";
 import { AguiGateway } from "../../src/services/agui-gateway/agui-handler.js";
+import type { Envelope } from "../../src/contracts/events.js";
 
 describe("AguiGateway", () => {
   it("adapts a shared-entry slash command into a completed AG-UI text run", async () => {
@@ -60,6 +61,50 @@ describe("AguiGateway", () => {
       "RUN_FINISHED",
     ]);
     expect(events[2]?.delta).toBe("available commands");
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(raw.end).toHaveBeenCalledOnce();
+  });
+
+  it("buffers terminal envelopes emitted before startStream returns the internal run id", async () => {
+    const chunks: string[] = [];
+    const requestRaw = new EventEmitter();
+    const raw = {
+      destroyed: false,
+      writableEnded: false,
+      writeHead: vi.fn(),
+      flushHeaders: vi.fn(),
+      write: vi.fn((chunk: string) => { chunks.push(chunk); return true; }),
+      end: vi.fn(() => { raw.writableEnded = true; }),
+    };
+    const reply = { hijack: vi.fn(), raw, request: { raw: requestRaw } } as unknown as FastifyReply;
+    let listener: ((event: Envelope) => void) | null = null;
+    const unsubscribe = vi.fn();
+    const container = {
+      realtimeEvents: {
+        subscribe: vi.fn((_sessionId: string, callback: (event: Envelope) => void) => {
+          listener = callback;
+          return unsubscribe;
+        }),
+      },
+      hostToolRegistry: { register: vi.fn() },
+    } as unknown as RuntimeContainer;
+    const execution = {
+      startStream: vi.fn(async () => {
+        listener?.({ type: "run_started", session_id: "thread-1", run_id: "internal-run-1", payload: {} } as Envelope);
+        listener?.({ type: "run_ended", session_id: "thread-1", run_id: "internal-run-1", payload: { status: "completed" } } as Envelope);
+        return { started: true, session_id: "thread-1", run_id: "internal-run-1", kind: "agent_run" as const };
+      }),
+    } as unknown as ExecutionApplication;
+    const gateway = new AguiGateway(container, "usr_test" as UserId, execution, {} as InteractionCoordinator);
+
+    await gateway.handle({
+      threadId: "thread-1",
+      runId: "external-run-1",
+      messages: [{ role: "user", content: "hello" }],
+    }, reply);
+
+    const events = chunks.map((chunk) => JSON.parse(chunk.slice("data: ".length).trim()) as { type: string });
+    expect(events.map((event) => event.type)).toEqual(["RUN_STARTED", "RUN_FINISHED"]);
     expect(unsubscribe).toHaveBeenCalledOnce();
     expect(raw.end).toHaveBeenCalledOnce();
   });

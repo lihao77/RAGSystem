@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AgentRunStartResult } from "../../../contracts/execution/execution.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
@@ -12,6 +13,7 @@ import { resolveReadyAgent } from "./readiness.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { TenantId } from "../../../identity/types.js";
 import { memoryBaselineKey } from "../memory/index.js";
+import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 
 interface ParsedSlashCommand {
   name: string;
@@ -58,6 +60,7 @@ export class SlashCommandHandler {
     private readonly providersProvider: () => ModelProviderConfig[],
     private readonly compressionService: AgentCompressionService | null,
     private readonly clientEvents: ClientEventPublisher,
+    private readonly runtimeStorage: RuntimeStorage,
   ) {}
 
   handle(input: {
@@ -68,6 +71,7 @@ export class SlashCommandHandler {
     command: ParsedSlashCommand;
     originalTask: string;
     messageMetadata?: Record<string, unknown>;
+    sessionMaintenanceToken?: string;
   }): Promise<SlashCommandDispatchResult | null> {
     if (input.command.mode === "prompt") {
       return Promise.resolve(null);
@@ -83,6 +87,7 @@ export class SlashCommandHandler {
     command: ParsedSlashCommand;
     originalTask: string;
     messageMetadata?: Record<string, unknown>;
+    sessionMaintenanceToken?: string;
   }): Promise<SlashCommandDispatchResult> {
     if (!(await this.sessions.getSession(input.sessionId))) {
       await this.sessions.createSession({ tenantId: this.tenantId, sessionId: input.sessionId, userId: input.userId });
@@ -110,7 +115,7 @@ export class SlashCommandHandler {
         ...(result.error ? { error: result.error } : {}),
       },
     });
-    this.clientEvents.publish(input.sessionId, {
+    await this.clientEvents.publish(input.sessionId, {
       type: "state_sync",
       session_id: input.sessionId,
       payload: {
@@ -144,12 +149,14 @@ export class SlashCommandHandler {
     requestId: string;
     selectedLlm: string;
     command: ParsedSlashCommand;
+    sessionMaintenanceToken?: string;
   }): Promise<SystemSlashCommandResult> {
     if (input.command.name !== "compact") {
       return executeStaticSystemSlashCommand(input.command);
     }
     const runningStatus = this.statusTracker.getStatusBySession(input.sessionId);
-    if (runningStatus?.status === "running" || runningStatus?.status === "pending") {
+    const durableActive = await this.runtimeStorage.operations.getActiveRootRun?.(input.sessionId);
+    if (runningStatus?.status === "running" || runningStatus?.status === "pending" || durableActive?.runId) {
       return {
         command: "compact",
         success: false,
@@ -174,6 +181,41 @@ export class SlashCommandHandler {
         error: "runtime_not_ready",
       };
     }
+    const maintenanceToken = input.sessionMaintenanceToken ?? randomUUID();
+    const ownsMaintenance = input.sessionMaintenanceToken === undefined;
+    const maintenanceTtlMs = 60_000;
+    const maintenanceReady = ownsMaintenance
+      ? (await this.runtimeStorage.operations.claimSessionMaintenance({
+          sessionId: input.sessionId,
+          token: maintenanceToken,
+          kind: "compact",
+          ttlMs: maintenanceTtlMs,
+        })).claimed
+      : await this.runtimeStorage.operations.renewSessionMaintenance({
+          sessionId: input.sessionId,
+          token: maintenanceToken,
+          ttlMs: maintenanceTtlMs,
+        });
+    if (!maintenanceReady) {
+      return {
+        command: "compact",
+        success: false,
+        content: "该会话正在执行任务或维护操作，请稍后再压缩",
+      };
+    }
+    let maintenanceLost = false;
+    const maintenanceHeartbeat = setInterval(() => {
+      void this.runtimeStorage.operations.renewSessionMaintenance({
+        sessionId: input.sessionId,
+        token: maintenanceToken,
+        ttlMs: maintenanceTtlMs,
+      }).then((renewed) => {
+        if (!renewed) maintenanceLost = true;
+      }, () => {
+        maintenanceLost = true;
+      });
+    }, 20_000);
+    maintenanceHeartbeat.unref?.();
     try {
       if (!this.compressionService) {
         return { command: "compact", success: false, content: "压缩服务未装配", error: "compression_unavailable" };
@@ -187,6 +229,13 @@ export class SlashCommandHandler {
         sessionId: input.sessionId,
         systemPromptTokens,
       });
+      if (maintenanceLost || !await this.runtimeStorage.operations.renewSessionMaintenance({
+        sessionId: input.sessionId,
+        token: maintenanceToken,
+        ttlMs: maintenanceTtlMs,
+      })) {
+        throw new Error("会话维护租约已丢失，压缩结果未继续提交");
+      }
       if (result.status === "skipped") {
         if (result.reason === "summary_unavailable") {
           return {
@@ -210,7 +259,7 @@ export class SlashCommandHandler {
         },
         _provider_cache: { root: null },
       });
-      this.clientEvents.publish(input.sessionId, {
+      await this.clientEvents.publish(input.sessionId, {
         type: "state_sync",
         session_id: input.sessionId,
         agent_id: ready.agent.agent_name,
@@ -231,6 +280,14 @@ export class SlashCommandHandler {
         success: false,
         content: `压缩失败: ${error instanceof Error ? error.message : String(error)}`,
       };
+    } finally {
+      clearInterval(maintenanceHeartbeat);
+      if (ownsMaintenance) {
+        await this.runtimeStorage.operations.releaseSessionMaintenance({
+          sessionId: input.sessionId,
+          token: maintenanceToken,
+        });
+      }
     }
   }
 }

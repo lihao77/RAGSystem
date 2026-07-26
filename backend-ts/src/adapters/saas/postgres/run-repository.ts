@@ -53,7 +53,7 @@ export class PostgresRunRepository implements AsyncRunStore {
   }
 
   async updateRunStatus(tenantId: string, runId: string, sessionId: string, status: string, finalMessageId: string | null = null): Promise<boolean> {
-    const result = await this.executor.query("UPDATE saas_runs SET status=$1, final_message_id=$2, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$3 AND run_id=$4 AND session_id=$5", [status, finalMessageId, tenantId, runId, sessionId]);
+    const result = await this.executor.query("UPDATE saas_runs SET status=$1, final_message_id=$2, owner_instance_id=NULL, lease_expires_at=NULL, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$3 AND run_id=$4 AND session_id=$5", [status, finalMessageId, tenantId, runId, sessionId]);
     return Number(result.rowCount ?? 0) > 0;
   }
 

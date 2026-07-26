@@ -91,7 +91,7 @@ export function messagesToConversation(messages: MessageInfo[]): { conversation:
   const originals: (MessageInfo | null)[] = [];
   // orphan guard:丢弃无前置 assistant tool_use 的孤立 tool_result(压缩切片/历史数据防御,避免 Anthropic tool_result without preceding tool_use)。
   const seenToolUseIds = new Set<string>();
-  for (const message of messages) {
+  for (const message of stabilizeFollowupOrder(messages)) {
     if (message.role !== "user" && message.role !== "assistant" && message.role !== "system" && message.role !== "tool") {
       continue;
     }
@@ -123,6 +123,40 @@ export function messagesToConversation(messages: MessageInfo[]): { conversation:
     originals.push(message);
   }
   return { conversation, originals };
+}
+
+/**
+ * A follow-up can be accepted while tool execution is still persisting results.
+ * Keep it out of the durable tool transaction until every result is present;
+ * unresolved transactions leave it for the next round refresher after restart.
+ */
+function stabilizeFollowupOrder(messages: MessageInfo[]): MessageInfo[] {
+  const output: MessageInfo[] = [];
+  const pendingToolCallIds = new Set<string>();
+  let bufferedFollowups: MessageInfo[] = [];
+  for (const message of messages) {
+    const isFollowup = message.role === "user" && message.metadata.execution_kind === "session_followup";
+    if (pendingToolCallIds.size > 0 && isFollowup) {
+      bufferedFollowups.push(message);
+      continue;
+    }
+    output.push(message);
+    if (message.role === "assistant" && message.tool_calls?.length) {
+      pendingToolCallIds.clear();
+      for (const call of message.tool_calls) {
+        if (call.id) pendingToolCallIds.add(call.id);
+      }
+      continue;
+    }
+    if (message.role === "tool" && message.tool_call_id) {
+      pendingToolCallIds.delete(message.tool_call_id);
+      if (pendingToolCallIds.size === 0 && bufferedFollowups.length > 0) {
+        output.push(...bufferedFollowups);
+        bufferedFollowups = [];
+      }
+    }
+  }
+  return output;
 }
 
 export interface MicrocompactResult {

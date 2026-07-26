@@ -46,4 +46,58 @@ describe("messagesToConversation", () => {
     expect(conversation).toHaveLength(3);
     expect(conversation[2]).toMatchObject({ role: "tool", tool_call_id: "call_1", content: "结果" });
   });
+
+  it("把工具执行期间持久化的 followup 移到完整 tool transaction 之后", () => {
+    const messages: MessageInfo[] = [
+      mk({ id: "u1", seq: 1, role: "user", content: "first", thread_key: "root", metadata: {} }),
+      mk({
+        id: "a1",
+        seq: 2,
+        role: "assistant",
+        content: "",
+        thread_key: "root",
+        tool_calls: [{ id: "call_1", function: { name: "t", arguments: "{}" } }],
+        metadata: {},
+      }),
+      mk({
+        id: "u2",
+        seq: 3,
+        role: "user",
+        content: "followup",
+        thread_key: "root",
+        metadata: { execution_kind: "session_followup", followup_pending: true },
+      }),
+      mk({ id: "t1", seq: 4, role: "tool", content: "result", tool_call_id: "call_1", name: "t", thread_key: "root", metadata: {} }),
+    ];
+
+    const { conversation } = messagesToConversation(messages);
+    expect(conversation.map((message) => message.role)).toEqual(["user", "assistant", "tool", "user"]);
+    expect(conversation.at(-1)?.content).toBe("followup");
+  });
+
+  it("悬空 tool transaction 重建时暂不暴露 pending followup", () => {
+    const messages: MessageInfo[] = [
+      mk({ id: "u1", seq: 1, role: "user", content: "first", thread_key: "root", metadata: {} }),
+      mk({
+        id: "a1",
+        seq: 2,
+        role: "assistant",
+        content: "",
+        thread_key: "root",
+        tool_calls: [{ id: "call_1", function: { name: "t", arguments: "{}" } }],
+        metadata: {},
+      }),
+      mk({
+        id: "u2",
+        seq: 3,
+        role: "user",
+        content: "followup",
+        thread_key: "root",
+        metadata: { execution_kind: "session_followup", followup_pending: true },
+      }),
+    ];
+
+    const { conversation } = messagesToConversation(messages);
+    expect(conversation.map((message) => message.content)).not.toContain("followup");
+  });
 });

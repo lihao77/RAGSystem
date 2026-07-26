@@ -23,6 +23,90 @@ async function startRun(storage: SqliteRuntimeStorage, runId = "run-1") {
   });
 }
 
+it("claims restart-era pending followups when a new root starts", async () => {
+  const { store, storage } = createHarness();
+  await startRun(storage, "run-old");
+  store.updateRunStatus("run-old", "session-1", "interrupted", null);
+  store.addMessage({
+    messageId: "pending-1",
+    sessionId: "session-1",
+    role: "user",
+    content: "queued before restart",
+    metadata: { execution_kind: "session_followup", followup_pending: true, run_id: "run-old" },
+  });
+
+  const result = await storage.operations.startOrAppendRoot({
+    session: { sessionId: "session-1", userId: "user-1" },
+    run: { runId: "run-new", sessionId: "session-1", status: "running" },
+    initialUserMessage: {
+      messageId: "message-new",
+      sessionId: "session-1",
+      role: "user",
+      content: "new request",
+    },
+    followupFactory: () => { throw new Error("no active root"); },
+  });
+
+  expect(result.kind).toBe("started");
+  expect(store.getMessageById("session-1", "pending-1")?.metadata).toMatchObject({
+    followup_pending: false,
+    run_id: "run-new",
+    consumed_by_run_id: "run-new",
+    followup_continuation_trigger: false,
+  });
+});
+
+it("marks only the continuation trigger when one root claims multiple pending followups", async () => {
+  const { store, storage } = createHarness();
+  store.createSession(LOCAL_TENANT_ID, "session-1", "user-1");
+  for (const [messageId, content] of [["pending-trigger", "trigger"], ["pending-joined", "joined"]] as const) {
+    store.addMessage({
+      messageId,
+      sessionId: "session-1",
+      role: "user",
+      content,
+      metadata: { execution_kind: "session_followup", followup_pending: true, run_id: "run-old" },
+    });
+  }
+
+  await storage.operations.startOrAppendRoot({
+    session: { sessionId: "session-1", userId: "user-1" },
+    run: { runId: "run-new", sessionId: "session-1", status: "running" },
+    pendingUserMessageId: "pending-trigger",
+    followupFactory: () => { throw new Error("no active root"); },
+  });
+
+  expect(store.getMessageById("session-1", "pending-trigger")?.metadata).toMatchObject({
+    consumed_by_run_id: "run-new",
+    followup_continuation_trigger: true,
+  });
+  expect(store.getMessageById("session-1", "pending-joined")?.metadata).toMatchObject({
+    consumed_by_run_id: "run-new",
+    followup_continuation_trigger: false,
+  });
+});
+
+it("keeps a suspended root in the session root slot", async () => {
+  const { store, storage } = createHarness();
+  await startRun(storage, "run-suspended");
+  store.updateRunStatus("run-suspended", "session-1", "suspended", null);
+
+  const result = await storage.operations.startOrAppendRoot({
+    session: { sessionId: "session-1", userId: "user-1" },
+    run: { runId: "run-new", sessionId: "session-1", status: "running" },
+    initialUserMessage: {
+      messageId: "message-new",
+      sessionId: "session-1",
+      role: "user",
+      content: "must wait for resume",
+    },
+    followupFactory: () => { throw new Error("suspended roots cannot consume followups"); },
+  });
+
+  expect(result).toMatchObject({ kind: "followup", activeRunId: "run-suspended" });
+  expect(store.getMessageById("session-1", "message-new")).toBeNull();
+});
+
 function persistMessageInput(messageId: string) {
   return {
     message: {
@@ -133,6 +217,11 @@ describe("SqliteRuntimeStorage", () => {
       rollbackResume: expect.any(Function),
       interruptSession: expect.any(Function),
       recoverExpiredResumeClaims: expect.any(Function),
+      getActiveRootRun: expect.any(Function),
+      consumePendingFollowups: expect.any(Function),
+      claimSessionMaintenance: expect.any(Function),
+      renewSessionMaintenance: expect.any(Function),
+      releaseSessionMaintenance: expect.any(Function),
       finalizeRun: expect.any(Function),
     });
     expect(storage).not.toHaveProperty("conversation");

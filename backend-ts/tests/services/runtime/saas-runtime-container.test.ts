@@ -25,6 +25,18 @@ describe("SaaS runtime container composition", () => {
     expect(source).not.toContain("FileAgentConfigTeamStore");
   });
 
+  it("runs process-wide expired lease recovery even before a tenant container is leased", () => {
+    const source = fs.readFileSync(
+      path.resolve("src/adapters/saas/composition/saas-conversation-runtime.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("SELECT DISTINCT tenant_id FROM saas_runs");
+    expect(source).toContain("recoverExpiredRunLeases");
+    expect(source).toContain("runLeaseRecoveryTimer");
+    expect(source).toContain("clearInterval(runLeaseRecoveryTimer)");
+  });
+
   it("refreshes tenant provider configuration before use", async () => {
     const replaceRuntimeProviders = vi.fn();
     const listProviders = vi.fn(async () => [{ id: "provider-a" }]);

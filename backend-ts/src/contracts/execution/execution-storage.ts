@@ -13,7 +13,13 @@ import type { TenantId } from "../../identity/types.js";
 
 export type ExecutionStartDisposition =
   | { kind: "started" }
-  | { kind: "followup"; activeRunId: string };
+  | {
+      kind: "followup";
+      activeRunId: string;
+      queueAccepted?: boolean;
+      messageId?: string;
+      messageSeq?: number;
+    };
 
 export interface ExecutionRunPersistenceContext {
   tenantId: TenantId;
@@ -35,6 +41,8 @@ export interface ExecutionRunPersistenceContext {
   childAgentId?: string | null;
   messageMetadata?: Record<string, unknown> | null;
   initialUserMessage?: { id: string; content: string; metadata?: Record<string, unknown> | null };
+  pendingUserMessageId?: string | null;
+  sessionMaintenanceToken?: string | null;
   initialEnvelopes?: readonly Envelope[];
 }
 
@@ -97,5 +105,10 @@ export interface ExecutionStorage {
   providerContinuations: ExecutionProviderContinuationPort;
   memoryCandidates: ExecutionMemoryCandidatePort;
   resultReader: ExecutionResultReader;
+  consumePendingFollowups(input: {
+    sessionId: string;
+    rootRunId: string;
+    messageIds: readonly string[];
+  }): Promise<MessageInfo[]>;
   createEventPersister(context: ExecutionRunPersistenceContext): ExecutionEventPersister;
 }

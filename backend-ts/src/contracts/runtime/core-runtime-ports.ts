@@ -28,6 +28,7 @@ export interface ClientEventPublishOptions {
   aggregateId?: string | undefined;
   eventType?: string | undefined;
   eventId?: string | undefined;
+  requireRunLease?: boolean | undefined;
 }
 
 /** Deployment-neutral, Promise-only durable client-event surface. */

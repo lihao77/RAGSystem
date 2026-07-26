@@ -412,6 +412,153 @@ describe("session websocket route", () => {
       client.ws.terminate();
     }
   });
+
+  it("buffers live events until durable replay has delivered lower sequence numbers", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    const sessionId = "ws-replay-live-interleaving";
+    harness.localInfrastructure.conversationStore.createSession(LOCAL_TENANT_ID, sessionId, "usr_local");
+    harness.localInfrastructure.conversationStore.appendOutbox({
+      sessionId,
+      runId: "run-interleaving",
+      eventId: "event-replay-1",
+      eventType: "client.stream_output",
+      aggregateType: "run",
+      aggregateId: "run-interleaving",
+      payload: {
+        client_event: {
+          type: "stream_output",
+          session_id: sessionId,
+          run_id: "run-interleaving",
+          payload: { phase: "delta", content: "replayed first" },
+        },
+      },
+    });
+
+    const executionRead = harness.container.local.executionRead;
+    const originalListOutbox = executionRead.listOutboxForReplay.bind(executionRead);
+    let releaseReplay!: () => void;
+    let markReplayStarted!: () => void;
+    const replayStarted = new Promise<void>((resolve) => { markReplayStarted = resolve; });
+    const replayGate = new Promise<void>((resolve) => { releaseReplay = resolve; });
+    let delayed = false;
+    vi.spyOn(executionRead, "listOutboxForReplay").mockImplementation(async (input) => {
+      if (!delayed && input.afterSeq === 0) {
+        delayed = true;
+        markReplayStarted();
+        await replayGate;
+      }
+      return originalListOutbox(input);
+    });
+
+    const connecting = connectWs(app, `/api/agent/sessions/${sessionId}/ws?after_seq=0`);
+    await replayStarted;
+    harness.container.realtimeEvents.publish(sessionId, {
+      type: "stream_output",
+      session_id: sessionId,
+      run_id: "run-interleaving",
+      message_id: "event-live-2",
+      seq: 2,
+      payload: { phase: "delta", content: "live second" },
+    });
+    releaseReplay();
+
+    const client = await connecting;
+    try {
+      await expect(client.receiveJson()).resolves.toMatchObject({
+        type: "session.reconnect",
+        payload: { phase: "start", replay_source: "durable_outbox" },
+      });
+      const replayed = await client.receiveJson();
+      await expect(client.receiveJson()).resolves.toMatchObject({
+        type: "session.reconnect",
+        payload: { phase: "end", replay_source: "durable_outbox" },
+      });
+      const live = await client.receiveJson();
+
+      expect([replayed?.seq, live?.seq]).toEqual([1, 2]);
+      expect(replayed?.payload).toMatchObject({ content: "replayed first" });
+      expect(live?.payload).toMatchObject({ content: "live second" });
+    } finally {
+      client.ws.terminate();
+    }
+  });
+
+  it("paginates durable replay before releasing a buffered live event beyond 500 rows", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    const sessionId = "ws-replay-pagination";
+    harness.localInfrastructure.conversationStore.createSession(LOCAL_TENANT_ID, sessionId, "usr_local");
+    for (let index = 1; index <= 501; index += 1) {
+      harness.localInfrastructure.conversationStore.appendOutbox({
+        sessionId,
+        runId: "run-pagination",
+        eventId: `event-pagination-${index}`,
+        eventType: "client.stream_output",
+        aggregateType: "run",
+        aggregateId: "run-pagination",
+        payload: {
+          client_event: {
+            type: "stream_output",
+            session_id: sessionId,
+            run_id: "run-pagination",
+            payload: { phase: "delta", content: String(index) },
+          },
+        },
+      });
+    }
+
+    const executionRead = harness.container.local.executionRead;
+    const originalListOutbox = executionRead.listOutboxForReplay.bind(executionRead);
+    let releaseReplay!: () => void;
+    let markReplayStarted!: () => void;
+    const replayStarted = new Promise<void>((resolve) => { markReplayStarted = resolve; });
+    const replayGate = new Promise<void>((resolve) => { releaseReplay = resolve; });
+    let delayed = false;
+    vi.spyOn(executionRead, "listOutboxForReplay").mockImplementation(async (input) => {
+      if (!delayed && input.afterSeq === 0) {
+        delayed = true;
+        markReplayStarted();
+        await replayGate;
+      }
+      return originalListOutbox(input);
+    });
+
+    const connecting = connectWs(app, `/api/agent/sessions/${sessionId}/ws?after_seq=0`);
+    await replayStarted;
+    harness.container.realtimeEvents.publish(sessionId, {
+      type: "stream_output",
+      session_id: sessionId,
+      run_id: "run-pagination",
+      message_id: "event-pagination-live-502",
+      seq: 502,
+      payload: { phase: "delta", content: "502" },
+    });
+    releaseReplay();
+
+    const client = await connecting;
+    try {
+      await expect(client.receiveJson()).resolves.toMatchObject({
+        type: "session.reconnect",
+        payload: { phase: "start", replay_count: 501, replay_source: "durable_outbox" },
+      });
+      const replayedSeqs: number[] = [];
+      for (let index = 0; index < 501; index += 1) {
+        const event = await client.receiveJson();
+        replayedSeqs.push(event?.seq);
+      }
+      await expect(client.receiveJson()).resolves.toMatchObject({
+        type: "session.reconnect",
+        payload: { phase: "end", replay_source: "durable_outbox" },
+      });
+      const live = await client.receiveJson();
+
+      expect(replayedSeqs).toEqual(Array.from({ length: 501 }, (_, index) => index + 1));
+      expect(live).toMatchObject({ seq: 502, payload: { content: "502" } });
+    } finally {
+      client.ws.terminate();
+    }
+  });
 });
 
 async function createDefaultChatProvider(app: FastifyInstance): Promise<void> {

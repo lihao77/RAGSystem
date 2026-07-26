@@ -6,6 +6,9 @@ import type {
   RuntimeAtomicOperations,
   RuntimeClaimResumeInput,
   RuntimeClaimResumeResult,
+  RuntimeClaimSessionMaintenanceResult,
+  RuntimeConsumePendingFollowupsInput,
+  RuntimeConsumePendingFollowupsResult,
   RuntimeFinalizeRunInput,
   RuntimeFinalizeRunResult,
   RuntimeInteractionResolution,
@@ -30,6 +33,7 @@ import type {
   RuntimeStartOrAppendRootInput,
   RuntimeStartOrAppendRootResult,
   RuntimeStorage,
+  RuntimeSessionMaintenanceInput,
 } from "../../contracts/storage/runtime-storage.js";
 import { buildInterruptedToolMessages } from "../../contracts/storage/runtime-finalization.js";
 import type { TenantId } from "../../identity/types.js";
@@ -67,8 +71,106 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       interruptSession: (input) => this.interruptSession(input),
       renewResumeClaim: (input) => this.renewResumeClaim(input),
       recoverExpiredResumeClaims: (input) => this.recoverExpiredResumeClaims(input),
+      getActiveRootRun: (sessionId) => this.getActiveRootRun(sessionId),
+      consumePendingFollowups: (input) => this.consumePendingFollowups(input),
+      claimSessionMaintenance: (input) => this.claimSessionMaintenance(input),
+      renewSessionMaintenance: (input) => this.renewSessionMaintenance(input),
+      releaseSessionMaintenance: (input) => this.releaseSessionMaintenance(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
+  }
+
+  private getActiveRootRun(sessionId: string): Promise<{ runId: string | null }> {
+    return this.serial.run(() => {
+      const active = this.store.listRuns(sessionId, Number.MAX_SAFE_INTEGER).items
+        .find((run) => run.parent_run_id === null && (run.status === "running" || run.status === "suspended"));
+      return { runId: active?.run_id ?? null };
+    });
+  }
+
+  private consumePendingFollowups(
+    input: RuntimeConsumePendingFollowupsInput,
+  ): Promise<RuntimeConsumePendingFollowupsResult> {
+    return this.serial.run(() => this.store.runInTransaction((tx) => {
+      const active = tx.getRun(input.sessionId, input.rootRunId);
+      if (!active || active.parent_run_id !== null || active.status !== "running") {
+        throw new Error(`active root run not found while consuming followups: ${input.rootRunId}`);
+      }
+      const messages: MessageInfo[] = [];
+      for (const messageId of input.messageIds) {
+        const pending = tx.getMessageById(input.sessionId, messageId);
+        if (!pending || pending.role !== "user" || asRecord(pending.metadata).followup_pending !== true) continue;
+        const metadata = {
+          ...pending.metadata,
+          followup_pending: false,
+          run_id: input.rootRunId,
+          consumed_by_run_id: input.rootRunId,
+          followup_continuation_trigger: false,
+        };
+        if (!tx.updateMessage({
+          messageId,
+          sessionId: input.sessionId,
+          roleFilter: "user",
+          metadata,
+        })) {
+          throw new Error(`failed to consume pending followup: ${messageId}`);
+        }
+        messages.push({ ...pending, metadata });
+      }
+      return { messages };
+    }));
+  }
+
+  private claimSessionMaintenance(
+    input: RuntimeSessionMaintenanceInput,
+  ): Promise<RuntimeClaimSessionMaintenanceResult> {
+    const ttlMs = maintenanceTtlMs(input.ttlMs);
+    return this.serial.run(() => this.store.runInTransaction((tx) => {
+      const session = tx.getSession(input.sessionId);
+      if (!session) return { claimed: false, activeRunId: null };
+      const active = tx.listRuns(input.sessionId, Number.MAX_SAFE_INTEGER).items
+        .find((run) => run.parent_run_id === null && (run.status === "running" || run.status === "suspended"));
+      if (active) return { claimed: false, activeRunId: active.run_id };
+      const maintenance = activeMaintenance(session.metadata);
+      if (maintenance && maintenance.token !== input.token) {
+        return { claimed: false, activeRunId: null };
+      }
+      tx.updateSessionMetadata(input.sessionId, {
+        runtime_maintenance: {
+          token: input.token,
+          kind: input.kind,
+          expires_at: new Date(Date.now() + ttlMs).toISOString(),
+        },
+      });
+      return { claimed: true, activeRunId: null };
+    }));
+  }
+
+  private releaseSessionMaintenance(input: { sessionId: string; token: string }): Promise<void> {
+    return this.serial.run(() => this.store.runInTransaction((tx) => {
+      const session = tx.getSession(input.sessionId);
+      const maintenance = session ? activeMaintenance(session.metadata, true) : null;
+      if (maintenance?.token === input.token) {
+        tx.updateSessionMetadata(input.sessionId, { runtime_maintenance: null });
+      }
+    }));
+  }
+
+  private renewSessionMaintenance(input: { sessionId: string; token: string; ttlMs?: number }): Promise<boolean> {
+    const ttlMs = maintenanceTtlMs(input.ttlMs);
+    return this.serial.run(() => this.store.runInTransaction((tx) => {
+      const session = tx.getSession(input.sessionId);
+      const maintenance = session ? activeMaintenance(session.metadata, true) : null;
+      if (maintenance?.token !== input.token) return false;
+      tx.updateSessionMetadata(input.sessionId, {
+        runtime_maintenance: {
+          ...asRecord(session?.metadata.runtime_maintenance),
+          token: input.token,
+          expires_at: new Date(Date.now() + ttlMs).toISOString(),
+        },
+      });
+      return true;
+    }));
   }
 
   /**
@@ -89,7 +191,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       let cancelledInteractions = 0;
       for (const session of sessions) {
         const recovered = this.store.runInTransaction((tx) => {
-          const activeRuns = tx.listRuns(session.session_id, 1000).items
+          const activeRuns = tx.listRuns(session.session_id, Number.MAX_SAFE_INTEGER).items
             .filter((run) => run.status === "running")
             .sort((left, right) => left.run_id.localeCompare(right.run_id));
           if (activeRuns.length === 0) {
@@ -189,10 +291,23 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         const existingSession = tx.getSession(input.session.sessionId);
         if (existingSession && existingSession.tenant_id !== this.tenantId) throw new Error(`session belongs to another tenant: ${input.session.sessionId}`);
         if (!existingSession) tx.createSession(this.tenantId, input.session.sessionId, input.session.userId, input.session.metadata, input.session.permissionMode);
-        const activeRoot = tx.listRuns(input.session.sessionId, 1000).items.find((run) => run.parent_run_id == null && run.status === "running");
+        const session = tx.getSession(input.session.sessionId);
+        const maintenance = session ? activeMaintenance(session.metadata) : null;
+        if (maintenance && maintenance.token !== input.sessionMaintenanceToken) {
+          throw new Error("session maintenance is in progress");
+        }
+        const activeRoot = tx.listRuns(input.session.sessionId, Number.MAX_SAFE_INTEGER).items.find((run) =>
+          run.parent_run_id == null && (run.status === "running" || run.status === "suspended")
+        );
         if (activeRoot && activeRoot.run_id !== input.run.runId) {
+          if (activeRoot.status === "suspended") {
+            return { kind: "followup" as const, activeRunId: activeRoot.run_id, ownedByCurrentInstance: true };
+          }
+          if (input.pendingUserMessageId) {
+            return { kind: "followup" as const, activeRunId: activeRoot.run_id, ownedByCurrentInstance: true };
+          }
           if (input.deferFollowup) {
-            return { kind: "followup" as const, activeRunId: activeRoot.run_id };
+            return { kind: "followup" as const, activeRunId: activeRoot.run_id, ownedByCurrentInstance: true };
           }
           const roundIndex = tx.getRecentMessages(input.session.sessionId, 1000, "root").reduce((max, message) => {
             const round = asRecord(message.metadata).round;
@@ -205,15 +320,46 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             assertRecordScope(record, input.session.sessionId, activeRoot.run_id);
             return recordEnvelope(tx, record);
           });
-          return { kind: "followup", activeRunId: activeRoot.run_id, message, records };
+          return { kind: "followup", activeRunId: activeRoot.run_id, ownedByCurrentInstance: true, message, records };
         }
         const { followupFactory: _factory, ...start } = input;
         const initialRecords = start.initialRecords ?? [];
         for (const record of initialRecords) assertRecordScope(record, start.session.sessionId, start.run.runId);
-        const initialUserMessage = start.initialUserMessage ? resolveDeterministicMessage(tx, start.initialUserMessage, "initial user message") : null;
+        let initialUserMessage = start.initialUserMessage ? resolveDeterministicMessage(tx, start.initialUserMessage, "initial user message") : null;
+        const pendingMessages = tx.getRecentMessages(start.session.sessionId, Number.MAX_SAFE_INTEGER, "root")
+          .filter((message) => message.role === "user" && asRecord(message.metadata).followup_pending === true);
+        if (start.pendingUserMessageId && initialUserMessage) {
+          throw new Error("pending followup continuation cannot insert another initial user message");
+        }
+        if (start.pendingUserMessageId && !pendingMessages.some((message) => message.id === start.pendingUserMessageId)) {
+          throw new Error(`pending followup is no longer available: ${start.pendingUserMessageId}`);
+        }
+        for (const pending of pendingMessages) {
+          const claimedMetadata = {
+            ...pending.metadata,
+            followup_pending: false,
+            run_id: start.run.runId,
+            consumed_by_run_id: start.run.runId,
+            followup_continuation_trigger: pending.id === start.pendingUserMessageId,
+          };
+          if (!tx.updateMessage({
+            messageId: pending.id,
+            sessionId: start.session.sessionId,
+            roleFilter: "user",
+            metadata: claimedMetadata,
+          })) {
+            throw new Error(`failed to claim pending followup: ${pending.id}`);
+          }
+          if (pending.id === start.pendingUserMessageId) {
+            initialUserMessage = { ...pending, metadata: claimedMetadata };
+          }
+        }
         const existingRun = tx.getRun(start.session.sessionId, start.run.runId);
         const run = existingRun ? toCreatedRun(existingRun) : tx.createRun(start.run);
         if (existingRun) assertRunScope(existingRun, start.run, this.tenantId);
+        if (maintenance?.token === input.sessionMaintenanceToken) {
+          tx.updateSessionMetadata(start.session.sessionId, { runtime_maintenance: null });
+        }
         return { kind: "started", run, initialUserMessage, records: initialRecords.map((record) => recordEnvelope(tx, record)) };
       });
     });
@@ -354,6 +500,13 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           const terminal = rootRun.status !== "running";
           return { claimed: false, reason: terminal ? "terminal" : "root_not_suspended" };
         }
+        if (activeMaintenance(session.metadata)) {
+          return { claimed: false, reason: "already_claimed" };
+        }
+        const competingRoot = tx.listRuns(input.sessionId, Number.MAX_SAFE_INTEGER).items.find((run) =>
+          run.parent_run_id === null && run.run_id !== rootRun.run_id && run.status === "running"
+        );
+        if (competingRoot) return { claimed: false, reason: "already_claimed" };
         const claimed = tx.claimPendingBatch(input.sessionId, interaction.batch_id, claimId, resumeLeaseMs(input.leaseMs));
         if (claimed !== batch.length) {
           throw new Error(`resume batch claim was partial: ${interaction.batch_id}`);
@@ -405,7 +558,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
   private interruptSession(input: RuntimeInterruptSessionInput): Promise<RuntimeInterruptSessionResult> {
     return this.serial.run(() => this.store.runInTransaction((tx) => {
       assertTenantSession(tx, this.tenantId, input.sessionId);
-      const activeRuns = tx.listRuns(input.sessionId, 1000).items
+      const activeRuns = tx.listRuns(input.sessionId, Number.MAX_SAFE_INTEGER).items
         .filter((run) => run.status === "suspended")
         .sort((left, right) => left.run_id.localeCompare(right.run_id));
       const rootRunIds = new Set(activeRuns.filter((run) => run.parent_run_id === null).map((run) => run.run_id));
@@ -848,6 +1001,26 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function maintenanceTtlMs(value: number | undefined): number {
+  const ttl = value ?? 300_000;
+  if (!Number.isFinite(ttl) || ttl < 1 || ttl > 3_600_000) {
+    throw new Error("session maintenance ttlMs must be between 1 and 3600000 milliseconds");
+  }
+  return Math.trunc(ttl);
+}
+
+function activeMaintenance(
+  metadata: Record<string, unknown>,
+  includeExpired = false,
+): { token: string; expiresAt: string } | null {
+  const value = asRecord(metadata.runtime_maintenance);
+  const token = typeof value.token === "string" ? value.token : "";
+  const expiresAt = typeof value.expires_at === "string" ? value.expires_at : "";
+  if (!token || !expiresAt) return null;
+  if (!includeExpired && Date.parse(expiresAt) <= Date.now()) return null;
+  return { token, expiresAt };
 }
 
 function resumeLeaseMs(value: number | undefined): number {

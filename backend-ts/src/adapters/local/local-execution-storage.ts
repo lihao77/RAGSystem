@@ -32,6 +32,8 @@ export function createLocalExecutionStorage(input: {
       getMessageById: async (sessionId, messageId) => input.conversation.getMessageById(sessionId, messageId),
       listRunSteps: async (query) => input.conversation.listRunSteps(query),
     },
+    consumePendingFollowups: async (followups) =>
+      (await input.runtimeStorage.operations.consumePendingFollowups(followups)).messages,
     createEventPersister: (context) => new AsyncKernelEventPersister(
       input.runtimeStorage,
       input.clientEvents,

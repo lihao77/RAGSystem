@@ -8,7 +8,11 @@ export class RuntimeExecutionApplication implements ExecutionApplication {
       "startStream" | "executeSynchronously" | "collaborateSequentially" | "startRollbackRetry" | "stopSession">,
   ) {}
 
-  startStream(request: Parameters<AgentExecutionServiceApi["startStream"]>[0], requestId: string) { return this.execution.startStream(request, requestId); }
+  startStream(
+    request: Parameters<AgentExecutionServiceApi["startStream"]>[0],
+    requestId: string,
+    options?: Parameters<AgentExecutionServiceApi["startStream"]>[2],
+  ) { return this.execution.startStream(request, requestId, options); }
   executeSynchronously(request: Parameters<AgentExecutionServiceApi["executeSynchronously"]>[0], requestId: string) { return this.execution.executeSynchronously(request, requestId); }
   collaborateSequentially(request: Parameters<AgentExecutionServiceApi["collaborateSequentially"]>[0], requestId: string) { return this.execution.collaborateSequentially(request, requestId); }
   startRollbackRetry(input: Parameters<AgentExecutionServiceApi["startRollbackRetry"]>[0]) { return this.execution.startRollbackRetry(input); }

@@ -123,19 +123,23 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
           return;
         }
         const afterSeq = parseSeqCursor(request.query.after_seq);
-        let lastSeq = 0;
+        let lastSeq = afterSeq ?? 0;
         let boundRunId: string | null = null;
+        let replaying = true;
+        const bufferedLiveEvents: Envelope[] = [];
 
         // seq 兼任持久化去重 + 连续性游标：envelope 自带 seq（row.session_seq，由 projector 盖戳），
-        // 此处只追踪已发最大 seq 供 heartbeat/重连 cursor；不再注入连接内 stream_seq。
-        const send = (payload: Envelope): void => {
+        // 此处追踪已发最大 seq 供 heartbeat/重连 cursor，并在握手 replay 与 live 合流时去重。
+        const send = (payload: Envelope): boolean => {
           if (ws.readyState !== WS_OPEN) {
-            return;
+            return false;
           }
-          if (typeof payload.seq === "number" && payload.seq > lastSeq) {
+          if (typeof payload.seq === "number") {
+            if (payload.seq <= lastSeq) return false;
             lastSeq = payload.seq;
           }
           ws.send(JSON.stringify(payload));
+          return true;
         };
         const sendAck = (
           category: "send" | "stop" | "interaction" | "tool_delegate",
@@ -158,8 +162,8 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
           });
         };
 
-        unsubscribe = container.realtimeEvents.subscribe(sessionId, (event) => {
-          send(event);
+        const deliverLiveEvent = (event: Envelope): void => {
+          if (!send(event)) return;
           if (event.type !== "run_started") {
             return;
           }
@@ -170,6 +174,13 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
           boundRunId = runId;
           sendReconnect("start", 0, runId);
           sendReconnect("end", 0, runId);
+        };
+        unsubscribe = container.realtimeEvents.subscribe(sessionId, (event) => {
+          if (replaying) {
+            bufferedLiveEvents.push(event);
+            return;
+          }
+          deliverLiveEvent(event);
         });
         const heartbeat = setInterval(() => {
           send({
@@ -183,22 +194,31 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
         const durableReplay = await buildDurableOutboxReplay(executionRead, sessionId, afterSeq);
         if (durableReplay) {
           boundRunId = durableReplay.runId;
-          sendReconnect("start", durableReplay.events.length, durableReplay.runId, "durable_outbox");
-          for (const env of durableReplay.events) {
+          const events = replayEventsAfter(durableReplay.events, lastSeq);
+          sendReconnect("start", events.length, durableReplay.runId, "durable_outbox");
+          for (const env of events) {
             send(env);
           }
-          sendReconnect("end", durableReplay.events.length, durableReplay.runId, "durable_outbox");
+          sendReconnect("end", events.length, durableReplay.runId, "durable_outbox");
         }
 
         const activeReplay = await buildActiveRunReplay(executionRead, container, sessionId);
         if (activeReplay) {
           boundRunId = activeReplay.runId;
-          sendReconnect("start", activeReplay.events.length, activeReplay.runId);
-          for (const env of activeReplay.events) {
+          const events = replayEventsAfter(activeReplay.events, lastSeq);
+          sendReconnect("start", events.length, activeReplay.runId);
+          for (const env of events) {
             send(env);
           }
-          sendReconnect("end", activeReplay.events.length, activeReplay.runId);
+          sendReconnect("end", events.length, activeReplay.runId);
         }
+
+        // subscribe 必须先于 durable 查询，避免查询窗口丢 live；但 replay 完成前不能直接发送
+        // 高 seq live，否则客户端 cursor 会把随后较低 seq 的 replay 当成旧事件丢弃。
+        bufferedLiveEvents
+          .sort(compareEnvelopeSeq)
+          .forEach(deliverLiveEvent);
+        replaying = false;
 
         ws.on("message", async (data) => {
           const raw = data.toString();
@@ -297,19 +317,29 @@ async function buildDurableOutboxReplay(
   if (afterSeq === null) {
     return null;
   }
-  const rows = await reads.listOutboxForReplay({
-    sessionId,
-    afterSeq,
-    limit: 500,
-  });
-  if (rows.length === 0) {
+  const projector = new EnvelopeProjector();
+  const events: Envelope[] = [];
+  let runId: string | null = null;
+  let cursor = afterSeq;
+  const pageSize = 500;
+  for (;;) {
+    const rows = await reads.listOutboxForReplay({
+      sessionId,
+      afterSeq: cursor,
+      limit: pageSize,
+    });
+    if (rows.length === 0) break;
+    runId ??= rows.find((row) => row.run_id)?.run_id ?? null;
+    events.push(...rows.map((row) => projector.toEnvelope(row)).filter((event) => !isDelegateCallEvent(event)));
+    const nextCursor = rows.at(-1)?.session_seq ?? cursor;
+    if (nextCursor <= cursor) break;
+    cursor = nextCursor;
+    if (rows.length < pageSize) break;
+  }
+  if (events.length === 0) {
     return null;
   }
-  const projector = new EnvelopeProjector();
-  return {
-    runId: rows.find((row) => row.run_id)?.run_id ?? null,
-    events: rows.map((row) => projector.toEnvelope(row)).filter((event) => !isDelegateCallEvent(event)),
-  };
+  return { runId, events };
 }
 
 async function buildActiveRunReplay(
@@ -364,6 +394,16 @@ function parseSeqCursor(value: string | undefined): number | null {
   }
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function replayEventsAfter(events: readonly Envelope[], lastSeq: number): Envelope[] {
+  return events.filter((event) => typeof event.seq !== "number" || event.seq > lastSeq);
+}
+
+function compareEnvelopeSeq(left: Envelope, right: Envelope): number {
+  const leftSeq = typeof left.seq === "number" ? left.seq : Number.MAX_SAFE_INTEGER;
+  const rightSeq = typeof right.seq === "number" ? right.seq : Number.MAX_SAFE_INTEGER;
+  return leftSeq - rightSeq;
 }
 
 /**

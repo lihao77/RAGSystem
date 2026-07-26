@@ -142,6 +142,12 @@ export interface RuntimeStartRunInput {
     permissionMode?: PermissionMode | null;
   };
   run: CreateRunInput;
+  /** Existing root lease required when creating or resuming a child run. */
+  leaseRootRunId?: string | null;
+  /** Existing durable follow-up message claimed atomically when starting a continuation root. */
+  pendingUserMessageId?: string | null;
+  /** Allows the maintenance owner to atomically replace its reservation with a new root run. */
+  sessionMaintenanceToken?: string | null;
   initialUserMessage?: AddMessageInput & { messageId: string };
   /** Initial client envelopes committed atomically with the run and first user message. */
   initialRecords?: readonly RuntimeRecordEnvelopeInput[];
@@ -168,6 +174,8 @@ export interface RuntimeStartOrAppendRootInput extends RuntimeStartRunInput {
    */
   deferFollowup?: boolean;
   followupFactory: RuntimeRootFollowupFactory;
+  /** Builds the durable terminal event when this distributed start fences an expired prior root. */
+  buildExpiredRunEndedRecord?: (run: { sessionId: string; runId: string; parentRunId: null }) => RuntimeRecordEnvelopeInput;
 }
 
 export type RuntimeStartOrAppendRootResult =
@@ -175,6 +183,8 @@ export type RuntimeStartOrAppendRootResult =
   | {
       kind: "followup";
       activeRunId: string;
+      /** False when the active root is leased by another distributed instance. */
+      ownedByCurrentInstance?: boolean;
       /** Present for legacy callers that persist follow-ups inside the transaction. */
       message?: MessageInfo;
       /** Present for legacy callers that persist follow-ups inside the transaction. */
@@ -184,6 +194,8 @@ export type RuntimeStartOrAppendRootResult =
 export interface RuntimeRecordEnvelopeInput {
   step?: AddRunStepInput | null;
   outbox: AppendOutboxInput & { eventId: string };
+  /** Distributed execution write fence; storage resolves the run root and verifies ownership. */
+  requireRunLease?: boolean;
 }
 
 export interface RuntimeRecordEnvelopeResult {
@@ -197,6 +209,8 @@ export interface RuntimeFinalizeRunInput {
   runId: string;
   sessionId: string;
   status: RuntimeFinalizeStatus;
+  /** Root lease that must still belong to this storage instance in the finalization transaction. */
+  leaseRootRunId?: string | null;
   finalMessage?: (AddMessageInput & { messageId: string }) | null;
   attachStepsToFinalMessage?: boolean;
   /** Present only when finalizing the root run; applies the root interaction status matrix atomically. */
@@ -224,6 +238,8 @@ export interface RuntimeFinalizeRunResult {
 
 export interface RuntimePersistMessageInput {
   message: AddMessageInput & { messageId: string };
+  /** Root lease that must still belong to this storage instance in the message transaction. */
+  leaseRootRunId?: string | null;
   deleteProviderContinuationThreadKey?: string | null;
   providerContinuation?: PutProviderContinuationInput | null;
 }
@@ -345,6 +361,59 @@ export interface RuntimeInterruptSessionResult {
   records: RuntimeRecordEnvelopeResult[];
 }
 
+export interface RuntimeRenewRunLeaseInput {
+  sessionId: string;
+  rootRunId: string;
+  leaseMs?: number;
+}
+
+export interface RuntimeRenewRunLeaseResult {
+  renewed: boolean;
+  expiresAt: string | null;
+}
+
+export interface RuntimeRecoverExpiredRunLeasesInput {
+  /** Optional clock override used by deterministic maintenance tests. */
+  now?: string;
+  buildRunEndedRecord(run: {
+    sessionId: string;
+    runId: string;
+    parentRunId: null;
+  }): RuntimeRecordEnvelopeInput;
+}
+
+export interface RuntimeRecoverExpiredRunLeasesResult {
+  interruptedRuns: Array<{ sessionId: string; runId: string; parentRunId: string | null }>;
+  cancelledInteractions: number;
+  records: RuntimeRecordEnvelopeResult[];
+}
+
+export interface RuntimeGetActiveRootRunResult {
+  runId: string | null;
+}
+
+export interface RuntimeConsumePendingFollowupsInput {
+  sessionId: string;
+  rootRunId: string;
+  messageIds: readonly string[];
+}
+
+export interface RuntimeConsumePendingFollowupsResult {
+  messages: MessageInfo[];
+}
+
+export interface RuntimeSessionMaintenanceInput {
+  sessionId: string;
+  token: string;
+  kind: "rollback" | "compact";
+  ttlMs?: number;
+}
+
+export interface RuntimeClaimSessionMaintenanceResult {
+  claimed: boolean;
+  activeRunId: string | null;
+}
+
 export interface RuntimeAtomicOperations {
   startRun(input: RuntimeStartRunInput): Promise<RuntimeStartRunResult>;
   startOrAppendRoot(input: RuntimeStartOrAppendRootInput): Promise<RuntimeStartOrAppendRootResult>;
@@ -358,6 +427,17 @@ export interface RuntimeAtomicOperations {
   rollbackResume(input: RuntimeRollbackResumeInput): Promise<RuntimeRollbackResumeResult>;
   interruptSession(input: RuntimeInterruptSessionInput): Promise<RuntimeInterruptSessionResult>;
   recoverExpiredResumeClaims(input: RuntimeRecoverExpiredResumeClaimsInput): Promise<RuntimeRecoverExpiredResumeClaimsResult>;
+  /** Present on distributed stores that fence live root executions with an owner lease. */
+  renewRunLease?(input: RuntimeRenewRunLeaseInput): Promise<RuntimeRenewRunLeaseResult>;
+  /** Present on distributed stores; only expired (or legacy unleased) roots may be recovered. */
+  recoverExpiredRunLeases?(input: RuntimeRecoverExpiredRunLeasesInput): Promise<RuntimeRecoverExpiredRunLeasesResult>;
+  /** Durable session-level activity check used before destructive maintenance commands. */
+  getActiveRootRun?(sessionId: string): Promise<RuntimeGetActiveRootRunResult>;
+  /** Claims durable follow-ups at a safe round boundary under the root lease fence. */
+  consumePendingFollowups(input: RuntimeConsumePendingFollowupsInput): Promise<RuntimeConsumePendingFollowupsResult>;
+  claimSessionMaintenance(input: RuntimeSessionMaintenanceInput): Promise<RuntimeClaimSessionMaintenanceResult>;
+  renewSessionMaintenance(input: Pick<RuntimeSessionMaintenanceInput, "sessionId" | "token" | "ttlMs">): Promise<boolean>;
+  releaseSessionMaintenance(input: Pick<RuntimeSessionMaintenanceInput, "sessionId" | "token">): Promise<void>;
   finalizeRun(input: RuntimeFinalizeRunInput): Promise<RuntimeFinalizeRunResult>;
 }
 

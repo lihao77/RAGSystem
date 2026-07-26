@@ -109,7 +109,7 @@ export class AgentExecutionEventPublisher {
       session_id: sessionId,
       ...(status.run_id ? { run_id: status.run_id } : {}),
       payload: { scope: "run", reason },
-    });
+    }, false);
   }
 
   publishRunEnded(sessionId: string, runId: string, status: "interrupted" | "failed"): void {
@@ -118,7 +118,7 @@ export class AgentExecutionEventPublisher {
       session_id: sessionId,
       run_id: runId,
       payload: { status },
-    });
+    }, false);
   }
 
   /**
@@ -159,12 +159,13 @@ export class AgentExecutionEventPublisher {
   }
 
 
-  private publish(sessionId: string, event: Envelope): void {
+  private publish(sessionId: string, event: Envelope, requireRunLease = true): void {
     try {
       void Promise.resolve(this.clientEvents.publish(sessionId, event, {
         runId: typeof event.run_id === "string" ? event.run_id : null,
         aggregateType: typeof event.run_id === "string" ? "run" : "session",
         aggregateId: typeof event.run_id === "string" ? event.run_id : sessionId,
+        ...(requireRunLease && typeof event.run_id === "string" ? { requireRunLease: true } : {}),
       })).catch(() => undefined);
     } catch {
       // Event delivery is best-effort here; durable replay covers reconnects.

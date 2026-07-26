@@ -41,7 +41,7 @@ export function publishAgentCallStart(clientEvents: ClientEventPublisher | null,
   }
   // call.agent.start → agent_started：agent_id=子 agent，call_id=子 agent call_id，
   // lineage.parent_call_id=父 agent call_id（挂父）。task=委派描述。
-  clientEvents.publish(
+  void clientEvents.publish(
     input.sessionId,
     {
       type: "agent_started",
@@ -61,15 +61,16 @@ export function publishAgentCallStart(clientEvents: ClientEventPublisher | null,
       runId: input.parentRunId,
       aggregateType: input.parentRunId ? "run" : "session",
       aggregateId: input.parentRunId ?? input.sessionId,
+      ...(input.parentRunId ? { requireRunLease: true } : {}),
     },
-  );
+  ).catch(() => undefined);
 }
 
 export function publishAgentCallEnd(clientEvents: ClientEventPublisher | null, input: AgentCallEndEventInput): void {
   if (!clientEvents) {
     return;
   }
-  clientEvents.publish(
+  void clientEvents.publish(
     input.sessionId,
     {
       type: "agent_ended",
@@ -90,6 +91,7 @@ export function publishAgentCallEnd(clientEvents: ClientEventPublisher | null, i
       runId: input.parentRunId,
       aggregateType: input.parentRunId ? "run" : "session",
       aggregateId: input.parentRunId ?? input.sessionId,
+      ...(input.parentRunId ? { requireRunLease: true } : {}),
     },
-  );
+  ).catch(() => undefined);
 }

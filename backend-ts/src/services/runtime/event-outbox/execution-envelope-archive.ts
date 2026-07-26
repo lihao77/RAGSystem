@@ -1,5 +1,6 @@
 import { PROTOCOL_VERSION, type Envelope } from "@ragsystem/agent-protocol";
 import type { AddRunStepInput } from "../../../contracts/conversation-store/index.js";
+import type { RuntimeRecordEnvelopeInput } from "../../../contracts/storage/runtime-storage.js";
 
 export const EXECUTION_ENVELOPE_STEP_TYPE = "protocol.envelope.v1";
 
@@ -31,6 +32,28 @@ export function buildExecutionEnvelopeRunStep(
       protocol_version: envelope.protocol_version ?? PROTOCOL_VERSION,
       session_id: sessionId,
       run_id: runId,
+    },
+  };
+}
+
+export function buildExpiredRunLeaseRecord(sessionId: string, runId: string): RuntimeRecordEnvelopeInput {
+  const eventId = `${runId}:lease-expired:run_ended`;
+  const event: Envelope = {
+    type: "run_ended",
+    session_id: sessionId,
+    run_id: runId,
+    payload: { status: "interrupted", reason: "run_lease_expired" },
+  };
+  return {
+    step: buildExecutionEnvelopeRunStep(sessionId, runId, event, eventId),
+    outbox: {
+      sessionId,
+      runId,
+      eventId,
+      eventType: "client.run_ended",
+      aggregateType: "run",
+      aggregateId: runId,
+      payload: { client_event: event },
     },
   };
 }
