@@ -34,3 +34,8 @@ export function requireTenantAdmin(request: FastifyRequest): RequestIdentity {
 export function requireTenantOwner(request: FastifyRequest): RequestIdentity {
   return requireTenantRole(request, "owner");
 }
+
+export function canReadTenantSessions(identity: RequestIdentity): boolean {
+  const roleLevel = ROLE_LEVEL[identity.role as TenantRole];
+  return roleLevel !== undefined && roleLevel >= ROLE_LEVEL.admin;
+}

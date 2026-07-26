@@ -2,7 +2,7 @@ import type { PaginatedResult } from "../../../../contracts/common.js";
 import type { AsyncConversationRepository, AsyncRunStore, ExecutionReplayRepositoryPort } from "../../../../contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "../../../../identity/types.js";
 import type { PermissionMode } from "../../../../contracts/runtime/permissions.js";
-import type { MessageInfo, SessionInfo, SessionListItem } from "../../../../contracts/session/session.js";
+import type { CreateSessionRecordInput, MessageInfo, SessionIdentity, SessionInfo } from "../../../../contracts/session/session.js";
 import { normalizeSessionMetadata } from "../../../../contracts/session/session.js";
 import { assertSafeSessionId } from "../../../../contracts/session/session-id.js";
 import type { AsyncFileHistoryStore } from "../../../../contracts/file-history-store/index.js";
@@ -13,6 +13,7 @@ import { EnvelopeProjector } from "../../../../services/runtime/event-outbox/pro
 import { TenantDaemonSessionApplication } from "../../../../services/sessions/daemon-session-application.js";
 import type { ExecutionSessionPort, SessionApplication } from "../../../../contracts/session/session-application.js";
 import type { ExecutionMemoryCandidateListPort } from "../../../../services/agent/memory/runtime-bindings.js";
+import type { WorkspaceRepositoryPort } from "../../../../contracts/workspace/workspace-repository.js";
 
 export class SaaSSessionApplication implements SessionApplication, ExecutionSessionPort {
   private readonly daemonSessions: TenantDaemonSessionApplication;
@@ -24,32 +25,64 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
     private readonly runs: AsyncRunStore | null = null,
     private readonly outbox: ExecutionReplayRepositoryPort | null = null,
     private readonly memoryCandidates: ExecutionMemoryCandidateListPort | null = null,
+    private readonly workspaces: WorkspaceRepositoryPort | null = null,
   ) {
     this.daemonSessions = new TenantDaemonSessionApplication(tenantId, {
       getSession: (sessionId) => repository.getSession(sessionId),
-      createSession: (input) => repository.createSession(input.tenantId, input.sessionId, input.userId, input.metadata, input.permissionMode),
+      createSession: (input) => repository.createSession(input),
       updateSessionMetadata: (sessionId, patch) => repository.updateSessionMetadata(sessionId, patch),
     });
   }
   ensureSession(input: Parameters<SessionApplication["ensureSession"]>[0]) {
     return this.daemonSessions.ensureSession(input);
   }
-  async createSession(input: { sessionId: string; userId: string; metadata?: Record<string, unknown>; permissionMode?: PermissionMode | null }) {
+  async createSession(input: SessionIdentity): Promise<SessionInfo> {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
-    await this.repository.createSession(this.tenantId, input.sessionId, input.userId, metadata, input.permissionMode ?? null);
-    return { session_id: input.sessionId, user_id: input.userId, permission_mode: input.permissionMode ?? null, metadata };
+    await this.repository.createSession({ ...input, tenantId: this.tenantId, metadata });
+    const created = await this.getSession(input.sessionId);
+    if (!created) throw new Error(`session create returned no row: ${input.sessionId}`);
+    return created;
   }
   async createSystemSession(input: { sessionId: string; metadata?: Record<string, unknown>; permissionMode?: PermissionMode | null }) {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
-    await this.repository.createSession(this.tenantId, input.sessionId, null, metadata, input.permissionMode ?? null);
-    return { session_id: input.sessionId, user_id: null, permission_mode: input.permissionMode ?? null, metadata };
+    await this.repository.createSession({
+      tenantId: this.tenantId,
+      sessionId: input.sessionId,
+      ownerUserId: "usr_system",
+      visibility: "tenant",
+      originType: "direct",
+      originId: null,
+      originChannel: "api",
+      workspaceId: null,
+      metadata,
+      permissionMode: input.permissionMode ?? null,
+    });
+    return this.getSession(input.sessionId);
   }
-  listSessions(input: { limit?: number; offset?: number; userIds?: readonly string[] | null }): Promise<PaginatedResult<SessionListItem>> {
-    return this.repository.listSessions(this.tenantId, input.limit ?? 20, input.offset ?? 0, input.userIds ?? null);
+  listSessions(input: Omit<import("../../../../contracts/session/session.js").SessionListQuery, "tenantId">) {
+    return this.repository.listSessions({ ...input, tenantId: this.tenantId });
+  }
+  listSessionFacets(input: Pick<import("../../../../contracts/session/session.js").SessionListQuery, "access">) {
+    return this.repository.listSessionFacets({ ...input, tenantId: this.tenantId });
+  }
+  listWorkspacesByIds(workspaceIds: readonly string[]) {
+    return this.workspaces?.listByIds(this.tenantId, workspaceIds) ?? Promise.resolve([]);
+  }
+  async resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null> {
+    if (!input) return null;
+    if (input.kind === "local_path") throw new Error("SaaS 不支持服务器本地路径 Workspace");
+    const workspace = await this.workspaces?.getById(this.tenantId, input.workspace_id);
+    if (!workspace) throw new Error("Workspace 不存在或不属于当前租户");
+    return workspace.workspace_id;
   }
   async getSession(sessionId: string): Promise<SessionInfo | null> { const row = await this.repository.getSession(sessionId); return row?.tenant_id === this.tenantId ? row : null; }
+  async resolveWorkspaceRoot(sessionId: string): Promise<string | null> {
+    const session = await this.getSession(sessionId);
+    if (!session?.workspace_id) return null;
+    return (await this.workspaces?.getById(this.tenantId, session.workspace_id))?.root_path ?? null;
+  }
   /** Returns the raw row so route ownership validation can reject a cross-tenant session id. */
   getSessionForExecutionValidation(sessionId: string): Promise<SessionInfo | null> { return this.repository.getSession(sessionId); }
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>) { return this.daemonSessions.updateSessionMetadata(sessionId, patch); }

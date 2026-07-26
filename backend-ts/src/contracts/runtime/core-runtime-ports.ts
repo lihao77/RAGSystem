@@ -11,7 +11,7 @@ import type {
   UpdateChildAgentLastRunInput,
 } from "../conversation-store/index.js";
 import type { PermissionMode } from "./permissions.js";
-import type { MessageInfo } from "../session/session.js";
+import type { MessageInfo, SessionInfo } from "../session/session.js";
 import type { Envelope } from "../events.js";
 import type { RuntimeRecordEnvelopeInput } from "../storage/runtime-storage.js";
 
@@ -62,6 +62,7 @@ export interface OutboxDispatchStorePort {
 
 /** Promise-only persistence surface required by child-agent delegation. */
 export interface AgentDelegationStorePort {
+  getSession(sessionId: string): Promise<SessionInfo | null>;
   addMessage(input: AddMessageInput): Promise<MessageInfo>;
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
   getRun(sessionId: string, runId: string): Promise<RunInfo | null>;

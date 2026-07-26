@@ -24,7 +24,11 @@ import type { ExecutionStorage } from "../../../contracts/execution/execution-st
 import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { Envelope } from "../../../contracts/events.js";
-import type { MessageInfo } from "../../../contracts/session/session.js";
+import {
+  toSessionIdentity,
+  type MessageInfo,
+  type SessionIdentity,
+} from "../../../contracts/session/session.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
@@ -80,6 +84,7 @@ export class AgentRunEngine {
 
   startRun(input: {
     sessionId: string;
+    sessionIdentity: SessionIdentity;
     runId?: string | undefined;
     taskId?: string | undefined;
     rootCallId?: string | undefined;
@@ -218,6 +223,7 @@ export class AgentRunEngine {
 
     const basePromise = this.executeRun({
       sessionId: input.sessionId,
+      sessionIdentity: input.sessionIdentity,
       runId,
       taskId,
       rootCallId,
@@ -255,6 +261,7 @@ export class AgentRunEngine {
           outcome.followup.activeRunId,
           {
             userId: input.userId ?? null,
+            sessionIdentity: input.sessionIdentity,
             agent: input.agent,
             provider: input.provider,
             modelName: input.modelName,
@@ -394,6 +401,7 @@ export class AgentRunEngine {
 
   async executeRun(input: {
     sessionId: string;
+    sessionIdentity: SessionIdentity;
     runId: string;
     taskId: string;
     rootCallId: string;
@@ -469,7 +477,13 @@ export class AgentRunEngine {
       }
     };
     try {
-      const sessionMetadata = (await this.sessions.getSession(input.sessionId))?.metadata ?? {};
+      assertSessionIdentityScope(input.sessionId, input.sessionIdentity);
+      const session = await this.sessions.getSession(input.sessionId);
+      const sessionIdentity = session ? toSessionIdentity(session) : input.sessionIdentity;
+      if (session) assertSessionIdentityMatch(input.sessionIdentity, sessionIdentity);
+      const workspaceRoot = session?.workspace_id
+        ? await this.sessions.resolveWorkspaceRoot(input.sessionId)
+        : null;
       const executionKind = input.executionKind ?? "agent_stream";
       // 后台任务完成通知落库为 user 消息（系统注入的上下文）；SDK 从 store 读取对话历史时一并看到，
       // backend 不再组装消息数组传给 SDK。
@@ -511,7 +525,8 @@ export class AgentRunEngine {
           ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
          ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
          ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
-         sessionMetadata,
+          sessionIdentity,
+         workspaceRoot,
           ...(input.executionKind !== undefined ? { executionKind } : {}),
           ...(input.rootTask !== undefined ? { rootTask: input.rootTask } : {}),
          ...(input.userId !== undefined ? { userId: input.userId } : {}),
@@ -568,6 +583,7 @@ export class AgentRunEngine {
         if (input.parentRunId == null && result.pendingFollowup) {
           await this.startPendingFollowupContinuation({
             sessionId: input.sessionId,
+            sessionIdentity,
             userId: input.userId ?? null,
             agent: input.agent,
             provider: input.provider,
@@ -583,6 +599,7 @@ export class AgentRunEngine {
       if (input.parentRunId == null && result.pendingFollowup) {
         await this.startPendingFollowupContinuation({
           sessionId: input.sessionId,
+          sessionIdentity,
           userId: input.userId ?? null,
           agent: input.agent,
           provider: input.provider,
@@ -624,6 +641,7 @@ export class AgentRunEngine {
 
   private async startPendingFollowupContinuation(input: {
     sessionId: string;
+    sessionIdentity: SessionIdentity;
     userId: string | null;
     agent: AgentConfig;
     provider: ModelProviderConfig;
@@ -642,6 +660,7 @@ export class AgentRunEngine {
       try {
         const started = this.startRun({
           sessionId: input.sessionId,
+          sessionIdentity: input.sessionIdentity,
           userId: input.userId,
           requestId,
           task: pending.content,
@@ -681,6 +700,7 @@ export class AgentRunEngine {
     initiallyActiveRunId: string,
     continuation: {
       userId: string | null;
+      sessionIdentity: SessionIdentity;
       agent: AgentConfig;
       provider: ModelProviderConfig;
       modelName: string;
@@ -794,6 +814,24 @@ export class AgentRunEngine {
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function assertSessionIdentityScope(sessionId: string, identity: SessionIdentity): void {
+  if (identity.sessionId !== sessionId) {
+    throw new Error(`session identity scope mismatch: expected ${sessionId}, received ${identity.sessionId}`);
+  }
+}
+
+function assertSessionIdentityMatch(requested: SessionIdentity, persisted: SessionIdentity): void {
+  const conflict = requested.ownerUserId !== persisted.ownerUserId
+    || requested.visibility !== persisted.visibility
+    || requested.originType !== persisted.originType
+    || requested.originId !== persisted.originId
+    || requested.originChannel !== persisted.originChannel
+    || requested.workspaceId !== persisted.workspaceId;
+  if (conflict) {
+    throw new Error(`session immutable identity mismatch: ${persisted.sessionId}`);
+  }
 }
 
 function serializeErrorForLog(error: unknown): Record<string, unknown> {

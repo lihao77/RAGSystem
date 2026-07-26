@@ -122,6 +122,7 @@ function pendingRecord(interactionId: string, status: string, batchId: string) {
 function createExecutorHarness(options: {
   sessionExists?: boolean;
   sessionTenantId?: string;
+  sessionPatch?: Record<string, unknown>;
   runExists?: boolean;
   runStatus?: string;
   runPatch?: Record<string, unknown>;
@@ -139,6 +140,7 @@ function createExecutorHarness(options: {
   let rootQueryCount = 0;
   let transactionCount = 0;
   let sessionExists = options.sessionExists ?? true;
+  let sessionIdentity: Record<string, unknown> | null = null;
   let runState: Record<string, unknown> | null = options.runExists === false ? null : {
     run_id: "run-1",
     session_id: "session-1",
@@ -170,8 +172,31 @@ function createExecutorHarness(options: {
       let rows: Record<string, unknown>[] = [];
       let rowCount = 1;
       if (sql.startsWith("INSERT INTO conversation_sessions")) {
-        sessionExists = true;
-        rows = [{ tenant_id: tenantId }];
+        const attemptedIdentity = {
+          session_id: params[0],
+          tenant_id: params[1],
+          owner_user_id: params[2],
+          visibility: params[3],
+          origin_type: params[4],
+          origin_id: params[5],
+          origin_channel: params[6],
+          workspace_id: params[7],
+        };
+        if (sessionExists) {
+          sessionIdentity ??= {
+            ...attemptedIdentity,
+            tenant_id: options.sessionTenantId ?? attemptedIdentity.tenant_id,
+            ...(options.sessionPatch ?? {}),
+          };
+          rows = [];
+          rowCount = 0;
+        } else {
+          sessionExists = true;
+          sessionIdentity = attemptedIdentity;
+          rows = [{ session_id: params[0] }];
+        }
+      } else if (sql.includes("SELECT tenant_id,owner_user_id,visibility,origin_type,origin_id,origin_channel,workspace_id")) {
+        rows = sessionExists && sessionIdentity ? [sessionIdentity] : [];
       } else if (sql.includes("SELECT tenant_id FROM conversation_sessions")) {
         rows = sessionExists ? [{ tenant_id: options.sessionTenantId ?? tenantId }] : [];
       } else if (sql.startsWith("SELECT * FROM conversation_sessions")) {
@@ -670,7 +695,7 @@ describe("PostgresRuntimeStorage", () => {
       runId: "run-1", sessionId: "session-1", status: "failed", leaseRootRunId: "run-1",
     })).rejects.toThrow("root run lease was lost");
     await expect(stale.operations.startRun({
-      session: { sessionId: "session-1", userId: null },
+      session: { sessionId: "session-1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "stale-child", sessionId: "session-1", parentRunId: "run-1" },
       leaseRootRunId: "run-1",
     })).rejects.toThrow("root run lease was lost");
@@ -687,7 +712,7 @@ describe("PostgresRuntimeStorage", () => {
     const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "live-instance");
 
     const result = await storage.operations.startOrAppendRoot({
-      session: { sessionId: "session-1", userId: null },
+      session: { sessionId: "session-1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-2", sessionId: "session-1" },
       followupFactory: () => { throw new Error("must start after recovery"); },
       buildExpiredRunEndedRecord: (run) => expiredRunRecord(run.sessionId, run.runId),
@@ -704,7 +729,7 @@ describe("PostgresRuntimeStorage", () => {
     const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
 
     const result = await storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-1", sessionId: "session-1", status: "running" },
       initialUserMessage: {
         messageId: "user-message-1",
@@ -727,6 +752,43 @@ describe("PostgresRuntimeStorage", () => {
     expect(runInsert?.params[0]).toBe(harness.tenantId);
   });
 
+  it("validates the complete existing session identity under the startRun advisory lock", async () => {
+    const harness = createExecutorHarness({
+      sessionExists: true,
+      runExists: false,
+      sessionPatch: { owner_user_id: "existing-owner" },
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+
+    await expect(storage.operations.startRun({
+      session: { sessionId: "session-1", ownerUserId: "requested-owner", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
+      run: { runId: "run-new", sessionId: "session-1" },
+    })).rejects.toThrow("different immutable session identity");
+
+    const advisoryIndex = harness.transactionQueries.findIndex(({ sql }) => sql.includes("pg_advisory_xact_lock"));
+    const identityIndex = harness.transactionQueries.findIndex(({ sql }) =>
+      sql.includes("SELECT tenant_id,owner_user_id,visibility,origin_type,origin_id,origin_channel,workspace_id")
+    );
+    expect(advisoryIndex).toBeGreaterThanOrEqual(0);
+    expect(identityIndex).toBeGreaterThan(advisoryIndex);
+    expect(harness.runState).toBeNull();
+  });
+
+  it("validates the complete existing session identity before startOrAppendRoot disposition", async () => {
+    const harness = createExecutorHarness({
+      sessionExists: true,
+      runExists: true,
+      sessionPatch: { workspace_id: "existing-workspace" },
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+
+    await expect(storage.operations.startOrAppendRoot({
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: "requested-workspace" },
+      run: { runId: "run-2", sessionId: "session-1" },
+      followupFactory: () => { throw new Error("identity must be checked first"); },
+    })).rejects.toThrow("different immutable session identity");
+  });
+
   it("atomically appends a second root request to the running root", async () => {
     const harness = createExecutorHarness({
       sessionExists: true,
@@ -737,7 +799,7 @@ describe("PostgresRuntimeStorage", () => {
     const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "instance-a");
 
     await expect(storage.operations.startOrAppendRoot({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-2", sessionId: "session-1", status: "running" },
       initialUserMessage: { messageId: "message-2", sessionId: "session-1", role: "user", content: "duplicate" },
       followupFactory: ({ activeRunId, roundIndex }) => ({
@@ -765,7 +827,7 @@ describe("PostgresRuntimeStorage", () => {
     const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor, "instance-b");
 
     const result = await storage.operations.startOrAppendRoot({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-2", sessionId: "session-1", status: "running" },
       initialUserMessage: { messageId: "message-2", sessionId: "session-1", role: "user", content: "duplicate" },
       followupFactory: ({ activeRunId }) => ({
@@ -817,7 +879,7 @@ describe("PostgresRuntimeStorage", () => {
     const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
 
     await expect(storage.operations.startRun({
-      session: { sessionId: "session-1", userId: null },
+      session: { sessionId: "session-1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-1", sessionId: "session-2" },
     })).rejects.toThrow("run session mismatch");
     await expect(storage.operations.recordEnvelope({
@@ -1079,7 +1141,7 @@ describe("PostgresRuntimeStorage", () => {
     const equal = createExecutorHarness();
     const equalStorage = new PostgresRuntimeStorage(equal.tenantId, equal.rootExecutor);
     await expect(equalStorage.operations.startRun({
-      session: { sessionId: "session-1", userId: null },
+      session: { sessionId: "session-1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-1", sessionId: "session-1" },
     })).resolves.toMatchObject({ run: { run_id: "run-1" } });
     expect(equal.transactionQueries.some(({ sql }) => sql.includes("INSERT INTO saas_runs"))).toBe(false);
@@ -1087,7 +1149,7 @@ describe("PostgresRuntimeStorage", () => {
     const conflict = createExecutorHarness({ runPatch: { agent_name: "agent-a" } });
     const conflictStorage = new PostgresRuntimeStorage(conflict.tenantId, conflict.rootExecutor);
     await expect(conflictStorage.operations.startRun({
-      session: { sessionId: "session-1", userId: null },
+      session: { sessionId: "session-1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-1", sessionId: "session-1", agentName: "agent-b" },
     })).rejects.toThrow("run scope conflict (agent)");
   });
@@ -1121,7 +1183,7 @@ describe("PostgresRuntimeStorage", () => {
     });
     const storage = new PostgresRuntimeStorage(initialConflict.tenantId, initialConflict.rootExecutor);
     await expect(storage.operations.startRun({
-      session: { sessionId: "session-1", userId: null },
+      session: { sessionId: "session-1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-1", sessionId: "session-1" },
       initialUserMessage: {
         messageId: "user-message-1", sessionId: "session-1", role: "user", content: "question",
@@ -1326,7 +1388,10 @@ describe("PostgresRuntimeStorage", () => {
       requestId: "request-1",
       executionKind: "agent_stream",
       userId: "user-1",
-      sessionMetadata: { source: "contract-test" },
+      sessionIdentity: expect.objectContaining({
+        sessionId: "session-1",
+        metadata: { source: "contract-test" },
+      }),
       resolutions: expect.arrayContaining([
         expect.objectContaining({ interactionId: "interaction-1", toolCallId: "tool-1" }),
         expect.objectContaining({ interactionId: "interaction-2", toolCallId: "tool-2" }),

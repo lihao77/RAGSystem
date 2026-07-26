@@ -85,7 +85,7 @@ describe("runtime composition roots", () => {
     const dbPath = makeTempDb();
     const dataRoot = path.dirname(dbPath);
     const previous = createConversationStore({ dbPath, dataRoot });
-    previous.createSession(tenantId, "restart-session", "user-1");
+    previous.createSession({ tenantId: tenantId, sessionId: "restart-session", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     previous.createRun({
       runId: "orphaned-root",
       sessionId: "restart-session",

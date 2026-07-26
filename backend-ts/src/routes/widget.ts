@@ -7,7 +7,7 @@ import { WidgetCreateSessionRequestSchema, WidgetTokenRequestSchema } from "../c
 import type { TenantId } from "../identity/types.js";
 import { WidgetAuthError, type WidgetAuthService } from "../services/runtime/jwt-service.js";
 import { HttpError } from "../utils/errors.js";
-import { widgetUserId } from "../identity/widget-user-id.js";
+import { LOCAL_USER_ID } from "../services/identity/local-identity-provider.js";
 import type { AgentRouteOptions } from "./route-options.js";
 import { resolveSessionApplication } from "./session-application.js";
 
@@ -21,7 +21,7 @@ interface WidgetSessionParams {
  * - POST /auth/token：app-key/secret → 短时 JWT（嵌入方服务端调，secret 路径）。
  * - POST /sessions：双鉴权单端点——Bearer JWT（secret 路径，服务端集成）
  *   或 X-Widget-Key + Origin 白名单（publishable key 路径，前端嵌入零宿主后端）。
- *   写 widget 上下文进 metadata，created_via 区分 "widget" / "widget_public"。
+ *   来源和 app key 写入 Session 一等字段；metadata 只保留非身份执行配置。
  *
  * 两条路径的鉴权大门不同：
  * - secret→JWT：大门是 server-held secret；15min JWT 只用于 HTTP，WS 每次另签 60s 单次 ticket。
@@ -59,16 +59,13 @@ export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async
     const { appKey, tenantId, createdVia } = await resolveWidgetCredential(request, auth);
     const body = WidgetCreateSessionRequestSchema.parse(request.body);
     const sessionId = randomUUID();
-    const metadata = {
-      ...(body.metadata ?? {}),
-      widget: {
-        app_key: appKey,
-        host_tools: body.host_tools ?? [],
-        created_via: createdVia,
-      },
-    };
+    const metadata = { ...(body.metadata ?? {}), host_tools: body.host_tools ?? [], entry_channel: createdVia };
     const sessions = await resolveSessionApplication(options, request);
-    await sessions.createSession({ sessionId, userId: widgetUserId(appKey), metadata });
+    await sessions.createSession({
+      sessionId, ownerUserId: null, visibility: "tenant", originType: "widget",
+      originId: appKey, originChannel: createdVia === "widget_public" ? "widget_embed" : "widget_api",
+      workspaceId: null, metadata, permissionMode: null,
+    });
     return ok({ session_id: sessionId }, "widget 会话创建成功");
   });
 
@@ -76,11 +73,12 @@ export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async
     const { appKey, tenantId } = await resolveWidgetCredential(request, auth);
     const sessions = await resolveSessionApplication(options, request);
     const session = await sessions.getSession(request.params.sessionId);
-    const widgetMeta = session?.metadata?.widget as { app_key?: unknown } | undefined;
-    if (!session || session.tenant_id !== tenantId || widgetMeta?.app_key !== appKey) {
+    if (!session || session.tenant_id !== tenantId || session.origin_type !== "widget" || session.origin_id !== appKey) {
       throw new HttpError(404, "not_found", "会话不存在");
     }
-    return ok(await options.wsTickets.issue(request.identity, request.params.sessionId), "Widget WebSocket ticket 已签发");
+    return ok(await options.wsTickets.issue({
+      userId: LOCAL_USER_ID, tenantId, role: "widget", permissions: [], widgetAppKey: appKey,
+    }, request.params.sessionId), "Widget WebSocket ticket 已签发");
   });
 };
 

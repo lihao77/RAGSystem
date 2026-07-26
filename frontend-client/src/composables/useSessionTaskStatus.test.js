@@ -107,3 +107,28 @@ test('checkSessionTaskStatus ignores stale responses from a previous session', a
     assert.deepEqual(calls.scheduleResumeRecovery, []);
   });
 });
+
+test('loadContextSnapshot ignores a stale response from a previous session', async () => {
+  let resolveResponse;
+  await withMock((mock) => {
+    mock.onGet(/\/context-snapshot/).reply(() => new Promise((resolve) => {
+      resolveResponse = resolve;
+    }));
+  }, async () => {
+    const { deps } = createDeps();
+    const { contextUsage } = storeToRefs(useSessionRunStore());
+    const status = useSessionTaskStatus(deps);
+
+    const pending = status.loadContextSnapshot('session-1');
+    for (let attempt = 0; attempt < 20 && !resolveResponse; attempt += 1) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    deps.currentSessionId.value = 'session-2';
+    resolveResponse([200, {
+      data: { token_stats: { total_tokens: 500, budget_tokens: 1000 } },
+    }]);
+    await pending;
+
+    assert.deepEqual(contextUsage.value, { used: 0, max: 0 });
+  });
+});

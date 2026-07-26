@@ -30,7 +30,7 @@ describe("durable local Goals", () => {
     let reopened: ReturnType<typeof createConversationStore> | null = null;
     try {
       first = createConversationStore({ dbPath, dataRoot: root });
-      first.createSession(LOCAL_TENANT_ID, "session-a", "user-a");
+      first.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-a", ownerUserId: "user-a", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       const goal = first.createGoal("session-a", {
         objective: "Ship Goal mode",
         successCriteria: ["tests pass"],
@@ -62,7 +62,7 @@ describe("durable local Goals", () => {
   it("atomically claims, releases, and guards automatic continuation", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     try {
-      store.createSession(LOCAL_TENANT_ID, "session-a", "user-a");
+      store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-a", ownerUserId: "user-a", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       const goal = store.createGoal("session-a", { objective: "Finish", successCriteria: ["verified"] });
       const first = store.claimGoalContinuation("session-a");
       expect(first).toMatchObject({ continuation_count: 1, continuation_generation: 1, continuation_pending: true });
@@ -71,7 +71,7 @@ describe("durable local Goals", () => {
       expect(store.claimGoalContinuation("session-a", { maxContinuations: 1 })).toBeNull();
       expect(store.getGoal("session-a", goal.id)?.status).toBe("blocked");
 
-      store.createSession(LOCAL_TENANT_ID, "session-b", "user-b");
+      store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-b", ownerUserId: "user-b", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       const stalled = store.createGoal("session-b", { objective: "Detect no progress", successCriteria: ["verified"] });
       for (let generation = 1; generation <= 3; generation += 1) {
         const claim = store.claimGoalContinuation("session-b", { maxNoProgress: 3 });
@@ -90,8 +90,8 @@ describe("durable local Goals", () => {
     const tenantA = createTenantId("tnt_goal_a");
     const tenantB = createTenantId("tnt_goal_b");
     try {
-      source.createSession(tenantA, "session-a", "user-a");
-      source.createSession(tenantB, "session-b", "user-b");
+      source.createSession({ tenantId: tenantA, sessionId: "session-a", ownerUserId: "user-a", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
+      source.createSession({ tenantId: tenantB, sessionId: "session-b", ownerUserId: "user-b", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       const store = new LocalGoalStore(tenantA, source);
       const goal = await store.create("session-a", { objective: "Tenant A Goal", successCriteria: ["done"] });
       await expect(store.get("session-b", goal.id)).resolves.toBeNull();
@@ -108,7 +108,7 @@ describe("Goal tools", () => {
   it("does not let an Agent revive a completed Goal through an explicit historical id", async () => {
     const source = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     try {
-      source.createSession(LOCAL_TENANT_ID, "session-terminal", "user-a");
+      source.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-terminal", ownerUserId: "user-a", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       const goals = new LocalGoalStore(LOCAL_TENANT_ID, source);
       const goal = await goals.create("session-terminal", {
         objective: "Keep history terminal",

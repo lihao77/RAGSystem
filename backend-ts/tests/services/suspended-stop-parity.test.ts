@@ -19,7 +19,7 @@ const STATUSES = ["waiting", "suspended", "resolved", "resuming"] as const;
 function seedLocal() {
   const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
   const sessionId = "stop-parity-local";
-  store.createSession(LOCAL_TENANT_ID, sessionId, "usr_local");
+  store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: sessionId, ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
   store.createRun({ runId: "root-run", sessionId, status: "suspended", agentName: "root", threadKey: "root" });
   store.createRun({ runId: "child-run", sessionId, status: "suspended", agentName: "child", threadKey: "child:child", parentRunId: "root-run" });
   for (const [index, status] of STATUSES.entries()) {

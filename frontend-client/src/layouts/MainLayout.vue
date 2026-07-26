@@ -28,57 +28,12 @@
         </div>
       </div>
 
-      <div class="history-list" ref="historyListRef" @scroll="handleHistoryScroll">
-        <div class="history-label">Recent</div>
-        <div v-if="historyLoading" class="history-skeleton">
-          <div v-for="n in 6" :key="`history-skeleton-${n}`" class="history-item skeleton-item">
-            <div class="skeleton-icon"></div>
-            <div class="skeleton-line"></div>
-          </div>
-        </div>
-        <div v-else>
-          <TransitionGroup
-            name="history-list"
-            tag="div"
-            class="history-list-group"
-            @before-leave="handleHistoryItemBeforeLeave"
-            @leave="handleHistoryItemLeave"
-            @after-leave="handleHistoryItemAfterLeave"
-          >
-            <div
-              v-for="item in history"
-              :key="item.session_id"
-              class="history-item"
-              :class="{ active: isChatRoute && item.session_id === activeSessionId }"
-              @click="selectSession(item)"
-            >
-              <IconDocument class="history-icon" />
-              <div class="history-main">
-                <div class="history-title-row">
-                  <span class="history-title">{{ item.title || formatTitle(item) || 'New Conversation' }}</span>
-                  <span class="history-time">{{ formatTimeLabel(item.last_message_at) }}</span>
-                </div>
-                <div class="history-meta">
-                  <div v-if="getSessionTeamLabel(item)" class="history-meta-details">
-                    <span class="history-meta-chip" :title="`所属 Team: ${getSessionTeamLabel(item)}`">
-                      Team: {{ getSessionTeamLabel(item) }}
-                    </span>
-                  </div>
-                  <span v-if="item.unread_count > 0" class="history-unread">{{ item.unread_count }}</span>
-                </div>
-              </div>
-              <button class="history-delete-btn" title="删除会话" @click.stop="confirmDeleteSession(item)">
-                <IconTrash :size="16" />
-              </button>
-            </div>
-          </TransitionGroup>
-          <div v-if="historyLoadingMore" class="history-loading-more g-loading-inline"><span class="g-spinner g-spinner--sm"></span>加载中...</div>
-          <div v-if="historyError" class="history-error">
-            <span>{{ historyError }}</span>
-            <Button variant="ghost" size="sm" @click="retryLoadHistory">重试</Button>
-          </div>
-        </div>
-      </div>
+      <SessionList
+        v-show="!sidebarCollapsed || isMobile"
+        :active-session-id="activeSessionId"
+        @select="selectSession"
+        @delete="confirmDeleteSession"
+      />
         </div>
 
         <div v-else key="admin" class="sidebar-mode">
@@ -183,9 +138,10 @@ import { useBootstrapStore } from '../stores/bootstrap.js';
 import { useAuthStore } from '../stores/auth.js';
 import { usePermission } from '../composables/usePermission.js';
 import { deleteSession as deleteSessionApi } from '../api/session';
-import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
+import { IconLogo, IconChevronLeft, IconChevronRight, IconNewConversation } from '../components/icons';
 import { Button } from '../components/ui/button';
 import UserMenu from '../components/UserMenu.vue';
+import SessionList from '../components/session-list/SessionList.vue';
 import { sidebarAdminNavItem, filterManagementNavItems, adminNavGroups } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';
@@ -199,7 +155,6 @@ import { useMcpStore } from '../stores/mcp.js';
 
 const router = useRouter();
 const route = useRoute();
-const historyListRef = ref(null);
 const toast = useToast();
 const { confirm } = useConfirm();
 const dictStore = useDictionariesStore();
@@ -207,7 +162,7 @@ const sessionListStore = useSessionListStore();
 const bootstrapStore = useBootstrapStore();
 const authStore = useAuthStore();
 const { isPlatformAdmin, hasTenantRole } = usePermission();
-const { items: history, loading: historyLoading, loadingMore: historyLoadingMore, error: historyError, hasMore: historyHasMore } = storeToRefs(sessionListStore);
+const { items: history } = storeToRefs(sessionListStore);
 const sidebarCollapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true');
 const mobileOpen = ref(false);
 const isMobile = ref(false);
@@ -304,84 +259,20 @@ const formatTitle = (item) => {
   return content ? content.slice(0, 30) : '';
 };
 
-const formatTimeLabel = (timeStr) => {
-  if (!timeStr) return '';
-  const time = new Date(timeStr);
-  if (Number.isNaN(time.getTime())) return '';
-  const now = new Date();
-  const diffMs = now - time;
-  const diffMinutes = Math.floor(diffMs / 60000);
-  if (diffMinutes < 1) return '刚刚';
-  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
-  const isYesterday = now.toDateString() !== time.toDateString()
-    && new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toDateString() === time.toDateString();
-  if (isYesterday) return '昨天';
-  const yyyy = time.getFullYear();
-  const mm = String(time.getMonth() + 1).padStart(2, '0');
-  const dd = String(time.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-};
-
-const getSessionTeamLabel = (item) => item?.metadata?.team || '';
-const getSessionWorkspaceRoot = (item) => item?.metadata?.workspace_root || '';
 const activeSessionItem = computed(() => {
   const sessionId = activeSessionId.value;
   if (!sessionId) return null;
   return history.value.find((item) => item.session_id === sessionId) || null;
 });
 const currentTeamLabel = computed(() => {
-  const team = getSessionTeamLabel(activeSessionItem.value) || activeTeam.value;
+  const team = activeTeam.value;
   return team ? `Team: ${team}` : 'Team: 未选择';
 });
-const currentWorkspaceLabel = computed(() => {
-  const workspaceRoot = getSessionWorkspaceRoot(activeSessionItem.value);
-  return workspaceRoot || '未绑定工作区';
-});
+const currentWorkspaceLabel = computed(() => activeSessionItem.value?.workspace?.display_name || '未绑定工作区');
 const sidebarContextTitle = computed(() => {
-  const workspaceRoot = getSessionWorkspaceRoot(activeSessionItem.value);
-  return `${currentTeamLabel.value}\n工作区: ${workspaceRoot || '未绑定'}`;
+  const workspace = activeSessionItem.value?.workspace;
+  return `${currentTeamLabel.value}\n工作区: ${workspace?.root_path || workspace?.display_name || '未绑定'}`;
 });
-
-const handleHistoryItemBeforeLeave = (el) => {
-  el.style.height = `${el.offsetHeight}px`;
-  el.style.opacity = '1';
-  el.style.overflow = 'hidden';
-};
-
-const handleHistoryItemLeave = (el, done) => {
-  void el.offsetHeight;
-  el.style.transition = 'height 200ms var(--ease-out-expo), margin 200ms var(--ease-out-expo), padding 200ms var(--ease-out-expo), opacity 160ms ease';
-  el.style.height = '0';
-  el.style.marginTop = '0';
-  el.style.marginBottom = '0';
-  el.style.paddingTop = '0';
-  el.style.paddingBottom = '0';
-  el.style.opacity = '0';
-  window.setTimeout(done, 240);
-};
-
-const handleHistoryItemAfterLeave = (el) => {
-  el.style.height = '';
-  el.style.opacity = '';
-  el.style.overflow = '';
-  el.style.transition = '';
-  el.style.marginTop = '';
-  el.style.marginBottom = '';
-  el.style.paddingTop = '';
-  el.style.paddingBottom = '';
-};
-
-const loadRecentSessions = async (reset = false) => {
-  try {
-    await sessionListStore.load({ reset });
-  } catch (error) {
-    showToast('加载历史列表失败', retryLoadHistory);
-  }
-};
-
-const retryLoadHistory = () => {
-  loadRecentSessions(true);
-};
 
 const loadActiveTeam = async () => {
   try {
@@ -389,14 +280,6 @@ const loadActiveTeam = async () => {
     activeTeam.value = result?.active_team || '';
   } catch (error) {
     console.warn('加载当前 Team 失败:', error);
-  }
-};
-
-const handleHistoryScroll = () => {
-  if (!historyListRef.value || historyLoadingMore.value || !historyHasMore.value) return;
-  const el = historyListRef.value;
-  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
-    loadRecentSessions(false);
   }
 };
 
@@ -452,6 +335,7 @@ const deleteSession = async (sessionId) => {
   try {
     await deleteSessionApi(sessionId);
     sessionListStore.remove(sessionId);
+    void sessionListStore.loadFacets();
     if (activeSessionId.value === sessionId) {
       await startNewChat();
     }
@@ -532,7 +416,9 @@ watch(history, (items) => {
   setCommandDynamic('sessions', (items || []).slice(0, 8).map((item) => ({
     id: `session-${item.session_id}`,
     title: item.title || formatTitle(item) || 'New Conversation',
-    subtitle: getSessionTeamLabel(item) || undefined,
+    subtitle: item.origin.type === 'direct'
+      ? item.workspace?.display_name || undefined
+      : `${item.origin.display_name} · ${item.workspace?.display_name || item.origin.channel}`,
     section: '会话',
     action: () => selectSession(item),
   })));
@@ -587,7 +473,6 @@ onMounted(() => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
   loadActiveTeam();
-  loadRecentSessions(true);
   mcpStore.reloadPrompts();
   installCommandPaletteHotkey();
   installGlobalHotkeys();
@@ -604,24 +489,6 @@ onUnmounted(() => {
 .mcp-prompt-args .field { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-size-sm); }
 .mcp-prompt-args .field span { color: var(--color-text-secondary); }
 .mcp-prompt-args .field em { color: var(--color-error); font-style: normal; margin-left: 2px; }
-.history-list-group {
-  position: relative;
-}
-
-.history-list-move,
-.history-list-enter-active {
-  transition: transform var(--duration-base) var(--ease-out-expo), opacity var(--duration-base) ease;
-}
-
-.history-list-enter-from {
-  opacity: 0;
-  transform: translateY(-10px) scale(0.98);
-}
-
-.history-list-leave-active {
-  pointer-events: none;
-}
-
 .chat-layout {
   --sidebar-btn-text-transition-in: opacity var(--duration-base) ease 0.05s;
   --sidebar-btn-text-transition-out: opacity var(--duration-fast) ease;
@@ -824,8 +691,7 @@ onUnmounted(() => {
 }
 
 .sidebar-btn:hover,
-.toggle-sidebar-btn:hover,
-.history-item:hover {
+.toggle-sidebar-btn:hover {
   /* hover 背景对齐 shadcn ghost 按钮（bg-accent = --color-active-bg） */
   background: var(--color-active-bg);
 }
@@ -899,8 +765,7 @@ onUnmounted(() => {
 }
 
 .sidebar.collapsed .btn-text,
-.sidebar.collapsed .sidebar-context,
-.sidebar.collapsed .history-list {
+.sidebar.collapsed .sidebar-context {
   opacity: 0;
   max-width: 0;
   overflow: hidden;
@@ -915,219 +780,6 @@ onUnmounted(() => {
 
 .sidebar.collapsed .btn-text {
   transition: var(--sidebar-btn-text-transition-out), max-width 0s ease 0.15s;
-}
-
-.history-list {
-  flex: 1;
-  overflow-y: auto;
-  opacity: 1;
-  max-height: 100%;
-  padding: 0 var(--spacing-sm);
-  transition: opacity var(--transition-normal), max-height var(--transition-normal);
-}
-
-.sidebar.collapsed .history-list {
-  opacity: 0;
-  max-height: 0;
-  overflow: hidden;
-  padding: 0;
-  margin: 0;
-}
-
-.history-label {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  margin: var(--spacing-sm) var(--spacing-md);
-  letter-spacing: 0.08em;
-  padding-left: var(--spacing-xs);
-  opacity: 0;
-  animation: labelFadeIn 0.4s var(--ease-default) forwards;
-  animation-delay: 0.1s;
-}
-
-@keyframes labelFadeIn {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.history-item {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  margin: 0;
-  margin-bottom: 2px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  color: var(--color-text-secondary);
-  transition: all var(--transition-normal);
-  border: 1px solid transparent;
-  background: transparent;
-  position: relative;
-}
-
-.history-item:hover {
-  background: var(--color-hover-overlay-md);
-  color: var(--color-text-primary);
-  transform: none;
-  box-shadow: none;
-}
-
-.history-item.active {
-  background: var(--color-active-bg);
-  color: var(--color-brand-accent);
-  box-shadow: none;
-}
-
-.history-item.active .history-icon {
-  opacity: 1;
-  color: var(--color-brand-accent);
-}
-
-.history-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.history-icon {
-  width: var(--sidebar-icon-size);
-  height: var(--sidebar-icon-size);
-  flex-shrink: 0;
-  opacity: 0.7;
-  color: var(--color-text-secondary);
-  transition: all var(--transition-fast);
-}
-
-.history-item:hover .history-icon {
-  opacity: 1;
-  color: var(--color-text-primary);
-}
-
-.history-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-xs);
-}
-
-.history-title {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-  font-size: var(--font-size-sm);
-}
-
-.history-time {
-  flex-shrink: 0;
-  margin-left: auto;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-}
-
-.history-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-xs);
-  margin-top: 4px;
-  min-width: 0;
-}
-
-.history-meta-details {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.history-meta-chip {
-  max-width: 100%;
-  min-width: 0;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.history-meta-chip--path {
-  flex: 1;
-}
-
-.history-unread {
-  flex-shrink: 0;
-}
-
-.history-delete-btn {
-  width: 0;
-  padding: 0;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all var(--transition-normal);
-}
-
-.history-delete-btn:hover {
-  background: rgba(var(--color-error-rgb), 0.12);
-  color: var(--color-error);
-  transform: scale(1.1);
-}
-
-@media (hover: hover) {
-  .history-item:hover .history-delete-btn {
-    width: 32px;
-    padding: 6px;
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-
-/* 键盘焦点可达：Tab 聚焦时展开（无论何种设备） */
-.history-item:focus-within .history-delete-btn {
-  width: 32px;
-  padding: 6px;
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* 触屏设备（无 hover）：始终展开，避免不可达 */
-@media (hover: none) {
-  .history-delete-btn {
-    width: 32px;
-    padding: 6px;
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-
-.history-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
 }
 
 .sidebar-mode {
@@ -1290,57 +942,6 @@ onUnmounted(() => {
   min-width: 0;
   min-height: 0;
 }
-
-.history-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 0 var(--spacing-sm);
-}
-
-.skeleton-item {
-  height: var(--control-height-md);
-  border-radius: var(--radius-lg);
-  position: relative;
-  overflow: hidden;
-}
-
-.skeleton-icon,
-.skeleton-line {
-  background: var(--color-bg-tertiary);
-  opacity: 0.45;
-  border-radius: 999px;
-}
-
-.skeleton-icon {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  border-radius: 5px;
-}
-
-.skeleton-line {
-  flex: 1;
-  height: 12px;
-}
-
-/* shimmer sweep */
-.skeleton-item::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.035) 45%, rgba(var(--color-interactive-rgb), 0.07) 50%, rgba(var(--color-interactive-rgb), 0.035) 55%, transparent 70%);
-  background-size: 250% 100%;
-  animation: g-shimmer 2.4s ease-in-out infinite;
-  pointer-events: none;
-  border-radius: inherit;
-}
-
-.skeleton-item:nth-child(2)::after { animation-delay: 0.15s; }
-.skeleton-item:nth-child(3)::after { animation-delay: 0.3s; }
-.skeleton-item:nth-child(4)::after { animation-delay: 0.4s; }
-.skeleton-item:nth-child(5)::after { animation-delay: 0.55s; }
-.skeleton-item:nth-child(6)::after { animation-delay: 0.7s; }
 
 .chat-layout--sidebar-overlay {
   padding: 0;

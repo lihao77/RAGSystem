@@ -36,6 +36,11 @@ export function createConversationDb(options: {
   // backend 多个 store 聚合（conversation/widget/vector 各自连接）同操作 ragsystem.db（B2:SDK store 已删）。
   // WAL 下并发写事务靠 busy_timeout 让后续方等待而非立即抛 SQLITE_BUSY。
   db.exec("PRAGMA busy_timeout = 5000");
-  runMigrations(db);
+  try {
+    runMigrations(db);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
   return { db, dataRoot };
 }

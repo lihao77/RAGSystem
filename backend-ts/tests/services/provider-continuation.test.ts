@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { RecentMessagesContextSource } from "../../src/services/agent/context/recent-messages-source.js";
 import { ProjectionRegistry } from "../../src/services/agent/context/extensions/index.js";
 import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 const continuation = {
   protocol: "anthropic_messages" as const,
@@ -13,6 +14,7 @@ const continuation = {
 describe("provider continuation persistence", () => {
   it("stores continuation outside public message metadata", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    createSession(store);
     const message = store.addMessage({
       sessionId: "s1",
       role: "assistant",
@@ -40,6 +42,7 @@ describe("provider continuation persistence", () => {
 
   it("restores state only when its assistant tool call is the active history tail", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    createSession(store);
     store.addMessage({ sessionId: "s1", role: "user", content: "search", threadKey: "root" });
     const assistant = store.addMessage({
       sessionId: "s1",
@@ -71,6 +74,7 @@ describe("provider continuation persistence", () => {
 
   it("awaits an asynchronous private continuation lookup", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    createSession(store);
     store.addMessage({ sessionId: "s1", role: "user", content: "search", threadKey: "root" });
     const assistant = store.addMessage({
       sessionId: "s1",
@@ -92,6 +96,19 @@ describe("provider continuation persistence", () => {
     store.close();
   });
 });
+
+function createSession(store: ReturnType<typeof createConversationStore>): void {
+  store.createSession({
+    tenantId: LOCAL_TENANT_ID,
+    sessionId: "s1",
+    ownerUserId: "usr_local",
+    visibility: "private",
+    originType: "direct",
+    originId: null,
+    originChannel: "web",
+    workspaceId: null,
+  });
+}
 
 function request() {
   return {

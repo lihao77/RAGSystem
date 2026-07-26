@@ -12,6 +12,7 @@ interface TicketRow extends Record<string, unknown> {
   role: string;
   permissions: string[];
   platform_role: string | null;
+  widget_app_key: string | null;
   session_id: string;
   expires_at: string;
 }
@@ -32,8 +33,10 @@ class TicketExecutor implements PostgresMemoryExecutor {
       const record = {
         ticket_hash: String(params[0]), tenant_id: String(params[1]), user_id: String(params[2]),
         role: String(params[3]), permissions: JSON.parse(String(params[4])) as string[],
-        platform_role: params[5] == null ? null : String(params[5]), session_id: String(params[6]),
-        expires_at: new Date(Date.now() + Number(params[7])).toISOString(),
+        platform_role: params[5] == null ? null : String(params[5]),
+        widget_app_key: params[6] == null ? null : String(params[6]),
+        session_id: String(params[7]),
+        expires_at: new Date(Date.now() + Number(params[8])).toISOString(),
       } satisfies TicketRow;
       this.rows.set(String(params[0]), record);
       return { rows: [{ expires_at: record.expires_at }] as unknown as Row[], rowCount: 1 };

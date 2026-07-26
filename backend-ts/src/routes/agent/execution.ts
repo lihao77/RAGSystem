@@ -7,7 +7,7 @@ import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { ZodError } from "zod";
 import { isRecord } from "../../utils/guards.js";
-import { assertOwnedSessionIfExists } from "../session-owner.js";
+import { assertExecutableSessionIfExists, assertReadableSessionIfExists } from "../session-owner.js";
 import { resolveSessionApplication } from "../session-application.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
 
@@ -45,7 +45,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
   app.post("/execute", async (request) => {
     const payload = ExecuteRequestSchema.parse(request.body);
     const sessions = await resolveSessionApplication(options, request);
-    await assertOwnedSessionIfExists(request, payload.session_id, sessions);
+    await assertExecutableSessionIfExists(request, payload.session_id, sessions);
     return executeSynchronously(
       (await ensureRequestApplications(request, options)).execution,
       { ...payload, userId: request.identity.userId },
@@ -59,7 +59,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
       agent: request.params.agentName,
     });
     const sessions = await resolveSessionApplication(options, request);
-    await assertOwnedSessionIfExists(request, payload.session_id, sessions);
+    await assertExecutableSessionIfExists(request, payload.session_id, sessions);
     return executeSynchronously(
       (await ensureRequestApplications(request, options)).execution,
       { ...payload, userId: request.identity.userId },
@@ -70,7 +70,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
   app.post("/collaborate", async (request) => {
     const payload = parseCollaborateRequest(request.body);
     const sessions = await resolveSessionApplication(options, request);
-    await assertOwnedSessionIfExists(request, payload.session_id, sessions);
+    await assertExecutableSessionIfExists(request, payload.session_id, sessions);
     if (payload.mode !== "sequential") {
       throw new HttpError(400, "invalid_request", "并行模式尚未实现");
     }
@@ -96,14 +96,14 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
 
   app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/task-status", async (request) => {
     const sessionApp = await resolveSessionApplication(options, request);
-    await assertOwnedSessionIfExists(request, request.params.sessionId, sessionApp);
+    await assertReadableSessionIfExists(request, request.params.sessionId, sessionApp);
     const reader = (await ensureRequestApplications(request, options)).executionRead;
     return ok(await reader.getSessionTaskStatus(request.params.sessionId));
   });
 
   app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/execution-diagnostics", async (request) => {
     const sessions = await resolveSessionApplication(options, request);
-    await assertOwnedSessionIfExists(request, request.params.sessionId, sessions);
+    await assertReadableSessionIfExists(request, request.params.sessionId, sessions);
     const reader = (await ensureRequestApplications(request, options)).executionRead;
     return ok(await reader.getSessionExecutionDiagnostics(request.params.sessionId));
   });

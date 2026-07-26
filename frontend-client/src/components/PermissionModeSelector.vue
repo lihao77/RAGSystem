@@ -101,9 +101,6 @@ import {
 } from './ui/dropdown-menu';
 import { getSessionPermissions, updateSessionPermissions } from '../api/session.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
-import { useAuthStore } from '../stores/auth.js';
-import { useBootstrapStore } from '../stores/bootstrap.js';
-import { useSessionListStore } from '../stores/session-list.js';
 
 const props = defineProps({
   sessionId: { type: String, default: '' },
@@ -135,32 +132,25 @@ const modeToneClasses = {
   dangerously_skip_permissions: 'tone-skip',
 };
 
-const authStore = useAuthStore();
-const bootstrapStore = useBootstrapStore();
-const sessionListStore = useSessionListStore();
 const currentMode = ref('standard');
-const currentSession = computed(() => sessionListStore.getById(props.sessionId));
-const canEdit = computed(() => bootstrapStore.profile.auth !== 'password'
-  || currentSession.value?.user_id === authStore.user?.id);
+const canEdit = computed(() => Boolean(props.sessionId));
 const modeLabel = computed(() => modes.find(mode => mode.value === currentMode.value)?.label || '标准');
 const modeIcon = computed(() => modeIcons[currentMode.value] || Shield);
 const triggerToneClass = computed(() => modeToneClasses[currentMode.value] || 'tone-standard');
 const triggerTitle = computed(() => props.sessionId
-  ? `当前会话权限：${modeLabel.value}${canEdit.value ? '' : '（只读）'}`
+  ? `当前会话权限：${modeLabel.value}`
   : '当前无会话');
 
 const loadAction = useAsyncAction(async () => {
   if (!props.sessionId) return;
   const result = await getSessionPermissions(props.sessionId);
   currentMode.value = result.data?.mode || 'standard';
-  if (currentSession.value) currentSession.value.permission_mode = currentMode.value;
 }, { errorPrefix: '加载会话权限失败', showErrorToast: false });
 
 const updateAction = useAsyncAction(async mode => {
   if (!props.sessionId || !canEdit.value || mode === currentMode.value) return;
   const result = await updateSessionPermissions(props.sessionId, mode);
   currentMode.value = result.data?.mode || mode;
-  if (currentSession.value) currentSession.value.permission_mode = currentMode.value;
 }, { successMessage: '会话权限已更新', errorPrefix: '更新会话权限失败' });
 
 function selectMode(mode) {
@@ -168,7 +158,7 @@ function selectMode(mode) {
 }
 
 watch(() => props.sessionId, sessionId => {
-  currentMode.value = sessionListStore.getById(sessionId)?.permission_mode || 'standard';
+  currentMode.value = 'standard';
   if (sessionId) void loadAction.run();
 }, { immediate: true });
 </script>

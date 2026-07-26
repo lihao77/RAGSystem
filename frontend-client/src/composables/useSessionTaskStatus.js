@@ -48,6 +48,7 @@ export function useSessionTaskStatus(deps) {
     if (!sessionId) return;
     try {
       const json = await getContextSnapshot(sessionId);
+      if (currentSessionId.value !== sessionId) return;
       const tokenStats = json.data?.token_stats;
       if (
         tokenStats &&

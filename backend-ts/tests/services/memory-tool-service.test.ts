@@ -114,7 +114,7 @@ describe("MemoryToolService", () => {
     });
     expect(fs.readFileSync(saved.file_path, "utf8")).toContain("status: active");
   });
-  it("lists memory indices with session-injected team and workspace scope inputs", async () => {
+  it("lists memory indices with session-injected team and execution workspace inputs", async () => {
     const dataRoot = makeTempDataRoot();
     writeFile(dataRoot, ["memory", "teams", "alpha-team", "MEMORY.md"], "# Team Memory\n");
     writeFile(
@@ -127,7 +127,6 @@ describe("MemoryToolService", () => {
       new InMemorySessions({
         s1: {
           team: "alpha-team",
-          workspace_root: "E:/Python/RAGSystem/workspaces/demo-workspace",
         },
       }),
     );
@@ -135,6 +134,7 @@ describe("MemoryToolService", () => {
       agent: minimalAgent(["team", "workspace"]),
       sessionId: "s1",
       userId: "usr_alice",
+      workspaceRoot: "E:/Python/RAGSystem/workspaces/demo-workspace",
     };
 
     expect(await service.listMemoryIndex({ scope: "team" }, context)).toMatchObject({

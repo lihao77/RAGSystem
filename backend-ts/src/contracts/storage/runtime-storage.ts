@@ -14,7 +14,7 @@ import type {
   RunStepRecord,
 } from "../conversation-store/index.js";
 import type { PermissionMode } from "../runtime/permissions.js";
-import type { MessageInfo, SessionInfo } from "../session/session.js";
+import type { MessageInfo, SessionIdentity, SessionInfo } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
 
 /** @deprecated Import CreateRunInput from conversation-store directly. */
@@ -24,12 +24,7 @@ export type RuntimeCreatedRun = CreatedRun;
 
 /** Tenant-bound conversation operations used by the shared execution core. */
 export interface RuntimeConversationStorage {
-  createSession(
-    sessionId: string,
-    userId: string | null,
-    metadata?: Record<string, unknown>,
-    permissionMode?: PermissionMode | null,
-  ): Promise<void>;
+  createSession(input: SessionIdentity): Promise<void>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(
     sessionId: string,
@@ -135,12 +130,7 @@ export interface RuntimeStorageRepositories {
 }
 
 export interface RuntimeStartRunInput {
-  session: {
-    sessionId: string;
-    userId: string | null;
-    metadata?: Record<string, unknown>;
-    permissionMode?: PermissionMode | null;
-  };
+  session: SessionIdentity;
   run: CreateRunInput;
   /** Existing root lease required when creating or resuming a child run. */
   leaseRootRunId?: string | null;
@@ -332,7 +322,7 @@ export type RuntimeClaimResumeResult =
       requestId: string | null;
       executionKind: string;
       userId: string | null;
-      sessionMetadata: Record<string, unknown>;
+      sessionIdentity: SessionIdentity;
       resolutions: Array<{
         interactionId: string;
         toolCallId: string;

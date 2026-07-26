@@ -64,7 +64,7 @@ describe("session message mutation routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const user = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "user",
@@ -114,7 +114,7 @@ describe("session message mutation routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const anchor = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "user",
@@ -177,7 +177,7 @@ describe("session message mutation routes", () => {
     app = harness.app;
     await createDefaultChatProvider(app);
 
-    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "retry-session" });
+    harness.container.sessionApplication.createSession({ sessionId: "retry-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const anchor = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "retry-session",
       role: "user",
@@ -259,10 +259,11 @@ describe("session message mutation routes", () => {
     const documentTools = harness.container.documentTools;
     if (!documentTools) throw new Error("Local runtime must provide document tools");
 
-    await harness.container.sessionApplication.createSession({ userId: "usr_local",
-      sessionId: "file-rollback-session",
-      metadata: { workspace_root: workspaceRoot },
+    const workspaceId = await harness.container.sessionApplication.resolveWorkspace({
+      kind: "local_path",
+      root_path: workspaceRoot,
     });
+    await harness.container.sessionApplication.createSession({ sessionId: "file-rollback-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId });
     const firstUser = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "file-rollback-session",
       role: "user",
@@ -334,11 +335,7 @@ describe("session message mutation routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({
-      sessionId: "session export!",
-      userId: "u1",
-      metadata: { title: "Exported session" },
-    });
+    harness.container.sessionApplication.createSession({ sessionId: "session export!", ownerUserId: "u1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { title: "Exported session" } });
     harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "session export!",
       role: "user",
@@ -369,7 +366,7 @@ describe("session message mutation routes", () => {
       version: 2,
       session: {
         session_id: "session export!",
-        user_id: "u1",
+        owner_user_id: "u1",
       },
       message_count: 2,
       messages: [

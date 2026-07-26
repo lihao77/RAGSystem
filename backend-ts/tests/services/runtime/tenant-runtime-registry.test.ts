@@ -48,8 +48,8 @@ describe("TenantRuntimeRegistry 多租户隔离", () => {
       expect(leaseA.runtime.dataRoot).toBe(path.join(harness.env.tenantsRoot, TENANT_A));
       expect(leaseB.runtime.dataRoot).toBe(path.join(harness.env.tenantsRoot, TENANT_B));
 
-      await leaseA.runtime.sessionApplication.createSession({ userId: "usr_local", sessionId: "same-session" });
-      await leaseB.runtime.sessionApplication.createSession({ userId: "usr_local", sessionId: "same-session" });
+      await leaseA.runtime.sessionApplication.createSession({ sessionId: "same-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
+      await leaseB.runtime.sessionApplication.createSession({ sessionId: "same-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       await leaseA.runtime.agentConfig.createTeam("same-team", "default");
       await leaseB.runtime.agentConfig.createTeam("same-team", "default");
       await leaseA.runtime.agentConfig.createAgent({ agent_name: "same_agent", default_entry: false });
@@ -74,7 +74,7 @@ describe("TenantRuntimeRegistry 多租户隔离", () => {
     const leaseA = await harness.registry.acquire(TENANT_A);
     const leaseB = await harness.registry.acquire(TENANT_B);
     try {
-      await leaseB.runtime.sessionApplication.createSession({ userId: "usr_local", sessionId: "tenant-b-only" });
+      await leaseB.runtime.sessionApplication.createSession({ sessionId: "tenant-b-only", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       expect(await leaseA.runtime.sessionApplication.getSession("tenant-b-only")).toBeNull();
       expect((await leaseB.runtime.sessionApplication.getSession("tenant-b-only"))?.tenant_id).toBe(TENANT_B);
     } finally {

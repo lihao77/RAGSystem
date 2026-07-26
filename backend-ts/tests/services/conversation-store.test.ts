@@ -13,8 +13,8 @@ describe("ConversationStore", () => {
     const dbPath = path.join(root, "conversation.db");
     try {
       const first = createConversationStore({ dbPath, dataRoot: root });
-      first.createSession(LOCAL_TENANT_ID, "permission-session", "usr_local", {}, "relaxed");
-      first.createSession(LOCAL_TENANT_ID, "permission-session", "usr_local", {}, null);
+      first.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "permission-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: {}, permissionMode: "relaxed" });
+      first.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "permission-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: {}, permissionMode: null });
       expect(first.getSession("permission-session")?.permission_mode).toBe("relaxed");
       expect(first.updateSessionPermissionMode("permission-session", "standard")).toBe(true);
       first.close();
@@ -27,27 +27,24 @@ describe("ConversationStore", () => {
     }
   });
 
-  it("upserts sessions and returns Python-compatible session list metadata", () => {
+  it("projects visible messages into the session list", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1", "u1", { title: "Pinned title", unread_count: 2 });
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "u1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { title: "Pinned title", unread_count: 2 } });
     store.addMessage({ sessionId: "s1", role: "user", content: "first message" });
     store.addMessage({ sessionId: "s1", role: "assistant", content: "latest answer" });
 
-    const listed = store.listSessions(LOCAL_TENANT_ID, 20, 0, ["u1"]);
+    const listed = store.listSessions({ tenantId: LOCAL_TENANT_ID, access: { userId: "u1", includeTenant: true }, limit: 20 });
 
     expect(listed).toMatchObject({
-      total: 1,
-      limit: 20,
-      offset: 0,
-      has_more: false,
+      nextCursor: null,
       items: [
         {
           session_id: "s1",
-          user_id: "u1",
-          title: "Pinned title",
+          owner_user_id: "u1",
+          title: "first message",
           last_message: "latest answer",
           first_message: "first message",
-          unread_count: 2,
+          unread_count: 0,
         },
       ],
     });
@@ -56,10 +53,10 @@ describe("ConversationStore", () => {
 
   it("falls back to the first message prefix for session title", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1", null, {});
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: {} });
     store.addMessage({ sessionId: "s1", role: "user", content: "123456789012345678901234567890abc" });
 
-    const [item] = store.listSessions(LOCAL_TENANT_ID, 20, 0).items;
+    const [item] = store.listSessions({ tenantId: LOCAL_TENANT_ID, access: { userId: "usr_system", includeTenant: true }, limit: 20 }).items;
 
     expect(item?.title).toBe("123456789012345678901234567890");
     store.close();
@@ -67,12 +64,12 @@ describe("ConversationStore", () => {
 
   it("merges session metadata patches without replacing sibling keys", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1", null, {
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: {
       title: "Pinned",
       memory_prefix_states: {
         "root::agent": { rendered_block: "old" },
       },
-    });
+    } });
 
     const updated = store.updateSessionMetadata("s1", {
       memory_prefix_states: {
@@ -93,8 +90,8 @@ describe("ConversationStore", () => {
 
   it("returns the latest window in ascending sequence order", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.addMessage({ sessionId: "s1", role: "user", content: "m1" });
     store.addMessage({ sessionId: "s1", role: "assistant", content: "m2" });
     store.addMessage({ sessionId: "s1", role: "user", content: "m3" });
@@ -109,8 +106,8 @@ describe("ConversationStore", () => {
 
   it("deletes messages after seq but keeps the anchor", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const first = store.addMessage({ sessionId: "s1", role: "user", content: "m1" });
     store.addMessage({ sessionId: "s1", role: "assistant", content: "m2" });
     store.addMessage({ sessionId: "s1", role: "user", content: "m3" });
@@ -124,8 +121,8 @@ describe("ConversationStore", () => {
 
   it("updates messages only when session and role filters match", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const user = store.addMessage({ sessionId: "s1", role: "user", content: "old" });
     const assistant = store.addMessage({ sessionId: "s1", role: "assistant", content: "answer" });
 
@@ -138,8 +135,8 @@ describe("ConversationStore", () => {
 
   it("deletes child agents created after the rollback anchor", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const anchor = store.addMessage({ sessionId: "s1", role: "user", content: "m1" });
     const later = store.addMessage({ sessionId: "s1", role: "assistant", content: "m2" });
     store.createChildAgent({ sessionId: "s1", childAgentId: "before", agentName: "worker", createdSeq: anchor.seq });
@@ -155,8 +152,8 @@ describe("ConversationStore", () => {
 
   it("stores run steps with per-run step order and message binding", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const assistant = store.addMessage({
       sessionId: "s1",
       role: "assistant",
@@ -188,8 +185,8 @@ describe("ConversationStore", () => {
 
   it("records durable outbox rows with per-session sequence and delivery status", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
-    store.createSession(LOCAL_TENANT_ID, "s2", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s2", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
 
     const first = store.appendOutbox({
       sessionId: "s1",
@@ -233,7 +230,7 @@ describe("ConversationStore", () => {
 
   it("manages failed and delivered outbox rows for operations", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "ops-outbox", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "ops-outbox", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const pending = store.appendOutbox({
       sessionId: "ops-outbox",
       runId: "run-pending",
@@ -317,8 +314,8 @@ describe("ConversationStore", () => {
 
   it("rolls back core state and outbox writes from the transaction facade", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s-rollback", "usr_local");
-    store.createSession(LOCAL_TENANT_ID, "s-rollback", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s-rollback", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s-rollback", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
 
     expect(() =>
       store.runInTransaction((tx) => {
@@ -359,7 +356,7 @@ describe("ConversationStore", () => {
       dataRoot: path.join(root, "data"),
     });
     try {
-      store.createSession(LOCAL_TENANT_ID, "session-1", "user-1");
+      store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       const run = store.createRun({
         runId: "run-1",
         sessionId: "session-1",
@@ -424,7 +421,7 @@ describe("ConversationStore", () => {
   it("supports child-scoped messages and run metadata", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     try {
-      store.createSession(LOCAL_TENANT_ID, "session-thread", "user-1");
+      store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-thread", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       const child = store.createChildAgent({
         childAgentId: "child-1",
         sessionId: "session-thread",
@@ -469,7 +466,7 @@ describe("ConversationStore", () => {
     }
   });
 
-  it("infers resource scopes from managed session paths and workspace metadata", () => {
+  it("infers resource scopes from managed session paths and first-class workspace binding", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "backend-ts-scopes-"));
     const dataRoot = path.join(root, "data");
     const store = createConversationStore({
@@ -480,7 +477,9 @@ describe("ConversationStore", () => {
       const sessionId = "session-scope";
       const runId = "run-1";
       const workspaceRoot = path.join(root, "workspace");
-      store.createSession(LOCAL_TENANT_ID, sessionId, null, { workspace_root: workspaceRoot });
+      fs.mkdirSync(workspaceRoot, { recursive: true });
+      store.resolveLocalWorkspace({ workspaceId: "workspace-1", tenantId: LOCAL_TENANT_ID, kind: "local", displayName: "workspace", rootPath: workspaceRoot, canonicalKey: workspaceRoot });
+      store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: sessionId, ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: "workspace-1" });
 
       const transient = store.registerResource({
         sessionId,

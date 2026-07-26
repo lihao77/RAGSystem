@@ -8,7 +8,7 @@ import {
   collectMultipartFiles,
   sendBufferedFileDownload,
 } from "../file-route-utils.js";
-import { loadOwnedSession } from "../session-owner.js";
+import { loadMutableSession, loadReadableSession } from "../session-owner.js";
 import { resolveSessionApplication } from "../session-application.js";
 
 interface SessionParams {
@@ -20,13 +20,18 @@ interface SessionFileParams extends SessionParams {
 }
 
 export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  const loadOwned = async (request: Parameters<NonNullable<RouteOptions["resolveSessionApplication"]>>[0], sessionId: string) => {
+  const loadReadable = async (request: Parameters<NonNullable<RouteOptions["resolveSessionApplication"]>>[0], sessionId: string) => {
     const sessions = await resolveSessionApplication(options, request);
-    return loadOwnedSession(request, sessionId, sessions);
+    return loadReadableSession(request, sessionId, sessions);
+  };
+
+  const loadMutable = async (request: Parameters<NonNullable<RouteOptions["resolveSessionApplication"]>>[0], sessionId: string) => {
+    const sessions = await resolveSessionApplication(options, request);
+    return loadMutableSession(request, sessionId, sessions);
   };
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/files", async (request) => {
-    await loadOwned(request, request.params.sessionId);
+    await loadReadable(request, request.params.sessionId);
     const files = await resolveSessionFiles(options, request);
     return {
       success: true,
@@ -35,14 +40,14 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/files/validate", async (request) => {
-    await loadOwned(request, request.params.sessionId);
+    await loadReadable(request, request.params.sessionId);
     const payload = ValidateFilesRequestSchema.parse(request.body);
     const files = await resolveSessionFiles(options, request);
     return { success: true as const, ...await files.validate(request.params.sessionId, payload.file_ids) };
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/files/upload", async (request) => {
-    await loadOwned(request, request.params.sessionId);
+    await loadMutable(request, request.params.sessionId);
     const parts = await collectMultipartFiles(request);
     const sessionId = request.params.sessionId;
     const application = await resolveSessionFiles(options, request);
@@ -55,7 +60,7 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
   app.get<{ Params: SessionFileParams }>("/sessions/:sessionId/files/:fileId", async (request) => {
-    await loadOwned(request, request.params.sessionId);
+    await loadReadable(request, request.params.sessionId);
     const files = await resolveSessionFiles(options, request);
     const record = await files.get(request.params.sessionId, request.params.fileId);
     if (!record) {
@@ -65,7 +70,7 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
   app.delete<{ Params: SessionFileParams }>("/sessions/:sessionId/files/:fileId", async (request) => {
-    await loadOwned(request, request.params.sessionId);
+    await loadMutable(request, request.params.sessionId);
     const files = await resolveSessionFiles(options, request);
     const record = await files.delete(request.params.sessionId, request.params.fileId);
     if (!record) {
@@ -75,7 +80,7 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
   app.get<{ Params: SessionFileParams }>("/sessions/:sessionId/files/:fileId/download", async (request, reply) => {
-    await loadOwned(request, request.params.sessionId);
+    await loadReadable(request, request.params.sessionId);
     const files = await resolveSessionFiles(options, request);
     const source = await files.read(request.params.sessionId, request.params.fileId);
     if (source.status === "not_found") {

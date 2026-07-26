@@ -34,13 +34,23 @@ describe.each(factories)("$name daemon session application contract", ({ create 
     try {
       await harness.application.ensureSession({
         sessionId: "daemon-session",
-        userId: "usr_bot",
+        ownerUserId: "usr_bot",
+        visibility: "tenant",
+        originType: "bot",
+        originId: "bot-feishu",
+        originChannel: "feishu",
+        workspaceId: null,
         metadata: { chatId: "oc_initial" },
         permissionMode: "standard",
       });
       await harness.application.ensureSession({
         sessionId: "daemon-session",
-        userId: "usr_bot",
+        ownerUserId: "usr_bot",
+        visibility: "tenant",
+        originType: "bot",
+        originId: "bot-feishu",
+        originChannel: "feishu",
+        workspaceId: null,
         metadata: { channel: "feishu" },
         permissionMode: "relaxed",
       });
@@ -48,7 +58,11 @@ describe.each(factories)("$name daemon session application contract", ({ create 
 
       expect(await harness.readRaw("daemon-session")).toMatchObject({
         tenant_id: tenantId,
-        user_id: "usr_bot",
+        owner_user_id: "usr_bot",
+        visibility: "tenant",
+        origin_type: "bot",
+        origin_id: "bot-feishu",
+        origin_channel: "feishu",
         permission_mode: "standard",
         metadata: { chatId: "oc_latest", channel: "feishu" },
       });
@@ -63,7 +77,12 @@ describe.each(factories)("$name daemon session application contract", ({ create 
       await harness.seedForeign("shared-session");
       await expect(harness.application.ensureSession({
         sessionId: "shared-session",
-        userId: "usr_bot",
+        ownerUserId: "usr_bot",
+        visibility: "tenant",
+        originType: "bot",
+        originId: "bot-feishu",
+        originChannel: "feishu",
+        workspaceId: null,
         permissionMode: "standard",
       })).rejects.toThrow("belongs to another tenant");
       await expect(harness.application.updateSessionMetadata("shared-session", { chatId: "oc_bad" }))
@@ -91,7 +110,7 @@ function createLocalHarness(): Harness {
   return {
     application: new LocalSessionApplication(tenantId, sessions, conversations),
     readRaw: (sessionId) => conversations.getSession(sessionId),
-    seedForeign: (sessionId) => conversations.createSession(otherTenantId, sessionId, "usr_other"),
+    seedForeign: (sessionId) => conversations.createSession({ tenantId: otherTenantId, sessionId: sessionId, ownerUserId: "usr_other", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null }),
     close: () => conversations.close(),
   };
 }
@@ -100,8 +119,19 @@ function createSaaSHarness(): Harness {
   const rows = new Map<string, SessionInfo>();
   const repository = {
     getSession: async (sessionId: string) => rows.get(sessionId) ?? null,
-    createSession: async (boundTenantId: typeof tenantId, sessionId: string, userId: string, metadata: Record<string, unknown>, permissionMode: SessionInfo["permission_mode"]) => {
-      rows.set(sessionId, session(sessionId, boundTenantId, userId, metadata, permissionMode));
+    createSession: async (input: {
+      tenantId: typeof tenantId;
+      sessionId: string;
+      ownerUserId: string | null;
+      visibility: SessionInfo["visibility"];
+      originType: SessionInfo["origin_type"];
+      originId: string | null;
+      originChannel: SessionInfo["origin_channel"];
+      workspaceId: string | null;
+      metadata?: Record<string, unknown>;
+      permissionMode?: SessionInfo["permission_mode"];
+    }) => {
+      rows.set(input.sessionId, session(input));
     },
     updateSessionMetadata: async (sessionId: string, patch: Record<string, unknown>) => {
       const current = rows.get(sessionId);
@@ -115,25 +145,35 @@ function createSaaSHarness(): Harness {
     application: new SaaSSessionApplication(tenantId, repository as never),
     readRaw: (sessionId) => repository.getSession(sessionId),
     seedForeign: (sessionId) => {
-      rows.set(sessionId, session(sessionId, otherTenantId, "usr_other", {}, null));
+      rows.set(sessionId, session({ tenantId: otherTenantId, sessionId, ownerUserId: "usr_other", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: {}, permissionMode: null }));
     },
     close: () => undefined,
   };
 }
 
-function session(
-  sessionId: string,
-  boundTenantId: SessionInfo["tenant_id"],
-  userId: string,
-  metadata: Record<string, unknown>,
-  permissionMode: SessionInfo["permission_mode"],
-): SessionInfo {
+function session(input: {
+  sessionId: string;
+  tenantId: SessionInfo["tenant_id"];
+  ownerUserId: string | null;
+  visibility: SessionInfo["visibility"];
+  originType: SessionInfo["origin_type"];
+  originId: string | null;
+  originChannel: SessionInfo["origin_channel"];
+  workspaceId: string | null;
+  metadata?: Record<string, unknown>;
+  permissionMode?: SessionInfo["permission_mode"];
+}): SessionInfo {
   return {
-    session_id: sessionId,
-    tenant_id: boundTenantId,
-    user_id: userId,
-    permission_mode: permissionMode,
-    metadata,
+    session_id: input.sessionId,
+    tenant_id: input.tenantId,
+    owner_user_id: input.ownerUserId,
+    visibility: input.visibility,
+    origin_type: input.originType,
+    origin_id: input.originId,
+    origin_channel: input.originChannel,
+    workspace_id: input.workspaceId,
+    permission_mode: input.permissionMode ?? null,
+    metadata: input.metadata ?? {},
     created_at: "2026-07-21T00:00:00.000Z",
     updated_at: "2026-07-21T00:00:00.000Z",
   };

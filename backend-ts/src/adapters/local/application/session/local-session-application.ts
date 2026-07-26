@@ -5,6 +5,9 @@ import type { TenantId } from "../../../../identity/types.js";
 import type { AgentSessionApplication } from "../../../../services/sessions/index.js";
 import type { ConversationStore } from "../../sqlite/conversation-store/index.js";
 import { TenantDaemonSessionApplication } from "../../../../services/sessions/daemon-session-application.js";
+import { canonicalLocalWorkspaceKey, normalizeLocalWorkspacePath } from "../../../../services/workspaces/workspace-application.js";
+import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 /** Binds the Local session service to one request tenant. */
 export class LocalSessionApplication implements SessionApplication {
@@ -32,7 +35,33 @@ export class LocalSessionApplication implements SessionApplication {
   async listSessions(input: Parameters<SessionApplication["listSessions"]>[0]) {
     return this.sessions.listSessions({ ...input, tenantId: this.tenantId });
   }
+  async listSessionFacets(input: Parameters<SessionApplication["listSessionFacets"]>[0]) {
+    return this.sessions.listSessionFacets({ ...input, tenantId: this.tenantId });
+  }
+  async listWorkspacesByIds(workspaceIds: readonly string[]) {
+    return this.conversations.listWorkspacesByIds(this.tenantId, workspaceIds);
+  }
+  async resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null> {
+    if (!input) return null;
+    if (input.kind === "existing") {
+      const existing = this.conversations.getWorkspaceById(this.tenantId, input.workspace_id);
+      if (!existing) throw new Error("Workspace 不存在或不属于当前租户");
+      return existing.workspace_id;
+    }
+    const rootPath = await normalizeLocalWorkspacePath(input.root_path);
+    const resolved = this.conversations.resolveLocalWorkspace({
+      workspaceId: randomUUID(), tenantId: this.tenantId, kind: "local",
+      displayName: path.basename(rootPath) || rootPath, rootPath,
+      canonicalKey: canonicalLocalWorkspaceKey(rootPath),
+    });
+    return resolved.workspace_id;
+  }
   async getSession(sessionId: string) { return this.sessions.getSession(sessionId); }
+  async resolveWorkspaceRoot(sessionId: string): Promise<string | null> {
+    const session = await this.getSession(sessionId);
+    if (!session?.workspace_id) return null;
+    return this.conversations.getWorkspaceById(this.tenantId, session.workspace_id)?.root_path ?? null;
+  }
   async getSessionForExecutionValidation(sessionId: string) { return this.sessions.getSession(sessionId); }
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>) { return this.daemonSessions.updateSessionMetadata(sessionId, patch); }
   async updateSessionPermissionMode(sessionId: string, mode: PermissionMode) { return this.conversations.updateSessionPermissionMode(sessionId, mode); }

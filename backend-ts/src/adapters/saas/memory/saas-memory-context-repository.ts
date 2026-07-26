@@ -6,12 +6,8 @@ import { toMemoryScopePartition } from "../../../services/memory/scope-partition
 export class SaaSMemoryContextRepository implements MemoryContextRepository {
   constructor(private readonly query: MemoryQueryService) {}
 
-  async resolveWorkspaceKey(sessionMetadata: Record<string, unknown>): Promise<string | null> {
-    for (const key of ["workspace_id", "workspace_key"] as const) {
-      const value = sessionMetadata[key];
-      if (typeof value === "string" && value.trim()) return value.trim();
-    }
-    return null;
+  async resolveWorkspaceKey(workspaceId: string | null): Promise<string | null> {
+    return workspaceId?.trim() || null;
   }
 
   async loadIndex(

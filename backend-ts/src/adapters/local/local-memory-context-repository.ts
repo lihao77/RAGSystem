@@ -1,14 +1,20 @@
 import type { MemoryContextRepository, MemoryScopeSpec } from "../../contracts/memory-store/index.js";
 import { getWorkspaceMemoryKey } from "../../contracts/memory-store/index.js";
 import type { MemoryStore } from "./memory-store.js";
+import type { TenantId } from "../../identity/types.js";
+import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 
 /** Adapts the synchronous filesystem index API to the shared asynchronous context port. */
 export class LocalMemoryContextRepository implements MemoryContextRepository {
-  constructor(private readonly memory: Pick<MemoryStore, "loadIndexHead">) {}
+  constructor(
+    private readonly memory: Pick<MemoryStore, "loadIndexHead">,
+    private readonly workspaces?: { tenantId: TenantId; store: Pick<ConversationStore, "getWorkspaceById"> },
+  ) {}
 
-  async resolveWorkspaceKey(sessionMetadata: Record<string, unknown>): Promise<string | null> {
-    const workspaceRoot = sessionMetadata.workspace_root;
-    return getWorkspaceMemoryKey(typeof workspaceRoot === "string" ? workspaceRoot : null);
+  async resolveWorkspaceKey(workspaceId: string | null): Promise<string | null> {
+    if (!workspaceId || !this.workspaces) return null;
+    const workspace = this.workspaces.store.getWorkspaceById(this.workspaces.tenantId, workspaceId);
+    return getWorkspaceMemoryKey(workspace?.canonical_key ?? null);
   }
 
   async loadIndex(

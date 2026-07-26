@@ -37,7 +37,12 @@ import type {
 } from "../../contracts/storage/runtime-storage.js";
 import { buildInterruptedToolMessages } from "../../contracts/storage/runtime-finalization.js";
 import type { TenantId } from "../../identity/types.js";
-import type { MessageInfo } from "../../contracts/session/session.js";
+import {
+  toSessionIdentity,
+  type MessageInfo,
+  type SessionListCursor,
+  type SessionListProjection,
+} from "../../contracts/session/session.js";
 
 class SerialExecutor {
   private tail: Promise<void> = Promise.resolve();
@@ -185,7 +190,18 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
     }) => RuntimeRecordEnvelopeInput,
   ): Promise<RuntimeInterruptSessionResult> {
     return this.serial.run(() => {
-      const sessions = this.store.listSessions(this.tenantId, Number.MAX_SAFE_INTEGER, 0).items;
+      const sessions: SessionListProjection[] = [];
+      let cursor: SessionListCursor | null = null;
+      do {
+        const page = this.store.listSessions({
+          tenantId: this.tenantId,
+          access: { userId: "usr_system", includeTenant: true, includeAll: true },
+          limit: 200,
+          ...(cursor ? { cursor } : {}),
+        });
+        sessions.push(...page.items);
+        cursor = page.nextCursor;
+      } while (cursor);
       const interruptedRuns: RuntimeInterruptSessionResult["interruptedRuns"] = [];
       const records: RuntimeRecordEnvelopeResult[] = [];
       let cancelledInteractions = 0;
@@ -253,15 +269,10 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (existingSession && existingSession.tenant_id !== this.tenantId) {
           throw new Error(`session belongs to another tenant: ${input.session.sessionId}`);
         }
-        if (!existingSession) {
-          tx.createSession(
-            this.tenantId,
-            input.session.sessionId,
-            input.session.userId,
-            input.session.metadata,
-            input.session.permissionMode,
-          );
-        }
+        tx.createSession({
+          tenantId: this.tenantId,
+          ...input.session,
+        });
         const existingRun = tx.getRun(input.session.sessionId, input.run.runId);
         const initialUserMessage = input.initialUserMessage
           ? resolveDeterministicMessage(tx, input.initialUserMessage, "initial user message")
@@ -290,7 +301,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       return this.store.runInTransaction((tx) => {
         const existingSession = tx.getSession(input.session.sessionId);
         if (existingSession && existingSession.tenant_id !== this.tenantId) throw new Error(`session belongs to another tenant: ${input.session.sessionId}`);
-        if (!existingSession) tx.createSession(this.tenantId, input.session.sessionId, input.session.userId, input.session.metadata, input.session.permissionMode);
+        tx.createSession({ tenantId: this.tenantId, ...input.session });
         const session = tx.getSession(input.session.sessionId);
         const maintenance = session ? activeMaintenance(session.metadata) : null;
         if (maintenance && maintenance.token !== input.sessionMaintenanceToken) {
@@ -527,7 +538,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           requestId: stringField(request.requestId) ?? rootRun.request_id,
           executionKind: stringField(request.executionKind) ?? rootRun.entrypoint ?? "agent_stream",
           userId: rootRun.user_id,
-          sessionMetadata: session.metadata,
+          sessionIdentity: toSessionIdentity(session),
           resolutions: batch.map((item) => ({
             interactionId: item.interaction_id,
             toolCallId: item.tool_call_id,

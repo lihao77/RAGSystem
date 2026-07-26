@@ -57,7 +57,7 @@ describe("session run step routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const assistant = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "assistant",
@@ -150,7 +150,7 @@ describe("session run step routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s2" });
+    harness.container.sessionApplication.createSession({ sessionId: "s2", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const assistant = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s2",
       role: "assistant",
@@ -234,7 +234,7 @@ describe("session run step routes", () => {
     const sessionId = "s3";
     const rootRunId = "root-run";
     const childRunId = "child-run";
-    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId });
+    harness.container.sessionApplication.createSession({ sessionId, ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     harness.localInfrastructure.conversationStore.createRun({
       runId: rootRunId,
       sessionId,

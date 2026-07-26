@@ -9,7 +9,12 @@ describe("async session metadata resolver", () => {
     const session = (): SessionInfo => ({
       session_id: "session-1",
       tenant_id: "tenant-1" as SessionInfo["tenant_id"],
-      user_id: "user-1",
+      owner_user_id: "user-1",
+      visibility: "private",
+      origin_type: "direct",
+      origin_id: null,
+      origin_channel: "api",
+      workspace_id: null,
       permission_mode: null,
       metadata,
       created_at: "2026-01-01T00:00:00.000Z",
@@ -27,7 +32,7 @@ describe("async session metadata resolver", () => {
       },
     );
 
-    expect(port.getSession("session-1")?.user_id).toBe("user-1");
+    expect(port.getSession("session-1")?.owner_user_id).toBe("user-1");
     port.updateSessionMetadata?.("session-1", { _provider_cache: { root: { last_used_at: 2 } } });
     expect(port.getSession("session-1")?.metadata).toMatchObject({
       _provider_cache: { child: { last_used_at: 1 }, root: { last_used_at: 2 } },

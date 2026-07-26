@@ -18,7 +18,7 @@ describe("interaction response routes", () => {
   it("resolves pending approvals through the generic HTTP route", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.localInfrastructure.conversationStore.createSession(LOCAL_TENANT_ID, "approval-route-session", "usr_local");
+    harness.localInfrastructure.conversationStore.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "approval-route-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     harness.localInfrastructure.conversationStore.createRun({ runId: "approval-route-run", sessionId: "approval-route-session", agentName: "orchestrator_agent" });
 
     const approvalPromise = harness.container.pendingInteractions.waitForApproval({
@@ -78,7 +78,7 @@ describe("interaction response routes", () => {
   it("挂起后的响应立即返回 resuming 并触发恢复执行器", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.localInfrastructure.conversationStore.createSession(LOCAL_TENANT_ID, "resume-route-session", "usr_local");
+    harness.localInfrastructure.conversationStore.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "resume-route-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     harness.localInfrastructure.conversationStore.createRun({ runId: "resume-route-run", sessionId: "resume-route-session", agentName: "orchestrator_agent" });
 
     const suspended = harness.container.pendingInteractions.waitForApproval({

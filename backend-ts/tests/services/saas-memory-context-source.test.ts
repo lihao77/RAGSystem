@@ -50,8 +50,9 @@ describe("MemoryContextSource with the SaaS repository", () => {
     const source = new MemoryContextSource(
       {
         getSession: () => ({
-          metadata: { team: "team-a", workspace_id: "workspace-a" },
-          user_id: "user-a",
+          metadata: { team: "team-a" },
+          owner_user_id: "user-a",
+          workspace_id: "workspace-a",
         }),
       },
       new SaaSMemoryContextRepository(query),

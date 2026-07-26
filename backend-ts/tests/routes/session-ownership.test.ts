@@ -7,6 +7,7 @@ import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/inde
 import { buildTestHarness } from "../helpers/app.js";
 import type { AsyncFileHistoryStore } from "../../src/contracts/file-history-store/index.js";
 import type { AsyncSessionFileStorage } from "../../src/contracts/session/session-file-storage.js";
+import { canExecuteSession, canMutateSession } from "../../src/routes/session-owner.js";
 
 const USER_A = createUserId("usr_owner_a");
 const USER_B = createUserId("usr_owner_b");
@@ -21,6 +22,38 @@ afterEach(async () => {
 });
 
 describe("session ownership", () => {
+  it("scopes widget execution to the exact origin and never grants mutation", () => {
+    const request = {
+      identity: {
+        userId: "usr_widget_transport",
+        tenantId: LOCAL_TENANT_ID,
+        role: "widget",
+        permissions: ["sessions:create"],
+        widgetAppKey: "widget-a",
+      },
+    } as FastifyRequest;
+    const session = {
+      ...sessionInfo("widget-session", "usr_system"),
+      owner_user_id: null,
+      visibility: "tenant" as const,
+      origin_type: "widget" as const,
+      origin_id: "widget-a",
+      origin_channel: "widget_api" as const,
+    };
+
+    expect(canExecuteSession(request, session)).toBe(true);
+    expect(canMutateSession(request, session)).toBe(false);
+    expect(canExecuteSession(request, { ...session, origin_id: "widget-b" })).toBe(false);
+    expect(canExecuteSession({
+      identity: {
+        userId: LOCAL_USER_ID,
+        tenantId: LOCAL_TENANT_ID,
+        role: "admin",
+        permissions: ["tenant:sessions:read"],
+      },
+    } as FastifyRequest, session)).toBe(false);
+  });
+
   it("returns 403 when another user in the same tenant accesses the session", async () => {
     const identityProvider: IdentityProvider = {
       async resolve(request: FastifyRequest): Promise<RequestIdentity> {
@@ -38,10 +71,7 @@ describe("session ownership", () => {
       payload: { session_id: "spoofed-session", user_id: USER_B },
     });
     expect(spoofedCreate.statusCode).toBe(400);
-    harness.container.sessionApplication.createSession({
-      sessionId: "private-session",
-      userId: USER_A,
-    });
+    harness.container.sessionApplication.createSession({ sessionId: "private-session", ownerUserId: USER_A, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
 
     const forbidden = await app.inject({
       method: "GET",
@@ -68,15 +98,60 @@ describe("session ownership", () => {
     expect(harness.localInfrastructure.conversationStore.getSession("private-session")?.permission_mode).toBe("relaxed");
   });
 
-  it("allows local identity to access a historical null-owner session", async () => {
+  it("allows local identity to access a tenant-visible system session", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.localInfrastructure.conversationStore.createSession(LOCAL_TENANT_ID, "legacy-local-null", null, {});
+    harness.localInfrastructure.conversationStore.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "legacy-local-null", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: {} });
 
     const response = await app.inject({ method: "GET", url: "/api/agent/sessions/legacy-local-null" });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ data: { session_id: "legacy-local-null", user_id: null } });
+    expect(response.json()).toMatchObject({ data: { session_id: "legacy-local-null", owner_user_id: "usr_system" } });
     expect(LOCAL_USER_ID).toBe("usr_local");
+  });
+
+  it("allows tenant admins, but not members, to mutate tenant-visible sessions", async () => {
+    const identityProvider: IdentityProvider = {
+      async resolve(request: FastifyRequest): Promise<RequestIdentity> {
+        const isAdmin = request.headers["x-test-role"] === "admin";
+        return {
+          userId: isAdmin ? USER_A : USER_B,
+          tenantId: LOCAL_TENANT_ID,
+          role: isAdmin ? "admin" : "member",
+          permissions: isAdmin ? ["*"] : [],
+        };
+      },
+    };
+    const harness = await buildTestHarness({ identityProvider });
+    app = harness.app;
+    harness.controlStore.createTenant({ id: LOCAL_TENANT_ID, displayName: "Local" });
+    harness.localInfrastructure.conversationStore.createSession({
+      tenantId: LOCAL_TENANT_ID,
+      sessionId: "tenant-visible-session",
+      ownerUserId: "usr_system",
+      visibility: "tenant",
+      originType: "direct",
+      originId: null,
+      originChannel: "api",
+      workspaceId: null,
+      metadata: {},
+    });
+
+    const memberUpdate = await app.inject({
+      method: "PATCH",
+      url: "/api/agent/sessions/tenant-visible-session/permissions",
+      headers: { "x-test-role": "member" },
+      payload: { mode: "relaxed" },
+    });
+    expect(memberUpdate.statusCode).toBe(403);
+
+    const adminUpdate = await app.inject({
+      method: "PATCH",
+      url: "/api/agent/sessions/tenant-visible-session/permissions",
+      headers: { "x-test-role": "admin" },
+      payload: { mode: "relaxed" },
+    });
+    expect(adminUpdate.statusCode).toBe(200);
+    expect(harness.localInfrastructure.conversationStore.getSession("tenant-visible-session")?.permission_mode).toBe("relaxed");
   });
 
   it("reads SaaS file changes only after PostgreSQL session ownership succeeds", async () => {
@@ -98,7 +173,7 @@ describe("session ownership", () => {
       cleanup: async () => undefined,
     };
     const saas = {
-      getSession: async (sessionId: string) => ({ session_id: sessionId, tenant_id: LOCAL_TENANT_ID, user_id: USER_A, metadata: {}, permission_mode: null, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z" }),
+      getSession: async (sessionId: string) => sessionInfo(sessionId, USER_A),
     };
     const harness = await buildTestHarness({
       identityProvider,
@@ -150,7 +225,7 @@ describe("session ownership", () => {
         : null,
     };
     const sessions = {
-      getSession: async (sessionId: string) => ({ session_id: sessionId, tenant_id: LOCAL_TENANT_ID, user_id: USER_A, metadata: {}, permission_mode: null, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z" }),
+      getSession: async (sessionId: string) => sessionInfo(sessionId, USER_A),
     };
     const harness = await buildTestHarness({
       identityProvider,
@@ -179,11 +254,11 @@ describe("session ownership", () => {
     const harness = await buildOwnershipHarness();
     app = harness.app;
     const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: USER_A, displayName: "Owner A Bot" });
-    harness.container.sessionApplication.createSession({ sessionId: "owned-bot-session", userId: bot.id });
+    harness.container.sessionApplication.createSession({ sessionId: "owned-bot-session", ownerUserId: USER_A, visibility: "private", originType: "bot", originId: bot.id, originChannel: "feishu", workspaceId: null });
 
     const detail = await app.inject({ method: "GET", url: "/api/agent/sessions/owned-bot-session", headers: { "x-test-user": "a" } });
     expect(detail.statusCode).toBe(200);
-    expect(detail.json()).toMatchObject({ data: { session_id: "owned-bot-session", user_id: bot.id } });
+    expect(detail.json()).toMatchObject({ data: { session_id: "owned-bot-session", owner_user_id: USER_A, origin: { type: "bot", id: bot.id } } });
     const permissionUpdate = await app.inject({
       method: "PATCH",
       url: "/api/agent/sessions/owned-bot-session/permissions",
@@ -193,14 +268,14 @@ describe("session ownership", () => {
     expect(permissionUpdate.statusCode).toBe(200);
     expect(harness.localInfrastructure.conversationStore.getSession("owned-bot-session")?.permission_mode).toBe("relaxed");
     const listed = await app.inject({ method: "GET", url: "/api/agent/sessions", headers: { "x-test-user": "a" } });
-    expect(listed.json().data.items).toEqual([expect.objectContaining({ session_id: "owned-bot-session", user_id: bot.id })]);
+    expect(listed.json().data.items).toEqual([expect.objectContaining({ session_id: "owned-bot-session", origin: expect.objectContaining({ type: "bot", id: bot.id }) })]);
   });
 
   it("非 owner 无法查看其他用户 bot 的会话", async () => {
     const harness = await buildOwnershipHarness();
     app = harness.app;
     const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: USER_A, displayName: "Owner A Bot" });
-    harness.container.sessionApplication.createSession({ sessionId: "foreign-bot-session", userId: bot.id });
+    harness.container.sessionApplication.createSession({ sessionId: "foreign-bot-session", ownerUserId: USER_A, visibility: "private", originType: "bot", originId: bot.id, originChannel: "feishu", workspaceId: null });
 
     const detail = await app.inject({ method: "GET", url: "/api/agent/sessions/foreign-bot-session", headers: { "x-test-user": "b" } });
     expect(detail.statusCode).toBe(403);
@@ -230,4 +305,21 @@ async function buildOwnershipHarness() {
   harness.controlStore.upsertMembership({ userId: USER_A, tenantId: LOCAL_TENANT_ID, role: "member" });
   harness.controlStore.upsertMembership({ userId: USER_B, tenantId: LOCAL_TENANT_ID, role: "member" });
   return harness;
+}
+
+function sessionInfo(sessionId: string, ownerUserId: string) {
+  return {
+    session_id: sessionId,
+    tenant_id: LOCAL_TENANT_ID,
+    owner_user_id: ownerUserId,
+    visibility: "private" as const,
+    origin_type: "direct" as const,
+    origin_id: null,
+    origin_channel: "api" as const,
+    workspace_id: null,
+    metadata: {},
+    permission_mode: null,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
 }

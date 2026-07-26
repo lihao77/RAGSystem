@@ -12,7 +12,12 @@ import {
   AttachmentRefSchema,
   getSelectedLlm as resolveSelectedLlm,
 } from "../../../contracts/execution/execution.js";
-import type { MessageInfo } from "../../../contracts/session/session.js";
+import {
+  toSessionIdentity,
+  type MessageInfo,
+  type SessionIdentity,
+  type SessionOriginChannel,
+} from "../../../contracts/session/session.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import {
@@ -39,7 +44,7 @@ type StartedRunHandle = ReturnType<AgentRunEngine["startRun"]>;
 
 interface UnifiedRunStartInput {
   sessionId: string;
-  sessionMetadata: Record<string, unknown>;
+  sessionIdentity: SessionIdentity;
   userId: string;
   requestId: string;
   task: string;
@@ -67,6 +72,7 @@ interface SendUserMessageInput {
   attachments: AttachmentRef[];
   selectedLlm: string;
   executionKind: string;
+  originChannel: SessionOriginChannel;
   uiContext?: Record<string, unknown> | null;
   agentName?: string | null;
   entrypoint?: string;
@@ -145,14 +151,15 @@ class AgentLaunchers {
   }
 
   private launchRun(input: UnifiedRunStartInput): UnifiedRunStartResult {
+    const sessionMetadata = input.sessionIdentity.metadata ?? {};
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {
-        agentName: input.agentName?.trim() || normalizeSessionEntryAgent(input.sessionMetadata.entry_agent),
-        teamName: asString(input.sessionMetadata.team),
+        agentName: input.agentName?.trim() || normalizeSessionEntryAgent(sessionMetadata.entry_agent),
+        teamName: asString(sessionMetadata.team),
         selectedLlm: input.selectedLlm,
       },
-      input.sessionMetadata,
+      sessionMetadata,
     );
     if (!ready.ok) {
       return { ok: false, error: ready.reason };
@@ -160,6 +167,7 @@ class AgentLaunchers {
 
     const handle = this.runEngine.startRun({
       sessionId: input.sessionId,
+      sessionIdentity: input.sessionIdentity,
       userId: input.userId,
       requestId: input.requestId,
       task: input.task,
@@ -206,10 +214,25 @@ class AgentLaunchers {
     const sessionId = input.sessionId?.trim() || randomUUID();
     const task = input.task.trim();
     const slashCommand = parseSlashCommand(task);
+    const existingSession = await this.sessions.getSession(sessionId);
+    const sessionIdentity: SessionIdentity = existingSession
+      ? toSessionIdentity(existingSession)
+      : {
+          sessionId,
+          ownerUserId: input.userId,
+          visibility: "private",
+          originType: "direct",
+          originId: null,
+          originChannel: input.originChannel,
+          workspaceId: null,
+          metadata: {},
+          permissionMode: null,
+        };
 
     if (slashCommand) {
       const commandResult = await this.slashCommandHandler.handle({
         sessionId,
+        sessionIdentity,
         userId: input.userId,
         requestId: input.requestId,
         selectedLlm: input.selectedLlm,
@@ -247,7 +270,6 @@ class AgentLaunchers {
       }
     }
 
-    const sessionMetadata = (await this.sessions.getSession(sessionId))?.metadata ?? {};
     const attachmentResolution = await this.attachmentResolver.resolve(sessionId, input.attachments);
     if (attachmentResolution.error) {
       return { kind: "error", sessionId, error: attachmentResolution.error };
@@ -263,7 +285,7 @@ class AgentLaunchers {
 
     const started = this.launchRun({
       sessionId,
-      sessionMetadata,
+      sessionIdentity,
       userId: input.userId,
       requestId: input.requestId,
       task,
@@ -308,6 +330,7 @@ class AgentLaunchers {
       task: request.task,
       attachments: request.attachments,
       executionKind: "agent_stream",
+      originChannel: "web",
       selectedLlm: resolveSelectedLlm(request),
       ...(request.ui_context !== undefined ? { uiContext: request.ui_context } : {}),
       followupPolicy: options.followupPolicy ?? "queue",
@@ -361,6 +384,7 @@ class AgentLaunchers {
       task: request.task,
       attachments: [],
       executionKind,
+      originChannel: "api",
       selectedLlm: resolveSelectedLlm(request),
       ...(request.agent ? { agentName: request.agent } : {}),
       entrypoint: "execute",
@@ -548,6 +572,7 @@ class AgentLaunchers {
         attachments,
         selectedLlm: input.selectedLlm ?? "",
         executionKind: "rollback_and_retry",
+        originChannel: "web",
         entrypoint: "rollback_and_retry",
         uiContext,
         messageMetadata: {
@@ -653,6 +678,19 @@ class AgentLaunchers {
 
       const existingSession = await this.sessions.getSession(sessionId);
       const sessionMetadata = existingSession?.metadata ?? {};
+      const sessionIdentity: SessionIdentity = existingSession
+        ? toSessionIdentity(existingSession)
+        : {
+            sessionId,
+            ownerUserId: "usr_system",
+            visibility: "tenant",
+            originType: "direct",
+            originId: null,
+            originChannel: "api",
+            workspaceId: null,
+            metadata: sessionMetadata,
+            permissionMode: null,
+          };
       const ready = resolveReadyAgent(
         this.runtimeCore,
         {
@@ -702,6 +740,7 @@ class AgentLaunchers {
       const source = claimedGoal ? "goal_continuation" : "background_notification";
       const started = this.runEngine.startRun({
         sessionId,
+        sessionIdentity,
         requestId: `${claimedGoal ? "goal_continue" : "bg_notify"}_${randomUUID()}`,
         task,
         executionKind: claimedGoal ? "system.goal_continuation" : "system.bg_notification",

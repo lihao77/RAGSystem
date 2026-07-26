@@ -8,6 +8,7 @@ import { DaemonServiceError } from "../services/daemon/daemon-service.js";
 import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { BotRouteOptions } from "./route-options.js";
 import { requireTenantMember } from "./tenant-role.js";
+import { resolveSessionApplication } from "./session-application.js";
 
 interface BotParams { botId: string; }
 interface BotCronParams extends BotParams { taskId: string; }
@@ -68,6 +69,13 @@ export const registerBotRoutes: FastifyPluginAsync<BotRouteOptions> = async (app
 
   app.delete<{ Params: BotParams }>("/:botId", async (request) => {
     const botId = parseBotId(request.params.botId);
+    const sessions = await resolveSessionApplication(options, request);
+    const facets = await sessions.listSessionFacets({
+      access: { userId: request.identity.userId, includeTenant: true, includeAll: true },
+    });
+    if (facets.origins.some((origin) => origin.type === "bot" && origin.id === botId && origin.count > 0)) {
+      throw new HttpError(409, "conflict", "该 Bot 已被历史会话引用，不能物理删除；请停用 Bot");
+    }
     if (!await options.botRepository.delete(botId)) throw new HttpError(404, "not_found", "bot 不存在");
     await app.botEngine.reloadBot(botId);
     return { status: "ok" };

@@ -11,6 +11,7 @@ export * from "./control-secret-resolver.js";
 export * from "./conversation-schema.js";
 export * from "./conversation-migrations.js";
 export * from "./conversation-repository.js";
+export * from "./workspace-repository.js";
 export * from "./child-agent-schema.js";
 export * from "./child-agent-migrations.js";
 export * from "./child-agent-repository.js";

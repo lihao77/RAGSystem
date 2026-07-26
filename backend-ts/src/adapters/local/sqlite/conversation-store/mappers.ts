@@ -1,6 +1,6 @@
 import type { RunStepInfo } from "../../../../contracts/common.js";
-import type { MessageInfo, SessionInfo, SessionListItem } from "../../../../contracts/session/session.js";
-import { asString, parseJsonObject } from "./helpers.js";
+import type { MessageInfo, SessionInfo, SessionListProjection } from "../../../../contracts/session/session.js";
+import { parseJsonObject, sqliteTimestampToIso } from "./helpers.js";
 import { decodeChatFields } from "../../../../contracts/conversation-store/chat-message-codec.js";
 import type { ChildAgentInfo, ResourceInfo, RunInfo } from "../../../../contracts/conversation-store/types.js";
 import type {
@@ -9,7 +9,7 @@ import type {
   ResourceRow,
   RunRow,
   RunStepRow,
-  SessionListRow,
+  SessionListProjectionRow,
   SessionRow,
 } from "./types.js";
 
@@ -17,7 +17,12 @@ export function rowToSession(row: SessionRow): SessionInfo {
   return {
     session_id: row.session_id,
     tenant_id: row.tenant_id,
-    user_id: row.user_id,
+    owner_user_id: row.owner_user_id,
+    visibility: row.visibility,
+    origin_type: row.origin_type,
+    origin_id: row.origin_id,
+    origin_channel: row.origin_channel,
+    workspace_id: row.workspace_id,
     permission_mode: row.permission_mode,
     metadata: parseJsonObject(row.metadata),
     created_at: row.created_at,
@@ -25,24 +30,8 @@ export function rowToSession(row: SessionRow): SessionInfo {
   };
 }
 
-export function rowToSessionListItem(row: SessionListRow): SessionListItem {
-  const metadata = parseJsonObject(row.metadata);
-  const firstMessage = row.first_content ?? "";
-  const title = asString(metadata.title) || firstMessage.trim().slice(0, 30);
-  return {
-    session_id: row.session_id,
-    tenant_id: row.tenant_id,
-    user_id: row.user_id,
-    permission_mode: row.permission_mode,
-    metadata,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    title,
-    last_message: row.last_content ?? "",
-    last_message_at: row.last_created_at ?? row.updated_at,
-    first_message: firstMessage,
-    unread_count: Number(metadata.unread_count ?? 0) || 0,
-  };
+export function rowToSessionListProjection(row: SessionListProjectionRow): SessionListProjection {
+  return { ...row, activity_at: sqliteTimestampToIso(row.activity_at) };
 }
 
 export function rowToMessage(row: MessageRow): MessageInfo {

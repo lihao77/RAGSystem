@@ -114,6 +114,7 @@ try {
         saasConversationRuntime!.runs,
         saasConversationRuntime!.outbox,
         new SaaSExecutionMemoryCandidates(request.identity.tenantId, saasMemoryRuntime!.repository),
+        saasConversationRuntime!.workspaces,
       ),
       resolveExecutionRead: (request: FastifyRequest) => new SaaSAgentReadApplication(
         request.identity.tenantId,

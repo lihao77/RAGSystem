@@ -135,6 +135,10 @@ function createHarness(readyResumeInteractionIds: string[] = []) {
         throw new Error("persister must not roll back resumes");
       },
       interruptSession: async () => ({ interruptedRuns: [], cancelledInteractions: 0, records: [] }),
+      consumePendingFollowups: async () => ({ messages: [] }),
+      claimSessionMaintenance: async () => ({ claimed: false, activeRunId: null }),
+      renewSessionMaintenance: async () => false,
+      releaseSessionMaintenance: async () => undefined,
       finalizeRun: async (input) => {
         lifecycle.push("finalize");
         finalizes.push(input);
@@ -176,6 +180,15 @@ function context(overrides: Record<string, unknown> = {}) {
   return {
     tenantId: LOCAL_TENANT_ID,
     sessionId: "session-1",
+    sessionIdentity: {
+      sessionId: "session-1",
+      ownerUserId: "user-1",
+      visibility: "private",
+      originType: "direct",
+      originId: null,
+      originChannel: "api",
+      workspaceId: null,
+    },
     runId: "run-1",
     rootRunId: "run-1",
     threadKey: "root",
@@ -233,7 +246,7 @@ describe("AsyncKernelEventPersister", () => {
     const finalizedResult = await persister.finalize("completed", { content: "answer" });
 
     expect(harness.starts[0]).toMatchObject({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-1", agentName: "agent-1" },
       initialUserMessage: { messageId: "user-1", content: "question" },
     });

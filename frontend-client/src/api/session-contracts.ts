@@ -2,6 +2,7 @@ import type {
   CreateSessionRequest,
   CreateSessionResponse,
   SessionDetailResponse,
+  SessionListFacetsResponse,
   SessionListResponse,
   SessionMessageListResponse,
   SessionMessageRunStepsData,
@@ -9,6 +10,7 @@ import type {
   SessionPermissionResponse,
   SessionWsTicketResponse,
   UpdateSessionPermissionModeRequest,
+  SessionOriginType,
 } from '@ragsystem/api-contracts';
 
 import { http } from './http.js';
@@ -17,7 +19,11 @@ const BASE = '/api/agent';
 
 export interface ListSessionsQuery {
   limit?: number;
-  offset?: number;
+  cursor?: string | null;
+  originType?: SessionOriginType | null;
+  originId?: string | null;
+  workspaceId?: string | null;
+  signal?: AbortSignal;
 }
 
 export interface PaginationQuery {
@@ -29,8 +35,28 @@ export function createSession(body: CreateSessionRequest): Promise<CreateSession
   return http.post(`${BASE}/sessions`, body);
 }
 
-export function listSessions({ limit = 20, offset = 0 }: ListSessionsQuery = {}): Promise<SessionListResponse> {
-  return http.get(`${BASE}/sessions`, { params: { limit, offset } });
+export function listSessions({
+  limit = 20,
+  cursor = null,
+  originType = null,
+  originId = null,
+  workspaceId = null,
+  signal,
+}: ListSessionsQuery = {}): Promise<SessionListResponse> {
+  return http.get(`${BASE}/sessions`, {
+    params: {
+      limit,
+      ...(cursor ? { cursor } : {}),
+      ...(originType ? { origin_type: originType } : {}),
+      ...(originId ? { origin_id: originId } : {}),
+      ...(workspaceId ? { workspace_id: workspaceId } : {}),
+    },
+    signal,
+  });
+}
+
+export function getSessionListFacets({ signal }: { signal?: AbortSignal } = {}): Promise<SessionListFacetsResponse> {
+  return http.get(`${BASE}/sessions/facets`, { signal });
 }
 
 export function getSession(sessionId: string): Promise<SessionDetailResponse> {

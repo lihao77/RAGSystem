@@ -44,7 +44,7 @@ describe("memory index system config assembly", () => {
   it("injects only the current user's private team candidates", async () => {
     const source = new MemoryContextSource(
       {
-        getSession: () => ({ metadata: { team: "default" }, user_id: "usr_alice" }),
+        getSession: () => ({ metadata: { team: "default" }, owner_user_id: "usr_alice" }),
         listMemoryCandidates: async (input) => input.ownerUserId === "usr_alice"
           ? [{
               id: "candidate-1",
@@ -118,7 +118,7 @@ describe("memory index system config assembly", () => {
     }];
     const source = new MemoryContextSource(
       {
-        getSession: () => ({ metadata: { team: "default" }, user_id: "usr_alice" }),
+        getSession: () => ({ metadata: { team: "default" }, owner_user_id: "usr_alice" }),
         listMemoryCandidates: async (input) => records(input.targetScope as "team" | "agent"),
       },
       emptyRepository(),
@@ -162,7 +162,7 @@ describe("memory index system config assembly", () => {
     }]);
     const source = new MemoryContextSource(
       {
-        getSession: () => ({ metadata, user_id: "user" }),
+        getSession: () => ({ metadata, owner_user_id: "user" }),
         updateSessionMetadata: (_sessionId, patch) => {
           metadata = { ...metadata, ...patch };
           return metadata;

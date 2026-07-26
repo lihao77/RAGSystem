@@ -16,13 +16,14 @@ export function createResumeExecutor(deps: {
         deps.runtimeCore,
         {
           agentName: claim.agentName,
-          teamName: asString(claim.sessionMetadata.team),
+          teamName: asString(claim.sessionIdentity.metadata?.team),
         },
-        claim.sessionMetadata,
+        claim.sessionIdentity.metadata ?? {},
       );
       if (!ready.ok) throw new Error(ready.reason);
       return deps.runEngine.startRun({
         sessionId,
+        sessionIdentity: claim.sessionIdentity,
         runId: claim.rootRunId,
         rootCallId: claim.rootCallId,
         resume: true,

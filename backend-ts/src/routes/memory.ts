@@ -399,7 +399,14 @@ function requireGovernedCandidate(
 
 async function listOwnedSessionIds(options: RouteOptions, request: Parameters<typeof requireTenantMember>[0]): Promise<string[]> {
   const sessions = await resolveSessionApplication(options, request);
-  return (await sessions.listSessions({ userIds: [request.identity.userId], limit: 10_000, offset: 0 })).items.map((session) => session.session_id);
+  const ids: string[] = [];
+  let cursor = null;
+  do {
+    const page = await sessions.listSessions({ access: { userId: request.identity.userId, includeTenant: false }, limit: 200, cursor });
+    ids.push(...page.items.map((session) => session.session_id));
+    cursor = page.nextCursor;
+  } while (cursor);
+  return ids;
 }
 
 async function canManageEntry(
@@ -415,7 +422,7 @@ async function canManageEntry(
   if (scope === "session") {
     const sessions = await resolveSessionApplication(options, request);
     const session = await sessions.getSession(scopeId);
-    return session?.user_id === request.identity.userId;
+    return session?.owner_user_id === request.identity.userId;
   }
   try {
     const parts = JSON.parse(scopeId) as unknown;

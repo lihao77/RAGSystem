@@ -52,7 +52,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
     const store = harness.localInfrastructure.conversationStore;
-    store.createSession(LOCAL_TENANT_ID, "ops-outbox", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "ops-outbox", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const failed = store.appendOutbox({
       sessionId: "ops-outbox",
       runId: "run-failed",
@@ -169,7 +169,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const systemMessage = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "s1",
       role: "system",
@@ -251,11 +251,7 @@ describe("monitoring compatibility routes", () => {
   it("includes user and private candidate memory in context snapshot", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.container.sessionApplication.createSession({
-      userId: "usr_local",
-      sessionId: "memory-preview",
-      metadata: { team: "default" },
-    });
+    harness.container.sessionApplication.createSession({ sessionId: "memory-preview", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { team: "default" } });
     await harness.localInfrastructure.memoryStore.saveMemory({
       scope: "user",
       user_id: "usr_local",
@@ -286,7 +282,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "compression-s1" });
+    harness.container.sessionApplication.createSession({ sessionId: "compression-s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "compression-s1",
       role: "user",
@@ -354,7 +350,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "react-runsteps-only" });
+    harness.container.sessionApplication.createSession({ sessionId: "react-runsteps-only", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const runStepsOnlyUser = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "react-runsteps-only",
       role: "user",
@@ -389,7 +385,7 @@ describe("monitoring compatibility routes", () => {
       }),
     ]);
 
-    harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "react-persisted" });
+    harness.container.sessionApplication.createSession({ sessionId: "react-persisted", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const user = harness.localInfrastructure.conversationStore.addMessage({
       sessionId: "react-persisted",
       role: "user",

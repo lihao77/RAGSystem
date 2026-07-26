@@ -8,7 +8,7 @@ import type {
 } from "../conversation-store/index.js";
 import type { RunStepInfo } from "../common.js";
 import type { Envelope } from "../events.js";
-import type { MessageInfo, SessionInfo } from "../session/session.js";
+import type { MessageInfo, SessionIdentity, SessionInfo } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
 
 export type ExecutionStartDisposition =
@@ -36,6 +36,7 @@ export interface ExecutionRunPersistenceContext {
   taskSummary?: string;
   requestId?: string | null;
   userId?: string | null;
+  sessionIdentity: SessionIdentity;
   parentRunId?: string | null;
   parentCallId?: string | null;
   childAgentId?: string | null;

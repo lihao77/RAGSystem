@@ -4,15 +4,15 @@ import type {
   RuntimeCoreReadinessInput,
   RuntimeExecutionConfigResolver,
 } from "./runtime-core-service.js";
-import { applySessionAgentOverrides, summarizeReadinessFailure } from "./helpers.js";
+import { summarizeReadinessFailure } from "./helpers.js";
 
 export type ReadinessResolution =
   | { ok: true; agent: AgentConfig; provider: ModelProviderConfig; modelName: string }
   | { ok: false; reason: string };
 
 /**
- * 解析执行配置并在 runtime 就绪时返回应用了 session 覆盖的 agent/provider/modelName。
- * 统一替换原 6 处 `resolveExecutionConfig` + readiness 判定 + `applySessionAgentOverrides` 重复。
+ * 解析执行配置并在 runtime 就绪时返回 agent/provider/modelName。
+ * Workspace 属于 Session 一等字段，由运行引擎单独解析，不从 metadata 覆盖 Agent。
  */
 export function resolveReadyAgent(
   resolver: RuntimeExecutionConfigResolver,
@@ -30,7 +30,7 @@ export function resolveReadyAgent(
   }
   return {
     ok: true,
-    agent: applySessionAgentOverrides(resolved.agent, sessionMetadata),
+    agent: resolved.agent,
     provider: resolved.provider,
     modelName: resolved.modelName,
   };

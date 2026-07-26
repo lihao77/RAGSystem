@@ -58,14 +58,14 @@ export class MemoryContextSource implements AgentContextSource {
 
     const session = this.sessions.getSession(request.sessionId);
     const sessionMetadata = session?.metadata ?? {};
-    const userId = session?.user_id ?? null;
+    const userId = session?.owner_user_id ?? null;
     const scopeSpecs = buildMemoryScopeSpecs({
       memory: this.memory,
       sessionId: request.sessionId,
       agentName: this.agentName,
       sessionMetadata,
       userId,
-      workspaceKey: await this.repository.resolveWorkspaceKey(sessionMetadata),
+      workspaceKey: await this.repository.resolveWorkspaceKey(session?.workspace_id ?? null),
     });
     const structuralFingerprint = buildMemoryPrefixStructuralFingerprint({
       memory: this.memory,

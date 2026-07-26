@@ -29,6 +29,7 @@ import {
   toToolResult,
   type DelegationRunResult,
 } from "./results.js";
+import { toSessionIdentity } from "../../../contracts/session/session.js";
 
 export class AgentDelegationService implements DelegationPort {
   private runEngineProvider: (() => AgentRunEngine | null) | null = null;
@@ -340,6 +341,8 @@ export class AgentDelegationService implements DelegationPort {
 
     const childRunId = input.resumeRunId ?? randomUUID();
     const targetAgent = applyWorkspaceOverride(resolved.agent, input.workspaceRoot);
+    const session = await this.store.getSession(input.sessionId);
+    if (!session) throw new Error(`delegation session not found: ${input.sessionId}`);
     if (input.resumeRunId) {
       await this.store.updateRunStatus(childRunId, input.sessionId, "running", null);
     } else {
@@ -397,6 +400,7 @@ export class AgentDelegationService implements DelegationPort {
 
     const outcome = await runEngine.executeRun({
       sessionId: input.sessionId,
+      sessionIdentity: toSessionIdentity(session),
       runId: childRunId,
       taskId: randomUUID(),
       rootCallId: input.rootCallId,

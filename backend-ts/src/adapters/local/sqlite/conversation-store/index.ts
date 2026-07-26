@@ -12,6 +12,8 @@ import { ProviderContinuationOps } from "./provider-continuation-ops.js";
 import { MemoryCandidateOps } from "./memory-candidate-ops.js";
 import { WorkflowTaskOps } from "./workflow-task-ops.js";
 import { GoalOps } from "./goal-ops.js";
+import { SessionListProjector } from "./session-list-projector.js";
+import { WorkspaceOps } from "./workspace-ops.js";
 
 export interface ConversationStoreOptions {
   dbPath: string;
@@ -27,12 +29,14 @@ export interface ConversationStoreOptions {
  */
 export function createConversationStore(options: ConversationStoreOptions) {
   const { db, dataRoot } = createConversationDb({ dbPath: options.dbPath, dataRoot: options.dataRoot });
-  const sessions = new SessionOps(db);
-  const messages = new MessageOps(db);
+  const projector = new SessionListProjector(db);
+  const sessions = new SessionOps(db, projector);
+  const messages = new MessageOps(db, projector);
+  const workspaces = new WorkspaceOps(db);
   const runs = new RunOps(db);
   const childAgents = new ChildAgentOps(db);
   const outbox = new OutboxOps(db);
-  const resources = new ResourceOps(db, dataRoot, sessions);
+  const resources = new ResourceOps(db, dataRoot, sessions, workspaces);
   const metrics = new MetricOps(db);
   const pendingInteractions = new PendingInteractionOps(db);
   const providerContinuations = new ProviderContinuationOps(db);
@@ -41,12 +45,12 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const goals = new GoalOps(db);
 
   const createTransactionFacade = () => ({
-    createSession: sessions.createSession.bind(sessions),
+    createSession: sessions.createSessionInTransaction.bind(sessions),
     getSession: sessions.getSession.bind(sessions),
-    updateSessionMetadata: sessions.updateSessionMetadata.bind(sessions),
+    updateSessionMetadata: sessions.updateSessionMetadataInTransaction.bind(sessions),
     addMessage: messages.addMessageInTransaction.bind(messages),
     getMessageById: messages.getMessageById.bind(messages),
-    updateMessage: messages.updateMessage.bind(messages),
+    updateMessage: messages.updateMessageInTransaction.bind(messages),
     createRun: runs.createRun.bind(runs),
     getRun: runs.getRun.bind(runs),
     listRuns: runs.listRuns.bind(runs),
@@ -83,6 +87,15 @@ export function createConversationStore(options: ConversationStoreOptions) {
     updateSessionPermissionMode: sessions.updateSessionPermissionMode.bind(sessions),
     deleteSession: sessions.deleteSession.bind(sessions),
     listSessions: sessions.listSessions.bind(sessions),
+    listSessionFacets: sessions.listSessionFacets.bind(sessions),
+    rebuildSessionListProjection: projector.rebuildSessionListProjection.bind(projector),
+
+    // workspace
+    resolveLocalWorkspace: workspaces.resolveLocal.bind(workspaces),
+    getWorkspaceById: workspaces.getById.bind(workspaces),
+    getWorkspaceByCanonicalKey: workspaces.getByCanonicalKey.bind(workspaces),
+    listWorkspacesByIds: workspaces.listByIds.bind(workspaces),
+    updateLocalWorkspacePath: workspaces.updateLocalPath.bind(workspaces),
 
     // message
     addMessage: messages.addMessage.bind(messages),

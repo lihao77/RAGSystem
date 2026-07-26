@@ -30,6 +30,15 @@ function createHarness(runId: string) {
   const persister = new AsyncKernelEventPersister(storage, publisher, {
     tenantId: LOCAL_TENANT_ID,
     sessionId: `session-${runId}`,
+    sessionIdentity: {
+      sessionId: `session-${runId}`,
+      ownerUserId: "user-1",
+      visibility: "private",
+      originType: "direct",
+      originId: null,
+      originChannel: "api",
+      workspaceId: null,
+    },
     runId,
     rootRunId: runId,
     threadKey: "root",

@@ -1,4 +1,3 @@
-import { assertVersionsContiguous } from "../conversation-store/migrations.js";
 import { runInTransaction } from "../conversation-store/shared/transaction.js";
 import { CONTROL_AUTH_SCHEMA_SQL, CONTROL_BASELINE_SCHEMA_SQL, CONTROL_BOT_CONFIG_SCHEMA_SQL, CONTROL_BOT_SCHEMA_SQL, CONTROL_WIDGET_SCHEMA_SQL } from "./schema.js";
 
@@ -124,3 +123,12 @@ export const CONTROL_LATEST_SCHEMA_VERSION = CONTROL_MIGRATIONS.reduce(
   (latest, migration) => Math.max(latest, migration.version),
   0,
 );
+
+function assertVersionsContiguous(ordered: readonly ControlMigration[]): void {
+  ordered.forEach((migration, index) => {
+    const expected = index + 1;
+    if (migration.version !== expected) {
+      throw new Error(`control migration version 不连续: 期望 ${expected}, 实际 ${migration.version}`);
+    }
+  });
+}

@@ -9,7 +9,7 @@ describe("Local core runtime store adapters", () => {
   it("exposes delegation persistence through Promise-only methods", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     try {
-      store.createSession(LOCAL_TENANT_ID, "delegation-adapter", null);
+      store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "delegation-adapter", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       const adapter = new LocalAgentDelegationStoreAdapter(store);
       const message = adapter.addMessage({
         sessionId: "delegation-adapter",

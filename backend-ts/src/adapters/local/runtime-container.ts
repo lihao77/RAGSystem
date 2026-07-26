@@ -75,6 +75,9 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     new LocalAgentSessionRepository(conversationStore),
     new LocalSessionHistoryAdapter(fileHistory),
     transientArtifacts,
+    async (session) => session.workspace_id
+      ? conversationStore.getWorkspaceById(session.tenant_id, session.workspace_id)?.root_path ?? null
+      : null,
   );
   const requestSessionApplication = new LocalSessionApplication(options.tenantId, sessionApplication, conversationStore);
   const realtimeEvents = new RealtimeEventHub();
@@ -144,7 +147,10 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryToolRepository = new LocalMemoryToolRepository(memoryStore);
-  const memoryContextRepository = new LocalMemoryContextRepository(memoryStore);
+  const memoryContextRepository = new LocalMemoryContextRepository(memoryStore, {
+    tenantId: options.tenantId,
+    store: conversationStore,
+  });
   const memoryBindings = options.memoryBindingsFactory?.({
     tenantId: options.tenantId,
     dataRoot,

@@ -18,7 +18,7 @@ import type { RouteOptions } from "../route-options.js";
 import type { MonitoringApplication } from "../../contracts/application/monitoring-application.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
 import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
-import { assertSessionOwner } from "../session-owner.js";
+import { assertSessionReadable } from "../session-owner.js";
 import { isRecord, normalizeString } from "../../utils/guards.js";
 
 interface ContextSnapshotQuery {
@@ -135,7 +135,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const sessionInfo = sessionId ? await sessionApplication.getSession(sessionId) : null;
     if (sessionId) {
       if (!sessionInfo) throw new HttpError(404, "not_found", "会话不存在");
-      await assertSessionOwner(request, sessionInfo);
+      await assertSessionReadable(request, sessionInfo);
     }
     const sessionMetadata = sessionInfo?.metadata ?? {};
     const resolved = request.container.runtimeCore.resolveExecutionConfig({
@@ -147,7 +147,10 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       throw new HttpError(503, "runtime_not_ready", "默认入口智能体未加载");
     }
 
-    const agent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
+    const workspaceRoot = sessionInfo?.workspace_id
+      ? (await sessionApplication.listWorkspacesByIds([sessionInfo.workspace_id]))[0]?.root_path ?? null
+      : null;
+    const agent = applySessionWorkspace(resolved.agent, workspaceRoot);
     const teamName = normalizeString(sessionMetadata.team);
 
     // 装配 createRuntime（轻量，只 preview 不 run）—— preview 内部用 SDK builder + protocol.buildRequest，
@@ -393,8 +396,7 @@ function normalizeSessionEntryAgent(value: unknown): string | null {
   return normalized;
 }
 
-function applySessionAgentOverrides(agent: AgentConfig, sessionMetadata: Record<string, unknown>): AgentConfig {
-  const workspaceRoot = normalizeString(sessionMetadata.workspace_root);
+function applySessionWorkspace(agent: AgentConfig, workspaceRoot: string | null): AgentConfig {
   if (!workspaceRoot) {
     return agent;
   }

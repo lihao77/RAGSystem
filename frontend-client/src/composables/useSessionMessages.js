@@ -22,10 +22,12 @@ import { useSessionRunStore } from '../stores/session-run.js';
  * @param {Function} [deps.endInitialScrollRestore]
  */
 export function useSessionMessages(deps) {
-  const { messages } = storeToRefs(useSessionRunStore());
+  const { currentSessionId, messages } = storeToRefs(useSessionRunStore());
   const messageCache = ref(new Map());
   const messagesLoading = ref(false);
   const maxCachedSessions = 10;
+  let messageLoadSeq = 0;
+  let messageMergeSeq = 0;
 
   const cacheMessages = (sessionId, list) => {
     if (!sessionId) return;
@@ -52,6 +54,8 @@ export function useSessionMessages(deps) {
    */
   const loadSessionMessages = async (sessionId, { silent = false } = {}) => {
     if (!sessionId) return;
+    const seq = ++messageLoadSeq;
+    const isCurrent = () => seq === messageLoadSeq && currentSessionId.value === sessionId;
     let scrollRestoreStarted = false;
     let scrollRestoreEnded = false;
     const endScrollRestore = () => {
@@ -70,12 +74,17 @@ export function useSessionMessages(deps) {
       // 非静默加载（路由切换/手动刷新）始终绕过缓存，确保拿到最新数据
       const cached = silent ? messageCache.value.get(sessionId) : null;
       if (cached) {
+        if (!isCurrent()) return;
         messages.value = cached.map(item => deps.normalizeAssistantExecutionState(item));
         messagesLoading.value = false;
         await nextTick();
+        if (!isCurrent()) return;
         await deps.scrollToBottom(true, 'auto');
+        if (!isCurrent()) return;
         await deps.waitForScrollLayout();
+        if (!isCurrent()) return;
         await deps.scrollToBottom(true, 'auto');
+        if (!isCurrent()) return;
         endScrollRestore();
         deps.focusInput();
         return;
@@ -119,31 +128,41 @@ export function useSessionMessages(deps) {
           const attachments = [...imageAttachments, ...fileAttachments];
           return { role: 'user', id: item.id, seq: item.seq, content: item.content || '', metadata: item.metadata || {}, attachments };
         });
+      if (!isCurrent()) return;
       messages.value = mapped;
       cacheMessages(sessionId, mapped);
       messagesLoading.value = false;
       await nextTick();
       await nextTick();
+      if (!isCurrent()) return;
       await deps.scrollToBottom(true, 'auto');
+      if (!isCurrent()) return;
       await deps.waitForScrollLayout();
+      if (!isCurrent()) return;
       await deps.scrollToBottom(true, 'auto');
+      if (!isCurrent()) return;
       endScrollRestore();
       deps.focusInput();
       if (!silent) await deps.loadContextSnapshot(sessionId);
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('loadSessionMessages failed:', { sessionId, error });
       deps.showToast('加载会话失败', () => loadSessionMessages(sessionId));
     } finally {
-      messagesLoading.value = false;
-      endScrollRestore();
+      if (seq === messageLoadSeq) {
+        messagesLoading.value = false;
+        endScrollRestore();
+      }
     }
   };
 
   /** 仅从服务端拉取并合并 id/seq 到当前列表（不替换整表，避免闪烁） */
   const mergeMessageIdsFromServer = async (sessionId) => {
-    if (!sessionId || messages.value.length === 0) return;
+    if (!sessionId || currentSessionId.value !== sessionId || messages.value.length === 0) return;
+    const seq = ++messageMergeSeq;
     try {
       const result = await getSessionMessages(sessionId);
+      if (seq !== messageMergeSeq || currentSessionId.value !== sessionId) return;
       const items = result.data?.items || [];
       if (items.length !== messages.value.length) return;
       for (let i = 0; i < items.length; i++) {

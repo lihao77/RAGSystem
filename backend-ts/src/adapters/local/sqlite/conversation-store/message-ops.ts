@@ -9,6 +9,7 @@ import { rowToMessage } from "./mappers.js";
 import type { AddMessageInput } from "../../../../contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "../../../../contracts/conversation-store/types.js";
 import type { MessageRow, SqlInputValue } from "./types.js";
+import { SessionListProjector } from "./session-list-projector.js";
 
 /**
  * listMessages / getRecentMessages 的默认查询条数上限（SQL LIMIT 防野）。
@@ -19,7 +20,10 @@ export const DEFAULT_MESSAGE_LIST_LIMIT = 10_000;
 
 /** messages 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
 export class MessageOps {
-  constructor(private readonly db: ConversationDb) {}
+  constructor(
+    private readonly db: ConversationDb,
+    private readonly projector: SessionListProjector,
+  ) {}
 
   addMessage(input: AddMessageInput): MessageInfo {
     const normalized = AddMessageInputSchema.parse(input);
@@ -43,7 +47,8 @@ export class MessageOps {
       name: input.name,
     });
 
-    this.db.prepare("INSERT OR IGNORE INTO sessions (session_id, metadata) VALUES (?, ?)").run(input.sessionId, "{}");
+    const session = this.db.prepare("SELECT 1 FROM sessions WHERE session_id=?").get(input.sessionId);
+    if (!session) throw new Error(`Cannot add message to missing session: ${input.sessionId}`);
     this.db
       .prepare(`
         INSERT INTO messages (id, session_id, role, content, metadata, thread_key, child_agent_id)
@@ -63,7 +68,7 @@ export class MessageOps {
       throw new Error(`Message insert failed: ${messageId}`);
     }
 
-    return {
+    const message: MessageInfo = {
       seq: row.seq,
       id: row.id,
       session_id: input.sessionId,
@@ -75,6 +80,8 @@ export class MessageOps {
       created_at: row.created_at,
       ...decodeChatFields(persistedMetadata),
     };
+    this.projector.projectInsertedMessage(message);
+    return message;
   }
 
   insertCompressionMessage(input: {
@@ -231,11 +238,22 @@ export class MessageOps {
         .prepare("DELETE FROM child_agents WHERE session_id=? AND created_seq IS NOT NULL AND created_seq > ?")
         .run(sessionId, afterSeq);
       this.db.prepare("UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?").run(sessionId);
+      this.projector.rebuildSessionListProjection(sessionId);
       return rows.length;
     });
   }
 
   updateMessage(input: {
+    messageId: string;
+    content?: string | null;
+    metadata?: Record<string, unknown> | null;
+    sessionId?: string | null;
+    roleFilter?: MessageInfo["role"] | null;
+  }): boolean {
+    return runInTransaction(this.db, () => this.updateMessageInTransaction(input));
+  }
+
+  updateMessageInTransaction(input: {
     messageId: string;
     content?: string | null;
     metadata?: Record<string, unknown> | null;
@@ -268,11 +286,12 @@ export class MessageOps {
     }
 
     const whereClause = where.join(" AND ");
-    const row = this.db.prepare(`SELECT seq FROM messages WHERE ${whereClause}`).get(...whereParams);
+    const row = this.db.prepare(`SELECT seq, session_id FROM messages WHERE ${whereClause}`).get(...whereParams) as { seq: number; session_id: string } | undefined;
     if (!row) {
       return false;
     }
     const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE ${whereClause}`).run(...params, ...whereParams);
+    if (Number(result.changes) > 0) this.projector.rebuildSessionListProjection(row.session_id);
     return Number(result.changes) > 0;
   }
 }

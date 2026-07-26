@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ExecutionOverview, ExecutionTaskStatus } from "../../../../contracts/execution/execution.js";
 import type { ConversationDb } from "./shared/db.js";
 import type { SessionOps } from "./session-ops.js";
+import type { WorkspaceOps } from "./workspace-ops.js";
 import { stringifyJson } from "./helpers.js";
 import { rowToResource } from "./mappers.js";
 import { inferResourceScope } from "./resource-scope.js";
@@ -14,6 +15,7 @@ export class ResourceOps {
     private readonly db: ConversationDb,
     private readonly dataRoot: string,
     private readonly sessionOps: SessionOps,
+    private readonly workspaceOps: WorkspaceOps,
   ) {}
 
   getPersistedExecutionOverview(activeOnly: boolean, limit = 200): ExecutionOverview {
@@ -100,10 +102,14 @@ export class ResourceOps {
     resource_type: string;
   } {
     const resourceId = randomUUID();
+    const session = this.sessionOps.getSession(input.sessionId);
+    const workspaceRoot = session?.workspace_id
+      ? this.workspaceOps.getById(session.tenant_id, session.workspace_id)?.root_path ?? null
+      : null;
     const scope = input.scope ?? inferResourceScope({
       dataRoot: this.dataRoot,
       resourcePath: input.path,
-      sessionMetadata: this.sessionOps.getSession(input.sessionId)?.metadata,
+      workspaceRoot,
     });
     this.db
       .prepare(

@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { buildTestHarness } from "../helpers/app.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
-import { widgetUserId } from "../../src/identity/widget-user-id.js";
 
 const TEST_SECRET = "test-widget-secret-0123456789abcdef0123456789abcdef";
 
@@ -77,10 +76,79 @@ describe("widget auth routes", () => {
     expect(sessionRes.statusCode).toBe(200);
     const sessionId: string = sessionRes.json().data.session_id;
     const session = await harness.container.sessionApplication.getSession(sessionId);
-    expect(session?.user_id).toBe(widgetUserId(created.app_key));
-    expect(session?.metadata).toMatchObject({
-      widget: { app_key: created.app_key, host_tools: ["get_page_title"], created_via: "widget" },
+    expect(session).toMatchObject({
+      owner_user_id: null,
+      visibility: "tenant",
+      origin_type: "widget",
+      origin_id: created.app_key,
+      origin_channel: "widget_api",
+      metadata: { host_tools: ["get_page_title"], entry_channel: "widget" },
     });
+  });
+
+  it("allows AG-UI execution only when the widget identity matches the session origin", async () => {
+    const harness = await buildTestHarness({ widgetJwtSecret: TEST_SECRET });
+    app = harness.app;
+    const { token, sessionId } = await createWidgetSessionWithToken(harness, []);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/agui",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { threadId: sessionId, messages: [] },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("messages 缺少 user 消息");
+  });
+
+  it("rejects AG-UI execution when the widget identity belongs to another app", async () => {
+    const harness = await buildTestHarness({ widgetJwtSecret: TEST_SECRET });
+    app = harness.app;
+    const { sessionId } = await createWidgetSessionWithToken(harness, []);
+    const other = harness.widgetCredentialStore.ops.createApp({
+      tenantId: LOCAL_TENANT_ID,
+      display_name: "other-widget",
+    });
+    const otherTokenResponse = await app.inject({
+      method: "POST",
+      url: "/api/widget/auth/token",
+      payload: { app_key: other.app_key, secret: other.secret },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/agui",
+      headers: { authorization: `Bearer ${otherTokenResponse.json().data.token}` },
+      payload: { threadId: sessionId, messages: [] },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ code: "forbidden" });
+  });
+
+  it("does not let AG-UI widget identities create an unscoped direct session", async () => {
+    const harness = await buildTestHarness({ widgetJwtSecret: TEST_SECRET });
+    app = harness.app;
+    const created = harness.widgetCredentialStore.ops.createApp({
+      tenantId: LOCAL_TENANT_ID,
+      display_name: "scoped-widget",
+    });
+    const tokenResponse = await app.inject({
+      method: "POST",
+      url: "/api/widget/auth/token",
+      payload: { app_key: created.app_key, secret: created.secret },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/agui",
+      headers: { authorization: `Bearer ${tokenResponse.json().data.token}` },
+      payload: { threadId: "widget-unscoped-session", messages: [] },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(await harness.container.sessionApplication.getSession("widget-unscoped-session")).toBeNull();
   });
 
   it("uses the deployment session application when SaaS session persistence is injected", async () => {
@@ -90,7 +158,7 @@ describe("widget auth routes", () => {
       resolveSessionApplication: async () => ({
         createSession: async (input: Record<string, unknown>) => {
           createdRows.push(input);
-          return { session_id: input.sessionId, user_id: input.userId, metadata: input.metadata };
+          return { session_id: input.sessionId, owner_user_id: input.ownerUserId, metadata: input.metadata };
         },
         getSession: async () => null,
       }) as never,
@@ -112,7 +180,14 @@ describe("widget auth routes", () => {
 
     expect(sessionRes.statusCode).toBe(200);
     expect(createdRows).toHaveLength(1);
-    expect(createdRows[0]).toMatchObject({ metadata: { widget: { app_key: created.app_key } } });
+    expect(createdRows[0]).toMatchObject({
+      ownerUserId: null,
+      visibility: "tenant",
+      originType: "widget",
+      originId: created.app_key,
+      originChannel: "widget_api",
+      metadata: { host_tools: [], entry_channel: "widget" },
+    });
     expect(await harness.container.sessionApplication.getSession(sessionRes.json().data.session_id)).toBeNull();
   });
 
@@ -134,20 +209,24 @@ describe("widget auth routes", () => {
     expect(res.statusCode).toBe(503);
   });
 
-  it("rejects WS connection to a widget session without token (close 4001)", async () => {
+  it("rejects WS connection to a widget session without a matching widget ticket", async () => {
     const harness = await buildTestHarness({ widgetJwtSecret: TEST_SECRET });
     app = harness.app;
     const sessionId = await createWidgetSession(harness, []);
 
-    const ws = (await app.injectWS(`/api/agent/sessions/${sessionId}/ws`, {}, {})) as unknown as WsLike;
+    let resolveClose: ((value: { code: number }) => void) | null = null;
+    const closed = new Promise<{ code: number }>((resolve) => { resolveClose = resolve; });
+    const ws = (await app.injectWS(`/api/agent/sessions/${sessionId}/ws`, {}, {
+      onInit(socket) {
+        socket.on("close", (code) => resolveClose?.({ code }));
+      },
+    })) as unknown as WsLike;
     const closeInfo = await Promise.race([
-      new Promise<{ code: number }>((resolve) => {
-        ws.on("close", (code) => resolve({ code }));
-      }),
+      closed,
       new Promise<{ code: number }>((resolve) => setTimeout(() => resolve({ code: -1 }), 2000)),
     ]);
     ws.terminate();
-    expect(closeInfo.code).toBe(4001);
+    expect(closeInfo.code).toBe(4003);
   });
 
   it("admits WS connection with a session ticket and rejects replay", async () => {

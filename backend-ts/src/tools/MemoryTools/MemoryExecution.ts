@@ -12,7 +12,7 @@ import {
 } from "../../contracts/memory-store/index.js";
 
 export interface RuntimeMemorySessionPort {
-  getSession(sessionId: string): Promise<Pick<SessionInfo, "metadata"> & Partial<Pick<SessionInfo, "user_id">> | null>;
+  getSession(sessionId: string): Promise<Pick<SessionInfo, "metadata"> & Partial<Pick<SessionInfo, "owner_user_id">> | null>;
 }
 
 export interface MemoryToolRuntimeContext {
@@ -357,8 +357,7 @@ export class MemoryToolService implements MemoryToolOperations {
     const sessionId = normalizeString(context.sessionId);
     const sessionMetadata = sessionId ? ((await this.sessions.getSession(sessionId))?.metadata ?? {}) : {};
     const teamName = normalizeString(context.teamName) ?? normalizeString(sessionMetadata.team);
-    const workspaceRoot =
-      normalizeString(context.workspaceRoot) ?? normalizeString(sessionMetadata.workspace_root);
+    const workspaceRoot = normalizeString(context.workspaceRoot);
 
     if (scope === "team") {
       return teamName ? { scope, team_name: teamName } : { error: "team_name" };

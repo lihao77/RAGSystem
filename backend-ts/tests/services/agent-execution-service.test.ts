@@ -438,7 +438,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("keeps a joined synchronous followup as a successful queue acknowledgement", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
-    store.createSession(LOCAL_TENANT_ID, "joined-followup-session", LOCAL_USER_ID);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "joined-followup-session", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.createRun({
       runId: "joined-active-run",
       sessionId: "joined-followup-session",
@@ -472,7 +472,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("returns one continuation final while joined synchronous followups receive an acknowledgement", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
-    store.createSession(LOCAL_TENANT_ID, "multi-followup-session", LOCAL_USER_ID);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "multi-followup-session", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.createRun({
       runId: "continuation-run",
       sessionId: "multi-followup-session",
@@ -537,7 +537,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("does not wait forever when a pending synchronous followup reaches a suspended root", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
-    store.createSession(LOCAL_TENANT_ID, "suspended-followup-session", LOCAL_USER_ID);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "suspended-followup-session", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.createRun({
       runId: "suspended-root",
       sessionId: "suspended-followup-session",
@@ -669,7 +669,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("rolls back first and resends through the shared slash-aware entry", async () => {
     const { service, store, llm } = buildHarness({ mode: "ok" });
-    store.createSession(LOCAL_TENANT_ID, "retry-command-session", LOCAL_USER_ID);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "retry-command-session", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const anchor = store.addMessage({
       sessionId: "retry-command-session",
       role: "user",
@@ -700,7 +700,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("reuses the rollback maintenance reservation for a retried /compact command", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
-    store.createSession(LOCAL_TENANT_ID, "retry-compact-session", LOCAL_USER_ID);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "retry-compact-session", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const anchor = store.addMessage({
       sessionId: "retry-compact-session",
       role: "user",
@@ -739,7 +739,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("starts one continuation run when an active Goal becomes idle", async () => {
     const { service, store, llm, goalStore, backgroundTasks } = buildHarness({ goalMode: true });
-    store.createSession(LOCAL_TENANT_ID, "goal-active-session", LOCAL_USER_ID);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "goal-active-session", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const goal = await goalStore!.create("goal-active-session", {
       objective: "Finish the durable Goal",
       successCriteria: ["verified"],
@@ -764,7 +764,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("does not continue a paused Goal after the root run ends", async () => {
     const { service, store, llm, goalStore, backgroundTasks } = buildHarness({ goalMode: true });
-    store.createSession(LOCAL_TENANT_ID, "goal-paused-session", LOCAL_USER_ID);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "goal-paused-session", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const goal = await goalStore!.create("goal-paused-session", {
       objective: "Wait for resume",
       successCriteria: ["resumed"],
@@ -783,7 +783,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("deduplicates repeated idle triggers for the same active Goal", async () => {
     const { service, store, llm, goalStore, backgroundTasks } = buildHarness({ goalMode: true });
-    store.createSession(LOCAL_TENANT_ID, "goal-dedupe-session", LOCAL_USER_ID);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "goal-dedupe-session", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const goal = await goalStore!.create("goal-dedupe-session", {
       objective: "Run exactly one continuation",
       successCriteria: ["one continuation"],
@@ -807,7 +807,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("waits for all session background tasks before continuing the Goal", async () => {
     const { service, store, llm, goalStore, backgroundTasks } = buildHarness({ goalMode: true });
-    store.createSession(LOCAL_TENANT_ID, "goal-background-session", LOCAL_USER_ID);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "goal-background-session", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const goal = await goalStore!.create("goal-background-session", {
       objective: "Consume background work before continuing",
       successCriteria: ["background result consumed"],

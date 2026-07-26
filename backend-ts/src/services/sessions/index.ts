@@ -1,7 +1,5 @@
-import fs from "node:fs";
-
 import type { PaginatedResult, RunStepInfo } from "../../contracts/common.js";
-import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type SessionListItem } from "../../contracts/session/session.js";
+import { normalizeSessionMetadata, type CreateSessionRecordInput, type MessageInfo, type SessionInfo, type SessionListQuery } from "../../contracts/session/session.js";
 import type {
   AgentSessionRepositoryPort,
   AgentSessionRunRecord,
@@ -15,37 +13,21 @@ import type { TenantId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/runtime/permissions.js";
 import type { ExecutionSessionPort } from "../../contracts/session/session-application.js";
 
-export class WorkspaceRootValidationError extends Error {
-  constructor(workspaceRoot: string) {
-    super(`metadata.workspace_root 必须是已存在的目录: ${workspaceRoot}`);
-    this.name = "WorkspaceRootValidationError";
-  }
-}
-
 export class AgentSessionApplication implements ExecutionSessionPort {
   constructor(
     private readonly repository: AgentSessionRepositoryPort,
     private readonly history: SessionHistoryPort | null = null,
     private readonly transientArtifacts: TransientArtifactService | null = null,
+    private readonly workspaceRootResolver: ((session: SessionInfo) => Promise<string | null>) | null = null,
   ) {}
 
-  async createSession(input: {
-    tenantId: TenantId;
-    sessionId: string;
-    userId: string;
-    metadata?: Record<string, unknown>;
-    permissionMode?: PermissionMode | null;
-  }): Promise<{ session_id: string; user_id: string | null; permission_mode: PermissionMode | null; metadata: Record<string, unknown> }> {
+  async createSession(input: CreateSessionRecordInput): Promise<SessionInfo> {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
-    assertWorkspaceRootExists(metadata);
-    await this.repository.createSession(input.tenantId, input.sessionId, input.userId, metadata, input.permissionMode ?? null);
-    return {
-      session_id: input.sessionId,
-      user_id: input.userId,
-      permission_mode: input.permissionMode ?? null,
-      metadata,
-    };
+    await this.repository.createSession({ ...input, metadata });
+    const created = await this.repository.getSession(input.sessionId);
+    if (!created) throw new Error(`session create returned no row: ${input.sessionId}`);
+    return created;
   }
 
   async createSystemSession(input: {
@@ -53,20 +35,29 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     sessionId: string;
     metadata?: Record<string, unknown>;
     permissionMode?: PermissionMode | null;
-  }): Promise<{ session_id: string; user_id: null; permission_mode: PermissionMode | null; metadata: Record<string, unknown> }> {
+  }): Promise<SessionInfo | null> {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
-    assertWorkspaceRootExists(metadata);
-    await this.repository.createSession(input.tenantId, input.sessionId, null, metadata, input.permissionMode ?? null);
-    return { session_id: input.sessionId, user_id: null, permission_mode: input.permissionMode ?? null, metadata };
+    await this.repository.createSession({ tenantId: input.tenantId, sessionId: input.sessionId, ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata, permissionMode: input.permissionMode ?? null });
+    return this.repository.getSession(input.sessionId);
   }
 
-  async listSessions(input: { tenantId: TenantId; limit?: number; offset?: number; userIds?: readonly string[] | null }): Promise<PaginatedResult<SessionListItem>> {
-    return this.repository.listSessions(input.tenantId, input.limit ?? 20, input.offset ?? 0, input.userIds ?? null);
+  listSessions(input: SessionListQuery) {
+    return this.repository.listSessions(input);
+  }
+
+  listSessionFacets(input: Pick<SessionListQuery, "tenantId" | "access">) {
+    return this.repository.listSessionFacets(input);
   }
 
   async getSession(sessionId: string): Promise<SessionInfo | null> {
     return this.repository.getSession(sessionId);
+  }
+
+  async resolveWorkspaceRoot(sessionId: string): Promise<string | null> {
+    const session = await this.getSession(sessionId);
+    if (!session?.workspace_id || !this.workspaceRootResolver) return null;
+    return this.workspaceRootResolver(session);
   }
 
   async updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null> {
@@ -369,19 +360,6 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     return (await this.repository.listMessagesBeforeOrAtSeq(sessionId, targetMessage.seq, 20))
       .find((message) => message.role === "user" && isVisibleRootMessage(message)) ?? null;
   }
-}
-
-function assertWorkspaceRootExists(metadata: Record<string, unknown>): void {
-  const workspaceRoot = metadata.workspace_root;
-  if (typeof workspaceRoot !== "string" || !workspaceRoot) {
-    return;
-  }
-  try {
-    if (fs.statSync(workspaceRoot).isDirectory()) {
-      return;
-    }
-  } catch {}
-  throw new WorkspaceRootValidationError(workspaceRoot);
 }
 
 function isVisibleRootMessage(item: MessageInfo): boolean {

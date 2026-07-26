@@ -258,9 +258,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             const { team: _team, entry_agent: _entry, ...channelMeta } = createMetadata as Record<string, unknown>;
             createMetadata = channelMeta;
           }
+          const sessionBot = await botRepository.get(input.botId);
+          if (!sessionBot) throw new Error(`bot 不存在: ${input.botId}`);
           await lease.runtime.sessionApplication.ensureSession({
             sessionId: input.sessionId,
-            userId: input.botId,
+            ownerUserId: sessionBot.owner_id,
+            visibility: "private",
+            originType: "bot",
+            originId: input.botId,
+            originChannel: input.source.includes("cron") ? "cron" : input.source.includes("feishu") ? "feishu" : "api",
+            workspaceId: null,
             ...(Object.keys(createMetadata).length > 0 ? { metadata: createMetadata } : {}),
             permissionMode: input.permissionMode,
           });
@@ -624,4 +631,3 @@ function numericStatus(value: unknown): number | null {
   }
   return null;
 }
-

@@ -31,7 +31,7 @@ function closeStore(store: ConversationStore) {
 }
 
 function seedRoot(store: ConversationStore, sessionId = "session-1", runId = "run-1") {
-  store.createSession(LOCAL_TENANT_ID, sessionId, "usr_local", { source: "coordinator-test" });
+  store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: sessionId, ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { source: "coordinator-test" } });
   store.createRun({
     runId,
     sessionId,
@@ -143,7 +143,7 @@ describe("RuntimeInteractionCoordinator", () => {
 
   it("records stable required/responded events before settling a live waiter", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "session-1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.createRun({
       runId: "run-1",
       sessionId: "session-1",
@@ -193,7 +193,7 @@ describe("RuntimeInteractionCoordinator", () => {
 
   it("times out only the live waiter and leaves durable status unchanged", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "session-timeout", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-timeout", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.createRun({
       runId: "run-timeout",
       sessionId: "session-timeout",

@@ -1,31 +1,45 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { SaaSSessionApplication } from "../../src/adapters/saas/application/session/saas-session-application.js";
+import { createTenantId } from "../../src/identity/types.js";
+
+const TENANT_ID = createTenantId("tnt_tenant_a");
 
 describe("SaaSSessionApplication", () => {
   it("binds creates and lists to its tenant", async () => {
     const repository = {
       createSession: vi.fn().mockResolvedValue(undefined),
-      listSessions: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 10, offset: 0, has_more: false }),
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: TENANT_ID }),
+      listSessions: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     };
-    const application = new SaaSSessionApplication("tenant-a", repository as never);
+    const application = new SaaSSessionApplication(TENANT_ID, repository as never);
 
-    await application.createSession({ sessionId: "session-1", userId: "user-1", metadata: { team: "default" } });
-    await application.listSessions({ limit: 10, offset: 0, userIds: ["user-1"] });
+    await application.createSession({ sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { team: "default" } });
+    await application.listSessions({ access: { userId: "user-1", includeTenant: true }, limit: 10 });
 
-    expect(repository.createSession).toHaveBeenCalledWith("tenant-a", "session-1", "user-1", { team: "default" }, null);
-    expect(repository.listSessions).toHaveBeenCalledWith("tenant-a", 10, 0, ["user-1"]);
+    expect(repository.createSession).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      sessionId: "session-1",
+      ownerUserId: "user-1",
+      visibility: "private",
+      originType: "direct",
+      originId: null,
+      originChannel: "api",
+      workspaceId: null,
+      metadata: { team: "default" },
+    });
+    expect(repository.listSessions).toHaveBeenCalledWith({ tenantId: TENANT_ID, access: { userId: "user-1", includeTenant: true }, limit: 10 });
   });
 
   it("does not expose or mutate a session owned by another tenant", async () => {
     const repository = {
-      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-b" }),
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: createTenantId("tnt_tenant_b") }),
       deleteSession: vi.fn(),
       listVisibleRootMessages: vi.fn(),
       updateMessage: vi.fn(),
       deleteMessagesAfter: vi.fn(),
     };
-    const application = new SaaSSessionApplication("tenant-a", repository as never);
+    const application = new SaaSSessionApplication(TENANT_ID, repository as never);
 
     await expect(application.getSession("session-1")).resolves.toBeNull();
     await expect(application.deleteSession("session-1")).resolves.toBe(false);
@@ -40,11 +54,11 @@ describe("SaaSSessionApplication", () => {
 
   it("updates and rolls back messages through the tenant-bound repository", async () => {
     const repository = {
-      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: TENANT_ID }),
       updateMessage: vi.fn().mockResolvedValue(true),
       deleteMessagesAfter: vi.fn().mockResolvedValue(2),
     };
-    const application = new SaaSSessionApplication("tenant-a", repository as never);
+    const application = new SaaSSessionApplication(TENANT_ID, repository as never);
 
     await expect(application.updateUserMessage({ sessionId: "session-1", messageId: "message-1", content: "changed" })).resolves.toBe(true);
     await expect(application.rollbackMessages({ sessionId: "session-1", afterMessageId: "message-1" })).resolves.toBe(2);
@@ -70,13 +84,13 @@ describe("SaaSSessionApplication", () => {
     };
     const repository = {
       createSession: vi.fn().mockResolvedValue(undefined),
-      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: TENANT_ID }),
       addMessage: vi.fn().mockResolvedValue(userMessage),
       getMessageBySeq: vi.fn().mockResolvedValue(userMessage),
       updateMessage: vi.fn().mockResolvedValue(true),
       deleteMessagesAfter: vi.fn().mockResolvedValue(2),
     };
-    const application = new SaaSSessionApplication("tenant-a", repository as never);
+    const application = new SaaSSessionApplication(TENANT_ID, repository as never);
 
     await application.createSystemSession({ sessionId: "system-session" });
     await expect(application.addMessage({
@@ -84,13 +98,24 @@ describe("SaaSSessionApplication", () => {
       role: "user",
       content: "retry me",
     })).resolves.toEqual(userMessage);
-    expect(repository.createSession).toHaveBeenCalledWith("tenant-a", "system-session", null, {}, null);
+    expect(repository.createSession).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      sessionId: "system-session",
+      ownerUserId: "usr_system",
+      visibility: "tenant",
+      originType: "direct",
+      originId: null,
+      originChannel: "api",
+      workspaceId: null,
+      metadata: {},
+      permissionMode: null,
+    });
     expect(repository.addMessage).toHaveBeenCalledTimes(1);
   });
 
   it("returns only repository-filtered root messages and marks final assistant execution", async () => {
     const repository = {
-      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: TENANT_ID }),
       listVisibleRootMessages: vi.fn().mockResolvedValue({
         items: [
           { id: "user-1", role: "user", metadata: {} },
@@ -102,7 +127,7 @@ describe("SaaSSessionApplication", () => {
         has_more: false,
       }),
     };
-    const application = new SaaSSessionApplication("tenant-a", repository as never);
+    const application = new SaaSSessionApplication(TENANT_ID, repository as never);
 
     const result = await application.listMessages({ sessionId: "session-1" });
 
@@ -116,14 +141,14 @@ describe("SaaSSessionApplication", () => {
   it("rewinds async file history before deleting SaaS messages", async () => {
     const calls: string[] = [];
     const repository = {
-      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: TENANT_ID }),
       deleteMessagesAfter: vi.fn(async () => { calls.push("messages"); return 3; }),
     };
     const fileHistory = {
       hasSnapshots: vi.fn().mockResolvedValue(true),
       rewind: vi.fn(async () => { calls.push("files"); return { success: true, message: "ok", reverted_files: 1 }; }),
     };
-    const application = new SaaSSessionApplication("tenant-a", repository as never, fileHistory as never);
+    const application = new SaaSSessionApplication(TENANT_ID, repository as never, fileHistory as never);
 
     await expect(application.rollbackMessages({ sessionId: "session-1", afterSeq: 7 })).resolves.toBe(3);
     expect(fileHistory.rewind).toHaveBeenCalledWith("session-1", 7);
@@ -132,7 +157,7 @@ describe("SaaSSessionApplication", () => {
 
   it("loads root and child run envelopes from the SaaS run repository", async () => {
     const repository = {
-      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: TENANT_ID }),
       getMessageById: vi.fn().mockResolvedValue({
         id: "message-1",
         role: "assistant",
@@ -154,7 +179,7 @@ describe("SaaSSessionApplication", () => {
         payload: executionEnvelope(runId),
       }]),
     };
-    const application = new SaaSSessionApplication("tenant-a", repository as never, null, runs as never);
+    const application = new SaaSSessionApplication(TENANT_ID, repository as never, null, runs as never);
 
     await expect(application.listMessageRunSteps({ sessionId: "session-1", messageId: "message-1" })).resolves.toMatchObject({
       message_id: "message-1",
@@ -174,7 +199,7 @@ describe("SaaSSessionApplication", () => {
 
   it("loads durable root and child execution envelopes from the SaaS outbox", async () => {
     const repository = {
-      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: TENANT_ID }),
       getMessageById: vi.fn().mockResolvedValue({
         id: "message-1",
         role: "assistant",
@@ -205,7 +230,7 @@ describe("SaaSSessionApplication", () => {
         outboxRow(3, "child-run", { ...executionEnvelope("child-run"), type: "tool_call" }),
       ]),
     };
-    const application = new SaaSSessionApplication("tenant-a" as never, repository as never, null, runs as never, outbox as never);
+    const application = new SaaSSessionApplication(TENANT_ID, repository as never, null, runs as never, outbox as never);
 
     const result = await application.listMessageRunSteps({ sessionId: "session-1", messageId: "message-1" });
 
@@ -215,7 +240,7 @@ describe("SaaSSessionApplication", () => {
     ]);
     expect(runs.listRunSteps).toHaveBeenCalledTimes(2);
     expect(outbox.listOutboxForReplay).toHaveBeenCalledWith({
-      tenantId: "tenant-a",
+      tenantId: TENANT_ID,
       sessionId: "session-1",
       runIds: ["root-run", "child-run"],
       limit: 500,
@@ -224,7 +249,7 @@ describe("SaaSSessionApplication", () => {
 
   it("falls back to message-bound steps when the assistant message has no run id", async () => {
     const repository = {
-      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: TENANT_ID }),
       getMessageById: vi.fn().mockResolvedValue({ id: "message-1", role: "assistant", metadata: {}, thread_key: "root" }),
     };
     const runs = {
@@ -234,14 +259,14 @@ describe("SaaSSessionApplication", () => {
         { step_type: "protocol.envelope.v1", payload: executionEnvelope("fallback-run") },
       ]),
     };
-    const application = new SaaSSessionApplication("tenant-a", repository as never, null, runs as never);
+    const application = new SaaSSessionApplication(TENANT_ID, repository as never, null, runs as never);
 
     const result = await application.listMessageRunSteps({ sessionId: "session-1", messageId: "message-1" });
 
     expect(result.items).toHaveLength(1);
     expect(runs.listRuns).not.toHaveBeenCalled();
     expect(runs.listRunSteps).toHaveBeenCalledWith({
-      tenantId: "tenant-a",
+      tenantId: TENANT_ID,
       messageId: "message-1",
       sessionId: "session-1",
       limit: 500,
@@ -250,11 +275,11 @@ describe("SaaSSessionApplication", () => {
 
   it("does not query messages or runs for another tenant's session", async () => {
     const repository = {
-      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-b" }),
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: createTenantId("tnt_tenant_b") }),
       getMessageById: vi.fn(),
     };
     const runs = { listRuns: vi.fn(), listRunSteps: vi.fn() };
-    const application = new SaaSSessionApplication("tenant-a", repository as never, null, runs as never);
+    const application = new SaaSSessionApplication(TENANT_ID, repository as never, null, runs as never);
 
     await expect(application.listMessageRunSteps({ sessionId: "session-1", messageId: "message-1" }))
       .rejects.toThrow("会话不存在");
@@ -279,7 +304,7 @@ function outboxRow(seq: number, runId: string, event: Record<string, unknown>) {
     id: seq,
     event_id: `event-${seq}`,
     session_id: "session-1",
-    tenant_id: "tenant-a",
+    tenant_id: TENANT_ID,
     run_id: runId,
     session_seq: seq,
     event_type: `client.${String(event.type)}`,

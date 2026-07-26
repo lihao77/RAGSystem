@@ -130,7 +130,7 @@ describe("平台控制面", () => {
     const adminToken = await login(harness, "admin", "password123");
     const tenantId = createTenantId("tnt_support_target");
     harness.controlStore.createTenant({ id: tenantId, displayName: "Support Target" });
-    harness.container.sessionApplication.createSession({ userId: createUserId("usr_external"), sessionId: "support-session" });
+    harness.container.sessionApplication.createSession({ sessionId: "support-session", ownerUserId: createUserId("usr_external"), visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
 
     const response = await harness.app.inject({
       method: "GET",

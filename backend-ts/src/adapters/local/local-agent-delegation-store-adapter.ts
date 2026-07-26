@@ -9,13 +9,17 @@ import type { AgentDelegationStorePort } from "../../contracts/runtime/core-runt
 import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 
 type LocalDelegationStore = Pick<ConversationStore,
-  "addMessage" | "getRecentMessages" | "getRun" | "updateRunStatus" |
+  "getSession" | "addMessage" | "getRecentMessages" | "getRun" | "updateRunStatus" |
   "createChildAgent" | "findChildAgentByCreator" | "getChildAgent" |
   "listChildAgents" | "updateChildAgentLastRun">;
 
 /** Adapts Local's synchronous conversation store to the shared Promise-only port. */
 export class LocalAgentDelegationStoreAdapter implements AgentDelegationStorePort {
   constructor(private readonly store: LocalDelegationStore) {}
+
+  async getSession(sessionId: string) {
+    return this.store.getSession(sessionId);
+  }
 
   async addMessage(input: AddMessageInput) {
     return this.store.addMessage(input);

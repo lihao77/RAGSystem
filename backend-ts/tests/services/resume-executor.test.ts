@@ -90,7 +90,17 @@ function claim(): ClaimedResume {
     requestId: "request-1",
     executionKind: "daemon.cron",
     userId: "user-1",
-    sessionMetadata: { team: "default" },
+    sessionIdentity: {
+      sessionId: "session-1",
+      ownerUserId: "user-1",
+      visibility: "private",
+      originType: "direct",
+      originId: null,
+      originChannel: "api",
+      workspaceId: null,
+      metadata: { team: "default" },
+      permissionMode: null,
+    },
     resolutions: [{
       interactionId: "interaction-1",
       toolCallId: "tool-1",

@@ -83,7 +83,7 @@ describe("event outbox projection and dispatch", () => {
   it("publishes projected events to realtime fanout by default", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     appendClientRow(store, "s1", "run-1", "event-1", {
       type: "run_ended",
       session_id: "s1",
@@ -119,7 +119,7 @@ describe("event outbox projection and dispatch", () => {
   it("marks projected events delivered after realtime fanout", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     appendClientRow(store, "s1", "run-1", "event-1", {
       type: "run_ended",
       session_id: "s1",
@@ -143,7 +143,7 @@ describe("event outbox projection and dispatch", () => {
   it("does not retry delivered rows when a realtime subscriber fails", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     realtimeEvents.subscribe("s1", () => {
       throw new Error("websocket send failed");
     });
@@ -184,7 +184,7 @@ describe("event outbox projection and dispatch", () => {
     const now = () => new Date(nowMs);
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     appendClientRow(
       store,
       "s1",
@@ -270,7 +270,7 @@ describe("event outbox projection and dispatch", () => {
     const now = () => new Date(nowMs);
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     appendClientRow(
       store,
       "s1",
@@ -327,7 +327,7 @@ describe("event outbox projection and dispatch", () => {
     const now = () => new Date(nowMs);
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     appendClientRow(
       store,
       "s1",
@@ -381,7 +381,7 @@ describe("event outbox projection and dispatch", () => {
   it("stamps persisted event_id/seq over transient client_event values", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const projector = new EnvelopeProjector();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const row = appendClientRow(store, "s1", "run-1", "event-client-1", {
       // 产出方临时值（session_id/run_id/message_id/seq）一律不可信——还原后以落库权威值盖戳。
       type: "state_sync",

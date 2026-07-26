@@ -9,7 +9,7 @@ import { buildExecutionEnvelopeRunStep } from "../../src/services/runtime/event-
 function setup(status: "running" | "suspended" = "suspended") {
   const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
   const sessionId = "claim-session";
-  store.createSession(LOCAL_TENANT_ID, sessionId, "user-1");
+  store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: sessionId, ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
   store.createRun({ runId: "root-run", sessionId, status, agentName: "root", threadKey: "root" });
   return { store, sessionId, storage: new SqliteRuntimeStorage(LOCAL_TENANT_ID, store) };
 }

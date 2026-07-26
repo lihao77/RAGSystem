@@ -11,6 +11,7 @@ export const POSTGRES_WS_TICKET_MIGRATIONS: readonly PostgresWsTicketMigration[]
       role TEXT NOT NULL,
       permissions JSONB NOT NULL,
       platform_role TEXT,
+      widget_app_key TEXT,
       session_id TEXT NOT NULL,
       expires_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,

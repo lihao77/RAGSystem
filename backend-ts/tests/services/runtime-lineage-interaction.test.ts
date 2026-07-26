@@ -67,7 +67,7 @@ function createStore(): ConversationStore {
 describe("runtime execution lineage", () => {
   it("propagates the outer root through a grandchild and rethrows RecoverableInterrupt", async () => {
     const store = createStore();
-    store.createSession(LOCAL_TENANT_ID, "session-1", null);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.createRun({ runId: "root-run", sessionId: "session-1", status: "running", agentName: "root" });
     store.createRun({ runId: "child-run", sessionId: "session-1", status: "running", agentName: "child", parentRunId: "root-run" });
     const emitted: Array<Record<string, any>> = [];
@@ -117,7 +117,7 @@ describe("runtime execution lineage", () => {
 
   it("propagates the same root and immediate parent call through send_message", async () => {
     const store = createStore();
-    store.createSession(LOCAL_TENANT_ID, "session-1", null);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.createRun({ runId: "root-run", sessionId: "session-1", status: "running", agentName: "root" });
     store.createRun({ runId: "child-run", sessionId: "session-1", status: "running", agentName: "child", parentRunId: "root-run" });
     store.createChildAgent({
@@ -167,7 +167,7 @@ describe("runtime execution lineage", () => {
 
   it("keeps a grandchild interaction under the root claim while child suspension stays isolated", async () => {
     const store = createStore();
-    store.createSession(LOCAL_TENANT_ID, "session-1", null);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.createRun({ runId: "root-run", sessionId: "session-1", status: "running", agentName: "root" });
     const storage = new SqliteRuntimeStorage(LOCAL_TENANT_ID, store);
     const publisher = new DurableClientEventPublisher(storage, { dispatchRows: async () => [] });
@@ -175,6 +175,15 @@ describe("runtime execution lineage", () => {
     const childPersister = new AsyncKernelEventPersister(storage, publisher, {
       tenantId: LOCAL_TENANT_ID,
       sessionId: "session-1",
+      sessionIdentity: {
+        sessionId: "session-1",
+        ownerUserId: "usr_system",
+        visibility: "tenant",
+        originType: "direct",
+        originId: null,
+        originChannel: "api",
+        workspaceId: null,
+      },
       runId: "grandchild-run",
       rootRunId: "root-run",
       parentRunId: "child-run",

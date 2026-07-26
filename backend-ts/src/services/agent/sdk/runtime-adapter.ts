@@ -10,7 +10,7 @@ import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageR
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import { RecoverableInterrupt, translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
-import type { MessageInfo } from "../../../contracts/session/session.js";
+import type { MessageInfo, SessionIdentity } from "../../../contracts/session/session.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
@@ -83,7 +83,8 @@ export interface SdkExecuteRunInput {
   childAgentId?: string | null;
   /** 父 run id（child delegation run 用；root run 不传 → null）。createRun 落 runs.parent_run_id。 */
   parentRunId?: string | null;
-  sessionMetadata: Record<string, unknown>;
+  sessionIdentity: SessionIdentity;
+  workspaceRoot?: string | null;
   userId?: string | null;
   executionKind?: string;
   /** 整棵执行树的根任务；child run 从父工具上下文继承。 */
@@ -145,15 +146,14 @@ export async function executeRunWithSdk(
   });
   const rootRunId = input.rootRunId ?? input.parentRunId ?? input.runId;
   const isRootRun = input.runId === rootRunId && input.parentRunId == null;
-  // session metadata 端口：委托真实会话存储，让 memory 源能读到 team/workspace_root，
-  // 解析出 team/agent/workspace scope（否则只 session scope 存活，其余静默丢弃）。
+  // session metadata 端口只承载 team/entry_agent 等扩展配置；Workspace 从 Session 一等字段解析。
   const sessionMetadata = await resolveSessionMetadataPort(
     input.sessionId,
     deps.storage.conversation,
   );
 
   // per-run 构建工具集合：后端工具 + 前端委托工具（source=host，其 Tool.call 转发宿主执行 + 等回传）。
-  const teamName = asString(input.sessionMetadata.team);
+  const teamName = asString(input.sessionIdentity.metadata?.team);
   const pathService = deps.pathAccessPolicyFactory();
   const effectivePermission = deps.permissionPolicy.getEffectivePolicy(input.sessionId);
   pathService.setAllowUnapprovedExternalPaths(
@@ -195,7 +195,7 @@ export async function executeRunWithSdk(
     ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
     rootTask: input.rootTask ?? input.task,
     userId: input.userId ?? null,
-    workspaceRoot: asString(input.sessionMetadata.workspace_root) ?? asString(input.agent.custom_params.workspace_root),
+    workspaceRoot: input.workspaceRoot ?? asString(input.agent.custom_params.workspace_root),
     ...(input.signal ? { signal: input.signal } : {}),
   };
 
@@ -390,6 +390,7 @@ export async function executeRunWithSdk(
       taskSummary: input.task.slice(0, 200),
       ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
+      sessionIdentity: input.sessionIdentity,
       ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
       ...(input.parentCallId !== undefined ? { parentCallId: input.parentCallId } : {}),
       ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),

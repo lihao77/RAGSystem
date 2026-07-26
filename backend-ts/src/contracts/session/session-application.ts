@@ -2,9 +2,18 @@ import type { Envelope } from "@ragsystem/agent-protocol";
 
 import type { PaginatedResult } from "../common.js";
 import type { PermissionMode } from "../runtime/permissions.js";
-import type { MessageInfo, SessionInfo, SessionListItem } from "../session/session.js";
+import type {
+  CreateSessionRecordInput,
+  MessageInfo,
+  SessionFacetCounts,
+  SessionInfo,
+  SessionListProjectionPage,
+  SessionListQuery,
+  SessionIdentity,
+} from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
 import type { ListMemoryCandidatesInput, MemoryCandidateRecord } from "../conversation-store/index.js";
+import type { WorkspaceRecord } from "../workspace/workspace.js";
 
 /**
  * Execution-only session port.  Unlike SessionApplication this intentionally
@@ -13,8 +22,9 @@ import type { ListMemoryCandidatesInput, MemoryCandidateRecord } from "../conver
  */
 export interface ExecutionSessionPort {
   getSession(sessionId: string): Promise<SessionInfo | null>;
+  resolveWorkspaceRoot(sessionId: string): Promise<string | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
-  createSession(input: { tenantId: TenantId; sessionId: string; userId: string; metadata?: Record<string, unknown> }): Promise<unknown>;
+  createSession(input: CreateSessionRecordInput): Promise<unknown>;
   createSystemSession(input: { tenantId: TenantId; sessionId: string; metadata?: Record<string, unknown> }): Promise<unknown>;
   addMessage(input: {
     sessionId: string;
@@ -43,14 +53,12 @@ export interface SessionExport {
 
 /** Request-scoped session use cases shared by Local and SaaS deployments. */
 export interface SessionApplication {
-  ensureSession(input: { sessionId: string; userId: string; metadata?: Record<string, unknown>; permissionMode?: PermissionMode | null }): Promise<void>;
-  createSession(input: { sessionId: string; userId: string; metadata?: Record<string, unknown>; permissionMode?: PermissionMode | null }): Promise<{
-    session_id: string;
-    user_id: string | null;
-    permission_mode: PermissionMode | null;
-    metadata: Record<string, unknown>;
-  }>;
-  listSessions(input: { limit?: number; offset?: number; userIds?: readonly string[] | null }): Promise<PaginatedResult<SessionListItem>>;
+  ensureSession(input: SessionIdentity): Promise<void>;
+  createSession(input: SessionIdentity): Promise<SessionInfo>;
+  listSessions(input: Omit<SessionListQuery, "tenantId">): Promise<SessionListProjectionPage>;
+  listSessionFacets(input: Pick<SessionListQuery, "access">): Promise<SessionFacetCounts>;
+  listWorkspacesByIds(workspaceIds: readonly string[]): Promise<WorkspaceRecord[]>;
+  resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   getSessionForExecutionValidation(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown>>;

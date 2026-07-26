@@ -5,9 +5,9 @@ import { asString, isPathUnder } from "./helpers.js";
 export function inferResourceScope(input: {
   dataRoot: string;
   resourcePath: string;
-  sessionMetadata: Record<string, unknown> | null | undefined;
+  workspaceRoot: string | null;
 }): string {
-  const workspaceRoot = asString(input.sessionMetadata?.workspace_root);
+  const workspaceRoot = asString(input.workspaceRoot);
   if (workspaceRoot && isPathUnder(input.resourcePath, workspaceRoot)) {
     return "workspace";
   }

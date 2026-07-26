@@ -57,9 +57,9 @@ describe("PostgreSQL conversation slice", () => {
     });
   });
 
-  it("rejects a session id already owned by another tenant", async () => {
+  it("rejects a session id with a conflicting immutable identity", async () => {
     const repository = new PostgresConversationRepository(new FakeExecutor());
-    await expect(repository.createSession(createTenantId("tnt_b"), "shared-session", "user-b"))
-      .rejects.toThrow("session id is already owned by another tenant");
+    await expect(repository.createSession({ tenantId: createTenantId("tnt_b"), sessionId: "shared-session", ownerUserId: "user-b", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null }))
+      .rejects.toThrow("session id conflicts with a different immutable session identity");
   });
 });

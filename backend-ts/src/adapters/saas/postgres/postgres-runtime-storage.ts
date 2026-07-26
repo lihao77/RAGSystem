@@ -54,7 +54,7 @@ import type {
   RunInfo,
   RunStepRecord,
 } from "../../../contracts/conversation-store/index.js";
-import type { MessageInfo } from "../../../contracts/session/session.js";
+import { toSessionIdentity, type MessageInfo } from "../../../contracts/session/session.js";
 import { buildInterruptedToolMessages } from "../../../contracts/storage/runtime-finalization.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 import { PostgresConversationRepository } from "./conversation-repository.js";
@@ -74,13 +74,7 @@ function createTransactionFacade(
   const providerContinuationRepository = new PostgresProviderContinuationRepository(executor);
 
   const conversation: RuntimeConversationStorage = {
-    createSession: (sessionId, userId, metadata, permissionMode) => conversationRepository.createSession(
-      tenantId,
-      sessionId,
-      userId,
-      metadata,
-      permissionMode,
-    ),
+    createSession: (input) => conversationRepository.createSession({ tenantId, ...input }),
     getSession: conversationRepository.getSession.bind(conversationRepository),
     updateSessionMetadata: conversationRepository.updateSessionMetadata.bind(conversationRepository),
     updateSessionPermissionMode: conversationRepository.updateSessionPermissionMode.bind(conversationRepository),
@@ -323,7 +317,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         transactionExecutor,
         `session-control:${this.tenantId}:${input.session.sessionId}`,
       );
-      const sessionExists = await assertTenantSession(
+      await assertTenantSession(
         transactionExecutor,
         this.tenantId,
         input.session.sessionId,
@@ -339,14 +333,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           input.leaseRootRunId,
         );
       }
-      if (!sessionExists) {
-        await tx.conversation.createSession(
-          input.session.sessionId,
-          input.session.userId,
-          input.session.metadata,
-          input.session.permissionMode,
-        );
-      }
+      await tx.conversation.createSession(input.session);
       await lockAdvisoryKey(transactionExecutor, `run:${this.tenantId}:${input.run.runId}`);
       const existingRun = await lockTenantRun(transactionExecutor, this.tenantId, input.run.runId);
       if (existingRun) assertRunScope(existingRun, input.run);
@@ -386,9 +373,9 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     if (input.run.parentRunId != null) throw new Error("startOrAppendRoot requires a root run");
     return this.executor.transaction(async (transactionExecutor) => {
       await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.session.sessionId}`);
-      const sessionExists = await assertTenantSession(transactionExecutor, this.tenantId, input.session.sessionId, true);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.session.sessionId, true);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
-      if (!sessionExists) await tx.conversation.createSession(input.session.sessionId, input.session.userId, input.session.metadata, input.session.permissionMode);
+      await tx.conversation.createSession(input.session);
       const maintenance = await transactionExecutor.query(
         `SELECT 1 FROM conversation_sessions
          WHERE tenant_id=$1 AND session_id=$2
@@ -934,7 +921,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         requestId: stringField(request.requestId) ?? rootRun.request_id,
         executionKind: stringField(request.executionKind) ?? rootRun.entrypoint ?? "agent_stream",
         userId: rootRun.user_id,
-        sessionMetadata: session.metadata,
+        sessionIdentity: toSessionIdentity(session),
         resolutions: batch.map((item) => ({
           interactionId: item.interaction_id,
           toolCallId: item.tool_call_id,

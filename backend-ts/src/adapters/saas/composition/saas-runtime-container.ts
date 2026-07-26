@@ -58,6 +58,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     conversationRuntime.runs,
     conversationRuntime.outbox,
     memoryCandidates,
+    conversationRuntime.workspaces,
   );
 
   const agentConfig = new AgentConfigService(conversationRuntime.createAgentConfigTeamStore(tenantId));

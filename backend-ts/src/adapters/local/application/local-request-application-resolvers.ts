@@ -2,6 +2,7 @@ import { LocalExecutionApplication } from "./execution/local-execution-applicati
 import type { RequestApplicationResolvers } from "../../../app/request-applications.js";
 import { LocalProviderApplication } from "./provider/local-provider-application.js";
 import { LocalMcpApplication } from "./mcp/local-mcp-application.js";
+import type { SessionListCursor } from "../../../contracts/session/session.js";
 
 /** Local composition root for request-level application ports. */
 export function createLocalRequestApplicationResolvers(): RequestApplicationResolvers {
@@ -12,11 +13,20 @@ export function createLocalRequestApplicationResolvers(): RequestApplicationReso
       const local = requireLocalCapabilities(request);
       return local.createMemoryApplication({
         viewerUserId: request.identity.userId,
-        viewerSessionIds: async () => (await request.container.sessionApplication.listSessions({
-          userIds: [request.identity.userId],
-          limit: 10_000,
-          offset: 0,
-        })).items.map((session) => session.session_id),
+        viewerSessionIds: async () => {
+          const ids: string[] = [];
+          let cursor: SessionListCursor | null = null;
+          do {
+            const page = await request.container.sessionApplication.listSessions({
+              access: { userId: request.identity.userId, includeTenant: true },
+              limit: 100,
+              cursor,
+            });
+            ids.push(...page.items.map((session) => session.session_id));
+            cursor = page.nextCursor;
+          } while (cursor);
+          return ids;
+        },
       });
     },
     resolveArtifactApplication: (request) => requireLocalCapabilities(request).artifacts,

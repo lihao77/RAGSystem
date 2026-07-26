@@ -30,29 +30,36 @@ describe("Local session store behavior", () => {
     expect(sessions.getSession("missing")).toBeNull();
   });
 
-  it("createSession 幂等（ON CONFLICT 覆盖）且可读回", () => {
+  it("createSession 对相同身份幂等，并拒绝不可变身份冲突", () => {
     const sessions: ConversationStore = build();
-    sessions.createSession(LOCAL_TENANT_ID, "s1", "u1", { title: "t" });
-    sessions.createSession(LOCAL_TENANT_ID, "s1", "u2", {});
+    sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "u1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { title: "t" } });
+    sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "u1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: {} });
+    expect(() => sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "u2", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: {} }))
+      .toThrow("immutable identity conflict");
     const got = sessions.getSession("s1");
     expect(got).not.toBeNull();
-    expect(got?.user_id).toBe("u2");
+    expect(got?.owner_user_id).toBe("u1");
   });
 
-  it("listSessions 分页 has_more = offset+limit < total", () => {
+  it("listSessions 使用稳定游标分页", () => {
     const sessions: ConversationStore = build();
-    for (let i = 0; i < 3; i += 1) sessions.createSession(LOCAL_TENANT_ID, `s${i}`, "usr_local");
-    const page = sessions.listSessions(LOCAL_TENANT_ID, 2, 0);
-    expect(page.items).toHaveLength(2);
-    expect(page.total).toBe(3);
-    expect(page.has_more).toBe(true);
+    for (let i = 0; i < 3; i += 1) {
+      sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: `s${i}`, ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
+      sessions.addMessage({ sessionId: `s${i}`, role: "user", content: `message-${i}` });
+    }
+    const first = sessions.listSessions({ tenantId: LOCAL_TENANT_ID, access: { userId: "usr_local", includeTenant: true }, limit: 2 });
+    expect(first.items).toHaveLength(2);
+    expect(first.nextCursor).not.toBeNull();
+    const second = sessions.listSessions({ tenantId: LOCAL_TENANT_ID, access: { userId: "usr_local", includeTenant: true }, limit: 2, cursor: first.nextCursor });
+    expect(second.items).toHaveLength(1);
+    expect(second.nextCursor).toBeNull();
   });
 });
 
 describe("Local message store behavior", () => {
   it("addMessage 写入并回读，listMessages 按 seq 升序", () => {
     const messages: ConversationStore = build();
-    messages.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    messages.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     messages.addMessage({ ...baseMessage("s1"), content: "a" });
     messages.addMessage({ ...baseMessage("s1"), content: "b" });
     const list = messages.listMessages("s1", 20);
@@ -71,7 +78,7 @@ describe("Local message store behavior", () => {
 describe("Local run store behavior", () => {
   it("addRunStep 的 step_order 在 (session,run) 内自增", () => {
     const store = build();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const runs: ConversationStore = store;
     runs.createRun({ runId: "r1", sessionId: "s1" });
     const step1 = runs.addRunStep({ sessionId: "s1", runId: "r1", stepType: "x", payload: {} });
@@ -81,7 +88,7 @@ describe("Local run store behavior", () => {
 
   it("addRunStep 按 eventId 幂等且禁止不同 run 复用", () => {
     const store = build();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.createRun({ runId: "r1", sessionId: "s1" });
     store.createRun({ runId: "r2", sessionId: "s1" });
     const first = store.addRunStep({
@@ -120,7 +127,7 @@ describe("Local run store behavior", () => {
 describe("Local outbox store behavior", () => {
   it("getNextSessionSeq 跨调用唯一递增（原子自增，前置：session 须先存在）", () => {
     const store = build();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const outbox: ConversationStore = store;
     const a = outbox.getNextSessionSeq("s1");
     const b = outbox.getNextSessionSeq("s1");
@@ -129,7 +136,7 @@ describe("Local outbox store behavior", () => {
 
   it("appendOutbox 入库后可被 fetchPendingOutbox 取到", () => {
     const outbox: ConversationStore = build();
-    outbox.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    outbox.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     outbox.appendOutbox({
       sessionId: "s1",
       eventType: "e",
@@ -146,7 +153,7 @@ describe("Local outbox store behavior", () => {
 describe("Local transaction facade 契约——原子性", () => {
   it("事务内多域写入要么全成（提交后均可见）", () => {
     const store = build();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const runner: ConversationStore = store;
     const result = runner.runInTransaction((tx) => {
       tx.addMessage({ ...baseMessage("s1"), content: "tx-msg" });
@@ -166,7 +173,7 @@ describe("Local transaction facade 契约——原子性", () => {
 
   it("事务内抛异常则全部回滚（写入不可见）", () => {
     const store = build();
-    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const runner: ConversationStore = store;
     const messages: ConversationStore = store;
     expect(() =>

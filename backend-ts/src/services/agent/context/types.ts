@@ -17,7 +17,11 @@ export interface ConversationHistoryPort {
 
 /** 会话元数据读写端口(conversationStore 装配侧实现)。 */
 export interface SessionMetadataPort {
-  getSession(sessionId: string): { metadata: Record<string, unknown>; user_id?: string | null } | null;
+  getSession(sessionId: string): {
+    metadata: Record<string, unknown>;
+    owner_user_id?: string | null;
+    workspace_id?: string | null;
+  } | null;
   updateSessionMetadata?(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null;
 }
 

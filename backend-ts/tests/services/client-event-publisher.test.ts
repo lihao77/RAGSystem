@@ -38,7 +38,7 @@ describe("client event persistence", () => {
   it("uses one generated event id for the archived step and outbox row", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     try {
-      store.createSession(LOCAL_TENANT_ID, "session-1", "user-1");
+      store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       store.createRun({ runId: "run-1", sessionId: "session-1" });
       const dispatched: number[][] = [];
       const publisher = new DurableClientEventPublisher(new SqliteRuntimeStorage(LOCAL_TENANT_ID, store), {

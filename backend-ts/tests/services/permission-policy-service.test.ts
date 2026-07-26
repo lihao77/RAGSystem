@@ -23,7 +23,7 @@ describe("PermissionPolicyService", () => {
 
     for (const [index, item] of cases.entries()) {
       const sessionId = `policy-${index}`;
-      store.createSession(LOCAL_TENANT_ID, sessionId, LOCAL_USER_ID, {}, item.mode);
+      store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: sessionId, ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: {}, permissionMode: item.mode });
       expect(service.evaluateToolApproval({
         sessionId,
         toolName: "demo_tool",
@@ -42,7 +42,7 @@ describe("PermissionPolicyService", () => {
   it("会话不存在或 permission_mode 为 NULL 时回落 standard", () => {
     const dbPath = makeTempDb();
     const store = createConversationStore({ dbPath, dataRoot: path.dirname(dbPath) });
-    store.createSession(LOCAL_TENANT_ID, "default-policy", LOCAL_USER_ID);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "default-policy", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const service = new PermissionPolicyService(store);
 
     expect(service.getEffectivePolicy("missing")).toEqual(defaultPolicy());
@@ -94,7 +94,7 @@ describe("PermissionPolicyService", () => {
 
     for (const item of cases) {
       const sessionId = `external-path-${item.mode}`;
-      store.createSession(LOCAL_TENANT_ID, sessionId, LOCAL_USER_ID, {}, item.mode);
+      store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: sessionId, ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: {}, permissionMode: item.mode });
       expect(service.evaluateToolApproval({
         sessionId,
         toolName: "read_file",

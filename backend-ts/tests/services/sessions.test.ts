@@ -26,19 +26,19 @@ describe("AgentSessionApplication", () => {
     const store = createStore();
     const app = createApplication(store);
     const otherTenantId = createTenantId("tnt_other");
-    await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "local-session" });
-    await app.createSession({ tenantId: otherTenantId, userId: "usr_local", sessionId: "other-session" });
+    await app.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "local-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
+    await app.createSession({ tenantId: otherTenantId, sessionId: "other-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
 
     expect((await app.getSession("local-session"))?.tenant_id).toBe(LOCAL_TENANT_ID);
-    expect((await app.listSessions({ tenantId: LOCAL_TENANT_ID })).items.map((session) => session.session_id)).toEqual(["local-session"]);
-    expect((await app.listSessions({ tenantId: otherTenantId })).items.map((session) => session.session_id)).toEqual(["other-session"]);
+    expect((await app.listSessions({ tenantId: LOCAL_TENANT_ID, access: { userId: "usr_local", includeTenant: true }, limit: 20 })).items.map((session) => session.session_id)).toEqual(["local-session"]);
+    expect((await app.listSessions({ tenantId: otherTenantId, access: { userId: "usr_local", includeTenant: true }, limit: 20 })).items.map((session) => session.session_id)).toEqual(["other-session"]);
     store.close();
   });
 
   it("rejects unsafe session IDs before creating database or filesystem state", async () => {
     const store = createStore();
     const app = createApplication(store);
-    await expect(app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "../../outside" })).rejects.toThrow("session_id");
+    await expect(app.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "../../outside", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null })).rejects.toThrow("session_id");
     expect(store.getSession("../../outside")).toBeNull();
     store.close();
   });
@@ -48,7 +48,7 @@ describe("AgentSessionApplication", () => {
     try {
       const store = createStore();
       const app = createApplication(store, new TransientArtifactService(root));
-      await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s-delete" });
+      await app.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s-delete", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       const file = path.join(root, "sessions", "s-delete", "transient", "data.txt");
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, "data");
@@ -61,55 +61,55 @@ describe("AgentSessionApplication", () => {
     }
   });
 
-  it("returns the compact create_session payload with persisted permission mode", async () => {
+  it("returns the full persisted session identity", async () => {
     const store = createStore();
     const app = createApplication(store);
 
-    const created = await app.createSession({ tenantId: LOCAL_TENANT_ID,
-      sessionId: "s1",
-      userId: "u1",
-      metadata: { team: "  default  " },
-    });
+    const created = await app.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "u1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { team: "  default  " } });
 
-    expect(created).toEqual({
+    expect(created).toMatchObject({
       session_id: "s1",
-      user_id: "u1",
+      tenant_id: LOCAL_TENANT_ID,
+      owner_user_id: "u1",
+      visibility: "private",
+      origin_type: "direct",
+      origin_id: null,
+      origin_channel: "api",
+      workspace_id: null,
       permission_mode: null,
       metadata: { team: "default" },
     });
     store.close();
   });
 
-  it("normalizes Python-compatible session runtime metadata", async () => {
+  it("rejects reserved identity fields in metadata and resolves first-class Workspace binding", async () => {
     const store = createStore();
-    const app = createApplication(store);
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-workspace-"));
     try {
-      const created = await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local",
-        sessionId: "s-meta",
-        metadata: {
-          team: "  ",
-          entry_agent: "  orchestrator  ",
-          workspace_root: `\"${workspaceRoot}\"`,
-        },
+      store.resolveLocalWorkspace({
+        workspaceId: "workspace-1",
+        tenantId: LOCAL_TENANT_ID,
+        kind: "local",
+        displayName: "workspace",
+        rootPath: workspaceRoot,
+        canonicalKey: workspaceRoot,
       });
+      const app = new AgentSessionApplication(
+        new LocalAgentSessionRepository(store),
+        null,
+        null,
+        async (session) => session.workspace_id
+          ? store.getWorkspaceById(session.tenant_id, session.workspace_id)?.root_path ?? null
+          : null,
+      );
+      const created = await app.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s-workspace", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: "workspace-1", metadata: { entry_agent: "  orchestrator  " } });
 
-      expect(created.metadata).toEqual({
-        entry_agent: "orchestrator",
-        workspace_root: workspaceRoot,
-      });
+      expect(created.workspace_id).toBe("workspace-1");
+      expect(created.metadata).toEqual({ entry_agent: "orchestrator" });
+      await expect(app.resolveWorkspaceRoot("s-workspace")).resolves.toBe(workspaceRoot);
       await expect(
-        app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local",
-          sessionId: "s-invalid",
-          metadata: { workspace_root: "relative/path" },
-        }),
-      ).rejects.toThrow("metadata.workspace_root 必须是绝对路径");
-      await expect(
-        app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local",
-          sessionId: "s-missing-workspace",
-          metadata: { workspace_root: path.join(workspaceRoot, "missing") },
-        }),
-      ).rejects.toThrow("metadata.workspace_root 必须是已存在的目录");
+        app.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s-invalid", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { workspace_root: workspaceRoot } }),
+      ).rejects.toThrow("metadata.workspace_root 是保留字段");
     } finally {
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
       store.close();
@@ -119,7 +119,7 @@ describe("AgentSessionApplication", () => {
   it("filters hidden, intermediate, child, and non-root messages like Python", async () => {
     const store = createStore();
     const app = createApplication(store);
-    await app.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s1" });
+    await app.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     await app.addMessage({ sessionId: "s1", role: "user", content: "visible" });
     await app.addMessage({ sessionId: "s1", role: "assistant", content: "hidden", metadata: { visible_to_user: false } });
     await app.addMessage({ sessionId: "s1", role: "assistant", content: "react", metadata: { react_intermediate: true } });

@@ -1,10 +1,15 @@
 import { isRecord } from "../../utils/guards.js";
-import path from "node:path";
 
 import { z } from "zod";
 import {
   CreateSessionRequestSchema as SharedCreateSessionRequestSchema,
+  SessionOriginChannelSchema,
+  SessionOriginTypeSchema,
+  SessionVisibilitySchema,
   UpdateSessionPermissionModeRequestSchema,
+  type SessionOriginChannel,
+  type SessionOriginType,
+  type SessionVisibility,
 } from "@ragsystem/api-contracts";
 
 import { AttachmentRefSchema } from "../execution/execution.js";
@@ -57,20 +62,109 @@ export type RollbackAndRetryRequest = z.infer<typeof RollbackAndRetryRequestSche
 export interface SessionInfo {
   session_id: string;
   tenant_id: TenantId;
-  user_id: string | null;
+  owner_user_id: string | null;
+  visibility: SessionVisibility;
+  origin_type: SessionOriginType;
+  origin_id: string | null;
+  origin_channel: SessionOriginChannel;
+  workspace_id: string | null;
   permission_mode: PermissionMode | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
 
-export interface SessionListItem extends SessionInfo {
+export interface SessionListProjection {
+  session_id: string;
+  tenant_id: TenantId;
+  owner_user_id: string | null;
+  visibility: SessionVisibility;
+  origin_type: SessionOriginType;
+  origin_id: string | null;
+  origin_channel: SessionOriginChannel;
+  workspace_id: string | null;
   title: string;
   last_message: string;
-  last_message_at: string;
+  activity_at: string;
   first_message: string;
   unread_count: number;
 }
+
+export interface SessionListCursor {
+  activityAt: string;
+  sessionId: string;
+}
+
+export interface SessionListAccess {
+  userId: string;
+  includeTenant: boolean;
+  includeAll?: boolean;
+}
+
+export interface SessionListQuery {
+  tenantId: TenantId;
+  access: SessionListAccess;
+  limit: number;
+  cursor?: SessionListCursor | null;
+  originType?: SessionOriginType | null;
+  originId?: string | null;
+  workspaceId?: string | null;
+}
+
+export interface SessionListProjectionPage {
+  items: SessionListProjection[];
+  nextCursor: SessionListCursor | null;
+}
+
+export interface SessionFacetCounts {
+  typeCounts: Record<SessionOriginType, number>;
+  origins: Array<{ type: Exclude<SessionOriginType, "direct">; id: string; count: number }>;
+  workspaces: Array<{ workspaceId: string; count: number }>;
+}
+
+export interface CreateSessionRecordInput {
+  tenantId: TenantId;
+  sessionId: string;
+  ownerUserId: string | null;
+  visibility: SessionVisibility;
+  originType: SessionOriginType;
+  originId: string | null;
+  originChannel: SessionOriginChannel;
+  workspaceId: string | null;
+  metadata?: Record<string, unknown>;
+  permissionMode?: PermissionMode | null;
+}
+
+export type SessionIdentity = Omit<CreateSessionRecordInput, "tenantId">;
+
+export function toSessionIdentity(session: SessionInfo): SessionIdentity {
+  return {
+    sessionId: session.session_id,
+    ownerUserId: session.owner_user_id,
+    visibility: session.visibility,
+    originType: session.origin_type,
+    originId: session.origin_id,
+    originChannel: session.origin_channel,
+    workspaceId: session.workspace_id,
+    metadata: session.metadata,
+    permissionMode: session.permission_mode,
+  };
+}
+
+export { SessionOriginChannelSchema, SessionOriginTypeSchema, SessionVisibilitySchema };
+export type { SessionOriginChannel, SessionOriginType, SessionVisibility };
+
+export const RESERVED_SESSION_METADATA_KEYS = [
+  "workspace_root",
+  "workspace_id",
+  "widget",
+  "origin",
+  "origin_type",
+  "origin_id",
+  "origin_channel",
+  "owner_user_id",
+  "visibility",
+] as const;
 
 /**
  * 结构化工具调用（OpenAI tool call 标准形态）。与 @ragsystem/agent-llm 的 ChatToolCall
@@ -116,8 +210,9 @@ export function normalizeSessionMetadata(value: unknown): Record<string, unknown
   }
 
   const metadata: Record<string, unknown> = { ...value };
-  if ("workspace_root" in metadata) {
-    metadata.workspace_root = normalizeWorkspaceRoot(metadata.workspace_root);
+  const reservedKey = RESERVED_SESSION_METADATA_KEYS.find((key) => key in metadata);
+  if (reservedKey) {
+    throw new Error(`metadata.${reservedKey} 是保留字段，请使用 Session 一等字段`);
   }
   if ("entry_agent" in metadata) {
     metadata.entry_agent = normalizeEntryAgent(metadata.entry_agent);
@@ -131,23 +226,6 @@ export function normalizeSessionMetadata(value: unknown): Record<string, unknown
     }
   }
   return metadata;
-}
-
-function normalizeWorkspaceRoot(value: unknown): string | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  if (typeof value !== "string") {
-    throw new Error("metadata.workspace_root 必须是字符串或 null");
-  }
-  const normalized = stripWrappedQuotes(value);
-  if (!normalized) {
-    throw new Error("metadata.workspace_root 不能为空字符串");
-  }
-  if (!path.isAbsolute(normalized)) {
-    throw new Error("metadata.workspace_root 必须是绝对路径");
-  }
-  return normalized;
 }
 
 function normalizeEntryAgent(value: unknown): string | null {
@@ -174,12 +252,3 @@ function normalizeTeam(value: unknown): string | null {
   const normalized = value.trim();
   return normalized || null;
 }
-
-function stripWrappedQuotes(value: string): string {
-  const normalized = value.trim();
-  if (normalized.length >= 2 && normalized[0] === normalized.at(-1) && (normalized[0] === "\"" || normalized[0] === "'")) {
-    return normalized.slice(1, -1).trim();
-  }
-  return normalized;
-}
-

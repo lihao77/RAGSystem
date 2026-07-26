@@ -1,4 +1,9 @@
-import type { MessageInfo } from "../../../../contracts/session/session.js";
+import type {
+  MessageInfo,
+  SessionOriginChannel,
+  SessionOriginType,
+  SessionVisibility,
+} from "../../../../contracts/session/session.js";
 import type { PermissionMode } from "../../../../contracts/runtime/permissions.js";
 import type { TenantId } from "../../../../identity/types.js";
 
@@ -23,17 +28,32 @@ export interface MessageRow {
 export interface SessionRow {
   session_id: string;
   tenant_id: TenantId;
-  user_id: string | null;
+  owner_user_id: string | null;
+  visibility: SessionVisibility;
+  origin_type: SessionOriginType;
+  origin_id: string | null;
+  origin_channel: SessionOriginChannel;
+  workspace_id: string | null;
   permission_mode: PermissionMode | null;
   metadata: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export interface SessionListRow extends SessionRow {
-  last_content: string | null;
-  last_created_at: string | null;
-  first_content: string | null;
+export interface SessionListProjectionRow {
+  session_id: string;
+  tenant_id: TenantId;
+  owner_user_id: string | null;
+  visibility: SessionVisibility;
+  origin_type: SessionOriginType;
+  origin_id: string | null;
+  origin_channel: SessionOriginChannel;
+  workspace_id: string | null;
+  title: string;
+  first_message: string;
+  last_message: string;
+  activity_at: string;
+  unread_count: number;
 }
 
 export interface RunStepRow {

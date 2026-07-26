@@ -14,16 +14,24 @@ import type {
 } from "../conversation-store/index.js";
 import type { AgentMetricSummary, DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "../conversation-store/index.js";
 import type { PermissionMode } from "../runtime/permissions.js";
-import type { MessageInfo, SessionInfo, SessionListItem } from "../session/session.js";
+import type {
+  CreateSessionRecordInput,
+  MessageInfo,
+  SessionFacetCounts,
+  SessionInfo,
+  SessionListProjectionPage,
+  SessionListQuery,
+} from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
 
 export interface AsyncConversationRepository {
-  createSession(tenantId: TenantId, sessionId: string, userId: string | null, metadata?: Record<string, unknown>, permissionMode?: PermissionMode | null): Promise<void>;
+  createSession(input: CreateSessionRecordInput): Promise<void>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
   updateSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<boolean>;
   deleteSession(sessionId: string): Promise<boolean>;
-  listSessions(tenantId: TenantId, limit?: number, offset?: number, userIds?: readonly string[] | null): Promise<PaginatedResult<SessionListItem>>;
+  listSessions(input: SessionListQuery): Promise<SessionListProjectionPage>;
+  listSessionFacets(input: Pick<SessionListQuery, "tenantId" | "access">): Promise<SessionFacetCounts>;
   addMessage(input: AddMessageInput): Promise<MessageInfo>;
   listMessages(sessionId: string, limit?: number, offset?: number, threadKey?: string | null): Promise<PaginatedResult<MessageInfo>>;
   listVisibleRootMessages(sessionId: string, limit?: number, offset?: number): Promise<PaginatedResult<MessageInfo>>;

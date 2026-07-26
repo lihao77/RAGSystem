@@ -28,10 +28,18 @@ function createDeps() {
   };
 }
 
+async function waitForPending(pending, key) {
+  for (let attempt = 0; attempt < 20 && !pending.has(key); attempt += 1) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  return pending.get(key);
+}
+
 test('useSessionMessages excludes tool observations from chat bubbles', async () => {
   setActivePinia(createPinia());
   const store = useSessionRunStore();
-  const { messages } = storeToRefs(store);
+  const { currentSessionId, messages } = storeToRefs(store);
+  currentSessionId.value = 'session-1';
   const mock = new MockAdapter(httpClient);
   mock.onGet('/api/agent/sessions/session-1/messages').reply(200, {
     data: {
@@ -55,6 +63,41 @@ test('useSessionMessages excludes tool observations from chat bubbles', async ()
 
     assert.deepEqual(messages.value.map(message => message.role), ['user', 'assistant']);
     assert.equal(messages.value.some(message => message.id === 'tool-1'), false);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('a late response from the previous session cannot overwrite current messages', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const { currentSessionId, messages } = storeToRefs(store);
+  const mock = new MockAdapter(httpClient);
+  const pending = new Map();
+  mock.onGet(/\/api\/agent\/sessions\/[^/]+\/messages/).reply(config => new Promise((resolve) => {
+    pending.set(config.url, resolve);
+  }));
+
+  try {
+    const sessionMessages = useSessionMessages(createDeps());
+    currentSessionId.value = 'session-a';
+    const loadA = sessionMessages.loadSessionMessages('session-a');
+    currentSessionId.value = 'session-b';
+    const loadB = sessionMessages.loadSessionMessages('session-b');
+
+    const resolveB = await waitForPending(pending, '/api/agent/sessions/session-b/messages');
+    resolveB([200, {
+      data: { items: [{ id: 'b-1', seq: 1, role: 'user', content: 'session B', metadata: {} }] },
+    }]);
+    await loadB;
+    const resolveA = await waitForPending(pending, '/api/agent/sessions/session-a/messages');
+    resolveA([200, {
+      data: { items: [{ id: 'a-1', seq: 1, role: 'user', content: 'session A', metadata: {} }] },
+    }]);
+    await loadA;
+
+    assert.deepEqual(messages.value.map(message => message.id), ['b-1']);
+    assert.equal(sessionMessages.messageCache.value.has('session-a'), false);
   } finally {
     mock.restore();
   }

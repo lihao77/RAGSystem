@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { OutboxRow, RunInfo } from "../../src/contracts/conversation-store/index.js";
 import type { MessageInfo, SessionInfo } from "../../src/contracts/session/session.js";
-import type { RuntimeStorage } from "../../src/contracts/storage/runtime-storage.js";
+import type {
+  RuntimeStartOrAppendRootInput,
+  RuntimeStartRunInput,
+  RuntimeStorage,
+} from "../../src/contracts/storage/runtime-storage.js";
 
 export interface RuntimeStorageInspection {
   getSession(sessionId: string): Promise<SessionInfo | null>;
@@ -57,7 +61,7 @@ export function runRuntimeStorageBehaviorContract(
       expect(replay).toEqual(first);
       await expect(harness.inspection.getSession("session-1")).resolves.toMatchObject({
         session_id: "session-1",
-        user_id: "user-1",
+        owner_user_id: "user-1",
       });
       await expect(harness.inspection.listMessages("session-1")).resolves.toEqual([
         expect.objectContaining({ id: "message-1", role: "user", content: "question" }),
@@ -223,13 +227,9 @@ export function runRuntimeStorageBehaviorContract(
   });
 }
 
-function startInput(sessionId: string, runId: string, messageId: string) {
+function startInput(sessionId: string, runId: string, messageId: string): RuntimeStartRunInput {
   return {
-    session: {
-      sessionId,
-      userId: "user-1",
-      metadata: { source: "runtime-storage-contract" },
-    },
+    session: { sessionId, ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { source: "runtime-storage-contract" } },
     run: {
       runId,
       sessionId,
@@ -249,7 +249,7 @@ function startInput(sessionId: string, runId: string, messageId: string) {
   };
 }
 
-function startOrAppendInput(sessionId: string, runId: string, messageId: string) {
+function startOrAppendInput(sessionId: string, runId: string, messageId: string): RuntimeStartOrAppendRootInput {
   return {
     ...startInput(sessionId, runId, messageId),
     followupFactory: ({ activeRunId, roundIndex }: { activeRunId: string; roundIndex: number }) => ({

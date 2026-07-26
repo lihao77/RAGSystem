@@ -641,7 +641,6 @@ const {
   loadEntryAgentOptions,
   loadActiveTeam,
   setPendingTeam,
-  loadRecentSessions,
   exportCurrentSession,
   updateRecentSession,
   syncSessionFromRoute,
@@ -828,7 +827,6 @@ onMounted(() => {
       await loadEntryAgentOptions(currentSessionTeam.value);
     }
   })();
-  loadRecentSessions(true);
 });
 
 onUnmounted(() => {

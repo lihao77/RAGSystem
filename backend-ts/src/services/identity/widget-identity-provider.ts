@@ -21,6 +21,7 @@ export class WidgetIdentityProvider implements IdentityProvider {
       tenantId: claims.tenant_id,
       role: "widget",
       permissions: ["sessions:create"],
+      widgetAppKey: claims.sub,
     };
   }
 

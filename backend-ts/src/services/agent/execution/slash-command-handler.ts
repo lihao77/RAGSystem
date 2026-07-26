@@ -14,6 +14,7 @@ import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { TenantId } from "../../../identity/types.js";
 import { memoryBaselineKey } from "../memory/index.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
+import type { SessionIdentity } from "../../../contracts/session/session.js";
 
 interface ParsedSlashCommand {
   name: string;
@@ -65,6 +66,7 @@ export class SlashCommandHandler {
 
   handle(input: {
     sessionId: string;
+    sessionIdentity: SessionIdentity;
     userId: string;
     requestId: string;
     selectedLlm: string;
@@ -81,6 +83,7 @@ export class SlashCommandHandler {
 
   private async executeSystemSlashCommand(input: {
     sessionId: string;
+    sessionIdentity: SessionIdentity;
     userId: string;
     requestId: string;
     selectedLlm: string;
@@ -90,7 +93,10 @@ export class SlashCommandHandler {
     sessionMaintenanceToken?: string;
   }): Promise<SlashCommandDispatchResult> {
     if (!(await this.sessions.getSession(input.sessionId))) {
-      await this.sessions.createSession({ tenantId: this.tenantId, sessionId: input.sessionId, userId: input.userId });
+      await this.sessions.createSession({
+        tenantId: this.tenantId,
+        ...input.sessionIdentity,
+      });
     }
     await this.sessions.addMessage({
       sessionId: input.sessionId,

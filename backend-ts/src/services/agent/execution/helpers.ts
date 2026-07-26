@@ -1,6 +1,5 @@
 import { isRecord, asString } from "../../../utils/guards.js";
 export { isRecord, asString };
-import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ExecutionObservability, ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { BackgroundTaskNotificationPayload } from "../../runtime/session-notification-queue.js";
 
@@ -102,26 +101,9 @@ export function normalizeSessionEntryAgent(value: unknown): string | null {
   return normalized;
 }
 
-export function applySessionAgentOverrides(agent: AgentConfig, sessionMetadata: Record<string, unknown>): AgentConfig {
-  const workspaceRoot = asString(sessionMetadata.workspace_root);
-  if (!workspaceRoot) {
-    return agent;
-  }
-  return {
-    ...agent,
-    custom_params: {
-      ...agent.custom_params,
-      workspace_root: workspaceRoot,
-    },
-  };
-}
-
-
-
 function escapeXmlText(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
-

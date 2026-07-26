@@ -5,6 +5,7 @@ import type { SecretResolver } from "../../../contracts/integrations/secret-reso
 import {
   PgPoolMemoryExecutor,
   PostgresConversationRepository,
+  PostgresWorkspaceRepository,
   PostgresKnowledgeFileMetadataRepository,
   PostgresArtifactMetadataRepository,
   PostgresOutboxRepository,
@@ -85,6 +86,7 @@ export interface SaaSConversationRuntimeOptions {
 /** Shared PostgreSQL lifecycle for the async SaaS conversation/run repositories. */
 export interface SaaSConversationRuntimeHandle {
   conversation: PostgresConversationRepository;
+  workspaces: PostgresWorkspaceRepository;
   wsTickets: PostgresWsTicketService;
   createRealtimeEventBus(tenantId: string): PostgresRealtimeEventBus;
   /** Tenant-bound async child-agent/delegation persistence. */
@@ -163,6 +165,7 @@ export async function createSaaSConversationRuntime(
       await runPostgresSkillPackageMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
+    const workspaces = new PostgresWorkspaceRepository(executor);
     const wsTickets = new PostgresWsTicketService(executor);
     const runs = new PostgresRunRepository(executor);
     const outbox = new PostgresOutboxRepository(executor);
@@ -234,6 +237,7 @@ export async function createSaaSConversationRuntime(
     const providerMcpApplication = new SaaSProviderMcpApplication(providerMcp);
     return {
       conversation,
+      workspaces,
       wsTickets,
       createRealtimeEventBus: (tenantId) => realtimeRelay.createBus(tenantId),
       createDelegationStore: (tenantId) => new TenantBoundPostgresAgentDelegationStore(

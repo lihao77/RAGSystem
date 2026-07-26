@@ -12,6 +12,7 @@ import type {
 import type { RuntimeContainerRegistry as TenantRuntimeRegistry } from "../services/runtime/runtime-container-registry.js";
 import { HttpError } from "../utils/errors.js";
 import { requirePlatformAdmin } from "./platform-guard.js";
+import { decodeSessionListCursor, encodeSessionListCursor } from "./session-list-cursor.js";
 
 interface PlatformRouteOptions {
   controlPlane: ControlPlane;
@@ -127,10 +128,11 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
     return withTenantRuntime(options.registry, tenantId, async (runtime) => {
       const sessions = await runtime.sessionApplication.listSessions({
         limit: parseIntQuery(query.limit) ?? 20,
-        offset: parseIntQuery(query.offset) ?? 0,
+        cursor: decodeSessionListCursor(query.cursor),
+        access: { userId: actor.id, includeTenant: true, includeAll: true },
       });
       await options.controlPlane.audit.record({ actorUserId: actor.id, action: "read_tenant_sessions", targetTenantId: tenantId, targetResource: `tenant:${tenantId}:sessions` });
-      return { success: true, data: redactSensitive(sessions) };
+      return { success: true, data: redactSensitive({ items: sessions.items, next_cursor: sessions.nextCursor ? encodeSessionListCursor(sessions.nextCursor) : null }) };
     });
   });
 
@@ -167,7 +169,8 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
     const actor = await requirePlatformAdmin(request, options.controlPlane);
     const tenantId = await requireExistingTenant(options.controlPlane, request.params.tenantId);
     return withTenantRuntime(options.registry, tenantId, async (runtime) => {
-      const sessionsCount = (await runtime.sessionApplication.listSessions({ limit: 1, offset: 0 })).total;
+      const counts = await runtime.sessionApplication.listSessionFacets({ access: { userId: actor.id, includeTenant: true, includeAll: true } });
+      const sessionsCount = counts.typeCounts.direct + counts.typeCounts.bot + counts.typeCounts.widget;
       await options.controlPlane.audit.record({ actorUserId: actor.id, action: "read_tenant_health", targetTenantId: tenantId, targetResource: `tenant:${tenantId}:health` });
       return { success: true, data: { status: "healthy", tenantId, sessionsCount } };
     });

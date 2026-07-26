@@ -26,6 +26,8 @@ export interface RequestIdentity {
   role: string;
   permissions: string[];
   platformRole?: "admin";
+  /** Transport principal for Widget HTTP/WS flows; never used as session ownership. */
+  widgetAppKey?: string;
 }
 
 export function createTenantId(value: string): TenantId {

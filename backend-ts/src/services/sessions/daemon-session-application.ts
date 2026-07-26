@@ -1,17 +1,10 @@
-import type { PermissionMode } from "../../contracts/runtime/permissions.js";
-import { normalizeSessionMetadata, type SessionInfo } from "../../contracts/session/session.js";
+import { normalizeSessionMetadata, type CreateSessionRecordInput, type SessionIdentity, type SessionInfo } from "../../contracts/session/session.js";
 import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 
 export interface DaemonSessionStoragePort {
   getSession(sessionId: string): Promise<SessionInfo | null>;
-  createSession(input: {
-    tenantId: TenantId;
-    sessionId: string;
-    userId: string;
-    metadata: Record<string, unknown>;
-    permissionMode: PermissionMode | null;
-  }): Promise<void>;
+  createSession(input: CreateSessionRecordInput): Promise<void>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
 }
 
@@ -22,12 +15,7 @@ export class TenantDaemonSessionApplication {
     private readonly storage: DaemonSessionStoragePort,
   ) {}
 
-  async ensureSession(input: {
-    sessionId: string;
-    userId: string;
-    metadata?: Record<string, unknown>;
-    permissionMode?: PermissionMode | null;
-  }): Promise<void> {
+  async ensureSession(input: SessionIdentity): Promise<void> {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
     const existing = await this.storage.getSession(input.sessionId);
@@ -38,11 +26,24 @@ export class TenantDaemonSessionApplication {
       await this.storage.createSession({
         tenantId: this.tenantId,
         sessionId: input.sessionId,
-        userId: input.userId,
+        ownerUserId: input.ownerUserId,
+        visibility: input.visibility,
+        originType: input.originType,
+        originId: input.originId,
+        originChannel: input.originChannel,
+        workspaceId: input.workspaceId,
         metadata,
         permissionMode: input.permissionMode ?? null,
       });
       return;
+    }
+    if (existing.owner_user_id !== input.ownerUserId
+      || existing.visibility !== input.visibility
+      || existing.origin_type !== input.originType
+      || existing.origin_id !== input.originId
+      || existing.origin_channel !== input.originChannel
+      || existing.workspace_id !== input.workspaceId) {
+      throw new Error(`daemon session immutable identity mismatch: ${input.sessionId}`);
     }
     if (Object.keys(metadata).length > 0) {
       await this.requireMetadataUpdate(input.sessionId, metadata);

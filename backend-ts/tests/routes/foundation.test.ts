@@ -81,7 +81,9 @@ describe("foundation routes", () => {
       success: true,
       data: {
         session_id: "session-test",
-        user_id: "usr_local",
+        owner_user_id: "usr_local",
+        visibility: "private",
+        origin: { type: "direct", id: null, channel: "web" },
       },
     });
 
@@ -94,13 +96,13 @@ describe("foundation routes", () => {
     expect(listed.json()).toMatchObject({
       success: true,
       data: {
-        total: 1,
         items: [
           {
             session_id: "session-test",
-            user_id: "usr_local",
+            origin: { type: "direct", id: null, channel: "web" },
           },
         ],
+        next_cursor: null,
       },
     });
   });

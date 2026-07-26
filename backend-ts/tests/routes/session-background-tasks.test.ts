@@ -20,7 +20,7 @@ describe("session background task routes", () => {
   it("lists and cancels Session tasks through the management API", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    await harness.container.sessionApplication.createSession({ userId: LOCAL_USER_ID, sessionId: "background-session" });
+    await harness.container.sessionApplication.createSession({ sessionId: "background-session", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const firstId = randomUUID();
     const secondId = randomUUID();
     const publicTask = {
@@ -80,7 +80,7 @@ describe("session background task routes", () => {
   it("rejects invalid UUIDs, empty batches, and duplicate task IDs with 422", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    await harness.container.sessionApplication.createSession({ userId: LOCAL_USER_ID, sessionId: "validation-session" });
+    await harness.container.sessionApplication.createSession({ sessionId: "validation-session", ownerUserId: LOCAL_USER_ID, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const taskId = randomUUID();
     const cancelOne = vi.spyOn(harness.container.backgroundTasks, "cancelSessionTask");
     const cancelMany = vi.spyOn(harness.container.backgroundTasks, "cancelSessionTasks");
@@ -129,7 +129,7 @@ describe("session background task routes", () => {
     const harness = await buildTestHarness({ identityProvider });
     app = harness.app;
     harness.controlStore.createTenant({ id: LOCAL_TENANT_ID, displayName: "Local" });
-    await harness.container.sessionApplication.createSession({ userId: owner, sessionId: "private-background-session" });
+    await harness.container.sessionApplication.createSession({ sessionId: "private-background-session", ownerUserId: owner, visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const list = vi.spyOn(harness.container.backgroundTasks, "listSessionTasks");
     const cancel = vi.spyOn(harness.container.backgroundTasks, "cancelSessionTask");
     const taskId = randomUUID();

@@ -2,7 +2,7 @@ import type { MemoryScopeSpec } from "./types.js";
 
 /** Promise-only Memory prefix read model implemented by deployment adapters. */
 export interface MemoryContextRepository {
-  resolveWorkspaceKey(sessionMetadata: Record<string, unknown>): Promise<string | null>;
+  resolveWorkspaceKey(workspaceId: string | null): Promise<string | null>;
   loadIndex(
     scopeSpec: MemoryScopeSpec,
     limits: { maxLines: number; maxChars: number },

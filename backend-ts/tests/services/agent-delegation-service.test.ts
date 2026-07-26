@@ -29,7 +29,7 @@ function asAsyncDelegationStore(store: ReturnType<typeof createConversationStore
 describe("AgentDelegationService", () => {
   it("keeps grandchild durable and wire call lineage distinct", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "lineage-session", null);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "lineage-session", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const workerAgent = minimalAgent("worker_agent");
     const parentAgent = minimalAgent("parent_agent");
     parentAgent.delegation.enabled_agents = ["worker_agent"];
@@ -77,7 +77,7 @@ describe("AgentDelegationService", () => {
     const parentAgent = minimalAgent("orchestrator_agent");
     parentAgent.delegation.enabled_agents = ["worker_agent"];
     const service = new AgentDelegationService(asAsyncDelegationStore(store), runtimeCoreStub(workerAgent), clientEvents);
-    store.createSession(LOCAL_TENANT_ID, "resume-session", null, { workspace_root: "E:/workspace" });
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "resume-session", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.createRun({
       sessionId: "resume-session",
       runId: "parent-run",
@@ -206,10 +206,9 @@ describe("AgentDelegationService", () => {
     } as unknown as AgentRunEngine;
     service.setRunEngine(() => mockEngine);
 
-    store.createSession(LOCAL_TENANT_ID, "session-1", null, {
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: {
       team: "default",
-      workspace_root: "E:/workspace",
-    });
+    } });
     const child = store.createChildAgent({
       sessionId: "session-1",
       childAgentId: "child-existing",

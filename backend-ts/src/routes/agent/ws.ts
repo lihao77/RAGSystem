@@ -7,8 +7,7 @@ import { EnvelopeProjector } from "../../services/runtime/event-outbox/projector
 import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { AgentRouteOptions } from "../route-options.js";
 import { isRecord } from "../../utils/guards.js";
-import { widgetUserId } from "../../identity/widget-user-id.js";
-import { assertSessionOwner } from "../session-owner.js";
+import { assertSessionExecutable } from "../session-owner.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
 
 interface SessionWsParams {
@@ -94,29 +93,13 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
         const applications = await ensureRequestApplications(request, options);
         const executionRead = applications.executionRead;
         const session = await applications.sessions.getSession(sessionId);
-        const widgetMeta = (session?.metadata as { widget?: { app_key?: string } } | undefined)?.widget;
-        if (widgetMeta?.app_key && request.identity.userId !== widgetUserId(widgetMeta.app_key)) {
-          ws.close(4001, "unauthorized");
-          cleanup();
-          return;
-        }
         if (!session) {
           ws.close(4004, "session not found");
           cleanup();
           return;
         }
         try {
-          const sessionWidgetMeta = (session.metadata as { widget?: { app_key?: string } }).widget;
-          if (sessionWidgetMeta?.app_key) {
-            request.identity = {
-              userId: widgetUserId(sessionWidgetMeta.app_key),
-              tenantId: lease.tenantId,
-              role: "widget",
-              permissions: ["sessions:create"],
-            };
-            request.userId = request.identity.userId;
-          }
-          await assertSessionOwner(request, session);
+          await assertSessionExecutable(request, session);
         } catch {
           ws.close(4003, "forbidden");
           cleanup();

@@ -1,7 +1,12 @@
 import type { PaginatedResult, RunStepInfo } from "../common.js";
-import type { PermissionMode } from "../runtime/permissions.js";
-import type { MessageInfo, SessionInfo, SessionListItem } from "./session.js";
-import type { TenantId } from "../../identity/types.js";
+import type {
+  CreateSessionRecordInput,
+  MessageInfo,
+  SessionFacetCounts,
+  SessionInfo,
+  SessionListProjectionPage,
+  SessionListQuery,
+} from "./session.js";
 
 export interface AgentSessionMessageInput {
   sessionId: string;
@@ -32,22 +37,12 @@ export interface AgentSessionRunRecord {
 
 /** Promise-only persistence boundary used by the Local agent session application. */
 export interface AgentSessionRepositoryPort {
-  createSession(
-    tenantId: TenantId,
-    sessionId: string,
-    userId: string | null,
-    metadata: Record<string, unknown>,
-    permissionMode: PermissionMode | null,
-  ): Promise<void>;
+  createSession(input: CreateSessionRecordInput): Promise<void>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
   deleteSession(sessionId: string): Promise<boolean>;
-  listSessions(
-    tenantId: TenantId,
-    limit: number,
-    offset: number,
-    userIds: readonly string[] | null,
-  ): Promise<PaginatedResult<SessionListItem>>;
+  listSessions(input: SessionListQuery): Promise<SessionListProjectionPage>;
+  listSessionFacets(input: Pick<SessionListQuery, "tenantId" | "access">): Promise<SessionFacetCounts>;
 
   addMessage(input: AgentSessionMessageInput): Promise<MessageInfo>;
   listMessages(sessionId: string, limit: number, offset: number): Promise<PaginatedResult<MessageInfo>>;

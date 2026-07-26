@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { SqliteRuntimeStorage } from "../../../src/adapters/local/sqlite-runtime-storage.js";
 import { createConversationStore, type ConversationStore } from "../../../src/adapters/local/sqlite/conversation-store/index.js";
+import type { RuntimeStartRunInput } from "../../../src/contracts/storage/runtime-storage.js";
 import { LOCAL_TENANT_ID } from "../../../src/services/identity/index.js";
 
 const stores: ConversationStore[] = [];
@@ -18,7 +19,7 @@ function createHarness() {
 
 async function startRun(storage: SqliteRuntimeStorage, runId = "run-1") {
   return storage.operations.startRun({
-    session: { sessionId: "session-1", userId: "user-1" },
+    session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
     run: { runId, sessionId: "session-1", status: "running" },
   });
 }
@@ -36,7 +37,7 @@ it("claims restart-era pending followups when a new root starts", async () => {
   });
 
   const result = await storage.operations.startOrAppendRoot({
-    session: { sessionId: "session-1", userId: "user-1" },
+    session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
     run: { runId: "run-new", sessionId: "session-1", status: "running" },
     initialUserMessage: {
       messageId: "message-new",
@@ -58,7 +59,7 @@ it("claims restart-era pending followups when a new root starts", async () => {
 
 it("marks only the continuation trigger when one root claims multiple pending followups", async () => {
   const { store, storage } = createHarness();
-  store.createSession(LOCAL_TENANT_ID, "session-1", "user-1");
+  store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
   for (const [messageId, content] of [["pending-trigger", "trigger"], ["pending-joined", "joined"]] as const) {
     store.addMessage({
       messageId,
@@ -70,7 +71,7 @@ it("marks only the continuation trigger when one root claims multiple pending fo
   }
 
   await storage.operations.startOrAppendRoot({
-    session: { sessionId: "session-1", userId: "user-1" },
+    session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
     run: { runId: "run-new", sessionId: "session-1", status: "running" },
     pendingUserMessageId: "pending-trigger",
     followupFactory: () => { throw new Error("no active root"); },
@@ -92,7 +93,7 @@ it("keeps a suspended root in the session root slot", async () => {
   store.updateRunStatus("run-suspended", "session-1", "suspended", null);
 
   const result = await storage.operations.startOrAppendRoot({
-    session: { sessionId: "session-1", userId: "user-1" },
+    session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
     run: { runId: "run-new", sessionId: "session-1", status: "running" },
     initialUserMessage: {
       messageId: "message-new",
@@ -182,11 +183,7 @@ function interactionRecord(
 
 async function startInteractionRun(storage: SqliteRuntimeStorage) {
   return storage.operations.startRun({
-    session: {
-      sessionId: "session-1",
-      userId: "user-1",
-      metadata: { source: "contract-test" },
-    },
+    session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { source: "contract-test" } },
     run: {
       runId: "run-1",
       sessionId: "session-1",
@@ -400,13 +397,13 @@ describe("SqliteRuntimeStorage", () => {
     };
 
     const first = await storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-1", sessionId: "session-1" },
       initialUserMessage,
     });
     store.updateRunStatus("run-1", "session-1", "completed", null);
     const second = await storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-2", sessionId: "session-1" },
       initialUserMessage,
     });
@@ -419,8 +416,8 @@ describe("SqliteRuntimeStorage", () => {
 
   it("reuses the same run id only when its immutable scope matches", async () => {
     const { store, storage } = createHarness();
-    const input = {
-      session: { sessionId: "session-1", userId: "user-1" },
+    const input: RuntimeStartRunInput = {
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: {
         runId: "run-stable",
         sessionId: "session-1",
@@ -440,23 +437,35 @@ describe("SqliteRuntimeStorage", () => {
     expect(store.listRuns("session-1").total).toBe(1);
   });
 
-  it("does not overwrite an existing session while replaying startRun", async () => {
+  it("rejects an existing session identity conflict while replaying startRun", async () => {
     const { store, storage } = createHarness();
     await storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-1", metadata: { source: "original" } },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { source: "original" } },
       run: { runId: "run-1", sessionId: "session-1" },
     });
     store.updateRunStatus("run-1", "session-1", "completed", null);
 
-    await storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-2", metadata: { source: "retry" } },
+    await expect(storage.operations.startRun({
+      session: { sessionId: "session-1", ownerUserId: "user-2", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata: { source: "retry" } },
       run: { runId: "run-2", sessionId: "session-1" },
-    });
+    })).rejects.toThrow("immutable identity conflict");
 
     expect(store.getSession("session-1")).toMatchObject({
-      user_id: "user-1",
+      owner_user_id: "user-1",
       metadata: { source: "original" },
     });
+    expect(store.getRun("session-1", "run-2")).toBeNull();
+  });
+
+  it("rejects an existing session identity conflict before appending a root", async () => {
+    const { store, storage } = createHarness();
+    await startRun(storage);
+
+    await expect(storage.operations.startOrAppendRoot({
+      session: { sessionId: "session-1", ownerUserId: "other-user", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
+      run: { runId: "run-2", sessionId: "session-1" },
+      followupFactory: () => { throw new Error("identity must be checked first"); },
+    })).rejects.toThrow("immutable identity conflict");
   });
 
   it("rejects a reused run id with a different scope and rolls back the new session", async () => {
@@ -464,7 +473,7 @@ describe("SqliteRuntimeStorage", () => {
     await startRun(storage, "shared-run");
 
     await expect(storage.operations.startRun({
-      session: { sessionId: "session-2", userId: "user-2" },
+      session: { sessionId: "session-2", ownerUserId: "user-2", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "shared-run", sessionId: "session-2", threadKey: "child:other" },
       initialUserMessage: {
         messageId: "must-rollback",
@@ -482,12 +491,12 @@ describe("SqliteRuntimeStorage", () => {
   it("rejects a reused run id with a different scope in the same session", async () => {
     const { store, storage } = createHarness();
     await storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "scoped-run", sessionId: "session-1", threadKey: "root" },
     });
 
     await expect(storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "scoped-run", sessionId: "session-1", threadKey: "child:other" },
       initialUserMessage: {
         messageId: "scope-conflict-message",
@@ -512,7 +521,7 @@ describe("SqliteRuntimeStorage", () => {
       metadata: { source: "web" },
     };
     await storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-original", sessionId: "session-1" },
       initialUserMessage: original,
     });
@@ -527,7 +536,7 @@ describe("SqliteRuntimeStorage", () => {
     ];
     for (const [index, initialUserMessage] of conflicts.entries()) {
       await expect(storage.operations.startRun({
-        session: { sessionId: "session-1", userId: "user-1" },
+        session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
         run: { runId: `run-conflict-${index}`, sessionId: "session-1" },
         initialUserMessage,
       })).rejects.toThrow("initial user message deterministic id conflict");
@@ -542,7 +551,7 @@ describe("SqliteRuntimeStorage", () => {
   it("rejects a deterministic message id already owned by another session", async () => {
     const { store, storage } = createHarness();
     await storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-1", sessionId: "session-1" },
       initialUserMessage: {
         messageId: "cross-session-message",
@@ -553,7 +562,7 @@ describe("SqliteRuntimeStorage", () => {
     });
 
     await expect(storage.operations.startRun({
-      session: { sessionId: "session-2", userId: "user-2" },
+      session: { sessionId: "session-2", ownerUserId: "user-2", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "run-2", sessionId: "session-2" },
       initialUserMessage: {
         messageId: "cross-session-message",
@@ -927,7 +936,10 @@ describe("SqliteRuntimeStorage", () => {
       requestId: "request-1",
       executionKind: "agent_stream",
       userId: "user-1",
-      sessionMetadata: { source: "contract-test" },
+      sessionIdentity: expect.objectContaining({
+        sessionId: "session-1",
+        metadata: { source: "contract-test" },
+      }),
       resolutions: expect.arrayContaining([
         expect.objectContaining({ interactionId: "interaction-1", toolCallId: "tool-1" }),
         expect.objectContaining({ interactionId: "interaction-2", toolCallId: "tool-2" }),
@@ -957,11 +969,11 @@ describe("SqliteRuntimeStorage", () => {
     const { store, storage } = createHarness();
     await startInteractionRun(storage);
     await storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "child-run", sessionId: "session-1", status: "running", parentRunId: "run-1", parentCallId: "call-child" },
     });
     await storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "grandchild-run", sessionId: "session-1", status: "running", parentRunId: "child-run", parentCallId: "call-grandchild" },
     });
     const interaction = {
@@ -1038,7 +1050,7 @@ describe("SqliteRuntimeStorage", () => {
   it("rejects interaction finalization for a child run", async () => {
     const { storage } = createHarness();
     await storage.operations.startRun({
-      session: { sessionId: "session-1", userId: "user-1" },
+      session: { sessionId: "session-1", ownerUserId: "user-1", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null },
       run: { runId: "child-run", sessionId: "session-1", status: "running", parentRunId: "root-run" },
     });
     await expect(storage.operations.finalizeRun({

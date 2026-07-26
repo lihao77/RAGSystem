@@ -260,7 +260,7 @@ export class SaaSMemoryToolService implements MemoryToolOperations {
     const teamName = normalizeString(context.teamName) ?? normalizeString(metadata.team);
     const userId = normalizeString(context.userId);
     const agentName = normalizeString(input.currentAgentName) ?? normalizeString(context.currentAgentName) ?? context.agent?.agent_name ?? null;
-    const workspaceRoot = normalizeString(context.workspaceRoot) ?? normalizeString(metadata.workspace_root);
+    const workspaceRoot = normalizeString(context.workspaceRoot);
 
     let scopeSpec: MemoryScopeSpec | null = null;
     let missing: string;

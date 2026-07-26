@@ -20,7 +20,7 @@ import {
 describe("ui_context 端到端投影(store → conversation)", () => {
   it("user 消息 extensions[ui_context] 投影成 <ui_context> 文本追加到 content", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1", null);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.addMessage({
       sessionId: "s1",
       role: "user",
@@ -53,7 +53,7 @@ describe("ui_context 端到端投影(store → conversation)", () => {
   it("老消息 metadata.ui_context(无 extensions)不被投影(仅 extensions[] 投影)", async () => {
     // 佐证:只有 extensions[] 形态才投影;散落的 metadata.ui_context 不进 LLM(写入侧须落 extensions[])
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s2", null);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s2", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.addMessage({
       sessionId: "s2",
       role: "user",
@@ -78,7 +78,7 @@ describe("image_attachment 端到端投影(store → conversation)", () => {
     // recent-source 内部硬编码 fs 读盘,无法注入 mock;此处用不存在路径走降级,验证装配链路通。
     // image_url 主路径(data URL 生成)在 extensions.test.ts 纯函数测试以 readImage mock 覆盖。
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s3", null);
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s3", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.addMessage({
       sessionId: "s3",
       role: "user",
@@ -115,7 +115,7 @@ describe("tool_result_media TTL projection", () => {
     fs.writeFileSync(imagePath, Buffer.from("iVBORw0KGgo=", "base64"));
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     try {
-      store.createSession(LOCAL_TENANT_ID, "s-tool-image", null);
+      store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s-tool-image", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
       store.addMessage({
         sessionId: "s-tool-image",
         role: "assistant",

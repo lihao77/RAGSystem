@@ -35,6 +35,11 @@ export class TenantBoundPostgresAgentDelegationStore implements AgentDelegationS
     this.children = new PostgresChildAgentRepository(executor);
   }
 
+  async getSession(sessionId: string) {
+    const session = await this.conversation.getSession(sessionId);
+    return session?.tenant_id === this.tenantId ? session : null;
+  }
+
   async addMessage(input: AddMessageInput): Promise<MessageInfo> {
     await this.children.assertTenantSession(this.tenantId, input.sessionId);
     return this.conversation.addMessage(input);

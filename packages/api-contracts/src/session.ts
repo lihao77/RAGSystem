@@ -2,10 +2,24 @@ import { z } from "zod";
 import { ServerToClientEnvelopeSchema } from "@ragsystem/agent-protocol/wire";
 
 export const PermissionModeSchema = z.enum(["strict", "standard", "relaxed", "dangerously_skip_permissions"]);
+export const SessionOriginTypeSchema = z.enum(["direct", "bot", "widget"]);
+export const SessionVisibilitySchema = z.enum(["private", "tenant"]);
+export const SessionOriginChannelSchema = z.enum([
+  "web",
+  "api",
+  "feishu",
+  "cron",
+  "widget_embed",
+  "widget_api",
+]);
 
 export const CreateSessionRequestSchema = z.object({
   session_id: z.string().trim().min(1).nullable().optional(),
   permission_mode: PermissionModeSchema.nullable().optional(),
+  workspace: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("local_path"), root_path: z.string().trim().min(1) }).strict(),
+    z.object({ kind: z.literal("existing"), workspace_id: z.string().trim().min(1) }).strict(),
+  ]).nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
@@ -15,9 +29,25 @@ export const UpdateSessionPermissionModeRequestSchema = z.object({
 
 const SessionMetadataSchema = z.record(z.string(), z.unknown());
 
+export const SessionOriginSchema = z.object({
+  type: SessionOriginTypeSchema,
+  id: z.string().min(1).nullable(),
+  display_name: z.string(),
+  channel: SessionOriginChannelSchema,
+}).strict();
+
+export const SessionWorkspaceSchema = z.object({
+  workspace_id: z.string().min(1),
+  display_name: z.string().min(1),
+  root_path: z.string().nullable(),
+}).strict();
+
 export const CreatedSessionSchema = z.object({
   session_id: z.string().min(1),
-  user_id: z.string().min(1).nullable(),
+  owner_user_id: z.string().min(1).nullable(),
+  visibility: SessionVisibilitySchema,
+  origin: SessionOriginSchema,
+  workspace: SessionWorkspaceSchema.nullable(),
   permission_mode: PermissionModeSchema.nullable(),
   metadata: SessionMetadataSchema,
 }).strict();
@@ -28,20 +58,40 @@ export const SessionDetailSchema = CreatedSessionSchema.extend({
   updated_at: z.string(),
 }).strict();
 
-export const SessionListItemSchema = SessionDetailSchema.extend({
+export const SessionListItemSchema = z.object({
+  session_id: z.string().min(1),
   title: z.string(),
-  last_message: z.string(),
-  last_message_at: z.string(),
   first_message: z.string(),
+  last_message: z.string(),
+  activity_at: z.string(),
   unread_count: z.number().int().nonnegative(),
+  origin: SessionOriginSchema,
+  workspace: SessionWorkspaceSchema.nullable(),
 }).strict();
 
 export const SessionListDataSchema = z.object({
   items: z.array(SessionListItemSchema),
-  total: z.number().int().nonnegative(),
-  limit: z.number().int().nonnegative(),
-  offset: z.number().int().nonnegative(),
-  has_more: z.boolean(),
+  next_cursor: z.string().min(1).nullable(),
+}).strict();
+
+export const SessionListFacetsSchema = z.object({
+  type_counts: z.object({
+    direct: z.number().int().nonnegative(),
+    bot: z.number().int().nonnegative(),
+    widget: z.number().int().nonnegative(),
+  }).strict(),
+  origins: z.array(z.object({
+    type: z.enum(["bot", "widget"]),
+    id: z.string().min(1),
+    display_name: z.string(),
+    count: z.number().int().nonnegative(),
+  }).strict()),
+  workspaces: z.array(z.object({
+    workspace_id: z.string().min(1),
+    display_name: z.string().min(1),
+    root_path: z.string().nullable(),
+    count: z.number().int().nonnegative(),
+  }).strict()),
 }).strict();
 
 export const SessionPermissionDataSchema = z.object({
@@ -101,6 +151,7 @@ function successResponseSchema<T extends z.ZodTypeAny>(data: T) {
 export const CreateSessionResponseSchema = successResponseSchema(CreatedSessionSchema);
 export const SessionDetailResponseSchema = successResponseSchema(SessionDetailSchema);
 export const SessionListResponseSchema = successResponseSchema(SessionListDataSchema);
+export const SessionListFacetsResponseSchema = successResponseSchema(SessionListFacetsSchema);
 export const SessionPermissionResponseSchema = successResponseSchema(SessionPermissionDataSchema);
 export const SessionMessageListResponseSchema = successResponseSchema(SessionMessageListDataSchema);
 export const SessionMessageRunStepsResponseSchema = successResponseSchema(SessionMessageRunStepsDataSchema);
@@ -118,11 +169,17 @@ export const SessionWsTicketResponseSchema = z.object({
 
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
 export type PermissionMode = z.infer<typeof PermissionModeSchema>;
+export type SessionOriginType = z.infer<typeof SessionOriginTypeSchema>;
+export type SessionVisibility = z.infer<typeof SessionVisibilitySchema>;
+export type SessionOriginChannel = z.infer<typeof SessionOriginChannelSchema>;
+export type SessionOrigin = z.infer<typeof SessionOriginSchema>;
+export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
 export type UpdateSessionPermissionModeRequest = z.infer<typeof UpdateSessionPermissionModeRequestSchema>;
 export type CreatedSession = z.infer<typeof CreatedSessionSchema>;
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 export type SessionListItem = z.infer<typeof SessionListItemSchema>;
 export type SessionListData = z.infer<typeof SessionListDataSchema>;
+export type SessionListFacets = z.infer<typeof SessionListFacetsSchema>;
 export type SessionPermissionData = z.infer<typeof SessionPermissionDataSchema>;
 export type SessionMessageToolCall = z.infer<typeof SessionMessageToolCallSchema>;
 export type SessionMessage = z.infer<typeof SessionMessageSchema>;
@@ -131,6 +188,7 @@ export type SessionMessageRunStepsData = z.infer<typeof SessionMessageRunStepsDa
 export type CreateSessionResponse = z.infer<typeof CreateSessionResponseSchema>;
 export type SessionDetailResponse = z.infer<typeof SessionDetailResponseSchema>;
 export type SessionListResponse = z.infer<typeof SessionListResponseSchema>;
+export type SessionListFacetsResponse = z.infer<typeof SessionListFacetsResponseSchema>;
 export type SessionPermissionResponse = z.infer<typeof SessionPermissionResponseSchema>;
 export type SessionMessageListResponse = z.infer<typeof SessionMessageListResponseSchema>;
 export type SessionMessageRunStepsResponse = z.infer<typeof SessionMessageRunStepsResponseSchema>;

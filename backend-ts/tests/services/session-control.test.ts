@@ -15,7 +15,7 @@ import { LocalOutboxStoreAdapter } from "../../src/adapters/local/local-outbox-s
 describe("SessionControl", () => {
   it("停止挂起 session 时中断 run 并取消 durable pending", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "session-suspended-stop", "usr_local");
+    store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "session-suspended-stop", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.createRun({
       runId: "run-suspended-stop",
       sessionId: "session-suspended-stop",

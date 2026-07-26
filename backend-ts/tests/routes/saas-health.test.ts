@@ -12,9 +12,13 @@ afterEach(async () => {
 
 describe("SaaS health route", () => {
   it("uses the tenant-bound PostgreSQL session application for the session count", async () => {
-    const listSessions = vi.fn(async () => ({ items: [], total: 7, limit: 1, offset: 0, has_more: true }));
+    const listSessionFacets = vi.fn(async () => ({
+      typeCounts: { direct: 3, bot: 2, widget: 2 },
+      origins: [],
+      workspaces: [],
+    }));
     const harness = await buildTestHarness({
-      resolveSessionApplication: async () => ({ listSessions }) as never,
+      resolveSessionApplication: async () => ({ listSessionFacets }) as never,
     });
     app = harness.app;
 
@@ -22,6 +26,8 @@ describe("SaaS health route", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ success: true, data: { sessions_count: 7 } });
-    expect(listSessions).toHaveBeenCalledWith({ limit: 1, offset: 0, userIds: null });
+    expect(listSessionFacets).toHaveBeenCalledWith({
+      access: { userId: "usr_local", includeTenant: true },
+    });
   });
 });

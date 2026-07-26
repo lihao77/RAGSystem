@@ -10,6 +10,7 @@ export {
   getSession,
   getSessionMessages,
   getSessionPermissions,
+  getSessionListFacets,
   issueSessionWsTicket,
   listSessions,
   updateSessionPermissions,

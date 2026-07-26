@@ -17,6 +17,7 @@ import type { TenantId } from "../../../identity/types.js";
 import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
 import type { ClientEventPublisherPort } from "../../../contracts/runtime/core-runtime-ports.js";
 import type { SessionHistoryPort } from "../../../contracts/session/session-history.js";
+import type { SessionIdentity } from "../../../contracts/session/session.js";
 import {
   buildExecutionEnvelopeRunStep,
   buildExpiredRunLeaseRecord,
@@ -37,6 +38,7 @@ export interface AsyncPersisterRunContext {
   taskSummary?: string;
   requestId?: string | null;
   userId?: string | null;
+  sessionIdentity: SessionIdentity;
   parentRunId?: string | null;
   parentCallId?: string | null;
   childAgentId?: string | null;
@@ -84,10 +86,7 @@ export class AsyncKernelEventPersister {
       },
     ));
     const startInput: RuntimeStartRunInput = {
-      session: {
-        sessionId: this.ctx.sessionId,
-        userId: this.ctx.userId ?? null,
-      },
+      session: this.ctx.sessionIdentity,
       run: {
         runId: this.ctx.runId,
         sessionId: this.ctx.sessionId,

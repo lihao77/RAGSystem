@@ -15,7 +15,7 @@ describe("session Goal routes", () => {
   it("reads history and pauses/resumes the current Goal", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    await harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "goal-session" });
+    await harness.container.sessionApplication.createSession({ sessionId: "goal-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     const goal = await harness.container.goalStore.create("goal-session", {
       objective: "Deliver Goal mode",
       successCriteria: ["all tests pass"],
@@ -43,7 +43,7 @@ describe("session Goal routes", () => {
   it("returns null for no current Goal and 404 for start/pause", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    await harness.container.sessionApplication.createSession({ userId: "usr_local", sessionId: "empty-goal-session" });
+    await harness.container.sessionApplication.createSession({ sessionId: "empty-goal-session", ownerUserId: "usr_local", visibility: "private", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
 
     const current = await app.inject({ method: "GET", url: "/api/agent/sessions/empty-goal-session/goals/current" });
     expect(current.json()).toMatchObject({ success: true, data: { goal: null } });

@@ -1,7 +1,7 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
-import { createSession, exportSession } from '../api/session.js';
+import { createSession, exportSession, getSession } from '../api/session.js';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { useSessionRunStore } from '../stores/session-run.js';
@@ -27,6 +27,15 @@ const toEntryAgentOptions = (configs) => Object.values(configs || {})
     defaultEntry: Boolean(config.default_entry),
   }));
 
+export const updateListedSessionActivity = (sessionListStore, sessionId, content, timestamp) => {
+  if (!sessionId) return null;
+  return sessionListStore.updateActivity(sessionId, {
+    lastMessage: (content || '').toString(),
+    activityAt: timestamp || new Date().toISOString(),
+    unreadCount: 0,
+  });
+};
+
 /**
  * 聊天页的会话入口、历史、创建与导出控制。
  */
@@ -44,6 +53,7 @@ export function useChatSessionController(deps) {
   const entryAgentLoading = ref(false);
   const isExportingSession = ref(false);
   let entryAgentLoadSeq = 0;
+  let routeSyncSeq = 0;
 
   const getChatSessionPath = (sessionId) => (sessionId
     ? `/chat/${encodeURIComponent(sessionId)}`
@@ -114,48 +124,27 @@ export function useChatSessionController(deps) {
     await loadEntryAgentOptions(next);
   };
 
-  const loadRecentSessions = async (reset = false) => {
-    try {
-      await sessionListStore.load({ reset });
-    } catch (error) {
-      deps.showToast('加载历史列表失败', retryLoadHistory);
-    }
-    if (reset && currentSessionId.value) {
-      const matched = sessionListStore.getById(currentSessionId.value);
-      if (matched) {
-        pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(matched.metadata?.workspace_root || pendingWorkspaceRoot.value);
-        pendingEntryAgent.value = matched.metadata?.entry_agent || pendingEntryAgent.value;
-        // 只读真实 metadata.team；空则保持空（显示未绑定/默认），不回填 active
-        currentSessionTeam.value = matched.metadata?.team || '';
-      }
-    }
-  };
-
-  const retryLoadHistory = () => {
-    loadRecentSessions(true);
+  const hydrateSessionContext = async (sessionId, listItem = null, isCurrent = () => true) => {
+    const result = await getSession(sessionId);
+    if (!isCurrent()) return false;
+    const detail = result.data;
+    const workspace = detail.workspace || listItem?.workspace || null;
+    pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(workspace?.root_path || '');
+    pendingEntryAgent.value = detail.metadata?.entry_agent || '';
+    currentSessionTeam.value = detail.metadata?.team || '';
+    return true;
   };
 
   /**
-   * 消息流更新列表摘要。不回写 team/entry_agent——
-   * 绑定字段只在 ensureSession 创建时写入，避免把 UI 回填值污染进列表 metadata。
+   * 消息流只更新列表投影字段，不把执行配置混入列表 DTO。
    */
   const updateRecentSession = (sessionId, content, timestamp) => {
     if (!sessionId) return;
-    const time = timestamp || new Date().toISOString();
-    const normalizedContent = (content || '').toString();
-    const summary = normalizedContent.slice(0, 30);
     const normalizedWorkspaceRoot = normalizeWorkspaceRootInput(pendingWorkspaceRoot.value);
     if (currentSessionId.value === sessionId && pendingWorkspaceRoot.value !== normalizedWorkspaceRoot) {
       pendingWorkspaceRoot.value = normalizedWorkspaceRoot;
     }
-    sessionListStore.upsert({
-      session_id: sessionId,
-      title: summary,
-      first_message: summary,
-      last_message: normalizedContent,
-      last_message_at: time,
-      unread_count: 0,
-    });
+    updateListedSessionActivity(sessionListStore, sessionId, content, timestamp);
   };
 
   const exportCurrentSession = async () => {
@@ -202,6 +191,9 @@ export function useChatSessionController(deps) {
   };
 
   const syncSessionFromRoute = async (sessionId) => {
+    if (sessionId === currentSessionId.value) return;
+    const seq = ++routeSyncSeq;
+    const isCurrent = () => seq === routeSyncSeq && currentSessionId.value === sessionId;
     if (sessionId && sessionId !== currentSessionId.value) {
       deps.disconnectSessionWS();
       deps.invalidateActiveStream();
@@ -209,12 +201,12 @@ export function useChatSessionController(deps) {
       isLoading.value = false;
       currentSessionId.value = sessionId;
       const matched = sessionListStore.getById(sessionId);
-      pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(matched?.metadata?.workspace_root || '');
-      pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
-      currentSessionTeam.value = matched?.metadata?.team || '';
+      if (!await hydrateSessionContext(sessionId, matched, isCurrent)) return;
       deps.clearComposerAttachments();
       await deps.loadSessionMessages(sessionId);
+      if (!isCurrent()) return;
       await deps.loadSessionFiles(sessionId);
+      if (!isCurrent()) return;
       deps.resetSessionEventCursor?.(sessionId);
       deps.connectSessionWS(sessionId);
       // 消息加载完成后独立检查任务状态（不在 loadSessionMessages 内部调用）
@@ -227,9 +219,10 @@ export function useChatSessionController(deps) {
      deps.invalidateActiveStream();
       deps.clearExecutionState({ resetContextUsage: true });
      isLoading.value = false;
-     currentSessionId.value = null;
+      currentSessionId.value = null;
       deps.sessionFiles.value = [];
       await resetNewSessionSetup();
+      if (!isCurrent()) return;
       deps.clearComposerAttachments();
       messages.value = [];
       deps.sessionFilesDrawerVisible.value = false;
@@ -251,10 +244,11 @@ export function useChatSessionController(deps) {
     const team = currentSessionTeam.value.trim();
     const metadata = {
       ...(team ? { team } : {}),
-      ...(workspaceRoot ? { workspace_root: workspaceRoot } : {}),
       ...(entryAgent ? { entry_agent: entryAgent } : {}),
     };
-    const body = {};
+    const body = workspaceRoot
+      ? { workspace: { kind: 'local_path', root_path: workspaceRoot } }
+      : {};
     if (Object.keys(metadata).length > 0) {
       body.metadata = metadata;
     }
@@ -265,22 +259,23 @@ export function useChatSessionController(deps) {
       // 服务端返回优先，本地选择作兜底
       const sessionMetadata = {
         ...(team ? { team } : {}),
-        ...(workspaceRoot ? { workspace_root: workspaceRoot } : {}),
         ...(entryAgent ? { entry_agent: entryAgent } : {}),
         ...(result.data?.metadata || {}),
       };
-      sessionListStore.upsert({
+      const createdListItem = {
         session_id: sessionId,
-        user_id: result.data?.user_id || null,
-        permission_mode: result.data?.permission_mode || null,
-        title: result.data?.title || 'New Conversation',
+        title: '新会话',
         first_message: '',
         last_message: '',
-        last_message_at: result.data?.last_message_at || now,
+        activity_at: now,
         unread_count: 0,
-        metadata: sessionMetadata,
-      });
-      pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(sessionMetadata.workspace_root || '');
+        origin: result.data.origin,
+        workspace: result.data.workspace,
+      };
+      sessionListStore.upsert(createdListItem);
+      sessionListStore.syncCreatedSessionFacets(createdListItem);
+      void sessionListStore.loadFacets().catch(() => undefined);
+      pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(result.data.workspace?.root_path || workspaceRoot);
       pendingEntryAgent.value = sessionMetadata.entry_agent || '';
       currentSessionTeam.value = sessionMetadata.team || '';
       if (currentSessionId.value !== sessionId) {
@@ -307,7 +302,6 @@ export function useChatSessionController(deps) {
     loadEntryAgentOptions,
     loadActiveTeam,
     setPendingTeam,
-    loadRecentSessions,
     exportCurrentSession,
     updateRecentSession,
     syncSessionFromRoute,

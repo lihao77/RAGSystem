@@ -23,7 +23,11 @@ export async function resolveSessionMetadataPort(
   let pending = Promise.resolve();
   return {
     getSession: (id) => id === sessionId && current
-      ? { metadata: current.metadata ?? {}, user_id: current.user_id }
+      ? {
+          metadata: current.metadata ?? {},
+          owner_user_id: current.owner_user_id,
+          workspace_id: current.workspace_id,
+        }
       : null,
     updateSessionMetadata: (id, patch) => {
       if (id !== sessionId || !current) return null;
