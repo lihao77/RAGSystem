@@ -61,6 +61,8 @@ describe("PostgreSQL websocket tickets", () => {
     expect(POSTGRES_WS_TICKET_MIGRATIONS[0]?.sql).toContain("CREATE TABLE IF NOT EXISTS websocket_tickets");
     expect(POSTGRES_WS_TICKET_MIGRATIONS[0]?.sql).toContain("ticket_hash TEXT PRIMARY KEY");
     expect(POSTGRES_WS_TICKET_MIGRATIONS[0]?.sql).toContain("expires_at TIMESTAMPTZ NOT NULL");
+    expect(POSTGRES_WS_TICKET_MIGRATIONS[1]).toMatchObject({ version: 2, name: "widget-app-key" });
+    expect(POSTGRES_WS_TICKET_MIGRATIONS[1]?.sql).toContain("ADD COLUMN IF NOT EXISTS widget_app_key");
   });
 
   it("issues on one process and atomically consumes on another", async () => {

@@ -85,6 +85,9 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   );
   await systemConfig.initialize();
   const mcp = await conversationRuntime.providerMcpApplication.resolveMcpRuntime(tenantId);
+  // Prime MCP status once per tenant runtime without delaying the HTTP request
+  // that caused the runtime to be created. Session WebSocket setup performs an
+  // idempotent confirmation before the agent starts using MCP tools.
   void mcp.autoConnectEnabledServers();
   agentConfig.setMcpService(mcp);
 
@@ -236,6 +239,4 @@ export async function prepareSaaSRuntimeContainer(
     await conversationRuntime.providerMcpApplication.listProviders(tenantId),
   );
   await runtime.systemConfig.reload();
-  const mcp = await conversationRuntime.providerMcpApplication.resolveMcpRuntime?.(tenantId);
-  if (mcp && mcp !== runtime.mcp) throw new Error("SaaS MCP runtime identity changed while the tenant runtime was leased");
 }

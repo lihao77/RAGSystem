@@ -16,9 +16,10 @@ export class SaaSMcpRuntime {
     private readonly config: SaaSMcpConfigSource,
   ) {}
 
-  async refresh(): Promise<McpService> {
+  async refresh(options: { connect?: boolean } = {}): Promise<McpService> {
     this.refreshPromise ??= this.synchronize().finally(() => { this.refreshPromise = null; });
     await this.refreshPromise;
+    if (options.connect === true) await this.service.autoConnectEnabledServers();
     return this.service;
   }
 
@@ -34,9 +35,9 @@ export class SaaSMcpRuntime {
     }
     for (const server of configured) {
       if (this.service.listServers().some((current) => current.name === server.name)) {
-        await this.service.updateServer(server.name, server);
+        await this.service.updateServer(server.name, server, { connect: false });
       } else {
-        await this.service.addServer(server);
+        await this.service.addServer(server, { connect: false });
       }
     }
   }
@@ -47,13 +48,13 @@ export class SaaSMcpRuntimeRegistry {
 
   constructor(private readonly config: SaaSMcpConfigSource) {}
 
-  async resolve(tenantId: TenantId): Promise<McpService> {
+  async resolve(tenantId: TenantId, options: { connect?: boolean } = {}): Promise<McpService> {
     let runtime = this.runtimes.get(tenantId);
     if (!runtime) {
       runtime = new SaaSMcpRuntime(tenantId, this.config);
       this.runtimes.set(tenantId, runtime);
     }
-    return runtime.refresh();
+    return runtime.refresh(options);
   }
 
   /** Drop a tenant MCP runtime when the tenant container is idle-closed. */

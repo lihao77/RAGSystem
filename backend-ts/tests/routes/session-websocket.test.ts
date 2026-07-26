@@ -55,6 +55,7 @@ describe("session websocket route", () => {
   it("accepts an issued ticket once and rejects replay", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
+    const confirmMcpConnections = vi.spyOn(harness.container.mcp, "autoConnectEnabledServers").mockResolvedValue();
     const created = await app.inject({
       method: "POST",
       url: "/api/agent/sessions",
@@ -70,6 +71,7 @@ describe("session websocket route", () => {
     const path = `/api/agent/sessions/ws-ticket-session/ws?ticket=${encodeURIComponent(ticket)}`;
 
     const client = await connectWs(app, path);
+    expect(confirmMcpConnections).toHaveBeenCalledOnce();
     client.ws.terminate();
     await expect(app.injectWS(path)).rejects.toThrow();
   });

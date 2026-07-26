@@ -190,7 +190,7 @@ export class McpService {
     }
   }
 
-  async addServer(payload: McpServerCreate): Promise<{ name: string }> {
+  async addServer(payload: McpServerCreate, options: { connect?: boolean } = {}): Promise<{ name: string }> {
     const config = normalizeServerConfig(payload);
     if (this.servers.has(config.name)) {
       throw new McpServiceError(`MCP Server 已存在: ${config.name}`, 400);
@@ -198,11 +198,11 @@ export class McpService {
     config.created_at = new Date().toISOString();
     this.servers.set(config.name, config);
     this.saveServersToDisk();
-    await this.connectIfAutoEnabled(config.name);
+    if (options.connect !== false) await this.connectIfAutoEnabled(config.name);
     return { name: config.name };
   }
 
-  async updateServer(serverName: string, payload: McpServerPayload): Promise<McpServerStatus> {
+  async updateServer(serverName: string, payload: McpServerPayload, options: { connect?: boolean } = {}): Promise<McpServerStatus> {
     const existing = this.servers.get(serverName);
     if (!existing) {
       throw new McpServiceError(`MCP Server not found: ${serverName}`, 404);
@@ -223,7 +223,7 @@ export class McpService {
     this.saveServersToDisk();
     if (connectionChanged) {
       this.disconnectServer(serverName);
-      await this.connectIfAutoEnabled(serverName);
+      if (options.connect !== false) await this.connectIfAutoEnabled(serverName);
     } else {
       // 非连接字段变更:刷新已连接 state 的 config,让 risk_level/tool_risk_overrides 等立即生效
       // (state.config 是连接时的快照,不刷新则 getServerStatus/listServerTools/createMcpTools 仍读旧值)。
@@ -233,7 +233,7 @@ export class McpService {
       }
       if (!merged.enabled && existing.enabled) {
         this.disconnectServer(serverName);
-      } else if (merged.enabled && merged.auto_connect) {
+      } else if (options.connect !== false && merged.enabled && merged.auto_connect) {
         const status = this.getServerStatus(serverName).status;
         if (status !== "connected" && status !== "connecting") {
           await this.connectIfAutoEnabled(serverName);

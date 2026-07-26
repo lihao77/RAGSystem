@@ -4,6 +4,8 @@
 .agents
 **/node_modules
 **/dist
+**/.tmp
+**/.test-data
 desktop-electron/release
 backend-fastapi
 docker-data

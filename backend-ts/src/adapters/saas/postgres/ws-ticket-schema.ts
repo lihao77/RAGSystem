@@ -11,7 +11,6 @@ export const POSTGRES_WS_TICKET_MIGRATIONS: readonly PostgresWsTicketMigration[]
       role TEXT NOT NULL,
       permissions JSONB NOT NULL,
       platform_role TEXT,
-      widget_app_key TEXT,
       session_id TEXT NOT NULL,
       expires_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -21,5 +20,12 @@ export const POSTGRES_WS_TICKET_MIGRATIONS: readonly PostgresWsTicketMigration[]
     );
     CREATE INDEX IF NOT EXISTS websocket_tickets_tenant_expires_idx
       ON websocket_tickets(tenant_id, expires_at);
+  `,
+}, {
+  version: 2,
+  name: "widget-app-key",
+  sql: `
+    ALTER TABLE websocket_tickets
+      ADD COLUMN IF NOT EXISTS widget_app_key TEXT;
   `,
 }];

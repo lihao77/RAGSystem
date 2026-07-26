@@ -12,8 +12,8 @@ export class SaaSProviderMcpApplication {
 
   constructor(private readonly repository: ProviderMcpRepository) {}
 
-  resolveMcpRuntime(tenantId: TenantId): Promise<McpService> {
-    return this.runtimes.resolve(tenantId);
+  resolveMcpRuntime(tenantId: TenantId, options: { connect?: boolean } = {}): Promise<McpService> {
+    return this.runtimes.resolve(tenantId, options);
   }
 
   /** Release tenant MCP connections when the tenant runtime is idle-closed. */

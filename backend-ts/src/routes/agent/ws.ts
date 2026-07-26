@@ -105,6 +105,13 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
           cleanup();
           return;
         }
+        // Refresh tenant configuration first so another backend replica cannot
+        // reconnect a server that was disabled or changed elsewhere. This only
+        // reads configuration; the network confirmation remains session-bound.
+        await applications.mcp.listServers();
+        // MCP is an optional session capability. Confirm enabled connections when
+        // the session channel is established, never on unrelated page APIs.
+        await container.mcp.autoConnectEnabledServers();
         const afterSeq = parseSeqCursor(request.query.after_seq);
         let lastSeq = afterSeq ?? 0;
         let boundRunId: string | null = null;
