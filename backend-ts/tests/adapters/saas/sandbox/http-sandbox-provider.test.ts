@@ -39,6 +39,29 @@ describe("RemoteHttpSandboxProvider", () => {
       .rejects.toThrow("owner mismatch");
   });
 
+  it("uses a privileged staging endpoint and forwards provider-enforced read limits", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ size: 5 }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ content: "aGVsbG8=", size: 5 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new RemoteHttpSandboxProvider({ baseUrl: "https://sandbox.example", token: "top-secret" });
+    const scopedLease = {
+      id: "provider-id",
+      owner: { tenantId: "tenant-a" as never, userId: "user-a", sessionId: "session-a", runId: "run-a" },
+      createdAt: "2026-07-26T00:00:00.000Z",
+    };
+
+    await provider.stageInputFile(scopedLease, {
+      path: "/input/uploads/a.txt", content: "aGVsbG8=", encoding: "base64", contentType: "text/plain",
+    });
+    await provider.readFile(scopedLease, {
+      path: "/output/a.txt", encoding: "base64", maxBytes: 1024,
+    });
+
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("/files/stage-input");
+    expect(JSON.parse(String(fetchMock.mock.calls[1]![1]?.body))).toMatchObject({ maxBytes: 1024 });
+  });
+
   it("forbids cleartext remote endpoints but permits local development HTTP", () => {
     expect(() => new RemoteHttpSandboxProvider({ baseUrl: "http://sandbox.internal", token: "x" })).toThrow("HTTPS");
     expect(() => new RemoteHttpSandboxProvider({ baseUrl: "http://127.0.0.1:8080", token: "x" })).not.toThrow();

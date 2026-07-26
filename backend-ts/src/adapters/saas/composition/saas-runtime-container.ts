@@ -28,6 +28,7 @@ import { createPostgresExecutionStorage } from "../postgres/postgres-execution-s
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
 import type { SaaSMemoryRuntimeHandle } from "./saas-memory-runtime.js";
 import type { SandboxProvider } from "../../../contracts/sandbox/sandbox-provider.js";
+import { SaaSSandboxFileBridge } from "../sandbox/sandbox-file-bridge.js";
 import { SandboxLeaseManager } from "../sandbox/sandbox-lease-manager.js";
 import {
   SaaSSandboxBashToolService,
@@ -121,8 +122,9 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   const artifacts = conversationRuntime.createArtifactService(tenantId);
   const memory = memoryRuntime.provider.memoryForTenant(tenantId);
   const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
+  const sandboxFileBridge = options.sandboxProvider ? new SaaSSandboxFileBridge(sessionFiles) : null;
   const sandboxLeases = options.sandboxProvider
-    ? new SandboxLeaseManager(tenantId, options.sandboxProvider, options.sandboxLeaseTimeoutSeconds)
+    ? new SandboxLeaseManager(tenantId, options.sandboxProvider, options.sandboxLeaseTimeoutSeconds, sandboxFileBridge ?? undefined)
     : null;
   const documentTools = sandboxLeases ? new SaaSSandboxDocumentToolService(sandboxLeases) : null;
   const searchTools = sandboxLeases ? new SaaSSandboxSearchToolService(sandboxLeases) : null;
@@ -138,7 +140,19 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     ...((options.hooks || sandboxLeases) ? { hooks: (registry: HookRegistry) => {
       options.hooks?.(registry);
       if (sandboxLeases) {
-        registry.on("run.after", ({ session }) => sandboxLeases.releaseRun(session.sessionId, session.runId));
+        registry.on("run.after", async ({ session }) => {
+          try {
+            await sandboxLeases.releaseRun(session.sessionId, session.runId);
+          } catch (error) {
+            options.logger?.error({
+              tenantId,
+              sessionId: session.sessionId,
+              runId: session.runId,
+              error: error instanceof Error ? error.message : String(error),
+            }, "Sandbox output collection or cleanup failed");
+            throw error;
+          }
+        });
       }
     } } : {}),
     clientEvents,

@@ -35,6 +35,7 @@ function providerHarness() {
   const provider: SandboxProvider = {
     create,
     destroy,
+    stageInputFile: vi.fn(async (_lease, input) => ({ size: Buffer.from(input.content, "base64").byteLength })),
     readFile: vi.fn(async () => ({ content: "", size: 0 })),
     writeFile: vi.fn(async () => ({ size: 0 })),
     editFile: vi.fn(async () => ({ size: 0, replacements: 0 })),

@@ -12,6 +12,7 @@ import { resolveSandboxPath, validateSandboxGlob } from "./sandbox-paths.js";
 import { SandboxLeaseManager } from "./sandbox-lease-manager.js";
 
 const DEFAULT_READ_LINES = 2_000;
+const MAX_TOOL_FILE_BYTES = 16 * 1024 * 1024;
 
 export class SaaSSandboxDocumentToolService implements DocumentToolPort {
   constructor(private readonly leases: SandboxLeaseManager) {}
@@ -25,6 +26,7 @@ export class SaaSSandboxDocumentToolService implements DocumentToolPort {
       const result = await this.leases.withLease(context, (lease, provider) => provider.readFile(lease, {
         path: file.internalPath,
         encoding: normalizeEncoding(input.encoding),
+        maxBytes: MAX_TOOL_FILE_BYTES,
         signal: context.signal,
       }));
       const lines = result.content.split(/\r?\n/);
@@ -111,6 +113,7 @@ export class SaaSSandboxDocumentToolService implements DocumentToolPort {
       const result = await this.leases.withLease(context, (lease, provider) => provider.previewFile(lease, {
         path: file.internalPath,
         encoding: normalizeEncoding(input.encoding),
+        maxBytes: MAX_TOOL_FILE_BYTES,
         maxPreviewRows,
         maxDepth,
         maxFields,

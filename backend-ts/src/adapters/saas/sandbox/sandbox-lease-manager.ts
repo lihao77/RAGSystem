@@ -8,6 +8,11 @@ interface LeaseEntry {
   leasePromise: Promise<SandboxLease>;
 }
 
+export interface SandboxLeaseLifecycle {
+  prepare(lease: SandboxLease, owner: SandboxOwner, provider: SandboxProvider): Promise<void>;
+  collectOutputs(lease: SandboxLease, owner: SandboxOwner, provider: SandboxProvider): Promise<void>;
+}
+
 /** Tenant-bound run lease registry. A lease can only be retrieved through its full owner identity. */
 export class SandboxLeaseManager {
   private readonly entries = new Map<string, LeaseEntry>();
@@ -18,6 +23,7 @@ export class SandboxLeaseManager {
     private readonly tenantId: TenantId,
     private readonly provider: SandboxProvider,
     private readonly timeoutSeconds = 900,
+    private readonly lifecycle?: SandboxLeaseLifecycle,
   ) {}
 
   async getOrCreate(context: ToolExecContext): Promise<SandboxLease> {
@@ -37,8 +43,14 @@ export class SandboxLeaseManager {
       timeoutSeconds: this.timeoutSeconds,
       filesystem: { input: "read_only", work: "read_write", output: "read_write" },
     })
-      .then((lease) => {
+      .then(async (lease) => {
         assertSameOwner(lease.owner, owner);
+        try {
+          await this.lifecycle?.prepare(lease, owner, this.provider);
+        } catch (error) {
+          await this.provider.destroy(lease).catch(() => undefined);
+          throw error;
+        }
         return lease;
       })
       .catch((error) => {
@@ -61,7 +73,7 @@ export class SandboxLeaseManager {
     await this.releaseOwner(this.resolveOwner(context));
   }
 
-  async releaseOwner(owner: SandboxOwner): Promise<void> {
+  async releaseOwner(owner: SandboxOwner, options: { collectOutputs?: boolean } = {}): Promise<void> {
     if (owner.tenantId !== this.tenantId) throw new Error("Cannot release a sandbox owned by another tenant");
     const key = ownerKey(owner);
     const entry = this.entries.get(key);
@@ -69,14 +81,20 @@ export class SandboxLeaseManager {
     assertSameOwner(entry.owner, owner);
     this.entries.delete(key);
     const lease = await entry.leasePromise;
-    await this.provider.destroy(lease);
+    try {
+      if (options.collectOutputs) await this.lifecycle?.collectOutputs(lease, owner, this.provider);
+    } finally {
+      await this.provider.destroy(lease);
+    }
   }
 
   async releaseRun(sessionId: string, runId: string): Promise<void> {
     const matching = [...this.entries.values()].filter((entry) =>
       entry.owner.sessionId === sessionId && entry.owner.runId === runId,
     );
-    await Promise.allSettled(matching.map((entry) => this.releaseOwner(entry.owner)));
+    const results = await Promise.allSettled(matching.map((entry) => this.releaseOwner(entry.owner, { collectOutputs: true })));
+    const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (failures.length) throw new AggregateError(failures, "Sandbox output collection or cleanup failed");
   }
 
   async closeAll(): Promise<void> {

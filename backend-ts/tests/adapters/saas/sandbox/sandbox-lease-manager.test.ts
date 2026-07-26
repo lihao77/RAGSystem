@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
 
 import type { SandboxLease, SandboxProvider } from "../../../../src/contracts/sandbox/sandbox-provider.js";
-import { SandboxLeaseManager } from "../../../../src/adapters/saas/sandbox/sandbox-lease-manager.js";
+import { SandboxLeaseManager, type SandboxLeaseLifecycle } from "../../../../src/adapters/saas/sandbox/sandbox-lease-manager.js";
 
 describe("SandboxLeaseManager", () => {
   it("shares a lease only for the same tenant/user/session/run identity", async () => {
@@ -42,6 +42,47 @@ describe("SandboxLeaseManager", () => {
     expect(provider.destroy).toHaveBeenCalledTimes(2);
     await expect(manager.getOrCreate(context({ runId: "run-c" }))).rejects.toThrow("closed");
   });
+
+  it("prepares inputs before exposing a lease and collects outputs before destroy", async () => {
+    const provider = fakeProvider();
+    const order: string[] = [];
+    vi.mocked(provider.destroy).mockImplementation(async () => { order.push("destroy"); });
+    const lifecycle: SandboxLeaseLifecycle = {
+      prepare: vi.fn(async () => { order.push("prepare"); }),
+      collectOutputs: vi.fn(async () => { order.push("collect"); }),
+    };
+    const manager = new SandboxLeaseManager("tenant-a" as never, provider, 900, lifecycle);
+
+    await manager.getOrCreate(context());
+    expect(order).toEqual(["prepare"]);
+    await manager.releaseRun("session-a", "run-a");
+    expect(order).toEqual(["prepare", "collect", "destroy"]);
+  });
+
+  it("destroys a newly created sandbox when input staging fails", async () => {
+    const provider = fakeProvider();
+    const lifecycle: SandboxLeaseLifecycle = {
+      prepare: vi.fn(async () => { throw new Error("staging failed"); }),
+      collectOutputs: vi.fn(async () => undefined),
+    };
+    const manager = new SandboxLeaseManager("tenant-a" as never, provider, 900, lifecycle);
+
+    await expect(manager.getOrCreate(context())).rejects.toThrow("staging failed");
+    expect(provider.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("still destroys the lease and reports a failed output collection", async () => {
+    const provider = fakeProvider();
+    const lifecycle: SandboxLeaseLifecycle = {
+      prepare: vi.fn(async () => undefined),
+      collectOutputs: vi.fn(async () => { throw new Error("collection failed"); }),
+    };
+    const manager = new SandboxLeaseManager("tenant-a" as never, provider, 900, lifecycle);
+    await manager.getOrCreate(context());
+
+    await expect(manager.releaseRun("session-a", "run-a")).rejects.toThrow("output collection or cleanup failed");
+    expect(provider.destroy).toHaveBeenCalledTimes(1);
+  });
 });
 
 function context(overrides: Partial<ToolExecContext> = {}): ToolExecContext {
@@ -59,6 +100,7 @@ function fakeProvider(): SandboxProvider {
   return {
     create,
     destroy: vi.fn(async () => undefined),
+    stageInputFile: vi.fn(async (_lease, input) => ({ size: Buffer.from(input.content, "base64").byteLength })),
     readFile: vi.fn(async () => ({ content: "", size: 0 })),
     writeFile: vi.fn(async () => ({ size: 0 })),
     editFile: vi.fn(async () => ({ size: 0, replacements: 1 })),

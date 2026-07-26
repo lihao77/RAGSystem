@@ -68,6 +68,11 @@ export class RemoteHttpSandboxProvider implements SandboxProvider {
     await this.request("DELETE", this.sandboxPath(lease));
   }
 
+  async stageInputFile(lease: SandboxLease, input: Parameters<SandboxProvider["stageInputFile"]>[1]): Promise<SandboxFileWriteResult> {
+    const body = requireRecord(await this.request("POST", `${this.sandboxPath(lease)}/files/stage-input`, input), "stage input response");
+    return { size: requireNumber(body.size, "size") };
+  }
+
   async readFile(lease: SandboxLease, input: Parameters<SandboxProvider["readFile"]>[1]): Promise<SandboxFileReadResult> {
     return requireReadResult(await this.request("POST", `${this.sandboxPath(lease)}/files/read`, withoutSignal(input), input.signal));
   }

@@ -50,6 +50,7 @@ function fakeProvider(): SandboxProvider {
   const lease: SandboxLease = { id: "sandbox-a", owner: { tenantId: "tenant-a" as never, userId: "user-a", sessionId: "session-a", runId: "run-a" }, createdAt: new Date().toISOString() };
   return {
     create: vi.fn(async () => lease), destroy: vi.fn(async () => undefined),
+    stageInputFile: vi.fn(async (_lease, input) => ({ size: Buffer.from(input.content, "base64").byteLength })),
     readFile: vi.fn(async () => ({ content: "hello", size: 5 })), writeFile: vi.fn(async () => ({ size: 5 })),
     editFile: vi.fn(async () => ({ size: 5, replacements: 1 })), glob: vi.fn(async () => ({ files: [], truncated: false })),
     grep: vi.fn(async () => ({ matches: [], scannedFiles: 0, truncated: false })), previewFile: vi.fn(async () => ({ fileType: "text", fileSize: 5, structure: {} })),

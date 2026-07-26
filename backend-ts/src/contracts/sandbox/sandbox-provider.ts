@@ -87,9 +87,18 @@ export interface SandboxProvider {
     };
   }): Promise<SandboxLease>;
   destroy(lease: SandboxLease): Promise<void>;
+  /** Privileged control-plane copy into the otherwise read-only input mount. */
+  stageInputFile(lease: SandboxLease, input: {
+    path: string;
+    content: string;
+    encoding: "base64";
+    contentType: string;
+  }): Promise<SandboxFileWriteResult>;
   readFile(lease: SandboxLease, input: {
     path: string;
     encoding: string;
+    /** Provider-enforced response limit. The provider must reject larger files before returning content. */
+    maxBytes?: number | undefined;
     signal?: AbortSignal | undefined;
   }): Promise<SandboxFileReadResult>;
   writeFile(lease: SandboxLease, input: {
@@ -107,6 +116,7 @@ export interface SandboxProvider {
     signal?: AbortSignal | undefined;
   }): Promise<SandboxFileEditResult>;
   glob(lease: SandboxLease, input: {
+    /** Results must be file paths relative to this root, never absolute paths. */
     root: string;
     pattern: string;
     recursive: boolean;
@@ -125,6 +135,7 @@ export interface SandboxProvider {
   previewFile(lease: SandboxLease, input: {
     path: string;
     encoding: string;
+    maxBytes: number;
     maxPreviewRows: number;
     maxDepth: number;
     maxFields: number;
