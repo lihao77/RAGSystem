@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AttachmentRefSchema,
+  AttachmentsExtensionSchema,
   ClientToServerEnvelopeSchema,
   ServerToClientEnvelopeSchema,
 } from "../src/protocol.js";
@@ -10,6 +12,31 @@ import {
 } from "../src/envelope-delivery.js";
 
 describe("agent-protocol envelope compatibility", () => {
+  it("上行附件严格只接受 file_id", () => {
+    expect(AttachmentRefSchema.parse({ file_id: "file-1" })).toEqual({ file_id: "file-1" });
+    expect(() => AttachmentRefSchema.parse({
+      file_id: "file-1",
+      stored_path: "private/object-key",
+    })).toThrow();
+  });
+
+  it("校验唯一的 attachments@v1 消息扩展", () => {
+    expect(AttachmentsExtensionSchema.parse({
+      kind: "attachments",
+      version: 1,
+      data: {
+        items: [{
+          file_id: "file-1",
+          original_name: "hostMCP.png",
+          stored_name: "file-1_hostMCP.png",
+          mime: "image/png",
+          size: 3,
+          kind: "image",
+        }],
+      },
+    })).toMatchObject({ kind: "attachments", version: 1 });
+  });
+
   it("保留 typed envelope 的公共游标和路由字段", () => {
     const parsed = ServerToClientEnvelopeSchema.parse({
       type: "run_started",

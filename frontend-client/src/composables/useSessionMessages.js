@@ -2,6 +2,7 @@ import { ref, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import { getSessionMessages } from '../api/session.js';
 import { useSessionRunStore } from '../stores/session-run.js';
+import { getMessageAttachments } from '../utils/messageExtensions.js';
 
 /**
  * 会话消息加载、缓存、合并。
@@ -114,18 +115,7 @@ export function useSessionMessages(deps) {
               metadata: item.metadata || {},
             };
           }
-          // 后端写入侧已拆分:file 留 metadata.attachments,image 进 metadata.extensions[image_attachment]。
-          // 渲染层(UserMessage)统一读 msg.attachments,故此处合并两者(都过 normalizeAttachment)。
-          const fileAttachments = Array.isArray(item.metadata?.attachments)
-            ? item.metadata.attachments.map(deps.normalizeAttachment).filter(Boolean)
-            : [];
-          const imageExt = Array.isArray(item.metadata?.extensions)
-            ? item.metadata.extensions.find((e) => e && e.kind === 'image_attachment')
-            : null;
-          const imageAttachments = imageExt && Array.isArray(imageExt.data?.attachments)
-            ? imageExt.data.attachments.map(deps.normalizeAttachment).filter(Boolean)
-            : [];
-          const attachments = [...imageAttachments, ...fileAttachments];
+          const attachments = getMessageAttachments(item.metadata);
           return { role: 'user', id: item.id, seq: item.seq, content: item.content || '', metadata: item.metadata || {}, attachments };
         });
       if (!isCurrent()) return;

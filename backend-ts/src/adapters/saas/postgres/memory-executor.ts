@@ -4,6 +4,7 @@ import type {
   PostgresMemoryExecutor,
   PostgresQueryResult,
 } from "./memory-repository.js";
+import { sanitizePostgresParams } from "./parameter-sanitizer.js";
 
 function memoryQueryResult<Row extends Record<string, unknown>>(
   result: QueryResult<QueryResultRow>,
@@ -21,7 +22,10 @@ class PgClientMemoryExecutor implements PostgresMemoryExecutor {
     sql: string,
     params?: readonly unknown[],
   ): Promise<PostgresQueryResult<Row>> {
-    const result = await this.client.query(sql, params == null ? undefined : [...params]);
+    const result = await this.client.query(
+      sql,
+      params == null ? undefined : sanitizePostgresParams(sql, params),
+    );
     return memoryQueryResult<Row>(result);
   }
 
@@ -38,7 +42,10 @@ export class PgPoolMemoryExecutor implements PostgresMemoryExecutor {
     sql: string,
     params?: readonly unknown[],
   ): Promise<PostgresQueryResult<Row>> {
-    const result = await this.pool.query(sql, params == null ? undefined : [...params]);
+    const result = await this.pool.query(
+      sql,
+      params == null ? undefined : sanitizePostgresParams(sql, params),
+    );
     return memoryQueryResult<Row>(result);
   }
 

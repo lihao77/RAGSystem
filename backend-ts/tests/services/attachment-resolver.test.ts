@@ -22,14 +22,13 @@ const record = {
 describe("AttachmentResolver", () => {
   it("resolves attachments through the asynchronous session-file port", async () => {
     const get = vi.fn<SessionFileLookupPort["get"]>().mockResolvedValue(record);
-    const resolver = new AttachmentResolver({ get });
+    const resolver = new AttachmentResolver({ get, read: vi.fn().mockResolvedValue(null) });
 
     await expect(resolver.resolve("session-1", [{ file_id: "file-1" }])).resolves.toEqual({
       attachments: [{
         file_id: "file-1",
         original_name: "photo.png",
         stored_name: "stored-photo.png",
-        stored_path: "sessions/session-1/uploads/stored-photo.png",
         mime: "image/png",
         size: 42,
         kind: "image",
@@ -39,7 +38,7 @@ describe("AttachmentResolver", () => {
   });
 
   it("rejects files that are missing from the current session", async () => {
-    const resolver = new AttachmentResolver({ get: vi.fn().mockResolvedValue(null) });
+    const resolver = new AttachmentResolver({ get: vi.fn().mockResolvedValue(null), read: vi.fn().mockResolvedValue(null) });
 
     await expect(resolver.resolve("session-1", [{ file_id: "missing" }])).resolves.toEqual({
       attachments: [],

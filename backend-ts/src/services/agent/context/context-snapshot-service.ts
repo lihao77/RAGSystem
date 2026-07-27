@@ -5,6 +5,7 @@ import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import { buildBackendAgentContext } from "./backend-context-builder.js";
 import type { ConversationHistoryPort, SessionMetadataPort } from "./types.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
+import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 
 export async function previewBackendAgentContext(
   agent: AgentConfig,
@@ -17,6 +18,7 @@ export async function previewBackendAgentContext(
     sessionId: string;
     threadKey?: string | null;
     memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
+    sessionFiles?: SessionFileLookupPort | null;
   },
 ): Promise<Awaited<ReturnType<typeof buildBackendAgentContext>> & { preview: PreviewResult }> {
   const context = await buildBackendAgentContext(agent, profile, historyPort, {

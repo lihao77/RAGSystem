@@ -8,10 +8,7 @@ import type {
   RollbackRetryStartResult,
   StreamExecuteRequest,
 } from "../../../contracts/execution/execution.js";
-import {
-  AttachmentRefSchema,
-  getSelectedLlm as resolveSelectedLlm,
-} from "../../../contracts/execution/execution.js";
+import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/execution/execution.js";
 import {
   toSessionIdentity,
   type MessageInfo,
@@ -39,6 +36,7 @@ import type { BackgroundTaskService } from "../../runtime/background-task-servic
 import type { Goal, GoalStore } from "../../../contracts/runtime/goals.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
+import { AttachmentsExtensionSchema } from "@ragsystem/agent-protocol";
 
 type StartedRunHandle = ReturnType<AgentRunEngine["startRun"]>;
 
@@ -256,10 +254,19 @@ class AgentLaunchers {
       return { kind: "error", sessionId, error: "Task and attachments cannot both be empty" };
     }
 
-    if (input.followupPolicy === "reject") {
+    if (input.followupPolicy === "reject" || input.attachments.length > 0) {
       const runningStatus = this.statusTracker.getStatusBySession(sessionId);
       const durableRunId = await this.durableActiveRunId(sessionId);
       if (runningStatus?.status === "running" || durableRunId) {
+        if (input.attachments.length > 0 && input.followupPolicy === "queue") {
+          return {
+            kind: "error",
+            sessionId,
+            runId: runningStatus?.run_id ?? durableRunId,
+            taskId: runningStatus?.task_id ?? null,
+            error: "运行中的补充消息暂不支持附件，请等待当前任务结束后重新发送",
+          };
+        }
         return {
           kind: "error",
           sessionId,
@@ -275,12 +282,10 @@ class AgentLaunchers {
       return { kind: "error", sessionId, error: attachmentResolution.error };
     }
 
-    const imageAttachments = attachmentResolution.attachments.filter((attachment) => attachment.kind === "image");
-    const fileAttachments = attachmentResolution.attachments.filter((attachment) => attachment.kind !== "image");
     const extensions: MessageExtension[] = [];
     if (input.uiContext) extensions.push({ kind: "ui_context", data: input.uiContext });
-    if (imageAttachments.length) {
-      extensions.push({ kind: "image_attachment", data: { attachments: imageAttachments } });
+    if (attachmentResolution.attachments.length) {
+      extensions.push({ kind: "attachments", version: 1, data: { items: attachmentResolution.attachments } });
     }
 
     const started = this.launchRun({
@@ -304,7 +309,6 @@ class AgentLaunchers {
               ...(slashCommand.mode === "prompt" ? { expanded_task: slashCommand.expandedTask } : {}),
             }
           : {}),
-        ...(fileAttachments.length ? { attachments: fileAttachments } : {}),
         ...(extensions.length ? { extensions } : {}),
       },
       ...(input.traceMetadata ? { traceMetadata: input.traceMetadata } : {}),
@@ -801,18 +805,13 @@ progress: ${JSON.stringify(goal.progress)}
 }
 
 function extractMessageAttachments(message: MessageInfo): AttachmentRef[] {
-  const candidates: unknown[] = Array.isArray(message.metadata.attachments)
-    ? [...message.metadata.attachments]
-    : [];
   const extensions = Array.isArray(message.metadata.extensions) ? message.metadata.extensions : [];
   for (const extension of extensions) {
-    if (!isRecord(extension) || extension.kind !== "image_attachment" || !isRecord(extension.data)) continue;
-    if (Array.isArray(extension.data.attachments)) candidates.push(...extension.data.attachments);
+    const parsed = AttachmentsExtensionSchema.safeParse(extension);
+    if (!parsed.success) continue;
+    return parsed.data.data.items.map((attachment) => ({ file_id: attachment.file_id }));
   }
-  return candidates.flatMap((candidate) => {
-    const parsed = AttachmentRefSchema.safeParse(candidate);
-    return parsed.success ? [parsed.data] : [];
-  });
+  return [];
 }
 
 function extractMessageUiContext(message: MessageInfo): Record<string, unknown> | null {

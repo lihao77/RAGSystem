@@ -53,8 +53,14 @@ describe("SandboxLeaseManager", () => {
     };
     const manager = new SandboxLeaseManager("tenant-a" as never, provider, 900, lifecycle);
 
-    await manager.getOrCreate(context());
+    await manager.getOrCreate(context({ attachmentFileIds: ["file-a"] }));
     expect(order).toEqual(["prepare"]);
+    expect(lifecycle.prepare).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      provider,
+      { attachmentFileIds: ["file-a"] },
+    );
     await manager.releaseRun("session-a", "run-a");
     expect(order).toEqual(["prepare", "collect", "destroy"]);
   });

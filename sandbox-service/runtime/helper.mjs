@@ -61,7 +61,7 @@ async function readFile(input) {
   if (!stat.isFile()) throw new Error("Sandbox path is not a file");
   if (stat.size > maxBytes) throw new Error(`Sandbox file exceeds maxBytes ${maxBytes}`);
   const content = await fs.readFile(resolved);
-  return { content: content.toString(encoding), size: content.byteLength };
+  return { content: content.toString(encoding).replaceAll("\0", ""), size: content.byteLength };
 }
 
 async function writeFile(input) {

@@ -38,6 +38,10 @@ import { SessionNotificationQueue } from "../../src/services/runtime/session-not
 import { LocalGoalStore } from "../../src/adapters/local/local-goal-store.js";
 import type { GoalStore } from "../../src/contracts/runtime/goals.js";
 import { TaskToolService } from "../../src/tools/TaskTools/TaskExecution.js";
+import type { SessionFileLookupPort } from "../../src/contracts/session/session-file-storage.js";
+import type { DocumentToolPort } from "../../src/contracts/runtime/tool-ports.js";
+import type { ToolExecContext } from "@ragsystem/agent-sdk";
+import { toolSuccess } from "../../src/services/agent/sdk/tool-results.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -52,6 +56,7 @@ interface ServiceHarness {
   llm: LlmMock;
   backgroundTasks: BackgroundTaskService | null;
   goalStore: GoalStore | null;
+  toolContexts: ToolExecContext[];
 }
 
 function minimalAgent(agentName: string): AgentConfig {
@@ -143,6 +148,10 @@ function buildHarness(opts: {
   startFailure?: Error;
   metricsCollector?: AgentMetricsCollector | null;
   goalMode?: boolean;
+  sessionFiles?: SessionFileLookupPort | null;
+  supportsVision?: boolean;
+  enableReadTool?: boolean;
+  llmContents?: string[];
 } = {}): ServiceHarness {
   const mode = opts.mode ?? "ok";
   const ready = opts.ready ?? true;
@@ -171,6 +180,7 @@ function buildHarness(opts: {
   const permissionPolicy = new PermissionPolicyService(store);
   const pendingInteractions = new RuntimeInteractionCoordinator(runtimeStorage, executionClientEvents);
   const agent = minimalAgent("orchestrator_agent");
+  if (opts.enableReadTool) agent.tools = { enabled_tools: ["read_file"] };
   if (opts.goalMode) {
     agent.goals = { enabled: true };
     agent.tasks = { background: true };
@@ -182,18 +192,34 @@ function buildHarness(opts: {
     api_key: "sk-test",
     models: ["deepseek-chat"],
     model_map: { chat: "deepseek-chat" },
+    ...(opts.supportsVision ? { supports_vision: true } : {}),
   };
   const errors: Array<Record<string, unknown>> = [];
   const logger: AgentExecutionLogger | null = opts.logger
     ? { error: (bindings, message) => errors.push({ ...bindings, message }) }
     : null;
-  const llm = mockLlm({ mode, contents: ["the answer"] });
+  const llm = mockLlm({ mode, contents: opts.llmContents ?? ["the answer"] });
   const notificationQueue = opts.goalMode ? new SessionNotificationQueue() : null;
   const backgroundTasks = notificationQueue ? new BackgroundTaskService({ notificationQueue }) : null;
   const goalStore = opts.goalMode ? new LocalGoalStore(LOCAL_TENANT_ID, store) : null;
   const taskTools = backgroundTasks && notificationQueue && goalStore
     ? new TaskToolService(backgroundTasks, notificationQueue, goalStore)
     : null;
+  const toolContexts: ToolExecContext[] = [];
+  const documentTools: DocumentToolPort | null = opts.enableReadTool ? {
+    readFile: async (_input: unknown, context: ToolExecContext) => {
+      toolContexts.push(context);
+      return toolSuccess("attachment body", {
+        toolName: "read_file",
+        summary: "read attachment",
+        outputType: "text",
+      });
+    },
+    writeFile: async () => toolSuccess(null, { toolName: "write_file", summary: "unused", outputType: "text" }),
+    editFile: async () => toolSuccess(null, { toolName: "edit_file", summary: "unused", outputType: "text" }),
+    previewDataStructure: async () => toolSuccess(null, { toolName: "preview_data_structure", summary: "unused", outputType: "text" }),
+    getExternalCandidates: () => [],
+  } : null;
   const service = createAgentExecutionService({
     tenantId: LOCAL_TENANT_ID,
     sessions,
@@ -221,9 +247,25 @@ function buildHarness(opts: {
     goalStore,
     backgroundTasks,
     notificationQueue,
+    sessionFiles: opts.sessionFiles ?? null,
+    ...(documentTools ? {
+      toolsDeps: {
+        memoryTools: null as never,
+        pendingInteractions,
+        documentTools,
+        bashTools: null,
+        taskTools,
+        searchTools: null,
+        knowledge: null,
+        mcp: null,
+        codeExecutionTools: null,
+        skillTools: null,
+        getAgentDelegation: () => null,
+      },
+    } : {}),
   });
   backgroundTasks?.setOnTaskCompleted((sessionId) => service.triggerBgNotificationRun(sessionId));
-  return { service, store, errors, llm, backgroundTasks, goalStore };
+  return { service, store, errors, llm, backgroundTasks, goalStore, toolContexts };
 }
 
 const WAIT = { timeout: 4000, interval: 20 };
@@ -244,6 +286,123 @@ describe("AgentExecutionService (baseline regression)", () => {
     const messages = store.listMessages(sessionId, 50, 0).items;
     expect(messages.filter((message) => message.role === "user" && message.content === "hello world")).toHaveLength(1);
     expect(messages.map((m) => [m.role, m.content])).toContainEqual(["assistant", "the answer"]);
+    store.close();
+  });
+
+  it("persists one attachments extension and projects files plus SaaS-backed image bytes into the first LLM request", async () => {
+    const record = {
+      id: "file-1",
+      original_name: "hostMCP.png",
+      stored_name: "file-1_hostMCP.png",
+      stored_path: "tenants/t1/sessions/attachment-session/attachments/private-object-key",
+      size: 3,
+      mime: "image/png",
+      uploaded_at: "2026-07-27T00:00:00.000Z",
+      uploaded_by: null,
+      indexed_in_vector: false,
+      tags: null,
+      notes: null,
+      scope_type: "session" as const,
+      scope_id: "attachment-session",
+    };
+    const sessionFiles: SessionFileLookupPort = {
+      get: vi.fn(async (sessionId, fileId) => sessionId === "attachment-session" && fileId === record.id ? record : null),
+      read: vi.fn(async (sessionId, fileId) => sessionId === "attachment-session" && fileId === record.id
+        ? { body: Uint8Array.from([1, 2, 3]), contentType: "image/png" }
+        : null),
+    };
+    const { service, store, llm } = buildHarness({ mode: "ok", supportsVision: true, sessionFiles });
+    store.createSession({
+      tenantId: LOCAL_TENANT_ID,
+      sessionId: "attachment-session",
+      ownerUserId: LOCAL_USER_ID,
+      visibility: "private",
+      originType: "direct",
+      originId: null,
+      originChannel: "web",
+      workspaceId: null,
+    });
+
+    const started = await service.startStream({
+      session_id: "attachment-session",
+      task: "识别附件",
+      attachments: [{ file_id: record.id }],
+      userId: LOCAL_USER_ID,
+    }, "req-attachment");
+    expect(started.started).toBe(true);
+    await vi.waitFor(() => expect(service.getSessionTaskStatus("attachment-session").task_info?.status).toBe("completed"), WAIT);
+
+    const user = store.listMessages("attachment-session", 20, 0).items.find((message) => message.role === "user");
+    expect(user?.content).toBe("识别附件");
+    expect(user?.metadata).toMatchObject({
+      extensions: [{
+        kind: "attachments",
+        version: 1,
+        data: { items: [expect.objectContaining({ file_id: record.id, stored_name: record.stored_name })] },
+      }],
+    });
+    expect(user?.metadata).not.toHaveProperty("attachments");
+
+    const requestText = JSON.stringify(llm.requests[0]?.body?.messages ?? []);
+    expect(requestText).toContain("<attachments version=\\\"1\\\">");
+    expect(requestText).toContain("file-1_hostMCP.png");
+    expect(requestText).toContain("data:image/png;base64,AQID");
+    expect(requestText).not.toContain(record.stored_path);
+    expect(sessionFiles.read).toHaveBeenCalledWith("attachment-session", "file-1");
+    store.close();
+  });
+
+  it("passes attachments from the newly persisted first user message into the tool sandbox context", async () => {
+    const record = {
+      id: "file-first-message",
+      original_name: "note.md",
+      stored_name: "file-first-message_note.md",
+      stored_path: "tenants/t1/sessions/first-message-attachment/attachments/private-key",
+      size: 12,
+      mime: "text/markdown",
+      uploaded_at: "2026-07-27T00:00:00.000Z",
+      uploaded_by: null,
+      indexed_in_vector: false,
+      tags: null,
+      notes: null,
+      scope_type: "session" as const,
+      scope_id: "first-message-attachment",
+    };
+    const sessionFiles: SessionFileLookupPort = {
+      get: vi.fn(async (sessionId, fileId) => sessionId === record.scope_id && fileId === record.id ? record : null),
+      read: vi.fn(async () => null),
+    };
+    const { service, store, toolContexts, llm } = buildHarness({
+      sessionFiles,
+      enableReadTool: true,
+      llmContents: [
+        '<tool_calls><tool name="read_file" id="call-read"><![CDATA[{"file_path":"file-first-message_note.md","file_path_space":"uploads"}]]></tool></tool_calls>',
+        "done",
+      ],
+    });
+    store.createSession({
+      tenantId: LOCAL_TENANT_ID,
+      sessionId: record.scope_id,
+      ownerUserId: LOCAL_USER_ID,
+      visibility: "private",
+      originType: "direct",
+      originId: null,
+      originChannel: "web",
+      workspaceId: null,
+    });
+
+    const started = await service.startStream({
+      session_id: record.scope_id,
+      task: "读取附件",
+      attachments: [{ file_id: record.id }],
+      userId: LOCAL_USER_ID,
+    }, "req-first-message-attachment");
+    expect(started.started).toBe(true);
+    await vi.waitFor(() => expect(service.getSessionTaskStatus(record.scope_id).task_info?.status).toBe("completed"), WAIT);
+
+    expect(llm.requests).toHaveLength(2);
+    expect(toolContexts).toHaveLength(1);
+    expect(toolContexts[0]?.attachmentFileIds).toEqual([record.id]);
     store.close();
   });
 

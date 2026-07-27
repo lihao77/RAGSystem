@@ -131,6 +131,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     tenantId,
     sessionApplication,
     realtimeEvents,
+    sessionFiles,
     agentExecution,
     metricsCollector,
     permissionPolicy,

@@ -18,7 +18,7 @@
  */
 export type ExtensionKind =
   | "ui_context"
-  | "image_attachment"
+  | "attachments"
   | "tool_result_media";
 
 /** 渲染插槽:扩展相对 message content 的渲染位置(前端 renderer 用;投影不读)。 */
@@ -27,6 +27,7 @@ export type RenderSlot = "above" | "below" | "replace";
 /** 内容扩展统一载体。 */
 export interface MessageExtension {
   kind: ExtensionKind;
+  version?: number;
   data: Record<string, unknown>;
   /** 渲染插槽(可被 renderer 默认值覆盖);投影不读此字段。 */
   slot?: RenderSlot;

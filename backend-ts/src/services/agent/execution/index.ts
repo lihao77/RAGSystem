@@ -166,6 +166,7 @@ export function createAgentExecutionService(
     params.hooks ?? null,
     params.metricsCollector ?? null,
     params.compressionService ?? null,
+    params.sessionFiles ?? null,
   );
   const launchers = createLaunchers({
     tenantId: params.tenantId,

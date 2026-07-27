@@ -9,6 +9,7 @@ import { DEFAULT_PROVIDER_CACHE_TTL_SECONDS, ProviderCacheTracker } from "./prov
 import { RecentMessagesContextSource } from "./recent-messages-source.js";
 import type { ConversationHistoryPort, SessionMetadataPort } from "./types.js";
 import type { ExecutionMemoryCandidateListPort, MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
+import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 
 export interface BuildBackendAgentContextOptions {
   memoryConfig: MemoryConfig;
@@ -17,6 +18,7 @@ export interface BuildBackendAgentContextOptions {
   threadKey?: string | null;
   touch?: boolean;
   memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
+  sessionFiles?: SessionFileLookupPort | null;
 }
 
 export async function buildBackendAgentContext(
@@ -41,6 +43,7 @@ export async function buildBackendAgentContext(
     historyPort,
     profile.llmTiers.default?.provider.supports_vision === true,
     extensionRegistry,
+    options.sessionFiles ?? null,
   );
   const cacheTracker = new ProviderCacheTracker(
     historyPort,

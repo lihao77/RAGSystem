@@ -4,7 +4,7 @@
  * messagesToConversation 对 user 消息保持 1:1 数量对应(占位只补在 assistant tool_call 后),故按 user 序对齐可靠。
  * 注:user 的 content 可能已被 expanded_task 投影改写(messagesToConversation 内),但本函数消费 rawMessages
  * (原始 user.metadata.extensions)、追加投影进 conversation user content,不读 conversation 原始 content,故不受影响。
- * user 支持 ui_context/image_attachment，tool 支持 tool_result_media；各 projector 自行校验 role。
+ * user 支持 ui_context/attachments，tool 支持 tool_result_media；各 projector 自行校验 role。
  * 投影文本/parts 追加到 content 末尾。
  *
  * 必须在 messagesToConversation 之后调用(content 此时是初始 string);本函数接管所有 extensions 投影。
@@ -16,12 +16,12 @@ import { normalizeExtensions } from "./normalize.js";
 
 type RawMessage = { role: string; metadata: Record<string, unknown> } | null;
 
-export function projectConversationExtensions(
+export async function projectConversationExtensions(
   conversation: ChatMessage[],
   rawMessages: ReadonlyArray<RawMessage>,
   registry: ProjectionRegistry,
   ctxBase: Omit<ProjectContext, "role">,
-): void {
+): Promise<void> {
   for (const [index, msg] of conversation.entries()) {
     const raw = rawMessages[index];
     if (!raw || raw.role !== msg.role) continue;
@@ -30,7 +30,7 @@ export function projectConversationExtensions(
     if (!exts || exts.length === 0) continue;
     const ctx: ProjectContext = { ...ctxBase, role: raw.role };
     for (const ext of exts) {
-      const projected = registry.project(ext, ctx);
+      const projected = await registry.project(ext, ctx);
       if (projected === null || projected === "") continue;
       appendProjection(msg, projected);
     }
@@ -46,8 +46,9 @@ function appendProjection(msg: ChatMessage, projected: ContentPart[] | string): 
   if (typeof projected === "string") {
     if (typeof msg.content === "string") {
       msg.content = `${msg.content}\n${projected}`;
+    } else {
+      msg.content = [...msg.content, { type: "text", text: projected }];
     }
-    // content 已是 ContentPart[] 时,纯字符串投影降级忽略(本期无此场景)
     return;
   }
   if (projected.length === 0) return;

@@ -182,6 +182,6 @@ export function buildDataFileRulesSection(): string {
 - 工具返回的 \`file_path\` 是绝对路径，后续工具直接复用；\`display_path\` 仅用于展示
 - 需要确认数据结构时先用相应工具预览，确认后仍只传路径
 - 需要处理或转换数据时，用执行类工具读取并写出新文件
-- 用户消息末尾的 \`<attachments>\` 附件清单默认不自动注入正文，需要内容时按其中的 \`file_path\` 显式读取
+- 用户消息末尾的 \`<attachments>\` 仅提供附件描述，不自动注入文件正文；需要内容时把其中的 \`file_path\` 与 \`file_path_space\` 原样传给读取工具
 - 最终答案中引用数据文件用 \`[data:文件路径]\`，且不要输出超过 20 行原始数据`;
 }

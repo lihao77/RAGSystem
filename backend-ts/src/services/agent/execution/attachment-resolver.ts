@@ -1,18 +1,9 @@
 import type { AttachmentRef } from "../../../contracts/execution/execution.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
-
-export interface ResolvedAttachment {
-  file_id: string;
-  original_name: string;
-  stored_name: string;
-  stored_path: string;
-  mime: string;
-  size: number;
-  kind: string;
-}
+import type { MessageAttachment } from "@ragsystem/agent-protocol";
 
 export interface AttachmentResolution {
-  attachments: ResolvedAttachment[];
+  attachments: MessageAttachment[];
   error?: string;
 }
 
@@ -26,7 +17,7 @@ export class AttachmentResolver {
     if (!this.files) {
       return { attachments: [], error: "Attachments are not supported by this TypeScript runtime instance" };
     }
-    const resolved: ResolvedAttachment[] = [];
+    const resolved: MessageAttachment[] = [];
     for (const attachment of attachments) {
       const fileId = attachment.file_id.trim();
       if (!fileId) {
@@ -38,10 +29,9 @@ export class AttachmentResolver {
         file_id: record.id,
         original_name: record.original_name,
         stored_name: record.stored_name,
-        stored_path: record.stored_path,
-        mime: record.mime || attachment.mime || "",
+        mime: record.mime || "",
         size: record.size,
-        kind: attachment.kind ?? (record.mime.startsWith("image/") ? "image" : "file"),
+        kind: record.mime.startsWith("image/") ? "image" : "file",
       });
     }
     return { attachments: resolved };

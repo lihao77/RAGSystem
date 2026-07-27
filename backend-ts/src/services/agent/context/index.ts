@@ -29,8 +29,6 @@ export {
   resolveHistoryView,
 } from "./history-view.js";
 export type { MicrocompactResult } from "./history-view.js";
-export { extractImageAttachments } from "./attachment-image.js";
-export type { ImageReader, StoredImageAttachment } from "./attachment-image.js";
 // Message Extension 范式(内容扩展三视图:持久化/投影/渲染)
 export {
   createDefaultProjectionRegistry,

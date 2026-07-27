@@ -81,6 +81,7 @@ export interface RuntimeContainerBase {
   readonly tenantId: TenantId;
   readonly sessionApplication: SessionApplication;
   readonly realtimeEvents: RealtimeEventBus;
+  readonly sessionFiles: SessionFileLookupPort;
   readonly agentExecution: AgentExecutionService;
   readonly metricsCollector: AgentMetricsCollector;
   readonly permissionPolicy: PermissionPolicyService;

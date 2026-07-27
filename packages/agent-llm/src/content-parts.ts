@@ -16,14 +16,15 @@ export function toContentParts(content: string | ContentPart[]): ContentPart[] {
 }
 
 /**
- * 提取纯文本视图：text part 顺序拼接，image part 折叠为 [图片] 占位。
- * string 输入原样返回（不污染 system/assistant 文本）。供 token 估算、压缩摘要、纯文本展示用。
+ * 提取纯文本视图：只按顺序拼接真实 text part，不为 image part 合成占位文本。
+ * 图片语义由结构化 image_url 和附件清单承载；string 输入原样返回。
+ * 供 token 估算、压缩摘要、持久化与纯文本展示使用。
  */
 export function extractText(content: string | ContentPart[]): string {
   if (typeof content === "string") {
     return content;
   }
-  return content.map((part) => (part.type === "text" ? part.text : "[图片]")).join("");
+  return content.flatMap((part) => part.type === "text" ? [part.text] : []).join("");
 }
 
 /** 拆解 data URL（data:<mediaType>;base64,<data>）→ { mediaType, base64 }。非 data URL 返回 null。 */

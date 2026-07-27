@@ -73,10 +73,8 @@ describe("ui_context 端到端投影(store → conversation)", () => {
   });
 });
 
-describe("image_attachment 端到端投影(store → conversation)", () => {
-  it("user 消息 extensions[image_attachment] 经装配投影进 content(读盘失败降级文本占位)", async () => {
-    // recent-source 内部硬编码 fs 读盘,无法注入 mock;此处用不存在路径走降级,验证装配链路通。
-    // image_url 主路径(data URL 生成)在 extensions.test.ts 纯函数测试以 readImage mock 覆盖。
+describe("attachments 端到端投影(store → conversation)", () => {
+  it("user 消息 attachments extension 通过会话文件端口读取图片并投影为 image_url", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     store.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s3", ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null });
     store.addMessage({
@@ -87,8 +85,18 @@ describe("image_attachment 端到端投影(store → conversation)", () => {
       metadata: {
         extensions: [
           {
-            kind: "image_attachment",
-            data: { attachments: [{ kind: "image", stored_path: "/nonexistent/a.png", mime: "image/png", original_name: "a.png" }] },
+            kind: "attachments",
+            version: 1,
+            data: {
+              items: [{
+                file_id: "file-image",
+                kind: "image",
+                stored_name: "file-image_a.png",
+                mime: "image/png",
+                original_name: "a.png",
+                size: 3,
+              }],
+            },
           },
         ],
       },
@@ -98,13 +106,19 @@ describe("image_attachment 端到端投影(store → conversation)", () => {
       getRecentMessages: async (sid: string, limit?: number, tk?: string | null) =>
         store.getRecentMessages(sid, limit ?? 10_000, tk ?? "root"),
     };
-    const source = new RecentMessagesContextSource(historyPort, true, createDefaultProjectionRegistry());
+    const source = new RecentMessagesContextSource(historyPort, true, createDefaultProjectionRegistry(), {
+      get: async () => null,
+      read: async (sessionId, fileId) => sessionId === "s3" && fileId === "file-image"
+        ? { body: Uint8Array.from([1, 2, 3]), contentType: "image/png" }
+        : null,
+    });
     const ctx = await new AgentContextBuilder([source]).buildContext({ sessionId: "s3", threadKey: "root" }, { touch: false });
     const userMsg = ctx.conversation.find((m) => m.role === "user");
     expect(userMsg).toBeTruthy();
     const parts = userMsg!.content as ContentPart[];
     expect(Array.isArray(parts)).toBe(true);
-    expect(parts.some((p) => p.type === "text" && p.text.includes("[图片加载失败"))).toBe(true);
+    expect(parts.some((p) => p.type === "text" && p.text.includes("<attachments"))).toBe(true);
+    expect(parts.some((p) => p.type === "image_url" && p.image_url.url === "data:image/png;base64,AQID")).toBe(true);
   });
 });
 

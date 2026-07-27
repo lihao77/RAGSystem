@@ -29,8 +29,8 @@ export function renderUiContextText(data: Record<string, unknown> | undefined): 
 
 export const uiContextProjector: ExtensionProjector = {
   kind: "ui_context",
-  project(data) {
-    const text = renderUiContextText(data);
+  project(extension) {
+    const text = renderUiContextText(extension.data);
     return text || null;
   },
 };

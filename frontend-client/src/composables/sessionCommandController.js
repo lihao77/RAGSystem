@@ -3,6 +3,7 @@ import { nextTick, ref } from 'vue';
 
 import { getSessionTaskStatus, startStream, stopStream } from '../api/session.js';
 import { createAssistantMessage } from './useMessageExecution.js';
+import { createAttachmentsExtension } from '../utils/messageExtensions.js';
 
 const WS_OPEN = 1;
 
@@ -45,29 +46,21 @@ const resetActiveRunAfterSendError = (activeRun) => {
 };
 
 /** @param {AnyRecord} attachment */
-export const serializeAttachmentForSend = ({ file_id, original_name, stored_name, mime, size, kind }) => ({
-  file_id,
-  original_name,
-  stored_name,
-  mime,
-  size,
-  kind,
-});
+export const serializeAttachmentForSend = ({ file_id }) => ({ file_id });
 
 const createRequestId = () => globalThis.crypto?.randomUUID?.()
   || `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 /** @param {AnyRecord[]} attachments @param {AnyRecord} [metadata] */
 const buildUserMetadata = (attachments, metadata = {}) => {
-  const images = attachments.filter(attachment => attachment?.kind === 'image');
-  const files = attachments.filter(attachment => attachment?.kind !== 'image');
   const result = { ...metadata };
-  if (files.length) result.attachments = files;
-  const existingExtensions = Array.isArray(result.extensions) ? result.extensions : [];
-  const extensions = images.length
-    ? [...existingExtensions, { kind: 'image_attachment', data: { attachments: images } }]
-    : existingExtensions;
+  const existingExtensions = Array.isArray(result.extensions)
+    ? result.extensions.filter(extension => extension?.kind !== 'attachments')
+    : [];
+  const attachmentExtension = createAttachmentsExtension(attachments);
+  const extensions = attachmentExtension ? [...existingExtensions, attachmentExtension] : existingExtensions;
   if (extensions.length) result.extensions = extensions;
+  else delete result.extensions;
   return result;
 };
 

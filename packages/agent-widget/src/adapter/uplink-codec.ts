@@ -1,4 +1,4 @@
-import type { DelegatedToolDeclaration } from "@ragsystem/agent-protocol";
+import type { AttachmentRef, DelegatedToolDeclaration } from "@ragsystem/agent-protocol";
 
 /**
  * widget 上行消息编码（client → server）。
@@ -14,7 +14,7 @@ export interface SendUplink {
     category: "task_submit";
     task: string;
     selected_llm?: string;
-    attachments: unknown[];
+    attachments: AttachmentRef[];
     request_id?: string;
     /** 前端组件状态快照(对齐后端 events.ts task_submit 的 ui_context)。 */
     ui_context?: Record<string, unknown>;
@@ -80,14 +80,14 @@ export type UplinkMessage =
 export function encodeSend(sessionId: string, input: {
   task: string;
   selectedLlm?: string;
-  attachments?: unknown[];
+  attachments?: AttachmentRef[];
   requestId?: string;
   uiContext?: Record<string, unknown>;
 }): SendUplink {
   const payload: SendUplink["payload"] = {
     category: "task_submit",
     task: input.task,
-    attachments: input.attachments ?? [],
+    attachments: (input.attachments ?? []).map(({ file_id }) => ({ file_id })),
   };
   if (input.selectedLlm) {
     payload.selected_llm = input.selectedLlm;

@@ -76,8 +76,11 @@ export type DelegatedToolDeclaration = z.infer<
   typeof DelegatedToolDeclarationSchema
 >;
 
-/** 附件引用，形状对齐 contracts/execution.ts 的 AttachmentRef。 */
+/** 客户端选择的会话附件。服务端只信任 file_id，其余元数据必须重新解析。 */
 export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
+/** 持久化到用户消息 attachments extension 的服务端权威快照。 */
+export type MessageAttachment = z.infer<typeof MessageAttachmentSchema>;
+export type AttachmentsExtension = z.infer<typeof AttachmentsExtensionSchema>;
 
 /* ============================================================
  * 四、各 type 的 payload
@@ -165,13 +168,24 @@ export const DelegatedToolDeclarationSchema = z.object({
 
 export const AttachmentRefSchema = z.object({
   file_id: z.string().min(1),
-  original_name: z.string().nullable().optional(),
-  stored_name: z.string().nullable().optional(),
-  stored_path: z.string().nullable().optional(),
-  mime: z.string().nullable().optional(),
-  size: z.number().int().nonnegative().nullable().optional(),
-  kind: z.string().nullable().optional(),
-});
+}).strict();
+
+export const MessageAttachmentSchema = z.object({
+  file_id: z.string().min(1),
+  original_name: z.string().min(1),
+  stored_name: z.string().min(1),
+  mime: z.string(),
+  size: z.number().int().nonnegative(),
+  kind: z.enum(["image", "file"]),
+}).strict();
+
+export const AttachmentsExtensionSchema = z.object({
+  kind: z.literal("attachments"),
+  version: z.literal(1),
+  data: z.object({
+    items: z.array(MessageAttachmentSchema),
+  }).strict(),
+}).strict();
 
 export const HelloPayloadSchema = z.object({
   role: z.enum(["host", "agent-runtime"]),

@@ -36,8 +36,20 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
     this.limits = validateLimits({ ...DEFAULT_SANDBOX_FILE_TRANSFER_LIMITS, ...limits });
   }
 
-  async prepare(lease: SandboxLease, owner: SandboxOwner, provider: SandboxProvider): Promise<void> {
-    const records = await this.files.list(owner.sessionId);
+  async prepare(
+    lease: SandboxLease,
+    owner: SandboxOwner,
+    provider: SandboxProvider,
+    input: { attachmentFileIds: readonly string[] },
+  ): Promise<void> {
+    const requestedIds = new Set(input.attachmentFileIds);
+    const listedRecords = await this.files.list(owner.sessionId);
+    const records = listedRecords.filter((record) => requestedIds.has(record.id));
+    if (records.length !== requestedIds.size) {
+      const found = new Set(records.map((record) => record.id));
+      const missing = [...requestedIds].filter((fileId) => !found.has(fileId));
+      throw new Error(`Sandbox input attachment is missing from the current session: ${missing.join(", ")}`);
+    }
     if (records.length > this.limits.maxInputFiles) {
       throw new Error(`Sandbox input file count exceeds limit ${this.limits.maxInputFiles}`);
     }
@@ -58,7 +70,7 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
         throw new Error(`Sandbox input total exceeds byte limit ${this.limits.maxInputTotalBytes}`);
       }
 
-      const sandboxName = uniqueSandboxName(record, usedNames);
+      const sandboxName = requireStoredName(record, usedNames);
       const internalPath = `/input/uploads/${sandboxName}`;
       const staged = await provider.stageInputFile(lease, {
         path: internalPath,
@@ -141,23 +153,18 @@ function validateInputMetadata(
   }
 }
 
-function uniqueSandboxName(record: UploadedFileRecord, usedNames: Set<string>): string {
-  const id = sanitizeSegment(record.id, "file");
-  const originalName = sanitizeSegment(record.original_name, "upload.bin");
-  const base = `${id}_${originalName}`.slice(0, 220);
-  let candidate = base;
-  let suffix = 1;
-  while (usedNames.has(candidate.toLowerCase()) || candidate === ".ragsystem-manifest.json") {
-    candidate = `${base.slice(0, 210)}_${suffix++}`;
+function requireStoredName(record: UploadedFileRecord, usedNames: Set<string>): string {
+  const storedName = record.stored_name.trim();
+  if (!storedName || storedName === "." || storedName === ".." || storedName === ".ragsystem-manifest.json") {
+    throw new Error(`Sandbox input file has an invalid stored_name: ${record.id}`);
   }
-  usedNames.add(candidate.toLowerCase());
-  return candidate;
-}
-
-function sanitizeSegment(value: string, fallback: string): string {
-  const normalized = value.trim().replace(/[\\/]+/g, "_").replace(/[^a-zA-Z0-9._-]/g, "_");
-  if (!normalized || normalized === "." || normalized === "..") return fallback;
-  return normalized;
+  if (storedName.includes("/") || storedName.includes("\\") || !/^[a-zA-Z0-9._-]+$/.test(storedName)) {
+    throw new Error(`Sandbox input file stored_name is not portable: ${record.id}`);
+  }
+  const key = storedName.toLowerCase();
+  if (usedNames.has(key)) throw new Error(`Sandbox input file stored_name is duplicated: ${storedName}`);
+  usedNames.add(key);
+  return storedName;
 }
 
 function validateProviderRelativePath(value: string): string {

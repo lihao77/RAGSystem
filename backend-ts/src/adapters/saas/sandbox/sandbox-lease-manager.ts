@@ -9,7 +9,12 @@ interface LeaseEntry {
 }
 
 export interface SandboxLeaseLifecycle {
-  prepare(lease: SandboxLease, owner: SandboxOwner, provider: SandboxProvider): Promise<void>;
+  prepare(
+    lease: SandboxLease,
+    owner: SandboxOwner,
+    provider: SandboxProvider,
+    input: { attachmentFileIds: readonly string[] },
+  ): Promise<void>;
   collectOutputs(lease: SandboxLease, owner: SandboxOwner, provider: SandboxProvider): Promise<void>;
 }
 
@@ -46,7 +51,9 @@ export class SandboxLeaseManager {
       .then(async (lease) => {
         assertSameOwner(lease.owner, owner);
         try {
-          await this.lifecycle?.prepare(lease, owner, this.provider);
+          await this.lifecycle?.prepare(lease, owner, this.provider, {
+            attachmentFileIds: context.attachmentFileIds ?? [],
+          });
         } catch (error) {
           await this.provider.destroy(lease).catch(() => undefined);
           throw error;

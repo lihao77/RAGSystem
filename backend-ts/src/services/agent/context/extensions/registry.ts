@@ -17,7 +17,7 @@ export class ProjectionRegistry {
   }
 
   /** 投影单个扩展;未注册 kind 或 projector 返回 null 表示不投影(纯展示型)。 */
-  project(ext: MessageExtension, ctx: ProjectContext): ContentPart[] | string | null {
-    return this.byKind.get(ext.kind)?.project(ext.data, ctx) ?? null;
+  async project(ext: MessageExtension, ctx: ProjectContext): Promise<ContentPart[] | string | null> {
+    return this.byKind.get(ext.kind)?.project(ext, ctx) ?? null;
   }
 }

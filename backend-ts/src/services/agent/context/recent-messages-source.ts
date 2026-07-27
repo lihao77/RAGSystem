@@ -22,6 +22,7 @@ import {
 import { projectConversationExtensions, type ProjectionRegistry } from "./extensions/index.js";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { MessageInfo } from "../../../contracts/session/session.js";
+import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 
 export class RecentMessagesContextSource implements AgentContextSource {
   readonly name = "recent_messages";
@@ -30,6 +31,7 @@ export class RecentMessagesContextSource implements AgentContextSource {
     private readonly history: ConversationHistoryPort,
     private readonly supportsVision: boolean = false,
     private readonly extensionRegistry: ProjectionRegistry,
+    private readonly attachmentFiles: SessionFileLookupPort | null = null,
   ) {}
 
   async build(request: ResolvedAgentContextRequest): Promise<AgentContextContribution> {
@@ -64,12 +66,28 @@ export class RecentMessagesContextSource implements AgentContextSource {
     await restoreActiveProviderContinuation(request.sessionId, conversation, originals, this.history);
     // extensions 投影(组装层,压缩视图之后):user 附件/UI 上下文 + tool 结果媒体。
     // 附件图片可缓存；tool 图片每次读盘以遵守 transient TTL。两者都不把图片字节写入 SQLite。
-    projectConversationExtensions(conversation, originals, this.extensionRegistry, {
+    const attachmentCache = new Map<string, Promise<{ body: Uint8Array; contentType: string | null } | null>>();
+    await projectConversationExtensions(conversation, originals, this.extensionRegistry, {
+      sessionId: request.sessionId,
       supportsVision: this.supportsVision,
-      readImage: readAttachmentImage,
+      readAttachment: (sessionId, fileId) => this.readAttachment(sessionId, fileId, attachmentCache),
       readToolImage,
     });
     return { conversation, rawMessages: originals, metadata };
+  }
+
+  private readAttachment(
+    sessionId: string,
+    fileId: string,
+    cache: Map<string, Promise<{ body: Uint8Array; contentType: string | null } | null>>,
+  ): Promise<{ body: Uint8Array; contentType: string | null } | null> {
+    if (!this.attachmentFiles) return Promise.resolve(null);
+    const key = `${sessionId}\0${fileId}`;
+    const cached = cache.get(key);
+    if (cached) return cached;
+    const pending = this.attachmentFiles.read(sessionId, fileId).catch(() => null);
+    cache.set(key, pending);
+    return pending;
   }
 }
 
@@ -104,46 +122,5 @@ function readToolImage(storedPath: string, mime: string): string | null {
     return `data:${mime || "image/png"};base64,${buf.toString("base64")}`;
   } catch {
     return null;
-  }
-}
-
-const MAX_ATTACHMENT_CACHE_ENTRIES = 128;
-const MAX_ATTACHMENT_CACHE_BYTES = 64 * 1024 * 1024;
-interface CachedAttachmentImage { dataUrl: string; bytes: number }
-const attachmentImageCache = new Map<string, CachedAttachmentImage>();
-let attachmentImageCacheBytes = 0;
-
-/** 读附件图片为 base64 data URL;读盘失败返回 null(由 image_attachment projector 降级为文本占位)。结果缓存。 */
-function readAttachmentImage(storedPath: string, mime: string): string | null {
-  if (attachmentImageCache.has(storedPath)) {
-    const cached = attachmentImageCache.get(storedPath);
-    if (!cached) return null;
-    attachmentImageCache.delete(storedPath);
-    attachmentImageCache.set(storedPath, cached);
-    return cached.dataUrl || null;
-  }
-  try {
-    const buf = fs.readFileSync(storedPath);
-    const url = `data:${mime || "image/png"};base64,${buf.toString("base64")}`;
-    cacheAttachmentImage(storedPath, { dataUrl: url, bytes: buf.byteLength });
-    return url;
-  } catch {
-    cacheAttachmentImage(storedPath, { dataUrl: "", bytes: 0 });
-    return null;
-  }
-}
-
-function cacheAttachmentImage(storedPath: string, value: CachedAttachmentImage): void {
-  const previous = attachmentImageCache.get(storedPath);
-  if (previous) attachmentImageCacheBytes -= previous.bytes;
-  attachmentImageCache.delete(storedPath);
-  attachmentImageCache.set(storedPath, value);
-  attachmentImageCacheBytes += value.bytes;
-  while (attachmentImageCache.size > MAX_ATTACHMENT_CACHE_ENTRIES || attachmentImageCacheBytes > MAX_ATTACHMENT_CACHE_BYTES) {
-    const oldestKey = attachmentImageCache.keys().next().value as string | undefined;
-    if (!oldestKey) break;
-    const oldest = attachmentImageCache.get(oldestKey);
-    attachmentImageCache.delete(oldestKey);
-    attachmentImageCacheBytes -= oldest?.bytes ?? 0;
   }
 }

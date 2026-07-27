@@ -38,6 +38,7 @@ import {
 } from "./helpers.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../runtime/event-outbox/execution-envelope-archive.js";
+import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 
 export interface AgentExecutionLogger {
   error(bindings: Record<string, unknown>, message: string): void;
@@ -80,6 +81,7 @@ export class AgentRunEngine {
     private readonly hooks: ((registry: HookRegistry) => void) | null,
     private readonly metricsCollector: AgentMetricsCollector | null = null,
     private readonly compressionService: AgentCompressionService | null = null,
+    private readonly sessionFiles: SessionFileLookupPort | null = null,
   ) {}
 
   startRun(input: {
@@ -507,6 +509,7 @@ export class AgentRunEngine {
           delegationPending: this.delegationPending,
           ...(this.hooks ? { hooks: this.hooks } : {}),
           ...(this.compressionService ? { compressionService: this.compressionService } : {}),
+          sessionFiles: this.sessionFiles,
         },
         {
           sessionId: input.sessionId,

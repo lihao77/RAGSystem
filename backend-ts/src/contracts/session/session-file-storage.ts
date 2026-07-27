@@ -26,4 +26,5 @@ export interface AsyncSessionFileStorage {
 /** Deployment-neutral asynchronous lookup used by agent attachment resolution. */
 export interface SessionFileLookupPort {
   get(sessionId: string, fileId: string): Promise<UploadedFileRecord | null>;
+  read(sessionId: string, fileId: string): Promise<{ body: Uint8Array; contentType: string | null } | null>;
 }

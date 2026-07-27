@@ -33,6 +33,8 @@ import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 import type { ExecutionMemoryCandidateListPort, MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import { resolveSessionMetadataPort } from "../context/async-session-metadata-resolver.js";
+import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
+import { AttachmentsExtensionSchema } from "@ragsystem/agent-protocol";
 
 export interface SdkRuntimeAdapterDeps {
   storage: ExecutionStorage;
@@ -62,6 +64,7 @@ export interface SdkRuntimeAdapterDeps {
   hooks?: (registry: HookRegistry) => void;
   /** backend 压缩服务（run 内 round.before 触发 + /compact 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
+  sessionFiles?: SessionFileLookupPort | null;
 }
 
 export interface SdkExecuteRunInput {
@@ -241,9 +244,11 @@ export async function executeRunWithSdk(
     sessionId: input.sessionId,
     threadKey: input.threadKey,
     ...(deps.memoryContextSourceFactory ? { memoryContextSourceFactory: deps.memoryContextSourceFactory } : {}),
+    sessionFiles: deps.sessionFiles ?? null,
   });
   await sessionMetadata.flush();
   let conversation = built.conversation;
+  let contextRawMessages = built.rawMessages;
   // refresh 水位线:本 run 启动前 store 最后一条消息的 seq;refresh 每轮拉 seq > lastSeq 的新 user 消息(followup 等)。
   let lastSeq = built.rawMessages.reduce(
     (max, m) => (m && typeof m.seq === "number" && m.seq > max ? m.seq : max),
@@ -433,11 +438,15 @@ export async function executeRunWithSdk(
     });
     await sessionMetadata.flush();
     conversation = startedContext.conversation;
+    contextRawMessages = startedContext.rawMessages;
     lastSeq = startedContext.rawMessages.reduce(
       (max, message) => message && typeof message.seq === "number" && message.seq > max ? message.seq : max,
       lastSeq,
     );
   }
+  // 首次用户消息由 startRun 原子落库，附件只会出现在上面的 startedContext 中。
+  // 必须基于最终实际发送给模型的上下文生成 sandbox allowlist，不能使用落库前的预构建快照。
+  baseExecCtx.attachmentFileIds = collectAttachmentFileIds(contextRawMessages);
   const runtime = createRuntime(runtimeOpts);
   const handle = runtime.run({
     sessionId: input.sessionId,
@@ -544,6 +553,19 @@ export async function executeRunWithSdk(
     toolCalls,
     ...(pendingFollowup ? { pendingFollowup } : {}),
   };
+}
+
+function collectAttachmentFileIds(messages: readonly (MessageInfo | null)[]): string[] {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    const extensions = Array.isArray(message?.metadata.extensions) ? message.metadata.extensions : [];
+    for (const extension of extensions) {
+      const parsed = AttachmentsExtensionSchema.safeParse(extension);
+      if (!parsed.success) continue;
+      for (const attachment of parsed.data.data.items) ids.add(attachment.file_id);
+    }
+  }
+  return [...ids];
 }
 
 async function findPendingFollowup(

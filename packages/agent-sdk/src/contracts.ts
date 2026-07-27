@@ -242,6 +242,8 @@ export interface ToolExecContext {
   currentAgentName?: string | null;
   /** 工作空间根路径（文件类工具判断外部路径用）。 */
   workspaceRoot?: string | null;
+  /** 当前有效上下文引用的会话附件；SaaS 沙箱据此执行最小权限挂载。 */
+  attachmentFileIds?: readonly string[];
   /**
    * 委托执行指令发送（消费端注入，可选）：委托工具的 call 内部调此发 delegate_call 驱动宿主执行。
    * 由 createRuntime 从 options.emitDelegateCall 注入；SDK 内核不调用，仅供消费端构造的委托壳 Tool.call 使用。

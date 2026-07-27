@@ -197,6 +197,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           sessionId,
           threadKey,
           memoryContextSourceFactory: request.container.memoryContextSourceFactory,
+          sessionFiles: request.container.sessionFiles,
         })
       : null;
     await sessionMetadataPort?.flush();

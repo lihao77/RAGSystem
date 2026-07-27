@@ -408,7 +408,7 @@ Agent 配置页会先加载当前 Agent 配置，再读取 `config.custom_params
 - `ChatViewV2.vue` 通过 `ChatInput` 的 `footerMeta` slot 将上下文预算与执行状态注入输入框底部，而不是在输入框外单独渲染状态条
 - `SessionFilesDrawer.vue` 同时服务底部输入区新消息附件和“消息气泡原地编辑”两种场景，通过本地 `target/mode` 区分操作目标
 - 用户可以发送“纯文本”、“文本+附件”或“纯附件”消息
-- 用户消息历史回放时，附件通过 `message.metadata.attachments` 重建并在消息气泡下方回显
+- 用户消息历史回放时，附件只通过 `message.metadata.extensions[]` 中的 `attachments@v1` 重建，并在消息气泡下方回显
 - 编辑用户消息时，文本与附件草稿统一由 `MessageEditBox.vue` 管理；确认后仍走 rollback + resend
 
 | 操作 | 流程 |

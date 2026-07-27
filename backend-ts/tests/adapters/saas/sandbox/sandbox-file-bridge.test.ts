@@ -20,14 +20,14 @@ describe("SaaSSandboxFileBridge", () => {
     const provider = fakeProvider();
     const bridge = new SaaSSandboxFileBridge(files);
 
-    await bridge.prepare(lease, owner, provider);
+    await bridge.prepare(lease, owner, provider, { attachmentFileIds: [record.id] });
 
     expect(files.list).toHaveBeenCalledWith("session-a");
     expect(files.read).toHaveBeenCalledWith("session-a", "file-a");
     const stage = vi.mocked(provider.stageInputFile);
     expect(stage).toHaveBeenCalledTimes(2);
     expect(stage.mock.calls[0]![1]).toMatchObject({
-      path: "/input/uploads/file-a_quarterly_report.csv",
+      path: "/input/uploads/file-a_input.txt",
       content: Buffer.from("hello").toString("base64"),
       encoding: "base64",
     });
@@ -36,7 +36,7 @@ describe("SaaSSandboxFileBridge", () => {
     expect(JSON.parse(Buffer.from(manifestInput.content, "base64").toString("utf8"))).toEqual({
       files: [expect.objectContaining({
         file_id: "file-a",
-        sandbox_path: "uploads/file-a_quarterly_report.csv",
+        sandbox_path: "uploads/file-a_input.txt",
       })],
     });
   });
@@ -47,9 +47,29 @@ describe("SaaSSandboxFileBridge", () => {
     const provider = fakeProvider();
     const bridge = new SaaSSandboxFileBridge(files);
 
-    await expect(bridge.prepare(lease, owner, provider)).rejects.toThrow("outside the current session");
+    await expect(bridge.prepare(lease, owner, provider, { attachmentFileIds: [record.id] })).rejects.toThrow("outside the current session");
     expect(files.read).not.toHaveBeenCalled();
     expect(provider.stageInputFile).not.toHaveBeenCalled();
+  });
+
+  it("stages only attachment ids referenced by the active context", async () => {
+    const selected = uploadedFile({ id: "selected", stored_name: "selected_input.txt" });
+    const unrelated = uploadedFile({ id: "unrelated", stored_name: "unrelated_input.txt" });
+    const files = fakeStorage(
+      [selected, unrelated],
+      new Map([[selected.id, Buffer.from("selected")], [unrelated.id, Buffer.from("unrelated")]]),
+    );
+    const provider = fakeProvider();
+    const bridge = new SaaSSandboxFileBridge(files);
+
+    await bridge.prepare(lease, owner, provider, { attachmentFileIds: [selected.id] });
+
+    expect(files.read).toHaveBeenCalledTimes(1);
+    expect(files.read).toHaveBeenCalledWith("session-a", selected.id);
+    expect(provider.stageInputFile).not.toHaveBeenCalledWith(
+      lease,
+      expect.objectContaining({ path: "/input/uploads/unrelated_input.txt" }),
+    );
   });
 
   it("collects bounded output files back into the same session storage", async () => {
@@ -94,7 +114,7 @@ describe("SaaSSandboxFileBridge", () => {
     const files = fakeStorage([record], new Map([[record.id, Buffer.from("123456")]]));
     const provider = fakeProvider();
     const inputBridge = new SaaSSandboxFileBridge(files, { maxInputFileBytes: 5 });
-    await expect(inputBridge.prepare(lease, owner, provider)).rejects.toThrow("exceeds byte limit");
+    await expect(inputBridge.prepare(lease, owner, provider, { attachmentFileIds: [record.id] })).rejects.toThrow("exceeds byte limit");
 
     vi.mocked(provider.glob).mockResolvedValue({ files: ["a.txt", "b.txt"], truncated: false });
     const outputBridge = new SaaSSandboxFileBridge(fakeStorage([]), { maxOutputFiles: 1 });
