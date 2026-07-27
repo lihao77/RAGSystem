@@ -34,7 +34,7 @@
           <div class="ctx-file-list">
             <div v-for="file in pendingFiles" :key="file.local_id || file.file_id || file.id" class="ctx-file-item ctx-file-item--pending">
               <div class="ctx-file-main">
-                <button v-if="isImageAttachment(file)" class="ctx-thumb-btn" @click="openImages(pendingFiles, file)"><img :src="getPreviewUrl(file)" :alt="file.original_name || file.stored_name" class="ctx-thumb" /></button>
+                <button v-if="isImageAttachment(file)" class="ctx-thumb-btn" @click="openImages(pendingFiles, file)"><AuthenticatedImage :src="getPreviewUrl(file)" :alt="file.original_name || file.stored_name" class="ctx-thumb" /></button>
                 <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
                 <div class="ctx-file-meta">
                   <span>{{ formatAttachmentSize(file.size) }}</span>
@@ -89,6 +89,7 @@ import IconClose from './icons/IconClose.vue';
 import IconRefresh from './icons/IconRefresh.vue';
 import { Button } from './ui/button';
 import ImageLightbox from './common/ImageLightbox.vue';
+import AuthenticatedImage from './common/AuthenticatedImage.vue';
 import { useImageLightbox } from '../composables/useImageLightbox.js';
 
 const props = defineProps({

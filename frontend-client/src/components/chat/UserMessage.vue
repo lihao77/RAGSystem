@@ -42,7 +42,7 @@
           class="user-attachment-thumb-btn"
           @click="messageContext.openAttachmentImages(msg.attachments, attachment)"
         >
-          <img
+          <AuthenticatedImage
             :src="messageContext.getAttachmentPreviewUrl(attachment)"
             :alt="attachment.original_name || attachment.stored_name"
             class="user-attachment-thumb"
@@ -89,6 +89,7 @@
 
 <script setup>
 import MessageEditBox from '../MessageEditBox.vue';
+import AuthenticatedImage from '../common/AuthenticatedImage.vue';
 import { formatAttachmentMeta, isImageAttachment } from '../../utils/sessionAttachments.js';
 import { parseTaskNotifications } from '../../utils/message-render.js';
 import { computed, inject } from 'vue';

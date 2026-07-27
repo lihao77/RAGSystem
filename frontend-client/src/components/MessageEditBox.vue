@@ -21,7 +21,7 @@
         :key="att.local_id || att.file_id || att.id"
         class="msg-edit-att-card"
       >
-        <img
+        <AuthenticatedImage
           v-if="isImage(att)"
           :src="previewUrl(att)"
           :alt="att.original_name || att.stored_name"
@@ -71,6 +71,7 @@ import { isImageAttachment, isLocalAttachment } from '../utils/sessionAttachment
 import IconCheck from './icons/IconCheck.vue';
 import IconClose from './icons/IconClose.vue';
 import IconFile from './icons/IconFile.vue';
+import AuthenticatedImage from './common/AuthenticatedImage.vue';
 import { Button } from './ui/button';
 
 const props = defineProps({

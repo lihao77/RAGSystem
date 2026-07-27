@@ -37,7 +37,7 @@
         @enter-situation="$emit('enter-situation', { artifactId: props.artifactId, mapData: vizData.config, vizData })"
       />
       <div v-else-if="vizData.viz_type === 'image'" class="fallback-image-wrapper">
-        <img
+        <AuthenticatedImage
           :src="imageUrl"
           :alt="vizData.title"
           class="fallback-image"
@@ -64,6 +64,7 @@
 import { ref, computed, defineAsyncComponent, onMounted } from 'vue';
 import { getVisualization } from '../api/artifact.js';
 import IconInfo from './icons/IconInfo.vue';
+import AuthenticatedImage from './common/AuthenticatedImage.vue';
 import { Button } from './ui/button';
 
 const ChartRenderer = defineAsyncComponent(() => import('./ChartRenderer.vue'));

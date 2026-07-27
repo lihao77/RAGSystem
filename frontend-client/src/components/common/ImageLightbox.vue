@@ -8,7 +8,7 @@
         @click.self="emit('close')"
         @wheel.prevent="onWheel"
       >
-        <img
+        <AuthenticatedImage
           v-if="current"
           :src="current.src"
           :alt="current.alt || ''"
@@ -68,6 +68,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import IconClose from '../icons/IconClose.vue';
+import AuthenticatedImage from './AuthenticatedImage.vue';
 
 const props = defineProps({
   open: Boolean,
