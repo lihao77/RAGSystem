@@ -20,6 +20,9 @@
           {{ currentStep.title || currentStep.description }}
         </CardDescription>
       </div>
+      <CardDescription v-if="continuationReasonText" role="status">
+        续跑状态：{{ continuationReasonText }}
+      </CardDescription>
       <CardDescription v-if="error" role="alert">{{ error }}</CardDescription>
     </CardContent>
 
@@ -127,6 +130,18 @@ const progressText = computed(() => {
   }
   return '';
 });
+
+const continuationReasonText = computed(() => ({
+  manual_paused: '已手动暂停',
+  run_still_running: '等待当前 Run 完成',
+  background_tasks_running: '等待后台任务完成',
+  goal_not_active: 'Goal 当前不可续跑',
+  readiness_failed: 'Agent 或模型配置未就绪',
+  max_continuations: '已达到自动续跑上限',
+  no_progress_guard: '连续无进展，已触发保护',
+  continuation_pending: '续跑请求正在处理中',
+  continuation_start_failed: '续跑启动失败，将在下次空闲时重试',
+}[goal.value?.continuation_reason] || ''));
 
 watch(
   () => props.runActive,

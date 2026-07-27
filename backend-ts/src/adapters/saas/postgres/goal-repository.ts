@@ -4,6 +4,7 @@ import type {
   ClaimGoalContinuationOptions,
   CreateGoalInput,
   Goal,
+  GoalContinuationReason,
   GoalStatus,
   GoalStep,
   GoalStore,
@@ -16,7 +17,7 @@ import type { PostgresMemoryExecutor } from "./memory-repository.js";
 const COLUMNS = `
   goal_id::text AS goal_id, session_id, objective, success_criteria, steps, checkpoint, progress, status,
   continuation_count, no_progress_count, continuation_generation, continuation_pending,
-  continuation_claimed_at, last_progress_fingerprint, created_at, updated_at
+  continuation_claimed_at, last_progress_fingerprint, continuation_reason, created_at, updated_at
 `;
 
 /** Tenant-bound PostgreSQL implementation for session Goals. */
@@ -81,11 +82,13 @@ export class PostgresGoalRepository implements GoalStore {
       const updated = await tx.query(
         `UPDATE workflow_goals SET objective=$1, success_criteria=$2::jsonb, steps=$3::jsonb,
            checkpoint=$4::jsonb, progress=$5::jsonb, status=$6,
-           continuation_pending=$7, continuation_claimed_at=$8, updated_at=CURRENT_TIMESTAMP
-         WHERE tenant_id=$9 AND session_id=$10 AND goal_id=$11::uuid RETURNING ${COLUMNS}`,
+           continuation_pending=$7, continuation_claimed_at=$8, continuation_reason=$9, updated_at=CURRENT_TIMESTAMP
+         WHERE tenant_id=$10 AND session_id=$11 AND goal_id=$12::uuid RETURNING ${COLUMNS}`,
         [next.objective, JSON.stringify(next.success_criteria), JSON.stringify(next.steps), JSON.stringify(next.checkpoint),
           JSON.stringify(next.progress), next.status, clearClaim ? false : current.continuation_pending,
-          clearClaim ? null : current.continuation_claimed_at, this.tenantId, sessionId, goalId],
+          clearClaim ? null : current.continuation_claimed_at,
+          patch.status === "active" ? null : patch.status === "paused" ? "manual_paused" : current.continuation_reason,
+          this.tenantId, sessionId, goalId],
       );
       return updated.rows[0] ? toGoal(updated.rows[0]) : null;
     });
@@ -114,18 +117,18 @@ export class PostgresGoalRepository implements GoalStore {
       const current = toGoal(locked.rows[0]);
       if (current.continuation_pending && !claimExpired(current.continuation_claimed_at, leaseTimeoutMs)) return null;
       if (current.continuation_count >= maxContinuations) {
-        await blockForGuard(tx, this.tenantId, sessionId, current.id, current.no_progress_count);
+        await blockForGuard(tx, this.tenantId, sessionId, current.id, current.no_progress_count, "max_continuations");
         return null;
       }
       const fingerprint = progressFingerprint(current);
       const noProgressCount = current.last_progress_fingerprint === fingerprint ? current.no_progress_count + 1 : 0;
       if (noProgressCount >= maxNoProgress) {
-        await blockForGuard(tx, this.tenantId, sessionId, current.id, noProgressCount);
+        await blockForGuard(tx, this.tenantId, sessionId, current.id, noProgressCount, "no_progress_guard");
         return null;
       }
       const updated = await tx.query(
         `UPDATE workflow_goals SET continuation_count=continuation_count+1, no_progress_count=$1,
-           continuation_generation=continuation_generation+1, continuation_pending=TRUE,
+           continuation_generation=continuation_generation+1, continuation_pending=TRUE, continuation_reason=NULL,
            continuation_claimed_at=CURRENT_TIMESTAMP, last_progress_fingerprint=$2, updated_at=CURRENT_TIMESTAMP
          WHERE tenant_id=$3 AND session_id=$4 AND goal_id=$5::uuid AND status='active' RETURNING ${COLUMNS}`,
         [noProgressCount, fingerprint, this.tenantId, sessionId, current.id],
@@ -143,14 +146,37 @@ export class PostgresGoalRepository implements GoalStore {
     );
     return Number(result.rowCount ?? 0) > 0;
   }
+
+  async setContinuationReason(sessionId: string, goalId: string, reason: GoalContinuationReason | null): Promise<Goal | null> {
+    const result = await this.executor.query(
+      `UPDATE workflow_goals SET continuation_reason=$1, updated_at=CURRENT_TIMESTAMP
+       WHERE tenant_id=$2 AND session_id=$3 AND goal_id=$4::uuid RETURNING ${COLUMNS}`,
+      [reason, this.tenantId, sessionId, goalId],
+    );
+    return result.rows[0] ? toGoal(result.rows[0]) : null;
+  }
+
+  async restartBlocked(sessionId: string, goalId: string): Promise<Goal | null> {
+    const result = await this.executor.query(
+      `UPDATE workflow_goals SET status='active', continuation_count=0, no_progress_count=0,
+         continuation_generation=continuation_generation+1, continuation_pending=FALSE,
+         continuation_claimed_at=NULL, continuation_reason=NULL, last_progress_fingerprint=NULL,
+         updated_at=CURRENT_TIMESTAMP
+       WHERE tenant_id=$1 AND session_id=$2 AND goal_id=$3::uuid AND status='blocked'
+       RETURNING ${COLUMNS}`,
+      [this.tenantId, sessionId, goalId],
+    );
+    return result.rows[0] ? toGoal(result.rows[0]) : null;
+  }
 }
 
-async function blockForGuard(executor: PostgresMemoryExecutor, tenantId: TenantId, sessionId: string, goalId: string, count: number): Promise<void> {
+async function blockForGuard(executor: PostgresMemoryExecutor, tenantId: TenantId, sessionId: string, goalId: string, count: number, reason: GoalContinuationReason): Promise<void> {
   await executor.query(
     `UPDATE workflow_goals SET status='blocked', no_progress_count=$1, continuation_pending=FALSE,
+       continuation_reason=$5,
        continuation_claimed_at=NULL, updated_at=CURRENT_TIMESTAMP
      WHERE tenant_id=$2 AND session_id=$3 AND goal_id=$4::uuid`,
-    [count, tenantId, sessionId, goalId],
+    [count, tenantId, sessionId, goalId, reason],
   );
 }
 
@@ -162,6 +188,7 @@ function toGoal(row: Record<string, unknown>): Goal {
     continuation_count: Number(row.continuation_count), no_progress_count: Number(row.no_progress_count),
     continuation_generation: Number(row.continuation_generation), continuation_pending: Boolean(row.continuation_pending),
     continuation_claimed_at: isoOrNull(row.continuation_claimed_at),
+    continuation_reason: isContinuationReason(row.continuation_reason) ? row.continuation_reason : null,
     last_progress_fingerprint: row.last_progress_fingerprint == null ? null : String(row.last_progress_fingerprint),
     created_at: new Date(String(row.created_at)).toISOString(), updated_at: new Date(String(row.updated_at)).toISOString(),
   };
@@ -238,3 +265,10 @@ function goalSteps(value: unknown): GoalStep[] {
   });
 }
 function isoOrNull(value: unknown): string | null { return value == null ? null : new Date(String(value)).toISOString(); }
+function isContinuationReason(value: unknown): value is GoalContinuationReason {
+  return typeof value === "string" && [
+    "manual_paused", "run_still_running", "background_tasks_running", "goal_not_active",
+    "readiness_failed", "max_continuations", "no_progress_guard", "continuation_pending",
+    "continuation_start_failed",
+  ].includes(value);
+}

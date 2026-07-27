@@ -25,7 +25,7 @@ export function useSessionGoal(sessionId) {
   const currentSessionId = () => String(unref(sessionId) || '').trim();
 
   const canStart = computed(() => {
-    return goal.value?.status === 'paused';
+    return goal.value?.status === 'paused' || goal.value?.status === 'blocked';
   });
 
   const canPause = computed(() => goal.value?.status === 'active');

@@ -45,6 +45,10 @@
           <Badge variant="outline">{{ progressText }}</Badge>
           <Badge variant="secondary">自动续跑 {{ goal.continuation_count || 0 }} 次</Badge>
         </div>
+        <div v-if="continuationReasonText" class="goal-continuation-reason" role="status">
+          <span class="goal-section-label">续跑状态</span>
+          <span>{{ continuationReasonText }}</span>
+        </div>
         <p v-if="checkpointText" class="goal-checkpoint">{{ checkpointText }}</p>
       </div>
 
@@ -140,6 +144,18 @@ const progressText = computed(() => {
   return '等待阶段进度';
 });
 
+const continuationReasonText = computed(() => ({
+  manual_paused: '已手动暂停',
+  run_still_running: '等待当前 Run 完成',
+  background_tasks_running: '等待后台任务完成',
+  goal_not_active: 'Goal 当前不可续跑',
+  readiness_failed: 'Agent 或模型配置未就绪',
+  max_continuations: '已达到自动续跑上限',
+  no_progress_guard: '连续无进展，已触发保护',
+  continuation_pending: '续跑请求正在处理中',
+  continuation_start_failed: '续跑启动失败，将在下次空闲时重试',
+}[goal.value?.continuation_reason] || ''));
+
 const checkpointText = computed(() => {
   const checkpoint = goal.value?.checkpoint ?? goal.value?.progress;
   if (typeof checkpoint === 'string') return checkpoint;
@@ -229,6 +245,14 @@ function stepTitle(step, index = 0) {
   color: var(--color-text-primary);
   line-height: 1.55;
   font-weight: 650;
+}
+
+.goal-continuation-reason {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
 }
 
 .goal-section-label {

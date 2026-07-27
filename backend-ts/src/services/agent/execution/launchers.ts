@@ -33,7 +33,7 @@ import type { SessionNotificationQueue } from "../../runtime/session-notificatio
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
-import type { Goal, GoalStore } from "../../../contracts/runtime/goals.js";
+import type { Goal, GoalContinuationReason, GoalStore } from "../../../contracts/runtime/goals.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
 import { AttachmentsExtensionSchema } from "@ragsystem/agent-protocol";
@@ -648,8 +648,6 @@ class AgentLaunchers {
   triggerBgNotificationRun(sessionId: string): void {
     const normalizedSessionId = sessionId.trim();
     if (!normalizedSessionId || this.idleLaunches.has(normalizedSessionId)) return;
-    const status = this.statusTracker.getStatusBySession(normalizedSessionId)?.status;
-    if (status === "running" || status === "suspended") return;
     this.idleLaunches.add(normalizedSessionId);
     void this.startSessionIdleRun(normalizedSessionId)
       .catch(() => undefined)
@@ -670,15 +668,29 @@ class AgentLaunchers {
     };
 
     try {
+      const currentGoal = await this.goalStore?.getCurrent(sessionId) ?? null;
+      const markReason = async (reason: GoalContinuationReason): Promise<void> => {
+        if (currentGoal && this.goalStore?.setContinuationReason) {
+          await this.goalStore.setContinuationReason(sessionId, currentGoal.id, reason);
+        }
+      };
       const status = this.statusTracker.getStatusBySession(sessionId)?.status;
       if (
         status === "running"
         || status === "suspended"
-        || await this.backgroundTasks?.hasRunningTasksDurable(sessionId)
-      ) return;
-      const currentGoal = await this.goalStore?.getCurrent(sessionId) ?? null;
+      ) {
+        await markReason("run_still_running");
+        return;
+      }
+      if (await this.backgroundTasks?.hasRunningTasksDurable(sessionId)) {
+        await markReason("background_tasks_running");
+        return;
+      }
       const hasNotifications = this.notificationQueue.peek(sessionId);
-      if (!hasNotifications && currentGoal?.status !== "active") return;
+      if (!hasNotifications && currentGoal?.status !== "active") {
+        if (currentGoal) await markReason(currentGoal.status === "paused" ? "manual_paused" : "goal_not_active");
+        return;
+      }
 
       const existingSession = await this.sessions.getSession(sessionId);
       const sessionMetadata = existingSession?.metadata ?? {};
@@ -704,7 +716,10 @@ class AgentLaunchers {
         },
         sessionMetadata,
       );
-      if (!ready.ok) return;
+      if (!ready.ok) {
+        await markReason("readiness_failed");
+        return;
+      }
 
       if (!existingSession) {
         await this.sessions.createSystemSession({ tenantId: this.tenantId, sessionId });
@@ -716,9 +731,18 @@ class AgentLaunchers {
       if (
         readyStatus === "running"
         || readyStatus === "suspended"
-        || await this.backgroundTasks?.hasRunningTasksDurable(sessionId)
-      ) return;
+      ) {
+        await markReason("run_still_running");
+        return;
+      }
+      if (await this.backgroundTasks?.hasRunningTasksDurable(sessionId)) {
+        await markReason("background_tasks_running");
+        return;
+      }
       if (currentGoal?.status === "active" && this.goalStore) {
+        if (currentGoal.continuation_pending && currentGoal.continuation_claimed_at) {
+          await markReason("continuation_pending");
+        }
         claimedGoal = await this.goalStore.claimContinuation(sessionId, {
           maxContinuations: 20,
           maxNoProgress: 3,
@@ -728,15 +752,29 @@ class AgentLaunchers {
 
       // Re-read durable background work after the asynchronous continuation claim. If another
       // instance started work meanwhile, finally releases this claim for a later idle attempt.
-      if (await this.backgroundTasks?.hasRunningTasksDurable(sessionId)) return;
+      if (await this.backgroundTasks?.hasRunningTasksDurable(sessionId)) {
+        await markReason("background_tasks_running");
+        return;
+      }
       // The durable gate above yields. Re-read local status after it resolves, then keep the
       // remaining path synchronous through startRun so a same-process user run cannot interleave.
       const latestStatus = this.statusTracker.getStatusBySession(sessionId)?.status;
-      if (latestStatus === "running" || latestStatus === "suspended") return;
-      if (!hasNotifications && !claimedGoal) return;
+      if (latestStatus === "running" || latestStatus === "suspended") {
+        await markReason("run_still_running");
+        return;
+      }
+      if (!hasNotifications && !claimedGoal) {
+        const latestGoal = await this.goalStore?.getCurrent(sessionId) ?? null;
+        if (latestGoal?.status === "active" && latestGoal.continuation_pending && this.goalStore?.setContinuationReason) {
+          await this.goalStore.setContinuationReason(sessionId, latestGoal.id, "continuation_pending");
+        }
+        return;
+      }
 
       payloads = this.notificationQueue.drain(sessionId);
-      if (!payloads.length && !claimedGoal) return;
+      if (!payloads.length && !claimedGoal) {
+        return;
+      }
       const task = [
         ...payloads.map(renderBackgroundNotification),
         ...(claimedGoal ? [renderGoalContinuation(claimedGoal)] : []),
@@ -769,6 +807,9 @@ class AgentLaunchers {
       await started.durableStarted;
     } catch (error) {
       for (const payload of payloads) this.notificationQueue.add(sessionId, payload);
+      if (claimedGoal && this.goalStore?.setContinuationReason) {
+        await this.goalStore.setContinuationReason(sessionId, claimedGoal.id, "continuation_start_failed");
+      }
       throw error;
     } finally {
       if (releaseOwned) await releaseClaim();

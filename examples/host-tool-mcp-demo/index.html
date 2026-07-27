@@ -84,7 +84,7 @@
       }
       try {
         // widget 懒建 session：首次发消息时建会话，经 onSessionChange 把 session_id 回调给页面注册 MCP
-        await window.RagWidget.mount({ backendBase: BACKEND, onSessionChange: handleSession });
+        await window.RagWidget.mount({ backendBase: BACKEND, onSessionChange: handleSession, publishableKey: 'wid_pk_b203a6d76cdc38d7ee951fbc94190d1cda580075e009f4be'});
         log("widget 已挂载（消息入口，懒建 session）");
         setStatus("widget 已挂载 — 首次发消息后自动建会话并注册 MCP 执行端");
       } catch (e) {

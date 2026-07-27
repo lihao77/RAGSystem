@@ -38,4 +38,11 @@ export const POSTGRES_GOAL_MIGRATIONS: readonly PostgresGoalMigration[] = [
         WHERE status IN ('active', 'paused');
     `,
   },
+  {
+    version: 2,
+    name: "goal_continuation_reason",
+    sql: `
+      ALTER TABLE workflow_goals ADD COLUMN IF NOT EXISTS continuation_reason TEXT;
+    `,
+  },
 ];

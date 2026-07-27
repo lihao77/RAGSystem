@@ -3,6 +3,7 @@ import type {
   CreateGoalInput,
   Goal,
   GoalStore,
+  GoalContinuationReason,
   UpdateGoalInput,
 } from "../../contracts/runtime/goals.js";
 import type { TenantId } from "../../identity/types.js";
@@ -16,6 +17,8 @@ type LocalGoalStoreSource = {
   listGoals(sessionId: string): Promise<Goal[]> | Goal[];
   claimGoalContinuation(sessionId: string, options?: ClaimGoalContinuationOptions): Promise<Goal | null> | Goal | null;
   releaseGoalContinuation(sessionId: string, goalId: string, generation: number): Promise<boolean> | boolean;
+  setContinuationReason?(sessionId: string, goalId: string, reason: GoalContinuationReason | null): Promise<Goal | null> | Goal | null;
+  restartBlocked?(sessionId: string, goalId: string): Promise<Goal | null> | Goal | null;
 };
 
 /** Tenant ownership boundary over Local SQLite Goal persistence. */
@@ -58,6 +61,16 @@ export class LocalGoalStore implements GoalStore {
   async releaseContinuation(sessionId: string, goalId: string, generation: number): Promise<boolean> {
     if (!this.ownsSession(sessionId)) return false;
     return this.source.releaseGoalContinuation(sessionId, goalId, generation);
+  }
+
+  async setContinuationReason(sessionId: string, goalId: string, reason: GoalContinuationReason | null): Promise<Goal | null> {
+    if (!this.ownsSession(sessionId) || !this.source.setContinuationReason) return null;
+    return this.source.setContinuationReason(sessionId, goalId, reason);
+  }
+
+  async restartBlocked(sessionId: string, goalId: string): Promise<Goal | null> {
+    if (!this.ownsSession(sessionId) || !this.source.restartBlocked) return null;
+    return this.source.restartBlocked(sessionId, goalId);
   }
 
   private ownsSession(sessionId: string): boolean {

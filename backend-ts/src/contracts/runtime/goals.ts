@@ -1,5 +1,17 @@
 export type GoalStatus = "active" | "paused" | "completed" | "blocked";
 
+/** Latest reason a Goal was paused or deferred from automatic continuation. */
+export type GoalContinuationReason =
+  | "manual_paused"
+  | "run_still_running"
+  | "background_tasks_running"
+  | "goal_not_active"
+  | "readiness_failed"
+  | "max_continuations"
+  | "no_progress_guard"
+  | "continuation_pending"
+  | "continuation_start_failed";
+
 export type GoalStepStatus = "pending" | "in_progress" | "completed" | "blocked";
 
 export interface GoalStep {
@@ -25,6 +37,7 @@ export interface Goal {
   continuation_generation: number;
   continuation_pending: boolean;
   continuation_claimed_at: string | null;
+  continuation_reason: GoalContinuationReason | null;
   last_progress_fingerprint: string | null;
   created_at: string;
   updated_at: string;
@@ -66,6 +79,10 @@ export interface GoalStore {
   claimContinuation(sessionId: string, options?: ClaimGoalContinuationOptions): Promise<Goal | null>;
   /** Releases a matching continuation reservation after run start failure or run completion. */
   releaseContinuation(sessionId: string, goalId: string, generation: number): Promise<boolean>;
+  /** Records the latest reason an automatic continuation was deferred. */
+  setContinuationReason?(sessionId: string, goalId: string, reason: GoalContinuationReason | null): Promise<Goal | null>;
+  /** Manually reopens a blocked Goal and resets its continuation guards. */
+  restartBlocked?(sessionId: string, goalId: string): Promise<Goal | null>;
 }
 
 export function normalizeGoalSteps(steps: readonly GoalStep[] | null | undefined): GoalStep[] {

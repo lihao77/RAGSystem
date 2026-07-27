@@ -55,7 +55,7 @@ class GoalExecutor implements PostgresMemoryExecutor {
 describe("PostgreSQL Goal persistence", () => {
   it("migrates a tenant/session-scoped Goal table with one-current invariant", async () => {
     const executor = new GoalExecutor();
-    await expect(runPostgresGoalMigrations(executor)).resolves.toEqual({ current_version: 1, applied_versions: [1] });
+    await expect(runPostgresGoalMigrations(executor)).resolves.toEqual({ current_version: 2, applied_versions: [1, 2] });
     const ddl = executor.calls.find((call) => call.sql.includes("CREATE TABLE IF NOT EXISTS workflow_goals"))?.sql ?? "";
     expect(ddl).toContain("PRIMARY KEY (tenant_id, goal_id)");
     expect(ddl).toContain("FOREIGN KEY (tenant_id, session_id)");

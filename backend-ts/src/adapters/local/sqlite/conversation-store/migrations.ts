@@ -52,4 +52,8 @@ function assertCleanBreakSchema(db: MigrationDatabase): void {
   if (!names.has("owner_user_id") || !names.has("origin_type") || !names.has("workspace_id")) {
     throw new Error("Conversation database schema is obsolete; delete the development database and restart");
   }
+  const goalColumns = db.prepare("PRAGMA table_info(workflow_goals)").all() as unknown as Array<{ name: string }>;
+  if (!goalColumns.some((column) => column.name === "continuation_reason")) {
+    db.exec("ALTER TABLE workflow_goals ADD COLUMN continuation_reason TEXT");
+  }
 }

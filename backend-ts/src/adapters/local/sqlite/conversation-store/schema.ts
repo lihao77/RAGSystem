@@ -268,7 +268,7 @@ export const BASELINE_SCHEMA_SQL = `
       continuation_count INTEGER NOT NULL DEFAULT 0, no_progress_count INTEGER NOT NULL DEFAULT 0,
       continuation_generation INTEGER NOT NULL DEFAULT 0,
       continuation_pending INTEGER NOT NULL DEFAULT 0 CHECK(continuation_pending IN (0, 1)),
-      continuation_claimed_at TEXT, last_progress_fingerprint TEXT,
+      continuation_claimed_at TEXT, last_progress_fingerprint TEXT, continuation_reason TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );

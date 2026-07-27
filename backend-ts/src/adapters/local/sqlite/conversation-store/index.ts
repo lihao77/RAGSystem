@@ -146,6 +146,8 @@ export function createConversationStore(options: ConversationStoreOptions) {
     listGoals: goals.list.bind(goals),
     claimGoalContinuation: goals.claimContinuation.bind(goals),
     releaseGoalContinuation: goals.releaseContinuation.bind(goals),
+    setContinuationReason: goals.setContinuationReason.bind(goals),
+    restartBlocked: goals.restartBlocked.bind(goals),
 
     /** 跨域：按 child agent 的 thread_key 取最近消息。 */
     getRecentMessagesByChildAgent: (sessionId: string, childAgentId: string, limit = DEFAULT_MESSAGE_LIST_LIMIT) => {

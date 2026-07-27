@@ -4,6 +4,7 @@ import type {
   ClaimGoalContinuationOptions,
   CreateGoalInput,
   Goal,
+  GoalContinuationReason,
   GoalStatus,
   GoalStep,
   UpdateGoalInput,
@@ -35,13 +36,14 @@ interface GoalRow {
   continuation_pending: number;
   continuation_claimed_at: string | null;
   last_progress_fingerprint: string | null;
+  continuation_reason: GoalContinuationReason | null;
   created_at: string;
   updated_at: string;
 }
 
 const COLUMNS = `goal_id, session_id, objective, success_criteria, steps, checkpoint, progress,
   status, continuation_count, no_progress_count, continuation_generation, continuation_pending,
-  continuation_claimed_at, last_progress_fingerprint, created_at, updated_at`;
+  continuation_claimed_at, last_progress_fingerprint, continuation_reason, created_at, updated_at`;
 
 export class GoalOps {
   constructor(private readonly db: GoalDb) {}
@@ -57,8 +59,8 @@ export class GoalOps {
       `INSERT INTO workflow_goals (
         goal_id, session_id, objective, success_criteria, steps, checkpoint, progress, status,
         continuation_count, no_progress_count, continuation_generation, continuation_pending,
-        continuation_claimed_at, last_progress_fingerprint, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, NULL, NULL, ?, ?)`,
+        continuation_claimed_at, last_progress_fingerprint, continuation_reason, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, NULL, NULL, NULL, ?, ?)`,
     ).run(
       goalId,
       sessionId,
@@ -108,6 +110,7 @@ export class GoalOps {
         objective=?, success_criteria=?, steps=?, checkpoint=?, progress=?, status=?,
         continuation_pending=CASE WHEN ? THEN 0 ELSE continuation_pending END,
         continuation_claimed_at=CASE WHEN ? THEN NULL ELSE continuation_claimed_at END,
+        continuation_reason=CASE WHEN ?='paused' THEN 'manual_paused' WHEN ?='active' THEN NULL ELSE continuation_reason END,
         updated_at=?
        WHERE session_id=? AND goal_id=?`,
     ).run(
@@ -119,6 +122,8 @@ export class GoalOps {
       next.status,
       continuationDisabled ? 1 : 0,
       continuationDisabled ? 1 : 0,
+      next.status,
+      next.status,
       new Date().toISOString(),
       sessionId,
       goalId,
@@ -154,16 +159,16 @@ export class GoalOps {
       if (current.continuation_count >= maxContinuations || noProgressCount >= maxNoProgress) {
         this.db.prepare(
           `UPDATE workflow_goals SET status='blocked', no_progress_count=?, continuation_pending=0,
-             continuation_claimed_at=NULL, last_progress_fingerprint=?, updated_at=?
+             continuation_claimed_at=NULL, continuation_reason=?, last_progress_fingerprint=?, updated_at=?
            WHERE session_id=? AND goal_id=?`,
-        ).run(noProgressCount, fingerprint, new Date(nowMs).toISOString(), sessionId, current.id);
+        ).run(noProgressCount, current.continuation_count >= maxContinuations ? "max_continuations" : "no_progress_guard", fingerprint, new Date(nowMs).toISOString(), sessionId, current.id);
         return null;
       }
 
       const generation = current.continuation_generation + 1;
       const updated = this.db.prepare(
         `UPDATE workflow_goals SET continuation_count=continuation_count+1, no_progress_count=?,
-           continuation_generation=?, continuation_pending=1, continuation_claimed_at=?,
+           continuation_generation=?, continuation_pending=1, continuation_claimed_at=?, continuation_reason=NULL,
            last_progress_fingerprint=?, updated_at=?
          WHERE session_id=? AND goal_id=? AND status='active'
            AND (continuation_pending=0 OR continuation_claimed_at IS NULL OR continuation_claimed_at=?)`,
@@ -189,6 +194,23 @@ export class GoalOps {
     return Number(result.changes) > 0;
   }
 
+  setContinuationReason(sessionId: string, goalId: string, reason: GoalContinuationReason | null): Goal | null {
+    this.db.prepare(
+      `UPDATE workflow_goals SET continuation_reason=?, updated_at=? WHERE session_id=? AND goal_id=?`,
+    ).run(reason, new Date().toISOString(), sessionId, goalId);
+    return this.get(sessionId, goalId);
+  }
+
+  restartBlocked(sessionId: string, goalId: string): Goal | null {
+    this.db.prepare(
+      `UPDATE workflow_goals SET status='active', continuation_count=0, no_progress_count=0,
+         continuation_generation=continuation_generation+1, continuation_pending=0,
+         continuation_claimed_at=NULL, continuation_reason=NULL, last_progress_fingerprint=NULL,
+         updated_at=? WHERE session_id=? AND goal_id=? AND status='blocked'`,
+    ).run(new Date().toISOString(), sessionId, goalId);
+    return this.get(sessionId, goalId);
+  }
+
   private getRequired(sessionId: string, goalId: string): Goal {
     const goal = this.get(sessionId, goalId);
     if (!goal) throw new Error(`goal insert/update failed: ${goalId}`);
@@ -211,6 +233,7 @@ function toGoal(row: GoalRow): Goal {
     continuation_generation: Number(row.continuation_generation),
     continuation_pending: Boolean(row.continuation_pending),
     continuation_claimed_at: row.continuation_claimed_at,
+    continuation_reason: row.continuation_reason,
     last_progress_fingerprint: row.last_progress_fingerprint,
     created_at: row.created_at,
     updated_at: row.updated_at,

@@ -106,6 +106,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://ragsystem:ragsystem@postgres:5432/ragsystem}
       CONTROL_DATABASE_URL: ${CONTROL_DATABASE_URL:-postgres://ragsystem:ragsystem@postgres:5432/ragsystem}
       CONTROL_SECRET_MASTER_KEY: ${CONTROL_SECRET_MASTER_KEY:?CONTROL_SECRET_MASTER_KEY must be set to a base64-encoded 32-byte key}
+      WIDGET_JWT_KEY_RING: ${WIDGET_JWT_KEY_RING:-}
       POSTGRES_POOL_MAX: ${POSTGRES_POOL_MAX:-10}
       SESSION_JWT_SECRET: ${SESSION_JWT_SECRET:?SESSION_JWT_SECRET must be set}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}

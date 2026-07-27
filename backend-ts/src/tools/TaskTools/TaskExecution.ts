@@ -123,11 +123,19 @@ export class TaskToolService {
       const sessionId = resolveTaskSessionId(context);
       const goalId = input.goalId?.trim() || null;
       if (goalId) assertGoalId(goalId);
-      const current = goalId
+      let current = goalId
         ? await this.goals.get(sessionId, goalId)
-        : await this.goals.getCurrent(sessionId);
+        : await this.goals.getCurrent(sessionId)
+          ?? (await this.goals.list(sessionId))[0]
+          ?? null;
       if (!current) return toolError(toolName, "Goal 不存在");
       assertGoalStatus(input.status);
+      if (current.status === "blocked" && input.status === "active") {
+        if (!this.goals.restartBlocked) return toolError(toolName, "阻塞的 Goal 只能通过会话控件重新开启");
+        const restarted = await this.goals.restartBlocked(sessionId, current.id);
+        if (!restarted) return toolError(toolName, `Goal ${current.id} 重新开启失败`);
+        current = restarted;
+      }
       if (input.status === "active" && current.status !== "active") {
         return toolError(toolName, "已暂停的 Goal 只能由用户通过会话控件恢复");
       }

@@ -29,6 +29,9 @@ type WebSocketLike = {
 };
 
 const WS_OPEN = 1;
+const DEFAULT_MCP_SESSION_INIT_TIMEOUT_MS = 10_000;
+
+type WsMessageData = Buffer | string;
 
 export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions> = async (app, options) => {
   app.get<{ Params: SessionWsParams; Querystring: SessionWsQuery }>(
@@ -90,6 +93,26 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
         ws.on("close", cleanup);
         ws.on("error", cleanup);
 
+        // The websocket becomes OPEN on the client before this async handler finishes
+        // session/MCP setup. Buffer client frames until the application handlers below
+        // are ready, otherwise the first tools.register/user_driven_change can be lost.
+        const pendingMessages: WsMessageData[] = [];
+        let messageProcessor: ((data: WsMessageData) => Promise<void>) | null = null;
+        let messageProcessingReady = false;
+        let messageChain = Promise.resolve();
+        const enqueueMessage = (data: WsMessageData): void => {
+          if (!messageProcessingReady || !messageProcessor) {
+            pendingMessages.push(data);
+            return;
+          }
+          messageChain = messageChain
+            .then(() => messageProcessor?.(data))
+            .catch((error) => {
+              request.log.error({ error }, "session websocket message processing failed");
+            });
+        };
+        ws.on("message", enqueueMessage);
+
         const applications = await ensureRequestApplications(request, options);
         const executionRead = applications.executionRead;
         const session = await applications.sessions.getSession(sessionId);
@@ -105,13 +128,10 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
           cleanup();
           return;
         }
-        // Refresh tenant configuration first so another backend replica cannot
-        // reconnect a server that was disabled or changed elsewhere. This only
-        // reads configuration; the network confirmation remains session-bound.
-        await applications.mcp.listServers();
-        // MCP is an optional session capability. Confirm enabled connections when
-        // the session channel is established, never on unrelated page APIs.
-        await container.mcp.autoConnectEnabledServers();
+        // MCP is optional and may involve a slow/unavailable external server. Keep
+        // the websocket responsive while still giving the first run a bounded chance
+        // to observe the current tenant configuration and connected MCP tools.
+        const mcpReady = initializeSessionMcp(applications, container, request);
         const afterSeq = parseSeqCursor(request.query.after_seq);
         let lastSeq = afterSeq ?? 0;
         let boundRunId: string | null = null;
@@ -210,15 +230,15 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
           .forEach(deliverLiveEvent);
         replaying = false;
 
-        ws.on("message", async (data) => {
+        messageProcessor = async (data) => {
           const raw = data.toString();
           try {
             const message = ClientToServerEnvelopeSchema.parse(JSON.parse(raw));
             switch (message.type) {
               case "user_driven_change": {
                 const payload = message.payload;
-                applications.execution
-                  .startStream(
+                mcpReady
+                  .then(() => applications.execution.startStream(
                     {
                       task: payload.task,
                       session_id: sessionId,
@@ -228,7 +248,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
                       ui_context: payload.ui_context,
                     },
                     payload.request_id ?? randomUUID(),
-                  )
+                  ))
                   .then((result) => {
                     const accepted = result.started || result.kind === "command";
                     sendAck("send", accepted, {
@@ -290,7 +310,9 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
               },
             });
           }
-        });
+        };
+        messageProcessingReady = true;
+        for (const data of pendingMessages.splice(0)) enqueueMessage(data);
       } catch {
         try { ws.close(1011, "internal error"); } catch { /* ignore */ }
         cleanup();
@@ -298,6 +320,40 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
     },
   );
 };
+
+async function initializeSessionMcp(
+  applications: Awaited<ReturnType<typeof ensureRequestApplications>>,
+  container: RuntimeContainer,
+  request: { log: { warn: (obj: unknown, msg?: string) => void } },
+): Promise<void> {
+  const configuredTimeout = Number(process.env.MCP_SESSION_INIT_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+    ? configuredTimeout
+    : DEFAULT_MCP_SESSION_INIT_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const initialization = (async () => {
+    // Refresh tenant configuration first so another backend replica cannot
+    // reconnect a server that was disabled or changed elsewhere.
+    await applications.mcp.listServers();
+    await container.mcp.autoConnectEnabledServers();
+  })();
+  try {
+    const result = await Promise.race<"ready" | "timeout">([
+      initialization.then(() => "ready" as const),
+      new Promise<"timeout">((resolve) => {
+        timer = setTimeout(() => resolve("timeout"), timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+    if (result === "timeout") {
+      request.log.warn({ timeoutMs }, "MCP session initialization timed out; continuing without MCP readiness");
+    }
+  } catch (error) {
+    request.log.warn({ error }, "MCP session initialization failed; continuing without MCP readiness");
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 async function buildDurableOutboxReplay(
   reads: import("../../contracts/execution/execution-read-application.js").ExecutionReadApplication,

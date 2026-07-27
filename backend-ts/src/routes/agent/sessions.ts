@@ -367,7 +367,8 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/goals/current", async (request) => {
     const sessions = await resolveSessionApplication(options, request);
     await loadReadableSession(request, request.params.sessionId, sessions);
-    const goal = await request.container.goalStore.getCurrent(request.params.sessionId);
+    const current = await request.container.goalStore.getCurrent(request.params.sessionId);
+    const goal = current ?? (await request.container.goalStore.list(request.params.sessionId))[0] ?? null;
     return ok({ goal }, "获取当前 Goal 成功");
   });
 
@@ -381,11 +382,15 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/goals/current/start", async (request) => {
     const sessions = await resolveSessionApplication(options, request);
     await loadMutableSession(request, request.params.sessionId, sessions);
-    const current = await request.container.goalStore.getCurrent(request.params.sessionId);
+    const current = await request.container.goalStore.getCurrent(request.params.sessionId)
+      ?? (await request.container.goalStore.list(request.params.sessionId))[0]
+      ?? null;
     if (!current) throw new HttpError(404, "not_found", "当前 Session 没有可开启的 Goal");
     const goal = current.status === "active"
       ? current
-      : await request.container.goalStore.update(request.params.sessionId, current.id, { status: "active" });
+      : current.status === "blocked" && request.container.goalStore.restartBlocked
+        ? await request.container.goalStore.restartBlocked(request.params.sessionId, current.id)
+        : await request.container.goalStore.update(request.params.sessionId, current.id, { status: "active" });
     if (!goal) throw new HttpError(404, "not_found", "Goal 不存在");
     request.container.backgroundTasks.scheduleAutoTrigger(request.params.sessionId);
     return ok({ goal }, "Goal 已开启");
