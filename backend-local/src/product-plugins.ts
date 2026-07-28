@@ -1,6 +1,7 @@
 import type { BackendPlugin, BackendPluginCatalog } from "@ragsystem/backend-core/plugins/index.js";
 import { selectBackendPlugins } from "@ragsystem/backend-core/plugins/index.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
+import type { JwtKeyRing } from "@ragsystem/backend-core/contracts/runtime/jwt-key-ring.js";
 import path from "node:path";
 import {
   loadMutableSession,
@@ -15,6 +16,11 @@ import { createLocalMcpRuntimeFactory, createMcpPlugin } from "@ragsystem/backen
 import { createExecutionToolsPlugin, createLocalExecutionToolsRuntimeFactory } from "@ragsystem/backend-plugin-execution-tools/index.js";
 import { createDocumentToolsPlugin, createLocalDocumentToolsRuntimeFactory } from "@ragsystem/backend-plugin-document-tools/index.js";
 import { createDaemonFeishuPlugin } from "@ragsystem/backend-plugin-daemon-feishu/index.js";
+import {
+  createWidgetCredentialStore,
+  createWidgetPlugin,
+  SqliteWidgetCredentialAdapter,
+} from "@ragsystem/backend-plugin-widget/index.js";
 import { createLocalSkillsRuntimeFactory, createSkillsPlugin } from "@ragsystem/backend-plugin-skills/index.js";
 import type { LocalDeploymentRuntime } from "./adapters/local/composition/local-deployment-runtime.js";
 import { TenantPaths } from "./adapters/local/tenant-paths.js";
@@ -23,6 +29,7 @@ export function createLocalProductPlugins(
   deployment: LocalDeploymentRuntime,
   env: AppEnv,
   selection?: string,
+  widgetKeyRing?: JwtKeyRing,
 ): readonly BackendPlugin[] {
   const applications = deployment.applications;
   const catalog = {
@@ -55,6 +62,14 @@ export function createLocalProductPlugins(
     memory: () => createMemoryPlugin({ runtimeFactory: createLocalMemoryRuntimeFactory() }),
     mcp: () => createMcpPlugin({ runtimeFactory: createLocalMcpRuntimeFactory() }),
     skills: () => createSkillsPlugin({ runtimeFactory: createLocalSkillsRuntimeFactory() }),
+    widget: () => createWidgetPlugin({
+      credentials: () => new SqliteWidgetCredentialAdapter(
+        createWidgetCredentialStore(deployment.pluginResources.controlDatabase),
+      ),
+      ...(widgetKeyRing ? { keyRing: widgetKeyRing } : {}),
+      wsTickets: deployment.wsTickets,
+      applications: deployment.applications,
+    }),
   } satisfies BackendPluginCatalog;
   return selectBackendPlugins(catalog, selection);
 }

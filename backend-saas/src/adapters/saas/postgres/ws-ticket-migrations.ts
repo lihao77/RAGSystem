@@ -9,7 +9,8 @@ export async function runPostgresWsTicketMigrations(executor: PostgresExecutor):
     for (let index = 0; index < applied.rows.length; index += 1) {
       const expected = POSTGRES_WS_TICKET_MIGRATIONS[index];
       const row = applied.rows[index];
-      if (!expected || !row || Number(row.version) !== expected.version || row.name !== expected.name) {
+      const nameMatches = expected && (row?.name === expected.name || expected.legacyNames?.includes(row?.name ?? ""));
+      if (!expected || !row || Number(row.version) !== expected.version || !nameMatches) {
         throw new Error("invalid PostgreSQL websocket-ticket migration history");
       }
     }

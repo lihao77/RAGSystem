@@ -7,8 +7,9 @@ import type {
   WidgetAppCredential,
   WidgetCredentialRepository,
   WidgetSessionToken,
-} from "@ragsystem/backend-core/contracts/control-plane/widget-credentials.js";
+} from "../../contracts/widget-credentials.js";
 import { createTenantId, type TenantId } from "@ragsystem/backend-core/identity/types.js";
+import { runPostgresWidgetMigrations } from "./migrations.js";
 
 const PRUNE_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -45,7 +46,7 @@ export interface PostgresWidgetCredentialRepositoryOptions {
 }
 
 export interface CreatePostgresWidgetCredentialRepositoryOptions {
-  connectionString: string;
+  connectionString?: string;
   pool?: Pool;
   poolMax?: number;
 }
@@ -240,7 +241,9 @@ export async function createPostgresWidgetCredentialRepository(
   options: CreatePostgresWidgetCredentialRepositoryOptions,
 ): Promise<PostgresWidgetCredentialRepository> {
   const ownsPool = options.pool === undefined;
-  const pool = options.pool ?? new Pool({ connectionString: options.connectionString, max: options.poolMax ?? 10 });
+  if (!options.pool && !options.connectionString) throw new Error("Widget PostgreSQL storage requires a pool or connection string");
+  const pool = options.pool ?? new Pool({ connectionString: options.connectionString!, max: options.poolMax ?? 10 });
+  await runPostgresWidgetMigrations(pool);
   return new PostgresWidgetCredentialRepository(pool, { ownsPool });
 }
 

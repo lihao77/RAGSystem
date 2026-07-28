@@ -2,14 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import type { FastifyPluginAsync } from "fastify";
 
-import { ok } from "../contracts/common.js";
-import { WidgetCreateSessionRequestSchema, WidgetTokenRequestSchema } from "../contracts/control-plane/widget.js";
-import type { TenantId } from "../identity/types.js";
-import { WidgetAuthError, type WidgetAuthService } from "../services/runtime/jwt-service.js";
-import { HttpError } from "../utils/errors.js";
-import { LOCAL_USER_ID } from "../services/identity/local-identity-provider.js";
-import type { AgentRouteOptions } from "./route-options.js";
-import { resolveSessionApplication } from "./session-application.js";
+import { ok } from "@ragsystem/backend-core/contracts/common.js";
+import type { SessionApplication } from "@ragsystem/backend-core/contracts/session/session-application.js";
+import type { WsTicketService } from "@ragsystem/backend-core/services/runtime/ws-ticket-service.js";
+import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
+import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
+import { WidgetCreateSessionRequestSchema, WidgetTokenRequestSchema } from "../contracts/widget.js";
+import { widgetUserId } from "../identity/widget-user-id.js";
+import { WidgetAuthError, type WidgetAuthService } from "../services/widget-auth-service.js";
 
 interface WidgetSessionParams {
   sessionId: string;
@@ -32,7 +32,13 @@ interface WidgetSessionParams {
  * 仅当全局 WidgetAuthService 存在（配置了 Widget key ring）时启用；否则整组端点返回 503，
  * 默认部署完全不受影响。鉴权只挂在本 plugin 内，不污染既有 /api/agent/* 零鉴权路由。
  */
-export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async (app, options) => {
+export interface WidgetRouteOptions {
+  widgetAuth?: WidgetAuthService;
+  wsTickets: WsTicketService;
+  resolveSessionApplication(request: Parameters<WidgetAuthService["requireBearer"]>[0]): SessionApplication | undefined | Promise<SessionApplication | undefined>;
+}
+
+export const registerWidgetRoutes: FastifyPluginAsync<WidgetRouteOptions> = async (app, options) => {
   const auth = options.widgetAuth;
 
   if (!auth) {
@@ -60,7 +66,7 @@ export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async
     const body = WidgetCreateSessionRequestSchema.parse(request.body);
     const sessionId = randomUUID();
     const metadata = { ...(body.metadata ?? {}), host_tools: body.host_tools ?? [], entry_channel: createdVia };
-    const sessions = await resolveSessionApplication(options, request);
+    const sessions = await requireSessionApplication(options, request);
     await sessions.createSession({
       sessionId, ownerUserId: null, visibility: "tenant", originType: "widget",
       originId: appKey, originChannel: createdVia === "widget_public" ? "widget_embed" : "widget_api",
@@ -71,13 +77,14 @@ export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async
 
   app.post<{ Params: WidgetSessionParams }>("/sessions/:sessionId/ws-ticket", async (request) => {
     const { appKey, tenantId } = await resolveWidgetCredential(request, auth);
-    const sessions = await resolveSessionApplication(options, request);
+    const sessions = await requireSessionApplication(options, request);
     const session = await sessions.getSession(request.params.sessionId);
     if (!session || session.tenant_id !== tenantId || session.origin_type !== "widget" || session.origin_id !== appKey) {
       throw new HttpError(404, "not_found", "会话不存在");
     }
     return ok(await options.wsTickets.issue({
-      userId: LOCAL_USER_ID, tenantId, role: "widget", permissions: [], widgetAppKey: appKey,
+      userId: widgetUserId(appKey), tenantId, role: "widget", permissions: [],
+      originPrincipal: { type: "widget", id: appKey },
     }, request.params.sessionId), "Widget WebSocket ticket 已签发");
   });
 };
@@ -99,4 +106,13 @@ async function resolveWidgetCredential(
     if (error instanceof WidgetAuthError) throw new HttpError(401, "unauthorized", error.message);
     throw error;
   }
+}
+
+async function requireSessionApplication(
+  options: WidgetRouteOptions,
+  request: Parameters<WidgetAuthService["requireBearer"]>[0],
+): Promise<SessionApplication> {
+  const application = await options.resolveSessionApplication(request);
+  if (!application) throw new Error("session application resolver returned no implementation");
+  return application;
 }

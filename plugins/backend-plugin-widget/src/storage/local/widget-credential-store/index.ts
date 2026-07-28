@@ -1,6 +1,7 @@
 import type { WidgetCredentialDb } from "./db.js";
 import { WidgetCredentialOps, type CreatedWidgetApp, type WidgetApp } from "./widget-credential-ops.js";
 import { WidgetAuditOps, type WidgetAudit } from "./widget-audit-ops.js";
+import { runSqliteWidgetMigrations } from "../migrations.js";
 
 /**
  * widget 凭证存储 facade（无主类）：共享 SQLite 句柄 + WidgetCredentialOps 聚合根。
@@ -19,6 +20,7 @@ export interface WidgetCredentialStore {
 const PRUNE_INTERVAL_MS = 5 * 60 * 1000;
 
 export function createWidgetCredentialStore(db: WidgetCredentialDb): WidgetCredentialStore {
+  runSqliteWidgetMigrations(db);
   const ops = new WidgetCredentialOps(db);
   const audit = new WidgetAuditOps(db);
   let pruneTimer: ReturnType<typeof setInterval> | null = null;

@@ -1,18 +1,22 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import { CreatedWidgetAppViewSchema, CreateWidgetAppRequestSchema, UpdateWidgetAppRequestSchema, WidgetAppViewSchema, WidgetAuditViewSchema, WidgetTokenViewSchema } from "../contracts/control-plane/widget.js";
-import type { CreatedWidgetAppCredential, WidgetAppCredential } from "../contracts/control-plane/widget-credentials.js";
-import { HttpError } from "../utils/errors.js";
-import type { RouteOptions } from "./route-options.js";
-import { requireTenantAdmin, requireTenantOwner } from "./tenant-role.js";
+import { CreatedWidgetAppViewSchema, CreateWidgetAppRequestSchema, UpdateWidgetAppRequestSchema, WidgetAppViewSchema, WidgetAuditViewSchema, WidgetTokenViewSchema } from "../contracts/widget.js";
+import type { CreatedWidgetAppCredential, WidgetAppCredential, WidgetCredentialRepository } from "../contracts/widget-credentials.js";
+import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
+import { requireTenantAdmin, requireTenantOwner } from "@ragsystem/backend-core/routes/tenant-role.js";
 
 interface AppParams { key: string; }
 interface TokenParams extends AppParams { jti: string; }
 interface AuditQuery { limit?: string; offset?: string; }
 
-export const registerWidgetAppsRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  const store = options.widgetCredentialStore;
-  if (!options.widgetAuth || !store) {
+export interface WidgetAppsRouteOptions {
+  credentials: WidgetCredentialRepository;
+  enabled: boolean;
+}
+
+export const registerWidgetAppsRoutes: FastifyPluginAsync<WidgetAppsRouteOptions> = async (app, options) => {
+  const store = options.credentials;
+  if (!options.enabled) {
     const disabled = async () => { throw new HttpError(503, "widget_disabled", "未配置 WIDGET_JWT_KEY_RING，widget 接入未启用"); };
     app.all("/", disabled);
     app.all("/*", disabled);

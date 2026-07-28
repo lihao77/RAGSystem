@@ -1,4 +1,4 @@
-import type { TenantId } from "../../identity/types.js";
+import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 
 export interface WidgetAppCredential {
   app_key: string;

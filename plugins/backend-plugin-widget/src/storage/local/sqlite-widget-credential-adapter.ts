@@ -1,4 +1,4 @@
-import type { WidgetCredentialRepository } from "@ragsystem/backend-core/contracts/control-plane/widget-credentials.js";
+import type { WidgetCredentialRepository } from "../../contracts/widget-credentials.js";
 import type { WidgetCredentialStore } from "./widget-credential-store/index.js";
 
 const PRUNE_INTERVAL_MS = 5 * 60 * 1000;

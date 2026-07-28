@@ -4,10 +4,10 @@ import type { FastifyRequest } from "fastify";
 import type {
   WidgetAppCredential,
   WidgetCredentialRepository,
-} from "../../contracts/control-plane/widget-credentials.js";
-import type { JwtKeyRing, JwtSigningKey } from "../../contracts/runtime/jwt-key-ring.js";
-import { createTenantId, type TenantId } from "../../identity/types.js";
-import { AuthError } from "../identity/auth-error.js";
+} from "../contracts/widget-credentials.js";
+import type { JwtKeyRing, JwtSigningKey } from "@ragsystem/backend-core/contracts/runtime/jwt-key-ring.js";
+import { createTenantId, type TenantId } from "@ragsystem/backend-core/identity/types.js";
+import { AuthError } from "@ragsystem/backend-core/services/identity/auth-error.js";
 
 /** widget 短时 token 的 TTL（秒）。 */
 const TOKEN_TTL_SECONDS = 15 * 60;

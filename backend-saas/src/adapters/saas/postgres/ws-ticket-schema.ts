@@ -1,4 +1,4 @@
-export interface PostgresWsTicketMigration { version: number; name: string; sql: string }
+export interface PostgresWsTicketMigration { version: number; name: string; legacyNames?: readonly string[]; sql: string }
 
 export const POSTGRES_WS_TICKET_MIGRATIONS: readonly PostgresWsTicketMigration[] = [{
   version: 1,
@@ -23,9 +23,15 @@ export const POSTGRES_WS_TICKET_MIGRATIONS: readonly PostgresWsTicketMigration[]
   `,
 }, {
   version: 2,
-  name: "widget-app-key",
+  name: "legacy-origin-principal",
+  legacyNames: ["widget-app-key"],
+  sql: "SELECT 1;",
+}, {
+  version: 3,
+  name: "origin-principal",
   sql: `
     ALTER TABLE websocket_tickets
-      ADD COLUMN IF NOT EXISTS widget_app_key TEXT;
+      ADD COLUMN IF NOT EXISTS origin_principal_type TEXT,
+      ADD COLUMN IF NOT EXISTS origin_principal_id TEXT;
   `,
 }];

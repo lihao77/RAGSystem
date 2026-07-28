@@ -7,36 +7,37 @@ import { HttpError } from "../utils/errors.js";
 import { canReadTenantSessions } from "./tenant-role.js";
 import type { SessionListAccess } from "../contracts/session/session.js";
 
-function isMatchingWidgetSession(request: FastifyRequest, session: SessionInfo): boolean {
-  const { role, widgetAppKey: appKey } = request.identity;
-  if (role !== "widget") return false;
-  return Boolean(appKey) && session.origin_type === "widget" && session.origin_id === appKey;
+function isMatchingOriginPrincipal(request: FastifyRequest, session: SessionInfo): boolean {
+  const principal = request.identity.originPrincipal;
+  return Boolean(principal)
+    && session.origin_type === principal?.type
+    && session.origin_id === principal.id;
 }
 
 function canAccessAsHumanPrincipal(request: FastifyRequest, session: SessionInfo): boolean {
   const identity = request.identity;
   if (session.tenant_id !== identity.tenantId) return false;
-  if (identity.role === "widget") return false;
+  if (identity.originPrincipal) return false;
   if (identity.userId === LOCAL_USER_ID) return true;
   if (session.owner_user_id === identity.userId) return true;
   // Tenant admins intentionally retain management access to tenant-visible sessions.
   return session.visibility === "tenant" && canReadTenantSessions(identity);
 }
 
-/** Read policy for session data. Widget principals are scoped to their exact app origin. */
+/** Read policy for session data. External principals are scoped to their exact origin. */
 export function canReadSession(request: FastifyRequest, session: SessionInfo): boolean {
   if (session.tenant_id !== request.identity.tenantId) return false;
-  return canAccessAsHumanPrincipal(request, session) || isMatchingWidgetSession(request, session);
+  return canAccessAsHumanPrincipal(request, session) || isMatchingOriginPrincipal(request, session);
 }
 
 /** Execute/respond policy. Kept separate from read so execution routes declare their capability. */
 export function canExecuteSession(request: FastifyRequest, session: SessionInfo): boolean {
   if (session.tenant_id !== request.identity.tenantId) return false;
-  if (session.origin_type === "widget") return isMatchingWidgetSession(request, session);
+  if (request.identity.originPrincipal) return isMatchingOriginPrincipal(request, session);
   return canAccessAsHumanPrincipal(request, session);
 }
 
-/** Mutation policy. Widget transport principals cannot edit/delete session-owned resources. */
+/** Mutation policy. External transport principals cannot edit/delete session-owned resources. */
 export function canMutateSession(request: FastifyRequest, session: SessionInfo): boolean {
   return canAccessAsHumanPrincipal(request, session);
 }
@@ -111,7 +112,7 @@ export async function assertExecutableSessionIfExists(
   const session = sessions
     ? await sessions.getSessionForExecutionValidation(sessionId)
     : await request.container.sessionApplication.getSession(sessionId);
-  if (!session && request.identity.role === "widget") {
+  if (!session && request.identity.originPrincipal) {
     throw new HttpError(404, "not_found", "会话不存在");
   }
   if (session) await assertSessionExecutable(request, session);

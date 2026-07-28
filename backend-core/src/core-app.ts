@@ -18,13 +18,12 @@ import {
   registerManagementAndPlatformRoutes,
   registerPublicAndAuthRoutes,
   registerSharedBusinessRoutes,
-  registerWidgetAndRealtimeRoutes,
+  registerRealtimeRoutes,
   type AuthRuntime,
 } from "./app/route-assembly.js";
 import { HttpError, formatError } from "./utils/errors.js";
-import { createWidgetAuthService } from "./services/runtime/jwt-service.js";
 import { createSessionTokenService, type SessionTokenService } from "./services/runtime/session-token-service.js";
-import { AuthError, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
+import { AuthError, type IdentityProvider } from "./services/identity/index.js";
 export interface CoreBuildAppOptions {
   env: AppEnv;
   runtime: DeploymentRuntime;
@@ -42,8 +41,6 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   const pluginManager = new BackendPluginManager(options.plugins, options.capabilities);
   await pluginManager.register();
   const controlPlane = deployment.controlPlane;
-  const botRepository = deployment.botRepository;
-  const widgetCredentials = deployment.widgetCredentials;
   const applications = deployment.applications;
   const initialProfile = resolveProfileFromSettings(await controlPlane.settings.getAll(), options.env);
   const initialSessionTokens = deployment.initialSessionTokens
@@ -71,15 +68,9 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   const routedIdentityProvider: IdentityProvider = {
     resolve: (request, scope) => runtime.identityProvider.resolve(request, scope),
   };
-  const widgetAuth = deployment.widgetAuth ?? (options.env.widgetJwtKeyRing
-    ? createWidgetAuthService(options.env.widgetJwtKeyRing, widgetCredentials)
-    : undefined);
-  const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentials) : undefined;
   const registry = await deployment.createRegistry(app.log, pluginManager.runtimeContributions());
   const wsTickets = deployment.wsTickets;
-  app.decorate("botRepository", botRepository);
   await pluginManager.initializeApplication({ logger: app.log, registry });
-  await widgetCredentials.startPruning();
   app.decorateRequest("identity");
   app.decorateRequest("userId");
   app.decorateRequest("tenantId");
@@ -166,8 +157,6 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   );
 
   await app.register(cors, {
-    // widget 鉴权启用时，CORS 白名单 = env CORS_ORIGINS ∪ 各 app 的 allowed_origins；
-    // 未启用时保持原 corsOrigins 行为（true 全开或显式数组），默认部署不受影响。
     origin: (origin, cb) => {
       const allowed = !origin ||
         options.env.corsOrigins === true ||
@@ -175,7 +164,6 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
       cb(null, allowed);
     },
     credentials: true,
-    allowedHeaders: ["authorization", "content-type", "x-widget-key"],
   });
   const maxContentLength = 104_857_600;
   await app.register(multipart, {
@@ -197,20 +185,16 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   await registerSharedBusinessRoutes(app, {
     registry,
     identityProvider: routedIdentityProvider,
-    botRepository,
-    widgetCredentialStore: widgetCredentials,
     wsTickets,
-    registerPublicAgui: !widgetIdentityProvider,
+    registerPublicAgui: !pluginManager.routes("public").some((route) => route.prefix === "/api/agui"),
     ...applications,
-    ...(widgetAuth ? { widgetAuth } : {}),
+    emitPluginEvent: (event, payload) => pluginManager.emit(event, payload),
     pluginRoutes: pluginManager.routes("tenant"),
   });
   await registerManagementAndPlatformRoutes(app, {
     controlPlane,
     registry,
     identityProvider: routedIdentityProvider,
-    widgetCredentialStore: widgetCredentials,
-    ...(widgetAuth ? { widgetAuth } : {}),
     ...(applications.resolveExecutionRead ? { resolveExecutionRead: applications.resolveExecutionRead } : {}),
     pluginRoutes: [
       ...pluginManager.routes("management"),
@@ -218,21 +202,16 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     ],
     emitPluginEvent: (event, payload) => pluginManager.emit(event, payload),
   });
-  await registerWidgetAndRealtimeRoutes(app, {
+  await registerRealtimeRoutes(app, {
     registry,
     identityProvider: routedIdentityProvider,
-    botRepository,
-    widgetCredentialStore: widgetCredentials,
     wsTickets,
-    ...(widgetIdentityProvider ? { widgetIdentityProvider } : {}),
-    ...(widgetAuth ? { widgetAuth } : {}),
     resolveSessionApplication: applications.resolveSessionApplication,
     resolveExecutionRead: applications.resolveExecutionRead,
     resolveExecutionApplication: applications.resolveExecutionApplication,
     resolveAnalytics: applications.resolveAnalytics,
     resolveMonitoringApplication: applications.resolveMonitoringApplication,
     resolveProviderApplication: applications.resolveProviderApplication,
-    pluginRoutes: pluginManager.routes("widget"),
   });
 
   registerFrontendFallback(app);

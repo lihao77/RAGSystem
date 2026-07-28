@@ -1,11 +1,8 @@
 import type { FastifyBaseLogger } from "fastify";
 
-import type { BotRepository } from "../contracts/control-plane/bot-repository.js";
 import type { ControlPlane } from "../contracts/control-plane/index.js";
-import type { WidgetCredentialRepository } from "../contracts/control-plane/widget-credentials.js";
 import type { RouteOptions } from "../routes/route-options.js";
 import type { IdentityProvider } from "../services/identity/index.js";
-import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { RuntimeContainerRegistry } from "../services/runtime/runtime-container-registry.js";
 import type { SessionTokenService } from "../services/runtime/session-token-service.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
@@ -29,12 +26,9 @@ export interface DeploymentApplicationResolvers {
  */
 export interface DeploymentRuntime {
   readonly controlPlane: ControlPlane;
-  readonly botRepository: BotRepository;
-  readonly widgetCredentials: WidgetCredentialRepository;
   readonly applications: DeploymentApplicationResolvers;
   readonly wsTickets: WsTicketService;
   readonly initialSessionTokens?: SessionTokenService;
-  readonly widgetAuth?: WidgetAuthService;
   createRegistry(
     logger: FastifyBaseLogger,
     plugins?: BackendRuntimeContributions,

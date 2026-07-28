@@ -478,21 +478,15 @@ async function assembleCreatedSession(
 }
 
 async function loadSourceNames(options: AgentRouteOptions, tenantId: SessionInfo["tenant_id"]): Promise<Map<string, string>> {
-  const [bots, widgets] = await Promise.all([
-    options.botRepository.listByTenant(tenantId),
-    options.widgetCredentialStore?.apps.list(tenantId) ?? Promise.resolve([]),
-  ]);
   const names = new Map<string, string>();
-  for (const bot of bots) names.set(`bot:${bot.id}`, bot.displayName);
-  for (const widget of widgets) names.set(`widget:${widget.app_key}`, widget.display_name);
+  await options.emitPluginEvent?.("session.origins.resolve", { tenantId, names });
   return names;
 }
 
 function requireSourceName(names: ReadonlyMap<string, string>, type: "bot" | "widget", id: string | null): string {
   if (!id) throw new Error(`${type} session is missing origin id`);
   const name = names.get(`${type}:${id}`);
-  if (!name) throw new Error(`session references missing ${type} origin: ${id}`);
-  return name;
+  return names.get(`${type}:${id}`) ?? id;
 }
 
 function toWorkspaceView(

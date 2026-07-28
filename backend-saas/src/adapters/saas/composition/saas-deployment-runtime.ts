@@ -26,6 +26,7 @@ export interface SaaSDeploymentRuntime extends DeploymentRuntime {
   readonly daemonLeaderLease: DaemonLeaderLease;
   readonly pluginResources: {
     database: PostgresExecutor;
+    controlDatabase: Pool;
     objects: ObjectStorage;
     secrets: SecretResolver;
   };
@@ -79,10 +80,14 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
   return {
     controlPlane: control.controlPlane,
     botRepository: control.botRepository,
-    widgetCredentials: control.widgetCredentials,
     daemonLeaderLease: control.daemonLeaderLease,
     wsTickets: conversation.wsTickets,
-    pluginResources: { database: conversation.pluginResources.database, objects, secrets: control.secretResolver },
+    pluginResources: {
+      database: conversation.pluginResources.database,
+      controlDatabase: control.database,
+      objects,
+      secrets: control.secretResolver,
+    },
     applications: {
       resolveSessionFileApplication: (request) => new SaaSSessionFileApplication(
         conversation.createSessionFileStorage(request.identity.tenantId),

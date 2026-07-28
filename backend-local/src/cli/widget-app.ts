@@ -13,10 +13,10 @@
  */
 import { loadEnv } from "@ragsystem/backend-core/config/env.js";
 import { SqliteControlPlaneAdapter } from "../adapters/local/sqlite/sqlite-control-plane-adapter.js";
-import { SqliteWidgetCredentialAdapter } from "../adapters/local/sqlite/sqlite-widget-credential-adapter.js";
+import { SqliteWidgetCredentialAdapter } from "@ragsystem/backend-plugin-widget/storage/local/sqlite-widget-credential-adapter.js";
 import { LOCAL_TENANT_ID, LocalIdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
 import { createControlStore } from "../adapters/local/sqlite/control-store/index.js";
-import { createWidgetCredentialStore } from "../adapters/local/sqlite/widget-credential-store/index.js";
+import { createWidgetCredentialStore } from "@ragsystem/backend-plugin-widget/storage/local/widget-credential-store/index.js";
 
 async function main(): Promise<void> {
   const [, , command, ...rest] = process.argv;

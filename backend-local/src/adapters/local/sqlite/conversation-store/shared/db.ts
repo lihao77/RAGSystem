@@ -33,7 +33,7 @@ export function createConversationDb(options: {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
-  // backend 多个 store 聚合（conversation/widget/vector 各自连接）同操作 ragsystem.db（B2:SDK store 已删）。
+  // backend 多个 store 聚合（conversation 与插件存储）可共享同一 SQLite 数据库。
   // WAL 下并发写事务靠 busy_timeout 让后续方等待而非立即抛 SQLITE_BUSY。
   db.exec("PRAGMA busy_timeout = 5000");
   try {

@@ -58,8 +58,20 @@ export function createDaemonFeishuPlugin(dependencies: DaemonFeishuPluginDepende
         const botId = payload.resourceId as UserId;
         if (await dependencies.botRepository.get(botId)) await application.service.reloadBot(botId);
       });
+      context.events.on("session.origins.resolve", async (payload) => {
+        if (!isSessionOriginResolution(payload)) return;
+        for (const bot of await dependencies.botRepository.listByTenant(payload.tenantId as import("@ragsystem/backend-core/identity/types.js").TenantId)) {
+          payload.names.set(`bot:${bot.id}`, bot.displayName);
+        }
+      });
     },
   };
+}
+
+function isSessionOriginResolution(value: unknown): value is { tenantId: string; names: Map<string, string> } {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return typeof item.tenantId === "string" && item.names instanceof Map;
 }
 
 function isUserStatusChange(value: unknown): value is { resourceType: "user"; resourceId: string; change: "status" } {

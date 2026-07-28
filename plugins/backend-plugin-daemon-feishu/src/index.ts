@@ -2,6 +2,7 @@ export * from "./application-runtime.js";
 export * from "./contracts/daemon.js";
 export * from "./contracts/bot.js";
 export * from "./contracts/bot-repository.js";
+export * from "./contracts/bot-directory.js";
 export * from "./contracts/daemon-leader-lease.js";
 export * from "./contracts/daemon-runtime-provider.js";
 export * from "./plugin.js";

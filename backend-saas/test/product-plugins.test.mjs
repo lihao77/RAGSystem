@@ -12,6 +12,7 @@ const ALL_IDS = [
   "@ragsystem/backend-plugin-memory",
   "@ragsystem/backend-plugin-mcp",
   "@ragsystem/backend-plugin-skills",
+  "@ragsystem/backend-plugin-widget",
 ];
 
 test("SaaS product plugin catalog defaults to every bundled plugin", () => {
@@ -33,6 +34,7 @@ test("SaaS product plugin catalog supports disabling and subset ordering", () =>
 function pluginIds(plugins) {
   return plugins.map((plugin) => plugin.manifest.id);
 }
+
 
 function deployment() {
   return {

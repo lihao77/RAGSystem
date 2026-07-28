@@ -26,8 +26,8 @@ export interface RequestIdentity {
   role: string;
   permissions: string[];
   platformRole?: "admin";
-  /** Transport principal for Widget HTTP/WS flows; never used as session ownership. */
-  widgetAppKey?: string;
+  /** External transport principal bound to an exact persisted session origin. */
+  originPrincipal?: { type: string; id: string };
 }
 
 export function createTenantId(value: string): TenantId {

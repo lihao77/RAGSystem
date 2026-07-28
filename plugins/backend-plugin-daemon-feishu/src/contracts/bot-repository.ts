@@ -1,4 +1,4 @@
-import type { BotRepository } from "@ragsystem/backend-core/contracts/control-plane/bot-repository.js";
+import type { BotRepository } from "./bot-directory.js";
 import type { Bot } from "@ragsystem/backend-core/contracts/control-plane/user.js";
 import type { TenantId, UserId } from "@ragsystem/backend-core/identity/types.js";
 import type {

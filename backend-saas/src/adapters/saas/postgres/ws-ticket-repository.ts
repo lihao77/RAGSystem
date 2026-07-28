@@ -35,10 +35,11 @@ export class PostgresWsTicketService implements WsTicketService {
       }
       const inserted = await tx.query<{ expires_at: string }>(
         `INSERT INTO websocket_tickets
-          (ticket_hash,tenant_id,user_id,role,permissions,platform_role,widget_app_key,session_id,expires_at)
-         VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8,CURRENT_TIMESTAMP+($9::double precision*INTERVAL '1 millisecond'))
+          (ticket_hash,tenant_id,user_id,role,permissions,platform_role,origin_principal_type,origin_principal_id,session_id,expires_at)
+         VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,CURRENT_TIMESTAMP+($10::double precision*INTERVAL '1 millisecond'))
          RETURNING expires_at`,
-        [hashWsTicket(ticket), identity.tenantId, identity.userId, identity.role, JSON.stringify(identity.permissions), identity.platformRole ?? null, identity.widgetAppKey ?? null, sessionId, this.ttlMs],
+        [hashWsTicket(ticket), identity.tenantId, identity.userId, identity.role, JSON.stringify(identity.permissions), identity.platformRole ?? null,
+          identity.originPrincipal?.type ?? null, identity.originPrincipal?.id ?? null, sessionId, this.ttlMs],
       );
       if (!inserted.rows[0]) throw new Error("websocket ticket insert returned no row");
       return new Date(inserted.rows[0].expires_at);
@@ -50,7 +51,7 @@ export class PostgresWsTicketService implements WsTicketService {
     if (!ticket) throw new AuthError("missing websocket ticket");
     const result = await this.executor.query(
       `DELETE FROM websocket_tickets WHERE ticket_hash=$1 AND expires_at>CURRENT_TIMESTAMP
-       RETURNING tenant_id,user_id,role,permissions,platform_role,widget_app_key,session_id,expires_at`,
+       RETURNING tenant_id,user_id,role,permissions,platform_role,origin_principal_type,origin_principal_id,session_id,expires_at`,
       [hashWsTicket(ticket)],
     );
     const row = result.rows[0];
@@ -63,7 +64,9 @@ export class PostgresWsTicketService implements WsTicketService {
       role: String(row.role),
       permissions,
       ...(row.platform_role === "admin" ? { platformRole: "admin" as const } : {}),
-      ...(row.widget_app_key == null ? {} : { widgetAppKey: String(row.widget_app_key) }),
+      ...(row.origin_principal_type == null || row.origin_principal_id == null ? {} : {
+        originPrincipal: { type: String(row.origin_principal_type), id: String(row.origin_principal_id) },
+      }),
     };
   }
 

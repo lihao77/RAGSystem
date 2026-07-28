@@ -25,6 +25,8 @@ import {
 import { createExecutionToolsPlugin, createSaaSExecutionToolsRuntimeFactory } from "@ragsystem/backend-plugin-execution-tools/index.js";
 import { createDocumentToolsPlugin, createSaaSDocumentToolsRuntimeFactory } from "@ragsystem/backend-plugin-document-tools/index.js";
 import { createDaemonFeishuPlugin } from "@ragsystem/backend-plugin-daemon-feishu/index.js";
+import { createPostgresWidgetCredentialRepository, createWidgetPlugin } from "@ragsystem/backend-plugin-widget/index.js";
+import type { JwtKeyRing } from "@ragsystem/backend-core/contracts/runtime/jwt-key-ring.js";
 import {
   createPostgresSkillsLifecycle,
   createPostgresSkillsRuntimeFactory,
@@ -35,6 +37,7 @@ import type { SaaSDeploymentRuntime } from "./adapters/saas/composition/saas-dep
 export function createSaaSProductPlugins(
   deployment: SaaSDeploymentRuntime,
   selection?: string,
+  widgetKeyRing?: JwtKeyRing,
 ): readonly BackendPlugin[] {
   const applications = deployment.applications;
   const catalog = {
@@ -91,6 +94,14 @@ export function createSaaSProductPlugins(
         objects: deployment.pluginResources.objects,
       }),
       lifecycle: createPostgresSkillsLifecycle(deployment.pluginResources.database),
+    }),
+    widget: () => createWidgetPlugin({
+      credentials: () => createPostgresWidgetCredentialRepository({
+        pool: deployment.pluginResources.controlDatabase,
+      }),
+      ...(widgetKeyRing ? { keyRing: widgetKeyRing } : {}),
+      wsTickets: deployment.wsTickets,
+      applications: deployment.applications,
     }),
   } satisfies BackendPluginCatalog;
   return selectBackendPlugins(catalog, selection);

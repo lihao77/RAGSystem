@@ -21,11 +21,11 @@ import {
   createLocalSessionFileApplicationResolver,
 } from "../src/adapters/local/application/local-request-application-resolvers.js";
 import { createControlStore } from "../src/adapters/local/sqlite/control-store/index.js";
-import { createWidgetCredentialStore } from "../src/adapters/local/sqlite/widget-credential-store/index.js";
-import { SqliteBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/storage/local/sqlite-bot-repository.js";
+import { createWidgetCredentialStore } from "@ragsystem/backend-plugin-widget/storage/local/widget-credential-store/index.js";
 import { SqliteControlPlaneAdapter } from "../src/adapters/local/sqlite/sqlite-control-plane-adapter.js";
-import { SqliteWidgetCredentialAdapter } from "../src/adapters/local/sqlite/sqlite-widget-credential-adapter.js";
-import { createWidgetAuthService } from "@ragsystem/backend-core/services/runtime/jwt-service.js";
+import { SqliteWidgetCredentialAdapter } from "@ragsystem/backend-plugin-widget/storage/local/sqlite-widget-credential-adapter.js";
+import { createWidgetAuthService } from "@ragsystem/backend-plugin-widget/services/widget-auth-service.js";
+import { createWidgetPlugin } from "@ragsystem/backend-plugin-widget/plugin.js";
 import { createJwtKeyRing } from "@ragsystem/backend-core/services/runtime/jwt-key-ring.js";
 import { createWsTicketService } from "@ragsystem/backend-core/services/runtime/ws-ticket-service.js";
 import { LOCAL_TENANT_ID, LocalIdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
@@ -51,14 +51,12 @@ async function buildHarness(widgetJwtSecret: string) {
     dbPath: path.join(tempRoot, "test.db"),
     dataRoot: tempRoot,
     modelAdapterProvidersConfigPath: "",
-    mcpConfigPath: "",
     systemConfigPath: "",
     agentConfigRoot: "",
     startOutboxDispatcher: false,
   });
   const controlStore = createControlStore(env.systemRoot);
   const controlPlane = new SqliteControlPlaneAdapter(controlStore);
-  const botRepository = new SqliteBotRepository(controlStore);
   const identityProvider = new LocalIdentityProvider(controlPlane);
   const widgetCredentialStore = createWidgetCredentialStore(controlStore.db);
   const widgetCredentials = new SqliteWidgetCredentialAdapter(widgetCredentialStore);
@@ -71,15 +69,12 @@ async function buildHarness(widgetJwtSecret: string) {
   const applications = createLocalRequestApplicationResolvers();
   const deployment: DeploymentRuntime = {
     controlPlane,
-    botRepository,
-    widgetCredentials,
     applications: {
       ...applications,
       resolveSessionFileApplication: createLocalSessionFileApplicationResolver(),
       resolveFileChangeApplication: createLocalFileChangeApplicationResolver(),
     },
     wsTickets,
-    widgetAuth,
     createRegistry: () => registry,
     createIdentityProvider: async () => {
       await identityProvider.initialize();
@@ -92,7 +87,16 @@ async function buildHarness(widgetJwtSecret: string) {
       await controlPlane.close();
     },
   };
-  const app = await buildCoreApp({ env, runtime: deployment });
+  const app = await buildCoreApp({
+    env,
+    runtime: deployment,
+    plugins: [createWidgetPlugin({
+      credentials: () => widgetCredentials,
+      keyRing: createJwtKeyRing({ active: { kid: "widget-demo", secret: widgetJwtSecret } }),
+      wsTickets,
+      applications: deployment.applications,
+    })],
+  });
   await app.ready();
   return { app, container, widgetCredentials, widgetAuth };
 }

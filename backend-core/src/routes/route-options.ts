@@ -2,10 +2,7 @@ import type { FastifyRequest } from "fastify";
 import type { AsyncSessionFileStorage } from "../contracts/session/session-file-storage.js";
 import type { AsyncFileHistoryStore } from "../contracts/file-history-store/index.js";
 
-import type { WidgetCredentialRepository } from "../contracts/control-plane/widget-credentials.js";
-import type { BotRepository } from "../contracts/control-plane/bot-repository.js";
 import type { IdentityProvider } from "../services/identity/index.js";
-import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { RuntimeContainerRegistry as TenantRuntimeRegistry } from "../services/runtime/runtime-container-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { ProviderApplication } from "../contracts/application/provider-application.js";
@@ -29,11 +26,9 @@ export interface RouteOptions {
   resolveFileHistoryStorage?: (request: FastifyRequest) => AsyncFileHistoryStore | undefined | Promise<AsyncFileHistoryStore | undefined>;
   resolveSessionFileApplication?: (request: FastifyRequest) => SessionFileApplication | undefined | Promise<SessionFileApplication | undefined>;
   resolveFileChangeApplication?: (request: FastifyRequest) => FileChangeApplication | undefined | Promise<FileChangeApplication | undefined>;
-  widgetCredentialStore?: WidgetCredentialRepository;
-  widgetAuth?: WidgetAuthService;
+  emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
 }
 
 export interface AgentRouteOptions extends RouteOptions {
-  botRepository: BotRepository;
   wsTickets: WsTicketService;
 }

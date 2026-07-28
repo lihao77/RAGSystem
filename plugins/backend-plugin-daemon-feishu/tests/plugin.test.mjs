@@ -62,6 +62,19 @@ test("generic resource change events refresh matching bot runtime state", async 
   await manager.stop();
 });
 
+test("Daemon plugin resolves bot session origin labels through the generic event hook", async () => {
+  const manager = new BackendPluginManager([createDaemonFeishuPlugin({
+    botRepository: repository({
+      listByTenant: async () => [{ id: "usr_bot_demo", displayName: "Demo Bot" }],
+    }),
+    controlPlane: controlPlane(),
+  })]);
+  await manager.register();
+  const names = new Map();
+  await manager.emit("session.origins.resolve", { tenantId: "tnt_local", names });
+  assert.equal(names.get("bot:usr_bot_demo"), "Demo Bot");
+});
+
 function repository(overrides = {}) {
   return new Proxy({
     listAllEnabledFeishu: async () => [],

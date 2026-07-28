@@ -1,5 +1,5 @@
-import type { Bot } from "./user.js";
-import type { TenantId, UserId } from "../../identity/types.js";
+import type { Bot } from "@ragsystem/backend-core/contracts/control-plane/user.js";
+import type { TenantId, UserId } from "@ragsystem/backend-core/identity/types.js";
 
 export interface BotDirectoryEntry {
   id: UserId;

@@ -3,8 +3,6 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AppEnv } from "../config/env.js";
 import type { BackendRouteContribution, BackendRouteScope } from "../plugins/backend-plugin.js";
 import type { ControlPlane } from "../contracts/control-plane/index.js";
-import type { BotRepository } from "../contracts/control-plane/bot-repository.js";
-import type { WidgetCredentialRepository } from "../contracts/control-plane/widget-credentials.js";
 import type { DeploymentProfile } from "../identity/types.js";
 import { registerAdminRoutes } from "../routes/admin.js";
 import { registerAgentConfigRoutes } from "../routes/agent-config.js";
@@ -17,11 +15,8 @@ import { registerHealthRoutes, registerProbeRoutes } from "../routes/health.js";
 import { registerModelAdapterRoutes } from "../routes/model-adapter.js";
 import { registerPlatformRoutes } from "../routes/platform.js";
 import { registerSystemConfigRoutes } from "../routes/system-config.js";
-import { registerWidgetAppsRoutes } from "../routes/widget-apps.js";
-import { registerWidgetRoutes } from "../routes/widget.js";
 import type { RouteOptions } from "../routes/route-options.js";
 import { AuthError, type IdentityProvider } from "../services/identity/index.js";
-import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { SessionTokenService } from "../services/runtime/session-token-service.js";
 import type { RuntimeContainerRegistry as TenantRuntimeRegistry } from "../services/runtime/runtime-container-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
@@ -72,9 +67,6 @@ export async function registerPublicAndAuthRoutes(
 export interface SharedBusinessRouteAssemblyOptions {
   registry: TenantRuntimeRegistry;
   identityProvider: IdentityProvider;
-  botRepository: BotRepository;
-  widgetCredentialStore: WidgetCredentialRepository;
-  widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
   registerPublicAgui: boolean;
   resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
@@ -86,6 +78,7 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveSessionFileApplication: NonNullable<RouteOptions["resolveSessionFileApplication"]>;
   resolveFileChangeApplication: NonNullable<RouteOptions["resolveFileChangeApplication"]>;
   pluginRoutes?: readonly BackendRouteContribution[];
+  emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
 }
 
 export async function registerSharedBusinessRoutes(
@@ -97,7 +90,7 @@ export async function registerSharedBusinessRoutes(
     const routeOptions = {
       registry: options.registry,
       identityProvider: options.identityProvider,
-      botRepository: options.botRepository,
+      ...(options.emitPluginEvent ? { emitPluginEvent: options.emitPluginEvent } : {}),
       resolveSessionApplication: options.resolveSessionApplication,
       resolveAnalytics: options.resolveAnalytics,
       resolveMonitoringApplication: options.resolveMonitoringApplication,
@@ -116,9 +109,7 @@ export async function registerSharedBusinessRoutes(
     await scope.register(registerAgentRoutes, {
       prefix: "/api/agent",
       ...routeOptions,
-      widgetCredentialStore: options.widgetCredentialStore,
       wsTickets: options.wsTickets,
-      ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
       resolveSessionFileApplication: options.resolveSessionFileApplication,
       resolveFileChangeApplication: options.resolveFileChangeApplication,
     });
@@ -126,7 +117,6 @@ export async function registerSharedBusinessRoutes(
       await scope.register(registerAguiRoutes, {
         prefix: "/api/agui",
         ...routeOptions,
-        widgetCredentialStore: options.widgetCredentialStore,
       });
     }
     await registerPluginRoutes(scope, options.pluginRoutes, "tenant");
@@ -137,8 +127,6 @@ interface ManagementRouteAssemblyOptions {
   controlPlane: ControlPlane;
   registry: TenantRuntimeRegistry;
   identityProvider: IdentityProvider;
-  widgetCredentialStore: WidgetCredentialRepository;
-  widgetAuth?: WidgetAuthService;
   pluginRoutes?: readonly BackendRouteContribution[];
   emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
 }
@@ -150,13 +138,6 @@ export async function registerManagementAndPlatformRoutes(
   await app.register(async (scope) => {
     installIdentityScope(scope, { identityProvider: options.identityProvider });
     await scope.register(registerAdminRoutes, { prefix: "/api/admin", controlPlane: options.controlPlane });
-    await scope.register(registerWidgetAppsRoutes, {
-      prefix: "/api/widget/apps",
-      registry: options.registry,
-      identityProvider: options.identityProvider,
-      widgetCredentialStore: options.widgetCredentialStore,
-      ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
-    });
     await registerPluginRoutes(scope, options.pluginRoutes, "management");
   });
   await app.register(async (scope) => {
@@ -171,13 +152,9 @@ export async function registerManagementAndPlatformRoutes(
   });
 }
 
-interface WidgetRouteAssemblyOptions {
+interface RealtimeRouteAssemblyOptions {
   registry: TenantRuntimeRegistry;
   identityProvider: IdentityProvider;
-  widgetIdentityProvider?: IdentityProvider;
-  botRepository: BotRepository;
-  widgetCredentialStore: WidgetCredentialRepository;
-  widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
   resolveSessionApplication: NonNullable<RouteOptions["resolveSessionApplication"]>;
   resolveExecutionRead: NonNullable<RouteOptions["resolveExecutionRead"]>;
@@ -185,12 +162,11 @@ interface WidgetRouteAssemblyOptions {
   resolveAnalytics: NonNullable<RouteOptions["resolveAnalytics"]>;
   resolveMonitoringApplication: NonNullable<RouteOptions["resolveMonitoringApplication"]>;
   resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
-  pluginRoutes?: readonly BackendRouteContribution[];
 }
 
-export async function registerWidgetAndRealtimeRoutes(
+export async function registerRealtimeRoutes(
   app: FastifyInstance,
-  options: WidgetRouteAssemblyOptions,
+  options: RealtimeRouteAssemblyOptions,
 ): Promise<void> {
   const applicationResolvers = {
     resolveSessionApplication: options.resolveSessionApplication,
@@ -200,54 +176,11 @@ export async function registerWidgetAndRealtimeRoutes(
     resolveMonitoringApplication: options.resolveMonitoringApplication,
     resolveProviderApplication: options.resolveProviderApplication,
   };
-  if (options.widgetIdentityProvider && options.widgetAuth) {
-    await app.register(async (scope) => {
-      installIdentityScope(scope, {
-        identityProvider: options.widgetIdentityProvider!,
-        registry: options.registry,
-        mapAllIdentityErrorsToUnauthorized: true,
-      });
-      await scope.register(registerAguiRoutes, {
-        prefix: "/api/agui",
-        registry: options.registry,
-        identityProvider: options.identityProvider,
-        widgetCredentialStore: options.widgetCredentialStore,
-        widgetAuth: options.widgetAuth!,
-        ...applicationResolvers,
-      });
-      await scope.register(registerWidgetRoutes, {
-        prefix: "/api/widget",
-        registry: options.registry,
-        identityProvider: options.identityProvider,
-        botRepository: options.botRepository,
-        widgetCredentialStore: options.widgetCredentialStore,
-        wsTickets: options.wsTickets,
-        widgetAuth: options.widgetAuth!,
-        ...applicationResolvers,
-      });
-      await registerPluginRoutes(scope, options.pluginRoutes, "widget");
-    });
-  } else {
-    await app.register(registerWidgetRoutes, {
-      prefix: "/api/widget",
-      registry: options.registry,
-      identityProvider: options.identityProvider,
-      botRepository: options.botRepository,
-      widgetCredentialStore: options.widgetCredentialStore,
-      wsTickets: options.wsTickets,
-      ...applicationResolvers,
-    });
-    await registerPluginRoutes(app, options.pluginRoutes, "widget");
-  }
-
   await app.register(registerSessionWebSocketRoute, {
     prefix: "/api/agent",
     registry: options.registry,
     identityProvider: options.identityProvider,
-    botRepository: options.botRepository,
-    widgetCredentialStore: options.widgetCredentialStore,
     wsTickets: options.wsTickets,
-    ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
     ...applicationResolvers,
   });
 }
@@ -265,14 +198,14 @@ async function registerPluginRoutes(
   }
 }
 
-interface IdentityScopeOptions {
+export interface IdentityScopeOptions {
   identityProvider: IdentityProvider;
   registry?: TenantRuntimeRegistry;
   mapAllIdentityErrorsToUnauthorized?: boolean;
   identityScope?: "tenant" | "platform";
 }
 
-function installIdentityScope(app: FastifyInstance, options: IdentityScopeOptions): void {
+export function installIdentityScope(app: FastifyInstance, options: IdentityScopeOptions): void {
   app.addHook("onRequest", async (request) => {
     if (request.method === "OPTIONS" || isExplicitPublicRoute(request)) return;
     let identity;

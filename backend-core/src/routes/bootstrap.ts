@@ -28,7 +28,6 @@ export const registerBootstrapRoutes: FastifyPluginAsync<BootstrapOptions> = asy
         tenantSwitch: !isLocal && profile.tenancy === "multi",
         members: !isLocal && profile.tenancy === "multi",
         billing: !isLocal && profile.deployment === "saas",
-        widget: Boolean(options.env.widgetJwtKeyRing),
         localExecution: profile.execution === "local",
       },
     };

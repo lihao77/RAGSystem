@@ -13,11 +13,12 @@ import {
 import { LocalTenantRuntimeRegistry } from "../tenant-runtime-registry.js";
 import { createControlStore } from "../sqlite/control-store/index.js";
 import { SqliteControlPlaneAdapter } from "../sqlite/sqlite-control-plane-adapter.js";
-import { SqliteWidgetCredentialAdapter } from "../sqlite/sqlite-widget-credential-adapter.js";
-import { createWidgetCredentialStore } from "../sqlite/widget-credential-store/index.js";
 
 export interface LocalDeploymentRuntime extends DeploymentRuntime {
   readonly botRepository: DaemonBotRepository;
+  readonly pluginResources: {
+    readonly controlDatabase: import("node:sqlite").DatabaseSync;
+  };
 }
 
 export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntime {
@@ -28,8 +29,6 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
   const controlStore = createControlStore(env.systemRoot);
   const controlPlane = new SqliteControlPlaneAdapter(controlStore);
   const botRepository = new SqliteBotRepository(controlStore);
-  const widgetCredentialStore = createWidgetCredentialStore(controlStore.db);
-  const widgetCredentials = new SqliteWidgetCredentialAdapter(widgetCredentialStore);
   const wsTickets = createWsTicketService();
   const applications = createLocalRequestApplicationResolvers();
   let closed = false;
@@ -37,7 +36,7 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
   return {
     controlPlane,
     botRepository,
-    widgetCredentials,
+    pluginResources: { controlDatabase: controlStore.db },
     applications: {
       ...applications,
       resolveSessionFileApplication: createLocalSessionFileApplicationResolver(),
@@ -59,8 +58,6 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
       if (closed) return;
       closed = true;
       await wsTickets.close();
-      await widgetCredentials.close();
-      widgetCredentialStore.close();
       await controlPlane.close();
     },
   };

@@ -5,7 +5,8 @@ import type { FastifyPluginAsync } from "fastify";
 import { ClientToServerEnvelopeSchema, type Envelope } from "../../contracts/events.js";
 import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import { EnvelopeProjector } from "../../services/runtime/event-outbox/projector.js";
-import type { AgentRouteOptions } from "../route-options.js";
+import type { RouteOptions } from "../route-options.js";
+import type { WsTicketService } from "../../services/runtime/ws-ticket-service.js";
 import { isRecord } from "../../utils/guards.js";
 import { assertSessionExecutable } from "../session-owner.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
@@ -32,7 +33,11 @@ const WS_OPEN = 1;
 
 type WsMessageData = Buffer | string;
 
-export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions> = async (app, options) => {
+interface SessionWebSocketRouteOptions extends RouteOptions {
+  wsTickets: WsTicketService;
+}
+
+export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketRouteOptions> = async (app, options) => {
   app.get<{ Params: SessionWsParams; Querystring: SessionWsQuery }>(
     "/sessions/:sessionId/ws",
     {

@@ -13,7 +13,7 @@ import type { ClientEventPublisherPort } from "../contracts/runtime/core-runtime
 import type { CapabilityProvider, CapabilityRegistry } from "./capability-registry.js";
 import type { RuntimeContainerRegistry } from "../services/runtime/runtime-container-registry.js";
 
-export type BackendRouteScope = "public" | "tenant" | "management" | "platform" | "widget";
+export type BackendRouteScope = "public" | "tenant" | "management" | "platform";
 
 export type BackendRouteInstaller = (app: FastifyInstance) => Promise<void>;
 

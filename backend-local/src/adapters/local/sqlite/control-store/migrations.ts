@@ -1,5 +1,5 @@
 import { runInTransaction } from "../conversation-store/shared/transaction.js";
-import { CONTROL_AUTH_SCHEMA_SQL, CONTROL_BASELINE_SCHEMA_SQL, CONTROL_BOT_CONFIG_SCHEMA_SQL, CONTROL_BOT_SCHEMA_SQL, CONTROL_WIDGET_SCHEMA_SQL } from "./schema.js";
+import { CONTROL_AUTH_SCHEMA_SQL, CONTROL_BASELINE_SCHEMA_SQL, CONTROL_BOT_CONFIG_SCHEMA_SQL, CONTROL_BOT_SCHEMA_SQL } from "./schema.js";
 
 export interface ControlMigrationDatabase {
   exec: import("node:sqlite").DatabaseSync["exec"];
@@ -28,10 +28,8 @@ export const CONTROL_MIGRATIONS: readonly ControlMigration[] = [
   },
   {
     version: 2,
-    name: "widget-control-plane",
-    up: (db) => {
-      db.exec(CONTROL_WIDGET_SCHEMA_SQL);
-    },
+    name: "legacy-plugin-control-plane",
+    up: () => undefined,
   },
   {
     version: 3,

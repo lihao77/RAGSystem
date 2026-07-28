@@ -1,4 +1,4 @@
-import { createUserId, type UserId } from "./types.js";
+import { createUserId, type UserId } from "@ragsystem/backend-core/identity/types.js";
 
 export function widgetUserId(appKey: string): UserId {
   const normalized = appKey.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
