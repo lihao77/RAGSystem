@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 
 import { AguiGateway } from "../../services/agui-gateway/index.js";
+import { InterruptMachine } from "../../services/agui-gateway/interrupt-machine.js";
 import { parseRunAgentInput } from "../../services/agui-gateway/agui-input.js";
 import { WidgetAuthError } from "../../services/runtime/jwt-service.js";
 import { HttpError } from "../../utils/errors.js";
@@ -19,6 +20,10 @@ import { ensureRequestApplications } from "../../app/request-applications.js";
  * 把本 URL 注册为 agent，POST RunAgentInput 即可消费。
  */
 export const registerAguiRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  // A run and its AG-UI resume arrive as separate HTTP requests. Keep only the
+  // opaque interrupt records at the tenant runtime boundary while request-bound
+  // applications and identities are still resolved afresh for every call.
+  const interruptMachines = new WeakMap<object, InterruptMachine>();
   app.post("/", async (request, reply) => {
     // 可选鉴权：配了 widgetAuth 才校验 Bearer。
     if (options.widgetAuth) {
@@ -35,7 +40,12 @@ export const registerAguiRoutes: FastifyPluginAsync<RouteOptions> = async (app, 
     const input = parseRunAgentInput(request.body);
     await assertExecutableSessionIfExists(request, input.threadId);
     const applications = await ensureRequestApplications(request, options);
-    const gateway = new AguiGateway(request.container, request.identity.userId, applications.execution, applications.interactions);
+    let interruptMachine = interruptMachines.get(request.container);
+    if (!interruptMachine) {
+      interruptMachine = new InterruptMachine();
+      interruptMachines.set(request.container, interruptMachine);
+    }
+    const gateway = new AguiGateway(request.container, request.identity.userId, applications.execution, applications.interactions, interruptMachine);
     await gateway.handle(input, reply);
     // hijack 后响应由 gateway 管理，handler 不再返回体。
   });

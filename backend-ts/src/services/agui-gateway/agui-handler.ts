@@ -4,18 +4,63 @@ import type { UserId } from "../../identity/types.js";
 
 import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { ExecutionApplication } from "../../contracts/execution/execution-application.js";
-import type { InteractionCoordinator } from "../../contracts/runtime/pending-interactions.js";
+import type {
+  ApprovalMeta,
+  InteractionCoordinator,
+  PendingInteractionRespondResult,
+} from "../../contracts/runtime/pending-interactions.js";
 import { AguiTranslator } from "./agui-translator.js";
 import { InterruptMachine, type InterruptRecord } from "./interrupt-machine.js";
 import { openAguiSse, type AguiSseStream } from "./sse-stream.js";
 import { lastUserTask, mapClientTools, type AguiResumeItem, type RunAgentInput } from "./agui-input.js";
-import { encodeAguiSse, type AguiEvent } from "./agui-events.js";
+import { encodeAguiSse, type AguiEvent, type AguiInterrupt } from "./agui-events.js";
 import type { Envelope } from "../../contracts/events.js";
 
 type Rec = Record<string, unknown>;
 const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
 const now = (): number => Date.now();
 const baseFields = (threadId: string, runId: string) => ({ threadId, runId, timestamp: now() });
+
+function pendingInterruptRecord(meta: ApprovalMeta, threadId: string, internalRunId: string): InterruptRecord {
+  const aguiInterruptId = randomUUID();
+  const approval = meta.kind === "approval";
+  const interrupt: AguiInterrupt = approval
+    ? {
+        id: aguiInterruptId,
+        reason: "confirmation",
+        toolCallId: meta.toolCallId,
+        message: meta.prompt || meta.reason || "需要确认",
+        responseSchema: {
+          type: "object",
+          properties: { approved: { type: "boolean" }, message: { type: "string" } },
+          required: ["approved"],
+        },
+      }
+    : {
+        id: aguiInterruptId,
+        reason: "input_required",
+        message: meta.prompt || "请提供输入",
+        responseSchema: {
+          type: "object",
+          properties: {
+            value: meta.options?.length
+              ? { type: "string", enum: meta.options }
+              : { type: "string" },
+          },
+          required: ["value"],
+        },
+      };
+  return {
+    threadId,
+    aguiInterruptId,
+    callId: meta.approvalId,
+    kind: approval ? "approval" : "user_input",
+    internalRunId,
+    ...(approval ? { toolCallId: meta.toolCallId } : {}),
+    ...(meta.toolName ? { toolName: meta.toolName } : {}),
+    interrupt,
+  };
+}
 
 /**
  * AG-UI 适配网关：把内部 agent-protocol 事件流翻译成 AG-UI SSE，直连 container service。
@@ -25,13 +70,12 @@ const baseFields = (threadId: string, runId: string) => ({ threadId, runId, time
  * 同一 internalRunId 继续。事件流由 subscribe 回调异步驱动；hijack 后 raw 由回调管理，handler 返回。
  */
 export class AguiGateway {
-  private readonly interruptMachine = new InterruptMachine();
-
   constructor(
     private readonly container: RuntimeContainer,
     private readonly userId: UserId,
     private readonly execution: ExecutionApplication,
     private readonly interactions: InteractionCoordinator,
+    private readonly interruptMachine = new InterruptMachine(),
   ) {}
 
   async handle(input: RunAgentInput, reply: FastifyReply): Promise<void> {
@@ -47,7 +91,7 @@ export class AguiGateway {
     const sse = openAguiSse(reply);
 
     if (input.resume && input.resume.length > 0) {
-      this.handleResume(input, threadId, externalRunId, sse);
+      await this.handleResume(input, threadId, externalRunId, sse);
     } else {
       await this.handleNewRun(input, threadId, externalRunId, sse);
     }
@@ -154,12 +198,12 @@ export class AguiGateway {
   }
 
   /** resume 段：唤醒内部 run（同一 internalRunId），synthesize ToolCallResult（delegate），继续流出。 */
-  private handleResume(
+  private async handleResume(
     input: RunAgentInput,
     threadId: string,
     externalRunId: string,
     sse: AguiSseStream,
-  ): void {
+  ): Promise<void> {
     const item = input.resume?.[0];
     const send = (e: AguiEvent): void => {
       sse.send(encodeAguiSse(e));
@@ -167,6 +211,13 @@ export class AguiGateway {
     if (!item) {
       send({ type: "RUN_STARTED", ...baseFields(threadId, externalRunId) });
       send({ type: "RUN_ERROR", ...baseFields(threadId, externalRunId), message: "resume 缺少 interrupt 项" });
+      sse.end();
+      return;
+    }
+    const pendingRecord = this.interruptMachine.peek(item.interruptId);
+    if (pendingRecord && pendingRecord.threadId !== threadId) {
+      send({ type: "RUN_STARTED", ...baseFields(threadId, externalRunId) });
+      send({ type: "RUN_ERROR", ...baseFields(threadId, externalRunId), message: `interrupt ${item.interruptId} 不属于当前 thread` });
       sse.end();
       return;
     }
@@ -186,34 +237,62 @@ export class AguiGateway {
       genInterruptId: () => randomUUID(),
     });
     let done = false;
+    let resumeAccepted = false;
+    const buffered: Envelope[] = [];
 
-    const unsubscribe = this.container.realtimeEvents.subscribe(threadId, (env) => {
-      if (done) {
-        return;
-      }
-      if (env.run_id !== internalRunId) {
-        return;
-      }
+    const processEnvelope = (env: Envelope): void => {
+      if (done || env.run_id !== internalRunId) return;
       const result = translator.translate(env);
-      for (const aguiEvent of result.events) {
-        send(aguiEvent);
-      }
-      if (result.interruptRecord) {
-        this.interruptMachine.record(result.interruptRecord);
-      }
+      for (const aguiEvent of result.events) send(aguiEvent);
+      if (result.interruptRecord) this.interruptMachine.record(result.interruptRecord);
       if (result.done) {
         done = true;
         unsubscribe();
         sse.end();
       }
+    };
+
+    const unsubscribe = this.container.realtimeEvents.subscribe(threadId, (env) => {
+      if (done || env.run_id !== internalRunId) return;
+      if (!resumeAccepted) {
+        buffered.push(env);
+        return;
+      }
+      processEnvelope(env);
     });
     sse.onClose(() => {
+      if (done) return;
       done = true;
       unsubscribe();
     });
 
-    // resume 段是新 AG-UI run。
+    let respondResult: PendingInteractionRespondResult | null = null;
+    try {
+      // subscribe 必须早于 resolve/respond，避免恢复时同步发出的内部事件丢失。
+      respondResult = await this.applyResume(record, item);
+    } catch (error) {
+      this.interruptMachine.record(record);
+      done = true;
+      unsubscribe();
+      send({ type: "RUN_STARTED", ...baseFields(threadId, externalRunId) });
+      send({
+        type: "RUN_ERROR",
+        ...baseFields(threadId, externalRunId),
+        message: error instanceof Error ? error.message : "interrupt 恢复失败",
+      });
+      sse.end();
+      return;
+    }
+
+    if (done) return;
+    resumeAccepted = true;
     send({ type: "RUN_STARTED", ...baseFields(threadId, externalRunId) });
+    send({
+      type: "CUSTOM",
+      ...baseFields(threadId, externalRunId),
+      name: "interrupt.resolved",
+      value: { interruptId: item.interruptId, status: item.status },
+    });
 
     // delegate：resume 后 synthesize ToolCallResult（AG-UI tool-bound interrupt 契约：不重发 ToolCallStart）。
     if (record.kind === "delegate") {
@@ -223,12 +302,40 @@ export class AguiGateway {
       send({ type: "TOOL_CALL_RESULT", ...baseFields(threadId, externalRunId), messageId: randomUUID(), toolCallId: record.callId, content, role: "tool" });
     }
 
-    // 唤醒内部 run（subscribe 已注册，resolve/respond 后续事件能收到——必须早于 resolve 的时序已满足）。
-    this.applyResume(record, item);
+    for (const env of buffered.splice(0)) {
+      processEnvelope(env);
+      if (done) break;
+    }
+    if (done || respondResult?.needsResume !== false || !respondResult.rootRunId) return;
+
+    try {
+      const pending = await this.interactions.listPendingAsync(respondResult.rootRunId, threadId);
+      const next = pending.find((meta) => !meta.resolved && meta.approvalId !== record.callId);
+      if (!next) return;
+      const nextRecord = pendingInterruptRecord(next, threadId, internalRunId);
+      this.interruptMachine.record(nextRecord);
+      send({
+        type: "RUN_FINISHED",
+        ...baseFields(threadId, externalRunId),
+        outcome: { type: "interrupt", interrupts: [nextRecord.interrupt] },
+      });
+      done = true;
+      unsubscribe();
+      sse.end();
+    } catch (error) {
+      done = true;
+      unsubscribe();
+      send({
+        type: "RUN_ERROR",
+        ...baseFields(threadId, externalRunId),
+        message: error instanceof Error ? error.message : "读取后续审批失败",
+      });
+      sse.end();
+    }
   }
 
   /** 按 interrupt kind 把 resume 翻译成内部 resolve/respond；cancelled 视为拒绝以唤醒 run（不挂死）。 */
-  private async applyResume(record: InterruptRecord, item: AguiResumeItem): Promise<void> {
+  private async applyResume(record: InterruptRecord, item: AguiResumeItem): Promise<PendingInteractionRespondResult | null> {
     const sessionId = record.threadId;
     const callId = record.callId;
     const resolved = item.status === "resolved";
@@ -245,20 +352,23 @@ export class AguiGateway {
         resolution.error = str(payload.error) ?? "cancelled";
       }
       this.container.delegationPending.resolve(callId, resolution);
-      return;
+      return null;
     }
     if (record.kind === "approval") {
       const resolution = {
         approved: resolved && payload.approved === true,
         message: str(payload.message) ?? "",
       };
-      await this.interactions.respondApprovalAsync(sessionId, callId, resolution);
-      return;
+      const result = await this.interactions.respondApprovalAsync(sessionId, callId, resolution);
+      if (!result.resolved) throw new Error("审批请求已失效或不存在");
+      return result;
     }
     // user_input
     const resolution = {
       value: resolved ? (str(payload.value) ?? "") : "",
     };
-    await this.interactions.respondUserInputAsync(sessionId, callId, resolution);
+    const result = await this.interactions.respondUserInputAsync(sessionId, callId, resolution);
+    if (!result.resolved) throw new Error("输入请求已失效或不存在");
+    return result;
   }
 }

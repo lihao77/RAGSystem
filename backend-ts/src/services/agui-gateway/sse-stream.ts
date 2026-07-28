@@ -1,4 +1,5 @@
 import type { FastifyReply } from "fastify";
+import type { OutgoingHttpHeaders } from "node:http";
 
 /**
  * Fastify SSE 流：hijack reply 后手写 text/event-stream。
@@ -15,9 +16,15 @@ export interface AguiSseStream {
 }
 
 export function openAguiSse(reply: FastifyReply): AguiSseStream {
+  // @fastify/cors has calculated these headers already. Preserve them before
+  // hijacking because raw.writeHead bypasses Fastify's normal response path.
+  const responseHeaders = Object.fromEntries(
+    Object.entries(reply.getHeaders()).filter((entry): entry is [string, string | number | string[]] => entry[1] !== undefined),
+  ) as OutgoingHttpHeaders;
   reply.hijack();
   const raw = reply.raw;
   raw.writeHead(200, {
+    ...responseHeaders,
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
