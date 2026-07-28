@@ -7,19 +7,15 @@
 import type { Tool } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../contracts/agent/agent-config.js";
 import type { DelegationPort } from "../services/agent/delegation/port.js";
-import type { DocumentToolPort } from "../contracts/runtime/tool-ports.js";
 import type { TaskToolService } from "./TaskTools/TaskExecution.js";
 import type { PendingInteractionPort } from "../contracts/runtime/pending-interactions.js";
-import type { PathAccessPolicy } from "../contracts/runtime/path-access-policy.js";
 import { createDelegationTools, type DelegationAgentConfigLookup } from "./DelegationTools/DelegationTools.js";
-import { createDocumentTools } from "./DocumentTools/DocumentTools.js";
 import { createRequestUserInputTools } from "./RequestUserInputTool/RequestUserInputTool.js";
 import { createTaskTools } from "./TaskTools/TaskTools.js";
 
 export interface BackendToolsDeps {
   agent: AgentConfig;
   pendingInteractions: PendingInteractionPort | null;
-  documentTools: DocumentToolPort | null;
   taskTools: TaskToolService | null;
   getAgentDelegation: () => DelegationPort | null;
   /**
@@ -35,11 +31,10 @@ export interface BackendToolsDeps {
  * 聚合所有工具工厂，返回 per-agent 的 SDK Tool[]。
  * 可见性由各工厂内部按 agent 配置决定（不满足条件的工具不返回）。
  */
-export function createBackendTools(deps: BackendToolsDeps, pathService: PathAccessPolicy): Tool[] {
+export function createBackendTools(deps: BackendToolsDeps): Tool[] {
   const { agent } = deps;
   return [
     ...createRequestUserInputTools({ pendingInteractions: deps.pendingInteractions, agent }),
-    ...createDocumentTools({ documentTools: deps.documentTools, agent, pathService }),
     ...createTaskTools({ taskTools: deps.taskTools, agent }),
     ...createDelegationTools({
       getAgentDelegation: deps.getAgentDelegation,

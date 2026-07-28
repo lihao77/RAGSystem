@@ -35,7 +35,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     modelAdapter,
     systemConfig,
     sessionFiles,
-    documentTools,
     backgroundTasks,
     taskTools,
     goalStore,
@@ -60,7 +59,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   const agentDelegation = new AgentDelegationService(delegationStore, runtimeCore, clientEvents);
   const toolsDeps = {
     pendingInteractions: selectedPendingInteractions,
-    documentTools,
     taskTools,
     getAgentDelegation: () => agentDelegation,
     agentConfig,
@@ -134,7 +132,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     agentConfig,
     modelAdapter,
     systemConfig,
-    documentTools,
     backgroundTasks,
     taskTools,
     goalStore,

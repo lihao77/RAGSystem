@@ -175,7 +175,7 @@ export async function executeRunWithSdk(
       ...deps.toolsDeps,
       agent: input.agent,
       ...(teamName ? { teamName } : {}),
-    }, pathService),
+    }),
     ...(Array.isArray(contributedTools) ? contributedTools : [contributedTools]),
     ...hostTools,
   ];

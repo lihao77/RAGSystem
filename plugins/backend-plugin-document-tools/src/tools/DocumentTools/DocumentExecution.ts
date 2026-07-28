@@ -2,9 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
-import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
-import type { AgentConfig } from "../../contracts/agent/agent-config.js";
-import type { DocumentEditHistoryPort } from "../../contracts/runtime/tool-ports.js";
+import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
+import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { DocumentEditHistoryPort } from "../../contracts.js";
 import {
   buildDataStructurePreview,
   DEFAULT_STRUCTURE_PREVIEW_DEPTH,
@@ -13,7 +13,7 @@ import {
   readPreviewLimit,
 } from "./preview.js";
 import { LocalDocumentPathManager, normalizeString } from "./path-manager.js";
-import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 
 const DEFAULT_READ_MAX_LINES = 2000;
 

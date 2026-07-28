@@ -1,11 +1,11 @@
-import { normalizeString } from "../../utils/guards.js";
+import { normalizeString } from "@ragsystem/backend-core/utils/guards.js";
 export { normalizeString };
 import fs from "node:fs";
 import path from "node:path";
 
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
-import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
-import { isAbsolutePathLike, isPathUnder, resolvePathLike } from "../shared/paths.js";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
+import { isAbsolutePathLike, isPathUnder, resolvePathLike } from "@ragsystem/backend-core/tools/shared/paths.js";
 
 const DISPLAY_PATH_PREFIX = "./data/";
 

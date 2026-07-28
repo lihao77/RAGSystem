@@ -3,7 +3,7 @@ import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk"
 
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
-import type { DocumentToolPort } from "@ragsystem/backend-core/contracts/runtime/tool-ports.js";
+import type { DocumentToolPort } from "@ragsystem/backend-plugin-document-tools/contracts.js";
 import type { CodeExecutionPort, CommandExecutionPort, WorkspaceSearchPort } from "@ragsystem/backend-plugin-execution-tools/contracts.js";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import type { BashExecutionInput, BashExecutionPlan, BashExecutionPlanResult, BashClassificationResult } from "@ragsystem/backend-plugin-execution-tools/tools/BashTool/BashExecution.js";

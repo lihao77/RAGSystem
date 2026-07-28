@@ -19,10 +19,6 @@ export function listAvailableTools(): AvailableToolInfo[] {
 
 function allRuntimeTools(): AvailableToolInfo[] {
   return [
-    implementedTool("read_file", "Read a file from the managed workspace", "filesystem", "low"),
-    implementedTool("write_file", "Write a file in the managed workspace", "filesystem", "high"),
-    implementedTool("edit_file", "Edit an existing file in the managed workspace", "filesystem", "high"),
-    implementedTool("preview_data_structure", "Preview structured data files", "data", "low"),
     implementedTool("goal_create", "Create a durable session Goal with success criteria and stages", "goal", "low"),
     implementedTool("goal_get", "Read the current or historical session Goal", "goal", "low"),
     implementedTool("goal_update", "Update Goal progress, stages, checkpoint, or lifecycle", "goal", "low"),

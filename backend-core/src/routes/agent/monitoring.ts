@@ -163,8 +163,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         ? { selectedLlm: { provider: resolved.provider, modelName: resolved.modelName } }
         : {}),
     });
-    // preview 仅 projection（组请求快照）——不跑工具循环、不注册 gate-hook，
-    // 故 pathService 不会被 approve/isApproved 调用；此处占位仅为满足 createBackendTools 签名。
+    // preview 仅 projection（组请求快照）——不跑工具循环、不注册 gate-hook。
     const pathService = new PathApprovalService();
     const contributedTools = await request.container.createPluginTools({
       tenantId: request.container.tenantId,
@@ -178,7 +177,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           ...request.container.toolsDeps,
           agent,
           ...(teamName ? { teamName } : {}),
-        }, pathService),
+        }),
         ...contributedTools,
       ],
     });

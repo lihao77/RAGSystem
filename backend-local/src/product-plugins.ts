@@ -13,6 +13,7 @@ import { createKnowledgePlugin, createLocalKnowledgeRuntimeFactory } from "@rags
 import { createLocalMemoryRuntimeFactory, createMemoryPlugin } from "@ragsystem/backend-plugin-memory/index.js";
 import { createLocalMcpRuntimeFactory, createMcpPlugin } from "@ragsystem/backend-plugin-mcp/index.js";
 import { createExecutionToolsPlugin, createLocalExecutionToolsRuntimeFactory } from "@ragsystem/backend-plugin-execution-tools/index.js";
+import { createDocumentToolsPlugin, createLocalDocumentToolsRuntimeFactory } from "@ragsystem/backend-plugin-document-tools/index.js";
 import { createLocalSkillsRuntimeFactory, createSkillsPlugin } from "@ragsystem/backend-plugin-skills/index.js";
 import type { LocalDeploymentRuntime } from "./adapters/local/composition/local-deployment-runtime.js";
 import { TenantPaths } from "./adapters/local/tenant-paths.js";
@@ -44,6 +45,7 @@ export function createLocalProductPlugins(
       },
     }),
     executionTools: () => createExecutionToolsPlugin({ runtimeFactory: createLocalExecutionToolsRuntimeFactory() }),
+    documentTools: () => createDocumentToolsPlugin({ runtimeFactory: createLocalDocumentToolsRuntimeFactory() }),
     knowledge: () => createKnowledgePlugin({ runtimeFactory: createLocalKnowledgeRuntimeFactory() }),
     memory: () => createMemoryPlugin({ runtimeFactory: createLocalMemoryRuntimeFactory() }),
     mcp: () => createMcpPlugin({ runtimeFactory: createLocalMcpRuntimeFactory() }),

@@ -12,7 +12,6 @@ import type { AsyncFileHistoryStore } from "../file-history-store/index.js";
 import type { PathAccessPolicy } from "./path-access-policy.js";
 import type { InteractionCoordinator, PendingInteractionPort } from "./pending-interactions.js";
 import type { RealtimeEventBus } from "./realtime-event-bus.js";
-import type { DocumentToolPort } from "./tool-ports.js";
 import type { AsyncSessionFileStorage, SessionFileLookupPort } from "../session/session-file-storage.js";
 import type { ExecutionSessionPort, SessionApplication } from "../session/session-application.js";
 import type { RuntimeStorage } from "../storage/runtime-storage.js";
@@ -73,7 +72,6 @@ export interface RuntimeContainerBase {
   readonly agentConfig: AgentConfigService;
   readonly modelAdapter: ModelAdapterService;
   readonly systemConfig: SystemConfigService;
-  readonly documentTools: DocumentToolPort | null;
   readonly backgroundTasks: BackgroundTaskService;
   readonly taskTools: TaskToolService;
   readonly goalStore: GoalStore;
@@ -127,7 +125,6 @@ interface CoreRuntimeDependenciesBase {
   sessionFiles: SessionFileLookupPort;
   executionStorage: ExecutionStorage;
   pathAccessPolicyFactory: () => PathAccessPolicy;
-  documentTools: DocumentToolPort | null;
   backgroundTasks: BackgroundTaskService;
   taskTools: TaskToolService;
   goalStore: GoalStore;

@@ -873,7 +873,6 @@ function hasCause(error: Error): error is Error & { cause: unknown } {
 /** 无工具依赖时的空实现（所有 service 为 null，工具工厂返回 []）。 */
 const emptyToolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> = {
   pendingInteractions: null,
-  documentTools: null,
   taskTools: null,
   getAgentDelegation: () => null,
 };

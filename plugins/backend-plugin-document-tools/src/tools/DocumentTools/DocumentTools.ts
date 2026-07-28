@@ -1,23 +1,22 @@
 import { z } from "zod";
 
-import type { DocumentToolPort } from "../../contracts/runtime/tool-ports.js";
+import type { DocumentToolPort } from "../../contracts.js";
 import {
   editFileArguments,
   previewDataStructureArguments,
   readFileArguments,
   writeFileArguments,
-} from "../../services/runtime/runtime-tool-bridge/arguments.js";
-import {
-  EDIT_FILE_TOOL_NAME,
-  PREVIEW_DATA_STRUCTURE_TOOL_NAME,
-  READ_FILE_TOOL_NAME,
-  WRITE_FILE_TOOL_NAME,
-} from "../../services/runtime/runtime-tool-bridge/registry.js";
+} from "../arguments.js";
 import type { RuntimeToolDefinition, Tool, ToolAccessDecision, ToolExecContext } from "@ragsystem/agent-sdk";
 import { buildTool } from "@ragsystem/agent-sdk";
-import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
-import type { AgentConfig } from "../../contracts/agent/agent-config.js";
-import { optionalInteger, optionalString, metadataFrom } from "../schema-helpers.js";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
+import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import { optionalInteger, optionalString, metadataFrom } from "@ragsystem/backend-core/tools/schema-helpers.js";
+
+export const READ_FILE_TOOL_NAME = "read_file";
+export const WRITE_FILE_TOOL_NAME = "write_file";
+export const EDIT_FILE_TOOL_NAME = "edit_file";
+export const PREVIEW_DATA_STRUCTURE_TOOL_NAME = "preview_data_structure";
 
 interface DocumentToolDeps {
   documentTools: DocumentToolPort | null;

@@ -1,7 +1,6 @@
 import os from "node:os";
 import path from "node:path";
 
-import { LocalDocumentToolService } from "@ragsystem/backend-core/tools/DocumentTools/DocumentExecution.js";
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
 import { TransientSessionResourceService } from "./session-resources/transient-session-resource-service.js";
@@ -39,7 +38,6 @@ import { LocalCompressionHistoryAdapter } from "./local-compression-history-adap
 import { LocalAgentDelegationStoreAdapter } from "./local-agent-delegation-store-adapter.js";
 import { LocalAgentMetricsStoreAdapter } from "./local-agent-metrics-store-adapter.js";
 import { LocalOutboxStoreAdapter } from "./local-outbox-store-adapter.js";
-import { LocalDocumentEditHistoryAdapter } from "./files/local-document-edit-history-adapter.js";
 import { LocalAgentSessionRepository } from "./local-agent-session-repository.js";
 import { LocalSessionHistoryAdapter } from "./local-session-history-adapter.js";
 import { buildExecutionEnvelopeRunStep } from "@ragsystem/backend-core/services/runtime/event-outbox/execution-envelope-archive.js";
@@ -110,10 +108,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
 
   const hostToolsEnabled = options.hostToolsEnabled !== false;
-  const documentTools = hostToolsEnabled ? new LocalDocumentToolService({
-    dataRoot: options.dataRoot,
-    fileHistory: new LocalDocumentEditHistoryAdapter(fileHistory),
-  }) : null;
   const notificationQueue = new SessionNotificationQueue();
   const backgroundTasks = new BackgroundTaskService({
     notificationQueue,
@@ -130,11 +124,23 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     sessions: requestSessionApplication,
     backgroundTasks,
     clientEvents,
-    resources: [{
-      pluginId: "@ragsystem/backend-local",
-      kind: "execution-tools.enabled",
-      value: hostToolsEnabled,
-    }],
+    resources: [
+      {
+        pluginId: "@ragsystem/backend-local",
+        kind: "execution-tools.enabled",
+        value: hostToolsEnabled,
+      },
+      {
+        pluginId: "@ragsystem/backend-local",
+        kind: "document-tools.enabled",
+        value: hostToolsEnabled,
+      },
+      {
+        pluginId: "@ragsystem/backend-local",
+        kind: "document-tools.edit-history",
+        value: fileHistory,
+      },
+    ],
   });
   const goalStore = new LocalGoalStore(options.tenantId, conversationStore);
   const taskTools = new TaskToolService(
@@ -183,7 +189,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
         fileHistory: new LocalSessionHistoryAdapter(fileHistory),
       }),
     pathAccessPolicyFactory: options.pathAccessPolicyFactory ?? (() => new PathApprovalService()),
-    documentTools,
     backgroundTasks,
     taskTools,
     goalStore,

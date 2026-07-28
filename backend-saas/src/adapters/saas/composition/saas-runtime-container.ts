@@ -112,15 +112,22 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     sessions: sessionApplication,
     backgroundTasks,
     clientEvents,
-    resources: [{
-      pluginId: "@ragsystem/backend-saas",
-      kind: "execution-tools.runtime",
-      value: {
-        bash: bashTools,
-        code: codeExecutionTools,
-        search: searchTools,
+    resources: [
+      {
+        pluginId: "@ragsystem/backend-saas",
+        kind: "execution-tools.runtime",
+        value: {
+          bash: bashTools,
+          code: codeExecutionTools,
+          search: searchTools,
+        },
       },
-    }],
+      {
+        pluginId: "@ragsystem/backend-saas",
+        kind: "document-tools.runtime",
+        value: { document: documentTools },
+      },
+    ],
   });
   const pluginCapabilities = pluginRuntime?.capabilities ?? new CapabilityRegistry();
 
@@ -183,7 +190,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
         (await runtimeStorage.operations.consumePendingFollowups(followups)).messages,
     }),
     pathAccessPolicyFactory: () => new PathApprovalService(),
-    documentTools,
     backgroundTasks,
     taskTools,
     goalStore,
