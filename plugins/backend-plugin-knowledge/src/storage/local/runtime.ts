@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
+import { createRequire } from "node:module";
+
 import type { DocumentExtractionConfig } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 import type { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 
@@ -11,6 +15,11 @@ import {
 import { KnowledgeHttpApplication } from "../../services/knowledge/knowledge-http-application.js";
 import { LocalAsyncKnowledgeMarkdownPipeline } from "./local-async-knowledge-markdown-pipeline.js";
 import { createLocalVectorStore } from "./vector-store/vector-store-factory.js";
+import { KnowledgeAgentConfigService } from "../../agent-config.js";
+import { SqliteKnowledgeAgentConfigStore } from "./agent-config-store.js";
+
+const require = createRequire(import.meta.url);
+const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 export interface LocalKnowledgeRuntimeOptions {
   tenantId: string;
@@ -23,6 +32,7 @@ export interface LocalKnowledgeRuntimeOptions {
 
 export interface LocalKnowledgeRuntime {
   application: KnowledgeApplication;
+  agentConfig: KnowledgeAgentConfigService;
   close(): void;
 }
 
@@ -47,6 +57,7 @@ export function createLocalKnowledgeRuntimeFactory(
     });
     return {
       application: runtime.application,
+      agentConfig: runtime.agentConfig,
       dispose: () => runtime.close(),
     };
   };
@@ -54,6 +65,13 @@ export function createLocalKnowledgeRuntimeFactory(
 
 export function createLocalKnowledgeRuntime(options: LocalKnowledgeRuntimeOptions): LocalKnowledgeRuntime {
   const driver = createLocalVectorStore(options.dataRoot, { inMemory: options.inMemory });
+  const dbPath = options.inMemory ? ":memory:" : path.join(options.dataRoot, "db", "knowledge.db");
+  if (dbPath !== ":memory:") fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const configDb = new DatabaseSync(dbPath);
+  configDb.exec("PRAGMA busy_timeout = 5000");
+  const agentConfig = new KnowledgeAgentConfigService(
+    new SqliteKnowledgeAgentConfigStore(configDb, options.tenantId),
+  );
   const service = new KnowledgeApplicationService(
     options.tenantId,
     options.modelAdapter,
@@ -67,6 +85,10 @@ export function createLocalKnowledgeRuntime(options: LocalKnowledgeRuntimeOption
   );
   return {
     application: new KnowledgeHttpApplication(service, driver, markdown),
-    close: () => driver.close(),
+    agentConfig,
+    close: () => {
+      configDb.close();
+      driver.close();
+    },
   };
 }

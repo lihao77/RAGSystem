@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
-import { resolveMemoryAgentConfig, type MemoryAgentConfig } from "../config.js";
+import type { MemoryAgentConfig } from "../config.js";
 import type { MemoryToolOperations } from "./MemoryExecution.js";
 import {
   readArchiveMemoryArguments,
@@ -21,6 +21,7 @@ import { metadataFrom, optionalString } from "@ragsystem/backend-core/tools/sche
 interface MemoryToolDeps {
   memoryTools: MemoryToolOperations;
   agent: AgentConfig;
+  config: MemoryAgentConfig;
 }
 
 const WRITE_MEMORY_TOOL_NAME = "write_memory";
@@ -332,8 +333,8 @@ const ARCHIVE_MEMORY_TOOL: RuntimeToolDefinition = {
 };
 
 export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
-  const { memoryTools, agent } = deps;
-  const memory = resolveMemoryAgentConfig(agent);
+  const { memoryTools, agent, config: memory } = deps;
+  if (!memory.enabled) return [];
   const readOnlyDefinitions = new Map(READ_ONLY_MEMORY_TOOLS.map((definition) => [definition.name, definition]));
   const tools: Tool[] = [];
 

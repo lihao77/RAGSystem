@@ -163,6 +163,7 @@ export async function executeRunWithSdk(
   await deps.toolsDeps.skillTools?.hydrateUserGlobalPackages?.();
   const contributedTools = await deps.pluginTools?.({
     tenantId: deps.storage.tenantId,
+    teamName,
     agent: input.agent,
     pathAccessPolicy: pathService,
   }) ?? [];

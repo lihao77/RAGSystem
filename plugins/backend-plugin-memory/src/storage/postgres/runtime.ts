@@ -5,6 +5,8 @@ import { SaaSMemoryToolService } from "../../tools/SaaSMemoryExecution.js";
 import { SaaSMemoryContextRepository } from "./memory-context-repository.js";
 import { PostgresMemoryRepository, type PostgresMemoryExecutor } from "./repository.js";
 import type { ListMemoryCandidatesInput, MemoryCandidateRecord } from "../../contracts/local-candidates.js";
+import { MemoryAgentConfigService } from "../../config.js";
+import { PostgresMemoryAgentConfigStore } from "./agent-config-store.js";
 
 export function createPostgresMemoryRuntimeFactory(options: {
   executor: PostgresMemoryExecutor;
@@ -13,11 +15,16 @@ export function createPostgresMemoryRuntimeFactory(options: {
   return (context) => {
     const application = createMemoryApplication(context.tenantId, repository);
     const contextRepository = new SaaSMemoryContextRepository(application.query);
+    const agentConfig = new MemoryAgentConfigService(
+      new PostgresMemoryAgentConfigStore(options.executor, context.tenantId),
+    );
     return {
       tools: new SaaSMemoryToolService(application, context.sessions),
+      agentConfig,
       createApplication: () => application,
       configureHooks: (registry) => configureMemoryHooks(registry, {
         context,
+        agentConfig,
         repository: contextRepository,
         listCandidates: (input) => listPostgresCandidates(repository, context.tenantId, input),
       }),

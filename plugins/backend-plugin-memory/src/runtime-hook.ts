@@ -5,10 +5,11 @@ import type { SessionInfo } from "@ragsystem/backend-core/contracts/session/sess
 import type { MemoryCandidateRecord, ListMemoryCandidatesInput } from "./contracts/local-candidates.js";
 import type { MemoryContextRepository } from "./contracts/memory-store/context-repository.js";
 import { MemoryContextSource } from "./services/agent/memory/memory-context-source.js";
-import { resolveMemoryAgentConfig, resolveMemorySystemConfig } from "./config.js";
+import { resolveMemorySystemConfig, type MemoryAgentConfigService } from "./config.js";
 
 export interface MemoryHookDependencies {
   context: BackendPluginRuntimeContext;
+  agentConfig: MemoryAgentConfigService;
   repository: MemoryContextRepository;
   listCandidates(input: ListMemoryCandidatesInput): Promise<MemoryCandidateRecord[]>;
 }
@@ -17,12 +18,17 @@ export function configureMemoryHooks(registry: HookRegistry, dependencies: Memor
   registry.on("round.before", async ({ ctx }) => {
     const session = await dependencies.context.sessions.getSession(ctx.session.sessionId);
     if (!session) return;
-    const teamName = stringValue(session.metadata.team);
+    const teamName = stringValue(session.metadata.team)
+      ?? (await dependencies.context.agentConfig.listTeams()).active_team;
     const agent = dependencies.context.agentConfig.getConfig(ctx.session.profile.agentName, {
       ...(teamName ? { teamName } : {}),
     });
     if (!agent) return;
-    const memory = resolveMemoryAgentConfig(agent);
+    const memory = await dependencies.agentConfig.getEffective({
+      teamName,
+      agentName: agent.agent_name,
+    });
+    if (!memory.enabled) return;
     const systemConfig = resolveMemorySystemConfig(dependencies.context.systemConfig.getSection("memory"));
 
     let metadata = { ...session.metadata };

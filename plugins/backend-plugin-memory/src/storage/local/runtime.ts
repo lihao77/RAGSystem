@@ -11,6 +11,8 @@ import { LocalMemoryContextRepository } from "./memory-context-repository.js";
 import { LocalMemoryApplication } from "./memory-application.js";
 import { MemoryStore } from "./memory-store.js";
 import { LocalMemoryToolRepository } from "./memory-tool-repository.js";
+import { MemoryAgentConfigService } from "../../config.js";
+import { SqliteMemoryAgentConfigStore } from "./agent-config-store.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -37,9 +39,13 @@ export function createLocalMemoryRuntimeFactory(): MemoryPluginRuntimeFactory {
       new LocalMemoryCandidateCommandAdapter(candidates),
       context.tenantId,
     );
+    const agentConfig = new MemoryAgentConfigService(
+      new SqliteMemoryAgentConfigStore(db, context.tenantId),
+    );
 
     return {
       tools,
+      agentConfig,
       createApplication: ({ viewerUserId, viewerSessionIds }) => new LocalMemoryApplication(
         context.tenantId,
         memory,
@@ -49,6 +55,7 @@ export function createLocalMemoryRuntimeFactory(): MemoryPluginRuntimeFactory {
       ),
       configureHooks: (registry) => configureMemoryHooks(registry, {
         context,
+        agentConfig,
         repository,
         listCandidates: async (input) => candidates.listMemoryCandidates(input),
       }),

@@ -407,12 +407,18 @@
             </div>
           </section>
 
-          <section id="section-memory" class="form-section">
+          <section v-if="memoryPluginAvailable" id="section-memory" class="form-section">
             <div class="section-head">
               <h2>记忆</h2>
               <span>按 Agent 配置记忆索引注入与 scope 权限；memory 工具的 team/session/agent/workspace 定位信息由运行时自动推导</span>
             </div>
             <div class="section-body skills-body">
+              <label class="form-item checkbox-item checkbox-item--inline">
+                <input v-model="configForm.memory.enabled" type="checkbox" />
+                <span>启用记忆插件</span>
+              </label>
+
+              <template v-if="configForm.memory.enabled">
               <label class="form-item checkbox-item checkbox-item--inline">
                 <input v-model="configForm.memory.auto_inject" type="checkbox" />
                 <span>自动注入记忆索引</span>
@@ -460,6 +466,7 @@
                   </div>
                 </div>
               </div>
+              </template>
             </div>
           </section>
 
@@ -495,7 +502,7 @@
             </div>
           </section>
 
-          <section id="section-kb" class="form-section">
+          <section v-if="knowledgePluginAvailable" id="section-kb" class="form-section">
             <div class="section-head">
               <h2>知识库</h2>
               <span>配置 Agent 的知识库检索能力，启用后 Agent 可使用 search_knowledge_base 工具</span>
@@ -694,9 +701,17 @@ import {
   getAvailableTools,
   getAvailableSkills,
   getAvailableMCPServers,
-  getMemoryConfigMetadata,
   exportAgentConfig
 } from '../api/agentConfig';
+import {
+  getMemoryAgentConfig,
+  updateMemoryAgentConfig,
+  getMemoryConfigMetadata
+} from '../api/memory.js';
+import {
+  getKnowledgeAgentConfig,
+  updateKnowledgeAgentConfig
+} from '../api/knowledgeBase.js';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { normalizeModelList } from '../utils/modelList.js';
 import { showToast as showToastMessage } from '../utils/toast.js';
@@ -717,18 +732,18 @@ defineProps({
   chatReturnPath: { type: String, default: '/' },
 });
 
-const sections = [
+const sections = computed(() => [
   { id: 'section-basic', label: '基础' },
   { id: 'section-llm', label: 'LLM' },
   { id: 'section-prompt', label: '提示词' },
   { id: 'section-tools', label: '工具' },
   { id: 'section-tasks', label: 'Goal' },
   { id: 'section-skills', label: '技能' },
-  { id: 'section-memory', label: '记忆' },
+  ...(memoryPluginAvailable.value ? [{ id: 'section-memory', label: '记忆' }] : []),
   { id: 'section-mcp', label: 'MCP' },
-  { id: 'section-kb', label: '知识库' },
+  ...(knowledgePluginAvailable.value ? [{ id: 'section-kb', label: '知识库' }] : []),
   { id: 'section-delegation', label: '委派' }
-];
+]);
 const activeSection = ref('section-basic');
 const tiersCollapsed = ref(false);
 let observer = null;
@@ -742,7 +757,7 @@ function updateSliderPosition() {
   // 更新移动端（滑块宽度与文本内容实际大小关联）
   const mobileNav = document.querySelector('.section-nav--mobile');
   if (mobileNav) {
-    const activeIndex = sections.findIndex(s => s.id === activeSection.value);
+    const activeIndex = sections.value.findIndex(s => s.id === activeSection.value);
     if (activeIndex !== -1) {
       const tabs = mobileNav.querySelectorAll('a');
       const activeTab = tabs[activeIndex];
@@ -761,7 +776,7 @@ function updateSliderPosition() {
   // 更新桌面端
   const desktopNav = document.querySelector('.section-nav--desktop');
   if (desktopNav) {
-    const activeIndex = sections.findIndex(s => s.id === activeSection.value);
+    const activeIndex = sections.value.findIndex(s => s.id === activeSection.value);
     if (activeIndex !== -1) {
       const tabs = desktopNav.querySelectorAll('a');
       const activeTab = tabs[activeIndex];
@@ -819,9 +834,9 @@ function updateActiveSectionByScroll() {
   const containerRect = container.getBoundingClientRect();
   const anchorY = containerRect.top + Math.min(120, Math.max(48, containerRect.height * 0.2));
 
-  let currentSection = sections[0]?.id || 'section-basic';
+  let currentSection = sections.value[0]?.id || 'section-basic';
 
-  for (const section of sections) {
+  for (const section of sections.value) {
     const el = document.getElementById(section.id);
     if (!el) continue;
     const rect = el.getBoundingClientRect();
@@ -926,6 +941,8 @@ const skillGroups = computed(() => ([
 const mcpServers = ref([]);
 const providers = ref([]);
 const memoryScopeMeta = ref([]);
+const memoryPluginAvailable = ref(false);
+const knowledgePluginAvailable = ref(false);
 
 const configForm = ref(createEmptyForm());
 const rawConfig = ref(createEmptyForm());
@@ -1060,6 +1077,7 @@ function createEmptyForm() {
     skills: { enabled_skills: [] },
     mcp: { enabled_servers: [] },
     memory: {
+      enabled: true,
       auto_inject: true,
       allowed_scopes: ['team', 'session', 'user'],
       write_scopes: ['session', 'user'],
@@ -1091,8 +1109,10 @@ function parseTierLLM(tier) {
   };
 }
 
-function applyConfigToForm(config) {
+function applyConfigToForm(config, pluginConfigs = {}) {
   const safeConfig = config || createEmptyForm();
+  const memoryConfig = pluginConfigs.memory || createEmptyForm().memory;
+  const knowledgeConfig = pluginConfigs.knowledge || createEmptyForm().knowledge_base;
   rawConfig.value = JSON.parse(JSON.stringify(safeConfig));
   configForm.value = {
     agent_name: safeConfig.agent_name || '',
@@ -1117,21 +1137,22 @@ function applyConfigToForm(config) {
       enabled_servers: Array.isArray(safeConfig.mcp?.enabled_servers) ? [...safeConfig.mcp.enabled_servers] : []
     },
     memory: {
-      auto_inject: safeConfig.memory?.auto_inject ?? true,
-      allowed_scopes: Array.isArray(safeConfig.memory?.allowed_scopes) ? [...safeConfig.memory.allowed_scopes] : ['team', 'session', 'user'],
-      write_scopes: Array.isArray(safeConfig.memory?.write_scopes) ? [...safeConfig.memory.write_scopes] : ['session', 'user'],
-      archive_scopes: Array.isArray(safeConfig.memory?.archive_scopes) ? [...safeConfig.memory.archive_scopes] : ['session', 'user']
+      enabled: memoryConfig.enabled ?? true,
+      auto_inject: memoryConfig.auto_inject ?? true,
+      allowed_scopes: Array.isArray(memoryConfig.allowed_scopes) ? [...memoryConfig.allowed_scopes] : ['team', 'session', 'user'],
+      write_scopes: Array.isArray(memoryConfig.write_scopes) ? [...memoryConfig.write_scopes] : ['session', 'user'],
+      archive_scopes: Array.isArray(memoryConfig.archive_scopes) ? [...memoryConfig.archive_scopes] : ['session', 'user']
     },
     delegation: {
       enabled_agents: Array.isArray(safeConfig.delegation?.enabled_agents) ? [...safeConfig.delegation.enabled_agents] : []
     },
     knowledge_base: {
-      enabled: safeConfig.knowledge_base?.enabled ?? false,
-      default_collection: safeConfig.knowledge_base?.default_collection || 'documents',
-      default_search_mode: safeConfig.knowledge_base?.default_search_mode || 'hybrid',
-      default_top_k: safeConfig.knowledge_base?.default_top_k ?? 5,
-      default_rerank: safeConfig.knowledge_base?.default_rerank ?? false,
-      default_reranker_key: safeConfig.knowledge_base?.default_reranker_key || null
+      enabled: knowledgeConfig.enabled ?? false,
+      default_collection: knowledgeConfig.default_collection || 'documents',
+      default_search_mode: knowledgeConfig.default_search_mode || 'hybrid',
+      default_top_k: knowledgeConfig.default_top_k ?? 5,
+      default_rerank: knowledgeConfig.default_rerank ?? false,
+      default_reranker_key: knowledgeConfig.default_reranker_key || null
     },
     custom_params: {
       ...(safeConfig.custom_params || {}),
@@ -1208,6 +1229,8 @@ function parseExtraParamsInput(entries, scopeLabel) {
 
 function buildPayload() {
   const merged = JSON.parse(JSON.stringify(rawConfig.value || {}));
+  delete merged.memory;
+  delete merged.knowledge_base;
   merged.agent_name = selectedAgent.value;
   merged.display_name = configForm.value.display_name;
   merged.description = configForm.value.description;
@@ -1252,25 +1275,9 @@ function buildPayload() {
     enabled_servers: configForm.value.mcp.enabled_servers
   };
 
-  merged.memory = {
-    auto_inject: !!configForm.value.memory.auto_inject,
-    allowed_scopes: configForm.value.memory.allowed_scopes,
-    write_scopes: configForm.value.memory.write_scopes,
-    archive_scopes: configForm.value.memory.archive_scopes
-  };
-
   merged.delegation = {
     ...(merged.delegation || {}),
     enabled_agents: configForm.value.delegation.enabled_agents
-  };
-
-  merged.knowledge_base = {
-    enabled: !!configForm.value.knowledge_base.enabled,
-    default_collection: configForm.value.knowledge_base.default_collection || 'documents',
-    default_search_mode: configForm.value.knowledge_base.default_search_mode || 'hybrid',
-    default_top_k: Number(configForm.value.knowledge_base.default_top_k) || 5,
-    default_rerank: !!configForm.value.knowledge_base.default_rerank,
-    default_reranker_key: configForm.value.knowledge_base.default_reranker_key || null
   };
 
   merged.custom_params = configForm.value.custom_params || merged.custom_params || {};
@@ -1286,7 +1293,7 @@ async function loadSupplementaryData(workspaceRoot = '') {
     getAvailableSkills(workspaceRoot),
     getAvailableMCPServers(),
     dictStore.ensureProviders(),
-    getMemoryConfigMetadata()
+    memoryPluginAvailable.value ? getMemoryConfigMetadata() : Promise.resolve({ scopes: [] })
   ]);
 
   tools.value = toolResult.status === 'fulfilled' ? sanitizeAvailableTools(toolResult.value) : [];
@@ -1298,6 +1305,46 @@ async function loadSupplementaryData(workspaceRoot = '') {
     && memoryResult.value.scopes.length
     ? memoryResult.value.scopes
     : memoryScopeFallbackMeta;
+}
+
+async function loadPluginConfigs(agentName) {
+  const [memoryResult, knowledgeResult] = await Promise.allSettled([
+    getMemoryAgentConfig(agentName, activeTeam.value),
+    getKnowledgeAgentConfig(agentName, activeTeam.value)
+  ]);
+  memoryPluginAvailable.value = pluginConfigAvailable(memoryResult);
+  knowledgePluginAvailable.value = pluginConfigAvailable(knowledgeResult);
+  return {
+    memory: memoryResult.status === 'fulfilled' ? memoryResult.value : null,
+    knowledge: knowledgeResult.status === 'fulfilled' ? knowledgeResult.value : null
+  };
+}
+
+function pluginConfigAvailable(result) {
+  if (result.status === 'fulfilled') return true;
+  if (result.reason?.status === 404) return false;
+  throw result.reason;
+}
+
+function buildMemoryPluginConfig() {
+  return {
+    enabled: !!configForm.value.memory.enabled,
+    auto_inject: !!configForm.value.memory.auto_inject,
+    allowed_scopes: configForm.value.memory.allowed_scopes,
+    write_scopes: configForm.value.memory.write_scopes,
+    archive_scopes: configForm.value.memory.archive_scopes
+  };
+}
+
+function buildKnowledgePluginConfig() {
+  return {
+    enabled: !!configForm.value.knowledge_base.enabled,
+    default_collection: configForm.value.knowledge_base.default_collection || 'documents',
+    default_search_mode: configForm.value.knowledge_base.default_search_mode || 'hybrid',
+    default_top_k: Number(configForm.value.knowledge_base.default_top_k) || 5,
+    default_rerank: !!configForm.value.knowledge_base.default_rerank,
+    default_reranker_key: configForm.value.knowledge_base.default_reranker_key || null
+  };
 }
 
 async function loadInitialData() {
@@ -1345,8 +1392,11 @@ async function loadAgentDetail(agentName) {
   agentLoading.value = true;
 
   try {
-    const config = await getAgentConfig(agentName);
-    applyConfigToForm(config);
+    const [config, pluginConfigs] = await Promise.all([
+      getAgentConfig(agentName),
+      loadPluginConfigs(agentName)
+    ]);
+    applyConfigToForm(config, pluginConfigs);
     await loadSupplementaryData(config?.custom_params?.workspace_root || '');
   } catch (err) {
     configForm.value = createEmptyForm();
@@ -1380,9 +1430,20 @@ async function handleSave() {
 
   try {
     await updateAgentConfig(selectedAgent.value, buildPayload());
+    const pluginUpdates = [];
+    if (memoryPluginAvailable.value) {
+      pluginUpdates.push(updateMemoryAgentConfig(selectedAgent.value, buildMemoryPluginConfig(), activeTeam.value));
+    }
+    if (knowledgePluginAvailable.value) {
+      pluginUpdates.push(updateKnowledgeAgentConfig(selectedAgent.value, buildKnowledgePluginConfig(), activeTeam.value));
+    }
+    await Promise.all(pluginUpdates);
     dictStore.invalidateAgents();
-    const latest = await getAgentConfig(selectedAgent.value);
-    applyConfigToForm(latest);
+    const [latest, pluginConfigs] = await Promise.all([
+      getAgentConfig(selectedAgent.value),
+      loadPluginConfigs(selectedAgent.value)
+    ]);
+    applyConfigToForm(latest, pluginConfigs);
     showToast('保存成功', 'success');
   } catch (err) {
     showToast(err.message || '保存配置失败');

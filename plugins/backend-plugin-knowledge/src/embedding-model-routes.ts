@@ -7,7 +7,7 @@ import { KnowledgeBaseError } from "./contracts/knowledge/knowledge-base.js";
 import { HttpError, httpErrorFrom, statusHttpError } from "@ragsystem/backend-core/utils/errors.js";
 import { requireTenantAdmin, requireTenantMember } from "@ragsystem/backend-core/routes/tenant-role.js";
 import { EmbeddingModelService } from "./services/knowledge/embedding-model-service.js";
-import { KNOWLEDGE_APPLICATION_CAPABILITY } from "./capability.js";
+import { KNOWLEDGE_RUNTIME_CAPABILITY } from "./capability.js";
 
 interface ModelParams {
   modelId: string;
@@ -29,7 +29,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", async (request) => { requireTenantMember(request); });
 
   const resolveEmbeddingModels = (request: FastifyRequest) => new EmbeddingModelService(
-    request.container.pluginCapabilities.require(KNOWLEDGE_APPLICATION_CAPABILITY),
+    request.container.pluginCapabilities.require(KNOWLEDGE_RUNTIME_CAPABILITY).application,
   );
 
   app.get("/models", async (request) => ({

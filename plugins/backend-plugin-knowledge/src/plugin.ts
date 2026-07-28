@@ -1,7 +1,7 @@
 import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { provideCapability } from "@ragsystem/backend-core/plugins/capability-registry.js";
 
-import { KNOWLEDGE_APPLICATION_CAPABILITY } from "./capability.js";
+import { KNOWLEDGE_RUNTIME_CAPABILITY } from "./capability.js";
 import type { KnowledgePluginDependencies } from "./dependencies.js";
 import { registerEmbeddingModelRoutes } from "./embedding-model-routes.js";
 import { registerKnowledgeBaseRoutes } from "./routes.js";
@@ -19,7 +19,7 @@ export function createKnowledgePlugin(dependencies: KnowledgePluginDependencies)
       context.runtimes.register(async (runtimeContext) => {
         const runtime = await dependencies.runtimeFactory(runtimeContext);
         return {
-          capabilities: [provideCapability(KNOWLEDGE_APPLICATION_CAPABILITY, runtime.application)],
+          capabilities: [provideCapability(KNOWLEDGE_RUNTIME_CAPABILITY, runtime)],
           ...(runtime.dispose ? { dispose: () => runtime.dispose?.() } : {}),
         };
       });
@@ -29,11 +29,16 @@ export function createKnowledgePlugin(dependencies: KnowledgePluginDependencies)
       context.routes.register("tenant", "/api/embedding-models", async (app) => {
         await app.register(registerEmbeddingModelRoutes);
       });
-      context.tools.register(({ agent, capabilities }) => {
+      context.tools.register(async ({ agent, teamName, capabilities }) => {
         if (!capabilities) throw new Error("Knowledge plugin requires runtime capabilities");
+        const runtime = capabilities.require(KNOWLEDGE_RUNTIME_CAPABILITY);
+        const config = await runtime.agentConfig.getEffective({
+          teamName: teamName ?? "default",
+          agentName: agent.agent_name,
+        });
         return createKnowledgeTools({
-          agent,
-          knowledge: capabilities.require(KNOWLEDGE_APPLICATION_CAPABILITY),
+          config,
+          knowledge: runtime.application,
         });
       });
     },

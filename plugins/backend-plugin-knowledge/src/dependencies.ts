@@ -1,6 +1,7 @@
 import type { BackendPluginRuntimeContext } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 
 import type { KnowledgeApplication } from "./contracts/knowledge-application.js";
+import type { KnowledgeAgentConfigService } from "./agent-config.js";
 
 export interface KnowledgePluginLifecycle {
   start?(): void | Promise<void>;
@@ -9,6 +10,7 @@ export interface KnowledgePluginLifecycle {
 
 export interface KnowledgePluginRuntime {
   readonly application: KnowledgeApplication;
+  readonly agentConfig: KnowledgeAgentConfigService;
   dispose?(): void;
 }
 

@@ -42,4 +42,17 @@ export const POSTGRES_KNOWLEDGE_CONFIG_MIGRATIONS: PostgresKnowledgeConfigMigrat
     CREATE UNIQUE INDEX IF NOT EXISTS knowledge_rerankers_active_idx
       ON knowledge_rerankers(tenant_id) WHERE is_active;
   `,
+}, {
+  version: 3,
+  name: "knowledge_agent_configs",
+  sql: `
+    CREATE TABLE IF NOT EXISTS knowledge_agent_configs (
+      tenant_id TEXT NOT NULL,
+      team_name TEXT NOT NULL,
+      agent_name TEXT NOT NULL,
+      config JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (tenant_id, team_name, agent_name)
+    );
+  `,
 }];

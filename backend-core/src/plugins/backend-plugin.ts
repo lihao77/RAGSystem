@@ -41,6 +41,7 @@ export interface PluginSkillRegistrar {
 
 export interface BackendToolFactoryContext {
   readonly tenantId: string;
+  readonly teamName: string | null;
   readonly agent: AgentConfig;
   readonly pathAccessPolicy: PathAccessPolicy;
   readonly capabilities?: CapabilityRegistry;

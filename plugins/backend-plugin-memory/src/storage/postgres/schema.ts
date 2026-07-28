@@ -152,6 +152,20 @@ export const POSTGRES_MEMORY_MIGRATIONS: readonly MemoryMigration[] = [
         );
     `,
   },
+  {
+    version: 5,
+    name: "memory-agent-configs",
+    sql: `
+      CREATE TABLE IF NOT EXISTS memory_agent_configs (
+        tenant_id TEXT NOT NULL,
+        team_name TEXT NOT NULL,
+        agent_name TEXT NOT NULL,
+        config JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (tenant_id, team_name, agent_name)
+      );
+    `,
+  },
 ];
 
 export const SAAS_MEMORY_MIGRATIONS = POSTGRES_MEMORY_MIGRATIONS;

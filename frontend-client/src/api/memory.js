@@ -2,6 +2,31 @@ import { http } from './http.js';
 
 const API_BASE = '/api/memory';
 
+function agentConfigUrl(agentName, teamName) {
+  const query = teamName ? `?team=${encodeURIComponent(teamName)}` : '';
+  return `${API_BASE}/agents/${encodeURIComponent(agentName)}/config${query}`;
+}
+
+export async function getMemoryAgentConfig(agentName, teamName = '') {
+  const result = await http.get(agentConfigUrl(agentName, teamName));
+  return result.data || result;
+}
+
+export async function updateMemoryAgentConfig(agentName, config, teamName = '') {
+  const result = await http.put(agentConfigUrl(agentName, teamName), config);
+  return result.data || result;
+}
+
+export async function resetMemoryAgentConfig(agentName, teamName = '') {
+  const result = await http.del(agentConfigUrl(agentName, teamName));
+  return result.data || result;
+}
+
+export async function getMemoryConfigMetadata() {
+  const result = await http.get(`${API_BASE}/config-metadata`);
+  return result.data || result;
+}
+
 function compactParams(params = {}) {
   return Object.fromEntries(
     Object.entries(params).filter(([, value]) => value !== '' && value !== null && value !== undefined),

@@ -42,7 +42,7 @@ const AgentConfigObjectSchema = z.object({
     .optional()
     .default({ enabled_agents: [] }),
   custom_params: z.record(z.unknown()).optional().default({}),
-}).passthrough();
+});
 
 /** Preserve the old workflow capability when reading pre-Goal agent configs. */
 export const AgentConfigSchema = z.preprocess((value) => {

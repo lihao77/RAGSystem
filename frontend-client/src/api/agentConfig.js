@@ -200,20 +200,6 @@ export async function createAgent(payload) {
 }
 
 /**
- * 获取 Memory 配置元数据
- * @returns {Promise<Object>} Memory scope 说明
- */
-export async function getMemoryConfigMetadata() {
-  try {
-    const result = await http.get(`${API_BASE}/memory-metadata`);
-    return result.data || { scopes: [] };
-  } catch (error) {
-    console.error('Error fetching memory config metadata:', error);
-    throw error;
-  }
-}
-
-/**
  * 获取可供智能体使用的 MCP Server 列表
  * @returns {Promise<Array>} MCP Server 列表
  */

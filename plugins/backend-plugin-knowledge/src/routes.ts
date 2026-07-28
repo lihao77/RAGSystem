@@ -18,7 +18,7 @@ import { matchesFileFilters } from "@ragsystem/backend-core/utils/file-filter.js
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { collectMultipartFiles, parseCsvList, sendBufferedFileDownload } from "@ragsystem/backend-core/routes/file-route-utils.js";
 import { requireTenantAdmin, requireTenantMember } from "@ragsystem/backend-core/routes/tenant-role.js";
-import { KNOWLEDGE_APPLICATION_CAPABILITY } from "./capability.js";
+import { KNOWLEDGE_RUNTIME_CAPABILITY } from "./capability.js";
 
 interface CollectionParams {
   collectionName: string;
@@ -34,14 +34,17 @@ interface ChunkParams extends FileParams { chunkId: string; }
 interface FileListQuery { extensions?: string; mime_types?: string; }
 interface KeyParams { key: string; }
 interface DocsQuery { collection?: string; }
+interface AgentParams { agentName: string; }
+interface TeamQuery { team?: string; }
 
 export const registerKnowledgeBaseRoutes: FastifyPluginAsync = async (app) => {
   const resolveKnowledge = (request: FastifyRequest) =>
-    request.container.pluginCapabilities.require(KNOWLEDGE_APPLICATION_CAPABILITY);
+    request.container.pluginCapabilities.require(KNOWLEDGE_RUNTIME_CAPABILITY).application;
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     const pathname = request.url.split("?", 1)[0] ?? request.url;
     const adminOperation = pathname.endsWith("/index-file")
+      || (pathname.includes("/agents/") && request.method !== "GET")
       || (pathname.includes("/vectorizers") && request.method !== "GET")
       || pathname.endsWith("/migrate")
       || (pathname.includes("/rerankers") && request.method !== "GET")
@@ -50,6 +53,24 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync = async (app) => {
       || (pathname.includes("/documents/") && request.method === "DELETE")
       || (pathname.includes("/files/") && request.method === "DELETE");
     if (adminOperation) requireTenantAdmin(request);
+  });
+
+  app.get<{ Params: AgentParams; Querystring: TeamQuery }>("/agents/:agentName/config", async (request) => {
+    const key = await resolveAgentConfigKey(request, request.params.agentName, request.query.team);
+    const runtime = request.container.pluginCapabilities.require(KNOWLEDGE_RUNTIME_CAPABILITY);
+    return ok(await runtime.agentConfig.getEffective(key));
+  });
+
+  app.put<{ Params: AgentParams; Querystring: TeamQuery }>("/agents/:agentName/config", async (request) => {
+    const key = await resolveAgentConfigKey(request, request.params.agentName, request.query.team);
+    const runtime = request.container.pluginCapabilities.require(KNOWLEDGE_RUNTIME_CAPABILITY);
+    return ok(await runtime.agentConfig.put(key, request.body));
+  });
+
+  app.delete<{ Params: AgentParams; Querystring: TeamQuery }>("/agents/:agentName/config", async (request) => {
+    const key = await resolveAgentConfigKey(request, request.params.agentName, request.query.team);
+    const runtime = request.container.pluginCapabilities.require(KNOWLEDGE_RUNTIME_CAPABILITY);
+    return ok(await runtime.agentConfig.delete(key));
   });
 
   app.post("/files/upload", async (request) => {
@@ -273,6 +294,18 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync = async (app) => {
 
   app.get("/health", async (request) => ok(normalizeVectorHealth(await (await resolveKnowledge(request)).vectorHealth())));
 };
+
+async function resolveAgentConfigKey(
+  request: FastifyRequest,
+  agentName: string,
+  requestedTeam: string | undefined,
+): Promise<{ teamName: string; agentName: string }> {
+  const teamName = requestedTeam?.trim() || (await request.container.agentConfig.listTeams()).active_team;
+  if (!request.container.agentConfig.getConfig(agentName, { teamName })) {
+    throw new HttpError(404, "not_found", `智能体 "${agentName}" 在 team "${teamName}" 中不存在`);
+  }
+  return { teamName, agentName };
+}
 
 function filterKnowledgeFiles(
   files: KnowledgeFile[],

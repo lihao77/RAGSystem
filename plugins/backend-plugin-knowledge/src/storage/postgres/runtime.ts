@@ -18,6 +18,8 @@ import { PostgresKnowledgeConfigRepository } from "./knowledge-config-repository
 import { PostgresKnowledgeFileMetadataRepository } from "./knowledge-file-repository.js";
 import { SaaSKnowledgeFileStorage } from "./knowledge-file-storage.js";
 import { PostgresPgVectorRepository } from "./pgvector-repository.js";
+import { KnowledgeAgentConfigService } from "../../agent-config.js";
+import { PostgresKnowledgeAgentConfigStore } from "./agent-config-store.js";
 
 export interface PostgresKnowledgeRuntimeOptions {
   tenantId: string;
@@ -47,6 +49,9 @@ export function createPostgresKnowledgeRuntimeFactory(
         modelAdapter: context.modelAdapter,
         documentExtraction: context.systemConfig.getDocumentExtractionConfig(),
       }),
+      agentConfig: new KnowledgeAgentConfigService(
+        new PostgresKnowledgeAgentConfigStore(options.executor, context.tenantId),
+      ),
     };
   };
 }

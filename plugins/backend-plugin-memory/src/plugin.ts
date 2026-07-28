@@ -40,11 +40,17 @@ export function createMemoryPlugin(dependencies: MemoryPluginDependencies): Back
       context.routes.register("tenant", "/api/memory", async (app) => {
         await app.register(registerMemoryRoutes);
       });
-      context.tools.register(({ agent, capabilities }) => {
+      context.tools.register(async ({ agent, teamName, capabilities }) => {
         if (!capabilities) throw new Error("Memory plugin requires runtime capabilities");
+        const runtime = capabilities.require(MEMORY_RUNTIME_CAPABILITY);
+        const config = await runtime.agentConfig.getEffective({
+          teamName: teamName ?? "default",
+          agentName: agent.agent_name,
+        });
         return createMemoryTools({
           agent,
-          memoryTools: capabilities.require(MEMORY_RUNTIME_CAPABILITY).tools,
+          config,
+          memoryTools: runtime.tools,
         });
       });
     },

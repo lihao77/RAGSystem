@@ -6,7 +6,7 @@ import type { KnowledgeApplication } from "../contracts/knowledge-application.js
 import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
 import type { RuntimeToolDefinition } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
-import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { KnowledgeAgentConfig } from "../agent-config.js";
 import { metadataFrom, optionalBoolean, optionalInteger, optionalRecord, optionalString } from "@ragsystem/backend-core/tools/schema-helpers.js";
 
 export const SEARCH_KNOWLEDGE_BASE_TOOL_NAME = "search_knowledge_base";
@@ -14,7 +14,7 @@ export const LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME = "list_knowledge_collections"
 
 export interface KnowledgeToolDeps {
   knowledge: Pick<KnowledgeApplication, "search" | "listCollections"> | null;
-  agent: AgentConfig;
+  config: KnowledgeAgentConfig;
 }
 
 const searchKnowledgeBaseSchema = z.object({
@@ -30,15 +30,6 @@ const searchKnowledgeBaseSchema = z.object({
 }).strict();
 
 const emptyArgsSchema = z.object({}).strict();
-
-const knowledgeAgentConfigSchema = z.object({
-  enabled: z.boolean().optional().default(false),
-  default_collection: z.string().optional().default("documents"),
-  default_search_mode: z.string().optional().default("hybrid"),
-  default_top_k: z.number().int().positive().optional().default(5),
-  default_rerank: z.boolean().optional().default(false),
-  default_reranker_key: z.string().nullable().optional().default(null),
-});
 
 const KNOWLEDGE_TOOLS: RuntimeToolDefinition[] = [
   {
@@ -103,9 +94,7 @@ export function createKnowledgeTools(deps: KnowledgeToolDeps): Tool[] {
   if (!knowledge) {
     return [];
   }
-  const agent = deps.agent;
-  const kbConfig = knowledgeAgentConfigSchema.parse(agent.knowledge_base ?? {});
-  // 可见性筛选：agent.knowledge_base.enabled === true 时返回两个工具，否则返回 []
+  const kbConfig = deps.config;
   if (kbConfig.enabled !== true) {
     return [];
   }

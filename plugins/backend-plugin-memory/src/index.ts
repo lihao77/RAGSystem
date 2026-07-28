@@ -1,5 +1,13 @@
 export { MEMORY_PLUGIN_ID, createMemoryPlugin } from "./plugin.js";
 export { MEMORY_RUNTIME_CAPABILITY, type MemoryRuntimeCapability } from "./capability.js";
+export {
+  MemoryAgentConfigSchema,
+  MemoryAgentConfigService,
+  MEMORY_SCOPE_METADATA,
+  type MemoryAgentConfig,
+  type MemoryAgentConfigKey,
+  type MemoryAgentConfigStore,
+} from "./config.js";
 export type {
   MemoryPluginDependencies,
   MemoryPluginLifecycle,

@@ -1,4 +1,11 @@
-export { KNOWLEDGE_APPLICATION_CAPABILITY } from "./capability.js";
+export { KNOWLEDGE_RUNTIME_CAPABILITY, type KnowledgeRuntimeCapability } from "./capability.js";
+export {
+  KnowledgeAgentConfigSchema,
+  KnowledgeAgentConfigService,
+  type KnowledgeAgentConfig,
+  type KnowledgeAgentConfigKey,
+  type KnowledgeAgentConfigStore,
+} from "./agent-config.js";
 export type { KnowledgeApplication, KnowledgeDownload, KnowledgeUploadPart } from "./contracts/knowledge-application.js";
 export * from "./contracts/knowledge/knowledge-base.js";
 export * from "./contracts/knowledge/knowledge-query.js";

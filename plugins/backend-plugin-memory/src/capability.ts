@@ -2,9 +2,11 @@ import { createCapability } from "@ragsystem/backend-core/plugins/capability-reg
 
 import type { MemoryApplication } from "./services/memory/memory-application.js";
 import type { MemoryToolOperations } from "./tools/MemoryExecution.js";
+import type { MemoryAgentConfigService } from "./config.js";
 
 export interface MemoryRuntimeCapability {
   readonly tools: MemoryToolOperations;
+  readonly agentConfig: MemoryAgentConfigService;
   createApplication(input: {
     viewerUserId: string;
     viewerSessionIds: readonly string[] | (() => Promise<readonly string[]>);

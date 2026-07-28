@@ -9,6 +9,7 @@ import type { MemoryApplication } from "./services/memory/index.js";
 import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
 import { requireTenantAdmin, requireTenantMember } from "@ragsystem/backend-core/routes/tenant-role.js";
 import { MEMORY_RUNTIME_CAPABILITY } from "./capability.js";
+import { MEMORY_SCOPE_METADATA } from "./config.js";
 
 const CandidateParamsSchema = z.object({ id: z.string().uuid() });
 const EntryParamsSchema = z.object({ id: z.string().uuid() });
@@ -57,6 +58,8 @@ const ClaimCandidateSchema = z.object({
   expected_version: z.number().int().positive().optional(),
   claim_ttl_seconds: z.number().int().min(1).max(86_400).optional(),
 });
+const AgentParamsSchema = z.object({ agentName: z.string().trim().min(1) });
+const TeamQuerySchema = z.object({ team: z.string().trim().min(1).optional() });
 
 function expectedVersion(value: number | undefined, currentVersion: number): number {
   return value ?? currentVersion;
@@ -94,6 +97,28 @@ async function resolveMemoryApplication(
 
 export const registerMemoryRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", async (request) => { requireTenantMember(request); });
+
+  app.get("/config-metadata", async () => ({ success: true, data: { scopes: MEMORY_SCOPE_METADATA } }));
+
+  app.get<{ Params: { agentName: string }; Querystring: { team?: string } }>("/agents/:agentName/config", async (request) => {
+    const key = await resolveAgentConfigKey(request);
+    const runtime = request.container.pluginCapabilities.require(MEMORY_RUNTIME_CAPABILITY);
+    return { success: true, data: await runtime.agentConfig.getEffective(key) };
+  });
+
+  app.put<{ Params: { agentName: string }; Querystring: { team?: string } }>("/agents/:agentName/config", async (request) => {
+    requireTenantAdmin(request);
+    const key = await resolveAgentConfigKey(request);
+    const runtime = request.container.pluginCapabilities.require(MEMORY_RUNTIME_CAPABILITY);
+    return { success: true, data: await runtime.agentConfig.put(key, request.body) };
+  });
+
+  app.delete<{ Params: { agentName: string }; Querystring: { team?: string } }>("/agents/:agentName/config", async (request) => {
+    requireTenantAdmin(request);
+    const key = await resolveAgentConfigKey(request);
+    const runtime = request.container.pluginCapabilities.require(MEMORY_RUNTIME_CAPABILITY);
+    return { success: true, data: await runtime.agentConfig.delete(key) };
+  });
 
   app.get("/entries", async (request) => {
     const query = EntryQuerySchema.parse(request.query);
@@ -372,6 +397,16 @@ export const registerMemoryRoutes: FastifyPluginAsync = async (app) => {
   });
 
 };
+
+async function resolveAgentConfigKey(request: FastifyRequest): Promise<{ teamName: string; agentName: string }> {
+  const { agentName } = AgentParamsSchema.parse(request.params);
+  const query = TeamQuerySchema.parse(request.query);
+  const teamName = query.team ?? (await request.container.agentConfig.listTeams()).active_team;
+  if (!request.container.agentConfig.getConfig(agentName, { teamName })) {
+    throw new HttpError(404, "not_found", `智能体 "${agentName}" 在 team "${teamName}" 中不存在`);
+  }
+  return { teamName, agentName };
+}
 
 function parseEntryScopes(value: string | undefined): Array<z.infer<typeof MemoryScopeNameSchema>> | undefined {
   if (!value?.trim()) return undefined;
