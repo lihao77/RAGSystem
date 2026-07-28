@@ -12,6 +12,7 @@ import type { ExecutionStorage } from "@ragsystem/backend-core/contracts/executi
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import type { RuntimeStorage } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import type { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
+import type { BackendRuntimeContributions } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import type { MemoryStore } from "./memory-store.js";
 import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 
@@ -33,6 +34,7 @@ export interface LocalRuntimeContainerOptions {
   startOutboxDispatcher?: boolean;
   outboxDispatcherIntervalMs?: number;
   hooks?: (registry: HookRegistry) => void;
+  plugins?: BackendRuntimeContributions;
   embedderFactory?: KnowledgeEmbedderFactory;
   memoryBindingsFactory?: MemoryRuntimeBindingsFactory;
   clientEventsFactory?: (

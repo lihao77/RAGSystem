@@ -108,7 +108,13 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
       () => modelAdapter.listProviders(),
       systemConfig,
     ),
-    ...(dependencies.hooks ? { hooks: dependencies.hooks } : {}),
+    ...((dependencies.hooks || dependencies.plugins) ? {
+      hooks: (registry) => {
+        dependencies.hooks?.(registry);
+        dependencies.plugins?.configureHooks(registry);
+      },
+    } : {}),
+    ...(dependencies.plugins ? { pluginTools: dependencies.plugins.createTools } : {}),
     runtimeStorage: dependencies.runtimeStorage,
   });
   const resumeExecutor = createResumeExecutor({

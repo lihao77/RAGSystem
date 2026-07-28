@@ -53,11 +53,11 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
     resolveArtifactApplicationForTenant: (tenantId) => new LocalArtifactApplication(
       new FilesystemArtifactService({ dataRoot: new TenantPaths(path.join(env.tenantsRoot, tenantId)).dataRoot }),
     ),
-    createRegistry: (logger, configureHooks) => new LocalTenantRuntimeRegistry(
+    createRegistry: (logger, plugins) => new LocalTenantRuntimeRegistry(
       env,
       controlPlane.tenants,
       logger,
-      configureHooks ? { runtimeOptions: { hooks: configureHooks } } : {},
+      plugins ? { runtimeOptions: { plugins } } : {},
     ),
     createIdentityProvider: async (authMode, sessionTokens) => {
       const identityProvider = createLocalIdentityProvider(authMode, controlPlane, sessionTokens);

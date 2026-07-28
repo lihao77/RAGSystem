@@ -11,6 +11,7 @@ import type { BackgroundTaskService } from "../../runtime/background-task-servic
 import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
+import type { BackendToolFactory } from "../../../plugins/backend-plugin.js";
 import type { CodeExecutionPort } from "../../../contracts/runtime/tool-ports.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
@@ -82,6 +83,7 @@ export class AgentRunEngine {
     private readonly metricsCollector: AgentMetricsCollector | null = null,
     private readonly compressionService: AgentCompressionService | null = null,
     private readonly sessionFiles: SessionFileLookupPort | null = null,
+    private readonly pluginTools: BackendToolFactory | null = null,
   ) {}
 
   startRun(input: {
@@ -495,6 +497,7 @@ export class AgentRunEngine {
        {
           storage: this.storage,
           toolsDeps: this.toolsDeps ?? emptyToolsDeps,
+          ...(this.pluginTools ? { pluginTools: this.pluginTools } : {}),
           codeExecutionTools: this.codeExecutionTools,
           taskTools: this.taskTools,
           eventPublisher: this.eventPublisher,

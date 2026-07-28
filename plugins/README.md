@@ -10,9 +10,11 @@ continues to start normally. Its application resolvers and session access policy
 are injected by the Local or SaaS product manifest, so the plugin does not import
 core request containers, route helpers, services, or error utilities.
 
-Plugins register routes during setup and may implement `start` and `stop`
-lifecycle hooks. Infrastructure supplied by a product can be exposed through
-typed capability tokens.
+Plugins register routes, per-run hooks, runtime tools, and read-only Skill roots
+during setup, and may implement `start` and `stop` lifecycle hooks.
+Infrastructure supplied by a product can be exposed through typed capability
+tokens. The host passes one immutable runtime-contributions object into each
+tenant runtime, so new contribution kinds do not expand the deployment API.
 
 Core and Fastify are peer dependencies. A product must provide exactly one
 compatible host instance.

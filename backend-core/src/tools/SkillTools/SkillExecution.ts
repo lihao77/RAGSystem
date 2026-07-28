@@ -2,6 +2,7 @@ import { isRecord, normalizeString, asString, asRecord } from "../../utils/guard
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
 import { AgentConfigSchema, type AgentConfig } from "../../contracts/agent/agent-config.js";
@@ -20,6 +21,11 @@ interface SkillSourceSpec {
   sourceType: SkillSourceType;
   sourceLabel: string;
   isAutoInjectCandidate: boolean;
+}
+
+export interface BuiltinSkillSourceInput {
+  root: string;
+  sourceLabel: string;
 }
 
 export interface SkillInfo {
@@ -74,12 +80,14 @@ const SKILL_SOURCE_LABELS: Record<SkillSourceType, string> = {
 export class SkillToolService {
   private readonly dataRoot: string;
   private readonly builtinSkillsRoot: string;
+  private readonly additionalBuiltinSkillSources: readonly BuiltinSkillSourceInput[];
   private readonly userGlobalSkillsRoot: string;
 
   constructor(
     options: {
       dataRoot?: string | undefined;
       builtinSkillsRoot?: string | undefined;
+      additionalBuiltinSkillSources?: readonly BuiltinSkillSourceInput[] | undefined;
       userGlobalSkillsRoot?: string | undefined;
       agentConfig?: AgentConfigService | null | undefined;
       backgroundTasks?: BackgroundTaskService | null | undefined;
@@ -96,7 +104,8 @@ export class SkillToolService {
       throw new Error("SkillToolService 必须传入已解析的 dataRoot");
     }
     this.dataRoot = path.resolve(options.dataRoot);
-    this.builtinSkillsRoot = path.resolve(options.builtinSkillsRoot ?? path.join(process.cwd(), "skills"));
+    this.builtinSkillsRoot = path.resolve(options.builtinSkillsRoot ?? resolveDefaultBuiltinSkillsRoot());
+    this.additionalBuiltinSkillSources = dedupeBuiltinSkillSources(options.additionalBuiltinSkillSources ?? []);
     this.userGlobalSkillsRoot = path.resolve(options.userGlobalSkillsRoot ?? path.join(this.dataRoot, "skills"));
     this.agentConfig = options.agentConfig ?? null;
     this.backgroundTasks = options.backgroundTasks ?? null;
@@ -554,8 +563,35 @@ export class SkillToolService {
       sourceLabel: SKILL_SOURCE_LABELS.builtin,
       isAutoInjectCandidate: true,
     });
+    for (const source of this.additionalBuiltinSkillSources) {
+      specs.push({
+        root: source.root,
+        sourceType: "builtin",
+        sourceLabel: source.sourceLabel,
+        isAutoInjectCandidate: true,
+      });
+    }
     return specs;
   }
+}
+
+function dedupeBuiltinSkillSources(sources: readonly BuiltinSkillSourceInput[]): readonly BuiltinSkillSourceInput[] {
+  const byRoot = new Map<string, BuiltinSkillSourceInput>();
+  for (const source of sources) {
+    const root = path.resolve(source.root);
+    if (!byRoot.has(root)) byRoot.set(root, { root, sourceLabel: source.sourceLabel });
+  }
+  return [...byRoot.values()];
+}
+
+function resolveDefaultBuiltinSkillsRoot(): string {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(moduleDir, "../../../skills"),
+    path.resolve(moduleDir, "skills"),
+    path.resolve(process.cwd(), "skills"),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]!;
 }
 
 function skillInfoFromPackageRecord(record: SkillPackageRecord, originRoot: string): SkillInfo {

@@ -201,6 +201,12 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     backgroundTasks,
     clientEvents,
     packageStore: skillPackageStore,
+    ...(options.plugins?.skillSources.length ? {
+      additionalBuiltinSkillSources: options.plugins.skillSources.map((source) => ({
+        root: source.root,
+        sourceLabel: source.pluginId,
+      })),
+    } : {}),
   });
   agentConfig.setSkillToolService(skillTools);
   const skillLibrary = new SkillLibraryService(skillTools, skillPackageStore);
@@ -237,6 +243,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     getMemoryConfig: () => systemConfig.getMemoryConfig(),
     logger: options.logger,
     ...(options.hooks ? { hooks: options.hooks } : {}),
+    ...(options.plugins ? { plugins: options.plugins } : {}),
     delegationStore: new LocalAgentDelegationStoreAdapter(conversationStore),
     metricsStore: new LocalAgentMetricsStoreAdapter(conversationStore),
     permissionPolicyStore: conversationStore,

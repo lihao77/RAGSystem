@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { HookRegistry } from "@ragsystem/agent-sdk";
+import type { BackendRuntimeContributions } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 
 import type { RuntimeContainer, SaaSRuntimeContainer } from "@ragsystem/backend-core/contracts/runtime/runtime-container.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
@@ -43,6 +44,7 @@ export interface SaaSRuntimeContainerOptions {
   memoryRuntime: SaaSMemoryRuntimeHandle;
   logger?: AgentExecutionLogger;
   hooks?: (registry: HookRegistry) => void;
+  plugins?: BackendRuntimeContributions;
   modelAdapterProvidersConfigPath?: string;
   mcpConfigPath?: string;
   sandboxProvider?: SandboxProvider;
@@ -108,6 +110,12 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     backgroundTasks,
     clientEvents,
     packageStore: skillPackageStore,
+    ...(options.plugins?.skillSources.length ? {
+      additionalBuiltinSkillSources: options.plugins.skillSources.map((source) => ({
+        root: source.root,
+        sourceLabel: source.pluginId,
+      })),
+    } : {}),
   });
   agentConfig.setSkillToolService(skillTools);
   const skillLibrary = new SkillLibraryService(skillTools, skillPackageStore);
@@ -158,6 +166,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
         });
       }
     } } : {}),
+    ...(options.plugins ? { plugins: options.plugins } : {}),
     clientEvents,
     runtimeStorage,
     delegationStore: conversationRuntime.createDelegationStore(tenantId),

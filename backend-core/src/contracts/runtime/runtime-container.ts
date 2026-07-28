@@ -1,4 +1,5 @@
 import type { HookRegistry } from "@ragsystem/agent-sdk";
+import type { BackendRuntimeContributions } from "../../plugins/backend-plugin.js";
 
 import type { AnalyticsApplication } from "../application/analytics-application.js";
 import type { FileChangeApplication } from "../application/file-change-application.js";
@@ -135,6 +136,7 @@ interface CoreRuntimeDependenciesBase {
   getMemoryConfig: () => MemoryConfig;
   logger?: AgentExecutionLogger | undefined;
   hooks?: ((registry: HookRegistry) => void) | undefined;
+  plugins?: BackendRuntimeContributions | undefined;
   clientEvents: ClientEventPublisherPort;
   runtimeStorage: RuntimeStorage;
   delegationStore: AgentDelegationStorePort;

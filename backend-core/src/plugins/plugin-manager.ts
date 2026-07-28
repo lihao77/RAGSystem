@@ -1,12 +1,19 @@
-import type { HookEvent, HookHandler, HookRegistry } from "@ragsystem/agent-sdk";
+import type { HookEvent, HookHandler, HookRegistry, Tool } from "@ragsystem/agent-sdk";
+import path from "node:path";
 
 import type {
   BackendPlugin,
   BackendPluginContext,
   BackendRouteContribution,
   BackendRouteScope,
+  BackendRuntimeContributions,
+  BackendSkillSourceContribution,
+  BackendToolFactory,
+  BackendToolFactoryContext,
   PluginRouteRegistrar,
   PluginHookRegistrar,
+  PluginSkillRegistrar,
+  PluginToolRegistrar,
 } from "./backend-plugin.js";
 import { CapabilityRegistry, type CapabilityProvider } from "./capability-registry.js";
 
@@ -72,11 +79,86 @@ class BackendHookContributionRegistry {
   }
 }
 
+class BackendSkillContributionRegistry {
+  private readonly contributions: BackendSkillSourceContribution[] = [];
+  private readonly roots = new Set<string>();
+
+  forPlugin(pluginId: string): PluginSkillRegistrar {
+    return {
+      register: (root) => {
+        if (!path.isAbsolute(root)) throw new Error(`Plugin skill root must be absolute: ${root}`);
+        const normalizedRoot = path.normalize(root);
+        if (this.roots.has(normalizedRoot)) throw new Error(`Plugin skill root is already registered: ${normalizedRoot}`);
+        const contribution = { pluginId, root: normalizedRoot };
+        this.roots.add(normalizedRoot);
+        this.contributions.push(contribution);
+        return () => this.remove(contribution);
+      },
+    };
+  }
+
+  list(): readonly BackendSkillSourceContribution[] {
+    return this.contributions.map((contribution) => ({ ...contribution }));
+  }
+
+  removePlugin(pluginId: string): void {
+    for (const contribution of this.contributions.filter((item) => item.pluginId === pluginId)) {
+      this.remove(contribution);
+    }
+  }
+
+  private remove(contribution: BackendSkillSourceContribution): void {
+    const index = this.contributions.indexOf(contribution);
+    if (index < 0) return;
+    this.contributions.splice(index, 1);
+    this.roots.delete(contribution.root);
+  }
+}
+
+interface BackendToolContribution {
+  readonly pluginId: string;
+  readonly factory: BackendToolFactory;
+}
+
+class BackendToolContributionRegistry {
+  private readonly contributions: BackendToolContribution[] = [];
+
+  forPlugin(pluginId: string): PluginToolRegistrar {
+    return {
+      register: (factory) => {
+        const contribution = { pluginId, factory };
+        this.contributions.push(contribution);
+        return () => {
+          const index = this.contributions.indexOf(contribution);
+          if (index >= 0) this.contributions.splice(index, 1);
+        };
+      },
+    };
+  }
+
+  async create(context: BackendToolFactoryContext): Promise<readonly Tool[]> {
+    const tools: Tool[] = [];
+    for (const contribution of this.contributions) {
+      const created = await contribution.factory(context);
+      tools.push(...(Array.isArray(created) ? created : [created as Tool]));
+    }
+    return tools;
+  }
+
+  removePlugin(pluginId: string): void {
+    for (let index = this.contributions.length - 1; index >= 0; index -= 1) {
+      if (this.contributions[index]?.pluginId === pluginId) this.contributions.splice(index, 1);
+    }
+  }
+}
+
 export class BackendPluginManager {
   readonly capabilities: CapabilityRegistry;
   private readonly orderedPlugins: readonly BackendPlugin[];
   private readonly routeRegistry = new BackendRouteRegistry();
   private readonly hookRegistry = new BackendHookContributionRegistry();
+  private readonly skillRegistry = new BackendSkillContributionRegistry();
+  private readonly toolRegistry = new BackendToolContributionRegistry();
   private registered = false;
   private startedPlugins: BackendPlugin[] = [];
 
@@ -96,6 +178,8 @@ export class BackendPluginManager {
         capabilities: this.capabilities,
         hooks: this.hookRegistry.forPlugin(plugin.manifest.id),
         routes: this.routeRegistry.forPlugin(plugin.manifest.id),
+        skills: this.skillRegistry.forPlugin(plugin.manifest.id),
+        tools: this.toolRegistry.forPlugin(plugin.manifest.id),
       };
       await plugin.register(context);
     }
@@ -109,6 +193,16 @@ export class BackendPluginManager {
   installHooks(registry: HookRegistry): void {
     if (!this.registered) throw new Error("Plugins must be registered before hooks are installed");
     this.hookRegistry.install(registry);
+  }
+
+  runtimeContributions(): BackendRuntimeContributions {
+    if (!this.registered) throw new Error("Plugins must be registered before runtime contributions are read");
+    const manager = this;
+    return {
+      get skillSources() { return manager.skillRegistry.list(); },
+      configureHooks: (registry) => manager.hookRegistry.install(registry),
+      createTools: (context) => manager.toolRegistry.create(context),
+    };
   }
 
   async start(): Promise<void> {
@@ -136,6 +230,8 @@ export class BackendPluginManager {
         errors.push(error);
       } finally {
         this.hookRegistry.removePlugin(plugin.manifest.id);
+        this.skillRegistry.removePlugin(plugin.manifest.id);
+        this.toolRegistry.removePlugin(plugin.manifest.id);
       }
     }
     if (errors.length > 0) throw new AggregateError(errors, "One or more plugins failed to stop");

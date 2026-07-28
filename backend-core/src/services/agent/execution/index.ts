@@ -13,6 +13,7 @@ import type {
 } from "../../../contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
+import type { BackendToolFactory } from "../../../plugins/backend-plugin.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
@@ -83,6 +84,7 @@ export interface AgentExecutionServiceParams {
   memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
+  pluginTools?: BackendToolFactory | null;
   codeExecutionTools?: import("../../../contracts/runtime/tool-ports.js").CodeExecutionPort | null;
   taskTools?: TaskToolService | null;
   goalStore?: GoalStore | null;
@@ -167,6 +169,7 @@ export function createAgentExecutionService(
     params.metricsCollector ?? null,
     params.compressionService ?? null,
     params.sessionFiles ?? null,
+    params.pluginTools ?? null,
   );
   const launchers = createLaunchers({
     tenantId: params.tenantId,

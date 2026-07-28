@@ -77,7 +77,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     ? createWidgetAuthService(options.env.widgetJwtKeyRing, widgetCredentials)
     : undefined);
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentials) : undefined;
-  const registry = await deployment.createRegistry(app.log, (hooks) => pluginManager.installHooks(hooks));
+  const registry = await deployment.createRegistry(app.log, pluginManager.runtimeContributions());
   const wsTickets = deployment.wsTickets;
   const botEngine = deployment.botEngine ?? new DaemonService({
     botRepository,

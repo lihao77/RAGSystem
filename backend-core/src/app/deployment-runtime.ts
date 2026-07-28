@@ -1,5 +1,4 @@
 import type { FastifyBaseLogger } from "fastify";
-import type { HookRegistry } from "@ragsystem/agent-sdk";
 
 import type { BotRepository } from "../contracts/control-plane/bot-repository.js";
 import type { ControlPlane } from "../contracts/control-plane/index.js";
@@ -12,6 +11,7 @@ import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { RuntimeContainerRegistry } from "../services/runtime/runtime-container-registry.js";
 import type { SessionTokenService } from "../services/runtime/session-token-service.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
+import type { BackendRuntimeContributions } from "../plugins/backend-plugin.js";
 
 export interface DeploymentApplicationResolvers {
   resolveMemoryApplication: NonNullable<RouteOptions["resolveMemoryApplication"]>;
@@ -45,7 +45,7 @@ export interface DeploymentRuntime {
   readonly daemonLeaderLease?: DaemonLeaderLease;
   createRegistry(
     logger: FastifyBaseLogger,
-    configureHooks?: (registry: HookRegistry) => void,
+    plugins?: BackendRuntimeContributions,
   ): RuntimeContainerRegistry | Promise<RuntimeContainerRegistry>;
   createIdentityProvider(
     authMode: string,

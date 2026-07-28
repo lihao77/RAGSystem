@@ -21,6 +21,7 @@ import type { PermissionPolicyService } from "../../runtime/permission-policy-se
 import type { InteractionRequiredNotice, PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
 import { createBackendTools } from "../../../tools/registry.js";
+import type { BackendToolFactory } from "../../../plugins/backend-plugin.js";
 import type { CodeExecutionPort } from "../../../contracts/runtime/tool-ports.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
@@ -40,6 +41,7 @@ export interface SdkRuntimeAdapterDeps {
   storage: ExecutionStorage;
   /** 工具依赖集合（service + getAgentDelegation；agent/teamName 由 per-run 提供）。 */
   toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName">;
+  pluginTools?: BackendToolFactory;
   /** CodeExecution service——per-run 注入 callTool 回调用（execute_code 沙箱内工具互调）。 */
   codeExecutionTools: CodeExecutionPort | null;
   /** 后台任务等待——从 taskTools 适配。 */
@@ -165,12 +167,18 @@ export async function executeRunWithSdk(
   const hostTools = buildHostDelegateTools(deps.hostToolRegistry.get(input.sessionId), deps.delegationPending);
   // Ensure SaaS user_global skill packages are materialized before tool discovery/self-description.
   await deps.toolsDeps.skillTools?.hydrateUserGlobalPackages?.();
+  const contributedTools = await deps.pluginTools?.({
+    tenantId: deps.storage.tenantId,
+    agent: input.agent,
+    pathAccessPolicy: pathService,
+  }) ?? [];
   const tools: Tool[] = [
     ...createBackendTools({
       ...deps.toolsDeps,
       agent: input.agent,
       ...(teamName ? { teamName } : {}),
     }, pathService),
+    ...(Array.isArray(contributedTools) ? contributedTools : [contributedTools]),
     ...hostTools,
   ];
   const registry: ToolRegistry = createToolRegistry({ tools });

@@ -35,6 +35,11 @@ copyPackage(
 fs.cpSync(path.join(repoRoot, "backend-core", "skills"), path.join(outputRoot, "skills"), {
   recursive: true,
 });
+fs.cpSync(
+  path.join(repoRoot, "plugins", "backend-plugin-artifacts", "skills"),
+  path.join(outputRoot, "plugin-assets", "artifacts", "skills"),
+  { recursive: true },
+);
 fs.writeFileSync(
   path.join(outputRoot, "package.json"),
   `${JSON.stringify({ name: "ragsystem-desktop-backend", private: true, type: "module" }, null, 2)}\n`,

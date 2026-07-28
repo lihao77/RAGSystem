@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import type { HookEvent, HookHandler, HookRegistry } from "@ragsystem/agent-sdk";
+import type { HookEvent, HookHandler, HookRegistry, Tool } from "@ragsystem/agent-sdk";
 
+import type { AgentConfig } from "../contracts/agent/agent-config.js";
+import type { PathAccessPolicy } from "../contracts/runtime/path-access-policy.js";
 import type { CapabilityRegistry } from "./capability-registry.js";
 
 export type BackendRouteScope = "public" | "tenant" | "management" | "platform" | "widget";
@@ -23,12 +25,42 @@ export interface PluginHookRegistrar {
   on<E extends HookEvent>(event: E, handler: HookHandler<E>): () => void;
 }
 
-export type BackendHookInstaller = (registry: HookRegistry) => void;
+export interface BackendSkillSourceContribution {
+  readonly pluginId: string;
+  readonly root: string;
+}
+
+export interface PluginSkillRegistrar {
+  register(root: string): () => void;
+}
+
+export interface BackendToolFactoryContext {
+  readonly tenantId: string;
+  readonly agent: AgentConfig;
+  readonly pathAccessPolicy: PathAccessPolicy;
+}
+
+export type BackendToolFactory = (
+  context: BackendToolFactoryContext,
+) => Tool | readonly Tool[] | Promise<Tool | readonly Tool[]>;
+
+export interface PluginToolRegistrar {
+  register(factory: BackendToolFactory): () => void;
+}
+
+/** Immutable deployment input assembled from all registered plugins. */
+export interface BackendRuntimeContributions {
+  readonly skillSources: readonly BackendSkillSourceContribution[];
+  configureHooks(registry: HookRegistry): void;
+  createTools(context: BackendToolFactoryContext): Promise<readonly Tool[]>;
+}
 
 export interface BackendPluginContext {
   readonly capabilities: CapabilityRegistry;
   readonly hooks: PluginHookRegistrar;
   readonly routes: PluginRouteRegistrar;
+  readonly skills: PluginSkillRegistrar;
+  readonly tools: PluginToolRegistrar;
 }
 
 export interface BackendPluginManifest {
