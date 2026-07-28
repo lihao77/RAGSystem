@@ -8,6 +8,8 @@ import type { TenantId } from "../identity/types.js";
 import type { AgentConfigService } from "../services/agent/config/index.js";
 import type { ModelAdapterService } from "../services/integrations/model-adapter-service.js";
 import type { SystemConfigService } from "../services/config/system-config-service.js";
+import type { BackgroundTaskService } from "../services/runtime/background-task-service.js";
+import type { ClientEventPublisherPort } from "../contracts/runtime/core-runtime-ports.js";
 import type { CapabilityProvider, CapabilityRegistry } from "./capability-registry.js";
 
 export type BackendRouteScope = "public" | "tenant" | "management" | "platform" | "widget";
@@ -63,6 +65,9 @@ export interface BackendPluginRuntimeContext {
   readonly systemConfig: SystemConfigService;
   readonly agentConfig: AgentConfigService;
   readonly sessions: SessionApplication;
+  readonly backgroundTasks: BackgroundTaskService;
+  readonly clientEvents: ClientEventPublisherPort;
+  readonly skillSources?: readonly BackendSkillSourceContribution[];
 }
 
 export interface BackendPluginRuntimeContribution {

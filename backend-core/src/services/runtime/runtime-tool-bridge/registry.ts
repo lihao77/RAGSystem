@@ -18,6 +18,3 @@ export const GOAL_UPDATE_TOOL_NAME = "goal_update";
 export const GOAL_LIST_TOOL_NAME = "goal_list";
 export const TASK_OUTPUT_TOOL_NAME = "task_output";
 export const TASK_STOP_TOOL_NAME = "task_stop";
-export const ACTIVATE_SKILL_TOOL_NAME = "activate_skill";
-export const LOAD_SKILL_RESOURCE_TOOL_NAME = "load_skill_resource";
-export const EXECUTE_SKILL_SCRIPT_TOOL_NAME = "execute_skill_script";

@@ -7,8 +7,8 @@ import type {
   SkillPackageFileNode,
   SkillPackageRecord,
   UpdateSkillPackageInput,
-} from "@ragsystem/backend-core/contracts/skills/skill-package-store.js";
-import { parseSkillMarkdown, serializeSkillMd } from "@ragsystem/backend-core/contracts/skills/skill-markdown.js";
+} from "../../contracts/skills/skill-package-store.js";
+import { parseSkillMarkdown, serializeSkillMd } from "../../contracts/skills/skill-markdown.js";
 
 const SKIP_ENTRIES = new Set([".venv", ".cache", "__pycache__", ".installed", "node_modules", ".DS_Store"]);
 

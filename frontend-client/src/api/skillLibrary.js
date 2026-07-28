@@ -5,6 +5,34 @@
 
 import { http } from './http.js';
 
+const AGENT_CONFIG_BASE = '/api/skills/agents';
+
+function agentConfigUrl(agentName, teamName) {
+  const query = teamName ? `?team=${encodeURIComponent(teamName)}` : '';
+  return `${AGENT_CONFIG_BASE}/${encodeURIComponent(agentName)}/config${query}`;
+}
+
+export async function getSkillsAgentConfig(agentName, teamName = '') {
+  const result = await http.get(agentConfigUrl(agentName, teamName));
+  return result.data || result;
+}
+
+export async function updateSkillsAgentConfig(agentName, config, teamName = '') {
+  const result = await http.put(agentConfigUrl(agentName, teamName), config);
+  return result.data || result;
+}
+
+export async function resetSkillsAgentConfig(agentName, teamName = '') {
+  const result = await http.del(agentConfigUrl(agentName, teamName));
+  return result.data || result;
+}
+
+export async function getAvailableSkills(workspaceRoot = '') {
+  const query = workspaceRoot ? `?workspace_root=${encodeURIComponent(workspaceRoot)}` : '';
+  const result = await http.get(`/api/skills/available${query}`);
+  return result.data || [];
+}
+
 export async function listSkills() {
   return http.get('/api/skills');
 }

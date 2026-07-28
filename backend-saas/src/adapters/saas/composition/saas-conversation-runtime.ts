@@ -40,12 +40,8 @@ import {
   PostgresAgentConfigTeamStore,
   runPostgresSystemConfigMigrations,
   PostgresSystemConfigStore,
-  runPostgresSkillPackageMigrations,
-  PostgresSkillPackageRepository,
 } from "../../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
-import { SaaSSkillPackageStore } from "../object-storage/skill-package-storage.js";
-import type { ISkillPackageStore } from "@ragsystem/backend-core/contracts/skills/skill-package-store.js";
 import { SaaSProviderMcpApplication } from "../../../adapters/saas/application/provider-mcp/saas-provider-mcp-application.js";
 import { OutboxDispatcher } from "@ragsystem/backend-core/services/runtime/event-outbox/dispatcher.js";
 import { SaaSFileHistoryStorage } from "../../../adapters/saas/object-storage/file-history-storage.js";
@@ -103,8 +99,6 @@ export interface SaaSConversationRuntimeHandle {
   createAgentConfigTeamStore(tenantId: TenantId): PostgresAgentConfigTeamStore;
   /** Tenant-bound system configuration store (Postgres source of truth). */
   createSystemConfigStore(tenantId: TenantId): PostgresSystemConfigStore;
-  /** Tenant-bound skill package store (Postgres metadata + object storage). */
-  createSkillPackageStore(tenantId: TenantId, cacheRoot: string): ISkillPackageStore;
   close(): Promise<void>;
 }
 
@@ -136,7 +130,6 @@ export async function createSaaSConversationRuntime(
       await runPostgresSessionFileMigrations(executor);
       await runPostgresAgentTeamMigrations(executor);
       await runPostgresSystemConfigMigrations(executor);
-      await runPostgresSkillPackageMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
     const workspaces = new PostgresWorkspaceRepository(executor);
@@ -250,15 +243,6 @@ export async function createSaaSConversationRuntime(
       },
       createAgentConfigTeamStore: (tenantId) => new PostgresAgentConfigTeamStore(tenantId, executor),
       createSystemConfigStore: (tenantId) => new PostgresSystemConfigStore(tenantId, executor),
-      createSkillPackageStore: (tenantId, cacheRoot) => {
-        if (!options.objectStorage) throw new Error("SaaS skill package store requires ObjectStorage");
-        return new SaaSSkillPackageStore(
-          tenantId,
-          new PostgresSkillPackageRepository(executor),
-          options.objectStorage,
-          cacheRoot,
-        );
-      },
       close: () => {
         closePromise ??= (async () => {
           providerMcpApplication.close();

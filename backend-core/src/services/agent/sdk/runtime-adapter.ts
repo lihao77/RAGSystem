@@ -159,8 +159,6 @@ export async function executeRunWithSdk(
     effectivePermission.mode === "dangerously_skip_permissions" || effectivePermission.skip_all_approvals,
   );
   const hostTools = buildHostDelegateTools(deps.hostToolRegistry.get(input.sessionId), deps.delegationPending);
-  // Ensure SaaS user_global skill packages are materialized before tool discovery/self-description.
-  await deps.toolsDeps.skillTools?.hydrateUserGlobalPackages?.();
   const contributedTools = await deps.pluginTools?.({
     tenantId: deps.storage.tenantId,
     teamName,

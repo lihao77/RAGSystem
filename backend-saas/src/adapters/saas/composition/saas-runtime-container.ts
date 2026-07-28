@@ -19,8 +19,6 @@ import { DurableClientEventPublisher } from "@ragsystem/backend-core/services/ru
 import { HostToolRegistry } from "@ragsystem/backend-core/services/runtime/host-tool-registry.js";
 import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/path-approval-service.js";
 import { SessionNotificationQueue } from "@ragsystem/backend-core/services/runtime/session-notification-queue.js";
-import { SkillLibraryService } from "@ragsystem/backend-core/services/skills/skill-library-service.js";
-import { SkillToolService } from "@ragsystem/backend-core/tools/SkillTools/SkillExecution.js";
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { SaaSSessionApplication } from "../application/session/saas-session-application.js";
 import { SaaSAgentMetricsStore } from "../postgres/saas-agent-metrics-store.js";
@@ -96,25 +94,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     tenantId,
     clientEvents,
   });
-  // SaaS user_global cache is content-addressed under skill-cache/by-hash/<hash>/; durable SoT is PG + object storage.
-  const skillCacheRoot = path.join(dataRoot, "skill-cache");
-  const skillPackageStore = conversationRuntime.createSkillPackageStore(tenantId, skillCacheRoot);
-  const skillTools = new SkillToolService({
-    dataRoot,
-    userGlobalSkillsRoot: skillCacheRoot,
-    agentConfig,
-    backgroundTasks,
-    clientEvents,
-    packageStore: skillPackageStore,
-    ...(options.plugins?.skillSources.length ? {
-      additionalBuiltinSkillSources: options.plugins.skillSources.map((source) => ({
-        root: source.root,
-        sourceLabel: source.pluginId,
-      })),
-    } : {}),
-  });
-  agentConfig.setSkillToolService(skillTools);
-  const skillLibrary = new SkillLibraryService(skillTools, skillPackageStore);
   const goalStore = conversationRuntime.createGoalStore(tenantId);
   const taskTools = new TaskToolService(
     backgroundTasks,
@@ -129,6 +108,8 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     systemConfig,
     agentConfig,
     sessions: sessionApplication,
+    backgroundTasks,
+    clientEvents,
   });
   const pluginCapabilities = pluginRuntime?.capabilities ?? new CapabilityRegistry();
   const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
@@ -203,8 +184,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     pathAccessPolicyFactory: () => new PathApprovalService(),
     documentTools,
     codeExecutionTools,
-    skillTools,
-    skillLibrary,
     searchTools,
     bashTools,
     backgroundTasks,

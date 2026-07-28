@@ -162,17 +162,6 @@ export async function getAvailableTools() {
  * 获取可用 Skill 列表
  * @returns {Promise<Array>} Skill 列表
  */
-export async function getAvailableSkills(workspaceRoot = '') {
-  try {
-    const query = workspaceRoot ? `?workspace_root=${encodeURIComponent(workspaceRoot)}` : '';
-    const result = await http.get(`${API_BASE}/skills${query}`);
-    return result.data || [];
-  } catch (error) {
-    console.error('Error fetching available skills:', error);
-    throw error;
-  }
-}
-
 /**
  * 导出 agent 配置为 yaml（blob 下载）。返回 { blob, headers }，调用方触发下载。
  */

@@ -1,15 +1,15 @@
-import { isRecord, normalizeString, asString, asRecord } from "../../utils/guards.js";
+import { isRecord, normalizeString, asString, asRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
-import { AgentConfigSchema, type AgentConfig } from "../../contracts/agent/agent-config.js";
-import type { AgentConfigService } from "../../services/agent/config/index.js";
-import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
-import type { ClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
-import type { ISkillPackageStore, SkillPackageRecord } from "../../contracts/skills/skill-package-store.js";
+import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
+import type { ClientEventPublisher } from "@ragsystem/backend-core/services/runtime/event-outbox/client-event-publisher.js";
+import type { SkillsAgentConfig, SkillsAgentConfigService } from "../config.js";
+import type { ISkillPackageStore, SkillPackageRecord } from "../contracts/skills/skill-package-store.js";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 
 type SkillSourceType = "workspace" | "user_global" | "builtin";
@@ -89,7 +89,7 @@ export class SkillToolService {
       builtinSkillsRoot?: string | undefined;
       additionalBuiltinSkillSources?: readonly BuiltinSkillSourceInput[] | undefined;
       userGlobalSkillsRoot?: string | undefined;
-      agentConfig?: AgentConfigService | null | undefined;
+      skillsConfig?: SkillsAgentConfigService | null | undefined;
       backgroundTasks?: BackgroundTaskService | null | undefined;
       clientEvents?: ClientEventPublisher | null | undefined;
       skillIsolationMode?: SkillIsolationMode | undefined;
@@ -107,14 +107,14 @@ export class SkillToolService {
     this.builtinSkillsRoot = path.resolve(options.builtinSkillsRoot ?? resolveDefaultBuiltinSkillsRoot());
     this.additionalBuiltinSkillSources = dedupeBuiltinSkillSources(options.additionalBuiltinSkillSources ?? []);
     this.userGlobalSkillsRoot = path.resolve(options.userGlobalSkillsRoot ?? path.join(this.dataRoot, "skills"));
-    this.agentConfig = options.agentConfig ?? null;
+    this.skillsConfig = options.skillsConfig ?? null;
     this.backgroundTasks = options.backgroundTasks ?? null;
     this.clientEvents = options.clientEvents ?? null;
     this.skillIsolationMode = options.skillIsolationMode ?? resolveDefaultIsolationMode();
     this.packageStore = options.packageStore ?? null;
   }
 
-  private readonly agentConfig: AgentConfigService | null;
+  private readonly skillsConfig: SkillsAgentConfigService | null;
   private readonly backgroundTasks: BackgroundTaskService | null;
   private readonly clientEvents: ClientEventPublisher | null;
   private readonly skillIsolationMode: SkillIsolationMode;
@@ -172,33 +172,33 @@ export class SkillToolService {
     return this.listAvailableSkills(workspaceRoot);
   }
 
-  /** 删除 skill 时联动清理所有 AgentConfig 中的 enabled_skills 引用（委托 AgentConfigService）。 */
+  /** 删除 Skill 时联动清理插件自有 Agent 配置中的引用。 */
   async purgeSkillReference(skillName: string): Promise<string[]> {
-    return this.agentConfig?.purgeSkillReference(skillName) ?? [];
+    return this.skillsConfig?.purgeSkillReference(skillName) ?? [];
   }
 
-  hasVisibleSkills(agent: AgentConfig | null, workspaceRoot?: string | null): boolean {
-    return this.listVisibleSkills(agent, workspaceRoot).length > 0;
+  hasVisibleSkills(agent: AgentConfig | null, config: SkillsAgentConfig, workspaceRoot?: string | null): boolean {
+    return this.listVisibleSkills(agent, config, workspaceRoot).length > 0;
   }
 
   /**
    * 当前 Agent 可见的 Skill 列表（含 name/description），供 skill 工具自描述其参数 enum 与
    * extended_usage 清单——可见性规则与 activate_skill 运行时校验完全一致。
    */
-  listVisibleSkills(agent: AgentConfig | null, workspaceRoot?: string | null): SkillInfo[] {
-    return this.resolveVisibleSkills(agent, workspaceRoot ?? resolveAgentWorkspaceRoot(agent));
+  listVisibleSkills(agent: AgentConfig | null, config: SkillsAgentConfig, workspaceRoot?: string | null): SkillInfo[] {
+    return this.resolveVisibleSkills(agent, config, workspaceRoot ?? resolveAgentWorkspaceRoot(agent));
   }
 
-  async listVisibleSkillsAsync(agent: AgentConfig | null, workspaceRoot?: string | null): Promise<SkillInfo[]> {
+  async listVisibleSkillsAsync(agent: AgentConfig | null, config: SkillsAgentConfig, workspaceRoot?: string | null): Promise<SkillInfo[]> {
     await this.hydrateUserGlobalPackages();
-    return this.listVisibleSkills(agent, workspaceRoot);
+    return this.listVisibleSkills(agent, config, workspaceRoot);
   }
 
-  async activateSkill(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): Promise<ToolExecutionResult> {
+  async activateSkill(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null, config: SkillsAgentConfig): Promise<ToolExecutionResult> {
     const toolName = "activate_skill";
     await this.hydrateUserGlobalPackages();
     const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
-    const skill = this.findVisibleSkill(input.skillName, agent, context, workspaceRoot);
+    const skill = this.findVisibleSkill(input.skillName, agent, config, context, workspaceRoot);
     if (!skill) {
       return errorResult(
         `Skill '${input.skillName}' 不存在或当前 Agent 无权使用。可用的 Skills: ${JSON.stringify(this.loadAllSkills(workspaceRoot).map((item) => item.name))}`,
@@ -235,7 +235,7 @@ export class SkillToolService {
     );
   }
 
-  async loadSkillResource(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): Promise<ToolExecutionResult> {
+  async loadSkillResource(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null, config: SkillsAgentConfig): Promise<ToolExecutionResult> {
     const toolName = "load_skill_resource";
     const resourceFile = input.resourceFile?.trim();
     if (!resourceFile) {
@@ -243,7 +243,7 @@ export class SkillToolService {
     }
     await this.hydrateUserGlobalPackages();
     const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
-    const skill = this.findVisibleSkill(input.skillName, agent, context, workspaceRoot);
+    const skill = this.findVisibleSkill(input.skillName, agent, config, context, workspaceRoot);
     if (!skill) {
       return errorResult(`Skill '${input.skillName}' 不存在或当前 Agent 无权使用`, toolName);
     }
@@ -273,7 +273,7 @@ export class SkillToolService {
     );
   }
 
-  async executeSkillScript(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): Promise<ToolExecutionResult> {
+  async executeSkillScript(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null, config: SkillsAgentConfig): Promise<ToolExecutionResult> {
     const toolName = "execute_skill_script";
     const scriptName = input.scriptName?.trim();
     if (!scriptName) {
@@ -281,7 +281,7 @@ export class SkillToolService {
     }
     await this.hydrateUserGlobalPackages();
     const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
-    const skill = this.findVisibleSkill(input.skillName, agent, context, workspaceRoot);
+    const skill = this.findVisibleSkill(input.skillName, agent, config, context, workspaceRoot);
     if (!skill) {
       return errorResult(`Skill '${input.skillName}' 不存在或当前 Agent 无权使用`, toolName);
     }
@@ -301,7 +301,7 @@ export class SkillToolService {
       });
     }
     if (input.runInBackground) {
-      return this.executeSkillScriptInBackground(skill, scriptPath, scriptName, input.arguments ?? [], context, agent);
+      return this.executeSkillScriptInBackground(skill, scriptPath, scriptName, input.arguments ?? [], context, agent, config);
     }
 
     const scriptResult = await this.runScript(skill, scriptPath, input.arguments ?? [], context);
@@ -389,14 +389,14 @@ export class SkillToolService {
     return this.loadAllSkills(workspaceRoot).find((skill) => skill.name === normalized) ?? null;
   }
 
-  private findVisibleSkill(skillName: string, agent: AgentConfig | null, context: ToolExecContext, workspaceRoot?: string | null): SkillInfo | null {
+  private findVisibleSkill(skillName: string, agent: AgentConfig | null, config: SkillsAgentConfig, context: ToolExecContext, workspaceRoot?: string | null): SkillInfo | null {
     const normalized = skillName.trim();
-    return this.resolveVisibleSkills(agent, workspaceRoot ?? resolveWorkspaceRoot(context, agent)).find((skill) => skill.name === normalized) ?? null;
+    return this.resolveVisibleSkills(agent, config, workspaceRoot ?? resolveWorkspaceRoot(context, agent)).find((skill) => skill.name === normalized) ?? null;
   }
 
-  private resolveVisibleSkills(agent: AgentConfig | null, workspaceRoot?: string | null): SkillInfo[] {
+  private resolveVisibleSkills(agent: AgentConfig | null, config: SkillsAgentConfig, workspaceRoot?: string | null): SkillInfo[] {
     const skills = this.loadAllSkills(workspaceRoot);
-    const enabled = new Set(agent?.skills.enabled_skills ?? []);
+    const enabled = new Set(config.enabled_skills);
     const isEntry = agent?.default_entry === true;
     return skills.filter((skill) => {
       if (enabled.has(skill.name)) {
@@ -460,6 +460,7 @@ export class SkillToolService {
     args: string[],
     context: ToolExecContext,
     agent: AgentConfig | null,
+    config: SkillsAgentConfig,
   ): ToolExecutionResult {
     const toolName = "execute_skill_script";
     if (!this.backgroundTasks) {
@@ -487,7 +488,7 @@ export class SkillToolService {
       kind: "callable",
       resultType: "tool_execution_result",
       clientEvents: this.clientEvents,
-      run: () => this.executeSkillScript({ skillName: skill.name, scriptName, arguments: args, runInBackground: false }, context, agent),
+      run: () => this.executeSkillScript({ skillName: skill.name, scriptName, arguments: args, runInBackground: false }, context, agent, config),
     });
     return successResult(
       {
@@ -587,9 +588,8 @@ function dedupeBuiltinSkillSources(sources: readonly BuiltinSkillSourceInput[]):
 function resolveDefaultBuiltinSkillsRoot(): string {
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    path.resolve(moduleDir, "../../../skills"),
-    path.resolve(moduleDir, "skills"),
-    path.resolve(process.cwd(), "skills"),
+    path.resolve(moduleDir, "../../skills"),
+    path.resolve(process.cwd(), "plugins/backend-plugin-skills/skills"),
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]!;
 }

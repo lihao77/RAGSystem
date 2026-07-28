@@ -8,14 +8,14 @@ import type {
   SkillPackageFileNode,
   SkillPackageRecord,
   UpdateSkillPackageInput,
-} from "@ragsystem/backend-core/contracts/skills/skill-package-store.js";
+} from "../../contracts/skills/skill-package-store.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import {
   parseSkillMarkdown,
   serializeSkillMd,
-} from "@ragsystem/backend-core/contracts/skills/skill-markdown.js";
-import type { PostgresSkillPackageRepository } from "../postgres/skill-package-repository.js";
+} from "../../contracts/skills/skill-markdown.js";
+import type { PostgresSkillPackageRepository } from "./package-repository.js";
 
 /**
  * SaaS skill packages: Postgres metadata + object storage bytes.

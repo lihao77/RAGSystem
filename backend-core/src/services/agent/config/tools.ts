@@ -38,9 +38,6 @@ function allRuntimeTools(): AvailableToolInfo[] {
     implementedTool("call_agent", "Delegate a subtask to an allowed child Agent", "agent_delegation", "low"),
     implementedTool("list_child_agents", "List child Agent sessions for the current session", "agent_delegation", "low"),
     implementedTool("send_message", "Continue an existing child Agent session", "agent_delegation", "low"),
-    implementedTool("activate_skill", "Activate a Skill and load its main instructions", "skill", "low"),
-    implementedTool("load_skill_resource", "Load a Skill additional resource file", "skill", "low"),
-    implementedTool("execute_skill_script", "Execute a Skill utility script", "skill", "medium"),
   ];
 }
 

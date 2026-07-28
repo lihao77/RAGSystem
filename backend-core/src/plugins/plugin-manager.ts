@@ -270,7 +270,10 @@ export class BackendPluginManager {
     return {
       get skillSources() { return manager.skillRegistry.list(); },
       configureHooks: (registry) => manager.hookRegistry.install(registry),
-      createRuntime: (context) => manager.runtimeFactoryRegistry.create(context),
+      createRuntime: (context) => manager.runtimeFactoryRegistry.create({
+        ...context,
+        skillSources: manager.skillRegistry.list(),
+      }),
       createTools: (context) => manager.toolRegistry.create(context),
     };
   }

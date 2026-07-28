@@ -4,7 +4,7 @@ export interface PostgresSkillPackageMigration {
   sql: string;
 }
 
-export const POSTGRES_SKILL_PACKAGE_MIGRATIONS: PostgresSkillPackageMigration[] = [
+export const POSTGRES_SKILLS_MIGRATIONS: PostgresSkillPackageMigration[] = [
   {
     version: 1,
     name: "tenant_skill_packages",
@@ -35,6 +35,20 @@ export const POSTGRES_SKILL_PACKAGE_MIGRATIONS: PostgresSkillPackageMigration[] 
           ON DELETE CASCADE
       );
       CREATE INDEX IF NOT EXISTS saas_skill_packages_tenant_idx ON saas_skill_packages(tenant_id);
+    `,
+  },
+  {
+    version: 2,
+    name: "agent_configs",
+    sql: `
+      CREATE TABLE IF NOT EXISTS skill_agent_configs (
+        tenant_id TEXT NOT NULL,
+        team_name TEXT NOT NULL,
+        agent_name TEXT NOT NULL,
+        config JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (tenant_id, team_name, agent_name)
+      );
     `,
   },
 ];

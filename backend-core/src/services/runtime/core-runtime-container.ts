@@ -38,8 +38,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     sessionFiles,
     documentTools,
     codeExecutionTools,
-    skillTools,
-    skillLibrary,
     searchTools,
     bashTools,
     backgroundTasks,
@@ -52,6 +50,8 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     clientEvents,
   } = dependencies;
   const pluginCapabilities = dependencies.pluginCapabilities ?? new CapabilityRegistry();
+  const createPluginTools = (context: import("../../plugins/backend-plugin.js").BackendToolFactoryContext) =>
+    dependencies.plugins?.createTools({ ...context, capabilities: pluginCapabilities }) ?? Promise.resolve([]);
 
   const interactionCoordinator = new RuntimeInteractionCoordinator(
     dependencies.runtimeStorage,
@@ -69,7 +69,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     searchTools,
     mcp,
     codeExecutionTools,
-    skillTools,
     getAgentDelegation: () => agentDelegation,
     agentConfig,
   };
@@ -110,10 +109,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
         dependencies.pluginRuntime?.configureHooks(registry);
       },
     } : {}),
-    ...(dependencies.plugins ? {
-      pluginTools: (context: import("../../plugins/backend-plugin.js").BackendToolFactoryContext) =>
-        dependencies.plugins!.createTools({ ...context, capabilities: pluginCapabilities }),
-    } : {}),
+    ...(dependencies.plugins ? { pluginTools: createPluginTools } : {}),
     runtimeStorage: dependencies.runtimeStorage,
   });
   const resumeExecutor = createResumeExecutor({
@@ -135,6 +131,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     deploymentKind,
     tenantId,
     pluginCapabilities,
+    createPluginTools,
     sessionApplication,
     realtimeEvents,
     sessionFiles,
@@ -147,8 +144,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     mcp,
     documentTools,
     codeExecutionTools,
-    skillTools,
-    skillLibrary,
     searchTools,
     bashTools,
     backgroundTasks,

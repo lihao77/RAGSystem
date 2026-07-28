@@ -9,7 +9,6 @@ import type { AgentConfig } from "../contracts/agent/agent-config.js";
 import type { DelegationPort } from "../services/agent/delegation/port.js";
 import type { McpService } from "../services/integrations/mcp-service.js";
 import type { CommandExecutionPort, CodeExecutionPort, DocumentToolPort, WorkspaceSearchPort } from "../contracts/runtime/tool-ports.js";
-import type { SkillToolService } from "./SkillTools/SkillExecution.js";
 import type { TaskToolService } from "./TaskTools/TaskExecution.js";
 import type { PendingInteractionPort } from "../contracts/runtime/pending-interactions.js";
 import type { PathAccessPolicy } from "../contracts/runtime/path-access-policy.js";
@@ -20,7 +19,6 @@ import { createDocumentTools } from "./DocumentTools/DocumentTools.js";
 import { createLocalSearchTools } from "./LocalSearchTools/LocalSearchTools.js";
 import { createMcpTools } from "./McpTools/McpTools.js";
 import { createRequestUserInputTools } from "./RequestUserInputTool/RequestUserInputTool.js";
-import { createSkillTools } from "./SkillTools/SkillTools.js";
 import { createTaskTools } from "./TaskTools/TaskTools.js";
 
 export interface BackendToolsDeps {
@@ -32,7 +30,6 @@ export interface BackendToolsDeps {
   searchTools: WorkspaceSearchPort | null;
   mcp: McpService | null;
   codeExecutionTools: CodeExecutionPort | null;
-  skillTools: SkillToolService | null;
   getAgentDelegation: () => DelegationPort | null;
   /**
    * agent 配置查找（delegation 工厂解析可委派 agent 展示信息用；结构上与 agentConfig 容器 getConfig 兼容）。
@@ -55,7 +52,6 @@ export function createBackendTools(deps: BackendToolsDeps, pathService: PathAcce
     ...createBashTools({ bashTools: deps.bashTools, agent, pathService }),
     ...createCodeExecutionTools({ codeExecutionTools: deps.codeExecutionTools, agent }),
     ...createLocalSearchTools({ service: deps.searchTools, agent }),
-    ...createSkillTools({ skillTools: deps.skillTools, agent }),
     ...createTaskTools({ taskTools: deps.taskTools, agent }),
     ...createDelegationTools({
       getAgentDelegation: deps.getAgentDelegation,

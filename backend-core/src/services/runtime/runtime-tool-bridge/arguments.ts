@@ -1,7 +1,6 @@
 import { asString, asRecord } from "../../../utils/guards.js";
 import type { BashExecutionInput } from "../../../tools/BashTool/BashExecution.js";
 import { readCodeExecutionArguments } from "../../../tools/CodeExecutionTool/CodeExecution.js";
-import { readSkillToolArguments } from "../../../tools/SkillTools/SkillExecution.js";
 import type { GoalStep } from "../../../contracts/runtime/goals.js";
 
 export function readGoalCreateArguments(value: Record<string, unknown> | undefined): {
@@ -212,7 +211,6 @@ export function readBashArguments(value: Record<string, unknown> | undefined): B
 
 export { readCodeExecutionArguments };
 
-export { readSkillToolArguments };
 
 export function readCallAgentArguments(value: Record<string, unknown> | undefined, callId: string | undefined): {
   agentName: string;

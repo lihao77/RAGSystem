@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { HttpError } from "../../utils/errors.js";
-import type { ISkillPackageStore } from "../../contracts/skills/skill-package-store.js";
-import type { SkillInfo, SkillListItem, SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
+import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
+import type { ISkillPackageStore } from "../contracts/skills/skill-package-store.js";
+import type { SkillInfo, SkillListItem, SkillToolService } from "../tools/SkillExecution.js";
 
 export interface SkillFileNode {
   name: string;

@@ -1,21 +1,22 @@
-import { isRecord } from "../../utils/guards.js";
+import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { z } from "zod";
 
-import type { AgentConfig } from "../../contracts/agent/agent-config.js";
+import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { SkillsAgentConfig } from "../config.js";
 import type { SkillToolService } from "./SkillExecution.js";
-import { readSkillToolArguments } from "../../services/runtime/runtime-tool-bridge/arguments.js";
-import {
-  ACTIVATE_SKILL_TOOL_NAME,
-  EXECUTE_SKILL_SCRIPT_TOOL_NAME,
-  LOAD_SKILL_RESOURCE_TOOL_NAME,
-} from "../../services/runtime/runtime-tool-bridge/registry.js";
+import { readSkillToolArguments } from "./SkillExecution.js";
 import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
 import type { RuntimeToolDefinition } from "@ragsystem/agent-sdk";
-import { metadataFrom, nullableStringArray, optionalBoolean, optionalString } from "../schema-helpers.js";
+import { metadataFrom, nullableStringArray, optionalBoolean, optionalString } from "@ragsystem/backend-core/tools/schema-helpers.js";
+
+const ACTIVATE_SKILL_TOOL_NAME = "activate_skill";
+const LOAD_SKILL_RESOURCE_TOOL_NAME = "load_skill_resource";
+const EXECUTE_SKILL_SCRIPT_TOOL_NAME = "execute_skill_script";
 
 interface SkillToolDeps {
   skillTools: SkillToolService | null;
   agent: AgentConfig | null;
+  config: SkillsAgentConfig;
 }
 
 const skillBaseSchema = z.object({
@@ -140,7 +141,7 @@ export function createSkillTools(deps: SkillToolDeps): Tool[] {
   const workspaceRoot = agentWorkspaceRoot(agent);
   // run_in_background 仅在 agent 启用 tasks.background 时暴露（与 SkillExecution 守卫同源）。
   const allowBackground = !!agent?.tasks?.background;
-  const visibleSkills = skillTools ? skillTools.listVisibleSkills(agent, workspaceRoot) : [];
+  const visibleSkills = skillTools ? skillTools.listVisibleSkills(agent, deps.config, workspaceRoot) : [];
   if (!skillTools || !visibleSkills.length) {
     return [];
   }
@@ -159,20 +160,20 @@ export function createSkillTools(deps: SkillToolDeps): Tool[] {
       inputSchema: activateSkillSchema,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.activateSkill(readSkillToolArguments(input), context, agent),
+      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.activateSkill(readSkillToolArguments(input), context, agent, deps.config),
     }),
     buildTool({
       ...metadataFrom(definitionByName.get(LOAD_SKILL_RESOURCE_TOOL_NAME)!),
       inputSchema: loadSkillResourceSchema,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.loadSkillResource(readSkillToolArguments(input), context, agent),
+      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.loadSkillResource(readSkillToolArguments(input), context, agent, deps.config),
     }),
     buildTool({
       ...metadataFrom(omitBackgroundParam(definitionByName.get(EXECUTE_SKILL_SCRIPT_TOOL_NAME)!, allowBackground)),
       inputSchema: executeSkillScriptSchema,
       isConcurrencySafe: () => false,
-      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.executeSkillScript(readSkillToolArguments(input), context, agent),
+      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.executeSkillScript(readSkillToolArguments(input), context, agent, deps.config),
     }),
   ];
 }
@@ -227,5 +228,3 @@ function agentWorkspaceRoot(agent: AgentConfig | null): string | null {
     ? params.workspace_root.trim()
     : null;
 }
-
-

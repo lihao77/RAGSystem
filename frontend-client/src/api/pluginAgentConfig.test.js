@@ -14,6 +14,11 @@ import {
   resetMemoryAgentConfig,
   updateMemoryAgentConfig,
 } from './memory.js';
+import {
+  getSkillsAgentConfig,
+  resetSkillsAgentConfig,
+  updateSkillsAgentConfig,
+} from './skillLibrary.js';
 
 function withMock(setup, run) {
   setActivePinia(createPinia());
@@ -60,5 +65,19 @@ test('memory Agent config uses the plugin-owned route for read, update, and rese
     assert.equal((await getMemoryAgentConfig('writer/agent', 'product/team')).enabled, false);
     assert.equal((await updateMemoryAgentConfig('writer/agent', config, 'product/team')).enabled, false);
     assert.equal((await resetMemoryAgentConfig('writer/agent', 'product/team')).enabled, true);
+  });
+});
+
+test('skills Agent config uses the plugin-owned route for read, update, and reset', async () => {
+  const url = '/api/skills/agents/writer%2Fagent/config?team=product%2Fteam';
+  const config = { enabled_skills: ['review-code'] };
+  await withMock((mock) => {
+    mock.onGet(url).reply(200, { data: config });
+    mock.onPut(url, config).reply(200, { data: config });
+    mock.onDelete(url).reply(200, { data: { enabled_skills: [] } });
+  }, async () => {
+    assert.deepEqual((await getSkillsAgentConfig('writer/agent', 'product/team')).enabled_skills, ['review-code']);
+    assert.deepEqual((await updateSkillsAgentConfig('writer/agent', config, 'product/team')).enabled_skills, ['review-code']);
+    assert.deepEqual((await resetSkillsAgentConfig('writer/agent', 'product/team')).enabled_skills, []);
   });
 });

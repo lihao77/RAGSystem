@@ -18,9 +18,6 @@ export const CONFIG_MANAGED_TOOL_NAMES = new Set([
   "call_agent",
   "list_child_agents",
   "send_message",
-  "activate_skill",
-  "load_skill_resource",
-  "execute_skill_script",
 ]);
 
 export function stripConfigManagedToolNames(enabledTools: readonly string[] | undefined): string[] {
@@ -53,7 +50,6 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
       ...tools,
       enabled_tools: stripConfigManagedToolNames(tools.enabled_tools),
     },
-    skills: config.skills ?? { enabled_skills: [] },
     mcp: config.mcp ?? { enabled_servers: [] },
     goals: config.goals ?? { enabled: false },
     tasks: config.tasks ?? { background: false },

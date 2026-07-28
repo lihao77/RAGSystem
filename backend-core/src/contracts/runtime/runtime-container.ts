@@ -1,5 +1,5 @@
-import type { HookRegistry } from "@ragsystem/agent-sdk";
-import type { BackendPluginRuntimeHandle, BackendRuntimeContributions } from "../../plugins/backend-plugin.js";
+import type { HookRegistry, Tool } from "@ragsystem/agent-sdk";
+import type { BackendPluginRuntimeHandle, BackendRuntimeContributions, BackendToolFactoryContext } from "../../plugins/backend-plugin.js";
 import type { CapabilityRegistry } from "../../plugins/capability-registry.js";
 
 import type { AnalyticsApplication } from "../application/analytics-application.js";
@@ -25,13 +25,11 @@ import type { AgentMetricsCollector } from "../../services/agent/metrics/metrics
 import type { SystemConfigService } from "../../services/config/system-config-service.js";
 import type { McpService } from "../../services/integrations/mcp-service.js";
 import type { ModelAdapterService } from "../../services/integrations/model-adapter-service.js";
-import type { SkillLibraryService } from "../../services/skills/skill-library-service.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { DelegationPendingService } from "../../services/runtime/delegation-pending-service.js";
 import type { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
 import type { PermissionPolicyService } from "../../services/runtime/permission-policy-service.js";
 import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
-import type { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
 import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import type { GoalStore } from "./goals.js";
 import type {
@@ -65,6 +63,7 @@ export interface RuntimeContainerBase {
   readonly deploymentKind: "local" | "saas";
   readonly tenantId: TenantId;
   readonly pluginCapabilities: CapabilityRegistry;
+  readonly createPluginTools: (context: BackendToolFactoryContext) => Promise<readonly Tool[]>;
   readonly sessionApplication: SessionApplication;
   readonly realtimeEvents: RealtimeEventBus;
   readonly sessionFiles: SessionFileLookupPort;
@@ -77,8 +76,6 @@ export interface RuntimeContainerBase {
   readonly mcp: McpService;
   readonly documentTools: DocumentToolPort | null;
   readonly codeExecutionTools: CodeExecutionPort | null;
-  readonly skillTools: SkillToolService;
-  readonly skillLibrary: SkillLibraryService;
   readonly searchTools: WorkspaceSearchPort | null;
   readonly bashTools: CommandExecutionPort | null;
   readonly backgroundTasks: BackgroundTaskService;
@@ -137,8 +134,6 @@ interface CoreRuntimeDependenciesBase {
   pathAccessPolicyFactory: () => PathAccessPolicy;
   documentTools: DocumentToolPort | null;
   codeExecutionTools: CodeExecutionPort | null;
-  skillTools: SkillToolService;
-  skillLibrary: SkillLibraryService;
   searchTools: WorkspaceSearchPort | null;
   bashTools: CommandExecutionPort | null;
   backgroundTasks: BackgroundTaskService;

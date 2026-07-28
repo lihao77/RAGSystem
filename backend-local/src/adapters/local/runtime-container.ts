@@ -5,7 +5,6 @@ import { LocalBashToolService } from "@ragsystem/backend-core/tools/BashTool/Bas
 import { CodeExecutionToolService } from "@ragsystem/backend-core/tools/CodeExecutionTool/CodeExecution.js";
 import { LocalDocumentToolService } from "@ragsystem/backend-core/tools/DocumentTools/DocumentExecution.js";
 import { LocalSearchToolService } from "@ragsystem/backend-core/tools/LocalSearchTools/SearchExecution.js";
-import { SkillToolService } from "@ragsystem/backend-core/tools/SkillTools/SkillExecution.js";
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
 import { TransientSessionResourceService } from "./session-resources/transient-session-resource-service.js";
@@ -15,7 +14,6 @@ import { McpService } from "@ragsystem/backend-core/services/integrations/mcp-se
 import { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
-import { SkillLibraryService } from "@ragsystem/backend-core/services/skills/skill-library-service.js";
 import { createConversationStore } from "./sqlite/conversation-store/index.js";
 import { FileHistoryService } from "./files/file-history-service.js";
 import { FileIndexService } from "./files/file-index-service.js";
@@ -41,7 +39,6 @@ import { LocalFileChangeApplication } from "./application/file-change/local-file
 import { LocalMonitoringApplication } from "./application/monitoring/local-monitoring-application.js";
 import { LocalSessionFileApplication } from "./application/session-file/local-session-file-application.js";
 import { FileAgentConfigTeamStore } from "../filesystem/agent/file-team-store.js";
-import { FilesystemSkillPackageStore } from "../filesystem/skills/filesystem-skill-package-store.js";
 import { LocalCompressionHistoryAdapter } from "./local-compression-history-adapter.js";
 import { LocalAgentDelegationStoreAdapter } from "./local-agent-delegation-store-adapter.js";
 import { LocalAgentMetricsStoreAdapter } from "./local-agent-metrics-store-adapter.js";
@@ -119,15 +116,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   agentConfig.setMcpService(mcp);
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
 
-  const pluginRuntime = await options.plugins?.createRuntime({
-    deploymentKind: "local",
-    tenantId: options.tenantId,
-    dataRoot,
-    modelAdapter,
-    systemConfig,
-    agentConfig,
-    sessions: requestSessionApplication,
-  });
   const hostToolsEnabled = options.hostToolsEnabled !== false;
   const documentTools = hostToolsEnabled ? new LocalDocumentToolService({
     dataRoot: options.dataRoot,
@@ -139,30 +127,23 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     clientEvents,
     ...(options.asyncBackgroundTasks ? { repository: options.asyncBackgroundTasks, tenantId: options.tenantId } : {}),
   });
+  const pluginRuntime = await options.plugins?.createRuntime({
+    deploymentKind: "local",
+    tenantId: options.tenantId,
+    dataRoot,
+    modelAdapter,
+    systemConfig,
+    agentConfig,
+    sessions: requestSessionApplication,
+    backgroundTasks,
+    clientEvents,
+  });
   const toolsConfig = systemConfig.getToolsConfig();
   const codeExecutionTools = hostToolsEnabled ? new CodeExecutionToolService({
     dataRoot: options.dataRoot,
     defaultTimeoutSeconds: toolsConfig.code_default_timeout,
     maxTimeoutSeconds: toolsConfig.code_max_timeout,
   }) : null;
-  const userGlobalSkillsRoot = path.join(dataRoot, "skills");
-  const skillPackageStore = new FilesystemSkillPackageStore(userGlobalSkillsRoot);
-  const skillTools = new SkillToolService({
-    dataRoot: options.dataRoot,
-    userGlobalSkillsRoot,
-    agentConfig,
-    backgroundTasks,
-    clientEvents,
-    packageStore: skillPackageStore,
-    ...(options.plugins?.skillSources.length ? {
-      additionalBuiltinSkillSources: options.plugins.skillSources.map((source) => ({
-        root: source.root,
-        sourceLabel: source.pluginId,
-      })),
-    } : {}),
-  });
-  agentConfig.setSkillToolService(skillTools);
-  const skillLibrary = new SkillLibraryService(skillTools, skillPackageStore);
   const searchTools = hostToolsEnabled ? new LocalSearchToolService({ dataRoot: options.dataRoot }) : null;
   const bashTools = hostToolsEnabled ? new LocalBashToolService({
     dataRoot: options.dataRoot,
@@ -222,8 +203,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     pathAccessPolicyFactory: options.pathAccessPolicyFactory ?? (() => new PathApprovalService()),
     documentTools,
     codeExecutionTools,
-    skillTools,
-    skillLibrary,
     searchTools,
     bashTools,
     backgroundTasks,

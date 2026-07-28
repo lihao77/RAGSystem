@@ -16,6 +16,11 @@ import {
   createPostgresMemoryLifecycle,
   createPostgresMemoryRuntimeFactory,
 } from "@ragsystem/backend-plugin-memory/index.js";
+import {
+  createPostgresSkillsLifecycle,
+  createPostgresSkillsRuntimeFactory,
+  createSkillsPlugin,
+} from "@ragsystem/backend-plugin-skills/index.js";
 import type { SaaSDeploymentRuntime } from "./adapters/saas/composition/saas-deployment-runtime.js";
 
 export function createSaaSProductPlugins(deployment: SaaSDeploymentRuntime): readonly BackendPlugin[] {
@@ -50,5 +55,11 @@ export function createSaaSProductPlugins(deployment: SaaSDeploymentRuntime): rea
       executor: deployment.pluginResources.database,
     }),
     lifecycle: createPostgresMemoryLifecycle(deployment.pluginResources.database),
+  }), createSkillsPlugin({
+    runtimeFactory: createPostgresSkillsRuntimeFactory({
+      executor: deployment.pluginResources.database,
+      objects: deployment.pluginResources.objects,
+    }),
+    lifecycle: createPostgresSkillsLifecycle(deployment.pluginResources.database),
   })];
 }

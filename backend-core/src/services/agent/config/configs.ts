@@ -99,7 +99,6 @@ export function buildCustomAgentConfig(input: CreateAgentRequest): AgentConfig {
     default_entry: input.default_entry ?? false,
     llm_tiers: input.llm ? { default: { ...input.llm } } : null,
     tools: { enabled_tools: [] },
-    skills: { enabled_skills: [] },
     mcp: { enabled_servers: [] },
     goals: { enabled: false },
     tasks: { background: false },
@@ -152,7 +151,6 @@ function buildSystemAgentConfig(input: {
   system_prompt: string;
   default_entry?: boolean;
   tools?: string[];
-  skills?: string[];
   delegation?: string[];
   goals?: { enabled?: boolean };
   tasks?: { background?: boolean };
@@ -165,7 +163,6 @@ function buildSystemAgentConfig(input: {
     default_entry: input.default_entry ?? false,
     llm_tiers: { default: { ...defaultLlmTier } },
     tools: { enabled_tools: input.tools ?? ["read_file", "preview_data_structure"] },
-    skills: { enabled_skills: input.skills ?? [] },
     mcp: { enabled_servers: [] },
     goals: { enabled: false, ...(input.goals ?? {}) },
     tasks: { background: false, ...(input.tasks ?? {}) },

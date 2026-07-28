@@ -18,7 +18,6 @@ import { registerHealthRoutes, registerProbeRoutes } from "../routes/health.js";
 import { registerMcpRoutes } from "../routes/mcp.js";
 import { registerModelAdapterRoutes } from "../routes/model-adapter.js";
 import { registerPlatformRoutes } from "../routes/platform.js";
-import { registerSkillRoutes } from "../routes/skills.js";
 import { registerSystemConfigRoutes } from "../routes/system-config.js";
 import { registerWidgetAppsRoutes } from "../routes/widget-apps.js";
 import { registerWidgetRoutes } from "../routes/widget.js";
@@ -116,7 +115,6 @@ export async function registerSharedBusinessRoutes(
     });
     await scope.register(registerHealthRoutes, { prefix: "/api", ...routeOptions });
     await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
-    await scope.register(registerSkillRoutes, { prefix: "/api/skills", ...routeOptions });
     await scope.register(registerModelAdapterRoutes, { prefix: "/api/model-adapter", ...routeOptions });
     await scope.register(registerSystemConfigRoutes, { prefix: "/api/system-config", ...routeOptions });
     await scope.register(registerMcpRoutes, { prefix: "/api/mcp", ...routeOptions });

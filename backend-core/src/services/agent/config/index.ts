@@ -27,7 +27,6 @@ import {
 import type { IAgentConfigTeamStore } from "../../../contracts/agent/team-store.js";
 import { listAvailableTools as listAvailableRuntimeTools, type AvailableToolInfo } from "./tools.js";
 import { toYaml } from "./yaml.js";
-import type { SkillToolService } from "../../../tools/SkillTools/SkillExecution.js";
 import type { McpService } from "../../integrations/mcp-service.js";
 
 type ExportFormat = "json" | "yaml";
@@ -44,7 +43,6 @@ export class AgentConfigService {
   private activeTeam = "default";
   private readonly teams = new Map<string, TeamConfigs>();
   private readonly teamStore: IAgentConfigTeamStore;
-  private skillToolService: SkillToolService | null = null;
   private mcpService: McpService | null = null;
   private initialized = false;
   private initializePromise: Promise<void> | null = null;
@@ -385,43 +383,6 @@ export class AgentConfigService {
 
   listAvailableMcpServers(): unknown[] {
     return this.mcpService?.listServers() ?? [];
-  }
-
-  async listAvailableSkills(): Promise<unknown[]> {
-    if (!this.skillToolService) return [];
-    return this.skillToolService.listAvailableSkillsAsync();
-  }
-
-  /**
-   * 删除 skill 时联动清理所有 team 的 agent 对其的 enabled_skills 引用，
-   * 消除悬空引用（skill 本体已删，配置里不能再留着名字导致 snapshot/可见性误判）。
-   * 返回受影响的 `team/agent` 列表。
-   */
-  async purgeSkillReference(skillName: string): Promise<string[]> {
-    await this.ensureInitialized();
-    const updated: string[] = [];
-    for (const [teamName, configs] of this.teams) {
-      for (const [agentName, config] of configs) {
-        const enabled = config.skills?.enabled_skills;
-        if (!enabled?.length || !enabled.includes(skillName)) continue;
-        configs.set(agentName, {
-          ...config,
-          skills: {
-            ...config.skills,
-            enabled_skills: enabled.filter((name) => name !== skillName),
-          },
-        });
-        updated.push(`${teamName}/${agentName}`);
-      }
-    }
-    if (updated.length) {
-      await this.saveAll();
-    }
-    return updated;
-  }
-
-  setSkillToolService(skillToolService: SkillToolService | null): void {
-    this.skillToolService = skillToolService;
   }
 
   setMcpService(mcpService: McpService | null): void {

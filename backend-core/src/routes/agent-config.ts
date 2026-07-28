@@ -215,10 +215,6 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     return ok(servers, `Found ${servers.length} MCP servers`);
   });
 
-  app.get("/skills", async (request) => {
-    const skills = await request.container.agentConfig.listAvailableSkills();
-    return ok(skills, `共有 ${skills.length} 个可用 Skill`);
-  });
 };
 
 function errorMessage(error: unknown): string {

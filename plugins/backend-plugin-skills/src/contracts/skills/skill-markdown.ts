@@ -1,6 +1,6 @@
 import YAML from "yaml";
 
-import { isRecord } from "../../utils/guards.js";
+import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 export interface ParsedSkillMarkdown {
   name: string;

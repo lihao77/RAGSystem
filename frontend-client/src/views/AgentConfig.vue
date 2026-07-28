@@ -379,7 +379,7 @@
             </div>
           </section>
 
-          <section id="section-skills" class="form-section">
+          <section v-if="skillsPluginAvailable" id="section-skills" class="form-section">
             <div class="section-head">
               <h2>技能</h2>
               <span>管理领域知识与脚本能力注入</span>
@@ -699,10 +699,14 @@ import {
   createAgent,
   deleteAgent,
   getAvailableTools,
-  getAvailableSkills,
   getAvailableMCPServers,
   exportAgentConfig
 } from '../api/agentConfig';
+import {
+  getAvailableSkills,
+  getSkillsAgentConfig,
+  updateSkillsAgentConfig
+} from '../api/skillLibrary.js';
 import {
   getMemoryAgentConfig,
   updateMemoryAgentConfig,
@@ -738,7 +742,7 @@ const sections = computed(() => [
   { id: 'section-prompt', label: '提示词' },
   { id: 'section-tools', label: '工具' },
   { id: 'section-tasks', label: 'Goal' },
-  { id: 'section-skills', label: '技能' },
+  ...(skillsPluginAvailable.value ? [{ id: 'section-skills', label: '技能' }] : []),
   ...(memoryPluginAvailable.value ? [{ id: 'section-memory', label: '记忆' }] : []),
   { id: 'section-mcp', label: 'MCP' },
   ...(knowledgePluginAvailable.value ? [{ id: 'section-kb', label: '知识库' }] : []),
@@ -943,6 +947,7 @@ const providers = ref([]);
 const memoryScopeMeta = ref([]);
 const memoryPluginAvailable = ref(false);
 const knowledgePluginAvailable = ref(false);
+const skillsPluginAvailable = ref(false);
 
 const configForm = ref(createEmptyForm());
 const rawConfig = ref(createEmptyForm());
@@ -1113,6 +1118,7 @@ function applyConfigToForm(config, pluginConfigs = {}) {
   const safeConfig = config || createEmptyForm();
   const memoryConfig = pluginConfigs.memory || createEmptyForm().memory;
   const knowledgeConfig = pluginConfigs.knowledge || createEmptyForm().knowledge_base;
+  const skillsConfig = pluginConfigs.skills || createEmptyForm().skills;
   rawConfig.value = JSON.parse(JSON.stringify(safeConfig));
   configForm.value = {
     agent_name: safeConfig.agent_name || '',
@@ -1131,7 +1137,7 @@ function applyConfigToForm(config, pluginConfigs = {}) {
     goals: { enabled: !!safeConfig.goals?.enabled },
     tasks: { background: !!safeConfig.tasks?.background },
     skills: {
-      enabled_skills: Array.isArray(safeConfig.skills?.enabled_skills) ? [...safeConfig.skills.enabled_skills] : []
+      enabled_skills: Array.isArray(skillsConfig.enabled_skills) ? [...skillsConfig.enabled_skills] : []
     },
     mcp: {
       enabled_servers: Array.isArray(safeConfig.mcp?.enabled_servers) ? [...safeConfig.mcp.enabled_servers] : []
@@ -1231,6 +1237,7 @@ function buildPayload() {
   const merged = JSON.parse(JSON.stringify(rawConfig.value || {}));
   delete merged.memory;
   delete merged.knowledge_base;
+  delete merged.skills;
   merged.agent_name = selectedAgent.value;
   merged.display_name = configForm.value.display_name;
   merged.description = configForm.value.description;
@@ -1264,11 +1271,6 @@ function buildPayload() {
 
   merged.goals = { enabled: !!configForm.value.goals.enabled };
   merged.tasks = { background: !!configForm.value.tasks.background };
-
-  merged.skills = {
-    ...(merged.skills || {}),
-    enabled_skills: configForm.value.skills.enabled_skills
-  };
 
   merged.mcp = {
     ...(merged.mcp || {}),
@@ -1308,15 +1310,18 @@ async function loadSupplementaryData(workspaceRoot = '') {
 }
 
 async function loadPluginConfigs(agentName) {
-  const [memoryResult, knowledgeResult] = await Promise.allSettled([
+  const [memoryResult, knowledgeResult, skillsResult] = await Promise.allSettled([
     getMemoryAgentConfig(agentName, activeTeam.value),
-    getKnowledgeAgentConfig(agentName, activeTeam.value)
+    getKnowledgeAgentConfig(agentName, activeTeam.value),
+    getSkillsAgentConfig(agentName, activeTeam.value)
   ]);
   memoryPluginAvailable.value = pluginConfigAvailable(memoryResult);
   knowledgePluginAvailable.value = pluginConfigAvailable(knowledgeResult);
+  skillsPluginAvailable.value = pluginConfigAvailable(skillsResult);
   return {
     memory: memoryResult.status === 'fulfilled' ? memoryResult.value : null,
-    knowledge: knowledgeResult.status === 'fulfilled' ? knowledgeResult.value : null
+    knowledge: knowledgeResult.status === 'fulfilled' ? knowledgeResult.value : null,
+    skills: skillsResult.status === 'fulfilled' ? skillsResult.value : null
   };
 }
 
@@ -1344,6 +1349,12 @@ function buildKnowledgePluginConfig() {
     default_top_k: Number(configForm.value.knowledge_base.default_top_k) || 5,
     default_rerank: !!configForm.value.knowledge_base.default_rerank,
     default_reranker_key: configForm.value.knowledge_base.default_reranker_key || null
+  };
+}
+
+function buildSkillsPluginConfig() {
+  return {
+    enabled_skills: configForm.value.skills.enabled_skills
   };
 }
 
@@ -1436,6 +1447,9 @@ async function handleSave() {
     }
     if (knowledgePluginAvailable.value) {
       pluginUpdates.push(updateKnowledgeAgentConfig(selectedAgent.value, buildKnowledgePluginConfig(), activeTeam.value));
+    }
+    if (skillsPluginAvailable.value) {
+      pluginUpdates.push(updateSkillsAgentConfig(selectedAgent.value, buildSkillsPluginConfig(), activeTeam.value));
     }
     await Promise.all(pluginUpdates);
     dictStore.invalidateAgents();

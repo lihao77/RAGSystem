@@ -165,14 +165,22 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     });
     // preview 仅 projection（组请求快照）——不跑工具循环、不注册 gate-hook，
     // 故 pathService 不会被 approve/isApproved 调用；此处占位仅为满足 createBackendTools 签名。
-    // packageStore-backed user_global 必须先 hydrate，否则 skill 工具 enum/extended_usage 会空。
-    await request.container.toolsDeps.skillTools?.hydrateUserGlobalPackages?.();
+    const pathService = new PathApprovalService();
+    const contributedTools = await request.container.createPluginTools({
+      tenantId: request.container.tenantId,
+      teamName,
+      agent,
+      pathAccessPolicy: pathService,
+    });
     const registry = createToolRegistry({
-      tools: createBackendTools({
-        ...request.container.toolsDeps,
-        agent,
-        ...(teamName ? { teamName } : {}),
-      }, new PathApprovalService()),
+      tools: [
+        ...createBackendTools({
+          ...request.container.toolsDeps,
+          agent,
+          ...(teamName ? { teamName } : {}),
+        }, pathService),
+        ...contributedTools,
+      ],
     });
     // backend 组装内建 recent context 并注入 preview；插件上下文由实际 run 的 hooks 提供。
     const threadKey = normalizeString(query.thread_key);
@@ -237,7 +245,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         description: tool.description,
         parameters: tool.parameters,
       })),
-      available_skills: await buildAvailableSkills(agent, request.container),
     };
     return ok(data, "获取上下文快照成功");
   });
@@ -315,33 +322,6 @@ function buildAvailableAgentTools(
       description: config.description ?? null,
     };
   });
-}
-
-async function buildAvailableSkills(agent: AgentConfig, container: FastifyRequest["container"]): Promise<Array<Record<string, unknown>>> {
-  const available = await container.agentConfig.listAvailableSkills();
-  const byName = new Map<string, Record<string, unknown>>();
-  for (const item of available) {
-    if (isRecord(item)) {
-      const name = normalizeString(item.name);
-      if (name) {
-        byName.set(name, item);
-      }
-    }
-  }
-  return (agent.skills.enabled_skills ?? [])
-    .filter((name) => byName.has(name))
-    .map((name) => {
-      const source = byName.get(name) ?? {};
-      return {
-        name,
-        source_type: normalizeString(source.source_type) ?? "user_global",
-        source_label: normalizeString(source.source_label) ?? "全局",
-        is_auto_inject_candidate: Boolean(source.is_auto_inject_candidate ?? false),
-        content_length: typeof source.content_length === "number" ? source.content_length : 0,
-        metadata: { name },
-        description: normalizeString(source.description) ?? "",
-      };
-    });
 }
 
 function parseSelectedLlmForSnapshot(value: string): Record<string, string | null> {

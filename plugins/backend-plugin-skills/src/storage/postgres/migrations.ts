@@ -1,8 +1,8 @@
-import type { PostgresExecutor } from "./postgres-executor.js";
-import { POSTGRES_SKILL_PACKAGE_MIGRATIONS } from "./skill-package-schema.js";
+import type { SkillsPostgresExecutor } from "./executor.js";
+import { POSTGRES_SKILLS_MIGRATIONS } from "./schema.js";
 
 export async function runPostgresSkillPackageMigrations(
-  executor: PostgresExecutor,
+  executor: SkillsPostgresExecutor,
 ): Promise<{ current_version: number; applied_versions: number[] }> {
   return executor.transaction(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(701884216)");
@@ -13,7 +13,7 @@ export async function runPostgresSkillPackageMigrations(
       "SELECT version,name FROM ragsystem_skill_package_schema_migrations ORDER BY version",
     );
     for (let i = 0; i < applied.rows.length; i += 1) {
-      const expected = POSTGRES_SKILL_PACKAGE_MIGRATIONS[i];
+      const expected = POSTGRES_SKILLS_MIGRATIONS[i];
       if (
         !expected
         || Number(applied.rows[i]?.version) !== expected.version
@@ -22,7 +22,7 @@ export async function runPostgresSkillPackageMigrations(
         throw new Error("invalid PostgreSQL skill package migration history");
       }
     }
-    const pending = POSTGRES_SKILL_PACKAGE_MIGRATIONS.slice(applied.rows.length);
+    const pending = POSTGRES_SKILLS_MIGRATIONS.slice(applied.rows.length);
     for (const migration of pending) {
       await tx.query(migration.sql);
       await tx.query(
@@ -31,7 +31,7 @@ export async function runPostgresSkillPackageMigrations(
       );
     }
     return {
-      current_version: POSTGRES_SKILL_PACKAGE_MIGRATIONS.length,
+      current_version: POSTGRES_SKILLS_MIGRATIONS.length,
       applied_versions: pending.map((migration) => migration.version),
     };
   });
