@@ -2,14 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 
-import type { BotCronTaskClaim, BotRepository, BotWithConfig } from "@ragsystem/backend-core/contracts/control-plane/bot-repository.js";
 import type {
   BotConfig,
   BotConfigUpdate,
   BotCronTask,
   BotSummary,
   TenantBotSummary,
-} from "@ragsystem/backend-core/contracts/control-plane/bot.js";
+} from "../../contracts/bot.js";
+import type { BotCronTaskClaim, BotWithConfig, DaemonBotRepository } from "../../contracts/bot-repository.js";
 import type { SecretCoordinates, SecretMutation, SecretResolver } from "@ragsystem/backend-core/contracts/integrations/secret-resolver.js";
 import type { Bot } from "@ragsystem/backend-core/contracts/control-plane/user.js";
 import { createTenantId, createUserId, type TenantId, type UserId } from "@ragsystem/backend-core/identity/types.js";
@@ -28,13 +28,13 @@ interface Queryable {
   query<Row extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]): Promise<QueryResult<Row>>;
 }
 
-export class PostgresBotRepository implements BotRepository {
+export class PostgresBotRepository implements DaemonBotRepository {
   constructor(
     readonly pool: Pool,
     private readonly secrets: SecretResolver,
   ) {}
 
-  async create(input: Parameters<BotRepository["create"]>[0]): Promise<Bot> {
+  async create(input: Parameters<DaemonBotRepository["create"]>[0]): Promise<Bot> {
     return this.transaction(async (client) => {
       const owner = await client.query<{ type: string }>("SELECT type FROM control_users WHERE id=$1 FOR UPDATE", [input.ownerId]);
       if (!owner.rows[0]) throw new HttpError(404, "not_found", "bot owner 不存在");
@@ -269,7 +269,7 @@ export class PostgresBotRepository implements BotRepository {
     return result.rows[0] ? mapCronTask(result.rows[0]) : null;
   }
 
-  async createCronTask(botId: UserId, input: Parameters<BotRepository["createCronTask"]>[1]): Promise<BotCronTask> {
+  async createCronTask(botId: UserId, input: Parameters<DaemonBotRepository["createCronTask"]>[1]): Promise<BotCronTask> {
     const result = await this.pool.query<BotCronTaskRow>(`
       INSERT INTO control_bot_cron_tasks(
         bot_id, task_id, cron, task, entry_agent, enabled, push_platform, push_chat_id, next_run
@@ -280,7 +280,7 @@ export class PostgresBotRepository implements BotRepository {
     return mapCronTask(requiredRow(result));
   }
 
-  async updateCronTask(botId: UserId, taskId: string, patch: Parameters<BotRepository["updateCronTask"]>[2], options?: Parameters<BotRepository["updateCronTask"]>[3]): Promise<BotCronTask | null> {
+  async updateCronTask(botId: UserId, taskId: string, patch: Parameters<DaemonBotRepository["updateCronTask"]>[2], options?: Parameters<DaemonBotRepository["updateCronTask"]>[3]): Promise<BotCronTask | null> {
     const current = await this.getCronTask(botId, taskId);
     if (!current) return null;
     const next = { ...current, ...defined(patch) };

@@ -10,12 +10,12 @@ import type { RunInfo } from "@ragsystem/backend-core/contracts/conversation-sto
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "@ragsystem/backend-core/services/runtime/event-outbox/execution-envelope-archive.js";
 import { EnvelopeProjector } from "@ragsystem/backend-core/services/runtime/event-outbox/projector.js";
-import { TenantDaemonSessionApplication } from "@ragsystem/backend-core/services/sessions/daemon-session-application.js";
+import { TenantSessionIdentityApplication } from "@ragsystem/backend-core/services/sessions/session-identity-application.js";
 import type { ExecutionSessionPort, SessionApplication } from "@ragsystem/backend-core/contracts/session/session-application.js";
 import type { WorkspaceRepositoryPort } from "@ragsystem/backend-core/contracts/workspace/workspace-repository.js";
 
 export class SaaSSessionApplication implements SessionApplication, ExecutionSessionPort {
-  private readonly daemonSessions: TenantDaemonSessionApplication;
+  private readonly sessionIdentities: TenantSessionIdentityApplication;
 
   constructor(
     private readonly tenantId: TenantId,
@@ -25,14 +25,14 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
     private readonly outbox: ExecutionReplayRepositoryPort | null = null,
     private readonly workspaces: WorkspaceRepositoryPort | null = null,
   ) {
-    this.daemonSessions = new TenantDaemonSessionApplication(tenantId, {
+    this.sessionIdentities = new TenantSessionIdentityApplication(tenantId, {
       getSession: (sessionId) => repository.getSession(sessionId),
       createSession: (input) => repository.createSession(input),
       updateSessionMetadata: (sessionId, patch) => repository.updateSessionMetadata(sessionId, patch),
     });
   }
   ensureSession(input: Parameters<SessionApplication["ensureSession"]>[0]) {
-    return this.daemonSessions.ensureSession(input);
+    return this.sessionIdentities.ensureSession(input);
   }
   async createSession(input: SessionIdentity): Promise<SessionInfo> {
     assertSafeSessionId(input.sessionId);
@@ -83,7 +83,7 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   }
   /** Returns the raw row so route ownership validation can reject a cross-tenant session id. */
   getSessionForExecutionValidation(sessionId: string): Promise<SessionInfo | null> { return this.repository.getSession(sessionId); }
-  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>) { return this.daemonSessions.updateSessionMetadata(sessionId, patch); }
+  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>) { return this.sessionIdentities.updateSessionMetadata(sessionId, patch); }
   async updateSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<boolean> { return (await this.getSession(sessionId)) ? this.repository.updateSessionPermissionMode(sessionId, mode) : false; }
   async deleteSession(sessionId: string): Promise<boolean> {
     if (!(await this.getSession(sessionId))) return false;

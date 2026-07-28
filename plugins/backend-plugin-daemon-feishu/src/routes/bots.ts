@@ -1,14 +1,15 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
+import "@ragsystem/backend-core/fastify-context.js";
 
-import { BotConfigUpdateSchema, BotCronTaskCreateSchema, BotCronTaskUpdateSchema } from "../contracts/control-plane/bot.js";
-import { DaemonOutgoingMessageSchema, DaemonTestMessageSchema } from "../contracts/runtime/daemon.js";
-import { createUserId, type UserId } from "../identity/types.js";
-import { DaemonServiceError } from "../services/daemon/daemon-service.js";
-import { HttpError, httpErrorFrom } from "../utils/errors.js";
-import type { BotRouteOptions } from "./route-options.js";
-import { requireTenantMember } from "./tenant-role.js";
-import { resolveSessionApplication } from "./session-application.js";
+import { BotConfigUpdateSchema, BotCronTaskCreateSchema, BotCronTaskUpdateSchema } from "../contracts/bot.js";
+import type { DaemonBotRepository } from "../contracts/bot-repository.js";
+import { DaemonOutgoingMessageSchema, DaemonTestMessageSchema } from "../contracts/daemon.js";
+import { createUserId, type UserId } from "@ragsystem/backend-core/identity/types.js";
+import { DaemonServiceError, type DaemonService } from "../services/daemon-service.js";
+import { HttpError, httpErrorFrom } from "@ragsystem/backend-core/utils/errors.js";
+import type { RuntimeContainerRegistry } from "@ragsystem/backend-core/services/runtime/runtime-container-registry.js";
+import { requireTenantMember } from "@ragsystem/backend-core/routes/tenant-role.js";
 
 interface BotParams { botId: string; }
 interface BotCronParams extends BotParams { taskId: string; }
@@ -18,6 +19,12 @@ interface BotListQuery { tenant?: string | number | boolean; }
 const BotCreateSchema = z.object({ display_name: z.string().trim().min(1) });
 const BotUpdateSchema = z.object({ display_name: z.string().trim().min(1) });
 const BotIdSchema = z.string().regex(/^usr_[a-z0-9]+(?:_[a-z0-9]+)*$/);
+
+export interface BotRouteOptions {
+  readonly botRepository: DaemonBotRepository;
+  readonly daemon: DaemonService;
+  readonly registry: RuntimeContainerRegistry;
+}
 
 export const registerBotRoutes: FastifyPluginAsync<BotRouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => {
@@ -49,7 +56,7 @@ export const registerBotRoutes: FastifyPluginAsync<BotRouteOptions> = async (app
   }, async (request) => {
     if (request.params.platform !== "feishu") throw new HttpError(400, "invalid_request", `不支持的平台: ${request.params.platform}`);
     try {
-      return await app.botEngine.handleIncomingMessage(request.params.routeToken, request.body);
+      return await options.daemon.handleIncomingMessage(request.params.routeToken, request.body);
     } catch (error) {
       throw toHttpError(error);
     }
@@ -69,15 +76,20 @@ export const registerBotRoutes: FastifyPluginAsync<BotRouteOptions> = async (app
 
   app.delete<{ Params: BotParams }>("/:botId", async (request) => {
     const botId = parseBotId(request.params.botId);
-    const sessions = await resolveSessionApplication(options, request);
-    const facets = await sessions.listSessionFacets({
-      access: { userId: request.identity.userId, includeTenant: true, includeAll: true },
-    });
+    const lease = await options.registry.acquire(request.identity.tenantId);
+    let facets;
+    try {
+      facets = await lease.runtime.sessionApplication.listSessionFacets({
+        access: { userId: request.identity.userId, includeTenant: true, includeAll: true },
+      });
+    } finally {
+      lease.release();
+    }
     if (facets.origins.some((origin) => origin.type === "bot" && origin.id === botId && origin.count > 0)) {
       throw new HttpError(409, "conflict", "该 Bot 已被历史会话引用，不能物理删除；请停用 Bot");
     }
     if (!await options.botRepository.delete(botId)) throw new HttpError(404, "not_found", "bot 不存在");
-    await app.botEngine.reloadBot(botId);
+    await options.daemon.reloadBot(botId);
     return { status: "ok" };
   });
 
@@ -90,40 +102,40 @@ export const registerBotRoutes: FastifyPluginAsync<BotRouteOptions> = async (app
   app.put<{ Params: BotParams }>("/:botId/config", async (request) => {
     const botId = parseBotId(request.params.botId);
     await options.botRepository.updateConfig(botId, BotConfigUpdateSchema.parse(request.body));
-    await app.botEngine.reloadBot(botId);
+    await options.daemon.reloadBot(botId);
     return options.botRepository.getConfig(botId);
   });
 
   app.post<{ Params: BotParams }>("/:botId/test", async (request) => {
     try {
-      return await app.botEngine.testMessage(parseBotId(request.params.botId), DaemonTestMessageSchema.parse(request.body));
+      return await options.daemon.testMessage(parseBotId(request.params.botId), DaemonTestMessageSchema.parse(request.body));
     } catch (error) {
       throw toHttpError(error);
     }
   });
 
   app.post<{ Params: BotParams }>("/:botId/send", async (request) => {
-    return app.botEngine.sendMessage(parseBotId(request.params.botId), DaemonOutgoingMessageSchema.parse(request.body));
+    return options.daemon.sendMessage(parseBotId(request.params.botId), DaemonOutgoingMessageSchema.parse(request.body));
   });
 
-  app.get<{ Params: BotParams }>("/:botId/cron/tasks", async (request) => app.botEngine.listBotCronTasks(parseBotId(request.params.botId)));
+  app.get<{ Params: BotParams }>("/:botId/cron/tasks", async (request) => options.daemon.listBotCronTasks(parseBotId(request.params.botId)));
 
   app.post<{ Params: BotParams }>("/:botId/cron/tasks", async (request) => {
     try {
-      return await app.botEngine.createBotCronTask(parseBotId(request.params.botId), BotCronTaskCreateSchema.parse(request.body));
+      return await options.daemon.createBotCronTask(parseBotId(request.params.botId), BotCronTaskCreateSchema.parse(request.body));
     } catch (error) {
       throw toHttpError(error);
     }
   });
 
   app.put<{ Params: BotCronParams }>("/:botId/cron/tasks/:taskId", async (request) => {
-    const updated = await app.botEngine.updateBotCronTask(parseBotId(request.params.botId), request.params.taskId, BotCronTaskUpdateSchema.parse(request.body));
+    const updated = await options.daemon.updateBotCronTask(parseBotId(request.params.botId), request.params.taskId, BotCronTaskUpdateSchema.parse(request.body));
     if (!updated) throw new HttpError(404, "not_found", `任务不存在: ${request.params.taskId}`);
     return updated;
   });
 
   app.delete<{ Params: BotCronParams }>("/:botId/cron/tasks/:taskId", async (request) => {
-    if (!await app.botEngine.deleteBotCronTask(parseBotId(request.params.botId), request.params.taskId)) {
+    if (!await options.daemon.deleteBotCronTask(parseBotId(request.params.botId), request.params.taskId)) {
       throw new HttpError(404, "not_found", `任务不存在: ${request.params.taskId}`);
     }
     return { status: "ok" };
@@ -131,7 +143,7 @@ export const registerBotRoutes: FastifyPluginAsync<BotRouteOptions> = async (app
 
   app.post<{ Params: BotCronParams }>("/:botId/cron/tasks/:taskId/trigger", async (request) => {
     try {
-      return await app.botEngine.triggerBotCronTask(parseBotId(request.params.botId), request.params.taskId);
+      return await options.daemon.triggerBotCronTask(parseBotId(request.params.botId), request.params.taskId);
     } catch (error) {
       throw toHttpError(error);
     }
@@ -141,7 +153,7 @@ export const registerBotRoutes: FastifyPluginAsync<BotRouteOptions> = async (app
     const limit = Number(request.query.limit ?? 20);
     return {
       task_id: request.params.taskId,
-      history: await app.botEngine.getBotCronHistory(parseBotId(request.params.botId), request.params.taskId, Number.isFinite(limit) ? limit : 20),
+      history: await options.daemon.getBotCronHistory(parseBotId(request.params.botId), request.params.taskId, Number.isFinite(limit) ? limit : 20),
     };
   });
 };

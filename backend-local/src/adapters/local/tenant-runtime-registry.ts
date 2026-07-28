@@ -10,7 +10,6 @@ import {
   type TenantRuntimeLease as TenantRuntimeLeaseContract,
   type TenantRuntimeActivityLease,
   type TenantRuntimeSnapshot as TenantRuntimeSnapshotContract,
-  type DaemonRouteTarget,
   type RuntimeEntryState,
 } from "@ragsystem/backend-core/services/runtime/tenant-runtime-registry.js";
 import { createLocalRuntimeContainer } from "./runtime-container.js";
@@ -26,7 +25,7 @@ export type TenantRuntimeRegistry = Omit<TenantRuntimeRegistryContract<RuntimeCo
   snapshot(tenantId: string): TenantRuntimeSnapshot | null;
 };
 export type TenantRuntimeLease = TenantRuntimeLeaseContract<RuntimeContainer>;
-export type { TenantRuntimeActivityLease, DaemonRouteTarget, RuntimeEntryState };
+export type { TenantRuntimeActivityLease, RuntimeEntryState };
 
 export interface LocalTenantRuntimeRegistryOptions {
   idleTimeoutMs?: number;

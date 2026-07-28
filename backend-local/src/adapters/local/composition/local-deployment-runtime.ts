@@ -1,4 +1,6 @@
 import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
+import type { DaemonBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/contracts/bot-repository.js";
+import { SqliteBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/storage/local/sqlite-bot-repository.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import { LocalIdentityProvider, PasswordIdentityProvider, type IdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
 import type { SessionTokenService } from "@ragsystem/backend-core/services/runtime/session-token-service.js";
@@ -10,12 +12,13 @@ import {
 } from "../application/local-request-application-resolvers.js";
 import { LocalTenantRuntimeRegistry } from "../tenant-runtime-registry.js";
 import { createControlStore } from "../sqlite/control-store/index.js";
-import { SqliteBotRepository } from "../sqlite/sqlite-bot-repository.js";
 import { SqliteControlPlaneAdapter } from "../sqlite/sqlite-control-plane-adapter.js";
 import { SqliteWidgetCredentialAdapter } from "../sqlite/sqlite-widget-credential-adapter.js";
 import { createWidgetCredentialStore } from "../sqlite/widget-credential-store/index.js";
 
-export type LocalDeploymentRuntime = DeploymentRuntime;
+export interface LocalDeploymentRuntime extends DeploymentRuntime {
+  readonly botRepository: DaemonBotRepository;
+}
 
 export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntime {
   if (env.deploymentMode === "saas" || env.storageMode === "postgres" || env.controlStorageMode === "postgres") {

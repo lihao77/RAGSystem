@@ -22,7 +22,7 @@ import {
 } from "../src/adapters/local/application/local-request-application-resolvers.js";
 import { createControlStore } from "../src/adapters/local/sqlite/control-store/index.js";
 import { createWidgetCredentialStore } from "../src/adapters/local/sqlite/widget-credential-store/index.js";
-import { SqliteBotRepository } from "../src/adapters/local/sqlite/sqlite-bot-repository.js";
+import { SqliteBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/storage/local/sqlite-bot-repository.js";
 import { SqliteControlPlaneAdapter } from "../src/adapters/local/sqlite/sqlite-control-plane-adapter.js";
 import { SqliteWidgetCredentialAdapter } from "../src/adapters/local/sqlite/sqlite-widget-credential-adapter.js";
 import { createWidgetAuthService } from "@ragsystem/backend-core/services/runtime/jwt-service.js";

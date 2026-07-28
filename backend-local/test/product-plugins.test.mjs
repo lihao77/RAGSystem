@@ -8,6 +8,7 @@ const ALL_IDS = [
   "@ragsystem/backend-plugin-artifacts",
   "@ragsystem/backend-plugin-execution-tools",
   "@ragsystem/backend-plugin-document-tools",
+  "@ragsystem/backend-plugin-daemon-feishu",
   "@ragsystem/backend-plugin-knowledge",
   "@ragsystem/backend-plugin-memory",
   "@ragsystem/backend-plugin-mcp",

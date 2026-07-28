@@ -39,7 +39,7 @@ Current TS runtime-core scope:
 - task tracking tools (`task_create`, `task_get`, `task_update`, `task_list`, `task_output`, `task_stop`),
 - synchronous agent delegation tools,
 - Skill activation, resource loading, metadata reads, and script execution,
-- MCP tool discovery and execution,
+- plugin-contributed tool discovery and execution,
 - vector/RAG indexing and retrieval tools,
 - hook execution around runtime tool lifecycles,
 - attachments and uploaded/session files in runtime context,
@@ -54,8 +54,8 @@ Intentional unsupported modes:
 
 - Parallel collaboration still returns HTTP 400 with `并行模式尚未实现`, matching the current
   Python backend behavior.
-- Live provider, MCP, daemon gateway, embedding, and rerank behavior still depends on local
-  external configuration and credentials.
+- Live provider behavior and installed plugin integrations still depend on external configuration
+  and credentials.
 
 ## Surrounding Management APIs
 
@@ -63,7 +63,7 @@ These APIs support the runtime core but are not the core itself:
 
 - agent/team config management,
 - model provider config management,
-- system/MCP/daemon/vector config management,
+- system and plugin-owned config management,
 - file and artifact management,
 - metrics and diagnostics shells.
 

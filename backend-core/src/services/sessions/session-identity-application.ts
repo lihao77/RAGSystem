@@ -2,17 +2,17 @@ import { normalizeSessionMetadata, type CreateSessionRecordInput, type SessionId
 import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 
-export interface DaemonSessionStoragePort {
+export interface SessionIdentityStoragePort {
   getSession(sessionId: string): Promise<SessionInfo | null>;
   createSession(input: CreateSessionRecordInput): Promise<void>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
 }
 
-/** Shared tenant-owned session lifecycle used by daemon-triggered runs. */
-export class TenantDaemonSessionApplication {
+/** Shared tenant-owned session lifecycle used by externally initiated runs. */
+export class TenantSessionIdentityApplication {
   constructor(
     private readonly tenantId: TenantId,
-    private readonly storage: DaemonSessionStoragePort,
+    private readonly storage: SessionIdentityStoragePort,
   ) {}
 
   async ensureSession(input: SessionIdentity): Promise<void> {
@@ -20,7 +20,7 @@ export class TenantDaemonSessionApplication {
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
     const existing = await this.storage.getSession(input.sessionId);
     if (existing && existing.tenant_id !== this.tenantId) {
-      throw new Error(`daemon session belongs to another tenant: ${input.sessionId}`);
+      throw new Error(`session belongs to another tenant: ${input.sessionId}`);
     }
     if (!existing) {
       await this.storage.createSession({
@@ -43,7 +43,7 @@ export class TenantDaemonSessionApplication {
       || existing.origin_id !== input.originId
       || existing.origin_channel !== input.originChannel
       || existing.workspace_id !== input.workspaceId) {
-      throw new Error(`daemon session immutable identity mismatch: ${input.sessionId}`);
+      throw new Error(`session immutable identity mismatch: ${input.sessionId}`);
     }
     if (Object.keys(metadata).length > 0) {
       await this.requireMetadataUpdate(input.sessionId, metadata);
@@ -53,14 +53,14 @@ export class TenantDaemonSessionApplication {
   async updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown>> {
     const existing = await this.storage.getSession(sessionId);
     if (!existing || existing.tenant_id !== this.tenantId) {
-      throw new Error(`daemon session not found for tenant: ${sessionId}`);
+      throw new Error(`session not found for tenant: ${sessionId}`);
     }
     return this.requireMetadataUpdate(sessionId, normalizeSessionMetadata(patch));
   }
 
   private async requireMetadataUpdate(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown>> {
     const metadata = await this.storage.updateSessionMetadata(sessionId, patch);
-    if (!metadata) throw new Error(`daemon session not found for tenant: ${sessionId}`);
+    if (!metadata) throw new Error(`session not found for tenant: ${sessionId}`);
     return metadata;
   }
 }

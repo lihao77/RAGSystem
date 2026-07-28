@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { HookEvent, HookHandler, HookRegistry, Tool } from "@ragsystem/agent-sdk";
 
 import type { AgentConfig } from "../contracts/agent/agent-config.js";
@@ -11,6 +11,7 @@ import type { SystemConfigService } from "../services/config/system-config-servi
 import type { BackgroundTaskService } from "../services/runtime/background-task-service.js";
 import type { ClientEventPublisherPort } from "../contracts/runtime/core-runtime-ports.js";
 import type { CapabilityProvider, CapabilityRegistry } from "./capability-registry.js";
+import type { RuntimeContainerRegistry } from "../services/runtime/runtime-container-registry.js";
 
 export type BackendRouteScope = "public" | "tenant" | "management" | "platform" | "widget";
 
@@ -30,6 +31,12 @@ export interface PluginRouteRegistrar {
 /** Registers handlers that are installed into every per-run SDK hook registry. */
 export interface PluginHookRegistrar {
   on<E extends HookEvent>(event: E, handler: HookHandler<E>): () => void;
+}
+
+export type BackendApplicationEventHandler = (payload: unknown) => void | Promise<void>;
+
+export interface PluginEventRegistrar {
+  on(event: string, handler: BackendApplicationEventHandler): () => void;
 }
 
 export interface BackendPluginResourceContribution {
@@ -97,6 +104,25 @@ export interface PluginRuntimeRegistrar {
   register(factory: BackendPluginRuntimeFactory): () => void;
 }
 
+export interface BackendPluginApplicationContext {
+  readonly logger: FastifyBaseLogger;
+  readonly registry: RuntimeContainerRegistry;
+  readonly resources?: readonly BackendPluginResourceContribution[];
+}
+
+export interface BackendPluginApplicationContribution {
+  start?(): void | Promise<void>;
+  dispose?(): void | Promise<void>;
+}
+
+export type BackendPluginApplicationFactory = (
+  context: BackendPluginApplicationContext,
+) => BackendPluginApplicationContribution | Promise<BackendPluginApplicationContribution>;
+
+export interface PluginApplicationRegistrar {
+  register(factory: BackendPluginApplicationFactory): () => void;
+}
+
 export interface BackendPluginRuntimeHandle {
   readonly capabilities: CapabilityRegistry;
   configureHooks(registry: HookRegistry): void;
@@ -119,6 +145,8 @@ export interface BackendPluginContext {
   readonly runtimes: PluginRuntimeRegistrar;
   readonly resources: PluginResourceRegistrar;
   readonly tools: PluginToolRegistrar;
+  readonly applications: PluginApplicationRegistrar;
+  readonly events: PluginEventRegistrar;
 }
 
 export interface BackendPluginManifest {

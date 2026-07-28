@@ -1,5 +1,5 @@
-import type { TenantId } from "../../identity/types.js";
-import type { InteractionCoordinator } from "./pending-interactions.js";
+import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
+import type { InteractionCoordinator } from "@ragsystem/backend-core/contracts/runtime/pending-interactions.js";
 
 export interface DaemonRuntime {
   interactionCoordinator: Pick<InteractionCoordinator, "respondApprovalAsync" | "respondUserInputAsync" | "listPendingAsync" | "peekApprovalMeta">;

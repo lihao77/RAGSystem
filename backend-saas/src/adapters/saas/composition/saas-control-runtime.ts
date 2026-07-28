@@ -1,19 +1,19 @@
 import { Pool } from "pg";
 
-import type { BotRepository } from "@ragsystem/backend-core/contracts/control-plane/bot-repository.js";
+import type { DaemonBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/contracts/bot-repository.js";
+import { PostgresBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/storage/postgres/bot-repository.js";
 import type { ControlPlane } from "@ragsystem/backend-core/contracts/control-plane/index.js";
 import type { SecretResolver } from "@ragsystem/backend-core/contracts/integrations/secret-resolver.js";
 import type { WidgetCredentialRepository } from "@ragsystem/backend-core/contracts/control-plane/widget-credentials.js";
-import { PostgresBotRepository } from "../../../adapters/saas/postgres/bot-repository.js";
 import { createPostgresControlPlaneAdapter } from "../../../adapters/saas/postgres/control-plane-adapter.js";
 import { createPostgresSecretResolver } from "../../../adapters/saas/postgres/control-secret-resolver.js";
 import { PostgresWidgetCredentialRepository } from "../../../adapters/saas/postgres/widget-credential-repository.js";
 import { PostgresDaemonLeaderLease } from "../../../adapters/saas/postgres/daemon-leader-lease.js";
-import type { DaemonLeaderLease } from "@ragsystem/backend-core/contracts/runtime/daemon-leader-lease.js";
+import type { DaemonLeaderLease } from "@ragsystem/backend-plugin-daemon-feishu/contracts/daemon-leader-lease.js";
 
 export interface SaaSControlRuntimeHandle {
   readonly controlPlane: ControlPlane;
-  readonly botRepository: BotRepository;
+  readonly botRepository: DaemonBotRepository;
   readonly widgetCredentials: WidgetCredentialRepository;
   readonly secretResolver: SecretResolver;
   readonly daemonLeaderLease: DaemonLeaderLease;

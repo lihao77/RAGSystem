@@ -3,9 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { BotRepository } from "../contracts/control-plane/bot-repository.js";
 import type { ControlPlane } from "../contracts/control-plane/index.js";
 import type { WidgetCredentialRepository } from "../contracts/control-plane/widget-credentials.js";
-import type { DaemonLeaderLease } from "../contracts/runtime/daemon-leader-lease.js";
 import type { RouteOptions } from "../routes/route-options.js";
-import type { DaemonService } from "../services/daemon/daemon-service.js";
 import type { IdentityProvider } from "../services/identity/index.js";
 import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { RuntimeContainerRegistry } from "../services/runtime/runtime-container-registry.js";
@@ -37,8 +35,6 @@ export interface DeploymentRuntime {
   readonly wsTickets: WsTicketService;
   readonly initialSessionTokens?: SessionTokenService;
   readonly widgetAuth?: WidgetAuthService;
-  readonly botEngine?: DaemonService;
-  readonly daemonLeaderLease?: DaemonLeaderLease;
   createRegistry(
     logger: FastifyBaseLogger,
     plugins?: BackendRuntimeContributions,

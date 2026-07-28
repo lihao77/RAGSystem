@@ -48,8 +48,8 @@ Runtime tools and integrations:
   isolation and `requirements.txt` provisioning), artifact protocol, team
   protocol, and background execution.
 - Hook runtime.
-- MCP server config, stdio/http connection lifecycle, tool discovery, runtime bridge exposure,
-  execution, and permissions.
+- Plugin-contributed integrations, tool discovery, runtime bridge exposure, execution, and
+  permissions.
 - Vector/RAG indexing, search, rerank, delete, migration, sync, and knowledge-base runtime tools.
 
 Management and provider compatibility:
@@ -59,8 +59,8 @@ Management and provider compatibility:
 - Model provider YAML-backed management, provider availability/test routes, Anthropic chat,
   OpenAI-compatible chat, OpenAI Responses chat, embeddings, and rerank support.
 - System config reads/updates/reload.
-- Daemon status/config, start/stop, outbound send, test message dispatch, cron task management, and
-  cron trigger.
+- Daemon status/config, Feishu gateway lifecycle, outbound send, cron task management, and cron
+  trigger are owned by the Daemon/Feishu plugin.
 - File management, artifact management, embedding model management, vector library management,
   permission policy routes, monitoring routes, context snapshot, and outbox operations.
 
@@ -68,8 +68,8 @@ Management and provider compatibility:
 
 - Parallel collaboration still returns HTTP 400 with `并行模式尚未实现`. This matches the current
   Python backend behavior and is not a TypeScript migration gap.
-- Live external behavior still depends on local provider keys, MCP servers, daemon platform
-  gateways, and vector provider configuration. Tests cover local/fake execution paths; optional
+- Live external behavior still depends on local provider keys and installed plugin configuration.
+  Tests cover local/fake execution paths; optional
   smoke tests can validate a live environment.
 
 ## Rule

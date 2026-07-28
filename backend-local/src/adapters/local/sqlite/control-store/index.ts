@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { BotConfig, BotConfigUpdate, BotCronTask, BotCronTaskCreate, BotSummary, TenantBotSummary } from "@ragsystem/backend-core/contracts/control-plane/bot.js";
+import type { BotConfig, BotConfigUpdate, BotCronTask, BotCronTaskCreate, BotSummary, TenantBotSummary } from "@ragsystem/backend-plugin-daemon-feishu/contracts/bot.js";
 import type { Bot, UserType } from "@ragsystem/backend-core/contracts/control-plane/user.js";
 import type {
   ControlMembership,

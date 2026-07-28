@@ -18,8 +18,12 @@ import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } fro
 import { createSaaSObjectStorage } from "./saas-object-storage.js";
 import { SaaSTenantRuntimeRegistry } from "./saas-tenant-runtime-registry.js";
 import type { PostgresExecutor } from "../postgres/postgres-executor.js";
+import type { DaemonLeaderLease } from "@ragsystem/backend-plugin-daemon-feishu/contracts/daemon-leader-lease.js";
+import type { DaemonBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/contracts/bot-repository.js";
 
 export interface SaaSDeploymentRuntime extends DeploymentRuntime {
+  readonly botRepository: DaemonBotRepository;
+  readonly daemonLeaderLease: DaemonLeaderLease;
   readonly pluginResources: {
     database: PostgresExecutor;
     objects: ObjectStorage;

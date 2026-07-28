@@ -24,6 +24,7 @@ import {
 } from "@ragsystem/backend-plugin-mcp/index.js";
 import { createExecutionToolsPlugin, createSaaSExecutionToolsRuntimeFactory } from "@ragsystem/backend-plugin-execution-tools/index.js";
 import { createDocumentToolsPlugin, createSaaSDocumentToolsRuntimeFactory } from "@ragsystem/backend-plugin-document-tools/index.js";
+import { createDaemonFeishuPlugin } from "@ragsystem/backend-plugin-daemon-feishu/index.js";
 import {
   createPostgresSkillsLifecycle,
   createPostgresSkillsRuntimeFactory,
@@ -59,6 +60,11 @@ export function createSaaSProductPlugins(
     }),
     executionTools: () => createExecutionToolsPlugin({ runtimeFactory: createSaaSExecutionToolsRuntimeFactory() }),
     documentTools: () => createDocumentToolsPlugin({ runtimeFactory: createSaaSDocumentToolsRuntimeFactory() }),
+    daemonFeishu: () => createDaemonFeishuPlugin({
+      botRepository: deployment.botRepository,
+      controlPlane: deployment.controlPlane,
+      leaderLease: deployment.daemonLeaderLease,
+    }),
     knowledge: () => createKnowledgePlugin({
       runtimeFactory: createPostgresKnowledgeRuntimeFactory({
         executor: deployment.pluginResources.database,

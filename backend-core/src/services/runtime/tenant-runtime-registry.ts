@@ -1,6 +1,6 @@
 import type { TenantDirectory } from "../../contracts/control-plane/index.js";
 import type { RuntimeLease, RuntimeRegistry } from "../../contracts/runtime/runtime-provider.js";
-import { createTenantId, type TenantId, type UserId } from "../../identity/types.js";
+import { createTenantId, type TenantId } from "../../identity/types.js";
 
 export type TenantRuntimeLease<TRuntime> = RuntimeLease<TRuntime>;
 
@@ -15,11 +15,6 @@ export interface TenantRuntimeSnapshot {
   webSockets: number;
   runs: number;
   lastAccessedAt: number;
-}
-
-export interface DaemonRouteTarget {
-  tenantId: TenantId;
-  botId: UserId;
 }
 
 export interface TenantRuntimeRegistryOptions<TRuntime> {
@@ -40,9 +35,6 @@ export interface TenantRuntimeRegistry<TRuntime> extends RuntimeRegistry<TRuntim
   trackWebSocket(tenantId: string): TenantRuntimeActivityLease;
   trackRun(tenantId: string): TenantRuntimeActivityLease;
   snapshot(tenantId: string): TenantRuntimeSnapshot | null;
-  registerRouteToken(tenantId: TenantId, botId: UserId, routeToken: string): void;
-  unregisterRouteToken(routeToken: string, tenantId?: TenantId): void;
-  resolveRouteToken(routeToken: string): DaemonRouteTarget | null;
 }
 
 export type RuntimeEntryState = "initializing" | "ready" | "closing" | "closed" | "failed";
@@ -64,7 +56,6 @@ const DEFAULT_IDLE_TIMEOUT_MS = 60_000;
 /** Deployment-neutral tenant runtime lifecycle and lease manager. */
 export class TenantRuntimeRegistryCore<TRuntime> implements TenantRuntimeRegistry<TRuntime> {
   private readonly entries = new Map<TenantId, RuntimeEntry<TRuntime>>();
-  private readonly routeTokenIndex = new Map<string, DaemonRouteTarget>();
   private readonly idleTimeoutMs: number;
   private readonly sweepTimer: NodeJS.Timeout;
   private closingAll = false;
@@ -154,24 +145,6 @@ export class TenantRuntimeRegistryCore<TRuntime> implements TenantRuntimeRegistr
 
   trackRun(tenantId: string): TenantRuntimeActivityLease {
     return this.trackActivity(tenantId, "runs");
-  }
-
-  registerRouteToken(tenantId: TenantId, botId: UserId, routeToken: string): void {
-    const existing = this.routeTokenIndex.get(routeToken);
-    if (existing && (existing.tenantId !== tenantId || existing.botId !== botId)) {
-      throw new Error("飞书 webhook routeToken 冲突");
-    }
-    this.routeTokenIndex.set(routeToken, { tenantId, botId });
-  }
-
-  unregisterRouteToken(routeToken: string, tenantId?: TenantId): void {
-    const existing = this.routeTokenIndex.get(routeToken);
-    if (!existing || (tenantId && existing.tenantId !== tenantId)) return;
-    this.routeTokenIndex.delete(routeToken);
-  }
-
-  resolveRouteToken(routeToken: string): DaemonRouteTarget | null {
-    return this.routeTokenIndex.get(routeToken) ?? null;
   }
 
   async closeTenant(rawTenantId: string): Promise<void> {

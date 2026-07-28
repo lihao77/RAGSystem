@@ -1,7 +1,6 @@
 export * from "./postgres-executor.js";
 export * from "./control-migrations.js";
 export * from "./control-plane-adapter.js";
-export * from "./bot-repository.js";
 export * from "./widget-credential-repository.js";
 export * from "./control-secret-migrations.js";
 export * from "./control-secret-resolver.js";

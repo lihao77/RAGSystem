@@ -43,9 +43,9 @@ npm run dev:backend-saas
   management route shapes
 - In-memory system config API compatible with the Python `/api/system-config/*` schema form route
   shapes
-- In-memory MCP server config API compatible with the Python `/api/mcp/*` management route shapes
-- In-memory daemon config and cron-task API compatible with the Python `/api/daemon/*` management
-  route shapes
+- MCP management and runtime behavior is supplied by the optional MCP plugin
+- Daemon configuration, Feishu gateways, and cron-task behavior are supplied by the optional
+  Daemon/Feishu plugin
 - In-memory vectorizer/reranker config API and knowledge base status reads compatible with the
   Python `/api/knowledge-bases/*` management route shapes
 - Empty vector collection/document reads and vector health status compatible with the Python
@@ -62,7 +62,7 @@ npm run dev:backend-saas
   `glob`, `grep`, `web_fetch`, `todo_write`, restricted `execute_code`, Skill tools, MCP tools,
   vector/RAG tools, hooks, and synchronous agent delegation
 - Attachments, system slash commands including `/compact`, file-history
-  rollback/retry, sequential collaboration, daemon runtime operations, and provider test routes
+  rollback/retry, sequential collaboration, plugin process runtimes, and provider test routes
 
 ## Test-First Boundary
 

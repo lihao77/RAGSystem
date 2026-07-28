@@ -4,7 +4,6 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 import "./fastify-context.js";
 
@@ -26,7 +25,6 @@ import { HttpError, formatError } from "./utils/errors.js";
 import { createWidgetAuthService } from "./services/runtime/jwt-service.js";
 import { createSessionTokenService, type SessionTokenService } from "./services/runtime/session-token-service.js";
 import { AuthError, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
-import { DaemonService, type DaemonSuspendedInteraction } from "./services/daemon/daemon-service.js";
 export interface CoreBuildAppOptions {
   env: AppEnv;
   runtime: DeploymentRuntime;
@@ -79,127 +77,8 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentials) : undefined;
   const registry = await deployment.createRegistry(app.log, pluginManager.runtimeContributions());
   const wsTickets = deployment.wsTickets;
-  const botEngine = deployment.botEngine ?? new DaemonService({
-    botRepository,
-    registry,
-    ...(deployment.daemonLeaderLease ? { leaderLease: deployment.daemonLeaderLease } : {}),
-    runAgentTask: async (input) => {
-      const lease = await registry.acquire(input.tenantId);
-      try {
-        try {
-          const existing = await lease.runtime.sessionApplication.getSession(input.sessionId);
-          // 会话绑定字段只在创建时写入：team 缺省时快照当前激活 team；entry_agent 写本轮入口。
-          // 已有会话不回写 team/entry_agent，避免 bot 配置变更污染历史会话。
-          let createMetadata = input.sessionMetadata ? { ...input.sessionMetadata } : {};
-          if (!existing) {
-            const teams = await lease.runtime.agentConfig.listTeams();
-            const configuredTeam = typeof input.team === "string" ? input.team.trim() : "";
-            const team = configuredTeam || teams.active_team || "";
-            if (team) createMetadata = { ...createMetadata, team };
-            let entryAgent = typeof input.entryAgent === "string" ? input.entryAgent.trim() : "";
-            if (!entryAgent) {
-              const configs = lease.runtime.agentConfig.listConfigs({ teamName: team || null });
-              const defaultEntry = Object.values(configs).find((config) => config.default_entry);
-              entryAgent = defaultEntry?.agent_name?.trim() || "";
-            }
-            if (entryAgent) createMetadata = { ...createMetadata, entry_agent: entryAgent };
-          } else {
-            // 已有会话：只同步通道元数据（chatId 等），剥离绑定字段
-            const { team: _team, entry_agent: _entry, ...channelMeta } = createMetadata as Record<string, unknown>;
-            createMetadata = channelMeta;
-          }
-          const sessionBot = await botRepository.get(input.botId);
-          if (!sessionBot) throw new Error(`bot 不存在: ${input.botId}`);
-          await lease.runtime.sessionApplication.ensureSession({
-            sessionId: input.sessionId,
-            ownerUserId: sessionBot.owner_id,
-            visibility: "private",
-            originType: "bot",
-            originId: input.botId,
-            originChannel: input.source.includes("cron") ? "cron" : input.source.includes("feishu") ? "feishu" : "api",
-            workspaceId: null,
-            ...(Object.keys(createMetadata).length > 0 ? { metadata: createMetadata } : {}),
-            permissionMode: input.permissionMode,
-          });
-          const scheduledBatches = new Set<string>();
-          const onInteractionRequired = (notice: { rootRunId: string; batchId: string }): void => {
-            if (scheduledBatches.has(notice.batchId)) return;
-            scheduledBatches.add(notice.batchId);
-            queueMicrotask(() => void (async () => {
-              scheduledBatches.delete(notice.batchId);
-              const metas = (await lease.runtime.interactionCoordinator.listPendingAsync(
-                notice.rootRunId,
-                input.sessionId,
-              )).map((item): DaemonSuspendedInteraction => ({
-                approvalId: item.approvalId,
-                sessionId: item.sessionId,
-                botId: input.botId,
-                rootRunId: item.rootRunId,
-                kind: item.kind,
-                ...(item.toolName ? { toolName: item.toolName } : {}),
-                ...(item.riskLevel ? { riskLevel: item.riskLevel } : {}),
-                ...(item.reason ? { reason: item.reason } : {}),
-                ...(item.prompt ? { prompt: item.prompt } : {}),
-                ...(item.options ? { options: item.options } : {}),
-              }));
-              if (metas.length === 0) return;
-              input.onInteractionRequired?.(metas);
-            })().catch((error: unknown) => {
-              app.log.error({ error, sessionId: input.sessionId }, "failed to load daemon pending interactions");
-            }));
-          };
-          const result = await lease.runtime.agentExecution.executeSynchronously({
-            task: input.task,
-            session_id: input.sessionId,
-            agent: input.entryAgent,
-            userId: input.botId,
-            executionKind: input.source,
-            onInteractionRequired,
-          }, randomUUID());
-          if (!result.success && !result.suspended) throw new Error(result.error ?? "agent 执行失败");
-          if (result.suspended) {
-            const rootRunId = result.rootRunId ?? result.run_id ?? "";
-            const metas = await lease.runtime.interactionCoordinator.listPendingAsync(rootRunId, input.sessionId);
-            const meta = metas[0];
-            if (!meta) {
-              throw new Error("Agent 已挂起，但未找到待处理交互");
-            }
-            const interactions = metas.map((item) => ({
-              approvalId: item.approvalId,
-              sessionId: item.sessionId,
-              botId: input.botId,
-              rootRunId: item.rootRunId,
-              kind: item.kind,
-              ...(item.toolName ? { toolName: item.toolName } : {}),
-              ...(item.riskLevel ? { riskLevel: item.riskLevel } : {}),
-              ...(item.reason ? { reason: item.reason } : {}),
-              ...(item.prompt ? { prompt: item.prompt } : {}),
-              ...(item.options ? { options: item.options } : {}),
-            }));
-            return {
-              suspended: true,
-              content: "",
-              interaction: interactions[0]!,
-              interactions,
-            };
-          }
-          return { suspended: false, content: result.answer ?? "" };
-        } finally {
-          // 仅同步通道侧元数据；team/entry_agent 只在创建时写入，禁止 finally 回写覆盖
-          if (input.sessionMetadata) {
-            const { team: _team, entry_agent: _entry, ...channelMeta } = input.sessionMetadata as Record<string, unknown>;
-            if (Object.keys(channelMeta).length > 0) {
-              await lease.runtime.sessionApplication.updateSessionMetadata(input.sessionId, channelMeta);
-            }
-          }
-        }
-      } finally {
-        lease.release();
-      }
-    },
-  });
-  app.decorate("botEngine", botEngine);
   app.decorate("botRepository", botRepository);
+  await pluginManager.initializeApplication({ logger: app.log, registry });
   await widgetCredentials.startPruning();
   app.decorateRequest("identity");
   app.decorateRequest("userId");
@@ -215,9 +94,8 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   app.addHook("onError", async (request) => releaseRequestLease(request));
   app.addHook("onClose", async () => {
     const errors: unknown[] = [];
-    try { botEngine.close(); } catch (error) { errors.push(error); }
-    try { await registry.closeAll(); } catch (error) { errors.push(error); }
     try { await pluginManager.stop(); } catch (error) { errors.push(error); }
+    try { await registry.closeAll(); } catch (error) { errors.push(error); }
     try { await deployment.close(); } catch (error) { errors.push(error); }
     if (errors.length > 0) throw new AggregateError(errors, "Backend shutdown failed");
   });
@@ -331,7 +209,6 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     controlPlane,
     registry,
     identityProvider: routedIdentityProvider,
-    botRepository,
     widgetCredentialStore: widgetCredentials,
     ...(widgetAuth ? { widgetAuth } : {}),
     ...(applications.resolveExecutionRead ? { resolveExecutionRead: applications.resolveExecutionRead } : {}),
@@ -339,6 +216,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
       ...pluginManager.routes("management"),
       ...pluginManager.routes("platform"),
     ],
+    emitPluginEvent: (event, payload) => pluginManager.emit(event, payload),
   });
   await registerWidgetAndRealtimeRoutes(app, {
     registry,
@@ -359,16 +237,6 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
 
   registerFrontendFallback(app);
   await pluginManager.start();
-  try {
-    await botEngine.start();
-  } catch (error) {
-    try {
-      await pluginManager.stop();
-    } catch (stopError) {
-      throw new AggregateError([error, stopError], "Bot engine startup and plugin rollback failed");
-    }
-    throw error;
-  }
 
   return app;
 }

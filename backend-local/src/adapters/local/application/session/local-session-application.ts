@@ -3,21 +3,21 @@ import type { SessionApplication } from "@ragsystem/backend-core/contracts/sessi
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
 import type { ConversationStore } from "../../sqlite/conversation-store/index.js";
-import { TenantDaemonSessionApplication } from "@ragsystem/backend-core/services/sessions/daemon-session-application.js";
+import { TenantSessionIdentityApplication } from "@ragsystem/backend-core/services/sessions/session-identity-application.js";
 import { canonicalLocalWorkspaceKey, normalizeLocalWorkspacePath } from "@ragsystem/backend-core/services/workspaces/workspace-application.js";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 /** Binds the Local session service to one request tenant. */
 export class LocalSessionApplication implements SessionApplication {
-  private readonly daemonSessions: TenantDaemonSessionApplication;
+  private readonly sessionIdentities: TenantSessionIdentityApplication;
 
   constructor(
     private readonly tenantId: TenantId,
     private readonly sessions: AgentSessionApplication,
     private readonly conversations: ConversationStore,
   ) {
-    this.daemonSessions = new TenantDaemonSessionApplication(tenantId, {
+    this.sessionIdentities = new TenantSessionIdentityApplication(tenantId, {
       getSession: async (sessionId) => conversations.getSession(sessionId),
       createSession: async (input) => { await sessions.createSession(input); },
       updateSessionMetadata: async (sessionId, patch) => conversations.updateSessionMetadata(sessionId, patch),
@@ -25,7 +25,7 @@ export class LocalSessionApplication implements SessionApplication {
   }
 
   ensureSession(input: Parameters<SessionApplication["ensureSession"]>[0]) {
-    return this.daemonSessions.ensureSession(input);
+    return this.sessionIdentities.ensureSession(input);
   }
 
   async createSession(input: Parameters<SessionApplication["createSession"]>[0]) {
@@ -62,7 +62,7 @@ export class LocalSessionApplication implements SessionApplication {
     return this.conversations.getWorkspaceById(this.tenantId, session.workspace_id)?.root_path ?? null;
   }
   async getSessionForExecutionValidation(sessionId: string) { return this.sessions.getSession(sessionId); }
-  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>) { return this.daemonSessions.updateSessionMetadata(sessionId, patch); }
+  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>) { return this.sessionIdentities.updateSessionMetadata(sessionId, patch); }
   async updateSessionPermissionMode(sessionId: string, mode: PermissionMode) { return this.conversations.updateSessionPermissionMode(sessionId, mode); }
   async deleteSession(sessionId: string) { return this.sessions.deleteSession(sessionId); }
   async listMessages(input: Parameters<SessionApplication["listMessages"]>[0]) { return this.sessions.listMessages(input); }

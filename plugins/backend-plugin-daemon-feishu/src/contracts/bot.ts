@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { createTenantId, createUserId } from "../../identity/types.js";
-import { UserStatusSchema } from "./user.js";
-import { PermissionModeSchema } from "../runtime/permissions.js";
+import { createTenantId, createUserId } from "@ragsystem/backend-core/identity/types.js";
+import { UserStatusSchema } from "@ragsystem/backend-core/contracts/control-plane/user.js";
+import { PermissionModeSchema } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
 
 const UserIdSchema = z.string().transform(createUserId);
 const TenantIdSchema = z.string().transform(createTenantId);

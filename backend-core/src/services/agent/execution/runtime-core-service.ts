@@ -83,7 +83,7 @@ export class RuntimeCoreService {
       provider,
       requirements,
       boundary:
-        "Single-agent streaming execution, tool-call loops, managed runtime tools, hooks, MCP, daemon runtime, persisted compression, rollback/retry, provider adapters, and synchronous multi-agent delegation are available when configuration is ready. Installed plugins may contribute additional routes, tools, resources, and hooks.",
+        "Single-agent streaming execution, tool-call loops, managed runtime tools, hooks, persisted compression, rollback/retry, provider adapters, and synchronous multi-agent delegation are available when configuration is ready. Installed plugins may contribute additional routes, tools, resources, hooks, and process runtimes.",
     };
   }
 
@@ -185,7 +185,7 @@ export class RuntimeCoreService {
         "agent_runtime",
         "execution_runtime",
         true,
-        "单 Agent streaming、工具循环、运行时工具、hooks、MCP、daemon、上下文压缩、rollback/retry、provider 与同步多 Agent 委派可用；已安装插件可额外贡献路由、工具、资源与 hooks",
+        "单 Agent streaming、工具循环、运行时工具、hooks、上下文压缩、rollback/retry、provider 与同步多 Agent 委派可用；已安装插件可额外贡献路由、工具、资源、hooks 与进程级运行时",
         "runtime_unavailable",
       ),
     ];

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { PlatformTypeSchema } from "../control-plane/bot.js";
+import { PlatformTypeSchema } from "./bot.js";
 
 export const DaemonTestMessageSchema = z.object({
   content: z.string().optional().default("测试消息"),

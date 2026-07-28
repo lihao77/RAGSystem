@@ -13,7 +13,6 @@ import { registerAgentRoutes } from "../routes/agent/index.js";
 import { registerSessionWebSocketRoute } from "../routes/agent/ws.js";
 import { registerAuthRoutes, registerInstallRoutes } from "../routes/auth.js";
 import { registerBootstrapRoutes } from "../routes/bootstrap.js";
-import { registerBotRoutes } from "../routes/bots.js";
 import { registerHealthRoutes, registerProbeRoutes } from "../routes/health.js";
 import { registerModelAdapterRoutes } from "../routes/model-adapter.js";
 import { registerPlatformRoutes } from "../routes/platform.js";
@@ -138,10 +137,10 @@ interface ManagementRouteAssemblyOptions {
   controlPlane: ControlPlane;
   registry: TenantRuntimeRegistry;
   identityProvider: IdentityProvider;
-  botRepository: BotRepository;
   widgetCredentialStore: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
   pluginRoutes?: readonly BackendRouteContribution[];
+  emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
 }
 
 export async function registerManagementAndPlatformRoutes(
@@ -151,12 +150,6 @@ export async function registerManagementAndPlatformRoutes(
   await app.register(async (scope) => {
     installIdentityScope(scope, { identityProvider: options.identityProvider });
     await scope.register(registerAdminRoutes, { prefix: "/api/admin", controlPlane: options.controlPlane });
-    await scope.register(registerBotRoutes, {
-      prefix: "/api/bots",
-      registry: options.registry,
-      identityProvider: options.identityProvider,
-      botRepository: options.botRepository,
-    });
     await scope.register(registerWidgetAppsRoutes, {
       prefix: "/api/widget/apps",
       registry: options.registry,
@@ -171,8 +164,8 @@ export async function registerManagementAndPlatformRoutes(
     await scope.register(registerPlatformRoutes, {
       prefix: "/api/platform",
       controlPlane: options.controlPlane,
-      botRepository: options.botRepository,
       registry: options.registry,
+      ...(options.emitPluginEvent ? { emitPluginEvent: options.emitPluginEvent } : {}),
     });
     await registerPluginRoutes(scope, options.pluginRoutes, "platform");
   });

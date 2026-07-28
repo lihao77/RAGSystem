@@ -33,10 +33,6 @@ export interface RouteOptions {
   widgetAuth?: WidgetAuthService;
 }
 
-export interface BotRouteOptions extends RouteOptions {
-  botRepository: BotRepository;
-}
-
 export interface AgentRouteOptions extends RouteOptions {
   botRepository: BotRepository;
   wsTickets: WsTicketService;

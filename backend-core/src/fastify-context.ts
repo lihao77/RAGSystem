@@ -1,7 +1,6 @@
 import type { RequestIdentity, TenantId, UserId } from "./identity/types.js";
 import type { RuntimeContainer } from "./contracts/runtime/runtime-container.js";
 import type { RuntimeContainerLease as TenantRuntimeLease } from "./services/runtime/runtime-container-registry.js";
-import type { DaemonService } from "./services/daemon/daemon-service.js";
 import type { BotRepository } from "./contracts/control-plane/bot-repository.js";
 import type { RequestApplications } from "./app/request-applications.js";
 import type { RequestResources } from "./app/request-resources.js";
@@ -12,7 +11,6 @@ declare module "fastify" {
   }
 
   interface FastifyInstance {
-    botEngine: DaemonService;
     botRepository: BotRepository;
   }
 

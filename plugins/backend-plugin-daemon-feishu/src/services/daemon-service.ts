@@ -1,14 +1,14 @@
-import { isRecord } from "../../utils/guards.js";
+import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { randomUUID } from "node:crypto";
 
-import type { BotRepository } from "../../contracts/control-plane/bot-repository.js";
-import type { BotConfig, BotCronTask, BotCronTaskCreate, BotCronTaskUpdate, PlatformType } from "../../contracts/control-plane/bot.js";
-import type { DaemonOutgoingMessage, DaemonTestMessage } from "../../contracts/runtime/daemon.js";
-import type { TenantId, UserId } from "../../identity/types.js";
-import type { PermissionMode } from "../../contracts/runtime/permissions.js";
-import type { DaemonRuntimeProvider } from "../../contracts/runtime/daemon-runtime-provider.js";
-import type { DaemonLeaderLease } from "../../contracts/runtime/daemon-leader-lease.js";
-import type { ApprovalMeta } from "../../contracts/runtime/pending-interactions.js";
+import type { DaemonBotRepository } from "../contracts/bot-repository.js";
+import type { BotConfig, BotCronTask, BotCronTaskCreate, BotCronTaskUpdate, PlatformType } from "../contracts/bot.js";
+import type { DaemonOutgoingMessage, DaemonTestMessage } from "../contracts/daemon.js";
+import type { TenantId, UserId } from "@ragsystem/backend-core/identity/types.js";
+import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
+import type { DaemonRuntimeProvider } from "../contracts/daemon-runtime-provider.js";
+import type { DaemonLeaderLease } from "../contracts/daemon-leader-lease.js";
+import type { ApprovalMeta } from "@ragsystem/backend-core/contracts/runtime/pending-interactions.js";
 import {
   buildApprovalCard,
   buildUserInputCard,
@@ -84,7 +84,7 @@ interface BotRuntimeState {
 }
 
 export interface DaemonServiceOptions {
-  botRepository: BotRepository;
+  botRepository: DaemonBotRepository;
   registry: DaemonRuntimeProvider;
   runAgentTask: DaemonRunAgentTask;
   leaderLease?: DaemonLeaderLease;

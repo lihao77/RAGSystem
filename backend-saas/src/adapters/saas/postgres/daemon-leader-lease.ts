@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from "pg";
-import type { DaemonLeaderLease } from "@ragsystem/backend-core/contracts/runtime/daemon-leader-lease.js";
+import type { DaemonLeaderLease } from "@ragsystem/backend-plugin-daemon-feishu/contracts/daemon-leader-lease.js";
 
 const DAEMON_LEADER_LOCK_ID = 0x52414744;
 

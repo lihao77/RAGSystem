@@ -96,6 +96,42 @@ describe("BackendPluginManager", () => {
       .rejects.toThrow("runtime failed");
     expect(dispose).toHaveBeenCalledOnce();
   });
+
+  it("owns process-level application runtimes and dispatches generic events", async () => {
+    const events: string[] = [];
+    const manager = new BackendPluginManager([{
+      manifest: { id: "application", version: "1.0.0" },
+      register(context) {
+        context.applications.register(() => {
+          events.push("create:application");
+          return {
+            start: () => { events.push("start:application"); },
+            dispose: () => { events.push("dispose:application"); },
+          };
+        });
+        context.events.on("resource.changed", (payload) => {
+          events.push(`event:${String((payload as { id?: unknown }).id)}`);
+        });
+      },
+      start: () => { events.push("start:plugin"); },
+      stop: () => { events.push("stop:plugin"); },
+    }]);
+
+    await manager.register();
+    await manager.initializeApplication({} as never);
+    await manager.start();
+    await manager.emit("resource.changed", { id: "bot-a" });
+    await manager.stop();
+
+    expect(events).toEqual([
+      "create:application",
+      "start:application",
+      "start:plugin",
+      "event:bot-a",
+      "stop:plugin",
+      "dispose:application",
+    ]);
+  });
 });
 
 function plugin(id: string, events: string[], requires?: readonly string[]): BackendPlugin {
