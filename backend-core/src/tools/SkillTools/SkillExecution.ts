@@ -7,7 +7,7 @@ import YAML from "yaml";
 import type { JsonValue } from "../../contracts/common.js";
 import { AgentConfigSchema, type AgentConfig } from "../../contracts/agent/agent-config.js";
 import type { AgentConfigService } from "../../services/agent/config/index.js";
-import type { ArtifactService } from "../../services/artifacts/artifact-service.js";
+import type { ArtifactWriter } from "../../contracts/artifacts/artifact-writer.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { ClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
 import type { ISkillPackageStore, SkillPackageRecord } from "../../contracts/skills/skill-package-store.js";
@@ -84,7 +84,7 @@ export class SkillToolService {
       builtinSkillsRoot?: string | undefined;
       userGlobalSkillsRoot?: string | undefined;
       agentConfig?: AgentConfigService | null | undefined;
-      artifacts?: ArtifactService | null | undefined;
+      artifacts?: ArtifactWriter | null | undefined;
       backgroundTasks?: BackgroundTaskService | null | undefined;
       clientEvents?: ClientEventPublisher | null | undefined;
       skillIsolationMode?: SkillIsolationMode | undefined;
@@ -110,7 +110,7 @@ export class SkillToolService {
   }
 
   private readonly agentConfig: AgentConfigService | null;
-  private readonly artifacts: ArtifactService | null;
+  private readonly artifacts: ArtifactWriter | null;
   private readonly backgroundTasks: BackgroundTaskService | null;
   private readonly clientEvents: ClientEventPublisher | null;
   private readonly skillIsolationMode: SkillIsolationMode;
@@ -523,15 +523,10 @@ export class SkillToolService {
   ): Promise<ToolExecutionResult> {
     let payload = rawPayload;
     let rawArtifact: unknown = null;
-    let rawTeam: unknown = null;
     if (isRecord(payload)) {
       if ("artifact" in payload) {
         rawArtifact = payload.artifact;
         delete payload.artifact;
-      }
-      if ("team" in payload) {
-        rawTeam = payload.team;
-        delete payload.team;
       }
     }
 
@@ -545,10 +540,6 @@ export class SkillToolService {
       if (rawArtifact === null && "artifact" in payload) {
         rawArtifact = payload.artifact;
         delete payload.artifact;
-      }
-      if (rawTeam === null && "team" in payload) {
-        rawTeam = payload.team;
-        delete payload.team;
       }
     }
 
@@ -568,17 +559,6 @@ export class SkillToolService {
         llmHint = `在 <final_answer> 中插入 [viz:${artifact.info.artifact_id}] 来展示此可视化`;
       }
     }
-    if (rawTeam !== null) {
-      const team = await this.applyTeamProtocol(rawTeam);
-      if ("error" in team) {
-        metadata.team_error = team.error;
-      } else {
-        payload = isRecord(payload) ? { ...payload, ...team.info } : { data: payload, ...team.info };
-        metadata.team_name = team.info.team_name;
-        metadata.team_action = team.info.action;
-        metadata.team_applied = true;
-      }
-    }
     return successResult(payload, {
       summary: `脚本 ${scriptName} 执行完成（返回结构化 JSON）`,
       outputType,
@@ -592,47 +572,12 @@ export class SkillToolService {
     });
   }
 
-  private async applyTeamProtocol(rawTeam: unknown): Promise<{ info: Record<string, unknown> } | { error: string }> {
-    if (!isRecord(rawTeam)) {
-      return { error: "team 字段必须是对象" };
-    }
-    const action = asString(rawTeam.action) ?? "create_or_replace";
-    if (action !== "create_or_replace") {
-      return { error: `不支持的 team action: ${action}` };
-    }
-    const teamName = asString(rawTeam.team_name);
-    if (!teamName) {
-      return { error: "team.team_name 不能为空" };
-    }
-    if (!isRecord(rawTeam.agents)) {
-      return { error: "team.agents 必须是非空对象" };
-    }
-    if (!this.agentConfig) {
-      return { error: "AgentConfigService 未接入，无法应用 team" };
-    }
-    try {
-      const result = await this.agentConfig.applyTeamPayload(teamName, rawTeam.agents, asString(rawTeam.source_team));
-      return {
-        info: {
-          action,
-          team_name: result.team_name,
-          source_team: result.source_team,
-          agent_count: result.agent_count,
-          agents: result.agents,
-          applied: true,
-        },
-      };
-    } catch (error) {
-      return { error: `应用 team 失败: ${error instanceof Error ? error.message : String(error)}` };
-    }
-  }
-
   private applyArtifactProtocol(rawArtifact: unknown, context: ToolExecContext): { info: { artifact_id: string; viz_type: string; title: string; version: number } } | { error: string } {
     if (!isRecord(rawArtifact)) {
       return { error: "artifact 字段必须是对象" };
     }
     if (!this.artifacts) {
-      return { error: "ArtifactService 未接入，无法持久化 artifact" };
+      return { error: "Artifact 写入能力未接入，无法持久化 artifact" };
     }
     const action = asString(rawArtifact.action) ?? "create";
     try {

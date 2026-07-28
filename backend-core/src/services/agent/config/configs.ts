@@ -38,7 +38,7 @@ export const defaultLlmTier = {
 };
 
 export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
-  const specialistAgents = ["team_maker", "plan_agent", "explor_agent", "general_agent", "review_agent", "test_agent"];
+  const specialistAgents = ["plan_agent", "explor_agent", "general_agent", "review_agent", "test_agent"];
   return {
     orchestrator_agent: buildSystemAgentConfig({
       agent_name: "orchestrator_agent",
@@ -50,14 +50,6 @@ export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
       delegation: specialistAgents,
       goals: { enabled: true },
       tasks: { background: true },
-    }),
-    team_maker: buildSystemAgentConfig({
-      agent_name: "team_maker",
-      display_name: "Team Maker",
-      description: "系统默认组队 Agent，负责生成、整理和调整 team 配置方案。",
-      system_prompt: "你负责根据目标生成、整理和调整 team 配置，输出尽量少而完整的 team 方案。",
-      skills: ["team-generation"],
-      delegation: ["plan_agent", "explor_agent", "general_agent"],
     }),
     plan_agent: buildSystemAgentConfig({
       agent_name: "plan_agent",

@@ -1,4 +1,4 @@
-import { isRecord, normalizeString } from "../../utils/guards.js";
+import { isRecord, normalizeString } from "@ragsystem/backend-core/utils/guards.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -7,8 +7,10 @@ import type {
   VisualizationConfig,
   VisualizationIndexEntry,
   VisualizationSummary,
-} from "../../contracts/artifacts/artifacts.js";
-import type { JsonValue } from "../../contracts/common.js";
+} from "@ragsystem/backend-core/contracts/artifacts/artifacts.js";
+import type { JsonValue } from "@ragsystem/backend-core/contracts/common.js";
+import type { ArtifactWriter } from "@ragsystem/backend-core/contracts/artifacts/artifact-writer.js";
+import { ArtifactServiceError } from "@ragsystem/backend-plugin-artifacts/artifact-error.js";
 
 export interface VisualizationRecord {
   artifact_id: string;
@@ -22,23 +24,13 @@ export interface VisualizationRecord {
   updated_at: number;
 }
 
-export class ArtifactServiceError extends Error {
-  readonly statusCode: number;
-
-  constructor(message: string, statusCode = 400) {
-    super(message);
-    this.name = "ArtifactServiceError";
-    this.statusCode = statusCode;
-  }
-}
-
-export class ArtifactService {
+export class FilesystemArtifactService implements ArtifactWriter {
   private readonly dataRoot: string;
   private readonly sessionsRoot: string;
 
   constructor(options: { dataRoot?: string | undefined }) {
     if (!options.dataRoot?.trim()) {
-      throw new Error("ArtifactService 必须传入已解析的 dataRoot");
+      throw new Error("FilesystemArtifactService 必须传入已解析的 dataRoot");
     }
     this.dataRoot = path.resolve(options.dataRoot);
     this.sessionsRoot = path.join(this.dataRoot, "sessions");

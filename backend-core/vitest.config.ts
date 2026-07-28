@@ -13,6 +13,10 @@ export default defineConfig({
         replacement: path.resolve(root, "src/$1.ts"),
       },
       {
+        find: /^@ragsystem\/backend-plugin-artifacts\/(.*)\.js$/,
+        replacement: path.resolve(root, "../plugins/backend-plugin-artifacts/src/$1.ts"),
+      },
+      {
         find: /^@ragsystem\/backend-local\/(.*)\.js$/,
         replacement: path.resolve(root, "../backend-local/src/$1.ts"),
       },

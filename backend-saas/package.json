@@ -13,10 +13,10 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "predev": "npm -w @ragsystem/backend-core run build",
+    "predev": "npm -w @ragsystem/backend-core run build && npm -w @ragsystem/backend-plugin-artifacts run build",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
-    "prebuild": "npm -w @ragsystem/backend-core run build",
+    "prebuild": "npm -w @ragsystem/backend-core run build && npm -w @ragsystem/backend-plugin-artifacts run build",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -25,6 +25,7 @@
     "@ragsystem/agent-protocol": "*",
     "@ragsystem/agent-sdk": "*",
     "@ragsystem/backend-core": "*",
+    "@ragsystem/backend-plugin-artifacts": "*",
     "fastify": "^5.0.0",
     "pg": "^8.22.0"
   },

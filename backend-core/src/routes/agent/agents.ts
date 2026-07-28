@@ -93,7 +93,6 @@ function normalizeAgentCatalogItem(agent: unknown): Record<string, unknown> {
 
 const PYTHON_AGENT_ORDER = [
   "orchestrator_agent",
-  "team_maker",
   "plan_agent",
   "explor_agent",
   "general_agent",

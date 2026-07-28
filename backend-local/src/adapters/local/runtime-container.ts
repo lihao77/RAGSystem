@@ -12,8 +12,8 @@ import { SkillToolService } from "@ragsystem/backend-core/tools/SkillTools/Skill
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
 import { MemoryContextSource } from "@ragsystem/backend-core/services/agent/memory/index.js";
-import { ArtifactService } from "@ragsystem/backend-core/services/artifacts/artifact-service.js";
-import { TransientArtifactService } from "@ragsystem/backend-core/services/artifacts/transient-artifact-service.js";
+import { FilesystemArtifactService } from "./artifacts/filesystem-artifact-service.js";
+import { TransientArtifactService } from "./artifacts/transient-artifact-service.js";
 import { FileSystemConfigStore } from "../filesystem/config/file-system-config-store.js";
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
 import { McpService } from "@ragsystem/backend-core/services/integrations/mcp-service.js";
@@ -144,7 +144,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const knowledgeFiles = knowledgeDriver;
   const knowledgeMarkdown = new LocalAsyncKnowledgeMarkdownPipeline(knowledgeFiles, documentExtractDispatcher);
   const knowledge = knowledgeService;
-  const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
+  const artifacts = new FilesystemArtifactService({ dataRoot: options.dataRoot });
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryToolRepository = new LocalMemoryToolRepository(memoryStore);
   const memoryContextRepository = new LocalMemoryContextRepository(memoryStore, {

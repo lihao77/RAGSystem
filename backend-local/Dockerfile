@@ -21,6 +21,8 @@ COPY --from=build /app/packages ./packages
 COPY --from=build /app/backend-core/package.json ./backend-core/package.json
 COPY --from=build /app/backend-core/dist ./backend-core/dist
 COPY --from=build /app/backend-core/skills ./backend-core/skills
+COPY --from=build /app/plugins/backend-plugin-artifacts/package.json ./plugins/backend-plugin-artifacts/package.json
+COPY --from=build /app/plugins/backend-plugin-artifacts/dist ./plugins/backend-plugin-artifacts/dist
 COPY --from=build /app/backend-local/package.json ./backend-local/package.json
 COPY --from=build /app/backend-local/dist ./backend-local/dist
 

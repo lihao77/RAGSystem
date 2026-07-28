@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "npm run build:frontend && npm run build:backend && electron .",
     "build:frontend": "npm --prefix .. -w frontend-client run build",
-    "build:backend": "node scripts/prepare-backend.mjs && node scripts/probe-backend.mjs",
+    "build:backend": "npm --prefix .. -w @ragsystem/backend-core run build && npm --prefix .. -w @ragsystem/backend-plugin-artifacts run build && node scripts/prepare-backend.mjs && node scripts/probe-backend.mjs",
     "smoke:desktop": "node scripts/smoke-desktop.mjs",
     "build:installer": "npm run build:frontend && npm run build:backend && electron-builder --win nsis",
     "pack": "npm run build:frontend && npm run build:backend && electron-builder --dir"

@@ -4,7 +4,7 @@ import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/ob
 import type { ArtifactMetadata, ArtifactMetadataRepository } from "@ragsystem/backend-core/contracts/artifacts/artifact-repository.js";
 import type { VisualizationConfig, VisualizationSummary } from "@ragsystem/backend-core/contracts/artifacts/artifacts.js";
 import type { ArtifactApplication, ArtifactRecord } from "@ragsystem/backend-core/contracts/artifacts/artifact-application.js";
-import { ArtifactServiceError } from "@ragsystem/backend-core/services/artifacts/artifact-service.js";
+import { ArtifactServiceError } from "@ragsystem/backend-plugin-artifacts/artifact-error.js";
 
 /** Async tenant-scoped artifact service for SaaS deployments. Metadata lives in PostgreSQL; blobs live in ObjectStorage. */
 export class SaaSArtifactService implements ArtifactApplication {

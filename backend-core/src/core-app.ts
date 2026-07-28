@@ -12,6 +12,9 @@ import { resolveProfileFromSettings, type AppEnv } from "./config/env.js";
 import type { ControlPlane } from "./contracts/control-plane/index.js";
 import type { DeploymentProfile } from "./identity/types.js";
 import type { DeploymentRuntime } from "./app/deployment-runtime.js";
+import type { BackendPlugin } from "./plugins/backend-plugin.js";
+import type { CapabilityProvider } from "./plugins/capability-registry.js";
+import { BackendPluginManager } from "./plugins/plugin-manager.js";
 import {
   registerManagementAndPlatformRoutes,
   registerPublicAndAuthRoutes,
@@ -27,6 +30,8 @@ import { DaemonService, type DaemonSuspendedInteraction } from "./services/daemo
 export interface CoreBuildAppOptions {
   env: AppEnv;
   runtime: DeploymentRuntime;
+  plugins?: readonly BackendPlugin[];
+  capabilities?: readonly CapabilityProvider[];
 }
 
 export async function buildCoreApp(options: CoreBuildAppOptions): Promise<FastifyInstance> {
@@ -36,6 +41,8 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     },
   });
   const deployment = options.runtime;
+  const pluginManager = new BackendPluginManager(options.plugins, options.capabilities);
+  await pluginManager.register();
   const controlPlane = deployment.controlPlane;
   const botRepository = deployment.botRepository;
   const widgetCredentials = deployment.widgetCredentials;
@@ -208,9 +215,12 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   app.addHook("onResponse", async (request) => releaseRequestLease(request));
   app.addHook("onError", async (request) => releaseRequestLease(request));
   app.addHook("onClose", async () => {
-    botEngine.close();
-    await registry.closeAll();
-    await deployment.close();
+    const errors: unknown[] = [];
+    try { await pluginManager.stop(); } catch (error) { errors.push(error); }
+    try { botEngine.close(); } catch (error) { errors.push(error); }
+    try { await registry.closeAll(); } catch (error) { errors.push(error); }
+    try { await deployment.close(); } catch (error) { errors.push(error); }
+    if (errors.length > 0) throw new AggregateError(errors, "Backend shutdown failed");
   });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -305,6 +315,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     runtime,
     refreshProfile,
     validateProfileSettings,
+    pluginRoutes: pluginManager.routes("public"),
   });
   await registerSharedBusinessRoutes(app, {
     registry,
@@ -315,6 +326,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     registerPublicAgui: !widgetIdentityProvider,
     ...applications,
     ...(widgetAuth ? { widgetAuth } : {}),
+    pluginRoutes: pluginManager.routes("tenant"),
   });
   await registerManagementAndPlatformRoutes(app, {
     controlPlane,
@@ -324,6 +336,10 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     widgetCredentialStore: widgetCredentials,
     ...(widgetAuth ? { widgetAuth } : {}),
     ...(applications.resolveExecutionRead ? { resolveExecutionRead: applications.resolveExecutionRead } : {}),
+    pluginRoutes: [
+      ...pluginManager.routes("management"),
+      ...pluginManager.routes("platform"),
+    ],
   });
   await registerWidgetAndRealtimeRoutes(app, {
     registry,
@@ -342,9 +358,11 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     resolveArtifactApplication: applications.resolveArtifactApplication,
     resolveProviderApplication: applications.resolveProviderApplication,
     resolveMcpApplication: applications.resolveMcpApplication,
+    pluginRoutes: pluginManager.routes("widget"),
   });
 
   registerFrontendFallback(app);
+  await pluginManager.start();
 
   return app;
 }
