@@ -12,18 +12,6 @@ export default defineConfig({
         find: /^@ragsystem\/backend-core\/(.*)\.js$/,
         replacement: path.resolve(root, "src/$1.ts"),
       },
-      {
-        find: /^@ragsystem\/backend-plugin-artifacts\/(.*)\.js$/,
-        replacement: path.resolve(root, "../plugins/backend-plugin-artifacts/src/$1.ts"),
-      },
-      {
-        find: /^@ragsystem\/backend-local\/(.*)\.js$/,
-        replacement: path.resolve(root, "../backend-local/src/$1.ts"),
-      },
-      {
-        find: /^@ragsystem\/backend-saas\/(.*)\.js$/,
-        replacement: path.resolve(root, "../backend-saas/src/$1.ts"),
-      },
     ],
   },
   test: {
@@ -34,7 +22,7 @@ export default defineConfig({
         external: ["node:sqlite"],
       },
     },
-    include: ["tests/**/*.test.ts"],
+    include: ["test/**/*.test.ts"],
     testTimeout: 10_000,
   },
 });

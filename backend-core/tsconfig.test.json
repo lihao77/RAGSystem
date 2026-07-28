@@ -6,16 +6,12 @@
     "types": ["node", "vitest"],
     "baseUrl": ".",
     "paths": {
-      "@ragsystem/backend-core/*": ["src/*"],
-      "@ragsystem/backend-plugin-artifacts/*": ["../plugins/backend-plugin-artifacts/src/*"],
-      "@ragsystem/backend-plugin-memory/*": ["../plugins/backend-plugin-memory/src/*"],
-      "@ragsystem/backend-local/*": ["../backend-local/src/*"],
-      "@ragsystem/backend-saas/*": ["../backend-saas/src/*"]
+      "@ragsystem/backend-core/*": ["src/*"]
     }
   },
   "include": [
     "src/**/*.ts",
-    "tests/**/*.ts",
+    "test/**/*.ts",
     "vitest.config.ts"
   ]
 }
