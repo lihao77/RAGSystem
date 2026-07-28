@@ -1,4 +1,3 @@
-import { isRecord, normalizeString } from "@ragsystem/backend-core/utils/guards.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -7,9 +6,9 @@ import type {
   VisualizationConfig,
   VisualizationIndexEntry,
   VisualizationSummary,
-} from "@ragsystem/backend-plugin-artifacts/contracts/artifacts.js";
-import type { JsonValue } from "@ragsystem/backend-plugin-artifacts/contracts/json.js";
-import { ArtifactServiceError } from "@ragsystem/backend-plugin-artifacts/artifact-error.js";
+} from "../../contracts/artifacts.js";
+import type { JsonValue } from "../../contracts/json.js";
+import { ArtifactServiceError } from "../../artifact-error.js";
 
 export interface VisualizationRecord {
   artifact_id: string;
@@ -413,6 +412,16 @@ function safeParseJson(line: string): unknown {
   } catch {
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized || null;
 }
 
 function asString(value: unknown): string {

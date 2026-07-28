@@ -1,6 +1,6 @@
 import type { FastifyRequest } from "fastify";
 
-import type { ArtifactApplication } from "./contracts/artifact-application.js";
+import type { ArtifactStorageProvider } from "./storage/storage-provider.js";
 
 export interface ArtifactSessionAccess {
   assertReadable(request: FastifyRequest, sessionId: string): Promise<void>;
@@ -18,7 +18,6 @@ export interface ArtifactSessionAccess {
 }
 
 export interface ArtifactsPluginDependencies {
-  resolveArtifactApplication(request: FastifyRequest): ArtifactApplication | undefined | Promise<ArtifactApplication | undefined>;
-  resolveArtifactApplicationForTenant(tenantId: string): ArtifactApplication | Promise<ArtifactApplication>;
+  storage: ArtifactStorageProvider;
   sessionAccess: ArtifactSessionAccess;
 }

@@ -20,6 +20,8 @@ export function createArtifactsPlugin(dependencies: ArtifactsPluginDependencies)
         await app.register(registerArtifactRoutes, dependencies);
       });
     },
+    start: () => dependencies.storage.start?.(),
+    stop: () => dependencies.storage.stop?.(),
   };
 }
 

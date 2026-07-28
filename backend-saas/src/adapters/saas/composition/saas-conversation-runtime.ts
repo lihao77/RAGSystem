@@ -4,10 +4,10 @@ import type { SecretResolver } from "@ragsystem/backend-core/contracts/integrati
 
 import {
   PgPoolMemoryExecutor,
+  type PostgresMemoryExecutor,
   PostgresConversationRepository,
   PostgresWorkspaceRepository,
   PostgresKnowledgeFileMetadataRepository,
-  PostgresArtifactMetadataRepository,
   PostgresOutboxRepository,
   PostgresProviderContinuationRepository,
   PostgresPendingInteractionRepository,
@@ -24,7 +24,6 @@ import {
   runPostgresKnowledgeConfigMigrations,
   runPostgresOutboxMigrations,
   runPostgresPendingInteractionMigrations,
-  runPostgresArtifactMigrations,
   runPostgresProviderMcpMigrations,
   runPostgresVectorIndexMigrations,
   PostgresKnowledgeVectorIndexRepository,
@@ -54,7 +53,6 @@ import {
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
 import { SaaSSkillPackageStore } from "../object-storage/skill-package-storage.js";
 import type { ISkillPackageStore } from "@ragsystem/backend-core/contracts/skills/skill-package-store.js";
-import { SaaSArtifactService } from "../../../adapters/saas/application/artifacts/saas-artifact-application.js";
 import { SaaSKnowledgeFileStorage } from "../../../adapters/saas/object-storage/knowledge-file-storage.js";
 import type { AsyncKnowledgeFileStore } from "@ragsystem/backend-core/contracts/knowledge/async-knowledge-file-store.js";
 import { SaaSProviderMcpApplication } from "../../../adapters/saas/application/provider-mcp/saas-provider-mcp-application.js";
@@ -85,6 +83,11 @@ export interface SaaSConversationRuntimeOptions {
 
 /** Shared PostgreSQL lifecycle for the async SaaS conversation/run repositories. */
 export interface SaaSConversationRuntimeHandle {
+  /** Shared infrastructure exposed to product plugins that own their schemas and blobs. */
+  pluginResources: {
+    database: PostgresMemoryExecutor;
+    objects?: ObjectStorage;
+  };
   conversation: PostgresConversationRepository;
   workspaces: PostgresWorkspaceRepository;
   wsTickets: PostgresWsTicketService;
@@ -98,9 +101,6 @@ export interface SaaSConversationRuntimeHandle {
   providerContinuations: PostgresProviderContinuationRepository;
   knowledgeFiles: PostgresKnowledgeFileMetadataRepository;
   pendingInteractions: PostgresPendingInteractionRepository;
-  artifacts: PostgresArtifactMetadataRepository;
-  /** Tenant-bound blob facade; requires objectStorage in the composition root. */
-  createArtifactService(tenantId: string): SaaSArtifactService;
   /** Tenant-bound asynchronous knowledge metadata/blob facade. */
   createKnowledgeFileStorage(tenantId: string): AsyncKnowledgeFileStore;
   vectorIndex: PostgresKnowledgeVectorIndexRepository;
@@ -150,7 +150,6 @@ export async function createSaaSConversationRuntime(
       await runPostgresKnowledgeFileMigrations(executor);
       await runPostgresKnowledgeConfigMigrations(executor);
       await runPostgresPendingInteractionMigrations(executor);
-      await runPostgresArtifactMigrations(executor);
       await runPostgresProviderMcpMigrations(executor);
       await runPostgresVectorIndexMigrations(executor);
       await runPostgresPgVectorMigrations(executor);
@@ -224,7 +223,6 @@ export async function createSaaSConversationRuntime(
     const providerContinuations = new PostgresProviderContinuationRepository(executor);
     const knowledgeFiles = new PostgresKnowledgeFileMetadataRepository(executor);
     const pendingInteractions = new PostgresPendingInteractionRepository(executor);
-    const artifacts = new PostgresArtifactMetadataRepository(executor);
     const providerMcp = new PostgresProviderMcpRepository(executor, options.secretResolver);
     const vectorIndex = new PostgresKnowledgeVectorIndexRepository(executor);
     const vectorStore = new PostgresPgVectorRepository(executor);
@@ -236,6 +234,10 @@ export async function createSaaSConversationRuntime(
     let closePromise: Promise<void> | null = null;
     const providerMcpApplication = new SaaSProviderMcpApplication(providerMcp);
     return {
+      pluginResources: {
+        database: executor,
+        ...(options.objectStorage ? { objects: options.objectStorage } : {}),
+      },
       conversation,
       workspaces,
       wsTickets,
@@ -252,11 +254,6 @@ export async function createSaaSConversationRuntime(
       providerContinuations,
       knowledgeFiles,
       pendingInteractions,
-      artifacts,
-      createArtifactService: (tenantId) => {
-        if (!options.objectStorage) throw new Error("SaaS artifact service requires ObjectStorage");
-        return new SaaSArtifactService(tenantId, artifacts, options.objectStorage);
-      },
       createKnowledgeFileStorage: (tenantId) => {
         if (!options.objectStorage) throw new Error("SaaS knowledge file storage requires ObjectStorage");
         return new SaaSKnowledgeFileStorage(tenantId, knowledgeFiles, options.objectStorage);

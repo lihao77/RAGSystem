@@ -1,9 +1,9 @@
-import type { ArtifactApplication, ArtifactRecord } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-application.js";
-import type { VisualizationConfig, VisualizationSummary } from "@ragsystem/backend-plugin-artifacts/contracts/artifacts.js";
-import type { JsonValue } from "@ragsystem/backend-plugin-artifacts/contracts/json.js";
-import { FilesystemArtifactService } from "../../artifacts/filesystem-artifact-service.js";
+import type { ArtifactApplication, ArtifactRecord } from "../../contracts/artifact-application.js";
+import type { VisualizationConfig, VisualizationSummary } from "../../contracts/artifacts.js";
+import type { JsonValue } from "../../contracts/json.js";
+import { FilesystemArtifactService } from "./filesystem-artifact-service.js";
 
-export class LocalArtifactApplication implements ArtifactApplication {
+export class FilesystemArtifactApplication implements ArtifactApplication {
   constructor(private readonly service: FilesystemArtifactService) {}
   async getVisualization(id: string): Promise<VisualizationConfig> { return this.service.getVisualization(id); }
   async listVisualizations(sessionId: string): Promise<VisualizationSummary[]> { return this.service.listVisualizations(sessionId); }

@@ -7,7 +7,7 @@ const ORPHAN_GRACE_SECONDS = 24 * 60 * 60;
 const MANAGED_ARTIFACT_NAME = /^(?:data_[a-f0-9]{8}\.(?:txt|json)|image_[a-f0-9]{8}\.(?:png|jpg|gif|webp))$/;
 const TEMP_INDEX_NAME = /^artifact_index\.[a-f0-9-]+\.tmp$/;
 
-interface TransientArtifactRecord {
+interface TransientResourceRecord {
   path: string;
   expires_at?: number;
   [key: string]: unknown;
@@ -18,8 +18,8 @@ export interface TransientPruneResult {
   retained: number;
 }
 
-/** Owns lifecycle cleanup for SDK observation artifacts under sessions/<id>/transient. */
-export class TransientArtifactService {
+/** Owns lifecycle cleanup for SDK observation resources under sessions/<id>/transient. */
+export class TransientSessionResourceService {
   private readonly sessionsRoot: string;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -30,11 +30,11 @@ export class TransientArtifactService {
   startPruning(intervalMs = 60 * 60 * 1000): void {
     if (this.pruneTimer) return;
     void this.pruneExpired().catch((error: unknown) => {
-      console.error("[transient-artifact] prune failed", error);
+      console.error("[transient-session-resource] prune failed", error);
     });
     this.pruneTimer = setInterval(() => {
       void this.pruneExpired().catch((error: unknown) => {
-        console.error("[transient-artifact] prune failed", error);
+        console.error("[transient-session-resource] prune failed", error);
       });
     }, intervalMs);
     this.pruneTimer.unref?.();
@@ -164,12 +164,12 @@ async function removeOrphanedFiles(root: string, indexedPaths: Set<string>, nowS
   return deleted;
 }
 
-function parseRecord(line: string): TransientArtifactRecord | null {
+function parseRecord(line: string): TransientResourceRecord | null {
   try {
     const value = JSON.parse(line) as unknown;
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const record = value as Record<string, unknown>;
-    return typeof record.path === "string" ? (record as TransientArtifactRecord) : null;
+    return typeof record.path === "string" ? (record as TransientResourceRecord) : null;
   } catch {
     return null;
   }

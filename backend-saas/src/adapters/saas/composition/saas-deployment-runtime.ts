@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 
 import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
-import type { ArtifactApplication } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-application.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import { TenantKnowledgeMarkdownPipeline } from "@ragsystem/backend-core/contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import type { AsyncKnowledgeFileStore } from "@ragsystem/backend-core/contracts/knowledge/async-knowledge-file-store.js";
@@ -31,9 +30,13 @@ import { createSaaSMemoryApplicationResolver } from "./saas-memory-resolver.js";
 import { createSaaSMemoryRuntime, type SaaSMemoryRuntimeHandle } from "./saas-memory-runtime.js";
 import { createSaaSObjectStorage } from "./saas-object-storage.js";
 import { SaaSTenantRuntimeRegistry } from "./saas-tenant-runtime-registry.js";
+import type { PostgresMemoryExecutor } from "../postgres/memory-repository.js";
 
 export interface SaaSDeploymentRuntime extends DeploymentRuntime {
-  resolveArtifactApplicationForTenant(tenantId: string): ArtifactApplication;
+  readonly pluginResources: {
+    database: PostgresMemoryExecutor;
+    objects: ObjectStorage;
+  };
 }
 
 export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDeploymentRuntime> {
@@ -83,6 +86,8 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
   const control = controlRuntime;
   const conversation = conversationRuntime;
   const pool = dataPool;
+  const objects = objectStorage;
+  if (!objects) throw new Error("SaaS artifact plugin requires ObjectStorage");
   let closed = false;
 
   return {
@@ -91,7 +96,7 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
     widgetCredentials: control.widgetCredentials,
     daemonLeaderLease: control.daemonLeaderLease,
     wsTickets: conversation.wsTickets,
-    resolveArtifactApplicationForTenant: (tenantId) => conversation.createArtifactService(tenantId),
+    pluginResources: { database: conversation.pluginResources.database, objects },
     applications: {
       resolveMemoryApplication: createSaaSMemoryApplicationResolver(memory.provider),
       resolveKnowledgeApplication: (request) => {

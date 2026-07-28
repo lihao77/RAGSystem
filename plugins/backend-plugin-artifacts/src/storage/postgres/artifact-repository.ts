@@ -1,6 +1,6 @@
-import type { ArtifactMetadata, ArtifactMetadataRepository, CreateArtifactMetadataInput } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-repository.js";
-import type { JsonValue } from "@ragsystem/backend-plugin-artifacts/contracts/json.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { ArtifactMetadata, ArtifactMetadataRepository, CreateArtifactMetadataInput } from "../../contracts/artifact-repository.js";
+import type { JsonValue } from "../../contracts/json.js";
+import type { ArtifactPostgresExecutor } from "./resources.js";
 
 const map = (row: Record<string, unknown>): ArtifactMetadata => ({
   tenant_id: String(row.tenant_id), artifact_id: String(row.artifact_id), session_id: row.session_id == null ? null : String(row.session_id),
@@ -10,7 +10,7 @@ const map = (row: Record<string, unknown>): ArtifactMetadata => ({
 });
 
 export class PostgresArtifactMetadataRepository implements ArtifactMetadataRepository {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: ArtifactPostgresExecutor) {}
   async get(tenantId: string, artifactId: string): Promise<ArtifactMetadata | null> {
     const result = await this.executor.query("SELECT * FROM artifact_metadata WHERE tenant_id=$1 AND artifact_id=$2", [tenantId, artifactId]);
     return result.rows[0] ? map(result.rows[0]) : null;

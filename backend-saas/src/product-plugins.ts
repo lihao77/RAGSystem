@@ -5,14 +5,16 @@ import {
   loadReadableSession,
   loadReadableSessionForResource,
 } from "@ragsystem/backend-core/routes/session-owner.js";
-import { createArtifactsPlugin } from "@ragsystem/backend-plugin-artifacts/index.js";
+import { createArtifactsPlugin, createPostgresArtifactStorage } from "@ragsystem/backend-plugin-artifacts/index.js";
 import type { SaaSDeploymentRuntime } from "./adapters/saas/composition/saas-deployment-runtime.js";
 
 export function createSaaSProductPlugins(deployment: SaaSDeploymentRuntime): readonly BackendPlugin[] {
   const applications = deployment.applications;
   return [createArtifactsPlugin({
-    resolveArtifactApplication: (request) => deployment.resolveArtifactApplicationForTenant(request.identity.tenantId),
-    resolveArtifactApplicationForTenant: deployment.resolveArtifactApplicationForTenant,
+    storage: createPostgresArtifactStorage({
+      executor: deployment.pluginResources.database,
+      objects: deployment.pluginResources.objects,
+    }),
     sessionAccess: {
       assertReadable: async (request, sessionId) => {
         await loadReadableSession(request, sessionId, await applications.resolveSessionApplication(request));

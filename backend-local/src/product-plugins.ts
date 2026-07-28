@@ -1,18 +1,22 @@
 import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
+import path from "node:path";
 import {
   loadMutableSession,
   loadMutableSessionForResource,
   loadReadableSession,
   loadReadableSessionForResource,
 } from "@ragsystem/backend-core/routes/session-owner.js";
-import { createArtifactsPlugin } from "@ragsystem/backend-plugin-artifacts/index.js";
+import { createArtifactsPlugin, createFilesystemArtifactStorage } from "@ragsystem/backend-plugin-artifacts/index.js";
 import type { LocalDeploymentRuntime } from "./adapters/local/composition/local-deployment-runtime.js";
+import { TenantPaths } from "./adapters/local/tenant-paths.js";
 
-export function createLocalProductPlugins(deployment: LocalDeploymentRuntime): readonly BackendPlugin[] {
+export function createLocalProductPlugins(deployment: LocalDeploymentRuntime, env: AppEnv): readonly BackendPlugin[] {
   const applications = deployment.applications;
   return [createArtifactsPlugin({
-    resolveArtifactApplication: (request) => deployment.resolveArtifactApplicationForTenant(request.identity.tenantId),
-    resolveArtifactApplicationForTenant: deployment.resolveArtifactApplicationForTenant,
+    storage: createFilesystemArtifactStorage({
+      resolveDataRoot: (tenantId) => new TenantPaths(path.join(env.tenantsRoot, tenantId)).dataRoot,
+    }),
     sessionAccess: {
       assertReadable: async (request, sessionId) => {
         await loadReadableSession(request, sessionId, await applications.resolveSessionApplication(request));

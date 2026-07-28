@@ -1,9 +1,7 @@
 import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
-import type { ArtifactApplication } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-application.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import { LocalIdentityProvider, PasswordIdentityProvider, type IdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
 import type { SessionTokenService } from "@ragsystem/backend-core/services/runtime/session-token-service.js";
-import path from "node:path";
 import { createWsTicketService } from "@ragsystem/backend-core/services/runtime/ws-ticket-service.js";
 import {
   createLocalFileChangeApplicationResolver,
@@ -17,13 +15,8 @@ import { SqliteBotRepository } from "../sqlite/sqlite-bot-repository.js";
 import { SqliteControlPlaneAdapter } from "../sqlite/sqlite-control-plane-adapter.js";
 import { SqliteWidgetCredentialAdapter } from "../sqlite/sqlite-widget-credential-adapter.js";
 import { createWidgetCredentialStore } from "../sqlite/widget-credential-store/index.js";
-import { LocalArtifactApplication } from "../application/artifact/local-artifact-application.js";
-import { FilesystemArtifactService } from "../artifacts/filesystem-artifact-service.js";
-import { TenantPaths } from "../tenant-paths.js";
 
-export interface LocalDeploymentRuntime extends DeploymentRuntime {
-  resolveArtifactApplicationForTenant(tenantId: string): ArtifactApplication;
-}
+export type LocalDeploymentRuntime = DeploymentRuntime;
 
 export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntime {
   if (env.deploymentMode === "saas" || env.storageMode === "postgres" || env.controlStorageMode === "postgres") {
@@ -50,9 +43,6 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
       resolveFileChangeApplication: createLocalFileChangeApplicationResolver(),
     },
     wsTickets,
-    resolveArtifactApplicationForTenant: (tenantId) => new LocalArtifactApplication(
-      new FilesystemArtifactService({ dataRoot: new TenantPaths(path.join(env.tenantsRoot, tenantId)).dataRoot }),
-    ),
     createRegistry: (logger, plugins) => new LocalTenantRuntimeRegistry(
       env,
       controlPlane.tenants,

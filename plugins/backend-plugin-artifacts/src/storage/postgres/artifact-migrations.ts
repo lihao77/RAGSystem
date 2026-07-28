@@ -1,7 +1,7 @@
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { ArtifactPostgresExecutor } from "./resources.js";
 import { POSTGRES_ARTIFACT_MIGRATIONS } from "./artifact-schema.js";
 
-export async function runPostgresArtifactMigrations(executor: PostgresMemoryExecutor): Promise<{ current_version: number; applied_versions: number[] }> {
+export async function runPostgresArtifactMigrations(executor: ArtifactPostgresExecutor): Promise<{ current_version: number; applied_versions: number[] }> {
   return executor.transaction(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock($1)", [0x52414741]);
     await tx.query("CREATE TABLE IF NOT EXISTS ragsystem_artifact_schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)");

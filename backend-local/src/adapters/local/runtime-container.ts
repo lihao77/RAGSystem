@@ -12,7 +12,7 @@ import { SkillToolService } from "@ragsystem/backend-core/tools/SkillTools/Skill
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
 import { MemoryContextSource } from "@ragsystem/backend-core/services/agent/memory/index.js";
-import { TransientArtifactService } from "./artifacts/transient-artifact-service.js";
+import { TransientSessionResourceService } from "./session-resources/transient-session-resource-service.js";
 import { FileSystemConfigStore } from "../filesystem/config/file-system-config-store.js";
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
 import { McpService } from "@ragsystem/backend-core/services/integrations/mcp-service.js";
@@ -67,12 +67,12 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot });
   const fileHistory = new FileHistoryService({ dataRoot });
-  const transientArtifacts = new TransientArtifactService(dataRoot);
-  transientArtifacts.startPruning();
+  const transientResources = new TransientSessionResourceService(dataRoot);
+  transientResources.startPruning();
   const sessionApplication = new AgentSessionApplication(
     new LocalAgentSessionRepository(conversationStore),
     new LocalSessionHistoryAdapter(fileHistory),
-    transientArtifacts,
+    transientResources,
     async (session) => session.workspace_id
       ? conversationStore.getWorkspaceById(session.tenant_id, session.workspace_id)?.root_path ?? null
       : null,
@@ -304,7 +304,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     },
     closeInfrastructure: () => {
       backgroundTasks.dispose();
-      transientArtifacts.stopPruning();
+      transientResources.stopPruning();
       outboxDispatcher.stop();
       mcp.close();
       knowledgeDriver.close();

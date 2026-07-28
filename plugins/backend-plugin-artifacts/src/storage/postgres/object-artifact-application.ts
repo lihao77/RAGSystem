@@ -1,17 +1,17 @@
 import { randomUUID } from "node:crypto";
-import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
-import type { ArtifactMetadata, ArtifactMetadataRepository } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-repository.js";
-import type { VisualizationConfig, VisualizationSummary } from "@ragsystem/backend-plugin-artifacts/contracts/artifacts.js";
-import type { ArtifactApplication, ArtifactRecord } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-application.js";
-import type { JsonValue } from "@ragsystem/backend-plugin-artifacts/contracts/json.js";
-import { ArtifactServiceError } from "@ragsystem/backend-plugin-artifacts/artifact-error.js";
+import type { ArtifactMetadata, ArtifactMetadataRepository } from "../../contracts/artifact-repository.js";
+import type { VisualizationConfig, VisualizationSummary } from "../../contracts/artifacts.js";
+import type { ArtifactApplication, ArtifactRecord } from "../../contracts/artifact-application.js";
+import type { JsonValue } from "../../contracts/json.js";
+import { ArtifactServiceError } from "../../artifact-error.js";
+import type { ArtifactObjectStorage } from "./resources.js";
 
 /** Async tenant-scoped artifact service for SaaS deployments. Metadata lives in PostgreSQL; blobs live in ObjectStorage. */
-export class SaaSArtifactService implements ArtifactApplication {
+export class ObjectArtifactApplication implements ArtifactApplication {
   constructor(
     private readonly tenantId: string,
     private readonly metadata: ArtifactMetadataRepository,
-    private readonly objects: ObjectStorage,
+    private readonly objects: ArtifactObjectStorage,
   ) {}
 
   async getVisualization(artifactId: string): Promise<VisualizationConfig> {

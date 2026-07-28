@@ -5,7 +5,7 @@ import type { ArtifactApplication, ArtifactRecord } from "./contracts/artifact-a
 import type { JsonValue } from "./contracts/json.js";
 
 export function createArtifactToolAfterHook(
-  dependencies: Pick<ArtifactsPluginDependencies, "resolveArtifactApplicationForTenant">,
+  dependencies: Pick<ArtifactsPluginDependencies, "storage">,
 ): (input: ToolAfterInput) => Promise<ToolAfterOutput | void> {
   return async ({ toolName, result, ctx }) => {
     if (toolName !== "execute_skill_script" || !result.success || !isRecord(result.content) || !("artifact" in result.content)) {
@@ -24,7 +24,7 @@ export function createArtifactToolAfterHook(
     const tenantId = normalizeString(ctx.tenantId);
     if (!tenantId) return fail("Artifact 插件需要 tenant_id");
     try {
-      const artifacts = await dependencies.resolveArtifactApplicationForTenant(tenantId);
+      const artifacts = await dependencies.storage.applicationForTenant(tenantId);
       const persisted = await persistArtifact(artifacts, rawArtifact, normalizeString(ctx.sessionId));
       if ("error" in persisted) return fail(persisted.error);
       const info = persisted.record;
