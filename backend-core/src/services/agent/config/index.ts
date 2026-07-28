@@ -27,7 +27,6 @@ import {
 import type { IAgentConfigTeamStore } from "../../../contracts/agent/team-store.js";
 import { listAvailableTools as listAvailableRuntimeTools, type AvailableToolInfo } from "./tools.js";
 import { toYaml } from "./yaml.js";
-import type { McpService } from "../../integrations/mcp-service.js";
 
 type ExportFormat = "json" | "yaml";
 type ImportFormat = "json" | "yaml";
@@ -43,7 +42,6 @@ export class AgentConfigService {
   private activeTeam = "default";
   private readonly teams = new Map<string, TeamConfigs>();
   private readonly teamStore: IAgentConfigTeamStore;
-  private mcpService: McpService | null = null;
   private initialized = false;
   private initializePromise: Promise<void> | null = null;
 
@@ -379,14 +377,6 @@ export class AgentConfigService {
 
   listAvailableTools(): AvailableToolInfo[] {
     return listAvailableRuntimeTools();
-  }
-
-  listAvailableMcpServers(): unknown[] {
-    return this.mcpService?.listServers() ?? [];
-  }
-
-  setMcpService(mcpService: McpService | null): void {
-    this.mcpService = mcpService;
   }
 
   private getActiveConfigs(): TeamConfigs {

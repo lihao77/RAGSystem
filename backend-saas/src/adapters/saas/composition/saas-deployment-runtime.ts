@@ -3,14 +3,14 @@ import { Pool } from "pg";
 import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
+import type { SecretResolver } from "@ragsystem/backend-core/contracts/integrations/secret-resolver.js";
 import { RuntimeExecutionApplication } from "@ragsystem/backend-core/services/agent/execution/runtime-execution-application.js";
 import { PasswordIdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
 import { SaaSAnalyticsApplication } from "../application/analytics/saas-analytics-application.js";
 import { SaaSAgentReadApplication } from "../application/execution/saas-agent-read-application.js";
 import { SaaSFileChangeApplication } from "../application/file-change/saas-file-change-application.js";
 import { SaaSMonitoringApplication } from "../application/monitoring/saas-monitoring-application.js";
-import { SaaSMcpApplication } from "../application/provider-mcp/saas-mcp-application.js";
-import { SaaSProviderApplication } from "../application/provider-mcp/saas-provider-application.js";
+import { SaaSProviderApplication } from "../application/provider/saas-provider-application.js";
 import { SaaSSessionApplication } from "../application/session/saas-session-application.js";
 import { SaaSSessionFileApplication } from "../application/session-file/saas-session-file-application.js";
 import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./saas-control-runtime.js";
@@ -23,6 +23,7 @@ export interface SaaSDeploymentRuntime extends DeploymentRuntime {
   readonly pluginResources: {
     database: PostgresExecutor;
     objects: ObjectStorage;
+    secrets: SecretResolver;
   };
 }
 
@@ -77,7 +78,7 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
     widgetCredentials: control.widgetCredentials,
     daemonLeaderLease: control.daemonLeaderLease,
     wsTickets: conversation.wsTickets,
-    pluginResources: { database: conversation.pluginResources.database, objects },
+    pluginResources: { database: conversation.pluginResources.database, objects, secrets: control.secretResolver },
     applications: {
       resolveSessionFileApplication: (request) => new SaaSSessionFileApplication(
         conversation.createSessionFileStorage(request.identity.tenantId),
@@ -88,12 +89,7 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
       resolveProviderApplication: (request) => new SaaSProviderApplication(
         request.identity.tenantId,
         request.container.modelAdapter,
-        conversation.providerMcp,
-      ),
-      resolveMcpApplication: (request) => new SaaSMcpApplication(
-        request.identity.tenantId,
-        conversation.providerMcpApplication,
-        conversation.providerMcp,
+        conversation.providers,
       ),
       resolveSessionApplication: (request) => new SaaSSessionApplication(
         request.identity.tenantId,

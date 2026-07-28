@@ -10,7 +10,7 @@ import {
   PostgresOutboxRepository,
   PostgresProviderContinuationRepository,
   PostgresPendingInteractionRepository,
-  PostgresProviderMcpRepository,
+  PostgresProviderRepository,
   PostgresRunRepository,
   TenantBoundPostgresAgentDelegationStore,
   runPostgresConversationMigrations,
@@ -21,7 +21,7 @@ import {
   PostgresRealtimeEventBus,
   runPostgresOutboxMigrations,
   runPostgresPendingInteractionMigrations,
-  runPostgresProviderMcpMigrations,
+  runPostgresProviderMigrations,
   runPostgresRunMigrations,
   runPostgresBackgroundTaskMigrations,
   PostgresBackgroundTaskRepository,
@@ -42,7 +42,6 @@ import {
   PostgresSystemConfigStore,
 } from "../../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
-import { SaaSProviderMcpApplication } from "../../../adapters/saas/application/provider-mcp/saas-provider-mcp-application.js";
 import { OutboxDispatcher } from "@ragsystem/backend-core/services/runtime/event-outbox/dispatcher.js";
 import { SaaSFileHistoryStorage } from "../../../adapters/saas/object-storage/file-history-storage.js";
 import type { AsyncFileHistoryStore } from "@ragsystem/backend-core/contracts/file-history-store/index.js";
@@ -71,6 +70,7 @@ export interface SaaSConversationRuntimeHandle {
   pluginResources: {
     database: PostgresExecutor;
     objects?: ObjectStorage;
+    secrets?: SecretResolver;
   };
   conversation: PostgresConversationRepository;
   workspaces: PostgresWorkspaceRepository;
@@ -84,8 +84,7 @@ export interface SaaSConversationRuntimeHandle {
   sharedOutboxDispatcher: OutboxDispatcher;
   providerContinuations: PostgresProviderContinuationRepository;
   pendingInteractions: PostgresPendingInteractionRepository;
-  providerMcp: PostgresProviderMcpRepository;
-  providerMcpApplication: SaaSProviderMcpApplication;
+  providers: PostgresProviderRepository;
   backgroundTasks: PostgresBackgroundTaskRepository;
   createWorkflowTaskStore(tenantId: TenantId): WorkflowTaskStore;
   createGoalStore(tenantId: TenantId): GoalStore;
@@ -121,7 +120,7 @@ export async function createSaaSConversationRuntime(
       await runPostgresWsTicketMigrations(executor);
       await runPostgresOutboxMigrations(executor);
       await runPostgresPendingInteractionMigrations(executor);
-      await runPostgresProviderMcpMigrations(executor);
+      await runPostgresProviderMigrations(executor);
       await runPostgresBackgroundTaskMigrations(executor);
       await runPostgresWorkflowTaskMigrations(executor);
       await runPostgresGoalMigrations(executor);
@@ -190,17 +189,17 @@ export async function createSaaSConversationRuntime(
     runLeaseRecoveryTimer.unref?.();
     const providerContinuations = new PostgresProviderContinuationRepository(executor);
     const pendingInteractions = new PostgresPendingInteractionRepository(executor);
-    const providerMcp = new PostgresProviderMcpRepository(executor, options.secretResolver);
+    const providers = new PostgresProviderRepository(executor, options.secretResolver);
     const backgroundTasks = new PostgresBackgroundTaskRepository(executor);
     const analytics = new PostgresAnalyticsRepository(executor);
     const fileHistory = new PostgresFileHistoryMetadataRepository(executor);
     const sessionFiles = new PostgresSessionFileMetadataRepository(executor);
     let closePromise: Promise<void> | null = null;
-    const providerMcpApplication = new SaaSProviderMcpApplication(providerMcp);
     return {
       pluginResources: {
         database: executor,
         ...(options.objectStorage ? { objects: options.objectStorage } : {}),
+        ...(options.secretResolver ? { secrets: options.secretResolver } : {}),
       },
       conversation,
       workspaces,
@@ -217,8 +216,7 @@ export async function createSaaSConversationRuntime(
       sharedOutboxDispatcher,
       providerContinuations,
       pendingInteractions,
-      providerMcp,
-      providerMcpApplication,
+      providers,
       backgroundTasks,
       createWorkflowTaskStore: (tenantId) => new PostgresWorkflowTaskRepository(tenantId, executor),
       createGoalStore: (tenantId) => new PostgresGoalRepository(tenantId, executor),
@@ -245,7 +243,6 @@ export async function createSaaSConversationRuntime(
       createSystemConfigStore: (tenantId) => new PostgresSystemConfigStore(tenantId, executor),
       close: () => {
         closePromise ??= (async () => {
-          providerMcpApplication.close();
           clearInterval(runLeaseRecoveryTimer);
           sharedOutboxDispatcher.stop();
           await realtimeRelay.close();

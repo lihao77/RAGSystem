@@ -7,6 +7,7 @@ const ALL_IDS = [
   "@ragsystem/backend-plugin-artifacts",
   "@ragsystem/backend-plugin-knowledge",
   "@ragsystem/backend-plugin-memory",
+  "@ragsystem/backend-plugin-mcp",
   "@ragsystem/backend-plugin-skills",
 ];
 
@@ -36,6 +37,7 @@ function deployment() {
     pluginResources: {
       database: {},
       objects: {},
+      secrets: {},
     },
   };
 }

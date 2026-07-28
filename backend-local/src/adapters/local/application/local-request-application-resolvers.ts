@@ -1,7 +1,6 @@
 import { LocalExecutionApplication } from "./execution/local-execution-application.js";
 import type { RequestApplicationResolvers } from "@ragsystem/backend-core/app/request-applications.js";
 import { LocalProviderApplication } from "./provider/local-provider-application.js";
-import { LocalMcpApplication } from "./mcp/local-mcp-application.js";
 
 /** Local composition root for request-level application ports. */
 export function createLocalRequestApplicationResolvers(): RequestApplicationResolvers {
@@ -13,7 +12,6 @@ export function createLocalRequestApplicationResolvers(): RequestApplicationReso
     resolveExecutionRead: (request) => requireLocalCapabilities(request).executionRead,
     resolveExecutionApplication: (request) => new LocalExecutionApplication(request.container.agentExecution),
     resolveProviderApplication: (request) => new LocalProviderApplication(request.container.modelAdapter),
-    resolveMcpApplication: (request) => new LocalMcpApplication(request.container.mcp),
   };
 }
 

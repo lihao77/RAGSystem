@@ -18,7 +18,6 @@ const AgentConfigObjectSchema = z.object({
   default_entry: z.boolean().optional().default(false),
   llm_tiers: z.record(AgentLlmConfigSchema).nullable().optional(),
   tools: z.object({ enabled_tools: z.array(z.string()).optional().default([]) }).optional().default({ enabled_tools: [] }),
-  mcp: z.object({ enabled_servers: z.array(z.string()).optional().default([]) }).optional().default({ enabled_servers: [] }),
   goals: z
     .object({
       enabled: z.boolean().optional().default(false),

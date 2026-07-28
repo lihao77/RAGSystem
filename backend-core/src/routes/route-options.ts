@@ -9,7 +9,6 @@ import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { RuntimeContainerRegistry as TenantRuntimeRegistry } from "../services/runtime/runtime-container-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { ProviderApplication } from "../contracts/application/provider-application.js";
-import type { McpApplication } from "../contracts/application/mcp-application.js";
 import type { SessionApplication } from "../contracts/session/session-application.js";
 import type { AnalyticsApplication } from "../contracts/application/analytics-application.js";
 import type { MonitoringApplication } from "../contracts/application/monitoring-application.js";
@@ -21,7 +20,6 @@ export interface RouteOptions {
   registry: TenantRuntimeRegistry;
   identityProvider: IdentityProvider;
   resolveProviderApplication?: (request: FastifyRequest) => ProviderApplication | undefined | Promise<ProviderApplication | undefined>;
-  resolveMcpApplication?: (request: FastifyRequest) => McpApplication | undefined | Promise<McpApplication | undefined>;
   resolveSessionApplication?: (request: FastifyRequest) => SessionApplication | undefined | Promise<SessionApplication | undefined>;
   resolveExecutionRead?: (request: FastifyRequest) => import("../contracts/execution/execution-read-application.js").ExecutionReadApplication | undefined | Promise<import("../contracts/execution/execution-read-application.js").ExecutionReadApplication | undefined>;
   resolveExecutionApplication?: (request: FastifyRequest) => ExecutionApplication | undefined | Promise<ExecutionApplication | undefined>;

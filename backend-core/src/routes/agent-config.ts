@@ -210,11 +210,6 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     return ok(tools, `共有 ${tools.length} 个可用工具`);
   });
 
-  app.get("/mcp-servers", async (request) => {
-    const servers = request.container.agentConfig.listAvailableMcpServers().map(normalizeMcpServerForConfig);
-    return ok(servers, `Found ${servers.length} MCP servers`);
-  });
-
 };
 
 function errorMessage(error: unknown): string {
@@ -229,16 +224,6 @@ function normalizeExportFormat(format: string | undefined): "json" | "yaml" {
     return "json";
   }
   throw new HttpError(400, "invalid_request", "format 只支持 json 或 yaml");
-}
-
-function normalizeMcpServerForConfig(server: unknown): Record<string, unknown> {
-  const item = isRecord(server) ? { ...server } : {};
-  item.server_name = item.server_name ?? item.name ?? "";
-  item.status = typeof item.status === "string" && item.status ? item.status : "not_loaded";
-  item.error_message = typeof item.error_message === "string" ? item.error_message : "";
-  delete item.tools;
-  delete item.url;
-  return item;
 }
 
 function normalizeAvailableTool(tool: unknown): Record<string, unknown> {

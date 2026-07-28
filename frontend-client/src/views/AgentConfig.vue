@@ -470,7 +470,7 @@
             </div>
           </section>
 
-          <section id="section-mcp" class="form-section">
+          <section v-if="mcpPluginAvailable" id="section-mcp" class="form-section">
             <div class="section-head">
               <h2>MCP 服务</h2>
               <span>将可用 MCP Server 授权给当前 Agent</span>
@@ -700,6 +700,8 @@ import {
   deleteAgent,
   getAvailableTools,
   getAvailableMCPServers,
+  getMcpAgentConfig,
+  updateMcpAgentConfig,
   exportAgentConfig
 } from '../api/agentConfig';
 import {
@@ -744,7 +746,7 @@ const sections = computed(() => [
   { id: 'section-tasks', label: 'Goal' },
   ...(skillsPluginAvailable.value ? [{ id: 'section-skills', label: '技能' }] : []),
   ...(memoryPluginAvailable.value ? [{ id: 'section-memory', label: '记忆' }] : []),
-  { id: 'section-mcp', label: 'MCP' },
+  ...(mcpPluginAvailable.value ? [{ id: 'section-mcp', label: 'MCP' }] : []),
   ...(knowledgePluginAvailable.value ? [{ id: 'section-kb', label: '知识库' }] : []),
   { id: 'section-delegation', label: '委派' }
 ]);
@@ -948,6 +950,7 @@ const memoryScopeMeta = ref([]);
 const memoryPluginAvailable = ref(false);
 const knowledgePluginAvailable = ref(false);
 const skillsPluginAvailable = ref(false);
+const mcpPluginAvailable = ref(false);
 
 const configForm = ref(createEmptyForm());
 const rawConfig = ref(createEmptyForm());
@@ -1119,6 +1122,7 @@ function applyConfigToForm(config, pluginConfigs = {}) {
   const memoryConfig = pluginConfigs.memory || createEmptyForm().memory;
   const knowledgeConfig = pluginConfigs.knowledge || createEmptyForm().knowledge_base;
   const skillsConfig = pluginConfigs.skills || createEmptyForm().skills;
+  const mcpConfig = pluginConfigs.mcp || createEmptyForm().mcp;
   rawConfig.value = JSON.parse(JSON.stringify(safeConfig));
   configForm.value = {
     agent_name: safeConfig.agent_name || '',
@@ -1140,7 +1144,7 @@ function applyConfigToForm(config, pluginConfigs = {}) {
       enabled_skills: Array.isArray(skillsConfig.enabled_skills) ? [...skillsConfig.enabled_skills] : []
     },
     mcp: {
-      enabled_servers: Array.isArray(safeConfig.mcp?.enabled_servers) ? [...safeConfig.mcp.enabled_servers] : []
+      enabled_servers: Array.isArray(mcpConfig.enabled_servers) ? [...mcpConfig.enabled_servers] : []
     },
     memory: {
       enabled: memoryConfig.enabled ?? true,
@@ -1272,10 +1276,7 @@ function buildPayload() {
   merged.goals = { enabled: !!configForm.value.goals.enabled };
   merged.tasks = { background: !!configForm.value.tasks.background };
 
-  merged.mcp = {
-    ...(merged.mcp || {}),
-    enabled_servers: configForm.value.mcp.enabled_servers
-  };
+  delete merged.mcp;
 
   merged.delegation = {
     ...(merged.delegation || {}),
@@ -1293,7 +1294,7 @@ async function loadSupplementaryData(workspaceRoot = '') {
   const [toolResult, skillResult, mcpServerResult, providerResult, memoryResult] = await Promise.allSettled([
     getAvailableTools(),
     getAvailableSkills(workspaceRoot),
-    getAvailableMCPServers(),
+    mcpPluginAvailable.value ? getAvailableMCPServers() : Promise.resolve([]),
     dictStore.ensureProviders(),
     memoryPluginAvailable.value ? getMemoryConfigMetadata() : Promise.resolve({ scopes: [] })
   ]);
@@ -1310,18 +1311,21 @@ async function loadSupplementaryData(workspaceRoot = '') {
 }
 
 async function loadPluginConfigs(agentName) {
-  const [memoryResult, knowledgeResult, skillsResult] = await Promise.allSettled([
+  const [memoryResult, knowledgeResult, skillsResult, mcpResult] = await Promise.allSettled([
     getMemoryAgentConfig(agentName, activeTeam.value),
     getKnowledgeAgentConfig(agentName, activeTeam.value),
-    getSkillsAgentConfig(agentName, activeTeam.value)
+    getSkillsAgentConfig(agentName, activeTeam.value),
+    getMcpAgentConfig(agentName, activeTeam.value)
   ]);
   memoryPluginAvailable.value = pluginConfigAvailable(memoryResult);
   knowledgePluginAvailable.value = pluginConfigAvailable(knowledgeResult);
   skillsPluginAvailable.value = pluginConfigAvailable(skillsResult);
+  mcpPluginAvailable.value = pluginConfigAvailable(mcpResult);
   return {
     memory: memoryResult.status === 'fulfilled' ? memoryResult.value : null,
     knowledge: knowledgeResult.status === 'fulfilled' ? knowledgeResult.value : null,
-    skills: skillsResult.status === 'fulfilled' ? skillsResult.value : null
+    skills: skillsResult.status === 'fulfilled' ? skillsResult.value : null,
+    mcp: mcpResult.status === 'fulfilled' ? mcpResult.value : null
   };
 }
 
@@ -1356,6 +1360,10 @@ function buildSkillsPluginConfig() {
   return {
     enabled_skills: configForm.value.skills.enabled_skills
   };
+}
+
+function buildMcpPluginConfig() {
+  return { enabled_servers: configForm.value.mcp.enabled_servers };
 }
 
 async function loadInitialData() {
@@ -1450,6 +1458,9 @@ async function handleSave() {
     }
     if (skillsPluginAvailable.value) {
       pluginUpdates.push(updateSkillsAgentConfig(selectedAgent.value, buildSkillsPluginConfig(), activeTeam.value));
+    }
+    if (mcpPluginAvailable.value) {
+      pluginUpdates.push(updateMcpAgentConfig(selectedAgent.value, buildMcpPluginConfig(), activeTeam.value));
     }
     await Promise.all(pluginUpdates);
     dictStore.invalidateAgents();

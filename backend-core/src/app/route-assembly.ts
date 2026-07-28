@@ -15,7 +15,6 @@ import { registerAuthRoutes, registerInstallRoutes } from "../routes/auth.js";
 import { registerBootstrapRoutes } from "../routes/bootstrap.js";
 import { registerBotRoutes } from "../routes/bots.js";
 import { registerHealthRoutes, registerProbeRoutes } from "../routes/health.js";
-import { registerMcpRoutes } from "../routes/mcp.js";
 import { registerModelAdapterRoutes } from "../routes/model-adapter.js";
 import { registerPlatformRoutes } from "../routes/platform.js";
 import { registerSystemConfigRoutes } from "../routes/system-config.js";
@@ -80,7 +79,6 @@ export interface SharedBusinessRouteAssemblyOptions {
   wsTickets: WsTicketService;
   registerPublicAgui: boolean;
   resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
-  resolveMcpApplication: NonNullable<RouteOptions["resolveMcpApplication"]>;
   resolveSessionApplication: NonNullable<RouteOptions["resolveSessionApplication"]>;
   resolveExecutionRead: NonNullable<RouteOptions["resolveExecutionRead"]>;
   resolveExecutionApplication: NonNullable<RouteOptions["resolveExecutionApplication"]>;
@@ -107,7 +105,6 @@ export async function registerSharedBusinessRoutes(
       resolveExecutionRead: options.resolveExecutionRead,
       resolveExecutionApplication: options.resolveExecutionApplication,
       resolveProviderApplication: options.resolveProviderApplication,
-      resolveMcpApplication: options.resolveMcpApplication,
     };
     scope.addHook("preHandler", async (request) => {
       if (isExplicitPublicRoute(request)) return;
@@ -117,7 +114,6 @@ export async function registerSharedBusinessRoutes(
     await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
     await scope.register(registerModelAdapterRoutes, { prefix: "/api/model-adapter", ...routeOptions });
     await scope.register(registerSystemConfigRoutes, { prefix: "/api/system-config", ...routeOptions });
-    await scope.register(registerMcpRoutes, { prefix: "/api/mcp", ...routeOptions });
     await scope.register(registerAgentRoutes, {
       prefix: "/api/agent",
       ...routeOptions,
@@ -196,7 +192,6 @@ interface WidgetRouteAssemblyOptions {
   resolveAnalytics: NonNullable<RouteOptions["resolveAnalytics"]>;
   resolveMonitoringApplication: NonNullable<RouteOptions["resolveMonitoringApplication"]>;
   resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
-  resolveMcpApplication: NonNullable<RouteOptions["resolveMcpApplication"]>;
   pluginRoutes?: readonly BackendRouteContribution[];
 }
 
@@ -211,7 +206,6 @@ export async function registerWidgetAndRealtimeRoutes(
     resolveAnalytics: options.resolveAnalytics,
     resolveMonitoringApplication: options.resolveMonitoringApplication,
     resolveProviderApplication: options.resolveProviderApplication,
-    resolveMcpApplication: options.resolveMcpApplication,
   };
   if (options.widgetIdentityProvider && options.widgetAuth) {
     await app.register(async (scope) => {

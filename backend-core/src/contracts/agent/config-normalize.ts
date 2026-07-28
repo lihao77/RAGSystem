@@ -50,7 +50,6 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
       ...tools,
       enabled_tools: stripConfigManagedToolNames(tools.enabled_tools),
     },
-    mcp: config.mcp ?? { enabled_servers: [] },
     goals: config.goals ?? { enabled: false },
     tasks: config.tasks ?? { background: false },
     delegation: config.delegation ?? { enabled_agents: [] },

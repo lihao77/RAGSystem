@@ -1,0 +1,35 @@
+{
+  "name": "@ragsystem/backend-plugin-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.js": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@ragsystem/agent-llm": "*",
+    "@ragsystem/agent-sdk": "*",
+    "yaml": "^2.9.0",
+    "zod": "^3.23.0"
+  },
+  "peerDependencies": {
+    "@ragsystem/backend-core": "0.1.x",
+    "fastify": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.6.0"
+  }
+}

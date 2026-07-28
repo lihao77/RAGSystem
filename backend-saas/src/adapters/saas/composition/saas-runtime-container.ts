@@ -21,6 +21,7 @@ import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/pa
 import { SessionNotificationQueue } from "@ragsystem/backend-core/services/runtime/session-notification-queue.js";
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { SaaSSessionApplication } from "../application/session/saas-session-application.js";
+import { toModelProviderConfig } from "../application/provider/provider-config-mapping.js";
 import { SaaSAgentMetricsStore } from "../postgres/saas-agent-metrics-store.js";
 import { SaaSPermissionPolicyStore } from "../postgres/saas-permission-policy-store.js";
 import { createPostgresExecutionStorage } from "../postgres/postgres-execution-storage.js";
@@ -42,7 +43,6 @@ export interface SaaSRuntimeContainerOptions {
   hooks?: (registry: HookRegistry) => void;
   plugins?: BackendRuntimeContributions;
   modelAdapterProvidersConfigPath?: string;
-  mcpConfigPath?: string;
   sandboxProvider?: SandboxProvider;
   sandboxLeaseTimeoutSeconds?: number;
 }
@@ -80,13 +80,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     conversationRuntime.createSystemConfigStore(tenantId),
   );
   await systemConfig.initialize();
-  const mcp = await conversationRuntime.providerMcpApplication.resolveMcpRuntime(tenantId);
-  // Prime MCP status once per tenant runtime without delaying the HTTP request
-  // that caused the runtime to be created. Session WebSocket setup performs an
-  // idempotent confirmation before the agent starts using MCP tools.
-  void mcp.autoConnectEnabledServers();
-  agentConfig.setMcpService(mcp);
-
   const notificationQueue = new SessionNotificationQueue();
   const backgroundTasks = new BackgroundTaskService({
     notificationQueue,
@@ -160,7 +153,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     agentConfig,
     modelAdapter,
     systemConfig,
-    mcp,
     sessionFiles,
     executionStorage: createPostgresExecutionStorage({
       tenantId,
@@ -202,8 +194,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
       backgroundTasks.dispose();
       // Shared process-level outbox dispatcher is owned by conversationRuntime.
       realtimeEvents.close();
-      // Drop this tenant's MCP connections when the container is idle-closed.
-      conversationRuntime.providerMcpApplication.dropMcpRuntime(tenantId);
       void sandboxLeases?.closeAll();
       pluginRuntime?.dispose();
     },
@@ -220,7 +210,7 @@ export async function prepareSaaSRuntimeContainer(
     throw new Error("SaaS runtime preparation requires a SaaS container");
   }
   runtime.modelAdapter.replaceRuntimeProviders(
-    await conversationRuntime.providerMcpApplication.listProviders(tenantId),
+    (await conversationRuntime.providers.listProviders(tenantId)).map(toModelProviderConfig),
   );
   await runtime.systemConfig.reload();
 }

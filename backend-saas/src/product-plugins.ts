@@ -18,6 +18,11 @@ import {
   createPostgresMemoryRuntimeFactory,
 } from "@ragsystem/backend-plugin-memory/index.js";
 import {
+  createMcpPlugin,
+  createPostgresMcpLifecycle,
+  createPostgresMcpRuntimeFactory,
+} from "@ragsystem/backend-plugin-mcp/index.js";
+import {
   createPostgresSkillsLifecycle,
   createPostgresSkillsRuntimeFactory,
   createSkillsPlugin,
@@ -62,6 +67,13 @@ export function createSaaSProductPlugins(
         executor: deployment.pluginResources.database,
       }),
       lifecycle: createPostgresMemoryLifecycle(deployment.pluginResources.database),
+    }),
+    mcp: () => createMcpPlugin({
+      runtimeFactory: createPostgresMcpRuntimeFactory({
+        executor: deployment.pluginResources.database,
+        secrets: deployment.pluginResources.secrets,
+      }),
+      lifecycle: createPostgresMcpLifecycle(deployment.pluginResources.database),
     }),
     skills: () => createSkillsPlugin({
       runtimeFactory: createPostgresSkillsRuntimeFactory({

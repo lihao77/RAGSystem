@@ -205,19 +205,11 @@ export class SkillToolService {
         toolName,
       );
     }
-    // 校验 Skill 声明的 MCP 依赖是否在当前 Agent 启用清单内(缺失不阻断,但在结果里提示 agent)。
-    const missingMcpServers = resolveMissingMcpServers(skill.requires, agent);
     return successResult(
       {
         skill_name: skill.name,
         description: skill.description,
         main_content: skill.content,
-        ...(missingMcpServers.length
-          ? {
-              missing_mcp_servers: missingMcpServers,
-              warning: `本 Skill 声明需要 MCP server: ${missingMcpServers.join(", ")},但当前 Agent 未启用,依赖该 server 的步骤可能失败。`,
-            }
-          : {}),
       },
       {
         summary: `Skill '${skill.name}' 已激活，加载主文件 ${skill.content.length} 字符`,
@@ -228,7 +220,6 @@ export class SkillToolService {
           status: "activated",
           source_type: skill.sourceType,
           source_label: skill.sourceLabel,
-          ...(missingMcpServers.length ? { missing_mcp_servers: missingMcpServers } : {}),
         },
         toolName,
       },
@@ -676,14 +667,6 @@ function readSkillRequires(metadata: Record<string, unknown>): SkillRequires | u
 function parseCsvString(value: unknown): string[] {
   if (typeof value !== "string") return [];
   return value.split(",").map((part) => part.trim()).filter(Boolean);
-}
-
-/** Skill 声明依赖的 MCP server 中,当前 Agent 未启用的(缺失不阻断,仅提示)。 */
-function resolveMissingMcpServers(requires: SkillRequires | undefined, agent: AgentConfig | null): string[] {
-  const required = requires?.mcp_servers;
-  if (!required?.length) return [];
-  const enabled = new Set((agent?.mcp?.enabled_servers ?? []).map((server) => server.trim()).filter(Boolean));
-  return required.filter((server) => !enabled.has(server));
 }
 
 function parseSkillMetadata(raw: string): Record<string, unknown> {

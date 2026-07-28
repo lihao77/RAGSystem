@@ -8,7 +8,6 @@ import type { InteractionCoordinator } from "../contracts/runtime/pending-intera
 import type { ExecutionApplication } from "../contracts/execution/execution-application.js";
 import type { RouteOptions } from "../routes/route-options.js";
 import type { ProviderApplication } from "../contracts/application/provider-application.js";
-import type { McpApplication } from "../contracts/application/mcp-application.js";
 
 export interface RequestApplications {
   sessions: SessionApplication;
@@ -18,7 +17,6 @@ export interface RequestApplications {
   interactions: InteractionCoordinator;
   execution: ExecutionApplication;
   providers: ProviderApplication;
-  mcp: McpApplication;
 }
 
 export type RequestApplicationResolvers = Required<Pick<RouteOptions,
@@ -28,7 +26,6 @@ export type RequestApplicationResolvers = Required<Pick<RouteOptions,
   | "resolveExecutionRead"
   | "resolveExecutionApplication"
   | "resolveProviderApplication"
-  | "resolveMcpApplication"
 >>;
 
 export async function ensureRequestApplications(request: FastifyRequest, options: RouteOptions): Promise<RequestApplications> {
@@ -40,17 +37,16 @@ export async function createRequestApplications(
   request: FastifyRequest,
   options: RouteOptions,
 ): Promise<RequestApplications> {
-  const [sessions, analytics, monitoring, executionRead, execution, providers, mcp] = await Promise.all([
+  const [sessions, analytics, monitoring, executionRead, execution, providers] = await Promise.all([
     resolveApplication("session", options.resolveSessionApplication, request),
     resolveApplication("analytics", options.resolveAnalytics, request),
     resolveApplication("monitoring", options.resolveMonitoringApplication, request),
     resolveApplication("execution read", options.resolveExecutionRead, request),
     resolveApplication("execution", options.resolveExecutionApplication, request),
     resolveApplication("provider", options.resolveProviderApplication, request),
-    resolveApplication("MCP", options.resolveMcpApplication, request),
   ]);
   const interactions = request.container.interactionCoordinator;
-  return { sessions, analytics, monitoring, executionRead, interactions, execution, providers, mcp };
+  return { sessions, analytics, monitoring, executionRead, interactions, execution, providers };
 }
 
 async function resolveApplication<T>(

@@ -2,12 +2,11 @@
  * 工具注册表工厂——per-agent 聚合所有 SDK Tool 实例。
  *
  * 各 createXxxTools 工厂接收 agent，闭包绑定 agent 配置，工厂内部按 agent 决定返回哪些工具
- * （可见性融入"是否返回"）。本函数聚合所有工厂 + 动态 MCP，返回 Tool[] 供 SDK createToolRegistry 使用。
+ * （可见性融入"是否返回"）。本函数聚合核心工具，插件工具由通用插件运行时追加。
  */
 import type { Tool } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../contracts/agent/agent-config.js";
 import type { DelegationPort } from "../services/agent/delegation/port.js";
-import type { McpService } from "../services/integrations/mcp-service.js";
 import type { CommandExecutionPort, CodeExecutionPort, DocumentToolPort, WorkspaceSearchPort } from "../contracts/runtime/tool-ports.js";
 import type { TaskToolService } from "./TaskTools/TaskExecution.js";
 import type { PendingInteractionPort } from "../contracts/runtime/pending-interactions.js";
@@ -17,7 +16,6 @@ import { createCodeExecutionTools } from "./CodeExecutionTool/CodeExecutionTool.
 import { createDelegationTools, type DelegationAgentConfigLookup } from "./DelegationTools/DelegationTools.js";
 import { createDocumentTools } from "./DocumentTools/DocumentTools.js";
 import { createLocalSearchTools } from "./LocalSearchTools/LocalSearchTools.js";
-import { createMcpTools } from "./McpTools/McpTools.js";
 import { createRequestUserInputTools } from "./RequestUserInputTool/RequestUserInputTool.js";
 import { createTaskTools } from "./TaskTools/TaskTools.js";
 
@@ -28,7 +26,6 @@ export interface BackendToolsDeps {
   bashTools: CommandExecutionPort | null;
   taskTools: TaskToolService | null;
   searchTools: WorkspaceSearchPort | null;
-  mcp: McpService | null;
   codeExecutionTools: CodeExecutionPort | null;
   getAgentDelegation: () => DelegationPort | null;
   /**
@@ -59,6 +56,5 @@ export function createBackendTools(deps: BackendToolsDeps, pathService: PathAcce
       teamName: deps.teamName ?? null,
       agentConfig: deps.agentConfig ?? null,
     }),
-    ...createMcpTools({ mcp: deps.mcp, agent }),
   ];
 }

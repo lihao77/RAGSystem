@@ -201,3 +201,23 @@ export async function getAvailableMCPServers() {
     throw error;
   }
 }
+
+function mcpAgentConfigUrl(agentName, teamName = '') {
+  const query = teamName ? `?team=${encodeURIComponent(teamName)}` : '';
+  return `/api/mcp/agents/${encodeURIComponent(agentName)}/config${query}`;
+}
+
+export async function getMcpAgentConfig(agentName, teamName = '') {
+  const result = await http.get(mcpAgentConfigUrl(agentName, teamName));
+  return result.data || result;
+}
+
+export async function updateMcpAgentConfig(agentName, config, teamName = '') {
+  const result = await http.put(mcpAgentConfigUrl(agentName, teamName), config);
+  return result.data || result;
+}
+
+export async function resetMcpAgentConfig(agentName, teamName = '') {
+  const result = await http.del(mcpAgentConfigUrl(agentName, teamName));
+  return result.data || result;
+}

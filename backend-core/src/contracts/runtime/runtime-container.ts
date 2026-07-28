@@ -23,7 +23,6 @@ import type { AgentExecutionLogger, AgentExecutionService } from "../../services
 import type { RuntimeCoreService } from "../../services/agent/execution/runtime-core-service.js";
 import type { AgentMetricsCollector } from "../../services/agent/metrics/metrics-collector.js";
 import type { SystemConfigService } from "../../services/config/system-config-service.js";
-import type { McpService } from "../../services/integrations/mcp-service.js";
 import type { ModelAdapterService } from "../../services/integrations/model-adapter-service.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { DelegationPendingService } from "../../services/runtime/delegation-pending-service.js";
@@ -73,7 +72,6 @@ export interface RuntimeContainerBase {
   readonly agentConfig: AgentConfigService;
   readonly modelAdapter: ModelAdapterService;
   readonly systemConfig: SystemConfigService;
-  readonly mcp: McpService;
   readonly documentTools: DocumentToolPort | null;
   readonly codeExecutionTools: CodeExecutionPort | null;
   readonly searchTools: WorkspaceSearchPort | null;
@@ -128,7 +126,6 @@ interface CoreRuntimeDependenciesBase {
   agentConfig: AgentConfigService;
   modelAdapter: ModelAdapterService;
   systemConfig: SystemConfigService;
-  mcp: McpService;
   sessionFiles: SessionFileLookupPort;
   executionStorage: ExecutionStorage;
   pathAccessPolicyFactory: () => PathAccessPolicy;

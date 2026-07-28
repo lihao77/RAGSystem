@@ -13,11 +13,13 @@ describe("core Agent config contract", () => {
       skills: { enabled_skills: ["review-code"] },
       memory: { enabled: true },
       knowledge_base: { enabled: true },
+      mcp: { enabled_servers: ["docs"] },
     });
 
     expect(config).not.toHaveProperty("skills");
     expect(config).not.toHaveProperty("memory");
     expect(config).not.toHaveProperty("knowledge_base");
+    expect(config).not.toHaveProperty("mcp");
   });
 
   it("preserves plugin tool names while removing core-managed tools", () => {

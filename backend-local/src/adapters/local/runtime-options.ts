@@ -22,7 +22,6 @@ export interface LocalRuntimeContainerOptions {
   dataRoot?: string;
   logger?: AgentExecutionLogger;
   modelAdapterProvidersConfigPath?: string;
-  mcpConfigPath?: string;
   systemConfigPath?: string;
   agentConfigRoot?: string;
   startOutboxDispatcher?: boolean;

@@ -15,7 +15,6 @@ import type { BackendRuntimeContributions } from "../plugins/backend-plugin.js";
 
 export interface DeploymentApplicationResolvers {
   resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
-  resolveMcpApplication: NonNullable<RouteOptions["resolveMcpApplication"]>;
   resolveSessionApplication: NonNullable<RouteOptions["resolveSessionApplication"]>;
   resolveExecutionRead: NonNullable<RouteOptions["resolveExecutionRead"]>;
   resolveExecutionApplication: NonNullable<RouteOptions["resolveExecutionApplication"]>;

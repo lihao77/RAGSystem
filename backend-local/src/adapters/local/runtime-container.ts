@@ -10,7 +10,6 @@ import { AgentConfigService } from "@ragsystem/backend-core/services/agent/confi
 import { TransientSessionResourceService } from "./session-resources/transient-session-resource-service.js";
 import { FileSystemConfigStore } from "../filesystem/config/file-system-config-store.js";
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
-import { McpService } from "@ragsystem/backend-core/services/integrations/mcp-service.js";
 import { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
@@ -111,9 +110,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     configPath: options.systemConfigPath,
   }));
   await systemConfig.initialize();
-  const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
-  void mcp.autoConnectEnabledServers();
-  agentConfig.setMcpService(mcp);
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
 
   const hostToolsEnabled = options.hostToolsEnabled !== false;
@@ -188,7 +184,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     agentConfig,
     modelAdapter,
     systemConfig,
-    mcp,
     sessionFiles: new LocalSessionFileLookup(fileIndex),
     runtimeStorage,
     executionStorage: options.executionStorage
@@ -232,7 +227,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
       backgroundTasks.dispose();
       transientResources.stopPruning();
       outboxDispatcher.stop();
-      mcp.close();
       pluginRuntime?.dispose();
       fileIndex.close();
       conversationStore.close();

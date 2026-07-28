@@ -19,6 +19,11 @@ import {
   resetSkillsAgentConfig,
   updateSkillsAgentConfig,
 } from './skillLibrary.js';
+import {
+  getMcpAgentConfig,
+  resetMcpAgentConfig,
+  updateMcpAgentConfig,
+} from './agentConfig.js';
 
 function withMock(setup, run) {
   setActivePinia(createPinia());
@@ -79,5 +84,19 @@ test('skills Agent config uses the plugin-owned route for read, update, and rese
     assert.deepEqual((await getSkillsAgentConfig('writer/agent', 'product/team')).enabled_skills, ['review-code']);
     assert.deepEqual((await updateSkillsAgentConfig('writer/agent', config, 'product/team')).enabled_skills, ['review-code']);
     assert.deepEqual((await resetSkillsAgentConfig('writer/agent', 'product/team')).enabled_skills, []);
+  });
+});
+
+test('MCP Agent config uses the plugin-owned route for read, update, and reset', async () => {
+  const url = '/api/mcp/agents/writer%2Fagent/config?team=product%2Fteam';
+  const config = { enabled_servers: ['docs'] };
+  await withMock((mock) => {
+    mock.onGet(url).reply(200, { data: config });
+    mock.onPut(url, config).reply(200, { data: config });
+    mock.onDelete(url).reply(200, { data: { enabled_servers: [] } });
+  }, async () => {
+    assert.deepEqual((await getMcpAgentConfig('writer/agent', 'product/team')).enabled_servers, ['docs']);
+    assert.deepEqual((await updateMcpAgentConfig('writer/agent', config, 'product/team')).enabled_servers, ['docs']);
+    assert.deepEqual((await resetMcpAgentConfig('writer/agent', 'product/team')).enabled_servers, []);
   });
 });

@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 
 import { ClientToServerEnvelopeSchema, type Envelope } from "../../contracts/events.js";
-import { EnvelopeProjector } from "../../services/runtime/event-outbox/projector.js";
 import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
+import { EnvelopeProjector } from "../../services/runtime/event-outbox/projector.js";
 import type { AgentRouteOptions } from "../route-options.js";
 import { isRecord } from "../../utils/guards.js";
 import { assertSessionExecutable } from "../session-owner.js";
@@ -29,7 +29,6 @@ type WebSocketLike = {
 };
 
 const WS_OPEN = 1;
-const DEFAULT_MCP_SESSION_INIT_TIMEOUT_MS = 10_000;
 
 type WsMessageData = Buffer | string;
 
@@ -128,10 +127,6 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
           cleanup();
           return;
         }
-        // MCP is optional and may involve a slow/unavailable external server. Keep
-        // the websocket responsive while still giving the first run a bounded chance
-        // to observe the current tenant configuration and connected MCP tools.
-        const mcpReady = initializeSessionMcp(applications, container, request);
         const afterSeq = parseSeqCursor(request.query.after_seq);
         let lastSeq = afterSeq ?? 0;
         let boundRunId: string | null = null;
@@ -237,8 +232,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
             switch (message.type) {
               case "user_driven_change": {
                 const payload = message.payload;
-                mcpReady
-                  .then(() => applications.execution.startStream(
+                applications.execution.startStream(
                     {
                       task: payload.task,
                       session_id: sessionId,
@@ -248,7 +242,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
                       ui_context: payload.ui_context,
                     },
                     payload.request_id ?? randomUUID(),
-                  ))
+                  )
                   .then((result) => {
                     const accepted = result.started || result.kind === "command";
                     sendAck("send", accepted, {
@@ -320,40 +314,6 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
     },
   );
 };
-
-async function initializeSessionMcp(
-  applications: Awaited<ReturnType<typeof ensureRequestApplications>>,
-  container: RuntimeContainer,
-  request: { log: { warn: (obj: unknown, msg?: string) => void } },
-): Promise<void> {
-  const configuredTimeout = Number(process.env.MCP_SESSION_INIT_TIMEOUT_MS);
-  const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
-    ? configuredTimeout
-    : DEFAULT_MCP_SESSION_INIT_TIMEOUT_MS;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const initialization = (async () => {
-    // Refresh tenant configuration first so another backend replica cannot
-    // reconnect a server that was disabled or changed elsewhere.
-    await applications.mcp.listServers();
-    await container.mcp.autoConnectEnabledServers();
-  })();
-  try {
-    const result = await Promise.race<"ready" | "timeout">([
-      initialization.then(() => "ready" as const),
-      new Promise<"timeout">((resolve) => {
-        timer = setTimeout(() => resolve("timeout"), timeoutMs);
-        timer.unref?.();
-      }),
-    ]);
-    if (result === "timeout") {
-      request.log.warn({ timeoutMs }, "MCP session initialization timed out; continuing without MCP readiness");
-    }
-  } catch (error) {
-    request.log.warn({ error }, "MCP session initialization failed; continuing without MCP readiness");
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
 
 async function buildDurableOutboxReplay(
   reads: import("../../contracts/execution/execution-read-application.js").ExecutionReadApplication,
