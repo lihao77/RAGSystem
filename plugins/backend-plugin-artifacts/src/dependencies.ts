@@ -22,6 +22,7 @@ export interface ArtifactSessionAccess {
 
 export interface ArtifactsPluginDependencies {
   resolveArtifactApplication(request: FastifyRequest): ArtifactApplication | undefined | Promise<ArtifactApplication | undefined>;
+  resolveArtifactApplicationForTenant(tenantId: string): ArtifactApplication | Promise<ArtifactApplication>;
   resolveSessionApplication(request: FastifyRequest): SessionApplication | undefined | Promise<SessionApplication | undefined>;
   sessionAccess: ArtifactSessionAccess;
 }

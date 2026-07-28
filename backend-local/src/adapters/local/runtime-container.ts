@@ -198,7 +198,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     dataRoot: options.dataRoot,
     userGlobalSkillsRoot,
     agentConfig,
-    artifacts,
     backgroundTasks,
     clientEvents,
     packageStore: skillPackageStore,

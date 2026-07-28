@@ -162,6 +162,8 @@ export interface ToolProvider {
 
 /** 工具执行上下文（运行时元数据 + 工具生命周期所需的 caller/workspaceRoot）。 */
 export interface ToolExecContext {
+  /** 当前运行时所属租户；部署插件据此解析租户级能力。 */
+  tenantId?: string | null;
   sessionId: string | null;
   runId: string | null;
   /** Root invocation call id shared by the execution tree for durable interactions. */

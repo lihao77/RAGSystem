@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
+import type { HookRegistry } from "@ragsystem/agent-sdk";
 
 import type { BotRepository } from "../contracts/control-plane/bot-repository.js";
 import type { ControlPlane } from "../contracts/control-plane/index.js";
@@ -42,7 +43,10 @@ export interface DeploymentRuntime {
   readonly widgetAuth?: WidgetAuthService;
   readonly botEngine?: DaemonService;
   readonly daemonLeaderLease?: DaemonLeaderLease;
-  createRegistry(logger: FastifyBaseLogger): RuntimeContainerRegistry | Promise<RuntimeContainerRegistry>;
+  createRegistry(
+    logger: FastifyBaseLogger,
+    configureHooks?: (registry: HookRegistry) => void,
+  ): RuntimeContainerRegistry | Promise<RuntimeContainerRegistry>;
   createIdentityProvider(
     authMode: string,
     sessionTokens: SessionTokenService | undefined,

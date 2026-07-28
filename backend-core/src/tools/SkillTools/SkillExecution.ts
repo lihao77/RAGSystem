@@ -4,10 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 
-import type { JsonValue } from "../../contracts/common.js";
 import { AgentConfigSchema, type AgentConfig } from "../../contracts/agent/agent-config.js";
 import type { AgentConfigService } from "../../services/agent/config/index.js";
-import type { ArtifactWriter } from "../../contracts/artifacts/artifact-writer.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { ClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
 import type { ISkillPackageStore, SkillPackageRecord } from "../../contracts/skills/skill-package-store.js";
@@ -84,7 +82,6 @@ export class SkillToolService {
       builtinSkillsRoot?: string | undefined;
       userGlobalSkillsRoot?: string | undefined;
       agentConfig?: AgentConfigService | null | undefined;
-      artifacts?: ArtifactWriter | null | undefined;
       backgroundTasks?: BackgroundTaskService | null | undefined;
       clientEvents?: ClientEventPublisher | null | undefined;
       skillIsolationMode?: SkillIsolationMode | undefined;
@@ -102,7 +99,6 @@ export class SkillToolService {
     this.builtinSkillsRoot = path.resolve(options.builtinSkillsRoot ?? path.join(process.cwd(), "skills"));
     this.userGlobalSkillsRoot = path.resolve(options.userGlobalSkillsRoot ?? path.join(this.dataRoot, "skills"));
     this.agentConfig = options.agentConfig ?? null;
-    this.artifacts = options.artifacts ?? null;
     this.backgroundTasks = options.backgroundTasks ?? null;
     this.clientEvents = options.clientEvents ?? null;
     this.skillIsolationMode = options.skillIsolationMode ?? resolveDefaultIsolationMode();
@@ -110,7 +106,6 @@ export class SkillToolService {
   }
 
   private readonly agentConfig: AgentConfigService | null;
-  private readonly artifacts: ArtifactWriter | null;
   private readonly backgroundTasks: BackgroundTaskService | null;
   private readonly clientEvents: ClientEventPublisher | null;
   private readonly skillIsolationMode: SkillIsolationMode;
@@ -316,7 +311,7 @@ export class SkillToolService {
     if (scriptResult.returnCode === 0) {
       const parsed = parseJsonStdout(scriptResult.stdout);
       if (parsed !== null) {
-        return await this.normalizeStructuredScriptResult(parsed, scriptName, skill.name, meta, context);
+        return this.normalizeStructuredScriptResult(parsed, scriptName, skill.name, meta);
       }
     }
 
@@ -514,142 +509,28 @@ export class SkillToolService {
     );
   }
 
-  private async normalizeStructuredScriptResult(
+  private normalizeStructuredScriptResult(
     rawPayload: unknown,
     scriptName: string,
     skillName: string,
     metadata: Record<string, unknown>,
-    context: ToolExecContext,
-  ): Promise<ToolExecutionResult> {
-    let payload = rawPayload;
-    let rawArtifact: unknown = null;
-    if (isRecord(payload)) {
-      if ("artifact" in payload) {
-        rawArtifact = payload.artifact;
-        delete payload.artifact;
-      }
-    }
-
-    const unwrapped = unwrapScriptResponse(payload);
+  ): ToolExecutionResult {
+    const unwrapped = unwrapScriptResponse(rawPayload);
     if (unwrapped.error) {
       return errorResult(unwrapped.error, "execute_skill_script");
     }
-    payload = unwrapped.payload;
+    const payload = mergeStructuredExtensions(unwrapped.payload, unwrapped.extensions);
     Object.assign(metadata, unwrapped.metadata);
-    if (isRecord(payload)) {
-      if (rawArtifact === null && "artifact" in payload) {
-        rawArtifact = payload.artifact;
-        delete payload.artifact;
-      }
-    }
-
-    let outputType = "json";
-    let llmHint: string | null = null;
-    if (rawArtifact !== null) {
-      const artifact = this.applyArtifactProtocol(rawArtifact, context);
-      if ("error" in artifact) {
-        metadata.artifact_error = artifact.error;
-      } else {
-        payload = isRecord(payload)
-          ? { ...payload, artifact_id: artifact.info.artifact_id, viz_type: artifact.info.viz_type }
-          : { data: payload, artifact_id: artifact.info.artifact_id, viz_type: artifact.info.viz_type };
-        metadata.artifact_id = artifact.info.artifact_id;
-        metadata.artifact_persisted = true;
-        outputType = artifact.info.viz_type;
-        llmHint = `在 <final_answer> 中插入 [viz:${artifact.info.artifact_id}] 来展示此可视化`;
-      }
-    }
     return successResult(payload, {
       summary: `脚本 ${scriptName} 执行完成（返回结构化 JSON）`,
-      outputType,
+      outputType: "json",
       metadata: {
         ...metadata,
         script_name: scriptName,
         skill: skillName,
       },
       toolName: "execute_skill_script",
-      llmHint,
     });
-  }
-
-  private applyArtifactProtocol(rawArtifact: unknown, context: ToolExecContext): { info: { artifact_id: string; viz_type: string; title: string; version: number } } | { error: string } {
-    if (!isRecord(rawArtifact)) {
-      return { error: "artifact 字段必须是对象" };
-    }
-    if (!this.artifacts) {
-      return { error: "Artifact 写入能力未接入，无法持久化 artifact" };
-    }
-    const action = asString(rawArtifact.action) ?? "create";
-    try {
-      if (action === "revise") {
-        const artifactId = asString(rawArtifact.artifact_id);
-        if (!artifactId) {
-          return { error: "revise 操作需要 artifact_id" };
-        }
-        const record = this.artifacts.reviseVisualization({
-          artifactId,
-          configPatch: toJsonValue(rawArtifact.config ?? {}),
-          replace: rawArtifact.replace === true,
-        });
-        return {
-          info: {
-            artifact_id: record.artifact_id,
-            viz_type: record.viz_type,
-            title: record.title,
-            version: record.version,
-          },
-        };
-      }
-      if (action !== "create") {
-        return { error: `不支持的 artifact action: ${action}` };
-      }
-      const sessionId = normalizeString(context.sessionId);
-      if (!sessionId) {
-        return { error: "创建 artifact 需要 session_id" };
-      }
-      const vizType = asString(rawArtifact.viz_type);
-      const subType = asString(rawArtifact.sub_type);
-      const title = asString(rawArtifact.title) ?? "";
-      const config = rawArtifact.config;
-      if (!vizType || config === undefined || config === null) {
-        return { error: "artifact 需要 viz_type 和 config 字段" };
-      }
-      if (vizType === "chart") {
-        const record = this.artifacts.createChart({
-          sessionId,
-          chartConfig: toJsonValue(config),
-          chartType: subType ?? "bar",
-          title,
-        });
-        return {
-          info: {
-            artifact_id: record.artifact_id,
-            viz_type: record.viz_type,
-            title: record.title,
-            version: record.version,
-          },
-        };
-      }
-      if (vizType === "map") {
-        const record = this.artifacts.createMap({
-          sessionId,
-          mapData: toJsonValue(config),
-          mapType: subType ?? "marker",
-          title,
-        });
-        return {
-          info: {
-            artifact_id: record.artifact_id,
-            viz_type: record.viz_type,
-            title: record.title,
-            version: record.version,
-          },
-        };
-      }
-      return { error: `不支持的 viz_type: ${vizType}` };
-    } catch (error) {
-      return { error: `artifact 持久化失败: ${error instanceof Error ? error.message : String(error)}` };
-    }
   }
 
   /**
@@ -809,15 +690,21 @@ function parseJsonStdout(stdout: string): unknown | null {
   }
 }
 
-function unwrapScriptResponse(payload: unknown): { payload: unknown; error: string | null; metadata: Record<string, unknown> } {
+function unwrapScriptResponse(payload: unknown): {
+  payload: unknown;
+  error: string | null;
+  metadata: Record<string, unknown>;
+  extensions: Record<string, unknown>;
+} {
   if (!isRecord(payload) || !("success" in payload) || !("data" in payload)) {
-    return { payload, error: null, metadata: {} };
+    return { payload, error: null, metadata: {}, extensions: {} };
   }
   if (payload.success === false) {
     return {
       payload: null,
       error: asString(payload.error) ?? asString(payload.message) ?? asString(payload.summary) ?? "脚本返回失败结果",
       metadata: {},
+      extensions: {},
     };
   }
   const metadata: Record<string, unknown> = {};
@@ -829,7 +716,14 @@ function unwrapScriptResponse(payload: unknown): { payload: unknown; error: stri
   if (isRecord(payload.metadata)) {
     Object.assign(metadata, payload.metadata);
   }
-  return { payload: payload.data, error: null, metadata };
+  const controlFields = new Set(["success", "data", "error", "message", "summary", "count", "total", "offset", "limit", "metadata"]);
+  const extensions = Object.fromEntries(Object.entries(payload).filter(([key]) => !controlFields.has(key)));
+  return { payload: payload.data, error: null, metadata, extensions };
+}
+
+function mergeStructuredExtensions(payload: unknown, extensions: Record<string, unknown>): unknown {
+  if (Object.keys(extensions).length === 0) return payload;
+  return isRecord(payload) ? { ...payload, ...extensions } : { data: payload, ...extensions };
 }
 
 function successResult<T>(
@@ -1000,23 +894,6 @@ function readStringArray(value: unknown): string[] | null {
 
 
 
-
-function toJsonValue(value: unknown): JsonValue {
-  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => toJsonValue(item));
-  }
-  if (isRecord(value)) {
-    const result: Record<string, JsonValue> = {};
-    for (const [key, item] of Object.entries(value)) {
-      result[key] = toJsonValue(item);
-    }
-    return result;
-  }
-  return null;
-}
 
 function toDisplayPath(filePath: string, dataRoot: string): string {
   const resolved = path.resolve(filePath);

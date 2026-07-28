@@ -179,6 +179,7 @@ export async function executeRunWithSdk(
   // 经 createRuntime({ execContext }) 注入；内核权威字段（sessionId/runId/...）在 toolContext 构造时后置覆盖。
   // toolCallId/round/order/roundIndex 由 tool-round-executor 在每次调用时覆盖。
   const baseExecCtx: ToolExecContext = {
+    tenantId: deps.storage.tenantId,
     sessionId: input.sessionId,
     runId: input.runId,
     rootRunId,

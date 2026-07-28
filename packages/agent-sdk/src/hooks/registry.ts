@@ -4,7 +4,8 @@
  * 存储：Map<event, Set<handler>>。Set 保证同一 handler 不会重复注册；反注册直接 delete。
  * emit：顺序 await 所有 handler，**聚合输出**——
  *   - decision：deny > allow（任一 deny 即 deny；决策与 reason 取自同一 handler）
- *   - 注入字段（modifiedInput / modifiedResult / additionalContext）：末个非 undefined 生效
+ *   - tool.after：modifiedResult 形成顺序管道，后一个 handler 接收前一个 handler 的结果
+ *   - 其余注入字段（modifiedInput / additionalContext）：末个非 undefined 生效
  *   - metadata：多 handler 浅合并（后者覆盖前者）
  *   - 单个普通 handler 异常 catch 不阻断其余；可恢复中断必须透传给宿主挂起 run
  */
@@ -57,7 +58,10 @@ export function createHookRegistry(): HookRegistry {
 
       for (const handler of set) {
         try {
-          const output = await handler(input as HookInputMap[HookEvent]);
+          const handlerInput = event === "tool.after" && aggregated.modifiedResult !== undefined
+            ? { ...input, result: aggregated.modifiedResult }
+            : input;
+          const output = await handler(handlerInput as HookInputMap[HookEvent]);
           if (!output) {
             continue;
           }

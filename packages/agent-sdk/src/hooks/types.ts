@@ -4,7 +4,7 @@
  * 设计：类型安全的事件钩子，**支持阻断（deny）与注入（改入参/改结果/注入上下文）**。
  * - 每个事件有专属输入类型（HookInputMap）+ 专属输出类型（HookOutputMap），handler 签名按事件推导。
  * - 阻断/注入语义：tool.before 可 deny + 改入参；tool.after 可改结果；round.before 可注入上下文。
- * - 多 handler 并行语义经 registry 聚合：decision 用 deny>ask>allow，注入字段末者生效，metadata 浅合并。
+ * - 多 handler 顺序执行：decision 用 deny>allow，tool.after 以上一个 handler 的结果为下一个输入，metadata 浅合并。
  * - 策略层（permissionPolicy 端口）是兜底安全网，与 hook 协作但职责不同（后续 permission 可迁居为 tool.before handler）。
  */
 import type { ToolAccessDecision } from "../tools/tool.js";
@@ -164,6 +164,6 @@ export type HookHandler<E extends HookEvent> = (
 export interface HookRegistry {
   /** 注册 handler，返回反注册函数。 */
   on<E extends HookEvent>(event: E, handler: HookHandler<E>): () => void;
-  /** 触发某事件，顺序 await 所有 handler，聚合输出（deny>ask>allow；注入末者生效；metadata 浅合并）。单个 handler 异常不阻断其余。 */
+  /** 触发某事件，顺序 await 所有 handler，聚合输出（deny>allow；tool.after 串联结果；其余注入末者生效；metadata 浅合并）。 */
   emit<E extends HookEvent>(event: E, input: HookInputMap[E]): Promise<HookOutputMap[E]>;
 }

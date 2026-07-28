@@ -9,7 +9,6 @@ import type {
   VisualizationSummary,
 } from "@ragsystem/backend-core/contracts/artifacts/artifacts.js";
 import type { JsonValue } from "@ragsystem/backend-core/contracts/common.js";
-import type { ArtifactWriter } from "@ragsystem/backend-core/contracts/artifacts/artifact-writer.js";
 import { ArtifactServiceError } from "@ragsystem/backend-plugin-artifacts/artifact-error.js";
 
 export interface VisualizationRecord {
@@ -24,7 +23,7 @@ export interface VisualizationRecord {
   updated_at: number;
 }
 
-export class FilesystemArtifactService implements ArtifactWriter {
+export class FilesystemArtifactService {
   private readonly dataRoot: string;
   private readonly sessionsRoot: string;
 

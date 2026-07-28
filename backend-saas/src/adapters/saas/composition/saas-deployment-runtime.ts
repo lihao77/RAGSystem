@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 
 import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
+import type { ArtifactApplication } from "@ragsystem/backend-core/contracts/artifacts/artifact-application.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import { TenantKnowledgeMarkdownPipeline } from "@ragsystem/backend-core/contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import type { AsyncKnowledgeFileStore } from "@ragsystem/backend-core/contracts/knowledge/async-knowledge-file-store.js";
@@ -31,7 +32,11 @@ import { createSaaSMemoryRuntime, type SaaSMemoryRuntimeHandle } from "./saas-me
 import { createSaaSObjectStorage } from "./saas-object-storage.js";
 import { SaaSTenantRuntimeRegistry } from "./saas-tenant-runtime-registry.js";
 
-export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<DeploymentRuntime> {
+export interface SaaSDeploymentRuntime extends DeploymentRuntime {
+  resolveArtifactApplicationForTenant(tenantId: string): ArtifactApplication;
+}
+
+export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDeploymentRuntime> {
   validateSaaSEnv(env);
 
   let dataPool: Pool | undefined;
@@ -86,6 +91,7 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<Deployme
     widgetCredentials: control.widgetCredentials,
     daemonLeaderLease: control.daemonLeaderLease,
     wsTickets: conversation.wsTickets,
+    resolveArtifactApplicationForTenant: (tenantId) => conversation.createArtifactService(tenantId),
     applications: {
       resolveMemoryApplication: createSaaSMemoryApplicationResolver(memory.provider),
       resolveKnowledgeApplication: (request) => {
@@ -140,12 +146,15 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<Deployme
         conversation.outbox,
       ),
     },
-    createRegistry: (logger) => new SaaSTenantRuntimeRegistry(
+    createRegistry: (logger, configureHooks) => new SaaSTenantRuntimeRegistry(
       env,
       control.controlPlane.tenants,
       conversation,
       logger,
-      { memoryRuntime: memory },
+      {
+        memoryRuntime: memory,
+        ...(configureHooks ? { hooks: configureHooks } : {}),
+      },
     ),
     createIdentityProvider: (authMode, sessionTokens) => {
       if (authMode === "password" && sessionTokens) {

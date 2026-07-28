@@ -1,9 +1,12 @@
+import type { HookEvent, HookHandler, HookRegistry } from "@ragsystem/agent-sdk";
+
 import type {
   BackendPlugin,
   BackendPluginContext,
   BackendRouteContribution,
   BackendRouteScope,
   PluginRouteRegistrar,
+  PluginHookRegistrar,
 } from "./backend-plugin.js";
 import { CapabilityRegistry, type CapabilityProvider } from "./capability-registry.js";
 
@@ -30,10 +33,50 @@ class BackendRouteRegistry {
   }
 }
 
+interface BackendHookContribution {
+  readonly pluginId: string;
+  readonly event: HookEvent;
+  readonly handler: HookHandler<HookEvent>;
+}
+
+class BackendHookContributionRegistry {
+  private readonly contributions: BackendHookContribution[] = [];
+
+  forPlugin(pluginId: string): PluginHookRegistrar {
+    return {
+      on: <E extends HookEvent>(event: E, handler: HookHandler<E>) => {
+        const contribution: BackendHookContribution = {
+          pluginId,
+          event,
+          handler: handler as unknown as HookHandler<HookEvent>,
+        };
+        this.contributions.push(contribution);
+        return () => {
+          const index = this.contributions.indexOf(contribution);
+          if (index >= 0) this.contributions.splice(index, 1);
+        };
+      },
+    };
+  }
+
+  install(registry: HookRegistry): void {
+    for (const contribution of this.contributions) {
+      registry.on(contribution.event, contribution.handler);
+    }
+  }
+
+  removePlugin(pluginId: string): void {
+    for (let index = this.contributions.length - 1; index >= 0; index -= 1) {
+      if (this.contributions[index]?.pluginId === pluginId) this.contributions.splice(index, 1);
+    }
+  }
+}
+
 export class BackendPluginManager {
   readonly capabilities: CapabilityRegistry;
   private readonly orderedPlugins: readonly BackendPlugin[];
   private readonly routeRegistry = new BackendRouteRegistry();
+  private readonly hookRegistry = new BackendHookContributionRegistry();
   private registered = false;
   private startedPlugins: BackendPlugin[] = [];
 
@@ -51,6 +94,7 @@ export class BackendPluginManager {
     for (const plugin of this.orderedPlugins) {
       const context: BackendPluginContext = {
         capabilities: this.capabilities,
+        hooks: this.hookRegistry.forPlugin(plugin.manifest.id),
         routes: this.routeRegistry.forPlugin(plugin.manifest.id),
       };
       await plugin.register(context);
@@ -60,6 +104,11 @@ export class BackendPluginManager {
   routes(scope: BackendRouteScope): readonly BackendRouteContribution[] {
     if (!this.registered) throw new Error("Plugins must be registered before routes are read");
     return this.routeRegistry.forScope(scope);
+  }
+
+  installHooks(registry: HookRegistry): void {
+    if (!this.registered) throw new Error("Plugins must be registered before hooks are installed");
+    this.hookRegistry.install(registry);
   }
 
   async start(): Promise<void> {
@@ -85,6 +134,8 @@ export class BackendPluginManager {
         await plugin.stop?.();
       } catch (error) {
         errors.push(error);
+      } finally {
+        this.hookRegistry.removePlugin(plugin.manifest.id);
       }
     }
     if (errors.length > 0) throw new AggregateError(errors, "One or more plugins failed to stop");

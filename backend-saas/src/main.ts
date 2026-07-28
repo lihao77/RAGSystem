@@ -8,7 +8,7 @@ const deployment = await createSaaSDeploymentRuntime(env);
 let app;
 
 try {
-  app = await buildCoreApp({ env, runtime: deployment, plugins: createSaaSProductPlugins(deployment.applications) });
+  app = await buildCoreApp({ env, runtime: deployment, plugins: createSaaSProductPlugins(deployment) });
   const address = await app.listen({ host: env.host, port: env.port });
   app.log.info({ address, deployment: "saas", storage: "postgres", objectStorage: "s3" }, "backend-saas listening");
 } catch (error) {

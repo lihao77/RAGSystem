@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { HookRegistry } from "@ragsystem/agent-sdk";
 
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import type { TenantDirectory } from "@ragsystem/backend-core/contracts/control-plane/index.js";
@@ -18,6 +19,7 @@ export interface SaaSTenantRuntimeRegistryOptions {
   sweepIntervalMs?: number;
   memoryRuntime?: SaaSMemoryRuntimeHandle;
   sandboxProvider?: SandboxProvider;
+  hooks?: (registry: HookRegistry) => void;
 }
 
 /** SaaS deployment adapter around the shared tenant runtime lifecycle. */
@@ -52,6 +54,7 @@ export class SaaSTenantRuntimeRegistry
           memoryRuntime: requireMemoryRuntime(options.memoryRuntime),
           ...(sandboxProvider ? { sandboxProvider, sandboxLeaseTimeoutSeconds: env.sandboxLeaseTimeoutSeconds ?? 900 } : {}),
           ...(logger ? { logger } : {}),
+          ...(options.hooks ? { hooks: options.hooks } : {}),
         });
         try {
           await runtime.backgroundTasks.initialize();
