@@ -13,10 +13,10 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "predev": "npm -w @ragsystem/backend-core run build && npm -w @ragsystem/backend-plugin-artifacts run build && npm -w @ragsystem/backend-plugin-knowledge run build && npm -w @ragsystem/backend-plugin-memory run build && npm -w @ragsystem/backend-plugin-mcp run build && npm -w @ragsystem/backend-plugin-skills run build",
+    "predev": "npm -w @ragsystem/backend-core run build && npm -w @ragsystem/backend-plugin-artifacts run build && npm -w @ragsystem/backend-plugin-execution-tools run build && npm -w @ragsystem/backend-plugin-knowledge run build && npm -w @ragsystem/backend-plugin-memory run build && npm -w @ragsystem/backend-plugin-mcp run build && npm -w @ragsystem/backend-plugin-skills run build",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
-    "prebuild": "npm -w @ragsystem/backend-core run build && npm -w @ragsystem/backend-plugin-artifacts run build && npm -w @ragsystem/backend-plugin-knowledge run build && npm -w @ragsystem/backend-plugin-memory run build && npm -w @ragsystem/backend-plugin-mcp run build && npm -w @ragsystem/backend-plugin-skills run build",
+    "prebuild": "npm -w @ragsystem/backend-core run build && npm -w @ragsystem/backend-plugin-artifacts run build && npm -w @ragsystem/backend-plugin-execution-tools run build && npm -w @ragsystem/backend-plugin-knowledge run build && npm -w @ragsystem/backend-plugin-memory run build && npm -w @ragsystem/backend-plugin-mcp run build && npm -w @ragsystem/backend-plugin-skills run build",
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test test/*.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -27,6 +27,7 @@
     "@ragsystem/agent-sdk": "*",
     "@ragsystem/backend-core": "*",
     "@ragsystem/backend-plugin-artifacts": "*",
+    "@ragsystem/backend-plugin-execution-tools": "*",
     "@ragsystem/backend-plugin-knowledge": "*",
     "@ragsystem/backend-plugin-memory": "*",
     "@ragsystem/backend-plugin-mcp": "*",

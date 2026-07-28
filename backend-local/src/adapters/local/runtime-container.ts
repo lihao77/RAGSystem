@@ -1,10 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 
-import { LocalBashToolService } from "@ragsystem/backend-core/tools/BashTool/BashExecution.js";
-import { CodeExecutionToolService } from "@ragsystem/backend-core/tools/CodeExecutionTool/CodeExecution.js";
 import { LocalDocumentToolService } from "@ragsystem/backend-core/tools/DocumentTools/DocumentExecution.js";
-import { LocalSearchToolService } from "@ragsystem/backend-core/tools/LocalSearchTools/SearchExecution.js";
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
 import { TransientSessionResourceService } from "./session-resources/transient-session-resource-service.js";
@@ -133,22 +130,12 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     sessions: requestSessionApplication,
     backgroundTasks,
     clientEvents,
+    resources: [{
+      pluginId: "@ragsystem/backend-local",
+      kind: "execution-tools.enabled",
+      value: hostToolsEnabled,
+    }],
   });
-  const toolsConfig = systemConfig.getToolsConfig();
-  const codeExecutionTools = hostToolsEnabled ? new CodeExecutionToolService({
-    dataRoot: options.dataRoot,
-    defaultTimeoutSeconds: toolsConfig.code_default_timeout,
-    maxTimeoutSeconds: toolsConfig.code_max_timeout,
-  }) : null;
-  const searchTools = hostToolsEnabled ? new LocalSearchToolService({ dataRoot: options.dataRoot }) : null;
-  const bashTools = hostToolsEnabled ? new LocalBashToolService({
-    dataRoot: options.dataRoot,
-    defaultTimeoutSeconds: toolsConfig.bash_default_timeout,
-    maxTimeoutSeconds: toolsConfig.bash_max_timeout,
-    maxOutputChars: toolsConfig.bash_max_output,
-    backgroundTasks,
-    clientEvents,
-  }) : null;
   const goalStore = new LocalGoalStore(options.tenantId, conversationStore);
   const taskTools = new TaskToolService(
     backgroundTasks,
@@ -197,9 +184,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
       }),
     pathAccessPolicyFactory: options.pathAccessPolicyFactory ?? (() => new PathApprovalService()),
     documentTools,
-    codeExecutionTools,
-    searchTools,
-    bashTools,
     backgroundTasks,
     taskTools,
     goalStore,

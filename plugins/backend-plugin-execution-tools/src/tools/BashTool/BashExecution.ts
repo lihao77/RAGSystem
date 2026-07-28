@@ -1,11 +1,11 @@
-import { normalizeString } from "../../utils/guards.js";
+import { normalizeString } from "@ragsystem/backend-core/utils/guards.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { RiskLevel } from "../../contracts/runtime/permissions.js";
-import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
-import type { ClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
+import type { RiskLevel } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
+import type { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
+import type { ClientEventPublisher } from "@ragsystem/backend-core/services/runtime/event-outbox/client-event-publisher.js";
 import {
   buildApprovalDescription,
   categoryRisk,
@@ -15,10 +15,10 @@ import {
 } from "./command-policy.js";
 import { BashPathResolver } from "./paths.js";
 import { throwIfAborted, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
-import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
-import type { AgentConfig } from "../../contracts/agent/agent-config.js";
-import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
-import { terminateProcessTree } from "../../services/runtime/process-tree.js";
+import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
+import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
+import { terminateProcessTree } from "@ragsystem/backend-core/services/runtime/process-tree.js";
 
 const TOOL_NAME = "execute_bash";
 const DEFAULT_TIMEOUT_SECONDS = 120;

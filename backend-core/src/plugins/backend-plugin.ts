@@ -48,6 +48,18 @@ export interface BackendToolFactoryContext {
   readonly agent: AgentConfig;
   readonly pathAccessPolicy: PathAccessPolicy;
   readonly capabilities?: CapabilityRegistry;
+  readonly callTool?: (
+    toolName: string,
+    args: Record<string, unknown>,
+    context: import("@ragsystem/agent-sdk").ToolExecContext,
+  ) => Promise<import("@ragsystem/agent-sdk").ToolExecutionResult>;
+}
+
+export interface BackendToolDescriptor {
+  readonly name: string;
+  readonly description: string;
+  readonly category: string;
+  readonly risk_level: "low" | "medium" | "high";
 }
 
 export type BackendToolFactory = (
@@ -55,7 +67,7 @@ export type BackendToolFactory = (
 ) => Tool | readonly Tool[] | Promise<Tool | readonly Tool[]>;
 
 export interface PluginToolRegistrar {
-  register(factory: BackendToolFactory): () => void;
+  register(factory: BackendToolFactory, descriptors?: readonly BackendToolDescriptor[]): () => void;
 }
 
 export interface BackendPluginRuntimeContext {
@@ -97,6 +109,7 @@ export interface BackendRuntimeContributions {
   configureHooks(registry: HookRegistry): void;
   createRuntime(context: BackendPluginRuntimeContext): Promise<BackendPluginRuntimeHandle>;
   createTools(context: BackendToolFactoryContext): Promise<readonly Tool[]>;
+  listTools(): readonly BackendToolDescriptor[];
 }
 
 export interface BackendPluginContext {

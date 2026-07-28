@@ -1,0 +1,29 @@
+{
+  "name": "@ragsystem/backend-plugin-execution-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.js": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@ragsystem/agent-sdk": "*",
+    "zod": "^3.23.0"
+  },
+  "peerDependencies": {
+    "@ragsystem/backend-core": "0.1.x"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.6.0"
+  }
+}

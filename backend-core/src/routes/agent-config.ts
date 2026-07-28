@@ -206,7 +206,10 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   );
 
   app.get("/tools", async (request) => {
-    const tools = request.container.agentConfig.listAvailableTools().map(normalizeAvailableTool);
+    const tools = [
+      ...request.container.agentConfig.listAvailableTools(),
+      ...request.container.listPluginTools(),
+    ].map(normalizeAvailableTool);
     return ok(tools, `共有 ${tools.length} 个可用工具`);
   });
 

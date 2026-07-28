@@ -5,21 +5,20 @@ import {
   type RuntimeToolDefinition,
   type Tool,
 } from "@ragsystem/agent-sdk";
-import type { AgentConfig } from "../../contracts/agent/agent-config.js";
-import type { WorkspaceSearchPort } from "../../contracts/runtime/tool-ports.js";
+import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { WorkspaceSearchPort } from "../../contracts.js";
 import {
   readGlobArguments,
   readGrepArguments,
   readTodoWriteArguments,
   readWebFetchArguments,
-} from "../../services/runtime/runtime-tool-bridge/arguments.js";
-import {
-  GLOB_TOOL_NAME,
-  GREP_TOOL_NAME,
-  TODO_WRITE_TOOL_NAME,
-  WEB_FETCH_TOOL_NAME,
-} from "../../services/runtime/runtime-tool-bridge/registry.js";
-import { metadataFrom, optionalBoolean, optionalInteger, optionalString } from "../schema-helpers.js";
+} from "../arguments.js";
+import { metadataFrom, optionalBoolean, optionalInteger, optionalString } from "@ragsystem/backend-core/tools/schema-helpers.js";
+
+const GLOB_TOOL_NAME = "glob";
+const GREP_TOOL_NAME = "grep";
+const TODO_WRITE_TOOL_NAME = "todo_write";
+const WEB_FETCH_TOOL_NAME = "web_fetch";
 
 interface LocalSearchToolDeps {
   service: WorkspaceSearchPort | null;

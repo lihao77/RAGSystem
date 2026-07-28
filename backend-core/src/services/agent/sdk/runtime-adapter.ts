@@ -21,7 +21,6 @@ import type { InteractionRequiredNotice, PendingInteractionPort } from "../../..
 import type { BackendToolsDeps } from "../../../tools/registry.js";
 import { createBackendTools } from "../../../tools/registry.js";
 import type { BackendToolFactory } from "../../../plugins/backend-plugin.js";
-import type { CodeExecutionPort } from "../../../contracts/runtime/tool-ports.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
 import { buildBackendAgentContext, filterHistoryMessages, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
@@ -39,8 +38,6 @@ export interface SdkRuntimeAdapterDeps {
   /** 工具依赖集合（service + getAgentDelegation；agent/teamName 由 per-run 提供）。 */
   toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName">;
   pluginTools?: BackendToolFactory;
-  /** CodeExecution service——per-run 注入 callTool 回调用（execute_code 沙箱内工具互调）。 */
-  codeExecutionTools: CodeExecutionPort | null;
   /** 后台任务等待——从 taskTools 适配。 */
   taskTools: TaskToolService | null;
   eventPublisher: AgentExecutionEventPublisher;
@@ -159,11 +156,19 @@ export async function executeRunWithSdk(
     effectivePermission.mode === "dangerously_skip_permissions" || effectivePermission.skip_all_approvals,
   );
   const hostTools = buildHostDelegateTools(deps.hostToolRegistry.get(input.sessionId), deps.delegationPending);
+  let registry: ToolRegistry | null = null;
   const contributedTools = await deps.pluginTools?.({
     tenantId: deps.storage.tenantId,
     teamName,
     agent: input.agent,
     pathAccessPolicy: pathService,
+    callTool: async (toolName, args, callerCtx) => {
+      if (!registry) throw new Error("Tool registry is not initialized");
+      const ctx: ToolExecContext = { ...baseExecCtx, ...callerCtx };
+      const prepare = prepareTool({ registry }, toolName, args, ctx);
+      if (!prepare.ok) return prepare.result;
+      return prepare.prepared.tool.call(prepare.prepared.input, ctx);
+    },
   }) ?? [];
   const tools: Tool[] = [
     ...createBackendTools({
@@ -174,7 +179,7 @@ export async function executeRunWithSdk(
     ...(Array.isArray(contributedTools) ? contributedTools : [contributedTools]),
     ...hostTools,
   ];
-  const registry: ToolRegistry = createToolRegistry({ tools });
+  registry = createToolRegistry({ tools });
 
   // per-run 工具执行上下文消费端切片：workspaceRoot/currentAgentName 等内核无法自行推导的字段。
   // 经 createRuntime({ execContext }) 注入；内核权威字段（sessionId/runId/...）在 toolContext 构造时后置覆盖。
@@ -204,19 +209,7 @@ export async function executeRunWithSdk(
     ...(input.signal ? { signal: input.signal } : {}),
   };
 
-  // CodeExecution 工具互调回调：execute_code 沙箱内 call_tool 走 SDK prepareTool + tool.call。
-  // caller=code_execution 走 allowedCallers 准入；互调不走审批（execute_code 已是审批过的上下文）。
-  if (deps.codeExecutionTools) {
-    deps.codeExecutionTools.setToolCaller(async (toolName, args, callerCtx) => {
-      const ctx: ToolExecContext = { ...baseExecCtx, ...callerCtx, caller: "code_execution" };
-      const prepare = prepareTool({ registry }, toolName, args, ctx);
-      if (!prepare.ok) {
-        return prepare.result;
-      }
-      return prepare.prepared.tool.call(prepare.prepared.input, ctx);
-    });
-  }
-
+  // 插件工具互调回调走 SDK prepareTool + tool.call；调用方身份由插件写入 context。
   // 后台任务等待回调（task_output 等用）
   const waitForToolResult = deps.taskTools
     ? (request: import("@ragsystem/agent-sdk").ToolWaitRequest, ctx: ToolExecContext) =>

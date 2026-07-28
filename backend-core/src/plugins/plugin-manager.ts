@@ -12,6 +12,7 @@ import type {
   BackendRuntimeContributions,
   BackendPluginResourceContribution,
   BackendToolFactory,
+  BackendToolDescriptor,
   BackendToolFactoryContext,
   PluginRouteRegistrar,
   PluginHookRegistrar,
@@ -118,6 +119,7 @@ class BackendPluginResourceRegistry {
 interface BackendToolContribution {
   readonly pluginId: string;
   readonly factory: BackendToolFactory;
+  readonly descriptors: readonly BackendToolDescriptor[];
 }
 
 class BackendToolContributionRegistry {
@@ -125,8 +127,8 @@ class BackendToolContributionRegistry {
 
   forPlugin(pluginId: string): PluginToolRegistrar {
     return {
-      register: (factory) => {
-        const contribution = { pluginId, factory };
+      register: (factory, descriptors = []) => {
+        const contribution = { pluginId, factory, descriptors };
         this.contributions.push(contribution);
         return () => {
           const index = this.contributions.indexOf(contribution);
@@ -134,6 +136,10 @@ class BackendToolContributionRegistry {
         };
       },
     };
+  }
+
+  list(): readonly BackendToolDescriptor[] {
+    return this.contributions.flatMap((contribution) => contribution.descriptors);
   }
 
   async create(context: BackendToolFactoryContext): Promise<readonly Tool[]> {
@@ -267,9 +273,13 @@ export class BackendPluginManager {
       configureHooks: (registry) => manager.hookRegistry.install(registry),
       createRuntime: (context) => manager.runtimeFactoryRegistry.create({
         ...context,
-        resources: manager.resourceRegistry.list(),
+        resources: [
+          ...(context.resources ?? []),
+          ...manager.resourceRegistry.list(),
+        ],
       }),
       createTools: (context) => manager.toolRegistry.create(context),
+      listTools: () => manager.toolRegistry.list(),
     };
   }
 

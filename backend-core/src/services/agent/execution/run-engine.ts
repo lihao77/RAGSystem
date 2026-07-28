@@ -11,7 +11,6 @@ import type { SessionNotificationQueue } from "../../runtime/session-notificatio
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
 import type { BackendToolFactory } from "../../../plugins/backend-plugin.js";
-import type { CodeExecutionPort } from "../../../contracts/runtime/tool-ports.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
 import type { InteractionRequiredNotice, PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
@@ -61,7 +60,6 @@ export class AgentRunEngine {
     private readonly storage: ExecutionStorage,
     private readonly dataRoot: string,
    private readonly toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> | null,
-    private readonly codeExecutionTools: CodeExecutionPort | null,
    private readonly taskTools: TaskToolService | null,
    /** 已加载的 provider 列表提供者（投影层解析 tier.provider 引用用）。 */
    private readonly providersProvider: () => ModelProviderConfig[],
@@ -494,7 +492,6 @@ export class AgentRunEngine {
           storage: this.storage,
           toolsDeps: this.toolsDeps ?? emptyToolsDeps,
           ...(this.pluginTools ? { pluginTools: this.pluginTools } : {}),
-          codeExecutionTools: this.codeExecutionTools,
           taskTools: this.taskTools,
           eventPublisher: this.eventPublisher,
           providers: this.providersProvider(),
@@ -877,9 +874,6 @@ function hasCause(error: Error): error is Error & { cause: unknown } {
 const emptyToolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> = {
   pendingInteractions: null,
   documentTools: null,
-  bashTools: null,
   taskTools: null,
-  searchTools: null,
-  codeExecutionTools: null,
   getAgentDelegation: () => null,
 };

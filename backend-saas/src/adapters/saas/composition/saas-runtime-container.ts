@@ -93,6 +93,15 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     notificationQueue,
     goalStore,
   );
+  const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
+  const sandboxFileBridge = options.sandboxProvider ? new SaaSSandboxFileBridge(sessionFiles) : null;
+  const sandboxLeases = options.sandboxProvider
+    ? new SandboxLeaseManager(tenantId, options.sandboxProvider, options.sandboxLeaseTimeoutSeconds, sandboxFileBridge ?? undefined)
+    : null;
+  const documentTools = sandboxLeases ? new SaaSSandboxDocumentToolService(sandboxLeases) : null;
+  const searchTools = sandboxLeases ? new SaaSSandboxSearchToolService(sandboxLeases) : null;
+  const bashTools = sandboxLeases ? new SaaSSandboxBashToolService(sandboxLeases) : null;
+  const codeExecutionTools = sandboxLeases ? new SaaSSandboxCodeExecutionService(sandboxLeases) : null;
   const pluginRuntime = await options.plugins?.createRuntime({
     deploymentKind: "saas",
     tenantId,
@@ -103,17 +112,17 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     sessions: sessionApplication,
     backgroundTasks,
     clientEvents,
+    resources: [{
+      pluginId: "@ragsystem/backend-saas",
+      kind: "execution-tools.runtime",
+      value: {
+        bash: bashTools,
+        code: codeExecutionTools,
+        search: searchTools,
+      },
+    }],
   });
   const pluginCapabilities = pluginRuntime?.capabilities ?? new CapabilityRegistry();
-  const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
-  const sandboxFileBridge = options.sandboxProvider ? new SaaSSandboxFileBridge(sessionFiles) : null;
-  const sandboxLeases = options.sandboxProvider
-    ? new SandboxLeaseManager(tenantId, options.sandboxProvider, options.sandboxLeaseTimeoutSeconds, sandboxFileBridge ?? undefined)
-    : null;
-  const documentTools = sandboxLeases ? new SaaSSandboxDocumentToolService(sandboxLeases) : null;
-  const searchTools = sandboxLeases ? new SaaSSandboxSearchToolService(sandboxLeases) : null;
-  const bashTools = sandboxLeases ? new SaaSSandboxBashToolService(sandboxLeases) : null;
-  const codeExecutionTools = sandboxLeases ? new SaaSSandboxCodeExecutionService(sandboxLeases) : null;
 
   return createCoreRuntimeContainer({
     deploymentKind: "saas",
@@ -175,9 +184,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     }),
     pathAccessPolicyFactory: () => new PathApprovalService(),
     documentTools,
-    codeExecutionTools,
-    searchTools,
-    bashTools,
     backgroundTasks,
     taskTools,
     goalStore,

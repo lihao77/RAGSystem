@@ -1,4 +1,4 @@
-import { normalizeString, asRecord } from "../../utils/guards.js";
+import { normalizeString, asRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -26,7 +26,6 @@ export class CodeExecutionToolService {
   private readonly dataRoot: string;
   private readonly defaultTimeoutSeconds: number;
   private readonly maxTimeoutSeconds: number;
-  private toolCaller: ToolCaller | null = null;
 
   constructor(options: {
     dataRoot?: string | undefined;
@@ -48,11 +47,11 @@ export class CodeExecutionToolService {
     return Math.max(1, Math.min(this.maxTimeoutSeconds, value));
   }
 
-  setToolCaller(caller: ToolCaller | null): void {
-    this.toolCaller = caller;
-  }
-
-  async executeCode(input: CodeExecutionInput, context: ToolExecContext): Promise<ToolExecutionResult> {
+  async executeCode(
+    input: CodeExecutionInput,
+    context: ToolExecContext,
+    toolCaller: ToolCaller | null = null,
+  ): Promise<ToolExecutionResult> {
     const toolName = "execute_code";
     const code = input.code;
     if (!code.trim()) {
@@ -82,7 +81,7 @@ export class CodeExecutionToolService {
     });
 
     const protocolLines = createJsonLineReader((message) => {
-      void this.handleProtocolMessage(message, child, context);
+      void this.handleProtocolMessage(message, child, context, toolCaller);
     });
     const stderrChunks: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => protocolLines.push(chunk));
@@ -169,11 +168,12 @@ export class CodeExecutionToolService {
     toolName: string,
     args: Record<string, unknown>,
     context: ToolExecContext,
+    toolCaller: ToolCaller | null,
   ): Promise<unknown> {
-    if (!this.toolCaller) {
+    if (!toolCaller) {
       throw new Error("execute_code 当前缺少工具调用回调");
     }
-    const result = await this.toolCaller(toolName, args, context);
+    const result = await toolCaller(toolName, args, context);
     if (!result.success) {
       throw new Error(result.summary || String(result.content ?? "tool failed"));
     }
@@ -184,6 +184,7 @@ export class CodeExecutionToolService {
     message: Record<string, unknown>,
     child: ReturnType<typeof spawn>,
     context: ToolExecContext,
+    toolCaller: ToolCaller | null,
   ): Promise<void> {
     if (message.type !== "tool_call") {
       return;
@@ -192,7 +193,7 @@ export class CodeExecutionToolService {
     const toolName = typeof message.tool_name === "string" ? message.tool_name : "";
     const args = asRecord(message.arguments) ?? {};
     try {
-      const content = await this.callCodeCallableTool(toolName, args, context);
+      const content = await this.callCodeCallableTool(toolName, args, context, toolCaller);
       child.stdin?.write(`${JSON.stringify({ type: "tool_result", request_id: requestId, success: true, content })}\n`, "utf8");
     } catch (error) {
       child.stdin?.write(
@@ -365,22 +366,6 @@ function errorResult(
     llmHint: null,
   };
 }
-
-export function readCodeExecutionArguments(value: Record<string, unknown> | undefined): CodeExecutionInput {
-  return {
-    code: typeof value?.code === "string" ? value.code : "",
-    description: normalizeString(value?.description),
-    timeout: asInteger(value?.timeout),
-  };
-}
-
-
-
-function asInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) ? value : null;
-}
-
-
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

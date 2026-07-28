@@ -12,6 +12,7 @@ import { createArtifactsPlugin, createFilesystemArtifactStorage } from "@ragsyst
 import { createKnowledgePlugin, createLocalKnowledgeRuntimeFactory } from "@ragsystem/backend-plugin-knowledge/index.js";
 import { createLocalMemoryRuntimeFactory, createMemoryPlugin } from "@ragsystem/backend-plugin-memory/index.js";
 import { createLocalMcpRuntimeFactory, createMcpPlugin } from "@ragsystem/backend-plugin-mcp/index.js";
+import { createExecutionToolsPlugin, createLocalExecutionToolsRuntimeFactory } from "@ragsystem/backend-plugin-execution-tools/index.js";
 import { createLocalSkillsRuntimeFactory, createSkillsPlugin } from "@ragsystem/backend-plugin-skills/index.js";
 import type { LocalDeploymentRuntime } from "./adapters/local/composition/local-deployment-runtime.js";
 import { TenantPaths } from "./adapters/local/tenant-paths.js";
@@ -42,6 +43,7 @@ export function createLocalProductPlugins(
         },
       },
     }),
+    executionTools: () => createExecutionToolsPlugin({ runtimeFactory: createLocalExecutionToolsRuntimeFactory() }),
     knowledge: () => createKnowledgePlugin({ runtimeFactory: createLocalKnowledgeRuntimeFactory() }),
     memory: () => createMemoryPlugin({ runtimeFactory: createLocalMemoryRuntimeFactory() }),
     mcp: () => createMcpPlugin({ runtimeFactory: createLocalMcpRuntimeFactory() }),

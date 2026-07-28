@@ -7,15 +7,12 @@
 import type { Tool } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../contracts/agent/agent-config.js";
 import type { DelegationPort } from "../services/agent/delegation/port.js";
-import type { CommandExecutionPort, CodeExecutionPort, DocumentToolPort, WorkspaceSearchPort } from "../contracts/runtime/tool-ports.js";
+import type { DocumentToolPort } from "../contracts/runtime/tool-ports.js";
 import type { TaskToolService } from "./TaskTools/TaskExecution.js";
 import type { PendingInteractionPort } from "../contracts/runtime/pending-interactions.js";
 import type { PathAccessPolicy } from "../contracts/runtime/path-access-policy.js";
-import { createBashTools } from "./BashTool/BashTool.js";
-import { createCodeExecutionTools } from "./CodeExecutionTool/CodeExecutionTool.js";
 import { createDelegationTools, type DelegationAgentConfigLookup } from "./DelegationTools/DelegationTools.js";
 import { createDocumentTools } from "./DocumentTools/DocumentTools.js";
-import { createLocalSearchTools } from "./LocalSearchTools/LocalSearchTools.js";
 import { createRequestUserInputTools } from "./RequestUserInputTool/RequestUserInputTool.js";
 import { createTaskTools } from "./TaskTools/TaskTools.js";
 
@@ -23,10 +20,7 @@ export interface BackendToolsDeps {
   agent: AgentConfig;
   pendingInteractions: PendingInteractionPort | null;
   documentTools: DocumentToolPort | null;
-  bashTools: CommandExecutionPort | null;
   taskTools: TaskToolService | null;
-  searchTools: WorkspaceSearchPort | null;
-  codeExecutionTools: CodeExecutionPort | null;
   getAgentDelegation: () => DelegationPort | null;
   /**
    * agent 配置查找（delegation 工厂解析可委派 agent 展示信息用；结构上与 agentConfig 容器 getConfig 兼容）。
@@ -46,9 +40,6 @@ export function createBackendTools(deps: BackendToolsDeps, pathService: PathAcce
   return [
     ...createRequestUserInputTools({ pendingInteractions: deps.pendingInteractions, agent }),
     ...createDocumentTools({ documentTools: deps.documentTools, agent, pathService }),
-    ...createBashTools({ bashTools: deps.bashTools, agent, pathService }),
-    ...createCodeExecutionTools({ codeExecutionTools: deps.codeExecutionTools, agent }),
-    ...createLocalSearchTools({ service: deps.searchTools, agent }),
     ...createTaskTools({ taskTools: deps.taskTools, agent }),
     ...createDelegationTools({
       getAgentDelegation: deps.getAgentDelegation,

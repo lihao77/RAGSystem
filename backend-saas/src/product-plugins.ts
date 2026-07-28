@@ -22,6 +22,7 @@ import {
   createPostgresMcpLifecycle,
   createPostgresMcpRuntimeFactory,
 } from "@ragsystem/backend-plugin-mcp/index.js";
+import { createExecutionToolsPlugin, createSaaSExecutionToolsRuntimeFactory } from "@ragsystem/backend-plugin-execution-tools/index.js";
 import {
   createPostgresSkillsLifecycle,
   createPostgresSkillsRuntimeFactory,
@@ -55,6 +56,7 @@ export function createSaaSProductPlugins(
         },
       },
     }),
+    executionTools: () => createExecutionToolsPlugin({ runtimeFactory: createSaaSExecutionToolsRuntimeFactory() }),
     knowledge: () => createKnowledgePlugin({
       runtimeFactory: createPostgresKnowledgeRuntimeFactory({
         executor: deployment.pluginResources.database,

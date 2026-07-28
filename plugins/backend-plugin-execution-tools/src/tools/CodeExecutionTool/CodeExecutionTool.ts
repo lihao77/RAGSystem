@@ -1,15 +1,17 @@
 import { z } from "zod";
 
 import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
-import type { AgentConfig } from "../../contracts/agent/agent-config.js";
-import type { CodeExecutionPort } from "../../contracts/runtime/tool-ports.js";
-import { readCodeExecutionArguments } from "../../services/runtime/runtime-tool-bridge/arguments.js";
-import { EXECUTE_CODE_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import { optionalInteger, optionalString } from "../schema-helpers.js";
+import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { CodeExecutionPort } from "../../contracts.js";
+import { readCodeExecutionArguments } from "../arguments.js";
+import { optionalInteger, optionalString } from "@ragsystem/backend-core/tools/schema-helpers.js";
+
+const EXECUTE_CODE_TOOL_NAME = "execute_code";
 
 interface CodeExecutionToolDeps {
   codeExecutionTools: CodeExecutionPort | null;
   agent: AgentConfig;
+  callTool?: (toolName: string, args: Record<string, unknown>, context: ToolExecContext) => Promise<import("@ragsystem/agent-sdk").ToolExecutionResult>;
 }
 
 function resolveWorkspaceRoot(agent: AgentConfig): string | null {
@@ -76,7 +78,7 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
         codeExecutionTools.executeCode(readCodeExecutionArguments(input), {
           ...ctx,
           workspaceRoot: ctx.workspaceRoot ?? agentWorkspaceRoot,
-        }),
+        }, deps.callTool ?? null),
     }),
   ];
 }

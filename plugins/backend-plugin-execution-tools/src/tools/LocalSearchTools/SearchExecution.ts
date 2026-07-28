@@ -1,4 +1,4 @@
-import { isRecord, normalizeString } from "../../utils/guards.js";
+import { isRecord, normalizeString } from "@ragsystem/backend-core/utils/guards.js";
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
@@ -6,7 +6,7 @@ import path from "node:path";
 import { URL } from "node:url";
 
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
-import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
+import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 
 const DEFAULT_MAX_RESULTS = 200;
 const DEFAULT_MAX_CHARS = 20_000;

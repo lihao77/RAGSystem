@@ -12,7 +12,7 @@ import type { AsyncFileHistoryStore } from "../file-history-store/index.js";
 import type { PathAccessPolicy } from "./path-access-policy.js";
 import type { InteractionCoordinator, PendingInteractionPort } from "./pending-interactions.js";
 import type { RealtimeEventBus } from "./realtime-event-bus.js";
-import type { CommandExecutionPort, CodeExecutionPort, DocumentToolPort, WorkspaceSearchPort } from "./tool-ports.js";
+import type { DocumentToolPort } from "./tool-ports.js";
 import type { AsyncSessionFileStorage, SessionFileLookupPort } from "../session/session-file-storage.js";
 import type { ExecutionSessionPort, SessionApplication } from "../session/session-application.js";
 import type { RuntimeStorage } from "../storage/runtime-storage.js";
@@ -63,6 +63,7 @@ export interface RuntimeContainerBase {
   readonly tenantId: TenantId;
   readonly pluginCapabilities: CapabilityRegistry;
   readonly createPluginTools: (context: BackendToolFactoryContext) => Promise<readonly Tool[]>;
+  readonly listPluginTools: () => readonly import("../../plugins/backend-plugin.js").BackendToolDescriptor[];
   readonly sessionApplication: SessionApplication;
   readonly realtimeEvents: RealtimeEventBus;
   readonly sessionFiles: SessionFileLookupPort;
@@ -73,9 +74,6 @@ export interface RuntimeContainerBase {
   readonly modelAdapter: ModelAdapterService;
   readonly systemConfig: SystemConfigService;
   readonly documentTools: DocumentToolPort | null;
-  readonly codeExecutionTools: CodeExecutionPort | null;
-  readonly searchTools: WorkspaceSearchPort | null;
-  readonly bashTools: CommandExecutionPort | null;
   readonly backgroundTasks: BackgroundTaskService;
   readonly taskTools: TaskToolService;
   readonly goalStore: GoalStore;
@@ -130,9 +128,6 @@ interface CoreRuntimeDependenciesBase {
   executionStorage: ExecutionStorage;
   pathAccessPolicyFactory: () => PathAccessPolicy;
   documentTools: DocumentToolPort | null;
-  codeExecutionTools: CodeExecutionPort | null;
-  searchTools: WorkspaceSearchPort | null;
-  bashTools: CommandExecutionPort | null;
   backgroundTasks: BackgroundTaskService;
   taskTools: TaskToolService;
   goalStore: GoalStore;

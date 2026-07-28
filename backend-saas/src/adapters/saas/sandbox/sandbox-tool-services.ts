@@ -3,11 +3,12 @@ import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk"
 
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
-import type { CodeExecutionPort, CommandExecutionPort, DocumentToolPort, WorkspaceSearchPort } from "@ragsystem/backend-core/contracts/runtime/tool-ports.js";
+import type { DocumentToolPort } from "@ragsystem/backend-core/contracts/runtime/tool-ports.js";
+import type { CodeExecutionPort, CommandExecutionPort, WorkspaceSearchPort } from "@ragsystem/backend-plugin-execution-tools/contracts.js";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
-import type { BashExecutionInput, BashExecutionPlan, BashExecutionPlanResult, BashClassificationResult } from "@ragsystem/backend-core/tools/BashTool/BashExecution.js";
-import { buildApprovalDescription, categoryRisk, classifyCommand, validateCommand } from "@ragsystem/backend-core/tools/BashTool/command-policy.js";
-import type { CodeExecutionInput, ToolCaller } from "@ragsystem/backend-core/tools/CodeExecutionTool/CodeExecution.js";
+import type { BashExecutionInput, BashExecutionPlan, BashExecutionPlanResult, BashClassificationResult } from "@ragsystem/backend-plugin-execution-tools/tools/BashTool/BashExecution.js";
+import { buildApprovalDescription, categoryRisk, classifyCommand, validateCommand } from "@ragsystem/backend-plugin-execution-tools/tools/BashTool/command-policy.js";
+import type { CodeExecutionInput, ToolCaller } from "@ragsystem/backend-plugin-execution-tools/tools/CodeExecutionTool/CodeExecution.js";
 import { resolveSandboxPath, validateSandboxGlob } from "./sandbox-paths.js";
 import { SandboxLeaseManager } from "./sandbox-lease-manager.js";
 
@@ -240,11 +241,9 @@ export class SaaSSandboxBashToolService implements CommandExecutionPort {
 }
 
 export class SaaSSandboxCodeExecutionService implements CodeExecutionPort {
-  private toolCaller: ToolCaller | null = null;
   constructor(private readonly leases: SandboxLeaseManager) {}
-  setToolCaller(caller: ToolCaller | null): void { this.toolCaller = caller; }
 
-  async executeCode(input: CodeExecutionInput, context: ToolExecContext): Promise<ToolExecutionResult> {
+  async executeCode(input: CodeExecutionInput, context: ToolExecContext, _toolCaller: ToolCaller | null = null): Promise<ToolExecutionResult> {
     const toolName = "execute_code";
     if (!input.code.trim()) return toolError(toolName, "代码不能为空");
     const timeoutSeconds = positiveInteger(input.timeout, 60, 1, 300, "timeout");

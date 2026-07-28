@@ -36,9 +36,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     systemConfig,
     sessionFiles,
     documentTools,
-    codeExecutionTools,
-    searchTools,
-    bashTools,
     backgroundTasks,
     taskTools,
     goalStore,
@@ -51,6 +48,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   const pluginCapabilities = dependencies.pluginCapabilities ?? new CapabilityRegistry();
   const createPluginTools = (context: import("../../plugins/backend-plugin.js").BackendToolFactoryContext) =>
     dependencies.plugins?.createTools({ ...context, capabilities: pluginCapabilities }) ?? Promise.resolve([]);
+  const listPluginTools = () => dependencies.plugins?.listTools() ?? [];
 
   const interactionCoordinator = new RuntimeInteractionCoordinator(
     dependencies.runtimeStorage,
@@ -63,10 +61,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   const toolsDeps = {
     pendingInteractions: selectedPendingInteractions,
     documentTools,
-    bashTools,
     taskTools,
-    searchTools,
-    codeExecutionTools,
     getAgentDelegation: () => agentDelegation,
     agentConfig,
   };
@@ -80,7 +75,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     runtimeCore,
     dataRoot,
     toolsDeps,
-    codeExecutionTools,
     taskTools,
     goalStore,
     providersProvider: () => modelAdapter.listProviders(),
@@ -130,6 +124,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     tenantId,
     pluginCapabilities,
     createPluginTools,
+    listPluginTools,
     sessionApplication,
     realtimeEvents,
     sessionFiles,
@@ -140,9 +135,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     modelAdapter,
     systemConfig,
     documentTools,
-    codeExecutionTools,
-    searchTools,
-    bashTools,
     backgroundTasks,
     taskTools,
     goalStore,

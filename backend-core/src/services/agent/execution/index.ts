@@ -80,7 +80,6 @@ export interface AgentExecutionServiceParams {
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
   pluginTools?: BackendToolFactory | null;
-  codeExecutionTools?: import("../../../contracts/runtime/tool-ports.js").CodeExecutionPort | null;
   taskTools?: TaskToolService | null;
   goalStore?: GoalStore | null;
   backgroundTasks?: BackgroundTaskService | null;
@@ -145,7 +144,6 @@ export function createAgentExecutionService(
     storage,
     params.dataRoot,
    params.toolsDeps ?? null,
-   params.codeExecutionTools ?? null,
    params.taskTools ?? null,
    params.providersProvider,
    params.backgroundTasks ?? null,
