@@ -1,0 +1,683 @@
+import fs from "node:fs";
+import path from "node:path";
+import { createHash } from "node:crypto";
+import { withLeaseLock } from "@ragsystem/agent-sdk";
+import {
+  atomicWriteFile as atomicWriteMemoryFile,
+  readFileIfExists,
+  restoreFileIfExpected,
+  snapshotFile,
+} from "./files/memory-files.js";
+
+import type {
+  MemoryEntry,
+  MemoryEntryFile,
+  MemoryIndexReadOptions,
+  MemoryPartition,
+  MemoryScopeName,
+  MemoryScopeSpec,
+  PersistedMemoryEntry,
+  PersistedMemoryManagementArchiveInput,
+  PersistedMemoryManagementArchiveResult,
+  PersistedMemoryManagementCountOptions,
+  PersistedMemoryManagementListOptions,
+  PersistedMemoryManagementLookupInput,
+  PersistedMemoryManagementResolvedEntry,
+  SaveMemoryInput,
+  SavedMemoryFile,
+} from "@ragsystem/backend-core/contracts/memory-store/index.js";
+import { getWorkspaceMemoryKey } from "@ragsystem/backend-core/contracts/memory-store/index.js";
+import { SaveMemoryInputSchema } from "@ragsystem/backend-core/contracts/memory-store/types.js";
+
+const DEFAULT_INDEX_MAX_LINES = 200;
+const DEFAULT_INDEX_MAX_CHARS = 25600;
+const ALLOWED_MEMORY_TYPES = new Set(["preference", "constraint", "goal", "fact", "profile"]);
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
+
+export interface MemoryStoreOptions {
+  dataRoot?: string | undefined;
+}
+
+export class MemoryStore {
+  private readonly dataRoot: string;
+
+  constructor(options: MemoryStoreOptions = {}) {
+    if (!options.dataRoot?.trim()) {
+      throw new Error("MemoryStore 必须传入已解析的 dataRoot");
+    }
+    this.dataRoot = path.resolve(options.dataRoot);
+  }
+
+  getScopeRoot(scopeSpec: MemoryScopeSpec): string {
+    const memoryRoot = path.join(this.dataRoot, "memory");
+    fs.mkdirSync(memoryRoot, { recursive: true });
+    if (scopeSpec.scope === "team") {
+      const teamName = normalizePathSegment(scopeSpec.team_name, "team_name");
+      if (!teamName) {
+        throw new Error("team scope 缺少 team_name");
+      }
+      return resolveScopePath(memoryRoot, "teams", teamName);
+    }
+    if (scopeSpec.scope === "session") {
+      const sessionId = normalizePathSegment(scopeSpec.session_id, "session_id");
+      if (!sessionId) {
+        throw new Error("session scope 缺少 session_id");
+      }
+      return resolveScopePath(memoryRoot, "sessions", sessionId);
+    }
+    if (scopeSpec.scope === "agent") {
+      const teamName = normalizePathSegment(scopeSpec.team_name, "team_name");
+      if (!teamName) {
+        throw new Error("agent scope 缺少 team_name");
+      }
+      const agentName = normalizePathSegment(scopeSpec.agent_name, "agent_name");
+      if (!agentName) {
+        throw new Error("agent scope 缺少 agent_name");
+      }
+      return resolveScopePath(memoryRoot, "teams", teamName, "agents", agentName);
+    }
+    if (scopeSpec.scope === "user") {
+      const userId = normalizePathSegment(scopeSpec.user_id, "user_id");
+      if (!userId) {
+        throw new Error("user scope 缺少 user_id");
+      }
+      return resolveScopePath(memoryRoot, "users", userId);
+    }
+    const userId = normalizePathSegment(scopeSpec.user_id, "user_id");
+    if (!userId) {
+      throw new Error("workspace scope 缺少 user_id");
+    }
+    const workspaceKey = normalizePathSegment(scopeSpec.workspace_key, "workspace_key");
+    if (!workspaceKey) {
+      throw new Error("workspace scope 缺少 workspace_key");
+    }
+    const userWorkspaceRoot = resolveScopePath(memoryRoot, "users", userId, "workspaces", workspaceKey);
+    return userWorkspaceRoot;
+  }
+
+  getIndexPath(scopeSpec: MemoryScopeSpec): string {
+    return path.join(this.getScopeRoot(scopeSpec), "MEMORY.md");
+  }
+
+  ensureScope(scopeSpec: MemoryScopeSpec): string {
+    const scopeRoot = this.getScopeRoot(scopeSpec);
+    fs.mkdirSync(scopeRoot, { recursive: true });
+    const indexPath = path.join(scopeRoot, "MEMORY.md");
+    try {
+      fs.writeFileSync(indexPath, `# ${titleCase(scopeSpec.scope)} Memory\n\n`, { encoding: "utf8", flag: "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    return scopeRoot;
+  }
+
+  private async ensureScopeUnlocked(scopeSpec: MemoryScopeSpec, scopeRoot: string): Promise<void> {
+    await fs.promises.mkdir(scopeRoot, { recursive: true });
+    try {
+      await fs.promises.writeFile(path.join(scopeRoot, "MEMORY.md"), `# ${titleCase(scopeSpec.scope)} Memory\n\n`, { encoding: "utf8", flag: "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+
+  loadIndexHead(scopeSpec: MemoryScopeSpec, options: MemoryIndexReadOptions = {}): string {
+    const maxLines = options.maxLines ?? DEFAULT_INDEX_MAX_LINES;
+    const maxChars = options.maxChars ?? DEFAULT_INDEX_MAX_CHARS;
+    try {
+      const scopeRoot = this.ensureScope(scopeSpec);
+      const indexPath = path.join(scopeRoot, "MEMORY.md");
+      const text = fs.readFileSync(indexPath, "utf8");
+      const limited = text.split(/\r?\n/).slice(0, maxLines).join("\n");
+      return limited.slice(0, maxChars).trim();
+    } catch (error) {
+      console.warn("[memory-store] loadIndexHead failed", { scope: scopeSpec.scope, error });
+      return "";
+    }
+  }
+
+  readEntryFile(scopeSpec: MemoryScopeSpec, fileName: string): MemoryEntryFile | null {
+    const normalizedFileName = path.basename(fileName);
+    if (!normalizedFileName || normalizedFileName === "." || normalizedFileName === "..") {
+      return null;
+    }
+    try {
+      const scopeRoot = this.ensureScope(scopeSpec);
+      const filePath = resolveEntryPath(scopeRoot, normalizedFileName);
+      if (!fs.existsSync(filePath)) {
+        return null;
+      }
+      return {
+        scope: scopeSpec.scope,
+        file_name: normalizedFileName,
+        file_path: filePath,
+        content: fs.readFileSync(filePath, "utf8"),
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      console.warn("[memory-store] readEntryFile failed", {
+        scope: scopeSpec.scope,
+        fileName: normalizedFileName,
+        error,
+      });
+      return null;
+    }
+  }
+
+  async saveMemory(rawInput: SaveMemoryInput): Promise<SavedMemoryFile> {
+    const input = SaveMemoryInputSchema.parse(rawInput);
+    const scopeRoot = this.getScopeRoot(input);
+    return this.withScopeLock(scopeRoot, async () => {
+      await this.ensureScopeUnlocked(input, scopeRoot);
+      return this.saveMemoryUnlocked(input, scopeRoot);
+    });
+  }
+
+  async saveMemoryWithCommit(
+    rawInput: SaveMemoryInput,
+    commit: (saved: SavedMemoryFile) => boolean | Promise<boolean>,
+  ): Promise<SavedMemoryFile> {
+    const input = SaveMemoryInputSchema.parse(rawInput);
+    const scopeRoot = this.getScopeRoot(input);
+    return this.withScopeLock(scopeRoot, async () => {
+      await this.ensureScopeUnlocked(input, scopeRoot);
+      const fileName = memoryFileName(input);
+      const entryPath = resolveEntryPath(scopeRoot, fileName);
+      const indexPath = path.join(scopeRoot, "MEMORY.md");
+      const entryBefore = await snapshotFile(entryPath);
+      const indexBefore = await snapshotFile(indexPath);
+      let expectedEntry: string | undefined;
+      let expectedIndex: string | undefined;
+      try {
+        const saved = await this.saveMemoryUnlocked(input, scopeRoot, (content) => { expectedEntry = content; }, (content) => { expectedIndex = content; });
+        expectedIndex = await readFileIfExists(indexPath) ?? undefined;
+        if (!await commit(saved)) throw new Error("memory publish state changed before commit");
+        return saved;
+      } catch (error) {
+        await this.restoreMutation(entryPath, entryBefore, expectedEntry, indexPath, indexBefore, expectedIndex, error);
+        throw error;
+      }
+    });
+  }
+
+  private async saveMemoryUnlocked(
+    input: SaveMemoryInput,
+    scopeRoot: string,
+    onEntryWritten?: (content: string) => void,
+    onIndexWritten?: (content: string) => void,
+  ): Promise<SavedMemoryFile> {
+    const normalizedMemoryType = normalizeString(input.memory_type)?.toLowerCase() ?? "fact";
+    if (!ALLOWED_MEMORY_TYPES.has(normalizedMemoryType)) {
+      throw new Error(`不支持的 memory_type: ${input.memory_type}`);
+    }
+    const fileName = memoryFileName(input);
+    const filePath = resolveEntryPath(scopeRoot, fileName);
+    const now = nowIso();
+    const existing = await readEntryAsync(filePath);
+    const createdAt = existing?.created_at || now;
+    const bodyLines = [input.content.trim()];
+    const why = normalizeString(input.why);
+    if (why) bodyLines.push("", `**Why:** ${why}`);
+    const howToApply = normalizeString(input.how_to_apply);
+    if (howToApply) bodyLines.push(`**How to apply:** ${howToApply}`);
+    const frontmatter: Record<string, string> = {
+      name: input.name.trim(), description: input.description.trim(), type: input.scope,
+      memory_type: normalizedMemoryType, status: normalizeString(input.status)?.toLowerCase() ?? "active",
+      agent: input.agent_name?.trim() ?? "", session_id: input.session_id?.trim() ?? "",
+      team_name: input.team_name?.trim() ?? "", created_at: createdAt, updated_at: now,
+      source_run_id: input.source_run_id?.trim() ?? "", source_message_id: input.source_message_id?.trim() ?? "",
+    };
+    const content = renderMarkdown(frontmatter, `${bodyLines.join("\n").trim()}\n`);
+    await atomicWriteMemoryFile(filePath, content);
+    onEntryWritten?.(content);
+    await this.rebuildIndexUnlockedAsync(input, scopeRoot, onIndexWritten);
+    return { file_name: fileName, file_path: filePath, scope: input.scope };
+  }
+
+  listEntries(scopeSpec: MemoryScopeSpec, options: { includeArchived?: boolean | undefined } = {}): MemoryEntry[] {
+    return readEntriesUnlocked(this.ensureScope(scopeSpec), options.includeArchived === true);
+  }
+
+  listManagedEntries(options: PersistedMemoryManagementListOptions): PersistedMemoryEntry[] {
+    const records = this.collectManagedEntries(options)
+      .filter((entry) => !options.scopes?.length || options.scopes.includes(entry.scope))
+      .filter((entry) => !options.statuses?.length || options.statuses.includes(entry.status))
+      .filter((entry) => matchesManagedSearch(entry, options.search))
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at) || right.id.localeCompare(left.id));
+    const offset = Math.max(0, options.offset ?? 0);
+    const limit = Math.max(1, Math.min(options.limit ?? (records.length || 1), 500));
+    return records.slice(offset, offset + limit);
+  }
+
+  countManagedEntries(options: PersistedMemoryManagementCountOptions): number {
+    return this.collectManagedEntries(options)
+      .filter((entry) => !options.scopes?.length || options.scopes.includes(entry.scope))
+      .filter((entry) => !options.statuses?.length || options.statuses.includes(entry.status))
+      .filter((entry) => matchesManagedSearch(entry, options.search)).length;
+  }
+
+  getManagedEntry(input: PersistedMemoryManagementLookupInput): PersistedMemoryManagementResolvedEntry | null {
+    return this.collectManagedResolvedEntries({
+      tenant_id: input.tenant_id,
+      viewer_user_id: input.viewer_user_id,
+      viewer_session_ids: input.viewer_session_ids,
+    }).find((entry) => entry.memory.id === input.memory_id) ?? null;
+  }
+
+  async archiveManagedEntry(input: PersistedMemoryManagementArchiveInput): Promise<PersistedMemoryManagementArchiveResult> {
+    const resolved = this.getManagedEntry({
+      tenant_id: input.tenant_id,
+      memory_id: input.memory_id,
+      viewer_user_id: input.viewer_user_id,
+      viewer_session_ids: input.viewer_session_ids,
+    });
+    if (!resolved || resolved.memory.status !== "active") return { outcome: "not_found" };
+    const visible = resolved.memory;
+    if (visible.version !== input.expected_version) return { outcome: "state_conflict" };
+    const archived = await this.archiveMemory(resolved.scope_spec, resolved.storage_key);
+    if (!archived) return { outcome: "not_found" };
+    return {
+      outcome: "archived",
+      memory: { ...visible, status: "archived", archived_at: visible.updated_at },
+    };
+  }
+
+  private collectManagedEntries(options: PersistedMemoryManagementCountOptions): PersistedMemoryEntry[] {
+    return this.collectManagedResolvedEntries(options).map((entry) => entry.memory);
+  }
+
+  private collectManagedResolvedEntries(
+    options: PersistedMemoryManagementCountOptions,
+  ): PersistedMemoryManagementResolvedEntry[] {
+    const memoryRoot = path.join(this.dataRoot, "memory");
+    if (!fs.existsSync(memoryRoot)) return [];
+    const partitions: Array<{ spec: MemoryScopeSpec; partition: Omit<MemoryPartition, "tenant_id"> }> = [];
+    const teamsRoot = path.join(memoryRoot, "teams");
+    for (const teamName of listChildDirectories(teamsRoot)) {
+      partitions.push({ spec: { scope: "team", team_name: teamName }, partition: { scope: "team", scope_id: teamName } });
+      const agentsRoot = path.join(teamsRoot, teamName, "agents");
+      for (const agentName of listChildDirectories(agentsRoot)) {
+        partitions.push({
+          spec: { scope: "agent", team_name: teamName, agent_name: agentName },
+          partition: { scope: "agent", scope_id: JSON.stringify([teamName, agentName]) },
+        });
+      }
+    }
+    for (const sessionId of options.viewer_session_ids ?? []) {
+      if (fs.existsSync(path.join(memoryRoot, "sessions", sessionId))) {
+        partitions.push({ spec: { scope: "session", session_id: sessionId }, partition: { scope: "session", scope_id: sessionId } });
+      }
+    }
+    const userId = options.viewer_user_id;
+    if (userId) {
+      const userRoot = path.join(memoryRoot, "users", userId);
+      if (fs.existsSync(userRoot)) {
+        partitions.push({ spec: { scope: "user", user_id: userId }, partition: { scope: "user", scope_id: userId } });
+      }
+      for (const workspaceKey of listChildDirectories(path.join(userRoot, "workspaces"))) {
+        partitions.push({
+          spec: { scope: "workspace", user_id: userId, workspace_key: workspaceKey },
+          partition: { scope: "workspace", scope_id: JSON.stringify([userId, workspaceKey]) },
+        });
+      }
+    }
+    return partitions.flatMap(({ spec, partition }) => this.listEntries(spec, { includeArchived: true })
+      .map((entry) => ({
+        memory: toPersistedLocalEntry(options.tenant_id, spec, partition, entry),
+        scope_spec: spec,
+        storage_key: entry.file_name,
+      })));
+  }
+
+  async archiveMemory(scopeSpec: MemoryScopeSpec, fileName: string): Promise<boolean> {
+    const scopeRoot = this.getScopeRoot(scopeSpec);
+    return this.withScopeLock(scopeRoot, async () => {
+      await this.ensureScopeUnlocked(scopeSpec, scopeRoot);
+      return this.archiveMemoryUnlocked(scopeSpec, scopeRoot, fileName);
+    });
+  }
+
+  async archiveMemoryWithCommit(
+    scopeSpec: MemoryScopeSpec,
+    fileName: string,
+    commit: () => boolean | Promise<boolean>,
+  ): Promise<boolean> {
+    const scopeRoot = this.getScopeRoot(scopeSpec);
+    return this.withScopeLock(scopeRoot, async () => {
+      await this.ensureScopeUnlocked(scopeSpec, scopeRoot);
+      const normalizedFileName = path.basename(fileName);
+      const entryPath = resolveEntryPath(scopeRoot, normalizedFileName);
+      const indexPath = path.join(scopeRoot, "MEMORY.md");
+      const entryBefore = await snapshotFile(entryPath);
+      const indexBefore = await snapshotFile(indexPath);
+      let expectedEntry: string | undefined;
+      let expectedIndex: string | undefined;
+      try {
+        const archived = await this.archiveMemoryUnlocked(scopeSpec, scopeRoot, fileName, (content) => { expectedEntry = content; }, (content) => { expectedIndex = content; });
+        if (!archived) return false;
+        expectedIndex = await readFileIfExists(indexPath) ?? undefined;
+        if (!await commit()) throw new Error("memory archive state changed before commit");
+        return true;
+      } catch (error) {
+        await this.restoreMutation(entryPath, entryBefore, expectedEntry, indexPath, indexBefore, expectedIndex, error);
+        throw error;
+      }
+    });
+  }
+
+  private async archiveMemoryUnlocked(
+    scopeSpec: MemoryScopeSpec,
+    scopeRoot: string,
+    fileName: string,
+    onEntryWritten?: (content: string) => void,
+    onIndexWritten?: (content: string) => void,
+  ): Promise<boolean> {
+    const normalizedFileName = path.basename(fileName);
+    if (!normalizedFileName || normalizedFileName === "." || normalizedFileName === ".." || normalizedFileName !== fileName) return false;
+    const filePath = resolveEntryPath(scopeRoot, normalizedFileName);
+    const entry = await readEntryAsync(filePath);
+    if (!entry) return false;
+    const text = await fs.promises.readFile(filePath, "utf8");
+    if (!text.includes("status: active")) return false;
+    const content = text.replace("status: active", "status: archived");
+    await atomicWriteMemoryFile(filePath, content);
+    onEntryWritten?.(content);
+    await this.rebuildIndexUnlockedAsync(scopeSpec, scopeRoot, onIndexWritten);
+    return true;
+  }
+
+  private async rebuildIndexUnlockedAsync(
+    scopeSpec: MemoryScopeSpec,
+    scopeRoot: string,
+    onIndexWritten?: (content: string) => void,
+  ): Promise<void> {
+    const entries = await readEntriesAsync(scopeRoot, false);
+    const lines = [`# ${titleCase(scopeSpec.scope)} Memory`, ""];
+    if (entries.length) {
+      lines.push("## Index", "");
+      for (const entry of entries) lines.push(`- [${entry.name}](${entry.file_name}) - ${entry.description}`);
+    } else {
+      lines.push("暂无记忆。");
+    }
+    const content = `${lines.join("\n").trim()}\n`;
+    await atomicWriteMemoryFile(path.join(scopeRoot, "MEMORY.md"), content);
+    onIndexWritten?.(content);
+  }
+
+  private async restoreMutation(
+    entryPath: string,
+    entryBefore: { exists: boolean; content?: string },
+    expectedEntry: string | undefined,
+    indexPath: string,
+    indexBefore: { exists: boolean; content?: string },
+    expectedIndex: string | undefined,
+    originalError: unknown,
+  ): Promise<void> {
+    try {
+      if (expectedEntry !== undefined) await restoreFileIfExpected(entryPath, entryBefore, expectedEntry);
+      if (expectedIndex !== undefined) await restoreFileIfExpected(indexPath, indexBefore, expectedIndex);
+    } catch (rollbackError) {
+      if (originalError instanceof Error) {
+        (originalError as Error & { rollbackError?: unknown }).rollbackError = rollbackError;
+      }
+    }
+  }
+
+  private async withScopeLock<T>(scopeRoot: string, operation: () => Promise<T>): Promise<T> {
+    try {
+      return await withLeaseLock(path.join(scopeRoot, ".memory-scope"), operation, { staleMs: 5 * 60_000, updateMs: 30_000, retries: 0 });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ELOCKED" || code === "ECOMPROMISED") throw Object.assign(new Error("memory entry busy"), { cause: error });
+      throw error;
+    }
+  }
+}
+
+// Local callers historically imported this helper from the concrete store.
+export { getWorkspaceMemoryKey };
+
+function readEntry(filePath: string): MemoryEntry | null {
+  if (!fs.existsSync(filePath) || path.basename(filePath) === "MEMORY.md") {
+    return null;
+  }
+  const text = fs.readFileSync(filePath, "utf8");
+  const match = FRONTMATTER_RE.exec(text);
+  if (!match) {
+    return null;
+  }
+  const metadata: Record<string, string> = {};
+  for (const line of (match[1] ?? "").split(/\r?\n/)) {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex < 0) {
+      continue;
+    }
+    const key = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    metadata[key] = value;
+  }
+  return {
+    name: metadata.name ?? path.basename(filePath, path.extname(filePath)),
+    description: metadata.description ?? "",
+    scope: asMemoryScopeName(metadata.type),
+    memory_type: metadata.memory_type ?? "fact",
+    status: metadata.status ?? "active",
+    file_name: path.basename(filePath),
+    file_path: filePath,
+    created_at: metadata.created_at ?? "",
+    updated_at: metadata.updated_at ?? "",
+    body: (match[2] ?? "").trim(),
+  };
+}
+
+function renderMarkdown(frontmatter: Record<string, string>, body: string): string {
+  return [
+    "---",
+    ...Object.entries(frontmatter).map(([key, value]) => `${key}: ${value}`),
+    "---",
+    "",
+    body.trimEnd(),
+    "",
+  ].join("\n");
+}
+
+function memoryFileName(input: SaveMemoryInput): string {
+  const memoryType = normalizeString(input.memory_type)?.toLowerCase() ?? "fact";
+  return `${memoryType}_${slugify(input.name)}.md`;
+}
+
+
+async function readEntryAsync(filePath: string): Promise<MemoryEntry | null> {
+  if (path.basename(filePath) === "MEMORY.md") return null;
+  let text: string;
+  try {
+    text = await fs.promises.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const match = FRONTMATTER_RE.exec(text);
+  if (!match) return null;
+  const metadata: Record<string, string> = {};
+  for (const line of (match[1] ?? "").split(/\r?\n/)) {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex >= 0) metadata[line.slice(0, separatorIndex).trim()] = line.slice(separatorIndex + 1).trim();
+  }
+  return {
+    name: metadata.name ?? path.basename(filePath, path.extname(filePath)),
+    description: metadata.description ?? "",
+    scope: asMemoryScopeName(metadata.type), memory_type: metadata.memory_type ?? "fact",
+    status: metadata.status ?? "active", file_name: path.basename(filePath), file_path: filePath,
+    created_at: metadata.created_at ?? "", updated_at: metadata.updated_at ?? "", body: (match[2] ?? "").trim(),
+  };
+}
+
+async function readEntriesAsync(scopeRoot: string, includeArchived: boolean): Promise<MemoryEntry[]> {
+  const entries = (await fs.promises.readdir(scopeRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "MEMORY.md");
+  const output: MemoryEntry[] = [];
+  for (const entry of entries) {
+    try {
+      const parsed = await readEntryAsync(path.join(scopeRoot, entry.name));
+      if (parsed && (includeArchived || parsed.status === "active")) output.push(parsed);
+    } catch {
+      // Ignore malformed entries while rebuilding the derived index.
+    }
+  }
+  output.sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+  return output;
+}
+
+function readEntriesUnlocked(scopeRoot: string, includeArchived: boolean): MemoryEntry[] {
+  const entries = fs.readdirSync(scopeRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "MEMORY.md")
+    .map((entry) => {
+      try { return readEntry(resolveEntryPath(scopeRoot, entry.name)); } catch { return null; }
+    })
+    .filter((entry): entry is MemoryEntry => Boolean(entry))
+    .filter((entry) => includeArchived || entry.status === "active");
+  entries.sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+  return entries;
+}
+
+function slugify(value: string): string {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9\u4e00-\u9fff._-]+/gu, "-")
+    .replace(/^[-._]+|[-._]+$/g, "") || "memory";
+}
+
+function nowIso(): string {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function titleCase(value: string): string {
+  return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1)}` : value;
+}
+
+function normalizeString(value: string | null | undefined): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizePathSegment(value: string | null | undefined, fieldName: string): string | null {
+  const normalized = normalizeString(value);
+  if (!normalized) return null;
+  if (
+    normalized === "." || normalized === ".." || path.isAbsolute(normalized) ||
+    normalized.includes("/") || normalized.includes("\\") || normalized.includes(":") ||
+    path.basename(normalized) !== normalized
+  ) {
+    throw new Error(`${fieldName} 包含非法路径字符`);
+  }
+  return normalized;
+}
+
+function resolveScopePath(memoryRoot: string, ...segments: string[]): string {
+  const resolvedRoot = path.resolve(memoryRoot);
+  const dataRoot = path.dirname(resolvedRoot);
+  const projectedDataRoot = fs.realpathSync(dataRoot);
+  fs.mkdirSync(resolvedRoot, { recursive: true });
+  const projectedMemoryRoot = fs.realpathSync(resolvedRoot);
+  if (!isPathWithin(projectedMemoryRoot, projectedDataRoot)) {
+    throw new Error("memory 根目录通过符号链接越出租户 dataRoot");
+  }
+  const candidate = path.resolve(resolvedRoot, ...segments);
+  if (!isPathWithin(candidate, resolvedRoot)) {
+    throw new Error("memory scope 路径越界");
+  }
+  const existingAncestor = nearestExistingAncestor(candidate);
+  const projectedRoot = projectedMemoryRoot;
+  const projectedAncestor = fs.realpathSync(existingAncestor);
+  if (!isPathWithin(projectedAncestor, projectedRoot)) {
+    throw new Error("memory scope 通过符号链接越界");
+  }
+  return candidate;
+}
+
+function nearestExistingAncestor(candidate: string): string {
+  let current = candidate;
+  while (!fs.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) throw new Error("无法解析 memory scope 路径");
+    current = parent;
+  }
+  return current;
+}
+
+function isPathWithin(candidate: string, root: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function resolveEntryPath(scopeRoot: string, fileName: string): string {
+  const normalized = path.basename(fileName);
+  if (!normalized || normalized === "." || normalized === ".." || normalized !== fileName || !normalized.endsWith(".md")) {
+    throw new Error(`非法 memory 文件名: ${fileName}`);
+  }
+  const filePath = path.resolve(scopeRoot, normalized);
+  const projectedRoot = fs.realpathSync(scopeRoot);
+  if (!isPathWithin(filePath, path.resolve(scopeRoot))) throw new Error("memory 文件路径越界");
+  try {
+    const stat = fs.lstatSync(filePath);
+    if (stat.isSymbolicLink()) throw new Error("memory 条目不允许使用符号链接");
+    if (!isPathWithin(fs.realpathSync(filePath), projectedRoot)) {
+      throw new Error("memory 文件通过符号链接越界");
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return filePath;
+}
+
+function asMemoryScopeName(value: string | undefined): MemoryScopeName {
+  return value === "team" || value === "agent" || value === "workspace" || value === "user" ? value : "session";
+}
+
+function listChildDirectories(root: string): string[] {
+  try {
+    return fs.readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+      .map((entry) => entry.name);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+function toPersistedLocalEntry(
+  tenantId: string,
+  scopeSpec: MemoryScopeSpec,
+  partition: Omit<MemoryPartition, "tenant_id">,
+  entry: MemoryEntry,
+): PersistedMemoryEntry {
+  const status = entry.status === "archived" ? "archived" : "active";
+  return {
+    id: encodeLocalManagedId(scopeSpec, entry.file_name),
+    tenant_id: tenantId,
+    ...partition,
+    name: entry.name,
+    description: entry.description,
+    memory_type: entry.memory_type,
+    content: entry.body,
+    why: null,
+    how_to_apply: null,
+    status,
+    source_run_id: null,
+    source_message_id: null,
+    version: 1,
+    created_at: entry.created_at,
+    updated_at: entry.updated_at,
+    archived_at: status === "archived" ? entry.updated_at : null,
+  };
+}
+
+function encodeLocalManagedId(scopeSpec: MemoryScopeSpec, fileName: string): string {
+  const hex = createHash("sha256").update(JSON.stringify({ scopeSpec, fileName })).digest("hex").slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20)}`;
+}
+
+function matchesManagedSearch(entry: PersistedMemoryEntry, search: string | undefined): boolean {
+  const query = search?.trim().toLocaleLowerCase();
+  if (!query) return true;
+  return [entry.name, entry.description, entry.content]
+    .some((value) => value.toLocaleLowerCase().includes(query));
+}

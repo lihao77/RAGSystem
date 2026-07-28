@@ -42,7 +42,9 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 
 ```text
 .
-├── backend-ts/               # 当前主后端与 Agent 运行时（Fastify/TypeScript）
+├── backend-core/             # 共享路由、服务、领域逻辑与契约
+├── backend-local/            # SQLite、filesystem、本地身份与桌面入口
+├── backend-saas/             # PostgreSQL、S3、多租户与 SaaS 入口
 ├── frontend-client/          # Vue 3 前端与执行可视化
 ├── docs/                     # 仓库正式文档中心
 └── .github/                  # GitHub 模板与工作流
@@ -67,7 +69,7 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 先复制环境变量示例：
 
 ```bash
-cp backend-ts/.env.example backend-ts/.env
+cp backend-local/.env.example backend-local/.env
 cp frontend-client/.env.example frontend-client/.env
 ```
 
@@ -91,8 +93,7 @@ Windows PowerShell 可使用 `Copy-Item` 代替 `cp`。
 ### 3. 启动后端
 
 ```bash
-cd backend-ts
-npm run dev
+npm run dev:backend-local
 ```
 
 默认监听 `http://localhost:5002`。可通过 `BACKEND_TS_HOST`、`BACKEND_TS_PORT` 或 `PORT` 调整监听地址；当 `frontend-client/dist` 存在时，后端也会托管前端构建产物。
@@ -163,7 +164,7 @@ npm run build:installer
 
 构建链路会依次：
 - 构建 `frontend-client/dist`
-- 构建并探测 `backend-ts` 的桌面 bundle
+- 构建并探测 `backend-local` 的桌面 bundle
 - 通过 `electron-builder` 输出 NSIS 安装包到 `desktop-electron/release/`
 
 安装后的桌面端会：
@@ -185,7 +186,7 @@ npm run check:widget
 
 - [README.en.md](README.en.md) — 英文版 README
 - [docs/README.md](docs/README.md) — 仓库正式文档中心
-- [backend-ts/README.md](backend-ts/README.md) — TypeScript 后端入口
+- [backend-core/README.md](backend-core/README.md) — 共享后端核心
 - [frontend-client/docs/README.md](frontend-client/docs/README.md) — 前端文档入口
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — 运行、配置与验证
 - [docs/refactor/README.md](docs/refactor/README.md) — 当前演进专题

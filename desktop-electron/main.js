@@ -91,7 +91,7 @@ function ensureDir(dirPath) {
 
 function resolveBackendCommand() {
   if (isDev) {
-    const backendRoot = path.join(__dirname, 'dist', 'backend-ts')
+    const backendRoot = path.join(__dirname, 'dist', 'backend-local')
     return {
       command: process.execPath,
       args: [path.join(backendRoot, 'main.mjs')],
@@ -101,7 +101,7 @@ function resolveBackendCommand() {
   }
 
   const resourcesDir = process.resourcesPath
-  const backendRoot = path.join(resourcesDir, 'backend-ts')
+  const backendRoot = path.join(resourcesDir, 'backend-local')
   return {
     command: process.execPath,
     args: [path.join(backendRoot, 'main.mjs')],

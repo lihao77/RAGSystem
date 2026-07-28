@@ -2,7 +2,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: backend-ts/Dockerfile
+      dockerfile: backend-local/Dockerfile
     container_name: ragsystem-backend
     environment:
       BACKEND_TS_HOST: 0.0.0.0

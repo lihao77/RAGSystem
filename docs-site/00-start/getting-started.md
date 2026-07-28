@@ -1,8 +1,8 @@
 ---
 status: current
 audience: user
-source: backend-ts/src/main.ts, backend-ts/package.json
-verified_at: 2026-07-18
+source: backend-core/src/core-app.ts, backend-local/src/main.ts, backend-saas/src/main.ts
+verified_at: 2026-07-28
 ---
 
 # 安装与启动
@@ -24,7 +24,7 @@ npm install
 ## 启动后端
 
 ```bash
-npm -w @ragsystem/backend-ts run dev
+npm run dev:backend-local
 ```
 
 默认监听 `0.0.0.0:5002`。验证：
@@ -84,7 +84,9 @@ SaaS compose 的主要业务数据已经使用 PostgreSQL、pgvector 和 MinIO�
 
 ```bash
 npm run build:frontend
-npm -w @ragsystem/backend-ts run build
+npm -w @ragsystem/backend-core run build
+npm -w @ragsystem/backend-local run build
+npm -w @ragsystem/backend-saas run build
 npm --prefix docs-site run build
 ```
 

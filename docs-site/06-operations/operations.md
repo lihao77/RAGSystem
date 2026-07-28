@@ -7,8 +7,9 @@ npm install
 npm run build:contracts
 npm -w @ragsystem/agent-llm run build
 npm -w @ragsystem/agent-sdk run build
-npm -w @ragsystem/backend-ts run build
-npm -w @ragsystem/backend-ts run start
+npm -w @ragsystem/backend-core run build
+npm -w @ragsystem/backend-saas run build
+npm -w @ragsystem/backend-saas run start
 ```
 
 负载均衡器使用 `GET /readyz` 判断是否接流量；容器存活使用 `GET /livez`。`GET /api/health` 需要租户身份，不应作为匿名探针。

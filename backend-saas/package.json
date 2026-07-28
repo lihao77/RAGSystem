@@ -1,0 +1,37 @@
+{
+  "name": "@ragsystem/backend-saas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.js": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "predev": "npm -w @ragsystem/backend-core run build",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "prebuild": "npm -w @ragsystem/backend-core run build",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ragsystem/agent-llm": "*",
+    "@ragsystem/agent-protocol": "*",
+    "@ragsystem/agent-sdk": "*",
+    "@ragsystem/backend-core": "*",
+    "fastify": "^5.0.0",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/pg": "^8.20.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0"
+  }
+}

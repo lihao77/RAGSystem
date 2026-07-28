@@ -1,0 +1,41 @@
+{
+  "name": "@ragsystem/backend-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.js": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "predev": "npm -w @ragsystem/backend-core run build",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "prebuild": "npm -w @ragsystem/backend-core run build",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit",
+    "smoke:outbox-live": "tsx scripts/outbox-live-smoke.ts"
+  },
+  "dependencies": {
+    "@ragsystem/agent-llm": "*",
+    "@ragsystem/agent-sdk": "*",
+    "@ragsystem/backend-core": "*",
+    "sqlite-vec": "^0.1.9",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0"
+  },
+  "optionalDependencies": {
+    "sqlite-vec-linux-arm64": "0.1.9",
+    "sqlite-vec-linux-x64": "0.1.9"
+  }
+}

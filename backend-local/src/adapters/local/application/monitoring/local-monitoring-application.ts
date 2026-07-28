@@ -1,0 +1,13 @@
+import type { MonitoringApplication } from "@ragsystem/backend-core/contracts/application/monitoring-application.js";
+import type { DeleteDeliveredOutboxInput, ListOutboxInput, RetryOutboxBatchInput } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
+import type { ConversationStore } from "../../sqlite/conversation-store/index.js";
+
+/** Async facade over Local's synchronous ConversationStore outbox operations. */
+export class LocalMonitoringApplication implements MonitoringApplication {
+  constructor(private readonly store: Pick<ConversationStore, "listOutbox" | "getOutboxRow" | "retryOutbox" | "retryOutboxBatch" | "deleteDeliveredOutbox">) {}
+  listOutbox(input?: ListOutboxInput) { return Promise.resolve(this.store.listOutbox(input)); }
+  getOutboxRow(id: number) { return Promise.resolve(this.store.getOutboxRow(id)); }
+  retryOutbox(id: number) { return Promise.resolve(this.store.retryOutbox(id)); }
+  retryOutboxBatch(input?: RetryOutboxBatchInput) { return Promise.resolve(this.store.retryOutboxBatch(input)); }
+  deleteDeliveredOutbox(input: DeleteDeliveredOutboxInput) { return Promise.resolve(this.store.deleteDeliveredOutbox(input)); }
+}

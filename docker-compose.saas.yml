@@ -79,7 +79,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: backend-ts/Dockerfile
+      dockerfile: backend-saas/Dockerfile
     environment:
       BACKEND_TS_HOST: 0.0.0.0
       BACKEND_TS_PORT: 5002

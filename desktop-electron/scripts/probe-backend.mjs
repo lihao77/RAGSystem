@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 const electronPath = require("electron");
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(scriptDir, "..");
-const backendRoot = path.join(desktopRoot, "dist", "backend-ts");
+const backendRoot = path.join(desktopRoot, "dist", "backend-local");
 const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-electron-probe-"));
 const port = await getFreePort();
 

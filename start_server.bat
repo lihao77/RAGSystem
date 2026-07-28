@@ -8,11 +8,11 @@ echo 正在启动服务集群...
 cd /d "%~dp0"
 
 :: 1. TypeScript 后端服务
-if exist "backend-ts\" (
+if exist "backend-local\" (
     echo [1/2] 启动 TypeScript 后端服务...
-    start "TypeScript后端服务" cmd /k "cd /d ""%~dp0backend-ts"" && npm run dev"
+    start "TypeScript后端服务" cmd /k "cd /d ""%~dp0"" && npm run dev:backend-local"
 ) else (
-    echo [错误] 找不到 backend-ts 目录
+    echo [错误] 找不到 backend-local 目录
 )
 
 timeout /t 1 /nobreak >nul

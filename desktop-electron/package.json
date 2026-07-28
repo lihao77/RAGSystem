@@ -30,20 +30,20 @@
     ],
     "extraResources": [
       {
-        "from": "dist/backend-ts",
-        "to": "backend-ts",
+        "from": "dist/backend-local",
+        "to": "backend-local",
         "filter": [
           "**/*",
           "!node_modules/**/*"
         ]
       },
       {
-        "from": "dist/backend-ts/node_modules/sqlite-vec",
-        "to": "backend-ts/node_modules/sqlite-vec"
+        "from": "dist/backend-local/node_modules/sqlite-vec",
+        "to": "backend-local/node_modules/sqlite-vec"
       },
       {
-        "from": "dist/backend-ts/node_modules/sqlite-vec-windows-x64",
-        "to": "backend-ts/node_modules/sqlite-vec-windows-x64"
+        "from": "dist/backend-local/node_modules/sqlite-vec-windows-x64",
+        "to": "backend-local/node_modules/sqlite-vec-windows-x64"
       },
       {
         "from": "../frontend-client/dist",
