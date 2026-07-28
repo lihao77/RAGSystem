@@ -6,7 +6,7 @@ import type {
   RunInfo,
   RunStepRecord,
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import type { AsyncRunStore } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 export type { AsyncRunStore } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 
@@ -36,7 +36,7 @@ function run(row: Record<string, unknown>): RunInfo {
 }
 
 export class PostgresRunRepository implements AsyncRunStore {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async createRun(input: CreateRunInput & { tenantId: string }): Promise<CreatedRun> {
     const threadKey = input.threadKey?.trim() || "root";

@@ -1,17 +1,13 @@
 import os from "node:os";
 import path from "node:path";
 
-import { MemoryStore } from "../../adapters/local/memory-store.js";
-import { LocalMemoryToolRepository } from "./local-memory-tool-repository.js";
 import { LocalBashToolService } from "@ragsystem/backend-core/tools/BashTool/BashExecution.js";
 import { CodeExecutionToolService } from "@ragsystem/backend-core/tools/CodeExecutionTool/CodeExecution.js";
 import { LocalDocumentToolService } from "@ragsystem/backend-core/tools/DocumentTools/DocumentExecution.js";
 import { LocalSearchToolService } from "@ragsystem/backend-core/tools/LocalSearchTools/SearchExecution.js";
-import { MemoryToolService } from "@ragsystem/backend-core/tools/MemoryTools/MemoryExecution.js";
 import { SkillToolService } from "@ragsystem/backend-core/tools/SkillTools/SkillExecution.js";
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
-import { MemoryContextSource } from "@ragsystem/backend-core/services/agent/memory/index.js";
 import { TransientSessionResourceService } from "./session-resources/transient-session-resource-service.js";
 import { FileSystemConfigStore } from "../filesystem/config/file-system-config-store.js";
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
@@ -42,13 +38,10 @@ import { LocalSessionApplication } from "./application/session/local-session-app
 import { LocalAnalyticsApplication } from "./application/analytics/local-analytics-application.js";
 import { LocalExecutionReadApplication } from "./application/execution-read/local-execution-read-application.js";
 import { LocalFileChangeApplication } from "./application/file-change/local-file-change-application.js";
-import { LocalMemoryApplication } from "./application/memory/local-memory-application.js";
 import { LocalMonitoringApplication } from "./application/monitoring/local-monitoring-application.js";
 import { LocalSessionFileApplication } from "./application/session-file/local-session-file-application.js";
 import { FileAgentConfigTeamStore } from "../filesystem/agent/file-team-store.js";
 import { FilesystemSkillPackageStore } from "../filesystem/skills/filesystem-skill-package-store.js";
-import { LocalMemoryContextRepository } from "./local-memory-context-repository.js";
-import { LocalMemoryCandidateCommandAdapter } from "./local-memory-candidate-command-adapter.js";
 import { LocalCompressionHistoryAdapter } from "./local-compression-history-adapter.js";
 import { LocalAgentDelegationStoreAdapter } from "./local-agent-delegation-store-adapter.js";
 import { LocalAgentMetricsStoreAdapter } from "./local-agent-metrics-store-adapter.js";
@@ -132,37 +125,9 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     dataRoot,
     modelAdapter,
     systemConfig,
+    agentConfig,
+    sessions: requestSessionApplication,
   });
-  const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
-  const memoryToolRepository = new LocalMemoryToolRepository(memoryStore);
-  const memoryContextRepository = new LocalMemoryContextRepository(memoryStore, {
-    tenantId: options.tenantId,
-    store: conversationStore,
-  });
-  const memoryBindings = options.memoryBindingsFactory?.({
-    tenantId: options.tenantId,
-    dataRoot,
-    getMemoryConfig: () => systemConfig.getMemoryConfig(),
-    memoryRepository: memoryStore,
-    sessions: sessionApplication,
-  }) ?? {
-    tools: new MemoryToolService(
-      memoryToolRepository,
-      sessionApplication,
-      new LocalMemoryCandidateCommandAdapter(conversationStore),
-      options.tenantId,
-    ),
-    createContextSource: (input) => new MemoryContextSource(
-      input.sessions,
-      memoryContextRepository,
-      input.memory,
-      input.agentName,
-      {
-        indexMaxLines: input.memoryConfig.index_max_lines,
-        indexMaxChars: input.memoryConfig.index_max_chars,
-      },
-    ),
-  };
   const hostToolsEnabled = options.hostToolsEnabled !== false;
   const documentTools = hostToolsEnabled ? new LocalDocumentToolService({
     dataRoot: options.dataRoot,
@@ -228,10 +193,10 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     tenantId: options.tenantId,
     pluginCapabilities,
     dataRoot,
-    getMemoryConfig: () => systemConfig.getMemoryConfig(),
     logger: options.logger,
     ...(options.hooks ? { hooks: options.hooks } : {}),
     ...(options.plugins ? { plugins: options.plugins } : {}),
+    ...(pluginRuntime ? { pluginRuntime } : {}),
     delegationStore: new LocalAgentDelegationStoreAdapter(conversationStore),
     metricsStore: new LocalAgentMetricsStoreAdapter(conversationStore),
     permissionPolicyStore: conversationStore,
@@ -244,7 +209,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     systemConfig,
     mcp,
     sessionFiles: new LocalSessionFileLookup(fileIndex),
-    memoryBindings,
     runtimeStorage,
     executionStorage: options.executionStorage
       ?? options.executionStorageFactory?.({ tenantId: options.tenantId, runtimeStorage, clientEvents })
@@ -284,13 +248,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
       },
       sessionFiles: localSessionFiles,
       fileChanges: localFileChanges,
-      createMemoryApplication: (input) => new LocalMemoryApplication(
-        options.tenantId,
-        memoryStore,
-        conversationStore,
-        input.viewerUserId,
-        input.viewerSessionIds,
-      ),
     },
     closeInfrastructure: () => {
       backgroundTasks.dispose();
@@ -303,6 +260,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     },
   });
   localExecutionRead = new LocalExecutionReadApplication(runtime.agentExecution, conversationStore);
-  options.onInfrastructureCreated?.({ conversationStore, memoryStore, sessions: sessionApplication });
+  options.onInfrastructureCreated?.({ conversationStore, sessions: sessionApplication });
   return runtime;
 }

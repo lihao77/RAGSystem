@@ -13,10 +13,10 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "predev": "npm -w @ragsystem/backend-core run build && npm -w @ragsystem/backend-plugin-artifacts run build && npm -w @ragsystem/backend-plugin-knowledge run build",
+    "predev": "npm -w @ragsystem/backend-core run build && npm -w @ragsystem/backend-plugin-artifacts run build && npm -w @ragsystem/backend-plugin-knowledge run build && npm -w @ragsystem/backend-plugin-memory run build",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
-    "prebuild": "npm -w @ragsystem/backend-core run build && npm -w @ragsystem/backend-plugin-artifacts run build && npm -w @ragsystem/backend-plugin-knowledge run build",
+    "prebuild": "npm -w @ragsystem/backend-core run build && npm -w @ragsystem/backend-plugin-artifacts run build && npm -w @ragsystem/backend-plugin-knowledge run build && npm -w @ragsystem/backend-plugin-memory run build",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit",
@@ -28,6 +28,7 @@
     "@ragsystem/backend-core": "*",
     "@ragsystem/backend-plugin-artifacts": "*",
     "@ragsystem/backend-plugin-knowledge": "*",
+    "@ragsystem/backend-plugin-memory": "*",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

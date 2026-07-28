@@ -348,7 +348,6 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     wsTickets,
     ...(widgetIdentityProvider ? { widgetIdentityProvider } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
-    resolveMemoryApplication: applications.resolveMemoryApplication,
     resolveSessionApplication: applications.resolveSessionApplication,
     resolveExecutionRead: applications.resolveExecutionRead,
     resolveExecutionApplication: applications.resolveExecutionApplication,

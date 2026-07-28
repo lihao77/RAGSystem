@@ -36,8 +36,6 @@ import { AgentRunEngine, type AgentExecutionLogger } from "./run-engine.js";
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import type { TenantId } from "../../../identity/types.js";
-import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
-import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import type { ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
 import type { GoalStore } from "../../../contracts/runtime/goals.js";
@@ -79,9 +77,6 @@ export interface AgentExecutionServiceParams {
   executionStorage: ExecutionStorage;
   runtimeCore: RuntimeExecutionConfigResolver;
   dataRoot: string;
-  /** 每次 run 读取最新 memory 配置（避免 container 创建时快照）。 */
-  getMemoryConfig: () => MemoryConfig;
-  memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
   pluginTools?: BackendToolFactory | null;
@@ -149,8 +144,6 @@ export function createAgentExecutionService(
     params.sessions,
     storage,
     params.dataRoot,
-    params.getMemoryConfig,
-    params.memoryContextSourceFactory ?? null,
    params.toolsDeps ?? null,
    params.codeExecutionTools ?? null,
    params.taskTools ?? null,

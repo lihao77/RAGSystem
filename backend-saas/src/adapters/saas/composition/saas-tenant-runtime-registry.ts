@@ -10,7 +10,6 @@ import type { AgentExecutionLogger } from "@ragsystem/backend-core/services/agen
 import { TenantRuntimeRegistryCore } from "@ragsystem/backend-core/services/runtime/tenant-runtime-registry.js";
 import type { RuntimeContainerRegistry } from "@ragsystem/backend-core/services/runtime/runtime-container-registry.js";
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
-import type { SaaSMemoryRuntimeHandle } from "./saas-memory-runtime.js";
 import { createSaaSRuntimeContainer, prepareSaaSRuntimeContainer } from "./saas-runtime-container.js";
 import type { SandboxProvider } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 import { RemoteHttpSandboxProvider } from "../sandbox/http-sandbox-provider.js";
@@ -18,7 +17,6 @@ import { RemoteHttpSandboxProvider } from "../sandbox/http-sandbox-provider.js";
 export interface SaaSTenantRuntimeRegistryOptions {
   idleTimeoutMs?: number;
   sweepIntervalMs?: number;
-  memoryRuntime?: SaaSMemoryRuntimeHandle;
   sandboxProvider?: SandboxProvider;
   hooks?: (registry: HookRegistry) => void;
   plugins?: BackendRuntimeContributions;
@@ -53,7 +51,6 @@ export class SaaSTenantRuntimeRegistry
           tenantId,
           dataRoot,
           conversationRuntime,
-          memoryRuntime: requireMemoryRuntime(options.memoryRuntime),
           ...(sandboxProvider ? { sandboxProvider, sandboxLeaseTimeoutSeconds: env.sandboxLeaseTimeoutSeconds ?? 900 } : {}),
           ...(logger ? { logger } : {}),
           ...(options.hooks ? { hooks: options.hooks } : {}),
@@ -83,9 +80,4 @@ export class SaaSTenantRuntimeRegistry
       closeRuntime: (runtime) => runtime.close(),
     });
   }
-}
-
-function requireMemoryRuntime(runtime: SaaSMemoryRuntimeHandle | undefined): SaaSMemoryRuntimeHandle {
-  if (!runtime) throw new Error("SaaS tenant runtime requires PostgreSQL memory runtime");
-  return runtime;
 }

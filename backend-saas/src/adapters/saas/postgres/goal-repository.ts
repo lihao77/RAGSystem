@@ -12,7 +12,7 @@ import type {
 } from "@ragsystem/backend-core/contracts/runtime/goals.js";
 import { normalizeGoalSteps } from "@ragsystem/backend-core/contracts/runtime/goals.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 const COLUMNS = `
   goal_id::text AS goal_id, session_id, objective, success_criteria, steps, checkpoint, progress, status,
@@ -24,7 +24,7 @@ const COLUMNS = `
 export class PostgresGoalRepository implements GoalStore {
   constructor(
     private readonly tenantId: TenantId,
-    private readonly executor: PostgresMemoryExecutor,
+    private readonly executor: PostgresExecutor,
   ) {}
 
   async create(sessionId: string, input: CreateGoalInput): Promise<Goal> {
@@ -170,7 +170,7 @@ export class PostgresGoalRepository implements GoalStore {
   }
 }
 
-async function blockForGuard(executor: PostgresMemoryExecutor, tenantId: TenantId, sessionId: string, goalId: string, count: number, reason: GoalContinuationReason): Promise<void> {
+async function blockForGuard(executor: PostgresExecutor, tenantId: TenantId, sessionId: string, goalId: string, count: number, reason: GoalContinuationReason): Promise<void> {
   await executor.query(
     `UPDATE workflow_goals SET status='blocked', no_progress_count=$1, continuation_pending=FALSE,
        continuation_reason=$5,

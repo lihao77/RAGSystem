@@ -24,7 +24,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     deploymentKind,
     tenantId,
     dataRoot,
-    getMemoryConfig,
     delegationStore,
     metricsStore,
     permissionPolicyStore,
@@ -37,7 +36,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     systemConfig,
     mcp,
     sessionFiles,
-    memoryBindings,
     documentTools,
     codeExecutionTools,
     skillTools,
@@ -64,7 +62,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const agentDelegation = new AgentDelegationService(delegationStore, runtimeCore, clientEvents);
   const toolsDeps = {
-    memoryTools: memoryBindings.tools,
     pendingInteractions: selectedPendingInteractions,
     documentTools,
     bashTools,
@@ -85,8 +82,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     pathAccessPolicyFactory: dependencies.pathAccessPolicyFactory,
     runtimeCore,
     dataRoot,
-    getMemoryConfig,
-    memoryContextSourceFactory: memoryBindings.createContextSource,
     toolsDeps,
     codeExecutionTools,
     taskTools,
@@ -112,6 +107,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
       hooks: (registry) => {
         dependencies.hooks?.(registry);
         dependencies.plugins?.configureHooks(registry);
+        dependencies.pluginRuntime?.configureHooks(registry);
       },
     } : {}),
     ...(dependencies.plugins ? {
@@ -149,8 +145,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     modelAdapter,
     systemConfig,
     mcp,
-    memoryTools: memoryBindings.tools,
-    memoryContextSourceFactory: memoryBindings.createContextSource,
     documentTools,
     codeExecutionTools,
     skillTools,

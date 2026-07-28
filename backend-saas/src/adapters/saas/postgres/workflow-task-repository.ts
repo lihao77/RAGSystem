@@ -6,7 +6,7 @@ import type {
   WorkflowTaskStore,
 } from "@ragsystem/backend-core/contracts/runtime/workflow-tasks.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 const COLUMNS = `
   task_id::text AS task_id, subject, description, active_form, owner, status, blocks, blocked_by, metadata
@@ -16,7 +16,7 @@ const COLUMNS = `
 export class PostgresWorkflowTaskRepository implements WorkflowTaskStore {
   constructor(
     private readonly tenantId: TenantId,
-    private readonly executor: PostgresMemoryExecutor,
+    private readonly executor: PostgresExecutor,
   ) {}
 
   async create(sessionId: string, input: CreateWorkflowTaskInput): Promise<WorkflowTask> {

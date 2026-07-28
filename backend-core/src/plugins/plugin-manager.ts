@@ -193,6 +193,9 @@ class BackendRuntimeFactoryRegistry {
       let disposed = false;
       return {
         capabilities: registry,
+        configureHooks(hooks) {
+          for (const runtime of runtimes) runtime.configureHooks?.(hooks);
+        },
         dispose() {
           if (disposed) return;
           disposed = true;

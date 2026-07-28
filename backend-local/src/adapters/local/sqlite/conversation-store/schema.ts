@@ -232,24 +232,6 @@ export const BASELINE_SCHEMA_SQL = `
     );
     CREATE INDEX idx_provider_continuations_session_thread ON provider_continuations(session_id, thread_key, created_at);
 
-    CREATE TABLE memory_candidates (
-      id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, owner_user_id TEXT NOT NULL,
-      target_scope TEXT NOT NULL CHECK(target_scope IN ('team', 'agent')),
-      operation TEXT NOT NULL DEFAULT 'publish', target_file_name TEXT, team_name TEXT NOT NULL,
-      agent_name TEXT, name TEXT NOT NULL, description TEXT NOT NULL, memory_type TEXT NOT NULL,
-      content TEXT NOT NULL, why TEXT, how_to_apply TEXT,
-      status TEXT NOT NULL DEFAULT 'candidate' CHECK(status IN ('candidate', 'approved', 'rejected', 'withdrawn')),
-      source_session_id TEXT, source_run_id TEXT, source_message_id TEXT, reviewer_user_id TEXT,
-      review_comment TEXT, published_file_name TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, reviewed_at TIMESTAMP,
-      review_claimed_at TIMESTAMP, review_attempt_id TEXT
-    );
-    CREATE INDEX idx_memory_candidates_owner_status ON memory_candidates(owner_user_id, status, updated_at DESC);
-    CREATE INDEX idx_memory_candidates_target_status ON memory_candidates(target_scope, team_name, agent_name, status, updated_at DESC);
-    CREATE INDEX idx_memory_candidates_operation_status ON memory_candidates(operation, status, updated_at DESC);
-    CREATE INDEX idx_memory_candidates_review_claim ON memory_candidates(status, reviewer_user_id, review_claimed_at);
-    CREATE INDEX idx_memory_candidates_review_attempt ON memory_candidates(id, status, review_attempt_id);
-
     CREATE TABLE workflow_tasks (
       task_id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, subject TEXT NOT NULL,
       description TEXT NOT NULL, active_form TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '',

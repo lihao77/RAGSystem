@@ -16,7 +16,6 @@ import { registerBootstrapRoutes } from "../routes/bootstrap.js";
 import { registerBotRoutes } from "../routes/bots.js";
 import { registerHealthRoutes, registerProbeRoutes } from "../routes/health.js";
 import { registerMcpRoutes } from "../routes/mcp.js";
-import { registerMemoryRoutes } from "../routes/memory.js";
 import { registerModelAdapterRoutes } from "../routes/model-adapter.js";
 import { registerPlatformRoutes } from "../routes/platform.js";
 import { registerSkillRoutes } from "../routes/skills.js";
@@ -81,7 +80,6 @@ export interface SharedBusinessRouteAssemblyOptions {
   widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
   registerPublicAgui: boolean;
-  resolveMemoryApplication: NonNullable<RouteOptions["resolveMemoryApplication"]>;
   resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
   resolveMcpApplication: NonNullable<RouteOptions["resolveMcpApplication"]>;
   resolveSessionApplication: NonNullable<RouteOptions["resolveSessionApplication"]>;
@@ -104,7 +102,6 @@ export async function registerSharedBusinessRoutes(
       registry: options.registry,
       identityProvider: options.identityProvider,
       botRepository: options.botRepository,
-      resolveMemoryApplication: options.resolveMemoryApplication,
       resolveSessionApplication: options.resolveSessionApplication,
       resolveAnalytics: options.resolveAnalytics,
       resolveMonitoringApplication: options.resolveMonitoringApplication,
@@ -119,7 +116,6 @@ export async function registerSharedBusinessRoutes(
     });
     await scope.register(registerHealthRoutes, { prefix: "/api", ...routeOptions });
     await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
-    await scope.register(registerMemoryRoutes, { prefix: "/api/memory", ...routeOptions });
     await scope.register(registerSkillRoutes, { prefix: "/api/skills", ...routeOptions });
     await scope.register(registerModelAdapterRoutes, { prefix: "/api/model-adapter", ...routeOptions });
     await scope.register(registerSystemConfigRoutes, { prefix: "/api/system-config", ...routeOptions });
@@ -196,7 +192,6 @@ interface WidgetRouteAssemblyOptions {
   widgetCredentialStore: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
-  resolveMemoryApplication: NonNullable<RouteOptions["resolveMemoryApplication"]>;
   resolveSessionApplication: NonNullable<RouteOptions["resolveSessionApplication"]>;
   resolveExecutionRead: NonNullable<RouteOptions["resolveExecutionRead"]>;
   resolveExecutionApplication: NonNullable<RouteOptions["resolveExecutionApplication"]>;
@@ -212,7 +207,6 @@ export async function registerWidgetAndRealtimeRoutes(
   options: WidgetRouteAssemblyOptions,
 ): Promise<void> {
   const applicationResolvers = {
-    resolveMemoryApplication: options.resolveMemoryApplication,
     resolveSessionApplication: options.resolveSessionApplication,
     resolveExecutionRead: options.resolveExecutionRead,
     resolveExecutionApplication: options.resolveExecutionApplication,

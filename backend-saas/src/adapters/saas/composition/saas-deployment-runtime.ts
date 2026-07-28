@@ -8,7 +8,6 @@ import { PasswordIdentityProvider } from "@ragsystem/backend-core/services/ident
 import { SaaSAnalyticsApplication } from "../application/analytics/saas-analytics-application.js";
 import { SaaSAgentReadApplication } from "../application/execution/saas-agent-read-application.js";
 import { SaaSFileChangeApplication } from "../application/file-change/saas-file-change-application.js";
-import { SaaSExecutionMemoryCandidates } from "../application/memory/saas-execution-memory-candidates.js";
 import { SaaSMonitoringApplication } from "../application/monitoring/saas-monitoring-application.js";
 import { SaaSMcpApplication } from "../application/provider-mcp/saas-mcp-application.js";
 import { SaaSProviderApplication } from "../application/provider-mcp/saas-provider-application.js";
@@ -16,15 +15,13 @@ import { SaaSSessionApplication } from "../application/session/saas-session-appl
 import { SaaSSessionFileApplication } from "../application/session-file/saas-session-file-application.js";
 import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./saas-control-runtime.js";
 import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
-import { createSaaSMemoryApplicationResolver } from "./saas-memory-resolver.js";
-import { createSaaSMemoryRuntime, type SaaSMemoryRuntimeHandle } from "./saas-memory-runtime.js";
 import { createSaaSObjectStorage } from "./saas-object-storage.js";
 import { SaaSTenantRuntimeRegistry } from "./saas-tenant-runtime-registry.js";
-import type { PostgresMemoryExecutor } from "../postgres/memory-repository.js";
+import type { PostgresExecutor } from "../postgres/postgres-executor.js";
 
 export interface SaaSDeploymentRuntime extends DeploymentRuntime {
   readonly pluginResources: {
-    database: PostgresMemoryExecutor;
+    database: PostgresExecutor;
     objects: ObjectStorage;
   };
 }
@@ -33,7 +30,6 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
   validateSaaSEnv(env);
 
   let dataPool: Pool | undefined;
-  let memoryRuntime: SaaSMemoryRuntimeHandle | undefined;
   let controlRuntime: SaaSControlRuntimeHandle | undefined;
   let conversationRuntime: SaaSConversationRuntimeHandle | undefined;
   let objectStorage: ObjectStorage | undefined;
@@ -42,10 +38,6 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
     dataPool = new Pool({
       connectionString: env.databaseUrl!,
       max: Math.max(1, env.postgresPoolMax),
-    });
-    memoryRuntime = await createSaaSMemoryRuntime({
-      connectionString: env.databaseUrl!,
-      pool: dataPool,
     });
     objectStorage = createSaaSObjectStorage({
       mode: "s3",
@@ -68,11 +60,10 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
       objectStorage,
     });
   } catch (error) {
-    await closePartialRuntime(memoryRuntime, conversationRuntime, controlRuntime, dataPool);
+    await closePartialRuntime(conversationRuntime, controlRuntime, dataPool);
     throw error;
   }
 
-  const memory = memoryRuntime;
   const control = controlRuntime;
   const conversation = conversationRuntime;
   const pool = dataPool;
@@ -88,7 +79,6 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
     wsTickets: conversation.wsTickets,
     pluginResources: { database: conversation.pluginResources.database, objects },
     applications: {
-      resolveMemoryApplication: createSaaSMemoryApplicationResolver(memory.provider),
       resolveSessionFileApplication: (request) => new SaaSSessionFileApplication(
         conversation.createSessionFileStorage(request.identity.tenantId),
       ),
@@ -111,7 +101,6 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
         conversation.createFileHistoryStorage(request.identity.tenantId),
         conversation.runs,
         conversation.outbox,
-        new SaaSExecutionMemoryCandidates(request.identity.tenantId, memory.repository),
         conversation.workspaces,
       ),
       resolveExecutionRead: (request) => new SaaSAgentReadApplication(
@@ -137,7 +126,6 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
       conversation,
       logger,
       {
-        memoryRuntime: memory,
         ...(plugins ? { plugins } : {}),
       },
     ),
@@ -151,7 +139,7 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
     close: async () => {
       if (closed) return;
       closed = true;
-      await closePartialRuntime(memory, conversation, control, pool);
+      await closePartialRuntime(conversation, control, pool);
     },
   };
 }
@@ -171,12 +159,10 @@ function validateSaaSEnv(env: AppEnv): void {
 }
 
 async function closePartialRuntime(
-  memory: SaaSMemoryRuntimeHandle | undefined,
   conversation: SaaSConversationRuntimeHandle | undefined,
   control: SaaSControlRuntimeHandle | undefined,
   pool: Pool | undefined,
 ): Promise<void> {
-  await memory?.close().catch(() => undefined);
   await conversation?.close().catch(() => undefined);
   await conversation?.wsTickets.close().catch(() => undefined);
   await control?.close().catch(() => undefined);

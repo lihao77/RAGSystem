@@ -2,8 +2,8 @@ import { isRecord } from "../../utils/guards.js";
 
 import type {
   DocumentExtractionConfig,
-  MemoryConfig,
   SystemConfigData,
+  SystemConfigGroup,
   SystemConfigSchema,
   SystemConfigUpdate,
   SystemConfigValue,
@@ -25,6 +25,11 @@ const SENSITIVE_FIELD_NAMES = new Set([
 ]);
 const SENSITIVE_FIELD_SUFFIXES = ["_api_key", "_password", "_secret", "_secret_key", "_token"];
 
+export interface SystemConfigExtension {
+  readonly defaults: SystemConfigData;
+  readonly groups: readonly SystemConfigGroup[];
+}
+
 /**
  * In-process system config projection.
  * Persistence is owned by ISystemConfigStore (Local YAML / SaaS Postgres).
@@ -33,6 +38,7 @@ const SENSITIVE_FIELD_SUFFIXES = ["_api_key", "_password", "_secret", "_secret_k
 export class SystemConfigService {
   private config: SystemConfigData = buildDefaultConfig();
   private initialized = false;
+  private readonly extensions = new Map<string, SystemConfigExtension>();
 
   constructor(private readonly store: ISystemConfigStore) {}
 
@@ -42,7 +48,12 @@ export class SystemConfigService {
   }
 
   getSchema(): SystemConfigSchema {
-    return buildSystemConfigSchema();
+    return {
+      groups: [
+        ...buildSystemConfigSchema().groups,
+        ...Array.from(this.extensions.values()).flatMap((extension) => extension.groups),
+      ],
+    };
   }
 
   getConfig(): SystemConfigData {
@@ -50,16 +61,36 @@ export class SystemConfigService {
     return redactSensitiveConfig(cloneConfig(this.config));
   }
 
+  getSection(key: string): SystemConfigValue | undefined {
+    this.ensureInitialized();
+    const value = this.config[key];
+    return value === undefined ? undefined : structuredClone(value);
+  }
+
+  registerExtension(id: string, extension: SystemConfigExtension): () => void {
+    const normalizedId = id.trim();
+    if (!normalizedId) throw new Error("System config extension id must not be empty");
+    if (this.extensions.has(normalizedId)) throw new Error(`System config extension '${normalizedId}' is already registered`);
+    const existingKeys = new Set(this.getSchema().groups.map((group) => group.key));
+    for (const group of extension.groups) {
+      if (existingKeys.has(group.key)) throw new Error(`System config group '${group.key}' is already registered`);
+      existingKeys.add(group.key);
+    }
+    const stored = {
+      defaults: cloneConfig(extension.defaults),
+      groups: extension.groups.map((group) => structuredClone(group)),
+    };
+    this.extensions.set(normalizedId, stored);
+    if (this.initialized) this.config = deepMerge(cloneConfig(stored.defaults), this.config);
+    return () => {
+      this.extensions.delete(normalizedId);
+    };
+  }
+
   /** 类型化读取 tools 组(防御:缺失/非法字段回退默认值,兼容 Python 写回的不完整 yaml)。 */
   getToolsConfig(): ToolsConfig {
     this.ensureInitialized();
     return normalizeToolsConfig(this.config.tools);
-  }
-
-  /** 类型化读取 memory 组。 */
-  getMemoryConfig(): MemoryConfig {
-    this.ensureInitialized();
-    return normalizeMemoryConfig(this.config.memory);
   }
 
   /** 类型化读取 system 组。 */
@@ -84,11 +115,9 @@ export class SystemConfigService {
   }
 
   async reload(): Promise<void> {
-    const defaults = buildDefaultConfig();
+    const defaults = this.buildDefaults();
     const stored = await this.store.load();
-    this.config = stored
-      ? deepMerge(defaults, retainKnownRootGroups(stored, defaults) as SystemConfigData)
-      : defaults;
+    this.config = stored ? deepMerge(defaults, stored) : defaults;
     this.initialized = true;
   }
 
@@ -96,6 +125,12 @@ export class SystemConfigService {
     if (!this.initialized) {
       throw new Error("SystemConfigService.initialize() must be awaited before use");
     }
+  }
+
+  private buildDefaults(): SystemConfigData {
+    let defaults = buildDefaultConfig();
+    for (const extension of this.extensions.values()) defaults = deepMerge(defaults, extension.defaults);
+    return defaults;
   }
 }
 
@@ -108,10 +143,6 @@ function buildDefaultConfig(): SystemConfigData {
     },
     system: {
       max_content_length: 104857600,
-    },
-    memory: {
-      index_max_lines: 200,
-      index_max_chars: 25600,
     },
     tools: {
       bash_default_timeout: 120,
@@ -164,15 +195,6 @@ function buildSystemConfigSchema(): SystemConfigSchema {
         description: "系统配置",
         fields: [
           numberField("max_content_length", "Max Content Length", "最大内容长度（字节），默认 100MB", 104857600, { min: 1, step: 1 }),
-        ],
-      },
-      {
-        key: "memory",
-        label: "记忆系统",
-        description: "记忆系统配置",
-        fields: [
-          numberField("index_max_lines", "Index Max Lines", "记忆索引注入最大行数", 200, { min: 10, step: 1 }),
-          numberField("index_max_chars", "Index Max Chars", "记忆索引注入最大字符数", 25600, { min: 1024, step: 1 }),
         ],
       },
       {
@@ -345,14 +367,6 @@ function normalizeToolsConfig(value: unknown): ToolsConfig {
     bash_max_output: positiveIntOrDefault(record.bash_max_output, 50000),
     code_default_timeout: positiveIntOrDefault(record.code_default_timeout, 60),
     code_max_timeout: positiveIntOrDefault(record.code_max_timeout, 300),
-  };
-}
-
-function normalizeMemoryConfig(value: unknown): MemoryConfig {
-  const record = isRecord(value) ? value : {};
-  return {
-    index_max_lines: positiveIntOrDefault(record.index_max_lines, 200),
-    index_max_chars: positiveIntOrDefault(record.index_max_chars, 25600),
   };
 }
 

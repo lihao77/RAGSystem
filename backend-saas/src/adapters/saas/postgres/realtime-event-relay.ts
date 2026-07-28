@@ -4,7 +4,7 @@ import type { Envelope } from "@ragsystem/backend-core/contracts/events.js";
 import type { RealtimeEventBus, RealtimeEventHandler } from "@ragsystem/backend-core/contracts/runtime/realtime-event-bus.js";
 import { EnvelopeProjector } from "@ragsystem/backend-core/services/runtime/event-outbox/projector.js";
 import { RealtimeEventHub } from "@ragsystem/backend-core/services/runtime/realtime-event-hub.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import type { PostgresOutboxRepository } from "./outbox-repository.js";
 
 const CHANNEL = "ragsystem_realtime_events";
@@ -23,7 +23,7 @@ export class PostgresRealtimeEventRelay {
 
   constructor(
     private readonly pool: Pool,
-    private readonly executor: PostgresMemoryExecutor,
+    private readonly executor: PostgresExecutor,
     private readonly outbox: PostgresOutboxRepository,
     private readonly options: PostgresRealtimeEventRelayOptions = {},
   ) {}

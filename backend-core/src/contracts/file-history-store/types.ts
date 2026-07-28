@@ -3,7 +3,7 @@
  *
  * 纯领域 DTO（interface）。**无 zod 输入边界**——调用方都是内部可信路径（DocumentTools trackEdit、
  * sessions application makeSnapshot/rewind），非 HTTP/工具外部输入；zod 边界留给外部输入
- * （对照 memory-store / file-index-store）。
+ * （对照其他文件型存储契约）。
  * 契约独立：本文件零 import adapters/services。
  */
 

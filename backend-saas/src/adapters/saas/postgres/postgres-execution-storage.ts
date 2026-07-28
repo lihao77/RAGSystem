@@ -2,7 +2,6 @@ import type {
   DurableExecutionClientEventPort,
   DurableExecutionConversationPort,
   DurableExecutionProviderContinuationPort,
-  ExecutionMemoryCandidatePort,
   ExecutionRunPersistenceContext,
   ExecutionStorage,
   ExecutionEventPersister,
@@ -16,7 +15,6 @@ export function createPostgresExecutionStorage(input: {
   clientEvents: DurableExecutionClientEventPort;
   createEventPersister(context: ExecutionRunPersistenceContext): ExecutionEventPersister;
   resultReader: ExecutionStorage["resultReader"];
-  memoryCandidates: ExecutionMemoryCandidatePort;
   consumePendingFollowups: ExecutionStorage["consumePendingFollowups"];
 }): ExecutionStorage {
   return {
@@ -24,7 +22,6 @@ export function createPostgresExecutionStorage(input: {
     conversation: input.conversation,
     providerContinuations: { getProviderContinuation: (sessionId, messageId) => input.providerContinuations.getProviderContinuation(input.tenantId, sessionId, messageId) },
     resultReader: input.resultReader,
-    memoryCandidates: input.memoryCandidates,
     consumePendingFollowups: input.consumePendingFollowups,
     createEventPersister: input.createEventPersister,
   };

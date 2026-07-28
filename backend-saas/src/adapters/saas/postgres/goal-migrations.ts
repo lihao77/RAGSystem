@@ -1,9 +1,9 @@
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import { POSTGRES_GOAL_MIGRATIONS } from "./goal-schema.js";
 
 const ADVISORY_LOCK_ID = 0x52414747;
 
-export async function runPostgresGoalMigrations(executor: PostgresMemoryExecutor): Promise<{
+export async function runPostgresGoalMigrations(executor: PostgresExecutor): Promise<{
   current_version: number;
   applied_versions: number[];
 }> {

@@ -54,7 +54,7 @@ export interface CompressInput {
   threadKey?: string | null;
   childAgentId?: string | null;
   signal?: AbortSignal;
-  /** 当前 system prompt token 数(含 memory prefix,base+tools)。budget = window×0.9 − 此值。调用方算好传入。 */
+  /** 当前 system prompt token 数（含注入上下文、base 和 tools）。budget = window×0.9 − 此值。调用方算好传入。 */
   systemPromptTokens: number;
 }
 

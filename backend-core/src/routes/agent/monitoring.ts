@@ -174,13 +174,12 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         ...(teamName ? { teamName } : {}),
       }, new PathApprovalService()),
     });
-    // backend 组装 context（memory + recent）—— 与 run 路径同源（runtime-adapter 同一套 builder + source）。
-    // conversation 注入 preview（组 LLM request）；rawMessages/sources 由 backend 自组，preview 不再返回 context。
+    // backend 组装内建 recent context 并注入 preview；插件上下文由实际 run 的 hooks 提供。
     const threadKey = normalizeString(query.thread_key);
     const sessionMetadataPort = sessionId
       ? await resolveSessionMetadataPort(sessionId, sessionApplication)
       : null;
-    const historyPort: ConversationHistoryPort & SessionMetadataPort & Pick<typeof sessionApplication, "listMemoryCandidates"> = {
+    const historyPort: ConversationHistoryPort & SessionMetadataPort = {
       getRecentMessages: (sid, limit, tk) => sessionApplication.getRecentMessages(
         sid,
         limit ?? HISTORY_SCAN_LIMIT,
@@ -188,15 +187,12 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       ),
       getSession: (sid) => sessionMetadataPort?.getSession(sid) ?? null,
       updateSessionMetadata: (sid, patch) => sessionMetadataPort?.updateSessionMetadata?.(sid, patch) ?? null,
-      listMemoryCandidates: (query) => sessionApplication.listMemoryCandidates(query),
     };
     const snapshot = sessionId
       ? await previewBackendAgentContext(agent, profile, historyPort, registry, {
-          memoryConfig: request.container.systemConfig.getMemoryConfig(),
           dataRoot: request.container.dataRoot,
           sessionId,
           threadKey,
-          memoryContextSourceFactory: request.container.memoryContextSourceFactory,
           sessionFiles: request.container.sessionFiles,
         })
       : null;
@@ -204,12 +200,8 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const built = snapshot?.built ?? null;
     const preview = snapshot?.preview ?? null;
 
-    const memorySnapshot = getMemorySnapshot(built?.metadata.sources ?? []);
-    // conversation_history 走 LLM 实际收到的 conversation 投影后 content(prompt 命令展开 / 图片 ContentPart)。
-    // conversation = memory 段 + recent 段;rawMessages 只覆盖 recent 段(recent-messages-source 的 rawMessages 即
-    // messagesToConversation 的 originals,与 recent conversation 1:1)。约定:仅 recent source 贡献 rawMessages,
-    // memory 等其他 source 不贡献;未来若新增贡献 rawMessages 的 source,此 recentOffset 对齐需重审。
-    // conversation_history 只展示 recent 对话历史段(memory system prefix 属注入上下文,不混入对话历史),按 index 对齐回绑 seq/msg_type。
+    // conversation_history 走 LLM 实际收到的 recent conversation 投影后 content，
+    // 并按 index 对齐回绑 seq/msg_type。
     const convMessages = built?.conversation ?? [];
     const rawOriginals = built?.rawMessages ?? [];
     const recentOffset = Math.max(0, convMessages.length - rawOriginals.length);
@@ -217,7 +209,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       const rm = rawOriginals[i] ?? null;
       return toContextHistoryItem(msg, rm ? { seq: rm.seq, metadata: rm.metadata } : undefined);
     });
-    // memory block 已作为 system 消息进 request.messages，preview.tokenStats.systemPromptTokens 已含它，不重复加。
     const systemPromptTokens = preview?.tokenStats.systemPromptTokens ?? 0;
     const historyTokens = preview?.tokenStats.historyTokens ?? 0;
     const budgetTokens = resolveContextBudget(profile.llmTiers, preview?.tokenStats.systemPromptTokens ?? 0, profile.behavior.budget);
@@ -247,15 +238,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         parameters: tool.parameters,
       })),
       available_skills: await buildAvailableSkills(agent, request.container),
-      ...(memorySnapshot
-        ? {
-            memory: {
-              indices: getRecord(memorySnapshot.indices),
-              scope_capabilities: getRecord(memorySnapshot.scope_capabilities),
-              rendered_block: asString(memorySnapshot.rendered_block) ?? "",
-            },
-          }
-        : {}),
     };
     return ok(data, "获取上下文快照成功");
   });
@@ -360,17 +342,6 @@ async function buildAvailableSkills(agent: AgentConfig, container: FastifyReques
         description: normalizeString(source.description) ?? "",
       };
     });
-}
-
-function getMemorySnapshot(sources: Array<{ name: string; metadata?: Record<string, unknown> }>): Record<string, unknown> | null {
-  for (const source of sources) {
-    if (source.name !== "memory") {
-      continue;
-    }
-    const snapshot = source.metadata?.snapshot;
-    return isRecord(snapshot) ? snapshot : null;
-  }
-  return null;
 }
 
 function parseSelectedLlmForSnapshot(value: string): Record<string, string | null> {

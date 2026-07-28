@@ -1,7 +1,7 @@
 import type { WorkspaceRepositoryPort } from "@ragsystem/backend-core/contracts/workspace/workspace-repository.js";
 import type { CreateWorkspaceRecordInput, WorkspaceRecord } from "@ragsystem/backend-core/contracts/workspace/workspace.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 const iso = (value: unknown) => new Date(String(value)).toISOString();
 
@@ -19,7 +19,7 @@ function workspace(row: Record<string, unknown>): WorkspaceRecord {
 }
 
 export class PostgresWorkspaceRepository implements WorkspaceRepositoryPort {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async resolveLocal(input: CreateWorkspaceRecordInput): Promise<WorkspaceRecord> {
     const result = await this.executor.query(

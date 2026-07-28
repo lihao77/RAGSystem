@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { createTenantId, createUserId, type RequestIdentity } from "@ragsystem/backend-core/identity/types.js";
 import { AuthError } from "@ragsystem/backend-core/services/identity/auth-error.js";
 import { hashWsTicket, type WsTicketService } from "@ragsystem/backend-core/services/runtime/ws-ticket-service.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 export interface PostgresWsTicketServiceOptions {
   ttlMs?: number;
@@ -14,7 +14,7 @@ export class PostgresWsTicketService implements WsTicketService {
   private readonly ttlMs: number;
   private readonly maxPendingPerTenant: number;
 
-  constructor(private readonly executor: PostgresMemoryExecutor, options: PostgresWsTicketServiceOptions = {}) {
+  constructor(private readonly executor: PostgresExecutor, options: PostgresWsTicketServiceOptions = {}) {
     this.ttlMs = options.ttlMs ?? 60_000;
     this.maxPendingPerTenant = options.maxPendingPerTenant ?? 10_000;
     if (!Number.isFinite(this.ttlMs) || this.ttlMs <= 0) throw new Error("WS ticket ttlMs must be positive");

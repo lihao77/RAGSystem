@@ -4,7 +4,7 @@ import type {
   PendingInteractionStatus,
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import type { RuntimePendingInteractionStorage } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 const columns = `interaction_id, session_id, run_id, root_run_id, tool_call_id,
   batch_id, kind, status, request_payload, resolution_payload, created_at, updated_at,
@@ -46,7 +46,7 @@ function interaction(row: Record<string, unknown>): PendingInteractionRecord {
 }
 
 export class PostgresPendingInteractionRepository implements RuntimePendingInteractionStorage {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async createPendingInteraction(input: CreatePendingInteractionInput): Promise<PendingInteractionRecord> {
     await this.executor.query(`INSERT INTO pending_interactions (

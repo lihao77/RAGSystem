@@ -5,7 +5,7 @@ import type {
   ListChildAgentsInput,
   UpdateChildAgentLastRunInput,
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 const columns = `
   child_agent_id, session_id, agent_name, thread_key, status,
@@ -44,7 +44,7 @@ function childAgent(row: Record<string, unknown>): ChildAgentInfo {
 
 /** Tenant-scoped PostgreSQL child-agent aggregate. */
 export class PostgresChildAgentRepository {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async assertTenantSession(tenantId: string, sessionId: string): Promise<void> {
     const result = await this.executor.query(

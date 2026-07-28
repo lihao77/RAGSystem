@@ -13,7 +13,6 @@ import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { MessageInfo, SessionIdentity } from "../../../contracts/session/session.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
-import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { ExecutionEventPersister, ExecutionStartDisposition, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
 import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
@@ -27,12 +26,10 @@ import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js"
 import { projectAgentProfile } from "./projection.js";
 import { buildBackendAgentContext, filterHistoryMessages, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
-import { memoryBaselineKey } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
-import type { ExecutionMemoryCandidateListPort, MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import { resolveSessionMetadataPort } from "../context/async-session-metadata-resolver.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import { AttachmentsExtensionSchema } from "@ragsystem/agent-protocol";
@@ -50,9 +47,6 @@ export interface SdkRuntimeAdapterDeps {
   /** 已加载的全部 provider（投影层解析 tier.provider 引用用）。 */
   providers: ModelProviderConfig[];
   dataRoot: string;
-  /** 每次 run 读取最新 memory 配置。 */
-  getMemoryConfig: () => MemoryConfig;
-  memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
   /** 权限策略服务（SDK 审批编排判定端口用）。 */
   permissionPolicy: PermissionPolicyService;
   pathAccessPolicyFactory: () => PathAccessPolicy;
@@ -234,10 +228,10 @@ export async function executeRunWithSdk(
       })
     : undefined;
 
-  // backend 组装 context（memory + recent），产 conversation 注入 SDK（SDK 不再读 store/自组 context）。
+  // backend 组装内建 context，插件可通过 hooks 追加上下文。
   // historyPort 组合 ConversationHistoryPort + SessionMetadataPort：recent source 读历史 + microcompact 缓存指纹，
-  // memory source 读 session metadata（team/workspace scope 解析）。
-  const historyPort: ConversationHistoryPort & SessionMetadataPort & ExecutionMemoryCandidateListPort = {
+  // context source 读取 session metadata 解析运行上下文。
+  const historyPort: ConversationHistoryPort & SessionMetadataPort = {
     getRecentMessages: (sid: string, limit: number | undefined, tk: string | null | undefined) =>
       deps.storage.conversation.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
     getProviderContinuation: (sid: string, messageId: string) =>
@@ -245,14 +239,11 @@ export async function executeRunWithSdk(
     getSession: (sid: string) => sessionMetadata.getSession(sid),
     updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
       sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
-    listMemoryCandidates: (query) => deps.storage.memoryCandidates.listMemoryCandidates(query),
   };
   const { built, contextBuilder, cacheTracker } = await buildBackendAgentContext(input.agent, profile, historyPort, {
-    memoryConfig: deps.getMemoryConfig(),
     dataRoot: deps.dataRoot,
     sessionId: input.sessionId,
     threadKey: input.threadKey,
-    ...(deps.memoryContextSourceFactory ? { memoryContextSourceFactory: deps.memoryContextSourceFactory } : {}),
     sessionFiles: deps.sessionFiles ?? null,
   });
   await sessionMetadata.flush();
@@ -312,16 +303,10 @@ export async function executeRunWithSdk(
       // run 内压缩（round.before）：判阈值 → compressIfNeeded → 压缩成功则重组 conversation（重读 store 含压缩视图）→ replaceAll 工作副本。
       if (deps.compressionService) {
         hookRegistry.on("round.before", async (hookInput) => {
-          // systemPromptTokens = buildFullSystemPrompt(base+tools) + memory prefix;budget = window×0.9 − 此值。
+          // Compression budgets use the stable core prompt. Plugin hooks add their context afterward.
           const mode = resolveToolInstructionMode(profile.llmTiers.default?.provider);
           const systemPromptBase = buildFullSystemPrompt(profile, { tools: registry.listDefinitions() }, mode);
-          const tokenContext = await contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true }, { touch: false });
-          await sessionMetadata.flush();
-          const memoryPrefix = tokenContext.conversation
-            .filter((m) => m.role === "system")
-            .map((m) => (typeof m.content === "string" ? m.content : ""))
-            .join("\n");
-          const systemPromptTokens = estimateTokens(systemPromptBase) + estimateTokens(memoryPrefix);
+          const systemPromptTokens = estimateTokens(systemPromptBase);
           const result = await deps.compressionService!.compressIfNeeded({
             agent: input.agent,
             sessionId: input.sessionId,
@@ -333,10 +318,6 @@ export async function executeRunWithSdk(
             ...(input.signal ? { signal: input.signal } : {}),
           });
           if (result.status === "success") {
-            // 压缩已打断 cache(history 重写):让 memory 前缀快照 + provider cache 活性都失效,
-            // 下次 buildContext 据 cacheAlive=false 走重建/清理(memory 重读最新 store、microcompact 清理)。
-            const baselineKey = memoryBaselineKey(input.threadKey, input.agent.agent_name);
-            historyPort.updateSessionMetadata?.(input.sessionId, { memory_prefix_states: { [baselineKey]: null } });
             cacheTracker.invalidate(input.sessionId, input.threadKey);
             const rebuilt = (await contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true })).conversation;
             await sessionMetadata.flush();

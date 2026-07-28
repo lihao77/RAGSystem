@@ -7,7 +7,7 @@ import type {
   ModelUsagePoint,
   TokenTrendPoint,
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import type { AsyncAgentMetricsRepository, AsyncAnalyticsRepository } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 export type { AsyncAnalyticsRepository } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 
@@ -17,7 +17,7 @@ function number(value: unknown): number {
 
 /** Tenant-filtered PostgreSQL analytics data plane. */
 export class PostgresAnalyticsRepository implements AsyncAnalyticsRepository, AsyncAgentMetricsRepository {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async insertMetric(tenantId: string, input: Parameters<AsyncAnalyticsRepository["insertMetric"]>[1]): Promise<void> {
     await this.executor.query(`INSERT INTO saas_agent_call_metrics

@@ -13,7 +13,7 @@ import type { MessageInfo } from "@ragsystem/backend-core/contracts/session/sess
 import type { PostgresConversationRepository } from "./conversation-repository.js";
 import type { PostgresRunRepository } from "./run-repository.js";
 import { PostgresChildAgentRepository } from "./child-agent-repository.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 /**
  * Adapter used by the shared delegation service in SaaS.
@@ -28,7 +28,7 @@ export class TenantBoundPostgresAgentDelegationStore implements AgentDelegationS
 
   constructor(
     private readonly tenantId: TenantId,
-    executor: PostgresMemoryExecutor,
+    executor: PostgresExecutor,
     private readonly conversation: PostgresConversationRepository,
     private readonly runs: PostgresRunRepository,
   ) {

@@ -2,8 +2,10 @@ import type { FastifyInstance } from "fastify";
 import type { HookEvent, HookHandler, HookRegistry, Tool } from "@ragsystem/agent-sdk";
 
 import type { AgentConfig } from "../contracts/agent/agent-config.js";
+import type { SessionApplication } from "../contracts/session/session-application.js";
 import type { PathAccessPolicy } from "../contracts/runtime/path-access-policy.js";
 import type { TenantId } from "../identity/types.js";
+import type { AgentConfigService } from "../services/agent/config/index.js";
 import type { ModelAdapterService } from "../services/integrations/model-adapter-service.js";
 import type { SystemConfigService } from "../services/config/system-config-service.js";
 import type { CapabilityProvider, CapabilityRegistry } from "./capability-registry.js";
@@ -58,10 +60,13 @@ export interface BackendPluginRuntimeContext {
   readonly dataRoot: string;
   readonly modelAdapter: ModelAdapterService;
   readonly systemConfig: SystemConfigService;
+  readonly agentConfig: AgentConfigService;
+  readonly sessions: SessionApplication;
 }
 
 export interface BackendPluginRuntimeContribution {
   readonly capabilities?: readonly CapabilityProvider[];
+  configureHooks?(registry: HookRegistry): void;
   dispose?(): void;
 }
 
@@ -75,6 +80,7 @@ export interface PluginRuntimeRegistrar {
 
 export interface BackendPluginRuntimeHandle {
   readonly capabilities: CapabilityRegistry;
+  configureHooks(registry: HookRegistry): void;
   dispose(): void;
 }
 

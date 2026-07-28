@@ -2,33 +2,12 @@ import { LocalExecutionApplication } from "./execution/local-execution-applicati
 import type { RequestApplicationResolvers } from "@ragsystem/backend-core/app/request-applications.js";
 import { LocalProviderApplication } from "./provider/local-provider-application.js";
 import { LocalMcpApplication } from "./mcp/local-mcp-application.js";
-import type { SessionListCursor } from "@ragsystem/backend-core/contracts/session/session.js";
 
 /** Local composition root for request-level application ports. */
 export function createLocalRequestApplicationResolvers(): RequestApplicationResolvers {
   return {
     resolveSessionApplication: (request) => requireLocalCapabilities(request)
       .createSessionApplication(request.identity.tenantId),
-    resolveMemoryApplication: (request) => {
-      const local = requireLocalCapabilities(request);
-      return local.createMemoryApplication({
-        viewerUserId: request.identity.userId,
-        viewerSessionIds: async () => {
-          const ids: string[] = [];
-          let cursor: SessionListCursor | null = null;
-          do {
-            const page = await request.container.sessionApplication.listSessions({
-              access: { userId: request.identity.userId, includeTenant: true },
-              limit: 100,
-              cursor,
-            });
-            ids.push(...page.items.map((session) => session.session_id));
-            cursor = page.nextCursor;
-          } while (cursor);
-          return ids;
-        },
-      });
-    },
     resolveAnalytics: (request) => requireLocalCapabilities(request).analytics,
     resolveMonitoringApplication: (request) => requireLocalCapabilities(request).monitoring,
     resolveExecutionRead: (request) => requireLocalCapabilities(request).executionRead,

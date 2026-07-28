@@ -56,11 +56,6 @@ export interface ToolsConfig {
   code_max_timeout: number;
 }
 
-export interface MemoryConfig {
-  index_max_lines: number;
-  index_max_chars: number;
-}
-
 export interface SystemGroupConfig {
   max_content_length: number;
 }

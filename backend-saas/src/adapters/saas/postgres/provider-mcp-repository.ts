@@ -1,7 +1,7 @@
 import type { SecretResolver } from "@ragsystem/backend-core/contracts/integrations/secret-resolver.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { McpServerRecord, ProviderConfigRecord, ProviderMcpRepository } from "@ragsystem/backend-core/contracts/integrations/provider-mcp-repository.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 export type SaaSProviderConfigRecord = ProviderConfigRecord;
 export type SaaSMcpServerRecord = McpServerRecord;
@@ -9,7 +9,7 @@ const record = (row: Record<string, unknown>): ProviderConfigRecord => ({ tenant
 const server = (row: Record<string, unknown>): McpServerRecord => ({ tenant_id: row.tenant_id as TenantId, server_name: String(row.server_name), config: (row.config ?? {}) as Record<string, unknown>, created_at: new Date(String(row.created_at)).toISOString(), updated_at: new Date(String(row.updated_at)).toISOString() });
 
 export class PostgresProviderMcpRepository implements ProviderMcpRepository {
-  constructor(private readonly executor: PostgresMemoryExecutor, private readonly secrets?: SecretResolver) {}
+  constructor(private readonly executor: PostgresExecutor, private readonly secrets?: SecretResolver) {}
   async listProviders(tenantId: TenantId): Promise<SaaSProviderConfigRecord[]> { const r = await this.executor.query("SELECT * FROM saas_provider_configs WHERE tenant_id=$1 ORDER BY COALESCE((config->>'provider_order')::int, 2147483647), provider_key", [tenantId]); return Promise.all(r.rows.map((row) => this.hydrateProvider(record(row)))); }
   async getProvider(tenantId: TenantId, key: string): Promise<SaaSProviderConfigRecord | null> { const r = await this.executor.query("SELECT * FROM saas_provider_configs WHERE tenant_id=$1 AND provider_key=$2", [tenantId, key]); return r.rows[0] ? this.hydrateProvider(record(r.rows[0])) : null; }
   async upsertProvider(tenantId: TenantId, key: string, config: Record<string, unknown>): Promise<SaaSProviderConfigRecord> { const prepared = await this.prepare(tenantId, "provider", key, config); const r = await this.executor.query("INSERT INTO saas_provider_configs(tenant_id,provider_key,config) VALUES($1,$2,$3::jsonb) ON CONFLICT (tenant_id,provider_key) DO UPDATE SET config=EXCLUDED.config,updated_at=CURRENT_TIMESTAMP RETURNING *", [tenantId, key, JSON.stringify(prepared)]); return this.hydrateProvider(record(r.rows[0]!)); }

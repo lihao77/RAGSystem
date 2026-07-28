@@ -12,7 +12,7 @@ import type {
 } from "@ragsystem/backend-core/contracts/agent/team-store.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 const AGENT_CONFIG_SCHEMA_VERSION = "2.0";
 
@@ -22,7 +22,7 @@ export class PostgresAgentConfigTeamStore implements IAgentConfigTeamStore {
 
   constructor(
     private readonly tenantId: TenantId,
-    private readonly executor: PostgresMemoryExecutor,
+    private readonly executor: PostgresExecutor,
   ) {}
 
   async loadTeams(): Promise<LoadedAgentConfigTeams | null> {
@@ -153,7 +153,7 @@ export class PostgresAgentConfigTeamStore implements IAgentConfigTeamStore {
     return `${base}-${Date.now()}`;
   }
 
-  private async upsertIndex(executor: PostgresMemoryExecutor, activeTeam: string): Promise<void> {
+  private async upsertIndex(executor: PostgresExecutor, activeTeam: string): Promise<void> {
     await executor.query(
       `INSERT INTO agent_team_index(tenant_id, active_team)
        VALUES($1,$2)
@@ -165,7 +165,7 @@ export class PostgresAgentConfigTeamStore implements IAgentConfigTeamStore {
   }
 
   private async upsertTeam(
-    executor: PostgresMemoryExecutor,
+    executor: PostgresExecutor,
     teamName: string,
     configs: AgentConfigTeam,
   ): Promise<void> {

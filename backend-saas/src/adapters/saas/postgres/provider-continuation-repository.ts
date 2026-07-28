@@ -5,7 +5,7 @@ import type {
   PutProviderContinuationInput,
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 export interface AsyncProviderContinuationRepository {
   putProviderContinuation(tenantId: TenantId, input: PutProviderContinuationInput): Promise<ProviderContinuationRecord>;
@@ -16,7 +16,7 @@ export interface AsyncProviderContinuationRepository {
 const columns = "message_id, session_id, thread_key, provider_type, tool_call_ids, state, created_at";
 
 export class PostgresProviderContinuationRepository implements AsyncProviderContinuationRepository {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async putProviderContinuation(
     tenantId: TenantId,

@@ -12,7 +12,6 @@ import type {
   SessionIdentity,
 } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
-import type { ListMemoryCandidatesInput, MemoryCandidateRecord } from "../conversation-store/index.js";
 import type { WorkspaceRecord } from "../workspace/workspace.js";
 
 /**
@@ -67,7 +66,6 @@ export interface SessionApplication {
   listMessages(input: { sessionId: string; limit?: number; offset?: number }): Promise<PaginatedResult<MessageInfo> | null>;
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
   getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<MessageInfo | null>;
-  listMemoryCandidates(input: ListMemoryCandidatesInput): Promise<MemoryCandidateRecord[]>;
   listMessageRunSteps(input: { sessionId: string; messageId: string; limit?: number; offset?: number }): Promise<{
     message_id: string;
     items: Envelope[];

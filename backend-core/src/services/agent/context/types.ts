@@ -2,7 +2,7 @@
  * context 组装端口与类型。
  *
  * 自 SDK context/types.ts 迁入(去 SDK 数据库依赖的一环):recent 组装归 backend,
- * memory source 亦 implements 这些端口。MessageInfo 用 backend contracts/session(snake)。
+ * 插件 context source 亦 implements 这些端口。MessageInfo 用 backend contracts/session(snake)。
  */
 import type { ChatMessage, ProviderContinuationState } from "@ragsystem/agent-llm";
 import type { MessageInfo } from "../../../contracts/session/session.js";

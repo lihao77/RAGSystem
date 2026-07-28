@@ -1,9 +1,9 @@
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import { POSTGRES_WORKFLOW_TASK_MIGRATIONS } from "./workflow-task-schema.js";
 
 const ADVISORY_LOCK_ID = 0x52414757;
 
-export async function runPostgresWorkflowTaskMigrations(executor: PostgresMemoryExecutor): Promise<{
+export async function runPostgresWorkflowTaskMigrations(executor: PostgresExecutor): Promise<{
   current_version: number;
   applied_versions: number[];
 }> {

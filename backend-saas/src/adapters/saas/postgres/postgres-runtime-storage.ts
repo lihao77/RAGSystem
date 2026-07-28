@@ -56,7 +56,7 @@ import type {
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { toSessionIdentity, type MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
 import { buildInterruptedToolMessages } from "@ragsystem/backend-core/contracts/storage/runtime-finalization.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import { PostgresConversationRepository } from "./conversation-repository.js";
 import { PostgresOutboxRepository } from "./outbox-repository.js";
 import { PostgresPendingInteractionRepository } from "./pending-interaction-repository.js";
@@ -65,7 +65,7 @@ import { PostgresRunRepository } from "./run-repository.js";
 
 function createTransactionFacade(
   tenantId: TenantId,
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
 ): RuntimeStorageRepositories {
   const conversationRepository = new PostgresConversationRepository(executor);
   const runRepository = new PostgresRunRepository(executor);
@@ -143,7 +143,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
 
   constructor(
     readonly tenantId: TenantId,
-    private readonly executor: PostgresMemoryExecutor,
+    private readonly executor: PostgresExecutor,
     private readonly ownerInstanceId = `runtime-${randomUUID()}`,
     private readonly rootLeaseMs = 60_000,
   ) {
@@ -568,7 +568,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
   }
 
   private async recoverExpiredSessionRunLeases(
-    transactionExecutor: PostgresMemoryExecutor,
+    transactionExecutor: PostgresExecutor,
     sessionId: string,
     now: string | null,
     buildRunEndedRecord: RuntimeRecoverExpiredRunLeasesInput["buildRunEndedRecord"],
@@ -629,7 +629,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
   }
 
   private async claimRootRunLease(
-    transactionExecutor: PostgresMemoryExecutor,
+    transactionExecutor: PostgresExecutor,
     sessionId: string,
     rootRunId: string,
   ): Promise<void> {
@@ -1224,7 +1224,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
 
 async function recordEnvelope(
   tx: RuntimeStorageRepositories,
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
   tenantId: TenantId,
   input: RuntimeRecordEnvelopeInput,
 ): Promise<RuntimeRecordEnvelopeResult> {
@@ -1270,12 +1270,12 @@ interface ExistingEventStep {
   payload: Record<string, unknown>;
 }
 
-async function lockAdvisoryKey(executor: PostgresMemoryExecutor, key: string): Promise<void> {
+async function lockAdvisoryKey(executor: PostgresExecutor, key: string): Promise<void> {
   await executor.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key]);
 }
 
 async function assertTenantSession(
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
   tenantId: TenantId,
   sessionId: string,
   allowMissing = false,
@@ -1296,7 +1296,7 @@ async function assertTenantSession(
 }
 
 async function assertRunBelongsToRoot(
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
   tenantId: TenantId,
   sessionId: string,
   runId: string,
@@ -1317,7 +1317,7 @@ async function assertRunBelongsToRoot(
 }
 
 async function lockTenantRun(
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
   tenantId: TenantId,
   runId: string,
 ): Promise<RunInfo | null> {
@@ -1333,7 +1333,7 @@ async function lockTenantRun(
 }
 
 async function assertOwnedRunLeaseForRun(
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
   tenantId: TenantId,
   ownerInstanceId: string,
   sessionId: string,
@@ -1392,7 +1392,7 @@ function assertTerminalTransition(current: string, target: string, runId: string
 }
 
 async function getOrCreateMessage(
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
   tx: RuntimeStorageRepositories,
   input: AddMessageInput & { messageId: string },
   subject: string,
@@ -1430,7 +1430,7 @@ function assertMessageIdentity(existing: MessageInfo, expected: AddMessageInput,
 }
 
 async function findEventStep(
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
   tenantId: TenantId,
   eventId: string,
 ): Promise<ExistingEventStep | null> {
@@ -1455,7 +1455,7 @@ async function findEventStep(
 }
 
 async function findEventOutbox(
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
   tenantId: TenantId,
   eventId: string,
 ): Promise<OutboxRow | null> {

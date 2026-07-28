@@ -24,8 +24,6 @@ export class TenantPaths {
   sessionUploads(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "uploads"); }
   sessionSandbox(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "sandbox"); }
   sessionVisualizations(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "visualizations"); }
-  memoryRoot(): string { return path.join(this.dataRoot, "memory"); }
-  memorySession(sessionId: string): string { return path.join(this.memoryRoot(), "sessions", sessionId); }
   fileHistorySession(sessionId: string): string { return path.join(this.dataRoot, "file-history", sessionId); }
   configApp(): string { return path.join(this.dataRoot, "config", "app", "config.yaml"); }
   configMcp(): string { return path.join(this.dataRoot, "config", "mcp", "mcp_servers.yaml"); }

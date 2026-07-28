@@ -1,7 +1,7 @@
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import { POSTGRES_PROVIDER_MCP_MIGRATIONS } from "./provider-mcp-schema.js";
 
-export async function runPostgresProviderMcpMigrations(executor: PostgresMemoryExecutor): Promise<{ current_version: number; applied_versions: number[] }> {
+export async function runPostgresProviderMcpMigrations(executor: PostgresExecutor): Promise<{ current_version: number; applied_versions: number[] }> {
   return executor.transaction(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock($1)", [0x52414750]);
     await tx.query("CREATE TABLE IF NOT EXISTS ragsystem_provider_mcp_schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)");

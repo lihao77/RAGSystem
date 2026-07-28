@@ -1,11 +1,7 @@
 import type { ProviderContinuationState } from "@ragsystem/agent-llm";
 import type { KernelEvent } from "@ragsystem/agent-sdk";
 
-import type {
-  ListMemoryCandidatesInput,
-  MemoryCandidateRecord,
-  RunInfo,
-} from "../conversation-store/index.js";
+import type { RunInfo } from "../conversation-store/index.js";
 import type { RunStepInfo } from "../common.js";
 import type { Envelope } from "../events.js";
 import type { MessageInfo, SessionIdentity, SessionInfo } from "../session/session.js";
@@ -77,12 +73,6 @@ export interface ExecutionProviderContinuationPort {
   getProviderContinuation(sessionId: string, messageId: string): Promise<{ state: ProviderContinuationState } | null>;
 }
 
-export type ExecutionMemoryCandidateQuery = ListMemoryCandidatesInput;
-
-export interface ExecutionMemoryCandidatePort {
-  listMemoryCandidates(query: ExecutionMemoryCandidateQuery): Promise<MemoryCandidateRecord[]>;
-}
-
 export interface ExecutionRunStepQuery {
   runId?: string | null;
   messageId?: string | null;
@@ -104,7 +94,6 @@ export interface ExecutionStorage {
   tenantId: TenantId;
   conversation: DurableExecutionConversationPort;
   providerContinuations: ExecutionProviderContinuationPort;
-  memoryCandidates: ExecutionMemoryCandidatePort;
   resultReader: ExecutionResultReader;
   consumePendingFollowups(input: {
     sessionId: string;

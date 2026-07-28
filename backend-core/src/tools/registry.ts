@@ -9,7 +9,6 @@ import type { AgentConfig } from "../contracts/agent/agent-config.js";
 import type { DelegationPort } from "../services/agent/delegation/port.js";
 import type { McpService } from "../services/integrations/mcp-service.js";
 import type { CommandExecutionPort, CodeExecutionPort, DocumentToolPort, WorkspaceSearchPort } from "../contracts/runtime/tool-ports.js";
-import type { MemoryToolOperations } from "./MemoryTools/MemoryExecution.js";
 import type { SkillToolService } from "./SkillTools/SkillExecution.js";
 import type { TaskToolService } from "./TaskTools/TaskExecution.js";
 import type { PendingInteractionPort } from "../contracts/runtime/pending-interactions.js";
@@ -20,14 +19,12 @@ import { createDelegationTools, type DelegationAgentConfigLookup } from "./Deleg
 import { createDocumentTools } from "./DocumentTools/DocumentTools.js";
 import { createLocalSearchTools } from "./LocalSearchTools/LocalSearchTools.js";
 import { createMcpTools } from "./McpTools/McpTools.js";
-import { createMemoryTools } from "./MemoryTools/MemoryTools.js";
 import { createRequestUserInputTools } from "./RequestUserInputTool/RequestUserInputTool.js";
 import { createSkillTools } from "./SkillTools/SkillTools.js";
 import { createTaskTools } from "./TaskTools/TaskTools.js";
 
 export interface BackendToolsDeps {
   agent: AgentConfig;
-  memoryTools: MemoryToolOperations;
   pendingInteractions: PendingInteractionPort | null;
   documentTools: DocumentToolPort | null;
   bashTools: CommandExecutionPort | null;
@@ -60,7 +57,6 @@ export function createBackendTools(deps: BackendToolsDeps, pathService: PathAcce
     ...createLocalSearchTools({ service: deps.searchTools, agent }),
     ...createSkillTools({ skillTools: deps.skillTools, agent }),
     ...createTaskTools({ taskTools: deps.taskTools, agent }),
-    ...createMemoryTools({ memoryTools: deps.memoryTools, agent }),
     ...createDelegationTools({
       getAgentDelegation: deps.getAgentDelegation,
       agent,

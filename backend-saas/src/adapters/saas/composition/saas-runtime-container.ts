@@ -23,12 +23,10 @@ import { SkillLibraryService } from "@ragsystem/backend-core/services/skills/ski
 import { SkillToolService } from "@ragsystem/backend-core/tools/SkillTools/SkillExecution.js";
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { SaaSSessionApplication } from "../application/session/saas-session-application.js";
-import { SaaSExecutionMemoryCandidates } from "../application/memory/saas-execution-memory-candidates.js";
 import { SaaSAgentMetricsStore } from "../postgres/saas-agent-metrics-store.js";
 import { SaaSPermissionPolicyStore } from "../postgres/saas-permission-policy-store.js";
 import { createPostgresExecutionStorage } from "../postgres/postgres-execution-storage.js";
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
-import type { SaaSMemoryRuntimeHandle } from "./saas-memory-runtime.js";
 import type { SandboxProvider } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 import { SaaSSandboxFileBridge } from "../sandbox/sandbox-file-bridge.js";
 import { SandboxLeaseManager } from "../sandbox/sandbox-lease-manager.js";
@@ -42,7 +40,6 @@ export interface SaaSRuntimeContainerOptions {
   tenantId: TenantId;
   dataRoot: string;
   conversationRuntime: SaaSConversationRuntimeHandle;
-  memoryRuntime: SaaSMemoryRuntimeHandle;
   logger?: AgentExecutionLogger;
   hooks?: (registry: HookRegistry) => void;
   plugins?: BackendRuntimeContributions;
@@ -54,7 +51,7 @@ export interface SaaSRuntimeContainerOptions {
 
 /** Assemble a tenant runtime without constructing any Local or SQLite adapter. */
 export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOptions): Promise<SaaSRuntimeContainer> {
-  const { tenantId, conversationRuntime, memoryRuntime } = options;
+  const { tenantId, conversationRuntime } = options;
   const dataRoot = path.resolve(options.dataRoot);
   const runtimeStorage = conversationRuntime.createRuntimeStorage(tenantId);
   const realtimeEvents = conversationRuntime.createRealtimeEventBus(tenantId);
@@ -64,21 +61,19 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   const clientEvents = new DurableClientEventPublisher(runtimeStorage, outboxDispatcher);
   const fileHistory = conversationRuntime.createFileHistoryStorage(tenantId);
   const sessionFiles = conversationRuntime.createSessionFileStorage(tenantId);
-  const memoryCandidates = new SaaSExecutionMemoryCandidates(tenantId, memoryRuntime.repository);
   const sessionApplication = new SaaSSessionApplication(
     tenantId,
     conversationRuntime.conversation,
     fileHistory,
     conversationRuntime.runs,
     conversationRuntime.outbox,
-    memoryCandidates,
     conversationRuntime.workspaces,
   );
 
   const agentConfig = new AgentConfigService(conversationRuntime.createAgentConfigTeamStore(tenantId));
   await agentConfig.initialize();
   // SaaS providers are Postgres-backed; ModelAdapterService is a pure in-process projection.
-  // Force memory-only (empty path) so create/update never write providers.yaml under dataRoot.
+  // Keep provider configuration process-local so create/update never writes providers.yaml under dataRoot.
   const modelAdapter = new ModelAdapterService({
     providersConfigPath: options.modelAdapterProvidersConfigPath ?? "",
   });
@@ -126,19 +121,16 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     notificationQueue,
     goalStore,
   );
-  const memoryBindings = memoryRuntime.provider.createMemoryBindings(
-    tenantId,
-    sessionApplication,
-  );
   const pluginRuntime = await options.plugins?.createRuntime({
     deploymentKind: "saas",
     tenantId,
     dataRoot,
     modelAdapter,
     systemConfig,
+    agentConfig,
+    sessions: sessionApplication,
   });
   const pluginCapabilities = pluginRuntime?.capabilities ?? new CapabilityRegistry();
-  const memory = memoryRuntime.provider.memoryForTenant(tenantId);
   const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
   const sandboxFileBridge = options.sandboxProvider ? new SaaSSandboxFileBridge(sessionFiles) : null;
   const sandboxLeases = options.sandboxProvider
@@ -154,7 +146,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     tenantId,
     pluginCapabilities,
     dataRoot,
-    getMemoryConfig: () => systemConfig.getMemoryConfig(),
     ...(options.logger ? { logger: options.logger } : {}),
     ...((options.hooks || sandboxLeases) ? { hooks: (registry: HookRegistry) => {
       options.hooks?.(registry);
@@ -175,6 +166,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
       }
     } } : {}),
     ...(options.plugins ? { plugins: options.plugins } : {}),
+    ...(pluginRuntime ? { pluginRuntime } : {}),
     clientEvents,
     runtimeStorage,
     delegationStore: conversationRuntime.createDelegationStore(tenantId),
@@ -189,7 +181,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     systemConfig,
     mcp,
     sessionFiles,
-    memoryBindings,
     executionStorage: createPostgresExecutionStorage({
       tenantId,
       conversation: conversationRuntime.conversation,
@@ -206,7 +197,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
         getMessageById: (sessionId, messageId) => conversationRuntime.conversation.getMessageById(sessionId, messageId),
         listRunSteps: (input) => conversationRuntime.runs.listRunSteps({ tenantId, ...input }),
       },
-      memoryCandidates,
       consumePendingFollowups: async (followups) =>
         (await runtimeStorage.operations.consumePendingFollowups(followups)).messages,
     }),
@@ -228,7 +218,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
       sessions: sessionApplication,
       fileHistory,
       sessionFiles,
-      memory,
     },
     closeInfrastructure: () => {
       backgroundTasks.dispose();

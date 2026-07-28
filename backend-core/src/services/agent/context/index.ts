@@ -1,5 +1,5 @@
 // context 组装原语（自 SDK context/ 迁入）：recent 组装归 backend，端口 + 纯函数 + builder。
-// memory source（services/agent/memory/）亦 implements 这些端口，与 recent source 共用 AgentContextSource。
+// 插件 source 亦 implements 这些端口，与 recent source 共用 AgentContextSource。
 export type {
   AgentContext,
   AgentContextContribution,

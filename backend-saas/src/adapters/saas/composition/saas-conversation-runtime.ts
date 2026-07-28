@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import type { SecretResolver } from "@ragsystem/backend-core/contracts/integrations/secret-resolver.js";
 
 import {
-  PgPoolMemoryExecutor,
-  type PostgresMemoryExecutor,
+  PgPoolExecutor,
+  type PostgresExecutor,
   PostgresConversationRepository,
   PostgresWorkspaceRepository,
   PostgresOutboxRepository,
@@ -73,7 +73,7 @@ export interface SaaSConversationRuntimeOptions {
 export interface SaaSConversationRuntimeHandle {
   /** Shared infrastructure exposed to product plugins that own their schemas and blobs. */
   pluginResources: {
-    database: PostgresMemoryExecutor;
+    database: PostgresExecutor;
     objects?: ObjectStorage;
   };
   conversation: PostgresConversationRepository;
@@ -117,7 +117,7 @@ export async function createSaaSConversationRuntime(
   const pool = options.pool ?? new Pool({ connectionString, max: Math.max(1, options.poolMax ?? 10) });
   const realtimeListenerPool = connectionString ? new Pool({ connectionString, max: 1 }) : pool;
   const ownsRealtimeListenerPool = realtimeListenerPool !== pool;
-  const executor = new PgPoolMemoryExecutor(pool);
+  const executor = new PgPoolExecutor(pool);
   const runtimeOwnerInstanceId = `saas-${process.pid}-${randomUUID()}`;
   try {
     if (options.runMigrations !== false) {

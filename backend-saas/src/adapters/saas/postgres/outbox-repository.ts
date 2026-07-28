@@ -11,7 +11,7 @@ import type {
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import type { PaginatedResult } from "@ragsystem/backend-core/contracts/common.js";
 import { AppendOutboxInputSchema } from "@ragsystem/backend-core/contracts/conversation-store/types.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 const iso = (v: unknown): string => new Date(String(v)).toISOString();
 const row = (r: Record<string, unknown>): OutboxRow => ({
@@ -28,7 +28,7 @@ const SELECT = `id,event_id,session_id,tenant_id,run_id,session_seq,event_type,a
 const UPDATE_RETURNING = SELECT.split(",").map((column) => `e.${column}`).join(",");
 
 export class PostgresOutboxRepository implements AsyncOutboxStore {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async appendOutbox(input: AppendOutboxInput): Promise<OutboxRow> {
     const normalized = AppendOutboxInputSchema.parse(input);

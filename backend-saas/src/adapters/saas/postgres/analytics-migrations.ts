@@ -1,9 +1,9 @@
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import { POSTGRES_ANALYTICS_MIGRATIONS } from "./analytics-schema.js";
 
 const ADVISORY_LOCK_ID = 0x52414741;
 
-export async function runPostgresAnalyticsMigrations(executor: PostgresMemoryExecutor): Promise<void> {
+export async function runPostgresAnalyticsMigrations(executor: PostgresExecutor): Promise<void> {
   await executor.transaction(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock($1)", [ADVISORY_LOCK_ID]);
     await tx.query(`CREATE TABLE IF NOT EXISTS ragsystem_analytics_schema_migrations (

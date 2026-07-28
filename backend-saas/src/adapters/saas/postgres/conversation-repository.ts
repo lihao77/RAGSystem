@@ -17,7 +17,7 @@ import type {
 import { normalizeSessionMetadata } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { AsyncConversationRepository } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 export type { AsyncConversationRepository } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 
@@ -75,7 +75,7 @@ function message(row: Record<string, unknown>): MessageInfo {
 }
 
 export class PostgresConversationRepository implements AsyncConversationRepository {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async createSession(input: CreateSessionRecordInput): Promise<void> {
     const metadata = normalizeSessionMetadata(input.metadata ?? {});

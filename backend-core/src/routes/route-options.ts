@@ -5,7 +5,6 @@ import type { AsyncFileHistoryStore } from "../contracts/file-history-store/inde
 import type { WidgetCredentialRepository } from "../contracts/control-plane/widget-credentials.js";
 import type { BotRepository } from "../contracts/control-plane/bot-repository.js";
 import type { IdentityProvider } from "../services/identity/index.js";
-import type { MemoryApplication } from "../services/memory/index.js";
 import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { RuntimeContainerRegistry as TenantRuntimeRegistry } from "../services/runtime/runtime-container-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
@@ -21,9 +20,6 @@ import type { FileChangeApplication } from "../contracts/application/file-change
 export interface RouteOptions {
   registry: TenantRuntimeRegistry;
   identityProvider: IdentityProvider;
-  resolveMemoryApplication?: (
-    request: FastifyRequest,
-  ) => MemoryApplication | undefined | Promise<MemoryApplication | undefined>;
   resolveProviderApplication?: (request: FastifyRequest) => ProviderApplication | undefined | Promise<ProviderApplication | undefined>;
   resolveMcpApplication?: (request: FastifyRequest) => McpApplication | undefined | Promise<McpApplication | undefined>;
   resolveSessionApplication?: (request: FastifyRequest) => SessionApplication | undefined | Promise<SessionApplication | undefined>;

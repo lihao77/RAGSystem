@@ -383,48 +383,6 @@ export class AgentConfigService {
     return listAvailableRuntimeTools();
   }
 
-  getMemoryConfigMetadata(): { scopes: Array<Record<string, string>> } {
-    return {
-      scopes: [
-        {
-          name: "team",
-          description: "团队级长期记忆，适合跨会话复用的共享偏好、约束与背景事实。",
-          read_label: "允许读取",
-          write_label: "允许写入",
-          archive_label: "允许归档",
-        },
-        {
-          name: "session",
-          description: "当前会话记忆，适合记录本轮协作中形成的稳定偏好和上下文。",
-          read_label: "允许读取",
-          write_label: "允许写入",
-          archive_label: "允许归档",
-        },
-        {
-          name: "agent",
-          description: "当前 team 内 Agent 私有记忆。",
-          read_label: "允许读取",
-          write_label: "允许写入",
-          archive_label: "允许归档",
-        },
-        {
-          name: "workspace",
-          description: "当前工作区记忆，适合绑定具体 workspace 的本地约定和上下文。",
-          read_label: "允许读取",
-          write_label: "允许写入",
-          archive_label: "允许归档",
-        },
-        {
-          name: "user",
-          description: "当前用户的长期记忆，适合跨团队和跨工作区复用的个人偏好、习惯与背景信息。",
-          read_label: "允许读取",
-          write_label: "允许写入",
-          archive_label: "允许归档",
-        },
-      ],
-    };
-  }
-
   listAvailableMcpServers(): unknown[] {
     return this.mcpService?.listServers() ?? [];
   }

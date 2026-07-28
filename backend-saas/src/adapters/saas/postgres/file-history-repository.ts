@@ -1,8 +1,8 @@
 import type { AsyncFileHistoryMetadataRepository, FileHistorySnapshot, FileHistoryTrackedFile } from "@ragsystem/backend-core/contracts/file-history-store/index.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 export class PostgresFileHistoryMetadataRepository implements AsyncFileHistoryMetadataRepository {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async putPending(tenantId: string, sessionId: string, fileKey: string, tracked: FileHistoryTrackedFile): Promise<boolean> {
     const result = await this.executor.query(

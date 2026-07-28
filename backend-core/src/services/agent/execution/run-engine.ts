@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
-import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
@@ -20,7 +19,6 @@ import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
-import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
 import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
 import type { TenantId } from "../../../identity/types.js";
@@ -62,8 +60,6 @@ export class AgentRunEngine {
     private readonly sessions: ExecutionSessionPort,
     private readonly storage: ExecutionStorage,
     private readonly dataRoot: string,
-    private readonly getMemoryConfig: () => MemoryConfig,
-    private readonly memoryContextSourceFactory: MemoryRuntimeBindings["createContextSource"] | null,
    private readonly toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> | null,
     private readonly codeExecutionTools: CodeExecutionPort | null,
    private readonly taskTools: TaskToolService | null,
@@ -503,8 +499,6 @@ export class AgentRunEngine {
           eventPublisher: this.eventPublisher,
           providers: this.providersProvider(),
           dataRoot: this.dataRoot,
-          getMemoryConfig: this.getMemoryConfig,
-          ...(this.memoryContextSourceFactory ? { memoryContextSourceFactory: this.memoryContextSourceFactory } : {}),
           permissionPolicy: this.permissionPolicy,
           pathAccessPolicyFactory: this.pathAccessPolicyFactory,
           pendingInteractions: this.pendingInteractions,
@@ -881,7 +875,6 @@ function hasCause(error: Error): error is Error & { cause: unknown } {
 
 /** 无工具依赖时的空实现（所有 service 为 null，工具工厂返回 []）。 */
 const emptyToolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> = {
-  memoryTools: null as unknown as import("../../../tools/MemoryTools/MemoryExecution.js").MemoryToolService,
   pendingInteractions: null,
   documentTools: null,
   bashTools: null,

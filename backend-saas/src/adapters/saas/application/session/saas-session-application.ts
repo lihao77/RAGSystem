@@ -6,13 +6,12 @@ import type { CreateSessionRecordInput, MessageInfo, SessionIdentity, SessionInf
 import { normalizeSessionMetadata } from "@ragsystem/backend-core/contracts/session/session.js";
 import { assertSafeSessionId } from "@ragsystem/backend-core/contracts/session/session-id.js";
 import type { AsyncFileHistoryStore } from "@ragsystem/backend-core/contracts/file-history-store/index.js";
-import type { ListMemoryCandidatesInput, RunInfo } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
+import type { RunInfo } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "@ragsystem/backend-core/services/runtime/event-outbox/execution-envelope-archive.js";
 import { EnvelopeProjector } from "@ragsystem/backend-core/services/runtime/event-outbox/projector.js";
 import { TenantDaemonSessionApplication } from "@ragsystem/backend-core/services/sessions/daemon-session-application.js";
 import type { ExecutionSessionPort, SessionApplication } from "@ragsystem/backend-core/contracts/session/session-application.js";
-import type { ExecutionMemoryCandidateListPort } from "@ragsystem/backend-core/services/agent/memory/runtime-bindings.js";
 import type { WorkspaceRepositoryPort } from "@ragsystem/backend-core/contracts/workspace/workspace-repository.js";
 
 export class SaaSSessionApplication implements SessionApplication, ExecutionSessionPort {
@@ -24,7 +23,6 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
     private readonly fileHistory: AsyncFileHistoryStore | null = null,
     private readonly runs: AsyncRunStore | null = null,
     private readonly outbox: ExecutionReplayRepositoryPort | null = null,
-    private readonly memoryCandidates: ExecutionMemoryCandidateListPort | null = null,
     private readonly workspaces: WorkspaceRepositoryPort | null = null,
   ) {
     this.daemonSessions = new TenantDaemonSessionApplication(tenantId, {
@@ -117,9 +115,6 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
     return input.afterSeq != null
       ? this.repository.getMessageBySeq(input.sessionId, input.afterSeq)
       : input.afterMessageId ? this.repository.getMessageById(input.sessionId, input.afterMessageId) : null;
-  }
-  async listMemoryCandidates(input: ListMemoryCandidatesInput) {
-    return await this.memoryCandidates?.listMemoryCandidates(input) ?? [];
   }
   async addMessage(input: Parameters<AsyncConversationRepository["addMessage"]>[0]): Promise<MessageInfo> {
     if (!(await this.getSession(input.sessionId))) {

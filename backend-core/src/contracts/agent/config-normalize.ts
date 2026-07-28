@@ -3,10 +3,6 @@ import type { AgentConfigTeam } from "./team-store.js";
 
 /** Tool names owned by runtime/config wiring; strip them from persisted agent tool lists. */
 export const CONFIG_MANAGED_TOOL_NAMES = new Set([
-  "list_memory_index",
-  "read_memory_entry",
-  "write_memory",
-  "archive_memory",
   "request_user_input",
   "goal_create",
   "goal_get",
@@ -59,12 +55,6 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
     },
     skills: config.skills ?? { enabled_skills: [] },
     mcp: config.mcp ?? { enabled_servers: [] },
-    memory: config.memory ?? {
-      auto_inject: true,
-      allowed_scopes: ["team", "session", "user"],
-      write_scopes: ["session", "user"],
-      archive_scopes: ["session", "user"],
-    },
     goals: config.goals ?? { enabled: false },
     tasks: config.tasks ?? { background: false },
     delegation: config.delegation ?? { enabled_agents: [] },

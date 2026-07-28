@@ -24,9 +24,6 @@ export function createLocalExecutionStorage(input: {
     providerContinuations: {
       getProviderContinuation: async (sessionId, messageId) => input.conversation.getProviderContinuation(sessionId, messageId),
     },
-    memoryCandidates: {
-      listMemoryCandidates: async (query) => input.conversation.listMemoryCandidates(query),
-    },
     resultReader: {
       getRun: async (sessionId, runId) => input.conversation.getRun(sessionId, runId),
       getMessageById: async (sessionId, messageId) => input.conversation.getMessageById(sessionId, messageId),

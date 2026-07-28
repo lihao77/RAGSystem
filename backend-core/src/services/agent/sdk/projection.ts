@@ -168,7 +168,7 @@ function buildTierFromProvider(provider: ModelProviderConfig, modelName: string)
   };
 }
 
-// ────────────────────────────── behavior / memory 投影 ──────────────────────────────
+// ────────────────────────────── behavior 投影 ──────────────────────────────
 
 function resolveBehavior(agent: AgentConfig): AgentProfile["behavior"] {
   return projectBehavior(agent);

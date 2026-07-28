@@ -1,5 +1,5 @@
 import type { HookRegistry } from "@ragsystem/agent-sdk";
-import type { BackendRuntimeContributions } from "../../plugins/backend-plugin.js";
+import type { BackendPluginRuntimeHandle, BackendRuntimeContributions } from "../../plugins/backend-plugin.js";
 import type { CapabilityRegistry } from "../../plugins/capability-registry.js";
 
 import type { AnalyticsApplication } from "../application/analytics-application.js";
@@ -12,7 +12,6 @@ import type { AsyncFileHistoryStore } from "../file-history-store/index.js";
 import type { PathAccessPolicy } from "./path-access-policy.js";
 import type { InteractionCoordinator, PendingInteractionPort } from "./pending-interactions.js";
 import type { RealtimeEventBus } from "./realtime-event-bus.js";
-import type { MemoryConfig } from "./system-config.js";
 import type { CommandExecutionPort, CodeExecutionPort, DocumentToolPort, WorkspaceSearchPort } from "./tool-ports.js";
 import type { AsyncSessionFileStorage, SessionFileLookupPort } from "../session/session-file-storage.js";
 import type { ExecutionSessionPort, SessionApplication } from "../session/session-application.js";
@@ -23,18 +22,15 @@ import type { AgentDelegationService } from "../../services/agent/delegation/ind
 import type { AgentExecutionLogger, AgentExecutionService } from "../../services/agent/execution/index.js";
 import type { RuntimeCoreService } from "../../services/agent/execution/runtime-core-service.js";
 import type { AgentMetricsCollector } from "../../services/agent/metrics/metrics-collector.js";
-import type { MemoryRuntimeBindings } from "../../services/agent/memory/runtime-bindings.js";
 import type { SystemConfigService } from "../../services/config/system-config-service.js";
 import type { McpService } from "../../services/integrations/mcp-service.js";
 import type { ModelAdapterService } from "../../services/integrations/model-adapter-service.js";
-import type { MemoryApplication } from "../../services/memory/index.js";
 import type { SkillLibraryService } from "../../services/skills/skill-library-service.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { DelegationPendingService } from "../../services/runtime/delegation-pending-service.js";
 import type { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
 import type { PermissionPolicyService } from "../../services/runtime/permission-policy-service.js";
 import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
-import type { MemoryToolOperations } from "../../tools/MemoryTools/MemoryExecution.js";
 import type { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
 import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import type { GoalStore } from "./goals.js";
@@ -47,11 +43,6 @@ import type {
   RuntimeEventDispatcherPort,
 } from "./core-runtime-ports.js";
 
-export interface LocalMemoryApplicationFactoryInput {
-  viewerUserId: string;
-  viewerSessionIds: readonly string[] | (() => Promise<readonly string[]>);
-}
-
 /** Local request applications assembled around Local infrastructure. */
 export interface LocalRuntimeCapabilities {
   createSessionApplication(tenantId: TenantId): SessionApplication;
@@ -60,7 +51,6 @@ export interface LocalRuntimeCapabilities {
   executionRead: ExecutionReadApplication;
   sessionFiles: SessionFileApplication;
   fileChanges: FileChangeApplication;
-  createMemoryApplication(input: LocalMemoryApplicationFactoryInput): MemoryApplication;
 }
 
 /** SaaS-only tenant-bound applications backed by PostgreSQL and object storage. */
@@ -68,7 +58,6 @@ export interface SaaSRuntimeCapabilities {
   sessions: SessionApplication & ExecutionSessionPort;
   fileHistory: AsyncFileHistoryStore;
   sessionFiles: AsyncSessionFileStorage;
-  memory: MemoryApplication;
 }
 
 /** Deployment-neutral runtime assembled by the shared execution core. */
@@ -86,8 +75,6 @@ export interface RuntimeContainerBase {
   readonly modelAdapter: ModelAdapterService;
   readonly systemConfig: SystemConfigService;
   readonly mcp: McpService;
-  readonly memoryTools: MemoryToolOperations;
-  readonly memoryContextSourceFactory: MemoryRuntimeBindings["createContextSource"];
   readonly documentTools: DocumentToolPort | null;
   readonly codeExecutionTools: CodeExecutionPort | null;
   readonly skillTools: SkillToolService;
@@ -128,11 +115,10 @@ interface CoreRuntimeDependenciesBase {
   tenantId: TenantId;
   pluginCapabilities?: CapabilityRegistry;
   dataRoot: string;
-  /** 每次 run 时读取最新 memory 配置（systemConfig.reload 后即时生效）。 */
-  getMemoryConfig: () => MemoryConfig;
   logger?: AgentExecutionLogger | undefined;
   hooks?: ((registry: HookRegistry) => void) | undefined;
   plugins?: BackendRuntimeContributions | undefined;
+  pluginRuntime?: BackendPluginRuntimeHandle | undefined;
   clientEvents: ClientEventPublisherPort;
   runtimeStorage: RuntimeStorage;
   delegationStore: AgentDelegationStorePort;
@@ -147,7 +133,6 @@ interface CoreRuntimeDependenciesBase {
   systemConfig: SystemConfigService;
   mcp: McpService;
   sessionFiles: SessionFileLookupPort;
-  memoryBindings: MemoryRuntimeBindings;
   executionStorage: ExecutionStorage;
   pathAccessPolicyFactory: () => PathAccessPolicy;
   documentTools: DocumentToolPort | null;

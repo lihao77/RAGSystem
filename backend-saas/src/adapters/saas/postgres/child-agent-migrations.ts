@@ -1,10 +1,10 @@
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import { POSTGRES_CHILD_AGENT_MIGRATIONS } from "./child-agent-schema.js";
 
 const ADVISORY_LOCK_ID = 0x52414744;
 
 export async function runPostgresChildAgentMigrations(
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
 ): Promise<{ current_version: number; applied_versions: number[] }> {
   return executor.transaction(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock($1)", [ADVISORY_LOCK_ID]);

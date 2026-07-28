@@ -1,7 +1,7 @@
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import { POSTGRES_FILE_HISTORY_MIGRATIONS } from "./file-history-schema.js";
 
-export async function runPostgresFileHistoryMigrations(executor: PostgresMemoryExecutor): Promise<void> {
+export async function runPostgresFileHistoryMigrations(executor: PostgresExecutor): Promise<void> {
   await executor.transaction(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock($1)", [0x52414648]);
     await tx.query("CREATE TABLE IF NOT EXISTS ragsystem_file_history_schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)");

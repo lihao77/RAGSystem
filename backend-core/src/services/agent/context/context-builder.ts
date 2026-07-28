@@ -1,6 +1,6 @@
 /**
  * AgentContextBuilder(自 SDK context/context-builder.ts 迁入)。
- * 遍历 sources(memory + recent),拼接 contribution → AgentContext。
+ * 遍历 context sources，拼接 contribution → AgentContext。
  *
  * ProviderCacheTracker(可选)统一管 provider cache 活性(按 threadKey 分桶):buildContext 开始据
  * isAlive 设 request.cacheAlive(驱动各 source 是否更新——cache 活则冻结、cache 死则重建/清理),结束

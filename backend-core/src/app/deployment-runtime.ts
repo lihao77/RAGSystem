@@ -14,7 +14,6 @@ import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { BackendRuntimeContributions } from "../plugins/backend-plugin.js";
 
 export interface DeploymentApplicationResolvers {
-  resolveMemoryApplication: NonNullable<RouteOptions["resolveMemoryApplication"]>;
   resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
   resolveMcpApplication: NonNullable<RouteOptions["resolveMcpApplication"]>;
   resolveSessionApplication: NonNullable<RouteOptions["resolveSessionApplication"]>;

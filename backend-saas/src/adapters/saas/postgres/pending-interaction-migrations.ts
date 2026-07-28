@@ -1,8 +1,8 @@
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import { POSTGRES_PENDING_INTERACTION_MIGRATIONS } from "./pending-interaction-schema.js";
 
 export async function runPostgresPendingInteractionMigrations(
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
 ): Promise<{ current_version: number; applied_versions: number[] }> {
   return executor.transaction(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock($1)", [0x52414749]);

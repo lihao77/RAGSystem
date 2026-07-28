@@ -12,7 +12,6 @@ import { asString, normalizeSessionEntryAgent } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { TenantId } from "../../../identity/types.js";
-import { memoryBaselineKey } from "../memory/index.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { SessionIdentity } from "../../../contracts/session/session.js";
 
@@ -226,7 +225,7 @@ export class SlashCommandHandler {
       if (!this.compressionService) {
         return { command: "compact", success: false, content: "压缩服务未装配", error: "compression_unavailable" };
       }
-      // systemPromptTokens 粗估(buildFullSystemPrompt base,无 tools/memory);forceCompact 不判阈值,仅影响返回 budgetTokens 展示。
+      // systemPromptTokens 粗估（仅 base，无 tools/插件注入）；forceCompact 不判阈值，仅影响返回 budgetTokens 展示。
       const compactProfile = projectAgentProfile({ agent: ready.agent, providers: this.providersProvider() });
       const compactMode = resolveToolInstructionMode(compactProfile.llmTiers.default?.provider);
       const systemPromptTokens = estimateTokens(buildFullSystemPrompt(compactProfile, {}, compactMode));
@@ -260,9 +259,6 @@ export class SlashCommandHandler {
         };
       }
       await this.sessions.updateSessionMetadata(input.sessionId, {
-        memory_prefix_states: {
-          [memoryBaselineKey("root", ready.agent.agent_name)]: null,
-        },
         _provider_cache: { root: null },
       });
       await this.clientEvents.publish(input.sessionId, {

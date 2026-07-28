@@ -2,10 +2,10 @@ import type {
   AsyncBackgroundTaskRepository,
   DurableBackgroundTaskRecord,
 } from "@ragsystem/backend-core/contracts/storage/background-task-repository.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 export class PostgresBackgroundTaskRepository implements AsyncBackgroundTaskRepository {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async upsert(task: DurableBackgroundTaskRecord): Promise<void> {
     await this.executor.query(

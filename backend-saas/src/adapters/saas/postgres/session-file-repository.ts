@@ -3,7 +3,7 @@ import type {
   SessionFileMetadata,
   SessionFileMetadataRepository,
 } from "@ragsystem/backend-core/contracts/session/session-file-storage.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 function map(row: Record<string, unknown>): SessionFileMetadata {
   return {
@@ -25,7 +25,7 @@ function map(row: Record<string, unknown>): SessionFileMetadata {
 }
 
 export class PostgresSessionFileMetadataRepository implements SessionFileMetadataRepository {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async list(tenantId: string, sessionId: string): Promise<SessionFileMetadata[]> {
     const result = await this.executor.query("SELECT * FROM session_files WHERE tenant_id=$1 AND session_id=$2 ORDER BY uploaded_at DESC", [tenantId, sessionId]);

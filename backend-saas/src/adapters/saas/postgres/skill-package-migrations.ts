@@ -1,8 +1,8 @@
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 import { POSTGRES_SKILL_PACKAGE_MIGRATIONS } from "./skill-package-schema.js";
 
 export async function runPostgresSkillPackageMigrations(
-  executor: PostgresMemoryExecutor,
+  executor: PostgresExecutor,
 ): Promise<{ current_version: number; applied_versions: number[] }> {
   return executor.transaction(async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(701884216)");

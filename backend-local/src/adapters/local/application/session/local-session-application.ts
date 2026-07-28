@@ -1,5 +1,4 @@
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
-import type { ListMemoryCandidatesInput } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import type { SessionApplication } from "@ragsystem/backend-core/contracts/session/session-application.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
@@ -74,9 +73,6 @@ export class LocalSessionApplication implements SessionApplication {
     return input.afterSeq != null
       ? this.conversations.getMessageBySeq(input.sessionId, input.afterSeq)
       : input.afterMessageId ? this.conversations.getMessageById(input.sessionId, input.afterMessageId) : null;
-  }
-  async listMemoryCandidates(input: ListMemoryCandidatesInput) {
-    return this.conversations.listMemoryCandidates(input);
   }
   async listMessageRunSteps(input: Parameters<SessionApplication["listMessageRunSteps"]>[0]) { return this.sessions.listMessageRunSteps(input); }
   async updateUserMessage(input: Parameters<SessionApplication["updateUserMessage"]>[0]) { return this.sessions.updateUserMessage(input); }

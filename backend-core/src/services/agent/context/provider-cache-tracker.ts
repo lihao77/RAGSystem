@@ -7,7 +7,7 @@
  * 活(反之亦然)。按 threadKey 分桶,各 thread 各自的 cache 活性互不干扰。
  *
  * 封装 last_used_at 的 session metadata 读写(`_provider_cache[threadKey].last_used_at`),提供
- * isAlive/touch/invalidate。所有"是否据 cache 活性决定更新"的子系统(memory 前缀、microcompact、
+ * isAlive/touch/invalidate。所有“是否据 cache 活性决定更新”的子系统（插件前缀、microcompact、
  * 未来其它)经 buildContext 的 request.cacheAlive 信号接入,与本 tracker 解耦——source 不自管时间戳。
  *
  * 活性判断对齐 provider 的 sliding KV cache(如 Anthropic 默认 5min:持续命中续期、闲置超 TTL 失效)。

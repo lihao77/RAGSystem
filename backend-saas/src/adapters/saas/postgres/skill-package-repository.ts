@@ -1,6 +1,6 @@
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 export interface SkillPackageMetadataRow {
   tenant_id: TenantId;
@@ -26,7 +26,7 @@ export interface SkillPackageFileRow {
 
 /** Low-level PostgreSQL metadata for tenant skill packages. */
 export class PostgresSkillPackageRepository {
-  constructor(private readonly executor: PostgresMemoryExecutor) {}
+  constructor(private readonly executor: PostgresExecutor) {}
 
   async list(tenantId: TenantId): Promise<SkillPackageMetadataRow[]> {
     const result = await this.executor.query(

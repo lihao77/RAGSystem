@@ -210,8 +210,6 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     return ok(tools, `共有 ${tools.length} 个可用工具`);
   });
 
-  app.get("/memory-metadata", async (request) => ok(request.container.agentConfig.getMemoryConfigMetadata(), "Memory 配置元数据"));
-
   app.get("/mcp-servers", async (request) => {
     const servers = request.container.agentConfig.listAvailableMcpServers().map(normalizeMcpServerForConfig);
     return ok(servers, `Found ${servers.length} MCP servers`);

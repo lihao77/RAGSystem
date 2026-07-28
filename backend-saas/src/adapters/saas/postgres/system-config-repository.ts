@@ -2,13 +2,13 @@ import type { SystemConfigData } from "@ragsystem/backend-core/contracts/runtime
 import type { ISystemConfigStore } from "@ragsystem/backend-core/contracts/runtime/system-config-store.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
-import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { PostgresExecutor } from "./postgres-executor.js";
 
 /** Tenant-scoped PostgreSQL persistence for system configuration. */
 export class PostgresSystemConfigStore implements ISystemConfigStore {
   constructor(
     private readonly tenantId: TenantId,
-    private readonly executor: PostgresMemoryExecutor,
+    private readonly executor: PostgresExecutor,
   ) {}
 
   async load(): Promise<SystemConfigData | null> {
