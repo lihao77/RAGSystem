@@ -1,5 +1,4 @@
 import type { HookEvent, HookHandler, HookRegistry, Tool } from "@ragsystem/agent-sdk";
-import path from "node:path";
 
 import type {
   BackendPlugin,
@@ -11,13 +10,13 @@ import type {
   BackendRouteContribution,
   BackendRouteScope,
   BackendRuntimeContributions,
-  BackendSkillSourceContribution,
+  BackendPluginResourceContribution,
   BackendToolFactory,
   BackendToolFactoryContext,
   PluginRouteRegistrar,
   PluginHookRegistrar,
   PluginRuntimeRegistrar,
-  PluginSkillRegistrar,
+  PluginResourceRegistrar,
   PluginToolRegistrar,
 } from "./backend-plugin.js";
 import { CapabilityRegistry, provideCapability, type CapabilityProvider } from "./capability-registry.js";
@@ -84,25 +83,22 @@ class BackendHookContributionRegistry {
   }
 }
 
-class BackendSkillContributionRegistry {
-  private readonly contributions: BackendSkillSourceContribution[] = [];
-  private readonly roots = new Set<string>();
+class BackendPluginResourceRegistry {
+  private readonly contributions: BackendPluginResourceContribution[] = [];
 
-  forPlugin(pluginId: string): PluginSkillRegistrar {
+  forPlugin(pluginId: string): PluginResourceRegistrar {
     return {
-      register: (root) => {
-        if (!path.isAbsolute(root)) throw new Error(`Plugin skill root must be absolute: ${root}`);
-        const normalizedRoot = path.normalize(root);
-        if (this.roots.has(normalizedRoot)) throw new Error(`Plugin skill root is already registered: ${normalizedRoot}`);
-        const contribution = { pluginId, root: normalizedRoot };
-        this.roots.add(normalizedRoot);
+      register: (kind, value) => {
+        const normalizedKind = kind.trim();
+        if (!normalizedKind) throw new Error("Plugin resource kind must not be empty");
+        const contribution = { pluginId, kind: normalizedKind, value };
         this.contributions.push(contribution);
         return () => this.remove(contribution);
       },
     };
   }
 
-  list(): readonly BackendSkillSourceContribution[] {
+  list(): readonly BackendPluginResourceContribution[] {
     return this.contributions.map((contribution) => ({ ...contribution }));
   }
 
@@ -112,11 +108,10 @@ class BackendSkillContributionRegistry {
     }
   }
 
-  private remove(contribution: BackendSkillSourceContribution): void {
+  private remove(contribution: BackendPluginResourceContribution): void {
     const index = this.contributions.indexOf(contribution);
     if (index < 0) return;
     this.contributions.splice(index, 1);
-    this.roots.delete(contribution.root);
   }
 }
 
@@ -224,7 +219,7 @@ export class BackendPluginManager {
   private readonly orderedPlugins: readonly BackendPlugin[];
   private readonly routeRegistry = new BackendRouteRegistry();
   private readonly hookRegistry = new BackendHookContributionRegistry();
-  private readonly skillRegistry = new BackendSkillContributionRegistry();
+  private readonly resourceRegistry = new BackendPluginResourceRegistry();
   private readonly toolRegistry = new BackendToolContributionRegistry();
   private readonly runtimeFactoryRegistry = new BackendRuntimeFactoryRegistry();
   private registered = false;
@@ -247,7 +242,7 @@ export class BackendPluginManager {
         hooks: this.hookRegistry.forPlugin(plugin.manifest.id),
         routes: this.routeRegistry.forPlugin(plugin.manifest.id),
         runtimes: this.runtimeFactoryRegistry.forPlugin(plugin.manifest.id),
-        skills: this.skillRegistry.forPlugin(plugin.manifest.id),
+        resources: this.resourceRegistry.forPlugin(plugin.manifest.id),
         tools: this.toolRegistry.forPlugin(plugin.manifest.id),
       };
       await plugin.register(context);
@@ -268,11 +263,11 @@ export class BackendPluginManager {
     if (!this.registered) throw new Error("Plugins must be registered before runtime contributions are read");
     const manager = this;
     return {
-      get skillSources() { return manager.skillRegistry.list(); },
+      get resources() { return manager.resourceRegistry.list(); },
       configureHooks: (registry) => manager.hookRegistry.install(registry),
       createRuntime: (context) => manager.runtimeFactoryRegistry.create({
         ...context,
-        skillSources: manager.skillRegistry.list(),
+        resources: manager.resourceRegistry.list(),
       }),
       createTools: (context) => manager.toolRegistry.create(context),
     };
@@ -304,7 +299,7 @@ export class BackendPluginManager {
       } finally {
         this.hookRegistry.removePlugin(plugin.manifest.id);
         this.runtimeFactoryRegistry.removePlugin(plugin.manifest.id);
-        this.skillRegistry.removePlugin(plugin.manifest.id);
+        this.resourceRegistry.removePlugin(plugin.manifest.id);
         this.toolRegistry.removePlugin(plugin.manifest.id);
       }
     }

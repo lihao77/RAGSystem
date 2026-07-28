@@ -8,7 +8,11 @@ const deployment = createLocalDeploymentRuntime(env);
 let app;
 
 try {
-  app = await buildCoreApp({ env, runtime: deployment, plugins: createLocalProductPlugins(deployment, env) });
+  app = await buildCoreApp({
+    env,
+    runtime: deployment,
+    plugins: createLocalProductPlugins(deployment, env, process.env.BACKEND_PLUGINS),
+  });
   const address = await app.listen({ host: env.host, port: env.port });
   app.log.info({ address, deployment: "local", storage: "sqlite" }, "backend-local listening");
 } catch (error) {

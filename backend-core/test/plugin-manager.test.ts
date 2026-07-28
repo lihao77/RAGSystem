@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import type {
   BackendPlugin,
+  BackendPluginResourceContribution,
   BackendPluginRuntimeContext,
-  BackendSkillSourceContribution,
 } from "../src/plugins/backend-plugin.js";
 import { createCapability, provideCapability } from "../src/plugins/capability-registry.js";
 import { BackendPluginManager } from "../src/plugins/plugin-manager.js";
@@ -54,15 +54,15 @@ describe("BackendPluginManager", () => {
     );
   });
 
-  it("injects registered Skill sources into generic runtime factories", async () => {
+  it("injects opaque plugin resources into generic runtime factories", async () => {
     const skillRoot = path.resolve("plugin-skills");
-    let receivedSkillSources: readonly BackendSkillSourceContribution[] | undefined;
+    let receivedResources: readonly BackendPluginResourceContribution[] | undefined;
     const manager = new BackendPluginManager([{
       manifest: { id: "source", version: "1.0.0" },
       register(context) {
-        context.skills.register(skillRoot);
+        context.resources.register("ragsystem.skill-source", skillRoot);
         context.runtimes.register((runtimeContext) => {
-          receivedSkillSources = runtimeContext.skillSources;
+          receivedResources = runtimeContext.resources;
           return {};
         });
       },
@@ -70,7 +70,11 @@ describe("BackendPluginManager", () => {
     await manager.register();
 
     const runtime = await manager.runtimeContributions().createRuntime({} as BackendPluginRuntimeContext);
-    expect(receivedSkillSources).toEqual([{ pluginId: "source", root: skillRoot }]);
+    expect(receivedResources).toEqual([{
+      pluginId: "source",
+      kind: "ragsystem.skill-source",
+      value: skillRoot,
+    }]);
     runtime.dispose();
   });
 

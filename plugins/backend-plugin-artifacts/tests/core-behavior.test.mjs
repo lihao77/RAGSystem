@@ -25,7 +25,7 @@ test("Artifact plugin registers its contributions and owns storage lifecycle", a
     hooks: { on: (event, handler) => { contributions.hook = { event, handler }; } },
     routes: { register: (scope, prefix) => { contributions.route = { scope, prefix }; } },
     runtimes: {},
-    skills: { register: (root) => { contributions.skillRoot = root; } },
+    resources: { register: (kind, value) => { contributions.resource = { kind, value }; } },
     tools: {},
   });
   await plugin.start();
@@ -33,7 +33,8 @@ test("Artifact plugin registers its contributions and owns storage lifecycle", a
 
   assert.deepEqual(contributions.route, { scope: "tenant", prefix: "/api/artifacts" });
   assert.equal(contributions.hook.event, "tool.after");
-  assert.match(contributions.skillRoot, /[\\/]skills$/);
+  assert.equal(contributions.resource.kind, "ragsystem.skill-source");
+  assert.match(contributions.resource.value, /[\\/]skills$/);
   assert.deepEqual(events, ["start", "stop"]);
 });
 

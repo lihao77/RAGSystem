@@ -7,6 +7,8 @@ import { registerArtifactRoutes } from "./routes.js";
 import type { ArtifactsPluginDependencies } from "./dependencies.js";
 import { createArtifactToolAfterHook } from "./artifact-hook.js";
 
+const SKILL_SOURCE_RESOURCE_KIND = "ragsystem.skill-source";
+
 export function createArtifactsPlugin(dependencies: ArtifactsPluginDependencies): BackendPlugin {
   return {
     manifest: {
@@ -14,7 +16,7 @@ export function createArtifactsPlugin(dependencies: ArtifactsPluginDependencies)
       version: "0.1.0",
     },
     register(context) {
-      context.skills.register(resolveArtifactSkillsRoot());
+      context.resources.register(SKILL_SOURCE_RESOURCE_KIND, resolveArtifactSkillsRoot());
       context.hooks.on("tool.after", createArtifactToolAfterHook(dependencies));
       context.routes.register("tenant", "/api/artifacts", async (app) => {
         await app.register(registerArtifactRoutes, dependencies);

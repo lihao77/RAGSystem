@@ -32,13 +32,14 @@ export interface PluginHookRegistrar {
   on<E extends HookEvent>(event: E, handler: HookHandler<E>): () => void;
 }
 
-export interface BackendSkillSourceContribution {
+export interface BackendPluginResourceContribution {
   readonly pluginId: string;
-  readonly root: string;
+  readonly kind: string;
+  readonly value: unknown;
 }
 
-export interface PluginSkillRegistrar {
-  register(root: string): () => void;
+export interface PluginResourceRegistrar {
+  register(kind: string, value: unknown): () => void;
 }
 
 export interface BackendToolFactoryContext {
@@ -67,7 +68,7 @@ export interface BackendPluginRuntimeContext {
   readonly sessions: SessionApplication;
   readonly backgroundTasks: BackgroundTaskService;
   readonly clientEvents: ClientEventPublisherPort;
-  readonly skillSources?: readonly BackendSkillSourceContribution[];
+  readonly resources?: readonly BackendPluginResourceContribution[];
 }
 
 export interface BackendPluginRuntimeContribution {
@@ -92,7 +93,7 @@ export interface BackendPluginRuntimeHandle {
 
 /** Immutable deployment input assembled from all registered plugins. */
 export interface BackendRuntimeContributions {
-  readonly skillSources: readonly BackendSkillSourceContribution[];
+  readonly resources: readonly BackendPluginResourceContribution[];
   configureHooks(registry: HookRegistry): void;
   createRuntime(context: BackendPluginRuntimeContext): Promise<BackendPluginRuntimeHandle>;
   createTools(context: BackendToolFactoryContext): Promise<readonly Tool[]>;
@@ -103,7 +104,7 @@ export interface BackendPluginContext {
   readonly hooks: PluginHookRegistrar;
   readonly routes: PluginRouteRegistrar;
   readonly runtimes: PluginRuntimeRegistrar;
-  readonly skills: PluginSkillRegistrar;
+  readonly resources: PluginResourceRegistrar;
   readonly tools: PluginToolRegistrar;
 }
 

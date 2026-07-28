@@ -9,6 +9,7 @@ import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-man
 import {
   FilesystemSkillPackageStore,
   POSTGRES_SKILLS_MIGRATIONS,
+  resolveBuiltinSkillSources,
   SkillToolService,
   SkillsAgentConfigService,
   createSkillTools,
@@ -117,6 +118,18 @@ test("plugin installation controls Skills route contribution", async () => {
   })]);
   await installed.register();
   assert.equal(installed.routes("tenant").some((route) => route.prefix === "/api/skills"), true);
+});
+
+test("Skills interprets generic plugin resources and owns source validation", () => {
+  const root = path.resolve("artifact-skills");
+  assert.deepEqual(resolveBuiltinSkillSources([
+    { pluginId: "artifact", kind: "unrelated", value: root },
+    { pluginId: "artifact", kind: "ragsystem.skill-source", value: root },
+  ]), [{ root, sourceLabel: "artifact" }]);
+  assert.throws(
+    () => resolveBuiltinSkillSources([{ pluginId: "bad", kind: "ragsystem.skill-source", value: "relative" }]),
+    /must be an absolute path/,
+  );
 });
 
 test("core AgentConfig strips legacy Skills config", () => {

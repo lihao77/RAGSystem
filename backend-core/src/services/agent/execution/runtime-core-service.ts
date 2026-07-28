@@ -83,7 +83,7 @@ export class RuntimeCoreService {
       provider,
       requirements,
       boundary:
-        "Single-agent streaming execution, XML and native tool-call loops, request_user_input, managed file tools, local search tools, task tracking, bash/code execution, Skills, hooks, vector/RAG, MCP, daemon runtime, persisted compression, /compact, rollback/retry, provider adapters, and synchronous multi-agent delegation are available in TypeScript when configuration is ready.",
+        "Single-agent streaming execution, tool-call loops, managed runtime tools, hooks, MCP, daemon runtime, persisted compression, rollback/retry, provider adapters, and synchronous multi-agent delegation are available when configuration is ready. Installed plugins may contribute additional routes, tools, resources, and hooks.",
     };
   }
 
@@ -185,7 +185,7 @@ export class RuntimeCoreService {
         "agent_runtime",
         "execution_runtime",
         true,
-        "单 Agent streaming、工具循环、request_user_input、文件、搜索、task、bash/code、Skills、hooks、Vector/RAG、MCP、daemon、上下文压缩、/compact、rollback/retry、provider 与同步多 Agent 委派已迁移到 TypeScript",
+        "单 Agent streaming、工具循环、运行时工具、hooks、MCP、daemon、上下文压缩、rollback/retry、provider 与同步多 Agent 委派可用；已安装插件可额外贡献路由、工具、资源与 hooks",
         "runtime_unavailable",
       ),
     ];

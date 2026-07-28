@@ -18,6 +18,7 @@
     "start": "node dist/main.js",
     "prebuild": "npm -w @ragsystem/backend-core run build && npm -w @ragsystem/backend-plugin-artifacts run build && npm -w @ragsystem/backend-plugin-knowledge run build && npm -w @ragsystem/backend-plugin-memory run build && npm -w @ragsystem/backend-plugin-skills run build",
     "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

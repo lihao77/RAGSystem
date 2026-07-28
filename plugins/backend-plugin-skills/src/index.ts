@@ -13,6 +13,7 @@ export type {
   SkillsPluginRuntimeFactory,
 } from "./dependencies.js";
 export { createSkillsPlugin, SKILLS_PLUGIN_ID } from "./plugin.js";
+export { resolveBuiltinSkillSources, SKILL_SOURCE_RESOURCE_KIND } from "./resources.js";
 export { createLocalSkillsRuntimeFactory } from "./storage/local/runtime.js";
 export { FilesystemSkillPackageStore } from "./storage/local/package-store.js";
 export { createPostgresSkillsLifecycle } from "./storage/postgres/lifecycle.js";

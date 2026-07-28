@@ -6,6 +6,7 @@ import { SkillsAgentConfigService } from "../../config.js";
 import type { SkillsPluginRuntimeFactory } from "../../dependencies.js";
 import { SkillLibraryService } from "../../services/skill-library-service.js";
 import { SkillToolService } from "../../tools/SkillExecution.js";
+import { resolveBuiltinSkillSources } from "../../resources.js";
 import { SqliteSkillsAgentConfigStore } from "./agent-config-store.js";
 import { FilesystemSkillPackageStore } from "./package-store.js";
 
@@ -34,10 +35,7 @@ export function createLocalSkillsRuntimeFactory(): SkillsPluginRuntimeFactory {
       backgroundTasks: context.backgroundTasks,
       clientEvents: context.clientEvents,
       packageStore,
-      additionalBuiltinSkillSources: (context.skillSources ?? []).map((source) => ({
-        root: source.root,
-        sourceLabel: source.pluginId,
-      })),
+      additionalBuiltinSkillSources: resolveBuiltinSkillSources(context.resources ?? []),
     });
     return {
       tools,

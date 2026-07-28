@@ -1,4 +1,5 @@
-import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import type { BackendPlugin, BackendPluginCatalog } from "@ragsystem/backend-core/plugins/index.js";
+import { selectBackendPlugins } from "@ragsystem/backend-core/plugins/index.js";
 import {
   loadMutableSession,
   loadMutableSessionForResource,
@@ -23,43 +24,52 @@ import {
 } from "@ragsystem/backend-plugin-skills/index.js";
 import type { SaaSDeploymentRuntime } from "./adapters/saas/composition/saas-deployment-runtime.js";
 
-export function createSaaSProductPlugins(deployment: SaaSDeploymentRuntime): readonly BackendPlugin[] {
+export function createSaaSProductPlugins(
+  deployment: SaaSDeploymentRuntime,
+  selection?: string,
+): readonly BackendPlugin[] {
   const applications = deployment.applications;
-  return [createArtifactsPlugin({
-    storage: createPostgresArtifactStorage({
-      executor: deployment.pluginResources.database,
-      objects: deployment.pluginResources.objects,
-    }),
-    sessionAccess: {
-      assertReadable: async (request, sessionId) => {
-        await loadReadableSession(request, sessionId, await applications.resolveSessionApplication(request));
+  const catalog = {
+    artifacts: () => createArtifactsPlugin({
+      storage: createPostgresArtifactStorage({
+        executor: deployment.pluginResources.database,
+        objects: deployment.pluginResources.objects,
+      }),
+      sessionAccess: {
+        assertReadable: async (request, sessionId) => {
+          await loadReadableSession(request, sessionId, await applications.resolveSessionApplication(request));
+        },
+        assertMutable: async (request, sessionId) => {
+          await loadMutableSession(request, sessionId, await applications.resolveSessionApplication(request));
+        },
+        assertResourceReadable: async (request, sessionId, message) => {
+          await loadReadableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
+        },
+        assertResourceMutable: async (request, sessionId, message) => {
+          await loadMutableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
+        },
       },
-      assertMutable: async (request, sessionId) => {
-        await loadMutableSession(request, sessionId, await applications.resolveSessionApplication(request));
-      },
-      assertResourceReadable: async (request, sessionId, message) => {
-        await loadReadableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
-      },
-      assertResourceMutable: async (request, sessionId, message) => {
-        await loadMutableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
-      },
-    },
-  }), createKnowledgePlugin({
-    runtimeFactory: createPostgresKnowledgeRuntimeFactory({
-      executor: deployment.pluginResources.database,
-      objects: deployment.pluginResources.objects,
     }),
-    lifecycle: createPostgresKnowledgeLifecycle(deployment.pluginResources.database),
-  }), createMemoryPlugin({
-    runtimeFactory: createPostgresMemoryRuntimeFactory({
-      executor: deployment.pluginResources.database,
+    knowledge: () => createKnowledgePlugin({
+      runtimeFactory: createPostgresKnowledgeRuntimeFactory({
+        executor: deployment.pluginResources.database,
+        objects: deployment.pluginResources.objects,
+      }),
+      lifecycle: createPostgresKnowledgeLifecycle(deployment.pluginResources.database),
     }),
-    lifecycle: createPostgresMemoryLifecycle(deployment.pluginResources.database),
-  }), createSkillsPlugin({
-    runtimeFactory: createPostgresSkillsRuntimeFactory({
-      executor: deployment.pluginResources.database,
-      objects: deployment.pluginResources.objects,
+    memory: () => createMemoryPlugin({
+      runtimeFactory: createPostgresMemoryRuntimeFactory({
+        executor: deployment.pluginResources.database,
+      }),
+      lifecycle: createPostgresMemoryLifecycle(deployment.pluginResources.database),
     }),
-    lifecycle: createPostgresSkillsLifecycle(deployment.pluginResources.database),
-  })];
+    skills: () => createSkillsPlugin({
+      runtimeFactory: createPostgresSkillsRuntimeFactory({
+        executor: deployment.pluginResources.database,
+        objects: deployment.pluginResources.objects,
+      }),
+      lifecycle: createPostgresSkillsLifecycle(deployment.pluginResources.database),
+    }),
+  } satisfies BackendPluginCatalog;
+  return selectBackendPlugins(catalog, selection);
 }

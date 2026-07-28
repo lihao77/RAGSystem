@@ -1,4 +1,5 @@
-import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import type { BackendPlugin, BackendPluginCatalog } from "@ragsystem/backend-core/plugins/index.js";
+import { selectBackendPlugins } from "@ragsystem/backend-core/plugins/index.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import path from "node:path";
 import {
@@ -14,31 +15,35 @@ import { createLocalSkillsRuntimeFactory, createSkillsPlugin } from "@ragsystem/
 import type { LocalDeploymentRuntime } from "./adapters/local/composition/local-deployment-runtime.js";
 import { TenantPaths } from "./adapters/local/tenant-paths.js";
 
-export function createLocalProductPlugins(deployment: LocalDeploymentRuntime, env: AppEnv): readonly BackendPlugin[] {
+export function createLocalProductPlugins(
+  deployment: LocalDeploymentRuntime,
+  env: AppEnv,
+  selection?: string,
+): readonly BackendPlugin[] {
   const applications = deployment.applications;
-  return [createArtifactsPlugin({
-    storage: createFilesystemArtifactStorage({
-      resolveDataRoot: (tenantId) => new TenantPaths(path.join(env.tenantsRoot, tenantId)).dataRoot,
+  const catalog = {
+    artifacts: () => createArtifactsPlugin({
+      storage: createFilesystemArtifactStorage({
+        resolveDataRoot: (tenantId) => new TenantPaths(path.join(env.tenantsRoot, tenantId)).dataRoot,
+      }),
+      sessionAccess: {
+        assertReadable: async (request, sessionId) => {
+          await loadReadableSession(request, sessionId, await applications.resolveSessionApplication(request));
+        },
+        assertMutable: async (request, sessionId) => {
+          await loadMutableSession(request, sessionId, await applications.resolveSessionApplication(request));
+        },
+        assertResourceReadable: async (request, sessionId, message) => {
+          await loadReadableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
+        },
+        assertResourceMutable: async (request, sessionId, message) => {
+          await loadMutableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
+        },
+      },
     }),
-    sessionAccess: {
-      assertReadable: async (request, sessionId) => {
-        await loadReadableSession(request, sessionId, await applications.resolveSessionApplication(request));
-      },
-      assertMutable: async (request, sessionId) => {
-        await loadMutableSession(request, sessionId, await applications.resolveSessionApplication(request));
-      },
-      assertResourceReadable: async (request, sessionId, message) => {
-        await loadReadableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
-      },
-      assertResourceMutable: async (request, sessionId, message) => {
-        await loadMutableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
-      },
-    },
-  }), createKnowledgePlugin({
-    runtimeFactory: createLocalKnowledgeRuntimeFactory(),
-  }), createMemoryPlugin({
-    runtimeFactory: createLocalMemoryRuntimeFactory(),
-  }), createSkillsPlugin({
-    runtimeFactory: createLocalSkillsRuntimeFactory(),
-  })];
+    knowledge: () => createKnowledgePlugin({ runtimeFactory: createLocalKnowledgeRuntimeFactory() }),
+    memory: () => createMemoryPlugin({ runtimeFactory: createLocalMemoryRuntimeFactory() }),
+    skills: () => createSkillsPlugin({ runtimeFactory: createLocalSkillsRuntimeFactory() }),
+  } satisfies BackendPluginCatalog;
+  return selectBackendPlugins(catalog, selection);
 }
