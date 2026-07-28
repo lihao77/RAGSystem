@@ -23,7 +23,6 @@ export interface DeploymentApplicationResolvers {
   resolveExecutionApplication: NonNullable<RouteOptions["resolveExecutionApplication"]>;
   resolveAnalytics: NonNullable<RouteOptions["resolveAnalytics"]>;
   resolveMonitoringApplication: NonNullable<RouteOptions["resolveMonitoringApplication"]>;
-  resolveArtifactApplication: NonNullable<RouteOptions["resolveArtifactApplication"]>;
   resolveSessionFileApplication: NonNullable<RouteOptions["resolveSessionFileApplication"]>;
   resolveFileChangeApplication: NonNullable<RouteOptions["resolveFileChangeApplication"]>;
 }

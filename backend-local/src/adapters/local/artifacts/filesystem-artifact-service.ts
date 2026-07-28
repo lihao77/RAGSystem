@@ -7,8 +7,8 @@ import type {
   VisualizationConfig,
   VisualizationIndexEntry,
   VisualizationSummary,
-} from "@ragsystem/backend-core/contracts/artifacts/artifacts.js";
-import type { JsonValue } from "@ragsystem/backend-core/contracts/common.js";
+} from "@ragsystem/backend-plugin-artifacts/contracts/artifacts.js";
+import type { JsonValue } from "@ragsystem/backend-plugin-artifacts/contracts/json.js";
 import { ArtifactServiceError } from "@ragsystem/backend-plugin-artifacts/artifact-error.js";
 
 export interface VisualizationRecord {

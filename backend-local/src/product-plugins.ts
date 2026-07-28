@@ -11,14 +11,21 @@ import type { LocalDeploymentRuntime } from "./adapters/local/composition/local-
 export function createLocalProductPlugins(deployment: LocalDeploymentRuntime): readonly BackendPlugin[] {
   const applications = deployment.applications;
   return [createArtifactsPlugin({
-    resolveArtifactApplication: applications.resolveArtifactApplication,
+    resolveArtifactApplication: (request) => deployment.resolveArtifactApplicationForTenant(request.identity.tenantId),
     resolveArtifactApplicationForTenant: deployment.resolveArtifactApplicationForTenant,
-    resolveSessionApplication: applications.resolveSessionApplication,
     sessionAccess: {
-      loadReadableSession,
-      loadMutableSession,
-      loadReadableSessionForResource,
-      loadMutableSessionForResource,
+      assertReadable: async (request, sessionId) => {
+        await loadReadableSession(request, sessionId, await applications.resolveSessionApplication(request));
+      },
+      assertMutable: async (request, sessionId) => {
+        await loadMutableSession(request, sessionId, await applications.resolveSessionApplication(request));
+      },
+      assertResourceReadable: async (request, sessionId, message) => {
+        await loadReadableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
+      },
+      assertResourceMutable: async (request, sessionId, message) => {
+        await loadMutableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
+      },
     },
   })];
 }

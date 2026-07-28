@@ -1,8 +1,8 @@
-import type { JsonValue } from "@ragsystem/backend-core/contracts/common.js";
-import type { ArtifactApplication, ArtifactRecord } from "@ragsystem/backend-core/contracts/artifacts/artifact-application.js";
 import type { ToolAfterInput, ToolAfterOutput, ToolExecutionResult } from "@ragsystem/agent-sdk";
 
 import type { ArtifactsPluginDependencies } from "./dependencies.js";
+import type { ArtifactApplication, ArtifactRecord } from "./contracts/artifact-application.js";
+import type { JsonValue } from "./contracts/json.js";
 
 export function createArtifactToolAfterHook(
   dependencies: Pick<ArtifactsPluginDependencies, "resolveArtifactApplicationForTenant">,

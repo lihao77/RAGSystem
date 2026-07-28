@@ -1,7 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 
-import type { ArtifactApplication } from "@ragsystem/backend-core/contracts/artifacts/artifact-application.js";
-import type { SessionApplication } from "@ragsystem/backend-core/contracts/session/session-application.js";
+import type { ArtifactApplication } from "./contracts/artifact-application.js";
 import type { ArtifactsPluginDependencies } from "./dependencies.js";
 
 interface ArtifactParams {
@@ -14,13 +13,12 @@ interface SessionQuery {
 
 export const registerArtifactRoutes: FastifyPluginAsync<ArtifactsPluginDependencies> = async (app, dependencies) => {
   app.get<{ Params: ArtifactParams }>("/visualizations/:artifactId", async (request) => {
-    const { sessions, artifacts } = await resolveApplications(request, dependencies);
+    const artifacts = await resolveArtifactApplication(request, dependencies);
     const sessionId = await artifacts.getVisualizationSessionId(request.params.artifactId);
-    await dependencies.sessionAccess.loadReadableSessionForResource(
+    await dependencies.sessionAccess.assertResourceReadable(
       request,
       sessionId,
       `未找到可视化 artifact: ${request.params.artifactId}`,
-      sessions,
     );
     return artifacts.getVisualization(request.params.artifactId);
   });
@@ -28,19 +26,18 @@ export const registerArtifactRoutes: FastifyPluginAsync<ArtifactsPluginDependenc
   app.get<{ Querystring: SessionQuery }>("/visualizations", async (request) => {
     const sessionId = request.query.session_id?.trim();
     if (!sessionId) throw new PluginHttpError(400, "session_id is required");
-    const { sessions, artifacts } = await resolveApplications(request, dependencies);
-    await dependencies.sessionAccess.loadReadableSession(request, sessionId, sessions);
+    const artifacts = await resolveArtifactApplication(request, dependencies);
+    await dependencies.sessionAccess.assertReadable(request, sessionId);
     return artifacts.listVisualizations(sessionId);
   });
 
   app.delete<{ Params: ArtifactParams }>("/visualizations/:artifactId", async (request) => {
-    const { sessions, artifacts } = await resolveApplications(request, dependencies);
+    const artifacts = await resolveArtifactApplication(request, dependencies);
     const sessionId = await artifacts.getVisualizationSessionId(request.params.artifactId);
-    await dependencies.sessionAccess.loadMutableSessionForResource(
+    await dependencies.sessionAccess.assertResourceMutable(
       request,
       sessionId,
       `未找到可视化 artifact: ${request.params.artifactId}`,
-      sessions,
     );
     const deleted = await artifacts.deleteVisualization(request.params.artifactId);
     if (!deleted) throw new PluginHttpError(404, `未找到可视化 artifact: ${request.params.artifactId}`);
@@ -50,23 +47,19 @@ export const registerArtifactRoutes: FastifyPluginAsync<ArtifactsPluginDependenc
   app.delete<{ Querystring: SessionQuery }>("/visualizations", async (request) => {
     const sessionId = request.query.session_id?.trim();
     if (!sessionId) throw new PluginHttpError(400, "session_id is required");
-    const { sessions, artifacts } = await resolveApplications(request, dependencies);
-    await dependencies.sessionAccess.loadMutableSession(request, sessionId, sessions);
+    const artifacts = await resolveArtifactApplication(request, dependencies);
+    await dependencies.sessionAccess.assertMutable(request, sessionId);
     return { deleted_count: await artifacts.deleteSessionVisualizations(sessionId), session_id: sessionId };
   });
 };
 
-async function resolveApplications(
+async function resolveArtifactApplication(
   request: FastifyRequest,
   dependencies: ArtifactsPluginDependencies,
-): Promise<{ artifacts: ArtifactApplication; sessions: SessionApplication }> {
-  const [artifacts, sessions] = await Promise.all([
-    dependencies.resolveArtifactApplication(request),
-    dependencies.resolveSessionApplication(request),
-  ]);
+): Promise<ArtifactApplication> {
+  const artifacts = await dependencies.resolveArtifactApplication(request);
   if (!artifacts) throw new Error("Artifact application resolver returned no implementation");
-  if (!sessions) throw new Error("Session application resolver returned no implementation");
-  return { artifacts, sessions };
+  return artifacts;
 }
 
 class PluginHttpError extends Error {

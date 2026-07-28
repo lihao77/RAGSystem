@@ -355,7 +355,6 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     resolveExecutionApplication: applications.resolveExecutionApplication,
     resolveAnalytics: applications.resolveAnalytics,
     resolveMonitoringApplication: applications.resolveMonitoringApplication,
-    resolveArtifactApplication: applications.resolveArtifactApplication,
     resolveProviderApplication: applications.resolveProviderApplication,
     resolveMcpApplication: applications.resolveMcpApplication,
     pluginRoutes: pluginManager.routes("widget"),

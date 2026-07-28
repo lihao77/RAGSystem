@@ -1,6 +1,6 @@
-import type { JsonValue } from "@ragsystem/backend-core/contracts/common.js";
-import type { ArtifactApplication, ArtifactRecord } from "@ragsystem/backend-core/contracts/artifacts/artifact-application.js";
-import type { VisualizationConfig, VisualizationSummary } from "@ragsystem/backend-core/contracts/artifacts/artifacts.js";
+import type { ArtifactApplication, ArtifactRecord } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-application.js";
+import type { VisualizationConfig, VisualizationSummary } from "@ragsystem/backend-plugin-artifacts/contracts/artifacts.js";
+import type { JsonValue } from "@ragsystem/backend-plugin-artifacts/contracts/json.js";
 import { FilesystemArtifactService } from "../../artifacts/filesystem-artifact-service.js";
 
 export class LocalArtifactApplication implements ArtifactApplication {

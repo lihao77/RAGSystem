@@ -1,28 +1,24 @@
 import type { FastifyRequest } from "fastify";
 
-import type { ArtifactApplication } from "@ragsystem/backend-core/contracts/artifacts/artifact-application.js";
-import type { SessionApplication } from "@ragsystem/backend-core/contracts/session/session-application.js";
+import type { ArtifactApplication } from "./contracts/artifact-application.js";
 
 export interface ArtifactSessionAccess {
-  loadReadableSession(request: FastifyRequest, sessionId: string, sessions: SessionApplication): Promise<unknown>;
-  loadMutableSession(request: FastifyRequest, sessionId: string, sessions: SessionApplication): Promise<unknown>;
-  loadReadableSessionForResource(
+  assertReadable(request: FastifyRequest, sessionId: string): Promise<void>;
+  assertMutable(request: FastifyRequest, sessionId: string): Promise<void>;
+  assertResourceReadable(
     request: FastifyRequest,
     sessionId: string | null,
     notFoundMessage: string,
-    sessions: SessionApplication,
-  ): Promise<unknown>;
-  loadMutableSessionForResource(
+  ): Promise<void>;
+  assertResourceMutable(
     request: FastifyRequest,
     sessionId: string | null,
     notFoundMessage: string,
-    sessions: SessionApplication,
-  ): Promise<unknown>;
+  ): Promise<void>;
 }
 
 export interface ArtifactsPluginDependencies {
   resolveArtifactApplication(request: FastifyRequest): ArtifactApplication | undefined | Promise<ArtifactApplication | undefined>;
   resolveArtifactApplicationForTenant(tenantId: string): ArtifactApplication | Promise<ArtifactApplication>;
-  resolveSessionApplication(request: FastifyRequest): SessionApplication | undefined | Promise<SessionApplication | undefined>;
   sessionAccess: ArtifactSessionAccess;
 }

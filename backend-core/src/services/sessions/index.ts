@@ -7,7 +7,7 @@ import type {
 import type { SessionHistoryPort } from "../../contracts/session/session-history.js";
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-envelope-archive.js";
-import type { SessionArtifactCleanup } from "../../contracts/artifacts/session-artifact-cleanup.js";
+import type { SessionResourceCleanup } from "../../contracts/session/session-resource-cleanup.js";
 import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/runtime/permissions.js";
@@ -17,7 +17,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   constructor(
     private readonly repository: AgentSessionRepositoryPort,
     private readonly history: SessionHistoryPort | null = null,
-    private readonly transientArtifacts: SessionArtifactCleanup | null = null,
+    private readonly resourceCleanup: SessionResourceCleanup | null = null,
     private readonly workspaceRootResolver: ((session: SessionInfo) => Promise<string | null>) | null = null,
   ) {}
 
@@ -67,7 +67,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   async deleteSession(sessionId: string): Promise<boolean> {
     await this.history?.cleanup(sessionId);
     const deleted = await this.repository.deleteSession(sessionId);
-    if (deleted) this.transientArtifacts?.deleteSessionArtifacts(sessionId);
+    if (deleted) await this.resourceCleanup?.cleanupSessionResources(sessionId);
     return deleted;
   }
 

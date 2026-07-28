@@ -1,7 +1,6 @@
 import type { FastifyRequest } from "fastify";
 
 import type { AnalyticsApplication } from "../contracts/application/analytics-application.js";
-import type { ArtifactApplication } from "../contracts/artifacts/artifact-application.js";
 import type { MonitoringApplication } from "../contracts/application/monitoring-application.js";
 import type { SessionApplication } from "../contracts/session/session-application.js";
 import type { ExecutionReadApplication } from "../contracts/execution/execution-read-application.js";
@@ -15,7 +14,6 @@ import type { McpApplication } from "../contracts/application/mcp-application.js
 export interface RequestApplications {
   sessions: SessionApplication;
   memory: MemoryApplication;
-  artifacts: ArtifactApplication;
   analytics: AnalyticsApplication;
   monitoring: MonitoringApplication;
   executionRead: ExecutionReadApplication;
@@ -28,7 +26,6 @@ export interface RequestApplications {
 export type RequestApplicationResolvers = Required<Pick<RouteOptions,
   | "resolveSessionApplication"
   | "resolveMemoryApplication"
-  | "resolveArtifactApplication"
   | "resolveAnalytics"
   | "resolveMonitoringApplication"
   | "resolveExecutionRead"
@@ -46,10 +43,9 @@ export async function createRequestApplications(
   request: FastifyRequest,
   options: RouteOptions,
 ): Promise<RequestApplications> {
-  const [sessions, memory, artifacts, analytics, monitoring, executionRead, execution, providers, mcp] = await Promise.all([
+  const [sessions, memory, analytics, monitoring, executionRead, execution, providers, mcp] = await Promise.all([
     resolveApplication("session", options.resolveSessionApplication, request),
     resolveApplication("memory", options.resolveMemoryApplication, request),
-    resolveApplication("artifact", options.resolveArtifactApplication, request),
     resolveApplication("analytics", options.resolveAnalytics, request),
     resolveApplication("monitoring", options.resolveMonitoringApplication, request),
     resolveApplication("execution read", options.resolveExecutionRead, request),
@@ -58,7 +54,7 @@ export async function createRequestApplications(
     resolveApplication("MCP", options.resolveMcpApplication, request),
   ]);
   const interactions = request.container.interactionCoordinator;
-  return { sessions, memory, artifacts, analytics, monitoring, executionRead, interactions, execution, providers, mcp };
+  return { sessions, memory, analytics, monitoring, executionRead, interactions, execution, providers, mcp };
 }
 
 async function resolveApplication<T>(

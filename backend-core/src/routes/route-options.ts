@@ -16,7 +16,6 @@ import type { McpApplication } from "../contracts/application/mcp-application.js
 import type { SessionApplication } from "../contracts/session/session-application.js";
 import type { AnalyticsApplication } from "../contracts/application/analytics-application.js";
 import type { MonitoringApplication } from "../contracts/application/monitoring-application.js";
-import type { ArtifactApplication } from "../contracts/artifacts/artifact-application.js";
 import type { ExecutionApplication } from "../contracts/execution/execution-application.js";
 import type { SessionFileApplication } from "../contracts/application/session-file-application.js";
 import type { FileChangeApplication } from "../contracts/application/file-change-application.js";
@@ -42,7 +41,6 @@ export interface RouteOptions {
   resolveFileHistoryStorage?: (request: FastifyRequest) => AsyncFileHistoryStore | undefined | Promise<AsyncFileHistoryStore | undefined>;
   resolveSessionFileApplication?: (request: FastifyRequest) => SessionFileApplication | undefined | Promise<SessionFileApplication | undefined>;
   resolveFileChangeApplication?: (request: FastifyRequest) => FileChangeApplication | undefined | Promise<FileChangeApplication | undefined>;
-  resolveArtifactApplication?: (request: FastifyRequest) => ArtifactApplication | Promise<ArtifactApplication>;
   widgetCredentialStore?: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
 }

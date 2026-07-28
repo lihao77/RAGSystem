@@ -12,7 +12,6 @@ import { SkillToolService } from "@ragsystem/backend-core/tools/SkillTools/Skill
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
 import { MemoryContextSource } from "@ragsystem/backend-core/services/agent/memory/index.js";
-import { FilesystemArtifactService } from "./artifacts/filesystem-artifact-service.js";
 import { TransientArtifactService } from "./artifacts/transient-artifact-service.js";
 import { FileSystemConfigStore } from "../filesystem/config/file-system-config-store.js";
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
@@ -44,7 +43,6 @@ import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/pa
 import { SqliteRuntimeStorage } from "./sqlite-runtime-storage.js";
 import { LocalSessionApplication } from "./application/session/local-session-application.js";
 import { LocalAnalyticsApplication } from "./application/analytics/local-analytics-application.js";
-import { LocalArtifactApplication } from "./application/artifact/local-artifact-application.js";
 import { LocalExecutionReadApplication } from "./application/execution-read/local-execution-read-application.js";
 import { LocalFileChangeApplication } from "./application/file-change/local-file-change-application.js";
 import { LocalMemoryApplication } from "./application/memory/local-memory-application.js";
@@ -144,7 +142,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const knowledgeFiles = knowledgeDriver;
   const knowledgeMarkdown = new LocalAsyncKnowledgeMarkdownPipeline(knowledgeFiles, documentExtractDispatcher);
   const knowledge = knowledgeService;
-  const artifacts = new FilesystemArtifactService({ dataRoot: options.dataRoot });
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryToolRepository = new LocalMemoryToolRepository(memoryStore);
   const memoryContextRepository = new LocalMemoryContextRepository(memoryStore, {
@@ -229,7 +226,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const delegationPending = new DelegationPendingService();
 
   const localKnowledge = new KnowledgeHttpApplication(knowledgeService, knowledgeFiles, knowledgeMarkdown);
-  const localArtifacts = new LocalArtifactApplication(artifacts);
   const localAnalytics = new LocalAnalyticsApplication(conversationStore);
   const localMonitoring = new LocalMonitoringApplication(conversationStore);
   const localSessionFiles = new LocalSessionFileApplication(fileIndex);
@@ -290,7 +286,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
         conversationStore,
       ),
       knowledge: localKnowledge,
-      artifacts: localArtifacts,
       analytics: localAnalytics,
       monitoring: localMonitoring,
       get executionRead() {

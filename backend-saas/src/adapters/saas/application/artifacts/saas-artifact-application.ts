@@ -1,9 +1,9 @@
-import type { JsonValue } from "@ragsystem/backend-core/contracts/common.js";
 import { randomUUID } from "node:crypto";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
-import type { ArtifactMetadata, ArtifactMetadataRepository } from "@ragsystem/backend-core/contracts/artifacts/artifact-repository.js";
-import type { VisualizationConfig, VisualizationSummary } from "@ragsystem/backend-core/contracts/artifacts/artifacts.js";
-import type { ArtifactApplication, ArtifactRecord } from "@ragsystem/backend-core/contracts/artifacts/artifact-application.js";
+import type { ArtifactMetadata, ArtifactMetadataRepository } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-repository.js";
+import type { VisualizationConfig, VisualizationSummary } from "@ragsystem/backend-plugin-artifacts/contracts/artifacts.js";
+import type { ArtifactApplication, ArtifactRecord } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-application.js";
+import type { JsonValue } from "@ragsystem/backend-plugin-artifacts/contracts/json.js";
 import { ArtifactServiceError } from "@ragsystem/backend-plugin-artifacts/artifact-error.js";
 
 /** Async tenant-scoped artifact service for SaaS deployments. Metadata lives in PostgreSQL; blobs live in ObjectStorage. */

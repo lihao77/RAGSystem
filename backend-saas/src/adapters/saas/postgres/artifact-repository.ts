@@ -1,5 +1,5 @@
-import type { ArtifactMetadata, ArtifactMetadataRepository, CreateArtifactMetadataInput } from "@ragsystem/backend-core/contracts/artifacts/artifact-repository.js";
-import type { JsonValue } from "@ragsystem/backend-core/contracts/common.js";
+import type { ArtifactMetadata, ArtifactMetadataRepository, CreateArtifactMetadataInput } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-repository.js";
+import type { JsonValue } from "@ragsystem/backend-plugin-artifacts/contracts/json.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 
 const map = (row: Record<string, unknown>): ArtifactMetadata => ({

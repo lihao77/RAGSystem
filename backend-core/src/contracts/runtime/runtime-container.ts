@@ -6,7 +6,6 @@ import type { FileChangeApplication } from "../application/file-change-applicati
 import type { KnowledgeApplication } from "../application/knowledge-application.js";
 import type { MonitoringApplication } from "../application/monitoring-application.js";
 import type { SessionFileApplication } from "../application/session-file-application.js";
-import type { ArtifactApplication } from "../artifacts/artifact-application.js";
 import type { ExecutionReadApplication } from "../execution/execution-read-application.js";
 import type { ExecutionStorage } from "../execution/execution-storage.js";
 import type { AsyncFileHistoryStore } from "../file-history-store/index.js";
@@ -58,7 +57,6 @@ export interface LocalMemoryApplicationFactoryInput {
 export interface LocalRuntimeCapabilities {
   createSessionApplication(tenantId: TenantId): SessionApplication;
   knowledge: KnowledgeApplication;
-  artifacts: ArtifactApplication;
   analytics: AnalyticsApplication;
   monitoring: MonitoringApplication;
   executionRead: ExecutionReadApplication;
@@ -72,7 +70,6 @@ export interface SaaSRuntimeCapabilities {
   sessions: SessionApplication & ExecutionSessionPort;
   fileHistory: AsyncFileHistoryStore;
   sessionFiles: AsyncSessionFileStorage;
-  artifacts: ArtifactApplication;
   memory: MemoryApplication;
 }
 

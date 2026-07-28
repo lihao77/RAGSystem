@@ -57,7 +57,7 @@ export class TransientArtifactService {
     return { deleted, retained };
   }
 
-  deleteSessionArtifacts(sessionId: string): void {
+  cleanupSessionResources(sessionId: string): void {
     if (!isSafeSessionId(sessionId)) return;
     fs.rmSync(path.join(this.sessionsRoot, sessionId), { recursive: true, force: true });
   }

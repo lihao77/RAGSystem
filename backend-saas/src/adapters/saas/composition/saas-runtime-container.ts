@@ -130,7 +130,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     sessionApplication,
   );
   const knowledge = conversationRuntime.createKnowledgeService(tenantId, modelAdapter);
-  const artifacts = conversationRuntime.createArtifactService(tenantId);
   const memory = memoryRuntime.provider.memoryForTenant(tenantId);
   const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
   const sandboxFileBridge = options.sandboxProvider ? new SaaSSandboxFileBridge(sessionFiles) : null;
@@ -221,7 +220,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
       sessions: sessionApplication,
       fileHistory,
       sessionFiles,
-      artifacts,
       memory,
     },
     closeInfrastructure: () => {

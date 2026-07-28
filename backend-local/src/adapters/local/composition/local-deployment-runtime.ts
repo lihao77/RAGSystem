@@ -1,5 +1,5 @@
 import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
-import type { ArtifactApplication } from "@ragsystem/backend-core/contracts/artifacts/artifact-application.js";
+import type { ArtifactApplication } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-application.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import { LocalIdentityProvider, PasswordIdentityProvider, type IdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
 import type { SessionTokenService } from "@ragsystem/backend-core/services/runtime/session-token-service.js";

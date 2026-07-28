@@ -29,7 +29,6 @@ export function createLocalRequestApplicationResolvers(): RequestApplicationReso
         },
       });
     },
-    resolveArtifactApplication: (request) => requireLocalCapabilities(request).artifacts,
     resolveAnalytics: (request) => requireLocalCapabilities(request).analytics,
     resolveMonitoringApplication: (request) => requireLocalCapabilities(request).monitoring,
     resolveExecutionRead: (request) => requireLocalCapabilities(request).executionRead,

@@ -92,7 +92,6 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveExecutionApplication: NonNullable<RouteOptions["resolveExecutionApplication"]>;
   resolveAnalytics: NonNullable<RouteOptions["resolveAnalytics"]>;
   resolveMonitoringApplication: NonNullable<RouteOptions["resolveMonitoringApplication"]>;
-  resolveArtifactApplication: NonNullable<RouteOptions["resolveArtifactApplication"]>;
   resolveSessionFileApplication: NonNullable<RouteOptions["resolveSessionFileApplication"]>;
   resolveFileChangeApplication: NonNullable<RouteOptions["resolveFileChangeApplication"]>;
   pluginRoutes?: readonly BackendRouteContribution[];
@@ -110,7 +109,6 @@ export async function registerSharedBusinessRoutes(
       botRepository: options.botRepository,
       resolveMemoryApplication: options.resolveMemoryApplication,
       resolveSessionApplication: options.resolveSessionApplication,
-      resolveArtifactApplication: options.resolveArtifactApplication,
       resolveAnalytics: options.resolveAnalytics,
       resolveMonitoringApplication: options.resolveMonitoringApplication,
       resolveExecutionRead: options.resolveExecutionRead,
@@ -210,7 +208,6 @@ interface WidgetRouteAssemblyOptions {
   resolveExecutionApplication: NonNullable<RouteOptions["resolveExecutionApplication"]>;
   resolveAnalytics: NonNullable<RouteOptions["resolveAnalytics"]>;
   resolveMonitoringApplication: NonNullable<RouteOptions["resolveMonitoringApplication"]>;
-  resolveArtifactApplication: NonNullable<RouteOptions["resolveArtifactApplication"]>;
   resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
   resolveMcpApplication: NonNullable<RouteOptions["resolveMcpApplication"]>;
   pluginRoutes?: readonly BackendRouteContribution[];
@@ -227,7 +224,6 @@ export async function registerWidgetAndRealtimeRoutes(
     resolveExecutionApplication: options.resolveExecutionApplication,
     resolveAnalytics: options.resolveAnalytics,
     resolveMonitoringApplication: options.resolveMonitoringApplication,
-    resolveArtifactApplication: options.resolveArtifactApplication,
     resolveProviderApplication: options.resolveProviderApplication,
     resolveMcpApplication: options.resolveMcpApplication,
   };

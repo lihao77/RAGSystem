@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 
 import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
-import type { ArtifactApplication } from "@ragsystem/backend-core/contracts/artifacts/artifact-application.js";
+import type { ArtifactApplication } from "@ragsystem/backend-plugin-artifacts/contracts/artifact-application.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import { TenantKnowledgeMarkdownPipeline } from "@ragsystem/backend-core/contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import type { AsyncKnowledgeFileStore } from "@ragsystem/backend-core/contracts/knowledge/async-knowledge-file-store.js";
@@ -103,7 +103,6 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
           markdown,
         );
       },
-      resolveArtifactApplication: (request) => conversation.createArtifactService(request.identity.tenantId),
       resolveSessionFileApplication: (request) => new SaaSSessionFileApplication(
         conversation.createSessionFileStorage(request.identity.tenantId),
       ),
