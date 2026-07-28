@@ -4,11 +4,13 @@ import {
   buildExecutionTree,
   createExecutionTreeState,
   getExecutionTree,
-  translateKernelEvent,
   type Envelope,
-  type KernelWireEvent,
-  type WireTranslationContext,
 } from "@ragsystem/agent-protocol";
+import type { KernelEvent } from "@ragsystem/agent-sdk";
+import {
+  translateKernelEvent,
+  type WireTranslationContext,
+} from "../../src/services/agent/sdk/event-translation.js";
 
 // 回归：子 agent 的工具调用必须挂到根 agent 的子 agent 容器下（前端才能看见）。
 // 根因是 root run 的 call_agent 工具 ctx.parentCallId 为 null（runtime.ts 曾用 input.parentCallId ?? null，
@@ -30,7 +32,6 @@ describe("child-agent tool visibility in execution-tree projection", () => {
     rootCallId: ROOT_CALL,
     requestId: "r1",
     agentId: "orchestrator",
-    agentDisplayName: "编排者",
   };
 
   // child run：rootCallId = AGENT_CALL（delegation 传入），与 agent_started 的 call_id 对齐。
@@ -40,12 +41,11 @@ describe("child-agent tool visibility in execution-tree projection", () => {
     rootCallId: AGENT_CALL,
     requestId: "r1",
     agentId: "worker",
-    agentDisplayName: "执行者",
     parentCallId: ROOT_CALL,
   };
 
   const envs: Envelope[] = [];
-  const feed = (ctx: WireTranslationContext, ev: KernelWireEvent): void => {
+  const feed = (ctx: WireTranslationContext, ev: KernelEvent): void => {
     for (const e of translateKernelEvent(ev, ctx)) envs.push(e);
   };
 

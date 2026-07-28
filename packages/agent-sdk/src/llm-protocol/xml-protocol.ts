@@ -25,7 +25,7 @@
 import { randomUUID } from "node:crypto";
 import type { ChatMessage, ChatToolCall, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig, TokenUsage } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
-import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
+import { RuntimeAbortError, throwIfAborted } from "../abort.js";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
 import { buildPromptCacheKey, readTierParams } from "../llm-params/index.js";
 import type { RuntimeToolDefinition } from "../prompt/tool-types.js";

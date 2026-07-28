@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmRequest } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
-import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
+import { isAbortError, throwIfAborted } from "./abort.js";
 import type { Context, EventSink, KernelResult, MessageRefresher, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
 import type { ToolRegistry } from "./tools/registry.js";
@@ -301,4 +301,3 @@ function makeContextPort(profile: AgentProfile, mode: "xml" | "native", promptCo
     },
   };
 }
-

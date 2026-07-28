@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
+import { RecoverableInterrupt } from "@ragsystem/agent-sdk";
 
 import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/integrations/model-adapter.js";

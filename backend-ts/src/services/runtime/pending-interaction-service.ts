@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
+import { RecoverableInterrupt } from "@ragsystem/agent-sdk";
 import type { Envelope } from "../../contracts/events.js";
 import type { ApprovalRequest, UserInputRequest } from "../../contracts/execution/execution.js";
 import type { InteractionKind } from "../../contracts/interactions.js";

@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
+import { RecoverableInterrupt } from "@ragsystem/agent-sdk";
 
 import { SqliteRuntimeStorage } from "../../src/adapters/local/sqlite-runtime-storage.js";
 import { createConversationStore, type ConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";

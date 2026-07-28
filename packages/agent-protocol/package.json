@@ -17,10 +17,6 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js"
     },
-    "./runtime": {
-      "types": "./dist/runtime.d.ts",
-      "import": "./dist/runtime.js"
-    },
     "./projection": {
       "types": "./dist/projection.d.ts",
       "import": "./dist/projection.js"

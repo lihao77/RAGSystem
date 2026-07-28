@@ -4,7 +4,7 @@
  * partitionToolCalls 把一轮 calls 按 classify（能否并发）切成组：可并发的相邻 call 合成一组，
  * 不可并发的单独成组。runToolBatchWithScheduler 逐组执行——并行组 Promise.all，串行组逐个 await。
  */
-import { throwIfAborted } from "@ragsystem/agent-protocol";
+import { throwIfAborted } from "../abort.js";
 
 const DEFAULT_MAX_TOOL_CONCURRENCY = 8;
 

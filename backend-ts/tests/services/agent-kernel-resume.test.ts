@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
+import { RecoverableInterrupt } from "@ragsystem/agent-sdk";
 import {
   AgentKernel,
   createHookRegistry,

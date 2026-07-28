@@ -14,10 +14,9 @@ import {
   type CommandCategory,
 } from "./command-policy.js";
 import { BashPathResolver } from "./paths.js";
-import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { throwIfAborted, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 import type { AgentConfig } from "../../contracts/agent/agent-config.js";
-import { throwIfAborted } from "@ragsystem/agent-protocol";
 import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 import { terminateProcessTree } from "../../services/runtime/process-tree.js";
 
@@ -462,4 +461,3 @@ function positiveInt(value: unknown, fallback: number): number {
 function clampPositiveInt(value: unknown, fallback: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, positiveInt(value, fallback)));
 }
-

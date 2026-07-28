@@ -27,16 +27,13 @@
 }
 ```
 
-`src/index.ts` 导出 7 个模块：
+`src/index.ts` 导出 4 个模块：
 
 | 模块 | 内容 |
 |------|------|
 | `protocol.ts` | 核心协议类型定义 |
-| `kernel-events.ts` | 内核事件类型 |
-| `event-translation.ts` | 事件翻译 |
 | `agent-client.ts` | Agent 客户端 |
-| `abort.ts` | 中止处理 |
-| `session-socket.ts` | 会话 socket 协议 |
+| `envelope-delivery.ts` | Envelope 投递与游标处理 |
 | `execution-tree.ts` | 执行树结构 |
 
 ::: tip 构建要求
@@ -44,7 +41,7 @@
 :::
 
 ::: warning 变更影响面
-此包任何 wire/event 类型变更会影响 backend、frontend、agent-sdk、api-contracts、agent-widget 和 host-tool-mcp-server 的消费者。修改后需运行 protocol 的 typecheck/test，并重建受影响 workspace。
+此包任何 wire/event 类型变更会影响 backend、frontend、api-contracts、agent-widget 和 host-tool-mcp-server 的消费者。修改后需运行 protocol 的 typecheck/test，并重建受影响 workspace。SDK 不依赖此包。
 :::
 
 ## agent-sdk（运行时内核 SDK）
@@ -57,6 +54,8 @@ Agent 运行时的内核实现，被 `backend-ts` 的 `services/agent/sdk/` 层�
 |------|------|
 | `kernel.ts` / `kernel-context.ts` | 内核与上下文 |
 | `runtime.ts` | 运行时 |
+| `kernel-events.ts` | 完整 `KernelEvent` 运行时事件契约 |
+| `abort.ts` / `recoverable-interrupt.ts` | 取消与可恢复挂起语义 |
 | `dispatcher.ts` | 分发器 |
 | `async-queue.ts` | 异步队列 |
 | `llm-client.ts` | LLM 客户端抽象 |
@@ -68,7 +67,7 @@ Agent 运行时的内核实现，被 `backend-ts` 的 `services/agent/sdk/` 层�
 | `compression/` | 上下文压缩 |
 | `contracts.ts` / `types.ts` | 契约与类型 |
 
-`backend-ts` 通过 `services/agent/sdk/runtime-adapter.ts` 等文件将 SDK 内核适配到 Fastify 运行时，并注册 hook（`runtime-container.ts` 的 `hooks` 选项透传 `HookRegistry`）。
+`backend-ts` 通过 `services/agent/sdk/runtime-adapter.ts` 等文件将 SDK 内核适配到 Fastify 运行时，并注册 hook（`runtime-container.ts` 的 `hooks` 选项透传 `HookRegistry`）。`event-translation.ts` 在该适配层把 SDK `KernelEvent` 投影成 protocol `Envelope`。
 
 ## agent-llm（LLM Provider 适配）
 
@@ -111,18 +110,18 @@ Agent 运行时的内核实现，被 `backend-ts` 的 `services/agent/sdk/` 层�
 依赖不是线性序列，而是 DAG：
 
 ```
-agent-llm            agent-protocol
-       \             /    |    \\
-        \           /     |     \\
-         agent-sdk  api-contracts  agent-widget
-              \       /       \\
-               backend-ts   frontend-client
+agent-llm ----> agent-sdk -----------------> backend-ts
+agent-protocol ----> api-contracts --------> backend-ts
+       |                  |
+       |                  +---------------> frontend-client
+       +----------------------------------> frontend-client
+       +----------------------------------> agent-widget
 ```
 
 实际可执行顺序：
 
 1. 并行构建 `agent-llm` 与 `agent-protocol`。
-2. 构建 `api-contracts`、`agent-sdk`、`agent-widget`（其中 SDK 等待 llm/protocol）。
+2. 构建 `api-contracts`、`agent-sdk`、`agent-widget`（SDK 只等待 llm）。
 3. 构建 `backend-ts` 和 `frontend-client`。
 
 `host-tool-mcp-server` 直接依赖 `agent-protocol`，不属于 `packages/` 五包，但也是 workspace 消费者。

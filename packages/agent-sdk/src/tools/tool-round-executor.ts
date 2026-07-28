@@ -9,7 +9,8 @@
  * （综合 riskLevel + access.action + signals）→ deny 跳过 / allow 放行。无 handler 即全部 allow。
  */
 import type { ProviderConfig } from "@ragsystem/agent-llm";
-import { isAbortError, RecoverableInterrupt, throwIfAborted } from "@ragsystem/agent-protocol";
+import { isAbortError, throwIfAborted } from "../abort.js";
+import { RecoverableInterrupt } from "../recoverable-interrupt.js";
 import type {
   ToolExecutionResult,
   ToolExecContext,

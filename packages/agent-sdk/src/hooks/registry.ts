@@ -8,7 +8,7 @@
  *   - metadata：多 handler 浅合并（后者覆盖前者）
  *   - 单个普通 handler 异常 catch 不阻断其余；可恢复中断必须透传给宿主挂起 run
  */
-import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
+import { RecoverableInterrupt } from "../recoverable-interrupt.js";
 import { EMPTY_HOOK_OUTPUT, type BaseHookOutput, type HookDecision, type HookEvent, type HookHandler, type HookInputMap, type HookOutputMap, type HookRegistry } from "./types.js";
 
 /** 聚合用的全字段并集（所有事件输出类型的超集；非该事件的字段保持 absent）。 */

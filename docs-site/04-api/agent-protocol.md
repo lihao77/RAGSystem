@@ -19,16 +19,13 @@
 
 ## 模块导出
 
-`src/index.ts` 导出 7 个模块：
+`src/index.ts` 导出 4 个模块：
 
 | 模块 | 内容 |
 |------|------|
 | `protocol.ts` | 核心协议：协议版本、Envelope 类型、各 payload 接口 |
-| `kernel-events.ts` | 内核事件类型（`KernelWireEvent`） |
-| `event-translation.ts` | 内核事件 → Envelope 的翻译 |
 | `agent-client.ts` | Agent 客户端 |
-| `abort.ts` | 中止处理 |
-| `session-socket.ts` | 会话 socket 协议 |
+| `envelope-delivery.ts` | Envelope 游标、去重和投递辅助 |
 | `execution-tree.ts` | 执行树结构 |
 
 ## 协议版本
@@ -125,29 +122,12 @@ type RiskLevel = "low" | "medium" | "high";          // 风险等级（per-tool�
 
 `RiskLevel` 与 MCP 工具的 `risk_level` 元数据对应，驱动权限审批策略。
 
-## 内核事件（kernel-events.ts）
+## 与 SDK 的边界
 
-后端 kernel 产出 `KernelWireEvent`（运行时事件），经 `event-translation.ts` 翻译为 Envelope 投递：
+`KernelEvent` 是 `@ragsystem/agent-sdk` 的运行时输出，不属于客户端线协议。backend 的
+`services/agent/sdk/event-translation.ts` 同时依赖 SDK 事件和本包的 `Envelope`，将运行时事件投影为客户端可见事件。
 
-| 内核事件 | 说明 |
-|----------|------|
-| `FirstTokenEvent` | 首 token |
-| `OutputDeltaEvent` | 输出增量 |
-| `IntentDeltaEvent` | intent 增量 |
-| `IntentCompleteEvent` | intent 完成 |
-| `AssistantIntermediateEvent` | assistant 中间态 |
-| `ToolCallEvent` | 工具调用 |
-| `ToolResultEvent` | 工具结果 |
-| `RuntimeErrorEvent` | 运行时错误 |
-| `ContextUsageEvent` | 上下文用量 |
-
-```ts
-type KernelWireEvent = FirstTokenEvent | OutputDeltaEvent | ... | ContextUsageEvent;
-```
-
-## 翻译上下文
-
-`event-translation.ts` 的 `WireTranslationContext` 提供翻译所需上下文（session_id、run_id、agent_id 等），把 kernel 事件映射为带完整信封字段的 Envelope。
+依赖方向保持为 backend → SDK + protocol；protocol 不依赖 SDK，也不包含取消、挂起等运行时控制类型。
 
 ## 使用方式
 

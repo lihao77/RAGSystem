@@ -9,8 +9,7 @@
  * - action==="ask" → toolAsksApproval（工具声明需审批，如 Bash 高危）
  * ask 时阻塞等用户审批；approve 记录候选路径供工具 call 放行（替代原 ctx.approvedExternalPaths 链）。
  */
-import type { HookRegistry, ToolExecContext } from "@ragsystem/agent-sdk";
-import { isAbortError, RecoverableInterrupt, throwIfAborted } from "@ragsystem/agent-protocol";
+import { isAbortError, RecoverableInterrupt, throwIfAborted, type HookRegistry, type ToolExecContext } from "@ragsystem/agent-sdk";
 import type { RiskLevel } from "../../../contracts/runtime/permissions.js";
 import type { PermissionPolicyService, RuntimeToolApprovalInput } from "../../runtime/permission-policy-service.js";
 import { resolveInteractionDeadlineMs, type PendingInteractionPort, type PendingApprovalRequest } from "../../../contracts/runtime/pending-interactions.js";

@@ -18,7 +18,8 @@
  * 与 backend-ts 差异：KernelSession → RuntimeSession；session.agent.agent_name → session.profile.agentName；
  * runtime.* 方言事件（data 包裹）→ 扁平 KernelEvent。
  */
-import { isAbortError, RecoverableInterrupt } from "@ragsystem/agent-protocol";
+import { isAbortError } from "./abort.js";
+import { RecoverableInterrupt } from "./recoverable-interrupt.js";
 import type { ChatMessage, TokenUsage } from "@ragsystem/agent-llm";
 import type {
   Context,

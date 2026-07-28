@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
+import { RecoverableInterrupt } from "@ragsystem/agent-sdk";
 import { createHookRegistry, type ToolExecContext } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import { registerGateHook } from "../../src/services/agent/sdk/gate-hook.js";

@@ -1,7 +1,5 @@
-/** 可恢复中断类型。 */
 export type RecoverableInterruptKind = "approval" | "user_input";
 
-/** 可恢复中断携带的 run 树上下文。 */
 export interface RecoverableInterruptContext {
   sessionId: string;
   runId: string;
@@ -12,11 +10,7 @@ export interface RecoverableInterruptContext {
   kind: RecoverableInterruptKind;
 }
 
-/**
- * 工具等待用户交互超时后抛出的可恢复中断。
- *
- * 该异常必须沿 agent 调用链静默冒泡，由宿主持久化 suspended 状态并释放运行资源。
- */
+/** Signals that the host should suspend a run until an interaction is resolved. */
 export class RecoverableInterrupt extends Error {
   readonly sessionId: string;
   readonly runId: string;

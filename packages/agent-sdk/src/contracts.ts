@@ -11,30 +11,19 @@
  * - 端口词汇去掉 backend-ts 的 runtime-tool-types 依赖，工具执行端口直接收 profile
  */
 import type { ChatMessage, LlmRequest, TokenUsage } from "@ragsystem/agent-llm";
-// 标量事件壳从协议面 import（供本文件 KernelEvent union 引用）+ re-export（供下游使用）。
-// 2 个携带 ChatMessage 的事件（intent_complete/assistant_intermediate）在下方 extends 壳扩展。
-import type {
-  FirstTokenEvent,
-  OutputDeltaEvent,
-  IntentDeltaEvent,
-  ToolCallEvent,
-  ToolResultEvent,
-  RuntimeErrorEvent,
-  ContextUsageEvent,
-  IntentCompleteEvent as IntentCompleteWire,
-  AssistantIntermediateEvent as AssistantIntermediateWire,
-} from "@ragsystem/agent-protocol";
+import type { KernelEvent } from "./kernel-events.js";
 export type {
+  KernelEvent,
   FirstTokenEvent,
   OutputDeltaEvent,
   IntentDeltaEvent,
+  IntentCompleteEvent,
+  AssistantIntermediateEvent,
   ToolCallEvent,
   ToolResultEvent,
   RuntimeErrorEvent,
   ContextUsageEvent,
-  KernelWireEvent,
-  WireTranslationContext,
-} from "@ragsystem/agent-protocol";
+} from "./kernel-events.js";
 import type {
   AgentProfile,
   ToolCallRef,
@@ -50,38 +39,11 @@ import type { KernelContext } from "./kernel-context.js";
 /* ============================================================
  * 一、KernelEvent —— 内核产出的运行时语义事件（透传，不翻译）
  *
- * 事件契约下沉协议面：标量壳定义在 @ragsystem/agent-protocol（packages/core/src/kernel-events.ts），
- * 本文件 re-export 7 个纯标量事件（first_token/output_delta/intent_delta/tool_call/tool_result/error/context_usage）。
- * 2 个携带 ChatMessage 的事件（intent_complete/assistant_intermediate）在此 extends 标量壳
- * + 补 message 字段——ChatMessage 持久化由 Dispatcher 用本 union 落库，翻译成 Envelope 由协议面纯函数完成
- *（translateKernelEvent 只读壳的标量字段，不读 message）。内核仍 emit 单一 KernelEvent union，Dispatcher 零改。
+ * 完整事件定义由 SDK 自己拥有并从 kernel-events.ts re-export。
+ * ChatMessage 持久化由宿主消费完整事件完成；投影成 Envelope 是宿主适配层的职责。
  *
  * Dispatcher 按类型分流（落 store + 推 handle.events 流）；翻译成 Envelope 是消费端（backend-ts）的事。
  * ========================================================== */
-
-/**
- * intent 完成（完整事件）：在协议面标量壳上扩展 assistantMessage——Dispatcher 据此 addMessage + 关联 step。
- */
-export interface IntentCompleteEvent extends IntentCompleteWire {
-  assistantMessage?: ChatMessage;
-}
-
-/** assistant 中间态（完整事件）：壳上扩展 message——Dispatcher.persistAssistantMessage 据此落库。 */
-export interface AssistantIntermediateEvent extends AssistantIntermediateWire {
-  message: ChatMessage;
-}
-
-/** 内核事件 union（含 ChatMessage 字段的完整版，内核 emit / Dispatcher 落库用）。 */
-export type KernelEvent =
-  | FirstTokenEvent
-  | OutputDeltaEvent
-  | IntentDeltaEvent
-  | IntentCompleteEvent
-  | AssistantIntermediateEvent
-  | ToolCallEvent
-  | ToolResultEvent
-  | RuntimeErrorEvent
-  | ContextUsageEvent;
 
 /* ============================================================
  * 二、内核循环的零件类型

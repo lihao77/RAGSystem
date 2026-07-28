@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createHookRegistry } from "@ragsystem/agent-sdk";
-import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
+import { RecoverableInterrupt } from "@ragsystem/agent-sdk";
 import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
 
 // 纯 registry 聚合逻辑测试（不跑 runtime）。内核消费侧（tool.before deny 跳过工具等）

@@ -12,7 +12,7 @@
  * 与 backend-ts 差异：metadata 从 session.agent.agent_name 改读 session.profile.agentName。
  */
 import type { ChatMessage } from "@ragsystem/agent-llm";
-import { throwIfAborted } from "@ragsystem/agent-protocol";
+import { throwIfAborted } from "./abort.js";
 import type { KernelResult, RuntimeSession } from "./contracts.js";
 
 export class KernelContext {

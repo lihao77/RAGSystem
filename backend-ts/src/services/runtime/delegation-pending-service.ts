@@ -5,7 +5,7 @@
  * 同一个 run 的 abortSignal 经 ToolExecContext.signal 透传到壳 call，故每个 wait 自监听 signal；
  * run 停止时 signal abort 触发所有 in-flight wait 各自 reject，无需全局 rejectAll。
  */
-import { RuntimeAbortError } from "@ragsystem/agent-protocol";
+import { RuntimeAbortError } from "@ragsystem/agent-sdk";
 
 export interface DelegationResolution {
   ok: boolean;

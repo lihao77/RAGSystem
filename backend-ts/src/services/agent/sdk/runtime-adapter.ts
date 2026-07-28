@@ -5,10 +5,10 @@ import { asString } from "../../../utils/guards.js";
  * SDK 收窄为纯计算内核（B1：Dispatcher 不再落库，只推 KernelEvent 事件流）；本适配器通过
  * deployment-neutral persister 完成 message/run/step/outbox 写入，并翻译 KernelEvent 推送 Envelope。
  */
-import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, resolveToolInstructionMode, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
+import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, RecoverableInterrupt, resolveToolInstructionMode, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefresher } from "@ragsystem/agent-sdk";
 import type { ChatMessage } from "@ragsystem/agent-llm";
-import { RecoverableInterrupt, translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
+import { translateKernelEvent, type WireTranslationContext } from "./event-translation.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { MessageInfo, SessionIdentity } from "../../../contracts/session/session.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
@@ -366,14 +366,13 @@ export async function executeRunWithSdk(
     refresher,
   };
 
-  // 翻译上下文（agent-protocol.translateKernelEvent 纯函数用）：root call + lineage。
+  // 翻译上下文：root call + lineage。
   const wireCtx: WireTranslationContext = {
     sessionId: input.sessionId,
     runId: input.runId,
     rootCallId: input.rootCallId,
     requestId: input.requestId,
     agentId: input.agent.agent_name,
-    agentDisplayName: input.agent.display_name || input.agent.agent_name,
   };
   if (input.lineageParentCallId !== undefined && input.lineageParentCallId !== null) {
     wireCtx.parentCallId = input.lineageParentCallId;
