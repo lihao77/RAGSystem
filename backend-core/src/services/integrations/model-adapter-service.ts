@@ -19,9 +19,8 @@ import {
   type ProviderConfig,
 } from "@ragsystem/agent-llm";
 import { DEFAULT_ENDPOINTS, PROVIDER_TYPES, PROVIDER_TYPE_SET } from "@ragsystem/agent-llm";
-import type { StoredReranker } from "../../contracts/vector-store/index.js";
 import { OpenAiCompatibleEmbeddingClient } from "./embedding-client.js";
-import { OpenAiCompatibleRerankClient } from "./reranker-client.js";
+import { OpenAiCompatibleRerankClient, type RerankerEndpointConfig } from "./reranker-client.js";
 
 const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "providers.yaml");
 
@@ -893,18 +892,13 @@ function normalizeRerankDocuments(documents: unknown, prompt: string): Array<{ i
   });
 }
 
-function providerAsStoredReranker(provider: ModelProviderConfig, model: string): StoredReranker {
+function providerAsStoredReranker(provider: ModelProviderConfig, model: string): RerankerEndpointConfig {
   const providerKey = provider.key ?? provider.name;
   return {
     reranker_key: providerKey,
-    mode: "model",
-    provider_key: providerKey,
-    provider_type: provider.provider_type || null,
     model_name: model,
     api_endpoint: String(provider.api_endpoint ?? ""),
     api_key: provider.api_key == null ? null : String(provider.api_key),
-    created_at: "",
-    is_active: true,
   };
 }
 

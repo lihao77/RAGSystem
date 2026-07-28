@@ -58,4 +58,8 @@ export class CapabilityRegistry {
   list(): readonly string[] {
     return Array.from(this.values.keys()).sort();
   }
+
+  providedValues(): readonly unknown[] {
+    return Array.from(this.values.values(), (entry) => entry.value);
+  }
 }

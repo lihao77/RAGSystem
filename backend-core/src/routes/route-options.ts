@@ -1,6 +1,4 @@
 import type { FastifyRequest } from "fastify";
-import type { AsyncKnowledgeFileStore } from "../contracts/knowledge/async-knowledge-file-store.js";
-import type { AsyncKnowledgeMarkdownPipeline } from "../contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import type { AsyncSessionFileStorage } from "../contracts/session/session-file-storage.js";
 import type { AsyncFileHistoryStore } from "../contracts/file-history-store/index.js";
 
@@ -19,7 +17,6 @@ import type { MonitoringApplication } from "../contracts/application/monitoring-
 import type { ExecutionApplication } from "../contracts/execution/execution-application.js";
 import type { SessionFileApplication } from "../contracts/application/session-file-application.js";
 import type { FileChangeApplication } from "../contracts/application/file-change-application.js";
-import type { KnowledgeApplication } from "../contracts/application/knowledge-application.js";
 
 export interface RouteOptions {
   registry: TenantRuntimeRegistry;
@@ -27,9 +24,6 @@ export interface RouteOptions {
   resolveMemoryApplication?: (
     request: FastifyRequest,
   ) => MemoryApplication | undefined | Promise<MemoryApplication | undefined>;
-  resolveKnowledgeFileStore?: (request: FastifyRequest) => AsyncKnowledgeFileStore | undefined | Promise<AsyncKnowledgeFileStore | undefined>;
-  resolveKnowledgeMarkdownPipeline?: (request: FastifyRequest) => AsyncKnowledgeMarkdownPipeline | undefined | Promise<AsyncKnowledgeMarkdownPipeline | undefined>;
-  resolveKnowledgeApplication?: (request: FastifyRequest) => KnowledgeApplication | undefined | Promise<KnowledgeApplication | undefined>;
   resolveProviderApplication?: (request: FastifyRequest) => ProviderApplication | undefined | Promise<ProviderApplication | undefined>;
   resolveMcpApplication?: (request: FastifyRequest) => McpApplication | undefined | Promise<McpApplication | undefined>;
   resolveSessionApplication?: (request: FastifyRequest) => SessionApplication | undefined | Promise<SessionApplication | undefined>;

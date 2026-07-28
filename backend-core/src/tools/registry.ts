@@ -7,7 +7,6 @@
 import type { Tool } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../contracts/agent/agent-config.js";
 import type { DelegationPort } from "../services/agent/delegation/port.js";
-import type { KnowledgeQueryPort } from "../contracts/knowledge/query-port.js";
 import type { McpService } from "../services/integrations/mcp-service.js";
 import type { CommandExecutionPort, CodeExecutionPort, DocumentToolPort, WorkspaceSearchPort } from "../contracts/runtime/tool-ports.js";
 import type { MemoryToolOperations } from "./MemoryTools/MemoryExecution.js";
@@ -19,7 +18,6 @@ import { createBashTools } from "./BashTool/BashTool.js";
 import { createCodeExecutionTools } from "./CodeExecutionTool/CodeExecutionTool.js";
 import { createDelegationTools, type DelegationAgentConfigLookup } from "./DelegationTools/DelegationTools.js";
 import { createDocumentTools } from "./DocumentTools/DocumentTools.js";
-import { createKnowledgeTools } from "./KnowledgeTools/KnowledgeTools.js";
 import { createLocalSearchTools } from "./LocalSearchTools/LocalSearchTools.js";
 import { createMcpTools } from "./McpTools/McpTools.js";
 import { createMemoryTools } from "./MemoryTools/MemoryTools.js";
@@ -35,7 +33,6 @@ export interface BackendToolsDeps {
   bashTools: CommandExecutionPort | null;
   taskTools: TaskToolService | null;
   searchTools: WorkspaceSearchPort | null;
-  knowledge: KnowledgeQueryPort | null;
   mcp: McpService | null;
   codeExecutionTools: CodeExecutionPort | null;
   skillTools: SkillToolService | null;
@@ -62,7 +59,6 @@ export function createBackendTools(deps: BackendToolsDeps, pathService: PathAcce
     ...createCodeExecutionTools({ codeExecutionTools: deps.codeExecutionTools, agent }),
     ...createLocalSearchTools({ service: deps.searchTools, agent }),
     ...createSkillTools({ skillTools: deps.skillTools, agent }),
-    ...createKnowledgeTools({ knowledge: deps.knowledge, agent }),
     ...createTaskTools({ taskTools: deps.taskTools, agent }),
     ...createMemoryTools({ memoryTools: deps.memoryTools, agent }),
     ...createDelegationTools({

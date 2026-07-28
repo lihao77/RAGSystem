@@ -110,14 +110,6 @@ export function buildCustomAgentConfig(input: CreateAgentRequest): AgentConfig {
     goals: { enabled: false },
     tasks: { background: false },
     delegation: { enabled_agents: [] },
-    knowledge_base: {
-      enabled: false,
-      default_collection: "documents",
-      default_search_mode: "hybrid",
-      default_top_k: 5,
-      default_rerank: false,
-      default_reranker_key: null,
-    },
     custom_params: input.custom_params ?? {},
   });
 }
@@ -190,14 +182,6 @@ function buildSystemAgentConfig(input: {
     goals: { enabled: false, ...(input.goals ?? {}) },
     tasks: { background: false, ...(input.tasks ?? {}) },
     delegation: { enabled_agents: input.delegation ?? [] },
-    knowledge_base: {
-      enabled: false,
-      default_collection: "documents",
-      default_search_mode: "hybrid",
-      default_top_k: 5,
-      default_rerank: false,
-      default_reranker_key: null,
-    },
     custom_params: {
       type: "orchestrator",
       behavior: {

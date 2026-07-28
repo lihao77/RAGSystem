@@ -1,0 +1,13 @@
+export { PostgresKnowledgeConfigRepository } from "./knowledge-config-repository.js";
+export { PostgresKnowledgeFileMetadataRepository } from "./knowledge-file-repository.js";
+export { PostgresKnowledgeVectorIndexRepository } from "./vector-index-repository.js";
+export { PostgresPgVectorRepository } from "./pgvector-repository.js";
+export { SaaSKnowledgeFileStorage } from "./knowledge-file-storage.js";
+export { runPostgresKnowledgeConfigMigrations } from "./knowledge-config-migrations.js";
+export { runPostgresKnowledgeFileMigrations } from "./knowledge-file-migrations.js";
+export { runPostgresVectorIndexMigrations } from "./vector-index-migrations.js";
+export { runPostgresPgVectorMigrations } from "./pgvector-migrations.js";
+export { createPostgresKnowledgeLifecycle } from "./lifecycle.js";
+export { createPostgresKnowledgeApplication } from "./runtime.js";
+export type { PostgresKnowledgeRuntimeOptions } from "./runtime.js";
+export type { KnowledgePostgresExecutor, KnowledgePostgresQueryExecutor } from "./executor.js";

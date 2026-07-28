@@ -56,26 +56,8 @@ const AgentConfigObjectSchema = z.object({
     .object({ enabled_agents: z.array(z.string()).optional().default([]) })
     .optional()
     .default({ enabled_agents: [] }),
-  knowledge_base: z
-    .object({
-      enabled: z.boolean().optional().default(false),
-      default_collection: z.string().optional().default("documents"),
-      default_search_mode: z.string().optional().default("hybrid"),
-      default_top_k: z.number().int().positive().optional().default(5),
-      default_rerank: z.boolean().optional().default(false),
-      default_reranker_key: z.string().nullable().optional().default(null),
-    })
-    .optional()
-    .default({
-      enabled: false,
-      default_collection: "documents",
-      default_search_mode: "hybrid",
-      default_top_k: 5,
-      default_rerank: false,
-      default_reranker_key: null,
-    }),
   custom_params: z.record(z.unknown()).optional().default({}),
-});
+}).passthrough();
 
 /** Preserve the old workflow capability when reading pre-Goal agent configs. */
 export const AgentConfigSchema = z.preprocess((value) => {

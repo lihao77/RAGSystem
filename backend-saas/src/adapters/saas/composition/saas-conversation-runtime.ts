@@ -7,7 +7,6 @@ import {
   type PostgresMemoryExecutor,
   PostgresConversationRepository,
   PostgresWorkspaceRepository,
-  PostgresKnowledgeFileMetadataRepository,
   PostgresOutboxRepository,
   PostgresProviderContinuationRepository,
   PostgresPendingInteractionRepository,
@@ -20,15 +19,9 @@ import {
   PostgresWsTicketService,
   PostgresRealtimeEventRelay,
   PostgresRealtimeEventBus,
-  runPostgresKnowledgeFileMigrations,
-  runPostgresKnowledgeConfigMigrations,
   runPostgresOutboxMigrations,
   runPostgresPendingInteractionMigrations,
   runPostgresProviderMcpMigrations,
-  runPostgresVectorIndexMigrations,
-  PostgresKnowledgeVectorIndexRepository,
-  runPostgresPgVectorMigrations,
-  PostgresPgVectorRepository,
   runPostgresRunMigrations,
   runPostgresBackgroundTaskMigrations,
   PostgresBackgroundTaskRepository,
@@ -53,8 +46,6 @@ import {
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
 import { SaaSSkillPackageStore } from "../object-storage/skill-package-storage.js";
 import type { ISkillPackageStore } from "@ragsystem/backend-core/contracts/skills/skill-package-store.js";
-import { SaaSKnowledgeFileStorage } from "../../../adapters/saas/object-storage/knowledge-file-storage.js";
-import type { AsyncKnowledgeFileStore } from "@ragsystem/backend-core/contracts/knowledge/async-knowledge-file-store.js";
 import { SaaSProviderMcpApplication } from "../../../adapters/saas/application/provider-mcp/saas-provider-mcp-application.js";
 import { OutboxDispatcher } from "@ragsystem/backend-core/services/runtime/event-outbox/dispatcher.js";
 import { SaaSFileHistoryStorage } from "../../../adapters/saas/object-storage/file-history-storage.js";
@@ -67,9 +58,6 @@ import type { RuntimeStorage } from "@ragsystem/backend-core/contracts/storage/r
 import { createTenantId, type TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { WorkflowTaskStore } from "@ragsystem/backend-core/contracts/runtime/workflow-tasks.js";
 import type { GoalStore } from "@ragsystem/backend-core/contracts/runtime/goals.js";
-import { PostgresKnowledgeConfigRepository } from "../../../adapters/saas/postgres/knowledge-config-repository.js";
-import { KnowledgeApplicationService } from "@ragsystem/backend-core/services/knowledge/knowledge-application-service.js";
-import type { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 import { buildExpiredRunLeaseRecord } from "@ragsystem/backend-core/services/runtime/event-outbox/execution-envelope-archive.js";
 
 export interface SaaSConversationRuntimeOptions {
@@ -99,16 +87,7 @@ export interface SaaSConversationRuntimeHandle {
   /** Process-level outbox recovery poller shared across all tenant runtimes. */
   sharedOutboxDispatcher: OutboxDispatcher;
   providerContinuations: PostgresProviderContinuationRepository;
-  knowledgeFiles: PostgresKnowledgeFileMetadataRepository;
   pendingInteractions: PostgresPendingInteractionRepository;
-  /** Tenant-bound asynchronous knowledge metadata/blob facade. */
-  createKnowledgeFileStorage(tenantId: string): AsyncKnowledgeFileStore;
-  vectorIndex: PostgresKnowledgeVectorIndexRepository;
-  /** Tenant-scoped vector data-plane backed by PostgreSQL pgvector. */
-  vectorStore: PostgresPgVectorRepository;
-  /** Tenant-bound Agent knowledge query port backed by PostgreSQL pgvector. */
-  knowledgeConfig: PostgresKnowledgeConfigRepository;
-  createKnowledgeService(tenantId: string, modelAdapter: ModelAdapterService): KnowledgeApplicationService;
   providerMcp: PostgresProviderMcpRepository;
   providerMcpApplication: SaaSProviderMcpApplication;
   backgroundTasks: PostgresBackgroundTaskRepository;
@@ -147,12 +126,8 @@ export async function createSaaSConversationRuntime(
       await runPostgresChildAgentMigrations(executor);
       await runPostgresWsTicketMigrations(executor);
       await runPostgresOutboxMigrations(executor);
-      await runPostgresKnowledgeFileMigrations(executor);
-      await runPostgresKnowledgeConfigMigrations(executor);
       await runPostgresPendingInteractionMigrations(executor);
       await runPostgresProviderMcpMigrations(executor);
-      await runPostgresVectorIndexMigrations(executor);
-      await runPostgresPgVectorMigrations(executor);
       await runPostgresBackgroundTaskMigrations(executor);
       await runPostgresWorkflowTaskMigrations(executor);
       await runPostgresGoalMigrations(executor);
@@ -221,12 +196,8 @@ export async function createSaaSConversationRuntime(
     }, 20_000);
     runLeaseRecoveryTimer.unref?.();
     const providerContinuations = new PostgresProviderContinuationRepository(executor);
-    const knowledgeFiles = new PostgresKnowledgeFileMetadataRepository(executor);
     const pendingInteractions = new PostgresPendingInteractionRepository(executor);
     const providerMcp = new PostgresProviderMcpRepository(executor, options.secretResolver);
-    const vectorIndex = new PostgresKnowledgeVectorIndexRepository(executor);
-    const vectorStore = new PostgresPgVectorRepository(executor);
-    const knowledgeConfig = new PostgresKnowledgeConfigRepository(executor);
     const backgroundTasks = new PostgresBackgroundTaskRepository(executor);
     const analytics = new PostgresAnalyticsRepository(executor);
     const fileHistory = new PostgresFileHistoryMetadataRepository(executor);
@@ -252,18 +223,9 @@ export async function createSaaSConversationRuntime(
       outbox,
       sharedOutboxDispatcher,
       providerContinuations,
-      knowledgeFiles,
       pendingInteractions,
-      createKnowledgeFileStorage: (tenantId) => {
-        if (!options.objectStorage) throw new Error("SaaS knowledge file storage requires ObjectStorage");
-        return new SaaSKnowledgeFileStorage(tenantId, knowledgeFiles, options.objectStorage);
-      },
       providerMcp,
       providerMcpApplication,
-      vectorIndex,
-      vectorStore,
-      knowledgeConfig,
-      createKnowledgeService: (tenantId, modelAdapter) => new KnowledgeApplicationService(tenantId, modelAdapter, knowledgeConfig, vectorStore),
       backgroundTasks,
       createWorkflowTaskStore: (tenantId) => new PostgresWorkflowTaskRepository(tenantId, executor),
       createGoalStore: (tenantId) => new PostgresGoalRepository(tenantId, executor),

@@ -14,6 +14,7 @@ import type {
 } from "../../contracts/runtime/runtime-container.js";
 import { RuntimeInteractionCoordinator } from "./pending-interaction-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
+import { CapabilityRegistry } from "../../plugins/capability-registry.js";
 
 /** Assemble deployment-provided services into the shared agent runtime. */
 export function createCoreRuntimeContainer(dependencies: LocalCoreRuntimeDependencies): LocalRuntimeContainer;
@@ -36,7 +37,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     systemConfig,
     mcp,
     sessionFiles,
-    knowledge,
     memoryBindings,
     documentTools,
     codeExecutionTools,
@@ -53,6 +53,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     eventDispatcher,
     clientEvents,
   } = dependencies;
+  const pluginCapabilities = dependencies.pluginCapabilities ?? new CapabilityRegistry();
 
   const interactionCoordinator = new RuntimeInteractionCoordinator(
     dependencies.runtimeStorage,
@@ -69,7 +70,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     bashTools,
     taskTools,
     searchTools,
-    knowledge,
     mcp,
     codeExecutionTools,
     skillTools,
@@ -114,7 +114,10 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
         dependencies.plugins?.configureHooks(registry);
       },
     } : {}),
-    ...(dependencies.plugins ? { pluginTools: dependencies.plugins.createTools } : {}),
+    ...(dependencies.plugins ? {
+      pluginTools: (context: import("../../plugins/backend-plugin.js").BackendToolFactoryContext) =>
+        dependencies.plugins!.createTools({ ...context, capabilities: pluginCapabilities }),
+    } : {}),
     runtimeStorage: dependencies.runtimeStorage,
   });
   const resumeExecutor = createResumeExecutor({
@@ -135,6 +138,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   const common = {
     deploymentKind,
     tenantId,
+    pluginCapabilities,
     sessionApplication,
     realtimeEvents,
     sessionFiles,
@@ -145,7 +149,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     modelAdapter,
     systemConfig,
     mcp,
-    knowledge,
     memoryTools: memoryBindings.tools,
     memoryContextSourceFactory: memoryBindings.createContextSource,
     documentTools,

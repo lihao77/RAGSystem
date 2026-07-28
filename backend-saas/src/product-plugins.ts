@@ -6,6 +6,7 @@ import {
   loadReadableSessionForResource,
 } from "@ragsystem/backend-core/routes/session-owner.js";
 import { createArtifactsPlugin, createPostgresArtifactStorage } from "@ragsystem/backend-plugin-artifacts/index.js";
+import { createKnowledgePlugin, createPostgresKnowledgeLifecycle } from "@ragsystem/backend-plugin-knowledge/index.js";
 import type { SaaSDeploymentRuntime } from "./adapters/saas/composition/saas-deployment-runtime.js";
 
 export function createSaaSProductPlugins(deployment: SaaSDeploymentRuntime): readonly BackendPlugin[] {
@@ -29,5 +30,7 @@ export function createSaaSProductPlugins(deployment: SaaSDeploymentRuntime): rea
         await loadMutableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
       },
     },
+  }), createKnowledgePlugin({
+    lifecycle: createPostgresKnowledgeLifecycle(deployment.pluginResources.database),
   })];
 }

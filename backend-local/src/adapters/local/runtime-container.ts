@@ -17,15 +17,19 @@ import { FileSystemConfigStore } from "../filesystem/config/file-system-config-s
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
 import { McpService } from "@ragsystem/backend-core/services/integrations/mcp-service.js";
 import { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
-import { DocumentExtractDispatcher } from "@ragsystem/backend-core/services/knowledge/document-extract/dispatcher.js";
-import { KnowledgeApplicationService } from "@ragsystem/backend-core/services/knowledge/knowledge-application-service.js";
+import {
+  KNOWLEDGE_APPLICATION_CAPABILITY,
+  KNOWLEDGE_PLUGIN_ID,
+  createLocalKnowledgeRuntime,
+  type LocalKnowledgeRuntime,
+} from "@ragsystem/backend-plugin-knowledge/index.js";
+import { CapabilityRegistry, provideCapability, type CapabilityProvider } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
 import { SkillLibraryService } from "@ragsystem/backend-core/services/skills/skill-library-service.js";
 import { createConversationStore } from "./sqlite/conversation-store/index.js";
 import { FileHistoryService } from "./files/file-history-service.js";
 import { FileIndexService } from "./files/file-index-service.js";
 import { LocalSessionFileLookup } from "./files/session-file-lookup.js";
-import { createLocalVectorStore } from "./vector-store/vector-store-factory.js";
 import { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
 import { createCoreRuntimeContainer } from "@ragsystem/backend-core/services/runtime/core-runtime-container.js";
 import { DelegationPendingService } from "@ragsystem/backend-core/services/runtime/delegation-pending-service.js";
@@ -36,7 +40,6 @@ import { RealtimeEventHub } from "@ragsystem/backend-core/services/runtime/realt
 import type { LocalRuntimeContainer } from "@ragsystem/backend-core/contracts/runtime/runtime-container.js";
 import type { LocalRuntimeContainerOptions } from "./runtime-options.js";
 import { SessionNotificationQueue } from "@ragsystem/backend-core/services/runtime/session-notification-queue.js";
-import { LocalAsyncKnowledgeMarkdownPipeline } from "./knowledge/local-async-knowledge-markdown-pipeline.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";
 import { LocalGoalStore } from "./local-goal-store.js";
 import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/path-approval-service.js";
@@ -48,7 +51,6 @@ import { LocalFileChangeApplication } from "./application/file-change/local-file
 import { LocalMemoryApplication } from "./application/memory/local-memory-application.js";
 import { LocalMonitoringApplication } from "./application/monitoring/local-monitoring-application.js";
 import { LocalSessionFileApplication } from "./application/session-file/local-session-file-application.js";
-import { KnowledgeHttpApplication } from "@ragsystem/backend-core/services/knowledge/knowledge-http-application.js";
 import { FileAgentConfigTeamStore } from "../filesystem/agent/file-team-store.js";
 import { FilesystemSkillPackageStore } from "../filesystem/skills/filesystem-skill-package-store.js";
 import { LocalMemoryContextRepository } from "./local-memory-context-repository.js";
@@ -130,18 +132,21 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   agentConfig.setMcpService(mcp);
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
 
-  const knowledgeDriver = createLocalVectorStore(dataRoot, { inMemory: options.dbPath === ":memory:" });
-  const documentExtractDispatcher = new DocumentExtractDispatcher(systemConfig.getDocumentExtractionConfig());
-  const knowledgeService = new KnowledgeApplicationService(
-    options.tenantId,
-    modelAdapter,
-    knowledgeDriver,
-    knowledgeDriver,
-    options.embedderFactory,
-  );
-  const knowledgeFiles = knowledgeDriver;
-  const knowledgeMarkdown = new LocalAsyncKnowledgeMarkdownPipeline(knowledgeFiles, documentExtractDispatcher);
-  const knowledge = knowledgeService;
+  const pluginCapabilityProviders: CapabilityProvider[] = [];
+  let knowledgeRuntime: LocalKnowledgeRuntime | null = null;
+  if (options.plugins?.isInstalled(KNOWLEDGE_PLUGIN_ID) ?? true) {
+    knowledgeRuntime = createLocalKnowledgeRuntime({
+      tenantId: options.tenantId,
+      dataRoot,
+      inMemory: options.dbPath === ":memory:",
+      modelAdapter,
+      documentExtraction: systemConfig.getDocumentExtractionConfig(),
+      ...(options.embedderFactory ? { embedderFactory: options.embedderFactory } : {}),
+    });
+    pluginCapabilityProviders.push(
+      provideCapability(KNOWLEDGE_APPLICATION_CAPABILITY, knowledgeRuntime.application, KNOWLEDGE_PLUGIN_ID),
+    );
+  }
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryToolRepository = new LocalMemoryToolRepository(memoryStore);
   const memoryContextRepository = new LocalMemoryContextRepository(memoryStore, {
@@ -225,7 +230,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
 
-  const localKnowledge = new KnowledgeHttpApplication(knowledgeService, knowledgeFiles, knowledgeMarkdown);
+  const pluginCapabilities = new CapabilityRegistry(pluginCapabilityProviders);
   const localAnalytics = new LocalAnalyticsApplication(conversationStore);
   const localMonitoring = new LocalMonitoringApplication(conversationStore);
   const localSessionFiles = new LocalSessionFileApplication(fileIndex);
@@ -235,6 +240,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const runtime = createCoreRuntimeContainer({
     deploymentKind: "local",
     tenantId: options.tenantId,
+    pluginCapabilities,
     dataRoot,
     getMemoryConfig: () => systemConfig.getMemoryConfig(),
     logger: options.logger,
@@ -252,7 +258,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     systemConfig,
     mcp,
     sessionFiles: new LocalSessionFileLookup(fileIndex),
-    knowledge,
     memoryBindings,
     runtimeStorage,
     executionStorage: options.executionStorage
@@ -285,7 +290,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
         sessionApplication,
         conversationStore,
       ),
-      knowledge: localKnowledge,
       analytics: localAnalytics,
       monitoring: localMonitoring,
       get executionRead() {
@@ -307,7 +311,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
       transientResources.stopPruning();
       outboxDispatcher.stop();
       mcp.close();
-      knowledgeDriver.close();
+      knowledgeRuntime?.close();
       fileIndex.close();
       conversationStore.close();
     },

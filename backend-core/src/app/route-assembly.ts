@@ -14,9 +14,7 @@ import { registerSessionWebSocketRoute } from "../routes/agent/ws.js";
 import { registerAuthRoutes, registerInstallRoutes } from "../routes/auth.js";
 import { registerBootstrapRoutes } from "../routes/bootstrap.js";
 import { registerBotRoutes } from "../routes/bots.js";
-import { registerEmbeddingModelRoutes } from "../routes/embedding-models.js";
 import { registerHealthRoutes, registerProbeRoutes } from "../routes/health.js";
-import { registerKnowledgeBaseRoutes } from "../routes/knowledge-base.js";
 import { registerMcpRoutes } from "../routes/mcp.js";
 import { registerMemoryRoutes } from "../routes/memory.js";
 import { registerModelAdapterRoutes } from "../routes/model-adapter.js";
@@ -84,7 +82,6 @@ export interface SharedBusinessRouteAssemblyOptions {
   wsTickets: WsTicketService;
   registerPublicAgui: boolean;
   resolveMemoryApplication: NonNullable<RouteOptions["resolveMemoryApplication"]>;
-  resolveKnowledgeApplication: NonNullable<RouteOptions["resolveKnowledgeApplication"]>;
   resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
   resolveMcpApplication: NonNullable<RouteOptions["resolveMcpApplication"]>;
   resolveSessionApplication: NonNullable<RouteOptions["resolveSessionApplication"]>;
@@ -113,7 +110,6 @@ export async function registerSharedBusinessRoutes(
       resolveMonitoringApplication: options.resolveMonitoringApplication,
       resolveExecutionRead: options.resolveExecutionRead,
       resolveExecutionApplication: options.resolveExecutionApplication,
-      resolveKnowledgeApplication: options.resolveKnowledgeApplication,
       resolveProviderApplication: options.resolveProviderApplication,
       resolveMcpApplication: options.resolveMcpApplication,
     };
@@ -128,8 +124,6 @@ export async function registerSharedBusinessRoutes(
     await scope.register(registerModelAdapterRoutes, { prefix: "/api/model-adapter", ...routeOptions });
     await scope.register(registerSystemConfigRoutes, { prefix: "/api/system-config", ...routeOptions });
     await scope.register(registerMcpRoutes, { prefix: "/api/mcp", ...routeOptions });
-    await scope.register(registerKnowledgeBaseRoutes, { prefix: "/api/knowledge-bases", ...routeOptions });
-    await scope.register(registerEmbeddingModelRoutes, { prefix: "/api/embedding-models", ...routeOptions });
     await scope.register(registerAgentRoutes, {
       prefix: "/api/agent",
       ...routeOptions,

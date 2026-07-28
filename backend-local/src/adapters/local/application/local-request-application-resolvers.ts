@@ -38,12 +38,6 @@ export function createLocalRequestApplicationResolvers(): RequestApplicationReso
   };
 }
 
-export function createLocalKnowledgeApplicationResolver() {
-  return (request: Parameters<RequestApplicationResolvers["resolveSessionApplication"]>[0]) => {
-    return requireLocalCapabilities(request).knowledge;
-  };
-}
-
 export function createLocalSessionFileApplicationResolver() {
   return (request: Parameters<RequestApplicationResolvers["resolveSessionApplication"]>[0]) =>
     requireLocalCapabilities(request).sessionFiles;

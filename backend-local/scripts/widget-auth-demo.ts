@@ -15,10 +15,9 @@ import { buildCoreApp } from "@ragsystem/backend-core/core-app.js";
 import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import { createLocalRuntimeContainer } from "../src/adapters/local/runtime-container.js";
-import { HashFallbackEmbedder } from "@ragsystem/backend-core/services/integrations/embedder-registry.js";
+import { HashFallbackEmbedder } from "@ragsystem/backend-plugin-knowledge/services/integrations/embedder-registry.js";
 import {
   createLocalFileChangeApplicationResolver,
-  createLocalKnowledgeApplicationResolver,
   createLocalRequestApplicationResolvers,
   createLocalSessionFileApplicationResolver,
 } from "../src/adapters/local/application/local-request-application-resolvers.js";
@@ -78,7 +77,6 @@ async function buildHarness(widgetJwtSecret: string) {
     widgetCredentials,
     applications: {
       ...applications,
-      resolveKnowledgeApplication: createLocalKnowledgeApplicationResolver(),
       resolveSessionFileApplication: createLocalSessionFileApplicationResolver(),
       resolveFileChangeApplication: createLocalFileChangeApplicationResolver(),
     },

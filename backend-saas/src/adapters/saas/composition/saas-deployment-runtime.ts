@@ -1,20 +1,10 @@
-import type { FastifyRequest } from "fastify";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 
 import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
-import { TenantKnowledgeMarkdownPipeline } from "@ragsystem/backend-core/contracts/knowledge/async-knowledge-markdown-pipeline.js";
-import type { AsyncKnowledgeFileStore } from "@ragsystem/backend-core/contracts/knowledge/async-knowledge-file-store.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
 import { RuntimeExecutionApplication } from "@ragsystem/backend-core/services/agent/execution/runtime-execution-application.js";
 import { PasswordIdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
-import { DocumentExtractDispatcher } from "@ragsystem/backend-core/services/knowledge/document-extract/dispatcher.js";
-import { KnowledgeHttpApplication } from "@ragsystem/backend-core/services/knowledge/knowledge-http-application.js";
-import type { KnowledgeApplicationService } from "@ragsystem/backend-core/services/knowledge/knowledge-application-service.js";
 import { SaaSAnalyticsApplication } from "../application/analytics/saas-analytics-application.js";
 import { SaaSAgentReadApplication } from "../application/execution/saas-agent-read-application.js";
 import { SaaSFileChangeApplication } from "../application/file-change/saas-file-change-application.js";
@@ -99,15 +89,6 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
     pluginResources: { database: conversation.pluginResources.database, objects },
     applications: {
       resolveMemoryApplication: createSaaSMemoryApplicationResolver(memory.provider),
-      resolveKnowledgeApplication: (request) => {
-        const files = conversation.createKnowledgeFileStorage(request.identity.tenantId);
-        const markdown = createSaaSKnowledgeMarkdownPipeline(request, files);
-        return new KnowledgeHttpApplication(
-          request.container.knowledge as KnowledgeApplicationService,
-          files,
-          markdown,
-        );
-      },
       resolveSessionFileApplication: (request) => new SaaSSessionFileApplication(
         conversation.createSessionFileStorage(request.identity.tenantId),
       ),
@@ -200,17 +181,4 @@ async function closePartialRuntime(
   await conversation?.wsTickets.close().catch(() => undefined);
   await control?.close().catch(() => undefined);
   await pool?.end().catch(() => undefined);
-}
-
-function createSaaSKnowledgeMarkdownPipeline(request: FastifyRequest, files: AsyncKnowledgeFileStore) {
-  const dispatcher = new DocumentExtractDispatcher(request.container.systemConfig.getDocumentExtractionConfig());
-  return new TenantKnowledgeMarkdownPipeline(files, async ({ body, fileName, mime }) => {
-    const temporaryPath = path.join(os.tmpdir(), `ragsystem-knowledge-${randomUUID()}-${path.basename(fileName)}`);
-    await fs.writeFile(temporaryPath, body);
-    try {
-      return (await dispatcher.extract({ file_path: temporaryPath, file_name: fileName, mime })).markdown;
-    } finally {
-      await fs.unlink(temporaryPath).catch(() => undefined);
-    }
-  });
 }

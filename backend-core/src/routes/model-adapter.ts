@@ -11,6 +11,11 @@ import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
 import { ensureRequestApplications } from "../app/request-applications.js";
+import {
+  isProviderUsageContributor,
+  type ProviderUsage,
+  PROVIDER_USAGE_CONTRIBUTOR,
+} from "../contracts/integrations/provider-usage.js";
 
 interface ProviderParams {
   providerKey: string;
@@ -160,13 +165,6 @@ function redactProviderSecrets<T extends Record<string, unknown>>(provider: T): 
   };
 }
 
-interface ProviderUsage {
-  kind: "agent" | "vectorizer" | "reranker";
-  key: string;
-  label: string;
-  detail: string;
-}
-
 async function collectProviderUsages(
   request: FastifyRequest,
   options: RouteOptions,
@@ -193,30 +191,9 @@ async function collectProviderUsages(
     }
   }
 
-  const knowledge = await options.resolveKnowledgeApplication?.(request);
-  if (knowledge) {
-    const [vectorizers, rerankers] = await Promise.all([
-      knowledge.listVectorizers(),
-      knowledge.listRerankers(),
-    ]);
-    for (const vectorizer of vectorizers) {
-      if (!aliases.has(normalizeProviderRef(vectorizer.provider_key))) continue;
-      usages.push({
-        kind: "vectorizer",
-        key: vectorizer.vectorizer_key,
-        label: vectorizer.vectorizer_key,
-        detail: vectorizer.model_name,
-      });
-    }
-    for (const reranker of rerankers) {
-      if (reranker.mode !== "model" || !aliases.has(normalizeProviderRef(reranker.provider_key))) continue;
-      usages.push({
-        kind: "reranker",
-        key: reranker.reranker_key,
-        label: reranker.reranker_key,
-        detail: reranker.model_name,
-      });
-    }
+  for (const capability of request.container.pluginCapabilities.providedValues()) {
+    if (!isProviderUsageContributor(capability)) continue;
+    usages.push(...await capability[PROVIDER_USAGE_CONTRIBUTOR](aliases));
   }
 
   return usages;

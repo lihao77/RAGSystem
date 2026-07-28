@@ -5,7 +5,6 @@ import type { SessionTokenService } from "@ragsystem/backend-core/services/runti
 import { createWsTicketService } from "@ragsystem/backend-core/services/runtime/ws-ticket-service.js";
 import {
   createLocalFileChangeApplicationResolver,
-  createLocalKnowledgeApplicationResolver,
   createLocalRequestApplicationResolvers,
   createLocalSessionFileApplicationResolver,
 } from "../application/local-request-application-resolvers.js";
@@ -38,7 +37,6 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
     widgetCredentials,
     applications: {
       ...applications,
-      resolveKnowledgeApplication: createLocalKnowledgeApplicationResolver(),
       resolveSessionFileApplication: createLocalSessionFileApplicationResolver(),
       resolveFileChangeApplication: createLocalFileChangeApplicationResolver(),
     },

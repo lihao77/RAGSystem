@@ -1,11 +1,17 @@
-import type { StoredReranker } from "../../contracts/vector-store/index.js";
 import { externalCallPolicy, isRetryableHttpStatus, RetryableHttpError } from "@ragsystem/agent-llm";
 import { resolveEnvPlaceholder } from "./embedding-client.js";
+
+export interface RerankerEndpointConfig {
+  reranker_key: string;
+  model_name: string;
+  api_endpoint: string;
+  api_key: string | null;
+}
 
 export interface RerankRequest {
   query: string;
   documents: string[];
-  reranker: StoredReranker;
+  reranker: RerankerEndpointConfig;
   topN?: number | undefined;
 }
 
@@ -45,14 +51,14 @@ export class OpenAiCompatibleRerankClient implements RerankClient {
   }
 }
 
-function resolveRerankEndpoint(reranker: StoredReranker): string {
+function resolveRerankEndpoint(reranker: RerankerEndpointConfig): string {
   const raw = resolveEnvPlaceholder(reranker.api_endpoint).trim();
   if (!raw) throw new Error(`Reranker '${reranker.reranker_key}' is missing api_endpoint`);
   const normalized = raw.replace(/\/+$/, "");
   return normalized.endsWith("/rerank") ? normalized : `${normalized}/rerank`;
 }
 
-function resolveApiKey(reranker: StoredReranker): string {
+function resolveApiKey(reranker: RerankerEndpointConfig): string {
   const apiKey = resolveEnvPlaceholder(reranker.api_key ?? "").trim();
   if (!apiKey) throw new Error("Reranker API key is required");
   return apiKey;

@@ -38,6 +38,7 @@ export interface BackendToolFactoryContext {
   readonly tenantId: string;
   readonly agent: AgentConfig;
   readonly pathAccessPolicy: PathAccessPolicy;
+  readonly capabilities?: CapabilityRegistry;
 }
 
 export type BackendToolFactory = (
@@ -51,6 +52,7 @@ export interface PluginToolRegistrar {
 /** Immutable deployment input assembled from all registered plugins. */
 export interface BackendRuntimeContributions {
   readonly skillSources: readonly BackendSkillSourceContribution[];
+  isInstalled(pluginId: string): boolean;
   configureHooks(registry: HookRegistry): void;
   createTools(context: BackendToolFactoryContext): Promise<readonly Tool[]>;
 }

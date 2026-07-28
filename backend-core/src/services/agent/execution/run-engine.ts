@@ -887,7 +887,6 @@ const emptyToolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> = {
   bashTools: null,
   taskTools: null,
   searchTools: null,
-  knowledge: null,
   mcp: null,
   codeExecutionTools: null,
   skillTools: null,

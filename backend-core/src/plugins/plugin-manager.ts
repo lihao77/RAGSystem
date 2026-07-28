@@ -200,6 +200,7 @@ export class BackendPluginManager {
     const manager = this;
     return {
       get skillSources() { return manager.skillRegistry.list(); },
+      isInstalled: (pluginId) => manager.orderedPlugins.some((plugin) => plugin.manifest.id === pluginId),
       configureHooks: (registry) => manager.hookRegistry.install(registry),
       createTools: (context) => manager.toolRegistry.create(context),
     };

@@ -22,8 +22,6 @@ export const CONFIG_MANAGED_TOOL_NAMES = new Set([
   "call_agent",
   "list_child_agents",
   "send_message",
-  "search_knowledge_base",
-  "list_knowledge_collections",
   "activate_skill",
   "load_skill_resource",
   "execute_skill_script",
@@ -70,14 +68,6 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
     goals: config.goals ?? { enabled: false },
     tasks: config.tasks ?? { background: false },
     delegation: config.delegation ?? { enabled_agents: [] },
-    knowledge_base: config.knowledge_base ?? {
-      enabled: false,
-      default_collection: "documents",
-      default_search_mode: "hybrid",
-      default_top_k: 5,
-      default_rerank: false,
-      default_reranker_key: null,
-    },
     custom_params: config.custom_params ?? {},
   };
 }

@@ -2,6 +2,12 @@ import path from "node:path";
 
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { BackendRuntimeContributions } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import { CapabilityRegistry, provideCapability, type CapabilityProvider } from "@ragsystem/backend-core/plugins/capability-registry.js";
+import {
+  KNOWLEDGE_APPLICATION_CAPABILITY,
+  KNOWLEDGE_PLUGIN_ID,
+  createPostgresKnowledgeApplication,
+} from "@ragsystem/backend-plugin-knowledge/index.js";
 
 import type { RuntimeContainer, SaaSRuntimeContainer } from "@ragsystem/backend-core/contracts/runtime/runtime-container.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
@@ -129,7 +135,22 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     tenantId,
     sessionApplication,
   );
-  const knowledge = conversationRuntime.createKnowledgeService(tenantId, modelAdapter);
+  const pluginCapabilityProviders: CapabilityProvider[] = [];
+  if (options.plugins?.isInstalled(KNOWLEDGE_PLUGIN_ID) ?? true) {
+    const resources = conversationRuntime.pluginResources;
+    if (!resources.objects) throw new Error("Knowledge plugin requires SaaS object storage");
+    const knowledgeApplication = createPostgresKnowledgeApplication({
+      tenantId,
+      executor: resources.database,
+      objects: resources.objects,
+      modelAdapter,
+      documentExtraction: systemConfig.getDocumentExtractionConfig(),
+    });
+    pluginCapabilityProviders.push(
+      provideCapability(KNOWLEDGE_APPLICATION_CAPABILITY, knowledgeApplication, KNOWLEDGE_PLUGIN_ID),
+    );
+  }
+  const pluginCapabilities = new CapabilityRegistry(pluginCapabilityProviders);
   const memory = memoryRuntime.provider.memoryForTenant(tenantId);
   const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
   const sandboxFileBridge = options.sandboxProvider ? new SaaSSandboxFileBridge(sessionFiles) : null;
@@ -144,6 +165,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   return createCoreRuntimeContainer({
     deploymentKind: "saas",
     tenantId,
+    pluginCapabilities,
     dataRoot,
     getMemoryConfig: () => systemConfig.getMemoryConfig(),
     ...(options.logger ? { logger: options.logger } : {}),
@@ -180,7 +202,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     systemConfig,
     mcp,
     sessionFiles,
-    knowledge,
     memoryBindings,
     executionStorage: createPostgresExecutionStorage({
       tenantId,

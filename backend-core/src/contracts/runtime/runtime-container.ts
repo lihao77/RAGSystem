@@ -1,15 +1,14 @@
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { BackendRuntimeContributions } from "../../plugins/backend-plugin.js";
+import type { CapabilityRegistry } from "../../plugins/capability-registry.js";
 
 import type { AnalyticsApplication } from "../application/analytics-application.js";
 import type { FileChangeApplication } from "../application/file-change-application.js";
-import type { KnowledgeApplication } from "../application/knowledge-application.js";
 import type { MonitoringApplication } from "../application/monitoring-application.js";
 import type { SessionFileApplication } from "../application/session-file-application.js";
 import type { ExecutionReadApplication } from "../execution/execution-read-application.js";
 import type { ExecutionStorage } from "../execution/execution-storage.js";
 import type { AsyncFileHistoryStore } from "../file-history-store/index.js";
-import type { KnowledgeQueryPort } from "../knowledge/query-port.js";
 import type { PathAccessPolicy } from "./path-access-policy.js";
 import type { InteractionCoordinator, PendingInteractionPort } from "./pending-interactions.js";
 import type { RealtimeEventBus } from "./realtime-event-bus.js";
@@ -56,7 +55,6 @@ export interface LocalMemoryApplicationFactoryInput {
 /** Local request applications assembled around Local infrastructure. */
 export interface LocalRuntimeCapabilities {
   createSessionApplication(tenantId: TenantId): SessionApplication;
-  knowledge: KnowledgeApplication;
   analytics: AnalyticsApplication;
   monitoring: MonitoringApplication;
   executionRead: ExecutionReadApplication;
@@ -77,6 +75,7 @@ export interface SaaSRuntimeCapabilities {
 export interface RuntimeContainerBase {
   readonly deploymentKind: "local" | "saas";
   readonly tenantId: TenantId;
+  readonly pluginCapabilities: CapabilityRegistry;
   readonly sessionApplication: SessionApplication;
   readonly realtimeEvents: RealtimeEventBus;
   readonly sessionFiles: SessionFileLookupPort;
@@ -87,7 +86,6 @@ export interface RuntimeContainerBase {
   readonly modelAdapter: ModelAdapterService;
   readonly systemConfig: SystemConfigService;
   readonly mcp: McpService;
-  readonly knowledge: KnowledgeQueryPort;
   readonly memoryTools: MemoryToolOperations;
   readonly memoryContextSourceFactory: MemoryRuntimeBindings["createContextSource"];
   readonly documentTools: DocumentToolPort | null;
@@ -128,6 +126,7 @@ export type RuntimeContainer = LocalRuntimeContainer | SaaSRuntimeContainer;
 
 interface CoreRuntimeDependenciesBase {
   tenantId: TenantId;
+  pluginCapabilities?: CapabilityRegistry;
   dataRoot: string;
   /** 每次 run 时读取最新 memory 配置（systemConfig.reload 后即时生效）。 */
   getMemoryConfig: () => MemoryConfig;
@@ -148,7 +147,6 @@ interface CoreRuntimeDependenciesBase {
   systemConfig: SystemConfigService;
   mcp: McpService;
   sessionFiles: SessionFileLookupPort;
-  knowledge: KnowledgeQueryPort;
   memoryBindings: MemoryRuntimeBindings;
   executionStorage: ExecutionStorage;
   pathAccessPolicyFactory: () => PathAccessPolicy;
