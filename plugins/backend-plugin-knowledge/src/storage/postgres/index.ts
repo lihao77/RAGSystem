@@ -8,6 +8,6 @@ export { runPostgresKnowledgeFileMigrations } from "./knowledge-file-migrations.
 export { runPostgresVectorIndexMigrations } from "./vector-index-migrations.js";
 export { runPostgresPgVectorMigrations } from "./pgvector-migrations.js";
 export { createPostgresKnowledgeLifecycle } from "./lifecycle.js";
-export { createPostgresKnowledgeApplication } from "./runtime.js";
-export type { PostgresKnowledgeRuntimeOptions } from "./runtime.js";
+export { createPostgresKnowledgeApplication, createPostgresKnowledgeRuntimeFactory } from "./runtime.js";
+export type { PostgresKnowledgeRuntimeFactoryOptions, PostgresKnowledgeRuntimeOptions } from "./runtime.js";
 export type { KnowledgePostgresExecutor, KnowledgePostgresQueryExecutor } from "./executor.js";

@@ -9,6 +9,7 @@ import type { ModelAdapterService } from "@ragsystem/backend-core/services/integ
 
 import type { KnowledgeApplication } from "../../contracts/knowledge-application.js";
 import { TenantKnowledgeMarkdownPipeline } from "../../contracts/knowledge/async-knowledge-markdown-pipeline.js";
+import type { KnowledgePluginRuntimeFactory } from "../../dependencies.js";
 import { DocumentExtractDispatcher } from "../../services/knowledge/document-extract/dispatcher.js";
 import { KnowledgeApplicationService } from "../../services/knowledge/knowledge-application-service.js";
 import { KnowledgeHttpApplication } from "../../services/knowledge/knowledge-http-application.js";
@@ -24,6 +25,30 @@ export interface PostgresKnowledgeRuntimeOptions {
   objects: ObjectStorage;
   modelAdapter: ModelAdapterService;
   documentExtraction: DocumentExtractionConfig;
+}
+
+export interface PostgresKnowledgeRuntimeFactoryOptions {
+  executor: KnowledgePostgresExecutor;
+  objects: ObjectStorage;
+}
+
+export function createPostgresKnowledgeRuntimeFactory(
+  options: PostgresKnowledgeRuntimeFactoryOptions,
+): KnowledgePluginRuntimeFactory {
+  return (context) => {
+    if (context.deploymentKind !== "saas") {
+      throw new Error("Postgres Knowledge runtime factory requires a SaaS deployment");
+    }
+    return {
+      application: createPostgresKnowledgeApplication({
+        tenantId: context.tenantId,
+        executor: options.executor,
+        objects: options.objects,
+        modelAdapter: context.modelAdapter,
+        documentExtraction: context.systemConfig.getDocumentExtractionConfig(),
+      }),
+    };
+  };
 }
 
 export function createPostgresKnowledgeApplication(

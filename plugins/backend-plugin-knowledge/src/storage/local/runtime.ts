@@ -2,6 +2,7 @@ import type { DocumentExtractionConfig } from "@ragsystem/backend-core/contracts
 import type { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 
 import type { KnowledgeApplication } from "../../contracts/knowledge-application.js";
+import type { KnowledgePluginRuntimeFactory } from "../../dependencies.js";
 import { DocumentExtractDispatcher } from "../../services/knowledge/document-extract/dispatcher.js";
 import {
   KnowledgeApplicationService,
@@ -23,6 +24,32 @@ export interface LocalKnowledgeRuntimeOptions {
 export interface LocalKnowledgeRuntime {
   application: KnowledgeApplication;
   close(): void;
+}
+
+export interface LocalKnowledgeRuntimeFactoryOptions {
+  embedderFactory?: KnowledgeEmbedderFactory;
+}
+
+export function createLocalKnowledgeRuntimeFactory(
+  options: LocalKnowledgeRuntimeFactoryOptions = {},
+): KnowledgePluginRuntimeFactory {
+  return (context) => {
+    if (context.deploymentKind !== "local") {
+      throw new Error("Local Knowledge runtime factory requires a Local deployment");
+    }
+    const runtime = createLocalKnowledgeRuntime({
+      tenantId: context.tenantId,
+      dataRoot: context.dataRoot,
+      inMemory: false,
+      modelAdapter: context.modelAdapter,
+      documentExtraction: context.systemConfig.getDocumentExtractionConfig(),
+      ...(options.embedderFactory ? { embedderFactory: options.embedderFactory } : {}),
+    });
+    return {
+      application: runtime.application,
+      dispose: () => runtime.close(),
+    };
+  };
 }
 
 export function createLocalKnowledgeRuntime(options: LocalKnowledgeRuntimeOptions): LocalKnowledgeRuntime {

@@ -4,6 +4,10 @@ import path from "node:path";
 import type {
   BackendPlugin,
   BackendPluginContext,
+  BackendPluginRuntimeContext,
+  BackendPluginRuntimeContribution,
+  BackendPluginRuntimeFactory,
+  BackendPluginRuntimeHandle,
   BackendRouteContribution,
   BackendRouteScope,
   BackendRuntimeContributions,
@@ -12,10 +16,11 @@ import type {
   BackendToolFactoryContext,
   PluginRouteRegistrar,
   PluginHookRegistrar,
+  PluginRuntimeRegistrar,
   PluginSkillRegistrar,
   PluginToolRegistrar,
 } from "./backend-plugin.js";
-import { CapabilityRegistry, type CapabilityProvider } from "./capability-registry.js";
+import { CapabilityRegistry, provideCapability, type CapabilityProvider } from "./capability-registry.js";
 
 class BackendRouteRegistry {
   private readonly contributions: BackendRouteContribution[] = [];
@@ -152,6 +157,65 @@ class BackendToolContributionRegistry {
   }
 }
 
+interface BackendRuntimeFactoryContribution {
+  readonly pluginId: string;
+  readonly factory: BackendPluginRuntimeFactory;
+}
+
+class BackendRuntimeFactoryRegistry {
+  private readonly contributions: BackendRuntimeFactoryContribution[] = [];
+
+  forPlugin(pluginId: string): PluginRuntimeRegistrar {
+    return {
+      register: (factory) => {
+        const contribution = { pluginId, factory };
+        this.contributions.push(contribution);
+        return () => {
+          const index = this.contributions.indexOf(contribution);
+          if (index >= 0) this.contributions.splice(index, 1);
+        };
+      },
+    };
+  }
+
+  async create(context: BackendPluginRuntimeContext): Promise<BackendPluginRuntimeHandle> {
+    const capabilities: CapabilityProvider[] = [];
+    const runtimes: BackendPluginRuntimeContribution[] = [];
+    try {
+      for (const contribution of this.contributions) {
+        const runtime = await contribution.factory(context);
+        runtimes.push(runtime);
+        for (const provider of runtime.capabilities ?? []) {
+          capabilities.push(provideCapability(provider.token, provider.value, contribution.pluginId));
+        }
+      }
+      const registry = new CapabilityRegistry(capabilities);
+      let disposed = false;
+      return {
+        capabilities: registry,
+        dispose() {
+          if (disposed) return;
+          disposed = true;
+          disposePluginRuntimes(runtimes);
+        },
+      };
+    } catch (error) {
+      try {
+        disposePluginRuntimes(runtimes);
+      } catch (disposeError) {
+        throw new AggregateError([error, disposeError], "Plugin runtime creation and rollback failed");
+      }
+      throw error;
+    }
+  }
+
+  removePlugin(pluginId: string): void {
+    for (let index = this.contributions.length - 1; index >= 0; index -= 1) {
+      if (this.contributions[index]?.pluginId === pluginId) this.contributions.splice(index, 1);
+    }
+  }
+}
+
 export class BackendPluginManager {
   readonly capabilities: CapabilityRegistry;
   private readonly orderedPlugins: readonly BackendPlugin[];
@@ -159,6 +223,7 @@ export class BackendPluginManager {
   private readonly hookRegistry = new BackendHookContributionRegistry();
   private readonly skillRegistry = new BackendSkillContributionRegistry();
   private readonly toolRegistry = new BackendToolContributionRegistry();
+  private readonly runtimeFactoryRegistry = new BackendRuntimeFactoryRegistry();
   private registered = false;
   private startedPlugins: BackendPlugin[] = [];
 
@@ -178,6 +243,7 @@ export class BackendPluginManager {
         capabilities: this.capabilities,
         hooks: this.hookRegistry.forPlugin(plugin.manifest.id),
         routes: this.routeRegistry.forPlugin(plugin.manifest.id),
+        runtimes: this.runtimeFactoryRegistry.forPlugin(plugin.manifest.id),
         skills: this.skillRegistry.forPlugin(plugin.manifest.id),
         tools: this.toolRegistry.forPlugin(plugin.manifest.id),
       };
@@ -200,8 +266,8 @@ export class BackendPluginManager {
     const manager = this;
     return {
       get skillSources() { return manager.skillRegistry.list(); },
-      isInstalled: (pluginId) => manager.orderedPlugins.some((plugin) => plugin.manifest.id === pluginId),
       configureHooks: (registry) => manager.hookRegistry.install(registry),
+      createRuntime: (context) => manager.runtimeFactoryRegistry.create(context),
       createTools: (context) => manager.toolRegistry.create(context),
     };
   }
@@ -231,12 +297,25 @@ export class BackendPluginManager {
         errors.push(error);
       } finally {
         this.hookRegistry.removePlugin(plugin.manifest.id);
+        this.runtimeFactoryRegistry.removePlugin(plugin.manifest.id);
         this.skillRegistry.removePlugin(plugin.manifest.id);
         this.toolRegistry.removePlugin(plugin.manifest.id);
       }
     }
     if (errors.length > 0) throw new AggregateError(errors, "One or more plugins failed to stop");
   }
+}
+
+function disposePluginRuntimes(runtimes: readonly BackendPluginRuntimeContribution[]): void {
+  const errors: unknown[] = [];
+  for (let index = runtimes.length - 1; index >= 0; index -= 1) {
+    try {
+      runtimes[index]?.dispose?.();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 0) throw new AggregateError(errors, "One or more plugin runtimes failed to dispose");
 }
 
 function orderPlugins(plugins: readonly BackendPlugin[]): readonly BackendPlugin[] {

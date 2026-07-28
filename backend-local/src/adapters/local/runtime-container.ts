@@ -17,13 +17,7 @@ import { FileSystemConfigStore } from "../filesystem/config/file-system-config-s
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
 import { McpService } from "@ragsystem/backend-core/services/integrations/mcp-service.js";
 import { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
-import {
-  KNOWLEDGE_APPLICATION_CAPABILITY,
-  KNOWLEDGE_PLUGIN_ID,
-  createLocalKnowledgeRuntime,
-  type LocalKnowledgeRuntime,
-} from "@ragsystem/backend-plugin-knowledge/index.js";
-import { CapabilityRegistry, provideCapability, type CapabilityProvider } from "@ragsystem/backend-core/plugins/capability-registry.js";
+import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
 import { SkillLibraryService } from "@ragsystem/backend-core/services/skills/skill-library-service.js";
 import { createConversationStore } from "./sqlite/conversation-store/index.js";
@@ -132,21 +126,13 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   agentConfig.setMcpService(mcp);
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
 
-  const pluginCapabilityProviders: CapabilityProvider[] = [];
-  let knowledgeRuntime: LocalKnowledgeRuntime | null = null;
-  if (options.plugins?.isInstalled(KNOWLEDGE_PLUGIN_ID) ?? true) {
-    knowledgeRuntime = createLocalKnowledgeRuntime({
-      tenantId: options.tenantId,
-      dataRoot,
-      inMemory: options.dbPath === ":memory:",
-      modelAdapter,
-      documentExtraction: systemConfig.getDocumentExtractionConfig(),
-      ...(options.embedderFactory ? { embedderFactory: options.embedderFactory } : {}),
-    });
-    pluginCapabilityProviders.push(
-      provideCapability(KNOWLEDGE_APPLICATION_CAPABILITY, knowledgeRuntime.application, KNOWLEDGE_PLUGIN_ID),
-    );
-  }
+  const pluginRuntime = await options.plugins?.createRuntime({
+    deploymentKind: "local",
+    tenantId: options.tenantId,
+    dataRoot,
+    modelAdapter,
+    systemConfig,
+  });
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryToolRepository = new LocalMemoryToolRepository(memoryStore);
   const memoryContextRepository = new LocalMemoryContextRepository(memoryStore, {
@@ -230,7 +216,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
 
-  const pluginCapabilities = new CapabilityRegistry(pluginCapabilityProviders);
+  const pluginCapabilities = pluginRuntime?.capabilities ?? new CapabilityRegistry();
   const localAnalytics = new LocalAnalyticsApplication(conversationStore);
   const localMonitoring = new LocalMonitoringApplication(conversationStore);
   const localSessionFiles = new LocalSessionFileApplication(fileIndex);
@@ -311,7 +297,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
       transientResources.stopPruning();
       outboxDispatcher.stop();
       mcp.close();
-      knowledgeRuntime?.close();
+      pluginRuntime?.dispose();
       fileIndex.close();
       conversationStore.close();
     },

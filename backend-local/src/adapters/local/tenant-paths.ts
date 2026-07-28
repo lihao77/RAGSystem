@@ -17,9 +17,6 @@ export class TenantPaths {
 
   systemRoot(): string { return path.join(this.dataRoot, "system"); }
   ragsystemDbPath(): string { return path.join(this.dataRoot, "db", "ragsystem.db"); }
-  knowledgeDbPath(): string { return path.join(this.dataRoot, "db", "knowledge.db"); }
-  knowledgeUploadsRoot(): string { return path.join(this.dataRoot, "db", "knowledge-uploads"); }
-  knowledgeMarkdownRoot(): string { return path.join(this.dataRoot, "db", "knowledge-md"); }
   sessionRoot(sessionId: string): string { return path.join(this.dataRoot, "sessions", sessionId); }
   sessionTransient(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "transient"); }
   sessionExports(sessionId: string, runId: string): string { return path.join(this.sessionRoot(sessionId), "exports", runId); }

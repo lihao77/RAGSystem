@@ -1,7 +1,6 @@
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { MemoryConfig } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
-import type { KnowledgeEmbedderFactory } from "@ragsystem/backend-plugin-knowledge/index.js";
 import type { MemoryRuntimeBindings } from "@ragsystem/backend-core/services/agent/memory/runtime-bindings.js";
 import type { RuntimeMemorySessionPort } from "@ragsystem/backend-core/tools/MemoryTools/MemoryExecution.js";
 import type { AgentExecutionLogger } from "@ragsystem/backend-core/services/agent/execution/index.js";
@@ -35,7 +34,6 @@ export interface LocalRuntimeContainerOptions {
   outboxDispatcherIntervalMs?: number;
   hooks?: (registry: HookRegistry) => void;
   plugins?: BackendRuntimeContributions;
-  embedderFactory?: KnowledgeEmbedderFactory;
   memoryBindingsFactory?: MemoryRuntimeBindingsFactory;
   clientEventsFactory?: (
     tenantId: TenantId,

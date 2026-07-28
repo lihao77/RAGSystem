@@ -6,7 +6,11 @@ import {
   loadReadableSessionForResource,
 } from "@ragsystem/backend-core/routes/session-owner.js";
 import { createArtifactsPlugin, createPostgresArtifactStorage } from "@ragsystem/backend-plugin-artifacts/index.js";
-import { createKnowledgePlugin, createPostgresKnowledgeLifecycle } from "@ragsystem/backend-plugin-knowledge/index.js";
+import {
+  createKnowledgePlugin,
+  createPostgresKnowledgeLifecycle,
+  createPostgresKnowledgeRuntimeFactory,
+} from "@ragsystem/backend-plugin-knowledge/index.js";
 import type { SaaSDeploymentRuntime } from "./adapters/saas/composition/saas-deployment-runtime.js";
 
 export function createSaaSProductPlugins(deployment: SaaSDeploymentRuntime): readonly BackendPlugin[] {
@@ -31,6 +35,10 @@ export function createSaaSProductPlugins(deployment: SaaSDeploymentRuntime): rea
       },
     },
   }), createKnowledgePlugin({
+    runtimeFactory: createPostgresKnowledgeRuntimeFactory({
+      executor: deployment.pluginResources.database,
+      objects: deployment.pluginResources.objects,
+    }),
     lifecycle: createPostgresKnowledgeLifecycle(deployment.pluginResources.database),
   })];
 }

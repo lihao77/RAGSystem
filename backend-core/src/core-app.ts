@@ -198,7 +198,6 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
       }
     },
   });
-  await botEngine.start();
   app.decorate("botEngine", botEngine);
   app.decorate("botRepository", botRepository);
   await widgetCredentials.startPruning();
@@ -216,9 +215,9 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   app.addHook("onError", async (request) => releaseRequestLease(request));
   app.addHook("onClose", async () => {
     const errors: unknown[] = [];
-    try { await pluginManager.stop(); } catch (error) { errors.push(error); }
     try { botEngine.close(); } catch (error) { errors.push(error); }
     try { await registry.closeAll(); } catch (error) { errors.push(error); }
+    try { await pluginManager.stop(); } catch (error) { errors.push(error); }
     try { await deployment.close(); } catch (error) { errors.push(error); }
     if (errors.length > 0) throw new AggregateError(errors, "Backend shutdown failed");
   });
@@ -362,6 +361,16 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
 
   registerFrontendFallback(app);
   await pluginManager.start();
+  try {
+    await botEngine.start();
+  } catch (error) {
+    try {
+      await pluginManager.stop();
+    } catch (stopError) {
+      throw new AggregateError([error, stopError], "Bot engine startup and plugin rollback failed");
+    }
+    throw error;
+  }
 
   return app;
 }

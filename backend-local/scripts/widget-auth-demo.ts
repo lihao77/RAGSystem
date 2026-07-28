@@ -15,7 +15,6 @@ import { buildCoreApp } from "@ragsystem/backend-core/core-app.js";
 import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import { createLocalRuntimeContainer } from "../src/adapters/local/runtime-container.js";
-import { HashFallbackEmbedder } from "@ragsystem/backend-plugin-knowledge/services/integrations/embedder-registry.js";
 import {
   createLocalFileChangeApplicationResolver,
   createLocalRequestApplicationResolvers,
@@ -56,7 +55,6 @@ async function buildHarness(widgetJwtSecret: string) {
     systemConfigPath: "",
     agentConfigRoot: "",
     startOutboxDispatcher: false,
-    embedderFactory: () => new HashFallbackEmbedder(),
   });
   const controlStore = createControlStore(env.systemRoot);
   const controlPlane = new SqliteControlPlaneAdapter(controlStore);

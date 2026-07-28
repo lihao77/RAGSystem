@@ -3,7 +3,10 @@ import type { HookEvent, HookHandler, HookRegistry, Tool } from "@ragsystem/agen
 
 import type { AgentConfig } from "../contracts/agent/agent-config.js";
 import type { PathAccessPolicy } from "../contracts/runtime/path-access-policy.js";
-import type { CapabilityRegistry } from "./capability-registry.js";
+import type { TenantId } from "../identity/types.js";
+import type { ModelAdapterService } from "../services/integrations/model-adapter-service.js";
+import type { SystemConfigService } from "../services/config/system-config-service.js";
+import type { CapabilityProvider, CapabilityRegistry } from "./capability-registry.js";
 
 export type BackendRouteScope = "public" | "tenant" | "management" | "platform" | "widget";
 
@@ -49,11 +52,37 @@ export interface PluginToolRegistrar {
   register(factory: BackendToolFactory): () => void;
 }
 
+export interface BackendPluginRuntimeContext {
+  readonly deploymentKind: "local" | "saas";
+  readonly tenantId: TenantId;
+  readonly dataRoot: string;
+  readonly modelAdapter: ModelAdapterService;
+  readonly systemConfig: SystemConfigService;
+}
+
+export interface BackendPluginRuntimeContribution {
+  readonly capabilities?: readonly CapabilityProvider[];
+  dispose?(): void;
+}
+
+export type BackendPluginRuntimeFactory = (
+  context: BackendPluginRuntimeContext,
+) => BackendPluginRuntimeContribution | Promise<BackendPluginRuntimeContribution>;
+
+export interface PluginRuntimeRegistrar {
+  register(factory: BackendPluginRuntimeFactory): () => void;
+}
+
+export interface BackendPluginRuntimeHandle {
+  readonly capabilities: CapabilityRegistry;
+  dispose(): void;
+}
+
 /** Immutable deployment input assembled from all registered plugins. */
 export interface BackendRuntimeContributions {
   readonly skillSources: readonly BackendSkillSourceContribution[];
-  isInstalled(pluginId: string): boolean;
   configureHooks(registry: HookRegistry): void;
+  createRuntime(context: BackendPluginRuntimeContext): Promise<BackendPluginRuntimeHandle>;
   createTools(context: BackendToolFactoryContext): Promise<readonly Tool[]>;
 }
 
@@ -61,6 +90,7 @@ export interface BackendPluginContext {
   readonly capabilities: CapabilityRegistry;
   readonly hooks: PluginHookRegistrar;
   readonly routes: PluginRouteRegistrar;
+  readonly runtimes: PluginRuntimeRegistrar;
   readonly skills: PluginSkillRegistrar;
   readonly tools: PluginToolRegistrar;
 }
