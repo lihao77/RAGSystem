@@ -12,7 +12,7 @@ import {
   classifyCommand,
   validateCommand,
   type CommandCategory,
-} from "./command-policy.js";
+} from "@ragsystem/agent-sdk";
 import { BashPathResolver } from "./paths.js";
 import { throwIfAborted, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";

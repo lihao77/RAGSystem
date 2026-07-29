@@ -1,21 +1,26 @@
 import { randomUUID } from "node:crypto";
-import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
+import {
+  buildApprovalDescription,
+  categoryRisk,
+  classifyCommand,
+  validateCommand,
+  type CommandCategory,
+  type RiskLevel,
+  type ToolCaller,
+  type ToolExecContext,
+  type ToolExecutionResult,
+} from "@ragsystem/agent-sdk";
 
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
-import type { DocumentToolPort } from "@ragsystem/backend-plugin-document-tools/contracts.js";
-import type { CodeExecutionPort, CommandExecutionPort, WorkspaceSearchPort } from "@ragsystem/backend-plugin-execution-tools/contracts.js";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
-import type { BashExecutionInput, BashExecutionPlan, BashExecutionPlanResult, BashClassificationResult } from "@ragsystem/backend-plugin-execution-tools/tools/BashTool/BashExecution.js";
-import { buildApprovalDescription, categoryRisk, classifyCommand, validateCommand } from "@ragsystem/backend-plugin-execution-tools/tools/BashTool/command-policy.js";
-import type { CodeExecutionInput, ToolCaller } from "@ragsystem/backend-plugin-execution-tools/tools/CodeExecutionTool/CodeExecution.js";
 import { resolveSandboxPath, validateSandboxGlob } from "./sandbox-paths.js";
 import { SandboxLeaseManager } from "./sandbox-lease-manager.js";
 
 const DEFAULT_READ_LINES = 2_000;
 const MAX_TOOL_FILE_BYTES = 16 * 1024 * 1024;
 
-export class SaaSSandboxDocumentToolService implements DocumentToolPort {
+export class SaaSSandboxDocumentToolService {
   constructor(private readonly leases: SandboxLeaseManager) {}
 
   async readFile(input: ReadInput, context: ToolExecContext): Promise<ToolExecutionResult> {
@@ -136,7 +141,7 @@ export class SaaSSandboxDocumentToolService implements DocumentToolPort {
 
 }
 
-export class SaaSSandboxSearchToolService implements WorkspaceSearchPort {
+export class SaaSSandboxSearchToolService {
   private readonly todos = new Map<string, unknown>();
   constructor(private readonly leases: SandboxLeaseManager) {}
 
@@ -188,7 +193,7 @@ export class SaaSSandboxSearchToolService implements WorkspaceSearchPort {
 
 }
 
-export class SaaSSandboxBashToolService implements CommandExecutionPort {
+export class SaaSSandboxBashToolService {
   constructor(private readonly leases: SandboxLeaseManager) {}
 
   buildCommandClassification(input: BashExecutionInput, _agent: AgentConfig | null): BashClassificationResult {
@@ -240,7 +245,7 @@ export class SaaSSandboxBashToolService implements CommandExecutionPort {
   }
 }
 
-export class SaaSSandboxCodeExecutionService implements CodeExecutionPort {
+export class SaaSSandboxCodeExecutionService {
   constructor(private readonly leases: SandboxLeaseManager) {}
 
   async executeCode(input: CodeExecutionInput, context: ToolExecContext, _toolCaller: ToolCaller | null = null): Promise<ToolExecutionResult> {
@@ -279,3 +284,47 @@ interface EditInput { filePath: string; oldString: string; newString: string; en
 interface PreviewInput { filePath: string; encoding?: string | null; maxPreviewRows?: number | null; maxDepth?: number | null; maxFields?: number | null; filePathSpace?: string | null }
 interface GlobInput { pattern: string; path?: string | null; recursive?: boolean | null; maxResults?: number | null }
 interface GrepInput { pattern: string; path?: string | null; glob?: string | null; caseSensitive?: boolean | null; maxResults?: number | null; contextLines?: number | null }
+
+interface BashExecutionInput {
+  command: string;
+  workingDir?: string | null;
+  workingDirSpace?: string | null;
+  timeout?: number | null;
+  runInBackground?: boolean | null;
+  description?: string | null;
+}
+
+interface BashExecutionPlan {
+  command: string;
+  cwd: string;
+  timeoutSeconds: number;
+  description: string;
+  category: CommandCategory;
+  riskLevel: RiskLevel;
+  approvalRequired: boolean;
+  approvalCommands: string[];
+  dangerousCommands: string[];
+  approvalDescription: string;
+  approvalArguments: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  runInBackground: boolean;
+}
+
+interface BashCommandClassification extends Omit<BashExecutionPlan, "cwd" | "approvalArguments" | "metadata"> {
+  workingDir: string | null;
+  workingDirSpace: string | null;
+}
+
+type BashExecutionPlanResult =
+  | { ok: true; plan: BashExecutionPlan }
+  | { ok: false; result: ToolExecutionResult };
+
+type BashClassificationResult =
+  | { ok: true; classification: BashCommandClassification }
+  | { ok: false; result: ToolExecutionResult };
+
+interface CodeExecutionInput {
+  code: string;
+  description?: string | null;
+  timeout?: number | null;
+}

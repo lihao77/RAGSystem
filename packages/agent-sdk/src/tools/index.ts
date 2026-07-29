@@ -2,6 +2,8 @@
 // Tool 富模型
 export { buildTool, toolToDefinition } from "./tool.js";
 export type { Tool, BuildToolInput, InputSchema, ToolAccessDecision, RiskLevel, ToolCaller, ToolSource } from "./tool.js";
+export { buildApprovalDescription, categoryRisk, classifyCommand, validateCommand } from "./command-policy.js";
+export type { CommandCategory } from "./command-policy.js";
 // Registry
 export { createToolRegistry } from "./registry.js";
 export type { ToolRegistry, ToolRegistryOptions } from "./registry.js";

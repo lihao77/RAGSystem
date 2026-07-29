@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { RiskLevel } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
+import type { RiskLevel } from "./tool.js";
 
 export type CommandCategory = "read_only" | "write" | "destructive" | "network" | "interpreter" | "unknown";
 type ValidationStatus = "allowed" | "approval_required" | "blocked";

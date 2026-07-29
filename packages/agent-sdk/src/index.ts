@@ -21,6 +21,8 @@ export { readTierParams } from "./llm-params/tier-params.js";
 // Tool 富模型（SDK 定义的工具接口）
 export { buildTool, toolToDefinition } from "./tools/tool.js";
 export type { Tool, BuildToolInput, InputSchema, ToolAccessDecision, RiskLevel, ToolCaller, ToolSource } from "./tools/tool.js";
+export { buildApprovalDescription, categoryRisk, classifyCommand, validateCommand } from "./tools/command-policy.js";
+export type { CommandCategory } from "./tools/command-policy.js";
 // ToolRegistry
 export { createToolRegistry } from "./tools/registry.js";
 export type { ToolRegistry, ToolRegistryOptions } from "./tools/registry.js";
