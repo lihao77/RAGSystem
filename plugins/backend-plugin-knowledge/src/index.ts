@@ -16,6 +16,7 @@ export type {
   KnowledgePluginRuntime,
   KnowledgePluginRuntimeFactory,
 } from "./dependencies.js";
+export { backendPluginModule } from "./module.js";
 export { createKnowledgePlugin, KNOWLEDGE_PLUGIN_ID } from "./plugin.js";
 export { KnowledgeApplicationService } from "./services/knowledge/knowledge-application-service.js";
 export type { KnowledgeEmbedderFactory } from "./services/knowledge/knowledge-application-service.js";
