@@ -9,14 +9,16 @@ import test from "node:test";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-test("backend-local starts with BACKEND_PLUGINS=none", async () => {
+test("backend-local starts with an empty plugin config", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-zero-plugin-"));
+  const pluginConfigPath = path.join(dataRoot, "backend.plugins.yaml");
+  fs.writeFileSync(pluginConfigPath, "version: 1\nplugins: []\n", "utf8");
   const port = await reservePort();
   const child = spawn(process.execPath, ["dist/main.js"], {
     cwd: PACKAGE_ROOT,
     env: {
       ...process.env,
-      BACKEND_PLUGINS: "none",
+      BACKEND_PLUGIN_CONFIG: pluginConfigPath,
       BACKEND_TS_HOST: "127.0.0.1",
       BACKEND_TS_PORT: String(port),
       RAG_DATA_ROOT: dataRoot,

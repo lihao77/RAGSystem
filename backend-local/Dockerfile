@@ -19,6 +19,7 @@ COPY --from=build /app/backend-core/dist ./backend-core/dist
 COPY --from=build /app/plugins ./plugins
 COPY --from=build /app/backend-local/package.json ./backend-local/package.json
 COPY --from=build /app/backend-local/dist ./backend-local/dist
+COPY --from=build /app/backend-local/backend.plugins.yaml ./backend-local/backend.plugins.yaml
 
 WORKDIR /app/backend-local
 USER root

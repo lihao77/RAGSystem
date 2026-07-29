@@ -145,6 +145,7 @@ async function startBackend() {
     NODE_ENV: 'production',
     FRONTEND_DIST: backend.frontendDist,
     RAG_DATA_ROOT: runtimeRoot,
+    BACKEND_PLUGIN_CONFIG: path.join(backend.cwd, 'backend.plugins.yaml'),
   }
 
   backendProcess = spawn(backend.command, backend.args, {

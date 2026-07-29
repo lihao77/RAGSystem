@@ -1,0 +1,11 @@
+version: 1
+plugins:
+  - module: "@ragsystem/backend-plugin-artifacts/module.js"
+  - module: "@ragsystem/backend-plugin-execution-tools/module.js"
+  - module: "@ragsystem/backend-plugin-document-tools/module.js"
+  - module: "@ragsystem/backend-plugin-daemon-feishu/module.js"
+  - module: "@ragsystem/backend-plugin-knowledge/module.js"
+  - module: "@ragsystem/backend-plugin-memory/module.js"
+  - module: "@ragsystem/backend-plugin-mcp/module.js"
+  - module: "@ragsystem/backend-plugin-skills/module.js"
+  - module: "@ragsystem/backend-plugin-widget/module.js"

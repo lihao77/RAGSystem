@@ -580,6 +580,7 @@ function resolveDefaultBuiltinSkillsRoot(): string {
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
     path.resolve(moduleDir, "../../skills"),
+    path.resolve(moduleDir, "plugin-assets/skills"),
     path.resolve(process.cwd(), "plugins/backend-plugin-skills/skills"),
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]!;

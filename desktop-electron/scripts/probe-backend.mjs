@@ -24,6 +24,7 @@ const child = spawn(electronPath, [path.join(backendRoot, "main.mjs")], {
     BACKEND_TS_PORT: String(port),
     RAG_DATA_ROOT: runtimeRoot,
     FRONTEND_DIST: path.join(desktopRoot, "..", "frontend-client", "dist"),
+    BACKEND_PLUGIN_CONFIG: path.join(backendRoot, "backend.plugins.yaml"),
     NODE_ENV: "production",
   },
   stdio: ["ignore", "pipe", "pipe"],

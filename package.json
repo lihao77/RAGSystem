@@ -43,5 +43,8 @@
   "devDependencies": {
     "eslint": "9.39.5",
     "shadcn-vue": "^2.7.4"
+  },
+  "optionalDependencies": {
+    "@esbuild/win32-x64": "0.28.1"
   }
 }

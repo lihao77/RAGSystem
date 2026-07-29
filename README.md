@@ -75,6 +75,8 @@ cp frontend-client/.env.example frontend-client/.env
 
 TypeScript 后端从运行时目录读取配置；模型 Provider、MCP Server、向量化器、Agent Team 与守护 Agent 配置可通过前端管理页面写入。
 
+后端插件完全由 `backend-local/backend.plugins.yaml` 或 `backend-saas/backend.plugins.yaml` 声明模块、启停、顺序和初始化参数；第三方插件通常只需安装 npm 包并修改对应 YAML。完整格式和插件模块契约见 [后端插件配置](docs/BACKEND_PLUGIN_CONFIG.md)。
+
 - 默认运行时数据根目录：`~/.ragsystem`
 - 若设置 `RAG_DATA_ROOT`，则运行时数据根目录变为 `<RAG_DATA_ROOT>`
 - 主要运行时配置文件位于 `<data-root>/config`：
@@ -189,6 +191,7 @@ npm run check:widget
 - [backend-core/README.md](backend-core/README.md) — 共享后端核心
 - [frontend-client/docs/README.md](frontend-client/docs/README.md) — 前端文档入口
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — 运行、配置与验证
+- [docs/BACKEND_PLUGIN_CONFIG.md](docs/BACKEND_PLUGIN_CONFIG.md) — 后端插件配置与接入契约
 - [docs/refactor/README.md](docs/refactor/README.md) — 当前演进专题
 
 ## 贡献

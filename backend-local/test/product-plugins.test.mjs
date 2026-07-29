@@ -18,20 +18,28 @@ const ALL_IDS = [
   "@ragsystem/backend-plugin-widget",
 ];
 
-test("Local product dynamically loads every installed plugin by default", async () => {
+test("Local product loads the configured plugins by default", async () => {
   assert.deepEqual(pluginIds(await createLocalProductPlugins()), ALL_IDS);
 });
 
 test("Local product imports nothing when plugins are disabled", async () => {
+  const directory = fs.mkdtempSync(path.join(process.env.TEMP ?? process.cwd(), "ragsystem-local-disabled-"));
+  const configPath = path.join(directory, "plugins.yaml");
+  fs.writeFileSync(configPath, "version: 1\nplugins:\n  - module: disabled\n    enabled: false\n", "utf8");
   let imports = 0;
-  const plugins = await createLocalProductPlugins("none", {
-    importModule: async () => {
-      imports += 1;
-      throw new Error("must not import");
-    },
-  });
-  assert.deepEqual(plugins, []);
-  assert.equal(imports, 0);
+  try {
+    const plugins = await createLocalProductPlugins({
+      configPath,
+      importModule: async () => {
+        imports += 1;
+        throw new Error("must not import");
+      },
+    });
+    assert.deepEqual(plugins, []);
+    assert.equal(imports, 0);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("Local product has no install-time or compile-time plugin dependency", () => {
@@ -40,12 +48,40 @@ test("Local product has no install-time or compile-time plugin dependency", () =
   assert.deepEqual(staticPluginImports(new URL("../src", import.meta.url)), []);
 });
 
-test("Local product supports dynamic subset ordering", async () => {
-  assert.deepEqual(pluginIds(await createLocalProductPlugins("skills,artifacts")), [
-    "@ragsystem/backend-plugin-skills",
-    "@ragsystem/backend-plugin-artifacts",
-  ]);
-  await assert.rejects(createLocalProductPlugins("missing"), /Backend plugins are not installed: missing/);
+test("Local product loads plugin modules and config from YAML", async () => {
+  const directory = fs.mkdtempSync(path.join(process.env.TEMP ?? process.cwd(), "ragsystem-local-plugins-"));
+  const configPath = path.join(directory, "plugins.yaml");
+  fs.writeFileSync(configPath, `
+version: 1
+plugins:
+  - module: configured-local-plugin
+    config:
+      token: "${"${LOCAL_PLUGIN_TOKEN}"}"
+`, "utf8");
+  let receivedConfig;
+  try {
+    const plugins = await createLocalProductPlugins({
+      configPath,
+      env: { LOCAL_PLUGIN_TOKEN: "resolved-token" },
+      importModule: async (specifier) => {
+        const manifest = { id: specifier, version: "1.0.0" };
+        return {
+          backendPluginModule: {
+            apiVersion: 1,
+            manifest,
+            create({ config }) {
+              receivedConfig = config;
+              return { manifest, register() {} };
+            },
+          },
+        };
+      },
+    });
+    assert.deepEqual(pluginIds(plugins), ["configured-local-plugin"]);
+    assert.deepEqual(receivedConfig, { token: "resolved-token" });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 function pluginIds(plugins) {

@@ -2,7 +2,7 @@
 
 Feature plugins depend on the public `@ragsystem/backend-core` plugin API. The
 core must never import a concrete plugin. Product workspaces install plugins in
-their `product-plugins.ts` manifest.
+their `backend.plugins.yaml` manifest.
 
 The first extracted plugin is `@ragsystem/backend-plugin-artifacts`. It owns the
 Artifact HTTP routes; omitting it removes `/api/artifacts/*` while the kernel
@@ -17,23 +17,19 @@ Infrastructure supplied by a product can be exposed through typed capability
 tokens. The host passes one immutable runtime-contributions object into each
 tenant runtime, so new contribution kinds do not expand the deployment API.
 
-Local and SaaS bundle the `artifacts`, `knowledge`, `memory`, and `skills`
-catalog entries. `BACKEND_PLUGINS` controls which entries are installed:
+Local and SaaS each own one required `backend.plugins.yaml`. The ordered entries
+in that file are the complete plugin inventory:
 
-```bash
-# Default: install every bundled plugin
-BACKEND_PLUGINS=all
-
-# Install a subset in this order
-BACKEND_PLUGINS=skills,artifacts
-
-# Start the core without feature plugins
-BACKEND_PLUGINS=none
+```yaml
+version: 1
+plugins:
+  - module: "@ragsystem/backend-plugin-skills/module.js"
+  - module: "@ragsystem/backend-plugin-artifacts/module.js"
 ```
 
-Adding another bundled plugin means installing its workspace package and adding
-one lazy factory to each product catalog that supports it. Unknown or duplicate
-names fail startup instead of being silently ignored.
+Adding a plugin means installing its package and adding its module entry to the
+product YAML. Missing manifests, unknown fields, duplicate modules, or import
+failures stop startup instead of being silently ignored.
 
 Core and Fastify are peer dependencies. A product must provide exactly one
 compatible host instance.

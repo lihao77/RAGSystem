@@ -1,9 +1,10 @@
 import { createLocalDeploymentRuntime } from "./adapters/local/composition/local-deployment-runtime.js";
-import { loadEnv } from "@ragsystem/backend-core/config/env.js";
+import { loadEnv, loadEnvSource } from "@ragsystem/backend-core/config/env.js";
 import { buildCoreApp } from "@ragsystem/backend-core/core-app.js";
 import { createLocalProductPlugins } from "./product-plugins.js";
 
-const env = loadEnv(process.env);
+const environment = loadEnvSource(process.env);
+const env = loadEnv(environment);
 const deployment = createLocalDeploymentRuntime(env);
 let app;
 
@@ -11,7 +12,12 @@ try {
   app = await buildCoreApp({
     env,
     runtime: deployment,
-    plugins: await createLocalProductPlugins(process.env.BACKEND_PLUGINS),
+    plugins: await createLocalProductPlugins({
+      ...(environment.BACKEND_PLUGIN_CONFIG?.trim()
+        ? { configPath: environment.BACKEND_PLUGIN_CONFIG }
+        : {}),
+      env: environment,
+    }),
   });
   const address = await app.listen({ host: env.host, port: env.port });
   app.log.info({ address, deployment: "local", storage: "sqlite" }, "backend-local listening");

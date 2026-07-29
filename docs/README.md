@@ -11,6 +11,7 @@ This directory is the canonical repository-level documentation center for mainli
 - [../backend-ts/README.md](../backend-ts/README.md) — TypeScript 后端入口 / TypeScript backend entry
 - [../frontend-client/docs/README.md](../frontend-client/docs/README.md) — 前端文档入口 / frontend documentation entry
 - [OPERATIONS.md](OPERATIONS.md) — 运行、配置与验证 / operations, configuration, and verification
+- [BACKEND_PLUGIN_CONFIG.md](BACKEND_PLUGIN_CONFIG.md) — 后端插件配置与接入契约 / backend plugin configuration and module contract
 
 ## 专题文档 / Topic documents
 

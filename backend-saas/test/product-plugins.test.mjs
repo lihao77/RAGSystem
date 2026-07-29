@@ -18,20 +18,28 @@ const ALL_IDS = [
   "@ragsystem/backend-plugin-widget",
 ];
 
-test("SaaS product dynamically loads every installed plugin by default", async () => {
+test("SaaS product loads the configured plugins by default", async () => {
   assert.deepEqual(pluginIds(await createSaaSProductPlugins()), ALL_IDS);
 });
 
 test("SaaS product imports nothing when plugins are disabled", async () => {
+  const directory = fs.mkdtempSync(path.join(process.env.TEMP ?? process.cwd(), "ragsystem-saas-disabled-"));
+  const configPath = path.join(directory, "plugins.yaml");
+  fs.writeFileSync(configPath, "version: 1\nplugins:\n  - module: disabled\n    enabled: false\n", "utf8");
   let imports = 0;
-  const plugins = await createSaaSProductPlugins("none", {
-    importModule: async () => {
-      imports += 1;
-      throw new Error("must not import");
-    },
-  });
-  assert.deepEqual(plugins, []);
-  assert.equal(imports, 0);
+  try {
+    const plugins = await createSaaSProductPlugins({
+      configPath,
+      importModule: async () => {
+        imports += 1;
+        throw new Error("must not import");
+      },
+    });
+    assert.deepEqual(plugins, []);
+    assert.equal(imports, 0);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("SaaS product has no install-time or compile-time plugin dependency", () => {
@@ -40,12 +48,34 @@ test("SaaS product has no install-time or compile-time plugin dependency", () =>
   assert.deepEqual(staticPluginImports(new URL("../src", import.meta.url)), []);
 });
 
-test("SaaS product supports dynamic subset ordering", async () => {
-  assert.deepEqual(pluginIds(await createSaaSProductPlugins("knowledge,memory")), [
-    "@ragsystem/backend-plugin-knowledge",
-    "@ragsystem/backend-plugin-memory",
-  ]);
-  await assert.rejects(createSaaSProductPlugins("missing"), /Backend plugins are not installed: missing/);
+test("SaaS product loads plugin modules from YAML", async () => {
+  const directory = fs.mkdtempSync(path.join(process.env.TEMP ?? process.cwd(), "ragsystem-saas-plugins-"));
+  const configPath = path.join(directory, "plugins.yaml");
+  fs.writeFileSync(configPath, `
+version: 1
+plugins:
+  - module: configured-saas-plugin
+`, "utf8");
+  try {
+    const plugins = await createSaaSProductPlugins({
+      configPath,
+      importModule: async (specifier) => {
+        const manifest = { id: specifier, version: "1.0.0" };
+        return {
+          backendPluginModule: {
+            apiVersion: 1,
+            manifest,
+            create() {
+              return { manifest, register() {} };
+            },
+          },
+        };
+      },
+    });
+    assert.deepEqual(pluginIds(plugins), ["configured-saas-plugin"]);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 function pluginIds(plugins) {

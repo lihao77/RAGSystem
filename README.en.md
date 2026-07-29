@@ -75,6 +75,8 @@ cp frontend-client/.env.example frontend-client/.env
 
 The TypeScript backend reads effective configuration from the runtime data directory. Model providers, Agent teams, MCP servers, vectorizers, and daemon settings can be managed from the frontend administration pages.
 
+Backend plugins are declared exclusively by `backend-local/backend.plugins.yaml` or `backend-saas/backend.plugins.yaml`, including module paths, activation, ordering, and initialization options. Installing a third-party plugin normally requires only installing its npm package and editing the matching YAML file. See [Backend Plugin Configuration](docs/BACKEND_PLUGIN_CONFIG.md) for the schema and module contract.
+
 - Default runtime data root: `~/.ragsystem`
 - If `RAG_DATA_ROOT` is set, the runtime data root becomes `<RAG_DATA_ROOT>`
 - Main runtime config files under `<data-root>/config`:
@@ -188,6 +190,7 @@ npm run check:widget
 - [backend-core/README.md](backend-core/README.md) — shared TypeScript backend core
 - [frontend-client/docs/README.md](frontend-client/docs/README.md) — frontend documentation entry
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — operations, configuration, and verification
+- [docs/BACKEND_PLUGIN_CONFIG.md](docs/BACKEND_PLUGIN_CONFIG.md) — backend plugin configuration and module contract
 - [docs/refactor/README.md](docs/refactor/README.md) — active evolution topics
 
 ## Contributing
