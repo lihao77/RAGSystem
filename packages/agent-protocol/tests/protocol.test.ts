@@ -51,11 +51,10 @@ describe("agent-protocol envelope compatibility", () => {
           kind: "file",
           file_path: "D:\\data\\ocean.nc",
           file_path_space: "absolute",
-          content_sha256: "a".repeat(64),
         }],
       },
     })).toMatchObject({
-      data: { items: [{ file_path_space: "absolute", content_sha256: "a".repeat(64) }] },
+      data: { items: [{ file_path_space: "absolute" }] },
     });
   });
 

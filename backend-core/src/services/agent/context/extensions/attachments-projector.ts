@@ -15,7 +15,6 @@ export function renderAttachmentsContext(items: readonly MessageAttachment[]): s
       `kind="${item.kind}"`,
       `file_path="${escapeXmlAttribute(item.file_path ?? item.stored_name)}"`,
       `file_path_space="${item.file_path_space ?? "uploads"}"`,
-      ...(item.content_sha256 ? [`content_sha256="${item.content_sha256}"`] : []),
     ];
     return `  <attachment ${attributes.join(" ")}/>`;
   });

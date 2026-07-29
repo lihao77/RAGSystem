@@ -3,11 +3,6 @@ import path from "node:path";
 
 import type { SessionFileApplication, SessionFileReadResult } from "@ragsystem/backend-core/contracts/application/session-file-application.js";
 import type { FileIndexService } from "../../files/file-index-service.js";
-import {
-  captureLinkedLocalFileSnapshot,
-  isCurrentLinkedLocalRecord,
-  readCurrentLinkedLocalFile,
-} from "../../files/linked-local-file.js";
 
 export class LocalSessionFileApplication implements SessionFileApplication {
   constructor(private readonly files: FileIndexService) {}
@@ -38,21 +33,19 @@ export class LocalSessionFileApplication implements SessionFileApplication {
   async linkLocal(sessionId: string, input: { filePath: string; originalName?: string; mime: string }) {
     if (!path.isAbsolute(input.filePath)) throw new Error("本地链接路径必须是绝对路径");
     const filePath = await fs.promises.realpath(input.filePath);
-    const snapshot = await captureLinkedLocalFileSnapshot(filePath);
+    const stats = await fs.promises.stat(filePath);
+    if (!stats.isFile()) throw new Error("本地链接路径不是文件");
     return this.files.addLocalLink({
       originalName: input.originalName?.trim() || path.basename(filePath),
       filePath,
-      size: snapshot.size,
-      mtimeMs: snapshot.mtimeMs,
-      sha256: snapshot.sha256,
+      size: stats.size,
       mime: input.mime,
       scopeId: sessionId,
     });
   }
 
   async get(sessionId: string, fileId: string) {
-    const record = this.files.get(fileId, "session", sessionId);
-    return record && await isCurrentLinkedLocalRecord(record) ? record : null;
+    return this.files.get(fileId, "session", sessionId);
   }
 
   async delete(sessionId: string, fileId: string) {
@@ -68,13 +61,7 @@ export class LocalSessionFileApplication implements SessionFileApplication {
     const record = this.files.get(fileId, "session", sessionId);
     if (!record) return { status: "not_found" };
     const storedPath = path.resolve(record.local_path ?? record.stored_path);
-    if (record.storage_kind === "linked_local") {
-      const body = await readCurrentLinkedLocalFile(record);
-      return body
-        ? { status: "found", record, body, contentType: record.mime }
-        : { status: "content_missing" };
-    }
-    if (!isPathUnder(storedPath, this.files.getSessionUploadsRoot(sessionId))) {
+    if (record.storage_kind !== "linked_local" && !isPathUnder(storedPath, this.files.getSessionUploadsRoot(sessionId))) {
       return { status: "content_missing" };
     }
     try {

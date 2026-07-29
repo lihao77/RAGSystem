@@ -19,7 +19,6 @@ const record = {
   scope_id: "session-1",
   storage_kind: "linked_local" as const,
   local_path: "D:\\data\\ocean.nc",
-  source_sha256: "a".repeat(64),
 };
 
 describe("AttachmentResolver", () => {
@@ -32,7 +31,6 @@ describe("AttachmentResolver", () => {
         file_id: "file-nc",
         file_path: "D:\\data\\ocean.nc",
         file_path_space: "absolute",
-        content_sha256: "a".repeat(64),
       })],
     });
     expect(get).toHaveBeenCalledWith("session-1", "file-nc");

@@ -28,8 +28,6 @@ export interface UploadedFileRecord {
   scope_id: string | null;
   storage_kind?: SessionFileStorageKind;
   local_path?: string;
-  source_mtime_ms?: number;
-  source_sha256?: string;
 }
 
 export type ValidateFilesRequest = z.infer<typeof ValidateFilesRequestSchema>;

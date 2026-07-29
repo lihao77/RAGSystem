@@ -180,7 +180,6 @@ export const MessageAttachmentSchema = z.object({
   kind: z.enum(["image", "file"]),
   file_path: z.string().min(1).optional(),
   file_path_space: z.enum(["uploads", "absolute"]).optional(),
-  content_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
 }).strict();
 
 export const AttachmentsExtensionSchema = z.object({

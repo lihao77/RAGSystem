@@ -31,16 +31,12 @@ interface UploadedFileRow {
   scope_id: string | null;
   storage_kind: "managed" | "linked_local" | null;
   local_path: string | null;
-  source_mtime_ms: number | null;
-  source_sha256: string | null;
 }
 
 export interface AddLocalLinkInput {
   originalName: string;
   filePath: string;
   size: number;
-  mtimeMs: number;
-  sha256: string;
   mime: string;
   scopeId: string;
 }
@@ -168,8 +164,6 @@ export class FileIndexService {
     if (!originalName) throw new Error("originalName is required");
     if (!path.isAbsolute(input.filePath)) throw new Error("linked local file path must be absolute");
     if (!Number.isSafeInteger(input.size) || input.size < 0) throw new Error("linked local file size is invalid");
-    if (!Number.isFinite(input.mtimeMs) || input.mtimeMs < 0) throw new Error("linked local file mtime is invalid");
-    if (!/^[a-f0-9]{64}$/u.test(input.sha256)) throw new Error("linked local file sha256 is invalid");
 
     const fileId = this.nextFileId();
     const now = new Date().toISOString();
@@ -179,14 +173,14 @@ export class FileIndexService {
           INSERT INTO uploaded_files
           (id, original_name, stored_name, stored_path, size, mime,
            uploaded_at, uploaded_by, indexed_in_vector, tags, notes, scope_type, scope_id,
-           storage_kind, local_path, source_mtime_ms, source_sha256)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           storage_kind, local_path)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
         fileId, originalName, originalName, filePath, input.size, input.mime,
         now, null, 0, null, null, "session", scopeId,
-        "linked_local", filePath, input.mtimeMs, input.sha256,
+        "linked_local", filePath,
       );
     const record = this.get(fileId, "session", scopeId);
     if (!record) {
@@ -235,9 +229,7 @@ export class FileIndexService {
         scope_type TEXT NOT NULL DEFAULT 'global',
         scope_id TEXT,
         storage_kind TEXT NOT NULL DEFAULT 'managed',
-        local_path TEXT,
-        source_mtime_ms REAL,
-        source_sha256 TEXT
+        local_path TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_uploaded_files_uploaded_at ON uploaded_files(uploaded_at);
@@ -246,8 +238,6 @@ export class FileIndexService {
     `);
     this.ensureColumn("storage_kind", "TEXT NOT NULL DEFAULT 'managed'");
     this.ensureColumn("local_path", "TEXT");
-    this.ensureColumn("source_mtime_ms", "REAL");
-    this.ensureColumn("source_sha256", "TEXT");
   }
 
   private ensureColumn(name: string, declaration: string): void {
@@ -279,8 +269,6 @@ function rowToFileRecord(row: UploadedFileRow): UploadedFileRecord {
     scope_id: row.scope_id,
     storage_kind: row.storage_kind === "linked_local" ? "linked_local" : "managed",
     ...(row.local_path ? { local_path: row.local_path } : {}),
-    ...(row.source_mtime_ms != null ? { source_mtime_ms: row.source_mtime_ms } : {}),
-    ...(row.source_sha256 ? { source_sha256: row.source_sha256 } : {}),
   };
 }
 
