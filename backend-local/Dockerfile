@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS build
+FROM node:22.5-bookworm-slim AS build
 
 WORKDIR /app
 COPY . .
@@ -11,7 +11,7 @@ RUN npm ci \
     && npm prune --omit=dev \
     && node -e "import('sqlite-vec').then(({ getLoadablePath }) => getLoadablePath())"
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:22.5-bookworm-slim AS runtime
 
 ENV NODE_ENV=production
 WORKDIR /app

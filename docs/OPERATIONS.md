@@ -2,7 +2,7 @@
 
 ## 当前主链路 / Mainline
 
-日常开发与 CI 使用 `backend-ts`、`frontend-client` 和根 npm workspace。需要 Node.js 24+。
+日常开发与 CI 使用 `backend-ts`、`frontend-client` 和根 npm workspace。需要 Node.js 22.5+。
 
 ```bash
 npm ci

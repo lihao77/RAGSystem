@@ -60,7 +60,7 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 
 ### 1. 环境要求
 
-- Node.js 24+
+- Node.js 22.5+
 - npm
 - Chrome 或 Edge（仅生成截图时需要）
 

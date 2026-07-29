@@ -20,7 +20,7 @@ RAGSystem 是一个 Agent-first 的 RAG 与多智能体协作系统。推荐按�
 | 项目 | 当前值 |
 |---|---|
 | 后端 | Fastify 5 + TypeScript |
-| Node.js | >= 24 |
+| Node.js | >= 22.5 |
 | 默认端口 | 5002 |
 | 主存储 | SQLite + `node:sqlite` |
 | 向量存储 | SQLite + `sqlite-vec` |

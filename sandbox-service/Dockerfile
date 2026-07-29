@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS build
+FROM node:22.5-bookworm-slim AS build
 WORKDIR /app/sandbox-service
 COPY sandbox-service/package.json ./package.json
 RUN npm install --ignore-scripts --no-package-lock
@@ -6,7 +6,7 @@ COPY sandbox-service/tsconfig.json ./tsconfig.json
 COPY sandbox-service/src ./src
 RUN npm run build
 
-FROM node:24-bookworm-slim
+FROM node:22.5-bookworm-slim
 ENV NODE_ENV=production
 WORKDIR /app/sandbox-service
 ARG DOCKER_CLI_VERSION=29.2.0

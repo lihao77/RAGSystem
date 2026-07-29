@@ -15,7 +15,7 @@ hero:
 
 features:
   - title: TS 后端
-    details: 基于 Fastify v5 + TypeScript，运行于 Node.js 24+，默认监听 5002。
+    details: 基于 Fastify v5 + TypeScript，运行于 Node.js 22.5+，默认监听 5002。
   - title: 共享协议包
     details: packages 下包含 agent-protocol、api-contracts、agent-llm、agent-sdk、agent-widget 五个包，分别承担线协议、HTTP 契约、模型通信、运行时内核和嵌入组件。
   - title: Agent 运行时

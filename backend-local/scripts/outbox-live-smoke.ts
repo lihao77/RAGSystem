@@ -78,7 +78,7 @@ async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const wsConstructor = getWebSocketConstructor();
   if (!wsConstructor) {
-    throw new Error("global WebSocket is not available; run with Node 24+");
+    throw new Error("global WebSocket is not available; run with Node 22.5+");
   }
 
   await assertHealthy(options);

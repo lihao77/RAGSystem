@@ -1,5 +1,5 @@
 # 前端 Nginx 生产镜像。构建必须从 monorepo 根执行，以解析本地 workspace 包。
-FROM node:24-alpine AS build
+FROM node:22.5-alpine AS build
 WORKDIR /app
 
 COPY . .

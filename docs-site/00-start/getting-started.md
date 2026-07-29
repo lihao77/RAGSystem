@@ -9,7 +9,7 @@ verified_at: 2026-07-28
 
 ## 前置条件
 
-- Node.js 24 或更高版本
+- Node.js 22.5 或更高版本
 - npm 10 或更高版本
 - 可选：用于远程 LLM、Embedding 或 MCP 的网络访问
 
