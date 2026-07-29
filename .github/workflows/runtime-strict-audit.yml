@@ -82,7 +82,7 @@ jobs:
       - name: Check TypeScript backend
         run: npm run check:backend
       - name: Build TypeScript backend container
-        run: docker build --file backend-ts/Dockerfile --tag ragsystem-backend:ci .
+        run: docker build --file backend-local/Dockerfile --tag ragsystem-backend:ci .
 
   browser-client-checks:
     runs-on: ubuntu-latest

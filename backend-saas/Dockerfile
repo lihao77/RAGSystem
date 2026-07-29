@@ -3,11 +3,7 @@ FROM node:22.5-bookworm-slim AS build
 WORKDIR /app
 COPY . .
 RUN npm ci \
-    && npm run build:contracts \
-    && npm -w @ragsystem/agent-llm run build \
-    && npm -w @ragsystem/agent-sdk run build \
-    && npm -w @ragsystem/backend-core run build \
-    && npm -w @ragsystem/backend-saas run build \
+    && npm run build:backend \
     && npm prune --omit=dev
 
 FROM node:22.5-bookworm-slim AS runtime
@@ -19,10 +15,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages ./packages
 COPY --from=build /app/backend-core/package.json ./backend-core/package.json
 COPY --from=build /app/backend-core/dist ./backend-core/dist
-COPY --from=build /app/backend-core/skills ./backend-core/skills
-COPY --from=build /app/plugins/backend-plugin-artifacts/package.json ./plugins/backend-plugin-artifacts/package.json
-COPY --from=build /app/plugins/backend-plugin-artifacts/dist ./plugins/backend-plugin-artifacts/dist
-COPY --from=build /app/plugins/backend-plugin-artifacts/skills ./plugins/backend-plugin-artifacts/skills
+COPY --from=build /app/plugins ./plugins
 COPY --from=build /app/backend-saas/package.json ./backend-saas/package.json
 COPY --from=build /app/backend-saas/dist ./backend-saas/dist
 
