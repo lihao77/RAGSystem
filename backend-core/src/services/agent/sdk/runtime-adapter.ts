@@ -576,7 +576,7 @@ function buildHostDelegateTools(
     parameters: decl.input_schema,
     ...(decl.risk_level !== undefined ? { riskLevel: decl.risk_level } : {}),
     allowedCallers: ["direct"],
-    isReadOnly: () => false,
+    isReadOnly: () => decl.read_only === true,
     isConcurrencySafe: () => false,
     call: (input, ctx) => {
       const callId = ctx.toolCallId ?? "";

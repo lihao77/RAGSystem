@@ -6,6 +6,10 @@ export interface AguiClientTool {
   description?: string;
   /** JSON Schema 参数描述。 */
   parameters?: Record<string, unknown>;
+  /** RAGSystem 扩展：未声明时保持 medium。 */
+  riskLevel?: "low" | "medium" | "high";
+  /** RAGSystem 扩展：是否不产生持久化业务变更，未声明时为 false。 */
+  readOnly?: boolean;
 }
 
 /** AG-UI message（上行 RunAgentInput.messages 元素）。 */
@@ -38,19 +42,26 @@ export interface RunAgentInput {
 
 /**
  * AG-UI client tool → 内部 DelegatedToolDeclarationWire（覆盖式注册用）。
- * AG-UI 无 risk_level/cancellable 字段，给默认值（risk 仅参与内部 gate 决策，不进协议）。
+ * riskLevel/readOnly 是兼容 AG-UI 基础字段的 RAGSystem 可选扩展；旧客户端仍按
+ * medium + 非只读处理。未知值不得降低默认风险。
  */
 export function mapClientTools(tools: AguiClientTool[] | undefined): DelegatedToolDeclarationWire[] {
   if (!tools?.length) {
     return [];
   }
-  return tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description ?? "",
-    input_schema: tool.parameters ?? { type: "object", properties: {} },
-    risk_level: "medium",
-    cancellable: true,
-  }));
+  return tools.map((tool) => {
+    const riskLevel = tool.riskLevel === "low" || tool.riskLevel === "medium" || tool.riskLevel === "high"
+      ? tool.riskLevel
+      : "medium";
+    return {
+      name: tool.name,
+      description: tool.description ?? "",
+      input_schema: tool.parameters ?? { type: "object", properties: {} },
+      risk_level: riskLevel,
+      read_only: tool.readOnly === true,
+      cancellable: true,
+    };
+  });
 }
 
 /** 取末条 user 消息 content 作为内部 startStream 的 task。 */

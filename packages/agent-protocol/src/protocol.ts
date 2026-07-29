@@ -163,6 +163,7 @@ export const DelegatedToolDeclarationSchema = z.object({
   description: z.string(),
   input_schema: z.record(z.unknown()),
   risk_level: z.enum(["low", "medium", "high"]).optional(),
+  read_only: z.boolean().optional(),
   cancellable: z.boolean().optional(),
 });
 
