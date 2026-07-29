@@ -6,8 +6,10 @@ import test from "node:test";
 
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
 import {
+  backendPluginModule,
   createDocumentToolsPlugin,
   createLocalDocumentToolsRuntimeFactory,
+  DOCUMENT_TOOLS_RUNTIME_CAPABILITY,
 } from "../dist/index.js";
 
 const descriptorNames = ["read_file", "write_file", "edit_file", "preview_data_structure"];
@@ -24,6 +26,35 @@ test("document tool descriptors are contributed only when the plugin is installe
   assert.deepEqual(
     installed.runtimeContributions().listTools().map((tool) => tool.name),
     descriptorNames,
+  );
+});
+
+test("standard plugin module selects the deployment runtime without product wiring", async () => {
+  const plugin = await backendPluginModule.create({ config: undefined });
+  const manager = new BackendPluginManager([plugin]);
+  await manager.register();
+  const contributions = manager.runtimeContributions();
+
+  const local = await contributions.createRuntime({
+    deploymentKind: "local",
+    resources: [{ kind: "document-tools.enabled", value: false }],
+  });
+  assert.deepEqual(local.capabilities.require(DOCUMENT_TOOLS_RUNTIME_CAPABILITY), { document: null });
+  local.dispose();
+
+  const supplied = { document: fakeDocumentPort() };
+  const saas = await contributions.createRuntime({
+    deploymentKind: "saas",
+    resources: [{ kind: "document-tools.runtime", value: supplied }],
+  });
+  assert.equal(saas.capabilities.require(DOCUMENT_TOOLS_RUNTIME_CAPABILITY), supplied);
+  saas.dispose();
+});
+
+test("standard plugin module rejects unsupported configuration", () => {
+  assert.throws(
+    () => backendPluginModule.create({ config: { unknown: true } }),
+    /does not accept configuration/,
   );
 });
 
