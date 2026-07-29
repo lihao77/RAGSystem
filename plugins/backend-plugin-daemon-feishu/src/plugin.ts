@@ -10,10 +10,12 @@ import type { DaemonBotRepository } from "./contracts/bot-repository.js";
 
 export const DAEMON_FEISHU_PLUGIN_ID = "@ragsystem/backend-plugin-daemon-feishu";
 
+export type DaemonDependencySource<Value> = Value | (() => Value);
+
 export interface DaemonFeishuPluginDependencies {
-  readonly botRepository: DaemonBotRepository;
-  readonly controlPlane: ControlPlane;
-  readonly leaderLease?: DaemonLeaderLease;
+  readonly botRepository: DaemonDependencySource<DaemonBotRepository>;
+  readonly controlPlane: DaemonDependencySource<ControlPlane>;
+  readonly leaderLease?: DaemonDependencySource<DaemonLeaderLease | undefined>;
 }
 
 export function createDaemonFeishuPlugin(dependencies: DaemonFeishuPluginDependencies): BackendPlugin {
@@ -23,12 +25,16 @@ export function createDaemonFeishuPlugin(dependencies: DaemonFeishuPluginDepende
     manifest: { id: DAEMON_FEISHU_PLUGIN_ID, version: "0.1.0" },
     register(context) {
       context.applications.register((applicationContext) => {
+        const botRepository = resolveDependency(dependencies.botRepository);
+        const leaderLease = dependencies.leaderLease
+          ? resolveDependency(dependencies.leaderLease)
+          : undefined;
         registry = applicationContext.registry;
         application = createDaemonApplicationRuntime({
-          botRepository: dependencies.botRepository,
+          botRepository,
           registry: applicationContext.registry,
           logger: applicationContext.logger,
-          ...(dependencies.leaderLease ? { leaderLease: dependencies.leaderLease } : {}),
+          ...(leaderLease ? { leaderLease } : {}),
         });
         return {
           start: () => application!.start(),
@@ -43,29 +49,33 @@ export function createDaemonFeishuPlugin(dependencies: DaemonFeishuPluginDepende
         if (!application || !registry) throw new Error("Daemon/Feishu application runtime is not initialized");
         await app.register(registerBotRoutes, {
           daemon: application.service,
-          botRepository: dependencies.botRepository,
+          botRepository: resolveDependency(dependencies.botRepository),
           registry,
         });
       });
       context.routes.register("platform", "/api/platform", async (app) => {
         await app.register(registerDaemonPlatformRoutes, {
-          controlPlane: dependencies.controlPlane,
-          botRepository: dependencies.botRepository,
+          controlPlane: resolveDependency(dependencies.controlPlane),
+          botRepository: resolveDependency(dependencies.botRepository),
         });
       });
       context.events.on("resource.changed", async (payload) => {
         if (!application || !isUserStatusChange(payload)) return;
         const botId = payload.resourceId as UserId;
-        if (await dependencies.botRepository.get(botId)) await application.service.reloadBot(botId);
+        if (await resolveDependency(dependencies.botRepository).get(botId)) await application.service.reloadBot(botId);
       });
       context.events.on("session.origins.resolve", async (payload) => {
         if (!isSessionOriginResolution(payload)) return;
-        for (const bot of await dependencies.botRepository.listByTenant(payload.tenantId as import("@ragsystem/backend-core/identity/types.js").TenantId)) {
+        for (const bot of await resolveDependency(dependencies.botRepository).listByTenant(payload.tenantId as import("@ragsystem/backend-core/identity/types.js").TenantId)) {
           payload.names.set(`bot:${bot.id}`, bot.displayName);
         }
       });
     },
   };
+}
+
+function resolveDependency<Value>(source: DaemonDependencySource<Value>): Value {
+  return typeof source === "function" ? (source as () => Value)() : source;
 }
 
 function isSessionOriginResolution(value: unknown): value is { tenantId: string; names: Map<string, string> } {

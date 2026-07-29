@@ -5,6 +5,7 @@ export * from "./contracts/bot-repository.js";
 export * from "./contracts/bot-directory.js";
 export * from "./contracts/daemon-leader-lease.js";
 export * from "./contracts/daemon-runtime-provider.js";
+export * from "./module.js";
 export * from "./plugin.js";
 export * from "./routes/bots.js";
 export * from "./routes/platform.js";
