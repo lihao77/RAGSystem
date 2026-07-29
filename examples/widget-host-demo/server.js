@@ -7,7 +7,7 @@
  * 运行前置：
  *   1. 后端配 WIDGET_JWT_SECRET 启动（见 backend-ts/.env.example）。
  *   2. 用 CLI 建 widget app 拿 app-key/secret：
- *        npx tsx src/cli/widget-app.ts create --name "demo" --origins http://localhost:4321
+ *        npm -w @ragsystem/backend-plugin-widget run widget-app -- create demo http://localhost:4321
  *   3. 设环境变量后启动本 demo：
  *        WIDGET_APP_KEY=wid_pk_... WIDGET_SECRET=wid_sk_... npm start
  *   4. 浏览器开 http://localhost:4321，widget FAB 出现在右下角。
@@ -36,7 +36,7 @@ const BUNDLE = path.resolve(import.meta.dirname, "../../packages/agent-widget/di
 const INDEX_HTML = path.resolve(import.meta.dirname, "index.html");
 
 if (!APP_KEY || !SECRET) {
-  console.error("请先设 WIDGET_APP_KEY 与 WIDGET_SECRET（用 cli/widget-app.ts create 获取）");
+  console.error("请先设 WIDGET_APP_KEY 与 WIDGET_SECRET（用 Widget 插件的 widget-app CLI 获取）");
   process.exit(1);
 }
 

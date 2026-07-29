@@ -13,7 +13,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test tests/*.test.mjs"
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "prewidget-app": "npm run build",
+    "widget-app": "node dist/cli/widget-app.js"
   },
   "dependencies": {
     "pg": "^8.22.0",

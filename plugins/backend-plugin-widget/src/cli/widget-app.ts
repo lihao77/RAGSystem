@@ -3,20 +3,20 @@
  * widget 应用凭证管理 CLI：创建/吊销 widget app（app-key/secret 对）。
  *
  * 用法（位置参数——避免 npm/npx 吞 --flag）：
- *   npx tsx src/cli/widget-app.ts create <名称> [来源1,来源2,...]
- *   npx tsx src/cli/widget-app.ts revoke <app_key>
+ *   npm -w @ragsystem/backend-plugin-widget run widget-app -- create <名称> [来源1,来源2,...]
+ *   npm -w @ragsystem/backend-plugin-widget run widget-app -- revoke <app_key>
  *
  * 例：
- *   npm -w @ragsystem/backend-local exec tsx src/cli/widget-app.ts create demo http://localhost:4321
+ *   npm -w @ragsystem/backend-plugin-widget run widget-app -- create demo http://localhost:4321
  *
  * create 成功后 secret 仅显示一次——后端只存 SHA-256 hash，无法找回，请立即保存。
  */
 import { loadEnv } from "@ragsystem/backend-core/config/env.js";
-import { SqliteControlPlaneAdapter } from "../adapters/local/sqlite/sqlite-control-plane-adapter.js";
-import { SqliteWidgetCredentialAdapter } from "@ragsystem/backend-plugin-widget/storage/local/sqlite-widget-credential-adapter.js";
-import { LOCAL_TENANT_ID, LocalIdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
-import { createControlStore } from "../adapters/local/sqlite/control-store/index.js";
-import { createWidgetCredentialStore } from "@ragsystem/backend-plugin-widget/storage/local/widget-credential-store/index.js";
+import { LOCAL_TENANT_ID } from "@ragsystem/backend-core/services/identity/index.js";
+import { DatabaseSync } from "node:sqlite";
+import path from "node:path";
+import { SqliteWidgetCredentialAdapter } from "../storage/local/sqlite-widget-credential-adapter.js";
+import { createWidgetCredentialStore } from "../storage/local/widget-credential-store/index.js";
 
 async function main(): Promise<void> {
   const [, , command, ...rest] = process.argv;
@@ -26,9 +26,10 @@ async function main(): Promise<void> {
   }
 
   const env = loadEnv(process.env);
-  const controlStore = createControlStore(env.systemRoot);
-  await new LocalIdentityProvider(new SqliteControlPlaneAdapter(controlStore)).initialize();
-  const store = createWidgetCredentialStore(controlStore.db);
+  const database = new DatabaseSync(path.join(env.systemRoot, "control.db"));
+  database.exec("PRAGMA foreign_keys = ON");
+  assertLocalTenantExists(database);
+  const store = createWidgetCredentialStore(database);
   const widgetCredentials = new SqliteWidgetCredentialAdapter(store);
   try {
     if (command === "create") {
@@ -68,8 +69,18 @@ async function main(): Promise<void> {
   } finally {
     await widgetCredentials.close();
     store.close();
-    controlStore.close();
+    database.close();
   }
+}
+
+function assertLocalTenantExists(database: DatabaseSync): void {
+  try {
+    const tenant = database.prepare("SELECT 1 AS present FROM tenants WHERE id=?").get(LOCAL_TENANT_ID);
+    if (tenant) return;
+  } catch (error) {
+    throw new Error("Local control database is not initialized; start backend-local once before using the Widget CLI", { cause: error });
+  }
+  throw new Error(`Local tenant '${LOCAL_TENANT_ID}' does not exist; start backend-local once before using the Widget CLI`);
 }
 
 function usage(): void {
