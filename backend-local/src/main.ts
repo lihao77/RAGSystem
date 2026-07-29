@@ -5,6 +5,7 @@ import { createLocalProductPlugins } from "./product-plugins.js";
 
 const environment = loadEnvSource(process.env);
 const env = loadEnv(environment);
+const socketPath = environment.BACKEND_TS_SOCKET_PATH?.trim();
 const deployment = createLocalDeploymentRuntime(env);
 let app;
 
@@ -19,8 +20,13 @@ try {
       env: environment,
     }),
   });
-  const address = await app.listen({ host: env.host, port: env.port });
-  app.log.info({ address, deployment: "local", storage: "sqlite" }, "backend-local listening");
+  const address = socketPath
+    ? await app.listen({ path: socketPath })
+    : await app.listen({ host: env.host, port: env.port });
+  app.log.info(
+    { address, socketPath: socketPath || undefined, deployment: "local", storage: "sqlite" },
+    "backend-local listening",
+  );
 } catch (error) {
   await app?.close().catch(() => undefined);
   await deployment.close().catch(() => undefined);
