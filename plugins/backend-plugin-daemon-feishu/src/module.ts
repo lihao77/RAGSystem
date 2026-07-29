@@ -15,6 +15,7 @@ import { createDaemonFeishuPlugin, DAEMON_FEISHU_PLUGIN_ID } from "./plugin.js";
 import { SqliteBotRepository } from "./storage/local/sqlite-bot-repository.js";
 import { runSqliteDaemonMigrations } from "./storage/local/sqlite-migrations.js";
 import { PostgresBotRepository } from "./storage/postgres/bot-repository.js";
+import { runPostgresDaemonMigrations } from "./storage/postgres/migrations.js";
 
 export const backendPluginModule: BackendPluginModule = {
   apiVersion: 1,
@@ -46,7 +47,7 @@ function createInstalledDaemonFeishuPlugin(): BackendPlugin {
   return {
     ...base,
     async register(context) {
-      context.applications.register(({ resources }) => {
+      context.applications.register(async ({ resources }) => {
         hostResources = resources ?? [];
         const deployment = requireHost<{ kind: "local" | "saas" }>(BACKEND_HOST_RESOURCES.deployment);
         if (deployment.kind === "local") {
@@ -54,8 +55,10 @@ function createInstalledDaemonFeishuPlugin(): BackendPlugin {
           runSqliteDaemonMigrations(database);
           botRepository = new SqliteBotRepository(database);
         } else {
+          const database = requireHost<Pool>(BACKEND_HOST_RESOURCES.controlDatabase);
+          await runPostgresDaemonMigrations(database);
           botRepository = new PostgresBotRepository(
-              requireHost<Pool>(BACKEND_HOST_RESOURCES.controlDatabase),
+              database,
               requireHost<SecretResolver>(BACKEND_HOST_RESOURCES.secrets),
             );
         }

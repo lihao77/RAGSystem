@@ -14,3 +14,4 @@ export * from "./services/platforms/feishu-adapter.js";
 export * from "./storage/local/sqlite-bot-repository.js";
 export * from "./storage/local/sqlite-migrations.js";
 export * from "./storage/postgres/bot-repository.js";
+export * from "./storage/postgres/migrations.js";

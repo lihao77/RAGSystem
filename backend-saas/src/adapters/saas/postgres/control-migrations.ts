@@ -100,76 +100,17 @@ export const POSTGRES_CONTROL_MIGRATIONS: readonly PostgresControlMigration[] = 
       CREATE INDEX control_secret_envelopes_resource_idx
         ON control_secret_envelopes(tenant_id, purpose, resource_id);
 
-      CREATE TABLE control_bot_configs (
-        bot_id TEXT PRIMARY KEY REFERENCES control_users(id) ON DELETE CASCADE,
-        tenant_id TEXT NOT NULL REFERENCES control_tenants(id) ON DELETE CASCADE,
-        enabled BOOLEAN NOT NULL DEFAULT FALSE,
-        entry_agent TEXT,
-        session_id TEXT,
-        default_session_ttl INTEGER NOT NULL DEFAULT 86400 CHECK (default_session_ttl > 0),
-        permission_mode TEXT NOT NULL DEFAULT 'relaxed',
-        feishu_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-        feishu_app_id TEXT,
-        feishu_receive_mode TEXT NOT NULL DEFAULT 'webhook' CHECK (feishu_receive_mode IN ('webhook', 'long_connection')),
-        route_token_digest TEXT,
-        feishu_default_chat_id TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE (tenant_id, bot_id)
-      );
-
-      CREATE INDEX control_bot_configs_tenant_idx ON control_bot_configs(tenant_id);
-      CREATE INDEX control_bot_configs_enabled_idx ON control_bot_configs(enabled, feishu_enabled);
-      CREATE UNIQUE INDEX control_bot_configs_route_digest_idx
-        ON control_bot_configs(route_token_digest)
-        WHERE route_token_digest IS NOT NULL;
-
-      CREATE TABLE control_bot_cron_tasks (
-        bot_id TEXT NOT NULL REFERENCES control_bot_configs(bot_id) ON DELETE CASCADE,
-        task_id TEXT NOT NULL,
-        cron TEXT NOT NULL,
-        task TEXT NOT NULL,
-        entry_agent TEXT,
-        enabled BOOLEAN NOT NULL DEFAULT TRUE,
-        push_platform TEXT CHECK (push_platform IS NULL OR push_platform = 'feishu'),
-        push_chat_id TEXT,
-        next_run DOUBLE PRECISION,
-        last_run DOUBLE PRECISION,
-        last_result TEXT,
-        PRIMARY KEY (bot_id, task_id)
-      );
-
-      CREATE INDEX control_bot_cron_due_idx
-        ON control_bot_cron_tasks(enabled, next_run);
-
     `,
   },
   {
     version: 3,
     name: "control-cron-lease",
-    sql: `
-      ALTER TABLE control_bot_cron_tasks
-        ADD COLUMN lease_owner TEXT,
-        ADD COLUMN lease_token TEXT,
-        ADD COLUMN lease_expires_at DOUBLE PRECISION,
-        ADD COLUMN last_attempt_id TEXT,
-        ADD COLUMN attempt_count BIGINT NOT NULL DEFAULT 0;
-
-      CREATE UNIQUE INDEX control_bot_cron_attempt_idx
-        ON control_bot_cron_tasks(last_attempt_id)
-        WHERE last_attempt_id IS NOT NULL;
-
-      CREATE INDEX control_bot_cron_claimable_idx
-        ON control_bot_cron_tasks(enabled, next_run, lease_expires_at);
-    `,
+    sql: "SELECT 1;",
   },
   {
     version: 4,
     name: "control-bot-team",
-    sql: `
-      ALTER TABLE control_bot_configs
-        ADD COLUMN team TEXT;
-    `,
+    sql: "SELECT 1;",
   },
 ];
 
