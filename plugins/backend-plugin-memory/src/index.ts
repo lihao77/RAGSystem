@@ -14,6 +14,7 @@ export type {
   MemoryPluginRuntime,
   MemoryPluginRuntimeFactory,
 } from "./dependencies.js";
+export { backendPluginModule } from "./module.js";
 export { createLocalMemoryRuntimeFactory } from "./storage/local/runtime.js";
 export { createPostgresMemoryRuntimeFactory } from "./storage/postgres/runtime.js";
 export { createPostgresMemoryLifecycle } from "./storage/postgres/lifecycle.js";
