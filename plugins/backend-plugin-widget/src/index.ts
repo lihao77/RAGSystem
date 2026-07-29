@@ -3,6 +3,7 @@ export * from "./contracts/widget-credentials.js";
 export * from "./config.js";
 export * from "./identity/widget-identity-provider.js";
 export * from "./identity/widget-user-id.js";
+export * from "./module.js";
 export * from "./plugin.js";
 export * from "./routes/widget.js";
 export * from "./routes/widget-apps.js";

@@ -15,11 +15,13 @@ import { createWidgetAuthService } from "./services/widget-auth-service.js";
 
 export const WIDGET_PLUGIN_ID = "@ragsystem/backend-plugin-widget";
 
+export type WidgetDependencySource<Value> = Value | (() => Value);
+
 export interface WidgetPluginDependencies {
   readonly credentials: () => WidgetCredentialRepository | Promise<WidgetCredentialRepository>;
   readonly keyRing?: JwtKeyRing;
-  readonly wsTickets: WsTicketService;
-  readonly applications: DeploymentApplicationResolvers;
+  readonly wsTickets: WidgetDependencySource<WsTicketService>;
+  readonly applications: WidgetDependencySource<DeploymentApplicationResolvers>;
 }
 
 export function createWidgetPlugin(dependencies: WidgetPluginDependencies): BackendPlugin {
@@ -62,6 +64,7 @@ export function createWidgetPlugin(dependencies: WidgetPluginDependencies): Back
 
       context.routes.register("public", "/api/widget", async (app) => {
         if (!registry) throw new Error("Widget application runtime is not initialized");
+        const applications = resolveDependency(dependencies.applications);
         if (identityProvider) {
           installIdentityScope(app, {
             identityProvider,
@@ -70,8 +73,8 @@ export function createWidgetPlugin(dependencies: WidgetPluginDependencies): Back
           });
         }
         await app.register(registerWidgetRoutes, {
-          wsTickets: dependencies.wsTickets,
-          resolveSessionApplication: dependencies.applications.resolveSessionApplication,
+          wsTickets: resolveDependency(dependencies.wsTickets),
+          resolveSessionApplication: applications.resolveSessionApplication,
           ...(auth ? { widgetAuth: auth } : {}),
         });
       });
@@ -88,7 +91,7 @@ export function createWidgetPlugin(dependencies: WidgetPluginDependencies): Back
           await app.register(registerAguiRoutes, {
             registry,
             identityProvider,
-            ...dependencies.applications,
+            ...resolveDependency(dependencies.applications),
           });
         });
       }
@@ -101,6 +104,10 @@ export function createWidgetPlugin(dependencies: WidgetPluginDependencies): Back
       });
     },
   };
+}
+
+function resolveDependency<Value>(source: WidgetDependencySource<Value>): Value {
+  return typeof source === "function" ? (source as () => Value)() : source;
 }
 
 function isSessionOriginResolution(value: unknown): value is { tenantId: string; names: Map<string, string> } {
