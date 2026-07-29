@@ -8,11 +8,12 @@ import type { ArtifactsPluginDependencies } from "./dependencies.js";
 import { createArtifactToolAfterHook } from "./artifact-hook.js";
 
 const SKILL_SOURCE_RESOURCE_KIND = "ragsystem.skill-source";
+export const ARTIFACTS_PLUGIN_ID = "@ragsystem/backend-plugin-artifacts";
 
 export function createArtifactsPlugin(dependencies: ArtifactsPluginDependencies): BackendPlugin {
   return {
     manifest: {
-      id: "@ragsystem/backend-plugin-artifacts",
+      id: ARTIFACTS_PLUGIN_ID,
       version: "0.1.0",
     },
     register(context) {

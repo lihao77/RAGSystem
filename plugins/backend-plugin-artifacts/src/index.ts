@@ -1,4 +1,5 @@
-export { createArtifactsPlugin } from "./plugin.js";
+export { backendPluginModule } from "./module.js";
+export { ARTIFACTS_PLUGIN_ID, createArtifactsPlugin } from "./plugin.js";
 export { createArtifactToolAfterHook } from "./artifact-hook.js";
 export { ArtifactServiceError } from "./artifact-error.js";
 export type { ArtifactApplication, ArtifactRecord } from "./contracts/artifact-application.js";

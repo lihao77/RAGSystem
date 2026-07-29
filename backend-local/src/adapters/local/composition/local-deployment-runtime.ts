@@ -2,6 +2,7 @@ import type {
   DeploymentApplicationResolvers,
   DeploymentRuntime,
 } from "@ragsystem/backend-core/app/deployment-runtime.js";
+import path from "node:path";
 import type { BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import type { DaemonBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/contracts/bot-repository.js";
@@ -16,6 +17,7 @@ import {
   createLocalSessionFileApplicationResolver,
 } from "../application/local-request-application-resolvers.js";
 import { LocalTenantRuntimeRegistry } from "../tenant-runtime-registry.js";
+import { TenantPaths } from "../tenant-paths.js";
 import { createControlStore } from "../sqlite/control-store/index.js";
 import { SqliteControlPlaneAdapter } from "../sqlite/sqlite-control-plane-adapter.js";
 
@@ -46,6 +48,11 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
     { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.controlPlane, value: controlPlane },
     { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.applications, value: deploymentApplications },
     { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.wsTickets, value: wsTickets },
+    {
+      pluginId: "@ragsystem/backend-local",
+      kind: BACKEND_HOST_RESOURCES.tenantDataRoot,
+      value: (tenantId: string) => new TenantPaths(path.join(env.tenantsRoot, tenantId)).dataRoot,
+    },
     { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.controlDatabase, value: controlStore.db },
   ];
   let closed = false;

@@ -6,6 +6,7 @@ export const BACKEND_HOST_RESOURCES = Object.freeze({
   controlPlane: "ragsystem.host.control-plane",
   applications: "ragsystem.host.applications",
   wsTickets: "ragsystem.host.ws-tickets",
+  tenantDataRoot: "ragsystem.host.tenant-data-root",
   controlDatabase: "ragsystem.host.database.control",
   runtimeDatabase: "ragsystem.host.database.runtime",
   objectStorage: "ragsystem.host.object-storage",
