@@ -1,108 +1,28 @@
-import type { BackendPlugin, BackendPluginCatalog } from "@ragsystem/backend-core/plugins/index.js";
-import { selectBackendPlugins } from "@ragsystem/backend-core/plugins/index.js";
+import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import {
-  loadMutableSession,
-  loadMutableSessionForResource,
-  loadReadableSession,
-  loadReadableSessionForResource,
-} from "@ragsystem/backend-core/routes/session-owner.js";
-import { createArtifactsPlugin, createPostgresArtifactStorage } from "@ragsystem/backend-plugin-artifacts/index.js";
+  loadBackendPlugins,
+  type LoadBackendPluginsOptions,
+} from "@ragsystem/backend-core/plugins/plugin-loader.js";
 import {
-  createKnowledgePlugin,
-  createPostgresKnowledgeLifecycle,
-  createPostgresKnowledgeRuntimeFactory,
-} from "@ragsystem/backend-plugin-knowledge/index.js";
-import {
-  createMemoryPlugin,
-  createPostgresMemoryLifecycle,
-  createPostgresMemoryRuntimeFactory,
-} from "@ragsystem/backend-plugin-memory/index.js";
-import {
-  createMcpPlugin,
-  createPostgresMcpLifecycle,
-  createPostgresMcpRuntimeFactory,
-} from "@ragsystem/backend-plugin-mcp/index.js";
-import { createExecutionToolsPlugin, createSaaSExecutionToolsRuntimeFactory } from "@ragsystem/backend-plugin-execution-tools/index.js";
-import { createDocumentToolsPlugin, createSaaSDocumentToolsRuntimeFactory } from "@ragsystem/backend-plugin-document-tools/index.js";
-import { createDaemonFeishuPlugin } from "@ragsystem/backend-plugin-daemon-feishu/index.js";
-import { createPostgresWidgetCredentialRepository, createWidgetPlugin } from "@ragsystem/backend-plugin-widget/index.js";
-import type { JwtKeyRing } from "@ragsystem/backend-core/contracts/runtime/jwt-key-ring.js";
-import {
-  createPostgresSkillsLifecycle,
-  createPostgresSkillsRuntimeFactory,
-  createSkillsPlugin,
-} from "@ragsystem/backend-plugin-skills/index.js";
-import type { SaaSDeploymentRuntime } from "./adapters/saas/composition/saas-deployment-runtime.js";
+  selectBackendPluginModules,
+  type BackendPluginModuleCatalog,
+} from "@ragsystem/backend-core/plugins/plugin-selection.js";
 
-export function createSaaSProductPlugins(
-  deployment: SaaSDeploymentRuntime,
+export const SAAS_PLUGIN_MODULES = {
+  artifacts: "@ragsystem/backend-plugin-artifacts/module.js",
+  executionTools: "@ragsystem/backend-plugin-execution-tools/module.js",
+  documentTools: "@ragsystem/backend-plugin-document-tools/module.js",
+  daemonFeishu: "@ragsystem/backend-plugin-daemon-feishu/module.js",
+  knowledge: "@ragsystem/backend-plugin-knowledge/module.js",
+  memory: "@ragsystem/backend-plugin-memory/module.js",
+  mcp: "@ragsystem/backend-plugin-mcp/module.js",
+  skills: "@ragsystem/backend-plugin-skills/module.js",
+  widget: "@ragsystem/backend-plugin-widget/module.js",
+} satisfies BackendPluginModuleCatalog;
+
+export async function createSaaSProductPlugins(
   selection?: string,
-  widgetKeyRing?: JwtKeyRing,
-): readonly BackendPlugin[] {
-  const applications = deployment.applications;
-  const catalog = {
-    artifacts: () => createArtifactsPlugin({
-      storage: createPostgresArtifactStorage({
-        executor: deployment.pluginResources.database,
-        objects: deployment.pluginResources.objects,
-      }),
-      sessionAccess: {
-        assertReadable: async (request, sessionId) => {
-          await loadReadableSession(request, sessionId, await applications.resolveSessionApplication(request));
-        },
-        assertMutable: async (request, sessionId) => {
-          await loadMutableSession(request, sessionId, await applications.resolveSessionApplication(request));
-        },
-        assertResourceReadable: async (request, sessionId, message) => {
-          await loadReadableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
-        },
-        assertResourceMutable: async (request, sessionId, message) => {
-          await loadMutableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
-        },
-      },
-    }),
-    executionTools: () => createExecutionToolsPlugin({ runtimeFactory: createSaaSExecutionToolsRuntimeFactory() }),
-    documentTools: () => createDocumentToolsPlugin({ runtimeFactory: createSaaSDocumentToolsRuntimeFactory() }),
-    daemonFeishu: () => createDaemonFeishuPlugin({
-      botRepository: deployment.botRepository,
-      controlPlane: deployment.controlPlane,
-      leaderLease: deployment.daemonLeaderLease,
-    }),
-    knowledge: () => createKnowledgePlugin({
-      runtimeFactory: createPostgresKnowledgeRuntimeFactory({
-        executor: deployment.pluginResources.database,
-        objects: deployment.pluginResources.objects,
-      }),
-      lifecycle: createPostgresKnowledgeLifecycle(deployment.pluginResources.database),
-    }),
-    memory: () => createMemoryPlugin({
-      runtimeFactory: createPostgresMemoryRuntimeFactory({
-        executor: deployment.pluginResources.database,
-      }),
-      lifecycle: createPostgresMemoryLifecycle(deployment.pluginResources.database),
-    }),
-    mcp: () => createMcpPlugin({
-      runtimeFactory: createPostgresMcpRuntimeFactory({
-        executor: deployment.pluginResources.database,
-        secrets: deployment.pluginResources.secrets,
-      }),
-      lifecycle: createPostgresMcpLifecycle(deployment.pluginResources.database),
-    }),
-    skills: () => createSkillsPlugin({
-      runtimeFactory: createPostgresSkillsRuntimeFactory({
-        executor: deployment.pluginResources.database,
-        objects: deployment.pluginResources.objects,
-      }),
-      lifecycle: createPostgresSkillsLifecycle(deployment.pluginResources.database),
-    }),
-    widget: () => createWidgetPlugin({
-      credentials: () => createPostgresWidgetCredentialRepository({
-        pool: deployment.pluginResources.controlDatabase,
-      }),
-      ...(widgetKeyRing ? { keyRing: widgetKeyRing } : {}),
-      wsTickets: deployment.wsTickets,
-      applications: deployment.applications,
-    }),
-  } satisfies BackendPluginCatalog;
-  return selectBackendPlugins(catalog, selection);
+  options?: LoadBackendPluginsOptions,
+): Promise<readonly BackendPlugin[]> {
+  return loadBackendPlugins(selectBackendPluginModules(SAAS_PLUGIN_MODULES, selection), options);
 }

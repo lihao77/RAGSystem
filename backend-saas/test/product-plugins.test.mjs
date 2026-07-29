@@ -15,34 +15,30 @@ const ALL_IDS = [
   "@ragsystem/backend-plugin-widget",
 ];
 
-test("SaaS product plugin catalog defaults to every bundled plugin", () => {
-  assert.deepEqual(pluginIds(createSaaSProductPlugins(deployment())), ALL_IDS);
+test("SaaS product dynamically loads every installed plugin by default", async () => {
+  assert.deepEqual(pluginIds(await createSaaSProductPlugins()), ALL_IDS);
 });
 
-test("SaaS product plugin catalog supports disabling and subset ordering", () => {
-  assert.deepEqual(createSaaSProductPlugins(deployment(), "none"), []);
-  assert.deepEqual(pluginIds(createSaaSProductPlugins(deployment(), "knowledge,memory")), [
+test("SaaS product imports nothing when plugins are disabled", async () => {
+  let imports = 0;
+  const plugins = await createSaaSProductPlugins("none", {
+    importModule: async () => {
+      imports += 1;
+      throw new Error("must not import");
+    },
+  });
+  assert.deepEqual(plugins, []);
+  assert.equal(imports, 0);
+});
+
+test("SaaS product supports dynamic subset ordering", async () => {
+  assert.deepEqual(pluginIds(await createSaaSProductPlugins("knowledge,memory")), [
     "@ragsystem/backend-plugin-knowledge",
     "@ragsystem/backend-plugin-memory",
   ]);
-  assert.throws(
-    () => createSaaSProductPlugins(deployment(), "missing"),
-    /Backend plugins are not installed: missing/,
-  );
+  await assert.rejects(createSaaSProductPlugins("missing"), /Backend plugins are not installed: missing/);
 });
 
 function pluginIds(plugins) {
   return plugins.map((plugin) => plugin.manifest.id);
-}
-
-
-function deployment() {
-  return {
-    applications: {},
-    pluginResources: {
-      database: {},
-      objects: {},
-      secrets: {},
-    },
-  };
 }

@@ -1,6 +1,7 @@
-import type { BackendPlugin } from "./backend-plugin.js";
+import type { BackendPlugin, InstalledBackendPluginSpec } from "./backend-plugin.js";
 
 export type BackendPluginCatalog = Readonly<Record<string, () => BackendPlugin>>;
+export type BackendPluginModuleCatalog = Readonly<Record<string, string>>;
 
 export function selectBackendPlugins(
   catalog: BackendPluginCatalog,
@@ -12,6 +13,18 @@ export function selectBackendPlugins(
     const create = catalog[name];
     if (!create) throw new Error(`Backend plugin '${name}' is not installed`);
     return create();
+  });
+}
+
+export function selectBackendPluginModules(
+  catalog: BackendPluginModuleCatalog,
+  selection: string | undefined,
+): readonly InstalledBackendPluginSpec[] {
+  const available = Object.keys(catalog);
+  return parseSelection(selection, available).map((name) => {
+    const module = catalog[name];
+    if (!module) throw new Error(`Backend plugin '${name}' is not installed`);
+    return { module };
   });
 }
 

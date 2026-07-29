@@ -2,7 +2,6 @@ import { createSaaSDeploymentRuntime } from "./adapters/saas/composition/saas-de
 import { loadEnv } from "@ragsystem/backend-core/config/env.js";
 import { buildCoreApp } from "@ragsystem/backend-core/core-app.js";
 import { createSaaSProductPlugins } from "./product-plugins.js";
-import { parseWidgetJwtKeyRing } from "@ragsystem/backend-plugin-widget/config.js";
 
 const env = loadEnv(process.env);
 const deployment = await createSaaSDeploymentRuntime(env);
@@ -12,11 +11,7 @@ try {
   app = await buildCoreApp({
     env,
     runtime: deployment,
-    plugins: createSaaSProductPlugins(
-      deployment,
-      process.env.BACKEND_PLUGINS,
-      parseWidgetJwtKeyRing(process.env.WIDGET_JWT_KEY_RING),
-    ),
+    plugins: await createSaaSProductPlugins(process.env.BACKEND_PLUGINS),
   });
   const address = await app.listen({ host: env.host, port: env.port });
   app.log.info({ address, deployment: "saas", storage: "postgres", objectStorage: "s3" }, "backend-saas listening");

@@ -1,75 +1,28 @@
-import type { BackendPlugin, BackendPluginCatalog } from "@ragsystem/backend-core/plugins/index.js";
-import { selectBackendPlugins } from "@ragsystem/backend-core/plugins/index.js";
-import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
-import type { JwtKeyRing } from "@ragsystem/backend-core/contracts/runtime/jwt-key-ring.js";
-import path from "node:path";
+import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import {
-  loadMutableSession,
-  loadMutableSessionForResource,
-  loadReadableSession,
-  loadReadableSessionForResource,
-} from "@ragsystem/backend-core/routes/session-owner.js";
-import { createArtifactsPlugin, createFilesystemArtifactStorage } from "@ragsystem/backend-plugin-artifacts/index.js";
-import { createKnowledgePlugin, createLocalKnowledgeRuntimeFactory } from "@ragsystem/backend-plugin-knowledge/index.js";
-import { createLocalMemoryRuntimeFactory, createMemoryPlugin } from "@ragsystem/backend-plugin-memory/index.js";
-import { createLocalMcpRuntimeFactory, createMcpPlugin } from "@ragsystem/backend-plugin-mcp/index.js";
-import { createExecutionToolsPlugin, createLocalExecutionToolsRuntimeFactory } from "@ragsystem/backend-plugin-execution-tools/index.js";
-import { createDocumentToolsPlugin, createLocalDocumentToolsRuntimeFactory } from "@ragsystem/backend-plugin-document-tools/index.js";
-import { createDaemonFeishuPlugin } from "@ragsystem/backend-plugin-daemon-feishu/index.js";
+  loadBackendPlugins,
+  type LoadBackendPluginsOptions,
+} from "@ragsystem/backend-core/plugins/plugin-loader.js";
 import {
-  createWidgetCredentialStore,
-  createWidgetPlugin,
-  SqliteWidgetCredentialAdapter,
-} from "@ragsystem/backend-plugin-widget/index.js";
-import { createLocalSkillsRuntimeFactory, createSkillsPlugin } from "@ragsystem/backend-plugin-skills/index.js";
-import type { LocalDeploymentRuntime } from "./adapters/local/composition/local-deployment-runtime.js";
-import { TenantPaths } from "./adapters/local/tenant-paths.js";
+  selectBackendPluginModules,
+  type BackendPluginModuleCatalog,
+} from "@ragsystem/backend-core/plugins/plugin-selection.js";
 
-export function createLocalProductPlugins(
-  deployment: LocalDeploymentRuntime,
-  env: AppEnv,
+export const LOCAL_PLUGIN_MODULES = {
+  artifacts: "@ragsystem/backend-plugin-artifacts/module.js",
+  executionTools: "@ragsystem/backend-plugin-execution-tools/module.js",
+  documentTools: "@ragsystem/backend-plugin-document-tools/module.js",
+  daemonFeishu: "@ragsystem/backend-plugin-daemon-feishu/module.js",
+  knowledge: "@ragsystem/backend-plugin-knowledge/module.js",
+  memory: "@ragsystem/backend-plugin-memory/module.js",
+  mcp: "@ragsystem/backend-plugin-mcp/module.js",
+  skills: "@ragsystem/backend-plugin-skills/module.js",
+  widget: "@ragsystem/backend-plugin-widget/module.js",
+} satisfies BackendPluginModuleCatalog;
+
+export async function createLocalProductPlugins(
   selection?: string,
-  widgetKeyRing?: JwtKeyRing,
-): readonly BackendPlugin[] {
-  const applications = deployment.applications;
-  const catalog = {
-    artifacts: () => createArtifactsPlugin({
-      storage: createFilesystemArtifactStorage({
-        resolveDataRoot: (tenantId) => new TenantPaths(path.join(env.tenantsRoot, tenantId)).dataRoot,
-      }),
-      sessionAccess: {
-        assertReadable: async (request, sessionId) => {
-          await loadReadableSession(request, sessionId, await applications.resolveSessionApplication(request));
-        },
-        assertMutable: async (request, sessionId) => {
-          await loadMutableSession(request, sessionId, await applications.resolveSessionApplication(request));
-        },
-        assertResourceReadable: async (request, sessionId, message) => {
-          await loadReadableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
-        },
-        assertResourceMutable: async (request, sessionId, message) => {
-          await loadMutableSessionForResource(request, sessionId, message, await applications.resolveSessionApplication(request));
-        },
-      },
-    }),
-    executionTools: () => createExecutionToolsPlugin({ runtimeFactory: createLocalExecutionToolsRuntimeFactory() }),
-    documentTools: () => createDocumentToolsPlugin({ runtimeFactory: createLocalDocumentToolsRuntimeFactory() }),
-    daemonFeishu: () => createDaemonFeishuPlugin({
-      botRepository: deployment.botRepository,
-      controlPlane: deployment.controlPlane,
-    }),
-    knowledge: () => createKnowledgePlugin({ runtimeFactory: createLocalKnowledgeRuntimeFactory() }),
-    memory: () => createMemoryPlugin({ runtimeFactory: createLocalMemoryRuntimeFactory() }),
-    mcp: () => createMcpPlugin({ runtimeFactory: createLocalMcpRuntimeFactory() }),
-    skills: () => createSkillsPlugin({ runtimeFactory: createLocalSkillsRuntimeFactory() }),
-    widget: () => createWidgetPlugin({
-      credentials: () => new SqliteWidgetCredentialAdapter(
-        createWidgetCredentialStore(deployment.pluginResources.controlDatabase),
-      ),
-      ...(widgetKeyRing ? { keyRing: widgetKeyRing } : {}),
-      wsTickets: deployment.wsTickets,
-      applications: deployment.applications,
-    }),
-  } satisfies BackendPluginCatalog;
-  return selectBackendPlugins(catalog, selection);
+  options?: LoadBackendPluginsOptions,
+): Promise<readonly BackendPlugin[]> {
+  return loadBackendPlugins(selectBackendPluginModules(LOCAL_PLUGIN_MODULES, selection), options);
 }
