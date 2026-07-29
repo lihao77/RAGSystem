@@ -4,6 +4,7 @@ export * from "./contracts/mcp.js";
 export * from "./contracts/mcp-application.js";
 export * from "./dependencies.js";
 export * from "./mcp-service.js";
+export * from "./module.js";
 export * from "./plugin.js";
 export * from "./storage/local/runtime.js";
 export * from "./storage/local/agent-config-store.js";
