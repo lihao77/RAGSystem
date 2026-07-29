@@ -1,10 +1,9 @@
 import type { Pool, PoolClient } from "pg";
-import type { DaemonLeaderLease } from "@ragsystem/backend-plugin-daemon-feishu/contracts/daemon-leader-lease.js";
 
 const DAEMON_LEADER_LOCK_ID = 0x52414744;
 
 /** PostgreSQL session advisory lock. The client remains checked out while leader. */
-export class PostgresDaemonLeaderLease implements DaemonLeaderLease {
+export class PostgresDaemonLeaderLease {
   private client: PoolClient | null = null;
   constructor(private readonly pool: Pool) {}
   async acquire(): Promise<boolean> {

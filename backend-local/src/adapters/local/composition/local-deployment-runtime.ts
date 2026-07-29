@@ -5,8 +5,6 @@ import type {
 import path from "node:path";
 import type { BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
-import type { DaemonBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/contracts/bot-repository.js";
-import { SqliteBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/storage/local/sqlite-bot-repository.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import { LocalIdentityProvider, PasswordIdentityProvider, type IdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
 import type { SessionTokenService } from "@ragsystem/backend-core/services/runtime/session-token-service.js";
@@ -22,7 +20,6 @@ import { createControlStore } from "../sqlite/control-store/index.js";
 import { SqliteControlPlaneAdapter } from "../sqlite/sqlite-control-plane-adapter.js";
 
 export interface LocalDeploymentRuntime extends DeploymentRuntime {
-  readonly botRepository: DaemonBotRepository;
   readonly pluginResources: {
     readonly controlDatabase: import("node:sqlite").DatabaseSync;
   };
@@ -35,7 +32,6 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
 
   const controlStore = createControlStore(env.systemRoot);
   const controlPlane = new SqliteControlPlaneAdapter(controlStore);
-  const botRepository = new SqliteBotRepository(controlStore);
   const wsTickets = createWsTicketService();
   const applications = createLocalRequestApplicationResolvers();
   const deploymentApplications: DeploymentApplicationResolvers = {
@@ -60,7 +56,6 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
 
   return {
     controlPlane,
-    botRepository,
     pluginResources: { controlDatabase: controlStore.db },
     applications: deploymentApplications,
     hostResources,
