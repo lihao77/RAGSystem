@@ -6,7 +6,7 @@ import type { IdentityProvider } from "../services/identity/index.js";
 import type { RuntimeContainerRegistry } from "../services/runtime/runtime-container-registry.js";
 import type { SessionTokenService } from "../services/runtime/session-token-service.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
-import type { BackendRuntimeContributions } from "../plugins/backend-plugin.js";
+import type { BackendPluginResourceContribution, BackendRuntimeContributions } from "../plugins/backend-plugin.js";
 
 export interface DeploymentApplicationResolvers {
   resolveProviderApplication: NonNullable<RouteOptions["resolveProviderApplication"]>;
@@ -28,6 +28,7 @@ export interface DeploymentRuntime {
   readonly controlPlane: ControlPlane;
   readonly applications: DeploymentApplicationResolvers;
   readonly wsTickets: WsTicketService;
+  readonly hostResources?: readonly BackendPluginResourceContribution[];
   readonly initialSessionTokens?: SessionTokenService;
   createRegistry(
     logger: FastifyBaseLogger,

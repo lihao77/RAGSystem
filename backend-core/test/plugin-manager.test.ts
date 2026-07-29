@@ -78,6 +78,39 @@ describe("BackendPluginManager", () => {
     runtime.dispose();
   });
 
+  it("merges deployment host resources into application and tenant runtime factories", async () => {
+    const hostResource: BackendPluginResourceContribution = {
+      pluginId: "host",
+      kind: "ragsystem.host.database.runtime",
+      value: { query: vi.fn() },
+    };
+    let applicationResources: readonly BackendPluginResourceContribution[] | undefined;
+    let runtimeResources: readonly BackendPluginResourceContribution[] | undefined;
+    const manager = new BackendPluginManager([{
+      manifest: { id: "consumer", version: "1.0.0" },
+      register(context) {
+        context.applications.register((applicationContext) => {
+          applicationResources = applicationContext.resources;
+          return {};
+        });
+        context.runtimes.register((runtimeContext) => {
+          runtimeResources = runtimeContext.resources;
+          return {};
+        });
+      },
+    }]);
+    await manager.register();
+    await manager.initializeApplication({ logger: {} as never, registry: {} as never, resources: [hostResource] });
+    const contributions = manager.runtimeContributions([hostResource]);
+    const runtime = await contributions.createRuntime({} as BackendPluginRuntimeContext);
+
+    expect(contributions.resources).toEqual([hostResource]);
+    expect(applicationResources).toEqual([hostResource]);
+    expect(runtimeResources).toEqual([hostResource]);
+    runtime.dispose();
+    await manager.stop();
+  });
+
   it("rolls back runtimes when a later factory fails", async () => {
     const dispose = vi.fn();
     const manager = new BackendPluginManager([

@@ -1,6 +1,11 @@
 import { Pool } from "pg";
 
-import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
+import type {
+  DeploymentApplicationResolvers,
+  DeploymentRuntime,
+} from "@ragsystem/backend-core/app/deployment-runtime.js";
+import type { BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
 import type { SecretResolver } from "@ragsystem/backend-core/contracts/integrations/secret-resolver.js";
@@ -75,6 +80,54 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
   const pool = dataPool;
   const objects = objectStorage;
   if (!objects) throw new Error("SaaS artifact plugin requires ObjectStorage");
+  const deploymentApplications: DeploymentApplicationResolvers = {
+    resolveSessionFileApplication: (request) => new SaaSSessionFileApplication(
+      conversation.createSessionFileStorage(request.identity.tenantId),
+    ),
+    resolveFileChangeApplication: (request) => new SaaSFileChangeApplication(
+      conversation.createFileHistoryStorage(request.identity.tenantId),
+    ),
+    resolveProviderApplication: (request) => new SaaSProviderApplication(
+      request.identity.tenantId,
+      request.container.modelAdapter,
+      conversation.providers,
+    ),
+    resolveSessionApplication: (request) => new SaaSSessionApplication(
+      request.identity.tenantId,
+      conversation.conversation,
+      conversation.createFileHistoryStorage(request.identity.tenantId),
+      conversation.runs,
+      conversation.outbox,
+      conversation.workspaces,
+    ),
+    resolveExecutionRead: (request) => new SaaSAgentReadApplication(
+      request.identity.tenantId,
+      conversation.conversation,
+      conversation.runs,
+      conversation.outbox,
+      request.container.agentExecution,
+    ),
+    resolveExecutionApplication: (request) => new RuntimeExecutionApplication(request.container.agentExecution),
+    resolveAnalytics: (request) => new SaaSAnalyticsApplication(
+      request.identity.tenantId,
+      conversation.analytics,
+    ),
+    resolveMonitoringApplication: (request) => new SaaSMonitoringApplication(
+      request.identity.tenantId,
+      conversation.outbox,
+    ),
+  };
+  const hostResources: readonly BackendPluginResourceContribution[] = [
+    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.deployment, value: { kind: "saas" } },
+    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.controlPlane, value: control.controlPlane },
+    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.applications, value: deploymentApplications },
+    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.wsTickets, value: conversation.wsTickets },
+    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.controlDatabase, value: control.database },
+    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.runtimeDatabase, value: conversation.pluginResources.database },
+    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.objectStorage, value: objects },
+    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.secrets, value: control.secretResolver },
+    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.leaderElection, value: control.daemonLeaderLease },
+  ];
   let closed = false;
 
   return {
@@ -82,49 +135,14 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
     botRepository: control.botRepository,
     daemonLeaderLease: control.daemonLeaderLease,
     wsTickets: conversation.wsTickets,
+    hostResources,
     pluginResources: {
       database: conversation.pluginResources.database,
       controlDatabase: control.database,
       objects,
       secrets: control.secretResolver,
     },
-    applications: {
-      resolveSessionFileApplication: (request) => new SaaSSessionFileApplication(
-        conversation.createSessionFileStorage(request.identity.tenantId),
-      ),
-      resolveFileChangeApplication: (request) => new SaaSFileChangeApplication(
-        conversation.createFileHistoryStorage(request.identity.tenantId),
-      ),
-      resolveProviderApplication: (request) => new SaaSProviderApplication(
-        request.identity.tenantId,
-        request.container.modelAdapter,
-        conversation.providers,
-      ),
-      resolveSessionApplication: (request) => new SaaSSessionApplication(
-        request.identity.tenantId,
-        conversation.conversation,
-        conversation.createFileHistoryStorage(request.identity.tenantId),
-        conversation.runs,
-        conversation.outbox,
-        conversation.workspaces,
-      ),
-      resolveExecutionRead: (request) => new SaaSAgentReadApplication(
-        request.identity.tenantId,
-        conversation.conversation,
-        conversation.runs,
-        conversation.outbox,
-        request.container.agentExecution,
-      ),
-      resolveExecutionApplication: (request) => new RuntimeExecutionApplication(request.container.agentExecution),
-      resolveAnalytics: (request) => new SaaSAnalyticsApplication(
-        request.identity.tenantId,
-        conversation.analytics,
-      ),
-      resolveMonitoringApplication: (request) => new SaaSMonitoringApplication(
-        request.identity.tenantId,
-        conversation.outbox,
-      ),
-    },
+    applications: deploymentApplications,
     createRegistry: (logger, plugins) => new SaaSTenantRuntimeRegistry(
       env,
       control.controlPlane.tenants,

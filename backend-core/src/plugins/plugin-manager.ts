@@ -397,16 +397,17 @@ export class BackendPluginManager {
     this.hookRegistry.install(registry);
   }
 
-  runtimeContributions(): BackendRuntimeContributions {
+  runtimeContributions(hostResources: readonly BackendPluginResourceContribution[] = []): BackendRuntimeContributions {
     if (!this.registered) throw new Error("Plugins must be registered before runtime contributions are read");
     const manager = this;
     return {
-      get resources() { return manager.resourceRegistry.list(); },
+      get resources() { return [...hostResources, ...manager.resourceRegistry.list()]; },
       configureHooks: (registry) => manager.hookRegistry.install(registry),
       createRuntime: (context) => manager.runtimeFactoryRegistry.create({
         ...context,
         resources: [
           ...(context.resources ?? []),
+          ...hostResources,
           ...manager.resourceRegistry.list(),
         ],
       }),

@@ -68,9 +68,16 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   const routedIdentityProvider: IdentityProvider = {
     resolve: (request, scope) => runtime.identityProvider.resolve(request, scope),
   };
-  const registry = await deployment.createRegistry(app.log, pluginManager.runtimeContributions());
+  const registry = await deployment.createRegistry(
+    app.log,
+    pluginManager.runtimeContributions(deployment.hostResources ?? []),
+  );
   const wsTickets = deployment.wsTickets;
-  await pluginManager.initializeApplication({ logger: app.log, registry });
+  await pluginManager.initializeApplication({
+    logger: app.log,
+    registry,
+    ...(deployment.hostResources ? { resources: deployment.hostResources } : {}),
+  });
   app.decorateRequest("identity");
   app.decorateRequest("userId");
   app.decorateRequest("tenantId");

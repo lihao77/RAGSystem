@@ -1,4 +1,9 @@
-import type { DeploymentRuntime } from "@ragsystem/backend-core/app/deployment-runtime.js";
+import type {
+  DeploymentApplicationResolvers,
+  DeploymentRuntime,
+} from "@ragsystem/backend-core/app/deployment-runtime.js";
+import type { BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import type { DaemonBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/contracts/bot-repository.js";
 import { SqliteBotRepository } from "@ragsystem/backend-plugin-daemon-feishu/storage/local/sqlite-bot-repository.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
@@ -31,17 +36,26 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
   const botRepository = new SqliteBotRepository(controlStore);
   const wsTickets = createWsTicketService();
   const applications = createLocalRequestApplicationResolvers();
+  const deploymentApplications: DeploymentApplicationResolvers = {
+    ...applications,
+    resolveSessionFileApplication: createLocalSessionFileApplicationResolver(),
+    resolveFileChangeApplication: createLocalFileChangeApplicationResolver(),
+  };
+  const hostResources: readonly BackendPluginResourceContribution[] = [
+    { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.deployment, value: { kind: "local" } },
+    { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.controlPlane, value: controlPlane },
+    { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.applications, value: deploymentApplications },
+    { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.wsTickets, value: wsTickets },
+    { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.controlDatabase, value: controlStore.db },
+  ];
   let closed = false;
 
   return {
     controlPlane,
     botRepository,
     pluginResources: { controlDatabase: controlStore.db },
-    applications: {
-      ...applications,
-      resolveSessionFileApplication: createLocalSessionFileApplicationResolver(),
-      resolveFileChangeApplication: createLocalFileChangeApplicationResolver(),
-    },
+    applications: deploymentApplications,
+    hostResources,
     wsTickets,
     createRegistry: (logger, plugins) => new LocalTenantRuntimeRegistry(
       env,
