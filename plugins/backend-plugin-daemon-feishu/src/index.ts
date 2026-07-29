@@ -12,4 +12,5 @@ export * from "./routes/platform.js";
 export * from "./services/daemon-service.js";
 export * from "./services/platforms/feishu-adapter.js";
 export * from "./storage/local/sqlite-bot-repository.js";
+export * from "./storage/local/sqlite-migrations.js";
 export * from "./storage/postgres/bot-repository.js";

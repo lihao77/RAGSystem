@@ -1,48 +1,19 @@
 import { randomUUID } from "node:crypto";
-import type { Bot } from "@ragsystem/backend-core/contracts/control-plane/user.js";
-import type { TenantId, UserId } from "@ragsystem/backend-core/identity/types.js";
-import type {
-  BotConfig,
-  BotConfigUpdate,
-  BotCronTask,
-  BotCronTaskCreate,
-  BotSummary,
-  TenantBotSummary,
-} from "../../contracts/bot.js";
 import type {
   BotCronTaskClaim,
-  BotWithConfig,
   DaemonBotRepository,
 } from "../../contracts/bot-repository.js";
-
-export interface LocalDaemonBotStore {
-  createBot(input: { tenantId: TenantId; ownerId: UserId; displayName: string }): Bot;
-  getBot(botId: UserId): Bot | null;
-  updateUser(userId: UserId, displayName: string): boolean;
-  deleteBot(botId: UserId): boolean;
-  isBotOwnedBy(botId: UserId | string, ownerId: UserId | string): boolean;
-  assertBotOwner(botId: UserId, ownerId: UserId): Bot;
-  listBotsByOwner(ownerId: UserId): Bot[];
-  listBotsWithConfig(ownerId: UserId): BotWithConfig[];
-  getMembership(userId: UserId, tenantId: TenantId): unknown | null;
-  listAllBots(): BotSummary[];
-  listBotsByTenant(tenantId: TenantId): TenantBotSummary[];
-  getBotConfig(botId: UserId): BotConfig | null;
-  getBotRuntimeConfig(botId: UserId): BotConfig | null;
-  updateBotConfig(botId: UserId, patch: BotConfigUpdate): BotConfig;
-  getAllEnabledFeishuBots(): BotConfig[];
-  listBotCronTasks(botId: UserId): BotCronTask[];
-  findDueCronTasks(now: number): Array<{ botId: UserId; taskId: string }>;
-  getBotCronTask(botId: UserId, taskId: string): BotCronTask | null;
-  createBotCronTask(botId: UserId, input: BotCronTaskCreate & { next_run?: number | null }): BotCronTask;
-  updateBotCronTask(botId: UserId, taskId: string, patch: Partial<Omit<BotCronTask, "bot_id" | "task_id">>): BotCronTask | null;
-  deleteBotCronTask(botId: UserId, taskId: string): boolean;
-}
+import type { DatabaseSync } from "node:sqlite";
+import { SqliteDaemonBotStore } from "./sqlite-daemon-bot-store.js";
 
 /** Async Bot boundary backed by the Local control SQLite database. */
 export class SqliteBotRepository implements DaemonBotRepository {
   private readonly cronClaims = new Map<string, BotCronTaskClaim>();
-  constructor(readonly store: LocalDaemonBotStore) {}
+  readonly store: SqliteDaemonBotStore;
+
+  constructor(database: DatabaseSync) {
+    this.store = new SqliteDaemonBotStore(database);
+  }
 
   async create(input: Parameters<DaemonBotRepository["create"]>[0]) { return this.store.createBot(input); }
   async get(botId: Parameters<DaemonBotRepository["get"]>[0]) { return this.store.getBot(botId); }

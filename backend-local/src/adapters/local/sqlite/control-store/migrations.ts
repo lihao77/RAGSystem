@@ -1,5 +1,5 @@
 import { runInTransaction } from "../conversation-store/shared/transaction.js";
-import { CONTROL_AUTH_SCHEMA_SQL, CONTROL_BASELINE_SCHEMA_SQL, CONTROL_BOT_CONFIG_SCHEMA_SQL, CONTROL_BOT_SCHEMA_SQL } from "./schema.js";
+import { CONTROL_AUTH_SCHEMA_SQL, CONTROL_BASELINE_SCHEMA_SQL, CONTROL_BOT_SCHEMA_SQL } from "./schema.js";
 
 export interface ControlMigrationDatabase {
   exec: import("node:sqlite").DatabaseSync["exec"];
@@ -76,30 +76,22 @@ export const CONTROL_MIGRATIONS: readonly ControlMigration[] = [
   {
     version: 6,
     name: "bot-configs-and-cron",
-    up: (db) => {
-      db.exec(CONTROL_BOT_CONFIG_SCHEMA_SQL);
-    },
+    up: () => undefined,
   },
   {
     version: 7,
     name: "bot-permission-mode",
-    up: (db) => {
-      db.exec("ALTER TABLE bot_configs ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'relaxed'");
-    },
+    up: () => undefined,
   },
   {
     version: 8,
     name: "bot-feishu-default-chat",
-    up: (db) => {
-      db.exec("ALTER TABLE bot_configs ADD COLUMN feishu_default_chat_id TEXT");
-    },
+    up: () => undefined,
   },
   {
     version: 9,
     name: "bot-team",
-    up: (db) => {
-      db.exec("ALTER TABLE bot_configs ADD COLUMN team TEXT");
-    },
+    up: () => undefined,
   },
 ];
 

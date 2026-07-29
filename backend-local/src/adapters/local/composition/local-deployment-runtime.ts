@@ -49,7 +49,6 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
       kind: BACKEND_HOST_RESOURCES.tenantDataRoot,
       value: (tenantId: string) => new TenantPaths(path.join(env.tenantsRoot, tenantId)).dataRoot,
     },
-    { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.controlStore, value: controlStore },
     { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.controlDatabase, value: controlStore.db },
   ];
   let closed = false;
