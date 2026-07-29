@@ -98,7 +98,7 @@ Windows PowerShell 可使用 `Copy-Item` 代替 `cp`。
 npm run dev:backend-local
 ```
 
-默认监听 `http://localhost:5002`。可通过 `BACKEND_TS_HOST`、`BACKEND_TS_PORT` 或 `PORT` 调整监听地址；当 `frontend-client/dist` 存在时，后端也会托管前端构建产物。
+默认监听 `http://localhost:5002`。可通过 `BACKEND_TS_HOST`、`BACKEND_TS_PORT` 或 `PORT` 调整监听地址；设置 `BACKEND_TS_SOCKET_PATH` 时改为监听 Unix domain socket 或 Windows named pipe，并优先于 TCP 配置。当 `frontend-client/dist` 存在时，后端也会托管前端构建产物。
 
 ### 4. 启动前端
 

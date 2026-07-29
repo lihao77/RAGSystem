@@ -1,3 +1,5 @@
+import { request as requestHttp, type IncomingHttpHeaders } from "node:http";
+import { Readable } from "node:stream";
 import type { LlmRequest, ProviderConfig } from "./types.js";
 import { DEFAULT_ENDPOINTS } from "./provider-registry.js";
 import {
@@ -52,7 +54,10 @@ export async function fetchProvider(
     ...(request.signal ? { signal: request.signal } : {}),
     deferSuccess,
     operation: async ({ signal }) => {
-      const response = await fetch(endpoint, { ...init, signal });
+      const requestInit = { ...init, signal };
+      const response = request.provider.transport?.type === "ipc_socket"
+        ? await fetchOverIpcSocket(request.provider, endpoint, requestInit)
+        : await fetch(endpoint, requestInit);
       if (isRetryableHttpStatus(response.status)) {
         const body = await readJson(response);
         throw new RetryableHttpError(response.status, extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
@@ -60,6 +65,68 @@ export async function fetchProvider(
       return response;
     },
   });
+}
+
+async function fetchOverIpcSocket(
+  provider: ProviderConfig,
+  endpoint: string,
+  init: RequestInit,
+): Promise<Response> {
+  const transport = provider.transport;
+  if (!transport || transport.type !== "ipc_socket") {
+    throw new Error(`Provider '${provider.name}' is missing IPC socket transport configuration`);
+  }
+  const envName = transport.socket_env.trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName)) {
+    throw new Error(`Provider '${provider.name}' has an invalid IPC socket environment variable`);
+  }
+  const socketPath = process.env[envName]?.trim();
+  if (!socketPath) {
+    throw new Error(`Provider '${provider.name}' IPC socket environment variable '${envName}' is not configured`);
+  }
+  const target = new URL(endpoint);
+  if (target.protocol !== "http:") {
+    throw new Error(`Provider '${provider.name}' IPC socket endpoint must use the http: scheme`);
+  }
+
+  return new Promise<Response>((resolve, reject) => {
+    const headers = Object.fromEntries(new Headers(init.headers).entries());
+    const request = requestHttp({
+      socketPath,
+      path: `${target.pathname}${target.search}`,
+      method: init.method ?? "GET",
+      headers: { host: target.host, ...headers },
+      ...(init.signal ? { signal: init.signal } : {}),
+    }, (response) => {
+      resolve(new Response(Readable.toWeb(response) as ReadableStream<Uint8Array>, {
+        status: response.statusCode ?? 500,
+        statusText: response.statusMessage ?? "",
+        headers: responseHeaders(response.headers),
+      }));
+    });
+    request.once("error", reject);
+    if (init.body === undefined || init.body === null) {
+      request.end();
+      return;
+    }
+    if (typeof init.body === "string" || init.body instanceof Uint8Array) {
+      request.end(init.body);
+      return;
+    }
+    request.destroy(new Error(`Provider '${provider.name}' IPC socket transport only supports buffered request bodies`));
+  });
+}
+
+function responseHeaders(headers: IncomingHttpHeaders): Headers {
+  const result = new Headers();
+  for (const [name, value] of Object.entries(headers)) {
+    if (Array.isArray(value)) {
+      for (const entry of value) result.append(name, entry);
+    } else if (value !== undefined) {
+      result.set(name, value);
+    }
+  }
+  return result;
 }
 
 export async function readProviderStream<T>(request: LlmRequest, read: () => Promise<T>): Promise<T> {

@@ -94,6 +94,11 @@ export interface ProviderConfig {
   provider_type: string;
   api_endpoint?: string | null;
   api_key?: string | null;
+  /** Optional process-local transport used by trusted local deployment composition. */
+  transport?: {
+    type: "ipc_socket";
+    socket_env: string;
+  } | null;
   supports_function_calling?: boolean | null;
   supports_vision?: boolean | null;
   /** Provider prompt cache switch. Defaults on; Anthropic uses cache_control, OpenAI Responses uses prompt_cache_key. */
