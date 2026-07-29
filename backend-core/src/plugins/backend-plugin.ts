@@ -161,3 +161,21 @@ export interface BackendPlugin {
   start?(): void | Promise<void>;
   stop?(): void | Promise<void>;
 }
+
+/** Configuration for one installed plugin module. Disabled entries are never imported. */
+export interface InstalledBackendPluginSpec {
+  readonly module: string;
+  readonly enabled?: boolean;
+  readonly config?: unknown;
+}
+
+export interface BackendPluginModuleCreateContext {
+  readonly config: unknown;
+}
+
+/** Stable package entrypoint loaded by the product without a compile-time plugin dependency. */
+export interface BackendPluginModule {
+  readonly apiVersion: 1;
+  readonly manifest: BackendPluginManifest;
+  create(context: BackendPluginModuleCreateContext): BackendPlugin | Promise<BackendPlugin>;
+}
