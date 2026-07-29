@@ -44,6 +44,7 @@ const str = (value: unknown): string | undefined => (typeof value === "string" ?
  */
 export class AguiTranslator {
   private textMessageId: string | null = null;
+  private textHasStreamedContent = false;
   private reasoningMessageId: string | null = null;
 
   constructor(private readonly ctx: TranslateContext) {}
@@ -110,26 +111,34 @@ export class AguiTranslator {
     const events: AguiEvent[] = [];
     if (phase === "first_token") {
       this.textMessageId = randomUUID();
+      this.textHasStreamedContent = false;
       events.push({ type: "TEXT_MESSAGE_START", ...this.base(), messageId: this.textMessageId, role: "assistant" });
       if (content) {
         events.push(this.textContent(content));
+        this.textHasStreamedContent = true;
       }
     } else if (phase === "delta") {
       if (this.textMessageId === null) {
         this.textMessageId = randomUUID();
-        events.push({ type: "TEXT_MESSAGE_START", ...this.base(), messageId: this.textMessageId, role: "assistant" });
-      }
-      events.push(this.textContent(content));
-    } else if (phase === "final") {
-      if (this.textMessageId === null) {
-        this.textMessageId = randomUUID();
+        this.textHasStreamedContent = false;
         events.push({ type: "TEXT_MESSAGE_START", ...this.base(), messageId: this.textMessageId, role: "assistant" });
       }
       if (content) {
         events.push(this.textContent(content));
+        this.textHasStreamedContent = true;
+      }
+    } else if (phase === "final") {
+      if (this.textMessageId === null) {
+        this.textMessageId = randomUUID();
+        this.textHasStreamedContent = false;
+        events.push({ type: "TEXT_MESSAGE_START", ...this.base(), messageId: this.textMessageId, role: "assistant" });
+      }
+      if (content && !this.textHasStreamedContent) {
+        events.push(this.textContent(content));
       }
       events.push({ type: "TEXT_MESSAGE_END", ...this.base(), messageId: this.textMessageId });
       this.textMessageId = null;
+      this.textHasStreamedContent = false;
     }
     return events;
   }
