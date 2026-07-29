@@ -32,6 +32,11 @@ export class AttachmentResolver {
         mime: record.mime || "",
         size: record.size,
         kind: record.mime.startsWith("image/") ? "image" : "file",
+        ...(record.storage_kind === "linked_local" && record.local_path ? {
+          file_path: record.local_path,
+          file_path_space: "absolute" as const,
+          ...(record.source_sha256 ? { content_sha256: record.source_sha256 } : {}),
+        } : {}),
       });
     }
     return { attachments: resolved };

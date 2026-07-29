@@ -37,6 +37,28 @@ describe("agent-protocol envelope compatibility", () => {
     })).toMatchObject({ kind: "attachments", version: 1 });
   });
 
+  it("允许服务端权威附件快照声明受控绝对路径", () => {
+    expect(AttachmentsExtensionSchema.parse({
+      kind: "attachments",
+      version: 1,
+      data: {
+        items: [{
+          file_id: "file-nc",
+          original_name: "ocean.nc",
+          stored_name: "ocean.nc",
+          mime: "application/x-netcdf",
+          size: 1024,
+          kind: "file",
+          file_path: "D:\\data\\ocean.nc",
+          file_path_space: "absolute",
+          content_sha256: "a".repeat(64),
+        }],
+      },
+    })).toMatchObject({
+      data: { items: [{ file_path_space: "absolute", content_sha256: "a".repeat(64) }] },
+    });
+  });
+
   it("保留 typed envelope 的公共游标和路由字段", () => {
     const parsed = ServerToClientEnvelopeSchema.parse({
       type: "run_started",

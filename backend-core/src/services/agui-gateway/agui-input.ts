@@ -1,4 +1,5 @@
 import type { DelegatedToolDeclarationWire } from "../../contracts/events.js";
+import { AttachmentRefSchema, type AttachmentRef } from "@ragsystem/agent-protocol";
 
 /** AG-UI client-defined tool 声明（上行 RunAgentInput.tools 元素）。 */
 export interface AguiClientTool {
@@ -38,6 +39,7 @@ export interface RunAgentInput {
   context?: unknown[];
   forwardedProps?: Record<string, unknown>;
   resume?: AguiResumeItem[];
+  attachments?: AttachmentRef[];
 }
 
 /**
@@ -90,6 +92,7 @@ export function parseRunAgentInput(body: unknown): RunAgentInput {
   if (Array.isArray(raw.messages)) input.messages = raw.messages as AguiMessage[];
   if (Array.isArray(raw.tools)) input.tools = raw.tools as AguiClientTool[];
   if (Array.isArray(raw.resume)) input.resume = raw.resume as AguiResumeItem[];
+  if (Array.isArray(raw.attachments)) input.attachments = raw.attachments.map((item) => AttachmentRefSchema.parse(item));
   if (raw.state !== null && typeof raw.state === "object") input.state = raw.state as Record<string, unknown>;
   return input;
 }

@@ -13,8 +13,9 @@ export function renderAttachmentsContext(items: readonly MessageAttachment[]): s
       `mime="${escapeXmlAttribute(item.mime || "application/octet-stream")}"`,
       `size="${item.size}"`,
       `kind="${item.kind}"`,
-      `file_path="${escapeXmlAttribute(item.stored_name)}"`,
-      'file_path_space="uploads"',
+      `file_path="${escapeXmlAttribute(item.file_path ?? item.stored_name)}"`,
+      `file_path_space="${item.file_path_space ?? "uploads"}"`,
+      ...(item.content_sha256 ? [`content_sha256="${item.content_sha256}"`] : []),
     ];
     return `  <attachment ${attributes.join(" ")}/>`;
   });

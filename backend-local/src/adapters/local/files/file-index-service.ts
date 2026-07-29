@@ -29,6 +29,20 @@ interface UploadedFileRow {
   notes: string | null;
   scope_type: "session";
   scope_id: string | null;
+  storage_kind: "managed" | "linked_local" | null;
+  local_path: string | null;
+  source_mtime_ms: number | null;
+  source_sha256: string | null;
+}
+
+export interface AddLocalLinkInput {
+  originalName: string;
+  filePath: string;
+  size: number;
+  mtimeMs: number;
+  sha256: string;
+  mime: string;
+  scopeId: string;
 }
 
 export interface FileIndexStoreOptions {
@@ -146,6 +160,42 @@ export class FileIndexService {
     return record;
   }
 
+  addLocalLink(input: AddLocalLinkInput): UploadedFileRecord {
+    const scopeId = input.scopeId.trim();
+    const originalName = input.originalName.trim();
+    const filePath = path.resolve(input.filePath);
+    if (!scopeId) throw new Error("session scope requires scopeId");
+    if (!originalName) throw new Error("originalName is required");
+    if (!path.isAbsolute(input.filePath)) throw new Error("linked local file path must be absolute");
+    if (!Number.isSafeInteger(input.size) || input.size < 0) throw new Error("linked local file size is invalid");
+    if (!Number.isFinite(input.mtimeMs) || input.mtimeMs < 0) throw new Error("linked local file mtime is invalid");
+    if (!/^[a-f0-9]{64}$/u.test(input.sha256)) throw new Error("linked local file sha256 is invalid");
+
+    const fileId = this.nextFileId();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `
+          INSERT INTO uploaded_files
+          (id, original_name, stored_name, stored_path, size, mime,
+           uploaded_at, uploaded_by, indexed_in_vector, tags, notes, scope_type, scope_id,
+           storage_kind, local_path, source_mtime_ms, source_sha256)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        fileId, originalName, originalName, filePath, input.size, input.mime,
+        now, null, 0, null, null, "session", scopeId,
+        "linked_local", filePath, input.mtimeMs, input.sha256,
+      );
+    const record = this.get(fileId, "session", scopeId);
+    if (!record) {
+      this.db.prepare("DELETE FROM uploaded_files WHERE id = ?").run(fileId);
+      throw new Error(`failed to read created local link record: ${fileId}`);
+    }
+    return record;
+  }
+
   delete(fileId: string, scopeType: FileScopeType, scopeId?: string | null): UploadedFileRecord | null {
     const record = this.get(fileId, scopeType, scopeId ?? null);
     if (!record) {
@@ -183,13 +233,28 @@ export class FileIndexService {
         tags TEXT,
         notes TEXT,
         scope_type TEXT NOT NULL DEFAULT 'global',
-        scope_id TEXT
+        scope_id TEXT,
+        storage_kind TEXT NOT NULL DEFAULT 'managed',
+        local_path TEXT,
+        source_mtime_ms REAL,
+        source_sha256 TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_uploaded_files_uploaded_at ON uploaded_files(uploaded_at);
       CREATE INDEX IF NOT EXISTS idx_uploaded_files_mime ON uploaded_files(mime);
       CREATE INDEX IF NOT EXISTS idx_uploaded_files_scope ON uploaded_files(scope_type, scope_id);
     `);
+    this.ensureColumn("storage_kind", "TEXT NOT NULL DEFAULT 'managed'");
+    this.ensureColumn("local_path", "TEXT");
+    this.ensureColumn("source_mtime_ms", "REAL");
+    this.ensureColumn("source_sha256", "TEXT");
+  }
+
+  private ensureColumn(name: string, declaration: string): void {
+    const columns = this.db.prepare("PRAGMA table_info(uploaded_files)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === name)) {
+      this.db.exec(`ALTER TABLE uploaded_files ADD COLUMN ${name} ${declaration}`);
+    }
   }
 }
 
@@ -212,6 +277,10 @@ function rowToFileRecord(row: UploadedFileRow): UploadedFileRecord {
     notes: row.notes,
     scope_type: row.scope_type,
     scope_id: row.scope_id,
+    storage_kind: row.storage_kind === "linked_local" ? "linked_local" : "managed",
+    ...(row.local_path ? { local_path: row.local_path } : {}),
+    ...(row.source_mtime_ms != null ? { source_mtime_ms: row.source_mtime_ms } : {}),
+    ...(row.source_sha256 ? { source_sha256: row.source_sha256 } : {}),
   };
 }
 

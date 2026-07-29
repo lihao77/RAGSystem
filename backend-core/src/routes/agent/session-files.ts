@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 
 import type { SessionFileApplication } from "../../contracts/application/session-file-application.js";
-import { ValidateFilesRequestSchema } from "../../contracts/storage/files.js";
+import { LinkSessionFileRequestSchema, ValidateFilesRequestSchema } from "../../contracts/storage/files.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import {
@@ -57,6 +57,21 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
       mime: part.mime,
     })));
     return { success: true, files };
+  });
+
+  app.post<{ Params: SessionParams }>("/sessions/:sessionId/files/link", async (request) => {
+    await loadMutable(request, request.params.sessionId);
+    const payload = LinkSessionFileRequestSchema.parse(request.body);
+    const application = await resolveSessionFiles(options, request);
+    if (!application.linkLocal) {
+      throw new HttpError(501, "not_supported", "当前部署不支持链接本地文件");
+    }
+    const file = await application.linkLocal(request.params.sessionId, {
+      filePath: payload.path,
+      ...(payload.original_name ? { originalName: payload.original_name } : {}),
+      mime: payload.mime,
+    });
+    return { success: true, file };
   });
 
   app.get<{ Params: SessionFileParams }>("/sessions/:sessionId/files/:fileId", async (request) => {

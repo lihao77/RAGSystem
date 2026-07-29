@@ -19,6 +19,11 @@ export interface SessionFileApplication {
     buffer: Uint8Array;
     mime: string;
   }): Promise<UploadedFileRecord>;
+  linkLocal?(sessionId: string, input: {
+    filePath: string;
+    originalName?: string;
+    mime: string;
+  }): Promise<UploadedFileRecord>;
   get(sessionId: string, fileId: string): Promise<UploadedFileRecord | null>;
   delete(sessionId: string, fileId: string): Promise<UploadedFileRecord | null>;
   read(sessionId: string, fileId: string): Promise<SessionFileReadResult>;
