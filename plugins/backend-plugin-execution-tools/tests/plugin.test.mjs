@@ -3,8 +3,10 @@ import test from "node:test";
 
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
 import {
+  backendPluginModule,
   createExecutionToolsPlugin,
   createLocalExecutionToolsRuntimeFactory,
+  EXECUTION_TOOLS_RUNTIME_CAPABILITY,
 } from "../dist/index.js";
 
 const descriptors = [
@@ -28,6 +30,36 @@ test("execution tool descriptors are contributed only when the plugin is install
   assert.deepEqual(
     installed.runtimeContributions().listTools().map((tool) => tool.name),
     descriptors,
+  );
+});
+
+test("standard plugin module selects the deployment runtime without product wiring", async () => {
+  assert.equal(backendPluginModule.apiVersion, 1);
+  const plugin = await backendPluginModule.create({ config: undefined });
+  const manager = new BackendPluginManager([plugin]);
+  await manager.register();
+  const contributions = manager.runtimeContributions();
+
+  const local = await contributions.createRuntime({
+    deploymentKind: "local",
+    resources: [{ kind: "execution-tools.enabled", value: false }],
+  });
+  assert.deepEqual(local.capabilities.require(EXECUTION_TOOLS_RUNTIME_CAPABILITY), emptyRuntime());
+  local.dispose();
+
+  const supplied = { bash: null, code: null, search: { marker: true } };
+  const saas = await contributions.createRuntime({
+    deploymentKind: "saas",
+    resources: [{ kind: "execution-tools.runtime", value: supplied }],
+  });
+  assert.equal(saas.capabilities.require(EXECUTION_TOOLS_RUNTIME_CAPABILITY), supplied);
+  saas.dispose();
+});
+
+test("standard plugin module rejects unsupported configuration", () => {
+  assert.throws(
+    () => backendPluginModule.create({ config: { unknown: true } }),
+    /does not accept configuration/,
   );
 });
 

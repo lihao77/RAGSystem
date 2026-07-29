@@ -1,6 +1,7 @@
 export * from "./capability.js";
 export * from "./contracts.js";
 export * from "./dependencies.js";
+export * from "./module.js";
 export * from "./plugin.js";
 export * from "./resources.js";
 export * from "./storage/local/runtime.js";
