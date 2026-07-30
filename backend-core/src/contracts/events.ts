@@ -41,6 +41,8 @@ import {
   type ToolsRegisterPayload,
   DelegatedToolDeclarationSchema,
   SessionRuntimePayloadSchema,
+  SESSION_LOAD_STRATEGY_BY_STATE,
+  sessionLoadStrategyRestoresActiveRun,
 } from "@ragsystem/agent-protocol/wire";
 
 export type {
@@ -74,7 +76,14 @@ export type {
   ToolsRegisterPayload,
 };
 
-export { EnvelopeTypeSchema, DelegatedToolDeclarationSchema, SessionRuntimePayloadSchema, ClientToServerEnvelopeSchema };
+export {
+  EnvelopeTypeSchema,
+  DelegatedToolDeclarationSchema,
+  SessionRuntimePayloadSchema,
+  ClientToServerEnvelopeSchema,
+  SESSION_LOAD_STRATEGY_BY_STATE,
+  sessionLoadStrategyRestoresActiveRun,
+};
 
 /* ============================================================
  * 上行 envelope（host → runtime）校验

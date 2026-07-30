@@ -128,8 +128,19 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
   }
 
   async markOutboxDelivered(id: number, tenantId: string): Promise<boolean> {
+    // nextval 本身只代表分配顺序，不代表提交顺序。事务级 advisory lock 持有到 COMMIT，
+    // 使 delivery_seq 的分配与 delivered 状态的提交严格串行，供 relay 断线补偿使用。
     const r = await this.executor.query(
-      "UPDATE event_outbox SET status='delivered',delivered_at=CURRENT_TIMESTAMP,locked_at=NULL WHERE id=$1 AND tenant_id=$2 AND status IN ('pending','retrying')",
+      `WITH delivery_lock AS MATERIALIZED (
+         SELECT pg_advisory_xact_lock(20260730, 1)
+       )
+       UPDATE event_outbox
+       SET status='delivered',
+           delivered_at=clock_timestamp(),
+           delivery_seq=nextval('event_outbox_delivery_order_seq'),
+           locked_at=NULL
+       FROM delivery_lock
+       WHERE id=$1 AND tenant_id=$2 AND status IN ('pending','retrying')`,
       [id, tenantId],
     );
     return Number(r.rowCount ?? 0) > 0;

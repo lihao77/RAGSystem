@@ -29,7 +29,7 @@ function runtimeSnapshot(state, overrides = {}) {
     idle: 'history',
     running: 'attach_run',
     waiting_interaction: 'attach_run_and_present_interactions',
-    suspended: 'present_interactions',
+    suspended: 'restore_suspended_run_and_present_interactions',
     resuming: 'attach_resume',
     maintenance: 'watch_maintenance',
   };
@@ -907,6 +907,106 @@ test('session.reconnect 和 run 事件不能覆盖 suspended runtime', () => {
   assert.equal(deps.sessionRuntime.value.resume_interaction_id, 'approval-1');
   assert.equal(deps.isLoading.value, true);
   assert.deepEqual(approvals, []);
+});
+
+test('刷新 suspended 会话会恢复 active run 执行树并选中工作面板', async () => {
+  const { deps } = createDeps();
+  const execution = useMessageExecution({
+    currentSessionId: deps.currentSessionId,
+    showToast: () => {},
+  });
+  deps.createAssistantMessage = execution.createAssistantMessage;
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
+  deps.messages.value = [{ role: 'user', content: '解读这个 nc', metadata: {} }];
+  const stream = useSessionAgentClient(deps);
+
+  stream.handleEnvelope({
+    type: 'session.runtime',
+    payload: runtimeSnapshot('suspended'),
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'agent_started',
+    session_id: 'session-1',
+    run_id: 'run-1',
+    call_id: 'root-call',
+    agent_id: 'ocean-analysis',
+    payload: { phase: 'start', task: '解读这个 nc', display_name: 'Ocean Analysis' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'stream_output',
+    session_id: 'session-1',
+    run_id: 'run-1',
+    call_id: 'root-call',
+    agent_id: 'ocean-analysis',
+    payload: { phase: 'intent_complete', content: '读取文件元数据', round: 0 },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'tool_call',
+    session_id: 'session-1',
+    run_id: 'run-1',
+    call_id: 'tool-call',
+    agent_id: 'ocean-analysis',
+    payload: {
+      tool: 'execute_skill_script',
+      input: { script_name: 'inspect_nc.py' },
+      phase: 'start',
+      status: 'running',
+      round: 0,
+      lineage: { parent_call_id: 'root-call' },
+    },
+  }, 'session-1');
+
+  const restored = deps.messages.value[deps.activeRun.assistantMsgIndex];
+  assert.equal(restored.role, 'assistant');
+  assert.equal(restored.run_id, 'run-1');
+  assert.equal(restored.has_execution, true);
+  assert.equal(restored.executionTree.root.agentId, 'ocean-analysis');
+  assert.equal(restored.executionTree.root.rounds[0].toolCalls[0].toolName, 'execute_skill_script');
+
+  const selection = useWorkPanelSelection({
+    messages: deps.messages,
+    activeRun: deps.activeRun,
+    hasExecutionContent: execution.hasExecutionContent,
+    ensureExecutionStepsLoaded: execution.ensureExecutionStepsLoaded,
+    showToast: () => {},
+  });
+  await nextTick();
+  assert.equal(selection.currentRunMessage.value, restored);
+});
+
+test('active run 快照断线重放前会重置半截执行投影', () => {
+  const { deps } = createDeps();
+  const execution = useMessageExecution({
+    currentSessionId: deps.currentSessionId,
+    showToast: () => {},
+  });
+  deps.createAssistantMessage = execution.createAssistantMessage;
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'session.runtime',
+    payload: runtimeSnapshot('suspended'),
+  }, 'session-1');
+  const message = deps.messages.value[deps.activeRun.assistantMsgIndex];
+  message.content = '半截回答';
+  deps.applyEnvelopeToMessage(message, {
+    type: 'tool_call',
+    run_id: 'run-1',
+    call_id: 'tool-1',
+    agent_id: 'ocean-analysis',
+    payload: { tool: 'execute_skill_script', input: {}, phase: 'start', lineage: {} },
+  });
+  assert.equal(message.executionTree.root !== null, true);
+
+  stream.handleEnvelope({
+    type: 'session.reconnect',
+    run_id: 'run-1',
+    payload: { phase: 'start', replay_count: 1, replay_source: 'active_run_snapshot' },
+  }, 'session-1');
+
+  assert.equal(message.content, '');
+  assert.equal(message.executionTree.root, null);
+  assert.equal(message.has_execution, false);
 });
 
 test('resume_run 使用 durable interaction 恢复，并对重复点击去重', async () => {

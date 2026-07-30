@@ -1,6 +1,5 @@
 import type { Envelope } from "@ragsystem/agent-protocol";
 
-import type { PaginatedResult } from "../common.js";
 import type { PermissionMode } from "../runtime/permissions.js";
 import type {
   CreateSessionRecordInput,
@@ -10,6 +9,7 @@ import type {
   SessionListProjectionPage,
   SessionListQuery,
   SessionIdentity,
+  SessionMessageListSnapshot,
 } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
 import type { WorkspaceRecord } from "../workspace/workspace.js";
@@ -63,7 +63,7 @@ export interface SessionApplication {
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown>>;
   updateSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<boolean>;
   deleteSession(sessionId: string): Promise<boolean>;
-  listMessages(input: { sessionId: string; limit?: number; offset?: number }): Promise<PaginatedResult<MessageInfo> | null>;
+  listMessages(input: { sessionId: string; limit?: number; offset?: number }): Promise<SessionMessageListSnapshot | null>;
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
   getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<MessageInfo | null>;
   listMessageRunSteps(input: { sessionId: string; messageId: string; limit?: number; offset?: number }): Promise<{

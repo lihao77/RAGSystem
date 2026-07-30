@@ -107,7 +107,7 @@ describe("SessionRuntimeService projection", () => {
     ],
     [
       "suspended",
-      "present_interactions",
+      "restore_suspended_run_and_present_interactions",
       facts({ activeRootRun: run("suspended"), pendingInteractions: [interaction("suspended")] }),
       ["respond_interaction", "stop_run"],
     ],

@@ -21,6 +21,7 @@ import type {
   SessionInfo,
   SessionListProjectionPage,
   SessionListQuery,
+  SessionMessageListSnapshot,
 } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
 
@@ -34,7 +35,7 @@ export interface AsyncConversationRepository {
   listSessionFacets(input: Pick<SessionListQuery, "tenantId" | "access">): Promise<SessionFacetCounts>;
   addMessage(input: AddMessageInput): Promise<MessageInfo>;
   listMessages(sessionId: string, limit?: number, offset?: number, threadKey?: string | null): Promise<PaginatedResult<MessageInfo>>;
-  listVisibleRootMessages(sessionId: string, limit?: number, offset?: number): Promise<PaginatedResult<MessageInfo>>;
+  listVisibleRootMessagesSnapshot(tenantId: TenantId, sessionId: string, limit?: number, offset?: number): Promise<SessionMessageListSnapshot>;
   getMessageBySeq(sessionId: string, seq: number): Promise<MessageInfo | null>;
   getMessageById(sessionId: string, id: string): Promise<MessageInfo | null>;
   getFirstMessageAfterSeq(sessionId: string, seq: number): Promise<MessageInfo | null>;

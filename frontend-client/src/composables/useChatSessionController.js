@@ -216,12 +216,12 @@ export function useChatSessionController(deps) {
       }
       if (!await hydrateSessionContext(sessionId, matched, isCurrent)) return;
       deps.clearComposerAttachments();
-      await deps.loadSessionMessages(sessionId);
+      const outboxWatermark = await deps.loadSessionMessages(sessionId);
       if (!isCurrent()) return;
       await deps.loadSessionFiles(sessionId);
       if (!isCurrent()) return;
-      deps.resetSessionEventCursor?.(sessionId);
-      await deps.connectSessionWS(sessionId);
+      deps.initializeSessionEventCursor(sessionId, outboxWatermark ?? 0);
+      await deps.connectSessionWS(sessionId, { historySnapshot: true });
       await deps.waitForSessionRuntime(sessionId);
       return;
     }

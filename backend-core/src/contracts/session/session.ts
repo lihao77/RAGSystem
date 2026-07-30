@@ -13,6 +13,7 @@ import {
 } from "@ragsystem/api-contracts";
 
 import { AttachmentRefSchema } from "../execution/execution.js";
+import type { PaginatedResult } from "../common.js";
 import { PermissionModeSchema, type PermissionMode } from "../runtime/permissions.js";
 import { OptionalSessionIdSchema } from "./session-id.js";
 import type { TenantId } from "../../identity/types.js";
@@ -199,6 +200,16 @@ export interface MessageInfo {
   /** tool 消息的工具名。 */
   name?: string | undefined;
   has_execution?: boolean;
+}
+
+/**
+ * 消息历史与 durable outbox 的一致快照。
+ *
+ * 客户端使用 outbox_watermark 作为首次 WebSocket after_seq，确保 HTTP 历史查询
+ * 与 WebSocket 订阅之间提交的事件不会落入两者之间的空窗。
+ */
+export interface SessionMessageListSnapshot extends PaginatedResult<MessageInfo> {
+  outbox_watermark: number;
 }
 
 export function normalizeSessionMetadata(value: unknown): Record<string, unknown> {

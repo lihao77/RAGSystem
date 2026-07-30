@@ -1,4 +1,4 @@
-import type { PaginatedResult, RunStepInfo } from "../common.js";
+import type { RunStepInfo } from "../common.js";
 import type {
   CreateSessionRecordInput,
   MessageInfo,
@@ -6,6 +6,7 @@ import type {
   SessionInfo,
   SessionListProjectionPage,
   SessionListQuery,
+  SessionMessageListSnapshot,
 } from "./session.js";
 
 export interface AgentSessionMessageInput {
@@ -45,7 +46,7 @@ export interface AgentSessionRepositoryPort {
   listSessionFacets(input: Pick<SessionListQuery, "tenantId" | "access">): Promise<SessionFacetCounts>;
 
   addMessage(input: AgentSessionMessageInput): Promise<MessageInfo>;
-  listMessages(sessionId: string, limit: number, offset: number): Promise<PaginatedResult<MessageInfo>>;
+  listMessages(sessionId: string, limit: number, offset: number): Promise<SessionMessageListSnapshot>;
   getMessageBySeq(sessionId: string, seq: number): Promise<MessageInfo | null>;
   getMessageById(sessionId: string, messageId: string): Promise<MessageInfo | null>;
   getFirstMessageAfterSeq(sessionId: string, seq: number): Promise<MessageInfo | null>;

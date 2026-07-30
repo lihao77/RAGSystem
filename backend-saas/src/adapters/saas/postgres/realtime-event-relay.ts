@@ -11,6 +11,12 @@ const CHANNEL = "ragsystem_realtime_events";
 
 export interface PostgresRealtimeEventRelayOptions { reconnectDelayMs?: number }
 
+interface RealtimeNotificationPayload {
+  id: number;
+  tenantId: string;
+  deliverySeq: number;
+}
+
 /** Shared PostgreSQL notification relay feeding each process's local websocket hub. */
 export class PostgresRealtimeEventRelay {
   private readonly buses = new Map<string, Set<PostgresRealtimeEventBus>>();
@@ -21,8 +27,7 @@ export class PostgresRealtimeEventRelay {
   private connecting: Promise<void> | null = null;
   private notificationChain = Promise.resolve();
   private closed = false;
-  private lastDeliveredAt = "1970-01-01T00:00:00.000Z";
-  private lastDeliveredOutboxId = 0;
+  private lastDeliverySeq = 0;
 
   constructor(
     private readonly pool: Pool,
@@ -99,18 +104,14 @@ export class PostgresRealtimeEventRelay {
       await client.query(`LISTEN ${CHANNEL}`);
       this.client = client;
       if (recover) {
-        await this.catchUp();
+        await this.enqueueDelivery(() => this.catchUp());
       } else {
-        const watermark = await this.executor.query<{ id: number | string; delivered_at: unknown }>(
-          `SELECT id,delivered_at FROM event_outbox
-           WHERE status='delivered' AND delivered_at IS NOT NULL
-           ORDER BY delivered_at DESC,id DESC LIMIT 1`,
+        const watermark = await this.executor.query<{ watermark: unknown }>(
+          `SELECT COALESCE(MAX(delivery_seq), 0) AS watermark
+           FROM event_outbox
+           WHERE status='delivered' AND delivery_seq IS NOT NULL`,
         );
-        const row = watermark.rows[0];
-        if (row) {
-          this.lastDeliveredAt = new Date(String(row.delivered_at)).toISOString();
-          this.lastDeliveredOutboxId = Number(row.id);
-        }
+        this.lastDeliverySeq = normalizeDeliverySeq(watermark.rows[0]?.watermark) ?? 0;
       }
     } catch (error) {
       if (this.client === client) this.client = null;
@@ -123,7 +124,12 @@ export class PostgresRealtimeEventRelay {
 
   private readonly onNotification = (notification: Notification): void => {
     if (notification.channel !== CHANNEL || !notification.payload) return;
-    this.queueCatchUp();
+    const payload = parseNotificationPayload(notification.payload);
+    if (!payload) {
+      this.queueCatchUp();
+      return;
+    }
+    void this.enqueueDelivery(() => this.deliverNotification(payload));
   };
 
   private readonly onError = (): void => {
@@ -148,9 +154,13 @@ export class PostgresRealtimeEventRelay {
 
   private queueCatchUp(): void {
     if (this.closed) return;
-    this.notificationChain = this.notificationChain
-      .then(() => this.catchUp())
-      .catch(() => this.scheduleCatchUpRetry());
+    void this.enqueueDelivery(() => this.catchUp());
+  }
+
+  private enqueueDelivery(operation: () => Promise<void>): Promise<void> {
+    const pending = this.notificationChain.then(operation);
+    this.notificationChain = pending.catch(() => this.scheduleCatchUpRetry());
+    return pending;
   }
 
   private scheduleCatchUpRetry(): void {
@@ -162,23 +172,37 @@ export class PostgresRealtimeEventRelay {
     this.catchUpRetryTimer.unref?.();
   }
 
-  private async catchUp(): Promise<void> {
+  private async deliverNotification(notification: RealtimeNotificationPayload): Promise<void> {
+    if (notification.deliverySeq <= this.lastDeliverySeq) return;
+    await this.catchUp(notification.deliverySeq - 1);
+    if (notification.deliverySeq <= this.lastDeliverySeq) return;
+    await this.deliver(notification.id, notification.tenantId);
+    this.lastDeliverySeq = notification.deliverySeq;
+  }
+
+  private async catchUp(throughDeliverySeq?: number): Promise<void> {
+    if (throughDeliverySeq !== undefined && throughDeliverySeq <= this.lastDeliverySeq) return;
     for (;;) {
+      const params: unknown[] = [this.lastDeliverySeq];
+      const upperBound = throughDeliverySeq === undefined
+        ? ""
+        : ` AND delivery_seq <= $${params.push(throughDeliverySeq)}`;
       const result = await this.executor.query<{
         id: number | string;
         tenant_id: string;
-        delivered_at: unknown;
+        delivery_seq: unknown;
       }>(
-        `SELECT id,tenant_id,delivered_at FROM event_outbox
-         WHERE status='delivered' AND delivered_at IS NOT NULL
-           AND (delivered_at>$1::timestamptz OR (delivered_at=$1::timestamptz AND id>$2))
-         ORDER BY delivered_at,id LIMIT 500`,
-        [this.lastDeliveredAt, this.lastDeliveredOutboxId],
+        `SELECT id,tenant_id,delivery_seq FROM event_outbox
+         WHERE status='delivered' AND delivery_seq IS NOT NULL
+           AND delivery_seq > $1${upperBound}
+         ORDER BY delivery_seq LIMIT 500`,
+        params,
       );
       for (const row of result.rows) {
+        const deliverySeq = normalizeDeliverySeq(row.delivery_seq);
+        if (deliverySeq === null) throw new Error(`invalid outbox delivery sequence: ${String(row.delivery_seq)}`);
         await this.deliver(Number(row.id), String(row.tenant_id));
-        this.lastDeliveredAt = new Date(String(row.delivered_at)).toISOString();
-        this.lastDeliveredOutboxId = Number(row.id);
+        this.lastDeliverySeq = deliverySeq;
       }
       if (result.rows.length < 500) return;
     }
@@ -194,6 +218,24 @@ export class PostgresRealtimeEventRelay {
     const event = this.projector.toEnvelope(row);
     for (const bus of buses) bus.acceptRemote(row.session_id, event);
   }
+}
+
+function parseNotificationPayload(payload: string): RealtimeNotificationPayload | null {
+  try {
+    const parsed = JSON.parse(payload) as Record<string, unknown>;
+    const id = Number(parsed.id);
+    const tenantId = typeof parsed.tenant_id === "string" ? parsed.tenant_id.trim() : "";
+    const deliverySeq = normalizeDeliverySeq(parsed.delivery_seq);
+    if (!Number.isSafeInteger(id) || id <= 0 || !tenantId || deliverySeq === null) return null;
+    return { id, tenantId, deliverySeq };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDeliverySeq(value: unknown): number | null {
+  const seq = Number(value);
+  return Number.isSafeInteger(seq) && seq > 0 ? seq : null;
 }
 
 export class PostgresRealtimeEventBus implements RealtimeEventBus {

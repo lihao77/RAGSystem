@@ -48,6 +48,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     updateSessionMetadata: sessions.updateSessionMetadataInTransaction.bind(sessions),
     addMessage: messages.addMessageInTransaction.bind(messages),
     getMessageById: messages.getMessageById.bind(messages),
+    listMessages: messages.listMessages.bind(messages),
     updateMessage: messages.updateMessageInTransaction.bind(messages),
     createRun: runs.createRun.bind(runs),
     getRun: runs.getRun.bind(runs),
@@ -70,6 +71,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     finalizePendingInteractions: pendingInteractions.finalizePendingInteractions.bind(pendingInteractions),
     nextSessionSeq: outbox.nextSessionSeqInTransaction.bind(outbox),
     appendOutbox: outbox.appendOutboxInTransaction.bind(outbox),
+    getSessionOutboxWatermark: outbox.getSessionOutboxWatermark.bind(outbox),
     // 纯读、不开新事务（listMessages 仅 SELECT），事务内读消除 TOCTOU，故直接 bind 无需 InTransaction 变体。
     getRecentMessages: messages.getRecentMessages.bind(messages),
     putProviderContinuation: providerContinuations.putProviderContinuationInTransaction.bind(providerContinuations),

@@ -1,5 +1,6 @@
 import {
   SessionRuntimePayloadSchema,
+  SESSION_LOAD_STRATEGY_BY_STATE,
   type SessionRuntimeAction,
   type SessionRuntimePayload,
   type SessionRuntimeState,
@@ -47,7 +48,7 @@ export function projectSessionRuntime(facts: RuntimeSessionFacts): SessionRuntim
     : null;
   const payload = {
     state,
-    load_strategy: loadStrategy(state),
+    load_strategy: SESSION_LOAD_STRATEGY_BY_STATE[state],
     allowed_actions: allowedActions(
       state,
       facts.ownedByCurrentInstance,
@@ -73,17 +74,6 @@ function projectState(facts: RuntimeSessionFacts, hasMaintenance: boolean): Sess
     return "waiting_interaction";
   }
   return "running";
-}
-
-function loadStrategy(state: SessionRuntimeState): SessionRuntimePayload["load_strategy"] {
-  switch (state) {
-    case "idle": return "history";
-    case "running": return "attach_run";
-    case "waiting_interaction": return "attach_run_and_present_interactions";
-    case "suspended": return "present_interactions";
-    case "resuming": return "attach_resume";
-    case "maintenance": return "watch_maintenance";
-  }
 }
 
 function allowedActions(

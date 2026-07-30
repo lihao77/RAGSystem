@@ -129,6 +129,7 @@ export const SessionMessageListDataSchema = z.object({
   limit: z.number().int().nonnegative(),
   offset: z.number().int().nonnegative(),
   has_more: z.boolean(),
+  outbox_watermark: z.number().int().nonnegative(),
 }).strict();
 
 export const SessionMessageRunStepsDataSchema = z.object({

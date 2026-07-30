@@ -73,10 +73,13 @@ test('late session detail cannot continue an obsolete route switch', async () =>
     invalidateActiveStream: () => calls.push('invalidate'),
     clearExecutionState: () => calls.push('clear-execution'),
     clearComposerAttachments: () => calls.push('clear-attachments'),
-    loadSessionMessages: async sessionId => calls.push(`messages:${sessionId}`),
+    loadSessionMessages: async sessionId => {
+      calls.push(`messages:${sessionId}`);
+      return 37;
+    },
     loadSessionFiles: async sessionId => calls.push(`files:${sessionId}`),
-    resetSessionEventCursor: sessionId => calls.push(`cursor:${sessionId}`),
-    connectSessionWS: sessionId => calls.push(`connect:${sessionId}`),
+    initializeSessionEventCursor: (sessionId, watermark) => calls.push(`cursor:${sessionId}:${watermark}`),
+    connectSessionWS: (sessionId, options) => calls.push(`connect:${sessionId}:${options?.historySnapshot === true}`),
     waitForSessionRuntime: async sessionId => calls.push(`runtime:${sessionId}`),
     showToast: () => {},
   };
@@ -114,8 +117,8 @@ test('late session detail cannot continue an obsolete route switch', async () =>
     assert.deepEqual(calls.filter(call => call.includes(':session-')), [
       'messages:session-b',
       'files:session-b',
-      'cursor:session-b',
-      'connect:session-b',
+      'cursor:session-b:37',
+      'connect:session-b:true',
       'runtime:session-b',
     ]);
   } finally {

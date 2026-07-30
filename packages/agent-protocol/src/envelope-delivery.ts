@@ -34,8 +34,9 @@ export class EnvelopeDeliveryCursor {
     return this.lastEventSeq;
   }
 
-  reset(): void {
-    this.lastEventSeq = 0;
+  reset(lastEventSeq = 0): void {
+    const normalized = Number(lastEventSeq);
+    this.lastEventSeq = Number.isSafeInteger(normalized) && normalized >= 0 ? normalized : 0;
   }
 
   /**

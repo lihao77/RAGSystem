@@ -209,7 +209,7 @@ export const HeartbeatPayloadSchema = z.object({
 export const ReconnectPayloadSchema = z.object({
   phase: z.enum(["start", "end"]),
   replay_count: z.number().int().nonnegative().optional(),
-  replay_source: z.enum(["durable_outbox", "memory"]).optional(),
+  replay_source: z.enum(["durable_outbox", "active_run_snapshot", "memory"]).optional(),
 });
 
 export const ErrorPayloadSchema = z.object({
@@ -367,10 +367,27 @@ export const SessionLoadStrategySchema = z.enum([
   "history",
   "attach_run",
   "attach_run_and_present_interactions",
-  "present_interactions",
+  "restore_suspended_run_and_present_interactions",
   "attach_resume",
   "watch_maintenance",
 ]);
+
+export const SESSION_LOAD_STRATEGY_BY_STATE = {
+  idle: "history",
+  running: "attach_run",
+  waiting_interaction: "attach_run_and_present_interactions",
+  suspended: "restore_suspended_run_and_present_interactions",
+  resuming: "attach_resume",
+  maintenance: "watch_maintenance",
+} as const satisfies Record<SessionRuntimeState, SessionLoadStrategy>;
+
+/** 初次加载时需要恢复 active run 执行树的策略。 */
+export function sessionLoadStrategyRestoresActiveRun(strategy: SessionLoadStrategy): boolean {
+  return strategy === "attach_run"
+    || strategy === "attach_run_and_present_interactions"
+    || strategy === "restore_suspended_run_and_present_interactions"
+    || strategy === "attach_resume";
+}
 
 export const SessionRuntimeActiveRunSchema = z.object({
   run_id: z.string().min(1),
@@ -426,15 +443,7 @@ export const SessionRuntimePayloadSchema = z.object({
   maintenance: SessionRuntimeMaintenanceSchema.nullable(),
   observed_at: z.string(),
 }).superRefine((runtime, context) => {
-  const strategies: Record<z.infer<typeof SessionRuntimeStateSchema>, z.infer<typeof SessionLoadStrategySchema>> = {
-    idle: "history",
-    running: "attach_run",
-    waiting_interaction: "attach_run_and_present_interactions",
-    suspended: "present_interactions",
-    resuming: "attach_resume",
-    maintenance: "watch_maintenance",
-  };
-  if (runtime.load_strategy !== strategies[runtime.state]) {
+  if (runtime.load_strategy !== SESSION_LOAD_STRATEGY_BY_STATE[runtime.state]) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["load_strategy"], message: "load strategy does not match state" });
   }
   const activeState = runtime.state === "running"

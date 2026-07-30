@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import type { FastifyPluginAsync } from "fastify";
 
-import { ClientToServerEnvelopeSchema, type Envelope } from "../../contracts/events.js";
+import {
+  ClientToServerEnvelopeSchema,
+  sessionLoadStrategyRestoresActiveRun,
+  type Envelope,
+} from "../../contracts/events.js";
 import { EnvelopeProjector } from "../../services/runtime/event-outbox/projector.js";
 import type { RouteOptions } from "../route-options.js";
 import type { WsTicketService } from "../../services/runtime/ws-ticket-service.js";
@@ -17,6 +21,8 @@ interface SessionWsParams {
 
 interface SessionWsQuery {
   after_seq?: string;
+  /** HTTP 历史快照后的首次连接；需要额外展示回放 active run 水位内的执行过程。 */
+  history_snapshot?: string;
   /** 普通前端会话使用的短时、单次 WebSocket ticket。 */
   ticket?: string;
 }
@@ -135,6 +141,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
           return;
         }
         const afterSeq = parseSeqCursor(request.query.after_seq);
+        const historySnapshot = request.query.history_snapshot === "1";
         let lastSeq = afterSeq ?? 0;
         let boundRunId: string | null = null;
         let replaying = true;
@@ -169,7 +176,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
           phase: "start" | "end",
           replayCount: number,
           runId?: string | null,
-          replaySource?: "durable_outbox" | "memory",
+          replaySource?: "durable_outbox" | "active_run_snapshot" | "memory",
         ): void => {
           send({
             type: "session.reconnect",
@@ -276,7 +283,22 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
         // Subscription happens first so lifecycle changes during the snapshot query are buffered.
         await sendRuntimeSnapshot();
 
-        const replayPlan = resolveSessionReplayPlan(afterSeq, runtimeSnapshot);
+        const replayPlan = resolveSessionReplayPlan(afterSeq, runtimeSnapshot, historySnapshot);
+
+        const activeReplay = replayPlan.replayActive && runtimeSnapshot
+          ? await buildActiveRunReplay(executionRead, sessionId, runtimeSnapshot)
+          : null;
+        if (activeReplay) {
+          boundRunId = activeReplay.runId;
+          const events = historySnapshot && afterSeq !== null
+            ? snapshotPresentationEvents(activeReplay.events, afterSeq)
+            : replayEventsAfter(activeReplay.events, lastSeq);
+          sendReconnect("start", events.length, activeReplay.runId, "active_run_snapshot");
+          for (const env of events) {
+            send(env);
+          }
+          sendReconnect("end", events.length, activeReplay.runId, "active_run_snapshot");
+        }
 
         const durableReplay = replayPlan.replayDurable && afterSeq !== null
           ? await buildDurableOutboxReplay(executionRead, sessionId, afterSeq)
@@ -289,19 +311,6 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
             send(env);
           }
           sendReconnect("end", events.length, durableReplay.runId, "durable_outbox");
-        }
-
-        const activeReplay = replayPlan.replayActive && runtimeSnapshot
-          ? await buildActiveRunReplay(executionRead, sessionId, runtimeSnapshot)
-          : null;
-        if (activeReplay) {
-          boundRunId = activeReplay.runId;
-          const events = replayEventsAfter(activeReplay.events, lastSeq);
-          sendReconnect("start", events.length, activeReplay.runId);
-          for (const env of events) {
-            send(env);
-          }
-          sendReconnect("end", events.length, activeReplay.runId);
         }
 
         // subscribe 必须先于 durable 查询，避免查询窗口丢 live；但 replay 完成前不能直接发送
@@ -457,13 +466,13 @@ async function buildDurableOutboxReplay(
 export function resolveSessionReplayPlan(
   afterSeq: number | null,
   snapshot: SessionRuntimePayload | null,
+  historySnapshot = false,
 ): { replayDurable: boolean; replayActive: boolean } {
+  const hasAttachableRun = Boolean(snapshot?.active_run)
+    && Boolean(snapshot && sessionLoadStrategyRestoresActiveRun(snapshot.load_strategy));
   return {
     replayDurable: afterSeq !== null,
-    replayActive: Boolean(snapshot?.active_run)
-      && ["attach_run", "attach_run_and_present_interactions", "attach_resume"].includes(
-        snapshot?.load_strategy ?? "",
-      ),
+    replayActive: hasAttachableRun && (afterSeq === null || historySnapshot),
   };
 }
 
@@ -472,7 +481,7 @@ async function buildActiveRunReplay(
   sessionId: string,
   snapshot: SessionRuntimePayload,
 ): Promise<{ runId: string; events: Envelope[] } | null> {
-  if (!["attach_run", "attach_run_and_present_interactions", "attach_resume"].includes(snapshot.load_strategy)
+  if (!sessionLoadStrategyRestoresActiveRun(snapshot.load_strategy)
     || !snapshot.active_run) {
     return null;
   }
@@ -527,6 +536,19 @@ function parseSeqCursor(value: string | undefined): number | null {
 
 function replayEventsAfter(events: readonly Envelope[], lastSeq: number): Envelope[] {
   return events.filter((event) => typeof event.seq !== "number" || event.seq > lastSeq);
+}
+
+/**
+ * 历史消息已经覆盖 throughSeq 之前的聊天内容，但 active run 的执行树仍需重新投影。
+ * 去掉顶层 durable seq，使其作为纯展示回放越过客户端快照游标；水位后的事件仍走 durable replay。
+ */
+export function snapshotPresentationEvents(events: readonly Envelope[], throughSeq: number): Envelope[] {
+  return events
+    .filter((event) => typeof event.seq !== "number" || event.seq <= throughSeq)
+    .map((event) => {
+      const { seq: _deliverySeq, ...presentation } = event;
+      return presentation as Envelope;
+    });
 }
 
 function compareEnvelopeSeq(left: Envelope, right: Envelope): number {

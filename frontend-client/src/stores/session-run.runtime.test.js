@@ -8,7 +8,7 @@ const strategies = {
   idle: 'history',
   running: 'attach_run',
   waiting_interaction: 'attach_run_and_present_interactions',
-  suspended: 'present_interactions',
+  suspended: 'restore_suspended_run_and_present_interactions',
   resuming: 'attach_resume',
   maintenance: 'watch_maintenance',
 };

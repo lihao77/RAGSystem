@@ -250,6 +250,7 @@ import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { useLlmStore } from '../stores/llm.js';
+import { sessionLoadStrategyRestoresActiveRun } from '@ragsystem/agent-protocol';
 
 const SituationScreen = defineAsyncComponent(() => import('../components/SituationScreen.vue'));
 
@@ -425,6 +426,10 @@ const {
   loadContextSnapshot: (...a) => loadContextSnapshot(...a),
   showToast,
   invalidateActiveStream: () => invalidateActiveStream(),
+  shouldReplayActiveRun: (sessionId) => sessionId === currentSessionId.value
+    && Boolean(sessionRuntime.value?.active_run)
+    && sessionLoadStrategyRestoresActiveRun(sessionRuntime.value.load_strategy),
+  replayActiveRun: (sessionId) => reconnectSessionWS(sessionId, { historySnapshot: true }),
   beginInitialScrollRestore,
   endInitialScrollRestore,
 });
@@ -508,7 +513,7 @@ const chatMainClasses = computed(() => ({
 
 const {
   invalidateActiveStream,
-  connectSessionWS, disconnectSessionWS, resetSessionEventCursor,
+  connectSessionWS, reconnectSessionWS, disconnectSessionWS, initializeSessionEventCursor,
   resetStreamSessionState,
   send: sendSessionMessage,
   stop: handleStop,
@@ -654,7 +659,7 @@ const {
   connectSessionWS,
   disconnectSessionWS,
   invalidateActiveStream,
-  resetSessionEventCursor,
+  initializeSessionEventCursor,
   clearExecutionState: (...a) => clearExecutionState(...a),
   waitForSessionRuntime,
   clearComposerAttachments,

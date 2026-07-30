@@ -189,6 +189,22 @@ export function useRunRuntime(deps) {
 
   const isDurableOutboxReplayEnvelope = (event) => event?.payload?.replay_source === 'durable_outbox';
 
+  const isActiveRunSnapshotReplayEnvelope = (event) => (
+    event?.payload?.replay_source === 'active_run_snapshot'
+  );
+
+  /** active run 快照是可重建投影；断线重放前清空旧的半截内容，避免 delta 重复追加。 */
+  const resetActiveRunPresentation = (runId) => {
+    const currentMsg = messages.value[activeRun.assistantMsgIndex];
+    if (!currentMsg || (runId && messageRunId(currentMsg) && messageRunId(currentMsg) !== runId)) return;
+    currentMsg.content = '';
+    currentMsg.executionTree = { root: null, steps: [] };
+    currentMsg._execState = null;
+    currentMsg.has_execution = false;
+    currentMsg.finished = false;
+    currentMsg.status = [];
+  };
+
   const setDurableReplay = (state) => {
     internal.durableReplay = { active: !!state?.active, runId: state?.runId || null };
   };
@@ -313,6 +329,8 @@ export function useRunRuntime(deps) {
     markRecentSessionUpdated,
     // durable replay
     isDurableOutboxReplayEnvelope,
+    isActiveRunSnapshotReplayEnvelope,
+    resetActiveRunPresentation,
     setDurableReplay,
     isDurableReplayActive,
     handleInactiveDurableReplayEvent,

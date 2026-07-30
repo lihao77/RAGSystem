@@ -50,10 +50,101 @@ test('SessionTransport preserves the durable cursor across reconnects and drops 
   await transport.connect(currentSessionId);
   assert.match(sockets[1].url, /after_seq=4/);
 
-  transport.resetSessionEventCursor(currentSessionId);
+  transport.initializeSessionEventCursor(currentSessionId, 6);
   transport.disconnect();
   await transport.connect(currentSessionId);
-  assert.doesNotMatch(sockets[2].url, /after_seq=/);
+  assert.match(sockets[2].url, /after_seq=6/);
+});
+
+test('SessionTransport sends an explicit zero watermark for an empty history snapshot', async () => {
+  const sockets = [];
+  const transport = createSessionTransport({
+    getCurrentSessionId: () => 'session-empty',
+    issueTicket: async () => ({ data: { ticket: 'ticket-empty' } }),
+    createSocket: (url) => {
+      const socket = new FakeSocket(url);
+      sockets.push(socket);
+      return socket;
+    },
+    onEnvelope: () => {},
+  });
+
+  transport.initializeSessionEventCursor('session-empty', 0);
+  await transport.connect('session-empty', { historySnapshot: true });
+
+  assert.match(sockets[0].url, /after_seq=0/);
+  assert.match(sockets[0].url, /history_snapshot=1/);
+});
+
+test('SessionTransport 在 active run 历史回放完成前断线时保留历史快照标记', async () => {
+  const sockets = [];
+  const timers = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = (callback) => {
+    timers.push(callback);
+    return timers.length;
+  };
+  globalThis.clearTimeout = () => {};
+  try {
+    const transport = createSessionTransport({
+      getCurrentSessionId: () => 'session-1',
+      issueTicket: async () => ({ data: { ticket: `ticket-${sockets.length + 1}` } }),
+      createSocket: (url) => {
+        const socket = new FakeSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      onEnvelope: () => {},
+      maxReconnectAttempts: 2,
+    });
+
+    transport.initializeSessionEventCursor('session-1', 10);
+    await transport.connect('session-1', { historySnapshot: true });
+    sockets[0].onopen();
+    sockets[0].onclose();
+    timers.shift()();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.match(sockets[1].url, /after_seq=10/);
+    assert.match(sockets[1].url, /history_snapshot=1/);
+    sockets[1].onmessage({ data: JSON.stringify({
+      type: 'session.reconnect',
+      session_id: 'session-1',
+      payload: { phase: 'end', replay_count: 2, replay_source: 'active_run_snapshot' },
+    }) });
+    sockets[1].onclose();
+    timers.shift()();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.doesNotMatch(sockets[2].url, /history_snapshot=1/);
+    assert.match(sockets[2].url, /after_seq=10/);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
+});
+
+test('SessionTransport 可强制重连并请求 active run 历史快照', async () => {
+  const sockets = [];
+  const transport = createSessionTransport({
+    getCurrentSessionId: () => 'session-1',
+    issueTicket: async () => ({ data: { ticket: `ticket-${sockets.length + 1}` } }),
+    createSocket: (url) => {
+      const socket = new FakeSocket(url);
+      sockets.push(socket);
+      return socket;
+    },
+    onEnvelope: () => {},
+  });
+
+  transport.initializeSessionEventCursor('session-1', 17);
+  await transport.connect('session-1');
+  await transport.reconnect('session-1', { historySnapshot: true });
+
+  assert.equal(sockets.length, 2);
+  assert.match(sockets[1].url, /after_seq=17/);
+  assert.match(sockets[1].url, /history_snapshot=1/);
 });
 
 test('SessionTransport discards a ticket issued for a session that is no longer current', async () => {

@@ -43,6 +43,7 @@ test('useSessionMessages excludes tool observations from chat bubbles', async ()
   const mock = new MockAdapter(httpClient);
   mock.onGet('/api/agent/sessions/session-1/messages').reply(200, {
     data: {
+      outbox_watermark: 17,
       items: [
         { id: 'user-1', seq: 1, role: 'user', content: '请执行工具', metadata: {} },
         {
@@ -59,10 +60,37 @@ test('useSessionMessages excludes tool observations from chat bubbles', async ()
 
   try {
     const sessionMessages = useSessionMessages(createDeps());
-    await sessionMessages.loadSessionMessages('session-1');
+    const watermark = await sessionMessages.loadSessionMessages('session-1');
 
     assert.deepEqual(messages.value.map(message => message.role), ['user', 'assistant']);
     assert.equal(messages.value.some(message => message.id === 'tool-1'), false);
+    assert.equal(watermark, 17);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('active run 消息重载完成后重新请求历史执行快照', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const { currentSessionId } = storeToRefs(store);
+  currentSessionId.value = 'session-1';
+  const calls = [];
+  const mock = new MockAdapter(httpClient);
+  mock.onGet('/api/agent/sessions/session-1/messages').reply(200, {
+    data: { items: [{ id: 'user-1', seq: 1, role: 'user', content: '继续', metadata: {} }], outbox_watermark: 19 },
+  });
+
+  try {
+    const sessionMessages = useSessionMessages({
+      ...createDeps(),
+      shouldReplayActiveRun: () => true,
+      replayActiveRun: (sessionId) => { calls.push(sessionId); },
+    });
+    const watermark = await sessionMessages.loadSessionMessages('session-1');
+
+    assert.equal(watermark, 19);
+    assert.deepEqual(calls, ['session-1']);
   } finally {
     mock.restore();
   }
@@ -87,12 +115,12 @@ test('a late response from the previous session cannot overwrite current message
 
     const resolveB = await waitForPending(pending, '/api/agent/sessions/session-b/messages');
     resolveB([200, {
-      data: { items: [{ id: 'b-1', seq: 1, role: 'user', content: 'session B', metadata: {} }] },
+      data: { items: [{ id: 'b-1', seq: 1, role: 'user', content: 'session B', metadata: {} }], outbox_watermark: 8 },
     }]);
     await loadB;
     const resolveA = await waitForPending(pending, '/api/agent/sessions/session-a/messages');
     resolveA([200, {
-      data: { items: [{ id: 'a-1', seq: 1, role: 'user', content: 'session A', metadata: {} }] },
+      data: { items: [{ id: 'a-1', seq: 1, role: 'user', content: 'session A', metadata: {} }], outbox_watermark: 4 },
     }]);
     await loadA;
 

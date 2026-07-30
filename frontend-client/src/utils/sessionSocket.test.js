@@ -34,6 +34,18 @@ test('重连游标为零时仍会请求完整 durable replay', () => {
   );
 });
 
+test('历史快照首次连接会显式请求 active run 展示回放', () => {
+  assert.equal(
+    buildSessionSocketUrl('session-1', {
+      protocol: 'https:',
+      host: 'example.test',
+      afterEventSeq: 12,
+      historySnapshot: true,
+    }),
+    'wss://example.test/api/agent/sessions/session-1/ws?after_seq=12&history_snapshot=1',
+  );
+});
+
 test('WebSocket URL 使用短时 ticket 而不是 session token', () => {
   assert.equal(
     buildSessionSocketUrl('session-1', { protocol: 'https:', host: 'example.test', afterEventSeq: 12, ticket: 'ticket-1' }),

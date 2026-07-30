@@ -160,7 +160,7 @@ test('session connection 使用 heartbeat.last_seq 推进重连 cursor', async (
   }
 });
 
-test('session connection 可重置 session durable cursor 以支持快照加载后的完整 active replay', async () => {
+test('session connection 可从消息快照水位初始化 durable cursor', async () => {
   const restore = installFakeSessionSocketEnv();
 
   try {
@@ -171,11 +171,11 @@ test('session connection 可重置 session durable cursor 以支持快照加载�
     assert.equal(connection.getLastEventSeq('session-1'), 9);
 
     connection.disconnectSessionWS();
-    connection.resetSessionEventCursor('session-1');
-    assert.equal(connection.getLastEventSeq('session-1'), 0);
+    connection.initializeSessionEventCursor('session-1', 4);
+    assert.equal(connection.getLastEventSeq('session-1'), 4);
 
     await connection.connectSessionWS('session-1');
-    assert.equal(FakeWebSocket.instances[1].url, 'ws://localhost:5174/api/agent/sessions/session-1/ws?ticket=ticket-2');
+    assert.equal(FakeWebSocket.instances[1].url, 'ws://localhost:5174/api/agent/sessions/session-1/ws?after_seq=4&ticket=ticket-2');
   } finally {
     restore();
   }

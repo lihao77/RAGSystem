@@ -83,10 +83,11 @@ export function useSessionAgentClient(deps) {
     },
   });
   const connectSessionWS = transport.connect;
+  const reconnectSessionWS = transport.reconnect;
   const disconnectSessionWS = transport.disconnect;
   const getWS = transport.getSocket;
   const getLastEventSeq = transport.getLastEventSeq;
-  const resetSessionEventCursor = transport.resetSessionEventCursor;
+  const initializeSessionEventCursor = transport.initializeSessionEventCursor;
   const interactionController = createSessionInteractionController({
     getCurrentSessionId: () => currentSessionId.value,
     getSocket: () => deps.getWS?.() || getWS(),
@@ -183,10 +184,11 @@ export function useSessionAgentClient(deps) {
     scheduleCommandFallback,
     clearCommandFallback,
     connectSessionWS,
+    reconnectSessionWS,
     disconnectSessionWS,
     getWS,
     getLastEventSeq,
-    resetSessionEventCursor,
+    initializeSessionEventCursor,
     handleEnvelope,
     handleRunEvent,
     finalizeActiveRun,

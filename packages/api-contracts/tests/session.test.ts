@@ -107,7 +107,7 @@ describe("Session REST contracts", () => {
     expect(SessionMessageListResponseSchema.parse({
       success: true,
       message: "ok",
-      data: { items: [message], total: 1, limit: 20, offset: 0, has_more: false },
+      data: { items: [message], total: 1, limit: 20, offset: 0, has_more: false, outbox_watermark: 12 },
     }).data.items[0]?.id).toBe("message-1");
 
     expect(SessionMessageRunStepsResponseSchema.parse({

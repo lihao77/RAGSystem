@@ -137,7 +137,7 @@
               <span v-html="stopIcon"></span>
             </button>
             <button
-              v-else-if="canResumeRun"
+              v-if="canResumeRun"
               class="rag-send"
               :disabled="sending"
               @click="resume"
@@ -146,7 +146,7 @@
               <span v-html="rotateCcwIcon"></span>
             </button>
             <button
-              v-else
+              v-if="!canStopRun && !canResumeRun"
               class="rag-send"
               :disabled="isEmpty || sending || !canSendMessage"
               @click="send"

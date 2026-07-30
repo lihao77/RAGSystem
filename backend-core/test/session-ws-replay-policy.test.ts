@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { SessionRuntimePayload } from "../src/contracts/events.js";
-import { resolveSessionReplayPlan } from "../src/routes/agent/ws.js";
+import { resolveSessionReplayPlan, snapshotPresentationEvents } from "../src/routes/agent/ws.js";
+import type { Envelope } from "../src/contracts/events.js";
 
 function snapshot(
   loadStrategy: SessionRuntimePayload["load_strategy"],
@@ -13,7 +14,7 @@ function snapshot(
       ? "waiting_interaction"
       : loadStrategy === "attach_resume"
         ? "resuming"
-        : loadStrategy === "present_interactions"
+        : loadStrategy === "restore_suspended_run_and_present_interactions"
           ? "suspended"
           : loadStrategy === "watch_maintenance"
             ? "maintenance"
@@ -50,7 +51,12 @@ describe("session websocket replay policy", () => {
     });
   });
 
-  it.each(["attach_run", "attach_run_and_present_interactions", "attach_resume"] as const)(
+  it.each([
+    "attach_run",
+    "attach_run_and_present_interactions",
+    "restore_suspended_run_and_present_interactions",
+    "attach_resume",
+  ] as const)(
     "首次加载 %s 只回放 active run tree",
     (loadStrategy) => {
       expect(resolveSessionReplayPlan(null, snapshot(loadStrategy, true))).toEqual({
@@ -65,5 +71,40 @@ describe("session websocket replay policy", () => {
       replayDurable: true,
       replayActive: false,
     });
+  });
+
+  it("空历史快照的零水位也执行 durable replay", () => {
+    expect(resolveSessionReplayPlan(0, snapshot("history"))).toEqual({
+      replayDurable: true,
+      replayActive: false,
+    });
+  });
+
+  it("普通断线重连不重复回放水位前的 active run 展示事件", () => {
+    expect(resolveSessionReplayPlan(42, snapshot("attach_run", true))).toEqual({
+      replayDurable: true,
+      replayActive: false,
+    });
+  });
+
+  it("历史快照连接同时恢复 active run 展示和水位后的 durable 事件", () => {
+    expect(resolveSessionReplayPlan(42, snapshot("attach_run", true), true)).toEqual({
+      replayDurable: true,
+      replayActive: true,
+    });
+  });
+
+  it("active run 快照展示回放只取水位内事件并移除 durable seq", () => {
+    const events = [
+      { type: "tool_call", session_id: "session-1", run_id: "run-1", seq: 40, payload: { tool: "read_file", phase: "start" } },
+      { type: "tool_result", session_id: "session-1", run_id: "run-1", seq: 41, payload: { tool: "read_file", phase: "end", ok: true } },
+      { type: "stream_output", session_id: "session-1", run_id: "run-1", seq: 43, payload: { phase: "delta", content: "new" } },
+    ] as Envelope[];
+
+    const replay = snapshotPresentationEvents(events, 42);
+
+    expect(replay).toHaveLength(2);
+    expect(replay.map((event) => event.type)).toEqual(["tool_call", "tool_result"]);
+    expect(replay.every((event) => event.seq === undefined)).toBe(true);
   });
 });

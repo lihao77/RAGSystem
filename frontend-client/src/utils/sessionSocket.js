@@ -32,6 +32,7 @@ export function buildSessionSocketUrl(sessionId, options = {}) {
     ? rawAfterEventSeq
     : null;
   if (afterEventSeq !== null) params.set('after_seq', String(afterEventSeq));
+  if (options.historySnapshot === true) params.set('history_snapshot', '1');
   if (typeof options.ticket === 'string' && options.ticket) {
     params.set('ticket', options.ticket);
   }

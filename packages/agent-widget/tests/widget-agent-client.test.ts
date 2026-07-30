@@ -1,6 +1,19 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WidgetAgentClient } from "../src/adapter/widget-agent-client.js";
+
+const chatPanelSource = readFileSync(new URL("../src/components/ChatPanel.vue", import.meta.url), "utf8");
+
+describe("ChatPanel runtime actions", () => {
+  it("renders stop and resume independently for suspended runs", () => {
+    expect(chatPanelSource).toContain('v-if="canStopRun"');
+    expect(chatPanelSource).toContain('v-if="canResumeRun"');
+    expect(chatPanelSource).not.toContain('v-else-if="canResumeRun"');
+    expect(chatPanelSource).toContain('v-if="!canStopRun && !canResumeRun"');
+  });
+});
 
 class FakeWebSocket {
   static readonly OPEN = 1;
@@ -357,7 +370,7 @@ describe("WidgetAgentClient websocket ticket", () => {
       session_id: "session-1",
       payload: runtimeSnapshot({
         state: "suspended",
-        load_strategy: "present_interactions",
+        load_strategy: "restore_suspended_run_and_present_interactions",
         allowed_actions: ["resume_run", "stop_run"],
         active_run: {
           run_id: "run-1",

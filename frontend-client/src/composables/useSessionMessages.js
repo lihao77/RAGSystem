@@ -19,6 +19,8 @@ import { getMessageAttachments } from '../utils/messageExtensions.js';
  * @param {Function} deps.loadContextSnapshot
  * @param {Function} deps.showToast
  * @param {Function} deps.invalidateActiveStream
+ * @param {Function} [deps.shouldReplayActiveRun]
+ * @param {Function} [deps.replayActiveRun]
  * @param {Function} [deps.beginInitialScrollRestore]
  * @param {Function} [deps.endInitialScrollRestore]
  */
@@ -54,7 +56,7 @@ export function useSessionMessages(deps) {
    * 进入/切换会话时由 WebSocket 首帧 session.runtime 决定后续加载策略。
    */
   const loadSessionMessages = async (sessionId, { silent = false } = {}) => {
-    if (!sessionId) return;
+    if (!sessionId) return null;
     const seq = ++messageLoadSeq;
     const isCurrent = () => seq === messageLoadSeq && currentSessionId.value === sessionId;
     let scrollRestoreStarted = false;
@@ -92,6 +94,10 @@ export function useSessionMessages(deps) {
       }
       const result = await getSessionMessages(sessionId);
       const items = result.data?.items || [];
+      const rawOutboxWatermark = Number(result.data?.outbox_watermark);
+      const outboxWatermark = Number.isSafeInteger(rawOutboxWatermark) && rawOutboxWatermark >= 0
+        ? rawOutboxWatermark
+        : 0;
       const mapped = items
         .filter(item => {
           const meta = item.metadata || {};
@@ -133,7 +139,15 @@ export function useSessionMessages(deps) {
       if (!isCurrent()) return;
       endScrollRestore();
       deps.focusInput();
-      if (!silent) await deps.loadContextSnapshot(sessionId);
+      if (!silent) {
+        await deps.loadContextSnapshot(sessionId);
+        // 手动重载消息会替换 messages，active run 的执行树不在聊天消息接口中；
+        // 由当前权威 runtime 决定是否重新请求 active-run 快照。
+        if (deps.shouldReplayActiveRun?.(sessionId)) {
+          await deps.replayActiveRun?.(sessionId);
+        }
+      }
+      return outboxWatermark;
     } catch (error) {
       if (!isCurrent()) return;
       console.error('loadSessionMessages failed:', { sessionId, error });

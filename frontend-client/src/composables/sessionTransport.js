@@ -83,6 +83,9 @@ export function createSessionTransport({
   /** @type {ReturnType<typeof setTimeout> | null} */
   let reconnectTimer = null;
   let reconnectAttempts = 0;
+  /** 首次历史快照回放尚未完成时，自动重连必须继续请求 active run 展示。 */
+  /** @type {string | null} */
+  let historySnapshotPendingSessionId = null;
   /** @type {Map<string, EnvelopeDeliveryCursor>} */
   const deliveryCursors = new Map();
 
@@ -98,9 +101,12 @@ export function createSessionTransport({
   /** @param {string} sessionId */
   const getLastEventSeq = (sessionId) => deliveryCursors.get(sessionId)?.lastSeq || 0;
 
-  /** @param {string} sessionId */
-  const resetSessionEventCursor = (sessionId) => {
-    if (sessionId) deliveryCursors.delete(sessionId);
+  /** @param {string} sessionId @param {number} afterEventSeq */
+  const initializeSessionEventCursor = (sessionId, afterEventSeq) => {
+    if (!sessionId) return;
+    const cursor = new EnvelopeDeliveryCursor();
+    cursor.reset(afterEventSeq);
+    deliveryCursors.set(sessionId, cursor);
   };
 
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
@@ -118,7 +124,10 @@ export function createSessionTransport({
     reconnectAttempts += 1;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      void connect(sessionId, { isReconnect: true });
+      void connect(sessionId, {
+        isReconnect: true,
+        historySnapshot: historySnapshotPendingSessionId === sessionId,
+      });
     }, delay);
   };
 
@@ -126,7 +135,10 @@ export function createSessionTransport({
     connectGeneration += 1;
     pendingSessionId = null;
     onDisconnect?.();
-    if (!preserveReconnectState) reconnectAttempts = 0;
+    if (!preserveReconnectState) {
+      reconnectAttempts = 0;
+      historySnapshotPendingSessionId = null;
+    }
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -137,12 +149,13 @@ export function createSessionTransport({
     currentSocket?.close();
   };
 
-  /** @param {string} sessionId @param {{ isReconnect?: boolean }} [options] */
-  const connect = async (sessionId, { isReconnect = false } = {}) => {
+  /** @param {string} sessionId @param {{ isReconnect?: boolean, historySnapshot?: boolean }} [options] */
+  const connect = async (sessionId, { isReconnect = false, historySnapshot = false } = {}) => {
     if (!sessionId) return;
     if (canReuseSessionSocket(sessionId, socketSessionId, socket)) return;
     if (pendingSessionId === sessionId) return;
     disconnect({ preserveReconnectState: isReconnect });
+    if (historySnapshot) historySnapshotPendingSessionId = sessionId;
     const generation = connectGeneration;
     pendingSessionId = sessionId;
     let ticket;
@@ -162,10 +175,14 @@ export function createSessionTransport({
     pendingSessionId = null;
     const currentLocation = globalThis.location || { protocol: 'http:', host: '' };
     const lastEventSeq = getLastEventSeq(sessionId);
+    const hasInitializedCursor = deliveryCursors.has(sessionId);
+    const shouldRequestHistorySnapshot = historySnapshot
+      || historySnapshotPendingSessionId === sessionId;
     const url = buildSessionSocketUrl(sessionId, {
       protocol: currentLocation.protocol,
       host: currentLocation.host,
-      afterEventSeq: isReconnect ? lastEventSeq : (lastEventSeq > 0 ? lastEventSeq : null),
+      afterEventSeq: isReconnect || hasInitializedCursor ? lastEventSeq : null,
+      historySnapshot: shouldRequestHistorySnapshot,
       ticket,
     });
     const nextSocket = createSocket(url);
@@ -183,6 +200,14 @@ export function createSessionTransport({
         const event = /** @type {import('./sessionCoreTypes.js').SessionEnvelope} */ (JSON.parse(message.data));
         reconnectAttempts = 0;
         if (!shouldDeliverEvent(event, sessionId)) return;
+        if (event.type === 'session.runtime' && !event.payload?.active_run) {
+          historySnapshotPendingSessionId = null;
+        }
+        if (event.type === 'session.reconnect'
+          && event.payload?.replay_source === 'active_run_snapshot'
+          && event.payload?.phase === 'end') {
+          historySnapshotPendingSessionId = null;
+        }
         if (event.type === 'delegate_call' && event.payload?.phase === 'request') {
           void handleDelegateCall(nextSocket, event, sessionId);
           return;
@@ -207,11 +232,23 @@ export function createSessionTransport({
     socket = nextSocket;
   };
 
+  /**
+   * 强制重建当前 session 的连接，用于消息列表重载后重新投影 active run。
+   * 普通 connect 会复用已打开的 socket，因此这里必须先断开再连接。
+   */
+  /** @param {string} sessionId @param {{ historySnapshot?: boolean }} [options] */
+  const reconnect = async (sessionId, { historySnapshot = false } = {}) => {
+    if (!sessionId) return;
+    disconnect({ preserveReconnectState: true });
+    await connect(sessionId, { isReconnect: true, historySnapshot });
+  };
+
   return {
     connect,
+    reconnect,
     disconnect,
     getSocket: () => socket,
     getLastEventSeq,
-    resetSessionEventCursor,
+    initializeSessionEventCursor,
   };
 }

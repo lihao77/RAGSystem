@@ -6,6 +6,7 @@ import {
   ClientToServerEnvelopeSchema,
   ServerToClientEnvelopeSchema,
   SessionRuntimePayloadSchema,
+  sessionLoadStrategyRestoresActiveRun,
 } from "../src/protocol.js";
 import {
   EnvelopeDeliveryCursor,
@@ -228,6 +229,15 @@ describe("Envelope delivery cursor", () => {
       payload: { last_seq: 9 },
     })).toBe(5);
   });
+
+  it("can start from a history snapshot watermark", () => {
+    const cursor = new EnvelopeDeliveryCursor();
+    cursor.reset(12);
+
+    expect(cursor.lastSeq).toBe(12);
+    expect(cursor.accept({ type: "stream_output", seq: 12 })).toBe(false);
+    expect(cursor.accept({ type: "stream_output", seq: 13 })).toBe(true);
+  });
 });
 
 describe("Session runtime snapshot invariants", () => {
@@ -284,7 +294,7 @@ describe("Session runtime snapshot invariants", () => {
     expect(() => SessionRuntimePayloadSchema.parse({
       ...idle,
       state: "suspended",
-      load_strategy: "present_interactions",
+      load_strategy: "restore_suspended_run_and_present_interactions",
       active_run: { ...activeRun, status: "suspended", execution_owner: "detached" },
       allowed_actions: ["respond_interaction", "stop_run"],
       pending_interactions: [{
@@ -298,5 +308,14 @@ describe("Session runtime snapshot invariants", () => {
         payload: { kind: "approval", phase: "required" },
       }],
     })).toThrow();
+  });
+
+  it("集中声明需要恢复 active run 执行树的加载策略", () => {
+    expect(sessionLoadStrategyRestoresActiveRun("history")).toBe(false);
+    expect(sessionLoadStrategyRestoresActiveRun("watch_maintenance")).toBe(false);
+    expect(sessionLoadStrategyRestoresActiveRun("attach_run")).toBe(true);
+    expect(sessionLoadStrategyRestoresActiveRun("attach_run_and_present_interactions")).toBe(true);
+    expect(sessionLoadStrategyRestoresActiveRun("restore_suspended_run_and_present_interactions")).toBe(true);
+    expect(sessionLoadStrategyRestoresActiveRun("attach_resume")).toBe(true);
   });
 });

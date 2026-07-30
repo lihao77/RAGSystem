@@ -10,7 +10,7 @@ loading flags, run events, execution handles, or pending-interaction events.
 | `idle` | No active root run and no active maintenance claim | `history` | `send_message`, `start_maintenance` |
 | `running` | Root run is `running`; no unresolved or claimed interaction batch | `attach_run` | Locally owned: `send_followup`, `stop_run`; remote: none |
 | `waiting_interaction` | Root run is `running`; at least one interaction is `waiting` | `attach_run_and_present_interactions` | Locally owned: `respond_interaction`, `stop_run`; remote: none |
-| `suspended` | Root run is `suspended` | `present_interactions` | Unresolved interaction: `respond_interaction`, `stop_run`; resolved batch: `resume_run`, `stop_run` |
+| `suspended` | Root run is `suspended` | `restore_suspended_run_and_present_interactions` | Unresolved interaction: `respond_interaction`, `stop_run`; resolved batch: `resume_run`, `stop_run` |
 | `resuming` | A durable interaction batch is `resuming` | `attach_resume` | Locally owned: `stop_run`; remote: none |
 | `maintenance` | No active root run; a non-expired maintenance claim exists | `watch_maintenance` | none |
 
@@ -62,4 +62,5 @@ On initial load:
 2. Open the Session WebSocket.
 3. Wait for the first `session.runtime` snapshot.
 4. Apply the snapshot's `load_strategy` in the runtime reducer.
-5. Replay run events only when the strategy requires attaching to a live/resuming run.
+5. Replay run events when the strategy requires restoring an active run, including a detached
+   suspended run whose execution tree still belongs in the current conversation.

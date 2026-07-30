@@ -1,5 +1,6 @@
 // @ts-check
 import { nextTick } from 'vue';
+import { sessionLoadStrategyRestoresActiveRun } from '@ragsystem/agent-protocol';
 import { createSessionEventReducer } from './sessionEventReducer.js';
 import { createUserMessage } from './sessionCommandController.js';
 
@@ -263,8 +264,7 @@ export function createSessionEnvelopeDispatcher({
       }
       presentedInteractions.set(pending.interaction_id, { kind: pending.kind, status: pending.status });
     }
-    const attachStrategies = new Set(['attach_run', 'attach_run_and_present_interactions', 'attach_resume']);
-    if (!snapshot.active_run || !attachStrategies.has(snapshot.load_strategy)) return;
+    if (!snapshot.active_run || !sessionLoadStrategyRestoresActiveRun(snapshot.load_strategy)) return;
     const runId = snapshot.active_run.run_id;
     let assistantMsgIndex = messages.value.findIndex(message => message?.role === 'assistant'
       && (message?.run_id === runId || message?.metadata?.run_id === runId)
@@ -306,6 +306,9 @@ export function createSessionEnvelopeDispatcher({
         if (runtime.isDurableOutboxReplayEnvelope(event)) {
           runtime.setDurableReplay({ active: true, runId: event.run_id || null });
           return;
+        }
+        if (runtime.isActiveRunSnapshotReplayEnvelope(event) && Number(payload.replay_count) > 0) {
+          runtime.resetActiveRunPresentation(event.run_id || null);
         }
         runtime.setDurableReplay({ active: false });
         return;

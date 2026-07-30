@@ -1,8 +1,7 @@
-import type { PaginatedResult } from "@ragsystem/backend-core/contracts/common.js";
 import type { AsyncConversationRepository, AsyncRunStore, ExecutionReplayRepositoryPort } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
-import type { CreateSessionRecordInput, MessageInfo, SessionIdentity, SessionInfo } from "@ragsystem/backend-core/contracts/session/session.js";
+import type { CreateSessionRecordInput, MessageInfo, SessionIdentity, SessionInfo, SessionMessageListSnapshot } from "@ragsystem/backend-core/contracts/session/session.js";
 import { normalizeSessionMetadata } from "@ragsystem/backend-core/contracts/session/session.js";
 import { assertSafeSessionId } from "@ragsystem/backend-core/contracts/session/session-id.js";
 import type { AsyncFileHistoryStore } from "@ragsystem/backend-core/contracts/file-history-store/index.js";
@@ -90,9 +89,14 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
     await this.fileHistory?.cleanup(sessionId);
     return this.repository.deleteSession(sessionId);
   }
-  async listMessages(input: { sessionId: string; limit?: number; offset?: number }): Promise<PaginatedResult<MessageInfo> | null> {
+  async listMessages(input: { sessionId: string; limit?: number; offset?: number }): Promise<SessionMessageListSnapshot | null> {
     if (!(await this.getSession(input.sessionId))) return null;
-    const data = await this.repository.listVisibleRootMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0);
+    const data = await this.repository.listVisibleRootMessagesSnapshot(
+      this.tenantId,
+      input.sessionId,
+      input.limit ?? 20,
+      input.offset ?? 0,
+    );
     data.items = data.items.map((item) => item.role === "assistant"
       ? { ...item, has_execution: Boolean(item.metadata.run_id) && item.metadata.execution_history_discarded !== true }
       : item);

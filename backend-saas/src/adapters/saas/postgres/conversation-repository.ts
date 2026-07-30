@@ -13,6 +13,7 @@ import type {
   SessionListProjection,
   SessionListProjectionPage,
   SessionListQuery,
+  SessionMessageListSnapshot,
 } from "@ragsystem/backend-core/contracts/session/session.js";
 import { normalizeSessionMetadata } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { AsyncConversationRepository } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
@@ -246,14 +247,44 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     return { items: rows.rows.map(message).reverse(), total: count, limit, offset, has_more: offset + limit < count };
   }
 
-  async listVisibleRootMessages(sessionId: string, limit = 20, offset = 0): Promise<PaginatedResult<MessageInfo>> {
-    const params: unknown[] = [sessionId];
-    const where = `session_id=$1 AND ${visibleRootMessageSql()}`;
-    const total = await this.executor.query(`SELECT COUNT(*) AS total FROM conversation_messages WHERE ${where}`, params);
-    params.push(limit, offset);
-    const rows = await this.executor.query(`SELECT * FROM conversation_messages WHERE ${where} ORDER BY seq DESC LIMIT $2 OFFSET $3`, params);
-    const count = Number(total.rows[0]?.total ?? 0);
-    return { items: rows.rows.map(message).reverse(), total: count, limit, offset, has_more: offset + limit < count };
+  async listVisibleRootMessagesSnapshot(
+    tenantId: TenantId,
+    sessionId: string,
+    limit = 20,
+    offset = 0,
+  ): Promise<SessionMessageListSnapshot> {
+    const result = await this.executor.query<{
+      items: unknown;
+      total: unknown;
+      outbox_watermark: unknown;
+    }>(
+      `WITH visible_messages AS MATERIALIZED (
+         SELECT * FROM conversation_messages
+         WHERE session_id=$2 AND ${visibleRootMessageSql()}
+       ), page AS MATERIALIZED (
+         SELECT * FROM visible_messages ORDER BY seq DESC LIMIT $3 OFFSET $4
+       )
+       SELECT
+         COALESCE((SELECT jsonb_agg(to_jsonb(page) ORDER BY page.seq ASC) FROM page), '[]'::jsonb) AS items,
+         (SELECT COUNT(*) FROM visible_messages) AS total,
+         COALESCE((
+           SELECT MAX(session_seq) FROM event_outbox
+           WHERE tenant_id=$1 AND session_id=$2 AND event_type LIKE 'client.%'
+         ), 0) AS outbox_watermark`,
+      [tenantId, sessionId, limit, offset],
+    );
+    const snapshot = result.rows[0];
+    const rawItems = Array.isArray(snapshot?.items) ? snapshot.items : [];
+    const count = Number(snapshot?.total ?? 0);
+    const watermark = Number(snapshot?.outbox_watermark ?? 0);
+    return {
+      items: rawItems.filter(isRecord).map(message),
+      total: count,
+      limit,
+      offset,
+      has_more: offset + limit < count,
+      outbox_watermark: Number.isSafeInteger(watermark) && watermark >= 0 ? watermark : 0,
+    };
   }
 
   async getMessageBySeq(sessionId: string, seq: number): Promise<MessageInfo | null> { const r = await this.executor.query("SELECT * FROM conversation_messages WHERE session_id=$1 AND seq=$2", [sessionId, seq]); return r.rows[0] ? message(r.rows[0]) : null; }

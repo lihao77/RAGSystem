@@ -1,5 +1,5 @@
-import type { PaginatedResult, RunStepInfo } from "../../contracts/common.js";
-import { normalizeSessionMetadata, type CreateSessionRecordInput, type MessageInfo, type SessionInfo, type SessionListQuery } from "../../contracts/session/session.js";
+import type { RunStepInfo } from "../../contracts/common.js";
+import { normalizeSessionMetadata, type CreateSessionRecordInput, type MessageInfo, type SessionInfo, type SessionListQuery, type SessionMessageListSnapshot } from "../../contracts/session/session.js";
 import type {
   AgentSessionRepositoryPort,
   AgentSessionRunRecord,
@@ -75,7 +75,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     sessionId: string;
     limit?: number;
     offset?: number;
-  }): Promise<PaginatedResult<MessageInfo>> {
+  }): Promise<SessionMessageListSnapshot> {
     const data = await this.repository.listMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0);
     data.items = data.items
       .filter((item) => isVisibleRootMessage(item))

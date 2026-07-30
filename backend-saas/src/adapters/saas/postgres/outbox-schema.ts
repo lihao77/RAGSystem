@@ -24,4 +24,32 @@ CREATE INDEX IF NOT EXISTS event_outbox_session_seq_idx ON event_outbox(session_
       AFTER UPDATE OF status ON event_outbox
       FOR EACH ROW EXECUTE FUNCTION notify_ragsystem_realtime_event();
   `,
+}, {
+  version: 3,
+  name: "realtime-delivery-sequence",
+  sql: `
+    CREATE SEQUENCE IF NOT EXISTS event_outbox_delivery_order_seq AS BIGINT;
+    ALTER TABLE event_outbox ADD COLUMN IF NOT EXISTS delivery_seq BIGINT;
+    UPDATE event_outbox
+      SET delivery_seq = nextval('event_outbox_delivery_order_seq')
+      WHERE status = 'delivered' AND delivery_seq IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS event_outbox_delivery_seq_idx
+      ON event_outbox(delivery_seq) WHERE delivery_seq IS NOT NULL;
+
+    CREATE OR REPLACE FUNCTION notify_ragsystem_realtime_event() RETURNS trigger AS $$
+    BEGIN
+      IF NEW.status = 'delivered' AND OLD.status IS DISTINCT FROM NEW.status THEN
+        PERFORM pg_notify(
+          'ragsystem_realtime_events',
+          json_build_object(
+            'id', NEW.id,
+            'tenant_id', NEW.tenant_id,
+            'delivery_seq', NEW.delivery_seq
+          )::text
+        );
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+  `,
 }];
