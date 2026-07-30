@@ -31,7 +31,7 @@ test('工作面板用户输入提交失败时保留 pendingUserInput', async () 
   assert.equal(queue.pendingUserInput.value, pending);
 });
 
-test('工作面板用户输入提交成功后清理 pendingUserInput', async () => {
+test('工作面板用户输入提交成功后等待 runtime 快照清理 pendingUserInput', async () => {
   const deps = createDeps();
   const queue = useApprovalQueue(deps);
 
@@ -39,7 +39,7 @@ test('工作面板用户输入提交成功后清理 pendingUserInput', async () 
 
   await queue.handleWorkPanelUserInputSubmit({ inputId: 'input-1', value: 'session' });
 
-  assert.equal(queue.pendingUserInput.value, null);
+  assert.notEqual(queue.pendingUserInput.value, null);
 });
 
 test('窄屏收到用户输入时先打开运行中心执行标签', () => {

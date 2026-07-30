@@ -20,8 +20,7 @@ export function useRuntimeStatusView({
   activeRun,
   llmRetryState,
   formatRetryCountdown,
-  sessionTaskInfo,
-  sessionExecutionObservability,
+  sessionRuntime,
   contextUsage,
 }) {
   const contextUsagePct = computed(() => {
@@ -43,6 +42,17 @@ export function useRuntimeStatusView({
     || 0
   );
 
+  const getInteractionWaitingText = (suspended = false) => {
+    const interactions = sessionRuntime.value?.pending_interactions || [];
+    const hasApproval = interactions.some(item => item.kind === 'approval');
+    const hasUserInput = interactions.some(item => item.kind === 'user_input');
+    const prefix = suspended ? '已挂起 · ' : '';
+    if (hasApproval && hasUserInput) return `${prefix}等待用户交互`;
+    if (hasUserInput) return `${prefix}等待用户输入`;
+    if (hasApproval) return `${prefix}等待权限审批`;
+    return suspended ? '已挂起' : '等待用户交互';
+  };
+
   const getAssistantRuntimeStatusText = (msg) => {
     if (!msg || msg.role !== 'assistant' || msg.finished) return '';
     if (!activeRun.active || messages.value[activeRun.assistantMsgIndex] !== msg) return '';
@@ -55,7 +65,7 @@ export function useRuntimeStatusView({
     if (activeRun.phase === 'creating_session') return '正在创建会话';
     if (activeRun.phase === 'preparing_attachments') return '正在准备附件';
     if (activeRun.phase === 'starting_agent') return '正在启动 Agent';
-    if (activeRun.phase === 'approval_waiting') return '等待权限审批';
+    if (activeRun.phase === 'approval_waiting') return getInteractionWaitingText();
     if (activeRun.phase === 'tool_running') return '工具执行中';
     if (activeRun.phase === 'llm_streaming') return '模型输出中';
     if (activeRun.phase === 'llm_waiting_first_token') return '等待模型响应';
@@ -67,15 +77,18 @@ export function useRuntimeStatusView({
       return `重试中 · ${formatRetryCountdown(llmRetryState.value)}`;
     }
 
-    const status = sessionTaskInfo.value?.status;
-    if (status === 'cancel_requested') return '停止中';
+    const state = sessionRuntime.value?.state || 'idle';
+    if (state === 'maintenance') return '会话维护中';
+    if (state === 'suspended') return getInteractionWaitingText(true);
+    if (state === 'waiting_interaction') return getInteractionWaitingText();
+    if (state === 'resuming') return '正在恢复执行';
 
-    if (isLoading.value) {
+    if (state === 'running' || isLoading.value) {
       if (activeRun.phase === 'background_waiting') {
         const count = getBackgroundWaitingCount();
         return count > 0 ? `等待后台任务 · ${count} 个任务` : '等待后台任务';
       }
-      if (activeRun.phase === 'approval_waiting') return '等待权限审批';
+      if (activeRun.phase === 'approval_waiting') return getInteractionWaitingText();
       if (activeRun.phase === 'llm_streaming') return '模型输出中';
       if (activeRun.phase === 'llm_waiting_first_token') return '等待模型响应';
       if (activeRun.phase === 'creating_session') return '创建会话中';
@@ -86,24 +99,19 @@ export function useRuntimeStatusView({
       return '运行中';
     }
 
-    if (status === 'running') return '运行中';
-    if (status === 'interrupted') return '已中断';
-    if (status === 'failed') return '失败';
-    if (status === 'completed') return '已完成';
+    const lastStatus = sessionRuntime.value?.last_run?.status;
+    if (lastStatus === 'interrupted') return '已中断';
+    if (lastStatus === 'failed') return '失败';
+    if (lastStatus === 'completed') return '已完成';
     return '空闲';
   });
 
   const showExecutionPill = computed(() => {
     if (!currentSessionId.value) return false;
-    if (isLoading.value) return true;
-    if (sessionExecutionObservability.value?.task_id || sessionExecutionObservability.value?.run_id) return true;
-
-    const status = sessionTaskInfo.value?.status;
-    return status === 'running'
-      || status === 'cancel_requested'
-      || status === 'interrupted'
-      || status === 'failed'
-      || status === 'completed';
+    return Boolean(sessionRuntime.value?.active_run
+      || sessionRuntime.value?.maintenance
+      || sessionRuntime.value?.last_run
+      || isLoading.value);
   });
 
   return {

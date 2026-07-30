@@ -50,8 +50,8 @@ export function useSessionMessages(deps) {
   };
 
   /**
-   * 只负责消息列表与缓存，不负责 task-status。
-   * 进入/切换会话的调用方需在消息加载后显式调用 checkSessionTaskStatus。
+   * 只负责消息列表与缓存，不负责 Session 生命周期。
+   * 进入/切换会话时由 WebSocket 首帧 session.runtime 决定后续加载策略。
    */
   const loadSessionMessages = async (sessionId, { silent = false } = {}) => {
     if (!sessionId) return;

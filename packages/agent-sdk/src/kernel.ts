@@ -86,12 +86,20 @@ export class AgentKernel {
     await this.hooks.emit("run.before", { session });
     try {
       let tokenUsage: TokenUsage | null = null;
-      const resumeCalls = collectUnansweredToolCalls(ctx.messages);
-      if (resumeCalls.length > 0) {
-        const observations = await this.tools.executeRound(ctx, 0, resumeCalls);
-        ctx.appendMessages(this.protocol.renderObservations(resumeCalls, observations));
+      const startRound = session.startRound;
+      const resumeRound = collectUnansweredToolRound(ctx.messages, session.resumeToolResults);
+      if (resumeRound.calls.length > 0) {
+        // 未配对的 tool_use 属于恢复前最后一个 assistant 轮次；工具完成后模型从
+        // startRound 继续。新 run 的防御性回退仍使用 round 0。
+        const observations = await this.tools.executeRound(
+          ctx,
+          Math.max(0, startRound - 1),
+          resumeRound.calls,
+          resumeRound.previousResults,
+        );
+        ctx.appendMessages(this.protocol.renderObservations(resumeRound.calls, observations));
       }
-      for (let round = 0; ; round++) {
+      for (let round = startRound; ; round++) {
         ctx.throwIfAborted();
         ctx.appendMessages(await this.refresher.refresh(ctx, round));
         const roundBeforeOut = await this.hooks.emit("round.before", { ctx, round });
@@ -171,7 +179,10 @@ export class AgentKernel {
 }
 
 /** 扫描会话中尚无 tool_result 配对的 tool_use，供 run 开始时原位重执行。 */
-function collectUnansweredToolCalls(messages: readonly ChatMessage[]): KernelToolCall[] {
+function collectUnansweredToolRound(
+  messages: readonly ChatMessage[],
+  durableResults: ReadonlyMap<string, import("./contracts.js").ToolExecutionResult>,
+): { calls: KernelToolCall[]; previousResults: ReadonlyMap<number, import("./contracts.js").ToolExecutionResult> } {
   const answered = new Set<string>();
   for (const message of messages) {
     if (message.role === "tool" && message.tool_call_id) {
@@ -179,22 +190,29 @@ function collectUnansweredToolCalls(messages: readonly ChatMessage[]): KernelToo
     }
   }
 
-  const calls: KernelToolCall[] = [];
+  let selected: ChatMessage | null = null;
   for (const message of messages) {
     if (message.role !== "assistant" || !message.tool_calls?.length) {
       continue;
     }
-    for (const toolCall of message.tool_calls) {
-      if (answered.has(toolCall.id)) {
-        continue;
-      }
-      calls.push({
-        index: calls.length,
+    if (message.tool_calls.some((toolCall) => !answered.has(toolCall.id))) selected = message;
+  }
+  if (!selected?.tool_calls?.length) return { calls: [], previousResults: new Map() };
+
+  const calls: KernelToolCall[] = [];
+  const previousResults = new Map<number, import("./contracts.js").ToolExecutionResult>();
+  for (const [index, toolCall] of selected.tool_calls.entries()) {
+    if (answered.has(toolCall.id)) {
+      const result = durableResults.get(toolCall.id);
+      if (result) previousResults.set(index + 1, result);
+      continue;
+    }
+    calls.push({
+        index,
         callId: toolCall.id,
         toolName: toolCall.function.name,
         arguments: JSON.parse(toolCall.function.arguments ?? "{}") as Record<string, unknown>,
-      });
-    }
+    });
   }
-  return calls;
+  return { calls, previousResults };
 }

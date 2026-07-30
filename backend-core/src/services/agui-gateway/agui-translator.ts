@@ -93,6 +93,9 @@ export class AguiTranslator {
     if (status === "completed") {
       return { events: [{ type: "RUN_FINISHED", ...this.base(), outcome: { type: "success" } }], done: true };
     }
+    if (status === "suspended") {
+      return { events: [] };
+    }
     // failed / interrupted：interrupted 通常已由 delegate/interaction 提前翻成 interrupt，
     // 直收到视为异常终止。
     return { events: [this.runError(str(payload.reason) ?? "run ended")], done: true };

@@ -15,6 +15,7 @@ import type {
 import { RuntimeInteractionCoordinator } from "./pending-interaction-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
 import { CapabilityRegistry } from "../../plugins/capability-registry.js";
+import { SessionRuntimeService } from "./session-runtime-service.js";
 
 /** Assemble deployment-provided services into the shared agent runtime. */
 export function createCoreRuntimeContainer(dependencies: LocalCoreRuntimeDependencies): LocalRuntimeContainer;
@@ -54,6 +55,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     clientEvents,
   );
   const selectedPendingInteractions = interactionCoordinator;
+  const sessionRuntime = new SessionRuntimeService(dependencies.runtimeStorage);
 
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const agentDelegation = new AgentDelegationService(delegationStore, runtimeCore, clientEvents);
@@ -144,6 +146,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     agentDelegation,
     eventDispatcher,
     clientEvents,
+    sessionRuntime,
     dataRoot,
     close,
   };

@@ -166,7 +166,12 @@ export async function createSaaSConversationRuntime(
               runtimeOwnerInstanceId,
             );
             const recovered = await storage.operations.recoverExpiredRunLeases!({
-              buildRunEndedRecord: (run) => buildExpiredRunLeaseRecord(run.sessionId, run.runId),
+              buildRunEndedRecord: (run) => buildExpiredRunLeaseRecord(
+                run.sessionId,
+                run.runId,
+                run.status,
+                run.reason,
+              ),
             });
             if (recovered.records.length > 0) {
               await sharedOutboxDispatcher.dispatchPendingRows(recovered.records.map((record) => record.outbox));

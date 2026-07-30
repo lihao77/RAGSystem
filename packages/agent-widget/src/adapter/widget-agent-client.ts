@@ -15,6 +15,7 @@ import type {
   Observable,
   PendingInteraction,
   RunStatus,
+  SessionRuntimePayload,
   SendOptions,
   SendResult,
   ToolCallHandler,
@@ -27,6 +28,7 @@ import { WidgetWsTransport } from "./ws-transport.js";
 import {
   encodeApprovalRespond,
   encodeDelegateResult,
+  encodeResume,
   encodeSend,
   encodeStop,
   encodeToolsRegister,
@@ -64,6 +66,12 @@ interface HostToolEntry {
   spec: DelegatedToolSpec;
 }
 
+interface RuntimeWaiter {
+  resolve(snapshot: SessionRuntimePayload): void;
+  reject(error: Error): void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export class WidgetAgentClient implements AgentClient {
   private readonly backendBase: string;
   private readonly sessionId: string;
@@ -77,11 +85,19 @@ export class WidgetAgentClient implements AgentClient {
   private readonly statusValue: ObservableValue<ConnectionStatus>;
   private readonly eventsValue: EventStream;
   private readonly treeValue: ObservableValue<ExecutionTree>;
+  private readonly runtimeValue: ObservableValue<SessionRuntimePayload>;
   private readonly runStatusValue: ObservableValue<RunStatus>;
   private readonly pendingValue: ObservableValue<PendingInteraction[]>;
 
   /** 待决议的 send ack 等待器（widget 单 run 串行，至多一个 pending）。 */
   private pendingSendAck: ((result: { ok: boolean; kind?: "agent_run" | "command"; error?: string }) => void) | null = null;
+  private pendingResumeAck: ((result: { ok: boolean; error?: string }) => void) | null = null;
+  private readonly pendingInteractionAcks = new Map<
+    string,
+    { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+  private readonly runtimeWaiters = new Set<RuntimeWaiter>();
+  private hasRuntimeSnapshot = false;
 
   private delegationEnabled = false;
   private readonly hostTools = new Map<string, HostToolEntry>();
@@ -96,6 +112,7 @@ export class WidgetAgentClient implements AgentClient {
     this.statusValue = new ObservableValue<ConnectionStatus>({ state: "idle" });
     this.eventsValue = new EventStream();
     this.treeValue = new ObservableValue<ExecutionTree>({ root: null, steps: [] });
+    this.runtimeValue = new ObservableValue<SessionRuntimePayload>(emptyRuntimeSnapshot());
     this.runStatusValue = new ObservableValue<RunStatus>({ runId: null, state: "idle" });
     this.pendingValue = new ObservableValue<PendingInteraction[]>([]);
     for (const spec of options.hostTools ?? []) {
@@ -127,6 +144,12 @@ export class WidgetAgentClient implements AgentClient {
       handlers: {
         onStatus: (status) => {
           this.statusValue.set(status);
+          if (status.state !== "connected") {
+            this.hasRuntimeSnapshot = false;
+            if (status.state === "reconnecting" || status.state === "disconnected") {
+              this.rejectRuntimeWaiters("连接已断开，无法取得 Session runtime 快照");
+            }
+          }
           if (status.state === "connected") {
             this.onConnected();
           }
@@ -149,6 +172,21 @@ export class WidgetAgentClient implements AgentClient {
   disconnect(): void {
     this.transport?.disconnect();
     this.transport = null;
+    this.hasRuntimeSnapshot = false;
+    this.rejectRuntimeWaiters("连接已断开");
+    if (this.pendingSendAck) {
+      this.pendingSendAck({ ok: false, error: "连接已断开" });
+      this.pendingSendAck = null;
+    }
+    if (this.pendingResumeAck) {
+      this.pendingResumeAck({ ok: false, error: "连接已断开" });
+      this.pendingResumeAck = null;
+    }
+    for (const pending of this.pendingInteractionAcks.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("连接已断开"));
+    }
+    this.pendingInteractionAcks.clear();
   }
 
   get status(): Observable<ConnectionStatus> {
@@ -163,6 +201,10 @@ export class WidgetAgentClient implements AgentClient {
 
   get executionTree(): Observable<ExecutionTree> {
     return this.treeValue;
+  }
+
+  get runtime(): Observable<SessionRuntimePayload> {
+    return this.runtimeValue;
   }
 
   get runStatus(): Observable<RunStatus> {
@@ -184,13 +226,27 @@ export class WidgetAgentClient implements AgentClient {
    * 发起 run：发 user_driven_change 后等后端 ack(category:"send", ok) 决定 started 终态
    * （后端 ws.ts 会回 ack，run 启动失败时 ok:false）。未连接直接判失败（避免字节静默丢失却
    * 乐观置 running）；5s 未收 ack 也判失败（后端未确认启动），不再把超时当成功。
-   * runStatus 仅在 ack ok 时转 running。
+   * ACK 只表示请求是否被接收；runStatus 仍只由后续 session.runtime 快照派生。
    */
   async send(options: SendOptions): Promise<SendResult> {
     const requestId = options.requestId ?? generateRequestId();
     // 未连接（连接中/重连中/已断开）：字节发不出去，直接判失败，UI 不切 running。
     if (this.statusValue.get().state !== "connected") {
       return { started: false, requestId, error: "连接未就绪" };
+    }
+    let runtime: SessionRuntimePayload;
+    try {
+      runtime = await this.waitForRuntimeSnapshot();
+    } catch (error) {
+      return {
+        started: false,
+        requestId,
+        error: error instanceof Error ? error.message : "无法取得 Session runtime 快照",
+      };
+    }
+    if (!runtime.allowed_actions.includes("send_message")
+      && !runtime.allowed_actions.includes("send_followup")) {
+      return { started: false, requestId, error: "当前 Session runtime 不允许发送消息" };
     }
     const ackPromise = new Promise<{ ok: boolean; kind?: "agent_run" | "command"; error?: string }>((resolve) => {
       this.pendingSendAck = resolve;
@@ -211,21 +267,28 @@ export class WidgetAgentClient implements AgentClient {
     if (this.pendingSendAck) {
       this.pendingSendAck = null;
     }
-    if (result.ok) {
-      if (result.kind !== "command") {
-        this.runStatusValue.set({ runId: null, state: "running" });
-      }
-      return { started: true, requestId };
-    }
-    this.runStatusValue.set({ runId: null, state: "idle" });
+    if (result.ok) return { started: true, requestId };
     return { started: false, requestId, ...("error" in result && result.error ? { error: result.error } : {}) };
   }
 
   stop(): void {
-    this.transport?.send(encodeStop(this.sessionId));
+    if (this.statusValue.get().state === "connected"
+      && this.hasRuntimeSnapshot
+      && this.runtimeValue.get().allowed_actions.includes("stop_run")) {
+      this.transport?.send(encodeStop(this.sessionId));
+    }
   }
 
   async respondInteraction(interactionId: string, response: InteractionResponse): Promise<void> {
+    if (this.statusValue.get().state !== "connected") throw new Error("连接未就绪");
+    const runtime = await this.waitForRuntimeSnapshot();
+    if (!runtime.allowed_actions.includes("respond_interaction")) {
+      throw new Error("当前 Session runtime 不允许响应交互");
+    }
+    if (!runtime.pending_interactions.some((item) => item.interaction_id === interactionId)) {
+      throw new Error("交互请求已失效，请等待 Session runtime 刷新");
+    }
+    const ack = this.waitForInteractionAck(interactionId);
     if (response.kind === "user_input") {
       this.transport?.send(encodeUserInputRespond(this.sessionId, interactionId, response.value ?? ""));
     } else {
@@ -236,8 +299,7 @@ export class WidgetAgentClient implements AgentClient {
         response.message,
       ));
     }
-    // 本地立即移除该 interaction（UI 即时消失），不等后端 responded 回环。
-    this.dropPending(interactionId);
+    await ack;
   }
 
   async approve(interactionId: string, approved: boolean, message?: string): Promise<void> {
@@ -246,6 +308,31 @@ export class WidgetAgentClient implements AgentClient {
 
   async respondInput(interactionId: string, value: string): Promise<void> {
     await this.respondInteraction(interactionId, { kind: "user_input", value });
+  }
+
+  async resume(): Promise<boolean> {
+    if (this.statusValue.get().state !== "connected") return false;
+    const runtime = await this.waitForRuntimeSnapshot();
+    const interactionId = runtime.resume_interaction_id;
+    if (!interactionId || !runtime.allowed_actions.includes("resume_run")) return false;
+    if (this.pendingResumeAck) return false;
+    const ack = new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      this.pendingResumeAck = resolve;
+    });
+    this.transport?.send(encodeResume(this.sessionId, interactionId));
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const result = await Promise.race([
+        ack,
+        new Promise<{ ok: false; error: string }>((resolve) => {
+          timer = setTimeout(() => resolve({ ok: false, error: "恢复超时，未收到确认" }), 8_000);
+        }),
+      ]);
+      return result.ok;
+    } finally {
+      if (timer) clearTimeout(timer);
+      this.pendingResumeAck = null;
+    }
   }
 
   /* ---- 委托模式 ---- */
@@ -346,6 +433,9 @@ export class WidgetAgentClient implements AgentClient {
     if (env.type === "delegate_call" && this.handleDelegateCall(env)) {
       return;
     }
+    if (env.type === "session.runtime") {
+      this.applyRuntime(env.payload as SessionRuntimePayload);
+    }
     this.eventsValue.emit(env);
     applyEnvelope(this.execState, env);
     this.treeValue.set(getExecutionTree(this.execState));
@@ -353,18 +443,40 @@ export class WidgetAgentClient implements AgentClient {
     if (cursor !== null) {
       this.cursor = cursor;
     }
-    this.updateRunStatus(env);
-    this.updatePending(env);
   }
 
   private handleAck(env: Envelope): void {
-    const payload = env.payload as { category?: string; ok?: boolean; kind?: "agent_run" | "command"; error?: string } | undefined;
+    const payload = env.payload as {
+      category?: string;
+      ok?: boolean;
+      kind?: "agent_run" | "command";
+      error?: string;
+      ref_call_id?: string;
+    } | undefined;
     if (payload?.category === "send" && this.pendingSendAck) {
       const resolve = this.pendingSendAck;
       this.pendingSendAck = null;
       resolve({
         ok: payload.ok ?? false,
         ...(payload.kind ? { kind: payload.kind } : {}),
+        ...(payload.error ? { error: payload.error } : {}),
+      });
+      return;
+    }
+    if (payload?.category === "interaction" && payload.ref_call_id) {
+      const pending = this.pendingInteractionAcks.get(payload.ref_call_id);
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      this.pendingInteractionAcks.delete(payload.ref_call_id);
+      if (payload.ok) pending.resolve();
+      else pending.reject(new Error(payload.error || "交互提交失败"));
+      return;
+    }
+    if (payload?.category === "resume" && this.pendingResumeAck) {
+      const resolve = this.pendingResumeAck;
+      this.pendingResumeAck = null;
+      resolve({
+        ok: payload.ok ?? false,
         ...(payload.error ? { error: payload.error } : {}),
       });
     }
@@ -418,73 +530,91 @@ export class WidgetAgentClient implements AgentClient {
     return true;
   }
 
-  private updateRunStatus(env: Envelope): void {
-    if (env.type === "run_started") {
-      this.runStatusValue.set({
-        runId: typeof env.run_id === "string" ? env.run_id : null,
-        state: "running",
-      });
-    } else if (env.type === "run_ended") {
-      const payload = env.payload as { status?: string } | undefined;
-      const state = payload?.status === "completed" ? "completed" : payload?.status === "failed" ? "failed" : "interrupted";
-      this.runStatusValue.set({
-        runId: typeof env.run_id === "string" ? env.run_id : null,
-        state,
-      });
-    } else if (env.type === "state_sync") {
-      const payload = env.payload as { category?: string; detail?: { success?: boolean } } | undefined;
-      if (payload?.category === "command_result") {
-        this.runStatusValue.set({
-          runId: null,
-          state: payload.detail?.success === false ? "failed" : "completed",
-        });
-      }
+  private applyRuntime(snapshot: SessionRuntimePayload): void {
+    this.hasRuntimeSnapshot = true;
+    this.runtimeValue.set(snapshot);
+    const active = snapshot.active_run;
+    const last = snapshot.last_run;
+    this.runStatusValue.set(active
+      ? { runId: active.run_id, state: snapshot.state, startedAt: active.started_at }
+      : last
+        ? { runId: last.run_id, state: last.status, finishedAt: last.finished_at }
+        : { runId: null, state: snapshot.state });
+    this.pendingValue.set(snapshot.pending_interactions.map((item) => {
+      const prompt = item.payload.prompt ?? item.payload.message;
+      return {
+        interactionId: item.interaction_id,
+        kind: item.kind,
+        status: item.status,
+        runId: item.run_id,
+        rootRunId: item.root_run_id,
+        batchId: item.batch_id,
+        ...(item.payload.tool ? { toolName: item.payload.tool } : {}),
+        ...(item.payload.input !== undefined ? { arguments: item.payload.input } : {}),
+        ...(item.payload.risk_level ? { riskLevel: item.payload.risk_level } : {}),
+        ...(prompt !== undefined ? { prompt } : {}),
+        receivedAt: Date.parse(item.requested_at) || Date.now(),
+      };
+    }));
+    for (const waiter of this.runtimeWaiters) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(snapshot);
     }
+    this.runtimeWaiters.clear();
   }
 
-  private updatePending(env: Envelope): void {
-    if (env.type !== "interaction") {
-      return;
-    }
-    const payload = env.payload as {
-      phase?: string;
-      kind?: string;
-      tool?: string;
-      prompt?: string;
-      risk_level?: string;
-      arguments?: unknown;
-    } | undefined;
-    const callId = typeof env.call_id === "string" ? env.call_id : null;
-    if (!callId) {
-      return;
-    }
-    if (payload?.phase === "required") {
-      const current = this.pendingValue.get();
-      if (!current.some((item) => item.interactionId === callId)) {
-        this.pendingValue.set([
-          ...current,
-          {
-            interactionId: callId,
-            kind: (payload.kind === "user_input" ? "user_input" : "approval"),
-            ...(payload.tool ? { toolName: payload.tool } : {}),
-            ...(payload.arguments !== undefined ? { arguments: payload.arguments } : {}),
-            ...(payload.risk_level ? { riskLevel: payload.risk_level } : {}),
-            ...(payload.prompt ? { prompt: payload.prompt } : {}),
-            receivedAt: Date.now(),
-          },
-        ]);
-      }
-    } else if (payload?.phase === "responded") {
-      this.dropPending(callId);
-    }
+  private waitForRuntimeSnapshot(timeoutMs = 10_000): Promise<SessionRuntimePayload> {
+    if (this.hasRuntimeSnapshot) return Promise.resolve(this.runtimeValue.get());
+    return new Promise((resolve, reject) => {
+      const waiter: RuntimeWaiter = {
+        resolve,
+        reject,
+        timer: setTimeout(() => {
+          this.runtimeWaiters.delete(waiter);
+          reject(new Error("等待 Session runtime 快照超时"));
+        }, timeoutMs),
+      };
+      this.runtimeWaiters.add(waiter);
+    });
   }
 
-  private dropPending(interactionId: string): void {
-    const next = this.pendingValue.get().filter((item) => item.interactionId !== interactionId);
-    if (next.length !== this.pendingValue.get().length) {
-      this.pendingValue.set(next);
+  private rejectRuntimeWaiters(message: string): void {
+    for (const waiter of this.runtimeWaiters) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error(message));
     }
+    this.runtimeWaiters.clear();
   }
+
+  private waitForInteractionAck(interactionId: string, timeoutMs = 8_000): Promise<void> {
+    const current = this.pendingInteractionAcks.get(interactionId);
+    if (current) {
+      clearTimeout(current.timer);
+      current.reject(new Error("交互已重新提交"));
+      this.pendingInteractionAcks.delete(interactionId);
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingInteractionAcks.delete(interactionId);
+        reject(new Error("交互提交确认超时"));
+      }, timeoutMs);
+      this.pendingInteractionAcks.set(interactionId, { resolve, reject, timer });
+    });
+  }
+}
+
+function emptyRuntimeSnapshot(): SessionRuntimePayload {
+  return {
+    state: "idle",
+    load_strategy: "history",
+    allowed_actions: [],
+    active_run: null,
+    last_run: null,
+    pending_interactions: [],
+    resume_interaction_id: null,
+    maintenance: null,
+    observed_at: "",
+  };
 }
 
 function generateRequestId(): string {

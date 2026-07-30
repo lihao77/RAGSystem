@@ -3,12 +3,10 @@ import type {
   RunningTasksResult,
   ScopedExecutionDiagnostics,
   ScopedTaskStatus,
-  SessionTaskStatus,
 } from "../../../contracts/execution/execution.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 
 export interface ExecutionQueryApi {
-  getSessionTaskStatus(sessionId: string): SessionTaskStatus;
   getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics;
   getTaskStatus(taskId: string): ScopedTaskStatus;
   getTaskExecutionDiagnostics(taskId: string): ScopedExecutionDiagnostics;
@@ -16,10 +14,9 @@ export interface ExecutionQueryApi {
   getOverview(activeOnly: boolean): ExecutionOverview;
 }
 
-/** 6 个只读状态查询，纯委托 statusTracker。 */
+/** 5 个监控/诊断查询，纯委托 statusTracker；Session 生命周期不从这里投影。 */
 export function createExecutionQueryService(statusTracker: AgentExecutionStatusTracker): ExecutionQueryApi {
   return {
-    getSessionTaskStatus: (sessionId) => statusTracker.getSessionTaskStatus(sessionId),
     getSessionExecutionDiagnostics: (sessionId) => statusTracker.getSessionExecutionDiagnostics(sessionId),
     getTaskStatus: (taskId) => statusTracker.getTaskStatus(taskId),
     getTaskExecutionDiagnostics: (taskId) => statusTracker.getTaskExecutionDiagnostics(taskId),

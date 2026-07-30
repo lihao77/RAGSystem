@@ -5,7 +5,6 @@ import type {
   RunningTasksResult,
   ScopedExecutionDiagnostics,
   ScopedTaskStatus,
-  SessionTaskStatus,
 } from "../../../contracts/execution/execution.js";
 import { buildObservability, cloneStatus } from "./helpers.js";
 
@@ -40,19 +39,6 @@ export class AgentExecutionStatusTracker {
     }
     const handle = this.handlesByTask.get(taskId);
     return handle?.status.status === "running" ? handle : null;
-  }
-
-  getSessionTaskStatus(sessionId: string): SessionTaskStatus {
-    const status = this.getStatusBySession(sessionId);
-    const diagnostics = status ? this.buildDiagnostics(status) : null;
-    return {
-      session_id: sessionId,
-      has_running_task: status?.status === "running",
-      has_active_system_command: false,
-      task_info: status,
-      observability: status ? buildObservability(status) : null,
-      diagnostics,
-    };
   }
 
   getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics {

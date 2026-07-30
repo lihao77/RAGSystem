@@ -129,7 +129,7 @@ const pageMeta = (mainView, depth, pageOrder = depth, extra = {}) => ({
 | `useMessageListView` | 消息列表视图 |
 | `useApprovalQueue` | 审批队列 |
 | `useRunRuntime` | 运行运行时 |
-| `useSessionTaskStatus` | 会话任务状态 |
+| `useSessionRuntimeStatus` | Session runtime 清理与上下文快照加载；生命周期由 WebSocket `session.runtime` 驱动 |
 | `useSessionFilesAttachments` | 会话文件附件 |
 | `useCommandPalette` | 命令面板 |
 | `useGlobalHotkeys` | 全局快捷键 |

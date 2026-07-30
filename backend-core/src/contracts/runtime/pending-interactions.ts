@@ -94,6 +94,7 @@ export interface InteractionCoordinator extends PendingInteractionPort {
     payload: UserInputRequest,
     callbacks?: InteractionResumeCallbacks,
   ): Promise<PendingInteractionRespondResult>;
+  resumeAsync(sessionId: string, interactionId: string): Promise<"none" | "started" | "deferred" | "already_started">;
   listPendingAsync(rootRunId: string, sessionId?: string): Promise<ApprovalMeta[]>;
   bindResumeStarter(starter: InteractionResumeStarter): void;
 }

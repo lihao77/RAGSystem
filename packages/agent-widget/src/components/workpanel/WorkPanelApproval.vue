@@ -40,15 +40,15 @@
         v-model="noteText"
         class="wpa-note"
         placeholder="附言（可选）"
-        :disabled="submitting"
+        :disabled="submitting || !responseAllowed"
       />
 
       <!-- Actions -->
       <div class="wpa-actions">
-        <button class="wpa-btn wpa-btn--approve" :disabled="submitting" @click="submit(true)">
+        <button class="wpa-btn wpa-btn--approve" :disabled="submitting || !responseAllowed" @click="submit(true)">
           {{ submitting ? '…' : '允许' }}
         </button>
-        <button class="wpa-btn wpa-btn--deny" :disabled="submitting" @click="submit(false)">
+        <button class="wpa-btn wpa-btn--deny" :disabled="submitting || !responseAllowed" @click="submit(false)">
           {{ submitting ? '…' : '拒绝' }}
         </button>
       </div>
@@ -63,6 +63,7 @@ import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 const props = defineProps({
   queue: { type: Array, default: () => [] },
   submittingId: { type: String, default: '' },
+  responseAllowed: { type: Boolean, default: false },
 })
 const emit = defineEmits(['submit'])
 
@@ -93,7 +94,7 @@ function riskLabel(level) { return RISK_LABELS[level] || level || '未知' }
 
 function submit(approved) {
   const approval = currentApproval.value
-  if (!approval?.approval_id || submitting.value) return
+  if (!approval?.approval_id || submitting.value || !props.responseAllowed) return
   emit('submit', { approvalId: approval.approval_id, approved, message: noteText.value })
   noteText.value = ''
 }

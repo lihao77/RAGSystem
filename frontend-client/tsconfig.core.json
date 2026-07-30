@@ -13,7 +13,6 @@
     "src/composables/sessionEventReducer.js",
     "src/composables/sessionInteractionController.js",
     "src/composables/sessionRunRecovery.js",
-    "src/composables/sessionTaskState.js",
     "src/composables/sessionTransport.js"
   ],
   "exclude": ["node_modules", "dist", "src/**/*.test.js"]

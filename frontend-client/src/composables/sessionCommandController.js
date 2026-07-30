@@ -1,7 +1,7 @@
 // @ts-check
 import { nextTick, ref } from 'vue';
 
-import { getSessionTaskStatus, startStream, stopStream } from '../api/session.js';
+import { startStream, stopStream } from '../api/session.js';
 import { createAssistantMessage } from './useMessageExecution.js';
 import { createAttachmentsExtension } from '../utils/messageExtensions.js';
 
@@ -14,7 +14,6 @@ const errorMessage = error => error instanceof Error ? error.message : String(er
 /** @param {AnyRecord} activeRun @param {number} assistantMsgIndex */
 export const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
   Object.assign(activeRun, {
-    active: true,
     assistantMsgIndex,
     runId: null,
     lastSeenSeq: 0,
@@ -33,7 +32,6 @@ export const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
 /** @param {AnyRecord} activeRun */
 const resetActiveRunAfterSendError = (activeRun) => {
   Object.assign(activeRun, {
-    active: false,
     phase: 'idle',
     waiting: null,
     runStartedAt: null,
@@ -94,15 +92,15 @@ export function createSessionCommandController({
   messages,
   isLoading,
   contextUsage,
-  sessionTaskInfo,
   activeRun,
   getSocket,
-  mergeExecutionObservability,
-  beginOptimisticExecutionState,
+  allowsRuntimeAction,
+  getSessionRuntime,
+  beginOptimisticCommand,
+  finishOptimisticCommand,
   scheduleCommandFallback,
   enqueueFollowupCandidate,
   markFollowupCandidateFailed,
-  fetchTaskStatus = getSessionTaskStatus,
   startExecution = startStream,
   stopExecution = stopStream,
 }) {
@@ -113,7 +111,7 @@ export function createSessionCommandController({
   const settleSendQueue = () => {};
 
   const stop = async () => {
-    if (!currentSessionId.value) return;
+    if (!currentSessionId.value || !allowsRuntimeAction('stop_run')) return;
     const socket = getSocket();
     if (socket?.readyState === WS_OPEN) {
       socket.send(JSON.stringify({
@@ -128,7 +126,6 @@ export function createSessionCommandController({
         console.warn('停止请求发送失败:', error);
       }
     }
-    sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'cancel_requested' };
   };
 
   /** @param {{ content?: string, attachments?: AnyRecord[] } | null} [payload] */
@@ -137,7 +134,15 @@ export function createSessionCommandController({
     const draftAttachments = Array.isArray(payload?.attachments)
       ? payload.attachments.slice()
       : deps.pendingAttachments.value.slice();
-    let isRunningFollowup = Boolean(currentSessionId.value && activeRun.active);
+    let isRunningFollowup = Boolean(currentSessionId.value && allowsRuntimeAction('send_followup'));
+    const canStartRun = !currentSessionId.value || allowsRuntimeAction('send_message');
+    if (!isRunningFollowup && !canStartRun) {
+      const state = getSessionRuntime?.()?.state || 'unknown';
+      deps.showToast(state === 'suspended'
+        ? '会话已挂起，请先处理待确认交互或停止当前任务'
+        : '当前会话状态不允许发送消息', 'warning');
+      return;
+    }
     if ((!content && !draftAttachments.length) || (isLoading.value && !isRunningFollowup)) return;
     if (isRunningFollowup && draftAttachments.length) {
       deps.showToast('运行中补充暂不支持附件', 'warning');
@@ -146,8 +151,9 @@ export function createSessionCommandController({
 
     const startsDraftSession = !currentSessionId.value;
     const requestId = createRequestId();
+    const runtimeRunId = getSessionRuntime?.()?.active_run?.run_id || null;
     let userMetadata = isRunningFollowup
-      ? createFollowupMetadata(requestId, activeRun)
+      ? createFollowupMetadata(requestId, activeRun, runtimeRunId)
       : createAgentStreamMetadata(requestId);
     let sessionId = currentSessionId.value;
     let assistantMsgIndex = -1;
@@ -162,7 +168,7 @@ export function createSessionCommandController({
       assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
       resetActiveRunForSend(activeRun, assistantMsgIndex);
       activeRun.phase = 'creating_session';
-      isLoading.value = true;
+      beginOptimisticCommand('send');
       contextUsage.value = { used: 0, max: 0 };
     }
 
@@ -177,7 +183,7 @@ export function createSessionCommandController({
           currentMessage.finished = true;
         }
         resetActiveRunAfterSendError(activeRun);
-        isLoading.value = false;
+        finishOptimisticCommand();
       }
       deps.showToast('会话创建失败');
       return;
@@ -185,32 +191,6 @@ export function createSessionCommandController({
 
     if (startsDraftSession && activeRun.active) {
       activeRun.phase = draftAttachments.length ? 'preparing_attachments' : 'starting_agent';
-    }
-
-    try {
-      const result = await fetchTaskStatus(sessionId);
-      sessionTaskInfo.value = result.data?.task_info || null;
-      if (result.data?.observability) mergeExecutionObservability(result.data.observability);
-      if (result.data?.has_running_task && !isRunningFollowup) {
-        if (sessionId && !startsDraftSession) {
-          isRunningFollowup = true;
-          userMetadata = createFollowupMetadata(requestId, activeRun, result.data?.task_info?.run_id || null);
-        } else {
-          deps.showToast('该会话正在执行任务，请等待完成或先停止', 'warning');
-          if (startsDraftSession) {
-            const currentMessage = messages.value[assistantMsgIndex];
-            if (currentMessage) {
-              currentMessage.content += '\n\n[System Error: 该会话正在执行任务，请等待完成或先停止]';
-              currentMessage.finished = true;
-            }
-            resetActiveRunAfterSendError(activeRun);
-            isLoading.value = false;
-          }
-          return;
-        }
-      }
-    } catch (error) {
-      console.warn('发送前查询任务状态失败:', errorMessage(error));
     }
 
     try {
@@ -225,7 +205,7 @@ export function createSessionCommandController({
           currentMessage.finished = true;
         }
         resetActiveRunAfterSendError(activeRun);
-        isLoading.value = false;
+        finishOptimisticCommand();
       }
       deps.showToast(errorMessage(error) || '附件准备失败');
       return;
@@ -262,9 +242,8 @@ export function createSessionCommandController({
       assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
       resetActiveRunForSend(activeRun, assistantMsgIndex);
     }
-    if (!isRunningFollowup) beginOptimisticExecutionState(sessionId);
+    if (!isRunningFollowup && !startsDraftSession) beginOptimisticCommand('send');
     if (!startsDraftSession && !isRunningFollowup) {
-      isLoading.value = true;
       contextUsage.value = { used: 0, max: 0 };
     }
 
@@ -317,9 +296,8 @@ export function createSessionCommandController({
           currentMessage.content += `\n\n[System Error: ${errorMessage(error) || 'Request failed'}]`;
           currentMessage.finished = true;
         }
-        sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };
         resetActiveRunAfterSendError(activeRun);
-        isLoading.value = false;
+        finishOptimisticCommand();
       }
       deps.showToast('消息发送失败', async () => {
         if (!lastFailedSendContent.value) return;

@@ -3,11 +3,11 @@ import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 
 import { ClientToServerEnvelopeSchema, type Envelope } from "../../contracts/events.js";
-import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import { EnvelopeProjector } from "../../services/runtime/event-outbox/projector.js";
 import type { RouteOptions } from "../route-options.js";
 import type { WsTicketService } from "../../services/runtime/ws-ticket-service.js";
 import { isRecord } from "../../utils/guards.js";
+import type { SessionRuntimePayload } from "../../contracts/events.js";
 import { assertSessionExecutable } from "../session-owner.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
 
@@ -84,11 +84,13 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
         if (cleanedUp) return;
         cleanedUp = true;
         try { clearHeartbeat(); } catch { /* ignore */ }
+        try { clearMaintenanceWakeup(); } catch { /* ignore */ }
         try { unsubscribe?.(); } catch { /* ignore */ }
         wsActivity?.release();
         lease.release();
       };
       let clearHeartbeat: () => void = () => undefined;
+      let clearMaintenanceWakeup: () => void = () => undefined;
       let unsubscribe: (() => void) | null = null;
       try {
         const container = request.container;
@@ -137,6 +139,11 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
         let boundRunId: string | null = null;
         let replaying = true;
         const bufferedLiveEvents: Envelope[] = [];
+        let runtimeSnapshot: SessionRuntimePayload | null = null;
+        let runtimeSnapshotChain = Promise.resolve();
+        let liveDeliveryChain = Promise.resolve();
+        const envelopeProjector = new EnvelopeProjector();
+        let maintenanceWakeup: NodeJS.Timeout | null = null;
 
         // seq 兼任持久化去重 + 连续性游标：envelope 自带 seq（row.session_seq，由 projector 盖戳），
         // 此处追踪已发最大 seq 供 heartbeat/重连 cursor，并在握手 replay 与 live 合流时去重。
@@ -152,7 +159,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
           return true;
         };
         const sendAck = (
-          category: "send" | "stop" | "interaction" | "tool_delegate",
+          category: "send" | "stop" | "interaction" | "resume" | "tool_delegate",
           ok: boolean,
           extra: { ref_call_id?: string; kind?: "agent_run" | "command"; error?: string } = {},
         ): void => {
@@ -172,8 +179,35 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
           });
         };
 
+        const sendRuntimeSnapshot = async (): Promise<void> => {
+          runtimeSnapshot = await container.sessionRuntime.getSnapshot(sessionId);
+          send({
+            type: "session.runtime",
+            session_id: sessionId,
+            payload: runtimeSnapshot,
+          });
+          if (maintenanceWakeup) clearTimeout(maintenanceWakeup);
+          maintenanceWakeup = null;
+          const expiresAt = runtimeSnapshot.maintenance?.expires_at;
+          if (expiresAt) {
+            const delayMs = Math.max(25, Date.parse(expiresAt) - Date.now() + 25);
+            maintenanceWakeup = setTimeout(() => scheduleRuntimeSnapshot(), delayMs);
+            maintenanceWakeup.unref?.();
+          }
+        };
+        const scheduleRuntimeSnapshot = (): void => {
+          runtimeSnapshotChain = runtimeSnapshotChain
+            .then(sendRuntimeSnapshot)
+            .catch((error) => request.log.error({ error }, "session runtime snapshot refresh failed"));
+        };
+        clearMaintenanceWakeup = () => {
+          if (maintenanceWakeup) clearTimeout(maintenanceWakeup);
+          maintenanceWakeup = null;
+        };
+
         const deliverLiveEvent = (event: Envelope): void => {
           if (!send(event)) return;
+          if (affectsSessionRuntime(event)) scheduleRuntimeSnapshot();
           if (event.type !== "run_started") {
             return;
           }
@@ -185,13 +219,50 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
           sendReconnect("start", 0, runId);
           sendReconnect("end", 0, runId);
         };
+        const catchUpLiveThrough = async (targetSeq: number): Promise<void> => {
+          let cursor = lastSeq;
+          const pageSize = 500;
+          while (cursor < targetSeq) {
+            const rows = await executionRead.listOutboxForReplay({
+              sessionId,
+              afterSeq: cursor,
+              limit: pageSize,
+            });
+            if (rows.length === 0) break;
+            for (const row of rows) {
+              deliverLiveEvent(envelopeProjector.toEnvelope(row));
+            }
+            const nextCursor = rows.at(-1)?.session_seq ?? cursor;
+            if (nextCursor <= cursor) break;
+            cursor = nextCursor;
+            if (rows.length < pageSize) break;
+          }
+        };
+        const deliverLiveEventOrdered = async (event: Envelope): Promise<void> => {
+          const targetSeq = typeof event.seq === "number" ? event.seq : null;
+          if (targetSeq === null || targetSeq <= lastSeq) {
+            deliverLiveEvent(event);
+            return;
+          }
+          await catchUpLiveThrough(targetSeq);
+          // 正常情况下 durable catch-up 已包含当前 live event；若查询窗口未读到它，
+          // 不推进 cursor，等待下一次 live/重连继续补齐，避免高序号永久吞掉低序号。
+        };
+        const enqueueLiveEvent = (event: Envelope): void => {
+          liveDeliveryChain = liveDeliveryChain
+            .then(() => deliverLiveEventOrdered(event))
+            .catch((error) => request.log.error({ error }, "session live event catch-up failed"));
+        };
         unsubscribe = container.realtimeEvents.subscribe(sessionId, (event) => {
           if (replaying) {
             bufferedLiveEvents.push(event);
             return;
           }
-          deliverLiveEvent(event);
+          enqueueLiveEvent(event);
         });
+        // 首次连接以订阅后的 durable 水位作为“历史/新事件”边界：边界前由 history 或
+        // active replay 负责，边界后即使 relay 通知乱序，也会通过 durable catch-up 顺序补齐。
+        const connectionBaseline = afterSeq ?? await executionRead.getSessionOutboxWatermark(sessionId);
         const heartbeat = setInterval(() => {
           send({
             type: "heartbeat",
@@ -201,7 +272,15 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
         }, 20_000);
         clearHeartbeat = () => clearInterval(heartbeat);
 
-        const durableReplay = await buildDurableOutboxReplay(executionRead, sessionId, afterSeq);
+        // Current state is not an outbox event and never participates in cursor filtering.
+        // Subscription happens first so lifecycle changes during the snapshot query are buffered.
+        await sendRuntimeSnapshot();
+
+        const replayPlan = resolveSessionReplayPlan(afterSeq, runtimeSnapshot);
+
+        const durableReplay = replayPlan.replayDurable && afterSeq !== null
+          ? await buildDurableOutboxReplay(executionRead, sessionId, afterSeq)
+          : null;
         if (durableReplay) {
           boundRunId = durableReplay.runId;
           const events = replayEventsAfter(durableReplay.events, lastSeq);
@@ -212,7 +291,9 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
           sendReconnect("end", events.length, durableReplay.runId, "durable_outbox");
         }
 
-        const activeReplay = await buildActiveRunReplay(executionRead, container, sessionId);
+        const activeReplay = replayPlan.replayActive && runtimeSnapshot
+          ? await buildActiveRunReplay(executionRead, sessionId, runtimeSnapshot)
+          : null;
         if (activeReplay) {
           boundRunId = activeReplay.runId;
           const events = replayEventsAfter(activeReplay.events, lastSeq);
@@ -225,10 +306,21 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
 
         // subscribe 必须先于 durable 查询，避免查询窗口丢 live；但 replay 完成前不能直接发送
         // 高 seq live，否则客户端 cursor 会把随后较低 seq 的 replay 当成旧事件丢弃。
+        // 首次连接不回放历史 outbox，但必须把 cursor 校准到当前 durable 水位。
+        // 水位先读取、后应用：查询期间到达的 live 仍会先从 buffer 正常发送，不会被水位吞掉。
+        const replayWatermark = await executionRead.getSessionOutboxWatermark(sessionId);
+        lastSeq = Math.max(lastSeq, connectionBaseline);
+        await catchUpLiveThrough(replayWatermark);
         bufferedLiveEvents
           .sort(compareEnvelopeSeq)
           .forEach(deliverLiveEvent);
+        lastSeq = Math.max(lastSeq, replayWatermark);
         replaying = false;
+
+        // replay 事件可能先于其 buffered duplicate 推进 cursor，duplicate 因去重不会触发刷新。
+        // 前端不允许从 run/interaction 事件推断生命周期，因此合流后必须发送最终权威快照。
+        await runtimeSnapshotChain;
+        await sendRuntimeSnapshot();
 
         messageProcessor = async (data) => {
           const raw = data.toString();
@@ -260,10 +352,13 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
                   });
                 break;
               }
-              case "abort":
-                applications.execution.stopSession(sessionId).catch(() => undefined);
-                sendAck("stop", true);
+              case "abort": {
+                const interrupted = await applications.execution.stopSession(sessionId);
+                sendAck("stop", interrupted, interrupted ? {} : {
+                  error: "当前实例没有可停止的执行",
+                });
                 break;
+              }
               case "tools.register":
                 // 握手期前端推送本连接可委托执行的工具清单（覆盖式）。runtime-adapter per-run 取用。
                 container.hostToolRegistry.register(sessionId, message.payload.tools);
@@ -298,6 +393,15 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
                 }
                 break;
               }
+              case "resume": {
+                const disposition = await applications.interactions.resumeAsync(sessionId, message.call_id);
+                const resumed = disposition !== "none";
+                sendAck("resume", resumed, {
+                  ref_call_id: message.call_id,
+                  ...(resumed ? {} : { error: "该会话当前无法恢复执行" }),
+                });
+                break;
+              }
             }
           } catch (error) {
             send({
@@ -323,11 +427,8 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
 async function buildDurableOutboxReplay(
   reads: import("../../contracts/execution/execution-read-application.js").ExecutionReadApplication,
   sessionId: string,
-  afterSeq: number | null,
+  afterSeq: number,
 ): Promise<{ runId: string | null; events: Envelope[] } | null> {
-  if (afterSeq === null) {
-    return null;
-  }
   const projector = new EnvelopeProjector();
   const events: Envelope[] = [];
   let runId: string | null = null;
@@ -341,7 +442,7 @@ async function buildDurableOutboxReplay(
     });
     if (rows.length === 0) break;
     runId ??= rows.find((row) => row.run_id)?.run_id ?? null;
-    events.push(...rows.map((row) => projector.toEnvelope(row)).filter((event) => !isDelegateCallEvent(event)));
+    events.push(...rows.map((row) => projector.toEnvelope(row)).filter(isReplayablePresentationEvent));
     const nextCursor = rows.at(-1)?.session_seq ?? cursor;
     if (nextCursor <= cursor) break;
     cursor = nextCursor;
@@ -353,20 +454,33 @@ async function buildDurableOutboxReplay(
   return { runId, events };
 }
 
+export function resolveSessionReplayPlan(
+  afterSeq: number | null,
+  snapshot: SessionRuntimePayload | null,
+): { replayDurable: boolean; replayActive: boolean } {
+  return {
+    replayDurable: afterSeq !== null,
+    replayActive: Boolean(snapshot?.active_run)
+      && ["attach_run", "attach_run_and_present_interactions", "attach_resume"].includes(
+        snapshot?.load_strategy ?? "",
+      ),
+  };
+}
+
 async function buildActiveRunReplay(
   reads: import("../../contracts/execution/execution-read-application.js").ExecutionReadApplication,
-  container: RuntimeContainer,
   sessionId: string,
+  snapshot: SessionRuntimePayload,
 ): Promise<{ runId: string; events: Envelope[] } | null> {
-  const status = (await reads.getSessionTaskStatus(sessionId)).task_info;
-  if (!status || status.status !== "running" || !status.run_id) {
+  if (!["attach_run", "attach_run_and_present_interactions", "attach_resume"].includes(snapshot.load_strategy)
+    || !snapshot.active_run) {
     return null;
   }
 
-  const runId = status.run_id;
-  const startedAtMs = timestampToMilliseconds(status.started_at);
+  const runId = snapshot.active_run.run_id;
+  const startedAtMs = timestampToMilliseconds(snapshot.active_run.started_at);
   // active run 树：root + 递归子孙 run。重放要含子 agent 事件，工作栏才看得到子 agent 步骤。
-  const allRuns = await reads.listRuns(sessionId, 1000);
+  const allRuns = await reads.listRuns(sessionId, 5000);
   const runIdSet = new Set<string>([runId]);
   for (let changed = true; changed; ) {
     changed = false;
@@ -378,23 +492,27 @@ async function buildActiveRunReplay(
     }
   }
   const projector = new EnvelopeProjector();
-  const events = (await reads.listOutboxForReplay({
-    sessionId,
-    runIds: [...runIdSet],
-    limit: 500,
-  })).map((row) => projector.toEnvelope(row)).filter((event) => {
-    if (isDelegateCallEvent(event)) {
-      return false;
-    }
-    if (!isPendingInteractionReplayEvent(container, sessionId, event)) {
-      return false;
-    }
-    if (startedAtMs === null) {
-      return true;
-    }
-    const eventTimeMs = timestampToMilliseconds(event.timestamp);
-    return eventTimeMs === null || eventTimeMs >= startedAtMs;
-  });
+  const events: Envelope[] = [];
+  let cursor = 0;
+  const pageSize = 500;
+  for (;;) {
+    const rows = await reads.listOutboxForReplay({
+      sessionId,
+      runIds: [...runIdSet],
+      afterSeq: cursor,
+      limit: pageSize,
+    });
+    if (rows.length === 0) break;
+    events.push(...rows.map((row) => projector.toEnvelope(row)).filter((event) => {
+      if (!isReplayablePresentationEvent(event)) return false;
+      if (startedAtMs === null) return true;
+      const eventTimeMs = timestampToMilliseconds(event.timestamp);
+      return eventTimeMs === null || eventTimeMs >= startedAtMs;
+    }));
+    const nextCursor = rows.at(-1)?.session_seq ?? cursor;
+    if (nextCursor <= cursor || rows.length < pageSize) break;
+    cursor = nextCursor;
+  }
 
   return { runId, events };
 }
@@ -418,36 +536,24 @@ function compareEnvelopeSeq(left: Envelope, right: Envelope): number {
 }
 
 /**
- * 回放过滤：未决 interaction(required) 才回放（已响应的不重推，避免前端重复弹窗）。
- * 新协议 interaction 顶层 call_id 即交互 id（pendingInteractions 的 approval/input key）。
- */
-function isPendingInteractionReplayEvent(
-  container: RuntimeContainer,
-  sessionId: string,
-  event: Envelope,
-): boolean {
-  if (event.type !== "interaction") {
-    return true;
-  }
-  const payload = isRecord(event.payload) ? (event.payload as { phase?: unknown; kind?: unknown }) : {};
-  if (payload.phase !== "required") {
-    return true;
-  }
-  const callId = typeof event.call_id === "string" ? event.call_id : null;
-  if (!callId) {
-    return true;
-  }
-  return payload.kind === "approval"
-    ? container.interactionCoordinator.isApprovalPending(sessionId, callId)
-    : container.interactionCoordinator.isUserInputPending(sessionId, callId);
-}
-
-/**
  * delegate_call 不回放：委托是实时双向指令，重连时 in-flight 已失效，
  * 回放会让前端误以为是新的委托请求。投影 tool_call/tool_result 正常回放。
  */
 function isDelegateCallEvent(event: Envelope): boolean {
   return event.type === "delegate_call";
+}
+
+function isReplayablePresentationEvent(event: Envelope): boolean {
+  if (isDelegateCallEvent(event)) return false;
+  const payload = isRecord(event.payload) ? event.payload : {};
+  return event.type !== "interaction" || payload.phase !== "required";
+}
+
+function affectsSessionRuntime(event: Envelope): boolean {
+  return event.type === "run_started"
+    || event.type === "run_ended"
+    || event.type === "interaction"
+    || event.type === "state_sync";
 }
 
 function timestampToMilliseconds(value: unknown): number | null {

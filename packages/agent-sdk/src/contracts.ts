@@ -157,7 +157,12 @@ export interface Protocol {
 
 /** 工具执行端口。executeRound 内部 emit tool_call/tool_result（经 EventSink）。 */
 export interface ToolProvider {
-  executeRound(ctx: KernelContext, round: number, calls: KernelToolCall[]): Promise<KernelObservation[]>;
+  executeRound(
+    ctx: KernelContext,
+    round: number,
+    calls: KernelToolCall[],
+    previousResults?: ReadonlyMap<number, ToolExecutionResult>,
+  ): Promise<KernelObservation[]>;
 }
 
 /** 工具执行上下文（运行时元数据 + 工具生命周期所需的 caller/workspaceRoot）。 */
@@ -267,6 +272,13 @@ export interface RuntimeSession {
   rootCallId: string | null;
   threadKey: string;
   parentCallId: string | null;
+  /**
+   * 本次执行要使用的首个逻辑轮次（0-based）。恢复同一 run 时由宿主根据 durable history
+   * 继续编号，避免重启后再次从 round 0 产生重复事件与确定性消息 ID。
+   */
+  startRound: number;
+  /** Durable results keyed by tool_call_id for restoring an interrupted tool dependency batch. */
+  resumeToolResults: ReadonlyMap<string, ToolExecutionResult>;
 }
 
 /** 运行时 store 端口 + 落库 input 类型已删除（B2：SDK 收窄为纯计算内核，落库全归 backend ConversationStore + event-persister）。 */

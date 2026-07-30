@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { RuntimeInteractionUnavailableError } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import type {
   RuntimeAtomicOperations,
+  RuntimeAttachResumeInput,
+  RuntimeAttachResumeResult,
   RuntimeClaimResumeInput,
   RuntimeClaimResumeResult,
   RuntimeClaimSessionMaintenanceResult,
@@ -30,8 +32,6 @@ import type {
   RuntimeRecoverExpiredRunLeasesResult,
   RuntimeRenewRunLeaseInput,
   RuntimeRenewRunLeaseResult,
-  RuntimeRenewResumeClaimInput,
-  RuntimeRenewResumeClaimResult,
   RuntimeResolveInteractionInput,
   RuntimeResolveInteractionResult,
   RuntimeRollbackResumeInput,
@@ -43,6 +43,7 @@ import type {
   RuntimeStartOrAppendRootResult,
   RuntimeStorage,
   RuntimeSessionMaintenanceInput,
+  RuntimeSessionFacts,
   RuntimeStorageRepositories,
 } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
@@ -156,19 +157,80 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       recordInteraction: (input) => this.recordInteraction(input),
       resolveInteraction: (input) => this.resolveInteraction(input),
       claimResume: (input) => this.claimResume(input),
+      attachResume: (input) => this.attachResume(input),
       rollbackResume: (input) => this.rollbackResume(input),
       interruptSession: (input) => this.interruptSession(input),
-      renewResumeClaim: (input) => this.renewResumeClaim(input),
       recoverExpiredResumeClaims: (input) => this.recoverExpiredResumeClaims(input),
       renewRunLease: (input) => this.renewRunLease(input),
       recoverExpiredRunLeases: (input) => this.recoverExpiredRunLeases(input),
       getActiveRootRun: (sessionId) => this.getActiveRootRun(sessionId),
+      getSessionRuntimeFacts: (sessionId) => this.getSessionRuntimeFacts(sessionId),
       consumePendingFollowups: (input) => this.consumePendingFollowups(input),
       claimSessionMaintenance: (input) => this.claimSessionMaintenance(input),
       renewSessionMaintenance: (input) => this.renewSessionMaintenance(input),
       releaseSessionMaintenance: (input) => this.releaseSessionMaintenance(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
+  }
+
+  private async getSessionRuntimeFacts(sessionId: string): Promise<RuntimeSessionFacts> {
+    return this.executor.transaction(async (transactionExecutor) => {
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${sessionId}`);
+      const exists = await assertTenantSession(transactionExecutor, this.tenantId, sessionId, true);
+      if (!exists) {
+        return {
+          session: null,
+          activeRootRun: null,
+          latestTerminalRootRun: null,
+          pendingInteractions: [],
+          ownedByCurrentInstance: false,
+        };
+      }
+      const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+      const session = await tx.conversation.getSession(sessionId);
+      const activeRoots = await transactionExecutor.query<Record<string, unknown>>(
+        `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
+                request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+                child_agent_id, final_message_id, created_at, updated_at,
+                owner_instance_id, lease_expires_at,
+                (owner_instance_id=$3 AND lease_expires_at > CURRENT_TIMESTAMP) AS owned_by_current_instance
+         FROM saas_runs
+         WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND child_agent_id IS NULL
+           AND status IN ('running','suspended')
+         ORDER BY updated_at DESC, created_at DESC, run_id DESC
+         LIMIT 2`,
+        [this.tenantId, sessionId, this.ownerInstanceId],
+      );
+      if (activeRoots.rows.length > 1) throw new Error(`session has multiple active root runs: ${sessionId}`);
+      const terminalRoots = await transactionExecutor.query<Record<string, unknown>>(
+        `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
+                request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+                child_agent_id, final_message_id, created_at, updated_at
+         FROM saas_runs
+         WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND child_agent_id IS NULL
+           AND status IN ('completed','failed','interrupted')
+         ORDER BY updated_at DESC, created_at DESC, run_id DESC
+         LIMIT 1`,
+        [this.tenantId, sessionId],
+      );
+      const activeRow = activeRoots.rows[0] ?? null;
+      const activeRootRun = activeRow ? mapRun(activeRow) : null;
+      const pendingInteractions = activeRootRun
+        ? await tx.pendingInteractions.listPendingInteractions({
+            sessionId,
+            rootRunId: activeRootRun.run_id,
+            statuses: ["waiting", "suspended", "resolved", "resuming"],
+          })
+        : [];
+      return {
+        session,
+        activeRootRun,
+        latestTerminalRootRun: terminalRoots.rows[0] ? mapRun(terminalRoots.rows[0]) : null,
+        pendingInteractions,
+        ownedByCurrentInstance: activeRootRun?.status === "running"
+          && activeRow?.owned_by_current_instance === true,
+      };
+    });
   }
 
   private async getActiveRootRun(sessionId: string): Promise<{ runId: string | null }> {
@@ -393,7 +455,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
             null,
             input.buildExpiredRunEndedRecord,
           )
-        : { interruptedRuns: [], cancelledInteractions: 0, records: [] };
+        : { interruptedRuns: [], suspendedRuns: [], cancelledInteractions: 0, records: [] };
       const active = await transactionExecutor.query<{ run_id: string; owner_instance_id: string | null; status: string }>(
         `SELECT run_id, owner_instance_id, status FROM saas_runs WHERE tenant_id=$1 AND session_id=$2
          AND parent_run_id IS NULL AND status IN ('running','suspended') ORDER BY created_at DESC LIMIT 1`,
@@ -547,6 +609,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     );
     const result: RuntimeRecoverExpiredRunLeasesResult = {
       interruptedRuns: [],
+      suspendedRuns: [],
       cancelledInteractions: 0,
       records: [],
     };
@@ -561,6 +624,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         );
       });
       result.interruptedRuns.push(...recovered.interruptedRuns);
+      result.suspendedRuns.push(...recovered.suspendedRuns);
       result.cancelledInteractions += recovered.cancelledInteractions;
       result.records.push(...recovered.records);
     }
@@ -583,20 +647,37 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     const tx = createTransactionFacade(this.tenantId, transactionExecutor);
     const result: RuntimeRecoverExpiredRunLeasesResult = {
       interruptedRuns: [],
+      suspendedRuns: [],
       cancelledInteractions: 0,
       records: [],
     };
     for (const root of expiredRoots.rows) {
       const rootRunId = String(root.run_id);
       await lockAdvisoryKey(transactionExecutor, `interaction-root:${this.tenantId}:${sessionId}:${rootRunId}`);
-      const pending = await tx.pendingInteractions.listPendingInteractions({
+      let pending = await tx.pendingInteractions.listPendingInteractions({
         sessionId,
         rootRunId,
         statuses: ["waiting", "suspended", "resolved", "resuming"],
       });
-      result.cancelledInteractions += pending.length;
-      await tx.pendingInteractions.finalizePendingInteractions(sessionId, rootRunId, "interrupted");
-      const interrupted = await transactionExecutor.query<{ run_id: string; parent_run_id: string | null }>(
+      for (const batchId of new Set(
+        pending.filter((interaction) => interaction.status === "resuming").map((interaction) => interaction.batch_id),
+      )) {
+        await tx.pendingInteractions.releasePendingBatch(sessionId, batchId);
+      }
+      pending = await tx.pendingInteractions.listPendingInteractions({
+        sessionId,
+        rootRunId,
+        statuses: ["waiting", "suspended", "resolved"],
+      });
+      const shouldSuspend = pending.length > 0;
+      if (shouldSuspend) {
+        await tx.pendingInteractions.finalizePendingInteractions(sessionId, rootRunId, "suspended");
+      } else {
+        result.cancelledInteractions += pending.length;
+        await tx.pendingInteractions.finalizePendingInteractions(sessionId, rootRunId, "interrupted");
+      }
+      const nextStatus = shouldSuspend ? "suspended" as const : "interrupted" as const;
+      const recoveredRuns = await transactionExecutor.query<{ run_id: string; parent_run_id: string | null }>(
         `WITH RECURSIVE run_tree AS (
            SELECT run_id FROM saas_runs
            WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
@@ -606,21 +687,29 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
            WHERE child.tenant_id=$1 AND child.session_id=$2
          )
          UPDATE saas_runs AS run
-         SET status='interrupted', final_message_id=NULL, owner_instance_id=NULL,
+         SET status=$4, final_message_id=NULL, owner_instance_id=NULL,
              lease_expires_at=NULL, updated_at=CURRENT_TIMESTAMP
          FROM run_tree
          WHERE run.tenant_id=$1 AND run.session_id=$2 AND run.run_id=run_tree.run_id
            AND run.status IN ('running','suspended')
          RETURNING run.run_id, run.parent_run_id`,
-        [this.tenantId, sessionId, rootRunId],
+        [this.tenantId, sessionId, rootRunId, nextStatus],
       );
-      if (!interrupted.rows.some((row) => row.run_id === rootRunId)) continue;
-      result.interruptedRuns.push(...interrupted.rows.map((row) => ({
+      if (!recoveredRuns.rows.some((row) => row.run_id === rootRunId)) continue;
+      const projectedRuns = recoveredRuns.rows.map((row) => ({
         sessionId,
         runId: String(row.run_id),
         parentRunId: row.parent_run_id == null ? null : String(row.parent_run_id),
-      })));
-      const record = normalizeRecord(buildRunEndedRecord({ sessionId, runId: rootRunId, parentRunId: null }));
+      }));
+      if (shouldSuspend) result.suspendedRuns.push(...projectedRuns);
+      else result.interruptedRuns.push(...projectedRuns);
+      const record = normalizeRecord(buildRunEndedRecord({
+        sessionId,
+        runId: rootRunId,
+        parentRunId: null,
+        status: nextStatus,
+        reason: shouldSuspend ? "backend_restarted_waiting_interaction" : "run_lease_expired",
+      }));
       assertRecordScope(record, sessionId, rootRunId);
       await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
       result.records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, record));
@@ -944,7 +1033,12 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         sessionId: input.sessionId,
         rootRunId: input.rootRunId,
       })).filter((item) => item.status === "resuming" && item.resume_claim_id === input.claimId);
-      if (claimed.length === 0) return { rolledBack: false };
+      if (claimed.length === 0 && input.batchId) {
+        await lockAdvisoryKey(
+          transactionExecutor,
+          `interaction-batch:${this.tenantId}:${input.sessionId}:${input.batchId}`,
+        );
+      }
       for (const batchId of [...new Set(claimed.map((item) => item.batch_id))].sort()) {
         await lockAdvisoryKey(
           transactionExecutor,
@@ -956,6 +1050,20 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (!rootRun || rootRun.session_id !== input.sessionId || rootRun.status !== "running") {
         return { rolledBack: false };
       }
+      if (claimed.length === 0) {
+        if (!input.batchId) return { rolledBack: false };
+        const batch = await tx.pendingInteractions.listPendingInteractions({
+          sessionId: input.sessionId,
+          batchId: input.batchId,
+        });
+        if (batch.length === 0 || batch.some((item) => item.root_run_id !== input.rootRunId || item.status !== "resolved")) {
+          return { rolledBack: false };
+        }
+        if (!await tx.runs.updateRunStatus(input.rootRunId, input.sessionId, "suspended", null)) {
+          throw new Error(`attached resume rollback failed: ${input.rootRunId}`);
+        }
+        return { rolledBack: true };
+      }
       const repository = new PostgresPendingInteractionRepository(transactionExecutor);
       const released = await repository.releasePendingClaim(input.sessionId, input.rootRunId, input.claimId);
       if (released !== claimed.length) throw new Error(`resume claim rollback was partial: ${input.claimId}`);
@@ -963,6 +1071,95 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         throw new Error(`resume root run rollback failed: ${input.rootRunId}`);
       }
       return { rolledBack: true };
+    });
+  }
+
+  private async attachResume(input: RuntimeAttachResumeInput): Promise<RuntimeAttachResumeResult> {
+    return this.executor.transaction(async (transactionExecutor) => {
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      await lockAdvisoryKey(
+        transactionExecutor,
+        `interaction-root:${this.tenantId}:${input.sessionId}:${input.rootRunId}`,
+      );
+      const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+      const claimed = (await tx.pendingInteractions.listPendingInteractions({
+        sessionId: input.sessionId,
+        rootRunId: input.rootRunId,
+      })).filter((item) => item.status === "resuming" && item.resume_claim_id === input.claimId);
+      const normalized = normalizeRecord(input.record);
+      assertRecordScope(normalized, input.sessionId, input.rootRunId);
+      if (claimed.length === 0) {
+        const batch = await tx.pendingInteractions.listPendingInteractions({
+          sessionId: input.sessionId,
+          batchId: input.batchId,
+        });
+        const alreadyAttached = batch.length > 0
+          && batch.every((item) => item.root_run_id === input.rootRunId
+            && (item.status === "resolved" || item.status === "consumed"));
+        if (!alreadyAttached) return { attached: false, record: null };
+        const rootRun = await lockTenantRun(transactionExecutor, this.tenantId, input.rootRunId);
+        if (!rootRun || rootRun.session_id !== input.sessionId || rootRun.status !== "running") {
+          return { attached: false, record: null };
+        }
+        try {
+          await assertOwnedRunLeaseForRun(
+            transactionExecutor,
+            this.tenantId,
+            this.ownerInstanceId,
+            input.sessionId,
+            input.rootRunId,
+          );
+        } catch {
+          return { attached: false, record: null };
+        }
+        await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
+        const existingStep = await findEventStep(
+          transactionExecutor,
+          this.tenantId,
+          normalized.outbox.eventId,
+        );
+        const existingOutbox = await findEventOutbox(
+          transactionExecutor,
+          this.tenantId,
+          normalized.outbox.eventId,
+        );
+        if (!existingStep || !existingOutbox) return { attached: false, record: null };
+        assertExistingRecord(normalized, existingStep, existingOutbox);
+        return {
+          attached: true,
+          record: { step: existingStep.record, outbox: existingOutbox },
+        };
+      }
+      for (const batchId of [...new Set(claimed.map((item) => item.batch_id))].sort()) {
+        await lockAdvisoryKey(
+          transactionExecutor,
+          `interaction-batch:${this.tenantId}:${input.sessionId}:${batchId}`,
+        );
+      }
+      const rootRun = await lockTenantRun(transactionExecutor, this.tenantId, input.rootRunId);
+      if (!rootRun || rootRun.session_id !== input.sessionId || rootRun.status !== "running") {
+        return { attached: false, record: null };
+      }
+      try {
+        await assertOwnedRunLeaseForRun(
+          transactionExecutor,
+          this.tenantId,
+          this.ownerInstanceId,
+          input.sessionId,
+          input.rootRunId,
+        );
+      } catch {
+        return { attached: false, record: null };
+      }
+      const repository = new PostgresPendingInteractionRepository(transactionExecutor);
+      const released = await repository.releasePendingClaim(input.sessionId, input.rootRunId, input.claimId);
+      if (released !== claimed.length) throw new Error(`resume attach release was partial: ${input.claimId}`);
+      await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
+      return {
+        attached: true,
+        record: await recordEnvelope(tx, transactionExecutor, this.tenantId, normalized),
+      };
     });
   }
 
@@ -1092,27 +1289,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         recoveredBatchIds: [...recoveredBatchIds].sort(),
         suspendedRootRunIds: [...suspendedRootRunIds].sort(),
       };
-    });
-  }
-
-  private async renewResumeClaim(input: RuntimeRenewResumeClaimInput): Promise<RuntimeRenewResumeClaimResult> {
-    return this.executor.transaction(async (transactionExecutor) => {
-      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
-      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
-      await lockAdvisoryKey(transactionExecutor, `interaction-root:${this.tenantId}:${input.sessionId}:${input.rootRunId}`);
-      const repository = new PostgresPendingInteractionRepository(transactionExecutor);
-      const renewed = await repository.renewPendingClaim(
-        input.sessionId,
-        input.rootRunId,
-        input.claimId,
-        resumeLeaseMs(input.leaseMs),
-      );
-      const record = (await repository.listPendingInteractions({
-        sessionId: input.sessionId,
-        rootRunId: input.rootRunId,
-        statuses: ["resuming"],
-      })).find((item) => item.resume_claim_id === input.claimId);
-      return { renewed: renewed > 0, expiresAt: record?.resume_claim_expires_at ?? null };
     });
   }
 

@@ -24,13 +24,11 @@ const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
  * activeRun/messages 等运行态，不参与事件分发（分发调度归 client.handleEnvelope）。
  * 状态读 session-run store 单源；业务回调（落库/刷新/滚动等）由 client 经 deps 注入。
  */
-export function useRunRuntime(deps, { refreshSessionExecutionState } = {}) {
+export function useRunRuntime(deps) {
   const sessionRunStore = useSessionRunStore();
   const {
     messages,
-    isLoading,
     isCompressing,
-    sessionTaskInfo,
   } = storeToRefs(sessionRunStore);
   const activeRun = sessionRunStore.activeRun;
 
@@ -61,7 +59,7 @@ export function useRunRuntime(deps, { refreshSessionExecutionState } = {}) {
 
   const terminalStatusFromEvent = (event) => {
     const status = event?.payload?.status;
-    return ['completed', 'failed', 'interrupted'].includes(status) ? status : 'completed';
+    return ['completed', 'failed', 'interrupted', 'suspended'].includes(status) ? status : 'completed';
   };
 
   const messageRunId = (msg) => msg?.run_id || msg?.metadata?.run_id || null;
@@ -199,7 +197,7 @@ export function useRunRuntime(deps, { refreshSessionExecutionState } = {}) {
 
   const getDurableReplayRunId = (event) => extractRunId(event) || internal.durableReplay.runId || null;
 
-  const ensureDurableReplayActiveRun = (event, sessionId) => {
+  const ensureDurableReplayActiveRun = (event) => {
     const runId = getDurableReplayRunId(event);
     if (hasFinishedAssistantForRun(runId)) return false;
 
@@ -219,22 +217,13 @@ export function useRunRuntime(deps, { refreshSessionExecutionState } = {}) {
       assistantMsgIndex = messages.value.length - 1;
     }
 
-    activeRun.active = true;
     activeRun.assistantMsgIndex = assistantMsgIndex;
+    activeRun.active = true;
     activeRun.runId = runId;
     activeRun.lastSeenSeq = 0;
     if (!activeRun.phase || activeRun.phase === 'idle') {
       activeRun.phase = 'llm_waiting_first_token';
       activeRun.runStartedAt = eventTimestampSeconds(event);
-    }
-    isLoading.value = true;
-    if (runId) {
-      sessionTaskInfo.value = {
-        ...(sessionTaskInfo.value || {}),
-        run_id: runId,
-        session_id: sessionId,
-        status: 'running',
-      };
     }
     return true;
   };
@@ -250,34 +239,16 @@ export function useRunRuntime(deps, { refreshSessionExecutionState } = {}) {
     const eventType = event.type;
     const runId = getDurableReplayRunId(event);
     if (runId && hasFinishedAssistantForRun(runId)) {
-      if (eventType === 'run_ended') {
-        sessionTaskInfo.value = {
-          ...(sessionTaskInfo.value || {}),
-          run_id: runId,
-          session_id: sessionId,
-          thread_alive: false,
-          status: terminalStatusFromEvent(event),
-        };
-        refreshSessionExecutionState(sessionId, { silent: true });
-      }
       return true;
     }
 
     if (eventType === 'run_ended') {
-      sessionTaskInfo.value = {
-        ...(sessionTaskInfo.value || {}),
-        ...(runId ? { run_id: runId } : {}),
-        session_id: sessionId,
-        thread_alive: false,
-        status: terminalStatusFromEvent(event),
-      };
       refreshMessagesAfterInactiveDurableTerminal(sessionId);
-      refreshSessionExecutionState(sessionId, { silent: true });
       return true;
     }
 
     if (!DURABLE_REPLAY_RUN_EVENT_TYPES.has(eventType)) return false;
-    return !ensureDurableReplayActiveRun(event, sessionId);
+    return !ensureDurableReplayActiveRun(event);
   };
 
   const rememberFinalizedRun = (sessionId, currentMsg) => {
@@ -310,16 +281,14 @@ export function useRunRuntime(deps, { refreshSessionExecutionState } = {}) {
       }
       deps.cacheMessages(sessionId, messages.value);
       rememberFinalizedRun(sessionId, currentMsg);
-      activeRun.active = false;
       resetActiveRunRuntime();
+      activeRun.active = false;
     }
     if (internal.pendingReconciliation) {
       reconcileAfterGap(sessionId, finalizedMsg);
     }
     deps.clearLlmRetryState();
     isCompressing.value = false;
-    isLoading.value = false;
-    refreshSessionExecutionState(sessionId, { silent: true });
     deps.scrollToBottom();
   };
 

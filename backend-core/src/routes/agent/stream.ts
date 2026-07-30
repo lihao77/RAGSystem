@@ -136,4 +136,19 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
       });
     },
   );
+
+  app.post<{ Params: InteractionParams }>(
+    "/sessions/:sessionId/interactions/:interactionId/resume",
+    async (request) => {
+      await loadExecutableSession(request, request.params.sessionId, await resolveSessionApplication(options, request));
+      const disposition = await (await ensureRequestApplications(request, options)).interactions.resumeAsync(
+        request.params.sessionId,
+        request.params.interactionId,
+      );
+      if (disposition === "none") {
+        throw new HttpError(409, "resume_unavailable", "该会话当前无法恢复执行");
+      }
+      return ok({ resumed: true, disposition });
+    },
+  );
 };

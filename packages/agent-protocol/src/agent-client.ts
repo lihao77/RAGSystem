@@ -18,7 +18,13 @@
  * @see 盘点报告 第一节（通信通道）、第二节（工具调用链路）、第四节（abort 机制）
  */
 
-import type { Envelope, InteractionKind, AttachmentRef } from "./protocol.js";
+import type {
+  Envelope,
+  InteractionKind,
+  AttachmentRef,
+  SessionRuntimePayload,
+  SessionRuntimeState,
+} from "./protocol.js";
 
 /* ============================================================
  * 一、基础抽象（最小订阅语义，不绑定任何响应式框架）
@@ -101,24 +107,25 @@ export interface ConnectOptions {
  * 三、投影模式：状态视图类型（projection · wired）
  * ========================================================== */
 
-/**
- * 当前 run 的终止 / 中断状态。
- * 来源：run.end 帧的 status（completed / failed / interrupted）。
- */
+/** 当前 run 展示状态；只由 session.runtime 的 active_run / last_run 派生。 */
 export interface RunStatus {
   runId: string | null;
-  state: "idle" | "running" | "completed" | "failed" | "interrupted";
+  state: SessionRuntimeState | "completed" | "failed" | "interrupted";
   startedAt?: string;
   finishedAt?: string;
 }
 
 /**
  * 待宿主响应的交互（审批 / 用户输入）。
- * 来源：interaction.required 帧；忽略 legacy user.*_required 双发（盘点报告架构债①）。
+ * 来源：session.runtime.pending_interactions；原始 interaction 帧不拥有 UI 生命周期。
  */
 export interface PendingInteraction {
   interactionId: string;
   kind: InteractionKind; // "approval" | "user_input"
+  status: "waiting" | "suspended";
+  runId: string;
+  rootRunId: string;
+  batchId: string;
   toolName?: string;
   arguments?: unknown;
   riskLevel?: string;
@@ -333,9 +340,11 @@ export interface AgentClient {
   readonly events: Observable<Envelope>;
   /** 结构化执行树投影（SDK 消费执行类 Envelope 后产出）。 @mode projection @status wired */
   readonly executionTree: Observable<ExecutionTree>;
-  /** 当前 run 终止 / 中断状态（源自 run.end 终态）。 @mode projection @status wired */
+  /** Session 生命周期权威快照；所有加载策略与动作权限只读此对象。 @mode projection @status wired */
+  readonly runtime: Observable<SessionRuntimePayload>;
+  /** 当前 run 展示状态，由 runtime.active_run/last_run 派生，不消费 run/ACK 猜测。 @mode projection @status wired */
   readonly runStatus: Observable<RunStatus>;
-  /** 待响应交互列表（源自 interaction.required）。 @mode projection @status wired */
+  /** 待响应交互列表，由 runtime.pending_interactions 派生。 @mode projection @status wired */
   readonly pendingInteractions: Observable<PendingInteraction[]>;
 
   /* ---- 投影模式：展示配置（projection · wired，adapter 自管）---- */
@@ -356,6 +365,8 @@ export interface AgentClient {
   approve(interactionId: string, approved: boolean, message?: string): Promise<void>;
   /** 用户输入便捷方法 = respondInteraction(id, { kind:"user_input", value })。 @mode common @status wired */
   respondInput(interactionId: string, value: string): Promise<void>;
+  /** 恢复已持久化且已完成响应的 suspended run。interaction id 由 runtime 指定。 */
+  resume(): Promise<boolean>;
 
   /* ---- 委托模式（delegation · reserved：后端当前无协议）---- */
 

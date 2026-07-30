@@ -23,6 +23,64 @@ function createAssistantMessage(overrides = {}) {
   };
 }
 
+function runtimeSnapshot(state, overrides = {}) {
+  const active = ['running', 'waiting_interaction', 'suspended', 'resuming'].includes(state);
+  const strategies = {
+    idle: 'history',
+    running: 'attach_run',
+    waiting_interaction: 'attach_run_and_present_interactions',
+    suspended: 'present_interactions',
+    resuming: 'attach_resume',
+    maintenance: 'watch_maintenance',
+  };
+  return {
+    state,
+    load_strategy: strategies[state],
+    allowed_actions: state === 'idle'
+      ? ['send_message', 'start_maintenance']
+      : state === 'running'
+        ? ['send_followup', 'stop_run']
+        : state === 'waiting_interaction' || state === 'suspended'
+          ? ['respond_interaction', 'stop_run']
+          : state === 'resuming' ? ['stop_run'] : [],
+    active_run: active ? {
+      run_id: 'run-1',
+      status: state,
+      execution_owner: state === 'suspended' ? 'detached' : 'attached',
+      task: 'task',
+      request_id: 'req-1',
+      execution_kind: 'agent_stream',
+      started_at: '2026-07-30T00:00:00.000Z',
+      updated_at: '2026-07-30T00:00:01.000Z',
+    } : null,
+    last_run: null,
+    pending_interactions: state === 'waiting_interaction' || state === 'suspended'
+      ? [pendingInteraction('approval', 'approval-default', state === 'suspended' ? 'suspended' : 'waiting')]
+      : [],
+    resume_interaction_id: null,
+    maintenance: state === 'maintenance'
+      ? { kind: 'rollback', expires_at: '2026-07-30T00:01:00.000Z' }
+      : null,
+    observed_at: '2026-07-30T00:00:01.000Z',
+    ...overrides,
+  };
+}
+
+function pendingInteraction(kind, interactionId, status = 'waiting') {
+  return {
+    interaction_id: interactionId,
+    run_id: 'run-1',
+    root_run_id: 'run-1',
+    batch_id: 'batch-1',
+    kind,
+    status,
+    requested_at: '2026-07-30T00:00:01.000Z',
+    payload: kind === 'approval'
+      ? { kind, phase: 'required', tool: 'write_file', message: '允许写入？' }
+      : { kind, phase: 'required', prompt: 'scope?' },
+  };
+}
+
 function createDeps(overrides = {}) {
   setActivePinia(createPinia());
   const sessionRunStore = useSessionRunStore();
@@ -32,12 +90,14 @@ function createDeps(overrides = {}) {
     isLoading,
     isCompressing,
     contextUsage,
-    sessionTaskInfo,
+    sessionRuntime,
+    optimisticCommand,
     llmRetryState,
     pendingFollowupCandidates,
   } = storeToRefs(sessionRunStore);
   currentSessionId.value = 'session-1';
   contextUsage.value = null;
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('idle'));
 
   const calls = {
     clearCommandFallback: 0,
@@ -50,6 +110,7 @@ function createDeps(overrides = {}) {
     showToast: [],
     clearLlmRetryState: 0,
     handleApprovalResolved: [],
+    handleUserInputResolved: [],
     resetApprovalState: [],
   };
 
@@ -59,7 +120,8 @@ function createDeps(overrides = {}) {
     isLoading,
     isCompressing,
     contextUsage,
-    sessionTaskInfo,
+    sessionRuntime,
+    optimisticCommand,
     activeRun: sessionRunStore.activeRun,
     llmRetryState,
     pendingFollowupCandidates,
@@ -82,6 +144,7 @@ function createDeps(overrides = {}) {
     findRunningExecutionAgentByAgentId: () => null,
     enqueueApproval: () => {},
     handleApprovalResolved: (...args) => { calls.handleApprovalResolved.push(args); },
+    handleUserInputResolved: (...args) => { calls.handleUserInputResolved.push(args); },
     resetApprovalState: (...args) => { calls.resetApprovalState.push(args); },
     isRootEvent: () => true,
     isMasterEvent: () => true,
@@ -90,7 +153,7 @@ function createDeps(overrides = {}) {
     ...overrides,
   };
 
-  return { deps, calls };
+  return { deps, calls, sessionRunStore };
 }
 
 function withMock(setup, run) {
@@ -102,10 +165,9 @@ function withMock(setup, run) {
 }
 
 test('ack(send) 启动失败时会结束当前 assistant 占位并标记失败', () => {
-  const { deps } = createDeps();
+  const { deps, sessionRunStore } = createDeps();
   deps.messages.value = [createAssistantMessage()];
-  deps.isLoading.value = true;
-  deps.activeRun.active = true;
+  sessionRunStore.beginOptimisticCommand('send');
   deps.activeRun.assistantMsgIndex = 0;
 
   const stream = useSessionAgentClient(deps);
@@ -113,15 +175,16 @@ test('ack(send) 启动失败时会结束当前 assistant 占位并标记失败',
 
   assert.match(deps.messages.value[0].content, /boom/);
   assert.equal(deps.messages.value[0].finished, true);
-  assert.equal(deps.sessionTaskInfo.value.status, 'failed');
+  assert.equal(deps.sessionRuntime.value.state, 'idle');
+  assert.equal(deps.optimisticCommand.value, null);
   assert.equal(deps.activeRun.active, false);
   assert.equal(deps.isLoading.value, false);
 });
 
 test('state_sync(command_result) 会补建 assistant 消息并触发静默刷新', async () => {
-  const { deps, calls } = createDeps();
+  const { deps, calls, sessionRunStore } = createDeps();
   deps.messages.value = [{ role: 'user', content: '/foo' }];
-  deps.isLoading.value = true;
+  sessionRunStore.beginOptimisticCommand('send');
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
@@ -156,9 +219,8 @@ test('state_sync(session_updated) 在非执行态会触发消息刷新', () => {
 });
 
 test('state_sync(session_updated) 在 active run 期间不重拉消息', () => {
-  const { deps, calls } = createDeps();
-  deps.activeRun.active = true;
-  deps.isLoading.value = false;
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({ type: 'state_sync', payload: { category: 'session_updated' } }, 'session-1');
@@ -190,10 +252,9 @@ test('后台任务 lifecycle 事件只更新运行中心，不重拉消息列表
 });
 
 test('已送达但由顶层处理的事件会推进 seq，避免后续输出误判 gap', () => {
-  const { deps, calls } = createDeps();
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage()];
-  deps.isLoading.value = true;
-  deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.lastSeenSeq = 1;
 
@@ -209,10 +270,9 @@ test('已送达但由顶层处理的事件会推进 seq，避免后续输出误�
 });
 
 test('刚完成的同一 run 收到 state_sync(session_updated) 不重拉整条消息列表', () => {
-  const { deps, calls } = createDeps();
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage({ content: 'final answer' })];
-  deps.isLoading.value = true;
-  deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.runId = 'run-1';
 
@@ -469,13 +529,11 @@ test('连续 Goal 自动续跑后，工作栏仍用 assistant message id 加载 
   });
 });
 
-test('run_ended 会收尾 active run 并标记完成状态', () => {
-  const { deps } = createDeps();
+test('run_ended 只收尾展示，直到 runtime 快照确认终态', () => {
+  const { deps, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage({ content: 'final answer' })];
-  deps.isLoading.value = true;
-  deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
-  deps.sessionTaskInfo.value = { status: 'running' };
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
@@ -484,8 +542,24 @@ test('run_ended 会收尾 active run 并标记完成状态', () => {
   }, 'session-1');
 
   assert.equal(deps.messages.value[0].finished, true);
+  assert.equal(deps.sessionRuntime.value.state, 'running');
+  assert.equal(deps.isLoading.value, true);
+
+  stream.handleEnvelope({
+    type: 'session.runtime',
+    payload: runtimeSnapshot('idle', {
+      last_run: {
+        run_id: 'run-1',
+        status: 'completed',
+        task: 'task',
+        started_at: '2026-07-30T00:00:00.000Z',
+        finished_at: '2026-07-30T00:00:02.000Z',
+      },
+    }),
+  }, 'session-1');
   assert.equal(deps.activeRun.active, false);
-  assert.equal(deps.sessionTaskInfo.value.status, 'completed');
+  assert.equal(deps.sessionRuntime.value.last_run.status, 'completed');
+  assert.equal(deps.isLoading.value, false);
 });
 
 test('durable outbox 纯终态 replay 不创建空 assistant 占位', () => {
@@ -584,9 +658,9 @@ test('durable outbox replay 只有真实 run 事件才懒恢复 activeRun 并收
 
 
 test('run_started 初始化运行态为等待模型首 token', () => {
-  const { deps } = createDeps();
+  const { deps, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage()];
-  deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
   const stream = useSessionAgentClient(deps);
@@ -780,55 +854,188 @@ test('waiting 事件切换后台等待状态并在结束后回到等待模型响
   assert.equal(deps.activeRun.phase, 'llm_waiting_first_token');
 });
 
-test('权限审批期间切换为等待权限审批并在确认后进入工具执行中', () => {
-  const { deps, calls } = createDeps();
-  deps.messages.value = [createAssistantMessage()];
-  deps.activeRun.active = true;
-  deps.activeRun.assistantMsgIndex = 0;
-  deps.activeRun.phase = 'llm_streaming';
-
+test('原始 interaction(required) 事件不再拥有审批或输入 UI', () => {
+  const approvals = [];
+  const inputs = [];
+  const { deps } = createDeps({
+    enqueueApproval: (_event, data) => approvals.push(data),
+    showUserInput: data => inputs.push(data),
+  });
   const stream = useSessionAgentClient(deps);
+
   stream.handleEnvelope({
     type: 'interaction',
     call_id: 'approval-1',
     payload: { kind: 'approval', phase: 'required' },
   }, 'session-1');
-
-  assert.equal(deps.activeRun.phase, 'approval_waiting');
-
-  stream.handleEnvelope({
-    type: 'interaction',
-    call_id: 'approval-1',
-    payload: { kind: 'approval', phase: 'responded', approved: true },
-  }, 'session-1');
-
-  assert.equal(deps.activeRun.phase, 'tool_running');
-  assert.equal(calls.handleApprovalResolved.length, 1);
-});
-
-test('user_input required 通过 WS 提交并等待 ack 后完成', async () => {
-  const sent = [];
-  let capturedSubmit = null;
-  const { deps } = createDeps({
-    showUserInput: (_data, submit) => {
-      capturedSubmit = submit;
-    },
-    getWS: () => ({
-      readyState: 1,
-      send: (payload) => {
-        sent.push(JSON.parse(payload));
-      },
-    }),
-  });
-  deps.messages.value = [createAssistantMessage()];
-  deps.activeRun.active = true;
-  deps.activeRun.assistantMsgIndex = 0;
-
-  const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
     type: 'interaction',
     call_id: 'input-1',
     payload: { kind: 'user_input', phase: 'required', prompt: 'scope?' },
+  }, 'session-1');
+
+  assert.deepEqual(approvals, []);
+  assert.deepEqual(inputs, []);
+  assert.equal(deps.sessionRuntime.value.state, 'idle');
+});
+
+test('session.reconnect 和 run 事件不能覆盖 suspended runtime', () => {
+  const approvals = [];
+  const { deps } = createDeps({
+    enqueueApproval: (_event, data) => approvals.push(data),
+  });
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'session.runtime',
+    payload: runtimeSnapshot('suspended', {
+      allowed_actions: ['resume_run'],
+      resume_interaction_id: 'approval-1',
+      pending_interactions: [],
+    }),
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'session.reconnect',
+    payload: { phase: 'start', replay_source: 'durable_outbox' },
+  }, 'session-1');
+  stream.handleEnvelope({ type: 'run_started', run_id: 'run-1', payload: {} }, 'session-1');
+  stream.handleEnvelope({
+    type: 'session.reconnect',
+    payload: { phase: 'end', replay_source: 'durable_outbox' },
+  }, 'session-1');
+
+  assert.equal(deps.sessionRuntime.value.state, 'suspended');
+  assert.equal(deps.sessionRuntime.value.resume_interaction_id, 'approval-1');
+  assert.equal(deps.isLoading.value, true);
+  assert.deepEqual(approvals, []);
+});
+
+test('resume_run 使用 durable interaction 恢复，并对重复点击去重', async () => {
+  let resumeRequests = 0;
+  await withMock((mock) => {
+    mock.onPost('/api/agent/sessions/session-1/interactions/approval-1/resume').reply(async () => {
+      resumeRequests += 1;
+      await new Promise(resolve => setTimeout(resolve, 5));
+      return [200, { data: { resumed: true } }];
+    });
+  }, async () => {
+    const { deps } = createDeps();
+    const stream = useSessionAgentClient(deps);
+    stream.handleEnvelope({
+      type: 'session.runtime',
+      payload: runtimeSnapshot('suspended', {
+        allowed_actions: ['resume_run', 'stop_run'],
+        resume_interaction_id: 'approval-1',
+        pending_interactions: [],
+      }),
+    }, 'session-1');
+
+    const [first, second] = await Promise.all([stream.resume(), stream.resume()]);
+    assert.equal(first, true);
+    assert.equal(second, true);
+    assert.equal(resumeRequests, 1);
+  });
+});
+
+test('resume_run 失败时由客户端收敛错误，不产生未处理 rejection', async () => {
+  await withMock((mock) => {
+    mock.onPost('/api/agent/sessions/session-1/interactions/approval-1/resume')
+      .reply(409, { message: '恢复租约已被占用' });
+  }, async () => {
+    const { deps, calls } = createDeps();
+    const stream = useSessionAgentClient(deps);
+    stream.handleEnvelope({
+      type: 'session.runtime',
+      payload: runtimeSnapshot('suspended', {
+        allowed_actions: ['resume_run', 'stop_run'],
+        resume_interaction_id: 'approval-1',
+        pending_interactions: [],
+      }),
+    }, 'session-1');
+
+    assert.equal(await stream.resume(), false);
+    assert.equal(calls.showToast.length, 1);
+    assert.equal(calls.showToast[0][1], 'warning');
+  });
+});
+
+test('waiting_interaction 快照重建审批和输入 UI，重复快照保持本地操作状态', () => {
+  const approvals = [];
+  const inputs = [];
+  const { deps } = createDeps({
+    enqueueApproval: (_event, data) => approvals.push(data),
+    showUserInput: data => inputs.push(data),
+  });
+  const snapshot = runtimeSnapshot('waiting_interaction', {
+    allowed_actions: ['respond_interaction', 'stop_run'],
+    pending_interactions: [
+      pendingInteraction('approval', 'approval-1'),
+      pendingInteraction('user_input', 'input-1'),
+    ],
+  });
+  const stream = useSessionAgentClient(deps);
+
+  stream.handleEnvelope({ type: 'session.runtime', payload: snapshot }, 'session-1');
+  stream.handleEnvelope({
+    type: 'session.runtime',
+    payload: { ...snapshot, observed_at: '2026-07-30T00:00:02.000Z' },
+  }, 'session-1');
+
+  assert.equal(approvals.length, 1);
+  assert.equal(approvals[0].approval_id, 'approval-1');
+  assert.equal(inputs.length, 1);
+  assert.equal(inputs[0].input_id, 'input-1');
+  assert.equal(deps.activeRun.phase, 'approval_waiting');
+});
+
+test('后续 runtime 快照按 interaction_id 对账并关闭已消失的交互', () => {
+  const approvals = [];
+  const inputs = [];
+  const { deps, calls } = createDeps({
+    enqueueApproval: (_event, data) => approvals.push(data),
+    showUserInput: data => inputs.push(data),
+  });
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'session.runtime',
+    payload: runtimeSnapshot('waiting_interaction', {
+      pending_interactions: [
+        pendingInteraction('approval', 'approval-1'),
+        pendingInteraction('user_input', 'input-1'),
+      ],
+    }),
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'session.runtime',
+    payload: runtimeSnapshot('waiting_interaction', {
+      pending_interactions: [pendingInteraction('approval', 'approval-1')],
+    }),
+  }, 'session-1');
+
+  assert.equal(approvals.length, 1);
+  assert.equal(inputs.length, 1);
+  assert.deepEqual(calls.handleUserInputResolved, [['input-1']]);
+
+  stream.handleEnvelope({ type: 'session.runtime', payload: runtimeSnapshot('idle') }, 'session-1');
+  assert.deepEqual(calls.handleApprovalResolved, [['approval-1', 'session-1']]);
+});
+
+test('快照恢复的 user_input 通过 WS 提交并等待 ack', async () => {
+  const sent = [];
+  let capturedSubmit = null;
+  const { deps } = createDeps({
+    showUserInput: (_data, submit) => { capturedSubmit = submit; },
+    getWS: () => ({
+      readyState: 1,
+      send: payload => sent.push(JSON.parse(payload)),
+    }),
+  });
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'session.runtime',
+    payload: runtimeSnapshot('waiting_interaction', {
+      allowed_actions: ['respond_interaction'],
+      pending_interactions: [pendingInteraction('user_input', 'input-1')],
+    }),
   }, 'session-1');
 
   const submitPromise = capturedSubmit('input-1', 'session');
@@ -838,183 +1045,89 @@ test('user_input required 通过 WS 提交并等待 ack 后完成', async () => 
     call_id: 'input-1',
     payload: { kind: 'user_input', phase: 'responded', value: 'session' },
   }]);
-
   stream.handleEnvelope({
     type: 'ack',
-    call_id: 'input-1',
     payload: { category: 'interaction', ok: true, ref_call_id: 'input-1' },
   }, 'session-1');
-
   await submitPromise;
 });
 
-test('interaction(user_input, required) 重复事件不重复展示', () => {
-  const shown = [];
-  const { deps } = createDeps({
-    showUserInput: (data) => {
-      shown.push(data);
-    },
-  });
-  deps.messages.value = [createAssistantMessage()];
-  deps.activeRun.active = true;
-  deps.activeRun.assistantMsgIndex = 0;
-
-  const stream = useSessionAgentClient(deps);
-  stream.handleEnvelope({
-    type: 'interaction',
-    call_id: 'input-1',
-    payload: { kind: 'user_input', phase: 'required', prompt: 'scope?' },
-  }, 'session-1');
-  stream.handleEnvelope({
-    type: 'interaction',
-    call_id: 'input-1',
-    payload: { kind: 'user_input', phase: 'required', prompt: 'scope?' },
-  }, 'session-1');
-
-  assert.equal(shown.length, 1);
-  assert.equal(shown[0].input_id, 'input-1');
-  assert.equal(shown[0].kind, 'user_input');
-});
-
-test('interaction(approval, required) 重复事件不重复入队', () => {
+test('resetStreamSessionState 后同一 runtime 快照可重新展示交互', () => {
   const approvals = [];
   const { deps } = createDeps({
-    enqueueApproval: (_event, data) => {
-      approvals.push(data);
-    },
+    enqueueApproval: (_event, data) => approvals.push(data),
   });
-  deps.messages.value = [createAssistantMessage()];
-  deps.activeRun.active = true;
-  deps.activeRun.assistantMsgIndex = 0;
-  deps.activeRun.phase = 'llm_streaming';
-
-  const stream = useSessionAgentClient(deps);
-  stream.handleEnvelope({
-    type: 'interaction',
-    call_id: 'approval-1',
-    payload: { kind: 'approval', phase: 'required', tool_name: 'write_file' },
-  }, 'session-1');
-  stream.handleEnvelope({
-    type: 'interaction',
-    call_id: 'approval-1',
-    payload: { kind: 'approval', phase: 'required', tool_name: 'write_file' },
-  }, 'session-1');
-
-  assert.equal(deps.activeRun.phase, 'approval_waiting');
-  assert.equal(approvals.length, 1);
-  assert.equal(approvals[0].approval_id, 'approval-1');
-  assert.equal(approvals[0].kind, 'approval');
-});
-
-test('resetStreamSessionState 会清理交互去重，侧边栏切回时 pending approval 可重新展示', () => {
-  const approvals = [];
-  const { deps } = createDeps({
-    enqueueApproval: (_event, data) => {
-      approvals.push(data);
-    },
+  const snapshot = runtimeSnapshot('waiting_interaction', {
+    pending_interactions: [pendingInteraction('approval', 'approval-1')],
   });
-  deps.messages.value = [createAssistantMessage()];
-  deps.activeRun.active = true;
-  deps.activeRun.assistantMsgIndex = 0;
-  deps.activeRun.phase = 'llm_streaming';
-
   const stream = useSessionAgentClient(deps);
-  const event = {
-    type: 'interaction',
-    call_id: 'approval-1',
-    payload: { kind: 'approval', phase: 'required', tool_name: 'write_file' },
-  };
-  stream.handleEnvelope(event, 'session-1');
-  stream.handleEnvelope(event, 'session-1');
+  stream.handleEnvelope({ type: 'session.runtime', payload: snapshot }, 'session-1');
+  stream.handleEnvelope({ type: 'session.runtime', payload: snapshot }, 'session-1');
   assert.equal(approvals.length, 1);
 
   stream.resetStreamSessionState();
-  stream.handleEnvelope(event, 'session-1');
-
+  stream.handleEnvelope({ type: 'session.runtime', payload: snapshot }, 'session-1');
   assert.equal(approvals.length, 2);
-  assert.equal(approvals[1].approval_id, 'approval-1');
 });
 
-test('user_input required 收到 ack(interaction) 失败时拒绝提交并提示', async () => {
+test('快照恢复的 user_input 收到负 ack 时拒绝提交并提示', async () => {
   let capturedSubmit = null;
   const { deps, calls } = createDeps({
-    showUserInput: (_data, submit) => {
-      capturedSubmit = submit;
-    },
-    getWS: () => ({
-      readyState: 1,
-      send: () => {},
-    }),
+    showUserInput: (_data, submit) => { capturedSubmit = submit; },
+    getWS: () => ({ readyState: 1, send: () => {} }),
   });
-  deps.messages.value = [createAssistantMessage()];
-  deps.activeRun.active = true;
-  deps.activeRun.assistantMsgIndex = 0;
-
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
-    type: 'interaction',
-    call_id: 'input-1',
-    payload: { kind: 'user_input', phase: 'required', prompt: 'scope?' },
+    type: 'session.runtime',
+    payload: runtimeSnapshot('waiting_interaction', {
+      pending_interactions: [pendingInteraction('user_input', 'input-1')],
+    }),
   }, 'session-1');
 
   const submitPromise = capturedSubmit('input-1', 'session');
   stream.handleEnvelope({
     type: 'ack',
-    call_id: 'input-1',
     payload: { category: 'interaction', ok: false, error: 'not found', ref_call_id: 'input-1' },
   }, 'session-1');
-
   await assert.rejects(submitPromise, /not found/);
-  assert.equal(calls.showToast.length, 1);
   assert.equal(calls.showToast[0][0], 'not found');
 });
 
-test('user.input_required 在 WS 发送失败时降级 HTTP respond 路由', async () => {
+test('快照恢复的 user_input 在 WS 发送失败时降级 HTTP respond 路由', async () => {
   let capturedSubmit = null;
   const { deps } = createDeps({
-    showUserInput: (_data, submit) => {
-      capturedSubmit = submit;
-    },
+    showUserInput: (_data, submit) => { capturedSubmit = submit; },
     getWS: () => ({
       readyState: 1,
-      send: () => {
-        throw new Error('WS send failed');
-      },
+      send: () => { throw new Error('WS send failed'); },
     }),
   });
-  deps.messages.value = [createAssistantMessage()];
-  deps.activeRun.active = true;
-  deps.activeRun.assistantMsgIndex = 0;
 
   await withMock((mock) => {
     mock.onPost(/\/interactions\/[^/]+\/respond$/).reply((config) => {
       assert.equal(config.url, '/api/agent/sessions/session-1/interactions/input-1/respond');
-      assert.equal(config.method, 'post');
       assert.deepEqual(JSON.parse(config.data), { kind: 'user_input', value: 'session' });
       return [200, {}];
     });
   }, async () => {
     const stream = useSessionAgentClient(deps);
     stream.handleEnvelope({
-      type: 'interaction',
-      call_id: 'input-1',
-      payload: { kind: 'user_input', phase: 'required', prompt: 'scope?' },
+      type: 'session.runtime',
+      payload: runtimeSnapshot('waiting_interaction', {
+        pending_interactions: [pendingInteraction('user_input', 'input-1')],
+      }),
     }, 'session-1');
-
-    assert.equal(typeof capturedSubmit, 'function');
     await capturedSubmit('input-1', 'session');
   });
 });
 
 test('连续投递 seq 不触发 gap 对账', () => {
-  const { deps, calls } = createDeps();
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage({ content: 'partial answer' })];
-  deps.isLoading.value = true;
-  deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.lastSeenSeq = 1;
   deps.activeRun.phase = 'llm_streaming';
-  deps.sessionTaskInfo.value = { status: 'running' };
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
@@ -1024,7 +1137,7 @@ test('连续投递 seq 不触发 gap 对账', () => {
     payload: { kind: 'approval', phase: 'required' },
   }, 'session-1');
 
-  assert.equal(deps.activeRun.phase, 'approval_waiting');
+  assert.equal(deps.activeRun.phase, 'llm_streaming');
   assert.deepEqual(calls.deleteMessageCache, []);
   assert.deepEqual(calls.loadSessionMessages, []);
 
@@ -1035,14 +1148,12 @@ test('连续投递 seq 不触发 gap 对账', () => {
 });
 
 test('真正的投递序号 gap 在已有最终答案时只做轻量对账', () => {
-  const { deps, calls } = createDeps();
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage({ content: 'partial answer' })];
-  deps.isLoading.value = true;
-  deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.lastSeenSeq = 1;
   deps.activeRun.phase = 'llm_streaming';
-  deps.sessionTaskInfo.value = { status: 'running' };
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
@@ -1052,7 +1163,7 @@ test('真正的投递序号 gap 在已有最终答案时只做轻量对账', () 
     payload: { kind: 'approval', phase: 'required' },
   }, 'session-1');
 
-  assert.equal(deps.activeRun.phase, 'approval_waiting');
+  assert.equal(deps.activeRun.phase, 'llm_streaming');
   assert.deepEqual(calls.deleteMessageCache, []);
   assert.deepEqual(calls.loadSessionMessages, []);
 
@@ -1064,10 +1175,9 @@ test('真正的投递序号 gap 在已有最终答案时只做轻量对账', () 
 });
 
 test('mergeMessageIdsFromServer 不可用时 gap 对账回退到全量刷新', () => {
-  const { deps, calls } = createDeps({ mergeMessageIdsFromServer: undefined });
+  const { deps, calls, sessionRunStore } = createDeps({ mergeMessageIdsFromServer: undefined });
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage({ content: 'final answer' })];
-  deps.isLoading.value = true;
-  deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.lastSeenSeq = 1;
   deps.activeRun.phase = 'llm_streaming';
@@ -1086,10 +1196,9 @@ test('mergeMessageIdsFromServer 不可用时 gap 对账回退到全量刷新', (
 });
 
 test('投递序号 gap 且没有可展示答案时仍回退到全量刷新', () => {
-  const { deps, calls } = createDeps();
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage()];
-  deps.isLoading.value = true;
-  deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.lastSeenSeq = 1;
   deps.activeRun.phase = 'llm_streaming';
@@ -1109,7 +1218,7 @@ test('投递序号 gap 且没有可展示答案时仍回退到全量刷新', () 
 });
 
 
-test('拒绝权限审批后回到等待模型响应', () => {
+test('interaction responded 事件不能自行覆盖 runtime 驱动的等待阶段', () => {
   const { deps } = createDeps();
   deps.messages.value = [createAssistantMessage()];
   deps.activeRun.active = true;
@@ -1123,26 +1232,23 @@ test('拒绝权限审批后回到等待模型响应', () => {
     payload: { kind: 'approval', phase: 'responded', approved: false },
   }, 'session-1');
 
-  assert.equal(deps.activeRun.phase, 'llm_waiting_first_token');
+  assert.equal(deps.activeRun.phase, 'approval_waiting');
 });
 
 
-test('run_ended 事件会收尾 active run 并刷新执行态', () => {
-  const { deps, calls } = createDeps();
+test('run_ended 事件收尾回答，但不会越权覆盖 Session runtime', () => {
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage({ content: 'final answer' })];
-  deps.isLoading.value = true;
-  deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
-  deps.sessionTaskInfo.value = { status: 'running' };
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
 
-  assert.equal(deps.sessionTaskInfo.value.status, 'completed');
-  assert.equal(deps.sessionTaskInfo.value.thread_alive, false);
+  assert.equal(deps.sessionRuntime.value.state, 'running');
   assert.equal(deps.messages.value[0].finished, true);
   assert.equal(deps.activeRun.active, false);
-  assert.equal(deps.isLoading.value, false);
+  assert.equal(deps.isLoading.value, true);
   assert.equal(calls.clearLlmRetryState, 1);
   assert.deepEqual(calls.cacheMessages, [['session-1', deps.messages.value]]);
   assert.equal(calls.updateRecentSession.length, 1);
@@ -1150,10 +1256,9 @@ test('run_ended 事件会收尾 active run 并刷新执行态', () => {
 });
 
 test('run_ended 以 interrupted/failed 终止时清空残留 approval/input 弹窗', () => {
-  const { deps, calls } = createDeps();
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage({ content: 'partial' })];
-  deps.isLoading.value = true;
-  deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
   const stream = useSessionAgentClient(deps);
@@ -1168,9 +1273,9 @@ test('run_ended 以 interrupted/failed 终止时清空残留 approval/input 弹�
 });
 
 test('run_ended 正常完成时不清 approval（应已 resolved）', () => {
-  const { deps, calls } = createDeps();
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage({ content: 'done' })];
-  deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
   const stream = useSessionAgentClient(deps);

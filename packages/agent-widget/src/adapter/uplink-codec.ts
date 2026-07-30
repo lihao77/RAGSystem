@@ -50,6 +50,12 @@ export interface UserInputRespondUplink {
   };
 }
 
+export interface ResumeUplink {
+  type: "resume";
+  session_id: string;
+  call_id: string;
+}
+
 export interface ToolsRegisterUplink {
   type: "tools.register";
   session_id: string;
@@ -74,6 +80,7 @@ export type UplinkMessage =
   | StopUplink
   | ApprovalRespondUplink
   | UserInputRespondUplink
+  | ResumeUplink
   | ToolsRegisterUplink
   | DelegateResultUplink;
 
@@ -125,6 +132,10 @@ export function encodeUserInputRespond(sessionId: string, callId: string, value:
     call_id: callId,
     payload: { kind: "user_input", phase: "responded", value },
   };
+}
+
+export function encodeResume(sessionId: string, interactionId: string): ResumeUplink {
+  return { type: "resume", session_id: sessionId, call_id: interactionId };
 }
 
 export function encodeToolsRegister(sessionId: string, tools: DelegatedToolDeclaration[]): ToolsRegisterUplink {

@@ -18,7 +18,6 @@ export function createSessionEventReducer({
   isCompressing,
   contextUsage,
   llmRetryState,
-  patchTaskInfo,
   handleApprovalRequired,
   handleUserInputRequired,
 }) {
@@ -52,7 +51,6 @@ export function createSessionEventReducer({
           model: detail.model || '',
         });
         activeRun.phase = 'retrying';
-        patchTaskInfo({ status: 'running' });
       } else if (category === 'waiting') {
         const detail = payload.detail || {};
         const isStart = detail.phase === 'start' || Boolean(detail.wait_id && !activeRun.waiting);

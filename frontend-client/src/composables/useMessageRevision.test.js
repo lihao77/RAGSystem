@@ -19,8 +19,18 @@ function createDeps(overrides = {}) {
   const cacheCalls = [];
   const materializeCalls = [];
   const reloadCalls = [];
-  const activeRun = { active: false, assistantMsgIndex: -1, runId: null, phase: 'idle' };
-  const isLoading = ref(false);
+  const activeRun = sessionRunStore.activeRun;
+  sessionRunStore.applySessionRuntime({
+    state: 'idle',
+    load_strategy: 'history',
+    allowed_actions: ['send_message', 'start_maintenance'],
+    active_run: null,
+    last_run: null,
+    pending_interactions: [],
+    resume_interaction_id: null,
+    maintenance: null,
+    observed_at: '2026-07-30T00:00:00.000Z',
+  });
 
   const deps = {
     messages,
@@ -31,7 +41,6 @@ function createDeps(overrides = {}) {
     showToast: (message) => toasts.push(message),
     cacheMessages: (...args) => cacheCalls.push(args),
     activeRun,
-    isLoading,
     materializeAttachmentsForSend: async (attachments) => { materializeCalls.push(attachments); return attachments; },
     reloadSessionMessages: async (sessionId) => { reloadCalls.push(sessionId); },
     getCurrentSelectedLlm: () => null,
@@ -39,7 +48,7 @@ function createDeps(overrides = {}) {
     ...overrides,
   };
 
-  return { deps, toasts, cacheCalls, materializeCalls, reloadCalls, activeRun, isLoading };
+  return { deps, toasts, cacheCalls, materializeCalls, reloadCalls, activeRun, sessionRunStore };
 }
 
 function withMock(setup, run) {
@@ -60,7 +69,7 @@ test('confirmEditAndResend 锚定旧消息并将编辑内容交给统一发送�
     });
   }, async () => {
     const attachment = { id: 'file-2', original_name: 'draft.txt', mime: 'text/plain', size: 12 };
-    const { deps, activeRun, isLoading } = createDeps();
+    const { deps, activeRun, sessionRunStore } = createDeps();
     deps.messages.value = [
       { role: 'user', id: 'msg-1', content: 'first' },
       { role: 'user', id: 'msg-2', content: 'draft', attachments: [attachment] },
@@ -88,7 +97,8 @@ test('confirmEditAndResend 锚定旧消息并将编辑内容交给统一发送�
     assert.equal(deps.messages.value[2].role, 'assistant');
     assert.equal(activeRun.active, true);
     assert.equal(activeRun.runId, 'run-new');
-    assert.equal(isLoading.value, true);
+    assert.equal(sessionRunStore.isLoading, true);
+    assert.equal(sessionRunStore.optimisticCommand.kind, 'send');
     assert.equal(revision.editingMessage.value, null);
   });
 });
@@ -124,8 +134,27 @@ test('confirmEditAndResend 在运行中会被拦截，不发起请求', async ()
   await withMock((mock) => {
     mock.onPost(/\/rollback-and-retry$/).reply(() => { posted = true; return [200, { data: { started: true } }]; });
   }, async () => {
-    const { deps, toasts } = createDeps();
-    deps.isLoading.value = true;
+    const { deps, toasts, sessionRunStore } = createDeps();
+    sessionRunStore.applySessionRuntime({
+      state: 'running',
+      load_strategy: 'attach_run',
+      allowed_actions: ['send_followup', 'stop_run'],
+      active_run: {
+        run_id: 'run-1',
+        status: 'running',
+        execution_owner: 'attached',
+        task: 'running',
+        request_id: 'req-1',
+        execution_kind: 'agent_stream',
+        started_at: '2026-07-30T00:00:00.000Z',
+        updated_at: '2026-07-30T00:00:01.000Z',
+      },
+      last_run: null,
+      pending_interactions: [],
+      resume_interaction_id: null,
+      maintenance: null,
+      observed_at: '2026-07-30T00:00:01.000Z',
+    });
     deps.messages.value = [
       { role: 'user', id: 'msg-1', content: 'first' },
       { role: 'assistant', id: 'msg-2', content: 'reply', finished: true },

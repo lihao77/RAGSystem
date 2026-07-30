@@ -165,7 +165,13 @@ export interface RuntimeStartOrAppendRootInput extends RuntimeStartRunInput {
   deferFollowup?: boolean;
   followupFactory: RuntimeRootFollowupFactory;
   /** Builds the durable terminal event when this distributed start fences an expired prior root. */
-  buildExpiredRunEndedRecord?: (run: { sessionId: string; runId: string; parentRunId: null }) => RuntimeRecordEnvelopeInput;
+  buildExpiredRunEndedRecord?: (run: {
+    sessionId: string;
+    runId: string;
+    parentRunId: null;
+    status: "interrupted" | "suspended";
+    reason: "run_lease_expired" | "backend_restarted_waiting_interaction";
+  }) => RuntimeRecordEnvelopeInput;
 }
 
 export type RuntimeStartOrAppendRootResult =
@@ -293,8 +299,17 @@ export interface RuntimeClaimResumeInput {
   leaseMs?: number;
 }
 
-export interface RuntimeRenewResumeClaimInput { sessionId: string; rootRunId: string; claimId: string; leaseMs?: number }
-export interface RuntimeRenewResumeClaimResult { renewed: boolean; expiresAt: string | null }
+export interface RuntimeAttachResumeInput {
+  sessionId: string;
+  rootRunId: string;
+  claimId: string;
+  batchId: string;
+  record: RuntimeRecordEnvelopeInput;
+}
+export interface RuntimeAttachResumeResult {
+  attached: boolean;
+  record: RuntimeRecordEnvelopeResult | null;
+}
 export interface RuntimeRecoverExpiredResumeClaimsInput {
   sessionId: string;
   /** Optional clock override used by deterministic maintenance tests. */
@@ -334,6 +349,8 @@ export interface RuntimeRollbackResumeInput {
   sessionId: string;
   rootRunId: string;
   claimId: string;
+  /** Allows the immediate post-attach start failure to restore running+resolved back to suspended. */
+  batchId?: string;
 }
 
 export interface RuntimeRollbackResumeResult {
@@ -369,17 +386,28 @@ export interface RuntimeRecoverExpiredRunLeasesInput {
     sessionId: string;
     runId: string;
     parentRunId: null;
+    status: "interrupted" | "suspended";
+    reason: "run_lease_expired" | "backend_restarted_waiting_interaction";
   }): RuntimeRecordEnvelopeInput;
 }
 
 export interface RuntimeRecoverExpiredRunLeasesResult {
   interruptedRuns: Array<{ sessionId: string; runId: string; parentRunId: string | null }>;
+  suspendedRuns: Array<{ sessionId: string; runId: string; parentRunId: string | null }>;
   cancelledInteractions: number;
   records: RuntimeRecordEnvelopeResult[];
 }
 
 export interface RuntimeGetActiveRootRunResult {
   runId: string | null;
+}
+
+export interface RuntimeSessionFacts {
+  session: SessionInfo | null;
+  activeRootRun: RunInfo | null;
+  latestTerminalRootRun: RunInfo | null;
+  pendingInteractions: PendingInteractionRecord[];
+  ownedByCurrentInstance: boolean;
 }
 
 export interface RuntimeConsumePendingFollowupsInput {
@@ -413,7 +441,8 @@ export interface RuntimeAtomicOperations {
   recordInteraction(input: RuntimeRecordInteractionInput): Promise<RuntimeRecordInteractionResult>;
   resolveInteraction(input: RuntimeResolveInteractionInput): Promise<RuntimeResolveInteractionResult>;
   claimResume(input: RuntimeClaimResumeInput): Promise<RuntimeClaimResumeResult>;
-  renewResumeClaim(input: RuntimeRenewResumeClaimInput): Promise<RuntimeRenewResumeClaimResult>;
+  /** Executor is registered; release the short election claim while keeping the resolution retryable. */
+  attachResume(input: RuntimeAttachResumeInput): Promise<RuntimeAttachResumeResult>;
   rollbackResume(input: RuntimeRollbackResumeInput): Promise<RuntimeRollbackResumeResult>;
   interruptSession(input: RuntimeInterruptSessionInput): Promise<RuntimeInterruptSessionResult>;
   recoverExpiredResumeClaims(input: RuntimeRecoverExpiredResumeClaimsInput): Promise<RuntimeRecoverExpiredResumeClaimsResult>;
@@ -423,6 +452,8 @@ export interface RuntimeAtomicOperations {
   recoverExpiredRunLeases?(input: RuntimeRecoverExpiredRunLeasesInput): Promise<RuntimeRecoverExpiredRunLeasesResult>;
   /** Durable session-level activity check used before destructive maintenance commands. */
   getActiveRootRun?(sessionId: string): Promise<RuntimeGetActiveRootRunResult>;
+  /** One authoritative read model for Session lifecycle projection and initial loading. */
+  getSessionRuntimeFacts(sessionId: string): Promise<RuntimeSessionFacts>;
   /** Claims durable follow-ups at a safe round boundary under the root lease fence. */
   consumePendingFollowups(input: RuntimeConsumePendingFollowupsInput): Promise<RuntimeConsumePendingFollowupsResult>;
   claimSessionMaintenance(input: RuntimeSessionMaintenanceInput): Promise<RuntimeClaimSessionMaintenanceResult>;

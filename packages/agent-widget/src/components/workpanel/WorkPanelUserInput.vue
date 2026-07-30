@@ -17,6 +17,7 @@
           class="wpui-textarea"
           :placeholder="inputData.placeholder || '请输入…'"
           rows="3"
+          :disabled="!responseAllowed"
           @keydown.ctrl.enter="submit"
           @keydown.meta.enter="submit"
         />
@@ -30,13 +31,14 @@
             :key="opt.value ?? opt"
             class="wpui-option"
             :class="{ selected: selectedValue === (opt.value ?? opt) }"
+            :disabled="!responseAllowed"
             @click="selectedValue = (opt.value ?? opt)"
           >{{ opt.label ?? opt }}</button>
         </div>
       </template>
 
       <div class="wpui-actions">
-        <button class="wpui-btn wpui-btn--submit" @click="submit">发送</button>
+        <button class="wpui-btn wpui-btn--submit" :disabled="!responseAllowed" @click="submit">发送</button>
         <button class="wpui-btn wpui-btn--cancel" @click="emit('cancel')">停止</button>
       </div>
     </div>
@@ -49,6 +51,7 @@ import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 
 const props = defineProps({
   inputData: { type: Object, default: null },
+  responseAllowed: { type: Boolean, default: false },
 })
 const emit = defineEmits(['submit', 'cancel'])
 
@@ -60,7 +63,7 @@ const options = computed(() => props.inputData?.options || [])
 watch(() => props.inputData, () => { textValue.value = ''; selectedValue.value = null })
 
 function submit() {
-  if (!props.inputData?.input_id) return
+  if (!props.inputData?.input_id || !props.responseAllowed) return
   const value = inputType.value === 'select' ? selectedValue.value : textValue.value
   emit('submit', { inputId: props.inputData.input_id, value })
 }

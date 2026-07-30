@@ -5,6 +5,7 @@ import {
   AttachmentsExtensionSchema,
   ClientToServerEnvelopeSchema,
   ServerToClientEnvelopeSchema,
+  SessionRuntimePayloadSchema,
 } from "../src/protocol.js";
 import {
   EnvelopeDeliveryCursor,
@@ -173,6 +174,38 @@ describe("agent-protocol envelope compatibility", () => {
 
     expect(parsed.payload).toMatchObject({ category: "send", ok: true, kind: "command" });
   });
+
+  it("接受权威 runtime 指定 interaction 的恢复请求", () => {
+    const parsed = ClientToServerEnvelopeSchema.parse({
+      type: "resume",
+      session_id: "session-1",
+      call_id: "interaction-1",
+    });
+
+    expect(parsed).toMatchObject({
+      type: "resume",
+      session_id: "session-1",
+      call_id: "interaction-1",
+    });
+  });
+
+  it("接受 resume ack", () => {
+    const parsed = ServerToClientEnvelopeSchema.parse({
+      type: "ack",
+      session_id: "session-1",
+      payload: {
+        category: "resume",
+        ok: true,
+        ref_call_id: "interaction-1",
+      },
+    });
+
+    expect(parsed.payload).toMatchObject({
+      category: "resume",
+      ok: true,
+      ref_call_id: "interaction-1",
+    });
+  });
 });
 
 describe("Envelope delivery cursor", () => {
@@ -194,5 +227,76 @@ describe("Envelope delivery cursor", () => {
       seq: 5,
       payload: { last_seq: 9 },
     })).toBe(5);
+  });
+});
+
+describe("Session runtime snapshot invariants", () => {
+  const idle = {
+    state: "idle" as const,
+    load_strategy: "history" as const,
+    allowed_actions: ["send_message" as const, "start_maintenance" as const],
+    active_run: null,
+    last_run: null,
+    pending_interactions: [],
+    resume_interaction_id: null,
+    maintenance: null,
+    observed_at: "2026-07-30T00:00:00.000Z",
+  };
+  const activeRun = {
+    run_id: "run-1",
+    status: "running" as const,
+    execution_owner: "attached" as const,
+    task: "task",
+    request_id: "req-1",
+    execution_kind: "agent_stream",
+    started_at: "2026-07-30T00:00:00.000Z",
+    updated_at: "2026-07-30T00:00:01.000Z",
+  };
+
+  it("accepts a canonical idle snapshot", () => {
+    expect(SessionRuntimePayloadSchema.parse(idle)).toEqual(idle);
+  });
+
+  it.each([
+    { ...idle, load_strategy: "attach_run" },
+    { ...idle, active_run: activeRun },
+    {
+      ...idle,
+      state: "waiting_interaction",
+      load_strategy: "attach_run_and_present_interactions",
+      active_run: { ...activeRun, status: "waiting_interaction" },
+    },
+    { ...idle, allowed_actions: ["resume_run"], resume_interaction_id: null },
+    { ...idle, allowed_actions: ["send_message", "send_message"] },
+    { ...idle, allowed_actions: [] },
+    {
+      ...idle,
+      state: "running",
+      load_strategy: "attach_run",
+      active_run: activeRun,
+      allowed_actions: [],
+    },
+  ])("rejects contradictory snapshot %#", (snapshot) => {
+    expect(() => SessionRuntimePayloadSchema.parse(snapshot)).toThrow();
+  });
+
+  it("rejects resolved interactions because resumable resolutions use resume_interaction_id", () => {
+    expect(() => SessionRuntimePayloadSchema.parse({
+      ...idle,
+      state: "suspended",
+      load_strategy: "present_interactions",
+      active_run: { ...activeRun, status: "suspended", execution_owner: "detached" },
+      allowed_actions: ["respond_interaction", "stop_run"],
+      pending_interactions: [{
+        interaction_id: "interaction-1",
+        run_id: "run-1",
+        root_run_id: "run-1",
+        batch_id: "batch-1",
+        kind: "approval",
+        status: "resolved",
+        requested_at: "2026-07-30T00:00:01.000Z",
+        payload: { kind: "approval", phase: "required" },
+      }],
+    })).toThrow();
   });
 });

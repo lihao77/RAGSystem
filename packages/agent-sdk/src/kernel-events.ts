@@ -56,6 +56,8 @@ export interface ToolResultEvent {
   summary: string;
   observation: string;
   metadata: Record<string, unknown>;
+  /** Durable subset used to restore same-round {result_N} references after a process restart. */
+  referenceResult: Record<string, unknown>;
   elapsedTime: number;
   round: number;
   order: number;

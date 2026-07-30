@@ -133,15 +133,6 @@ export interface ExecutionDiagnostics {
   is_running: boolean;
 }
 
-export interface SessionTaskStatus {
-  session_id: string;
-  has_running_task: boolean;
-  has_active_system_command: boolean;
-  task_info: ExecutionTaskStatus | null;
-  observability: ExecutionObservability | null;
-  diagnostics: ExecutionDiagnostics | null;
-}
-
 export interface ScopedExecutionDiagnostics {
   session_id?: string;
   task_id?: string;

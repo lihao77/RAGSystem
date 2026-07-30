@@ -17,9 +17,12 @@ export class PostgresRealtimeEventRelay {
   private readonly projector = new EnvelopeProjector();
   private client: PoolClient | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private catchUpRetryTimer: NodeJS.Timeout | null = null;
   private connecting: Promise<void> | null = null;
+  private notificationChain = Promise.resolve();
   private closed = false;
-  private lastSeenOutboxId = 0;
+  private lastDeliveredAt = "1970-01-01T00:00:00.000Z";
+  private lastDeliveredOutboxId = 0;
 
   constructor(
     private readonly pool: Pool,
@@ -59,8 +62,11 @@ export class PostgresRealtimeEventRelay {
   async close(): Promise<void> {
     this.closed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.catchUpRetryTimer) clearTimeout(this.catchUpRetryTimer);
     this.reconnectTimer = null;
+    this.catchUpRetryTimer = null;
     await this.connecting?.catch(() => undefined);
+    await this.notificationChain.catch(() => undefined);
     const client = this.client;
     this.client = null;
     if (client) {
@@ -95,8 +101,16 @@ export class PostgresRealtimeEventRelay {
       if (recover) {
         await this.catchUp();
       } else {
-        const watermark = await this.executor.query<{ id: number | string }>("SELECT COALESCE(MAX(id),0) AS id FROM event_outbox");
-        this.lastSeenOutboxId = Number(watermark.rows[0]?.id ?? 0);
+        const watermark = await this.executor.query<{ id: number | string; delivered_at: unknown }>(
+          `SELECT id,delivered_at FROM event_outbox
+           WHERE status='delivered' AND delivered_at IS NOT NULL
+           ORDER BY delivered_at DESC,id DESC LIMIT 1`,
+        );
+        const row = watermark.rows[0];
+        if (row) {
+          this.lastDeliveredAt = new Date(String(row.delivered_at)).toISOString();
+          this.lastDeliveredOutboxId = Number(row.id);
+        }
       }
     } catch (error) {
       if (this.client === client) this.client = null;
@@ -109,7 +123,7 @@ export class PostgresRealtimeEventRelay {
 
   private readonly onNotification = (notification: Notification): void => {
     if (notification.channel !== CHANNEL || !notification.payload) return;
-    void this.deliverPayload(notification.payload).catch(() => undefined);
+    this.queueCatchUp();
   };
 
   private readonly onError = (): void => {
@@ -132,31 +146,51 @@ export class PostgresRealtimeEventRelay {
     this.reconnectTimer.unref?.();
   }
 
+  private queueCatchUp(): void {
+    if (this.closed) return;
+    this.notificationChain = this.notificationChain
+      .then(() => this.catchUp())
+      .catch(() => this.scheduleCatchUpRetry());
+  }
+
+  private scheduleCatchUpRetry(): void {
+    if (this.closed || this.catchUpRetryTimer) return;
+    this.catchUpRetryTimer = setTimeout(() => {
+      this.catchUpRetryTimer = null;
+      this.queueCatchUp();
+    }, Math.max(0, this.options.reconnectDelayMs ?? 1_000));
+    this.catchUpRetryTimer.unref?.();
+  }
+
   private async catchUp(): Promise<void> {
     for (;;) {
-      const result = await this.executor.query<{ id: number | string; tenant_id: string }>(
-        "SELECT id,tenant_id FROM event_outbox WHERE status='delivered' AND id>$1 ORDER BY id LIMIT 500",
-        [this.lastSeenOutboxId],
+      const result = await this.executor.query<{
+        id: number | string;
+        tenant_id: string;
+        delivered_at: unknown;
+      }>(
+        `SELECT id,tenant_id,delivered_at FROM event_outbox
+         WHERE status='delivered' AND delivered_at IS NOT NULL
+           AND (delivered_at>$1::timestamptz OR (delivered_at=$1::timestamptz AND id>$2))
+         ORDER BY delivered_at,id LIMIT 500`,
+        [this.lastDeliveredAt, this.lastDeliveredOutboxId],
       );
-      for (const row of result.rows) await this.deliver(Number(row.id), String(row.tenant_id));
+      for (const row of result.rows) {
+        await this.deliver(Number(row.id), String(row.tenant_id));
+        this.lastDeliveredAt = new Date(String(row.delivered_at)).toISOString();
+        this.lastDeliveredOutboxId = Number(row.id);
+      }
       if (result.rows.length < 500) return;
     }
   }
 
-  private async deliverPayload(payload: string): Promise<void> {
-    const parsed = JSON.parse(payload) as { id?: unknown; tenant_id?: unknown };
-    const id = Number(parsed.id);
-    const tenantId = typeof parsed.tenant_id === "string" ? parsed.tenant_id : "";
-    if (!Number.isSafeInteger(id) || id <= 0 || !tenantId) return;
-    await this.deliver(id, tenantId);
-  }
-
   private async deliver(id: number, tenantId: string): Promise<void> {
-    this.lastSeenOutboxId = Math.max(this.lastSeenOutboxId, id);
     const buses = this.buses.get(tenantId);
     if (!buses?.size) return;
     const row = await this.outbox.getOutboxRow(tenantId, id);
-    if (!row || row.status !== "delivered") return;
+    if (!row || row.status !== "delivered") {
+      throw new Error(`delivered outbox row is unavailable: ${tenantId}:${id}`);
+    }
     const event = this.projector.toEnvelope(row);
     for (const bus of buses) bus.acceptRemote(row.session_id, event);
   }

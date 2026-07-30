@@ -11,6 +11,7 @@
       :approval-queue="approvalQueue"
       :approval-submitting-id="approvalSubmittingId"
       :pending-user-input="pendingUserInput"
+      :interaction-response-allowed="interactionResponseAllowed"
       :context-usage="contextUsage"
       :session-id="sessionId"
       :message-key="messageKey"
@@ -40,6 +41,7 @@
         :approval-queue="approvalQueue"
         :approval-submitting-id="approvalSubmittingId"
         :pending-user-input="pendingUserInput"
+        :interaction-response-allowed="interactionResponseAllowed"
         :context-usage="contextUsage"
         :session-id="sessionId"
         :message-key="messageKey"
@@ -81,6 +83,7 @@ defineProps({
   approvalQueue: { type: Array, default: () => [] },
   approvalSubmittingId: { type: String, default: '' },
   pendingUserInput: { type: Object, default: null },
+  interactionResponseAllowed: { type: Boolean, default: false },
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
   sessionId: { type: String, default: '' },
   messageKey: { type: String, default: '' },

@@ -160,7 +160,8 @@ export class OutboxOps {
         .prepare(`
           SELECT ${OUTBOX_SELECT_COLUMNS}
           FROM event_outbox
-          WHERE session_id=? AND session_seq > ? AND run_id IN (${placeholders})
+          WHERE session_id=? AND session_seq > ? AND event_type LIKE 'client.%'
+            AND run_id IN (${placeholders})
           ORDER BY session_seq ASC
           LIMIT ?
         `)
@@ -170,11 +171,23 @@ export class OutboxOps {
       .prepare(`
         SELECT ${OUTBOX_SELECT_COLUMNS}
         FROM event_outbox
-        WHERE session_id=? AND session_seq > ?
+        WHERE session_id=? AND session_seq > ? AND event_type LIKE 'client.%'
         ORDER BY session_seq ASC
         LIMIT ?
       `)
       .all(input.sessionId, afterSeq, limit) as unknown as OutboxRow[];
+  }
+
+  getSessionOutboxWatermark(sessionId: string): number {
+    const row = this.db
+      .prepare(`
+        SELECT COALESCE(MAX(session_seq), 0) AS watermark
+        FROM event_outbox
+        WHERE session_id=? AND event_type LIKE 'client.%'
+      `)
+      .get(sessionId) as { watermark: number | null } | undefined;
+    const watermark = Number(row?.watermark ?? 0);
+    return Number.isSafeInteger(watermark) && watermark >= 0 ? watermark : 0;
   }
 
   getOutboxRow(id: number): OutboxRow | null {

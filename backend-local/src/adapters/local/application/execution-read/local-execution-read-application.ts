@@ -4,7 +4,7 @@ import type { AgentExecutionServiceApi } from "@ragsystem/backend-core/services/
 import { ExecutionReadProjector } from "@ragsystem/backend-core/services/agent/execution/execution-read-projector.js";
 
 type LocalExecutionReader = Pick<AgentExecutionServiceApi,
-  "getSessionTaskStatus" | "getSessionExecutionDiagnostics" | "getTaskStatus" |
+  "getSessionExecutionDiagnostics" | "getTaskStatus" |
   "getTaskExecutionDiagnostics" | "listRunningTasks" | "getOverview">;
 
 /** Local adapter over the in-process execution tracker and persisted overview. */
@@ -13,7 +13,8 @@ export class LocalExecutionReadApplication implements ExecutionReadApplication {
   constructor(
     private readonly execution: LocalExecutionReader,
     private readonly conversations: Pick<ConversationStore,
-      "getPersistedExecutionOverview" | "getSession" | "listRuns" | "listOutboxForReplay">,
+      "getPersistedExecutionOverview" | "getSession" | "listRuns" | "listOutboxForReplay" |
+      "getSessionOutboxWatermark">,
   ) {
     this.projector = new ExecutionReadProjector(execution, {
       getSession: async (sessionId) => conversations.getSession(sessionId),
@@ -24,6 +25,7 @@ export class LocalExecutionReadApplication implements ExecutionReadApplication {
         ...(input.afterSeq != null ? { afterSeq: input.afterSeq } : {}),
         ...(input.limit !== undefined ? { limit: input.limit } : {}),
       }),
+      getSessionOutboxWatermark: async (sessionId) => conversations.getSessionOutboxWatermark(sessionId),
       listRunsForOverview: async (activeOnly) => {
         const overview = conversations.getPersistedExecutionOverview(activeOnly);
         return overview.items.map((item) => ({
@@ -40,7 +42,7 @@ export class LocalExecutionReadApplication implements ExecutionReadApplication {
   getSession(sessionId: string) { return this.projector.getSession(sessionId); }
   listRuns(sessionId: string, limit = 500) { return this.projector.listRuns(sessionId, limit); }
   listOutboxForReplay(input: Parameters<ExecutionReadProjector["listOutboxForReplay"]>[0]) { return this.projector.listOutboxForReplay(input); }
-  getSessionTaskStatus(sessionId: string) { return this.projector.getSessionTaskStatus(sessionId); }
+  getSessionOutboxWatermark(sessionId: string) { return this.projector.getSessionOutboxWatermark(sessionId); }
   getSessionExecutionDiagnostics(sessionId: string) { return this.projector.getSessionExecutionDiagnostics(sessionId); }
   getTaskStatus(taskId: string) { return this.projector.getTaskStatus(taskId); }
   getTaskExecutionDiagnostics(taskId: string) { return this.projector.getTaskExecutionDiagnostics(taskId); }

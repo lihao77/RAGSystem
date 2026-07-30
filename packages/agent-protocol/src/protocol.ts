@@ -21,6 +21,7 @@ export type ProtocolVersion = typeof PROTOCOL_VERSION;
 
 export const EnvelopeTypeSchema = z.enum([
   "session.hello",
+  "session.runtime",
   "heartbeat",
   "session.reconnect",
   "error",
@@ -36,6 +37,7 @@ export const EnvelopeTypeSchema = z.enum([
   "delegate_result",
   "tools.register",
   "interaction",
+  "resume",
   "user_driven_change",
   "abort",
   "capability_manifest",
@@ -90,6 +92,10 @@ export type AttachmentsExtension = z.infer<typeof AttachmentsExtensionSchema>;
 export type HelloPayload = z.infer<typeof HelloPayloadSchema>;
 export type HeartbeatPayload = z.infer<typeof HeartbeatPayloadSchema>;
 export type ReconnectPayload = z.infer<typeof ReconnectPayloadSchema>;
+export type SessionRuntimePayload = z.infer<typeof SessionRuntimePayloadSchema>;
+export type SessionRuntimeState = z.infer<typeof SessionRuntimeStateSchema>;
+export type SessionRuntimeAction = z.infer<typeof SessionRuntimeActionSchema>;
+export type SessionLoadStrategy = z.infer<typeof SessionLoadStrategySchema>;
 export type ErrorPayload = z.infer<typeof ErrorPayloadSchema>;
 export type AckPayload = z.infer<typeof AckPayloadSchema>;
 
@@ -215,7 +221,7 @@ export const ErrorPayloadSchema = z.object({
 export const AckPayloadSchema = z.object({
   ref_message_id: z.string().optional(),
   ref_call_id: z.string().optional(),
-  category: z.enum(["send", "stop", "interaction", "tool_delegate"]),
+  category: z.enum(["send", "stop", "interaction", "resume", "tool_delegate"]),
   ok: z.boolean(),
   kind: z.enum(["agent_run", "command"]).optional(),
   error: z.string().optional(),
@@ -228,7 +234,7 @@ export const RunStartedPayloadSchema = z.object({
 });
 
 export const RunEndedPayloadSchema = z.object({
-  status: z.enum(["completed", "failed", "interrupted"]),
+  status: z.enum(["completed", "failed", "interrupted", "suspended"]),
   reason: z.string().optional(),
 });
 
@@ -339,6 +345,153 @@ export const InteractionPayloadSchema = z.object({
   message: z.string().optional(),
 });
 
+export const SessionRuntimeStateSchema = z.enum([
+  "idle",
+  "running",
+  "waiting_interaction",
+  "suspended",
+  "resuming",
+  "maintenance",
+]);
+
+export const SessionRuntimeActionSchema = z.enum([
+  "send_message",
+  "send_followup",
+  "stop_run",
+  "respond_interaction",
+  "resume_run",
+  "start_maintenance",
+]);
+
+export const SessionLoadStrategySchema = z.enum([
+  "history",
+  "attach_run",
+  "attach_run_and_present_interactions",
+  "present_interactions",
+  "attach_resume",
+  "watch_maintenance",
+]);
+
+export const SessionRuntimeActiveRunSchema = z.object({
+  run_id: z.string().min(1),
+  status: z.enum(["running", "waiting_interaction", "suspended", "resuming"]),
+  execution_owner: z.enum(["attached", "remote", "detached"]),
+  task: z.string(),
+  request_id: z.string().nullable(),
+  execution_kind: z.string(),
+  started_at: z.string(),
+  updated_at: z.string(),
+});
+
+export const SessionRuntimeLastRunSchema = z.object({
+  run_id: z.string().min(1),
+  status: z.enum(["completed", "failed", "interrupted"]),
+  task: z.string(),
+  started_at: z.string(),
+  finished_at: z.string(),
+});
+
+export const SessionPendingInteractionSchema = z.object({
+  interaction_id: z.string().min(1),
+  run_id: z.string().min(1),
+  root_run_id: z.string().min(1),
+  batch_id: z.string().min(1),
+  kind: z.enum(["approval", "user_input"]),
+  status: z.enum(["waiting", "suspended"]),
+  requested_at: z.string(),
+  payload: InteractionPayloadSchema.extend({ phase: z.literal("required") }),
+}).superRefine((interaction, context) => {
+  if (interaction.kind !== interaction.payload.kind) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["payload", "kind"],
+      message: "payload.kind must match interaction kind",
+    });
+  }
+});
+
+export const SessionRuntimeMaintenanceSchema = z.object({
+  kind: z.enum(["rollback", "compact"]),
+  expires_at: z.string(),
+});
+
+export const SessionRuntimePayloadSchema = z.object({
+  state: SessionRuntimeStateSchema,
+  load_strategy: SessionLoadStrategySchema,
+  allowed_actions: z.array(SessionRuntimeActionSchema),
+  active_run: SessionRuntimeActiveRunSchema.nullable(),
+  last_run: SessionRuntimeLastRunSchema.nullable(),
+  pending_interactions: z.array(SessionPendingInteractionSchema),
+  resume_interaction_id: z.string().min(1).nullable(),
+  maintenance: SessionRuntimeMaintenanceSchema.nullable(),
+  observed_at: z.string(),
+}).superRefine((runtime, context) => {
+  const strategies: Record<z.infer<typeof SessionRuntimeStateSchema>, z.infer<typeof SessionLoadStrategySchema>> = {
+    idle: "history",
+    running: "attach_run",
+    waiting_interaction: "attach_run_and_present_interactions",
+    suspended: "present_interactions",
+    resuming: "attach_resume",
+    maintenance: "watch_maintenance",
+  };
+  if (runtime.load_strategy !== strategies[runtime.state]) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["load_strategy"], message: "load strategy does not match state" });
+  }
+  const activeState = runtime.state === "running"
+    || runtime.state === "waiting_interaction"
+    || runtime.state === "suspended"
+    || runtime.state === "resuming";
+  if (activeState !== Boolean(runtime.active_run)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["active_run"], message: "active run presence does not match state" });
+  }
+  if (runtime.active_run && runtime.active_run.status !== runtime.state) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["active_run", "status"], message: "active run status must match state" });
+  }
+  if ((runtime.state === "maintenance") !== Boolean(runtime.maintenance)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["maintenance"], message: "maintenance presence does not match state" });
+  }
+  if (runtime.state === "waiting_interaction" && runtime.pending_interactions.length === 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["pending_interactions"], message: "waiting interaction state requires a pending interaction" });
+  }
+  if (runtime.state !== "waiting_interaction" && runtime.state !== "suspended" && runtime.pending_interactions.length > 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["pending_interactions"], message: "pending interactions are only valid while waiting or suspended" });
+  }
+  if (runtime.state === "suspended" && runtime.pending_interactions.length === 0 && !runtime.resume_interaction_id) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["pending_interactions"], message: "suspended state requires an unresolved or resumable interaction" });
+  }
+  if (runtime.state === "suspended" && runtime.pending_interactions.length > 0 && runtime.resume_interaction_id) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["resume_interaction_id"], message: "suspended state cannot present interactions and resume a resolved batch at the same time" });
+  }
+  if (runtime.active_run?.execution_owner === "detached" && runtime.state !== "suspended") {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["active_run", "execution_owner"], message: "detached ownership is only valid for suspended runs" });
+  }
+  if (runtime.state === "suspended" && runtime.active_run?.execution_owner !== "detached") {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["active_run", "execution_owner"], message: "suspended runs must be detached" });
+  }
+  if ((runtime.allowed_actions.includes("resume_run")) !== Boolean(runtime.resume_interaction_id)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["resume_interaction_id"], message: "resume interaction must match resume_run action" });
+  }
+  if (new Set(runtime.allowed_actions).size !== runtime.allowed_actions.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["allowed_actions"], message: "allowed actions must be unique" });
+  }
+  const owner = runtime.active_run?.execution_owner;
+  const expectedActions: z.infer<typeof SessionRuntimeActionSchema>[] = runtime.state === "idle"
+    ? ["send_message", "start_maintenance"]
+    : runtime.state === "running"
+      ? owner === "attached" ? ["send_followup", "stop_run"] : []
+      : runtime.state === "waiting_interaction"
+        ? owner === "attached" ? ["respond_interaction", "stop_run"] : []
+        : runtime.state === "suspended"
+          ? runtime.pending_interactions.length > 0 ? ["respond_interaction", "stop_run"] : ["resume_run", "stop_run"]
+          : runtime.state === "resuming"
+            ? owner === "attached" ? ["stop_run"] : []
+            : [];
+  const actualActionSet = new Set(runtime.allowed_actions);
+  if (expectedActions.length !== actualActionSet.size || expectedActions.some((action) => !actualActionSet.has(action))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["allowed_actions"], message: "allowed actions do not match state and execution owner" });
+  }
+});
+
 export const UserDrivenChangePayloadSchema = z.object({
   category: z.enum(["task_submit", "message", "redirect", "env_notice"]),
   task: z.string().optional(),
@@ -429,6 +582,7 @@ const typed = <T extends z.ZodRawShape>(shape: T) => ProtocolEnvelopeSchema.exte
 
 export const ServerToClientEnvelopeSchema = z.discriminatedUnion("type", [
   HelloEnvelopeSchema,
+  typed({ type: z.literal("session.runtime"), session_id: z.string().min(1), payload: SessionRuntimePayloadSchema }),
   typed({ type: z.literal("heartbeat"), session_id: z.string().min(1), payload: HeartbeatPayloadSchema.optional() }),
   typed({ type: z.literal("session.reconnect"), session_id: z.string().min(1), payload: ReconnectPayloadSchema }),
   typed({ type: z.literal("error"), session_id: z.string().min(1), payload: ErrorPayloadSchema }),
@@ -458,6 +612,7 @@ export const ClientToServerEnvelopeSchema = z.discriminatedUnion("type", [
   typed({ type: z.literal("user_driven_change"), session_id: z.string().min(1), payload: UserDrivenChangePayloadSchema.extend({ task: z.string().optional().default(""), attachments: z.array(AttachmentRefSchema).optional().default([]) }) }),
   typed({ type: z.literal("abort"), session_id: z.string().min(1), payload: z.object({ scope: z.literal("run"), reason: z.string().optional() }).optional() }),
   typed({ type: z.literal("interaction"), session_id: z.string().min(1), call_id: z.string().min(1), payload: z.object({ kind: z.enum(["approval", "user_input"]), phase: z.literal("responded"), approved: z.boolean().optional(), value: z.string().optional().default(""), message: z.string().optional().default("") }) }),
+  typed({ type: z.literal("resume"), session_id: z.string().min(1), call_id: z.string().min(1), payload: z.object({}).optional() }),
   typed({ type: z.literal("tools.register"), session_id: z.string().min(1), payload: ToolsRegisterPayloadSchema }),
   typed({ type: z.literal("delegate_result"), session_id: z.string().min(1), call_id: z.string().min(1), payload: DelegateResultPayloadSchema }),
 ]);

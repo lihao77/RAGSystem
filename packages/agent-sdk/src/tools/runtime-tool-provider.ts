@@ -12,6 +12,7 @@ import type {
   KernelToolCall,
   ToolProvider,
   ToolExecContext,
+  ToolExecutionResult,
   ToolWaitRequest,
   ToolWaitResult,
 } from "../contracts.js";
@@ -51,7 +52,12 @@ export class RuntimeToolProvider implements ToolProvider {
     this.waitForToolResultFn = options.waitForToolResult;
   }
 
-  async executeRound(ctx: KernelContext, round: number, calls: KernelToolCall[]): Promise<KernelObservation[]> {
+  async executeRound(
+    ctx: KernelContext,
+    round: number,
+    calls: KernelToolCall[],
+    previousResults: ReadonlyMap<number, ToolExecutionResult> = new Map(),
+  ): Promise<KernelObservation[]> {
     const session = ctx.session;
     return executeToolCallRound(calls, {
       registry: this.registry,
@@ -64,6 +70,6 @@ export class RuntimeToolProvider implements ToolProvider {
       events: this.events,
       ...(this.hooks ? { hooks: this.hooks } : {}),
       ...(this.waitForToolResultFn ? { waitForToolResult: this.waitForToolResultFn } : {}),
-    });
+    }, previousResults);
   }
 }

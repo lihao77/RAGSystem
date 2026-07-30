@@ -35,6 +35,7 @@ import type { TenantId } from "../../../identity/types.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { Goal, GoalContinuationReason, GoalStore } from "../../../contracts/runtime/goals.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
+import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
 import { AttachmentsExtensionSchema } from "@ragsystem/agent-protocol";
 
@@ -120,6 +121,7 @@ export interface LauncherDeps {
   backgroundTasks: BackgroundTaskService | null;
   goalStore: GoalStore | null;
   runtimeStorage: RuntimeStorage;
+  clientEvents: ClientEventPublisher;
 }
 
 /**
@@ -142,6 +144,7 @@ class AgentLaunchers {
     private readonly backgroundTasks: BackgroundTaskService | null,
     private readonly goalStore: GoalStore | null,
     private readonly runtimeStorage: RuntimeStorage,
+    private readonly clientEvents: ClientEventPublisher,
   ) {}
 
   private async durableActiveRunId(sessionId: string): Promise<string | null> {
@@ -535,6 +538,7 @@ class AgentLaunchers {
         error: "该会话正在执行任务，请等待完成或停止当前任务",
       };
     }
+    await this.publishRuntimeInvalidation(sessionId, "maintenance_claimed");
 
     let maintenanceLost = false;
     const maintenanceHeartbeat = setInterval(() => {
@@ -637,7 +641,19 @@ class AgentLaunchers {
     } finally {
       clearInterval(maintenanceHeartbeat);
       await this.runtimeStorage.operations.releaseSessionMaintenance({ sessionId, token: maintenanceToken });
+      await this.publishRuntimeInvalidation(sessionId, "maintenance_released");
     }
+  }
+
+  private publishRuntimeInvalidation(sessionId: string, reason: string): Promise<unknown> {
+    return this.clientEvents.publish(sessionId, {
+      type: "state_sync",
+      session_id: sessionId,
+      payload: { category: "session_updated", detail: { entity: "session_runtime", reason } },
+    }, {
+      aggregateType: "session",
+      aggregateId: sessionId,
+    });
   }
 
   /**
@@ -883,6 +899,7 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.backgroundTasks,
     deps.goalStore,
     deps.runtimeStorage,
+    deps.clientEvents,
   );
   return {
     startStream: impl.startStream.bind(impl),

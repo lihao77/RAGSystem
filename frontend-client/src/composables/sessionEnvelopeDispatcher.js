@@ -16,7 +16,9 @@ export function createSessionEnvelopeDispatcher({
   runtime,
   recovery,
   interaction,
-  taskState,
+  applySessionRuntime,
+  finishOptimisticCommand,
+  onRuntimeSnapshot,
   getStop,
   takeFollowupCandidate,
   bindUnassignedFollowupCandidates,
@@ -32,15 +34,9 @@ export function createSessionEnvelopeDispatcher({
   } = state;
   const {
     clearCommandFallback,
-    clearSessionResumeRecovery,
     scheduleCommandFallback,
   } = recovery;
-  const {
-    mergeExecutionObservability,
-    patchTaskInfo,
-    refreshSessionExecutionState,
-  } = taskState;
-
+  const presentedInteractions = new Map();
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event */
   const getEventInteractionId = event => event?.call_id || '';
 
@@ -71,12 +67,17 @@ export function createSessionEnvelopeDispatcher({
   const resetStreamSessionState = () => {
     runtime.resetInternal();
     interaction.reset();
+    presentedInteractions.clear();
+  };
+
+  const resetInteractionPresentation = () => {
+    interaction.reset();
+    presentedInteractions.clear();
   };
 
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {AnyRecord} eventData @param {string} sessionId */
   const handleApprovalRequired = (event, eventData, sessionId) => {
     const approvalData = normalizeApprovalRequiredData(event, eventData);
-    if (!interaction.rememberRequired('approval', approvalData.approval_id)) return;
     activeRun.phase = 'approval_waiting';
     deps.enqueueApproval(event, approvalData, sessionId);
   };
@@ -84,7 +85,6 @@ export function createSessionEnvelopeDispatcher({
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {AnyRecord} eventData */
   const handleUserInputRequired = (event, eventData) => {
     const inputData = normalizeUserInputRequiredData(event, eventData);
-    if (!interaction.rememberRequired('user_input', inputData.input_id)) return;
     /** @param {string} inputId @param {unknown} value */
     const submitUserInput = async (inputId, value) => {
       try {
@@ -222,10 +222,68 @@ export function createSessionEnvelopeDispatcher({
     isCompressing,
     contextUsage,
     llmRetryState,
-    patchTaskInfo,
     handleApprovalRequired,
     handleUserInputRequired,
   });
+
+  /** @param {AnyRecord} snapshot @param {string} sessionId */
+  const applyRuntimeSnapshot = (snapshot, sessionId) => {
+    applySessionRuntime(snapshot);
+    onRuntimeSnapshot?.(sessionId, snapshot);
+    const presentableInteractions = (snapshot.pending_interactions || []).filter(
+      /** @param {AnyRecord} item */
+      item => item.status !== 'resolved',
+    );
+    const nextInteractions = new Map(presentableInteractions.map(
+      /** @param {AnyRecord} item */
+      item => [item.interaction_id, item],
+    ));
+    for (const [interactionId, previous] of presentedInteractions) {
+      const current = nextInteractions.get(interactionId);
+      if (current && current.status === previous.status && current.kind === previous.kind) continue;
+      if (previous.kind === 'approval') deps.handleApprovalResolved(interactionId, sessionId);
+      else deps.handleUserInputResolved?.(interactionId);
+      presentedInteractions.delete(interactionId);
+    }
+    for (const pending of presentableInteractions) {
+      const previous = presentedInteractions.get(pending.interaction_id);
+      if (previous && previous.status === pending.status && previous.kind === pending.kind) continue;
+      const event = /** @type {import('./sessionCoreTypes.js').SessionEnvelope} */ ({
+        type: 'interaction',
+        session_id: sessionId,
+        call_id: pending.interaction_id,
+        run_id: pending.run_id,
+        payload: pending.payload,
+      });
+      const eventData = { ...pending.payload, interaction_status: pending.status };
+      if (pending.kind === 'approval') {
+        deps.enqueueApproval(event, normalizeApprovalRequiredData(event, eventData), sessionId);
+      } else {
+        handleUserInputRequired(event, eventData);
+      }
+      presentedInteractions.set(pending.interaction_id, { kind: pending.kind, status: pending.status });
+    }
+    const attachStrategies = new Set(['attach_run', 'attach_run_and_present_interactions', 'attach_resume']);
+    if (!snapshot.active_run || !attachStrategies.has(snapshot.load_strategy)) return;
+    const runId = snapshot.active_run.run_id;
+    let assistantMsgIndex = messages.value.findIndex(message => message?.role === 'assistant'
+      && (message?.run_id === runId || message?.metadata?.run_id === runId)
+      && message.finished !== true);
+    if (assistantMsgIndex < 0) {
+      const lastMessage = messages.value[messages.value.length - 1];
+      if (lastMessage?.role === 'assistant' && !lastMessage.finished) {
+        assistantMsgIndex = messages.value.length - 1;
+        lastMessage.run_id = runId;
+        lastMessage.metadata = { ...(lastMessage.metadata || {}), run_id: runId };
+      } else {
+        messages.value.push(deps.createAssistantMessage({ run_id: runId, metadata: { run_id: runId } }));
+        assistantMsgIndex = messages.value.length - 1;
+      }
+    }
+    activeRun.assistantMsgIndex = assistantMsgIndex;
+    activeRun.runId = runId;
+    if (!activeRun.phase || activeRun.phase === 'idle') activeRun.phase = 'llm_waiting_first_token';
+  };
 
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
   const handleEnvelope = (event, sessionId) => {
@@ -235,11 +293,14 @@ export function createSessionEnvelopeDispatcher({
     const payload = event.payload || {};
 
     if (eventType === 'heartbeat') return;
+    if (eventType === 'session.runtime') {
+      applyRuntimeSnapshot(payload, sessionId);
+      return;
+    }
     if (activeRun.active || isLoading.value) runtime.observeDeliverySeq(event);
 
     if (eventType === 'session.reconnect') {
       const phase = payload.phase;
-      clearSessionResumeRecovery();
       activeRun.isReplaying = true;
       if (phase === 'start') {
         if (runtime.isDurableOutboxReplayEnvelope(event)) {
@@ -247,24 +308,6 @@ export function createSessionEnvelopeDispatcher({
           return;
         }
         runtime.setDurableReplay({ active: false });
-        if (!isLoading.value) {
-          isLoading.value = true;
-          const lastMsg = messages.value[messages.value.length - 1];
-          if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
-            messages.value.push(deps.createAssistantMessage());
-          }
-          activeRun.active = true;
-          activeRun.assistantMsgIndex = messages.value.length - 1;
-          activeRun.runId = event.run_id || null;
-          activeRun.lastSeenSeq = 0;
-          if (!activeRun.phase || activeRun.phase === 'idle') {
-            activeRun.phase = 'llm_waiting_first_token';
-            activeRun.runStartedAt = runtime.eventTimestampSeconds(event);
-          }
-        }
-        if (event.run_id) {
-          patchTaskInfo({ run_id: event.run_id, session_id: sessionId, status: 'running' });
-        }
         return;
       }
       if (runtime.isDurableOutboxReplayEnvelope(event)) runtime.setDurableReplay({ active: false });
@@ -284,10 +327,8 @@ export function createSessionEnvelopeDispatcher({
             currentMsg.content = `\n\n[System Error: ${payload.error || '启动执行失败'}]`;
             currentMsg.finished = true;
           }
-          patchTaskInfo({ status: 'failed' });
-          activeRun.active = false;
+          finishOptimisticCommand();
           runtime.resetActiveRunRuntime();
-          isLoading.value = false;
           return;
         }
         if (activeRun.active && startupPhases.has(activeRun.phase)) {
@@ -299,19 +340,13 @@ export function createSessionEnvelopeDispatcher({
       if (category === 'interaction') {
         const refCallId = payload.ref_call_id || '';
         if (payload.ok) {
-          if (interaction.hasPending(refCallId)) {
-            interaction.resolve(refCallId);
-            return;
-          }
-          if (activeRun.active && activeRun.phase === 'approval_waiting') activeRun.phase = 'tool_running';
-          deps.handleApprovalResolved(refCallId, sessionId);
+          if (interaction.hasPending(refCallId)) interaction.resolve(refCallId);
           return;
         }
         if (interaction.hasPending(refCallId)) {
           interaction.reject(refCallId, payload.error || '用户输入提交失败');
           return;
         }
-        deps.handleApprovalResolved(refCallId, sessionId);
         deps.showToast(payload.error || '交互提交失败', 'warning');
         return;
       }
@@ -326,15 +361,11 @@ export function createSessionEnvelopeDispatcher({
 
     if (eventType === 'interaction' && payload.phase === 'responded') {
       const refCallId = event.call_id || '';
-      if (payload.kind === 'approval') {
-        if (activeRun.active && activeRun.phase === 'approval_waiting') {
-          activeRun.phase = payload.approved === false ? 'llm_waiting_first_token' : 'tool_running';
-        }
-        deps.handleApprovalResolved(refCallId, sessionId);
-      }
       if (interaction.hasPending(refCallId)) interaction.resolve(refCallId);
       return;
     }
+
+    if (eventType === 'interaction' && payload.phase === 'required') return;
 
     if (eventType === 'run_started') {
       runtime.resetPendingReconciliation();
@@ -370,7 +401,6 @@ export function createSessionEnvelopeDispatcher({
           }));
         }
         messages.value.push(deps.createAssistantMessage({ run_id: nextRunId }));
-        activeRun.active = true;
         activeRun.assistantMsgIndex = messages.value.length - 1;
         activeRun.lastSeenSeq = 0;
         activeRun.isReplaying = runtime.isDurableReplayActive();
@@ -380,9 +410,6 @@ export function createSessionEnvelopeDispatcher({
       if (activeRun.phase === 'idle' || !activeRun.runStartedAt || startupPhases.has(activeRun.phase)) {
         runtime.startActiveRunRuntime(event);
       }
-      isLoading.value = true;
-      patchTaskInfo({ run_id: nextRunId, session_id: sessionId, status: 'running' });
-      refreshSessionExecutionState(sessionId, { silent: true });
       nextTick(() => deps.scrollToBottom(true));
       return;
     }
@@ -411,7 +438,6 @@ export function createSessionEnvelopeDispatcher({
         }
         if (runtime.isRecentlyFinalizedUpdate(event, sessionId)) {
           if (typeof deps.mergeMessageIdsFromServer === 'function') deps.mergeMessageIdsFromServer(sessionId);
-          refreshSessionExecutionState(sessionId, { silent: true });
           return;
         }
         if (!isLoading.value && !activeRun.active) {
@@ -442,7 +468,7 @@ export function createSessionEnvelopeDispatcher({
           data: detail.data || null,
         };
         targetMsg.finished = true;
-        isLoading.value = false;
+        finishOptimisticCommand();
         deps.deleteMessageCache(sessionId);
         deps.loadSessionMessages(sessionId, { silent: true });
         nextTick(() => deps.scrollToBottom(true));
@@ -452,25 +478,24 @@ export function createSessionEnvelopeDispatcher({
 
     if (eventType === 'run_ended') {
       const terminalStatus = runtime.terminalStatusFromEvent(event);
+      if (terminalStatus === 'suspended') return;
       const currentMsg = messages.value[activeRun.assistantMsgIndex];
       if (currentMsg) {
         if (terminalStatus === 'interrupted') currentMsg.stopped = true;
         if (terminalStatus === 'failed') currentMsg.run_failed = true;
       }
       if (terminalStatus === 'interrupted' || terminalStatus === 'failed') deps.resetApprovalState?.();
-      patchTaskInfo({ thread_alive: false, status: terminalStatus });
       runtime.finalizeActiveRun(sessionId);
       return;
     }
 
-    if (activeRun.active) {
+    if (activeRun.assistantMsgIndex >= 0) {
       const currentMsg = messages.value[activeRun.assistantMsgIndex];
       if (currentMsg) {
-        mergeExecutionObservability(event);
         handleRunEvent(event, currentMsg, sessionId);
       }
     }
   };
 
-  return { handleEnvelope, handleRunEvent, resetStreamSessionState };
+  return { handleEnvelope, handleRunEvent, resetStreamSessionState, resetInteractionPresentation };
 }

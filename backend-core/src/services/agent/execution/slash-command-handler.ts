@@ -208,6 +208,7 @@ export class SlashCommandHandler {
         content: "该会话正在执行任务或维护操作，请稍后再压缩",
       };
     }
+    await this.publishRuntimeInvalidation(input.sessionId, "maintenance_claimed");
     let maintenanceLost = false;
     const maintenanceHeartbeat = setInterval(() => {
       void this.runtimeStorage.operations.renewSessionMaintenance({
@@ -289,8 +290,20 @@ export class SlashCommandHandler {
           sessionId: input.sessionId,
           token: maintenanceToken,
         });
+        await this.publishRuntimeInvalidation(input.sessionId, "maintenance_released");
       }
     }
+  }
+
+  private publishRuntimeInvalidation(sessionId: string, reason: string): Promise<unknown> {
+    return this.clientEvents.publish(sessionId, {
+      type: "state_sync",
+      session_id: sessionId,
+      payload: { category: "session_updated", detail: { entity: "session_runtime", reason } },
+    }, {
+      aggregateType: "session",
+      aggregateId: sessionId,
+    });
   }
 }
 

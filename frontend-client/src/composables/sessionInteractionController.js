@@ -28,13 +28,12 @@ const buildInteractionPayload = (response) => {
 export function createSessionInteractionController({
   getCurrentSessionId,
   getSocket,
+  getSessionRuntime,
   respondHttp = respondInteractionApi,
   ackTimeoutMs = INTERACTION_ACK_TIMEOUT_MS,
 }) {
   /** @type {Map<string, { resolve: (value?: any) => void, reject: (error: Error) => void, timer: ReturnType<typeof setTimeout> }>} */
   const pendingInteractions = new Map();
-  /** @type {Set<string>} */
-  const handledRequiredInteractions = new Set();
 
   /** @param {string} callId */
   const clearPending = (callId) => {
@@ -110,6 +109,14 @@ export function createSessionInteractionController({
   /** @param {string} interactionId @param {import('./sessionCoreTypes.js').InteractionResponse} response */
   const respond = async (interactionId, response) => {
     const sessionId = getCurrentSessionId();
+    const runtime = getSessionRuntime();
+    if (!runtime?.allowed_actions?.includes('respond_interaction')) {
+      throw new Error('当前 Session runtime 不允许响应交互');
+    }
+    const pending = Array.isArray(runtime.pending_interactions) ? runtime.pending_interactions : [];
+    if (!pending.some(item => item?.interaction_id === interactionId)) {
+      throw new Error('交互请求已失效，请等待 Session runtime 刷新');
+    }
     const socket = getSocket();
     if (isOpenWebSocket(socket)) {
       try {
@@ -126,17 +133,7 @@ export function createSessionInteractionController({
     await submitHttp(sessionId, interactionId, response);
   };
 
-  /** @param {string} kind @param {string} interactionId */
-  const rememberRequired = (kind, interactionId) => {
-    if (!interactionId) return true;
-    const key = `${kind || 'unknown'}:${interactionId}`;
-    if (handledRequiredInteractions.has(key)) return false;
-    handledRequiredInteractions.add(key);
-    return true;
-  };
-
   const reset = () => {
-    handledRequiredInteractions.clear();
     for (const pending of pendingInteractions.values()) {
       clearTimeout(pending.timer);
       pending.reject(new Error('会话已切换，交互提交已取消'));
@@ -144,5 +141,5 @@ export function createSessionInteractionController({
     pendingInteractions.clear();
   };
 
-  return { respond, hasPending, resolve, reject, rememberRequired, reset };
+  return { respond, hasPending, resolve, reject, reset };
 }

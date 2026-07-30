@@ -7,8 +7,6 @@ import {
   getDurableCursorSeq,
   getDurableEventSeq,
   normalizeEventSeq,
-  shouldRefreshSessionMessagesAfterResume,
-  shouldRunResumeRecoveryWatchdog,
 } from './sessionSocket.js';
 
 const OPEN = 1;
@@ -82,71 +80,4 @@ test('缺少必要参数时不会复用', () => {
   assert.equal(canReuseSessionSocket('', 'session-1', { readyState: OPEN }), false);
   assert.equal(canReuseSessionSocket('session-1', '', { readyState: OPEN }), false);
   assert.equal(canReuseSessionSocket('session-1', 'session-1', null), false);
-});
-
-test('后台仍在运行时不会强制刷新消息', () => {
-  assert.equal(shouldRefreshSessionMessagesAfterResume({
-    hasRunningTask: true,
-    activeRun: true,
-    messages: [{ role: 'assistant', finished: false }],
-  }), false);
-});
-
-test('存在未完成 assistant 消息且后台已结束时会刷新消息', () => {
-  assert.equal(shouldRefreshSessionMessagesAfterResume({
-    hasRunningTask: false,
-    activeRun: false,
-    messages: [{ role: 'assistant', finished: false }],
-  }), true);
-});
-
-test('最后停在用户消息且后台已结束时不再刷新（后端 task 状态是终态）', () => {
-  assert.equal(shouldRefreshSessionMessagesAfterResume({
-    hasRunningTask: false,
-    activeRun: false,
-    messages: [
-      { role: 'assistant', finished: true },
-      { role: 'user', metadata: {}, finished: true },
-    ],
-  }), false);
-});
-
-test('后台已结束但前端仍有活跃 run 时会刷新消息', () => {
-  assert.equal(shouldRefreshSessionMessagesAfterResume({
-    hasRunningTask: false,
-    activeRun: true,
-    messages: [],
-  }), true);
-});
-
-test('最后是已完成 assistant 消息时不刷新消息', () => {
-  assert.equal(shouldRefreshSessionMessagesAfterResume({
-    hasRunningTask: false,
-    activeRun: false,
-    messages: [
-      { role: 'user', metadata: {}, finished: true },
-      { role: 'assistant', finished: true },
-    ],
-  }), false);
-});
-
-test('运行中且不是系统命令时启用恢复 watchdog', () => {
-  assert.equal(shouldRunResumeRecoveryWatchdog({
-    hasRunningTask: true,
-    hasActiveSystemCommand: false,
-  }), true);
-});
-
-test('系统命令运行中时不启用恢复 watchdog', () => {
-  assert.equal(shouldRunResumeRecoveryWatchdog({
-    hasRunningTask: true,
-    hasActiveSystemCommand: true,
-  }), false);
-});
-
-test('后台未运行时不启用恢复 watchdog', () => {
-  assert.equal(shouldRunResumeRecoveryWatchdog({
-    hasRunningTask: false,
-    hasActiveSystemCommand: false,
-  }), false);
 });

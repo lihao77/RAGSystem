@@ -27,6 +27,10 @@ import {
   type AckPayload,
   type HeartbeatPayload,
   type ReconnectPayload,
+  type SessionRuntimePayload,
+  type SessionRuntimeState,
+  type SessionRuntimeAction,
+  type SessionLoadStrategy,
   type ErrorPayload,
   type CapabilityManifestPayload,
   type HelloPayload,
@@ -36,6 +40,7 @@ import {
   type DelegatedToolDeclaration,
   type ToolsRegisterPayload,
   DelegatedToolDeclarationSchema,
+  SessionRuntimePayloadSchema,
 } from "@ragsystem/agent-protocol/wire";
 
 export type {
@@ -55,6 +60,10 @@ export type {
   AckPayload,
   HeartbeatPayload,
   ReconnectPayload,
+  SessionRuntimePayload,
+  SessionRuntimeState,
+  SessionRuntimeAction,
+  SessionLoadStrategy,
   ErrorPayload,
   CapabilityManifestPayload,
   HelloPayload,
@@ -65,7 +74,7 @@ export type {
   ToolsRegisterPayload,
 };
 
-export { EnvelopeTypeSchema, DelegatedToolDeclarationSchema, ClientToServerEnvelopeSchema };
+export { EnvelopeTypeSchema, DelegatedToolDeclarationSchema, SessionRuntimePayloadSchema, ClientToServerEnvelopeSchema };
 
 /* ============================================================
  * 上行 envelope（host → runtime）校验

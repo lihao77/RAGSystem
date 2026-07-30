@@ -96,6 +96,7 @@ export type ExecutionRunReadRepositoryPort = Pick<AsyncRunStore, "listRuns" | "g
 
 export interface ExecutionReplayRepositoryPort {
   listOutboxForReplay(input: { tenantId: string; sessionId: string; runIds?: readonly string[] | null; afterSeq?: number; limit?: number }): Promise<OutboxRow[]>;
+  getSessionOutboxWatermark(tenantId: string, sessionId: string): Promise<number>;
 }
 
 export type AnalyticsRepositoryPort = Pick<AsyncAnalyticsRepository,

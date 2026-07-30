@@ -113,11 +113,19 @@ test('输入框底部不再渲染拖拽提示文案', async () => {
   assert.equal(source.includes('input-dropzone-hint'), false);
 });
 
-test('运行中允许通过 canSendWhileLoading 继续发送文本补充', async () => {
+test('发送、停止、恢复和附件能力只由显式运行时动作投影控制', async () => {
   const filePath = new URL('./ChatInput.vue', import.meta.url);
   const source = await readFile(filePath, 'utf8');
 
-  assert.equal(source.includes('canSendWhileLoading'), true);
-  assert.equal(source.includes('(props.isLoading && !props.canSendWhileLoading)'), true);
-  assert.equal(source.includes('v-else\n              class="send-btn"'), false);
+  assert.equal(source.includes('canSendWhileLoading'), false);
+  assert.equal(source.includes('isLoading'), false);
+  assert.equal(source.includes('const sendDisabled = computed(() => !props.canSend'), true);
+  assert.equal(source.includes('v-if="canResume"'), true);
+  assert.equal(source.includes('<span>继续运行</span>'), true);
+  assert.equal(source.includes("if (props.canResume) {\n    emit('resume');"), true);
+  assert.equal(source.includes('继续运行后再发送'), true);
+  assert.equal(source.includes('v-if="canResume && canStop"'), true);
+  assert.equal(source.includes('aria-label="结束挂起任务"'), true);
+  assert.equal(source.includes('v-else-if="canStop && sendDisabled"'), true);
+  assert.equal(source.includes(':disabled="!canAttach"'), true);
 });

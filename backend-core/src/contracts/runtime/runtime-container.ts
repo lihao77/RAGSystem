@@ -28,6 +28,7 @@ import type { DelegationPendingService } from "../../services/runtime/delegation
 import type { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
 import type { PermissionPolicyService } from "../../services/runtime/permission-policy-service.js";
 import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
+import type { SessionRuntimeService } from "../../services/runtime/session-runtime-service.js";
 import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import type { GoalStore } from "./goals.js";
 import type {
@@ -84,6 +85,7 @@ export interface RuntimeContainerBase {
   readonly agentDelegation: AgentDelegationService;
   readonly eventDispatcher: RuntimeEventDispatcherPort;
   readonly clientEvents: ClientEventPublisherPort;
+  readonly sessionRuntime: SessionRuntimeService;
   readonly dataRoot: string;
   close(): void;
 }

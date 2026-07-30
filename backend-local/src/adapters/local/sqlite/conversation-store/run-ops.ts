@@ -121,6 +121,34 @@ export class RunOps {
     return { items, total: totalRow.cnt };
   }
 
+  listActiveRootRuns(sessionId: string, limit = 2): RunInfo[] {
+    const rows = this.db.prepare(`
+      SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
+             request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+             child_agent_id, final_message_id, created_at, updated_at
+      FROM runs
+      WHERE session_id=? AND parent_run_id IS NULL AND child_agent_id IS NULL
+        AND status IN ('running', 'suspended')
+      ORDER BY updated_at DESC, created_at DESC, run_id DESC
+      LIMIT ?
+    `).all(sessionId, limit) as unknown as RunRow[];
+    return rows.map(rowToRun);
+  }
+
+  getLatestTerminalRootRun(sessionId: string): RunInfo | null {
+    const row = this.db.prepare(`
+      SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
+             request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+             child_agent_id, final_message_id, created_at, updated_at
+      FROM runs
+      WHERE session_id=? AND parent_run_id IS NULL AND child_agent_id IS NULL
+        AND status IN ('completed', 'failed', 'interrupted')
+      ORDER BY updated_at DESC, created_at DESC, run_id DESC
+      LIMIT 1
+    `).get(sessionId) as RunRow | undefined;
+    return row ? rowToRun(row) : null;
+  }
+
   addRunStep(input: AddRunStepInput): RunStepRecord {
     return runInTransaction(this.db, () => this.addRunStepInTransaction(input));
   }

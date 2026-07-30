@@ -62,6 +62,10 @@ export function useApprovalQueue(deps) {
       hideApprovalDialogs();
       return;
     }
+    if (deps.canRespondInteraction && !deps.canRespondInteraction()) {
+      hideApprovalDialogs();
+      return;
+    }
     // File preview confirmations keep their dedicated dialog even while the unified runtime
     // center is open; ordinary approvals render inline in the execution tab.
     if (deps.showWorkPanel.value && nextApproval.approval_type !== 'file_read_confirm') return;
@@ -86,12 +90,14 @@ export function useApprovalQueue(deps) {
     if (!approvalId || approvalSubmittingId.value) return;
     const sid = sessionId || deps.currentSessionId.value;
     if (!sid) return;
+    if (deps.canRespondInteraction && !deps.canRespondInteraction()) {
+      deps.showToast('当前 Session runtime 不允许响应交互', 'warning');
+      return;
+    }
     approvalSubmittingId.value = approvalId;
     try {
       await deps.respondInteraction(approvalId, { kind: 'approval', approved, message });
-      handleApprovalResolved(approvalId, sid);
     } catch (error) {
-      removeApprovalFromQueue(approvalId);
       approvalSubmittingId.value = '';
       console.warn('审批响应失败:', error);
       deps.showToast(error.message || '审批提交失败', 'warning');
@@ -103,11 +109,12 @@ export function useApprovalQueue(deps) {
   const handleWorkPanelUserInputSubmit = async ({ inputId, value } = {}) => {
     const pending = pendingUserInput.value;
     if (!pending?.submit) return;
+    if (deps.canRespondInteraction && !deps.canRespondInteraction()) {
+      deps.showToast('当前 Session runtime 不允许响应交互', 'warning');
+      return;
+    }
     try {
       await pending.submit(inputId, value);
-      if (pendingUserInput.value === pending) {
-        pendingUserInput.value = null;
-      }
     } catch (_) {
       if (!pendingUserInput.value) {
         pendingUserInput.value = pending;
@@ -125,13 +132,23 @@ export function useApprovalQueue(deps) {
     await pending.cancel();
   };
 
+  const handleUserInputResolved = (inputId) => {
+    const currentId = pendingUserInput.value?.data?.input_id
+      || pendingUserInput.value?.data?.interaction_id;
+    if (!inputId || currentId !== inputId) return;
+    pendingUserInput.value = null;
+    deps.approvalQueueHostRef.value?.hideUserInput?.();
+  };
+
   const showUserInput = (eventData, submitFn, cancelFn) => {
     openExecutionPanel();
     if (deps.showWorkPanel.value) {
       pendingUserInput.value = { data: eventData, submit: submitFn, cancel: cancelFn };
       return;
     }
-    deps.approvalQueueHostRef.value?.showUserInput?.(eventData, submitFn, cancelFn);
+    if (!deps.canRespondInteraction || deps.canRespondInteraction()) {
+      deps.approvalQueueHostRef.value?.showUserInput?.(eventData, submitFn, cancelFn);
+    }
   };
 
   const resetApprovalState = () => {
@@ -164,5 +181,6 @@ export function useApprovalQueue(deps) {
     resetApprovalState,
     handleWorkPanelUserInputSubmit,
     handleWorkPanelUserInputCancel,
+    handleUserInputResolved,
   };
 }

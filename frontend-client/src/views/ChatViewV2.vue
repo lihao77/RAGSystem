@@ -15,7 +15,7 @@
         :workspace-display="sessionWorkspaceDisplay"
         :execution-status-text="executionStatusText"
         :show-execution-status="showExecutionPill"
-        :execution-observability="sessionExecutionObservability"
+        :execution-observability="runtimeObservability"
         @open-mobile-sidebar="openMobileSidebar"
         @export-session="exportCurrentSession"
         @open-file-changes="fileChangesOpen = true"
@@ -84,10 +84,13 @@
             ref="chatInputRef"
             v-model="inputMessage"
             :attachments="pendingAttachments"
-            :isLoading="isLoading"
-            :can-send-while-loading="_activeRun.active"
+            :can-send="canSendMessage"
+            :can-stop="canStopRun"
+            :can-resume="canResumeRun"
+            :can-attach="canAttachFiles"
             @send="handleSend"
             @stop="handleStop"
+            @resume="handleResume"
             @openAttachments="() => openSessionFilesDrawer('composer')"
             @removeAttachment="removePendingAttachment"
             @pasteFiles="handleSessionFileSelect"
@@ -137,6 +140,7 @@
      :approval-queue="approvalQueue"
       :approval-submitting-id="approvalSubmittingId"
       :pending-user-input="pendingUserInput"
+      :interaction-response-allowed="canRespondInteraction"
       :context-usage="contextUsage"
       :session-id="currentSessionId || ''"
       :is-wide-screen="isWideScreen"
@@ -194,7 +198,7 @@
       :artifact-id="situationArtifactId"
       :map-data="situationMapData"
       :messages="messages"
-      :is-streaming="isLoading"
+      :is-streaming="isStreaming"
       :situation-info="situationInfo"
       @close="situationScreenActive = false"
       @send-message="handleSituationSendMessage"
@@ -205,10 +209,9 @@
 <script setup>
 import { ref, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, watch, inject, provide, reactive } from 'vue';
 import { useRoute } from 'vue-router';
-import { shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
 import { useChatSessionController } from '../composables/useChatSessionController';
 import { useSessionAgentClient } from '../composables/useSessionAgentClient';
-import { useSessionTaskStatus } from '../composables/useSessionTaskStatus';
+import { useSessionRuntimeStatus } from '../composables/useSessionRuntimeStatus';
 import { useSessionMessages } from '../composables/useSessionMessages';
 import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
@@ -263,8 +266,8 @@ const {
   currentSessionId,
   isLoading,
   isCompressing,
-  sessionTaskInfo,
-  sessionExecutionObservability,
+  sessionRuntime,
+  runtimeObservability,
   contextUsage,
   pendingFollowupCandidates,
 } = storeToRefs(sessionRunStore);
@@ -426,20 +429,8 @@ const {
   endInitialScrollRestore,
 });
 
-const {
-  loadContextSnapshot,
-  checkSessionTaskStatus, clearExecutionState: _clearExecutionStateBase,
-} = useSessionTaskStatus({
-  shouldRefreshFn: shouldRefreshSessionMessagesAfterResume,
-  shouldRunWatchdogFn: shouldRunResumeRecoveryWatchdog,
-  invalidateActiveStream: () => invalidateActiveStream(),
-  loadSessionMessages,
-  deleteMessageCache,
-  createAssistantMessage,
-  scheduleCommandFallback: (...a) => scheduleCommandFallback(...a),
-  scheduleResumeRecovery: (...a) => scheduleSessionResumeRecovery(...a),
+const { loadContextSnapshot, clearExecutionState: _clearExecutionStateBase } = useSessionRuntimeStatus({
   clearLlmRetryState,
-  mergeExecutionObservability: (payload) => mergeExecutionObservability(payload),
 });
 
 const {
@@ -455,8 +446,7 @@ const {
   activeRun: _activeRun,
   llmRetryState,
   formatRetryCountdown,
-  sessionTaskInfo,
-  sessionExecutionObservability,
+  sessionRuntime,
   contextUsage,
 });
 
@@ -483,6 +473,7 @@ const {
   showUserInput,
   handleWorkPanelUserInputSubmit,
   handleWorkPanelUserInputCancel,
+  handleUserInputResolved,
 } = useApprovalQueue({
   showWorkPanel: visibleWorkPanel,
   openExecutionPanel: () => openRuntimeCenter('execution'),
@@ -490,10 +481,21 @@ const {
   approvalQueueHostRef,
   filePreviewDialogRef,
   respondInteraction: (id, response) => respondInteraction(id, response),
+  canRespondInteraction: () => sessionRunStore.allowsRuntimeAction('respond_interaction'),
   showToast,
 });
 
 const hasMessages = computed(() => messages.value.length > 0);
+const runtimeActions = computed(() => new Set(sessionRuntime.value?.allowed_actions || []));
+const canSendMessage = computed(() => !currentSessionId.value
+  || runtimeActions.value.has('send_message')
+  || runtimeActions.value.has('send_followup'));
+const canStopRun = computed(() => runtimeActions.value.has('stop_run'));
+const canResumeRun = computed(() => runtimeActions.value.has('resume_run'));
+const canRespondInteraction = computed(() => runtimeActions.value.has('respond_interaction'));
+const canAttachFiles = computed(() => !currentSessionId.value || runtimeActions.value.has('send_message'));
+const isStreaming = computed(() => sessionRuntime.value?.state === 'running'
+  || sessionRuntime.value?.state === 'resuming');
 // Layout phase (has-messages/workbench) + transient motion flags on .chat-main,
 // consolidated to a single source of truth. is-new-chat dropped (== !has-messages).
 const chatMainClasses = computed(() => ({
@@ -505,14 +507,14 @@ const chatMainClasses = computed(() => ({
 }));
 
 const {
-  invalidateActiveStream, scheduleCommandFallback,
-  scheduleSessionResumeRecovery,
+  invalidateActiveStream,
   connectSessionWS, disconnectSessionWS, resetSessionEventCursor,
   resetStreamSessionState,
   send: sendSessionMessage,
   stop: handleStop,
+  resume: handleResume,
   respondInteraction,
-  mergeExecutionObservability,
+  waitForSessionRuntime,
 } = useSessionAgentClient({
   createAssistantMessage,
   cacheMessages,
@@ -528,6 +530,7 @@ const {
   handleApprovalResolved,
   showUserInput,
   resetApprovalState,
+  handleUserInputResolved,
   clearLlmRetryState,
   setLlmRetryState,
   checkSituationScreenTrigger: (...a) => checkSituationScreenTrigger(...a),
@@ -591,7 +594,6 @@ const {
   showToast,
   cacheMessages,
   activeRun: _activeRun,
-  isLoading,
   materializeAttachmentsForSend,
   getCurrentSelectedLlm,
   reloadSessionMessages: (sessionId) => loadSessionMessages(sessionId),
@@ -654,7 +656,7 @@ const {
   invalidateActiveStream,
   resetSessionEventCursor,
   clearExecutionState: (...a) => clearExecutionState(...a),
-  checkSessionTaskStatus,
+  waitForSessionRuntime,
   clearComposerAttachments,
   showToast,
 });
@@ -753,7 +755,6 @@ watch(
       currentSessionId.value = null;
       messages.value = [];
       contextUsage.value = null;
-      isLoading.value = false;
       await nextTick();
       resetScrollPosition(false);
       return;
@@ -767,7 +768,6 @@ watch(
       currentSessionId.value = 'smoke-artifact-session';
       messages.value = createSmokeArtifactMessages();
       contextUsage.value = { used: 1840, max: 8192 };
-      isLoading.value = false;
       await nextTick();
       scrollToBottom(true);
       return;

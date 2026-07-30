@@ -14,7 +14,7 @@
             type="button"
             class="attachment-preview-remove"
             @click="emit('removeAttachment', attachment)"
-            :disabled="isLoading"
+            :disabled="!canAttach"
             aria-label="移除附件"
           >
             <IconClose :size="14" />
@@ -23,12 +23,16 @@
       </div>
 
       <div class="composer-shell">
+        <div v-if="canResume" class="resume-banner" role="status">
+          <IconPlay :size="16" aria-hidden="true" />
+          <span>任务已挂起，继续后将恢复原执行；当前草稿会保留</span>
+        </div>
         <div class="input-wrapper">
           <textarea
             v-model="inputText"
             @keydown.enter.prevent="handleEnter"
             @paste="handlePaste"
-            placeholder="描述你想让 Agent 完成的任务..."
+            :placeholder="composerPlaceholder"
             rows="1"
             ref="textareaRef"
             data-composer
@@ -42,7 +46,7 @@
               size="icon"
               aria-label="添加图片或文件"
               title="添加图片或文件"
-              :disabled="isLoading"
+              :disabled="!canAttach"
               @click="emit('openAttachments')"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="attachment-icon">
@@ -58,7 +62,29 @@
           <div class="input-footer-right">
             <slot name="rightActions" />
             <Button
-              v-if="isLoading && sendDisabled"
+              v-if="canResume && canStop"
+              variant="destructive"
+              size="icon"
+              aria-label="结束挂起任务"
+              title="结束挂起任务"
+              @click="handleStop"
+            >
+              <IconStop aria-hidden="true" :size="18" />
+            </Button>
+            <Button
+              v-if="canResume"
+              class="resume-button"
+              variant="default"
+              size="sm"
+              aria-label="恢复执行"
+              title="恢复执行"
+              @click="emit('resume')"
+            >
+              <IconPlay :size="18" />
+              <span>继续运行</span>
+            </Button>
+            <Button
+              v-else-if="canStop && sendDisabled"
               variant="destructive"
               size="icon"
               aria-label="停止生成"
@@ -90,6 +116,7 @@ import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import IconStop from './icons/IconStop.vue';
 import IconSend from './icons/IconSend.vue';
 import IconClose from './icons/IconClose.vue';
+import IconPlay from './icons/IconPlay.vue';
 import { Button } from './ui/button';
 
 const props = defineProps({
@@ -97,13 +124,21 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  isLoading: {
+  canSend: {
+    type: Boolean,
+    default: true
+  },
+  canStop: {
     type: Boolean,
     default: false
   },
-  canSendWhileLoading: {
+  canResume: {
     type: Boolean,
     default: false
+  },
+  canAttach: {
+    type: Boolean,
+    default: true
   },
   attachments: {
     type: Array,
@@ -111,13 +146,16 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['update:modelValue', 'send', 'stop', 'openAttachments', 'removeAttachment', 'pasteFiles']);
+const emit = defineEmits(['update:modelValue', 'send', 'stop', 'resume', 'openAttachments', 'removeAttachment', 'pasteFiles']);
 
 const inputText = ref(props.modelValue);
 const textareaRef = ref(null);
 const isDragOver = ref(false);
 
-const sendDisabled = computed(() => (props.isLoading && !props.canSendWhileLoading) || (!inputText.value.trim() && !props.attachments.length));
+const sendDisabled = computed(() => !props.canSend || (!inputText.value.trim() && !props.attachments.length));
+const composerPlaceholder = computed(() => props.canResume
+  ? '可先写下补充说明；继续运行后再发送'
+  : '描述你想让 Agent 完成的任务...');
 
 watch(() => props.modelValue, (newValue) => {
   inputText.value = newValue;
@@ -207,12 +245,16 @@ const handleEnter = (event) => {
   if (event.shiftKey) return;
   // IME 组合输入中（中文/日文选词回车）不触发发送
   if (event.isComposing || event.keyCode === 229) return;
+  if (props.canResume) {
+    emit('resume');
+    return;
+  }
   handleSend();
 };
 
 const handleSend = () => {
   const content = inputText.value.trim();
-  if ((props.isLoading && !props.canSendWhileLoading) || (!content && !props.attachments.length)) return;
+  if (!props.canSend || (!content && !props.attachments.length)) return;
 
   emit('send', {
     content,
@@ -314,6 +356,23 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.resume-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 6px 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: var(--color-warning);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.resume-banner svg {
+  flex: 0 0 auto;
 }
 
 .attachment-preview-list {
@@ -435,6 +494,11 @@ textarea::placeholder {
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
+}
+
+.resume-button {
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .attachment-icon {

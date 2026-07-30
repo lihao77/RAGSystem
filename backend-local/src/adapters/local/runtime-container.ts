@@ -67,12 +67,12 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   });
   if (runtimeStorage instanceof SqliteRuntimeStorage) {
     const recovered = await runtimeStorage.recoverOrphanedRuns((run) => {
-      const eventId = `${run.runId}:local-startup-recovery:run_ended`;
+      const eventId = `${run.runId}:${run.reason}:run_ended`;
       const event = {
         type: "run_ended" as const,
         session_id: run.sessionId,
         run_id: run.runId,
-        payload: { status: "interrupted" as const, reason: "backend_restarted" },
+        payload: { status: run.status, reason: run.reason },
       };
       return {
         step: buildExecutionEnvelopeRunStep(run.sessionId, run.runId, event, eventId),

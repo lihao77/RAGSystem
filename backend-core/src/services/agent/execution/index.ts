@@ -8,7 +8,6 @@ import type {
   RunningTasksResult,
   ScopedExecutionDiagnostics,
   ScopedTaskStatus,
-  SessionTaskStatus,
   StreamExecuteRequest,
 } from "../../../contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
@@ -60,7 +59,6 @@ export interface AgentExecutionServiceApi {
   /** Session idle 时消费后台通知，并在 Goal active 时拉起 continuation system run。 */
   triggerBgNotificationRun(sessionId: string): void;
   stopSession(sessionId: string): Promise<boolean>;
-  getSessionTaskStatus(sessionId: string): SessionTaskStatus;
   getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics;
   getTaskStatus(taskId: string): ScopedTaskStatus;
   getTaskExecutionDiagnostics(taskId: string): ScopedExecutionDiagnostics;
@@ -175,6 +173,7 @@ export function createAgentExecutionService(
     backgroundTasks: params.backgroundTasks ?? null,
     goalStore: params.goalStore ?? null,
     runtimeStorage: params.runtimeStorage,
+    clientEvents: params.clientEvents,
   });
   const sessionControl = createSessionControl({
     statusTracker,

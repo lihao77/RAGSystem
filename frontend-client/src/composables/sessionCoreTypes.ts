@@ -55,8 +55,6 @@ export interface RunRecoveryContext {
   invalidateActiveStream: () => void;
   scheduleCommandFallback: (sessionId: string, messageIndex: number, timeout?: number) => void;
   clearCommandFallback: () => void;
-  scheduleSessionResumeRecovery: (sessionId: string, timeout?: number) => void;
-  clearSessionResumeRecovery: () => void;
 }
 
 export type InteractionResponse =
@@ -68,15 +66,7 @@ export interface InteractionContext {
   hasPending: (interactionId: string) => boolean;
   resolve: (interactionId: string) => boolean;
   reject: (interactionId: string, message?: string) => boolean;
-  rememberRequired: (kind: string, interactionId: string) => boolean;
   reset: () => void;
-}
-
-export interface TaskStateContext {
-  mergeExecutionObservability: (payload?: OpenRecord) => void;
-  patchTaskInfo: (patch?: OpenRecord) => void;
-  refreshSessionExecutionState: (sessionId: string, options?: OpenRecord) => Promise<void>;
-  beginOptimisticExecutionState: (sessionId: string) => void;
 }
 
 export interface SessionStateContext {
@@ -95,7 +85,9 @@ export interface DispatcherOptions {
   runtime: RunRuntimeContext;
   recovery: RunRecoveryContext;
   interaction: InteractionContext;
-  taskState: TaskStateContext;
+  applySessionRuntime: (snapshot: OpenRecord) => void;
+  finishOptimisticCommand: () => void;
+  onRuntimeSnapshot?: (sessionId: string, snapshot: OpenRecord) => void;
   getStop: () => () => Promise<void>;
   takeFollowupCandidate: (requestId: string) => SessionMessage | null;
   bindUnassignedFollowupCandidates: (runId: string | null) => void;
@@ -109,7 +101,6 @@ export interface EventReducerOptions {
   isCompressing: RefLike<boolean>;
   contextUsage: RefLike<OpenRecord>;
   llmRetryState: RefLike<OpenRecord | null>;
-  patchTaskInfo: (patch?: OpenRecord) => void;
   handleApprovalRequired: (event: SessionEnvelope, data: OpenRecord, sessionId: string) => void;
   handleUserInputRequired: (event: SessionEnvelope, data: OpenRecord) => void;
 }
@@ -120,24 +111,24 @@ export interface SessionCommandControllerOptions extends OpenRecord {
   messages: RefLike<SessionMessage[]>;
   isLoading: RefLike<boolean>;
   contextUsage: RefLike<OpenRecord>;
-  sessionTaskInfo: RefLike<OpenRecord | null>;
   activeRun: ActiveRunState;
   getSocket: () => WebSocket | null;
-  mergeExecutionObservability: (payload?: OpenRecord) => void;
-  beginOptimisticExecutionState: (sessionId: string) => void;
+  allowsRuntimeAction: (action: string) => boolean;
+  getSessionRuntime: () => OpenRecord | null;
+  beginOptimisticCommand: (kind?: string) => void;
+  finishOptimisticCommand: () => void;
   scheduleCommandFallback: (sessionId: string, messageIndex: number, timeout?: number) => void;
   enqueueFollowupCandidate: (candidate: SessionMessage) => void;
   markFollowupCandidateFailed: (requestId: string, error: string) => void;
 }
 
 export interface SessionRunRecoveryOptions extends OpenRecord {
-  getCurrentSessionId: () => string | null;
   activeRun: ActiveRunState;
   messages: RefLike<SessionMessage[]>;
   isLoading: RefLike<boolean>;
   deleteMessageCache: (sessionId: string) => void;
   loadSessionMessages: (sessionId: string, options?: OpenRecord) => any;
-  refreshSessionExecutionState: (sessionId: string, options?: OpenRecord) => Promise<void>;
+  finishOptimisticCommand: () => void;
 }
 
 export interface SessionTransportOptions {
@@ -154,14 +145,7 @@ export interface SessionTransportOptions {
 export interface SessionInteractionControllerOptions {
   getCurrentSessionId: () => string;
   getSocket: () => WebSocket | null;
+  getSessionRuntime: () => OpenRecord | null;
   respondHttp?: (sessionId: string, interactionId: string, body: InteractionResponse) => Promise<any>;
   ackTimeoutMs?: number;
-}
-
-export interface SessionTaskStateOptions {
-  currentSessionId: RefLike<string | null>;
-  sessionTaskInfo: RefLike<OpenRecord | null>;
-  sessionExecutionObservability: RefLike<OpenRecord | null>;
-  fetchTaskStatus?: (sessionId: string) => Promise<any>;
-  warn?: (...args: any[]) => void;
 }

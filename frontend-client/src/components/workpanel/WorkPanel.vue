@@ -41,6 +41,7 @@
             <WorkPanelUserInput
               v-if="pendingUserInput"
               :input-data="pendingUserInput.data"
+              :response-allowed="interactionResponseAllowed"
               @submit="emit('userInputSubmit', $event)"
               @cancel="emit('userInputCancel')"
             />
@@ -48,6 +49,7 @@
               v-if="approvalQueue.length > 0"
               :queue="approvalQueue"
               :submitting-id="approvalSubmittingId"
+              :response-allowed="interactionResponseAllowed"
               @submit="emit('approvalSubmit', $event)"
             />
           </div>
@@ -76,6 +78,7 @@ const props = defineProps({
   approvalQueue: { type: Array, default: () => [] },
   approvalSubmittingId: { type: String, default: '' },
   pendingUserInput: { type: Object, default: null },
+  interactionResponseAllowed: { type: Boolean, default: false },
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
   sessionId: { type: String, default: '' },
   activeTab: { type: String, default: 'execution' },

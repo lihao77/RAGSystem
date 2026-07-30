@@ -23,7 +23,8 @@ function buildRetryAnchorBody(messages, index) {
  * 保持消息模板骨架不变，只抽脚本流程。
  */
 export function useMessageRevision(deps) {
-  const { messages, currentSessionId } = storeToRefs(useSessionRunStore());
+  const sessionRunStore = useSessionRunStore();
+  const { messages, currentSessionId } = storeToRefs(sessionRunStore);
   const editingMessageIndex = ref(null);
   const editingDraft = ref('');
   const editingAttachmentsDraft = ref([]);
@@ -60,7 +61,7 @@ export function useMessageRevision(deps) {
     const assistantMsgIndex = messages.value.length - 1;
     resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
     deps.activeRun.runId = result.run_id;
-    deps.isLoading.value = true;
+    sessionRunStore.beginOptimisticCommand('send');
     deps.cacheMessages(sessionId, messages.value);
     deps.stickToBottom?.();
   };
@@ -120,7 +121,7 @@ export function useMessageRevision(deps) {
       cancelEdit();
       return;
     }
-    if (deps.isLoading.value) {
+    if (!sessionRunStore.allowsRuntimeAction('start_maintenance')) {
       deps.showToast('请先停止当前任务', 'warning');
       return;
     }
@@ -170,7 +171,7 @@ export function useMessageRevision(deps) {
       deps.showToast('仅支持从用户消息重试');
       return;
     }
-    if (deps.isLoading.value) {
+    if (!sessionRunStore.allowsRuntimeAction('start_maintenance')) {
       deps.showToast('请先停止当前任务', 'warning');
       return;
     }

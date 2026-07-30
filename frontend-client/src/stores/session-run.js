@@ -1,4 +1,4 @@
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { defineStore } from 'pinia';
 
 export const createActiveRunState = () => ({
@@ -19,29 +19,29 @@ export const createActiveRunState = () => ({
 
 export const resetActiveRunState = (activeRun) => {
   if (!activeRun) return;
+  const active = Boolean(activeRun.active);
   Object.assign(activeRun, createActiveRunState());
+  activeRun.active = active;
 };
 
 /**
  * 当前会话运行态单源。
  *
- * 收编原散落在 ChatViewV2 顶层(messages/currentSessionId/isLoading/isCompressing)、
- * useSessionTaskStatus 内部(sessionTaskInfo/sessionExecutionObservability/contextUsage)、
- * useActiveRunState 内部(activeRun reactive)的状态字段。
+ * 收编原散落在 ChatViewV2 顶层(messages/currentSessionId/isLoading/isCompressing)
+ * 与 useActiveRunState 内部(activeRun reactive)的状态字段。
  * 会话上下文(team/workspace/entry_agent)也放这里，供对话页各区域同源消费；
  * 列表投影不含 metadata.team，team 以 session detail 为准。
  * llmRetryState(带定时器) 有行为，留阶段 2.3b。
  *
- * 各消费 composable 直接 useSessionRunStore() 取，不再走 deps 透传。业务行为（事件分发、
- * checkSessionTaskStatus 等）留 composable，本 store 只持有数据 + 纯重置。
+ * 各消费 composable 直接 useSessionRunStore() 取，不再走 deps 透传。Session 生命周期只接受
+ * 后端 session.runtime 快照；本 store 只持有数据、乐观命令和纯投影。
  */
 export const useSessionRunStore = defineStore('session-run', () => {
   const currentSessionId = ref(null);
   const messages = ref([]);
-  const isLoading = ref(false);
   const isCompressing = ref(false);
-  const sessionTaskInfo = ref(null);
-  const sessionExecutionObservability = ref(null);
+  const sessionRuntime = ref(null);
+  const optimisticCommand = ref(null);
   const contextUsage = ref({ used: 0, max: 0 });
   const activeRun = reactive(createActiveRunState());
   const llmRetryState = ref(null);
@@ -53,11 +53,79 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const pendingEntryAgent = ref('');
   const sessionWorkspaceDisplay = ref('');
 
+  const isLoading = computed(() => Boolean(optimisticCommand.value)
+    || Boolean(sessionRuntime.value && sessionRuntime.value.state !== 'idle'));
+  const runtimeObservability = computed(() => {
+    const run = sessionRuntime.value?.active_run || sessionRuntime.value?.last_run;
+    if (!run) return null;
+    return {
+      session_id: currentSessionId.value,
+      run_id: run.run_id,
+      execution_kind: sessionRuntime.value?.active_run?.execution_kind || null,
+      request_id: sessionRuntime.value?.active_run?.request_id || null,
+    };
+  });
+
   const resetContextUsage = () => {
     contextUsage.value = { used: 0, max: 0 };
   };
 
   const resetActiveRun = () => resetActiveRunState(activeRun);
+
+  const applySessionRuntime = (snapshot) => {
+    const previousState = sessionRuntime.value?.state || null;
+    const previousRunId = activeRun.runId;
+    sessionRuntime.value = snapshot;
+    const hasActiveRun = Boolean(snapshot?.active_run);
+    const nextRunId = snapshot?.active_run?.run_id || null;
+    activeRun.active = hasActiveRun;
+    activeRun.runId = nextRunId;
+    if (!hasActiveRun) {
+      const active = activeRun.active;
+      resetActiveRunState(activeRun);
+      activeRun.active = active;
+    } else if (snapshot.state === 'waiting_interaction') {
+      activeRun.phase = 'approval_waiting';
+    } else if (snapshot.state === 'suspended') {
+      activeRun.phase = snapshot.pending_interactions?.length > 0
+        ? 'approval_waiting'
+        : 'suspended';
+    } else if (snapshot.state === 'resuming') {
+      activeRun.phase = 'starting_agent';
+    } else if (snapshot.state === 'running') {
+      // Session runtime 已离开审批/恢复态时必须立刻清掉旧展示 phase。
+      // 不能等待下一条 ReAct/stream 事件，否则进程重启后会一直显示“等待审批”。
+      const needsRunningBaseline = previousRunId !== nextRunId
+        || activeRun.phase === 'idle'
+        || activeRun.phase === 'approval_waiting'
+        || activeRun.phase === 'suspended'
+        || activeRun.phase === 'starting_agent'
+        || previousState === 'waiting_interaction'
+        || previousState === 'suspended'
+        || previousState === 'resuming';
+      if (needsRunningBaseline) activeRun.phase = 'llm_waiting_first_token';
+    }
+    if (snapshot?.state !== 'idle') optimisticCommand.value = null;
+  };
+
+  const clearSessionRuntime = () => {
+    sessionRuntime.value = null;
+    optimisticCommand.value = null;
+    activeRun.active = false;
+    resetActiveRunState(activeRun);
+  };
+
+  const beginOptimisticCommand = (kind = 'send') => {
+    optimisticCommand.value = { kind, started_at: new Date().toISOString() };
+    if (kind === 'send') activeRun.active = true;
+  };
+
+  const finishOptimisticCommand = () => {
+    optimisticCommand.value = null;
+    activeRun.active = Boolean(sessionRuntime.value?.active_run);
+  };
+
+  const allowsRuntimeAction = action => Boolean(sessionRuntime.value?.allowed_actions?.includes(action));
 
   const enqueueFollowupCandidate = (candidate) => {
     const requestId = candidate?.metadata?.request_id;
@@ -124,8 +192,9 @@ export const useSessionRunStore = defineStore('session-run', () => {
     messages,
     isLoading,
     isCompressing,
-    sessionTaskInfo,
-    sessionExecutionObservability,
+    sessionRuntime,
+    runtimeObservability,
+    optimisticCommand,
     contextUsage,
     activeRun,
     llmRetryState,
@@ -136,6 +205,11 @@ export const useSessionRunStore = defineStore('session-run', () => {
     sessionWorkspaceDisplay,
     resetContextUsage,
     resetActiveRun,
+    applySessionRuntime,
+    clearSessionRuntime,
+    beginOptimisticCommand,
+    finishOptimisticCommand,
+    allowsRuntimeAction,
     enqueueFollowupCandidate,
     takeFollowupCandidate,
     markFollowupCandidateFailed,

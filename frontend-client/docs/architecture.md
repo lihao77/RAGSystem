@@ -149,8 +149,8 @@ loadSessionMessages(sessionId)
 - reconnect 回放与历史 run steps 懒加载都复用 agent-protocol 的 `ExecutionTreeState`
 - 会话激活统一由路由驱动：`selectSession()`、`ensureSession()`、`startNewChat()` 只负责导航或创建会话，`syncSessionFromRoute()` 才负责设置 `currentSessionId`、拉取消息/文件并建立对应 session 的 WebSocket，避免本地状态提前变更后跳过建连
 - session WebSocket 采用“同 session 复用、跨 session 重连”语义：仅在目标 session 与当前 `_wsSessionId` 一致且 socket 仍处于 `OPEN/CONNECTING` 时复用；切换 session 或回到新聊天页时必须先断开旧连接再进入新路由状态
-- 切回历史会话时，前端会先用 `task-status` 判断后台 run 是否仍在进行；若后台已结束但本地仍残留未完成 assistant 占位或停在用户消息，`checkSessionTaskStatus()` 会主动丢弃该 session 的消息缓存并重新拉取服务端消息，修正“切走再切回后界面卡在运行中”的旧快照
-- 对于“切回时 `task-status` 仍短暂显示 running，但 WS 回放尚未来得及开始、run 已在后台结束”的竞态，前端额外挂一层短延迟 recovery watchdog：若规定时间内既没进入 replay、也没收到任何 run 事件，就重新查询 `task-status` 并按需刷新消息，避免回切瞬间卡死
+- 切回历史会话时先加载消息与文件，再建立 WebSocket 并等待首个无序号 `session.runtime` 快照；快照的 `load_strategy` 唯一决定仅展示历史、挂接 active run、恢复交互、挂接恢复流程或观察维护操作
+- `session.runtime.allowed_actions` 是发送、补充、停止、响应交互、恢复和维护操作的唯一权限来源；`run_started`、`run_ended`、`session.reconnect` 与原始 `interaction(required)` 只更新展示投影，不能覆盖 Session 生命周期
 
 ### WebSocket 事件类型处理
 
@@ -414,8 +414,8 @@ Agent 配置页会先加载当前 Agent 配置，再读取 `config.custom_params
 | 操作 | 流程 |
 |------|------|
 | 加载会话 | 检查 messageCache → 未命中则 GET /api/agent/sessions/{id}/messages → 按需加载 run-steps Envelope 并投影 executionTree |
-| 重连 | checkSessionTaskStatus() → 有运行中任务 → reconnectToRunningTask() |
-| 流结束状态同步 | handleSend()/reconnect 收尾时单次 refreshSessionExecutionState() → 读取 `/task-status` |
+| 重连 | 订阅实时事件 → 接收 `session.runtime` → 按 `load_strategy` 回放 active run 或仅恢复历史；游标只过滤 durable Envelope，不过滤 runtime 快照 |
+| 流结束状态同步 | `run_ended` 收尾当前回答展示；后续 `session.runtime` 将权威状态切回 `idle`，终态记录在 `last_run` |
 | 编辑重发 | startEditMessage() 在消息气泡内初始化文本草稿与附件草稿 → 用户在气泡内原地修改文本与附件 → confirmEditAndResend() 调用 POST rollback → 通过 `/api/agent/stream` 以编辑后的内容和 `attachments[]` 重新流式发送 |
 | 重试 | rollbackAndRetry() → POST rollback → 以原问题重新发送 |
 

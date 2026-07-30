@@ -32,6 +32,7 @@ import type { DelegationPendingService, DelegationResolution } from "../../runti
 import { resolveSessionMetadataPort } from "../context/async-session-metadata-resolver.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import { AttachmentsExtensionSchema } from "@ragsystem/agent-protocol";
+import { resolveResumeToolResults, resolveRunStartRound } from "./run-round.js";
 
 export interface SdkRuntimeAdapterDeps {
   storage: ExecutionStorage;
@@ -428,6 +429,8 @@ export async function executeRunWithSdk(
   // 首次用户消息由 startRun 原子落库，附件只会出现在上面的 startedContext 中。
   // 必须基于最终实际发送给模型的上下文生成 sandbox allowlist，不能使用落库前的预构建快照。
   baseExecCtx.attachmentFileIds = collectAttachmentFileIds(contextRawMessages);
+  const startRound = resolveRunStartRound(contextRawMessages, input.runId);
+  const resumeToolResults = resolveResumeToolResults(contextRawMessages, input.runId, startRound);
   const runtime = createRuntime(runtimeOpts);
   const handle = runtime.run({
     sessionId: input.sessionId,
@@ -435,6 +438,8 @@ export async function executeRunWithSdk(
     runId: input.runId,
     rootCallId: input.rootCallId,
     threadKey: input.threadKey,
+    startRound,
+    resumeToolResults,
     conversation,
     ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
     signal: input.signal,

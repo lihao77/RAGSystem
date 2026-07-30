@@ -1,5 +1,5 @@
 import type { OutboxRow, RunInfo } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
-import type { ExecutionOverview, RunningTasksResult, ScopedExecutionDiagnostics, ScopedTaskStatus, SessionTaskStatus } from "@ragsystem/backend-core/contracts/execution/execution.js";
+import type { ExecutionOverview, RunningTasksResult, ScopedExecutionDiagnostics, ScopedTaskStatus } from "@ragsystem/backend-core/contracts/execution/execution.js";
 import type { SessionInfo } from "@ragsystem/backend-core/contracts/session/session.js";
 import type {
   ExecutionReadApplication,
@@ -31,6 +31,10 @@ export class SaaSAgentReadApplication implements ExecutionReadApplication {
         ...(input.afterSeq != null ? { afterSeq: input.afterSeq } : {}),
         ...(input.limit !== undefined ? { limit: input.limit } : {}),
       }),
+      getSessionOutboxWatermark: (sessionId) => this.outbox.getSessionOutboxWatermark(
+        this.tenantId,
+        sessionId,
+      ),
       listRunsForOverview: (activeOnly) => this.runs.listTenantRuns(this.tenantId, activeOnly),
       getRunByTaskId: (taskId) => this.runs.getTenantRun(this.tenantId, taskId),
     });
@@ -45,16 +49,16 @@ export class SaaSAgentReadApplication implements ExecutionReadApplication {
     return this.projector.getSession(sessionId);
   }
 
-  async getSessionTaskStatus(sessionId: string): Promise<SessionTaskStatus> {
-    return this.projector.getSessionTaskStatus(sessionId);
-  }
-
   async listRuns(sessionId: string, limit = 500): Promise<RunInfo[]> {
     return this.projector.listRuns(sessionId, limit);
   }
 
-  async listOutboxForReplay(input: { sessionId: string; runIds?: readonly string[]; afterSeq?: number; limit?: number }): Promise<OutboxRow[]> {
+  async listOutboxForReplay(input: { sessionId: string; runIds?: readonly string[]; afterSeq?: number | null; limit?: number }): Promise<OutboxRow[]> {
     return this.projector.listOutboxForReplay(input);
+  }
+
+  async getSessionOutboxWatermark(sessionId: string): Promise<number> {
+    return this.projector.getSessionOutboxWatermark(sessionId);
   }
 
   async getSessionExecutionDiagnostics(sessionId: string): Promise<ScopedExecutionDiagnostics> {
@@ -78,16 +82,11 @@ export class SaaSAgentReadApplication implements ExecutionReadApplication {
   }
 }
 
-function idleStatus(sessionId: string): SessionTaskStatus {
-  return { session_id: sessionId, has_running_task: false, has_active_system_command: false, task_info: null, observability: null, diagnostics: null };
-}
-
 function missingDiagnostics(scope: "session_id" | "task_id", id: string): ScopedExecutionDiagnostics {
   return { ...(scope === "session_id" ? { session_id: id } : { task_id: id }), scope, scope_id: id, found: false, diagnostics: null };
 }
 
 const emptyLivePort: ExecutionReadLivePort = {
-  getSessionTaskStatus: (sessionId) => idleStatus(sessionId),
   getSessionExecutionDiagnostics: (sessionId) => missingDiagnostics("session_id", sessionId),
   getTaskStatus: (taskId) => ({ task_id: taskId, scope: "task_id", scope_id: taskId, found: false, has_running_task: false, task_info: null, observability: null }),
   getTaskExecutionDiagnostics: (taskId) => missingDiagnostics("task_id", taskId),

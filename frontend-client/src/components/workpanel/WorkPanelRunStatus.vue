@@ -52,11 +52,13 @@ const PHASE_LABELS = {
   retrying: '重试中',
   reflecting: '反思中',
   approval_waiting: '等待审批',
+  suspended: '已挂起',
 }
 
 const displayState = computed(() => {
   if (props.pendingInput) return { label: '待输入', tone: 'input', icon: 'input' }
   if (props.approvalCount > 0 || props.phase === 'approval_waiting') return { label: '等待审批', tone: 'warning', icon: 'approval' }
+  if (props.phase === 'suspended') return { label: '已挂起', tone: 'warning', icon: 'idle' }
   if (props.hasError) return { label: '执行异常', tone: 'error', icon: 'error' }
   if (props.stopped) return { label: '已停止', tone: 'idle', icon: 'idle' }
   if (props.phase === 'retrying') return { label: '重试中', tone: 'warning', icon: 'approval' }

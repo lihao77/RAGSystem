@@ -5,25 +5,25 @@ import { createSessionTransport } from './sessionTransport.js';
 import { createSessionInteractionController } from './sessionInteractionController.js';
 import { createSessionRunRecovery } from './sessionRunRecovery.js';
 import { createSessionCommandController } from './sessionCommandController.js';
-import { createSessionTaskState } from './sessionTaskState.js';
 import { createSessionEnvelopeDispatcher } from './sessionEnvelopeDispatcher.js';
+import { resumeSessionRun } from '../api/session.js';
 
 export { resetActiveRunForSend, serializeAttachmentForSend } from './sessionCommandController.js';
 
 /**
  * 会话 AgentClient（对标 packages/agent-widget/src/adapter/widget-agent-client.ts 的 WidgetAgentClient）。
  *
- * 组合 transport、事件分发、运行态、send/stop、交互提交与 task 状态上下文，
+ * 组合 transport、事件分发、运行态、send/stop、交互提交与 Session runtime 快照，
  * 保持单向数据流（WS → handleEnvelope → store/投影）和稳定的 facade 接口。
  * 状态读 session-run store 单源（替代 widget 的 Observable——Vue 场景下 store 已是推模式）。
  *
  * 组成：
- * - WS transport：连接/重连/cursor 去重/delegate 拦截/commandFallback/resumeRecovery 定时器（2.5a）
+ * - WS transport：连接/重连/cursor 去重/delegate 拦截/commandFallback 定时器（2.5a）
  * - SessionEnvelopeDispatcher：顶层事件编排，写 store + 调投影（2.5b）
  * - useRunRuntime 组合子：phase/timing/seq gap/durable replay/finalize（client 单向组合）
- * - send/stop：HTTP 降级/followup/附件/task 预查（2.5c）
+ * - send/stop：HTTP 降级/followup/附件/allowed_actions 校验（2.5c）
  * - respondInteraction：统一 approval/user_input WS 提交 + ack + HTTP 降级（2.5d）
- * - SessionTaskState：task 状态合并、刷新、乐观启动与局部更新（2.5e）
+ * - session.runtime：后端权威状态、初次加载策略与可执行动作（2.5e）
  *
  * @param {Object} deps 业务回调（投影/UI/消息缓存/会话切换/send 单向依赖）
  */
@@ -35,8 +35,7 @@ export function useSessionAgentClient(deps) {
     isLoading,
     isCompressing,
     contextUsage,
-    sessionTaskInfo,
-    sessionExecutionObservability,
+    sessionRuntime,
     llmRetryState,
   } = storeToRefs(sessionRunStore);
   const activeRun = sessionRunStore.activeRun;
@@ -45,38 +44,28 @@ export function useSessionAgentClient(deps) {
     takeFollowupCandidate,
     markFollowupCandidateFailed,
     bindUnassignedFollowupCandidates,
+    applySessionRuntime,
+    clearSessionRuntime,
+    beginOptimisticCommand,
+    finishOptimisticCommand,
+    allowsRuntimeAction,
   } = sessionRunStore;
 
-  const taskState = createSessionTaskState({
-    currentSessionId,
-    sessionTaskInfo,
-    sessionExecutionObservability,
-  });
-  const {
-    mergeExecutionObservability,
-    refreshSessionExecutionState,
-    beginOptimisticExecutionState,
-  } = taskState;
-
-  // run 运行态机（phase/timing/seq gap/durable replay/finalize），状态读 store 单源；
-  // 注入 client 内建 refreshSessionExecutionState（第二参数，避免 spread deps 触发 getter TDZ），
-  // 使 finalize/durable terminal 的 task 状态同步走 client 单源。
-  const runtime = useRunRuntime(deps, { refreshSessionExecutionState });
+  // run 运行态机只负责 phase/timing/seq gap/durable replay/finalize 展示投影；
+  // Session 生命周期始终由 session.runtime 快照覆盖。
+  const runtime = useRunRuntime(deps);
 
   const recovery = createSessionRunRecovery({
-    getCurrentSessionId: () => currentSessionId.value,
     activeRun,
     messages,
     isLoading,
     deleteMessageCache: deps.deleteMessageCache,
     loadSessionMessages: deps.loadSessionMessages,
-    refreshSessionExecutionState,
+    finishOptimisticCommand,
   });
   const invalidateActiveStream = recovery.invalidateActiveStream;
   const scheduleCommandFallback = recovery.scheduleCommandFallback;
   const clearCommandFallback = recovery.clearCommandFallback;
-  const scheduleSessionResumeRecovery = recovery.scheduleSessionResumeRecovery;
-  const clearSessionResumeRecovery = recovery.clearSessionResumeRecovery;
 
   let envelopeDispatcher;
   const transport = createSessionTransport({
@@ -85,7 +74,7 @@ export function useSessionAgentClient(deps) {
     onEnvelope: (event, sessionId) => envelopeDispatcher.handleEnvelope(event, sessionId),
     onDisconnect: () => {
       clearCommandFallback();
-      clearSessionResumeRecovery();
+      envelopeDispatcher?.resetInteractionPresentation();
       deps.resetApprovalState();
     },
     onSocketClose: clearCommandFallback,
@@ -101,6 +90,7 @@ export function useSessionAgentClient(deps) {
   const interactionController = createSessionInteractionController({
     getCurrentSessionId: () => currentSessionId.value,
     getSocket: () => deps.getWS?.() || getWS(),
+    getSessionRuntime: () => sessionRuntime.value,
   });
   const finalizeActiveRun = runtime.finalizeActiveRun;
 
@@ -110,11 +100,12 @@ export function useSessionAgentClient(deps) {
     messages,
     isLoading,
     contextUsage,
-    sessionTaskInfo,
     activeRun,
     getSocket: () => deps.getWS?.() || getWS(),
-    mergeExecutionObservability,
-    beginOptimisticExecutionState,
+    allowsRuntimeAction,
+    getSessionRuntime: () => sessionRuntime.value,
+    beginOptimisticCommand,
+    finishOptimisticCommand,
     scheduleCommandFallback,
     enqueueFollowupCandidate,
     markFollowupCandidateFailed,
@@ -136,19 +127,61 @@ export function useSessionAgentClient(deps) {
     runtime,
     recovery,
     interaction: interactionController,
-    taskState,
+    applySessionRuntime,
+    finishOptimisticCommand,
+    onRuntimeSnapshot: resolveRuntimeWaiters,
     getStop: () => stop,
     takeFollowupCandidate,
     bindUnassignedFollowupCandidates,
   });
   const { handleEnvelope, handleRunEvent, resetStreamSessionState } = envelopeDispatcher;
 
+  /** @type {Map<string, Set<(snapshot: any) => void>>} */
+  const runtimeWaiters = new Map();
+  function resolveRuntimeWaiters(sessionId, snapshot) {
+    const waiters = runtimeWaiters.get(sessionId);
+    if (!waiters) return;
+    runtimeWaiters.delete(sessionId);
+    for (const resolve of waiters) resolve(snapshot);
+  }
+  const waitForSessionRuntime = (sessionId, timeoutMs = 10000) => {
+    if (currentSessionId.value === sessionId && sessionRuntime.value) return Promise.resolve(sessionRuntime.value);
+    return new Promise((resolve, reject) => {
+      const waiters = runtimeWaiters.get(sessionId) || new Set();
+      let wrappedResolve;
+      const timer = setTimeout(() => {
+        waiters.delete(wrappedResolve);
+        if (waiters.size === 0) runtimeWaiters.delete(sessionId);
+        reject(new Error('等待 Session runtime 快照超时'));
+      }, timeoutMs);
+      wrappedResolve = (snapshot) => {
+        clearTimeout(timer);
+        resolve(snapshot);
+      };
+      waiters.add(wrappedResolve);
+      runtimeWaiters.set(sessionId, waiters);
+    });
+  };
+  let resumePromise = null;
+  const resume = async () => {
+    const sessionId = currentSessionId.value;
+    const interactionId = sessionRuntime.value?.resume_interaction_id;
+    if (!sessionId || !interactionId || !allowsRuntimeAction('resume_run')) return false;
+    if (resumePromise) return resumePromise;
+    resumePromise = resumeSessionRun(sessionId, interactionId)
+      .then(() => true)
+      .catch((error) => {
+        deps.showToast?.(error instanceof Error ? error.message : '恢复执行失败', 'warning');
+        return false;
+      })
+      .finally(() => { resumePromise = null; });
+    return resumePromise;
+  };
+
   return {
     invalidateActiveStream,
     scheduleCommandFallback,
     clearCommandFallback,
-    clearSessionResumeRecovery,
-    scheduleSessionResumeRecovery,
     connectSessionWS,
     disconnectSessionWS,
     getWS,
@@ -161,8 +194,8 @@ export function useSessionAgentClient(deps) {
     send,
     stop,
     respondInteraction: interactionController.respond,
-    mergeExecutionObservability,
-    refreshSessionExecutionState,
-    beginOptimisticExecutionState,
+    resume,
+    waitForSessionRuntime,
+    clearSessionRuntime,
   };
 }

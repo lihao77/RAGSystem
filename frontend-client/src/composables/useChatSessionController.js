@@ -46,7 +46,6 @@ export function useChatSessionController(deps) {
   const sessionRunStore = useSessionRunStore();
   const {
     currentSessionId,
-    isLoading,
     messages,
     currentSessionTeam,
     pendingWorkspaceRoot,
@@ -206,7 +205,6 @@ export function useChatSessionController(deps) {
       deps.disconnectSessionWS();
       deps.invalidateActiveStream();
       deps.clearExecutionState();
-      isLoading.value = false;
       currentSessionId.value = sessionId;
       // 不先清空上下文：列表无 team，清空会先闪「未选择」；
       // workspace 能从列表立刻 seed，team 等 hydrate 覆盖（短暂保留上一会话 team 优于假空）。
@@ -223,9 +221,8 @@ export function useChatSessionController(deps) {
       await deps.loadSessionFiles(sessionId);
       if (!isCurrent()) return;
       deps.resetSessionEventCursor?.(sessionId);
-      deps.connectSessionWS(sessionId);
-      // 消息加载完成后独立检查任务状态（不在 loadSessionMessages 内部调用）
-      await deps.checkSessionTaskStatus(sessionId);
+      await deps.connectSessionWS(sessionId);
+      await deps.waitForSessionRuntime(sessionId);
       return;
     }
 
@@ -233,7 +230,6 @@ export function useChatSessionController(deps) {
      deps.disconnectSessionWS();
      deps.invalidateActiveStream();
       deps.clearExecutionState({ resetContextUsage: true });
-     isLoading.value = false;
       currentSessionId.value = null;
       deps.sessionFiles.value = [];
       await resetNewSessionSetup();

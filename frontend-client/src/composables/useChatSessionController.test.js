@@ -77,7 +77,7 @@ test('late session detail cannot continue an obsolete route switch', async () =>
     loadSessionFiles: async sessionId => calls.push(`files:${sessionId}`),
     resetSessionEventCursor: sessionId => calls.push(`cursor:${sessionId}`),
     connectSessionWS: sessionId => calls.push(`connect:${sessionId}`),
-    checkSessionTaskStatus: async sessionId => calls.push(`status:${sessionId}`),
+    waitForSessionRuntime: async sessionId => calls.push(`runtime:${sessionId}`),
     showToast: () => {},
   };
 
@@ -116,7 +116,7 @@ test('late session detail cannot continue an obsolete route switch', async () =>
       'files:session-b',
       'cursor:session-b',
       'connect:session-b',
-      'status:session-b',
+      'runtime:session-b',
     ]);
   } finally {
     mock.restore();

@@ -157,14 +157,6 @@ export class PendingInteractionOps {
     return Number(result.changes);
   }
 
-  renewPendingClaim(sessionId: string, rootRunId: string, claimId: string, leaseMs = 120_000): number {
-    const result = this.db.prepare(`UPDATE pending_interactions
-      SET resume_claim_expires_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || (? / 1000.0) || ' seconds'), updated_at=CURRENT_TIMESTAMP
-      WHERE session_id=? AND root_run_id=? AND resume_claim_id=? AND status='resuming'
-        AND resume_claim_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`).run(leaseMs, sessionId, rootRunId, claimId);
-    return Number(result.changes);
-  }
-
   finalizePendingInteractions(
     sessionId: string,
     rootRunId: string,

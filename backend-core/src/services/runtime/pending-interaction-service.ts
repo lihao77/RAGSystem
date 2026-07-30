@@ -43,7 +43,7 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
 
   constructor(
     readonly runtimeStorage: RuntimeStorage,
-    private readonly publisher: Pick<ClientEventPublisherPort, "prepare" | "deliver">,
+    private readonly publisher: ClientEventPublisherPort,
   ) {}
 
   bindResumeStarter(starter: InteractionResumeStarter): void { this.resumeStarter = starter; }
@@ -138,6 +138,7 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
     const prompt = "prompt" in input ? input.prompt : undefined;
     const requestPayload = {
       ...meta,
+      interaction_payload: event.payload,
       ...(prompt !== undefined ? { prompt } : {}),
       ...("toolName" in input ? {
         toolName: input.toolName,
@@ -176,6 +177,9 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
   }
   async respondUserInputAsync(sessionId: string, inputId: string, payload: UserInputRequest, callbacks?: InteractionResumeCallbacks): Promise<PendingInteractionRespondResult> {
     return this.respondAsync(sessionId, inputId, { kind: "user_input", value: payload.value ?? "" }, callbacks);
+  }
+  async resumeAsync(sessionId: string, interactionId: string): Promise<"none" | "started" | "deferred" | "already_started"> {
+    return this.tryResume(sessionId, interactionId);
   }
   private async respondAsync(sessionId: string, interactionId: string, resolution: RuntimeInteractionResolution, callbacks?: InteractionResumeCallbacks): Promise<PendingInteractionRespondResult> {
     let result;
@@ -225,7 +229,10 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
 
   private async tryResume(sessionId: string, interactionId: string, callbacks?: InteractionResumeCallbacks): Promise<"none" | "started" | "deferred" | "already_started"> {
     if (!this.resumeStarter) return "none";
-    await this.runtimeStorage.operations.recoverExpiredResumeClaims({ sessionId });
+    const recovered = await this.runtimeStorage.operations.recoverExpiredResumeClaims({ sessionId });
+    if (recovered.recoveredClaimIds.length > 0 || recovered.suspendedRootRunIds.length > 0) {
+      await this.publishRuntimeInvalidation(sessionId, "resume_claim_recovered");
+    }
     const claim = await this.runtimeStorage.operations.claimResume({
       sessionId,
       interactionId,
@@ -247,53 +254,59 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
       if (claim.reason === "already_claimed") return "already_started";
       return "none";
     }
+    // resuming 只覆盖 durable claim 到执行器注册的短窗口；通知失败不能阻断后续 attach。
+    void this.publishRuntimeInvalidation(sessionId, "resume_claimed").catch(() => undefined);
     for (const item of claim.resolutions) this.setApprovalCache(sessionId, item.toolCallId, item.resolution.kind === "approval" ? { approved: item.resolution.approved, message: item.resolution.message } : { value: item.resolution.value });
-    try {
-      const started = this.resumeStarter.startClaim({ sessionId, claim });
-      const renew = this.runtimeStorage.operations.renewResumeClaim;
-      let leaseLost = false;
-      const heartbeat = typeof renew === "function"
-        ? setInterval(() => {
-          void renew({
-            sessionId,
-            rootRunId: claim.rootRunId,
-            claimId: claim.claimId,
-            leaseMs: RESUME_LEASE_MS,
-          }).then((result) => {
-            if (!result.renewed) {
-              leaseLost = true;
-              return this.runtimeStorage.operations.rollbackResume({
-                sessionId,
-                rootRunId: claim.rootRunId,
-                claimId: claim.claimId,
-              });
-            }
-            return undefined;
-          }).catch(() => undefined);
-        }, Math.floor(RESUME_LEASE_MS / 3))
-        : null;
-      heartbeat?.unref?.();
-      void started.promise.then((result) => {
-        if (leaseLost) {
-          callbacks?.onCompleted?.({ content: "resume lease lost", success: false });
-          return;
-        }
-        if (result.suspended) {
-          callbacks?.onSuspended?.(this.findLatestApprovalMeta(claim.rootRunId, sessionId)?.approvalId ?? "");
-          return;
-        }
-        callbacks?.onCompleted?.({ content: result.content, success: result.success });
-      }).catch((error: unknown) => callbacks?.onCompleted?.({
-        content: error instanceof Error ? error.message : String(error),
-        success: false,
-      })).finally(() => {
-        if (heartbeat) clearInterval(heartbeat);
+    const attached = await this.runtimeStorage.operations.attachResume({
+        sessionId,
+        rootRunId: claim.rootRunId,
+        claimId: claim.claimId,
+        batchId: claim.batchId,
+        record: this.eventRecord(sessionId, {
+          type: "state_sync",
+          session_id: sessionId,
+          run_id: claim.rootRunId,
+          payload: {
+            category: "session_updated",
+            detail: { entity: "session_runtime", reason: "resume_executor_attached" },
+          },
+        }, `${claim.claimId}:resume_executor_attached`),
+    });
+    if (!attached.attached || !attached.record) {
+      for (const item of claim.resolutions) this.resolutionCache.delete(cacheKey(sessionId, item.toolCallId));
+      await this.runtimeStorage.operations.rollbackResume({
+        sessionId,
+        rootRunId: claim.rootRunId,
+        claimId: claim.claimId,
+        batchId: claim.batchId,
       });
+      throw new Error(`resume executor attach claim was lost: ${claim.claimId}`);
+    }
+    void this.publisher.deliver([attached.record.outbox]).catch(() => undefined);
+    let started: ReturnType<InteractionResumeStarter["startClaim"]>;
+    try {
+      started = this.resumeStarter.startClaim({ sessionId, claim });
     } catch (error) {
       for (const item of claim.resolutions) this.resolutionCache.delete(cacheKey(sessionId, item.toolCallId));
-      await this.runtimeStorage.operations.rollbackResume({ sessionId, rootRunId: claim.rootRunId, claimId: claim.claimId });
+      await this.runtimeStorage.operations.rollbackResume({
+        sessionId,
+        rootRunId: claim.rootRunId,
+        claimId: claim.claimId,
+        batchId: claim.batchId,
+      });
+      await this.publishRuntimeInvalidation(sessionId, "resume_start_failed");
       throw error;
     }
+    void started.promise.then((result) => {
+      if (result.suspended) {
+        callbacks?.onSuspended?.(this.findLatestApprovalMeta(claim.rootRunId, sessionId)?.approvalId ?? "");
+        return;
+      }
+      callbacks?.onCompleted?.({ content: result.content, success: result.success });
+    }).catch((error: unknown) => callbacks?.onCompleted?.({
+      content: error instanceof Error ? error.message : String(error),
+      success: false,
+    }));
     return "started";
   }
   async onRootFinalized(sessionId: string, rootRunId: string, status: RuntimeFinalizeStatus, readyResumeInteractionIds: string[] = []): Promise<void> {
@@ -346,7 +359,14 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
     return { ...meta, batchId: `${input.rootRunId}:${input.interactionBatchId?.trim() || input.toolCallId}` };
   }
   private takeCached(sessionId: string, toolCallId: string, kind: InteractionKind): ApprovalCacheResolution | null { const value = this.resolutionCache.get(cacheKey(sessionId, toolCallId)); if (value && ((kind === "approval" && "approved" in value) || (kind === "user_input" && "value" in value))) { this.resolutionCache.delete(cacheKey(sessionId, toolCallId)); return value; } return null; }
-  private eventRecord(sessionId: string, event: Envelope, eventId: string) { const runId = event.run_id ?? null; return { step: buildExecutionEnvelopeRunStep(sessionId, runId, event, eventId), outbox: { sessionId, runId, eventId, eventType: "client.interaction", aggregateType: "run", aggregateId: runId ?? sessionId, payload: { client_event: event } } }; }
+  private eventRecord(sessionId: string, event: Envelope, eventId: string) { const runId = event.run_id ?? null; return { step: buildExecutionEnvelopeRunStep(sessionId, runId, event, eventId), outbox: { sessionId, runId, eventId, eventType: `client.${event.type}`, aggregateType: runId ? "run" : "session", aggregateId: runId ?? sessionId, payload: { client_event: event } } }; }
+  private publishRuntimeInvalidation(sessionId: string, reason: string): Promise<unknown> {
+    return this.publisher.publish(sessionId, {
+      type: "state_sync",
+      session_id: sessionId,
+      payload: { category: "session_updated", detail: { entity: "session_runtime", reason } },
+    }, { aggregateType: "session", aggregateId: sessionId });
+  }
 }
 
 function cacheKey(sessionId: string, toolCallId: string): string {

@@ -116,6 +116,17 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
     return result.rows.map(row);
   }
 
+  async getSessionOutboxWatermark(tenantId: string, sessionId: string): Promise<number> {
+    const result = await this.executor.query<{ watermark: unknown }>(
+      `SELECT COALESCE(MAX(session_seq), 0) AS watermark
+       FROM event_outbox
+       WHERE tenant_id=$1 AND session_id=$2 AND event_type LIKE 'client.%'`,
+      [tenantId, sessionId],
+    );
+    const watermark = Number(result.rows[0]?.watermark ?? 0);
+    return Number.isSafeInteger(watermark) && watermark >= 0 ? watermark : 0;
+  }
+
   async markOutboxDelivered(id: number, tenantId: string): Promise<boolean> {
     const r = await this.executor.query(
       "UPDATE event_outbox SET status='delivered',delivered_at=CURRENT_TIMESTAMP,locked_at=NULL WHERE id=$1 AND tenant_id=$2 AND status IN ('pending','retrying')",

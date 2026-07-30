@@ -5,13 +5,11 @@ import type {
   RunningTasksResult,
   ScopedExecutionDiagnostics,
   ScopedTaskStatus,
-  SessionTaskStatus,
 } from "../../../contracts/execution/execution.js";
 import type { SessionInfo } from "../../../contracts/session/session.js";
 import { buildObservability } from "./helpers.js";
 
 export interface ExecutionReadLivePort {
-  getSessionTaskStatus(sessionId: string): SessionTaskStatus;
   getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics;
   getTaskStatus(taskId: string): ScopedTaskStatus;
   getTaskExecutionDiagnostics(taskId: string): ScopedExecutionDiagnostics;
@@ -23,6 +21,7 @@ export interface ExecutionReadDurablePort {
   getSession(sessionId: string): Promise<SessionInfo | null>;
   listRuns(sessionId: string, limit: number): Promise<RunInfo[]>;
   listOutboxForReplay(input: { sessionId: string; runIds?: readonly string[]; afterSeq?: number | null; limit?: number }): Promise<OutboxRow[]>;
+  getSessionOutboxWatermark(sessionId: string): Promise<number>;
   listRunsForOverview(activeOnly: boolean): Promise<RunInfo[]>;
   getRunByTaskId?(taskId: string): Promise<RunInfo | null>;
   getPersistedOverview?(activeOnly: boolean): Promise<ExecutionOverview>;
@@ -42,26 +41,29 @@ export class ExecutionReadProjector {
   async listOutboxForReplay(input: Parameters<ExecutionReadDurablePort["listOutboxForReplay"]>[0]) {
     return await this.durable.getSession(input.sessionId) ? this.durable.listOutboxForReplay(input) : [];
   }
-
-  async getSessionTaskStatus(sessionId: string): Promise<SessionTaskStatus> {
-    if (!await this.durable.getSession(sessionId)) return idleStatus(sessionId);
-    const live = this.live.getSessionTaskStatus(sessionId);
-    const durable = latestRootRun(await this.durable.listRuns(sessionId, 500));
-    if (live.task_info?.status === "running") return live;
-    if (durable && (!live.task_info || isNewer(durable.updated_at, live.task_info.finished_at ?? live.task_info.started_at))) {
-      return sessionStatus(sessionId, toTaskStatus(durable));
-    }
-    return live.task_info ? live : durable ? sessionStatus(sessionId, toTaskStatus(durable)) : idleStatus(sessionId);
+  async getSessionOutboxWatermark(sessionId: string) {
+    return await this.durable.getSession(sessionId) ? this.durable.getSessionOutboxWatermark(sessionId) : 0;
   }
 
   async getSessionExecutionDiagnostics(sessionId: string): Promise<ScopedExecutionDiagnostics> {
-    const status = await this.getSessionTaskStatus(sessionId);
+    if (!await this.durable.getSession(sessionId)) {
+      return { session_id: sessionId, scope: "session_id", scope_id: sessionId, found: false, diagnostics: null };
+    }
+    const live = this.live.getSessionExecutionDiagnostics(sessionId);
+    const liveTask = live.diagnostics?.task ?? null;
+    const durableRun = latestRootRun(await this.durable.listRuns(sessionId, 500));
+    const durableTask = durableRun ? toTaskStatus(durableRun) : null;
+    const task = liveTask?.status === "running"
+      ? liveTask
+      : durableRun && (!liveTask || isNewer(durableRun.updated_at, liveTask.finished_at ?? liveTask.started_at))
+        ? durableTask
+        : liveTask ?? durableTask;
     return {
       session_id: sessionId,
       scope: "session_id",
       scope_id: sessionId,
-      found: Boolean(status.task_info),
-      diagnostics: status.task_info ? diagnostics(status.task_info) : null,
+      found: task !== null,
+      diagnostics: task ? diagnostics(task) : null,
     };
   }
 
@@ -154,9 +156,5 @@ function projectOverview(activeOnly: boolean, items: ExecutionTaskStatus[]): Exe
   return { active_only: activeOnly, count: items.length, by_execution_kind: byExecutionKind, by_status: byStatus, sessions, items };
 }
 
-function sessionStatus(sessionId: string, task: ExecutionTaskStatus): SessionTaskStatus {
-  return { session_id: sessionId, has_running_task: task.status === "running", has_active_system_command: false, task_info: task, observability: buildObservability(task), diagnostics: diagnostics(task) };
-}
-function idleStatus(sessionId: string): SessionTaskStatus { return { session_id: sessionId, has_running_task: false, has_active_system_command: false, task_info: null, observability: null, diagnostics: null }; }
 function diagnostics(task: ExecutionTaskStatus) { return { task, runner: null, observability: buildObservability(task), handle_registered: false, is_running: task.status === "running" }; }
 function isNewer(left: string | null | undefined, right: string | null | undefined): boolean { return String(left ?? "") >= String(right ?? ""); }

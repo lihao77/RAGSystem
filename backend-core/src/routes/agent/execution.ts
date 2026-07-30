@@ -94,11 +94,12 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
     );
   });
 
-  app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/task-status", async (request) => {
+  app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/runtime", async (request) => {
     const sessionApp = await resolveSessionApplication(options, request);
+    const session = await sessionApp.getSession(request.params.sessionId);
+    if (!session) throw new HttpError(404, "session_not_found", "会话不存在");
     await assertReadableSessionIfExists(request, request.params.sessionId, sessionApp);
-    const reader = (await ensureRequestApplications(request, options)).executionRead;
-    return ok(await reader.getSessionTaskStatus(request.params.sessionId));
+    return ok(await request.container.sessionRuntime.getSnapshot(request.params.sessionId));
   });
 
   app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/execution-diagnostics", async (request) => {

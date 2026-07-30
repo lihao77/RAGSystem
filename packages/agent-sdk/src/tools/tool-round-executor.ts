@@ -30,6 +30,7 @@ import {
   buildToolReferenceErrorResult,
   collectResultPlaceholders,
   collectResultReferenceIndexes,
+  materializeToolResult,
   resolveToolArgumentReferences,
 } from "./tool-references.js";
 
@@ -67,10 +68,14 @@ export interface ToolRoundExecutorOptions {
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
 }
 
-export async function executeToolCallRound(calls: KernelToolCall[], opts: ToolRoundExecutorOptions): Promise<KernelObservation[]> {
-  const roundResults = new Map<number, ToolExecutionResult>();
+export async function executeToolCallRound(
+  calls: KernelToolCall[],
+  opts: ToolRoundExecutorOptions,
+  previousResults: ReadonlyMap<number, ToolExecutionResult> = new Map(),
+): Promise<KernelObservation[]> {
+  const roundResults = new Map(previousResults);
   const executions = new Map<number, KernelObservation>();
-  const batches = buildExecutionBatches(calls);
+  const batches = buildExecutionBatches(calls, new Set(roundResults.keys()));
   for (const batch of batches) {
     throwIfAborted(opts.toolContext.signal, "Agent run aborted");
     const interactionBatchId = buildInteractionBatchId(opts.toolContext.runId, batch);
@@ -228,6 +233,7 @@ async function executePlannedToolCall(plan: PlannedToolCall, opts: ToolRoundExec
     summary: observationResult.summary,
     observation: observationResult.observation,
     metadata: toolResult.metadata,
+    referenceResult: materializeToolResult(toolResult),
     elapsedTime,
     round: opts.round,
     order,
@@ -281,9 +287,9 @@ async function executeToolWithHookError(input: {
   }
 }
 
-function buildExecutionBatches(calls: KernelToolCall[]): KernelToolCall[][] {
+function buildExecutionBatches(calls: KernelToolCall[], initiallyCompleted: ReadonlySet<number>): KernelToolCall[][] {
   const batches: KernelToolCall[][] = [];
-  const completed = new Set<number>();
+  const completed = new Set(initiallyCompleted);
   let remaining = [...calls];
   while (remaining.length > 0) {
     const batch: KernelToolCall[] = [];

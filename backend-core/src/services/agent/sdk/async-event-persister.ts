@@ -160,7 +160,12 @@ export class AsyncKernelEventPersister {
               }),
             }],
           }),
-          buildExpiredRunEndedRecord: (run) => buildExpiredRunLeaseRecord(run.sessionId, run.runId),
+          buildExpiredRunEndedRecord: (run) => buildExpiredRunLeaseRecord(
+            run.sessionId,
+            run.runId,
+            run.status,
+            run.reason,
+          ),
         })
       : { kind: "started" as const, ...await this.storage.operations.startRun(startInput) };
     // Delivery occurs after the atomic commit. A transport failure leaves the
@@ -200,6 +205,7 @@ export class AsyncKernelEventPersister {
           metadata: {
             ...this.messageMeta(event.round),
             msg_type: MSG_TYPE.OBSERVATION,
+            tool_result_ref: event.referenceResult,
             ...(toolMedia.length > 0
               ? { extensions: [{ kind: "tool_result_media", data: { media: toolMedia } }] }
               : {}),

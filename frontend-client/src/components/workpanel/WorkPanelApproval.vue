@@ -41,17 +41,17 @@
         v-model="noteText"
         class="wpa-note"
         placeholder="附言（可选）"
-        :disabled="submitting"
+        :disabled="submitting || !responseAllowed"
         @keydown.enter.prevent="submit(true)"
         @keydown.esc.prevent="submit(false)"
       />
 
       <!-- Actions -->
       <div class="wpa-actions">
-        <Button class="wpa-btn w-full" variant="success" :disabled="submitting" @click="submit(true)">
+        <Button class="wpa-btn w-full" variant="success" :disabled="submitting || !responseAllowed" @click="submit(true)">
           {{ submitting && pendingApproved === true ? '…' : '允许' }}
         </Button>
-        <Button class="wpa-btn w-full" variant="destructive" :disabled="submitting" @click="submit(false)">
+        <Button class="wpa-btn w-full" variant="destructive" :disabled="submitting || !responseAllowed" @click="submit(false)">
           {{ submitting && pendingApproved === false ? '…' : '拒绝' }}
         </Button>
       </div>
@@ -68,6 +68,7 @@ import IconChevronRight from '../icons/IconChevronRight.vue'
 const props = defineProps({
   queue: { type: Array, default: () => [] },
   submittingId: { type: String, default: '' },
+  responseAllowed: { type: Boolean, default: false },
 })
 const emit = defineEmits(['submit'])
 
@@ -98,6 +99,7 @@ const RISK_LABELS = { low: '低风险', medium: '中风险', high: '高风险', 
 function riskLabel(level) { return RISK_LABELS[level] || level || '未知' }
 
 function submit(approved) {
+  if (!props.responseAllowed) return
   const approval = currentApproval.value
   if (!approval?.approval_id || submitting.value) return
   pendingApproved.value = approved

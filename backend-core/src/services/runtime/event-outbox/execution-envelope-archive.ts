@@ -36,13 +36,18 @@ export function buildExecutionEnvelopeRunStep(
   };
 }
 
-export function buildExpiredRunLeaseRecord(sessionId: string, runId: string): RuntimeRecordEnvelopeInput {
-  const eventId = `${runId}:lease-expired:run_ended`;
+export function buildExpiredRunLeaseRecord(
+  sessionId: string,
+  runId: string,
+  status: "interrupted" | "suspended",
+  reason: "run_lease_expired" | "backend_restarted_waiting_interaction",
+): RuntimeRecordEnvelopeInput {
+  const eventId = `${runId}:${reason}:run_ended`;
   const event: Envelope = {
     type: "run_ended",
     session_id: sessionId,
     run_id: runId,
-    payload: { status: "interrupted", reason: "run_lease_expired" },
+    payload: { status, reason },
   };
   return {
     step: buildExecutionEnvelopeRunStep(sessionId, runId, event, eventId),

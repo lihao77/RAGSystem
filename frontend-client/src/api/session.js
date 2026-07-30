@@ -23,9 +23,9 @@ export async function deleteSession(sessionId) {
   return http.del(`${BASE}/sessions/${encodeURIComponent(sessionId)}`);
 }
 
-/** 会话任务状态（has_running_task / task_info / observability 等）。可选 signal 用于取消。 */
-export async function getSessionTaskStatus(sessionId, { signal } = {}) {
-  return http.get(`${BASE}/sessions/${encodeURIComponent(sessionId)}/task-status`, { signal });
+/** 后端投影的唯一 Session runtime 快照。可选 signal 用于取消。 */
+export async function getSessionRuntime(sessionId, { signal } = {}) {
+  return http.get(`${BASE}/sessions/${encodeURIComponent(sessionId)}/runtime`, { signal });
 }
 
 /**
@@ -42,6 +42,14 @@ export async function respondInteraction(sessionId, inputId, body) {
   return http.post(
     `${BASE}/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(inputId)}/respond`,
     body,
+  );
+}
+
+/** 使用已持久化的交互结果恢复挂起 run。 */
+export async function resumeSessionRun(sessionId, interactionId) {
+  return http.post(
+    `${BASE}/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(interactionId)}/resume`,
+    {},
   );
 }
 

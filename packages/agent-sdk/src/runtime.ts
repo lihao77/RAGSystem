@@ -15,7 +15,7 @@ import path from "node:path";
 import type { ChatMessage, LlmRequest } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "./abort.js";
-import type { Context, EventSink, KernelResult, MessageRefresher, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult } from "./contracts.js";
+import type { Context, EventSink, KernelResult, MessageRefresher, RuntimeSession, ToolExecContext, ToolExecutionResult, ToolWaitRequest, ToolWaitResult } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import type { Tool } from "./tools/tool.js";
@@ -83,7 +83,11 @@ export interface RunInput {
   rootCallId?: string;
   threadKey?: string;
  parentCallId?: string;
- signal?: AbortSignal;
+  signal?: AbortSignal;
+  /** 同一 run 恢复执行时的首个逻辑轮次（0-based）；新 run 默认为 0。 */
+  startRound?: number;
+  /** 已持久化工具结果，供恢复同一轮依赖型工具调用时解析 {result_N}。 */
+  resumeToolResults?: ReadonlyMap<string, ToolExecutionResult>;
   /** run 起始会话快照（backend 组装：memory + recent + microcompact + 压缩视图 + 图片注入）。SDK 仅靠此快照 + 工作副本推进，纯计算不落库。 */
   conversation: ChatMessage[];
 }
@@ -152,6 +156,10 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       const threadKey = input.threadKey ?? "root";
       const sessionId = input.sessionId;
       const parentCallId = input.parentCallId ?? null;
+      const startRound = input.startRound ?? 0;
+      if (!Number.isSafeInteger(startRound) || startRound < 0) {
+        throw new Error(`startRound must be a non-negative safe integer: ${String(input.startRound)}`);
+      }
 
     const dispatcher = new Dispatcher();
 
@@ -180,6 +188,8 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
        rootCallId,
        threadKey,
        parentCallId,
+       startRound,
+       resumeToolResults: input.resumeToolResults ?? new Map(),
      };
       if (input.signal) { session.signal = input.signal; }
 
@@ -253,6 +263,8 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         rootCallId: "preview",
         threadKey: input.threadKey ?? "root",
         parentCallId: null,
+        startRound: 0,
+        resumeToolResults: new Map(),
       } as RuntimeSession;
       const ctx = { session, requestMessages } as unknown as KernelContextType;
       const request = previewProtocol.buildRequest(ctx);

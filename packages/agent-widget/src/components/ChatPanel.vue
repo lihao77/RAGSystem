@@ -79,6 +79,7 @@
           <WorkPanelUserInput
             v-if="pendingUserInputView"
             :input-data="pendingUserInputView.data"
+            :response-allowed="canRespondInteraction"
             @submit="onUserInputSubmit"
             @cancel="onUserInputCancel"
           />
@@ -86,6 +87,7 @@
             v-if="approvalQueueView.length"
             :queue="approvalQueueView"
             :submitting-id="submittingApprovalId"
+            :response-allowed="canRespondInteraction"
             @submit="onApprovalSubmit"
           />
         </div>
@@ -127,7 +129,7 @@
               ></div>
             </div>
             <button
-              v-if="isActiveRun"
+              v-if="canStopRun"
               class="rag-send rag-stop"
               @click="stop"
               aria-label="停止"
@@ -135,9 +137,18 @@
               <span v-html="stopIcon"></span>
             </button>
             <button
+              v-else-if="canResumeRun"
+              class="rag-send"
+              :disabled="sending"
+              @click="resume"
+              aria-label="恢复"
+            >
+              <span v-html="rotateCcwIcon"></span>
+            </button>
+            <button
               v-else
               class="rag-send"
-              :disabled="isEmpty || sending"
+              :disabled="isEmpty || sending || !canSendMessage"
               @click="send"
               aria-label="发送"
             >
@@ -160,7 +171,7 @@
 </template>
 
 <script setup>
-import { ref, computed, provide, onBeforeUnmount, watch } from "vue";
+import { ref, computed, provide, onBeforeUnmount, onMounted, watch } from "vue";
 import { WidgetAgentClient } from "../adapter/widget-agent-client.js";
 import { renderMarkdown } from "../utils/markdown.js";
 import WorkPanelApproval from "./workpanel/WorkPanelApproval.vue";
@@ -208,8 +219,26 @@ const inputEl = ref(null);
 const isEmpty = ref(true);
 const messagesEl = ref(null);
 
-const runStatus = ref({ runId: null, state: "idle" });
-const pendingInteractions = ref([]);
+const sessionRuntime = ref({
+  state: "idle",
+  load_strategy: "history",
+  allowed_actions: [],
+  active_run: null,
+  last_run: null,
+  pending_interactions: [],
+  resume_interaction_id: null,
+  maintenance: null,
+  observed_at: "",
+});
+const pendingInteractions = computed(() => sessionRuntime.value.pending_interactions.map((item) => ({
+  interactionId: item.interaction_id,
+  kind: item.kind,
+  status: item.status,
+  toolName: item.payload?.tool,
+  riskLevel: item.payload?.risk_level,
+  arguments: item.payload?.input,
+  prompt: item.payload?.prompt || item.payload?.message,
+})));
 const connectionStatus = ref({ state: "idle" });
 const sending = ref(false);
 const submittingApprovalId = ref("");
@@ -254,13 +283,12 @@ const chevronUpIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 function bindClient(c) {
   const u = [];
   u.push(c.status.subscribe((s) => { connectionStatus.value = s; }));
-  u.push(c.runStatus.subscribe((s) => { runStatus.value = s; }));
+  u.push(c.runtime.subscribe((snapshot) => { sessionRuntime.value = snapshot; }));
   // executionTree 挂到当前 run 的 assistant message（run_started 绑定 currentRunMsg）。
   // 工具调用属该回复；error 等后续消息不承载工具树，避免同一 tool call 在原消息与错误卡上各渲染一次。
   u.push(c.executionTree.subscribe((t) => {
     if (currentRunMsg) currentRunMsg.executionTree = t;
   }));
-  u.push(c.pendingInteractions.subscribe((list) => { pendingInteractions.value = list; }));
   u.push(c.events.subscribe((env) => handleEvent(env)));
   return () => u.forEach((fn) => { try { fn(); } catch {} });
 }
@@ -358,6 +386,12 @@ onBeforeUnmount(() => {
   clientUnsub.forEach((fn) => { try { fn(); } catch {} });
   if (streamFlushTimer) { clearTimeout(streamFlushTimer); streamFlushTimer = null; }
   client?.disconnect();
+});
+
+onMounted(() => {
+  if (sessionId.value) {
+    void ensureConnected().catch((error) => pushError(`连接失败：${error?.message || "请稍后重试"}`));
+  }
 });
 
 function toggleOpen() {
@@ -480,7 +514,7 @@ function pushError(message) {
 
 async function send() {
   const text = getInputText();
-  if (!text || isActiveRun.value || sending.value) return;
+  if (!text || !canSendMessage.value || sending.value) return;
   sending.value = true;
   try {
     // 懒连接：首次发送时建会话 + 连 WS（未发送不建会话，避免加载即建空会话）。
@@ -639,6 +673,18 @@ function stop() {
   client?.stop();
 }
 
+async function resume() {
+  if (!client || sending.value || !canResumeRun.value) return;
+  sending.value = true;
+  try {
+    if (!await client.resume()) pushError("恢复失败：当前会话无法恢复");
+  } catch (error) {
+    pushError(`恢复失败：${error?.message || "请稍后重试"}`);
+  } finally {
+    sending.value = false;
+  }
+}
+
 function reconnect() {
   client?.connect();
 }
@@ -660,8 +706,11 @@ function newSession() {
   currentRunMsg = null;
   if (streamFlushTimer) { clearTimeout(streamFlushTimer); streamFlushTimer = null; }
   messages.value = [];
-  pendingInteractions.value = [];
-  runStatus.value = { runId: null, state: "idle" };
+  sessionRuntime.value = {
+    state: "idle", load_strategy: "history", allowed_actions: [], active_run: null,
+    last_run: null, pending_interactions: [], resume_interaction_id: null,
+    maintenance: null, observed_at: "",
+  };
   connectionStatus.value = { state: "idle" };
   expanded.value = new Set();
   isEmpty.value = true;
@@ -671,24 +720,35 @@ function newSession() {
 }
 
 async function onApprovalSubmit({ approvalId, approved, message }) {
-  if (!client || submittingApprovalId.value) return;
+  if (!client || submittingApprovalId.value || !canRespondInteraction.value) return;
   submittingApprovalId.value = approvalId;
   try {
     await client.approve(approvalId, approved, message);
+  } catch (error) {
+    pushError(`审批提交失败：${error?.message || "请稍后重试"}`);
   } finally {
     submittingApprovalId.value = "";
   }
 }
 function onUserInputSubmit({ inputId, value }) {
-  client?.respondInput(inputId, value);
+  if (canRespondInteraction.value) {
+    void client?.respondInput(inputId, value)
+      .catch((error) => pushError(`输入提交失败：${error?.message || "请稍后重试"}`));
+  }
 }
 function onUserInputCancel() {
   // 一期不取消。
 }
 
-const isActiveRun = computed(() => runStatus.value.state === "running");
-
 const isConnected = computed(() => connectionStatus.value.state === "connected");
+const runtimeActions = computed(() => new Set(sessionRuntime.value.allowed_actions || []));
+const canSendMessage = computed(() => !sessionId.value
+  || (isConnected.value && (runtimeActions.value.has("send_message")
+    || runtimeActions.value.has("send_followup"))));
+const canStopRun = computed(() => isConnected.value && runtimeActions.value.has("stop_run"));
+const canResumeRun = computed(() => isConnected.value && runtimeActions.value.has("resume_run"));
+const canRespondInteraction = computed(() => isConnected.value && runtimeActions.value.has("respond_interaction"));
+const isActiveRun = computed(() => Boolean(sessionRuntime.value.active_run));
 
 const connBadgeText = computed(() => {
   const s = connectionStatus.value.state;
@@ -706,9 +766,9 @@ const statusTone = computed(() => {
   if (connectionStatus.value.state === "reconnecting" || connectionStatus.value.state === "connecting") return "running";
   if (pendingInteractions.value.some((p) => p.kind === "user_input")) return "input";
   if (pendingInteractions.value.some((p) => p.kind === "approval")) return "warning";
-  if (runStatus.value.state === "failed") return "error";
-  if (runStatus.value.state === "running") return "running";
-  if (runStatus.value.state === "completed") return "success";
+  if (sessionRuntime.value.state === "running" || sessionRuntime.value.state === "resuming") return "running";
+  if (sessionRuntime.value.last_run?.status === "failed") return "error";
+  if (sessionRuntime.value.last_run?.status === "completed") return "success";
   return "idle";
 });
 
@@ -733,7 +793,7 @@ const pendingUserInputView = computed(() => {
 
 /** 打字三点：运行中且末尾助手消息尚无内容（首 token 到达后自动隐藏）。 */
 const showTyping = computed(() => {
-  if (!isActiveRun.value) return false;
+  if (sessionRuntime.value.state !== "running" && sessionRuntime.value.state !== "resuming") return false;
   const last = messages.value[messages.value.length - 1];
   return !!last && last.role === "assistant" && !last.content;
 });

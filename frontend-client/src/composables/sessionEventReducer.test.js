@@ -35,7 +35,6 @@ function buildReducer() {
     isCompressing: reference(false),
     contextUsage: reference({ used: 0, max: 0 }),
     llmRetryState: reference(null),
-    sessionTaskInfo: reference(null),
     handleApprovalRequired: () => {},
     handleUserInputRequired: () => {},
   });
