@@ -32,6 +32,8 @@ export interface AguiBaseEvent {
   threadId: string;
   runId: string;
   timestamp?: number;
+  /** RAGSystem durable outbox cursor. Compatible AG-UI clients ignore it. */
+  eventSeq?: number;
 }
 
 export interface RunStartedEvent extends AguiBaseEvent {

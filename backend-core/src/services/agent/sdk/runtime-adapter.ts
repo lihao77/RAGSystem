@@ -5,7 +5,7 @@ import { asString } from "../../../utils/guards.js";
  * SDK 收窄为纯计算内核（B1：Dispatcher 不再落库，只推 KernelEvent 事件流）；本适配器通过
  * deployment-neutral persister 完成 message/run/step/outbox 写入，并翻译 KernelEvent 推送 Envelope。
  */
-import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, RecoverableInterrupt, resolveToolInstructionMode, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
+import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, RecoverableInterrupt, resolveToolInstructionMode, throwIfAborted, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefresher } from "@ragsystem/agent-sdk";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import { translateKernelEvent, type WireTranslationContext } from "./event-translation.js";
@@ -584,14 +584,26 @@ function buildHostDelegateTools(
     isReadOnly: () => decl.read_only === true,
     isConcurrencySafe: () => false,
     call: (input, ctx) => {
-      const callId = ctx.toolCallId ?? "";
+      const callId = typeof ctx.toolCallId === "string" ? ctx.toolCallId.trim() : "";
+      if (!callId) {
+        throw new Error(`委托工具 ${decl.name} 缺少有效的 tool_call_id`);
+      }
       if (!ctx.emitDelegateCall) {
         throw new Error(`委托工具 ${decl.name} 缺少 emitDelegateCall 注入，无法驱动宿主执行`);
       }
-      ctx.emitDelegateCall({ toolCallId: callId, toolName: decl.name, arguments: input });
-      return delegationPending
-        .wait(callId, ctx.signal ? { signal: ctx.signal } : undefined)
-        .then((resolution) => toHostToolExecutionResult(decl.name, resolution));
+      throwIfAborted(ctx.signal, "Agent run aborted");
+      // Register before publishing the instruction. The AG-UI client may
+      // execute and resume a local tool before publishDelegateCall returns.
+      const pending = delegationPending.wait(callId, ctx.signal ? { signal: ctx.signal } : undefined);
+      try {
+        ctx.emitDelegateCall({ toolCallId: callId, toolName: decl.name, arguments: input });
+      } catch (error) {
+        delegationPending.resolve(callId, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return pending.then((resolution) => toHostToolExecutionResult(decl.name, resolution));
     },
   }));
 }

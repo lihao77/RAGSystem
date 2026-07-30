@@ -12,12 +12,28 @@ function translator() {
   });
 }
 
-function streamEnvelope(phase: string, content = ""): Envelope {
+function streamEnvelope(phase: string, content = "", seq?: number): Envelope {
   return {
     type: "stream_output",
     session_id: "thread-1",
     run_id: "internal-1",
+    ...(seq !== undefined ? { seq } : {}),
     payload: { phase, content },
+  };
+}
+
+function interactionEnvelope(callId = "approval-1"): Envelope {
+  return {
+    type: "interaction",
+    session_id: "thread-1",
+    run_id: "internal-1",
+    call_id: callId,
+    payload: {
+      kind: "approval",
+      phase: "required",
+      tool: "dangerous_tool",
+      prompt: "确认执行？",
+    },
   };
 }
 
@@ -41,5 +57,46 @@ describe("AguiTranslator text streaming", () => {
       "TEXT_MESSAGE_END",
     ]);
     expect(events[1]).toEqual(expect.objectContaining({ delta: "完整回答" }));
+  });
+
+  it("projects the durable outbox cursor on translated AG-UI events", () => {
+    const events = translator().translate(streamEnvelope("delta", "继续", 27)).events;
+    expect(events).toEqual([
+      expect.objectContaining({ type: "TEXT_MESSAGE_START", eventSeq: 27 }),
+      expect.objectContaining({ type: "TEXT_MESSAGE_CONTENT", delta: "继续", eventSeq: 27 }),
+    ]);
+  });
+});
+
+describe("AguiTranslator interrupt identity", () => {
+  it("uses the durable interaction id for approval interrupts", () => {
+    const result = translator().translate(interactionEnvelope("approval-42"));
+
+    expect(result.interruptRecord?.aguiInterruptId).toBe("approval-42");
+    expect(result.events).toContainEqual(expect.objectContaining({
+      type: "RUN_FINISHED",
+      outcome: { type: "interrupt", interrupts: [expect.objectContaining({ id: "approval-42" })] },
+    }));
+  });
+
+  it("keeps delegated tool metadata in the interrupt fallback", () => {
+    const result = translator().translate({
+      type: "delegate_call",
+      session_id: "thread-1",
+      run_id: "internal-1",
+      call_id: "call-42",
+      payload: { tool: "ocean_map_load_layers", input: { artifact_ids: ["viz_a"] } },
+    });
+
+    expect(result.events).toContainEqual(expect.objectContaining({
+      type: "RUN_FINISHED",
+      outcome: {
+        type: "interrupt",
+        interrupts: [expect.objectContaining({
+          id: "call-42",
+          metadata: { toolName: "ocean_map_load_layers", arguments: { artifact_ids: ["viz_a"] } },
+        })],
+      },
+    }));
   });
 });

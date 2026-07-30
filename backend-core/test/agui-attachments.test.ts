@@ -19,3 +19,16 @@ describe("parseRunAgentInput attachments", () => {
     })).toThrow();
   });
 });
+
+describe("parseRunAgentInput reconnect", () => {
+  it("accepts an active run cursor and rejects invalid cursors", () => {
+    expect(parseRunAgentInput({
+      threadId: "session-1",
+      reconnect: { runId: "active-run-1", afterSeq: 42 },
+    }).reconnect).toEqual({ runId: "active-run-1", afterSeq: 42 });
+
+    expect(parseRunAgentInput({ reconnect: { runId: "active-run-1", afterSeq: -1 } }).reconnect)
+      .toEqual({ runId: "active-run-1" });
+    expect(parseRunAgentInput({ reconnect: { runId: "", afterSeq: 42 } }).reconnect).toBeUndefined();
+  });
+});

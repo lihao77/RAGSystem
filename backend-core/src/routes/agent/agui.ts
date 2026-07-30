@@ -30,7 +30,14 @@ export const registerAguiRoutes: FastifyPluginAsync<RouteOptions> = async (app, 
       interruptMachine = new InterruptMachine();
       interruptMachines.set(request.container, interruptMachine);
     }
-    const gateway = new AguiGateway(request.container, request.identity.userId, applications.execution, applications.interactions, interruptMachine);
+    const gateway = new AguiGateway(
+      request.container,
+      request.identity.userId,
+      applications.execution,
+      applications.executionRead,
+      applications.interactions,
+      interruptMachine,
+    );
     await gateway.handle(input, reply);
     // hijack 后响应由 gateway 管理，handler 不再返回体。
   });

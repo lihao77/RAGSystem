@@ -29,6 +29,12 @@ export interface AguiResumeItem {
   payload?: unknown;
 }
 
+/** RAGSystem extension: attach an AG-UI SSE request to an existing active run. */
+export interface AguiReconnectInput {
+  runId: string;
+  afterSeq?: number;
+}
+
 /** AG-UI RunAgentInput（POST /api/agui body）。 */
 export interface RunAgentInput {
   threadId?: string;
@@ -39,6 +45,7 @@ export interface RunAgentInput {
   context?: unknown[];
   forwardedProps?: Record<string, unknown>;
   resume?: AguiResumeItem[];
+  reconnect?: AguiReconnectInput;
   attachments?: AttachmentRef[];
 }
 
@@ -92,6 +99,16 @@ export function parseRunAgentInput(body: unknown): RunAgentInput {
   if (Array.isArray(raw.messages)) input.messages = raw.messages as AguiMessage[];
   if (Array.isArray(raw.tools)) input.tools = raw.tools as AguiClientTool[];
   if (Array.isArray(raw.resume)) input.resume = raw.resume as AguiResumeItem[];
+  if (raw.reconnect !== null && typeof raw.reconnect === "object" && !Array.isArray(raw.reconnect)) {
+    const reconnect = raw.reconnect as Record<string, unknown>;
+    if (typeof reconnect.runId === "string" && reconnect.runId.trim()) {
+      const afterSeq = reconnect.afterSeq;
+      input.reconnect = {
+        runId: reconnect.runId,
+        ...(typeof afterSeq === "number" && Number.isSafeInteger(afterSeq) && afterSeq >= 0 ? { afterSeq } : {}),
+      };
+    }
+  }
   if (Array.isArray(raw.attachments)) input.attachments = raw.attachments.map((item) => AttachmentRefSchema.parse(item));
   if (raw.state !== null && typeof raw.state === "object") input.state = raw.state as Record<string, unknown>;
   return input;

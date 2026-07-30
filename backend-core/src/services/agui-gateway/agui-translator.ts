@@ -46,10 +46,12 @@ export class AguiTranslator {
   private textMessageId: string | null = null;
   private textHasStreamedContent = false;
   private reasoningMessageId: string | null = null;
+  private eventSeq: number | undefined;
 
   constructor(private readonly ctx: TranslateContext) {}
 
   translate(env: Envelope): TranslateResult {
+    this.eventSeq = typeof env.seq === "number" ? env.seq : undefined;
     switch (env.type) {
       case "run_started":
         return { events: [this.runStarted()] };
@@ -80,8 +82,13 @@ export class AguiTranslator {
     }
   }
 
-  private base(): { threadId: string; runId: string; timestamp: number } {
-    return { threadId: this.ctx.threadId, runId: this.ctx.externalRunId, timestamp: Date.now() };
+  private base(): { threadId: string; runId: string; timestamp: number; eventSeq?: number } {
+    return {
+      threadId: this.ctx.threadId,
+      runId: this.ctx.externalRunId,
+      timestamp: Date.now(),
+      ...(this.eventSeq !== undefined ? { eventSeq: this.eventSeq } : {}),
+    };
   }
 
   private runStarted(): RunStartedEvent {
@@ -206,12 +213,18 @@ export class AguiTranslator {
   private delegateCall(env: Envelope, payload: Rec): TranslateResult {
     const callId = env.call_id ?? randomUUID();
     const toolName = str(payload.tool) ?? "tool";
-    const aguiInterruptId = this.ctx.genInterruptId();
+    const input = payload.input && typeof payload.input === "object" && !Array.isArray(payload.input)
+      ? payload.input as Rec
+      : {};
+    // Keep the external interrupt id stable across an SSE reconnect. The
+    // internal call id is durable for the lifetime of the delegated request.
+    const aguiInterruptId = callId;
     const interrupt: AguiInterrupt = {
       id: aguiInterruptId,
       reason: "tool_call",
       toolCallId: callId,
       message: `执行前端工具 ${toolName}`,
+      metadata: { toolName, arguments: input },
       responseSchema: {
         type: "object",
         properties: { ok: { type: "boolean" }, observation: { type: "string" }, error: { type: "string" } },
@@ -220,7 +233,7 @@ export class AguiTranslator {
     };
     const events: AguiEvent[] = [
       { type: "TOOL_CALL_START", ...this.base(), toolCallId: callId, toolCallName: toolName },
-      { type: "TOOL_CALL_ARGS", ...this.base(), toolCallId: callId, delta: JSON.stringify(payload.input ?? {}) },
+      { type: "TOOL_CALL_ARGS", ...this.base(), toolCallId: callId, delta: JSON.stringify(input) },
       { type: "TOOL_CALL_END", ...this.base(), toolCallId: callId },
       { type: "RUN_FINISHED", ...this.base(), outcome: { type: "interrupt", interrupts: [interrupt] } },
     ];
@@ -245,7 +258,10 @@ export class AguiTranslator {
       return { events: [] }; // responded 由内部 resolve 后产生，网关不投影（resume 路径已处理）。
     }
     const callId = env.call_id ?? randomUUID();
-    const aguiInterruptId = this.ctx.genInterruptId();
+    // Interaction ids are persisted by the runtime. Reusing the call id lets
+    // a later AG-UI request recover an approval even if the first SSE stream
+    // was interrupted before the client received RUN_FINISHED.
+    const aguiInterruptId = callId;
     if (str(payload.kind) === "approval") {
       const toolName = str(payload.tool);
       const interrupt: AguiInterrupt = {

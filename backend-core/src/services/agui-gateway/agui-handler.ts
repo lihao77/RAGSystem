@@ -4,6 +4,7 @@ import type { UserId } from "../../identity/types.js";
 
 import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { ExecutionApplication } from "../../contracts/execution/execution-application.js";
+import type { ExecutionReadApplication } from "../../contracts/execution/execution-read-application.js";
 import type {
   ApprovalMeta,
   InteractionCoordinator,
@@ -14,7 +15,8 @@ import { InterruptMachine, type InterruptRecord } from "./interrupt-machine.js";
 import { openAguiSse, type AguiSseStream } from "./sse-stream.js";
 import { lastUserTask, mapClientTools, type AguiResumeItem, type RunAgentInput } from "./agui-input.js";
 import { encodeAguiSse, type AguiEvent, type AguiInterrupt } from "./agui-events.js";
-import type { Envelope } from "../../contracts/events.js";
+import type { Envelope, SessionRuntimePayload } from "../../contracts/events.js";
+import { loadAguiRunReplay } from "./agui-replay.js";
 
 type Rec = Record<string, unknown>;
 const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
@@ -22,7 +24,9 @@ const now = (): number => Date.now();
 const baseFields = (threadId: string, runId: string) => ({ threadId, runId, timestamp: now() });
 
 function pendingInterruptRecord(meta: ApprovalMeta, threadId: string, internalRunId: string): InterruptRecord {
-  const aguiInterruptId = randomUUID();
+  // The runtime interaction id is durable and can be used directly by a
+  // later AG-UI resume request after the original SSE stream is gone.
+  const aguiInterruptId = meta.approvalId;
   const approval = meta.kind === "approval";
   const interrupt: AguiInterrupt = approval
     ? {
@@ -62,6 +66,63 @@ function pendingInterruptRecord(meta: ApprovalMeta, threadId: string, internalRu
   };
 }
 
+function compareEnvelopeSeq(left: Envelope, right: Envelope): number {
+  const leftSeq = typeof left.seq === "number" ? left.seq : Number.MAX_SAFE_INTEGER;
+  const rightSeq = typeof right.seq === "number" ? right.seq : Number.MAX_SAFE_INTEGER;
+  return leftSeq - rightSeq;
+}
+
+function runtimeInterruptRecord(
+  interaction: SessionRuntimePayload["pending_interactions"][number],
+  threadId: string,
+  internalRunId: string,
+): InterruptRecord {
+  const payload = interaction.payload && typeof interaction.payload === "object" && !Array.isArray(interaction.payload)
+    ? interaction.payload as Rec
+    : {};
+  const input = payload.input && typeof payload.input === "object" && !Array.isArray(payload.input)
+    ? payload.input as Rec
+    : {};
+  const callId = interaction.interaction_id;
+  const approval = interaction.kind === "approval";
+  const toolCallId = str(input.tool_call_id);
+  const toolName = str(payload.tool);
+  const prompt = str(payload.prompt) || str(payload.message);
+  const options = Array.isArray(input.options) ? input.options.filter((item): item is string => typeof item === "string") : [];
+  const interrupt: AguiInterrupt = approval
+    ? {
+        id: callId,
+        reason: "confirmation",
+        ...(toolCallId ? { toolCallId } : {}),
+        message: prompt || "需要确认",
+        responseSchema: {
+          type: "object",
+          properties: { approved: { type: "boolean" }, message: { type: "string" } },
+          required: ["approved"],
+        },
+      }
+    : {
+        id: callId,
+        reason: "input_required",
+        message: prompt || "请提供输入",
+        responseSchema: {
+          type: "object",
+          properties: { value: options.length ? { type: "string", enum: options } : { type: "string" } },
+          required: ["value"],
+        },
+      };
+  return {
+    threadId,
+    aguiInterruptId: callId,
+    callId,
+    kind: approval ? "approval" : "user_input",
+    internalRunId,
+    ...(toolCallId ? { toolCallId } : {}),
+    ...(toolName ? { toolName } : {}),
+    interrupt,
+  };
+}
+
 /**
  * AG-UI 适配网关：把内部 agent-protocol 事件流翻译成 AG-UI SSE，直连 container service。
  *
@@ -74,6 +135,7 @@ export class AguiGateway {
     private readonly container: RuntimeContainer,
     private readonly userId: UserId,
     private readonly execution: ExecutionApplication,
+    private readonly executionRead: ExecutionReadApplication,
     private readonly interactions: InteractionCoordinator,
     private readonly interruptMachine = new InterruptMachine(),
   ) {}
@@ -90,10 +152,139 @@ export class AguiGateway {
 
     const sse = openAguiSse(reply);
 
-    if (input.resume && input.resume.length > 0) {
+    if (input.reconnect) {
+      await this.handleReconnect(input, threadId, externalRunId, sse);
+    } else if (input.resume && input.resume.length > 0) {
       await this.handleResume(input, threadId, externalRunId, sse);
     } else {
       await this.handleNewRun(input, threadId, externalRunId, sse);
+    }
+  }
+
+  /** Reconnect segment: replay one active run, then merge into its live event stream. */
+  private async handleReconnect(
+    input: RunAgentInput,
+    threadId: string,
+    externalRunId: string,
+    sse: AguiSseStream,
+  ): Promise<void> {
+    const reconnect = input.reconnect;
+    const send = (event: AguiEvent): void => sse.send(encodeAguiSse(event));
+    if (!reconnect?.runId) {
+      send({ type: "RUN_STARTED", ...baseFields(threadId, externalRunId) });
+      send({ type: "RUN_ERROR", ...baseFields(threadId, externalRunId), message: "reconnect 缺少 active run_id" });
+      sse.end();
+      return;
+    }
+
+    const internalRunId = reconnect.runId;
+    const translator = new AguiTranslator({
+      threadId,
+      externalRunId,
+      internalRunId,
+      genInterruptId: () => randomUUID(),
+    });
+    let done = false;
+    let replaying = true;
+    let lastSeq = reconnect.afterSeq ?? 0;
+    const buffered: Envelope[] = [];
+
+    const finish = (): void => {
+      if (done) return;
+      done = true;
+      unsubscribe();
+      sse.end();
+    };
+    const processEnvelope = (env: Envelope): void => {
+      if (done || env.run_id !== internalRunId) return;
+      if (typeof env.seq === "number") {
+        if (env.seq <= lastSeq) return;
+        lastSeq = env.seq;
+      }
+      const result = translator.translate(env);
+      if (result.interruptRecord) this.interruptMachine.record(result.interruptRecord);
+      for (const event of result.events) {
+        if (event.type === "RUN_STARTED") continue;
+        send(event);
+      }
+      if (result.done) finish();
+    };
+    const unsubscribe = this.container.realtimeEvents.subscribe(threadId, (env) => {
+      if (done || env.run_id !== internalRunId) return;
+      if (replaying) {
+        buffered.push(env);
+        return;
+      }
+      processEnvelope(env);
+    });
+    sse.onClose(() => {
+      if (done) return;
+      done = true;
+      unsubscribe();
+    });
+
+    send({ type: "RUN_STARTED", ...baseFields(threadId, externalRunId) });
+    try {
+      const initialRuntime = await this.container.sessionRuntime.getSnapshot(threadId);
+      const initialPending = initialRuntime.pending_interactions[0];
+      if (initialPending) {
+        const record = runtimeInterruptRecord(initialPending, threadId, initialRuntime.active_run?.run_id ?? internalRunId);
+        this.interruptMachine.record(record);
+        send({
+          type: "RUN_FINISHED",
+          ...baseFields(threadId, externalRunId),
+          outcome: { type: "interrupt", interrupts: [record.interrupt] },
+        });
+        finish();
+        return;
+      }
+      if (!initialRuntime.active_run || initialRuntime.active_run.run_id !== internalRunId) {
+        send({ type: "RUN_ERROR", ...baseFields(threadId, externalRunId), message: "active run 已结束或发生变化" });
+        finish();
+        return;
+      }
+
+      const replay = await loadAguiRunReplay(this.executionRead, threadId, internalRunId, lastSeq);
+      for (const env of replay) {
+        processEnvelope(env);
+        if (done) return;
+      }
+      buffered.sort(compareEnvelopeSeq).forEach(processEnvelope);
+      buffered.length = 0;
+      replaying = false;
+      if (done) return;
+
+      const currentRuntime = await this.container.sessionRuntime.getSnapshot(threadId);
+      if (done) return;
+      const pending = currentRuntime.pending_interactions[0];
+      if (pending) {
+        const record = runtimeInterruptRecord(pending, threadId, currentRuntime.active_run?.run_id ?? internalRunId);
+        this.interruptMachine.record(record);
+        send({
+          type: "RUN_FINISHED",
+          ...baseFields(threadId, externalRunId),
+          outcome: { type: "interrupt", interrupts: [record.interrupt] },
+        });
+        finish();
+        return;
+      }
+      if (!currentRuntime.active_run || currentRuntime.active_run.run_id !== internalRunId) {
+        const tail = await loadAguiRunReplay(this.executionRead, threadId, internalRunId, lastSeq);
+        for (const env of tail) {
+          processEnvelope(env);
+          if (done) return;
+        }
+        send({ type: "RUN_FINISHED", ...baseFields(threadId, externalRunId), outcome: { type: "success" } });
+        finish();
+      }
+    } catch (error) {
+      if (done) return;
+      send({
+        type: "RUN_ERROR",
+        ...baseFields(threadId, externalRunId),
+        message: error instanceof Error ? error.message : "active run 重连失败",
+      });
+      finish();
     }
   }
 
@@ -124,12 +315,14 @@ export class AguiGateway {
     const processEnvelope = (env: Envelope): void => {
       if (done || internalRunId === null || translator === null || env.run_id !== internalRunId) return;
       const result = translator.translate(env);
+      // Register before writing RUN_FINISHED{interrupt}. A fast client may
+      // submit resume as soon as the frame is received.
+      if (result.interruptRecord) this.interruptMachine.record(result.interruptRecord);
       for (const aguiEvent of result.events) {
         if (aguiEvent.type === "RUN_STARTED" && startedSent) continue;
         if (aguiEvent.type === "RUN_STARTED") startedSent = true;
         send(aguiEvent);
       }
-      if (result.interruptRecord) this.interruptMachine.record(result.interruptRecord);
       if (result.done) {
         done = true;
         unsubscribe();
@@ -221,7 +414,23 @@ export class AguiGateway {
       sse.end();
       return;
     }
-    const record = this.interruptMachine.take(item.interruptId);
+    let record = this.interruptMachine.take(item.interruptId);
+    if (!record) {
+      // The SSE stream may have been interrupted after the durable runtime
+      // interaction was recorded but before the in-memory gateway record was
+      // retained. Reconstruct the AG-UI wrapper from the pending interaction.
+      const meta = this.interactions.peekApprovalMeta(item.interruptId, threadId);
+      if (meta && !meta.resolved) {
+        record = pendingInterruptRecord(meta, threadId, meta.runId);
+      }
+    }
+    if (!record) {
+      const runtime = await this.container.sessionRuntime.getSnapshot(threadId);
+      const pending = runtime.pending_interactions.find((interaction) => interaction.interaction_id === item.interruptId);
+      if (pending) {
+        record = runtimeInterruptRecord(pending, threadId, runtime.active_run?.run_id ?? pending.run_id);
+      }
+    }
     if (!record) {
       send({ type: "RUN_STARTED", ...baseFields(threadId, externalRunId) });
       send({ type: "RUN_ERROR", ...baseFields(threadId, externalRunId), message: `interrupt ${item.interruptId} 已失效或不存在` });
@@ -243,8 +452,8 @@ export class AguiGateway {
     const processEnvelope = (env: Envelope): void => {
       if (done || env.run_id !== internalRunId) return;
       const result = translator.translate(env);
-      for (const aguiEvent of result.events) send(aguiEvent);
       if (result.interruptRecord) this.interruptMachine.record(result.interruptRecord);
+      for (const aguiEvent of result.events) send(aguiEvent);
       if (result.done) {
         done = true;
         unsubscribe();
@@ -351,7 +560,10 @@ export class AguiGateway {
       if (!ok) {
         resolution.error = str(payload.error) ?? "cancelled";
       }
-      this.container.delegationPending.resolve(callId, resolution);
+      const resolvedPending = this.container.delegationPending.resolve(callId, resolution);
+      if (!resolvedPending) {
+        throw new Error(`委托工具 ${callId} 已失效或等待已超时`);
+      }
       return null;
     }
     if (record.kind === "approval") {
