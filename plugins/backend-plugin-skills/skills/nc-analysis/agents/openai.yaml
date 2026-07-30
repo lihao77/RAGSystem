@@ -1,0 +1,4 @@
+interface:
+  display_name: "NC 文件分析"
+  short_description: "检查 NetCDF 文件的维度、变量、坐标及时间范围"
+  default_prompt: "使用 $nc-analysis 检查这个 NetCDF 文件并概述其中的数据。"
