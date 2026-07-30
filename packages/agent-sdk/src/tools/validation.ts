@@ -32,10 +32,10 @@ export function validateToolInput<I extends Record<string, unknown>>(
 
 function inputValidationErrorResult(
   toolName: string,
-  error: { message: string; issues?: ReadonlyArray<{ path: ReadonlyArray<string | number>; code: string; message: string }> },
+  error: { message: string; issues?: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; code: string; message: string }> },
 ): ToolExecutionResult {
   const issues = error.issues
-    ? error.issues.map((issue) => `${issue.path.length ? issue.path.join(".") : "<root>"}: ${issue.message}`)
+    ? error.issues.map((issue) => `${issue.path.length ? formatIssuePath(issue.path) : "<root>"}: ${issue.message}`)
     : [error.message];
   const summary = `工具 ${toolName} 输入参数校验失败: ${issues.join("; ")}`;
   return {
@@ -49,10 +49,14 @@ function inputValidationErrorResult(
       source_shape: "error",
       error_type: "InputValidationError",
       ...(error.issues
-        ? { issues: error.issues.map((issue) => ({ path: issue.path.join("."), code: issue.code, message: issue.message })) }
+        ? { issues: error.issues.map((issue) => ({ path: formatIssuePath(issue.path), code: issue.code, message: issue.message })) }
         : {}),
     },
     artifacts: [],
     llmHint: "请按工具参数 schema 修正参数后重试，不要原样重复失败调用。",
   };
+}
+
+function formatIssuePath(path: ReadonlyArray<PropertyKey>): string {
+  return path.map(String).join(".");
 }

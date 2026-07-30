@@ -19,8 +19,7 @@ export type ToolSource = "runtime_builtin" | "memory" | "document" | "execution"
 export interface InputSchema<I> {
   safeParse(data: unknown):
     | { success: true; data: I }
-    | { success: false; error: { message: string; issues?: ReadonlyArray<{ path: ReadonlyArray<string | number>; code: string; message: string }> } };
-}
+    | { success: false; error: { message: string; issues?: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; code: string; message: string }> } };}
 
 /* ── Tool 访问检查决策（自检 + 审批声明，三态）──
  * action: allow=自检过可放行 / deny=自检失败（可带 result 自定义拒绝结果）/ ask=声明建议审批
