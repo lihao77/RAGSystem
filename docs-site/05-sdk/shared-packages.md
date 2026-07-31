@@ -1,6 +1,6 @@
 # 共享协议包
 
-`packages/` 下有五个 workspace 包。本章区分“共享包总量”和“各应用的直接依赖”，所有清单来自各包的 `package.json`。
+`packages/` 下有六个 workspace 包。本章区分“共享包总量”和“各应用的直接依赖”，所有清单来自各包的 `package.json`。
 
 ## 总览
 
@@ -10,6 +10,7 @@
 | `agent-sdk` | `@ragsystem/agent-sdk` | Agent 运行时内核 SDK | backend-ts |
 | `agent-llm` | `@ragsystem/agent-llm` | LLM Provider 适配 | backend-ts |
 | `agent-widget` | `@ragsystem/agent-widget` | 第三方嵌入 Widget | 前端（iframe/Web Component） |
+| `chat-sdk-core` | `@ragsystem/chat-sdk-core` | 无 UI 的 REST + WebSocket Chat SDK 门面 | agent-widget + 外部宿主 |
 | `api-contracts` | `@ragsystem/api-contracts` | REST/session 请求响应 Zod 契约 | backend-ts + frontend-client |
 
 ## agent-protocol（前后端共享契约）
@@ -41,7 +42,7 @@
 :::
 
 ::: warning 变更影响面
-此包任何 wire/event 类型变更会影响 backend、frontend、api-contracts、agent-widget 和 host-tool-mcp-server 的消费者。修改后需运行 protocol 的 typecheck/test，并重建受影响 workspace。SDK 不依赖此包。
+此包任何 wire/event 类型变更会影响 backend、frontend、api-contracts、chat-sdk-core、agent-widget 和 host-tool-mcp-server 的消费者。修改后需运行 protocol 的 typecheck/test，并重建受影响 workspace。
 :::
 
 ## agent-sdk（运行时内核 SDK）
@@ -112,24 +113,25 @@ Agent 运行时的内核实现，被 `backend-ts` 的 `services/agent/sdk/` 层�
 ```
 agent-llm ----> agent-sdk -----------------> backend-ts
 agent-protocol ----> api-contracts --------> backend-ts
-       |                  |
-       |                  +---------------> frontend-client
+       |                  |                  |
+       |                  +---------------> chat-sdk-core ----> agent-widget
        +----------------------------------> frontend-client
-       +----------------------------------> agent-widget
 ```
 
 实际可执行顺序：
 
 1. 并行构建 `agent-llm` 与 `agent-protocol`。
-2. 构建 `api-contracts`、`agent-sdk`、`agent-widget`（SDK 只等待 llm）。
-3. 构建 `backend-ts` 和 `frontend-client`。
+2. 构建 `api-contracts`、`agent-sdk`。
+3. 构建 `chat-sdk-core`，再构建 `agent-widget`。
+4. 构建 `backend-ts` 和 `frontend-client`。
 
-`host-tool-mcp-server` 直接依赖 `agent-protocol`，不属于 `packages/` 五包，但也是 workspace 消费者。
+`host-tool-mcp-server` 直接依赖 `agent-protocol`，不属于 `packages/` 六包，但也是 workspace 消费者。
 
 根 `package.json` 提供：
 
 ```json
 "build:protocol": "npm -w @ragsystem/agent-protocol run build",
+"build:chat-sdk": "npm run build:contracts && npm -w @ragsystem/chat-sdk-core run build",
 "typecheck:protocol": "npm -w @ragsystem/agent-protocol run typecheck",
 "typecheck:backend": "npm -w @ragsystem/backend-ts run typecheck"
 ```
