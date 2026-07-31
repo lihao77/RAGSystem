@@ -120,10 +120,23 @@ def main():
             },
         },
         "artifact": {
-            "viz_type": "map",
-            "sub_type": "bindmap",
+            "schema_version": 2,
+            "kind": "map.composition",
+            "subtype": "bindmap",
             "title": title,
-            "config": map_data,
+            "metadata": {
+                "bounds": merged_bounds,
+                "center": merged_center,
+                "total_layers": len(processed_layers),
+                "total_points": total_points,
+            },
+            "presentations": [{
+                "presentation_id": "primary",
+                "surface": "map",
+                "renderer": "map.leaflet",
+                "assets": {},
+                "config": map_data,
+            }],
         },
     }
     print(json.dumps(output, ensure_ascii=False))

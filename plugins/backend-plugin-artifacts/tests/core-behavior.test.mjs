@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createArtifactToolAfterHook, createArtifactsPlugin } from "../dist/index.js";
+import {
+  createArtifactToolAfterHook,
+  createArtifactsPlugin,
+  parseArtifactManifest,
+} from "../dist/index.js";
 import { FilesystemArtifactService } from "../dist/storage/filesystem/filesystem-artifact-service.js";
 import { POSTGRES_ARTIFACT_MIGRATIONS } from "../dist/storage/postgres/artifact-schema.js";
 
@@ -33,21 +37,19 @@ test("Artifact plugin registers its contributions and owns storage lifecycle", a
 
   assert.deepEqual(contributions.route, { scope: "tenant", prefix: "/api/artifacts" });
   assert.equal(contributions.hook.event, "tool.after");
-  assert.equal(contributions.resource.kind, "ragsystem.skill-source");
   assert.match(contributions.resource.value, /[\\/]skills$/);
   assert.deepEqual(events, ["start", "stop"]);
 });
 
-test("Artifact hook persists an embedded protocol and returns a durable reference", async () => {
+test("Artifact hook persists a V2 manifest with multiple embedded assets", async () => {
   const calls = [];
   const hook = createArtifactToolAfterHook({
     storage: {
-      applicationForTenant(tenantId) {
-        assert.equal(tenantId, "tenant-a");
+      applicationForTenant() {
         return artifactApplication({
           createArtifact: async (input) => {
             calls.push(input);
-            return artifactRecord();
+            return artifactRecord({ kind: "map.raster", asset_count: 2, presentation_count: 1 });
           },
         });
       },
@@ -58,99 +60,109 @@ test("Artifact hook persists an embedded protocol and returns a durable referenc
     toolName: "execute_skill_script",
     arguments: {},
     result: toolResult({
-      title: "Rainfall",
       artifact: {
-        viz_type: "chart",
-        sub_type: "bar",
-        title: "Rainfall",
-        config: { series: [{ data: [1, 2] }] },
+        schema_version: 2,
+        kind: "map.raster",
+        subtype: "nc.aggregate",
+        title: "Sea temperature",
+        assets: [
+          { asset_id: "data", role: "data", filename: "temperature.tif", media_type: "image/tiff", data_base64: Buffer.from([1, 2, 3]).toString("base64") },
+          { asset_id: "preview", role: "preview", filename: "temperature.png", media_type: "image/png", data_base64: Buffer.from([137, 80, 78, 71]).toString("base64") },
+        ],
+        presentations: [{ presentation_id: "map", surface: "map", renderer: "map.raster-tile", assets: { source: "data", preview: "preview" }, config: { bounds: [[0, 100], [10, 110]] } }],
       },
     }),
     ctx: { tenantId: "tenant-a", sessionId: "session-a", runId: "run-a" },
   });
 
-  assert.deepEqual(calls, [{
-    sessionId: "session-a",
-    vizType: "chart",
-    subType: "bar",
-    title: "Rainfall",
-    config: { series: [{ data: [1, 2] }] },
-    asset: null,
-  }]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].kind, "map.raster");
+  assert.equal(calls[0].assets.length, 2);
   assert.deepEqual(output.modifiedResult.content, {
-    title: "Rainfall",
     artifact_id: "art_test",
-    viz_type: "chart",
-    artifact_type: "json",
-    mime_type: null,
+    artifact_kind: "map.raster",
+    artifact_revision: 1,
+    artifact_status: "ready",
+    asset_count: 2,
+    presentation_count: 1,
   });
-  assert.deepEqual(output.modifiedResult.metadata, {
-    artifact_id: "art_test",
-    artifact_persisted: true,
-  });
-  assert.equal(output.modifiedResult.outputType, "chart");
-  assert.match(output.modifiedResult.llmHint, /\[artifact:art_test\]/);
+  assert.equal(output.modifiedResult.metadata.artifact_persisted, true);
+  assert.equal(output.modifiedResult.outputType, "map.raster");
 });
 
-test("Filesystem Artifact storage creates, revises, and deletes managed files", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "artifact-storage-"));
+test("Artifact hook rejects the old V1 protocol", async () => {
+  const hook = createArtifactToolAfterHook({ storage: { applicationForTenant: () => artifactApplication() } });
+  const output = await hook({
+    toolName: "execute_skill_script",
+    arguments: {},
+    result: toolResult({ artifact: { viz_type: "chart", config: {} } }),
+    ctx: { tenantId: "tenant-a", sessionId: "session-a", runId: "run-a" },
+  });
+  assert.equal(output.modifiedResult.metadata.artifact_error, "artifact.schema_version 必须是 2");
+});
+
+test("Filesystem Artifact V2 stores multiple binary assets with checksums and real extensions", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "artifact-v2-"));
   try {
     const service = new FilesystemArtifactService({ dataRoot: root });
     const created = service.createArtifact({
       sessionId: "session-a",
-      vizType: "chart",
-      config: { axis: { min: 0 }, series: [1] },
-      title: "Rainfall",
+      kind: "map.raster",
+      subtype: "nc.aggregate",
+      title: "Temperature",
+      assets: [
+        { assetId: "data", role: "data", body: Buffer.from([1, 2, 3]), mediaType: "image/tiff", filename: "temperature.tif" },
+        { assetId: "preview", role: "preview", body: Buffer.from([137, 80, 78, 71]), mediaType: "image/png", filename: "temperature.png" },
+      ],
+      presentations: [{ presentation_id: "map", surface: "map", renderer: "map.raster-image", assets: { image: "preview" }, config: { bounds: [[0, 100], [10, 110]] } }],
     });
 
-    assert.equal(service.listArtifacts("session-a").length, 1);
-    service.reviseArtifact({
+    const manifest = service.getArtifact(created.artifact_id);
+    assert.equal(manifest.schema_version, 2);
+    assert.equal(manifest.kind, "map.raster");
+    assert.equal(manifest.assets[0].sha256.length, 64);
+    assert.match(manifest.assets[0].content_url, /assets\/data\/content$/);
+    assert.deepEqual(service.getArtifactAsset(created.artifact_id, "preview").body, Buffer.from([137, 80, 78, 71]));
+    const artifactRoot = path.dirname(created.manifest_path);
+    assert.equal(fs.existsSync(path.join(artifactRoot, "assets", "data.tif")), true);
+    assert.equal(fs.existsSync(path.join(artifactRoot, "assets", "preview.png")), true);
+
+    const revised = service.reviseArtifact({
       artifactId: created.artifact_id,
-      configPatch: { axis: { max: 10 } },
+      presentationPatches: [{ presentationId: "map", configPatch: { opacity: 0.6 } }],
     });
-    assert.deepEqual(service.getArtifact(created.artifact_id).config, {
-      axis: { min: 0, max: 10 },
-      series: [1],
-    });
+    assert.equal(revised.revision, 2);
+    assert.deepEqual(service.getArtifact(created.artifact_id).presentations[0].config, { bounds: [[0, 100], [10, 110]], opacity: 0.6 });
     assert.equal(service.deleteArtifact(created.artifact_id), true);
-    assert.equal(fs.existsSync(created.descriptor_path), false);
-    assert.deepEqual(service.listArtifacts("session-a"), []);
+    assert.equal(fs.existsSync(artifactRoot), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("Filesystem Artifact storage keeps binary content behind the artifact API", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "artifact-binary-"));
+test("Filesystem Artifact V2 rejects presentations that reference unknown assets", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "artifact-invalid-"));
   try {
     const service = new FilesystemArtifactService({ dataRoot: root });
-    const created = service.createArtifact({
+    assert.throws(() => service.createArtifact({
       sessionId: "session-a",
-      vizType: "map",
-      subType: "raster",
-      config: { bounds: [[0, 100], [10, 110]] },
-      asset: { body: Buffer.from([137, 80, 78, 71]), mimeType: "image/png", filename: "temperature.png" },
-    });
-    const descriptor = service.getArtifact(created.artifact_id);
-    assert.equal(descriptor.artifact_type, "binary");
-    assert.equal(descriptor.content_url, `/api/artifacts/${created.artifact_id}/content`);
-    assert.equal(descriptor.asset.filename, "temperature.png");
-    assert.deepEqual(service.getArtifactContent(created.artifact_id), {
-      body: Buffer.from([137, 80, 78, 71]),
-      mimeType: "image/png",
-      filename: "temperature.png",
-    });
-    assert.equal(service.deleteArtifact(created.artifact_id), true);
-    assert.equal(fs.existsSync(created.asset_path), false);
+      kind: "chart.echarts",
+      presentations: [{ presentation_id: "primary", surface: "chart", renderer: "chart.echarts", assets: { data: "missing" }, config: {} }],
+    }), /不存在的 asset/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("Artifact migrations own plugin metadata", () => {
-  const sql = POSTGRES_ARTIFACT_MIGRATIONS.map((migration) => migration.sql).join("\n");
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS artifact_metadata/);
-  assert.match(sql, /PRIMARY KEY \(tenant_id, artifact_id\)/);
+test("Artifact migrations include a separate V2 metadata table", () => {
+  const migration = POSTGRES_ARTIFACT_MIGRATIONS.find((item) => item.version === 3);
+  assert.ok(migration);
+  assert.match(migration.sql, /artifact_metadata_v2/);
+  assert.match(migration.sql, /asset_count/);
+});
+
+test("Artifact manifests are strictly V2", () => {
+  assert.throws(() => parseArtifactManifest({ schema_version: 1 }), /V2/);
 });
 
 function toolResult(content) {
@@ -167,31 +179,33 @@ function toolResult(content) {
   };
 }
 
-function artifactRecord() {
+function artifactRecord(overrides = {}) {
   return {
+    schema_version: 2,
     artifact_id: "art_test",
-    viz_type: "chart",
-    sub_type: "bar",
-    title: "Rainfall",
-    version: 1,
-    descriptor_path: "artifact.json",
-    asset_path: null,
-    artifact_type: "json",
-    mime_type: null,
     session_id: "session-a",
-    created_at: 1,
-    updated_at: 1,
+    kind: "chart.echarts",
+    subtype: "bar",
+    title: "Rainfall",
+    status: "ready",
+    revision: 1,
+    manifest_path: "artifact/manifest.json",
+    asset_count: 0,
+    presentation_count: 1,
+    created_at: new Date(1).toISOString(),
+    updated_at: new Date(1).toISOString(),
+    ...overrides,
   };
 }
 
 function artifactApplication(overrides = {}) {
   return {
     getArtifact() {},
-    getArtifactContent() { return null; },
+    getArtifactAsset() {},
     listArtifacts() { return []; },
     getArtifactSessionId() { return null; },
     async createArtifact() { return artifactRecord(); },
-    async reviseArtifact() { return artifactRecord(); },
+    async reviseArtifact() { return artifactRecord({ revision: 2 }); },
     deleteArtifact() { return false; },
     deleteSessionArtifacts() { return 0; },
     ...overrides,

@@ -74,10 +74,18 @@ def main():
         "success": True,
         "data": {"title": final_title, "preview": preview},
         "artifact": {
-            "viz_type": "chart",
-            "sub_type": args.chart_type,
+            "schema_version": 2,
+            "kind": "chart.echarts",
+            "subtype": args.chart_type,
             "title": final_title,
-            "config": option,
+            "metadata": {"chart_type": args.chart_type},
+            "presentations": [{
+                "presentation_id": "primary",
+                "surface": "chart",
+                "renderer": "chart.echarts",
+                "assets": {},
+                "config": option,
+            }],
         },
     }
     print(json.dumps(output, ensure_ascii=False))

@@ -48,5 +48,8 @@
   },
   "optionalDependencies": {
     "@esbuild/win32-x64": "0.28.1"
+  },
+  "dependencies": {
+    "@ragsystem/backend-plugin-mcp": "^0.1.0"
   }
 }

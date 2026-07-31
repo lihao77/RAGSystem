@@ -73,7 +73,13 @@ function toolResult() {
     answer: null,
     outputType: "json",
     content: {
-      artifact: { viz_type: "chart", sub_type: "bar", title: "Demo", config: { series: [1] } },
+      artifact: {
+        schema_version: 2,
+        kind: "chart.echarts",
+        subtype: "bar",
+        title: "Demo",
+        presentations: [{ presentation_id: "primary", surface: "chart", renderer: "chart.echarts", assets: {}, config: { series: [1] } }],
+      },
     },
     metadata: {},
     artifacts: [],

@@ -29,4 +29,25 @@ export const POSTGRES_ARTIFACT_MIGRATIONS = [
     ALTER TABLE artifact_metadata ALTER COLUMN descriptor_path SET NOT NULL;
     ALTER TABLE artifact_metadata DROP COLUMN IF EXISTS file_path;`,
   },
+  {
+    version: 3,
+    name: "artifact_manifest_v2",
+    sql: `CREATE TABLE IF NOT EXISTS artifact_metadata_v2 (
+      tenant_id TEXT NOT NULL,
+      artifact_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      subtype TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready','failed')),
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+      manifest_path TEXT NOT NULL,
+      asset_count INTEGER NOT NULL DEFAULT 0 CHECK (asset_count >= 0),
+      presentation_count INTEGER NOT NULL DEFAULT 0 CHECK (presentation_count >= 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (tenant_id, artifact_id)
+    );
+    CREATE INDEX IF NOT EXISTS artifact_metadata_v2_session_idx ON artifact_metadata_v2(tenant_id, session_id, created_at ASC);`,
+  },
 ] as const;

@@ -40,10 +40,14 @@ def main():
             "message": "配置补丁已提交",
         },
         "artifact": {
+            "schema_version": 2,
             "action": "revise",
             "artifact_id": args.artifact_id,
-            "config": config_patch,
-            "replace": args.replace,
+            "presentation_patches": [{
+                "presentation_id": "primary",
+                "config": config_patch,
+                "replace": args.replace,
+            }],
         },
     }
     print(json.dumps(output, ensure_ascii=False))

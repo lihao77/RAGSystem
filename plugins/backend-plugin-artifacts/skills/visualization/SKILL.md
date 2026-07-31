@@ -6,7 +6,7 @@ description: 数据可视化技能，支持 ECharts 图表和 Leaflet 地图的�
 ## 可视化工具
 
 本 Skill 提供完整的数据可视化能力，所有脚本输出 artifact 协议格式，系统自动完成持久化。
-在 `<final_answer>` 中使用 `[artifact:artifact_id]` 展示产物。Artifact 是通用产物，可携带 JSON config 和可选二进制内容；`viz_type` 只声明展示方式。
+在 `<final_answer>` 中使用 `[artifact:artifact_id]` 展示产物。Artifact 是通用产物，使用 V2 Manifest，支持多个 Asset 和多个 Presentation；`kind` 描述产物语义，`renderer` 描述展示方式。
 
 ## 可用脚本
 
@@ -83,7 +83,7 @@ description: 数据可视化技能，支持 ECharts 图表和 Leaflet 地图的�
 ---
 
 ### revise.py - 修改已有 artifact
-**功能**：修改已生成的可视化 artifact 配置，默认深度合并，可选完全替换。
+**功能**：修改已有可视化 Artifact 的 primary Presentation 配置，默认深度合并，可选完全替换。
 
 **参数**：
 - `--artifact-id`（必填）：要修改的 artifact ID

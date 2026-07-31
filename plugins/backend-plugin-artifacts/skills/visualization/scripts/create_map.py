@@ -238,10 +238,23 @@ def main():
             },
         },
         "artifact": {
-            "viz_type": "map",
-            "sub_type": args.map_type,
+            "schema_version": 2,
+            "kind": "map.layer",
+            "subtype": args.map_type,
             "title": title,
-            "config": map_data,
+            "metadata": {
+                "bounds": layer["bounds"],
+                "center": layer["center"],
+                "value_field": layer["value_field"],
+                "value_range": layer["value_range"],
+            },
+            "presentations": [{
+                "presentation_id": "primary",
+                "surface": "map",
+                "renderer": "map.leaflet",
+                "assets": {},
+                "config": map_data,
+            }],
         },
     }
     print(json.dumps(output, ensure_ascii=False))
