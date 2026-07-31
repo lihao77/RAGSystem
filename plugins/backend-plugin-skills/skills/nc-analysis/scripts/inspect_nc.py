@@ -174,11 +174,22 @@ def numeric_range(variable: Any, np: Any) -> tuple[dict[str, Any] | None, str | 
 
     minimum = compressed.min().item()
     maximum = compressed.max().item()
-    return {
+    result = {
         "min": minimum,
         "max": maximum,
         "value_count": int(compressed.size),
-    }, None
+    }
+    if len(variable.dimensions) == 1 and compressed.size == values.size and compressed.size >= 2:
+        ordered = np.asarray(compressed, dtype=float).reshape(-1)
+        differences = np.diff(ordered)
+        if np.all(np.isfinite(ordered)) and (np.all(differences > 0) or np.all(differences < 0)):
+            edges = np.empty(ordered.size + 1, dtype=float)
+            edges[1:-1] = (ordered[:-1] + ordered[1:]) / 2
+            edges[0] = ordered[0] - differences[0] / 2
+            edges[-1] = ordered[-1] + differences[-1] / 2
+            result["edge_min"] = float(np.min(edges))
+            result["edge_max"] = float(np.max(edges))
+    return result, None
 
 
 def date_text(value: Any) -> str:
@@ -253,8 +264,10 @@ def build_footprint_artifact(
 
     longitude_name, longitude = axes["longitude"]
     latitude_name, latitude = axes["latitude"]
-    west, east = float(longitude["min"]), float(longitude["max"])
-    south, north = float(latitude["min"]), float(latitude["max"])
+    west, east = float(longitude.get("edge_min", longitude["min"])), float(longitude.get("edge_max", longitude["max"]))
+    south, north = float(latitude.get("edge_min", latitude["min"])), float(latitude.get("edge_max", latitude["max"]))
+    coordinate_west, coordinate_east = float(longitude["min"]), float(longitude["max"])
+    coordinate_south, coordinate_north = float(latitude["min"]), float(latitude["max"])
     if west == east or south == north:
         return None
     ring = [
@@ -285,6 +298,10 @@ def build_footprint_artifact(
                             "east": east,
                             "south": south,
                             "north": north,
+                            "coordinate_west": coordinate_west,
+                            "coordinate_east": coordinate_east,
+                            "coordinate_south": coordinate_south,
+                            "coordinate_north": coordinate_north,
                         },
                     }
                 ],

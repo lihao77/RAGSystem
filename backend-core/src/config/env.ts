@@ -163,7 +163,8 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     sandboxLeaseTimeoutSeconds: parsePositiveInteger(env.SANDBOX_LEASE_TIMEOUT_SECONDS, 900, "SANDBOX_LEASE_TIMEOUT_SECONDS"),
     sandboxAllowInsecureHttp: parseBooleanFlag(env.SANDBOX_ALLOW_INSECURE_HTTP),
   };
-  if (Boolean(appEnv.sandboxRemoteUrl) !== Boolean(appEnv.sandboxRemoteToken)) {
+  if (appEnv.executionMode === "remote"
+    && Boolean(appEnv.sandboxRemoteUrl) !== Boolean(appEnv.sandboxRemoteToken)) {
     throw new Error("SANDBOX_REMOTE_URL and SANDBOX_REMOTE_TOKEN must be configured together");
   }
   if (isSaaS && appEnv.storageMode !== "postgres") {

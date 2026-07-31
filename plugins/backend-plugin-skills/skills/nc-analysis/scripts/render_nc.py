@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
-"""Render a bounded regular NetCDF variable slice as a GeoJSON Artifact."""
+"""Render a bounded regular NetCDF variable slice as a PNG raster Artifact."""
 
 from __future__ import annotations
 
 import argparse
+import base64
+import io
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 
 ALLOWED_SUFFIXES = {".nc", ".nc4", ".cdf"}
-MAX_OUTPUT_CELLS = 5_000
+MAX_OUTPUT_CELLS = 20_000
+WEB_MERCATOR_MAX_LATITUDE = 85.0511287798066
+COLOR_SCALE = ["#313695", "#4575b4", "#74add1", "#abd9e9", "#ffffbf", "#fdae61", "#f46d43", "#a50026"]
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="将规则经纬度网格变量切片生成 GeoJSON 海洋图层。")
+    parser = argparse.ArgumentParser(description="将规则经纬度网格变量切片生成 PNG 海洋栅格。")
     parser.add_argument("--file", required=True, help="现有 .nc、.nc4 或 .cdf 文件的绝对路径")
     parser.add_argument("--variable", required=True, help="要渲染的数值变量名")
     parser.add_argument("--time-index", type=int, default=0, help="时间维索引，默认 0")
@@ -153,7 +158,100 @@ def aggregation_grid(latitude_count: int, longitude_count: int, max_cells: int) 
     return best[3], best[4], best[5], best[6]
 
 
-def render(file_path: Path, args: argparse.Namespace, Dataset: Any, np: Any) -> dict[str, Any]:
+def aggregate_values(
+    values: Any,
+    latitude_stride: int,
+    longitude_stride: int,
+    latitude_blocks: int,
+    longitude_blocks: int,
+    np: Any,
+) -> tuple[Any, Any]:
+    raster_values = np.full((latitude_blocks, longitude_blocks), np.nan, dtype=float)
+    valid_counts = np.zeros((latitude_blocks, longitude_blocks), dtype=int)
+    for output_latitude, latitude_index in enumerate(range(0, values.shape[0], latitude_stride)):
+        for output_longitude, longitude_index in enumerate(range(0, values.shape[1], longitude_stride)):
+            block = values[
+                latitude_index:min(values.shape[0], latitude_index + latitude_stride),
+                longitude_index:min(values.shape[1], longitude_index + longitude_stride),
+            ].compressed()
+            valid_counts[output_latitude, output_longitude] = int(block.size)
+            if block.size:
+                raster_values[output_latitude, output_longitude] = float(block.mean())
+    return raster_values, valid_counts
+
+
+def orient_raster(raster_values: Any, valid_counts: Any, latitude: Any, longitude: Any, np: Any) -> tuple[Any, Any]:
+    if latitude[0] < latitude[-1]:
+        raster_values = np.flipud(raster_values)
+        valid_counts = np.flipud(valid_counts)
+    if longitude[0] > longitude[-1]:
+        raster_values = np.fliplr(raster_values)
+        valid_counts = np.fliplr(valid_counts)
+    return raster_values, valid_counts
+
+
+def aggregated_axis_edges(edges: Any, stride: int, np: Any) -> Any:
+    last_index = len(edges) - 1
+    indices = list(range(0, last_index, stride)) + [last_index]
+    return np.asarray(edges, dtype=float)[indices]
+
+
+def reproject_rows_to_web_mercator(
+    raster_values: Any,
+    valid_counts: Any,
+    north_to_south_edges: Any,
+    np: Any,
+) -> tuple[Any, Any]:
+    edges = np.asarray(north_to_south_edges, dtype=float).reshape(-1)
+    if edges.size != raster_values.shape[0] + 1 or not np.all(np.diff(edges) < 0):
+        raise ValueError("纬度块边界必须按从北到南排列并与栅格高度一致")
+    if edges[0] > WEB_MERCATOR_MAX_LATITUDE or edges[-1] < -WEB_MERCATOR_MAX_LATITUDE:
+        raise ValueError(f"Web Mercator 仅支持纬度 ±{WEB_MERCATOR_MAX_LATITUDE:.8f}° 以内")
+
+    projected_edges = np.arcsinh(np.tan(np.deg2rad(edges)))
+    target_projected_edges = np.linspace(projected_edges[0], projected_edges[-1], raster_values.shape[0] + 1)
+    target_projected_centers = (target_projected_edges[:-1] + target_projected_edges[1:]) / 2
+    target_latitudes = np.rad2deg(np.arctan(np.sinh(target_projected_centers)))
+    source_rows = np.searchsorted(-edges, -target_latitudes, side="right") - 1
+    source_rows = np.clip(source_rows, 0, raster_values.shape[0] - 1)
+    return raster_values[source_rows, :], valid_counts[source_rows, :]
+
+
+def colorize_raster(raster_values: Any, minimum: float, maximum: float, np: Any) -> Any:
+    palette = np.asarray(
+        [[int(color[index:index + 2], 16) for index in (1, 3, 5)] for color in COLOR_SCALE],
+        dtype=float,
+    )
+    rgba = np.zeros((*raster_values.shape, 4), dtype=np.uint8)
+    valid = np.isfinite(raster_values)
+    if not np.any(valid):
+        return rgba
+
+    if maximum == minimum:
+        normalized = np.full(raster_values.shape, 0.5, dtype=float)
+    else:
+        normalized = np.clip((raster_values - minimum) / (maximum - minimum), 0.0, 1.0)
+    normalized = np.where(valid, normalized, 0.0)
+    positions = normalized * (len(COLOR_SCALE) - 1)
+    lower = np.floor(positions).astype(int)
+    upper = np.minimum(lower + 1, len(COLOR_SCALE) - 1)
+    fraction = (positions - lower)[..., np.newaxis]
+    rgb = np.rint(palette[lower] * (1.0 - fraction) + palette[upper] * fraction).astype(np.uint8)
+    rgba[valid, :3] = rgb[valid]
+    rgba[valid, 3] = 255
+    return rgba
+
+
+def json_matrix(values: Any, np: Any) -> list[list[float | None]]:
+    return [[float(value) if np.isfinite(value) else None for value in row] for row in values]
+
+
+def safe_asset_name(variable_name: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", variable_name).strip("-._") or "variable"
+    return f"{stem[:80]}-raster.png"
+
+
+def render(file_path: Path, args: argparse.Namespace, Dataset: Any, Image: Any, np: Any) -> dict[str, Any]:
     if args.max_cells < 1 or args.max_cells > 20_000:
         raise ValueError("--max-cells 必须在 1..20000 之间")
     with Dataset(str(file_path), mode="r") as dataset:
@@ -190,57 +288,58 @@ def render(file_path: Path, args: argparse.Namespace, Dataset: Any, np: Any) -> 
             int(lon_values.size),
             args.max_cells,
         )
-        features = []
-        for lat_index in range(0, lat_values.size, latitude_stride):
-            for lon_index in range(0, lon_values.size, longitude_stride):
-                lat_end_index = min(lat_values.size, lat_index + latitude_stride)
-                lon_end_index = min(lon_values.size, lon_index + longitude_stride)
-                block_values = full_values[lat_index:lat_end_index, lon_index:lon_end_index].compressed()
-                if block_values.size == 0:
-                    continue
-                value = float(block_values.mean())
-                south, north = sorted((float(lat_edges[lat_index]), float(lat_edges[lat_end_index])))
-                west, east = sorted((float(lon_edges[lon_index]), float(lon_edges[lon_end_index])))
-                features.append({
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [[[west, south], [east, south], [east, north], [west, north], [west, south]]],
-                    },
-                    "properties": {
-                        "value": value,
-                        "source_min": float(block_values.min()),
-                        "source_max": float(block_values.max()),
-                        "source_count": int(block_values.size),
-                        "aggregation": "mean",
-                        "variable": args.variable,
-                        "latitude": float(lat_values[lat_index:lat_end_index].mean()),
-                        "longitude": float(lon_values[lon_index:lon_end_index].mean()),
-                        **selected_indices,
-                    },
-                })
+        raster_values, valid_counts = aggregate_values(
+            full_values,
+            latitude_stride,
+            longitude_stride,
+            latitude_blocks,
+            longitude_blocks,
+            np,
+        )
+        raster_values, valid_counts = orient_raster(raster_values, valid_counts, lat_values, lon_values, np)
+        latitude_block_edges = aggregated_axis_edges(lat_edges, latitude_stride, np)
+        if latitude_block_edges[0] < latitude_block_edges[-1]:
+            latitude_block_edges = latitude_block_edges[::-1]
+        raster_values, valid_counts = reproject_rows_to_web_mercator(
+            raster_values,
+            valid_counts,
+            latitude_block_edges,
+            np,
+        )
         minimum = float(valid_values.min())
         maximum = float(valid_values.max())
         mean = float(valid_values.mean())
+        rgba = colorize_raster(raster_values, minimum, maximum, np)
+        png_buffer = io.BytesIO()
+        Image.fromarray(rgba).save(png_buffer, format="PNG", optimize=True)
+        png_base64 = base64.b64encode(png_buffer.getvalue()).decode("ascii")
         units = attribute_text(variable, "units")
         long_name = attribute_text(variable, "long_name") or args.variable
         title = f"{long_name} 分布"
+        bounds = [[float(min(lat_edges)), float(min(lon_edges))], [float(max(lat_edges)), float(max(lon_edges))]]
         config = {
-            "map_type": "value-grid",
-            "bounds": [[float(min(lat_edges)), float(min(lon_edges))], [float(max(lat_edges)), float(max(lon_edges))]],
-            "geojson": {"type": "FeatureCollection", "features": features},
-            "value_field": "value",
+            "map_type": "raster",
+            "bounds": bounds,
+            "projection": "EPSG:3857",
+            "source_crs": "EPSG:4326",
+            "width": longitude_blocks,
+            "height": latitude_blocks,
             "value_range": {"min": minimum, "max": maximum},
             "units": units,
-            "color_scale": {
-                "colors": ["#313695", "#4575b4", "#74add1", "#abd9e9", "#ffffbf", "#fdae61", "#f46d43", "#a50026"],
-            },
-            "style": {"fill_opacity": 0.78, "line_color": "#ffffff", "line_width": 0.25},
+            "color_scale": {"colors": COLOR_SCALE},
+            "style": {"fill_opacity": 0.82},
             "selection": {"variable": args.variable, "indices": selected_indices},
+            "grid": {
+                "latitude_count": int(lat_values.size),
+                "longitude_count": int(lon_values.size),
+                "latitude_stride": latitude_stride,
+                "longitude_stride": longitude_stride,
+            },
+            "aggregation": {"method": "mean", "statistics_scope": "full_selected_slice"},
         }
         return {
             "success": True,
-            "summary": f"生成 {len(features)} 个均值聚合网格单元",
+            "summary": f"生成 {longitude_blocks}×{latitude_blocks} 块均值 PNG 栅格",
             "data": {
                 "file": str(file_path),
                 "filename": file_path.name,
@@ -257,15 +356,35 @@ def render(file_path: Path, args: argparse.Namespace, Dataset: Any, np: Any) -> 
                     "source_cells": total_cells,
                     "maximum_output_cells": args.max_cells,
                     "candidate_output_cells": latitude_blocks * longitude_blocks,
-                    "output_cells": len(features),
+                    "output_cells": latitude_blocks * longitude_blocks,
+                    "valid_output_cells": int(np.count_nonzero(valid_counts)),
                 },
                 "aggregation": {
                     "method": "mean",
                     "block_stride": {"latitude": latitude_stride, "longitude": longitude_stride},
                     "statistics_scope": "full_selected_slice",
                 },
+                "raster": {
+                    "width": longitude_blocks,
+                    "height": latitude_blocks,
+                    "orientation": "north-up-west-left",
+                    "projection": "EPSG:3857",
+                    "resampling": "nearest",
+                    "values": json_matrix(raster_values, np),
+                    "valid_counts": valid_counts.tolist(),
+                },
             },
-            "artifact": {"viz_type": "ocean-map", "sub_type": "value-grid", "title": title, "config": config},
+            "artifact": {
+                "viz_type": "ocean-map",
+                "sub_type": "raster",
+                "title": title,
+                "config": config,
+                "asset": {
+                    "data_base64": png_base64,
+                    "mime_type": "image/png",
+                    "filename": safe_asset_name(args.variable),
+                },
+            },
         }
 
 
@@ -275,7 +394,8 @@ def main() -> int:
         file_path = validate_file(args.file)
         import numpy as np
         from netCDF4 import Dataset
-        result = render(file_path, args, Dataset, np)
+        from PIL import Image
+        result = render(file_path, args, Dataset, Image, np)
         json.dump(result, sys.stdout, ensure_ascii=False, allow_nan=False)
         sys.stdout.write("\n")
         return 0
@@ -283,7 +403,7 @@ def main() -> int:
         print(f"render_nc: {error}", file=sys.stderr)
         return 2
     except ImportError:
-        print("render_nc: 缺少 netCDF4；请安装本 Skill 的 requirements.txt", file=sys.stderr)
+        print("render_nc: 缺少 netCDF4、NumPy 或 Pillow；请安装本 Skill 的 requirements.txt", file=sys.stderr)
         return 3
     except Exception as error:
         print(f"render_nc: 生成变量图层失败: {error}", file=sys.stderr)

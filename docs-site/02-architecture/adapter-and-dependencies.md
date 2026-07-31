@@ -99,10 +99,11 @@ GET /api/agent/sessions
 ## 示例：Artifact
 
 ```text
-GET /api/artifacts/visualizations/:id
-  -> ArtifactApplication.getVisualization()
-     -> LocalArtifactApplication -> Local ArtifactService -> Filesystem
-     -> SaaSArtifactService       -> PG metadata + Object Storage
+GET /api/artifacts/:artifactId
+GET /api/artifacts/:artifactId/content
+  -> ArtifactApplication.getArtifact() / getArtifactContent()
+     -> FilesystemArtifactApplication -> descriptor + optional asset
+     -> ObjectArtifactApplication     -> PG metadata + Object Storage
 ```
 
 会话 owner 校验在读取 Artifact 内容前执行。

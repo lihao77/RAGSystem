@@ -95,7 +95,7 @@ let fileChangesRequest = 0;
 
 const artifacts = computed(() => {
   const content = props.message?.content || '';
-  const matches = content.matchAll(/\[viz:(viz_\w+)\]/g);
+  const matches = content.matchAll(/\[artifact:(art_[A-Za-z0-9_]+)\]/g);
   const seen = new Set();
   const items = [];
 
@@ -106,7 +106,7 @@ const artifacts = computed(() => {
     items.push({
       artifactId,
       index: items.length,
-      label: `可视化 ${items.length + 1}`,
+      label: `产物 ${items.length + 1}`,
       message: props.message,
     });
   }

@@ -85,7 +85,7 @@ describe("AguiTranslator interrupt identity", () => {
       session_id: "thread-1",
       run_id: "internal-1",
       call_id: "call-42",
-      payload: { tool: "ocean_map_load_layers", input: { artifact_ids: ["viz_a"] } },
+      payload: { tool: "ocean_map_load_layers", input: { artifact_ids: ["art_a"] } },
     });
 
     expect(result.events).toContainEqual(expect.objectContaining({
@@ -94,7 +94,7 @@ describe("AguiTranslator interrupt identity", () => {
         type: "interrupt",
         interrupts: [expect.objectContaining({
           id: "call-42",
-          metadata: { toolName: "ocean_map_load_layers", arguments: { artifact_ids: ["viz_a"] } },
+          metadata: { toolName: "ocean_map_load_layers", arguments: { artifact_ids: ["art_a"] } },
         })],
       },
     }));

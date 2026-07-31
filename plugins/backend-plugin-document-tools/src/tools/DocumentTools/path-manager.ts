@@ -232,7 +232,7 @@ export class LocalDocumentPathManager {
       this.effectiveWorkspaceRoot(sessionId, workspaceRoot),
       path.join(sessionRoot, "transient"),
       path.join(sessionRoot, "uploads"),
-      path.join(sessionRoot, "visualizations"),
+      path.join(sessionRoot, "artifacts"),
       runId ? path.join(sessionRoot, "exports", runId) : null,
       path.join(sessionRoot, "exports"),
       sessionRoot,

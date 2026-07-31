@@ -6,8 +6,8 @@ revise.py - 修改已有可视化 artifact 配置
 输出 artifact 协议格式（action=revise），由 execute_skill_script 自动调用 manager.revise()。
 
 用法:
-  python revise.py --artifact-id viz_abc123 --config-patch '{"title":{"text":"新标题"}}'
-  python revise.py --artifact-id viz_abc123 --config-patch '{"series":[...]}' --replace
+  python revise.py --artifact-id art_abc123 --config-patch '{"title":{"text":"新标题"}}'
+  python revise.py --artifact-id art_abc123 --config-patch '{"series":[...]}' --replace
 """
 
 import sys

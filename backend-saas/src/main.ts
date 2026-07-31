@@ -3,7 +3,7 @@ import { loadEnv, loadEnvSource } from "@ragsystem/backend-core/config/env.js";
 import { buildCoreApp } from "@ragsystem/backend-core/core-app.js";
 import { createSaaSProductPlugins } from "./product-plugins.js";
 
-const environment = loadEnvSource(process.env);
+const environment = loadEnvSource(process.env, process.env.INIT_CWD?.trim() || process.cwd());
 const env = loadEnv(environment);
 const deployment = await createSaaSDeploymentRuntime(env);
 let app;

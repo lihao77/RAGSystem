@@ -143,7 +143,7 @@ loadSessionMessages(sessionId)
 
 `ChatViewV2.vue` 现在把消息流与执行树流彻底拆开：
 
-- 根最终答案、`message_saved`、`[viz:artifact_id]` 仍属于 message-first 链路
+- 根最终答案、`message_saved`、`[artifact:artifact_id]` 仍属于 message-first 链路
 - 执行树只消费协议 Envelope
 - 历史消息列表不内联执行步骤；会先取 `/sessions/{session_id}/messages`，再按 `has_execution` 懒加载对应 message 的 run steps Envelope sidecar
 - reconnect 回放与历史 run steps 懒加载都复用 agent-protocol 的 `ExecutionTreeState`
@@ -298,20 +298,21 @@ loadSessionMessages(sessionId)
 }
 ```
 
-## 可视化 Artifact 渲染
+## Artifact 渲染
 
 ```
-AI final_answer 含 [viz:viz_abc123]
+AI final_answer 含 [artifact:art_abc123]
   → parseMessageParts() 解析占位符
   → VisualizationLoader 组件
-  → GET /api/artifacts/visualizations/{artifact_id}
-  → 返回 { viz_type, config, title, sub_type }
+  → GET /api/artifacts/{artifact_id}
+  → 返回 descriptor { viz_type, config, title, sub_type, content_url? }
   → viz_type == 'chart' → ChartRenderer
   → viz_type == 'map'   → MapRenderer
-  → viz_type == 'image' → 图片 / fallback 预览
+  → 图片 MIME 类型      → 鉴权图片预览
+  → 其他 binary         → 通用文件卡片与鉴权下载
 ```
 
-可视化 artifact 持久化在 `data/sessions/<session_id>/visualizations/` 下；后端不会再按时间自动清理该目录，只有在显式删除 session 时才会一起删除。
+Artifact descriptor 和可选二进制内容持久化在 `data/sessions/<session_id>/artifacts/` 下；只有显式删除 Artifact 或 session 时才清理。
 
 ### MapRenderer 支持的地图类型
 

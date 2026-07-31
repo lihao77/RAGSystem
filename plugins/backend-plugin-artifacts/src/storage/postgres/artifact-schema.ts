@@ -20,4 +20,13 @@ export const POSTGRES_ARTIFACT_MIGRATIONS = [
     );
     CREATE INDEX IF NOT EXISTS artifact_metadata_session_idx ON artifact_metadata(tenant_id, session_id, updated_at DESC);`,
   },
+  {
+    version: 2,
+    name: "artifact_descriptor_and_content",
+    sql: `ALTER TABLE artifact_metadata ADD COLUMN IF NOT EXISTS descriptor_path TEXT;
+    ALTER TABLE artifact_metadata ADD COLUMN IF NOT EXISTS asset_path TEXT;
+    UPDATE artifact_metadata SET descriptor_path=file_path WHERE descriptor_path IS NULL;
+    ALTER TABLE artifact_metadata ALTER COLUMN descriptor_path SET NOT NULL;
+    ALTER TABLE artifact_metadata DROP COLUMN IF EXISTS file_path;`,
+  },
 ] as const;

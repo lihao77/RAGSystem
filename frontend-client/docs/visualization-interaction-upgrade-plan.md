@@ -14,7 +14,7 @@
 - `VisualizationLoader.vue` 支持按 artifact id 异步加载 `chart` / `map` / `image`。
 - `ChartRenderer.vue` 使用 ECharts 渲染图表，支持全屏和 PNG 导出。
 - `MapRenderer.vue` 使用 Leaflet 渲染 heatmap / marker / circle / choropleth / geojson / bindmap / risk 等地图类型。
-- `ArtifactPanel.vue` 能从 assistant 消息正文中的 `[viz:artifact_id]` 提取可视化产物入口。
+- `ArtifactPanel.vue` 能从 assistant 消息正文中的 `[artifact:artifact_id]` 提取产物入口。
 - `WorkPanel.vue` 承载运行状态、执行树、审批、用户输入和 artifact 面板。
 - `useSessionRunStream.js` 统一消费 WebSocket 事件，驱动消息流、执行步骤和运行状态。
 - `executionProjector.js` 已经将 canonical `execution.step` 投影为执行树视图。
@@ -81,7 +81,7 @@
 
 当前性能与交互基线:
 
-- artifact 发现仍以正文 `[viz:artifact_id]` 正则为主，`ArtifactPanel.vue` 与 `parseMessageParts()` 各自解析，后续需要结构化 artifact 模型统一来源。
+- artifact 发现仍以正文 `[artifact:artifact_id]` 正则为主，`ArtifactPanel.vue` 与 `parseMessageParts()` 各自解析，后续需要结构化 artifact 模型统一来源。
 - `output.chunk` 当前逐 chunk 追加并触发滚动；长输出时存在高频 Vue 更新和 markdown 重渲染风险。
 - `execution.step` 当前即时投影执行树；step 数超过数百时 WorkPanel 刷新和列表渲染需要节流或虚拟化。
 - `ChartRenderer.vue` 已注册 `DataZoomComponent`，但默认交互仍主要是全屏和 PNG 导出。
@@ -102,14 +102,14 @@
 状态: 待开始
 
 目标:
-- 用结构化 artifact 列表替代仅从消息正文解析 `[viz:...]` 的方式。
-- 保持旧消息正文占位符兼容。
+- 用结构化 artifact 列表替代仅从消息正文解析 `[artifact:...]` 的方式。
+- 消息正文只使用统一的 Artifact 占位符。
 
 建议数据模型:
 
 ```javascript
 {
-  id: 'viz_xxx',
+  id: 'art_xxx',
   type: 'visualization',
   visualization_type: 'chart' | 'map' | 'image' | 'table' | 'report',
   title: 'xxx',
@@ -132,24 +132,24 @@
 
 前端任务:
 - [ ] 新增 `src/utils/artifacts.js`，统一 normalize artifact 元数据。
-- [ ] `ArtifactPanel.vue` 优先读取 `message.artifacts`，缺失时再回退解析 `[viz:...]`。
+- [ ] `ArtifactPanel.vue` 优先读取 `message.artifacts`，缺失时再解析 `[artifact:...]`。
 - [ ] `VisualizationLoader.vue` 接收 artifact 对象，兼容只传 `artifactId` 的旧用法。
 - [ ] 在 artifact 面板展示 title、type、状态、来源工具和缩略图占位。
 - [ ] 增加 artifact 加载失败、已删除、权限不足的统一错误态。
 
 后端协同:
 - [ ] assistant message 返回 `artifacts: []` 或 `metadata.artifacts: []`。
-- [ ] `/api/artifacts/visualizations/{id}` 返回 `metadata` 与 `config` 分层。
+- [ ] `/api/artifacts/{id}` 返回 descriptor，并将二进制内容放在 `/api/artifacts/{id}/content`。
 - [ ] 历史消息接口补充 artifact sidecar，或提供按 message id 查询 artifacts 的接口。
 
 验收:
 - 新 artifact 消息不依赖正文正则也能展示产物面板。
-- 旧 `[viz:viz_xxx]` 消息仍能渲染。
+- `[artifact:art_xxx]` 消息能稳定渲染。
 - 点击 artifact 面板项能定位到消息内联可视化。
 - `npm run build`、`npm test` 通过。
 
 回滚点:
-- 保留 `[viz:...]` 解析路径；若结构化字段异常，前端自动回退旧逻辑。
+- 保留 `[artifact:...]` 解析路径，作为结构化字段缺失时的正文来源。
 
 ## 阶段 2: Artifact Registry 与通用产物容器
 
@@ -195,7 +195,7 @@
 ```javascript
 {
   type: 'artifact.ask_agent',
-  artifact_id: 'viz_xxx',
+  artifact_id: 'art_xxx',
   selection: {
     kind: 'chart_point',
     series: '水位',
@@ -335,7 +335,7 @@
 - 手工检查 375px、768px、1440px 三类视口
 
 建议新增测试:
-- [ ] `ArtifactPanel` 结构化 artifacts 优先、`[viz:...]` 回退。
+- [ ] `ArtifactPanel` 结构化 artifacts 优先、`[artifact:...]` 正文解析补充。
 - [ ] `VisualizationLoader` registry 分发与错误态。
 - [ ] `ChartRenderer` 导出、全屏、dataZoom 配置合并。
 - [ ] `MapRenderer` 图层控制和下载入口。
@@ -371,7 +371,7 @@
 
 | 风险 | 影响 | 应对 |
 |------|------|------|
-| 新旧 artifact 数据并存 | 历史消息无法展示或重复展示 | `message.artifacts` 优先，`[viz:...]` 回退，按 id 去重 |
+| 结构化字段与正文引用并存 | 产物重复展示 | `message.artifacts` 优先，`[artifact:...]` 按 id 去重 |
 | 大 GeoJSON 或大量 marker 卡顿 | 地图不可操作 | 聚合、简化、bbox 加载和图层懒渲染 |
 | chunk buffer 改变流式观感 | 用户感觉响应变慢 | buffer 窗口控制在 16ms-80ms，并在首 token 阶段立即显示 |
 | 图表配置来源复杂 | 内置交互覆盖用户配置 | 只补默认配置，不强行覆盖用户显式配置 |

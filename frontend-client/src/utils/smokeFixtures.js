@@ -1,6 +1,6 @@
 import { buildExecutionTree as buildProtocolExecutionTree } from '@ragsystem/agent-protocol';
 
-export const SMOKE_ARTIFACT_ID = 'viz_smoke_chart';
+export const SMOKE_ARTIFACT_ID = 'art_smoke_chart';
 
 export const smokeChartArtifact = {
   viz_type: 'chart',
@@ -127,7 +127,7 @@ export function createSmokeArtifactMessages() {
     content: [
       '这是前端 smoke fixture，用于验证聊天页内联 artifact、右侧产物面板和执行过程布局。',
       '',
-      `[viz:${SMOKE_ARTIFACT_ID}]`,
+      `[artifact:${SMOKE_ARTIFACT_ID}]`,
       '',
       '图表下方应继续显示文本内容，移动端和桌面端都不能出现横向溢出。',
     ].join('\n'),

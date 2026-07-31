@@ -106,3 +106,4 @@ dist/
 # Local secrets (extracted for docker compose)
 .env
 .env.*
+!.env.example

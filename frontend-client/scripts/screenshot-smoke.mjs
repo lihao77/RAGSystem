@@ -72,7 +72,7 @@ const shots = [
     actions: [
       { type: 'mockArtifactApi' },
       { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
-      { type: 'expectVisible', selector: '[data-artifact-id="viz_smoke_chart"]' },
+      { type: 'expectVisible', selector: '[data-artifact-id="art_smoke_chart"]' },
       { type: 'expectText', selector: '.artifact-panel', text: '可视化' },
       { type: 'expectText', selector: '.artifact-panel', text: '文件变更' },
       { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
@@ -111,7 +111,7 @@ const shots = [
     actions: [
       { type: 'mockArtifactApi' },
       { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
-      { type: 'expectVisible', selector: '[data-artifact-id="viz_smoke_chart"]' },
+      { type: 'expectVisible', selector: '[data-artifact-id="art_smoke_chart"]' },
       { type: 'expectText', selector: '.artifact-panel', text: '可视化' },
       { type: 'expectText', selector: '.artifact-panel', text: '文件变更' },
       { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
@@ -601,7 +601,7 @@ async function setupShotMocks(client, shot) {
     patterns: [
       ...(mockArtifactApi ? [
         {
-          urlPattern: '*://*/api/artifacts/visualizations/viz_smoke_chart*',
+          urlPattern: '*://*/api/artifacts/art_smoke_chart*',
           requestStage: 'Request',
         },
         {
@@ -729,7 +729,7 @@ async function setupShotMocks(client, shot) {
       return;
     }
 
-    if (!event.request?.url?.includes('/api/artifacts/visualizations/viz_smoke_chart')) {
+    if (!event.request?.url?.includes('/api/artifacts/art_smoke_chart')) {
       await client.send('Fetch.continueRequest', { requestId: event.requestId });
       return;
     }

@@ -6,7 +6,7 @@ description: 数据可视化技能，支持 ECharts 图表和 Leaflet 地图的�
 ## 可视化工具
 
 本 Skill 提供完整的数据可视化能力，所有脚本输出 artifact 协议格式，系统自动完成持久化。
-在 `<final_answer>` 中使用 `[viz:artifact_id]` 展示可视化结果。
+在 `<final_answer>` 中使用 `[artifact:artifact_id]` 展示产物。Artifact 是通用产物，可携带 JSON config 和可选二进制内容；`viz_type` 只声明展示方式。
 
 ## 可用脚本
 
@@ -97,7 +97,7 @@ description: 数据可视化技能，支持 ECharts 图表和 Leaflet 地图的�
   "arguments": {
     "skill_name": "visualization",
     "script_name": "revise.py",
-    "arguments": ["--artifact-id", "viz_abc123", "--config-patch", "{\"title\":{\"text\":\"新标题\"}}"]
+    "arguments": ["--artifact-id", "art_abc123", "--config-patch", "{\"title\":{\"text\":\"新标题\"}}"]
   }
 }
 ```

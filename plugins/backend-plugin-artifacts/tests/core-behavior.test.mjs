@@ -45,7 +45,7 @@ test("Artifact hook persists an embedded protocol and returns a durable referenc
       applicationForTenant(tenantId) {
         assert.equal(tenantId, "tenant-a");
         return artifactApplication({
-          createChart: async (input) => {
+          createArtifact: async (input) => {
             calls.push(input);
             return artifactRecord();
           },
@@ -71,45 +71,77 @@ test("Artifact hook persists an embedded protocol and returns a durable referenc
 
   assert.deepEqual(calls, [{
     sessionId: "session-a",
-    chartConfig: { series: [{ data: [1, 2] }] },
-    chartType: "bar",
+    vizType: "chart",
+    subType: "bar",
     title: "Rainfall",
+    config: { series: [{ data: [1, 2] }] },
+    asset: null,
   }]);
   assert.deepEqual(output.modifiedResult.content, {
     title: "Rainfall",
-    artifact_id: "viz_test",
+    artifact_id: "art_test",
     viz_type: "chart",
+    artifact_type: "json",
+    mime_type: null,
   });
   assert.deepEqual(output.modifiedResult.metadata, {
-    artifact_id: "viz_test",
+    artifact_id: "art_test",
     artifact_persisted: true,
   });
   assert.equal(output.modifiedResult.outputType, "chart");
-  assert.match(output.modifiedResult.llmHint, /\[viz:viz_test\]/);
+  assert.match(output.modifiedResult.llmHint, /\[artifact:art_test\]/);
 });
 
 test("Filesystem Artifact storage creates, revises, and deletes managed files", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "artifact-storage-"));
   try {
     const service = new FilesystemArtifactService({ dataRoot: root });
-    const created = service.createChart({
+    const created = service.createArtifact({
       sessionId: "session-a",
-      chartConfig: { axis: { min: 0 }, series: [1] },
+      vizType: "chart",
+      config: { axis: { min: 0 }, series: [1] },
       title: "Rainfall",
     });
 
-    assert.equal(service.listVisualizations("session-a").length, 1);
-    service.reviseVisualization({
+    assert.equal(service.listArtifacts("session-a").length, 1);
+    service.reviseArtifact({
       artifactId: created.artifact_id,
       configPatch: { axis: { max: 10 } },
     });
-    assert.deepEqual(service.getVisualization(created.artifact_id).config, {
+    assert.deepEqual(service.getArtifact(created.artifact_id).config, {
       axis: { min: 0, max: 10 },
       series: [1],
     });
-    assert.equal(service.deleteVisualization(created.artifact_id), true);
-    assert.equal(fs.existsSync(created.file_path), false);
-    assert.deepEqual(service.listVisualizations("session-a"), []);
+    assert.equal(service.deleteArtifact(created.artifact_id), true);
+    assert.equal(fs.existsSync(created.descriptor_path), false);
+    assert.deepEqual(service.listArtifacts("session-a"), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Filesystem Artifact storage keeps binary content behind the artifact API", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "artifact-binary-"));
+  try {
+    const service = new FilesystemArtifactService({ dataRoot: root });
+    const created = service.createArtifact({
+      sessionId: "session-a",
+      vizType: "map",
+      subType: "raster",
+      config: { bounds: [[0, 100], [10, 110]] },
+      asset: { body: Buffer.from([137, 80, 78, 71]), mimeType: "image/png", filename: "temperature.png" },
+    });
+    const descriptor = service.getArtifact(created.artifact_id);
+    assert.equal(descriptor.artifact_type, "binary");
+    assert.equal(descriptor.content_url, `/api/artifacts/${created.artifact_id}/content`);
+    assert.equal(descriptor.asset.filename, "temperature.png");
+    assert.deepEqual(service.getArtifactContent(created.artifact_id), {
+      body: Buffer.from([137, 80, 78, 71]),
+      mimeType: "image/png",
+      filename: "temperature.png",
+    });
+    assert.equal(service.deleteArtifact(created.artifact_id), true);
+    assert.equal(fs.existsSync(created.asset_path), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -137,12 +169,15 @@ function toolResult(content) {
 
 function artifactRecord() {
   return {
-    artifact_id: "viz_test",
+    artifact_id: "art_test",
     viz_type: "chart",
     sub_type: "bar",
     title: "Rainfall",
     version: 1,
-    file_path: "artifact.json",
+    descriptor_path: "artifact.json",
+    asset_path: null,
+    artifact_type: "json",
+    mime_type: null,
     session_id: "session-a",
     created_at: 1,
     updated_at: 1,
@@ -151,14 +186,14 @@ function artifactRecord() {
 
 function artifactApplication(overrides = {}) {
   return {
-    getVisualization() {},
-    listVisualizations() { return []; },
-    getVisualizationSessionId() { return null; },
-    async createChart() { return artifactRecord(); },
-    async createMap() { return artifactRecord(); },
-    async reviseVisualization() { return artifactRecord(); },
-    deleteVisualization() { return false; },
-    deleteSessionVisualizations() { return 0; },
+    getArtifact() {},
+    getArtifactContent() { return null; },
+    listArtifacts() { return []; },
+    getArtifactSessionId() { return null; },
+    async createArtifact() { return artifactRecord(); },
+    async reviseArtifact() { return artifactRecord(); },
+    deleteArtifact() { return false; },
+    deleteSessionArtifacts() { return 0; },
     ...overrides,
   };
 }

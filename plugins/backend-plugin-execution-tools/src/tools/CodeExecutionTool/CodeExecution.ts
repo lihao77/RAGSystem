@@ -218,7 +218,7 @@ export class CodeExecutionToolService {
       workspace: path.resolve(workspaceRoot ?? path.join(sessionRoot, "workspace")),
       transient: path.join(sessionRoot, "transient"),
       uploads: path.join(sessionRoot, "uploads"),
-      visualizations: path.join(sessionRoot, "visualizations"),
+      artifacts: path.join(sessionRoot, "artifacts"),
       exports: exportsRoot,
       sandbox: path.join(sessionRoot, "sandbox"),
     };
@@ -471,7 +471,7 @@ def _is_under(candidate, root):
 def _allowed_roots(operation):
     base = [roots["workspace"], roots["transient"], roots["exports"], roots["sandbox"]]
     if operation == "read":
-        base.extend([roots["uploads"], roots["visualizations"]])
+      base.extend([roots["uploads"], roots["artifacts"]])
     return [str(Path(item).resolve()) for item in base if item]
 
 def _resolve_path(raw_path, operation="read", explicit_space=None):
@@ -605,7 +605,7 @@ env = {
     "SESSION_WORKSPACE_DIR": roots["workspace"],
     "SESSION_TRANSIENT_DIR": roots["transient"],
     "SESSION_UPLOADS_DIR": roots["uploads"],
-    "SESSION_VISUALIZATIONS_DIR": roots["visualizations"],
+    "SESSION_ARTIFACTS_DIR": roots["artifacts"],
     "SESSION_EXPORTS_DIR": roots["exports"],
     "path_ops": SafePathOps,
 }

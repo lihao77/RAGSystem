@@ -66,10 +66,10 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 
 ### 2. 环境与运行时配置
 
-先复制环境变量示例：
+先复制环境变量示例。仓库级 npm 命令读取仓库根目录 `.env`：
 
 ```bash
-cp backend-local/.env.example backend-local/.env
+cp backend-local/.env.example .env
 cp frontend-client/.env.example frontend-client/.env
 ```
 

@@ -251,8 +251,8 @@
 - 2026-05-11: 阶段 2 继续拆分。新增 `MessageActions.vue`、`AssistantMessage.vue`、`UserMessage.vue`，消息操作、assistant 内容和用户消息编辑态展示已下沉到子组件；markdown copy 事件仍由消息 wrapper 代理，后续单独收敛；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 阶段 2 继续拆分。新增 `ApprovalQueueHost.vue`，承载右侧 `WorkPanel`、普通审批弹窗和用户输入弹窗；审批队列状态与提交逻辑仍由 `ChatViewV2.vue` 持有，文件预览确认弹窗暂保留在页面层；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 阶段 2 继续拆分。新增 `MarkdownContent.vue` 与 `utils/clipboard.js`，markdown 代码块/表格/引用复制逻辑从 `ChatViewV2.vue` 下沉到消息渲染组件；`npm run build` 与 `npm test` 通过。
-- 2026-05-11: 阶段 2 清理旧可视化兼容链路。移除 `[CHART:n]` 与 `multimodalContents` 历史格式支持，消息渲染仅保留 `[viz:artifact_id]`；`npm run build` 与 `npm test` 通过。
-- 2026-05-11: 完成阶段 2。新增 `ArtifactPanel.vue`，右侧工作栏展示当前消息中的 `[viz:artifact_id]` 产物入口；点击条目可定位到消息流中的内联可视化；`npm run build` 与 `npm test` 通过。
+- 2026-05-11: 阶段 2 清理旧可视化协议。移除 `[CHART:n]` 与 `multimodalContents` 历史格式，消息渲染使用 `[artifact:artifact_id]`；`npm run build` 与 `npm test` 通过。
+- 2026-05-11: 完成阶段 2。新增 `ArtifactPanel.vue`，右侧工作栏展示当前消息中的 `[artifact:artifact_id]` 产物入口；点击条目可定位到消息流中的内联产物；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 继续下沉 `ChatViewV2.vue` 的会话入口、历史、创建与导出逻辑到 `useChatSessionController`，页面层仅保留编排与事件转发；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 继续下沉 `ChatViewV2.vue` 的审批队列与工作栏内联用户输入逻辑到 `useApprovalQueue`，保留 WS ack、HTTP 降级和队列轮转行为；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 继续下沉 `ChatViewV2.vue` 的 LLM 重试状态、倒计时 ticker 与消息状态同步到 `useLlmRetryState`；`npm run build` 与 `npm test` 通过。

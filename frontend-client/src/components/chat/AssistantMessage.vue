@@ -16,7 +16,7 @@
       />
     </div>
     <div
-      v-else-if="part.type === 'viz'"
+      v-else-if="part.type === 'artifact'"
       class="inline-chart-wrapper"
       :data-artifact-id="part.artifactId"
     >

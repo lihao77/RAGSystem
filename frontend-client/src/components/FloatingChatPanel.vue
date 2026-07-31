@@ -70,11 +70,11 @@ const toggleCollapse = (val) => {
   emit('collapse-change', val);
 };
 
-// 主渲染器 + viz 标记后处理（[viz:viz_xxx] → 地图可视化入口，悬浮窗特有）
+// 主渲染器 + Artifact 标记后处理。
 const renderWithViz = (content) =>
   renderMarkdown(content || '').replace(
-    /\[viz:(viz_\w+)\]/g,
-    '<span class="viz-link">[ 地图可视化 ]</span>',
+    /\[artifact:(art_[A-Za-z0-9_]+)\]/g,
+    '<span class="viz-link">[ 查看产物 ]</span>',
   );
 
 const sendMessage = () => {

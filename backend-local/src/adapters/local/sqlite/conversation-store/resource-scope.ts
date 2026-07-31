@@ -30,7 +30,7 @@ export function inferResourceScope(input: {
       if (bucket === "sandbox" || bucket === "transient") {
         return "transient";
       }
-      if (bucket === "visualizations") {
+      if (bucket === "artifacts") {
         return "session";
       }
     }

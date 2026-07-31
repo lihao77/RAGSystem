@@ -1,16 +1,16 @@
-import type { ArtifactApplication, ArtifactRecord } from "../../contracts/artifact-application.js";
-import type { VisualizationConfig, VisualizationSummary } from "../../contracts/artifacts.js";
+import type { ArtifactApplication, ArtifactAssetInput, ArtifactContent, ArtifactRecord } from "../../contracts/artifact-application.js";
+import type { ArtifactDescriptor, ArtifactSummary } from "../../contracts/artifacts.js";
 import type { JsonValue } from "../../contracts/json.js";
 import { FilesystemArtifactService } from "./filesystem-artifact-service.js";
 
 export class FilesystemArtifactApplication implements ArtifactApplication {
   constructor(private readonly service: FilesystemArtifactService) {}
-  async getVisualization(id: string): Promise<VisualizationConfig> { return this.service.getVisualization(id); }
-  async listVisualizations(sessionId: string): Promise<VisualizationSummary[]> { return this.service.listVisualizations(sessionId); }
-  async getVisualizationSessionId(id: string): Promise<string | null> { return this.service.getVisualizationSessionId(id); }
-  async createChart(input: { sessionId: string; chartConfig: JsonValue; chartType?: string | null; title?: string | null }): Promise<ArtifactRecord> { return this.service.createChart(input); }
-  async createMap(input: { sessionId: string; mapData: JsonValue; mapType?: string | null; title?: string | null }): Promise<ArtifactRecord> { return this.service.createMap(input); }
-  async reviseVisualization(input: { artifactId: string; configPatch: JsonValue; replace?: boolean | null }): Promise<ArtifactRecord> { return this.service.reviseVisualization(input); }
-  async deleteVisualization(id: string): Promise<boolean> { return this.service.deleteVisualization(id); }
-  async deleteSessionVisualizations(sessionId: string): Promise<number> { return this.service.deleteSessionVisualizations(sessionId); }
+  async getArtifact(id: string): Promise<ArtifactDescriptor> { return this.service.getArtifact(id); }
+  async getArtifactContent(id: string): Promise<ArtifactContent | null> { return this.service.getArtifactContent(id); }
+  async listArtifacts(sessionId: string): Promise<ArtifactSummary[]> { return this.service.listArtifacts(sessionId); }
+  async getArtifactSessionId(id: string): Promise<string | null> { return this.service.getArtifactSessionId(id); }
+  async createArtifact(input: { sessionId: string; vizType: string; subType?: string | null; title?: string | null; config?: JsonValue | null; asset?: ArtifactAssetInput | null }): Promise<ArtifactRecord> { return this.service.createArtifact(input); }
+  async reviseArtifact(input: { artifactId: string; configPatch: JsonValue; replace?: boolean | null }): Promise<ArtifactRecord> { return this.service.reviseArtifact(input); }
+  async deleteArtifact(id: string): Promise<boolean> { return this.service.deleteArtifact(id); }
+  async deleteSessionArtifacts(sessionId: string): Promise<number> { return this.service.deleteSessionArtifacts(sessionId); }
 }

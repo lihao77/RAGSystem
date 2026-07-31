@@ -1,8 +1,8 @@
 import { nextTick, onUnmounted, ref } from 'vue';
-import { getVisualization } from '../api/artifact.js';
+import { getArtifact } from '../api/artifact.js';
 import { parseMessageParts } from '../utils/message-render.js';
 
-const VIZ_PLACEHOLDER_RE = /\[viz:(viz_\w+)\]/g;
+const ARTIFACT_PLACEHOLDER_RE = /\[artifact:(art_[A-Za-z0-9_]+)\]/g;
 
 export function useMessageArtifacts(deps) {
   const artifactFocusTimer = ref(null);
@@ -41,15 +41,15 @@ export function useMessageArtifacts(deps) {
   const checkSituationScreenTrigger = async (content) => {
     if (!content || deps.situationScreenActive.value) return;
 
-    const matches = [...content.matchAll(VIZ_PLACEHOLDER_RE)];
-    VIZ_PLACEHOLDER_RE.lastIndex = 0;
+    const matches = [...content.matchAll(ARTIFACT_PLACEHOLDER_RE)];
+    ARTIFACT_PLACEHOLDER_RE.lastIndex = 0;
     if (!matches.length) return;
 
     for (let i = matches.length - 1; i >= 0; i -= 1) {
       const artifactId = matches[i][1];
       let vizData;
       try {
-        vizData = await getVisualization(artifactId);
+        vizData = await getArtifact(artifactId);
       } catch (error) {
         console.warn('加载可视化失败:', error.message);
         continue;
