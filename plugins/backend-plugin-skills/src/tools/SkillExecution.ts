@@ -11,6 +11,10 @@ import type { ClientEventPublisher } from "@ragsystem/backend-core/services/runt
 import type { SkillsAgentConfig, SkillsAgentConfigService } from "../config.js";
 import type { ISkillPackageStore, SkillPackageRecord } from "../contracts/skills/skill-package-store.js";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
+import type {
+  ArtifactStagingRunResource,
+  ArtifactStagingServiceResource,
+} from "../resources.js";
 
 type SkillSourceType = "workspace" | "user_global" | "builtin";
 
@@ -93,6 +97,7 @@ export class SkillToolService {
       backgroundTasks?: BackgroundTaskService | null | undefined;
       clientEvents?: ClientEventPublisher | null | undefined;
       skillIsolationMode?: SkillIsolationMode | undefined;
+      artifactStaging?: ArtifactStagingServiceResource | null | undefined;
       /**
        * When set, user_global discovery uses packageStore.list() records (skillDir may be
        * content-addressed). Without it, user_global is scanned under userGlobalSkillsRoot.
@@ -112,6 +117,7 @@ export class SkillToolService {
     this.clientEvents = options.clientEvents ?? null;
     this.skillIsolationMode = options.skillIsolationMode ?? resolveDefaultIsolationMode();
     this.packageStore = options.packageStore ?? null;
+    this.artifactStaging = options.artifactStaging ?? null;
   }
 
   private readonly skillsConfig: SkillsAgentConfigService | null;
@@ -119,6 +125,7 @@ export class SkillToolService {
   private readonly clientEvents: ClientEventPublisher | null;
   private readonly skillIsolationMode: SkillIsolationMode;
   private readonly packageStore: ISkillPackageStore | null;
+  private readonly artifactStaging: ArtifactStagingServiceResource | null;
   private readonly envLocks = new Map<string, Promise<unknown>>();
   /** Serializes packageStore.list() so concurrent hydrates cannot publish stale snapshots. */
   private hydrateChain: Promise<void> = Promise.resolve();
@@ -295,41 +302,70 @@ export class SkillToolService {
       return this.executeSkillScriptInBackground(skill, scriptPath, scriptName, input.arguments ?? [], context, agent, config);
     }
 
-    const scriptResult = await this.runScript(skill, scriptPath, input.arguments ?? [], context);
-    const meta: Record<string, unknown> = {
-      success: scriptResult.returnCode === 0,
-      script_name: scriptName,
-      skill: skill.name,
-    };
-    if (scriptResult.stderr.trim()) {
-      meta.stderr = scriptResult.stderr;
-    }
-    if (scriptResult.stdout.length > 4000) {
-      meta.force_artifact = true;
-    }
-
-    if (scriptResult.returnCode === 0) {
-      const parsed = parseJsonStdout(scriptResult.stdout);
-      if (parsed !== null) {
-        return this.normalizeStructuredScriptResult(parsed, scriptName, skill.name, meta);
+    let stagingRun: ArtifactStagingRunResource | null = null;
+    if (this.artifactStaging && normalizeString(context.sessionId)) {
+      try {
+        stagingRun = await this.artifactStaging.createRun({
+          sessionId: normalizeString(context.sessionId)!,
+          runId: normalizeString(context.runId),
+          toolCallId: normalizeString(context.toolCallId),
+        });
+      } catch (error) {
+        return errorResult(
+          `无法创建 Artifact staging 目录: ${error instanceof Error ? error.message : String(error)}`,
+          toolName,
+        );
       }
     }
-
-    return successResult(
-      {
+    try {
+      const scriptResult = await this.runScript(
+        skill,
+        scriptPath,
+        input.arguments ?? [],
+        context,
+        stagingRun?.outputDirectory ?? null,
+      );
+      const meta: Record<string, unknown> = {
+        success: scriptResult.returnCode === 0,
         script_name: scriptName,
-        stdout: scriptResult.stdout,
-        stderr: scriptResult.stderr,
-        return_code: scriptResult.returnCode,
         skill: skill.name,
-      },
-      {
-        summary: `脚本 ${scriptName} 执行完成（返回码: ${scriptResult.returnCode}）`,
-        outputType: "text",
-        metadata: meta,
-        toolName,
-      },
-    );
+      };
+      if (scriptResult.stderr.trim()) meta.stderr = scriptResult.stderr;
+      if (scriptResult.stdout.length > 4000) meta.force_artifact = true;
+
+      if (scriptResult.returnCode === 0) {
+        const parsed = parseJsonStdout(scriptResult.stdout);
+        if (parsed !== null) {
+          const normalized = await this.normalizeStructuredScriptResult(
+            parsed,
+            scriptName,
+            skill.name,
+            meta,
+            stagingRun,
+          );
+          if (normalized.keepStaging) stagingRun = null;
+          return normalized.result;
+        }
+      }
+
+      return successResult(
+        {
+          script_name: scriptName,
+          stdout: scriptResult.stdout,
+          stderr: scriptResult.stderr,
+          return_code: scriptResult.returnCode,
+          skill: skill.name,
+        },
+        {
+          summary: `脚本 ${scriptName} 执行完成（返回码: ${scriptResult.returnCode}）`,
+          outputType: "text",
+          metadata: meta,
+          toolName,
+        },
+      );
+    } finally {
+      if (stagingRun) await this.artifactStaging?.discardRun(stagingRun.stageRunId).catch(() => undefined);
+    }
   }
 
   loadAllSkills(workspaceRoot?: string | null): SkillInfo[] {
@@ -402,6 +438,7 @@ export class SkillToolService {
     scriptPath: string,
     args: string[],
     context: ToolExecContext,
+    artifactOutputDirectory: string | null,
   ): Promise<{ stdout: string; stderr: string; returnCode: number }> {
     const environment = await this.ensureSkillEnvironment(skill);
     if ("error" in environment) {
@@ -417,6 +454,7 @@ export class SkillToolService {
         PYTHONUTF8: "1",
         RAG_DATA_ROOT: this.dataRoot,
         ...(context.sessionId ? { RAG_SESSION_ID: context.sessionId } : {}),
+        ...(artifactOutputDirectory ? { RAGSYSTEM_ARTIFACT_OUTPUT_DIR: artifactOutputDirectory } : {}),
       },
     });
   }
@@ -510,28 +548,52 @@ export class SkillToolService {
     );
   }
 
-  private normalizeStructuredScriptResult(
+  private async normalizeStructuredScriptResult(
     rawPayload: unknown,
     scriptName: string,
     skillName: string,
     metadata: Record<string, unknown>,
-  ): ToolExecutionResult {
+    stagingRun: ArtifactStagingRunResource | null,
+  ): Promise<{ result: ToolExecutionResult; keepStaging: boolean }> {
     const unwrapped = unwrapScriptResponse(rawPayload);
     if (unwrapped.error) {
-      return errorResult(unwrapped.error, "execute_skill_script");
+      return { result: errorResult(unwrapped.error, "execute_skill_script"), keepStaging: false };
     }
-    const payload = mergeStructuredExtensions(unwrapped.payload, unwrapped.extensions);
+    let payload = mergeStructuredExtensions(unwrapped.payload, unwrapped.extensions);
     Object.assign(metadata, unwrapped.metadata);
-    return successResult(payload, {
-      summary: `脚本 ${scriptName} 执行完成（返回结构化 JSON）`,
-      outputType: "json",
-      metadata: {
-        ...metadata,
-        script_name: scriptName,
-        skill: skillName,
-      },
-      toolName: "execute_skill_script",
-    });
+    let stagedFileCount = 0;
+    try {
+      const registered = await registerArtifactStagedFiles(
+        payload,
+        this.artifactStaging,
+        stagingRun,
+      );
+      payload = registered.payload;
+      stagedFileCount = registered.stagedFileCount;
+    } catch (error) {
+      return {
+        result: errorResult(
+          `Artifact staging 登记失败: ${error instanceof Error ? error.message : String(error)}`,
+          "execute_skill_script",
+          { script_name: scriptName, skill: skillName },
+        ),
+        keepStaging: false,
+      };
+    }
+    return {
+      result: successResult(payload, {
+        summary: `脚本 ${scriptName} 执行完成（返回结构化 JSON）`,
+        outputType: "json",
+        metadata: {
+          ...metadata,
+          script_name: scriptName,
+          skill: skillName,
+          ...(stagedFileCount ? { staged_file_count: stagedFileCount } : {}),
+        },
+        toolName: "execute_skill_script",
+      }),
+      keepStaging: stagedFileCount > 0,
+    };
   }
 
   /**
@@ -744,6 +806,59 @@ function unwrapScriptResponse(payload: unknown): {
 function mergeStructuredExtensions(payload: unknown, extensions: Record<string, unknown>): unknown {
   if (Object.keys(extensions).length === 0) return payload;
   return isRecord(payload) ? { ...payload, ...extensions } : { data: payload, ...extensions };
+}
+
+async function registerArtifactStagedFiles(
+  payload: unknown,
+  staging: ArtifactStagingServiceResource | null,
+  stagingRun: ArtifactStagingRunResource | null,
+): Promise<{ payload: unknown; stagedFileCount: number }> {
+  if (!isRecord(payload) || !isRecord(payload.artifact) || !Array.isArray(payload.artifact.assets)) {
+    return { payload, stagedFileCount: 0 };
+  }
+  const outputs: Array<{
+    relativePath: string;
+    filename?: string;
+    mediaType?: string;
+  }> = [];
+  const stagedIndexes = new Map<number, number>();
+  for (let index = 0; index < payload.artifact.assets.length; index += 1) {
+    const asset = payload.artifact.assets[index];
+    if (!isRecord(asset)) continue;
+    if (asset.staged_file_id != null) {
+      throw new Error("Skill 脚本不能直接提供 staged_file_id");
+    }
+    if (asset.staged_file == null) continue;
+    const relativePath = asString(asset.staged_file)?.trim();
+    if (!relativePath) throw new Error("asset.staged_file 必须是非空相对路径");
+    if (asset.data_base64 != null) throw new Error("asset 不能同时提供 staged_file 和 data_base64");
+    const filename = asString(asset.filename)?.trim();
+    const mediaType = asString(asset.media_type)?.trim();
+    stagedIndexes.set(index, outputs.length);
+    outputs.push({
+      relativePath,
+      ...(filename ? { filename } : {}),
+      ...(mediaType ? { mediaType } : {}),
+    });
+  }
+  if (!outputs.length) return { payload, stagedFileCount: 0 };
+  if (!staging || !stagingRun) {
+    throw new Error("脚本使用 staged_file 时需要 session 和 Artifact staging 插件");
+  }
+  const registered = await staging.registerOutputs(stagingRun.stageRunId, outputs);
+  if (registered.length !== outputs.length) throw new Error("Artifact staging 返回的文件数量不一致");
+  const assets = payload.artifact.assets.map((asset, index) => {
+    const registeredIndex = stagedIndexes.get(index);
+    if (registeredIndex == null || !isRecord(asset)) return asset;
+    const stagedFile = registered[registeredIndex];
+    if (!stagedFile) throw new Error("Artifact staging 文件登记结果缺失");
+    const { staged_file: _stagedFile, ...rest } = asset;
+    return { ...rest, staged_file_id: stagedFile.stagedFileId };
+  });
+  return {
+    payload: { ...payload, artifact: { ...payload.artifact, assets } },
+    stagedFileCount: registered.length,
+  };
 }
 
 function successResult<T>(

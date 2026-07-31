@@ -25,13 +25,13 @@
 
     <template v-else>
       <ChartRenderer
-        v-if="vizData.viz_type === 'chart'"
+        v-if="vizData.displayKind === 'chart'"
         :echartsConfig="vizData.config"
         :title="vizData.title"
-        :chartType="vizData.sub_type"
+        :chartType="vizData.subtype"
       />
       <MapRenderer
-        v-else-if="vizData.viz_type === 'map'"
+        v-else-if="vizData.displayKind === 'map'"
         :mapData="vizData.config"
         :title="vizData.title"
         @enter-situation="$emit('enter-situation', { artifactId: props.artifactId, mapData: vizData.config, vizData })"
@@ -72,7 +72,8 @@
 
 <script setup>
 import { ref, computed, defineAsyncComponent, onMounted } from 'vue';
-import { getArtifact, getArtifactContent } from '../api/artifact.js';
+import { getArtifact, getArtifactAssetContent } from '../api/artifact.js';
+import { normalizeArtifactManifest } from '../utils/artifact.js';
 import IconInfo from './icons/IconInfo.vue';
 import AuthenticatedImage from './common/AuthenticatedImage.vue';
 import { Button } from './ui/button';
@@ -95,11 +96,11 @@ const vizData = ref(null);
 const imageError = ref(false);
 const downloading = ref(false);
 const downloadError = ref('');
-const isImage = computed(() => vizData.value?.viz_type === 'image' || vizData.value?.mime_type?.startsWith('image/'));
+const isImage = computed(() => vizData.value?.displayKind === 'image');
 const artifactFilename = computed(() => vizData.value?.asset?.filename || vizData.value?.title || props.artifactId);
 const artifactTypeLabel = computed(() => {
   const mimeType = vizData.value?.mime_type || vizData.value?.asset?.mime_type || 'application/octet-stream';
-  return `${mimeType} · ${vizData.value?.viz_type || 'generic'}`;
+  return `${mimeType} · ${vizData.value?.kind || 'generic'}`;
 });
 
 const imageUrl = computed(() => {
@@ -121,16 +122,7 @@ async function fetchConfig() {
       if (error.status >= 500) throw new Error('服务器暂时不可用，请稍后重试');
       throw new Error(error.message || '请求失败');
     }
-    if (!data || typeof data !== 'object' || !data.viz_type) {
-      throw new Error('产物结构异常：缺少 viz_type 字段');
-    }
-    if (!['chart', 'map', 'image'].includes(data.viz_type) && !data.content_url) {
-      throw new Error(`暂不支持展示此产物类型: ${data.viz_type}`);
-    }
-    if ((data.viz_type === 'chart' || data.viz_type === 'map') && !data.config) {
-      throw new Error(`产物结构异常：${data.viz_type} 类型缺少 config 字段`);
-    }
-    vizData.value = data;
+    vizData.value = normalizeArtifactManifest(data);
   } catch (e) {
     error.value = e.message.startsWith('产物') || e.message.startsWith('服务器') || e.message.startsWith('请求失败')
       ? e.message
@@ -144,7 +136,9 @@ async function downloadArtifact() {
   downloading.value = true;
   downloadError.value = '';
   try {
-    const response = await getArtifactContent(props.artifactId);
+    const assetId = vizData.value?.primaryAsset?.asset_id;
+    if (!assetId) throw new Error('该 Artifact 没有可下载的 Asset');
+    const response = await getArtifactAssetContent(props.artifactId, assetId);
     const objectUrl = URL.createObjectURL(response.data);
     const anchor = document.createElement('a');
     anchor.href = objectUrl;

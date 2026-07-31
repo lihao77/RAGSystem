@@ -1,6 +1,7 @@
 import { nextTick, onUnmounted, ref } from 'vue';
 import { getArtifact } from '../api/artifact.js';
 import { parseMessageParts } from '../utils/message-render.js';
+import { normalizeArtifactManifest } from '../utils/artifact.js';
 
 const ARTIFACT_PLACEHOLDER_RE = /\[artifact:(art_[A-Za-z0-9_]+)\]/g;
 
@@ -55,9 +56,10 @@ export function useMessageArtifacts(deps) {
         continue;
       }
       try {
-        if (vizData.viz_type !== 'map') continue;
+        const normalized = normalizeArtifactManifest(vizData);
+        if (normalized.displayKind !== 'map') continue;
 
-        const mapData = vizData.config;
+        const mapData = normalized.config;
         const mapType = mapData?.map_type;
         if (mapType === 'risk' || mapType === 'bindmap') {
           deps.situationArtifactId.value = artifactId;

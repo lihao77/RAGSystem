@@ -8,6 +8,8 @@ description: 数据可视化技能，支持 ECharts 图表和 Leaflet 地图的�
 本 Skill 提供完整的数据可视化能力，所有脚本输出 artifact 协议格式，系统自动完成持久化。
 在 `<final_answer>` 中使用 `[artifact:artifact_id]` 展示产物。Artifact 是通用产物，使用 V2 Manifest，支持多个 Asset 和多个 Presentation；`kind` 描述产物语义，`renderer` 描述展示方式。
 
+脚本生成 PNG、GeoTIFF、CSV、JSON、PDF 等文件时，必须写入环境变量 `RAGSYSTEM_ARTIFACT_OUTPUT_DIR` 指向的目录，并在 Asset 中使用相对 `staged_file`。不要读取文件并生成 `data_base64`；系统会登记文件、替换为不透明 ID 并在 Artifact 创建成功后接管。
+
 ## 可用脚本
 
 ### create_chart.py - ECharts 图表生成

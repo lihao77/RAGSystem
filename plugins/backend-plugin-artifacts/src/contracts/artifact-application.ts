@@ -7,12 +7,16 @@ import type {
   ArtifactSummary,
 } from "./artifacts.js";
 
+export type ArtifactAssetSource =
+  | { type: "memory"; body: Uint8Array }
+  | { type: "file"; path: string; size: number; sha256: string };
+
 export interface ArtifactAssetInput {
   assetId: string;
   role: string;
-  body: Uint8Array;
   mediaType: string;
   filename?: string | null;
+  source: ArtifactAssetSource;
 }
 
 export interface ArtifactAssetContent {

@@ -11,6 +11,7 @@ import {
   storedAssetFilename,
 } from "../../artifact-model.js";
 import type {
+  ArtifactAssetSource,
   ArtifactAssetContent,
   ArtifactCreateInput,
   ArtifactRecord,
@@ -80,14 +81,15 @@ export class FilesystemArtifactService {
     try {
       const assets: ArtifactAsset[] = normalized.assets.map((asset) => {
         const filename = asset.filename as string;
-        fs.writeFileSync(path.join(stagingRoot, "assets", storedAssetFilename(asset.assetId, filename)), asset.body);
+        const destination = path.join(stagingRoot, "assets", storedAssetFilename(asset.assetId, filename));
+        const content = writeAssetSource(destination, asset.source);
         return {
           asset_id: asset.assetId,
           role: asset.role,
           filename,
           media_type: asset.mediaType,
-          size: asset.body.byteLength,
-          sha256: createHash("sha256").update(asset.body).digest("hex"),
+          size: content.size,
+          sha256: content.sha256,
           content_url: assetContentUrl(artifactId, asset.assetId),
         };
       });
@@ -241,6 +243,49 @@ export class FilesystemArtifactService {
     }
     return parseArtifactManifest(value);
   }
+}
+
+function writeAssetSource(
+  destination: string,
+  source: ArtifactAssetSource,
+): { size: number; sha256: string } {
+  if (source.type === "memory") {
+    fs.writeFileSync(destination, source.body);
+    return {
+      size: source.body.byteLength,
+      sha256: createHash("sha256").update(source.body).digest("hex"),
+    };
+  }
+  let sourceStat: fs.Stats;
+  try { sourceStat = fs.lstatSync(source.path); }
+  catch { throw new ArtifactServiceError(`staged asset 文件不存在: ${source.path}`); }
+  if (sourceStat.isSymbolicLink() || !sourceStat.isFile()) {
+    throw new ArtifactServiceError("staged asset 必须是普通文件");
+  }
+  if (sourceStat.size !== source.size) throw new ArtifactServiceError("staged asset 大小与登记信息不一致");
+  fs.copyFileSync(source.path, destination, fs.constants.COPYFILE_EXCL);
+  const size = fs.statSync(destination).size;
+  const sha256 = hashFileSync(destination);
+  if (size !== source.size || sha256 !== source.sha256) {
+    throw new ArtifactServiceError("staged asset 内容与登记信息不一致");
+  }
+  return { size, sha256 };
+}
+
+function hashFileSync(filePath: string): string {
+  const hash = createHash("sha256");
+  const descriptor = fs.openSync(filePath, "r");
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    for (;;) {
+      const bytesRead = fs.readSync(descriptor, buffer, 0, buffer.byteLength, null);
+      if (!bytesRead) break;
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  return hash.digest("hex");
 }
 
 function indexEntry(manifest: ArtifactManifest, manifestPath: string): ArtifactIndexEntry {

@@ -13,7 +13,7 @@
     "node": ">=22.5.0"
   },
   "scripts": {
-    "predev": "npm -w @ragsystem/backend-core run build",
+    "predev": "npm --prefix .. run build:backend-local-deps",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
     "prebuild": "npm -w @ragsystem/backend-core run build",

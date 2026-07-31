@@ -6,11 +6,14 @@ import { fileURLToPath } from "node:url";
 import { registerArtifactRoutes } from "./routes.js";
 import type { ArtifactsPluginDependencies } from "./dependencies.js";
 import { createArtifactToolAfterHook } from "./artifact-hook.js";
+import { ARTIFACT_STAGING_RESOURCE_KIND } from "./staging/contracts.js";
+import { createFilesystemArtifactStagingProvider } from "./staging/filesystem-staging-provider.js";
 
 const SKILL_SOURCE_RESOURCE_KIND = "ragsystem.skill-source";
 export const ARTIFACTS_PLUGIN_ID = "@ragsystem/backend-plugin-artifacts";
 
 export function createArtifactsPlugin(dependencies: ArtifactsPluginDependencies): BackendPlugin {
+  const staging = dependencies.staging ?? createFilesystemArtifactStagingProvider();
   return {
     manifest: {
       id: ARTIFACTS_PLUGIN_ID,
@@ -18,7 +21,8 @@ export function createArtifactsPlugin(dependencies: ArtifactsPluginDependencies)
     },
     register(context) {
       context.resources.register(SKILL_SOURCE_RESOURCE_KIND, resolveArtifactSkillsRoot());
-      context.hooks.on("tool.after", createArtifactToolAfterHook(dependencies));
+      context.resources.register(ARTIFACT_STAGING_RESOURCE_KIND, staging);
+      context.hooks.on("tool.after", createArtifactToolAfterHook({ ...dependencies, staging }));
       context.routes.register("tenant", "/api/artifacts", async (app) => {
         await app.register(registerArtifactRoutes, dependencies);
       });

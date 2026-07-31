@@ -1,6 +1,7 @@
 import type { FastifyRequest } from "fastify";
 
 import type { ArtifactStorageProvider } from "./storage/storage-provider.js";
+import type { ArtifactStagingProvider } from "./staging/contracts.js";
 
 export interface ArtifactSessionAccess {
   assertReadable(request: FastifyRequest, sessionId: string): Promise<void>;
@@ -20,4 +21,5 @@ export interface ArtifactSessionAccess {
 export interface ArtifactsPluginDependencies {
   storage: ArtifactStorageProvider;
   sessionAccess: ArtifactSessionAccess;
+  staging?: ArtifactStagingProvider;
 }

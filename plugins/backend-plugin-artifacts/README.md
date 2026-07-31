@@ -18,14 +18,14 @@ Artifact V2 将一个 Artifact 定义为有语义的产物 Manifest。Manifest �
       "role": "data",
       "filename": "temperature.tif",
       "media_type": "image/tiff",
-      "data_base64": "..."
+      "staged_file": "temperature.tif"
     },
     {
       "asset_id": "preview",
       "role": "preview",
       "filename": "temperature.png",
       "media_type": "image/png",
-      "data_base64": "..."
+      "staged_file": "temperature.png"
     }
   ],
   "presentations": [
@@ -43,7 +43,67 @@ Artifact V2 将一个 Artifact 定义为有语义的产物 Manifest。Manifest �
 }
 ```
 
-每个内联 Asset 最大 32 MiB，一个 Artifact 的内联 Asset 总量最大 128 MiB。更大的文件应通过后续的服务端暂存或流式写入能力接入，不能经过模型文本上下文。
+只有小文件才直接把 `staged_file` 换成 `data_base64`；两种字段不能同时出现。
+
+每个内联 Asset 最大 32 MiB，一个 Artifact 的内联 Asset 总量最大 128 MiB。内联方式适合小型 JSON 或配置；PNG、GeoTIFF、CSV、PDF 等文件应使用 staging，不会经过模型文本上下文。
+
+### Staging 文件协议
+
+Skills 插件会为每次有 Session 的脚本调用创建私有输出目录，并通过环境变量提供给脚本：
+
+```text
+RAGSYSTEM_ARTIFACT_OUTPUT_DIR=<private-run-output-directory>
+```
+
+脚本只能把文件写到该目录，并在 Artifact Asset 中返回相对路径：
+
+```python
+import json
+import os
+from pathlib import Path
+
+output_dir = Path(os.environ["RAGSYSTEM_ARTIFACT_OUTPUT_DIR"])
+(output_dir / "temperature.tif").write_bytes(b"...")
+
+print(json.dumps({
+    "success": True,
+    "data": {"title": "Sea temperature"},
+    "artifact": {
+        "schema_version": 2,
+        "kind": "map.raster",
+        "assets": [{
+            "asset_id": "data",
+            "role": "data",
+            "filename": "temperature.tif",
+            "media_type": "image/tiff",
+            "staged_file": "temperature.tif"
+        }],
+        "presentations": [{
+            "presentation_id": "map",
+            "surface": "map",
+            "renderer": "map.raster",
+            "assets": {"source": "data"},
+            "config": {}
+        }]
+    }
+}))
+```
+
+Skills 插件在工具结果返回前完成以下工作：
+
+1. 校验相对路径、普通文件、大小、数量和目录边界。
+2. 计算 SHA-256，并将 `staged_file` 替换为不透明的 `staged_file_id`。
+3. 删除未被结构化结果引用的本次输出目录。
+
+Artifact Hook 随后按 `tenant_id + session_id + run_id + tool_call_id` 校验归属并 claim 文件。Artifact 创建成功后 staging 文件被消费；创建失败则 claim 回滚为 ready，由一小时 TTL 负责最终清理。脚本不能直接提供 `staged_file_id`，也不能同时提供 `staged_file` 与 `data_base64`。
+
+默认配额为单文件 512 MiB、单次运行 1 GiB、最多 64 个文件。staging 目录位于 `<data-root>/staging/artifacts`，不属于聊天消息或模型上下文。
+
+### 其他工具接入
+
+Artifact 插件注册 `ragsystem.artifact-staging` 资源。其他后端插件可在自己的 runtime 中按 `tenantId` 和 `dataRoot` 获取同一个 provider，创建 run、登记输出，并返回 `staged_file_id`；Artifact Hook 的接管协议不区分文件来自 Skill 还是其他插件工具。
+
+目前 Skills 插件已经完成这一适配。直接定义在 `backend-core` 内且没有插件 runtime 的工具若要写 staging，需要在其所属插件增加适配器，或扩展核心工具依赖注入；本次实现没有修改 `backend-core` 或 `backend-local`。
 
 ## 修订协议
 
@@ -90,3 +150,5 @@ sessions/<session>/artifacts/<artifact_id>/
 ```
 
 SaaS 模式使用 `artifact_metadata_v2` 保存索引，Manifest 和 Asset 保存到对象存储。旧的 V1 表和文件不会自动导入 V2，也不会在迁移时删除。
+
+Local 模式从 staging 文件复制到 Artifact 临时目录，复核大小和 SHA-256 后再原子发布 Artifact。SaaS 模式同样复核文件后写入对象存储；当前宿主对象存储契约只接受 `Uint8Array`，因此上传阶段仍会在服务端读取整个文件，但文件内容不会进入工具结果或模型上下文。对象存储契约以后支持 stream 时，可只替换该存储分支。

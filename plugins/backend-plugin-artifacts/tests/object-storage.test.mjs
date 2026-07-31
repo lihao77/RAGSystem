@@ -37,8 +37,8 @@ test("Object Artifact V2 owns multi-asset lifecycle", async () => {
     sessionId: "session-a",
     kind: "map.raster",
     assets: [
-      { assetId: "data", role: "data", body: Buffer.from([1, 2]), mediaType: "image/tiff", filename: "data.tif" },
-      { assetId: "preview", role: "preview", body: Buffer.from([3, 4]), mediaType: "image/png", filename: "preview.png" },
+      { assetId: "data", role: "data", source: { type: "memory", body: Buffer.from([1, 2]) }, mediaType: "image/tiff", filename: "data.tif" },
+      { assetId: "preview", role: "preview", source: { type: "memory", body: Buffer.from([3, 4]) }, mediaType: "image/png", filename: "preview.png" },
     ],
     presentations: [{ presentation_id: "map", surface: "map", renderer: "map.raster-tile", assets: { source: "data" }, config: {} }],
   });

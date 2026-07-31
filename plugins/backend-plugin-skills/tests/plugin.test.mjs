@@ -9,6 +9,7 @@ import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-man
 import {
   FilesystemSkillPackageStore,
   POSTGRES_SKILLS_MIGRATIONS,
+  resolveArtifactStagingService,
   resolveBuiltinSkillSources,
   SkillToolService,
   SkillsAgentConfigService,
@@ -130,6 +131,93 @@ test("Skills interprets generic plugin resources and owns source validation", ()
     () => resolveBuiltinSkillSources([{ pluginId: "bad", kind: "ragsystem.skill-source", value: "relative" }]),
     /must be an absolute path/,
   );
+});
+
+test("Skills resolves the Artifact staging resource per tenant", () => {
+  const calls = [];
+  const service = {};
+  const provider = {
+    forTenant(tenantId, dataRoot) {
+      calls.push({ tenantId, dataRoot });
+      return service;
+    },
+  };
+  assert.equal(resolveArtifactStagingService([
+    { pluginId: "artifacts", kind: "ragsystem.artifact-staging", value: provider },
+  ], "tenant-a", "C:\\runtime"), service);
+  assert.deepEqual(calls, [{ tenantId: "tenant-a", dataRoot: "C:\\runtime" }]);
+});
+
+test("Skill staged_file output is registered and replaced with an opaque ID", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-staging-"));
+  const previousPython = process.env.RAGSYSTEM_PYTHON;
+  try {
+    const builtinRoot = path.join(root, "builtin");
+    const skillRoot = path.join(builtinRoot, "file-output");
+    const scriptsRoot = path.join(skillRoot, "scripts");
+    fs.mkdirSync(scriptsRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillRoot, "SKILL.md"),
+      "---\nname: file-output\ndescription: Create a file Artifact\n---\nCreate it.\n",
+    );
+    fs.writeFileSync(path.join(scriptsRoot, "create.py"), [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const output = process.env.RAGSYSTEM_ARTIFACT_OUTPUT_DIR;",
+      "if (!output) throw new Error('missing output directory');",
+      "fs.writeFileSync(path.join(output, 'data.bin'), Buffer.from([1, 2, 3]));",
+      "console.log(JSON.stringify({success:true,data:{title:'Demo'},artifact:{schema_version:2,kind:'data.binary',assets:[{asset_id:'data',role:'data',filename:'data.bin',media_type:'application/octet-stream',staged_file:'data.bin'}],presentations:[]}}));",
+      "",
+    ].join("\n"));
+    const outputDirectory = path.join(root, "stage-output");
+    let discarded = false;
+    const artifactStaging = {
+      async createRun(context) {
+        assert.deepEqual(context, { sessionId: "session-a", runId: "run-a", toolCallId: "tool-a" });
+        fs.mkdirSync(outputDirectory, { recursive: true });
+        return { stageRunId: "stage-run-a", outputDirectory };
+      },
+      async registerOutputs(stageRunId, outputs) {
+        assert.equal(stageRunId, "stage-run-a");
+        assert.deepEqual(outputs, [{
+          relativePath: "data.bin",
+          filename: "data.bin",
+          mediaType: "application/octet-stream",
+        }]);
+        assert.equal(fs.existsSync(path.join(outputDirectory, "data.bin")), true);
+        return [{
+          stagedFileId: "stage_opaque",
+          filename: "data.bin",
+          mediaType: "application/octet-stream",
+          size: 3,
+          sha256: "0".repeat(64),
+        }];
+      },
+      async discardRun() { discarded = true; },
+    };
+    process.env.RAGSYSTEM_PYTHON = process.execPath;
+    const service = new SkillToolService({
+      dataRoot: root,
+      builtinSkillsRoot: builtinRoot,
+      artifactStaging,
+      skillIsolationMode: "shared",
+    });
+    const result = await service.executeSkillScript(
+      { skillName: "file-output", scriptName: "create.py", arguments: [] },
+      { sessionId: "session-a", runId: "run-a", toolCallId: "tool-a" },
+      { agent_name: "worker", default_entry: false, tasks: { background: false }, custom_params: {} },
+      { enabled_skills: ["file-output"] },
+    );
+    assert.equal(result.success, true);
+    assert.equal(result.content.artifact.assets[0].staged_file_id, "stage_opaque");
+    assert.equal(Object.hasOwn(result.content.artifact.assets[0], "staged_file"), false);
+    assert.equal(result.metadata.staged_file_count, 1);
+    assert.equal(discarded, false);
+  } finally {
+    if (previousPython === undefined) delete process.env.RAGSYSTEM_PYTHON;
+    else process.env.RAGSYSTEM_PYTHON = previousPython;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("core AgentConfig strips legacy Skills config", () => {

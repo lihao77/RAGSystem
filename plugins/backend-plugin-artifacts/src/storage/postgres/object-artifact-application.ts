@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import fs from "node:fs";
 
 import { ArtifactServiceError } from "../../artifact-error.js";
 import {
@@ -10,6 +11,7 @@ import {
 } from "../../artifact-model.js";
 import type {
   ArtifactApplication,
+  ArtifactAssetSource,
   ArtifactAssetContent,
   ArtifactCreateInput,
   ArtifactRecord,
@@ -67,17 +69,18 @@ export class ObjectArtifactApplication implements ArtifactApplication {
       const assets: ArtifactAsset[] = [];
       for (const inputAsset of normalized.assets) {
         const filename = inputAsset.filename as string;
+        const content = readAssetSource(inputAsset.source);
         const asset: ArtifactAsset = {
           asset_id: inputAsset.assetId,
           role: inputAsset.role,
           filename,
           media_type: inputAsset.mediaType,
-          size: inputAsset.body.byteLength,
-          sha256: createHash("sha256").update(inputAsset.body).digest("hex"),
+          size: content.size,
+          sha256: content.sha256,
           content_url: assetContentUrl(artifactId, inputAsset.assetId),
         };
         const key = assetObjectKey(manifestPath, asset);
-        await this.objects.put(key, inputAsset.body, inputAsset.mediaType);
+        await this.objects.put(key, content.body, inputAsset.mediaType);
         writtenKeys.push(key);
         assets.push(asset);
       }
@@ -167,6 +170,31 @@ export class ObjectArtifactApplication implements ArtifactApplication {
     if (!record) throw new ArtifactServiceError(`未找到 artifact: ${artifactId}`, 404);
     return record;
   }
+}
+
+function readAssetSource(source: ArtifactAssetSource): {
+  body: Uint8Array;
+  size: number;
+  sha256: string;
+} {
+  if (source.type === "memory") {
+    return {
+      body: source.body,
+      size: source.body.byteLength,
+      sha256: createHash("sha256").update(source.body).digest("hex"),
+    };
+  }
+  let stat: fs.Stats;
+  try { stat = fs.lstatSync(source.path); }
+  catch { throw new ArtifactServiceError(`staged asset 文件不存在: ${source.path}`); }
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new ArtifactServiceError("staged asset 必须是普通文件");
+  if (stat.size !== source.size) throw new ArtifactServiceError("staged asset 大小与登记信息不一致");
+  const body = fs.readFileSync(source.path);
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  if (body.byteLength !== source.size || sha256 !== source.sha256) {
+    throw new ArtifactServiceError("staged asset 内容与登记信息不一致");
+  }
+  return { body, size: body.byteLength, sha256 };
 }
 
 function assetObjectKey(manifestPath: string, asset: ArtifactAsset): string {

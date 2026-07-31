@@ -3,10 +3,21 @@ import { buildExecutionTree as buildProtocolExecutionTree } from '@ragsystem/age
 export const SMOKE_ARTIFACT_ID = 'art_smoke_chart';
 
 export const smokeChartArtifact = {
-  viz_type: 'chart',
-  sub_type: 'line',
+  schema_version: 2,
+  artifact_id: SMOKE_ARTIFACT_ID,
+  revision: 1,
+  session_id: 'smoke-artifact-session',
+  kind: 'chart.echarts',
+  subtype: 'line',
   title: 'Smoke 水位趋势',
-  config: {
+  status: 'ready',
+  assets: [],
+  presentations: [{
+    presentation_id: 'primary',
+    surface: 'chart',
+    renderer: 'chart.echarts',
+    assets: {},
+    config: {
     title: {
       text: 'Smoke 水位趋势',
       left: 'center',
@@ -64,7 +75,13 @@ export const smokeChartArtifact = {
         data: [12, 12, 12, 12, 12],
       },
     ],
-  },
+    },
+  }],
+  metadata: {},
+  provenance: {},
+  relations: [],
+  created_at: '2026-01-01T00:00:00.000Z',
+  updated_at: '2026-01-01T00:00:00.000Z',
 };
 
 const smokeExecutionEvents = [

@@ -168,8 +168,27 @@ function normalizeAssetInput(asset: ArtifactAssetInput): ArtifactAssetInput {
   const role = namespace(asset.role, "asset.role");
   const mediaType = requiredString(asset.mediaType, "asset.media_type").toLowerCase();
   if (!MEDIA_TYPE_PATTERN.test(mediaType)) throw new ArtifactServiceError("asset.media_type 格式无效");
-  if (!(asset.body instanceof Uint8Array) || asset.body.byteLength === 0) throw new ArtifactServiceError("asset.body 不能为空");
-  return { assetId, role, mediaType, body: asset.body, filename: safeAssetFilename(asset.filename, assetId, mediaType) };
+  const source = normalizeAssetSource(asset.source);
+  return { assetId, role, mediaType, source, filename: safeAssetFilename(asset.filename, assetId, mediaType) };
+}
+
+function normalizeAssetSource(source: ArtifactAssetInput["source"]): ArtifactAssetInput["source"] {
+  if (!isRecord(source)) throw new ArtifactServiceError("asset.source 必须是对象");
+  if (source.type === "memory") {
+    if (!(source.body instanceof Uint8Array) || source.body.byteLength === 0) {
+      throw new ArtifactServiceError("memory asset.source.body 不能为空");
+    }
+    return { type: "memory", body: source.body };
+  }
+  if (source.type === "file") {
+    const sourcePath = requiredString(source.path, "asset.source.path");
+    if (!path.isAbsolute(sourcePath)) throw new ArtifactServiceError("file asset.source.path 必须是绝对路径");
+    const size = positiveInteger(source.size, "asset.source.size");
+    const sha256 = requiredString(source.sha256, "asset.source.sha256");
+    if (!SHA256_PATTERN.test(sha256)) throw new ArtifactServiceError("asset.source.sha256 格式无效");
+    return { type: "file", path: path.resolve(sourcePath), size, sha256 };
+  }
+  throw new ArtifactServiceError("asset.source.type 必须是 memory 或 file");
 }
 
 function parseAsset(value: unknown, artifactId: string): ArtifactAsset {

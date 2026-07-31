@@ -15,6 +15,7 @@ import { POSTGRES_ARTIFACT_MIGRATIONS } from "../dist/storage/postgres/artifact-
 test("Artifact plugin registers its contributions and owns storage lifecycle", async () => {
   const events = [];
   const contributions = {};
+  const resources = [];
   const plugin = createArtifactsPlugin({
     storage: {
       applicationForTenant: () => artifactApplication(),
@@ -29,7 +30,7 @@ test("Artifact plugin registers its contributions and owns storage lifecycle", a
     hooks: { on: (event, handler) => { contributions.hook = { event, handler }; } },
     routes: { register: (scope, prefix) => { contributions.route = { scope, prefix }; } },
     runtimes: {},
-    resources: { register: (kind, value) => { contributions.resource = { kind, value }; } },
+    resources: { register: (kind, value) => { resources.push({ kind, value }); } },
     tools: {},
   });
   await plugin.start();
@@ -37,7 +38,8 @@ test("Artifact plugin registers its contributions and owns storage lifecycle", a
 
   assert.deepEqual(contributions.route, { scope: "tenant", prefix: "/api/artifacts" });
   assert.equal(contributions.hook.event, "tool.after");
-  assert.match(contributions.resource.value, /[\\/]skills$/);
+  assert.match(resources.find((item) => item.kind === "ragsystem.skill-source").value, /[\\/]skills$/);
+  assert.equal(typeof resources.find((item) => item.kind === "ragsystem.artifact-staging").value.forTenant, "function");
   assert.deepEqual(events, ["start", "stop"]);
 });
 
@@ -111,8 +113,8 @@ test("Filesystem Artifact V2 stores multiple binary assets with checksums and re
       subtype: "nc.aggregate",
       title: "Temperature",
       assets: [
-        { assetId: "data", role: "data", body: Buffer.from([1, 2, 3]), mediaType: "image/tiff", filename: "temperature.tif" },
-        { assetId: "preview", role: "preview", body: Buffer.from([137, 80, 78, 71]), mediaType: "image/png", filename: "temperature.png" },
+        { assetId: "data", role: "data", source: { type: "memory", body: Buffer.from([1, 2, 3]) }, mediaType: "image/tiff", filename: "temperature.tif" },
+        { assetId: "preview", role: "preview", source: { type: "memory", body: Buffer.from([137, 80, 78, 71]) }, mediaType: "image/png", filename: "temperature.png" },
       ],
       presentations: [{ presentation_id: "map", surface: "map", renderer: "map.raster-image", assets: { image: "preview" }, config: { bounds: [[0, 100], [10, 110]] } }],
     });

@@ -6,7 +6,7 @@ import { SkillsAgentConfigService } from "../../config.js";
 import type { SkillsPluginRuntimeFactory } from "../../dependencies.js";
 import { SkillLibraryService } from "../../services/skill-library-service.js";
 import { SkillToolService } from "../../tools/SkillExecution.js";
-import { resolveBuiltinSkillSources } from "../../resources.js";
+import { resolveArtifactStagingService, resolveBuiltinSkillSources } from "../../resources.js";
 import { PostgresSkillsAgentConfigStore } from "./agent-config-store.js";
 import type { SkillsPostgresExecutor } from "./executor.js";
 import { PostgresSkillPackageRepository } from "./package-repository.js";
@@ -39,6 +39,11 @@ export function createPostgresSkillsRuntimeFactory(options: {
       clientEvents: context.clientEvents,
       packageStore,
       additionalBuiltinSkillSources: resolveBuiltinSkillSources(context.resources ?? []),
+      artifactStaging: resolveArtifactStagingService(
+        context.resources ?? [],
+        context.tenantId,
+        context.dataRoot,
+      ),
     });
     return {
       tools,

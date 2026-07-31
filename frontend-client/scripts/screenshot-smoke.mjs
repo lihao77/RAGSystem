@@ -73,7 +73,7 @@ const shots = [
       { type: 'mockArtifactApi' },
       { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
       { type: 'expectVisible', selector: '[data-artifact-id="art_smoke_chart"]' },
-      { type: 'expectText', selector: '.artifact-panel', text: '可视化' },
+      { type: 'expectText', selector: '.artifact-panel', text: '产物' },
       { type: 'expectText', selector: '.artifact-panel', text: '文件变更' },
       { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
     ],
@@ -112,7 +112,7 @@ const shots = [
       { type: 'mockArtifactApi' },
       { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
       { type: 'expectVisible', selector: '[data-artifact-id="art_smoke_chart"]' },
-      { type: 'expectText', selector: '.artifact-panel', text: '可视化' },
+      { type: 'expectText', selector: '.artifact-panel', text: '产物' },
       { type: 'expectText', selector: '.artifact-panel', text: '文件变更' },
       { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
     ],
@@ -735,10 +735,21 @@ async function setupShotMocks(client, shot) {
     }
 
     const body = JSON.stringify({
-      viz_type: 'chart',
-      sub_type: 'line',
+      schema_version: 2,
+      artifact_id: 'art_smoke_chart',
+      revision: 1,
+      session_id: 'smoke-artifact-session',
+      kind: 'chart.echarts',
+      subtype: 'line',
       title: 'Smoke 水位趋势',
-      config: {
+      status: 'ready',
+      assets: [],
+      presentations: [{
+        presentation_id: 'primary',
+        surface: 'chart',
+        renderer: 'chart.echarts',
+        assets: {},
+        config: {
         title: { text: 'Smoke 水位趋势', left: 'center' },
         tooltip: { trigger: 'axis' },
         legend: { top: 28, data: ['水位', '警戒线'] },
@@ -753,7 +764,13 @@ async function setupShotMocks(client, shot) {
           { name: '水位', type: 'line', smooth: true, symbolSize: 8, data: [10.8, 11.4, 12.3, 12.9, 12.1] },
           { name: '警戒线', type: 'line', symbol: 'none', lineStyle: { type: 'dashed' }, data: [12, 12, 12, 12, 12] },
         ],
-      },
+        },
+      }],
+      metadata: {},
+      provenance: {},
+      relations: [],
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
     });
 
     await client.send('Fetch.fulfillRequest', {

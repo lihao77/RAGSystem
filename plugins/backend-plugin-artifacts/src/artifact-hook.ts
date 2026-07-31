@@ -11,12 +11,13 @@ import type {
 } from "./contracts/artifact-application.js";
 import type { ArtifactPresentation, ArtifactRelation, ArtifactStatus } from "./contracts/artifacts.js";
 import type { JsonObject } from "./contracts/json.js";
+import type { ArtifactStagingClaim, ArtifactStagingProvider } from "./staging/contracts.js";
 
 const MAX_EMBEDDED_ASSET_BYTES = 32 * 1024 * 1024;
 const MAX_EMBEDDED_ASSET_TOTAL_BYTES = 128 * 1024 * 1024;
 
 export function createArtifactToolAfterHook(
-  dependencies: Pick<ArtifactsPluginDependencies, "storage">,
+  dependencies: Pick<ArtifactsPluginDependencies, "storage" | "staging">,
 ): (input: ToolAfterInput) => Promise<ToolAfterOutput | void> {
   return async ({ toolName, result, ctx }) => {
     if (toolName !== "execute_skill_script" || !result.success || !isRecord(result.content) || !("artifact" in result.content)) return;
@@ -29,7 +30,13 @@ export function createArtifactToolAfterHook(
       const persisted = await persistArtifact(
         await dependencies.storage.applicationForTenant(tenantId),
         rawArtifact,
-        normalizeString(ctx.sessionId),
+        {
+          tenantId,
+          sessionId: normalizeString(ctx.sessionId),
+          runId: normalizeString(ctx.runId),
+          toolCallId: normalizeString(ctx.toolCallId),
+        },
+        dependencies.staging,
       );
       if ("error" in persisted) return fail(persisted.error);
       const info = persisted.record;
@@ -47,6 +54,7 @@ export function createArtifactToolAfterHook(
             ...result.metadata,
             artifact_id: info.artifact_id,
             artifact_persisted: true,
+            ...(persisted.cleanupError ? { artifact_staging_cleanup_error: persisted.cleanupError } : {}),
           }),
           outputType: info.kind,
           llmHint: `在 <final_answer> 中插入 [artifact:${info.artifact_id}] 来展示此产物`,
@@ -61,8 +69,15 @@ export function createArtifactToolAfterHook(
 async function persistArtifact(
   artifacts: ArtifactApplication,
   raw: Record<string, unknown>,
-  sessionId: string | null,
-): Promise<{ record: ArtifactRecord } | { error: string }> {
+  context: {
+    tenantId: string;
+    sessionId: string | null;
+    runId: string | null;
+    toolCallId: string | null;
+  },
+  staging: ArtifactStagingProvider | undefined,
+): Promise<{ record: ArtifactRecord; cleanupError?: string } | { error: string }> {
+  const { sessionId } = context;
   if (raw.schema_version !== 2) return { error: "artifact.schema_version 必须是 2" };
   const action = normalizeString(raw.action) ?? "create";
   if (action === "revise") {
@@ -96,40 +111,125 @@ async function persistArtifact(
   };
   if ("error" in input.metadata) return input.metadata;
   if ("error" in input.provenance) return input.provenance;
-  const createInput: ArtifactCreateInput = {
+  const createInput: Omit<ArtifactCreateInput, "assets"> = {
     sessionId: input.sessionId,
     kind: input.kind,
     subtype: input.subtype,
     title: input.title,
     status: input.status,
-    assets: input.assets,
     presentations: input.presentations,
     relations: input.relations,
     metadata: input.metadata.value,
     provenance: input.provenance.value,
   };
-  return { record: await artifacts.createArtifact(createInput) };
+  const stagedIds = input.assets
+    .filter((asset): asset is ParsedStagedAsset => asset.source.type === "staged")
+    .map((asset) => asset.source.stagedFileId);
+  if (stagedIds.length && !staging) return { error: "Artifact staging 服务不可用" };
+  let claims: readonly ArtifactStagingClaim[] = [];
+  try {
+    claims = stagedIds.length
+      ? await staging!.claimFiles({
+          tenantId: context.tenantId,
+          sessionId,
+          runId: context.runId,
+          toolCallId: context.toolCallId,
+          stagedFileIds: stagedIds,
+        })
+      : [];
+    const claimById = new Map(claims.map((claim) => [claim.stagedFileId, claim]));
+    const resolvedAssets: ArtifactAssetInput[] = input.assets.map((asset): ArtifactAssetInput => {
+      if (!isParsedStagedAsset(asset)) return asset;
+      const claim = claimById.get(asset.source.stagedFileId);
+      if (!claim) throw new Error(`staged file claim 丢失: ${asset.source.stagedFileId}`);
+      if (claim.mediaType && claim.mediaType !== asset.mediaType) {
+        throw new Error(`staged file media_type 与登记信息不一致: ${asset.assetId}`);
+      }
+      if (asset.filename && claim.filename !== asset.filename) {
+        throw new Error(`staged file filename 与登记信息不一致: ${asset.assetId}`);
+      }
+      return {
+        assetId: asset.assetId,
+        role: asset.role,
+        mediaType: asset.mediaType,
+        filename: asset.filename ?? claim.filename,
+        source: {
+          type: "file",
+          path: claim.sourcePath,
+          size: claim.size,
+          sha256: claim.sha256,
+        },
+      };
+    });
+    const record = await artifacts.createArtifact({ ...createInput, assets: resolvedAssets });
+    if (!claims.length) return { record };
+    try {
+      await staging!.commitClaims(claims);
+      return { record };
+    } catch (error) {
+      return { record, cleanupError: error instanceof Error ? error.message : String(error) };
+    }
+  } catch (error) {
+    if (claims.length) await staging!.rollbackClaims(claims).catch(() => undefined);
+    throw error;
+  }
 }
 
-function decodeAssets(value: unknown): { value: ArtifactAssetInput[] } | { error: string } {
+interface ParsedStagedAsset extends Omit<ArtifactAssetInput, "source"> {
+  source: { type: "staged"; stagedFileId: string };
+}
+
+interface ParsedEmbeddedAsset extends Omit<ArtifactAssetInput, "source"> {
+  source: { type: "memory"; body: Uint8Array };
+}
+
+type ParsedArtifactAsset = ParsedEmbeddedAsset | ParsedStagedAsset;
+
+function isParsedStagedAsset(asset: ParsedArtifactAsset): asset is ParsedStagedAsset {
+  return asset.source.type === "staged";
+}
+
+function decodeAssets(value: unknown): { value: ParsedArtifactAsset[] } | { error: string } {
   if (value == null) return { value: [] };
   if (!Array.isArray(value)) return { error: "artifact.assets 必须是数组" };
   let total = 0;
-  const result: ArtifactAssetInput[] = [];
+  const result: ParsedArtifactAsset[] = [];
   for (const item of value) {
     if (!isRecord(item)) return { error: "artifact.assets 的成员必须是对象" };
     const assetId = normalizeString(item.asset_id);
     const role = normalizeString(item.role);
     const mediaType = normalizeString(item.media_type);
     const data = normalizeString(item.data_base64);
-    if (!assetId || !role || !mediaType || !data) return { error: "asset 需要 asset_id、role、media_type 和 data_base64" };
-    if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(data) || data.length % 4 !== 0) return { error: `asset ${assetId} 的 data_base64 格式无效` };
-    const body = Buffer.from(data, "base64");
+    const stagedFileId = normalizeString(item.staged_file_id);
+    if (!assetId || !role || !mediaType) return { error: "asset 需要 asset_id、role 和 media_type" };
+    if (normalizeString(item.staged_file)) return { error: `asset ${assetId} 的 staged_file 尚未由 Skills 插件登记` };
+    if (Boolean(data) === Boolean(stagedFileId)) {
+      return { error: `asset ${assetId} 必须且只能提供 data_base64 或 staged_file_id` };
+    }
+    if (stagedFileId) {
+      result.push({
+        assetId,
+        role,
+        mediaType,
+        filename: normalizeString(item.filename),
+        source: { type: "staged", stagedFileId },
+      });
+      continue;
+    }
+    const embedded = data as string;
+    if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(embedded) || embedded.length % 4 !== 0) return { error: `asset ${assetId} 的 data_base64 格式无效` };
+    const body = Buffer.from(embedded, "base64");
     if (!body.byteLength) return { error: `asset ${assetId} 内容不能为空` };
     if (body.byteLength > MAX_EMBEDDED_ASSET_BYTES) return { error: `asset ${assetId} 不能超过 ${MAX_EMBEDDED_ASSET_BYTES} 字节` };
     total += body.byteLength;
     if (total > MAX_EMBEDDED_ASSET_TOTAL_BYTES) return { error: `artifact 内联 Asset 总大小不能超过 ${MAX_EMBEDDED_ASSET_TOTAL_BYTES} 字节` };
-    result.push({ assetId, role, body, mediaType, filename: normalizeString(item.filename) });
+    result.push({
+      assetId,
+      role,
+      mediaType,
+      filename: normalizeString(item.filename),
+      source: { type: "memory", body },
+    });
   }
   return { value: result };
 }
