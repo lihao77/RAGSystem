@@ -12,6 +12,8 @@ export interface SessionWebSocketUrlOptions {
   ticket: string;
   /** 断线重连游标；null 表示首次连接。 */
   cursor: number | null;
+  /** HTTP 历史快照后首次接入时，要求后端补放 active run。 */
+  historySnapshot?: boolean;
 }
 
 /**
@@ -31,6 +33,9 @@ export function buildSessionWebSocketUrl(options: SessionWebSocketUrlOptions): s
   const query = new URLSearchParams();
   if (options.cursor !== null) {
     query.set("after_seq", String(options.cursor));
+  }
+  if (options.historySnapshot) {
+    query.set("history_snapshot", "1");
   }
   query.set("ticket", options.ticket);
   const qs = query.toString();

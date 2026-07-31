@@ -120,6 +120,8 @@ export interface SessionCommandControllerOptions extends OpenRecord {
   scheduleCommandFallback: (sessionId: string, messageIndex: number, timeout?: number) => void;
   enqueueFollowupCandidate: (candidate: SessionMessage) => void;
   markFollowupCandidateFailed: (requestId: string, error: string) => void;
+  sendViaSdk?: (input: OpenRecord, requestId: string) => Promise<OpenRecord>;
+  stopViaSdk?: (sessionId: string) => Promise<void>;
 }
 
 export interface SessionRunRecoveryOptions extends OpenRecord {
@@ -146,6 +148,7 @@ export interface SessionInteractionControllerOptions {
   getCurrentSessionId: () => string;
   getSocket: () => WebSocket | null;
   getSessionRuntime: () => OpenRecord | null;
+  respondViaSdk?: (interactionId: string, response: InteractionResponse) => Promise<void>;
   respondHttp?: (sessionId: string, interactionId: string, body: InteractionResponse) => Promise<any>;
   ackTimeoutMs?: number;
 }

@@ -180,3 +180,35 @@ describe("SessionAgentClient ACK correlation", () => {
     client.disconnect();
   });
 });
+
+describe("SessionAgentClient connection lifecycle", () => {
+  it("does not leak an unhandled rejection when a background connect is disconnected", async () => {
+    vi.useFakeTimers();
+    const client = new SessionAgentClient({
+      baseUrl: "https://rag.example.test",
+      sessionId: "session-1",
+      issueWsTicket: async () => "ticket-1",
+      createWebSocket: (url) => new ControlledWebSocket(url) as unknown as WebSocket,
+    });
+
+    void client.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    client.disconnect();
+    await Promise.resolve();
+  });
+
+  it("still rejects an awaited connect when it is disconnected before opening", async () => {
+    vi.useFakeTimers();
+    const client = new SessionAgentClient({
+      baseUrl: "https://rag.example.test",
+      sessionId: "session-1",
+      issueWsTicket: async () => "ticket-1",
+      createWebSocket: (url) => new ControlledWebSocket(url) as unknown as WebSocket,
+    });
+
+    const connecting = client.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    client.disconnect();
+    await expect(connecting).rejects.toThrow("连接失败");
+  });
+});

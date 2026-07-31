@@ -114,6 +114,26 @@ describe("RagChatClient", () => {
     );
   });
 
+  it("binds the native global fetch before invoking it", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: unknown[] = [];
+    const nativeLikeFetch = function (this: typeof globalThis, input: RequestInfo | URL): Promise<Response> {
+      if (this !== globalThis) throw new TypeError("Illegal invocation");
+      calls.push(input);
+      return Promise.resolve(new Response(JSON.stringify({
+        success: true, message: "ok", data: { items: [], next_cursor: null },
+      }), { status: 200 }));
+    };
+    globalThis.fetch = nativeLikeFetch as typeof fetch;
+    try {
+      const client = createRagChatClient({ baseUrl: "https://rag.example.test" });
+      await client.listSessions();
+      expect(calls).toHaveLength(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("does not forward the bearer token to cross-origin assets", async () => {
     const fetchMock = vi.fn(async () => new Response("asset", { status: 200 }));
     const client = createRagChatClient({

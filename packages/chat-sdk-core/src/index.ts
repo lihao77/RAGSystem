@@ -26,7 +26,7 @@ export type {
   AguiRunInput,
   AguiSseClientOptions,
 } from "./agui.js";
-export type { SessionAgentClientOptions } from "./session-client.js";
+export type { SessionAgentClientOptions, SessionConnectOptions } from "./session-client.js";
 export type {
   ChatWebSocketTransportOptions,
   TransportHandlers,

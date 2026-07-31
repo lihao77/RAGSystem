@@ -221,6 +221,8 @@ export interface SendOptions {
 /** send 结果，对齐 AgentRunStartResult（contracts/execution.ts）。 */
 export interface SendResult {
   started: boolean;
+  /** 后端接受的执行类型；command 不一定产生标准 run 事件。 */
+  kind?: "agent_run" | "command";
   runId?: string;
   requestId?: string;
   error?: string;

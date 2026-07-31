@@ -29,6 +29,7 @@ export function createSessionInteractionController({
   getCurrentSessionId,
   getSocket,
   getSessionRuntime,
+  respondViaSdk = null,
   respondHttp = respondInteractionApi,
   ackTimeoutMs = INTERACTION_ACK_TIMEOUT_MS,
 }) {
@@ -116,6 +117,10 @@ export function createSessionInteractionController({
     const pending = Array.isArray(runtime.pending_interactions) ? runtime.pending_interactions : [];
     if (!pending.some(item => item?.interaction_id === interactionId)) {
       throw new Error('交互请求已失效，请等待 Session runtime 刷新');
+    }
+    if (respondViaSdk) {
+      await respondViaSdk(interactionId, response);
+      return;
     }
     const socket = getSocket();
     if (isOpenWebSocket(socket)) {

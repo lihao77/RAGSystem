@@ -210,6 +210,7 @@
 import { ref, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, watch, inject, provide, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { useChatSessionController } from '../composables/useChatSessionController';
+import { createFrontendChatSdk } from '../composables/chatSdkClient';
 import { useSessionAgentClient } from '../composables/useSessionAgentClient';
 import { useSessionRuntimeStatus } from '../composables/useSessionRuntimeStatus';
 import { useSessionMessages } from '../composables/useSessionMessages';
@@ -262,6 +263,7 @@ const inputMessage = ref('');
 const sessionRunStore = useSessionRunStore();
 const sessionListStore = useSessionListStore();
 const llmStore = useLlmStore();
+const chatSdkClient = createFrontendChatSdk();
 const {
   messages,
   currentSessionId,
@@ -521,6 +523,7 @@ const {
   respondInteraction,
   waitForSessionRuntime,
 } = useSessionAgentClient({
+  chatSdkClient,
   createAssistantMessage,
   cacheMessages,
   deleteMessageCache,
@@ -831,7 +834,7 @@ onUnmounted(() => {
   clearSessionScrollRestoreTimer();
   pendingSessionScrollRestores = 0;
   clearLlmRetryState();
-  disconnectSessionWS();
+  chatSdkClient.destroy();
 
   // 不再通知后端停止任务 — Agent 继续在后台执行
 

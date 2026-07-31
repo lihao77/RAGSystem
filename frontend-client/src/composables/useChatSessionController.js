@@ -60,6 +60,10 @@ export function useChatSessionController(deps) {
   let entryAgentLoadSeq = 0;
   let routeSyncSeq = 0;
 
+  const connectSessionInBackground = (sessionId) => {
+    void Promise.resolve(deps.connectSessionWS(sessionId)).catch(() => undefined);
+  };
+
   const getChatSessionPath = (sessionId) => (sessionId
     ? `/chat/${encodeURIComponent(sessionId)}`
     : '/');
@@ -221,8 +225,12 @@ export function useChatSessionController(deps) {
       await deps.loadSessionFiles(sessionId);
       if (!isCurrent()) return;
       deps.initializeSessionEventCursor(sessionId, outboxWatermark ?? 0);
-      await deps.connectSessionWS(sessionId, { historySnapshot: true });
-      await deps.waitForSessionRuntime(sessionId);
+      try {
+        await deps.connectSessionWS(sessionId, { historySnapshot: true });
+        await deps.waitForSessionRuntime(sessionId);
+      } catch (error) {
+        if (isCurrent()) deps.showToast(error?.message || '实时连接失败，请稍后重试', 'warning');
+      }
       return;
     }
 
@@ -243,7 +251,7 @@ export function useChatSessionController(deps) {
 
   const ensureSession = async ({ replaceRoute = false } = {}) => {
     if (currentSessionId.value) {
-      deps.connectSessionWS(currentSessionId.value);
+      connectSessionInBackground(currentSessionId.value);
       return currentSessionId.value;
     }
     const workspaceRoot = normalizeWorkspaceRootInput(pendingWorkspaceRoot.value);
@@ -298,7 +306,7 @@ export function useChatSessionController(deps) {
       }
       const navigate = replaceRoute ? router.replace : router.push;
       await navigate(getChatSessionPath(sessionId));
-      deps.connectSessionWS(sessionId);
+      connectSessionInBackground(sessionId);
       await deps.loadSessionFiles(sessionId);
     }
     return currentSessionId.value;

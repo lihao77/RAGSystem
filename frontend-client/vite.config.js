@@ -29,7 +29,11 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks(id) {
-            return id.replace(/\\/g, '/').includes('/node_modules/zrender/') ? 'vendor-zrender' : undefined
+            const normalizedId = id.replace(/\\/g, '/')
+            if (normalizedId.includes('/node_modules/zrender/')) return 'vendor-zrender'
+            if (normalizedId.includes('/node_modules/@ragsystem/chat-sdk-core/')
+              || normalizedId.includes('/packages/chat-sdk-core/')) return 'vendor-chat-sdk'
+            return undefined
           },
         },
       },

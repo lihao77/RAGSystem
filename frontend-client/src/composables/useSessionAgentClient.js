@@ -67,33 +67,89 @@ export function useSessionAgentClient(deps) {
   const scheduleCommandFallback = recovery.scheduleCommandFallback;
   const clearCommandFallback = recovery.clearCommandFallback;
 
+  const finalizeActiveRun = runtime.finalizeActiveRun;
   let envelopeDispatcher;
-  const transport = createSessionTransport({
+  const sdk = deps.chatSdkClient || null;
+  const sdkEventCursors = new Map();
+  const handleDisconnect = () => {
+    clearCommandFallback();
+    envelopeDispatcher?.resetInteractionPresentation();
+    deps.resetApprovalState();
+  };
+
+  const legacyTransport = sdk ? null : createSessionTransport({
     getCurrentSessionId: () => currentSessionId.value,
     issueTicket: deps.issueSessionWsTicket,
     onEnvelope: (event, sessionId) => envelopeDispatcher.handleEnvelope(event, sessionId),
-    onDisconnect: () => {
-      clearCommandFallback();
-      envelopeDispatcher?.resetInteractionPresentation();
-      deps.resetApprovalState();
-    },
+    onDisconnect: handleDisconnect,
     onSocketClose: clearCommandFallback,
     onReconnectExhausted: (sessionId) => {
       if (activeRun.active) finalizeActiveRun(sessionId);
     },
   });
-  const connectSessionWS = transport.connect;
-  const reconnectSessionWS = transport.reconnect;
-  const disconnectSessionWS = transport.disconnect;
-  const getWS = transport.getSocket;
-  const getLastEventSeq = transport.getLastEventSeq;
-  const initializeSessionEventCursor = transport.initializeSessionEventCursor;
+
+  if (sdk) {
+    sdk.on('event', (event) => {
+      const sessionId = event.session_id || sdk.sessionId || currentSessionId.value;
+      const heartbeatSeq = event.type === 'heartbeat' ? event.payload?.last_seq : null;
+      const observedSeq = typeof event.seq === 'number' ? event.seq : heartbeatSeq;
+      if (sessionId && typeof observedSeq === 'number') {
+        sdkEventCursors.set(sessionId, Math.max(sdkEventCursors.get(sessionId) || 0, observedSeq));
+      }
+      if (sessionId) envelopeDispatcher?.handleEnvelope(event, sessionId);
+    });
+    sdk.on('status', (status) => {
+      if (status.state === 'reconnecting') clearCommandFallback();
+      if (status.state === 'disconnected') {
+        handleDisconnect();
+        if (status.reason === 'max retries exceeded' && currentSessionId.value && activeRun.active) {
+          finalizeActiveRun(currentSessionId.value);
+        }
+      }
+    });
+  }
+
+  const connectSessionWS = sdk
+    ? async (sessionId, options = {}) => {
+      const afterEventSeq = sdkEventCursors.get(sessionId);
+      await sdk.connect(sessionId, {
+        ...(afterEventSeq !== undefined ? { afterEventSeq } : {}),
+        ...(options.historySnapshot ? { historySnapshot: true } : {}),
+      });
+    }
+    : legacyTransport.connect;
+  const reconnectSessionWS = sdk
+    ? async (sessionId, options = {}) => {
+      sdk.disconnect();
+      const afterEventSeq = sdkEventCursors.get(sessionId);
+      await sdk.connect(sessionId, {
+        ...(afterEventSeq !== undefined ? { afterEventSeq } : {}),
+        ...(options.historySnapshot ? { historySnapshot: true } : {}),
+      });
+    }
+    : legacyTransport.reconnect;
+  const disconnectSessionWS = sdk ? () => sdk.disconnect() : legacyTransport.disconnect;
+  const getWS = sdk ? () => null : legacyTransport.getSocket;
+  const getLastEventSeq = sdk
+    ? (sessionId = currentSessionId.value) => sdkEventCursors.get(sessionId) || 0
+    : legacyTransport.getLastEventSeq;
+  const initializeSessionEventCursor = sdk
+    ? (sessionId, afterEventSeq) => {
+      if (sessionId === currentSessionId.value) {
+        sdkEventCursors.set(sessionId, afterEventSeq);
+      }
+    }
+    : legacyTransport.initializeSessionEventCursor;
   const interactionController = createSessionInteractionController({
     getCurrentSessionId: () => currentSessionId.value,
     getSocket: () => deps.getWS?.() || getWS(),
     getSessionRuntime: () => sessionRuntime.value,
+    ...(sdk ? {
+      respondViaSdk: (interactionId, response) => sdk.respondInteraction(interactionId, response.kind === 'user_input'
+        ? { kind: 'user_input', value: String(response.value ?? '') }
+        : response),
+    } : {}),
   });
-  const finalizeActiveRun = runtime.finalizeActiveRun;
 
   const commandController = createSessionCommandController({
     deps,
@@ -110,6 +166,15 @@ export function useSessionAgentClient(deps) {
     scheduleCommandFallback,
     enqueueFollowupCandidate,
     markFollowupCandidateFailed,
+    ...(sdk ? {
+      sendViaSdk: (input, requestId) => sdk.send({
+        task: input.task,
+        requestId,
+        ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
+        ...(input.attachments ? { attachments: input.attachments } : {}),
+      }),
+      stopViaSdk: async () => { sdk.stop(); },
+    } : {}),
   });
   const send = commandController.send;
   const stop = commandController.stop;
@@ -169,8 +234,7 @@ export function useSessionAgentClient(deps) {
     const interactionId = sessionRuntime.value?.resume_interaction_id;
     if (!sessionId || !interactionId || !allowsRuntimeAction('resume_run')) return false;
     if (resumePromise) return resumePromise;
-    resumePromise = resumeSessionRun(sessionId, interactionId)
-      .then(() => true)
+    resumePromise = (sdk ? sdk.resume() : resumeSessionRun(sessionId, interactionId).then(() => true))
       .catch((error) => {
         deps.showToast?.(error instanceof Error ? error.message : '恢复执行失败', 'warning');
         return false;

@@ -217,3 +217,33 @@ test('运行快照到达前不会把连续发送擅自升级为 followup', async
   assert.equal(deps.pendingFollowupCandidates.value.length, 0);
   assert.deepEqual(calls.wsSend.map(event => event.payload.task), ['第一条']);
 });
+
+test('注入 chat SDK 后发送由 SDK 接管并保留 requestId、LLM 与附件', async (t) => {
+  installBrowserGlobals(t);
+  const sdkCalls = [];
+  const sdk = {
+    sessionId: 'session-1',
+    on: () => () => {},
+    connect: async () => {},
+    disconnect: () => {},
+    send: async (options) => {
+      sdkCalls.push(options);
+      return { started: true, kind: 'agent_run', runId: 'run-sdk' };
+    },
+    stop: () => {},
+    respondInteraction: async () => {},
+    resume: async () => true,
+  };
+  const { deps, calls } = createDeps({ chatSdkClient: sdk });
+  const sender = useSessionAgentClient(deps);
+
+  await sender.send({ content: '通过 SDK 发送', attachments: [{ file_id: 'file-1' }] });
+
+  assert.equal(calls.wsSend.length, 0);
+  assert.equal(sdkCalls.length, 1);
+  assert.equal(sdkCalls[0].task, '通过 SDK 发送');
+  assert.equal(sdkCalls[0].selectedLlm, 'openai/gpt-test');
+  assert.deepEqual(sdkCalls[0].attachments, [{ file_id: 'file-1' }]);
+  assert.equal(sdkCalls[0].requestId, deps.messages.value[0].metadata.request_id);
+  assert.equal(deps.activeRun.runId, 'run-sdk');
+});

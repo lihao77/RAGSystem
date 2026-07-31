@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "npm --prefix .. run build:chat-sdk",
     "dev": "vite",
     "build": "vite build",
     "check:bundle-size": "node scripts/check-bundle-size.mjs",
@@ -18,6 +19,7 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
+    "@ragsystem/chat-sdk-core": "*",
     "@ragsystem/agent-protocol": "*",
     "@ragsystem/api-contracts": "*",
     "@vueuse/core": "^14.3.0",

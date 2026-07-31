@@ -101,6 +101,8 @@ export function createSessionCommandController({
   scheduleCommandFallback,
   enqueueFollowupCandidate,
   markFollowupCandidateFailed,
+  sendViaSdk = null,
+  stopViaSdk = null,
   startExecution = startStream,
   stopExecution = stopStream,
 }) {
@@ -112,6 +114,14 @@ export function createSessionCommandController({
 
   const stop = async () => {
     if (!currentSessionId.value || !allowsRuntimeAction('stop_run')) return;
+    if (stopViaSdk) {
+      try {
+        await stopViaSdk(currentSessionId.value);
+      } catch (error) {
+        console.warn('停止请求发送失败:', error);
+      }
+      return;
+    }
     const socket = getSocket();
     if (socket?.readyState === WS_OPEN) {
       socket.send(JSON.stringify({
@@ -256,6 +266,26 @@ export function createSessionCommandController({
       };
       const selectedLlm = deps.getCurrentSelectedLlm();
       if (selectedLlm) body.selected_llm = selectedLlm;
+
+      if (sendViaSdk) {
+        const sdkResponse = await sendViaSdk({
+          task: body.task,
+          attachments: body.attachments,
+          ...(body.selected_llm ? { selectedLlm: body.selected_llm } : {}),
+        }, requestId);
+        const result = sdkResponse?.data || sdkResponse || {};
+        if (!result.started) {
+          if (result.kind === 'command') {
+            scheduleCommandFallback(sessionId, assistantMsgIndex);
+            return;
+          }
+          throw new Error(result.error || '启动执行失败');
+        }
+        if (result.run_id || result.runId) activeRun.runId = result.run_id || result.runId;
+        if (!isRunningFollowup) activeRun.phase = 'llm_waiting_first_token';
+        if (result.kind === 'command') scheduleCommandFallback(sessionId, assistantMsgIndex, 60000);
+        return;
+      }
 
       const socket = getSocket();
       if (socket?.readyState === WS_OPEN) {

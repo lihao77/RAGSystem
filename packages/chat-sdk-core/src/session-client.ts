@@ -66,6 +66,11 @@ export interface SessionAgentClientOptions {
   cancelAguiRun?: (sessionId: string) => Promise<void>;
 }
 
+/** Session connection controls for hosts that loaded a durable message watermark first. */
+export interface SessionConnectOptions extends Partial<ConnectOptions> {
+  historySnapshot?: boolean;
+}
+
 interface HostToolEntry {
   spec: DelegatedToolSpec;
 }
@@ -89,6 +94,7 @@ export class SessionAgentClient implements AgentClient {
   private connectPromise: Promise<void> | null = null;
   private execState = createExecutionTreeState();
   private cursor: number | null = null;
+  private historySnapshotPending = false;
 
   private readonly statusValue: ObservableValue<ConnectionStatus>;
   private readonly eventsValue: EventStream;
@@ -148,17 +154,22 @@ export class SessionAgentClient implements AgentClient {
    * 建立连接。每次先通过 HTTP 签发 ticket，再构造 WS URL；
    * 仍保留可选参数以忠实实现 AgentClient 契约，按契约写 connect({...}) 的消费者不会被静默破坏。
    */
-  async connect(_options?: ConnectOptions): Promise<void> {
-    void _options;
+  connect(options?: SessionConnectOptions): Promise<void> {
+    if (options?.afterEventSeq !== undefined) {
+      this.cursor = options.afterEventSeq;
+    }
+    if (options?.historySnapshot) {
+      this.historySnapshotPending = true;
+    }
     if (this.statusValue.get().state === "connected") {
-      return;
+      return Promise.resolve();
     }
     if (this.connectPromise) {
       return this.connectPromise;
     }
     if (!this.transport) {
       this.transport = new ChatWebSocketTransport({
-        resolveUrl: () => this.buildUrl(this.cursor),
+        resolveUrl: () => this.buildUrl(this.cursor, this.historySnapshotPending),
         sessionId: this.sessionId,
         ...(this.reconnectPolicy ? { reconnect: this.reconnectPolicy } : {}),
         ...(this.createWebSocket ? { createWebSocket: this.createWebSocket } : {}),
@@ -185,6 +196,11 @@ export class SessionAgentClient implements AgentClient {
 
     const pending = this.waitForConnected();
     this.connectPromise = pending;
+    // Hosts may intentionally start a connection in the background and switch
+    // sessions before it settles. Keep the returned Promise rejectable for
+    // awaited callers, while preventing an abandoned attempt from becoming a
+    // global unhandled rejection during disconnect().
+    void pending.catch(() => undefined);
     const clearPending = () => {
       if (this.connectPromise === pending) this.connectPromise = null;
     };
@@ -277,7 +293,7 @@ export class SessionAgentClient implements AgentClient {
             () => this.clearAguiRun(run),
           );
           const started = await run.started;
-          return { started: true, requestId, ...(started.runId ? { runId: started.runId } : {}) };
+          return { started: true, kind: "agent_run", requestId, ...(started.runId ? { runId: started.runId } : {}) };
         } catch (error) {
           return { started: false, requestId, error: error instanceof Error ? error.message : "AG-UI fallback 启动失败" };
         }
@@ -323,7 +339,7 @@ export class SessionAgentClient implements AgentClient {
     if ("timedOut" in result) {
       this.uncorrelatedSendAcksQuarantined = true;
     }
-    if (result.ok) return { started: true, requestId };
+    if (result.ok) return { started: true, requestId, ...(result.kind ? { kind: result.kind } : {}) };
     return { started: false, requestId, ...("error" in result && result.error ? { error: result.error } : {}) };
   }
 
@@ -443,13 +459,14 @@ export class SessionAgentClient implements AgentClient {
 
   /* ---- 内部 ---- */
 
-  private async buildUrl(cursor: number | null): Promise<string> {
+  private async buildUrl(cursor: number | null, historySnapshot = false): Promise<string> {
     const ticket = await this.issueTicket(this.sessionId);
     return buildSessionWebSocketUrl({
       backendBase: this.baseUrl,
       sessionId: this.sessionId,
       ticket,
       cursor,
+      ...(historySnapshot ? { historySnapshot: true } : {}),
     });
   }
 
@@ -488,6 +505,15 @@ export class SessionAgentClient implements AgentClient {
     }
     if (env.type === "session.runtime") {
       this.applyRuntime(env.payload as SessionRuntimePayload);
+      if (!(env.payload as SessionRuntimePayload).active_run) {
+        this.historySnapshotPending = false;
+      }
+    }
+    if (env.type === "session.reconnect") {
+      const payload = env.payload as { phase?: string; replay_source?: string } | undefined;
+      if (payload?.phase === "end" && payload.replay_source === "active_run_snapshot") {
+        this.historySnapshotPending = false;
+      }
     }
     this.eventsValue.emit(env);
     applyEnvelope(this.execState, env);

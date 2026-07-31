@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const assetsDir = path.resolve(scriptDir, "..", "dist", "assets");
 const maxChunkBytes = 450 * 1024;
-const maxTotalBytes = 2.2 * 1024 * 1024;
+// The chat SDK is emitted as a dedicated vendor chunk; account for that
+// transport/runtime payload while keeping the per-chunk ceiling unchanged.
+const maxTotalBytes = 2.4 * 1024 * 1024;
 
 if (!fs.existsSync(assetsDir)) {
   throw new Error(`Bundle assets not found: ${assetsDir}. Run the frontend build first.`);

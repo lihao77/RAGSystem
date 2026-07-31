@@ -27,7 +27,7 @@ import type {
 } from "@ragsystem/agent-protocol";
 
 import { EventStream, ObservableValue } from "./observable.js";
-import { SessionAgentClient } from "./session-client.js";
+import { SessionAgentClient, type SessionConnectOptions } from "./session-client.js";
 import { RagChatError, RagChatHttpError } from "./errors.js";
 import { RagChatEventEmitter } from "./event-emitter.js";
 import { AguiSseClient, type AguiEvent, type AguiRunHandle, type AguiRunInput } from "./agui.js";
@@ -94,7 +94,7 @@ export class RagChatClient {
   constructor(options: RagChatClientOptions = {}) {
     this.options = options;
     this.baseUrl = trimBaseUrl(options.baseUrl);
-    this.fetchImpl = options.fetch ?? globalThis.fetch;
+    this.fetchImpl = bindFetch(options.fetch ?? globalThis.fetch);
     if (typeof this.fetchImpl !== "function") {
       throw new RagChatError("当前环境不支持 fetch", { code: "FETCH_UNAVAILABLE" });
     }
@@ -297,11 +297,11 @@ export class RagChatClient {
     return response;
   }
 
-  async connect(sessionId: string): Promise<void> {
+  async connect(sessionId: string, options: SessionConnectOptions = {}): Promise<void> {
     this.assertAlive();
     if (!sessionId) throw new RagChatError("sessionId 不能为空", { code: "SESSION_ID_REQUIRED" });
     if (this.sessionIdValue === sessionId && this.sessionClient) {
-      await this.sessionClient.connect();
+      await this.sessionClient.connect(options);
       return;
     }
     if (this.sessionClient) this.disconnect();
@@ -322,7 +322,7 @@ export class RagChatClient {
     this.sessionIdValue = sessionId;
     for (const handler of this.toolCallHandlers) session.onToolCall(handler);
     this.bindSession(session);
-    await session.connect();
+    await session.connect(options);
   }
 
   disconnect(): void {
@@ -547,6 +547,12 @@ export class RagChatClient {
     }
     return headers;
   }
+}
+
+function bindFetch(fetchImpl: typeof fetch): typeof fetch {
+  // Browser fetch is a Web IDL method and rejects calls without Window as its
+  // receiver. Keep injected test/custom fetch implementations untouched.
+  return fetchImpl === globalThis.fetch ? fetchImpl.bind(globalThis) : fetchImpl;
 }
 
 export function createRagChatClient(options: RagChatClientOptions = {}): RagChatClient {
