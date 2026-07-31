@@ -123,6 +123,47 @@ export interface SdkExecuteRunResult {
   toolCalls: Record<string, number>;
 }
 
+interface DelegateCallInput {
+  toolCallId: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+}
+
+/**
+ * SDK 工具执行与 KernelEvent 消费是并行的。Host Tool.call 可能在对应
+ * tool_call Envelope 进入 outbox 前就触发 delegate_call，导致 durable seq
+ * 反转，重连游标会越过真正驱动前端执行的 delegate_call。
+ */
+export class OrderedDelegateCallPublisher {
+  private readonly readyToolCalls = new Set<string>();
+  private readonly pending = new Map<string, DelegateCallInput>();
+  private readonly published = new Set<string>();
+
+  constructor(private readonly publish: (input: DelegateCallInput) => void) {}
+
+  emit(input: DelegateCallInput): void {
+    if (this.published.has(input.toolCallId)) return;
+    if (this.readyToolCalls.delete(input.toolCallId)) {
+      this.published.add(input.toolCallId);
+      this.publish(input);
+      return;
+    }
+    this.pending.set(input.toolCallId, input);
+  }
+
+  markToolCallPublished(toolCallId: string): void {
+    if (this.published.has(toolCallId)) return;
+    const pending = this.pending.get(toolCallId);
+    if (!pending) {
+      this.readyToolCalls.add(toolCallId);
+      return;
+    }
+    this.pending.delete(toolCallId);
+    this.published.add(toolCallId);
+    this.publish(pending);
+  }
+}
+
 /**
  * 用 SDK createRuntime 执行一次 agent run。
  *
@@ -220,6 +261,18 @@ export async function executeRunWithSdk(
         ...(ctx.signal ? { signal: ctx.signal } : {}),
       })
     : undefined;
+
+  const orderedDelegateCalls = new OrderedDelegateCallPublisher((sdkInput) => {
+    deps.eventPublisher.publishDelegateCall({
+      sessionId: input.sessionId,
+      runId: input.runId,
+      callId: sdkInput.toolCallId,
+      agentId: input.agent.agent_name,
+      tool: sdkInput.toolName,
+      arguments: sdkInput.arguments,
+      parentCallId: input.rootCallId,
+    });
+  });
 
   // backend 组装内建 context，插件可通过 hooks 追加上下文。
   // historyPort 组合 ConversationHistoryPort + SessionMetadataPort：recent source 读历史 + microcompact 缓存指纹，
@@ -337,15 +390,7 @@ export async function executeRunWithSdk(
       deps.hooks?.(hookRegistry);
     },
     ...(waitForToolResult ? { waitForToolResult } : {}),
-    emitDelegateCall: (sdkInput) => deps.eventPublisher.publishDelegateCall({
-      sessionId: input.sessionId,
-      runId: input.runId,
-      callId: sdkInput.toolCallId,
-      agentId: input.agent.agent_name,
-      tool: sdkInput.toolName,
-      arguments: sdkInput.arguments,
-      parentCallId: input.rootCallId,
-    }),
+    emitDelegateCall: (sdkInput) => orderedDelegateCalls.emit(sdkInput),
     refresher,
   };
 
@@ -454,6 +499,9 @@ export async function executeRunWithSdk(
       await persister.persist(event);
       for (const envelope of translateKernelEvent(event, wireCtx)) {
         deps.eventPublisher.publishEnvelope(envelope);
+      }
+      if (event.type === "tool_call") {
+        orderedDelegateCalls.markToolCallPublished(event.toolCallId);
       }
     }
   })();

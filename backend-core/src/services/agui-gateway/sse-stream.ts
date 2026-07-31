@@ -54,8 +54,9 @@ export function openAguiSse(reply: FastifyReply): AguiSseStream {
     }
   };
 
-  // 客户端断开检测：request close 触发清理。
-  reply.request.raw.on("close", markClosed);
+  // POST 请求体读取完成后 request 也会触发 close，但此时 SSE 响应仍需继续。
+  // 只监听响应流关闭，避免在 Host Tool interrupt 写完前截断事件。
+  raw.on("close", markClosed);
 
   return {
     get closed() {
