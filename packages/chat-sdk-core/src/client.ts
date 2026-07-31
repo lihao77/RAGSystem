@@ -30,6 +30,7 @@ import { EventStream, ObservableValue } from "./observable.js";
 import { SessionAgentClient } from "./session-client.js";
 import { RagChatError, RagChatHttpError } from "./errors.js";
 import { RagChatEventEmitter } from "./event-emitter.js";
+import { AguiSseClient, type AguiEvent, type AguiRunHandle, type AguiRunInput } from "./agui.js";
 import type {
   ListMessagesOptions,
   ListSessionsOptions,
@@ -245,11 +246,49 @@ export class RagChatClient {
     return this.request("deleteFile", { method: "DELETE", context: { sessionId, fileId } });
   }
 
+  startAguiRun(input: AguiRunInput, options: { signal?: AbortSignal; onEvent?: (event: AguiEvent) => void } = {}): AguiRunHandle {
+    this.assertAlive();
+    if (!input.threadId) throw new RagChatError("AG-UI threadId 不能为空", { code: "AGUI_THREAD_ID_REQUIRED" });
+    const configured = this.options.aguiFallback;
+    const endpointOverride = configured && typeof configured === "object" ? configured.endpoint : undefined;
+    const url = this.resolveEndpoint("agui", { threadId: input.threadId, body: input }, undefined, endpointOverride);
+    const context: RagChatRequestContext = { kind: "agui", url, sessionId: input.threadId, body: input };
+    const client = new AguiSseClient({
+      endpoint: url,
+      fetch: this.fetchImpl,
+      resolveHeaders: () => this.resolveHeaders(context),
+      ...(options.onEvent ? { onEvent: (event) => {
+        this.emit("agui_event", event);
+        options.onEvent?.(event);
+      } } : { onEvent: (event) => this.emit("agui_event", event) }),
+    });
+    return client.start(input, options.signal);
+  }
+
+  async downloadFile(sessionId: string, fileId: string, init: RequestInit = {}): Promise<Response> {
+    this.assertAlive();
+    const requestContext = { sessionId, fileId };
+    const url = this.resolveEndpoint("downloadFile", requestContext);
+    const context: RagChatRequestContext = { kind: "downloadFile", url, sessionId, fileId };
+    const headers = await this.resolveHeaders(context);
+    const response = await this.fetchImpl(url, {
+      ...init,
+      method: "GET",
+      headers: { ...headers, ...init.headers },
+    });
+    if (!response.ok) {
+      if (response.status === 401) this.emit("unauthorized", { status: 401 });
+      const details = await readResponseBody(response);
+      throw new RagChatHttpError(response.status, getErrorMessage(details, `文件下载失败 (HTTP ${response.status})`), details);
+    }
+    return response;
+  }
+
   async fetchAsset(url: string, init: RequestInit = {}): Promise<Response> {
     if (!url) throw new RagChatError("资源地址不能为空", { code: "ASSET_URL_REQUIRED" });
     this.assertAlive();
     const context: RagChatRequestContext = { kind: "asset", url };
-    const headers = await this.resolveHeaders(context);
+    const headers = await this.resolveHeaders(context, isTrustedAssetUrl(url, this.baseUrl));
     const response = await this.fetchImpl(url, { ...init, headers: { ...headers, ...init.headers } });
     if (!response.ok) {
       if (response.status === 401) this.emit("unauthorized", { status: 401 });
@@ -265,7 +304,7 @@ export class RagChatClient {
       await this.sessionClient.connect();
       return;
     }
-    this.disconnect();
+    if (this.sessionClient) this.disconnect();
     const session = new SessionAgentClient({
       baseUrl: this.baseUrl,
       sessionId,
@@ -273,6 +312,10 @@ export class RagChatClient {
       ...(this.options.reconnect ? { reconnect: this.options.reconnect } : {}),
       ...(this.options.createWebSocket ? { createWebSocket: this.options.createWebSocket } : {}),
       hostTools: [...this.hostTools.values()],
+      ...(this.options.aguiFallback !== false ? {
+        aguiFallback: (input: AguiRunInput, onEvent: (event: AguiEvent) => void) => this.startAguiRun(input, { onEvent }),
+        cancelAguiRun: (id: string) => this.cancelAguiRun(id),
+      } : {}),
     });
     if (this.delegationEnabled) session.enableDelegation();
     this.sessionClient = session;
@@ -283,8 +326,16 @@ export class RagChatClient {
   }
 
   disconnect(): void {
+    const session = this.sessionClient;
+    if (session) {
+      // 保持订阅直到 transport 发布 disconnected，使门面事件与 fallback 快照都能收到终态。
+      session.disconnect();
+    } else {
+      const status: ConnectionStatus = { state: "disconnected" };
+      this.fallbackStatus.set(status);
+      this.emit("status", status);
+    }
     for (const unsubscribe of this.sessionUnsubscribers.splice(0)) unsubscribe();
-    this.sessionClient?.disconnect();
     this.sessionClient = null;
     this.sessionIdValue = null;
     this.interactionRequests.clear();
@@ -361,7 +412,10 @@ export class RagChatClient {
 
   private bindSession(session: SessionAgentClient): void {
     this.sessionUnsubscribers.push(
-      session.status.subscribe((value) => this.emit("status", value)),
+      session.status.subscribe((value) => {
+        this.fallbackStatus.set(value);
+        this.emit("status", value);
+      }),
       session.events.subscribe((value) => {
         this.emit("event", value);
         this.emit(value.type, value);
@@ -459,8 +513,13 @@ export class RagChatClient {
     return body as T;
   }
 
-  private resolveEndpoint(name: RagChatEndpointName, context: Record<string, unknown>, query?: URLSearchParams): string {
-    const override = this.options.endpoints?.[name];
+  private resolveEndpoint(
+    name: RagChatEndpointName,
+    context: Record<string, unknown>,
+    query?: URLSearchParams,
+    endpointOverride?: string | ((context: Record<string, unknown>) => string),
+  ): string {
+    const override = endpointOverride ?? this.options.endpoints?.[name];
     const path = typeof override === "function" ? override(context) : override ?? defaultEndpoint(name, context);
     if (!path) throw new RagChatError(`未配置 ${name} 请求地址`, { code: "ENDPOINT_MISSING" });
     const url = /^https?:\/\//i.test(path) ? path : `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
@@ -468,13 +527,25 @@ export class RagChatClient {
     return `${url}${url.includes("?") ? "&" : "?"}${query.toString()}`;
   }
 
-  private async resolveHeaders(context: RagChatRequestContext): Promise<Record<string, string>> {
-    const token = this.options.getToken ? await this.options.getToken(context) : this.options.token;
+  private async cancelAguiRun(sessionId: string): Promise<void> {
+    await this.request("aguiCancel", { method: "POST", body: { threadId: sessionId }, context: { sessionId } });
+  }
+
+  private async resolveHeaders(context: RagChatRequestContext, includeToken = true): Promise<Record<string, string>> {
+    const token = includeToken
+      ? this.options.getToken ? await this.options.getToken(context) : this.options.token
+      : undefined;
     const dynamic = this.options.getHeaders ? await this.options.getHeaders(context) : this.options.headers;
-    return {
+    const headers: Record<string, string> = {
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(dynamic ?? {}),
     };
+    if (!includeToken) {
+      for (const name of Object.keys(headers)) {
+        if (name.toLowerCase() === "authorization") delete headers[name];
+      }
+    }
+    return headers;
   }
 }
 
@@ -504,12 +575,28 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "deleteFile": return `/api/agent/sessions/${sessionId}/files/${fileId}`;
     case "downloadFile": return `/api/agent/sessions/${sessionId}/files/${fileId}/download`;
     case "issueWsTicket": return `/api/agent/sessions/${sessionId}/ws-ticket`;
+    case "agui": return "/api/agui";
+    case "aguiCancel": return "/api/agui/cancel";
     default: return "";
   }
 }
 
 function trimBaseUrl(value = ""): string {
   return String(value).replace(/\/+$/, "");
+}
+
+function isTrustedAssetUrl(assetUrl: string, baseUrl: string): boolean {
+  const runtimeOrigin = globalThis.location?.origin;
+  const resolutionBase = runtimeOrigin || (/^https?:\/\//i.test(baseUrl) ? baseUrl : undefined);
+  try {
+    const requestOrigin = new URL(assetUrl, resolutionBase).origin;
+    const trustedOrigin = baseUrl
+      ? new URL(baseUrl, runtimeOrigin).origin
+      : runtimeOrigin;
+    return Boolean(trustedOrigin) && requestOrigin === trustedOrigin;
+  } catch {
+    return false;
+  }
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {

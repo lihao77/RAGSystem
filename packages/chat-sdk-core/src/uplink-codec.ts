@@ -54,6 +54,7 @@ export interface ResumeUplink {
   type: "resume";
   session_id: string;
   call_id: string;
+  payload: { request_id: string };
 }
 
 export interface ToolsRegisterUplink {
@@ -134,8 +135,13 @@ export function encodeUserInputRespond(sessionId: string, callId: string, value:
   };
 }
 
-export function encodeResume(sessionId: string, interactionId: string): ResumeUplink {
-  return { type: "resume", session_id: sessionId, call_id: interactionId };
+export function encodeResume(sessionId: string, interactionId: string, requestId: string): ResumeUplink {
+  return {
+    type: "resume",
+    session_id: sessionId,
+    call_id: interactionId,
+    payload: { request_id: requestId },
+  };
 }
 
 export function encodeToolsRegister(sessionId: string, tools: DelegatedToolDeclaration[]): ToolsRegisterUplink {

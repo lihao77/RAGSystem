@@ -168,7 +168,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
         const sendAck = (
           category: "send" | "stop" | "interaction" | "resume" | "tool_delegate",
           ok: boolean,
-          extra: { ref_call_id?: string; kind?: "agent_run" | "command"; error?: string } = {},
+          extra: { ref_call_id?: string; request_id?: string; kind?: "agent_run" | "command"; error?: string } = {},
         ): void => {
           send({ type: "ack", session_id: sessionId, payload: { category, ok, ...extra } });
         };
@@ -338,6 +338,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
             switch (message.type) {
               case "user_driven_change": {
                 const payload = message.payload;
+                const requestId = payload.request_id ?? randomUUID();
                 applications.execution.startStream(
                     {
                       task: payload.task,
@@ -347,17 +348,21 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
                       attachments: payload.attachments,
                       ui_context: payload.ui_context,
                     },
-                    payload.request_id ?? randomUUID(),
+                    requestId,
                   )
                   .then((result) => {
                     const accepted = result.started || result.kind === "command";
                     sendAck("send", accepted, {
+                      request_id: requestId,
                       ...(result.kind ? { kind: result.kind } : {}),
                       ...(!accepted ? { error: result.error ?? "Agent stream 未启动" } : {}),
                     });
                   })
                   .catch((error) => {
-                    sendAck("send", false, { error: error instanceof Error ? error.message : "Agent stream execution failed" });
+                    sendAck("send", false, {
+                      request_id: requestId,
+                      error: error instanceof Error ? error.message : "Agent stream execution failed",
+                    });
                   });
                 break;
               }
@@ -407,6 +412,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
                 const resumed = disposition !== "none";
                 sendAck("resume", resumed, {
                   ref_call_id: message.call_id,
+                  ...(message.payload?.request_id ? { request_id: message.payload.request_id } : {}),
                   ...(resumed ? {} : { error: "该会话当前无法恢复执行" }),
                 });
                 break;

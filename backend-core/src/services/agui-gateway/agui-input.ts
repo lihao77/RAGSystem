@@ -47,6 +47,8 @@ export interface RunAgentInput {
   resume?: AguiResumeItem[];
   reconnect?: AguiReconnectInput;
   attachments?: AttachmentRef[];
+  /** RAGSystem extension: preserve the selected model used by the native chat client. */
+  selectedLlm?: string;
 }
 
 /**
@@ -110,6 +112,7 @@ export function parseRunAgentInput(body: unknown): RunAgentInput {
     }
   }
   if (Array.isArray(raw.attachments)) input.attachments = raw.attachments.map((item) => AttachmentRefSchema.parse(item));
+  if (typeof raw.selectedLlm === "string" && raw.selectedLlm.trim()) input.selectedLlm = raw.selectedLlm;
   if (raw.state !== null && typeof raw.state === "object") input.state = raw.state as Record<string, unknown>;
   return input;
 }

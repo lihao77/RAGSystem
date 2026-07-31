@@ -35,6 +35,7 @@ import {
   encodeUserInputRespond,
 } from "./uplink-codec.js";
 import { buildSessionWebSocketUrl, extractCursor } from "./websocket-url.js";
+import type { AguiEvent, AguiRunHandle, AguiRunInput } from "./agui.js";
 
 /**
  * 单个 Session 的 headless AgentClient 实现。
@@ -59,6 +60,10 @@ export interface SessionAgentClientOptions {
   createWebSocket?: WebSocketFactory;
   /** 宿主业务工具（hostTools）；握手时 tools.register 上行，delegate_call 时本地执行。 */
   hostTools?: DelegatedToolSpec[];
+  /** Start an AG-UI SSE run only when WS is not ready. */
+  aguiFallback?: (input: AguiRunInput, onEvent: (event: AguiEvent) => void) => AguiRunHandle;
+  /** Best-effort server-side cancellation for an active AG-UI fallback run. */
+  cancelAguiRun?: (sessionId: string) => Promise<void>;
 }
 
 interface HostToolEntry {
@@ -77,8 +82,11 @@ export class SessionAgentClient implements AgentClient {
   private readonly issueTicket: (sessionId: string) => Promise<string>;
   private readonly reconnectPolicy: ConnectOptions["reconnect"];
   private readonly createWebSocket: WebSocketFactory | undefined;
+  private readonly aguiFallback: SessionAgentClientOptions["aguiFallback"];
+  private readonly cancelAguiRun: SessionAgentClientOptions["cancelAguiRun"];
 
   private transport: ChatWebSocketTransport | null = null;
+  private connectPromise: Promise<void> | null = null;
   private execState = createExecutionTreeState();
   private cursor: number | null = null;
 
@@ -89,9 +97,17 @@ export class SessionAgentClient implements AgentClient {
   private readonly runStatusValue: ObservableValue<RunStatus>;
   private readonly pendingValue: ObservableValue<PendingInteraction[]>;
 
-  /** 待决议的 send ack 等待器（单 Session 单 run 串行，至多一个 pending）。 */
-  private pendingSendAck: ((result: { ok: boolean; kind?: "agent_run" | "command"; error?: string }) => void) | null = null;
-  private pendingResumeAck: ((result: { ok: boolean; error?: string }) => void) | null = null;
+  private readonly pendingSendAcks = new Map<
+    string,
+    (result: { ok: boolean; kind?: "agent_run" | "command"; error?: string }) => void
+  >();
+  private pendingResumeAck: {
+    requestId: string;
+    interactionId: string;
+    resolve: (result: { ok: boolean; error?: string }) => void;
+  } | null = null;
+  private uncorrelatedSendAcksQuarantined = false;
+  private uncorrelatedResumeAcksQuarantined = false;
   private readonly pendingInteractionAcks = new Map<
     string,
     { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
@@ -102,6 +118,7 @@ export class SessionAgentClient implements AgentClient {
   private delegationEnabled = false;
   private readonly hostTools = new Map<string, HostToolEntry>();
   private readonly toolCallHandlers = new Set<ToolCallHandler>();
+  private aguiRun: AguiRunHandle | null = null;
 
   constructor(options: SessionAgentClientOptions) {
     this.baseUrl = options.baseUrl;
@@ -109,6 +126,8 @@ export class SessionAgentClient implements AgentClient {
     this.issueTicket = options.issueWsTicket;
     this.reconnectPolicy = options.reconnect;
     this.createWebSocket = options.createWebSocket;
+    this.aguiFallback = options.aguiFallback;
+    this.cancelAguiRun = options.cancelAguiRun;
     this.statusValue = new ObservableValue<ConnectionStatus>({ state: "idle" });
     this.eventsValue = new EventStream();
     this.treeValue = new ObservableValue<ExecutionTree>({ root: null, steps: [] });
@@ -131,57 +150,65 @@ export class SessionAgentClient implements AgentClient {
    */
   async connect(_options?: ConnectOptions): Promise<void> {
     void _options;
-    if (this.transport) {
-      // 已有 transport：仅重连耗尽进 disconnected 时手动恢复，其余状态 no-op 避免重复触发。
-      if (this.statusValue.get().state === "disconnected") {
-        this.transport.reconnect();
-      }
+    if (this.statusValue.get().state === "connected") {
       return;
     }
-    this.transport = new ChatWebSocketTransport({
-      resolveUrl: () => this.buildUrl(this.cursor),
-      sessionId: this.sessionId,
-      ...(this.reconnectPolicy ? { reconnect: this.reconnectPolicy } : {}),
-      ...(this.createWebSocket ? { createWebSocket: this.createWebSocket } : {}),
-      handlers: {
-        onStatus: (status) => {
-          this.statusValue.set(status);
-          if (status.state !== "connected") {
-            this.hasRuntimeSnapshot = false;
-            if (status.state === "reconnecting" || status.state === "disconnected") {
-              this.rejectRuntimeWaiters("连接已断开，无法取得 Session runtime 快照");
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
+    if (!this.transport) {
+      this.transport = new ChatWebSocketTransport({
+        resolveUrl: () => this.buildUrl(this.cursor),
+        sessionId: this.sessionId,
+        ...(this.reconnectPolicy ? { reconnect: this.reconnectPolicy } : {}),
+        ...(this.createWebSocket ? { createWebSocket: this.createWebSocket } : {}),
+        handlers: {
+          onStatus: (status) => {
+            this.statusValue.set(status);
+            if (status.state !== "connected") {
+              this.hasRuntimeSnapshot = false;
+              if (status.state === "reconnecting" || status.state === "disconnected") {
+                this.rejectRuntimeWaiters("连接已断开，无法取得 Session runtime 快照");
+              }
             }
-          }
-          if (status.state === "connected") {
-            this.onConnected();
-          }
+            if (status.state === "connected") {
+              this.onConnected();
+            }
+          },
+          onEnvelope: (env) => this.handleEnvelope(env),
         },
-        onEnvelope: (env) => this.handleEnvelope(env),
-      },
-    });
-    this.transport.connect();
-    // 首次连接等 WS open（status=connected）才 resolve：保证 await connect() 返回即就绪，
-    // connect 返回时已就绪，消费者可以直接 send；否则 send 可能撞“连接未就绪”。
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => { unsub(); reject(new Error("连接超时")); }, 10000);
-      const unsub = this.statusValue.subscribe((s) => {
-        if (s.state === "connected") { clearTimeout(timer); unsub(); resolve(); }
-        else if (s.state === "disconnected") { clearTimeout(timer); unsub(); reject(new Error("连接失败")); }
       });
-    });
+      this.transport.connect();
+    } else if (this.statusValue.get().state === "disconnected") {
+      this.transport.reconnect();
+    }
+
+    const pending = this.waitForConnected();
+    this.connectPromise = pending;
+    const clearPending = () => {
+      if (this.connectPromise === pending) this.connectPromise = null;
+    };
+    pending.then(clearPending, clearPending);
+    return pending;
   }
 
   disconnect(): void {
-    this.transport?.disconnect();
+    this.aguiRun?.abort("session disconnect");
+    this.aguiRun = null;
+    if (this.transport) {
+      this.transport.disconnect();
+    } else {
+      this.statusValue.set({ state: "disconnected" });
+    }
     this.transport = null;
     this.hasRuntimeSnapshot = false;
     this.rejectRuntimeWaiters("连接已断开");
-    if (this.pendingSendAck) {
-      this.pendingSendAck({ ok: false, error: "连接已断开" });
-      this.pendingSendAck = null;
+    for (const resolve of this.pendingSendAcks.values()) {
+      resolve({ ok: false, error: "连接已断开" });
     }
+    this.pendingSendAcks.clear();
     if (this.pendingResumeAck) {
-      this.pendingResumeAck({ ok: false, error: "连接已断开" });
+      this.pendingResumeAck.resolve({ ok: false, error: "连接已断开" });
       this.pendingResumeAck = null;
     }
     for (const pending of this.pendingInteractionAcks.values()) {
@@ -234,6 +261,27 @@ export class SessionAgentClient implements AgentClient {
     const requestId = options.requestId ?? generateRequestId();
     // 未连接（连接中/重连中/已断开）：字节发不出去，直接判失败，UI 不切 running。
     if (this.statusValue.get().state !== "connected") {
+      if (this.aguiFallback) {
+        try {
+          const input: AguiRunInput = {
+            threadId: this.sessionId,
+            runId: requestId,
+            messages: [{ role: "user", content: options.task }],
+            ...(options.attachments?.length ? { attachments: options.attachments.map(({ file_id }) => ({ file_id })) } : {}),
+            ...(options.selectedLlm ? { selectedLlm: options.selectedLlm } : {}),
+          };
+          const run = this.aguiFallback(input, (event) => this.handleAguiEvent(event));
+          this.aguiRun = run;
+          void run.completed.then(
+            () => this.clearAguiRun(run),
+            () => this.clearAguiRun(run),
+          );
+          const started = await run.started;
+          return { started: true, requestId, ...(started.runId ? { runId: started.runId } : {}) };
+        } catch (error) {
+          return { started: false, requestId, error: error instanceof Error ? error.message : "AG-UI fallback 启动失败" };
+        }
+      }
       return { started: false, requestId, error: "连接未就绪" };
     }
     let runtime: SessionRuntimePayload;
@@ -250,8 +298,11 @@ export class SessionAgentClient implements AgentClient {
       && !runtime.allowed_actions.includes("send_followup")) {
       return { started: false, requestId, error: "当前 Session runtime 不允许发送消息" };
     }
+    if (this.pendingSendAcks.has(requestId)) {
+      return { started: false, requestId, error: "相同 requestId 的发送正在等待确认" };
+    }
     const ackPromise = new Promise<{ ok: boolean; kind?: "agent_run" | "command"; error?: string }>((resolve) => {
-      this.pendingSendAck = resolve;
+      this.pendingSendAcks.set(requestId, resolve);
     });
     this.transport?.send(encodeSend(this.sessionId, {
       task: options.task,
@@ -260,14 +311,17 @@ export class SessionAgentClient implements AgentClient {
       requestId,
       ...(options.uiContext ? { uiContext: options.uiContext } : {}),
     }));
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const result = await Promise.race([
       ackPromise,
-      new Promise<{ ok: false; error: string }>((resolve) =>
-        setTimeout(() => resolve({ ok: false, error: "发送超时，未收到确认" }), 5000),
-      ),
+      new Promise<{ ok: false; error: string; timedOut: true }>((resolve) => {
+        timer = setTimeout(() => resolve({ ok: false, error: "发送超时，未收到确认", timedOut: true }), 5000);
+      }),
     ]);
-    if (this.pendingSendAck) {
-      this.pendingSendAck = null;
+    if (timer) clearTimeout(timer);
+    this.pendingSendAcks.delete(requestId);
+    if ("timedOut" in result) {
+      this.uncorrelatedSendAcksQuarantined = true;
     }
     if (result.ok) return { started: true, requestId };
     return { started: false, requestId, ...("error" in result && result.error ? { error: result.error } : {}) };
@@ -278,6 +332,15 @@ export class SessionAgentClient implements AgentClient {
       && this.hasRuntimeSnapshot
       && this.runtimeValue.get().allowed_actions.includes("stop_run")) {
       this.transport?.send(encodeStop(this.sessionId));
+    } else if (this.aguiRun) {
+      const run = this.aguiRun;
+      this.aguiRun = null;
+      run.abort("run stopped");
+      if (this.cancelAguiRun) {
+        void this.cancelAguiRun(this.sessionId).catch(() => {
+          // The local abort already stopped delivery; cancellation is best effort.
+        });
+      }
     }
   }
 
@@ -318,22 +381,25 @@ export class SessionAgentClient implements AgentClient {
     const interactionId = runtime.resume_interaction_id;
     if (!interactionId || !runtime.allowed_actions.includes("resume_run")) return false;
     if (this.pendingResumeAck) return false;
+    const requestId = generateRequestId();
     const ack = new Promise<{ ok: boolean; error?: string }>((resolve) => {
-      this.pendingResumeAck = resolve;
+      this.pendingResumeAck = { requestId, interactionId, resolve };
     });
-    this.transport?.send(encodeResume(this.sessionId, interactionId));
+    const pending = this.pendingResumeAck;
+    this.transport?.send(encodeResume(this.sessionId, interactionId, requestId));
     let timer: ReturnType<typeof setTimeout> | null = null;
     try {
       const result = await Promise.race([
         ack,
-        new Promise<{ ok: false; error: string }>((resolve) => {
-          timer = setTimeout(() => resolve({ ok: false, error: "恢复超时，未收到确认" }), 8_000);
+        new Promise<{ ok: false; error: string; timedOut: true }>((resolve) => {
+          timer = setTimeout(() => resolve({ ok: false, error: "恢复超时，未收到确认", timedOut: true }), 8_000);
         }),
       ]);
+      if ("timedOut" in result) this.uncorrelatedResumeAcksQuarantined = true;
       return result.ok;
     } finally {
       if (timer) clearTimeout(timer);
-      this.pendingResumeAck = null;
+      if (this.pendingResumeAck === pending) this.pendingResumeAck = null;
     }
   }
 
@@ -388,6 +454,8 @@ export class SessionAgentClient implements AgentClient {
   }
 
   private onConnected(): void {
+    this.uncorrelatedSendAcksQuarantined = false;
+    this.uncorrelatedResumeAcksQuarantined = false;
     if (this.delegationEnabled && this.hostTools.size > 0) {
       this.registerToolsNow();
     }
@@ -430,6 +498,15 @@ export class SessionAgentClient implements AgentClient {
     }
   }
 
+  private handleAguiEvent(event: AguiEvent): void {
+    const envelope = aguiEventToEnvelope(event, this.sessionId);
+    if (envelope) this.handleEnvelope(envelope);
+  }
+
+  private clearAguiRun(run: AguiRunHandle): void {
+    if (this.aguiRun === run) this.aguiRun = null;
+  }
+
   private handleAck(env: Envelope): void {
     const payload = env.payload as {
       category?: string;
@@ -437,10 +514,17 @@ export class SessionAgentClient implements AgentClient {
       kind?: "agent_run" | "command";
       error?: string;
       ref_call_id?: string;
+      request_id?: string;
     } | undefined;
-    if (payload?.category === "send" && this.pendingSendAck) {
-      const resolve = this.pendingSendAck;
-      this.pendingSendAck = null;
+    if (payload?.category === "send") {
+      const requestId = payload.request_id
+        ?? (!this.uncorrelatedSendAcksQuarantined && this.pendingSendAcks.size === 1
+          ? this.pendingSendAcks.keys().next().value as string | undefined
+          : undefined);
+      if (!requestId) return;
+      const resolve = this.pendingSendAcks.get(requestId);
+      if (!resolve) return;
+      this.pendingSendAcks.delete(requestId);
       resolve({
         ok: payload.ok ?? false,
         ...(payload.kind ? { kind: payload.kind } : {}),
@@ -458,9 +542,13 @@ export class SessionAgentClient implements AgentClient {
       return;
     }
     if (payload?.category === "resume" && this.pendingResumeAck) {
-      const resolve = this.pendingResumeAck;
+      const pending = this.pendingResumeAck;
+      const correlated = payload.request_id
+        ? payload.request_id === pending.requestId
+        : !this.uncorrelatedResumeAcksQuarantined && payload.ref_call_id === pending.interactionId;
+      if (!correlated) return;
       this.pendingResumeAck = null;
-      resolve({
+      pending.resolve({
         ok: payload.ok ?? false,
         ...(payload.error ? { error: payload.error } : {}),
       });
@@ -563,6 +651,28 @@ export class SessionAgentClient implements AgentClient {
     });
   }
 
+  private waitForConnected(timeoutMs = 10_000): Promise<void> {
+    if (this.statusValue.get().state === "connected") return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      let unsubscribe: Unsubscribe | null = null;
+      let settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        unsubscribe?.();
+        if (error) reject(error);
+        else resolve();
+      };
+      const timer = setTimeout(() => finish(new Error("连接超时")), timeoutMs);
+      unsubscribe = this.statusValue.subscribe((status) => {
+        if (status.state === "connected") finish();
+        else if (status.state === "disconnected") finish(new Error("连接失败"));
+      });
+      if (settled) unsubscribe();
+    });
+  }
+
   private rejectRuntimeWaiters(message: string): void {
     for (const waiter of this.runtimeWaiters) {
       clearTimeout(waiter.timer);
@@ -607,4 +717,82 @@ function generateRequestId(): string {
     return crypto.randomUUID();
   }
   return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function aguiEventToEnvelope(event: AguiEvent, sessionId: string): Envelope | null {
+  const base = {
+    session_id: typeof event.threadId === "string" && event.threadId ? event.threadId : sessionId,
+    ...(typeof event.runId === "string" && event.runId ? { run_id: event.runId } : {}),
+    ...(typeof event.eventSeq === "number" ? { seq: event.eventSeq } : {}),
+  };
+  switch (event.type) {
+    case "RUN_STARTED":
+      return { type: "run_started", ...base, run_id: event.runId ?? `agui-${Date.now()}`, payload: {} } as Envelope;
+    case "TEXT_MESSAGE_START":
+      return { type: "stream_output", ...base, payload: { phase: "first_token", content: "" } } as Envelope;
+    case "TEXT_MESSAGE_CONTENT":
+      return { type: "stream_output", ...base, payload: { phase: "delta", content: typeof event.delta === "string" ? event.delta : "" } } as Envelope;
+    case "TEXT_MESSAGE_END":
+      return { type: "stream_output", ...base, payload: { phase: "final", content: "" } } as Envelope;
+    case "TOOL_CALL_START":
+      return {
+        type: "tool_call",
+        ...base,
+        call_id: typeof event.toolCallId === "string" ? event.toolCallId : undefined,
+        payload: {
+          phase: "start",
+          tool: typeof event.toolCallName === "string" ? event.toolCallName : "tool",
+          input: {},
+        },
+      } as Envelope;
+    case "TOOL_CALL_RESULT":
+      return {
+        type: "tool_result",
+        ...base,
+        call_id: typeof event.toolCallId === "string" ? event.toolCallId : undefined,
+        payload: {
+          phase: "end",
+          tool: "tool",
+          ok: true,
+          observation: typeof event.content === "string" ? event.content : "",
+        },
+      } as Envelope;
+    case "RUN_FINISHED":
+      const outcome = event.outcome && typeof event.outcome === "object" && !Array.isArray(event.outcome)
+        ? event.outcome as { type?: unknown }
+        : undefined;
+      return {
+        type: "run_ended",
+        ...base,
+        run_id: event.runId ?? `agui-${Date.now()}`,
+        payload: { status: outcome?.type === "interrupt" ? "suspended" : "completed" },
+      } as Envelope;
+    case "RUN_ERROR":
+      return {
+        type: "error",
+        ...base,
+        payload: { code: "agui_run_error", message: typeof event.message === "string" ? event.message : "AG-UI run failed" },
+      } as Envelope;
+    case "STATE_SNAPSHOT":
+      if (isRuntimeSnapshot(event.snapshot)) {
+        return { type: "session.runtime", ...base, payload: event.snapshot } as Envelope;
+      }
+      return null;
+    case "CUSTOM":
+      if (event.name === "session.runtime" && isRuntimeSnapshot(event.value)) {
+        return { type: "session.runtime", ...base, payload: event.value } as Envelope;
+      }
+      return null;
+    default:
+      return null;
+  }
+}
+
+function isRuntimeSnapshot(value: unknown): value is SessionRuntimePayload {
+  return value !== null
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && typeof (value as { state?: unknown }).state === "string"
+    && Array.isArray((value as { allowed_actions?: unknown }).allowed_actions)
+    && Array.isArray((value as { pending_interactions?: unknown }).pending_interactions);
 }

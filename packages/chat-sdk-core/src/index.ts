@@ -5,6 +5,7 @@ export { SessionAgentClient } from "./session-client.js";
 export { ChatWebSocketTransport } from "./websocket-transport.js";
 export { buildSessionWebSocketUrl, extractCursor } from "./websocket-url.js";
 export { ObservableValue, EventStream } from "./observable.js";
+export { AguiSseClient } from "./agui.js";
 
 export type {
   RagChatClientOptions,
@@ -17,6 +18,14 @@ export type {
   ListMessagesOptions,
   UploadFilesOptions,
 } from "./types.js";
+export type {
+  AguiEvent,
+  AguiMessageInput,
+  AguiResumeInput,
+  AguiRunHandle,
+  AguiRunInput,
+  AguiSseClientOptions,
+} from "./agui.js";
 export type { SessionAgentClientOptions } from "./session-client.js";
 export type {
   ChatWebSocketTransportOptions,

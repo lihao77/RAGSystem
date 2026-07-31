@@ -221,6 +221,7 @@ export const ErrorPayloadSchema = z.object({
 export const AckPayloadSchema = z.object({
   ref_message_id: z.string().optional(),
   ref_call_id: z.string().optional(),
+  request_id: z.string().optional(),
   category: z.enum(["send", "stop", "interaction", "resume", "tool_delegate"]),
   ok: z.boolean(),
   kind: z.enum(["agent_run", "command"]).optional(),
@@ -621,7 +622,7 @@ export const ClientToServerEnvelopeSchema = z.discriminatedUnion("type", [
   typed({ type: z.literal("user_driven_change"), session_id: z.string().min(1), payload: UserDrivenChangePayloadSchema.extend({ task: z.string().optional().default(""), attachments: z.array(AttachmentRefSchema).optional().default([]) }) }),
   typed({ type: z.literal("abort"), session_id: z.string().min(1), payload: z.object({ scope: z.literal("run"), reason: z.string().optional() }).optional() }),
   typed({ type: z.literal("interaction"), session_id: z.string().min(1), call_id: z.string().min(1), payload: z.object({ kind: z.enum(["approval", "user_input"]), phase: z.literal("responded"), approved: z.boolean().optional(), value: z.string().optional().default(""), message: z.string().optional().default("") }) }),
-  typed({ type: z.literal("resume"), session_id: z.string().min(1), call_id: z.string().min(1), payload: z.object({}).optional() }),
+  typed({ type: z.literal("resume"), session_id: z.string().min(1), call_id: z.string().min(1), payload: z.object({ request_id: z.string().optional() }).optional() }),
   typed({ type: z.literal("tools.register"), session_id: z.string().min(1), payload: ToolsRegisterPayloadSchema }),
   typed({ type: z.literal("delegate_result"), session_id: z.string().min(1), call_id: z.string().min(1), payload: DelegateResultPayloadSchema }),
 ]);

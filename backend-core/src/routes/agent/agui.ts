@@ -41,4 +41,19 @@ export const registerAguiRoutes: FastifyPluginAsync<RouteOptions> = async (app, 
     await gateway.handle(input, reply);
     // hijack 后响应由 gateway 管理，handler 不再返回体。
   });
+
+  /** Cancel the active internal run when the client is using AG-UI fallback. */
+  app.post("/cancel", async (request) => {
+    const body = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+      ? request.body as Record<string, unknown>
+      : {};
+    const threadId = typeof body.threadId === "string" ? body.threadId : "";
+    if (!threadId) {
+      return { success: false, error: "threadId 不能为空" };
+    }
+    await assertExecutableSessionIfExists(request, threadId);
+    const applications = await ensureRequestApplications(request, options);
+    const stopped = await applications.execution.stopSession(threadId);
+    return { success: true, data: { stopped } };
+  });
 };

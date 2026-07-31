@@ -387,15 +387,24 @@ describe("WidgetAgentClient websocket ticket", () => {
     });
     const resumed = client.resume();
     await flushMicrotasks();
-    expect(sentMessages(socket).at(-1)).toEqual({
+    const resumeMessage = sentMessages(socket).at(-1) as {
+      payload?: { request_id?: string };
+    } | undefined;
+    expect(resumeMessage).toEqual({
       type: "resume",
       session_id: "session-1",
       call_id: "interaction-1",
+      payload: { request_id: expect.any(String) },
     });
     sendEnvelope(socket, {
       type: "ack",
       session_id: "session-1",
-      payload: { category: "resume", ok: true, ref_call_id: "interaction-1" },
+      payload: {
+        category: "resume",
+        ok: true,
+        ref_call_id: "interaction-1",
+        request_id: resumeMessage?.payload?.request_id,
+      },
     });
 
     await expect(resumed).resolves.toBe(true);

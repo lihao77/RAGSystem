@@ -170,10 +170,15 @@ describe("agent-protocol envelope compatibility", () => {
     const parsed = ServerToClientEnvelopeSchema.parse({
       type: "ack",
       session_id: "session-1",
-      payload: { category: "send", ok: true, kind: "command" },
+      payload: { category: "send", ok: true, kind: "command", request_id: "request-1" },
     });
 
-    expect(parsed.payload).toMatchObject({ category: "send", ok: true, kind: "command" });
+    expect(parsed.payload).toMatchObject({
+      category: "send",
+      ok: true,
+      kind: "command",
+      request_id: "request-1",
+    });
   });
 
   it("接受权威 runtime 指定 interaction 的恢复请求", () => {
@@ -181,12 +186,14 @@ describe("agent-protocol envelope compatibility", () => {
       type: "resume",
       session_id: "session-1",
       call_id: "interaction-1",
+      payload: { request_id: "resume-1" },
     });
 
     expect(parsed).toMatchObject({
       type: "resume",
       session_id: "session-1",
       call_id: "interaction-1",
+      payload: { request_id: "resume-1" },
     });
   });
 
@@ -198,6 +205,7 @@ describe("agent-protocol envelope compatibility", () => {
         category: "resume",
         ok: true,
         ref_call_id: "interaction-1",
+        request_id: "resume-1",
       },
     });
 
@@ -205,6 +213,7 @@ describe("agent-protocol envelope compatibility", () => {
       category: "resume",
       ok: true,
       ref_call_id: "interaction-1",
+      request_id: "resume-1",
     });
   });
 });

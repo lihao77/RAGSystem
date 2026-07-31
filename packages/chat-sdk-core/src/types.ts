@@ -26,7 +26,9 @@ export type RagChatEndpointName =
   | "validateFiles"
   | "deleteFile"
   | "downloadFile"
-  | "issueWsTicket";
+  | "issueWsTicket"
+  | "agui"
+  | "aguiCancel";
 
 export interface RagChatRequestContext {
   kind: RagChatEndpointName | "asset";
@@ -53,6 +55,8 @@ export interface RagChatClientOptions {
   interactionHandlers?: Partial<Record<PendingInteraction["kind"], RagChatInteractionHandler>>;
   onInteractionRequest?: RagChatInteractionHandler;
   interactionTimeoutMs?: number;
+  /** AG-UI SSE fallback used only while the session WebSocket is unavailable. */
+  aguiFallback?: boolean | { endpoint?: RagChatEndpointResolver };
 }
 
 export type RagChatInteractionHandler = (

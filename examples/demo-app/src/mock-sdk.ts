@@ -20,6 +20,7 @@ import {
   type Observable,
   type PendingInteraction,
   type RunStatus,
+  type SessionRuntimePayload,
   type SendOptions,
   type SendResult,
   type ToolCallHandler,
@@ -51,6 +52,17 @@ class Box<T> implements Observable<T> {
 }
 
 const PLACEHOLDER_ENVELOPE: Envelope = { type: "heartbeat", session_id: "mock" };
+const EMPTY_RUNTIME: SessionRuntimePayload = {
+  state: "idle",
+  load_strategy: "history",
+  allowed_actions: [],
+  active_run: null,
+  last_run: null,
+  pending_interactions: [],
+  resume_interaction_id: null,
+  maintenance: null,
+  observed_at: "",
+};
 
 export class MockAgentClient implements AgentClient {
   private readonly treeState: ExecutionTreeState = createExecutionTreeState();
@@ -61,6 +73,7 @@ export class MockAgentClient implements AgentClient {
   readonly status = new Box<ConnectionStatus>({ state: "idle" });
   readonly events = new Box<Envelope>(PLACEHOLDER_ENVELOPE);
   readonly executionTree = new Box<ExecutionTree>({ root: null, steps: [] });
+  readonly runtime = new Box<SessionRuntimePayload>(EMPTY_RUNTIME);
   readonly runStatus = new Box<RunStatus>({ runId: null, state: "idle" });
   readonly pendingInteractions = new Box<PendingInteraction[]>([]);
 
@@ -88,6 +101,7 @@ export class MockAgentClient implements AgentClient {
   async respondInteraction(_interactionId: string, _response: InteractionResponse): Promise<void> {}
   async approve(_interactionId: string, _approved: boolean, _message?: string): Promise<void> {}
   async respondInput(_interactionId: string, _value: string): Promise<void> {}
+  async resume(): Promise<boolean> { return false; }
 
   /* ---- 委托模式 ---- */
 

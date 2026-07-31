@@ -345,7 +345,13 @@ export class AguiGateway {
     });
 
     const started = await this.execution.startStream(
-      { task, session_id: threadId, userId: this.userId, attachments: input.attachments ?? [] },
+      {
+        task,
+        session_id: threadId,
+        userId: this.userId,
+        attachments: input.attachments ?? [],
+        ...(input.selectedLlm ? { selected_llm: input.selectedLlm } : {}),
+      },
       externalRunId,
       { followupPolicy: "reject" },
     );
