@@ -23,12 +23,13 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@ragsystem/agent-protocol": "*",
-    "@ragsystem/api-contracts": "*"
+    "@ragsystem/agent-protocol": "^0.1.0",
+    "@ragsystem/api-contracts": "^0.1.0"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

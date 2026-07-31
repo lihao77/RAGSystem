@@ -100,6 +100,9 @@ export function parseRunAgentInput(body: unknown): RunAgentInput {
   if (typeof raw.runId === "string") input.runId = raw.runId;
   if (Array.isArray(raw.messages)) input.messages = raw.messages as AguiMessage[];
   if (Array.isArray(raw.tools)) input.tools = raw.tools as AguiClientTool[];
+  if (raw.forwardedProps !== null && typeof raw.forwardedProps === "object" && !Array.isArray(raw.forwardedProps)) {
+    input.forwardedProps = raw.forwardedProps as Record<string, unknown>;
+  }
   if (Array.isArray(raw.resume)) input.resume = raw.resume as AguiResumeItem[];
   if (raw.reconnect !== null && typeof raw.reconnect === "object" && !Array.isArray(raw.reconnect)) {
     const reconnect = raw.reconnect as Record<string, unknown>;

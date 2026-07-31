@@ -21,11 +21,15 @@ export interface ChatWebSocketTransportOptions {
   handlers: TransportHandlers;
   reconnect?: ReconnectPolicy;
   createWebSocket?: WebSocketFactory;
+  /** Initial durable cursor loaded before the transport was created. */
+  initialCursor?: number | null;
 }
 
 /** 后端心跳间隔 20s（ws.ts），客户端 60s 无任何帧判连接僵死、主动断开重连。 */
 const HEARTBEAT_TIMEOUT_MS = 60_000;
 const WS_OPEN = 1;
+const STABLE_CONNECTION_MS = 5_000;
+const TERMINAL_CLOSE_CODES = new Set([4001, 4003, 4004]);
 const DEFAULT_RECONNECT: Required<ReconnectPolicy> = {
   enabled: true,
   maxRetries: 10,
@@ -46,12 +50,14 @@ export class ChatWebSocketTransport {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  private stableConnectionTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
   private readonly deliveryCursor = new EnvelopeDeliveryCursor();
   private readonly policy: Required<ReconnectPolicy>;
 
   constructor(private readonly options: ChatWebSocketTransportOptions) {
     this.policy = { ...DEFAULT_RECONNECT, ...mergeReconnect(options.reconnect) };
+    this.deliveryCursor.reset(options.initialCursor ?? 0);
   }
 
   connect(): void {
@@ -118,7 +124,11 @@ export class ChatWebSocketTransport {
     const ws = this.options.createWebSocket?.(url) ?? new WebSocket(url);
     this.ws = ws;
     ws.onopen = () => {
-      this.reconnectAttempts = 0;
+      if (this.stableConnectionTimer) clearTimeout(this.stableConnectionTimer);
+      this.stableConnectionTimer = setTimeout(() => {
+        this.reconnectAttempts = 0;
+        this.stableConnectionTimer = null;
+      }, STABLE_CONNECTION_MS);
       this.resetHeartbeat();
       this.emitStatus({
         state: "connected",
@@ -138,9 +148,13 @@ export class ChatWebSocketTransport {
       if (!this.deliveryCursor.accept(env)) return;
       this.options.handlers.onEnvelope(env);
     };
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       this.clearTimers();
       if (this.disposed) {
+        return;
+      }
+      if (event && TERMINAL_CLOSE_CODES.has(event.code)) {
+        this.emitStatus({ state: "disconnected", reason: event.reason || `连接被服务器拒绝 (${event.code})` });
         return;
       }
       this.scheduleReconnect();
@@ -195,6 +209,17 @@ export class ChatWebSocketTransport {
     if (this.heartbeatTimer) {
       clearTimeout(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+    if (this.stableConnectionTimer) {
+      clearTimeout(this.stableConnectionTimer);
+      this.stableConnectionTimer = null;
+    }
+  }
+
+  /** Keep the byte-level de-duplication cursor aligned with an AG-UI stream. */
+  syncCursor(seq: number): void {
+    if (Number.isSafeInteger(seq) && seq > this.deliveryCursor.lastSeq) {
+      this.deliveryCursor.reset(seq);
     }
   }
 

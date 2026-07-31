@@ -21,12 +21,20 @@ export class ObservableValue<T> implements Observable<T> {
     }
     this.current = value;
     for (const listener of this.listeners) {
-      listener(value);
+      try {
+        listener(value);
+      } catch (error) {
+        reportListenerError(error);
+      }
     }
   }
 
   subscribe(listener: (value: T) => void): Unsubscribe {
-    listener(this.current);
+    try {
+      listener(this.current);
+    } catch (error) {
+      reportListenerError(error);
+    }
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
@@ -51,7 +59,11 @@ export class EventStream implements Observable<Envelope> {
   emit(env: Envelope): void {
     this.last = env;
     for (const listener of this.listeners) {
-      listener(env);
+      try {
+        listener(env);
+      } catch (error) {
+        reportListenerError(error);
+      }
     }
   }
 
@@ -65,4 +77,12 @@ export class EventStream implements Observable<Envelope> {
       this.listeners.delete(listener);
     };
   }
+}
+
+function reportListenerError(error: unknown): void {
+  if (typeof globalThis.reportError === "function") {
+    globalThis.reportError(error);
+    return;
+  }
+  console.error("RagChat observable listener failed", error);
 }

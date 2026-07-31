@@ -21,7 +21,7 @@ export function createFrontendChatSdk(options = {}) {
     },
   }));
 
-  return createRagChatClient({
+  const client = createRagChatClient({
     baseUrl: options.baseUrl ?? '',
     getToken: () => authStore.token || undefined,
     ...(options.fetch ? { fetch: options.fetch } : {}),
@@ -29,4 +29,15 @@ export function createFrontendChatSdk(options = {}) {
     hostTools,
     aguiFallback: true,
   });
+  client.on('unauthorized', async () => {
+    authStore.clear();
+    const { default: router } = await import('../router/index.js');
+    if (router.currentRoute.value.path !== '/login') {
+      await router.replace({
+        path: '/login',
+        query: { redirect: router.currentRoute.value.fullPath },
+      });
+    }
+  });
+  return client;
 }

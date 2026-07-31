@@ -56,6 +56,23 @@ describe("loginRagSystem", () => {
       expect.objectContaining({ method: "POST", body: JSON.stringify({ username: "demo", password: "secret" }) }),
     );
   });
+
+  it("binds a native-like global fetch", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: unknown[] = [];
+    const nativeLikeFetch = function (this: typeof globalThis): Promise<Response> {
+      if (this !== globalThis) throw new TypeError("Illegal invocation");
+      calls.push(true);
+      return Promise.resolve(new Response(JSON.stringify({ token: "jwt-login" }), { status: 200 }));
+    };
+    globalThis.fetch = nativeLikeFetch as typeof fetch;
+    try {
+      await loginRagSystem({ baseUrl: "https://rag.example.test", username: "u", password: "p" });
+      expect(calls).toHaveLength(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("RagChatClient", () => {
@@ -167,6 +184,53 @@ describe("RagChatClient", () => {
       "https://cdn.example.test/file.txt",
       expect.objectContaining({ headers: {} }),
     );
+
+    const apiKeyFetch = vi.fn(async () => new Response("asset", { status: 200 }));
+    const apiKeyClient = createRagChatClient({
+      baseUrl: "https://rag.example.test",
+      headers: { "x-api-key": "secret" },
+      fetch: apiKeyFetch,
+    });
+    await apiKeyClient.fetchAsset("https://cdn.example.test/file.txt");
+    expect(apiKeyFetch).toHaveBeenCalledWith(
+      "https://cdn.example.test/file.txt",
+      expect.objectContaining({ headers: {} }),
+    );
+  });
+
+  it("keeps facade observables stable when subscribed before connect", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: { ticket: "ticket-1" } }), { status: 200 }));
+    const client = createRagChatClient({
+      baseUrl: "https://rag.example.test",
+      fetch: fetchMock,
+      createWebSocket: (url) => {
+        const socket = new FakeWebSocket(url, false);
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+    });
+    const events: unknown[] = [];
+    const eventsObservable = client.events;
+    eventsObservable.subscribe((event) => events.push(event.type));
+    const connecting = client.connect("s-1");
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    sockets[0]?.open();
+    await connecting;
+    sockets[0]?.onmessage?.({ data: JSON.stringify({
+      type: "run_started", session_id: "s-1", run_id: "run-1", seq: 1, payload: {},
+    }) });
+    expect(events).toEqual(["run_started"]);
+    client.disconnect();
+  });
+
+  it("preserves HeadersInit values for file downloads", async () => {
+    const fetchMock = vi.fn(async () => new Response("file", { status: 200 }));
+    const client = createRagChatClient({ baseUrl: "https://rag.example.test", fetch: fetchMock });
+    await client.downloadFile("s-1", "f-1", { headers: new Headers({ Range: "bytes=0-9" }) });
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      headers: { range: "bytes=0-9" },
+    }));
   });
 
   it("makes concurrent connect calls wait for the same socket", async () => {

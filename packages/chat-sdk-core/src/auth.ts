@@ -1,13 +1,14 @@
 import type { AuthSession } from "@ragsystem/api-contracts";
 
 import { RagChatError, RagChatHttpError } from "./errors.js";
+import { bindFetch } from "./fetch-utils.js";
 import type { RagChatLoginOptions } from "./types.js";
 
 export async function loginRagSystem(options: RagChatLoginOptions): Promise<AuthSession> {
   if (!options.username || !options.password) {
     throw new RagChatError("username 和 password 不能为空", { code: "USER_CREDENTIALS_REQUIRED" });
   }
-  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const fetchImpl = bindFetch(options.fetch ?? globalThis.fetch);
   if (typeof fetchImpl !== "function") {
     throw new RagChatError("当前环境不支持 fetch", { code: "FETCH_UNAVAILABLE" });
   }

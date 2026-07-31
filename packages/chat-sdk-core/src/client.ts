@@ -30,6 +30,7 @@ import { EventStream, ObservableValue } from "./observable.js";
 import { SessionAgentClient, type SessionConnectOptions } from "./session-client.js";
 import { RagChatError, RagChatHttpError } from "./errors.js";
 import { RagChatEventEmitter } from "./event-emitter.js";
+import { bindFetch, mergeHeaders } from "./fetch-utils.js";
 import { AguiSseClient, type AguiEvent, type AguiRunHandle, type AguiRunInput } from "./agui.js";
 import type {
   ListMessagesOptions,
@@ -94,10 +95,11 @@ export class RagChatClient {
   constructor(options: RagChatClientOptions = {}) {
     this.options = options;
     this.baseUrl = trimBaseUrl(options.baseUrl);
-    this.fetchImpl = bindFetch(options.fetch ?? globalThis.fetch);
-    if (typeof this.fetchImpl !== "function") {
+    const fetchImpl = bindFetch(options.fetch ?? globalThis.fetch);
+    if (!fetchImpl) {
       throw new RagChatError("当前环境不支持 fetch", { code: "FETCH_UNAVAILABLE" });
     }
+    this.fetchImpl = fetchImpl;
     for (const spec of options.hostTools ?? []) this.hostTools.set(spec.name, spec);
     this.delegationEnabled = this.hostTools.size > 0;
     for (const [kind, handler] of Object.entries(options.interactionHandlers ?? {})) {
@@ -129,11 +131,11 @@ export class RagChatClient {
   }
 
   get status(): Observable<ConnectionStatus> {
-    return this.sessionClient?.status ?? this.fallbackStatus;
+    return this.fallbackStatus;
   }
 
   get eventsStream(): Observable<import("@ragsystem/agent-protocol").Envelope> {
-    return this.sessionClient?.events ?? this.fallbackEvents;
+    return this.fallbackEvents;
   }
 
   get events(): Observable<import("@ragsystem/agent-protocol").Envelope> {
@@ -141,19 +143,19 @@ export class RagChatClient {
   }
 
   get executionTree(): Observable<ExecutionTree> {
-    return this.sessionClient?.executionTree ?? this.fallbackTree;
+    return this.fallbackTree;
   }
 
   get runtime(): Observable<SessionRuntimePayload> {
-    return this.sessionClient?.runtime ?? this.fallbackRuntime;
+    return this.fallbackRuntime;
   }
 
   get runStatus(): Observable<RunStatus> {
-    return this.sessionClient?.runStatus ?? this.fallbackRunStatus;
+    return this.fallbackRunStatus;
   }
 
   get pendingInteractions(): Observable<PendingInteraction[]> {
-    return this.sessionClient?.pendingInteractions ?? this.fallbackPending;
+    return this.fallbackPending;
   }
 
   get pendingInteractionIds(): string[] {
@@ -253,16 +255,27 @@ export class RagChatClient {
     const endpointOverride = configured && typeof configured === "object" ? configured.endpoint : undefined;
     const url = this.resolveEndpoint("agui", { threadId: input.threadId, body: input }, undefined, endpointOverride);
     const context: RagChatRequestContext = { kind: "agui", url, sessionId: input.threadId, body: input };
+    const trustedEndpoint = isTrustedUrl(url, this.baseUrl);
     const client = new AguiSseClient({
       endpoint: url,
       fetch: this.fetchImpl,
-      resolveHeaders: () => this.resolveHeaders(context),
+      resolveHeaders: () => this.resolveHeaders(context, trustedEndpoint),
       ...(options.onEvent ? { onEvent: (event) => {
         this.emit("agui_event", event);
         options.onEvent?.(event);
       } } : { onEvent: (event) => this.emit("agui_event", event) }),
     });
-    return client.start(input, options.signal);
+    const run = client.start(input, options.signal);
+    let unauthorizedEmitted = false;
+    const handleFailure = (error: unknown) => {
+      if (trustedEndpoint && !unauthorizedEmitted && error instanceof RagChatHttpError && error.status === 401) {
+        unauthorizedEmitted = true;
+        this.emit("unauthorized", { status: 401 });
+      }
+    };
+    void run.started.catch(handleFailure);
+    void run.completed.catch(handleFailure);
+    return run;
   }
 
   async downloadFile(sessionId: string, fileId: string, init: RequestInit = {}): Promise<Response> {
@@ -274,7 +287,7 @@ export class RagChatClient {
     const response = await this.fetchImpl(url, {
       ...init,
       method: "GET",
-      headers: { ...headers, ...init.headers },
+      headers: mergeHeaders(headers, init.headers),
     });
     if (!response.ok) {
       if (response.status === 401) this.emit("unauthorized", { status: 401 });
@@ -288,16 +301,23 @@ export class RagChatClient {
     if (!url) throw new RagChatError("资源地址不能为空", { code: "ASSET_URL_REQUIRED" });
     this.assertAlive();
     const context: RagChatRequestContext = { kind: "asset", url };
-    const headers = await this.resolveHeaders(context, isTrustedAssetUrl(url, this.baseUrl));
-    const response = await this.fetchImpl(url, { ...init, headers: { ...headers, ...init.headers } });
+    const trustedUrl = isTrustedUrl(url, this.baseUrl);
+    const headers = await this.resolveHeaders(context, trustedUrl);
+    const response = await this.fetchImpl(url, { ...init, headers: mergeHeaders(headers, init.headers) });
     if (!response.ok) {
-      if (response.status === 401) this.emit("unauthorized", { status: 401 });
+      if (trustedUrl && response.status === 401) this.emit("unauthorized", { status: 401 });
       throw new RagChatHttpError(response.status, `资源请求失败 (HTTP ${response.status})`);
     }
     return response;
   }
 
-  async connect(sessionId: string, options: SessionConnectOptions = {}): Promise<void> {
+  connect(sessionId: string, options: SessionConnectOptions = {}): Promise<void> {
+    const pending = this.connectInternal(sessionId, options);
+    void pending.catch(() => undefined);
+    return pending;
+  }
+
+  private async connectInternal(sessionId: string, options: SessionConnectOptions = {}): Promise<void> {
     this.assertAlive();
     if (!sessionId) throw new RagChatError("sessionId 不能为空", { code: "SESSION_ID_REQUIRED" });
     if (this.sessionIdValue === sessionId && this.sessionClient) {
@@ -314,7 +334,7 @@ export class RagChatClient {
       hostTools: [...this.hostTools.values()],
       ...(this.options.aguiFallback !== false ? {
         aguiFallback: (input: AguiRunInput, onEvent: (event: AguiEvent) => void) => this.startAguiRun(input, { onEvent }),
-        cancelAguiRun: (id: string) => this.cancelAguiRun(id),
+        cancelAguiRun: (id: string, runId?: string) => this.cancelAguiRun(id, runId),
       } : {}),
     });
     if (this.delegationEnabled) session.enableDelegation();
@@ -339,6 +359,10 @@ export class RagChatClient {
     this.sessionClient = null;
     this.sessionIdValue = null;
     this.interactionRequests.clear();
+    this.fallbackTree.set({ root: null, steps: [] });
+    this.fallbackRuntime.set(EMPTY_RUNTIME);
+    this.fallbackRunStatus.set({ runId: null, state: "idle" });
+    this.fallbackPending.set([]);
   }
 
   async send(options: SendOptions): Promise<SendResult> {
@@ -417,13 +441,24 @@ export class RagChatClient {
         this.emit("status", value);
       }),
       session.events.subscribe((value) => {
+        this.fallbackEvents.emit(value);
         this.emit("event", value);
         this.emit(value.type, value);
       }),
-      session.executionTree.subscribe((value) => this.emit("execution_tree", value)),
-      session.runtime.subscribe((value) => this.emit("runtime", value)),
-      session.runStatus.subscribe((value) => this.emit("run_status", value)),
+      session.executionTree.subscribe((value) => {
+        this.fallbackTree.set(value);
+        this.emit("execution_tree", value);
+      }),
+      session.runtime.subscribe((value) => {
+        this.fallbackRuntime.set(value);
+        this.emit("runtime", value);
+      }),
+      session.runStatus.subscribe((value) => {
+        this.fallbackRunStatus.set(value);
+        this.emit("run_status", value);
+      }),
       session.pendingInteractions.subscribe((value) => {
+        this.fallbackPending.set(value);
         this.emit("pending_interactions", value);
         this.handleInteractionRequests(value);
       }),
@@ -527,11 +562,16 @@ export class RagChatClient {
     return `${url}${url.includes("?") ? "&" : "?"}${query.toString()}`;
   }
 
-  private async cancelAguiRun(sessionId: string): Promise<void> {
-    await this.request("aguiCancel", { method: "POST", body: { threadId: sessionId }, context: { sessionId } });
+  private async cancelAguiRun(sessionId: string, runId?: string): Promise<void> {
+    await this.request("aguiCancel", {
+      method: "POST",
+      body: { threadId: sessionId, ...(runId ? { runId } : {}) },
+      context: { sessionId },
+    });
   }
 
   private async resolveHeaders(context: RagChatRequestContext, includeToken = true): Promise<Record<string, string>> {
+    if (!includeToken) return {};
     const token = includeToken
       ? this.options.getToken ? await this.options.getToken(context) : this.options.token
       : undefined;
@@ -540,19 +580,8 @@ export class RagChatClient {
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(dynamic ?? {}),
     };
-    if (!includeToken) {
-      for (const name of Object.keys(headers)) {
-        if (name.toLowerCase() === "authorization") delete headers[name];
-      }
-    }
     return headers;
   }
-}
-
-function bindFetch(fetchImpl: typeof fetch): typeof fetch {
-  // Browser fetch is a Web IDL method and rejects calls without Window as its
-  // receiver. Keep injected test/custom fetch implementations untouched.
-  return fetchImpl === globalThis.fetch ? fetchImpl.bind(globalThis) : fetchImpl;
 }
 
 export function createRagChatClient(options: RagChatClientOptions = {}): RagChatClient {
@@ -591,7 +620,7 @@ function trimBaseUrl(value = ""): string {
   return String(value).replace(/\/+$/, "");
 }
 
-function isTrustedAssetUrl(assetUrl: string, baseUrl: string): boolean {
+function isTrustedUrl(assetUrl: string, baseUrl: string): boolean {
   const runtimeOrigin = globalThis.location?.origin;
   const resolutionBase = runtimeOrigin || (/^https?:\/\//i.test(baseUrl) ? baseUrl : undefined);
   try {

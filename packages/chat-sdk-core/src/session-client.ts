@@ -63,11 +63,12 @@ export interface SessionAgentClientOptions {
   /** Start an AG-UI SSE run only when WS is not ready. */
   aguiFallback?: (input: AguiRunInput, onEvent: (event: AguiEvent) => void) => AguiRunHandle;
   /** Best-effort server-side cancellation for an active AG-UI fallback run. */
-  cancelAguiRun?: (sessionId: string) => Promise<void>;
+  cancelAguiRun?: (sessionId: string, runId?: string) => Promise<void>;
 }
 
 /** Session connection controls for hosts that loaded a durable message watermark first. */
-export interface SessionConnectOptions extends Partial<ConnectOptions> {
+export interface SessionConnectOptions {
+  afterEventSeq?: number;
   historySnapshot?: boolean;
 }
 
@@ -92,6 +93,7 @@ export class SessionAgentClient implements AgentClient {
 
   private transport: ChatWebSocketTransport | null = null;
   private connectPromise: Promise<void> | null = null;
+  private pendingConnectOptionsKey: string | null = null;
   private execState = createExecutionTreeState();
   private cursor: number | null = null;
   private historySnapshotPending = false;
@@ -118,6 +120,7 @@ export class SessionAgentClient implements AgentClient {
     string,
     { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
   >();
+  private readonly interactionAckQuarantine = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly runtimeWaiters = new Set<RuntimeWaiter>();
   private hasRuntimeSnapshot = false;
 
@@ -125,6 +128,20 @@ export class SessionAgentClient implements AgentClient {
   private readonly hostTools = new Map<string, HostToolEntry>();
   private readonly toolCallHandlers = new Set<ToolCallHandler>();
   private aguiRun: AguiRunHandle | null = null;
+  private aguiCancelPromise: Promise<void> | null = null;
+  private readonly aguiInterrupts = new Map<string, {
+    runId: string;
+    kind: "approval" | "user_input";
+    toolCallId?: string;
+    toolName?: string;
+    arguments?: unknown;
+    prompt?: string;
+  }>();
+  private readonly aguiPendingInteractions = new Map<string, PendingInteraction>();
+  private readonly aguiToolArgs = new Map<string, string>();
+  private readonly aguiToolNames = new Map<string, string>();
+  private readonly sequenceOwners = new Map<number, "ws" | "agui">();
+  private readonly seenAguiEvents = new Set<string>();
 
   constructor(options: SessionAgentClientOptions) {
     this.baseUrl = options.baseUrl;
@@ -154,22 +171,36 @@ export class SessionAgentClient implements AgentClient {
    * 建立连接。每次先通过 HTTP 签发 ticket，再构造 WS URL；
    * 仍保留可选参数以忠实实现 AgentClient 契约，按契约写 connect({...}) 的消费者不会被静默破坏。
    */
-  connect(options?: SessionConnectOptions): Promise<void> {
-    if (options?.afterEventSeq !== undefined) {
-      this.cursor = options.afterEventSeq;
-    }
-    if (options?.historySnapshot) {
-      this.historySnapshotPending = true;
-    }
+  connect(options: SessionConnectOptions = {}): Promise<void> {
+    const optionsKey = JSON.stringify({
+      afterEventSeq: options.afterEventSeq ?? null,
+      historySnapshot: options.historySnapshot === true,
+    });
     if (this.statusValue.get().state === "connected") {
-      return Promise.resolve();
+      if (options.afterEventSeq !== undefined || options.historySnapshot) {
+        this.disconnect();
+      } else {
+        return Promise.resolve();
+      }
     }
     if (this.connectPromise) {
+      if (this.pendingConnectOptionsKey !== optionsKey) {
+        const rejected = Promise.reject(new Error("连接正在建立，不能应用不同的连接选项"));
+        void rejected.catch(() => undefined);
+        return rejected;
+      }
       return this.connectPromise;
+    }
+    if (options.afterEventSeq !== undefined) {
+      this.cursor = options.afterEventSeq;
+    }
+    if (options.historySnapshot) {
+      this.historySnapshotPending = true;
     }
     if (!this.transport) {
       this.transport = new ChatWebSocketTransport({
         resolveUrl: () => this.buildUrl(this.cursor, this.historySnapshotPending),
+        initialCursor: this.cursor,
         sessionId: this.sessionId,
         ...(this.reconnectPolicy ? { reconnect: this.reconnectPolicy } : {}),
         ...(this.createWebSocket ? { createWebSocket: this.createWebSocket } : {}),
@@ -186,7 +217,7 @@ export class SessionAgentClient implements AgentClient {
               this.onConnected();
             }
           },
-          onEnvelope: (env) => this.handleEnvelope(env),
+          onEnvelope: (env) => this.handleEnvelope(env, "ws"),
         },
       });
       this.transport.connect();
@@ -196,6 +227,7 @@ export class SessionAgentClient implements AgentClient {
 
     const pending = this.waitForConnected();
     this.connectPromise = pending;
+    this.pendingConnectOptionsKey = optionsKey;
     // Hosts may intentionally start a connection in the background and switch
     // sessions before it settles. Keep the returned Promise rejectable for
     // awaited callers, while preventing an abandoned attempt from becoming a
@@ -203,14 +235,30 @@ export class SessionAgentClient implements AgentClient {
     void pending.catch(() => undefined);
     const clearPending = () => {
       if (this.connectPromise === pending) this.connectPromise = null;
+      if (this.pendingConnectOptionsKey === optionsKey) this.pendingConnectOptionsKey = null;
     };
     pending.then(clearPending, clearPending);
     return pending;
   }
 
   disconnect(): void {
+    this.connectPromise = null;
+    this.pendingConnectOptionsKey = null;
+    const cancelRunId = this.runStatusValue.get().runId;
+    const hadAguiRun = Boolean(this.aguiRun) || this.aguiInterrupts.size > 0;
     this.aguiRun?.abort("session disconnect");
     this.aguiRun = null;
+    if (hadAguiRun && this.cancelAguiRun && !this.aguiCancelPromise) {
+      const cancellation = this.cancelAguiRun(this.sessionId, cancelRunId ?? undefined).catch(() => undefined);
+      this.aguiCancelPromise = cancellation;
+      void cancellation.finally(() => {
+        if (this.aguiCancelPromise === cancellation) this.aguiCancelPromise = null;
+      });
+    }
+    this.aguiInterrupts.clear();
+    this.aguiPendingInteractions.clear();
+    this.aguiToolArgs.clear();
+    this.aguiToolNames.clear();
     if (this.transport) {
       this.transport.disconnect();
     } else {
@@ -232,6 +280,8 @@ export class SessionAgentClient implements AgentClient {
       pending.reject(new Error("连接已断开"));
     }
     this.pendingInteractionAcks.clear();
+    for (const timer of this.interactionAckQuarantine.values()) clearTimeout(timer);
+    this.interactionAckQuarantine.clear();
   }
 
   get status(): Observable<ConnectionStatus> {
@@ -275,23 +325,28 @@ export class SessionAgentClient implements AgentClient {
    */
   async send(options: SendOptions): Promise<SendResult> {
     const requestId = options.requestId ?? generateRequestId();
+    if (this.aguiRun || this.aguiInterrupts.size > 0) {
+      return { started: false, requestId, error: "已有 AG-UI run 正在执行或等待交互" };
+    }
+    if (this.aguiCancelPromise) await this.aguiCancelPromise;
     // 未连接（连接中/重连中/已断开）：字节发不出去，直接判失败，UI 不切 running。
     if (this.statusValue.get().state !== "connected") {
       if (this.aguiFallback) {
         try {
+          if (this.aguiCancelPromise) await this.aguiCancelPromise;
+          if (this.aguiRun || this.aguiInterrupts.size > 0) {
+            return { started: false, requestId, error: "已有 AG-UI run 正在执行或等待交互" };
+          }
           const input: AguiRunInput = {
             threadId: this.sessionId,
             runId: requestId,
             messages: [{ role: "user", content: options.task }],
             ...(options.attachments?.length ? { attachments: options.attachments.map(({ file_id }) => ({ file_id })) } : {}),
             ...(options.selectedLlm ? { selectedLlm: options.selectedLlm } : {}),
+            ...(options.uiContext ? { forwardedProps: { uiContext: options.uiContext } } : {}),
+            ...(this.hostTools.size > 0 ? { tools: this.aguiToolDeclarations() } : {}),
           };
-          const run = this.aguiFallback(input, (event) => this.handleAguiEvent(event));
-          this.aguiRun = run;
-          void run.completed.then(
-            () => this.clearAguiRun(run),
-            () => this.clearAguiRun(run),
-          );
+          const run = this.startAguiSegment(input);
           const started = await run.started;
           return { started: true, kind: "agent_run", requestId, ...(started.runId ? { runId: started.runId } : {}) };
         } catch (error) {
@@ -348,20 +403,35 @@ export class SessionAgentClient implements AgentClient {
       && this.hasRuntimeSnapshot
       && this.runtimeValue.get().allowed_actions.includes("stop_run")) {
       this.transport?.send(encodeStop(this.sessionId));
-    } else if (this.aguiRun) {
+    } else if (this.aguiRun || this.aguiInterrupts.size > 0) {
       const run = this.aguiRun;
+      const cancelRunId = this.runStatusValue.get().runId;
       this.aguiRun = null;
-      run.abort("run stopped");
+      run?.abort("run stopped");
+      this.aguiInterrupts.clear();
+      this.aguiPendingInteractions.clear();
+      this.pendingValue.set([]);
+      this.runStatusValue.set({ runId: null, state: "idle" });
       if (this.cancelAguiRun) {
-        void this.cancelAguiRun(this.sessionId).catch(() => {
-          // The local abort already stopped delivery; cancellation is best effort.
+        const cancellation = this.cancelAguiRun(this.sessionId, cancelRunId ?? undefined)
+          .catch(() => {
+            // The local abort already stopped delivery; cancellation is best effort.
+          });
+        this.aguiCancelPromise = cancellation;
+        void cancellation.finally(() => {
+          if (this.aguiCancelPromise === cancellation) this.aguiCancelPromise = null;
         });
       }
     }
   }
 
   async respondInteraction(interactionId: string, response: InteractionResponse): Promise<void> {
-    if (this.statusValue.get().state !== "connected") throw new Error("连接未就绪");
+    if (this.statusValue.get().state !== "connected") {
+      const interrupt = this.aguiInterrupts.get(interactionId);
+      if (!interrupt) throw new Error("连接未就绪");
+      await this.resumeAguiInterrupt(interactionId, response);
+      return;
+    }
     const runtime = await this.waitForRuntimeSnapshot();
     if (!runtime.allowed_actions.includes("respond_interaction")) {
       throw new Error("当前 Session runtime 不允许响应交互");
@@ -489,7 +559,24 @@ export class SessionAgentClient implements AgentClient {
     this.transport?.send(encodeToolsRegister(this.sessionId, tools));
   }
 
-  private handleEnvelope(env: Envelope): void {
+  private handleEnvelope(env: Envelope, source: "ws" | "agui" = "ws"): void {
+    if (source === "ws" && this.aguiRun) {
+      // AG-UI owns delivery while its SSE segment is active. The WS socket
+      // may recover in parallel, but must not project the same session run.
+      return;
+    }
+    const eventSeq = typeof env.seq === "number" ? env.seq : null;
+    if (eventSeq !== null) {
+      const owner = this.sequenceOwners.get(eventSeq);
+      if (source === "ws" && owner === "agui") return;
+      if (source === "agui" && owner === "ws") return;
+      this.sequenceOwners.set(eventSeq, source);
+      while (this.sequenceOwners.size > 512) {
+        const oldest = this.sequenceOwners.keys().next().value as number | undefined;
+        if (oldest === undefined) break;
+        this.sequenceOwners.delete(oldest);
+      }
+    }
     // ack 控制帧：不进投影；send ack 决议 pending send。
     if (env.type === "ack") {
       this.handleAck(env);
@@ -515,22 +602,207 @@ export class SessionAgentClient implements AgentClient {
         this.historySnapshotPending = false;
       }
     }
-    this.eventsValue.emit(env);
     applyEnvelope(this.execState, env);
     this.treeValue.set(getExecutionTree(this.execState));
     const cursor = extractCursor(env);
     if (cursor !== null) {
-      this.cursor = cursor;
+      this.cursor = Math.max(this.cursor ?? 0, cursor);
+      this.transport?.syncCursor(this.cursor);
     }
+    this.eventsValue.emit(env);
   }
 
   private handleAguiEvent(event: AguiEvent): void {
-    const envelope = aguiEventToEnvelope(event, this.sessionId);
-    if (envelope) this.handleEnvelope(envelope);
+    const eventSeq = typeof event.eventSeq === "number" ? event.eventSeq : null;
+    const eventKey = eventSeq === null
+      ? `${event.type}:${String(event.runId ?? "")}:${String(event.toolCallId ?? event.messageId ?? "")}`
+      : `${eventSeq}:${event.type}:${String(event.toolCallId ?? event.messageId ?? "")}`;
+    if (this.seenAguiEvents.has(eventKey)) return;
+    this.seenAguiEvents.add(eventKey);
+    if (this.seenAguiEvents.size > 1024) {
+      const oldest = this.seenAguiEvents.values().next().value as string | undefined;
+      if (oldest) this.seenAguiEvents.delete(oldest);
+    }
+    if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") {
+      // The SSE segment has reached its terminal boundary. A resume request
+      // may be started from the event callback before completed settles.
+      this.aguiRun = null;
+    }
+    if (event.type === "TOOL_CALL_START" && typeof event.toolCallId === "string") {
+      if (typeof event.toolCallName === "string") this.aguiToolNames.set(event.toolCallId, event.toolCallName);
+      this.aguiToolArgs.set(event.toolCallId, "");
+    } else if (event.type === "TOOL_CALL_ARGS" && typeof event.toolCallId === "string") {
+      this.aguiToolArgs.set(event.toolCallId, (this.aguiToolArgs.get(event.toolCallId) ?? "") + (typeof event.delta === "string" ? event.delta : ""));
+    }
+    const envelope = aguiEventToEnvelope(event, this.sessionId, this.aguiToolArgs, this.aguiToolNames);
+    if (envelope) this.handleEnvelope(envelope, "agui");
+    if (event.type === "RUN_STARTED") {
+      this.runStatusValue.set({ runId: event.runId ?? null, state: "running" });
+    } else if (event.type === "RUN_FINISHED") {
+      const outcome = event.outcome && typeof event.outcome === "object" && !Array.isArray(event.outcome)
+        ? event.outcome as { type?: unknown; interrupts?: unknown[] }
+        : undefined;
+      if (outcome?.type === "interrupt") {
+        this.captureAguiInterrupts(event, outcome.interrupts);
+        this.runStatusValue.set({ runId: event.runId ?? null, state: "interrupted" });
+      } else {
+        this.runStatusValue.set({ runId: event.runId ?? null, state: "completed" });
+      }
+    } else if (event.type === "RUN_ERROR") {
+      this.runStatusValue.set({ runId: event.runId ?? null, state: "failed" });
+      this.handleEnvelope({
+        type: "run_ended",
+        session_id: this.sessionId,
+        ...(event.runId ? { run_id: event.runId } : {}),
+        ...(event.eventSeq !== undefined ? { seq: event.eventSeq } : {}),
+        payload: { status: "failed", error: event.message },
+      } as Envelope, "agui");
+    }
   }
 
   private clearAguiRun(run: AguiRunHandle): void {
     if (this.aguiRun === run) this.aguiRun = null;
+  }
+
+  private startAguiSegment(input: AguiRunInput): AguiRunHandle {
+    if (!this.aguiFallback) throw new Error("AG-UI fallback 未配置");
+    const run = this.aguiFallback(input, (event) => this.handleAguiEvent(event));
+    this.aguiRun = run;
+    void run.completed.then(
+      () => this.clearAguiRun(run),
+      (error: unknown) => {
+        this.clearAguiRun(run);
+        this.runStatusValue.set({ runId: input.runId ?? null, state: "failed" });
+        this.eventsValue.emit({
+          type: "error",
+          session_id: this.sessionId,
+          ...(input.runId ? { run_id: input.runId } : {}),
+          payload: { code: "agui_stream_failed", message: error instanceof Error ? error.message : String(error) },
+        } as Envelope);
+      },
+    );
+    return run;
+  }
+
+  private aguiToolDeclarations(): NonNullable<AguiRunInput["tools"]> {
+    return [...this.hostTools.values()].map(({ spec }) => ({
+      name: spec.name,
+      description: spec.description,
+      parameters: spec.inputSchema,
+      ...(spec.riskLevel ? { riskLevel: spec.riskLevel } : {}),
+    }));
+  }
+
+  private captureAguiInterrupts(event: AguiEvent, rawInterrupts: unknown): void {
+    if (!Array.isArray(rawInterrupts)) return;
+    const pending: PendingInteraction[] = [];
+    const delegated: Array<{ id: string; toolName?: string; arguments?: unknown }> = [];
+    for (const raw of rawInterrupts) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const interrupt = raw as Record<string, unknown>;
+      const id = typeof interrupt.id === "string" ? interrupt.id : "";
+      if (!id) continue;
+      const reason = interrupt.reason === "input_required" ? "user_input" : "approval";
+      const metadata = interrupt.metadata && typeof interrupt.metadata === "object" && !Array.isArray(interrupt.metadata)
+        ? interrupt.metadata as Record<string, unknown>
+        : {};
+      const toolCallId = typeof interrupt.toolCallId === "string" ? interrupt.toolCallId : undefined;
+      const toolName = typeof metadata.toolName === "string" ? metadata.toolName : undefined;
+      const argumentsValue = metadata.arguments;
+      this.aguiInterrupts.set(id, {
+        runId: event.runId ?? `agui-${Date.now()}`,
+        kind: reason,
+        ...(toolCallId ? { toolCallId } : {}),
+        ...(toolName ? { toolName } : {}),
+        ...(argumentsValue !== undefined ? { arguments: argumentsValue } : {}),
+        ...(typeof interrupt.message === "string" ? { prompt: interrupt.message } : {}),
+      });
+      const item: PendingInteraction = {
+        interactionId: id,
+        kind: reason,
+        status: "suspended",
+        runId: event.runId ?? id,
+        rootRunId: event.runId ?? id,
+        batchId: id,
+        ...(toolName ? { toolName } : {}),
+        ...(argumentsValue !== undefined ? { arguments: argumentsValue } : {}),
+        ...(typeof interrupt.message === "string" ? { prompt: interrupt.message } : {}),
+        receivedAt: Date.now(),
+      };
+      const delegatedTool = reason === "approval" && toolName && this.hostTools.has(toolName);
+      if (!delegatedTool) {
+        this.aguiPendingInteractions.set(id, item);
+        pending.push(item);
+      } else {
+        delegated.push({ id, ...(toolName ? { toolName } : {}), ...(argumentsValue !== undefined ? { arguments: argumentsValue } : {}) });
+      }
+    }
+    if (pending.length > 0) {
+      this.pendingValue.set([
+        ...this.pendingValue.get().filter((item) => !this.aguiPendingInteractions.has(item.interactionId)),
+        ...this.aguiPendingInteractions.values(),
+      ]);
+    }
+    for (const item of delegated) {
+      void this.executeAguiToolInterrupt(item.id, item);
+    }
+  }
+
+  private async executeAguiToolInterrupt(
+    interactionId: string,
+    interrupt: { toolName?: string; arguments?: unknown },
+  ): Promise<void> {
+    const tool = interrupt.toolName ? this.hostTools.get(interrupt.toolName) : undefined;
+    if (!tool) return;
+    try {
+      const handler = [...this.toolCallHandlers][0];
+      const result = handler
+        ? await handler({ callId: interactionId, toolName: interrupt.toolName ?? tool.spec.name, arguments: interrupt.arguments, runId: null })
+        : await tool.spec.execute(interrupt.arguments, {
+          callId: interactionId,
+          signal: new AbortController().signal,
+          sessionId: this.sessionId,
+          runId: null,
+        });
+      await this.resumeAguiInterruptWithPayload(interactionId, result);
+    } catch (error) {
+      await this.resumeAguiInterruptWithPayload(interactionId, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }).catch(() => undefined);
+    }
+  }
+
+  private async resumeAguiInterrupt(interactionId: string, response: InteractionResponse): Promise<void> {
+    const payload = response.kind === "user_input"
+      ? { value: response.value ?? "" }
+      : { approved: response.approved ?? false, ...(response.message ? { message: response.message } : {}) };
+    await this.resumeAguiInterruptWithPayload(interactionId, payload);
+  }
+
+  private async resumeAguiInterruptWithPayload(interactionId: string, payload: unknown): Promise<void> {
+    const interrupt = this.aguiInterrupts.get(interactionId);
+    if (!interrupt || !this.aguiFallback) throw new Error("AG-UI 交互已失效");
+    const pending = this.aguiPendingInteractions.get(interactionId);
+    this.aguiInterrupts.delete(interactionId);
+    this.aguiPendingInteractions.delete(interactionId);
+    this.pendingValue.set([...this.pendingValue.get().filter((item) => item.interactionId !== interactionId)]);
+    try {
+      const run = this.startAguiSegment({
+        threadId: this.sessionId,
+        runId: generateRequestId(),
+        resume: [{ interruptId: interactionId, status: "resolved", payload }],
+        ...(this.hostTools.size > 0 ? { tools: this.aguiToolDeclarations() } : {}),
+      });
+      await run.started;
+    } catch (error) {
+      if (pending) {
+        this.aguiInterrupts.set(interactionId, interrupt);
+        this.aguiPendingInteractions.set(interactionId, pending);
+        this.pendingValue.set([...this.pendingValue.get(), pending]);
+      }
+      throw error;
+    }
   }
 
   private handleAck(env: Envelope): void {
@@ -563,6 +835,7 @@ export class SessionAgentClient implements AgentClient {
       if (!pending) return;
       clearTimeout(pending.timer);
       this.pendingInteractionAcks.delete(payload.ref_call_id);
+      this.clearInteractionAckQuarantine(payload.ref_call_id);
       if (payload.ok) pending.resolve();
       else pending.reject(new Error(payload.error || "交互提交失败"));
       return;
@@ -592,25 +865,32 @@ export class SessionAgentClient implements AgentClient {
       return false;
     }
     const entry = this.hostTools.get(toolName);
-    if (!entry) {
+    const handler = [...this.toolCallHandlers][0];
+    if (!entry && !handler) {
       this.transport?.send(encodeDelegateResult(this.sessionId, callId, {
         ok: false,
         error: `未注册的宿主工具：${toolName}`,
       }));
       return true;
     }
-    const spec = entry.spec;
     const started = Date.now();
     // abort 是协作式：宿主工具需主动检查 signal 才会响应超时；忽略则超时无效（JS 协作式中止固有限制）。
     // cancelToolCall 一期为 no-op，故 signal 当前仅做 60s 超时，不接外部取消。
     const signal = AbortSignal.timeout(60_000);
     void Promise.resolve()
-      .then(() => spec.execute(payload.input, {
-        callId,
-        signal,
-        sessionId: this.sessionId,
-        runId: typeof env.run_id === "string" ? env.run_id : null,
-      }))
+      .then(() => handler
+        ? handler({
+          callId,
+          toolName,
+          arguments: payload.input,
+          runId: typeof env.run_id === "string" ? env.run_id : null,
+        })
+        : entry!.spec.execute(payload.input, {
+          callId,
+          signal,
+          sessionId: this.sessionId,
+          runId: typeof env.run_id === "string" ? env.run_id : null,
+        }))
       .then((result: ToolResult) => {
         this.transport?.send(encodeDelegateResult(this.sessionId, callId, {
           ok: result.ok,
@@ -639,7 +919,7 @@ export class SessionAgentClient implements AgentClient {
       : last
         ? { runId: last.run_id, state: last.status, finishedAt: last.finished_at }
         : { runId: null, state: snapshot.state });
-    this.pendingValue.set(snapshot.pending_interactions.map((item) => {
+    const runtimePending = snapshot.pending_interactions.map((item) => {
       const prompt = item.payload.prompt ?? item.payload.message;
       return {
         interactionId: item.interaction_id,
@@ -654,7 +934,11 @@ export class SessionAgentClient implements AgentClient {
         ...(prompt !== undefined ? { prompt } : {}),
         receivedAt: Date.parse(item.requested_at) || Date.now(),
       };
-    }));
+    });
+    const mergedPending = new Map<string, PendingInteraction>();
+    for (const item of runtimePending) mergedPending.set(item.interactionId, item as PendingInteraction);
+    for (const item of this.aguiPendingInteractions.values()) mergedPending.set(item.interactionId, item);
+    this.pendingValue.set([...mergedPending.values()]);
     for (const waiter of this.runtimeWaiters) {
       clearTimeout(waiter.timer);
       waiter.resolve(snapshot);
@@ -708,6 +992,9 @@ export class SessionAgentClient implements AgentClient {
   }
 
   private waitForInteractionAck(interactionId: string, timeoutMs = 8_000): Promise<void> {
+    if (this.interactionAckQuarantine.has(interactionId)) {
+      return Promise.reject(new Error("上一次交互提交仍在等待迟到确认，请稍后重试"));
+    }
     const current = this.pendingInteractionAcks.get(interactionId);
     if (current) {
       clearTimeout(current.timer);
@@ -717,10 +1004,21 @@ export class SessionAgentClient implements AgentClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingInteractionAcks.delete(interactionId);
+        const quarantineTimer = setTimeout(() => {
+          this.interactionAckQuarantine.delete(interactionId);
+        }, timeoutMs);
+        this.interactionAckQuarantine.set(interactionId, quarantineTimer);
         reject(new Error("交互提交确认超时"));
       }, timeoutMs);
       this.pendingInteractionAcks.set(interactionId, { resolve, reject, timer });
     });
+  }
+
+  private clearInteractionAckQuarantine(interactionId: string): void {
+    const timer = this.interactionAckQuarantine.get(interactionId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.interactionAckQuarantine.delete(interactionId);
   }
 }
 
@@ -745,7 +1043,12 @@ function generateRequestId(): string {
   return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function aguiEventToEnvelope(event: AguiEvent, sessionId: string): Envelope | null {
+function aguiEventToEnvelope(
+  event: AguiEvent,
+  sessionId: string,
+  toolArgs = new Map<string, string>(),
+  toolNames = new Map<string, string>(),
+): Envelope | null {
   const base = {
     session_id: typeof event.threadId === "string" && event.threadId ? event.threadId : sessionId,
     ...(typeof event.runId === "string" && event.runId ? { run_id: event.runId } : {}),
@@ -768,9 +1071,27 @@ function aguiEventToEnvelope(event: AguiEvent, sessionId: string): Envelope | nu
         payload: {
           phase: "start",
           tool: typeof event.toolCallName === "string" ? event.toolCallName : "tool",
-          input: {},
+          ...(event.input !== undefined ? { input: event.input } : {}),
         },
       } as Envelope;
+    case "TOOL_CALL_END": {
+      const callId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
+      const rawArgs = callId ? toolArgs.get(callId) : undefined;
+      let input: unknown = {};
+      if (rawArgs) {
+        try { input = JSON.parse(rawArgs) as unknown; } catch { input = rawArgs; }
+      }
+      return {
+        type: "tool_call",
+        ...base,
+        ...(callId ? { call_id: callId } : {}),
+        payload: {
+          phase: "start",
+          tool: callId ? (toolNames.get(callId) ?? "tool") : "tool",
+          input,
+        },
+      } as Envelope;
+    }
     case "TOOL_CALL_RESULT":
       return {
         type: "tool_result",
@@ -778,7 +1099,9 @@ function aguiEventToEnvelope(event: AguiEvent, sessionId: string): Envelope | nu
         call_id: typeof event.toolCallId === "string" ? event.toolCallId : undefined,
         payload: {
           phase: "end",
-          tool: "tool",
+          tool: typeof event.toolCallName === "string"
+            ? event.toolCallName
+            : (typeof event.toolCallId === "string" ? (toolNames.get(event.toolCallId) ?? "tool") : "tool"),
           ok: true,
           observation: typeof event.content === "string" ? event.content : "",
         },

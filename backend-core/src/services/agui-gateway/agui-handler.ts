@@ -350,6 +350,10 @@ export class AguiGateway {
         session_id: threadId,
         userId: this.userId,
         attachments: input.attachments ?? [],
+        ...(input.forwardedProps?.uiContext && typeof input.forwardedProps.uiContext === "object"
+          && !Array.isArray(input.forwardedProps.uiContext)
+          ? { ui_context: input.forwardedProps.uiContext as Record<string, unknown> }
+          : {}),
         ...(input.selectedLlm ? { selected_llm: input.selectedLlm } : {}),
       },
       externalRunId,

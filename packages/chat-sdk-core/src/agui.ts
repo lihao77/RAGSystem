@@ -98,7 +98,12 @@ export class AguiSseClient {
       if (signal) signal.removeEventListener("abort", abortFromCaller);
     };
     const receive = (event: AguiEvent) => {
-      this.options.onEvent?.(event);
+      try {
+        this.options.onEvent?.(event);
+      } catch (error) {
+        if (typeof globalThis.reportError === "function") globalThis.reportError(error);
+        else console.error("AG-UI event listener failed", error);
+      }
       if (event.type === "RUN_STARTED" && !started) {
         started = true;
         resolveStarted(event);
@@ -107,7 +112,13 @@ export class AguiSseClient {
     };
 
     void this.consume(input, controller.signal, receive)
-      .then(() => finish(null))
+      .then(() => {
+        if (finished) return;
+        const error = started ? new Error("AG-UI SSE 在终态事件前结束") : new Error("AG-UI run 未启动");
+        if (!started) rejectStarted(error);
+        rejectCompleted(error);
+        if (signal) signal.removeEventListener("abort", abortFromCaller);
+      })
       .catch((error: unknown) => {
         const normalized = error instanceof Error ? error : new Error(String(error));
         if (!started) rejectStarted(normalized);

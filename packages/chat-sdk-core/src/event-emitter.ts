@@ -21,7 +21,14 @@ export class RagChatEventEmitter {
   }
 
   emit(type: string, payload: unknown): void {
-    for (const listener of [...(this.listeners.get(type) ?? [])]) listener(payload);
+    for (const listener of [...(this.listeners.get(type) ?? [])]) {
+      try {
+        listener(payload);
+      } catch (error) {
+        if (typeof globalThis.reportError === "function") globalThis.reportError(error);
+        else console.error(`RagChat ${type} listener failed`, error);
+      }
+    }
   }
 
   clear(): void {
