@@ -278,41 +278,49 @@ def build_footprint_artifact(
         [west, south],
     ]
     return {
-        "viz_type": "ocean-map",
-        "sub_type": "dataset-footprint",
+        "schema_version": 2,
+        "kind": "map.geojson",
+        "subtype": "dataset-footprint",
         "title": f"{filename} 数据覆盖范围",
-        "config": {
-            "map_type": "geojson",
-            "bounds": [[south, west], [north, east]],
-            "geojson": {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "geometry": {"type": "Polygon", "coordinates": [ring]},
-                        "properties": {
-                            "name": filename,
-                            "longitude_coordinate": longitude_name,
-                            "latitude_coordinate": latitude_name,
-                            "west": west,
-                            "east": east,
-                            "south": south,
-                            "north": north,
-                            "coordinate_west": coordinate_west,
-                            "coordinate_east": coordinate_east,
-                            "coordinate_south": coordinate_south,
-                            "coordinate_north": coordinate_north,
-                        },
-                    }
-                ],
+        "assets": [],
+        "presentations": [{
+            "presentation_id": "map",
+            "surface": "map",
+            "renderer": "map.geojson",
+            "assets": {},
+            "config": {
+                "map_type": "geojson",
+                "bounds": [[south, west], [north, east]],
+                "geojson": {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {
+                            "type": "Feature",
+                            "geometry": {"type": "Polygon", "coordinates": [ring]},
+                            "properties": {
+                                "name": filename,
+                                "longitude_coordinate": longitude_name,
+                                "latitude_coordinate": latitude_name,
+                                "west": west,
+                                "east": east,
+                                "south": south,
+                                "north": north,
+                                "coordinate_west": coordinate_west,
+                                "coordinate_east": coordinate_east,
+                                "coordinate_south": coordinate_south,
+                                "coordinate_north": coordinate_north,
+                            },
+                        }
+                    ],
+                },
+                "style": {
+                    "fill_color": "#0891b2",
+                    "fill_opacity": 0.18,
+                    "line_color": "#0e7490",
+                    "line_width": 2,
+                },
             },
-            "style": {
-                "fill_color": "#0891b2",
-                "fill_opacity": 0.18,
-                "line_color": "#0e7490",
-                "line_width": 2,
-            },
-        },
+        }],
     }
 
 

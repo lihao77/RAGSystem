@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import io
 import json
 import math
+import os
 import re
 import sys
 from pathlib import Path
@@ -242,13 +242,19 @@ def colorize_raster(raster_values: Any, minimum: float, maximum: float, np: Any)
     return rgba
 
 
-def json_matrix(values: Any, np: Any) -> list[list[float | None]]:
-    return [[float(value) if np.isfinite(value) else None for value in row] for row in values]
-
-
 def safe_asset_name(variable_name: str) -> str:
     stem = re.sub(r"[^A-Za-z0-9._-]+", "-", variable_name).strip("-._") or "variable"
     return f"{stem[:80]}-raster.png"
+
+
+def stage_png(png_bytes: bytes, variable_name: str) -> str:
+    output_directory = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
+    if not output_directory:
+        raise ValueError("render_nc.py 需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
+    output_path = Path(output_directory).resolve() / safe_asset_name(variable_name)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(png_bytes)
+    return output_path.name
 
 
 def render(file_path: Path, args: argparse.Namespace, Dataset: Any, Image: Any, np: Any) -> dict[str, Any]:
@@ -312,7 +318,7 @@ def render(file_path: Path, args: argparse.Namespace, Dataset: Any, Image: Any, 
         rgba = colorize_raster(raster_values, minimum, maximum, np)
         png_buffer = io.BytesIO()
         Image.fromarray(rgba).save(png_buffer, format="PNG", optimize=True)
-        png_base64 = base64.b64encode(png_buffer.getvalue()).decode("ascii")
+        staged_filename = stage_png(png_buffer.getvalue(), args.variable)
         units = attribute_text(variable, "units")
         long_name = attribute_text(variable, "long_name") or args.variable
         title = f"{long_name} 分布"
@@ -370,20 +376,29 @@ def render(file_path: Path, args: argparse.Namespace, Dataset: Any, Image: Any, 
                     "orientation": "north-up-west-left",
                     "projection": "EPSG:3857",
                     "resampling": "nearest",
-                    "values": json_matrix(raster_values, np),
-                    "valid_counts": valid_counts.tolist(),
+                    "bounds": bounds,
+                    "nodata": None,
                 },
             },
             "artifact": {
-                "viz_type": "ocean-map",
-                "sub_type": "raster",
+                "schema_version": 2,
+                "kind": "map.raster",
+                "subtype": "nc.raster",
                 "title": title,
-                "config": config,
-                "asset": {
-                    "data_base64": png_base64,
-                    "mime_type": "image/png",
-                    "filename": safe_asset_name(args.variable),
-                },
+                "assets": [{
+                    "asset_id": "preview",
+                    "role": "preview",
+                    "filename": staged_filename,
+                    "media_type": "image/png",
+                    "staged_file": staged_filename,
+                }],
+                "presentations": [{
+                    "presentation_id": "map",
+                    "surface": "map",
+                    "renderer": "map.raster-image",
+                    "assets": {"image": "preview"},
+                    "config": config,
+                }],
             },
         }
 
