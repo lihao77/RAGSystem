@@ -3,6 +3,8 @@ import { createRagChatClient } from '@ragsystem/chat-sdk-core';
 import { useAuthStore } from '../stores/auth.js';
 import { getHostTool, getHostToolDeclarations } from '../utils/hostTools.js';
 
+let sharedClient = null;
+
 /**
  * Frontend-owned SDK factory. The SDK owns transport/protocol details; the
  * caller still owns Pinia state, message projection and UI interaction.
@@ -40,4 +42,15 @@ export function createFrontendChatSdk(options = {}) {
     }
   });
   return client;
+}
+
+/** Shared browser client used by the shell and chat view. */
+export function getFrontendChatSdk(options = {}) {
+  if (!sharedClient) sharedClient = createFrontendChatSdk(options);
+  return sharedClient;
+}
+
+export function destroyFrontendChatSdk() {
+  sharedClient?.destroy();
+  sharedClient = null;
 }

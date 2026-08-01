@@ -98,7 +98,7 @@
             <template #footerMeta>
               <div class="composer-run-controls" role="group" aria-label="本次发送设置">
                 <LLMSelector presentation="composer" />
-                <PermissionModeSelector v-if="currentSessionId" :session-id="currentSessionId" />
+                <PermissionModeSelector v-if="currentSessionId" :session-id="currentSessionId" :chat-sdk-client="chatSdkClient" />
               </div>
             </template>
             <template #rightActions>
@@ -161,6 +161,7 @@
       :visible="ctxDrawerVisible"
       :session-id="currentSessionId"
       :selected-llm="ctxDrawerSelectedLlm"
+      :chat-sdk-client="chatSdkClient"
       @close="ctxDrawerVisible = false"
     />
 
@@ -210,7 +211,7 @@
 import { ref, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, watch, inject, provide, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { useChatSessionController } from '../composables/useChatSessionController';
-import { createFrontendChatSdk } from '../composables/chatSdkClient';
+import { getFrontendChatSdk } from '../composables/chatSdkClient';
 import { useSessionAgentClient } from '../composables/useSessionAgentClient';
 import { useSessionRuntimeStatus } from '../composables/useSessionRuntimeStatus';
 import { useSessionMessages } from '../composables/useSessionMessages';
@@ -263,7 +264,7 @@ const inputMessage = ref('');
 const sessionRunStore = useSessionRunStore();
 const sessionListStore = useSessionListStore();
 const llmStore = useLlmStore();
-const chatSdkClient = createFrontendChatSdk();
+const chatSdkClient = getFrontendChatSdk();
 const {
   messages,
   currentSessionId,
@@ -413,6 +414,7 @@ const {
 } = useChatMessageRuntime({
   activeRun: _activeRun,
   showToast,
+  chatSdkClient,
 });
 
 const {
@@ -426,6 +428,7 @@ const {
   waitForScrollLayout,
   focusInput,
   loadContextSnapshot: (...a) => loadContextSnapshot(...a),
+  chatSdkClient,
   showToast,
   invalidateActiveStream: () => invalidateActiveStream(),
   shouldReplayActiveRun: (sessionId) => sessionId === currentSessionId.value
@@ -438,6 +441,7 @@ const {
 
 const { loadContextSnapshot, clearExecutionState: _clearExecutionStateBase } = useSessionRuntimeStatus({
   clearLlmRetryState,
+  chatSdkClient,
 });
 
 const {
@@ -583,6 +587,7 @@ const {
   setEditingAttachmentsDraft: (value) => { editingAttachmentsDraft.value = value; },
   ensureSession: (...a) => ensureSession(...a),
   showToast,
+  chatSdkClient,
 });
 
 const {
@@ -606,6 +611,7 @@ const {
   getCurrentSelectedLlm,
   reloadSessionMessages: (sessionId) => loadSessionMessages(sessionId),
   stickToBottom,
+  chatSdkClient,
 });
 
 // ── 态势大屏与消息产物 ──────────────────────────────────────────
@@ -667,6 +673,7 @@ const {
   waitForSessionRuntime,
   clearComposerAttachments,
   showToast,
+  chatSdkClient,
 });
 
 const {
@@ -834,8 +841,7 @@ onUnmounted(() => {
   clearSessionScrollRestoreTimer();
   pendingSessionScrollRestores = 0;
   clearLlmRetryState();
-  chatSdkClient.destroy();
-
+  chatSdkClient.disconnect();
   // 不再通知后端停止任务 — Agent 继续在后台执行
 
   invalidateActiveStream();

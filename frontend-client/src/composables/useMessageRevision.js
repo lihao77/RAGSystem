@@ -136,12 +136,15 @@ export function useMessageRevision(deps) {
       // 先物化附件（上传本地文件拿 file_id），再交给后端执行“回滚 -> 统一发送”。
       const materialized = await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
       const selectedLlm = deps.getCurrentSelectedLlm?.();
-      const resp = await rollbackAndRetrySession(sessionId, {
+      const retryBody = {
         ...anchor,
         modify_user_message: content,
         attachments: materialized.map(serializeAttachmentForSend),
         ...(selectedLlm ? { selected_llm: selectedLlm } : {}),
-      });
+      };
+      const resp = await (deps.chatSdkClient?.rollbackAndRetrySession
+        ? deps.chatSdkClient.rollbackAndRetrySession(sessionId, retryBody)
+        : rollbackAndRetrySession(sessionId, retryBody));
       const result = resp.data || {};
       if (!result.started) {
         throw new Error(result.error || '操作失败');
@@ -186,7 +189,9 @@ export function useMessageRevision(deps) {
 
     try {
       // 原样重试：不传 modify_user_message/attachments，后端用原消息内容与原附件
-      const resp = await rollbackAndRetrySession(sessionId, anchor);
+      const resp = await (deps.chatSdkClient?.rollbackAndRetrySession
+        ? deps.chatSdkClient.rollbackAndRetrySession(sessionId, anchor)
+        : rollbackAndRetrySession(sessionId, anchor));
       const result = resp.data || {};
       if (!result.started) {
         throw new Error(result.error || '重试失败');

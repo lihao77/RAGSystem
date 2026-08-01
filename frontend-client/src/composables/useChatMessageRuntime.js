@@ -11,9 +11,10 @@ import { useSessionRunStore } from '../stores/session-run.js';
 export function useChatMessageRuntime({
   activeRun,
   showToast,
+  chatSdkClient,
 }) {
   const { currentSessionId, messages } = storeToRefs(useSessionRunStore());
-  const execution = useMessageExecution({ currentSessionId });
+  const execution = useMessageExecution({ currentSessionId, chatSdkClient });
 
   const workPanel = useWorkPanelSelection({
     messages,

@@ -70,6 +70,11 @@ export const useSessionListStore = defineStore('session-list', () => {
   let localMutationVersion = 0;
   const localMutations = new Map();
   const optimisticFacetSessionIds = new Set();
+  let chatSdkClient = null;
+
+  const setChatSdkClient = (client) => {
+    chatSdkClient = client || null;
+  };
 
   const hasMore = computed(() => nextCursor.value !== null);
 
@@ -125,14 +130,17 @@ export const useSessionListStore = defineStore('session-list', () => {
     error.value = '';
 
     try {
-      const result = await listSessions({
+      const listOptions = {
         limit: PAGE_SIZE,
         cursor: reset ? null : nextCursor.value,
         originType: filters.value.originType,
         originId: filters.value.originId,
         workspaceId: filters.value.workspaceId,
         signal: controller.signal,
-      });
+      };
+      const result = chatSdkClient
+        ? await chatSdkClient.listSessions(listOptions)
+        : await listSessions(listOptions);
       if (version !== listRequestVersion) return;
       const page = result.data;
       items.value = applyLocalMutations(
@@ -176,7 +184,9 @@ export const useSessionListStore = defineStore('session-list', () => {
     facetsController = controller;
     loadingFacets.value = true;
     try {
-      const result = await getSessionListFacets({ signal: controller.signal });
+      const result = await (chatSdkClient?.getSessionFacets
+        ? chatSdkClient.getSessionFacets({ signal: controller.signal })
+        : getSessionListFacets({ signal: controller.signal }));
       if (version !== facetsRequestVersion) return;
       facets.value = result.data;
       optimisticFacetSessionIds.clear();
@@ -316,5 +326,6 @@ export const useSessionListStore = defineStore('session-list', () => {
     remove,
     getById,
     dispose,
+    setChatSdkClient,
   };
 });

@@ -196,8 +196,28 @@ export class RagChatClient {
     return this.request("deleteSession", { method: "DELETE", context: { sessionId } });
   }
 
-  async getSessionFacets(): Promise<SessionListFacetsResponse> {
-    return this.request<SessionListFacetsResponse>("listSessionsFacets");
+  async exportSession(sessionId: string, init: RequestInit = {}): Promise<Response> {
+    this.assertAlive();
+    const url = this.resolveEndpoint("exportSession", { sessionId });
+    const context: RagChatRequestContext = { kind: "exportSession", url, sessionId };
+    const headers = await this.resolveHeaders(context);
+    const response = await this.fetchImpl(url, {
+      ...init,
+      method: "GET",
+      headers: mergeHeaders(headers, init.headers),
+    });
+    if (!response.ok) {
+      if (response.status === 401) this.emit("unauthorized", { status: 401 });
+      const details = await readResponseBody(response);
+      throw new RagChatHttpError(response.status, getErrorMessage(details, `会话导出失败 (HTTP ${response.status})`), details);
+    }
+    return response;
+  }
+
+  async getSessionFacets(options: { signal?: AbortSignal } = {}): Promise<SessionListFacetsResponse> {
+    return this.request<SessionListFacetsResponse>("listSessionsFacets", {
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
   }
 
   async getSessionPermissions(sessionId: string): Promise<SessionPermissionResponse> {
@@ -208,6 +228,32 @@ export class RagChatClient {
     return this.request<SessionPermissionResponse>("updateSessionPermissions", {
       method: "PATCH",
       body: { mode },
+      context: { sessionId },
+    });
+  }
+
+  async getSessionRuntime(sessionId: string, options: { signal?: AbortSignal } = {}): Promise<unknown> {
+    return this.request("getSessionRuntime", {
+      context: { sessionId },
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  }
+
+  async getContextSnapshot(sessionId: string, options: { selectedLlm?: string; signal?: AbortSignal } = {}): Promise<unknown> {
+    const query = new URLSearchParams();
+    if (sessionId) query.set("session_id", sessionId);
+    if (options.selectedLlm) query.set("selected_llm", options.selectedLlm);
+    return this.request("getContextSnapshot", {
+      query,
+      context: { sessionId },
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  }
+
+  async rollbackAndRetrySession(sessionId: string, body: unknown): Promise<unknown> {
+    return this.request("rollbackAndRetrySession", {
+      method: "POST",
+      body,
       context: { sessionId },
     });
   }
@@ -599,9 +645,13 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "listSessions": return "/api/agent/sessions";
     case "getSession": return `/api/agent/sessions/${sessionId}`;
     case "deleteSession": return `/api/agent/sessions/${sessionId}`;
+    case "exportSession": return `/api/agent/sessions/${sessionId}/export`;
     case "listSessionsFacets": return "/api/agent/sessions/facets";
     case "getSessionPermissions": return `/api/agent/sessions/${sessionId}/permissions`;
     case "updateSessionPermissions": return `/api/agent/sessions/${sessionId}/permissions`;
+    case "getSessionRuntime": return `/api/agent/sessions/${sessionId}/runtime`;
+    case "getContextSnapshot": return "/api/agent/context-snapshot";
+    case "rollbackAndRetrySession": return `/api/agent/sessions/${sessionId}/rollback-and-retry`;
     case "listMessages": return `/api/agent/sessions/${sessionId}/messages`;
     case "getMessageRunSteps": return `/api/agent/sessions/${sessionId}/messages/${encodeURIComponent(String(context.messageId ?? ""))}/run-steps`;
     case "listFiles": return `/api/agent/sessions/${sessionId}/files`;

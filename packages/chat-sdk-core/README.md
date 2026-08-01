@@ -45,4 +45,6 @@ const client = createRagChatClient({
 
 文件下载使用 `downloadFile(sessionId, fileId)`，返回原始 `Response` 以便宿主按需读取 `blob()`、流和响应头。`fetchAsset()` 仅对与 `baseUrl` 同源的资源自动附加 Bearer token，跨域资源默认不携带 RAGSystem 凭据。
 
+会话 REST 也通过同一个 client 提供，包括列表、详情、消息、执行步骤、权限、文件、导出、context snapshot 和 rollback/retry；宿主不需要再维护第二套认证 HTTP client。
+
 主要事件包括：`event`、协议原始事件类型（如 `stream_output`、`session.runtime`）、`status`、`runtime`、`execution_tree`、`run_status`、`pending_interactions`、`unauthorized` 和 `error`。

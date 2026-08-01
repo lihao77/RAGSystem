@@ -104,6 +104,7 @@ import { useAsyncAction } from '../composables/useAsyncAction.js';
 
 const props = defineProps({
   sessionId: { type: String, default: '' },
+  chatSdkClient: { type: Object, default: null },
   presentation: {
     type: String,
     default: 'dropdown',
@@ -143,13 +144,17 @@ const triggerTitle = computed(() => props.sessionId
 
 const loadAction = useAsyncAction(async () => {
   if (!props.sessionId) return;
-  const result = await getSessionPermissions(props.sessionId);
+  const result = await (props.chatSdkClient?.getSessionPermissions
+    ? props.chatSdkClient.getSessionPermissions(props.sessionId)
+    : getSessionPermissions(props.sessionId));
   currentMode.value = result.data?.mode || 'standard';
 }, { errorPrefix: '加载会话权限失败', showErrorToast: false });
 
 const updateAction = useAsyncAction(async mode => {
   if (!props.sessionId || !canEdit.value || mode === currentMode.value) return;
-  const result = await updateSessionPermissions(props.sessionId, mode);
+  const result = await (props.chatSdkClient?.updateSessionPermissions
+    ? props.chatSdkClient.updateSessionPermissions(props.sessionId, mode)
+    : updateSessionPermissions(props.sessionId, mode));
   currentMode.value = result.data?.mode || mode;
 }, { successMessage: '会话权限已更新', errorPrefix: '更新会话权限失败' });
 

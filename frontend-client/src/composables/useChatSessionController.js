@@ -134,7 +134,9 @@ export function useChatSessionController(deps) {
   };
 
   const hydrateSessionContext = async (sessionId, listItem = null, isCurrent = () => true) => {
-    const result = await getSession(sessionId);
+    const result = await (deps.chatSdkClient?.getSession
+      ? deps.chatSdkClient.getSession(sessionId)
+      : getSession(sessionId));
     if (!isCurrent()) return false;
     const detail = result.data;
     const workspace = detail.workspace || listItem?.workspace || null;
@@ -170,7 +172,12 @@ export function useChatSessionController(deps) {
 
     isExportingSession.value = true;
     try {
-      const { blob, headers } = await exportSession(sessionId);
+      const exported = deps.chatSdkClient?.exportSession
+        ? await deps.chatSdkClient.exportSession(sessionId)
+        : await exportSession(sessionId);
+      const { blob, headers } = exported && typeof exported.blob === 'function'
+        ? { blob: await exported.blob(), headers: exported.headers }
+        : exported;
       const contentDisposition = headers?.get?.('content-disposition') || '';
       const match = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
       const filename = match
@@ -271,7 +278,9 @@ export function useChatSessionController(deps) {
     if (Object.keys(metadata).length > 0) {
       body.metadata = metadata;
     }
-    const result = await createSession(body);
+    const result = await (deps.chatSdkClient?.createSession
+      ? deps.chatSdkClient.createSession(body)
+      : createSession(body));
     const sessionId = result.data?.session_id || null;
     if (sessionId) {
       const now = new Date().toISOString();

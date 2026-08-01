@@ -18,14 +18,17 @@ export function isAuthenticatedApiUrl(value) {
   }
 }
 
-export async function resolveAuthenticatedMediaUrl(value, { signal } = {}) {
+export async function resolveAuthenticatedMediaUrl(value, { signal, fetchAsset } = {}) {
   const source = typeof value === 'string' ? value.trim() : '';
   if (!source || !isAuthenticatedApiUrl(source)) {
     return { src: source, release: () => {} };
   }
 
-  const response = await http.getRaw(source, { responseType: 'blob', signal });
-  const objectUrl = URL.createObjectURL(response.data);
+  const response = fetchAsset
+    ? await fetchAsset(source, { signal })
+    : await http.getRaw(source, { responseType: 'blob', signal });
+  const blob = typeof response?.blob === 'function' ? await response.blob() : response.data;
+  const objectUrl = URL.createObjectURL(blob);
   let released = false;
 
   return {

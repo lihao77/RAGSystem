@@ -67,7 +67,10 @@ export function useMessageExecution(deps) {
     msg.executionStepsLoading = true;
     msg.executionStepsLoadError = '';
     try {
-      const payload = await getMessageRunSteps(deps.currentSessionId.value, msg.id, { limit: 500, offset: 0 });
+      const result = await (deps.chatSdkClient?.getMessageRunSteps
+        ? deps.chatSdkClient.getMessageRunSteps(deps.currentSessionId.value, msg.id, { limit: 500, offset: 0 })
+        : getMessageRunSteps(deps.currentSessionId.value, msg.id, { limit: 500, offset: 0 }));
+      const payload = result?.data || result;
       const envelopes = Array.isArray(payload?.items) ? payload.items : [];
       const state = ensureExecutionTreeState(msg);
       for (const env of envelopes) applyEnvelope(state, env);

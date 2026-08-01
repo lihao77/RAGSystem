@@ -303,4 +303,37 @@ describe("RagChatClient", () => {
       }),
     );
   });
+
+  it("routes session management REST calls through the configured endpoint map", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, init });
+      if (url.endsWith("/export")) {
+        return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ data: { started: true, token_stats: {} } }), { status: 200 });
+    });
+    const client = createRagChatClient({
+      baseUrl: "https://rag.example.test",
+      token: "jwt-1",
+      fetch: fetchMock,
+    });
+
+    await client.getContextSnapshot("s-1", { selectedLlm: "model-a" });
+    await client.rollbackAndRetrySession("s-1", { after_seq: 3 });
+    const exported = await client.exportSession("s-1");
+    expect(await exported.text()).toBe("{}");
+
+    expect(calls.map(call => call.url)).toEqual([
+      "https://rag.example.test/api/agent/context-snapshot?session_id=s-1&selected_llm=model-a",
+      "https://rag.example.test/api/agent/sessions/s-1/rollback-and-retry",
+      "https://rag.example.test/api/agent/sessions/s-1/export",
+    ]);
+    expect(calls[1]?.init).toEqual(expect.objectContaining({
+      method: "POST",
+      headers: { authorization: "Bearer jwt-1", "content-type": "application/json" },
+      body: JSON.stringify({ after_seq: 3 }),
+    }));
+  });
 });

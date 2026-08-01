@@ -154,6 +154,7 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  chatSdkClient: { type: Object, default: null },
 });
 const emit = defineEmits(['close']);
 
@@ -193,7 +194,9 @@ async function fetchSnapshot() {
   error.value = '';
   data.value = null;
   try {
-    const json = await getContextSnapshot(props.sessionId, { selectedLlm: props.selectedLlm });
+    const json = await (props.chatSdkClient?.getContextSnapshot
+      ? props.chatSdkClient.getContextSnapshot(props.sessionId, { selectedLlm: props.selectedLlm })
+      : getContextSnapshot(props.sessionId, { selectedLlm: props.selectedLlm }));
     data.value = json.data;
   } catch (e) {
     error.value = e.message;

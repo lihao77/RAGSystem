@@ -126,6 +126,7 @@ import { useBootstrapStore } from '../stores/bootstrap.js';
 import { useAuthStore } from '../stores/auth.js';
 import { usePermission } from '../composables/usePermission.js';
 import { deleteSession as deleteSessionApi } from '../api/session';
+import { destroyFrontendChatSdk, getFrontendChatSdk } from '../composables/chatSdkClient.js';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconNewConversation } from '../components/icons';
 import { Button } from '../components/ui/button';
 import UserMenu from '../components/UserMenu.vue';
@@ -146,6 +147,9 @@ const route = useRoute();
 const toast = useToast();
 const { confirm } = useConfirm();
 const sessionListStore = useSessionListStore();
+const chatSdkClient = getFrontendChatSdk();
+sessionListStore.setChatSdkClient(chatSdkClient);
+provide('chatSdkClient', chatSdkClient);
 const bootstrapStore = useBootstrapStore();
 const authStore = useAuthStore();
 const { isPlatformAdmin, hasTenantRole } = usePermission();
@@ -295,7 +299,8 @@ const confirmDeleteSession = async (item) => {
 
 const deleteSession = async (sessionId) => {
   try {
-    await deleteSessionApi(sessionId);
+    if (chatSdkClient?.deleteSession) await chatSdkClient.deleteSession(sessionId);
+    else await deleteSessionApi(sessionId);
     sessionListStore.remove(sessionId);
     void sessionListStore.loadFacets();
     if (activeSessionId.value === sessionId) {
@@ -442,6 +447,8 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile);
   document.body.style.overflow = '';
+  sessionListStore.setChatSdkClient(null);
+  destroyFrontendChatSdk();
 });
 </script>
 

@@ -105,7 +105,9 @@ export function useSessionFilesAttachments(deps) {
     }
     sessionFilesLoading.value = true;
     try {
-      const res = await listSessionFiles(sessionId);
+      const res = await (deps.chatSdkClient?.listFiles
+        ? deps.chatSdkClient.listFiles(sessionId)
+        : listSessionFiles(sessionId));
       if (deps.currentSessionId.value !== sessionId) return;
       sessionFiles.value = res.files || [];
     } catch (error) {
@@ -155,7 +157,9 @@ export function useSessionFilesAttachments(deps) {
     }
     uploadingSessionFiles.value = true;
     try {
-      const res = await uploadSessionFiles(sessionId, fd);
+      const res = await (deps.chatSdkClient?.uploadFiles
+        ? deps.chatSdkClient.uploadFiles(sessionId, localAttachments.map(attachment => attachment.file))
+        : uploadSessionFiles(sessionId, fd));
       const createdFiles = (res.files || []).map(normalizeSessionAttachment).filter(Boolean);
       if (createdFiles.length !== localAttachments.length) {
         throw new Error('附件上传结果数量不匹配');
@@ -190,16 +194,36 @@ export function useSessionFilesAttachments(deps) {
     replaceEditingAttachments([]);
   };
 
-  const downloadSessionFileItem = (file) => {
+  const downloadSessionFileItem = async (file) => {
     if (!deps.currentSessionId.value || !file?.id) return;
-    window.open(getSessionFileDownloadUrl(deps.currentSessionId.value, file.id), '_blank');
+    if (!deps.chatSdkClient?.downloadFile) {
+      window.open(getSessionFileDownloadUrl(deps.currentSessionId.value, file.id), '_blank');
+      return;
+    }
+    try {
+      const response = await deps.chatSdkClient.downloadFile(deps.currentSessionId.value, file.id);
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = file.original_name || file.stored_name || file.id;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (error) {
+      deps.showToast(error.message || '下载会话文件失败');
+    }
   };
 
   const removeSessionFile = async (file) => {
     if (!deps.currentSessionId.value || !file?.id) return;
     deletingSessionFileId.value = file.id;
     try {
-      await deleteSessionFile(deps.currentSessionId.value, file.id);
+      if (deps.chatSdkClient?.deleteFile) {
+        await deps.chatSdkClient.deleteFile(deps.currentSessionId.value, file.id);
+      } else {
+        await deleteSessionFile(deps.currentSessionId.value, file.id);
+      }
       sessionFiles.value = sessionFiles.value.filter(item => item.id !== file.id);
       deps.showToast('会话文件已删除', 'success');
     } catch (error) {

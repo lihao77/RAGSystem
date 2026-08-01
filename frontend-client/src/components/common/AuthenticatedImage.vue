@@ -9,7 +9,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { inject, onBeforeUnmount, ref, watch } from 'vue';
 import { isAuthenticatedApiUrl, resolveAuthenticatedMediaUrl } from '../../utils/authenticatedMedia.js';
 
 defineOptions({ inheritAttrs: false });
@@ -18,6 +18,7 @@ const props = defineProps({
   src: { type: String, default: '' },
 });
 const emit = defineEmits(['load', 'error']);
+const chatSdkClient = inject('chatSdkClient', null);
 
 const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 const resolvedSrc = ref('');
@@ -51,7 +52,10 @@ async function updateSource(source) {
   controller = new AbortController();
   loading.value = true;
   try {
-    const result = await resolveAuthenticatedMediaUrl(source, { signal: controller.signal });
+    const result = await resolveAuthenticatedMediaUrl(source, {
+      signal: controller.signal,
+      ...(chatSdkClient?.fetchAsset ? { fetchAsset: chatSdkClient.fetchAsset.bind(chatSdkClient) } : {}),
+    });
     if (version !== requestVersion) {
       result.release();
       return;
