@@ -1,6 +1,5 @@
 import { ref, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
-import { getSessionMessages } from '../api/session.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { getMessageAttachments } from '../utils/messageExtensions.js';
 
@@ -92,9 +91,9 @@ export function useSessionMessages(deps) {
         deps.focusInput();
         return;
       }
-      const result = await (deps.chatSdkClient?.listMessages
-        ? deps.chatSdkClient.listMessages(sessionId)
-        : getSessionMessages(sessionId));
+      const client = deps.chatSdkClient;
+      if (!client) throw new Error('Chat SDK 未初始化');
+      const result = await client.listMessages(sessionId);
       const items = result.data?.items || [];
       const rawOutboxWatermark = Number(result.data?.outbox_watermark);
       const outboxWatermark = Number.isSafeInteger(rawOutboxWatermark) && rawOutboxWatermark >= 0
@@ -167,9 +166,9 @@ export function useSessionMessages(deps) {
     if (!sessionId || currentSessionId.value !== sessionId || messages.value.length === 0) return;
     const seq = ++messageMergeSeq;
     try {
-      const result = await (deps.chatSdkClient?.listMessages
-        ? deps.chatSdkClient.listMessages(sessionId)
-        : getSessionMessages(sessionId));
+      const client = deps.chatSdkClient;
+      if (!client) throw new Error('Chat SDK 未初始化');
+      const result = await client.listMessages(sessionId);
       if (seq !== messageMergeSeq || currentSessionId.value !== sessionId) return;
       const items = result.data?.items || [];
       if (items.length !== messages.value.length) return;

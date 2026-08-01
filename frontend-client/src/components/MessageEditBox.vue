@@ -66,8 +66,7 @@
 
 <script setup>
 import { ref, onMounted, nextTick, watch } from 'vue';
-import { getSessionFileDownloadUrl } from '../api/sessionFiles';
-import { isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
+import { getSessionFileDownloadUrl, isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
 import IconCheck from './icons/IconCheck.vue';
 import IconClose from './icons/IconClose.vue';
 import IconFile from './icons/IconFile.vue';

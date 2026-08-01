@@ -46,17 +46,17 @@ frontend-client/src/
 │   ├── monitoring.js          # 监控、审批、执行状态 API
 │   ├── agentConfig.js         # Agent 配置
 │   ├── permissions.js         # 全局权限策略
-│   ├── sessionFiles.js        # session 文件
 │   ├── mcpService.js          # MCP 服务
 │   ├── modelAdapter.js        # 模型适配器
 │   └── knowledgeBase.js       # 知识库
+├── composables/chatSdkClient.js # Session HTTP、WS 与 AG-UI 的唯一客户端入口
 ├── router/index.js            # 路由配置
 ├── utils/                     # executionTreeBuilder、展示辅助、markdown 等工具函数
 └── main.js                    # 应用入口
 ```
 
 
-前端 API 请求统一使用相对路径 `/api/*`。开发环境通过 `vite.config.js` 中的 dev server proxy 转发到 `VITE_API_PROXY_TARGET`（默认 TypeScript 后端 `http://localhost:5002`）；生产环境由同源网关或 `backend-ts` 的静态文件托管处理。桌面安装包由 Electron Node 模式启动同一套 TypeScript 后端并加载 `http://127.0.0.1:5002`。前端业务代码不得写死后端绝对地址，以免开发、桌面与部署环境分叉。
+普通管理 API 请求统一使用相对路径 `/api/*`。Session CRUD、消息、文件、权限、上下文、WS 与 AG-UI fallback 统一由 `@ragsystem/chat-sdk-core` 提供，前端不再维护第二套 Session 请求或 socket transport。开发环境通过 `vite.config.js` 中的 dev server proxy 转发到 `VITE_API_PROXY_TARGET`；生产环境由同源网关或 `backend-ts` 的静态文件托管处理。
 
 ## 路由
 
@@ -72,7 +72,7 @@ frontend-client/src/
 | `/model-providers` | MainLayout → ModelProviderManager | 通过公共壳层在右侧主区渲染模型 Provider 页 |
 | `/daemon` | MainLayout → DaemonManager | 守护 Agent 系统页，统一管理基础配置、平台凭证、Cron 任务与主动推送 |
 
-## WebSocket 实时通信
+## Chat SDK 实时通信
 
 ### 核心流程
 
@@ -80,15 +80,15 @@ frontend-client/src/
 handleSend({ content, attachments })
   → ensureSession()                    # 获取/创建会话
       ├─ 读取新会话初始化参数：workspace_root / entry_agent
-      └─ POST /api/agent/sessions      # 持久化 session metadata；若未提供 workspace_root，后端运行时仍会回退到默认 session workspace
+      └─ chatSdkClient.createSession() # 持久化 session metadata
   → 附件面板（SessionFilesDrawer 已改造成输入区附件对话框）
-      ├─ 先走 /api/agent/sessions/{session_id}/files/upload 上传到 session 文件池
+      ├─ chatSdkClient.uploadFiles() 上传到 session 文件池
       └─ 把返回文件记录收敛到 pendingAttachments（消息级附件）
-  → connectSessionWS(sessionId)        # 会话激活时建立单一持久 WS 连接
-  → POST /api/agent/stream             # 发起执行请求，body = { task, attachments[], session_id, selected_llm }
-      ├─ 返回 JSON { started, run_id, task_id, request_id, kind }
+  → chatSdkClient.connect(sessionId)   # 会话激活时建立 SDK 管理的持久 WS 连接
+  → chatSdkClient.send()               # 优先 WS；连接不可用时由 SDK 使用 AG-UI SSE fallback
+      ├─ 返回 { started, runId, taskId, requestId, kind }
       └─ 后端按附件类型分流：图片继续自动进入多模态模型；普通文件只作为引用保留，由 agent 按需读取
-  → handleWSMessage()                  # 统一处理 WebSocket 事件
+  → SDK event → SessionEnvelopeDispatcher
       ├─ reconnect_start / reconnect_end：run 回放边界
       ├─ 消息流：llm.first_token / output.chunk / output.final_answer / output.message_saved
       ├─ 运行态：execution.waiting_start / execution.waiting_end / execution.waiting_timeout
@@ -101,10 +101,10 @@ handleSend({ content, attachments })
   → cacheMessages()
 
 loadSessionMessages(sessionId)
-  → GET /api/agent/sessions/{session_id}/messages?limit=500&offset=0
+  → chatSdkClient.listMessages(sessionId)
       └─ 历史消息默认只返回 message 主载荷；assistant message 通过 has_execution 标记是否可懒加载执行 Envelope
   → createAssistantMessageFromHistory(item)
-      └─ 若 has_execution=true，则按需调用 GET /api/agent/sessions/{session_id}/messages/{message_id}/run-steps
+      └─ 若 has_execution=true，则按需调用 chatSdkClient.getMessageRunSteps()
           并将返回 Envelope 逐条交给同一个 ExecutionTreeState
 ```
 
@@ -148,7 +148,7 @@ loadSessionMessages(sessionId)
 - 历史消息列表不内联执行步骤；会先取 `/sessions/{session_id}/messages`，再按 `has_execution` 懒加载对应 message 的 run steps Envelope sidecar
 - reconnect 回放与历史 run steps 懒加载都复用 agent-protocol 的 `ExecutionTreeState`
 - 会话激活统一由路由驱动：`selectSession()`、`ensureSession()`、`startNewChat()` 只负责导航或创建会话，`syncSessionFromRoute()` 才负责设置 `currentSessionId`、拉取消息/文件并建立对应 session 的 WebSocket，避免本地状态提前变更后跳过建连
-- session WebSocket 采用“同 session 复用、跨 session 重连”语义：仅在目标 session 与当前 `_wsSessionId` 一致且 socket 仍处于 `OPEN/CONNECTING` 时复用；切换 session 或回到新聊天页时必须先断开旧连接再进入新路由状态
+- session WebSocket 的连接复用、ticket、durable cursor、重连和 AG-UI fallback 全部由 `chat-sdk` 管理；切换 session 或回到新聊天页时，前端只调用 SDK 的 `disconnect()` / `connect()`
 - 切回历史会话时先加载消息与文件，再建立 WebSocket 并等待首个无序号 `session.runtime` 快照；快照的 `load_strategy` 唯一决定仅展示历史、挂接 active run、恢复交互、挂接恢复流程或观察维护操作
 - `session.runtime.allowed_actions` 是发送、补充、停止、响应交互、恢复和维护操作的唯一权限来源；`run_started`、`run_ended`、`session.reconnect` 与原始 `interaction(required)` 只更新展示投影，不能覆盖 Session 生命周期
 
@@ -189,7 +189,7 @@ loadSessionMessages(sessionId)
 
 - `PermissionModeSelector.vue` 读取当前会话持久化的 permission mode；会话 owner 可修改，其他身份只读。
 - `dangerously_skip_permissions` 的前端中文语义统一为“跳过审批”，表示跳过常规风险 ask；路径越界等 ask 仍可能触发。
-- `src/api/session.js` 统一调用 `/api/agent/sessions/:sessionId/permissions`，权限配置始终绑定 session。
+- `chat-sdk` 统一调用 Session permission endpoints，权限配置始终绑定 session。
 - `ChatViewV2.vue` 在收到 `user.approval_required` 时会先把事件 data 收敛进本地审批队列，按 `approval_id` 去重，并始终只展示队首审批；收到 `user.approval_granted` / `user.approval_denied` 后再出队并自动切换下一条，避免多个待审批时只能处理第一条。
 - `ApprovalDialog.vue` 支持折叠 / 展开：用户可先将审批窗口折叠为右下角悬浮条，继续观察聊天流和执行树的实时进展，再随时展开完成审批；折叠只改变展示形态，不会丢失当前审批上下文。
 - `ApprovalDialog.vue` 对 `permission_mode` 与 `approval_reason` 做可选渲染，兼容旧审批事件；当前会额外读取 `approval_reason_codes`、`approval_secondary_reasons` 与 `approved_external_paths`，用于区分“风险审批”“路径越界审批”以及双重原因场景，并展示本次调用被授权的越界路径列表。
@@ -414,11 +414,11 @@ Agent 配置页会先加载当前 Agent 配置，再读取 `config.custom_params
 
 | 操作 | 流程 |
 |------|------|
-| 加载会话 | 检查 messageCache → 未命中则 GET /api/agent/sessions/{id}/messages → 按需加载 run-steps Envelope 并投影 executionTree |
+| 加载会话 | 检查 messageCache → 未命中则调用 `chatSdkClient.listMessages()` → 按需调用 `getMessageRunSteps()` 并投影 executionTree |
 | 重连 | 订阅实时事件 → 接收 `session.runtime` → 按 `load_strategy` 回放 active run 或仅恢复历史；游标只过滤 durable Envelope，不过滤 runtime 快照 |
 | 流结束状态同步 | `run_ended` 收尾当前回答展示；后续 `session.runtime` 将权威状态切回 `idle`，终态记录在 `last_run` |
-| 编辑重发 | startEditMessage() 在消息气泡内初始化文本草稿与附件草稿 → 用户在气泡内原地修改文本与附件 → confirmEditAndResend() 调用 POST rollback → 通过 `/api/agent/stream` 以编辑后的内容和 `attachments[]` 重新流式发送 |
-| 重试 | rollbackAndRetry() → POST rollback → 以原问题重新发送 |
+| 编辑重发 | startEditMessage() 在消息气泡内初始化文本草稿与附件草稿 → 用户在气泡内原地修改文本与附件 → `chatSdkClient.rollbackAndRetrySession()` 以编辑后的内容和 `attachments[]` 重新执行 |
+| 重试 | rollbackAndRetry() → `chatSdkClient.rollbackAndRetrySession()` → 以原问题重新执行 |
 
 ## 主题系统
 

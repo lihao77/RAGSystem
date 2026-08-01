@@ -1,5 +1,4 @@
 import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-protocol';
-import { getMessageRunSteps } from '../api/monitoring.js';
 import {
   getMessageExecutionTimeText,
   getMessageExecutionTimeTitle,
@@ -67,9 +66,12 @@ export function useMessageExecution(deps) {
     msg.executionStepsLoading = true;
     msg.executionStepsLoadError = '';
     try {
-      const result = await (deps.chatSdkClient?.getMessageRunSteps
-        ? deps.chatSdkClient.getMessageRunSteps(deps.currentSessionId.value, msg.id, { limit: 500, offset: 0 })
-        : getMessageRunSteps(deps.currentSessionId.value, msg.id, { limit: 500, offset: 0 }));
+      if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
+      const result = await deps.chatSdkClient.getMessageRunSteps(
+        deps.currentSessionId.value,
+        msg.id,
+        { limit: 500, offset: 0 },
+      );
       const payload = result?.data || result;
       const envelopes = Array.isArray(payload?.items) ? payload.items : [];
       const state = ensureExecutionTreeState(msg);

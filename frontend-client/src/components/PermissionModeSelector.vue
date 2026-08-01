@@ -99,7 +99,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { getSessionPermissions, updateSessionPermissions } from '../api/session.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 
 const props = defineProps({
@@ -144,17 +143,15 @@ const triggerTitle = computed(() => props.sessionId
 
 const loadAction = useAsyncAction(async () => {
   if (!props.sessionId) return;
-  const result = await (props.chatSdkClient?.getSessionPermissions
-    ? props.chatSdkClient.getSessionPermissions(props.sessionId)
-    : getSessionPermissions(props.sessionId));
+  if (!props.chatSdkClient) throw new Error('Chat SDK 未初始化');
+  const result = await props.chatSdkClient.getSessionPermissions(props.sessionId);
   currentMode.value = result.data?.mode || 'standard';
 }, { errorPrefix: '加载会话权限失败', showErrorToast: false });
 
 const updateAction = useAsyncAction(async mode => {
   if (!props.sessionId || !canEdit.value || mode === currentMode.value) return;
-  const result = await (props.chatSdkClient?.updateSessionPermissions
-    ? props.chatSdkClient.updateSessionPermissions(props.sessionId, mode)
-    : updateSessionPermissions(props.sessionId, mode));
+  if (!props.chatSdkClient) throw new Error('Chat SDK 未初始化');
+  const result = await props.chatSdkClient.updateSessionPermissions(props.sessionId, mode);
   currentMode.value = result.data?.mode || mode;
 }, { successMessage: '会话权限已更新', errorPrefix: '更新会话权限失败' });
 

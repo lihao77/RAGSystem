@@ -1,11 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import MockAdapter from 'axios-mock-adapter';
 import { createApp, ref } from 'vue';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 
-import { httpClient } from '../api/http.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { updateListedSessionActivity, useChatSessionController } from './useChatSessionController.js';
@@ -16,13 +14,6 @@ const directOrigin = {
   display_name: '直接对话',
   channel: 'web',
 };
-
-async function waitForPending(pending, key) {
-  for (let attempt = 0; attempt < 20 && !pending.has(key); attempt += 1) {
-    await new Promise(resolve => setImmediate(resolve));
-  }
-  return pending.get(key);
-}
 
 test('message activity only patches an existing complete list projection', () => {
   setActivePinia(createPinia());
@@ -59,11 +50,12 @@ test('late session detail cannot continue an obsolete route switch', async () =>
   const app = createApp({ template: '<div />' });
   app.use(pinia);
   app.use(router);
-  const mock = new MockAdapter(httpClient);
   const pending = new Map();
-  mock.onGet(/\/api\/agent\/sessions\/session-[ab]$/).reply(config => new Promise((resolve) => {
-    pending.set(config.url, resolve);
-  }));
+  const chatSdkClient = {
+    getSession(sessionId) {
+      return new Promise((resolve) => { pending.set(sessionId, resolve); });
+    },
+  };
   const calls = [];
   const deps = {
     sessionFiles: ref([]),
@@ -82,9 +74,9 @@ test('late session detail cannot continue an obsolete route switch', async () =>
     connectSessionWS: (sessionId, options) => calls.push(`connect:${sessionId}:${options?.historySnapshot === true}`),
     waitForSessionRuntime: async sessionId => calls.push(`runtime:${sessionId}`),
     showToast: () => {},
+    chatSdkClient,
   };
 
-  try {
     let controller;
     app.runWithContext(() => {
       controller = useChatSessionController(deps);
@@ -93,21 +85,21 @@ test('late session detail cannot continue an obsolete route switch', async () =>
     const switchA = controller.syncSessionFromRoute('session-a');
     const switchB = controller.syncSessionFromRoute('session-b');
 
-    const resolveB = await waitForPending(pending, '/api/agent/sessions/session-b');
-    resolveB([200, {
+    const resolveB = pending.get('session-b');
+    resolveB({
       data: {
         workspace: { workspace_id: 'workspace-b', display_name: 'B', root_path: 'D:/b' },
         metadata: { team: 'team-b', entry_agent: 'agent-b' },
       },
-    }]);
+    });
     await switchB;
-    const resolveA = await waitForPending(pending, '/api/agent/sessions/session-a');
-    resolveA([200, {
+    const resolveA = pending.get('session-a');
+    resolveA({
       data: {
         workspace: { workspace_id: 'workspace-a', display_name: 'A', root_path: 'D:/a' },
         metadata: { team: 'team-a', entry_agent: 'agent-a' },
       },
-    }]);
+    });
     await switchA;
 
     assert.equal(currentSessionId.value, 'session-b');
@@ -121,7 +113,4 @@ test('late session detail cannot continue an obsolete route switch', async () =>
       'connect:session-b:true',
       'runtime:session-b',
     ]);
-  } finally {
-    mock.restore();
-  }
 });

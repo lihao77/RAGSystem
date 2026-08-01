@@ -1,6 +1,5 @@
 import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import { rollbackAndRetrySession } from '../api/session.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { createAssistantMessage } from './useMessageExecution.js';
 import { resetActiveRunForSend, serializeAttachmentForSend } from './useSessionAgentClient.js';
@@ -142,9 +141,8 @@ export function useMessageRevision(deps) {
         attachments: materialized.map(serializeAttachmentForSend),
         ...(selectedLlm ? { selected_llm: selectedLlm } : {}),
       };
-      const resp = await (deps.chatSdkClient?.rollbackAndRetrySession
-        ? deps.chatSdkClient.rollbackAndRetrySession(sessionId, retryBody)
-        : rollbackAndRetrySession(sessionId, retryBody));
+      if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
+      const resp = await deps.chatSdkClient.rollbackAndRetrySession(sessionId, retryBody);
       const result = resp.data || {};
       if (!result.started) {
         throw new Error(result.error || '操作失败');
@@ -189,9 +187,8 @@ export function useMessageRevision(deps) {
 
     try {
       // 原样重试：不传 modify_user_message/attachments，后端用原消息内容与原附件
-      const resp = await (deps.chatSdkClient?.rollbackAndRetrySession
-        ? deps.chatSdkClient.rollbackAndRetrySession(sessionId, anchor)
-        : rollbackAndRetrySession(sessionId, anchor));
+      if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
+      const resp = await deps.chatSdkClient.rollbackAndRetrySession(sessionId, anchor);
       const result = resp.data || {};
       if (!result.started) {
         throw new Error(result.error || '重试失败');

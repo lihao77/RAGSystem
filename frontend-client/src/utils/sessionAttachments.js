@@ -16,6 +16,10 @@ export function normalizeSessionAttachment(file) {
   };
 }
 
+export function getSessionFileDownloadUrl(sessionId, fileId) {
+  return `/api/agent/sessions/${encodeURIComponent(sessionId)}/files/${encodeURIComponent(fileId)}/download`;
+}
+
 export function createLocalAttachment(file) {
   if (!(file instanceof File)) return null;
   return {

@@ -1,6 +1,5 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import { getSessionListFacets, listSessions } from '../api/session.js';
 
 const PAGE_SIZE = 20;
 const EMPTY_FACETS = Object.freeze({
@@ -138,9 +137,8 @@ export const useSessionListStore = defineStore('session-list', () => {
         workspaceId: filters.value.workspaceId,
         signal: controller.signal,
       };
-      const result = chatSdkClient
-        ? await chatSdkClient.listSessions(listOptions)
-        : await listSessions(listOptions);
+      if (!chatSdkClient) throw new Error('Chat SDK 未初始化');
+      const result = await chatSdkClient.listSessions(listOptions);
       if (version !== listRequestVersion) return;
       const page = result.data;
       items.value = applyLocalMutations(
@@ -184,9 +182,8 @@ export const useSessionListStore = defineStore('session-list', () => {
     facetsController = controller;
     loadingFacets.value = true;
     try {
-      const result = await (chatSdkClient?.getSessionFacets
-        ? chatSdkClient.getSessionFacets({ signal: controller.signal })
-        : getSessionListFacets({ signal: controller.signal }));
+      if (!chatSdkClient) throw new Error('Chat SDK 未初始化');
+      const result = await chatSdkClient.getSessionFacets({ signal: controller.signal });
       if (version !== facetsRequestVersion) return;
       facets.value = result.data;
       optimisticFacetSessionIds.clear();

@@ -112,7 +112,6 @@ export interface SessionCommandControllerOptions extends OpenRecord {
   isLoading: RefLike<boolean>;
   contextUsage: RefLike<OpenRecord>;
   activeRun: ActiveRunState;
-  getSocket: () => WebSocket | null;
   allowsRuntimeAction: (action: string) => boolean;
   getSessionRuntime: () => OpenRecord | null;
   beginOptimisticCommand: (kind?: string) => void;
@@ -120,8 +119,8 @@ export interface SessionCommandControllerOptions extends OpenRecord {
   scheduleCommandFallback: (sessionId: string, messageIndex: number, timeout?: number) => void;
   enqueueFollowupCandidate: (candidate: SessionMessage) => void;
   markFollowupCandidateFailed: (requestId: string, error: string) => void;
-  sendViaSdk?: (input: OpenRecord, requestId: string) => Promise<OpenRecord>;
-  stopViaSdk?: (sessionId: string) => Promise<void>;
+  sendViaSdk: (input: OpenRecord, requestId: string) => Promise<OpenRecord>;
+  stopViaSdk: (sessionId: string) => Promise<void>;
 }
 
 export interface SessionRunRecoveryOptions extends OpenRecord {
@@ -133,22 +132,7 @@ export interface SessionRunRecoveryOptions extends OpenRecord {
   finishOptimisticCommand: () => void;
 }
 
-export interface SessionTransportOptions {
-  getCurrentSessionId: () => string | null;
-  onEnvelope: (event: SessionEnvelope, sessionId: string) => void;
-  onDisconnect?: () => void;
-  onSocketClose?: () => void;
-  onReconnectExhausted?: (sessionId: string) => void;
-  issueTicket?: (sessionId: string) => Promise<any>;
-  createSocket?: (url: string) => WebSocket;
-  maxReconnectAttempts?: number;
-}
-
 export interface SessionInteractionControllerOptions {
-  getCurrentSessionId: () => string;
-  getSocket: () => WebSocket | null;
   getSessionRuntime: () => OpenRecord | null;
-  respondViaSdk?: (interactionId: string, response: InteractionResponse) => Promise<void>;
-  respondHttp?: (sessionId: string, interactionId: string, body: InteractionResponse) => Promise<any>;
-  ackTimeoutMs?: number;
+  respondViaSdk: (interactionId: string, response: InteractionResponse) => Promise<void>;
 }

@@ -82,8 +82,7 @@
 import { computed, ref } from 'vue';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 import EmptyState from './EmptyState.vue';
-import { formatAttachmentSize, isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
-import { getSessionFileDownloadUrl } from '../api/sessionFiles.js';
+import { formatAttachmentSize, getSessionFileDownloadUrl, isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
 import IconPlus from './icons/IconPlus.vue';
 import IconClose from './icons/IconClose.vue';
 import IconRefresh from './icons/IconRefresh.vue';

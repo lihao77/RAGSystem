@@ -1,11 +1,8 @@
 // @ts-check
 import { nextTick, ref } from 'vue';
 
-import { startStream, stopStream } from '../api/session.js';
 import { createAssistantMessage } from './useMessageExecution.js';
 import { createAttachmentsExtension } from '../utils/messageExtensions.js';
-
-const WS_OPEN = 1;
 
 /** @typedef {Record<string, any>} AnyRecord */
 /** @param {unknown} error */
@@ -93,7 +90,6 @@ export function createSessionCommandController({
   isLoading,
   contextUsage,
   activeRun,
-  getSocket,
   allowsRuntimeAction,
   getSessionRuntime,
   beginOptimisticCommand,
@@ -101,10 +97,8 @@ export function createSessionCommandController({
   scheduleCommandFallback,
   enqueueFollowupCandidate,
   markFollowupCandidateFailed,
-  sendViaSdk = null,
-  stopViaSdk = null,
-  startExecution = startStream,
-  stopExecution = stopStream,
+  sendViaSdk,
+  stopViaSdk,
 }) {
   const lastFailedSendContent = ref('');
   /** @type {Promise<void>} */
@@ -114,27 +108,11 @@ export function createSessionCommandController({
 
   const stop = async () => {
     if (!currentSessionId.value || !allowsRuntimeAction('stop_run')) return;
-    if (stopViaSdk) {
-      try {
-        await stopViaSdk(currentSessionId.value);
-      } catch (error) {
-        console.warn('停止请求发送失败:', error);
-      }
-      return;
-    }
-    const socket = getSocket();
-    if (socket?.readyState === WS_OPEN) {
-      socket.send(JSON.stringify({
-        type: 'abort',
-        session_id: currentSessionId.value,
-        payload: { scope: 'run' },
-      }));
-    } else {
-      try {
-        await stopExecution(currentSessionId.value);
-      } catch (error) {
-        console.warn('停止请求发送失败:', error);
-      }
+    try {
+      if (!stopViaSdk) throw new Error('Chat SDK 未初始化');
+      await stopViaSdk(currentSessionId.value);
+    } catch (error) {
+      console.warn('停止请求发送失败:', error);
     }
   };
 
@@ -267,45 +245,13 @@ export function createSessionCommandController({
       const selectedLlm = deps.getCurrentSelectedLlm();
       if (selectedLlm) body.selected_llm = selectedLlm;
 
-      if (sendViaSdk) {
-        const sdkResponse = await sendViaSdk({
-          task: body.task,
-          attachments: body.attachments,
-          ...(body.selected_llm ? { selectedLlm: body.selected_llm } : {}),
-        }, requestId);
-        const result = sdkResponse?.data || sdkResponse || {};
-        if (!result.started) {
-          if (result.kind === 'command') {
-            scheduleCommandFallback(sessionId, assistantMsgIndex);
-            return;
-          }
-          throw new Error(result.error || '启动执行失败');
-        }
-        if (result.run_id || result.runId) activeRun.runId = result.run_id || result.runId;
-        if (!isRunningFollowup) activeRun.phase = 'llm_waiting_first_token';
-        if (result.kind === 'command') scheduleCommandFallback(sessionId, assistantMsgIndex, 60000);
-        return;
-      }
-
-      const socket = getSocket();
-      if (socket?.readyState === WS_OPEN) {
-        socket.send(JSON.stringify({
-          type: 'user_driven_change',
-          session_id: sessionId,
-          payload: {
-            category: 'task_submit',
-            task: body.task,
-            attachments: body.attachments,
-            ...(body.selected_llm ? { selected_llm: body.selected_llm } : {}),
-            request_id: requestId,
-          },
-        }));
-        if (!isRunningFollowup) scheduleCommandFallback(sessionId, assistantMsgIndex, 30000);
-        return;
-      }
-
-      const streamResponse = await startExecution(body, requestId);
-      const result = streamResponse.data || {};
+      if (!sendViaSdk) throw new Error('Chat SDK 未初始化');
+      const sdkResponse = await sendViaSdk({
+        task: body.task,
+        attachments: body.attachments,
+        ...(body.selected_llm ? { selectedLlm: body.selected_llm } : {}),
+      }, requestId);
+      const result = sdkResponse?.data || sdkResponse || {};
       if (!result.started) {
         if (result.kind === 'command') {
           scheduleCommandFallback(sessionId, assistantMsgIndex);
@@ -313,7 +259,7 @@ export function createSessionCommandController({
         }
         throw new Error(result.error || '启动执行失败');
       }
-      if (result.run_id) activeRun.runId = result.run_id;
+      if (result.run_id || result.runId) activeRun.runId = result.run_id || result.runId;
       if (!isRunningFollowup) activeRun.phase = 'llm_waiting_first_token';
       if (result.kind === 'command') scheduleCommandFallback(sessionId, assistantMsgIndex, 60000);
     } catch (error) {

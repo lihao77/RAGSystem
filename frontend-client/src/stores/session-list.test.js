@@ -41,6 +41,28 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+function createTestStore() {
+  const store = useSessionListStore();
+  store.setChatSdkClient({
+    listSessions(options = {}) {
+      return httpClient.get('/api/agent/sessions', {
+        params: {
+          limit: options.limit ?? 20,
+          ...(options.cursor ? { cursor: options.cursor } : {}),
+          ...(options.originType ? { origin_type: options.originType } : {}),
+          ...(options.originId ? { origin_id: options.originId } : {}),
+          ...(options.workspaceId ? { workspace_id: options.workspaceId } : {}),
+        },
+        signal: options.signal,
+      });
+    },
+    getSessionFacets({ signal } = {}) {
+      return httpClient.get('/api/agent/sessions/facets', { signal });
+    },
+  });
+  return store;
+}
+
 test('cursor pages append, dedupe, and keep stable activity ordering', async (t) => {
   setActivePinia(createPinia());
   const mock = new MockAdapter(httpClient);
@@ -60,7 +82,7 @@ test('cursor pages append, dedupe, and keep stable activity ordering', async (t)
     })];
   });
 
-  const store = useSessionListStore();
+  const store = createTestStore();
   await store.load({ reset: true });
   await store.load();
 
@@ -79,7 +101,7 @@ test('filter change resets the cursor and sends source and workspace filters', a
     return [200, response({ items: [], next_cursor: null })];
   });
 
-  const store = useSessionListStore();
+  const store = createTestStore();
   await store.load({ reset: true });
   await store.setFilters({ originType: 'bot', originId: 'bot-1', workspaceId: 'workspace-1' });
 
@@ -102,7 +124,7 @@ test('live upsert reorders matching items and removes items outside active filte
   t.after(() => mock.restore());
   mock.onGet('/api/agent/sessions').reply(200, response({ items: [], next_cursor: null }));
 
-  const store = useSessionListStore();
+  const store = createTestStore();
   await store.setFilters({ originType: 'bot', originId: null });
   const botOrigin = { type: 'bot', id: 'bot-1', display_name: '售后助手', channel: 'api' };
   store.upsert(item('session-old', '2026-07-25T10:00:00.000Z', { origin: botOrigin }));
@@ -116,7 +138,7 @@ test('live upsert reorders matching items and removes items outside active filte
 
 test('activity updates preserve projected identity fields and ignore unloaded sessions', () => {
   setActivePinia(createPinia());
-  const store = useSessionListStore();
+  const store = createTestStore();
   const original = item('session-a', '2026-07-25T10:00:00.000Z', {
     title: '稳定标题',
     first_message: '第一条消息',
@@ -146,7 +168,7 @@ test('local session mutations survive an older in-flight reset response', async 
   const pendingResponse = deferred();
   mock.onGet('/api/agent/sessions').reply(() => pendingResponse.promise);
 
-  const store = useSessionListStore();
+  const store = createTestStore();
   store.upsert(item('session-existing', '2026-07-25T10:00:00.000Z', {
     last_message: '旧的本地消息',
   }));
@@ -190,7 +212,7 @@ test('facet refresh clears unavailable instance and workspace filters', async (t
     workspaces: [],
   }));
 
-  const store = useSessionListStore();
+  const store = createTestStore();
   await store.setFilters({ originType: 'bot', originId: 'missing-bot', workspaceId: 'missing-workspace' });
   await store.loadFacets();
 
@@ -218,7 +240,7 @@ test('new workspace session updates facets immediately and reconciles with the s
     }],
   }));
 
-  const store = useSessionListStore();
+  const store = createTestStore();
   const created = item('session-workspace', '2026-07-26T10:00:00.000Z', {
     workspace: {
       workspace_id: 'workspace-1',

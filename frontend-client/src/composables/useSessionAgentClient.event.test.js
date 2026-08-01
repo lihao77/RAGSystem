@@ -112,6 +112,34 @@ function createDeps(overrides = {}) {
     handleApprovalResolved: [],
     handleUserInputResolved: [],
     resetApprovalState: [],
+    sdkSend: [],
+    sdkRespondInteraction: [],
+    sdkResume: 0,
+  };
+
+  const sdkListeners = new Map();
+  const chatSdkClient = {
+    sessionId: 'session-1',
+    on(type, listener) {
+      const listeners = sdkListeners.get(type) || new Set();
+      listeners.add(listener);
+      sdkListeners.set(type, listeners);
+      return () => listeners.delete(listener);
+    },
+    async connect(sessionId) { this.sessionId = sessionId; },
+    disconnect() { this.sessionId = null; },
+    async send(input) {
+      calls.sdkSend.push(input);
+      return { started: true, runId: 'run-1' };
+    },
+    stop() {},
+    async respondInteraction(...args) { calls.sdkRespondInteraction.push(args); },
+    async resume() { calls.sdkResume += 1; return true; },
+    getMessageRunSteps(sessionId, messageId) {
+      return httpClient.get(
+        `/api/agent/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/run-steps`,
+      );
+    },
   };
 
   const deps = {
@@ -150,6 +178,7 @@ function createDeps(overrides = {}) {
     isMasterEvent: () => true,
     applyEnvelopeToMessage: () => {},
     handleStop: async () => {},
+    chatSdkClient,
     ...overrides,
   };
 
@@ -509,6 +538,7 @@ test('连续 Goal 自动续跑后，工作栏仍用 assistant message id 加载 
 
     const execution = useMessageExecution({
       currentSessionId: deps.currentSessionId,
+      chatSdkClient: deps.chatSdkClient,
       showToast: () => {},
     });
     const selection = useWorkPanelSelection({
@@ -913,6 +943,7 @@ test('刷新 suspended 会话会恢复 active run 执行树并选中工作面板
   const { deps } = createDeps();
   const execution = useMessageExecution({
     currentSessionId: deps.currentSessionId,
+    chatSdkClient: deps.chatSdkClient,
     showToast: () => {},
   });
   deps.createAssistantMessage = execution.createAssistantMessage;
@@ -978,6 +1009,7 @@ test('active run 快照断线重放前会重置半截执行投影', () => {
   const { deps } = createDeps();
   const execution = useMessageExecution({
     currentSessionId: deps.currentSessionId,
+    chatSdkClient: deps.chatSdkClient,
     showToast: () => {},
   });
   deps.createAssistantMessage = execution.createAssistantMessage;
@@ -1011,51 +1043,44 @@ test('active run 快照断线重放前会重置半截执行投影', () => {
 
 test('resume_run 使用 durable interaction 恢复，并对重复点击去重', async () => {
   let resumeRequests = 0;
-  await withMock((mock) => {
-    mock.onPost('/api/agent/sessions/session-1/interactions/approval-1/resume').reply(async () => {
-      resumeRequests += 1;
-      await new Promise(resolve => setTimeout(resolve, 5));
-      return [200, { data: { resumed: true } }];
-    });
-  }, async () => {
-    const { deps } = createDeps();
-    const stream = useSessionAgentClient(deps);
-    stream.handleEnvelope({
-      type: 'session.runtime',
-      payload: runtimeSnapshot('suspended', {
-        allowed_actions: ['resume_run', 'stop_run'],
-        resume_interaction_id: 'approval-1',
-        pending_interactions: [],
-      }),
-    }, 'session-1');
+  const { deps } = createDeps();
+  deps.chatSdkClient.resume = async () => {
+    resumeRequests += 1;
+    await new Promise(resolve => setTimeout(resolve, 5));
+    return true;
+  };
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'session.runtime',
+    payload: runtimeSnapshot('suspended', {
+      allowed_actions: ['resume_run', 'stop_run'],
+      resume_interaction_id: 'approval-1',
+      pending_interactions: [],
+    }),
+  }, 'session-1');
 
-    const [first, second] = await Promise.all([stream.resume(), stream.resume()]);
-    assert.equal(first, true);
-    assert.equal(second, true);
-    assert.equal(resumeRequests, 1);
-  });
+  const [first, second] = await Promise.all([stream.resume(), stream.resume()]);
+  assert.equal(first, true);
+  assert.equal(second, true);
+  assert.equal(resumeRequests, 1);
 });
 
 test('resume_run 失败时由客户端收敛错误，不产生未处理 rejection', async () => {
-  await withMock((mock) => {
-    mock.onPost('/api/agent/sessions/session-1/interactions/approval-1/resume')
-      .reply(409, { message: '恢复租约已被占用' });
-  }, async () => {
-    const { deps, calls } = createDeps();
-    const stream = useSessionAgentClient(deps);
-    stream.handleEnvelope({
-      type: 'session.runtime',
-      payload: runtimeSnapshot('suspended', {
-        allowed_actions: ['resume_run', 'stop_run'],
-        resume_interaction_id: 'approval-1',
-        pending_interactions: [],
-      }),
-    }, 'session-1');
+  const { deps, calls } = createDeps();
+  deps.chatSdkClient.resume = async () => { throw new Error('恢复租约已被占用'); };
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'session.runtime',
+    payload: runtimeSnapshot('suspended', {
+      allowed_actions: ['resume_run', 'stop_run'],
+      resume_interaction_id: 'approval-1',
+      pending_interactions: [],
+    }),
+  }, 'session-1');
 
-    assert.equal(await stream.resume(), false);
-    assert.equal(calls.showToast.length, 1);
-    assert.equal(calls.showToast[0][1], 'warning');
-  });
+  assert.equal(await stream.resume(), false);
+  assert.equal(calls.showToast.length, 1);
+  assert.equal(calls.showToast[0][1], 'warning');
 });
 
 test('waiting_interaction 快照重建审批和输入 UI，重复快照保持本地操作状态', () => {
@@ -1119,16 +1144,17 @@ test('后续 runtime 快照按 interaction_id 对账并关闭已消失的交互'
   assert.deepEqual(calls.handleApprovalResolved, [['approval-1', 'session-1']]);
 });
 
-test('快照恢复的 user_input 通过 WS 提交并等待 ack', async () => {
+test('快照恢复的 user_input 通过 SDK 提交并等待 SDK 确认', async () => {
   const sent = [];
   let capturedSubmit = null;
+  let resolveSubmit;
   const { deps } = createDeps({
     showUserInput: (_data, submit) => { capturedSubmit = submit; },
-    getWS: () => ({
-      readyState: 1,
-      send: payload => sent.push(JSON.parse(payload)),
-    }),
   });
+  deps.chatSdkClient.respondInteraction = (...args) => {
+    sent.push(args);
+    return new Promise(resolve => { resolveSubmit = resolve; });
+  };
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
     type: 'session.runtime',
@@ -1139,16 +1165,8 @@ test('快照恢复的 user_input 通过 WS 提交并等待 ack', async () => {
   }, 'session-1');
 
   const submitPromise = capturedSubmit('input-1', 'session');
-  assert.deepEqual(sent, [{
-    type: 'interaction',
-    session_id: 'session-1',
-    call_id: 'input-1',
-    payload: { kind: 'user_input', phase: 'responded', value: 'session' },
-  }]);
-  stream.handleEnvelope({
-    type: 'ack',
-    payload: { category: 'interaction', ok: true, ref_call_id: 'input-1' },
-  }, 'session-1');
+  assert.deepEqual(sent, [['input-1', { kind: 'user_input', value: 'session' }]]);
+  resolveSubmit();
   await submitPromise;
 });
 
@@ -1170,12 +1188,12 @@ test('resetStreamSessionState 后同一 runtime 快照可重新展示交互', ()
   assert.equal(approvals.length, 2);
 });
 
-test('快照恢复的 user_input 收到负 ack 时拒绝提交并提示', async () => {
+test('快照恢复的 user_input 在 SDK 拒绝时提示错误', async () => {
   let capturedSubmit = null;
   const { deps, calls } = createDeps({
     showUserInput: (_data, submit) => { capturedSubmit = submit; },
-    getWS: () => ({ readyState: 1, send: () => {} }),
   });
+  deps.chatSdkClient.respondInteraction = async () => { throw new Error('not found'); };
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
     type: 'session.runtime',
@@ -1184,41 +1202,26 @@ test('快照恢复的 user_input 收到负 ack 时拒绝提交并提示', async 
     }),
   }, 'session-1');
 
-  const submitPromise = capturedSubmit('input-1', 'session');
-  stream.handleEnvelope({
-    type: 'ack',
-    payload: { category: 'interaction', ok: false, error: 'not found', ref_call_id: 'input-1' },
-  }, 'session-1');
-  await assert.rejects(submitPromise, /not found/);
+  await assert.rejects(capturedSubmit('input-1', 'session'), /not found/);
   assert.equal(calls.showToast[0][0], 'not found');
 });
 
-test('快照恢复的 user_input 在 WS 发送失败时降级 HTTP respond 路由', async () => {
+test('快照恢复的 user_input 不再拥有前端 HTTP fallback', async () => {
   let capturedSubmit = null;
+  const calls = [];
   const { deps } = createDeps({
     showUserInput: (_data, submit) => { capturedSubmit = submit; },
-    getWS: () => ({
-      readyState: 1,
-      send: () => { throw new Error('WS send failed'); },
+  });
+  deps.chatSdkClient.respondInteraction = async (...args) => { calls.push(args); };
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'session.runtime',
+    payload: runtimeSnapshot('waiting_interaction', {
+      pending_interactions: [pendingInteraction('user_input', 'input-1')],
     }),
-  });
-
-  await withMock((mock) => {
-    mock.onPost(/\/interactions\/[^/]+\/respond$/).reply((config) => {
-      assert.equal(config.url, '/api/agent/sessions/session-1/interactions/input-1/respond');
-      assert.deepEqual(JSON.parse(config.data), { kind: 'user_input', value: 'session' });
-      return [200, {}];
-    });
-  }, async () => {
-    const stream = useSessionAgentClient(deps);
-    stream.handleEnvelope({
-      type: 'session.runtime',
-      payload: runtimeSnapshot('waiting_interaction', {
-        pending_interactions: [pendingInteraction('user_input', 'input-1')],
-      }),
-    }, 'session-1');
-    await capturedSubmit('input-1', 'session');
-  });
+  }, 'session-1');
+  await capturedSubmit('input-1', 'session');
+  assert.deepEqual(calls, [['input-1', { kind: 'user_input', value: 'session' }]]);
 });
 
 test('连续投递 seq 不触发 gap 对账', () => {

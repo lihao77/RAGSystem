@@ -88,9 +88,23 @@ function createDeps(overrides = {}) {
     showToast: [],
   };
 
-  const ws = {
-    readyState: 1,
-    send: raw => calls.wsSend.push(JSON.parse(raw)),
+  const chatSdkClient = {
+    sessionId: 'session-1',
+    on: () => () => {},
+    async connect(sessionId) { this.sessionId = sessionId; },
+    disconnect() { this.sessionId = null; },
+    async send(input) {
+      calls.wsSend.push({
+        payload: {
+          task: input.task,
+          request_id: input.requestId,
+        },
+      });
+      return { started: true, runId: 'run-1' };
+    },
+    stop() {},
+    async respondInteraction() {},
+    async resume() { return true; },
   };
 
   const deps = {
@@ -105,7 +119,7 @@ function createDeps(overrides = {}) {
     pendingFollowupCandidates,
     activeRun: sessionRunStore.activeRun,
     ensureSession: async () => deps.currentSessionId.value,
-    getWS: () => ws,
+    chatSdkClient,
     getCurrentSelectedLlm: () => 'openai/gpt-test',
     materializeAttachmentsForSend: async (attachments) => {
       calls.materializeAttachmentsForSend.push(attachments);

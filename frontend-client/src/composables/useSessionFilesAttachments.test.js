@@ -2,10 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ref } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
-import MockAdapter from 'axios-mock-adapter';
 
 import { useSessionFilesAttachments } from './useSessionFilesAttachments.js';
-import { httpClient } from '../api/http.js';
 
 function createDeps(overrides = {}) {
   setActivePinia(createPinia());
@@ -60,21 +58,25 @@ test('materializeAttachmentsForSend 会批量上传本地附件并保持顺序',
   URL.createObjectURL = (file) => `blob:${file.name}`;
   URL.revokeObjectURL = () => {};
 
-  const mock = new MockAdapter(httpClient);
-  mock.onPost(/\/files\/upload$/).reply((config) => {
-    const entries = config.data.getAll('files');
-    assert.equal(entries.length, 2);
-    return [200, {
+  const calls = [];
+  const chatSdkClient = {
+    async uploadFiles(sessionId, files) {
+      calls.push(['uploadFiles', sessionId, files]);
+      return {
       files: [
         { id: 'file-1', original_name: 'a.png', stored_name: 'stored-a.png', mime: 'image/png', size: 1 },
         { id: 'file-2', original_name: 'b.txt', stored_name: 'stored-b.txt', mime: 'text/plain', size: 1 },
       ],
-    }];
-  });
-  mock.onGet(/\/files$/).reply([200, { files: [] }]);
+      };
+    },
+    async listFiles(sessionId) {
+      calls.push(['listFiles', sessionId]);
+      return { files: [] };
+    },
+  };
 
   try {
-    const { deps } = createDeps();
+    const { deps } = createDeps({ chatSdkClient });
     const state = useSessionFilesAttachments(deps);
     await state.handleSessionFileSelect([
       new File(['a'], 'a.png', { type: 'image/png' }),
@@ -85,8 +87,11 @@ test('materializeAttachmentsForSend 会批量上传本地附件并保持顺序',
 
     assert.deepEqual(result.map(item => item.file_id), ['file-1', 'file-2']);
     assert.deepEqual(result.map(item => item.source), ['session', 'session']);
+    assert.equal(calls[0][0], 'uploadFiles');
+    assert.equal(calls[0][1], 'session-1');
+    assert.deepEqual(calls[0][2].map(file => file.name), ['a.png', 'b.txt']);
+    assert.deepEqual(calls[1], ['listFiles', 'session-1']);
   } finally {
-    await mock.restore();
     URL.createObjectURL = originalCreateObjectURL;
     URL.revokeObjectURL = originalRevokeObjectURL;
   }

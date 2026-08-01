@@ -45,6 +45,12 @@ function createDeps(overrides = {}) {
     reloadSessionMessages: async (sessionId) => { reloadCalls.push(sessionId); },
     getCurrentSelectedLlm: () => null,
     stickToBottom: () => {},
+    chatSdkClient: {
+      rollbackAndRetrySession: (sessionId, body) => httpClient.post(
+        `/api/agent/sessions/${encodeURIComponent(sessionId)}/rollback-and-retry`,
+        body,
+      ),
+    },
     ...overrides,
   };
 

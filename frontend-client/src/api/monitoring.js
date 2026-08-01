@@ -3,7 +3,6 @@
  */
 
 import { http } from './http.js';
-export { getMessageRunSteps } from './session-contracts.ts';
 
 const API_BASE = '/api/agent';
 

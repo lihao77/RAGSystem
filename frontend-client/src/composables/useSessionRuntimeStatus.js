@@ -1,5 +1,4 @@
 import { storeToRefs } from 'pinia';
-import { getContextSnapshot } from '../api/session.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 
 /** Session runtime lifecycle is delivered by WebSocket; this composable owns only reset and context loading. */
@@ -10,9 +9,8 @@ export function useSessionRuntimeStatus({ clearLlmRetryState, chatSdkClient }) {
   const loadContextSnapshot = async (sessionId) => {
     if (!sessionId) return;
     try {
-      const json = await (chatSdkClient?.getContextSnapshot
-        ? chatSdkClient.getContextSnapshot(sessionId)
-        : getContextSnapshot(sessionId));
+      if (!chatSdkClient) throw new Error('Chat SDK 未初始化');
+      const json = await chatSdkClient.getContextSnapshot(sessionId);
       if (currentSessionId.value !== sessionId) return;
       const tokenStats = json.data?.token_stats;
       if (tokenStats && typeof tokenStats.total_tokens === 'number'

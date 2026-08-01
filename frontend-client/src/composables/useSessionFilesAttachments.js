@@ -1,10 +1,10 @@
 import { computed, ref } from 'vue';
-import { deleteSessionFile, getSessionFileDownloadUrl, listSessionFiles, uploadSessionFiles } from '../api/sessionFiles.js';
 import {
   createLocalAttachment,
   formatAttachmentMeta,
   formatAttachmentSize,
   getAttachmentKey,
+  getSessionFileDownloadUrl,
   isImageAttachment,
   isLocalAttachment,
   normalizeSessionAttachment,
@@ -105,9 +105,8 @@ export function useSessionFilesAttachments(deps) {
     }
     sessionFilesLoading.value = true;
     try {
-      const res = await (deps.chatSdkClient?.listFiles
-        ? deps.chatSdkClient.listFiles(sessionId)
-        : listSessionFiles(sessionId));
+      if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
+      const res = await deps.chatSdkClient.listFiles(sessionId);
       if (deps.currentSessionId.value !== sessionId) return;
       sessionFiles.value = res.files || [];
     } catch (error) {
@@ -151,15 +150,10 @@ export function useSessionFilesAttachments(deps) {
     if (!localAttachments.length) {
       return attachments.map(normalizeSessionAttachment).filter(Boolean);
     }
-    const fd = new FormData();
-    for (const attachment of localAttachments) {
-      fd.append('files', attachment.file);
-    }
     uploadingSessionFiles.value = true;
     try {
-      const res = await (deps.chatSdkClient?.uploadFiles
-        ? deps.chatSdkClient.uploadFiles(sessionId, localAttachments.map(attachment => attachment.file))
-        : uploadSessionFiles(sessionId, fd));
+      if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
+      const res = await deps.chatSdkClient.uploadFiles(sessionId, localAttachments.map(attachment => attachment.file));
       const createdFiles = (res.files || []).map(normalizeSessionAttachment).filter(Boolean);
       if (createdFiles.length !== localAttachments.length) {
         throw new Error('附件上传结果数量不匹配');
@@ -196,11 +190,8 @@ export function useSessionFilesAttachments(deps) {
 
   const downloadSessionFileItem = async (file) => {
     if (!deps.currentSessionId.value || !file?.id) return;
-    if (!deps.chatSdkClient?.downloadFile) {
-      window.open(getSessionFileDownloadUrl(deps.currentSessionId.value, file.id), '_blank');
-      return;
-    }
     try {
+      if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
       const response = await deps.chatSdkClient.downloadFile(deps.currentSessionId.value, file.id);
       const objectUrl = URL.createObjectURL(await response.blob());
       const link = document.createElement('a');
@@ -219,11 +210,8 @@ export function useSessionFilesAttachments(deps) {
     if (!deps.currentSessionId.value || !file?.id) return;
     deletingSessionFileId.value = file.id;
     try {
-      if (deps.chatSdkClient?.deleteFile) {
-        await deps.chatSdkClient.deleteFile(deps.currentSessionId.value, file.id);
-      } else {
-        await deleteSessionFile(deps.currentSessionId.value, file.id);
-      }
+      if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
+      await deps.chatSdkClient.deleteFile(deps.currentSessionId.value, file.id);
       sessionFiles.value = sessionFiles.value.filter(item => item.id !== file.id);
       deps.showToast('会话文件已删除', 'success');
     } catch (error) {

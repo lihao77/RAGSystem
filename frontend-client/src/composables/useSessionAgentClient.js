@@ -1,28 +1,26 @@
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { useRunRuntime } from './useRunRuntime.js';
-import { createSessionTransport } from './sessionTransport.js';
 import { createSessionInteractionController } from './sessionInteractionController.js';
 import { createSessionRunRecovery } from './sessionRunRecovery.js';
 import { createSessionCommandController } from './sessionCommandController.js';
 import { createSessionEnvelopeDispatcher } from './sessionEnvelopeDispatcher.js';
-import { resumeSessionRun } from '../api/session.js';
 
 export { resetActiveRunForSend, serializeAttachmentForSend } from './sessionCommandController.js';
 
 /**
  * 会话 AgentClient（对标 packages/agent-widget/src/adapter/widget-agent-client.ts 的 WidgetAgentClient）。
  *
- * 组合 transport、事件分发、运行态、send/stop、交互提交与 Session runtime 快照，
- * 保持单向数据流（WS → handleEnvelope → store/投影）和稳定的 facade 接口。
+ * 组合 chat-sdk、事件分发、运行态、send/stop、交互提交与 Session runtime 快照，
+ * 保持单向数据流（SDK event → handleEnvelope → store/投影）和稳定的 facade 接口。
  * 状态读 session-run store 单源（替代 widget 的 Observable——Vue 场景下 store 已是推模式）。
  *
  * 组成：
- * - WS transport：连接/重连/cursor 去重/delegate 拦截/commandFallback 定时器（2.5a）
+ * - chat-sdk：WS 连接/重连、AG-UI fallback、ACK 与宿主工具委托（2.5a）
  * - SessionEnvelopeDispatcher：顶层事件编排，写 store + 调投影（2.5b）
  * - useRunRuntime 组合子：phase/timing/seq gap/durable replay/finalize（client 单向组合）
- * - send/stop：HTTP 降级/followup/附件/allowed_actions 校验（2.5c）
- * - respondInteraction：统一 approval/user_input WS 提交 + ack + HTTP 降级（2.5d）
+ * - send/stop：followup/附件/allowed_actions 校验后交给 SDK（2.5c）
+ * - respondInteraction：统一 approval/user_input 校验后交给 SDK（2.5d）
  * - session.runtime：后端权威状态、初次加载策略与可执行动作（2.5e）
  *
  * @param {Object} deps 业务回调（投影/UI/消息缓存/会话切换/send 单向依赖）
@@ -69,7 +67,8 @@ export function useSessionAgentClient(deps) {
 
   const finalizeActiveRun = runtime.finalizeActiveRun;
   let envelopeDispatcher;
-  const sdk = deps.chatSdkClient || null;
+  const sdk = deps.chatSdkClient;
+  if (!sdk) throw new Error('Chat SDK 未初始化');
   const sdkEventCursors = new Map();
   const handleDisconnect = () => {
     clearCommandFallback();
@@ -77,78 +76,52 @@ export function useSessionAgentClient(deps) {
     deps.resetApprovalState();
   };
 
-  const legacyTransport = sdk ? null : createSessionTransport({
-    getCurrentSessionId: () => currentSessionId.value,
-    issueTicket: deps.issueSessionWsTicket,
-    onEnvelope: (event, sessionId) => envelopeDispatcher.handleEnvelope(event, sessionId),
-    onDisconnect: handleDisconnect,
-    onSocketClose: clearCommandFallback,
-    onReconnectExhausted: (sessionId) => {
-      if (activeRun.active) finalizeActiveRun(sessionId);
-    },
+  sdk.on('event', (event) => {
+    const sessionId = event.session_id || sdk.sessionId || currentSessionId.value;
+    const heartbeatSeq = event.type === 'heartbeat' ? event.payload?.last_seq : null;
+    const observedSeq = typeof event.seq === 'number' ? event.seq : heartbeatSeq;
+    if (sessionId && typeof observedSeq === 'number') {
+      sdkEventCursors.set(sessionId, Math.max(sdkEventCursors.get(sessionId) || 0, observedSeq));
+    }
+    if (sessionId) envelopeDispatcher?.handleEnvelope(event, sessionId);
+  });
+  sdk.on('status', (status) => {
+    if (status.state === 'reconnecting') clearCommandFallback();
+    if (status.state === 'disconnected') {
+      handleDisconnect();
+      if (status.reason === 'max retries exceeded' && currentSessionId.value && activeRun.active) {
+        finalizeActiveRun(currentSessionId.value);
+      }
+    }
   });
 
-  if (sdk) {
-    sdk.on('event', (event) => {
-      const sessionId = event.session_id || sdk.sessionId || currentSessionId.value;
-      const heartbeatSeq = event.type === 'heartbeat' ? event.payload?.last_seq : null;
-      const observedSeq = typeof event.seq === 'number' ? event.seq : heartbeatSeq;
-      if (sessionId && typeof observedSeq === 'number') {
-        sdkEventCursors.set(sessionId, Math.max(sdkEventCursors.get(sessionId) || 0, observedSeq));
-      }
-      if (sessionId) envelopeDispatcher?.handleEnvelope(event, sessionId);
+  const connectSessionWS = async (sessionId, options = {}) => {
+    const afterEventSeq = sdkEventCursors.get(sessionId);
+    await sdk.connect(sessionId, {
+      ...(afterEventSeq !== undefined ? { afterEventSeq } : {}),
+      ...(options.historySnapshot ? { historySnapshot: true } : {}),
     });
-    sdk.on('status', (status) => {
-      if (status.state === 'reconnecting') clearCommandFallback();
-      if (status.state === 'disconnected') {
-        handleDisconnect();
-        if (status.reason === 'max retries exceeded' && currentSessionId.value && activeRun.active) {
-          finalizeActiveRun(currentSessionId.value);
-        }
-      }
+  };
+  const reconnectSessionWS = async (sessionId, options = {}) => {
+    sdk.disconnect();
+    const afterEventSeq = sdkEventCursors.get(sessionId);
+    await sdk.connect(sessionId, {
+      ...(afterEventSeq !== undefined ? { afterEventSeq } : {}),
+      ...(options.historySnapshot ? { historySnapshot: true } : {}),
     });
-  }
-
-  const connectSessionWS = sdk
-    ? async (sessionId, options = {}) => {
-      const afterEventSeq = sdkEventCursors.get(sessionId);
-      await sdk.connect(sessionId, {
-        ...(afterEventSeq !== undefined ? { afterEventSeq } : {}),
-        ...(options.historySnapshot ? { historySnapshot: true } : {}),
-      });
+  };
+  const disconnectSessionWS = () => sdk.disconnect();
+  const getLastEventSeq = (sessionId = currentSessionId.value) => sdkEventCursors.get(sessionId) || 0;
+  const initializeSessionEventCursor = (sessionId, afterEventSeq) => {
+    if (sessionId === currentSessionId.value) {
+      sdkEventCursors.set(sessionId, afterEventSeq);
     }
-    : legacyTransport.connect;
-  const reconnectSessionWS = sdk
-    ? async (sessionId, options = {}) => {
-      sdk.disconnect();
-      const afterEventSeq = sdkEventCursors.get(sessionId);
-      await sdk.connect(sessionId, {
-        ...(afterEventSeq !== undefined ? { afterEventSeq } : {}),
-        ...(options.historySnapshot ? { historySnapshot: true } : {}),
-      });
-    }
-    : legacyTransport.reconnect;
-  const disconnectSessionWS = sdk ? () => sdk.disconnect() : legacyTransport.disconnect;
-  const getWS = sdk ? () => null : legacyTransport.getSocket;
-  const getLastEventSeq = sdk
-    ? (sessionId = currentSessionId.value) => sdkEventCursors.get(sessionId) || 0
-    : legacyTransport.getLastEventSeq;
-  const initializeSessionEventCursor = sdk
-    ? (sessionId, afterEventSeq) => {
-      if (sessionId === currentSessionId.value) {
-        sdkEventCursors.set(sessionId, afterEventSeq);
-      }
-    }
-    : legacyTransport.initializeSessionEventCursor;
+  };
   const interactionController = createSessionInteractionController({
-    getCurrentSessionId: () => currentSessionId.value,
-    getSocket: () => deps.getWS?.() || getWS(),
     getSessionRuntime: () => sessionRuntime.value,
-    ...(sdk ? {
-      respondViaSdk: (interactionId, response) => sdk.respondInteraction(interactionId, response.kind === 'user_input'
-        ? { kind: 'user_input', value: String(response.value ?? '') }
-        : response),
-    } : {}),
+    respondViaSdk: (interactionId, response) => sdk.respondInteraction(interactionId, response.kind === 'user_input'
+      ? { kind: 'user_input', value: String(response.value ?? '') }
+      : response),
   });
 
   const commandController = createSessionCommandController({
@@ -158,7 +131,6 @@ export function useSessionAgentClient(deps) {
     isLoading,
     contextUsage,
     activeRun,
-    getSocket: () => deps.getWS?.() || getWS(),
     allowsRuntimeAction,
     getSessionRuntime: () => sessionRuntime.value,
     beginOptimisticCommand,
@@ -166,15 +138,13 @@ export function useSessionAgentClient(deps) {
     scheduleCommandFallback,
     enqueueFollowupCandidate,
     markFollowupCandidateFailed,
-    ...(sdk ? {
-      sendViaSdk: (input, requestId) => sdk.send({
-        task: input.task,
-        requestId,
-        ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
-        ...(input.attachments ? { attachments: input.attachments } : {}),
-      }),
-      stopViaSdk: async () => { sdk.stop(); },
-    } : {}),
+    sendViaSdk: (input, requestId) => sdk.send({
+      task: input.task,
+      requestId,
+      ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
+      ...(input.attachments ? { attachments: input.attachments } : {}),
+    }),
+    stopViaSdk: async () => { sdk.stop(); },
   });
   const send = commandController.send;
   const stop = commandController.stop;
@@ -234,7 +204,7 @@ export function useSessionAgentClient(deps) {
     const interactionId = sessionRuntime.value?.resume_interaction_id;
     if (!sessionId || !interactionId || !allowsRuntimeAction('resume_run')) return false;
     if (resumePromise) return resumePromise;
-    resumePromise = (sdk ? sdk.resume() : resumeSessionRun(sessionId, interactionId).then(() => true))
+    resumePromise = sdk.resume()
       .catch((error) => {
         deps.showToast?.(error instanceof Error ? error.message : '恢复执行失败', 'warning');
         return false;
@@ -250,7 +220,6 @@ export function useSessionAgentClient(deps) {
     connectSessionWS,
     reconnectSessionWS,
     disconnectSessionWS,
-    getWS,
     getLastEventSeq,
     initializeSessionEventCursor,
     handleEnvelope,

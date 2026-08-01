@@ -145,7 +145,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { Sheet, SheetContent, SheetTitle } from './ui/sheet';
-import { getContextSnapshot } from '../api/session';
 
 const props = defineProps({
   visible: Boolean,
@@ -194,9 +193,8 @@ async function fetchSnapshot() {
   error.value = '';
   data.value = null;
   try {
-    const json = await (props.chatSdkClient?.getContextSnapshot
-      ? props.chatSdkClient.getContextSnapshot(props.sessionId, { selectedLlm: props.selectedLlm })
-      : getContextSnapshot(props.sessionId, { selectedLlm: props.selectedLlm }));
+    if (!props.chatSdkClient) throw new Error('Chat SDK 未初始化');
+    const json = await props.chatSdkClient.getContextSnapshot(props.sessionId, { selectedLlm: props.selectedLlm });
     data.value = json.data;
   } catch (e) {
     error.value = e.message;
