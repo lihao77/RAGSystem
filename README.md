@@ -14,7 +14,7 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 - 配置化运行：支持 Agent Team、模型提供方、MCP 服务、向量化器与守护 Agent 的运行时配置
 - 可视化前端：聊天、执行过程、Team 编排、Agent 配置、MCP 管理、知识库、模型管理、守护 Agent 与系统配置页面
 
-前端主导航同时提供 TeamBuilder 入口（`/team-builder`），用于生成、切换与整理 Team 方案；生成后的 Team 可继续进入 Agent 配置页做细调。
+安装 Agent Builder 插件后，每个租户会得到可激活的 `agent-builder` Team。用户可在 TeamBuilder（`/team-builder`）激活它并返回聊天，由专职 Agent 协作完成需求调研、能力分析、架构、评估与调优；管理员再在 TeamBuilder 审查 Draft、校验能力绑定并发布不可变业务 Team 版本。完整流程见 [Agent Builder](docs/AGENT_BUILDER.md)。
 
 ## 界面预览
 
@@ -192,6 +192,7 @@ npm run check:widget
 - [frontend-client/docs/README.md](frontend-client/docs/README.md) — 前端文档入口
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — 运行、配置与验证
 - [docs/BACKEND_PLUGIN_CONFIG.md](docs/BACKEND_PLUGIN_CONFIG.md) — 后端插件配置与接入契约
+- [docs/AGENT_BUILDER.md](docs/AGENT_BUILDER.md) — Agent Builder 草稿、校验、发布与版本 Team
 - [docs/refactor/README.md](docs/refactor/README.md) — 当前演进专题
 
 ## 贡献

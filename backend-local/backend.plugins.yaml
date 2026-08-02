@@ -8,4 +8,5 @@ plugins:
   - module: "@ragsystem/backend-plugin-memory/module.js"
   - module: "@ragsystem/backend-plugin-mcp/module.js"
   - module: "@ragsystem/backend-plugin-skills/module.js"
+  - module: "@ragsystem/backend-plugin-agent-builder/module.js"
   - module: "@ragsystem/backend-plugin-widget/module.js"

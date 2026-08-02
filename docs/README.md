@@ -12,6 +12,7 @@ This directory is the canonical repository-level documentation center for mainli
 - [../frontend-client/docs/README.md](../frontend-client/docs/README.md) — 前端文档入口 / frontend documentation entry
 - [OPERATIONS.md](OPERATIONS.md) — 运行、配置与验证 / operations, configuration, and verification
 - [BACKEND_PLUGIN_CONFIG.md](BACKEND_PLUGIN_CONFIG.md) — 后端插件配置与接入契约 / backend plugin configuration and module contract
+- [AGENT_BUILDER.md](AGENT_BUILDER.md) — Agent 草稿、校验、版本发布与运行时 Team / Agent draft, validation, releases, and runtime Teams
 
 ## 专题文档 / Topic documents
 

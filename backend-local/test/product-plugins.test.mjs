@@ -15,6 +15,7 @@ const ALL_IDS = [
   "@ragsystem/backend-plugin-memory",
   "@ragsystem/backend-plugin-mcp",
   "@ragsystem/backend-plugin-skills",
+  "@ragsystem/backend-plugin-agent-builder",
   "@ragsystem/backend-plugin-widget",
 ];
 
