@@ -30,15 +30,31 @@ export function useMessageRevision(deps) {
   const editingSubmitting = ref(false);
 
   const reloadMessagesAfterRetryFailure = async (sessionId) => {
-    if (typeof deps.reloadSessionMessages !== 'function') return;
+    if (typeof deps.reloadSessionMessages !== 'function') {
+      sessionRunStore.finishOptimisticCommand();
+      return;
+    }
     try {
       await deps.reloadSessionMessages(sessionId);
     } catch (reloadError) {
       console.warn('重试失败后刷新会话消息失败:', reloadError);
+    } finally {
+      // The optimistic placeholder is created before the request so live
+      // events have a target. A rejected rollback must release that command
+      // state even when the runtime snapshot is still idle.
+      sessionRunStore.finishOptimisticCommand();
     }
   };
 
-  const projectRetriedRun = ({ sessionId, index, content, attachments, result, retrySource }) => {
+  const projectRetriedRun = ({
+    sessionId,
+    index,
+    content,
+    attachments,
+    result = {},
+    retrySource,
+    preserveExisting = false,
+  }) => {
     const retryMetadata = {
       execution_kind: 'rollback_and_retry',
       ...(result.request_id ? { request_id: result.request_id } : {}),
@@ -46,6 +62,43 @@ export function useMessageRevision(deps) {
       ...(retrySource?.seq != null ? { retry_of_seq: retrySource.seq } : {}),
       ...(retrySource?.id ? { retry_of_message_id: retrySource.id } : {}),
     };
+
+    // The rollback endpoint can acknowledge durable start after run_started and
+    // initial stream events have already reached the browser. Keep that
+    // optimistic assistant (and its execution tree) when the HTTP response
+    // arrives; replacing messages here would discard the live projection.
+    const existingUser = messages.value[index];
+    const activeAssistant = messages.value[deps.activeRun.assistantMsgIndex];
+    const existingAssistant = activeAssistant?.role === 'assistant'
+      ? activeAssistant
+      : messages.value
+        .slice(Math.max(0, index + 1))
+        .findLast?.(item => item?.role === 'assistant')
+        || null;
+    if (
+      preserveExisting
+      && existingUser?.role === 'user'
+      && existingUser.metadata?.execution_kind === 'rollback_and_retry'
+      && existingAssistant?.role === 'assistant'
+    ) {
+      existingUser.content = content;
+      existingUser.attachments = attachments;
+      existingUser.metadata = { ...(existingUser.metadata || {}), ...retryMetadata };
+      if (result.run_id) {
+        existingAssistant.run_id = result.run_id;
+        existingAssistant.metadata = {
+          ...(existingAssistant.metadata || {}),
+          run_id: result.run_id,
+        };
+        deps.activeRun.runId = result.run_id;
+      }
+      const assistantMsgIndex = messages.value.findIndex(item => item === existingAssistant);
+      if (assistantMsgIndex >= 0) deps.activeRun.assistantMsgIndex = assistantMsgIndex;
+      deps.cacheMessages(sessionId, messages.value);
+      deps.stickToBottom?.();
+      return;
+    }
+
     const retriedUserMessage = {
       role: 'user',
       content,
@@ -142,6 +195,13 @@ export function useMessageRevision(deps) {
         ...(selectedLlm ? { selected_llm: selectedLlm } : {}),
       };
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
+      projectRetriedRun({
+        sessionId,
+        index,
+        content,
+        attachments: materialized,
+        retrySource: msg,
+      });
       const resp = await deps.chatSdkClient.rollbackAndRetrySession(sessionId, retryBody);
       const result = resp.data || {};
       if (!result.started) {
@@ -150,10 +210,19 @@ export function useMessageRevision(deps) {
 
       if (result.kind === 'command') {
         await deps.reloadSessionMessages?.(sessionId);
+        sessionRunStore.finishOptimisticCommand();
         resetEditingState();
         return;
       }
-      projectRetriedRun({ sessionId, index, content, attachments: materialized, result, retrySource: msg });
+      projectRetriedRun({
+        sessionId,
+        index,
+        content,
+        attachments: materialized,
+        result,
+        retrySource: msg,
+        preserveExisting: true,
+      });
       resetEditingState();
     } catch (error) {
       editingSubmitting.value = false;
@@ -188,6 +257,13 @@ export function useMessageRevision(deps) {
     try {
       // 原样重试：不传 modify_user_message/attachments，后端用原消息内容与原附件
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
+      projectRetriedRun({
+        sessionId,
+        index,
+        content: msg.content || '',
+        attachments: Array.isArray(msg.attachments) ? msg.attachments : [],
+        retrySource: msg,
+      });
       const resp = await deps.chatSdkClient.rollbackAndRetrySession(sessionId, anchor);
       const result = resp.data || {};
       if (!result.started) {
@@ -195,6 +271,7 @@ export function useMessageRevision(deps) {
       }
       if (result.kind === 'command') {
         await deps.reloadSessionMessages?.(sessionId);
+        sessionRunStore.finishOptimisticCommand();
         return;
       }
       projectRetriedRun({
@@ -204,6 +281,7 @@ export function useMessageRevision(deps) {
         attachments: Array.isArray(msg.attachments) ? msg.attachments : [],
         result,
         retrySource: msg,
+        preserveExisting: true,
       });
     } catch (error) {
       await reloadMessagesAfterRetryFailure(sessionId);

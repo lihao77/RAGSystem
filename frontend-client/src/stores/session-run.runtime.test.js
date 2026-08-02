@@ -146,6 +146,18 @@ test('终态只进入 last_run，不会伪装成 Session runtime state', () => {
   assert.equal(store.isLoading, false);
 });
 
+test('idle 权威快照会清除已结束 run 的 active 展示', () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  store.applySessionRuntime(snapshot('running'));
+  assert.equal(store.activeRun.active, true);
+
+  store.applySessionRuntime(snapshot('idle'));
+
+  assert.equal(store.activeRun.active, false);
+  assert.equal(store.activeRun.assistantMsgIndex, -1);
+});
+
 test('所有操作权限只读取 allowed_actions，不能由 state 或 execution_owner 猜测', () => {
   setActivePinia(createPinia());
   const store = useSessionRunStore();

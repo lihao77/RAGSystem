@@ -445,7 +445,9 @@ export class RagChatClient {
     this.delegationEnabled = true;
     const unregister = this.sessionClient?.registerTool(spec);
     return () => {
+      if (this.hostTools.get(spec.name) !== spec) return;
       this.hostTools.delete(spec.name);
+      this.sessionClient?.unregisterTool(spec);
       unregister?.();
     };
   }
@@ -455,6 +457,7 @@ export class RagChatClient {
     const unregister = this.sessionClient?.onToolCall(handler);
     return () => {
       this.toolCallHandlers.delete(handler);
+      this.sessionClient?.removeToolCallHandler(handler);
       unregister?.();
     };
   }
@@ -462,7 +465,9 @@ export class RagChatClient {
   registerInteractionHandler(kind: string, handler: RagChatInteractionHandler): Unsubscribe {
     if (!kind || typeof handler !== "function") throw new TypeError("交互类型和 handler 不能为空");
     this.interactionHandlers.set(kind, handler);
-    return () => this.interactionHandlers.delete(kind);
+    return () => {
+      if (this.interactionHandlers.get(kind) === handler) this.interactionHandlers.delete(kind);
+    };
   }
 
   cancelToolCall(callId: string, reason?: string): void {
@@ -521,16 +526,23 @@ export class RagChatClient {
       this.interactionRequests.add(request.interactionId);
       this.emit("interaction_request", request);
       const handler = this.interactionHandlers.get(request.kind) ?? this.fallbackInteractionHandler;
-      if (handler) void this.runInteractionHandler(request, handler);
+      if (handler) void this.runInteractionHandler(request, handler, this.sessionClient);
     }
   }
 
-  private async runInteractionHandler(request: PendingInteraction, handler: RagChatInteractionHandler): Promise<void> {
+  private async runInteractionHandler(
+    request: PendingInteraction,
+    handler: RagChatInteractionHandler,
+    sessionAtDispatch: SessionAgentClient | null,
+  ): Promise<void> {
     try {
       const response = await withTimeout(
         Promise.resolve().then(() => handler(request)),
         this.interactionTimeoutMs,
       );
+      // A handler can outlive a route/session switch. Never submit its answer
+      // to the newly active session.
+      if (this.sessionClient !== sessionAtDispatch) return;
       await this.respondInteraction(request.interactionId, response);
     } catch (error) {
       this.emit("error", error);

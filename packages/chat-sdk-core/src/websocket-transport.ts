@@ -27,6 +27,7 @@ export interface ChatWebSocketTransportOptions {
 
 /** 后端心跳间隔 20s（ws.ts），客户端 60s 无任何帧判连接僵死、主动断开重连。 */
 const HEARTBEAT_TIMEOUT_MS = 60_000;
+const WS_CONNECTING = 0;
 const WS_OPEN = 1;
 const STABLE_CONNECTION_MS = 5_000;
 const TERMINAL_CLOSE_CODES = new Set([4001, 4003, 4004]);
@@ -52,6 +53,8 @@ export class ChatWebSocketTransport {
   private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   private stableConnectionTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  /** Invalidates ticket/socket work left behind by a manual reconnect. */
+  private connectionGeneration = 0;
   private readonly deliveryCursor = new EnvelopeDeliveryCursor();
   private readonly policy: Required<ReconnectPolicy>;
 
@@ -61,13 +64,20 @@ export class ChatWebSocketTransport {
   }
 
   connect(): void {
+    if (this.ws && (this.ws.readyState === WS_CONNECTING || this.ws.readyState === WS_OPEN)) return;
+    // A manual connect supersedes any delayed automatic retry for the closed
+    // socket; leaving that timer alive can create a second concurrent socket.
+    this.clearTimers();
     this.disposed = false;
-    void this.openResolved(true);
+    const generation = ++this.connectionGeneration;
+    void this.openResolved(true, generation);
   }
 
   /** 手动重连：重置退避计数后发起新连接（自动重连耗尽进 disconnected 后，UI 可调此恢复）。 */
   reconnect(): void {
     this.clearTimers();
+    this.disposed = false;
+    const generation = ++this.connectionGeneration;
     if (this.ws) {
       // 清掉旧 ws 监听，避免其 onclose 再触发一次 scheduleReconnect 造成双连。
       this.ws.onclose = null;
@@ -82,7 +92,7 @@ export class ChatWebSocketTransport {
       this.ws = null;
     }
     this.reconnectAttempts = 0;
-    void this.openResolved(false);
+    void this.openResolved(false, generation);
   }
 
   send(message: object): void {
@@ -93,6 +103,7 @@ export class ChatWebSocketTransport {
 
   disconnect(): void {
     this.disposed = true;
+    this.connectionGeneration += 1;
     this.clearTimers();
     if (this.ws) {
       try {
@@ -105,7 +116,8 @@ export class ChatWebSocketTransport {
     this.emitStatus({ state: "disconnected" });
   }
 
-  private async openResolved(isFirst: boolean): Promise<void> {
+  private async openResolved(isFirst: boolean, generation: number): Promise<void> {
+    if (this.disposed || generation !== this.connectionGeneration) return;
     this.emitStatus(
       isFirst
         ? { state: "connecting" }
@@ -113,17 +125,26 @@ export class ChatWebSocketTransport {
     );
     try {
       const url = await this.options.resolveUrl();
-      if (this.disposed) return;
-      this.open(url);
+      if (this.disposed || generation !== this.connectionGeneration) return;
+      this.open(url, generation);
     } catch {
-      if (!this.disposed) this.scheduleReconnect();
+      if (!this.disposed && generation === this.connectionGeneration) this.scheduleReconnect();
     }
   }
 
-  private open(url: string): void {
+  private open(url: string, generation: number): void {
     const ws = this.options.createWebSocket?.(url) ?? new WebSocket(url);
+    if (this.disposed || generation !== this.connectionGeneration) {
+      ws.onclose = null;
+      ws.onmessage = null;
+      ws.onopen = null;
+      ws.onerror = null;
+      try { ws.close(); } catch { /* stale socket */ }
+      return;
+    }
     this.ws = ws;
     ws.onopen = () => {
+      if (this.disposed || generation !== this.connectionGeneration || this.ws !== ws) return;
       if (this.stableConnectionTimer) clearTimeout(this.stableConnectionTimer);
       this.stableConnectionTimer = setTimeout(() => {
         this.reconnectAttempts = 0;
@@ -137,6 +158,7 @@ export class ChatWebSocketTransport {
       });
     };
     ws.onmessage = (event: MessageEvent) => {
+      if (this.disposed || generation !== this.connectionGeneration || this.ws !== ws) return;
       this.resetHeartbeat();
       const raw = typeof event.data === "string" ? event.data : String(event.data);
       let env: Envelope;
@@ -149,6 +171,7 @@ export class ChatWebSocketTransport {
       this.options.handlers.onEnvelope(env);
     };
     ws.onclose = (event) => {
+      if (generation !== this.connectionGeneration || this.ws !== ws) return;
       this.clearTimers();
       if (this.disposed) {
         return;
@@ -183,7 +206,8 @@ export class ChatWebSocketTransport {
       if (this.disposed) {
         return;
       }
-      void this.openResolved(false);
+      const generation = ++this.connectionGeneration;
+      void this.openResolved(false, generation);
     }, delay);
   }
 

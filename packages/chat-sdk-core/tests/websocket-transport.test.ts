@@ -15,6 +15,42 @@ class Socket {
 }
 
 describe("ChatWebSocketTransport retry policy", () => {
+  it("ignores a stale ticket resolution after a manual reconnect", async () => {
+    const sockets: Socket[] = [];
+    const urls: string[] = [];
+    let resolveFirst: ((url: string) => void) | undefined;
+    let resolveSecond: ((url: string) => void) | undefined;
+    let calls = 0;
+    const transport = new ChatWebSocketTransport({
+      resolveUrl: () => new Promise<string>((resolve) => {
+        calls += 1;
+        if (calls === 1) resolveFirst = resolve;
+        else resolveSecond = resolve;
+      }),
+      sessionId: "s-1",
+      createWebSocket: (url) => {
+        const socket = new Socket();
+        urls.push(url);
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+      handlers: { onEnvelope: () => {}, onStatus: () => {} },
+    });
+
+    transport.connect();
+    await Promise.resolve();
+    transport.reconnect();
+    await Promise.resolve();
+    resolveSecond?.("wss://new");
+    await Promise.resolve();
+    resolveFirst?.("wss://stale");
+    await Promise.resolve();
+
+    expect(sockets).toHaveLength(1);
+    expect(urls[0]).toBe("wss://new");
+    transport.disconnect();
+  });
+
   it("stops on terminal server close codes", async () => {
     vi.useFakeTimers();
     const sockets: Socket[] = [];

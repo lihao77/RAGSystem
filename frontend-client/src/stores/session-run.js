@@ -81,7 +81,10 @@ export const useSessionRunStore = defineStore('session-run', () => {
     activeRun.active = hasActiveRun;
     activeRun.runId = nextRunId;
     if (!hasActiveRun) {
-      const active = activeRun.active;
+      // An idle snapshot is authoritative once a run was already attached.
+      // Only keep the active presentation while a send/rollback is still
+      // waiting for its first durable runtime snapshot.
+      const active = Boolean(optimisticCommand.value);
       resetActiveRunState(activeRun);
       activeRun.active = active;
     } else if (snapshot.state === 'waiting_interaction') {

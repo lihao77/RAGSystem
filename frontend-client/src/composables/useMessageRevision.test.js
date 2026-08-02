@@ -114,7 +114,7 @@ test('rollbackAndRetry 失败时重新加载服务端消息并提示错误', asy
     mock.onPost(/\/rollback-and-retry$/).reply(400, { message: '重试失败啦' });
   }, async () => {
     const serverMessages = [{ role: 'user', seq: 1, id: 'msg-server', content: 'server state' }];
-    const { deps, toasts, reloadCalls } = createDeps({
+    const { deps, toasts, reloadCalls, sessionRunStore } = createDeps({
       reloadSessionMessages: async (sessionId) => {
         reloadCalls.push(sessionId);
         deps.messages.value = serverMessages;
@@ -132,7 +132,74 @@ test('rollbackAndRetry 失败时重新加载服务端消息并提示错误', asy
     assert.deepEqual(deps.messages.value, serverMessages);
     assert.deepEqual(reloadCalls, ['session-1']);
     assert.deepEqual(toasts, ['重试失败啦']);
+    assert.equal(sessionRunStore.optimisticCommand, null);
+    assert.equal(sessionRunStore.isLoading, false);
   });
+});
+
+test('回滚接口返回前已收到流式事件时保留执行树投影', async () => {
+  let streamedAssistant = null;
+  const { deps, activeRun } = createDeps({
+    chatSdkClient: {
+      rollbackAndRetrySession: async () => {
+        streamedAssistant = deps.messages.value.at(-1);
+        streamedAssistant.content = 'partial output';
+        streamedAssistant.executionTree = {
+          root: { callId: 'call-root', status: 'running' },
+          steps: [{ type: 'tool_call', callId: 'call-tool' }],
+        };
+        // A compression summary may be inserted before the assistant while
+        // the rollback HTTP request is still pending.
+        deps.messages.value.splice(1, 0, { role: 'system', content: 'summary' });
+        return {
+          data: {
+            started: true,
+            request_id: 'req-retry',
+            run_id: 'run-retry',
+          },
+        };
+      },
+    },
+  });
+  deps.messages.value = [
+    { role: 'user', id: 'msg-1', seq: 1, content: 'question' },
+    { role: 'assistant', id: 'msg-2', seq: 2, content: 'old answer', finished: true },
+  ];
+
+  const revision = useMessageRevision(deps);
+  await revision.rollbackAndRetry(deps.messages.value[0]);
+
+  assert.ok(streamedAssistant);
+  assert.equal(deps.messages.value.at(-1), streamedAssistant);
+  assert.equal(streamedAssistant.content, 'partial output');
+  assert.deepEqual(streamedAssistant.executionTree.steps, [{ type: 'tool_call', callId: 'call-tool' }]);
+  assert.equal(streamedAssistant.run_id, 'run-retry');
+  assert.equal(deps.messages.value[0].metadata.request_id, 'req-retry');
+  assert.equal(activeRun.runId, 'run-retry');
+  assert.equal(activeRun.active, true);
+});
+
+test('回滚 run 在接口响应前结束时不会重新进入 loading', async () => {
+  const { deps, activeRun, sessionRunStore } = createDeps({
+    chatSdkClient: {
+      rollbackAndRetrySession: async () => {
+        const assistant = deps.messages.value.at(-1);
+        assistant.content = 'done';
+        assistant.finished = true;
+        sessionRunStore.finishOptimisticCommand();
+        return { data: { started: true, run_id: 'run-done' } };
+      },
+    },
+  });
+  deps.messages.value = [{ role: 'user', id: 'msg-1', seq: 1, content: 'question' }];
+
+  const revision = useMessageRevision(deps);
+  await revision.rollbackAndRetry(deps.messages.value[0]);
+
+  assert.equal(activeRun.active, false);
+  assert.equal(sessionRunStore.optimisticCommand, null);
+  assert.equal(sessionRunStore.isLoading, false);
+  assert.equal(deps.messages.value.at(-1).finished, true);
 });
 
 test('confirmEditAndResend 在运行中会被拦截，不发起请求', async () => {

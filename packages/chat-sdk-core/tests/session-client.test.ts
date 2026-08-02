@@ -211,4 +211,72 @@ describe("SessionAgentClient connection lifecycle", () => {
     client.disconnect();
     await expect(connecting).rejects.toThrow("连接失败");
   });
+
+  it("aborts a running delegated host tool when the session run is stopped", async () => {
+    const sockets: ControlledWebSocket[] = [];
+    let resolveTool: ((result: { ok: true; observation: string }) => void) | undefined;
+    let toolSignal: AbortSignal | undefined;
+    const client = new SessionAgentClient({
+      baseUrl: "https://rag.example.test",
+      sessionId: "session-1",
+      issueWsTicket: async () => "ticket-1",
+      hostTools: [{
+        name: "slow_tool",
+        description: "slow tool",
+        inputSchema: { type: "object" },
+        execute: async (_input, context) => new Promise((resolve) => {
+          toolSignal = context.signal;
+          resolveTool = resolve;
+        }),
+      }],
+      createWebSocket: (url) => {
+        const socket = new ControlledWebSocket(url);
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+    });
+    const connecting = client.connect();
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    const socket = sockets[0];
+    socket?.open();
+    await connecting;
+
+    deliver(socket!, {
+      type: "session.runtime",
+      session_id: "session-1",
+      payload: runtimeSnapshot({
+        state: "running",
+        load_strategy: "attach_run",
+        allowed_actions: ["send_followup", "stop_run"],
+        active_run: {
+          run_id: "run-1",
+          status: "running",
+          execution_owner: "attached",
+          task: "task",
+          request_id: "request-1",
+          execution_kind: "agent_stream",
+          started_at: "2026-07-31T00:00:00.000Z",
+          updated_at: "2026-07-31T00:00:01.000Z",
+        },
+      }),
+    });
+    deliver(socket!, {
+      type: "delegate_call",
+      session_id: "session-1",
+      call_id: "tool-call-1",
+      run_id: "run-1",
+      payload: { phase: "request", tool: "slow_tool", input: {} },
+    });
+    await vi.waitFor(() => expect(toolSignal).toBeDefined());
+
+    client.stop();
+    expect(toolSignal?.aborted).toBe(true);
+    expect(toolSignal?.reason).toBe("run stopped");
+    resolveTool?.({ ok: true, observation: "late" });
+    await vi.waitFor(() => expect(messages(socket!).some((message) => message.type === "delegate_result")).toBe(true));
+    const delegateResult = messages(socket!).find((message) => message.type === "delegate_result");
+    expect(delegateResult?.payload).toMatchObject({ ok: false, error: "run stopped" });
+    expect(messages(socket!).map((message) => message.type)).toContain("abort");
+    client.disconnect();
+  });
 });

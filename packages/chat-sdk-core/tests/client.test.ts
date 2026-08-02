@@ -31,6 +31,25 @@ class FakeWebSocket {
   }
 }
 
+function runtimeSnapshot(overrides: Record<string, unknown> = {}) {
+  return {
+    state: "idle",
+    load_strategy: "history",
+    allowed_actions: ["send_message", "start_maintenance"],
+    active_run: null,
+    last_run: null,
+    pending_interactions: [],
+    resume_interaction_id: null,
+    maintenance: null,
+    observed_at: "2026-08-02T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function sentMessages(socket: FakeWebSocket | undefined): Array<Record<string, unknown>> {
+  return (socket?.sent ?? []).map((value) => JSON.parse(value) as Record<string, unknown>);
+}
+
 afterEach(() => vi.restoreAllMocks());
 
 describe("loginRagSystem", () => {
@@ -279,6 +298,93 @@ describe("RagChatClient", () => {
 
     expect(statuses.at(-1)).toEqual({ state: "disconnected" });
     expect(client.status.get()).toEqual({ state: "disconnected" });
+  });
+
+  it("does not submit a late interaction handler result to a newly selected session", async () => {
+    const sockets: FakeWebSocket[] = [];
+    let resolveApproval: ((value: { kind: "approval"; approved: boolean }) => void) | undefined;
+    const handler = vi.fn(() => new Promise<{ kind: "approval"; approved: boolean }>((resolve) => {
+      resolveApproval = resolve;
+    }));
+    const client = createRagChatClient({
+      baseUrl: "https://rag.example.test",
+      fetch: vi.fn(async () => new Response(JSON.stringify({ data: { ticket: "ticket-1" } }), { status: 200 })),
+      createWebSocket: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+      interactionHandlers: { approval: handler },
+    });
+
+    await client.connect("s-1");
+    sockets[0]?.onmessage?.({ data: JSON.stringify({
+      type: "session.runtime",
+      session_id: "s-1",
+      payload: runtimeSnapshot({
+        state: "waiting_interaction",
+        load_strategy: "attach_run_and_present_interactions",
+        allowed_actions: ["respond_interaction", "stop_run"],
+        active_run: {
+          run_id: "run-1",
+          status: "waiting_interaction",
+          execution_owner: "attached",
+          task: "approve",
+          request_id: "request-1",
+          execution_kind: "agent_stream",
+          started_at: "2026-08-02T00:00:00.000Z",
+          updated_at: "2026-08-02T00:00:01.000Z",
+        },
+        pending_interactions: [{
+          interaction_id: "interaction-1",
+          run_id: "run-1",
+          root_run_id: "run-1",
+          batch_id: "batch-1",
+          kind: "approval",
+          status: "waiting",
+          requested_at: "2026-08-02T00:00:01.000Z",
+          payload: { kind: "approval", phase: "required" },
+        }],
+      }),
+    }) });
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce());
+
+    await client.connect("s-2");
+    resolveApproval?.({ kind: "approval", approved: true });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sentMessages(sockets[1]).map((message) => message.type)).not.toContain("interaction");
+    client.disconnect();
+  });
+
+  it("unregisters a host tool from the active session after a session switch", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const client = createRagChatClient({
+      baseUrl: "https://rag.example.test",
+      fetch: vi.fn(async () => new Response(JSON.stringify({ data: { ticket: "ticket-1" } }), { status: 200 })),
+      createWebSocket: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+    });
+    const unregister = client.registerTool({
+      name: "host_lookup",
+      description: "lookup",
+      inputSchema: { type: "object" },
+      execute: async () => ({ ok: true, observation: "ok" }),
+    });
+
+    await client.connect("s-1");
+    await client.connect("s-2");
+    unregister();
+
+    const registrations = sentMessages(sockets[1]).filter((message) => message.type === "tools.register");
+    expect(registrations).toHaveLength(2);
+    expect(registrations[0]?.payload).toMatchObject({ tools: [{ name: "host_lookup" }] });
+    expect(registrations[1]?.payload).toEqual({ tools: [] });
+    client.disconnect();
   });
 
   it("downloads session files through the configured authenticated endpoint", async () => {
