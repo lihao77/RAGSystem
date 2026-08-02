@@ -11,7 +11,7 @@ function createHarness(overrides = {}) {
     assistantMsgIndex: 0,
     lastSeenSeq: 0,
     isReplaying: false,
-    phase: 'llm_streaming',
+    phase: 'model_streaming',
   };
   const messages = { value: [{ role: 'assistant', content: '', metadata: {}, finished: false }] };
   const isLoading = { value: true };

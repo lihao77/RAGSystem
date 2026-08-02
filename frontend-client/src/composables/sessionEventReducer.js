@@ -29,7 +29,7 @@ export function createSessionEventReducer({
     if (
       llmRetryState.value
       && eventType !== 'state_sync'
-      && ['stream_output', 'tool_call', 'tool_result', 'agent_ended', 'error'].includes(eventType)
+      && ['model_request', 'stream_output', 'tool_call', 'tool_result', 'agent_ended', 'error'].includes(eventType)
     ) {
       deps.clearLlmRetryState();
     }
@@ -51,15 +51,6 @@ export function createSessionEventReducer({
           model: detail.model || '',
         });
         activeRun.phase = 'retrying';
-      } else if (category === 'waiting') {
-        const detail = payload.detail || {};
-        const isStart = detail.phase === 'start' || Boolean(detail.wait_id && !activeRun.waiting);
-        if (deps.isMasterEvent(event)) {
-          if (isStart) runtime.markWaitingStart(event, detail);
-          else runtime.markWaitingFinished(detail);
-        }
-      } else if (category === 'reflection') {
-        if (deps.isMasterEvent(event)) activeRun.phase = 'reflecting';
       } else if (category === 'context_usage') {
         const detail = payload.detail || {};
         if (detail.compressing) isCompressing.value = true;
@@ -102,6 +93,8 @@ export function createSessionEventReducer({
           }
         }
       }
+    } else if (eventType === 'model_request') {
+      if (deps.isMasterEvent(event)) runtime.markModelRequestStarted(event);
     } else if (eventType === 'stream_output') {
       const phase = payload.phase;
       if (phase === 'first_token') {
@@ -131,14 +124,13 @@ export function createSessionEventReducer({
       }
     } else if (eventType === 'tool_call') {
       deps.applyEnvelopeToMessage(currentMsg, event);
-      if (deps.isMasterEvent(event)) activeRun.phase = 'tool_running';
+      if (deps.isMasterEvent(event)) runtime.markToolStarted(event, payload);
     } else if (eventType === 'tool_result') {
       deps.applyEnvelopeToMessage(currentMsg, event);
-      if (deps.isMasterEvent(event) && activeRun.phase !== 'background_waiting') {
-        activeRun.phase = 'llm_waiting_first_token';
-      }
+      if (deps.isMasterEvent(event)) runtime.markToolFinished(event);
     } else if (eventType === 'agent_started') {
       deps.applyEnvelopeToMessage(currentMsg, event);
+      if (deps.isMasterEvent(event)) runtime.markRootAgentStarted(event);
     } else if (eventType === 'agent_ended') {
       deps.applyEnvelopeToMessage(currentMsg, event);
       if (deps.isMasterEvent(event) && !currentMsg.finished) {

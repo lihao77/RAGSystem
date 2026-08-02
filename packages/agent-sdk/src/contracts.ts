@@ -14,6 +14,7 @@ import type { ChatMessage, LlmRequest, TokenUsage } from "@ragsystem/agent-llm";
 import type { KernelEvent } from "./kernel-events.js";
 export type {
   KernelEvent,
+  ModelRequestEvent,
   FirstTokenEvent,
   OutputDeltaEvent,
   IntentDeltaEvent,

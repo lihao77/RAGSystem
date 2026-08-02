@@ -1,5 +1,11 @@
 import type { ChatMessage } from "@ragsystem/agent-llm";
 
+export interface ModelRequestEvent {
+  type: "model_request";
+  agentName: string;
+  round: number;
+}
+
 /** Events emitted by the agent runtime and consumed by its host. */
 export interface FirstTokenEvent {
   type: "first_token";
@@ -83,6 +89,7 @@ export interface ContextUsageEvent {
 
 /** Complete event union exposed through RunHandle.events. */
 export type KernelEvent =
+  | ModelRequestEvent
   | FirstTokenEvent
   | OutputDeltaEvent
   | IntentDeltaEvent

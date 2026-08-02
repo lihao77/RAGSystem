@@ -5,15 +5,16 @@ export const createActiveRunState = () => ({
   active: false,
   assistantMsgIndex: -1,
   runId: null,
+  rootCallId: null,
   lastSeenSeq: 0,
   isReplaying: false,
   phase: 'idle',
+  runningToolCalls: {},
   runStartedAt: null,
   firstTokenAt: null,
   firstTokenLatencyMs: null,
   latestLlmFirstTokenAt: null,
   lastChunkAt: null,
-  waiting: null,
   outputCharCount: 0,
 });
 
@@ -78,6 +79,10 @@ export const useSessionRunStore = defineStore('session-run', () => {
     sessionRuntime.value = snapshot;
     const hasActiveRun = Boolean(snapshot?.active_run);
     const nextRunId = snapshot?.active_run?.run_id || null;
+    if (previousRunId !== nextRunId) {
+      activeRun.runningToolCalls = {};
+      activeRun.rootCallId = null;
+    }
     activeRun.active = hasActiveRun;
     activeRun.runId = nextRunId;
     if (!hasActiveRun) {
@@ -106,7 +111,11 @@ export const useSessionRunStore = defineStore('session-run', () => {
         || previousState === 'waiting_interaction'
         || previousState === 'suspended'
         || previousState === 'resuming';
-      if (needsRunningBaseline) activeRun.phase = 'llm_waiting_first_token';
+      if (needsRunningBaseline) {
+        activeRun.phase = Object.keys(activeRun.runningToolCalls || {}).length > 0
+          ? 'tool_running'
+          : 'processing';
+      }
     }
     if (snapshot?.state !== 'idle') optimisticCommand.value = null;
   };

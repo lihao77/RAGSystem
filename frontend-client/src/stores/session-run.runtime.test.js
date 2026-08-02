@@ -60,7 +60,7 @@ function snapshot(state, overrides = {}) {
 test('Session store 对六种 runtime 状态采用唯一加载策略和统一 busy 投影', () => {
   const cases = [
     ['idle', false, 'idle'],
-    ['running', true, 'llm_waiting_first_token'],
+    ['running', true, 'processing'],
     ['waiting_interaction', true, 'approval_waiting'],
     ['suspended', true, 'approval_waiting'],
     ['resuming', true, 'starting_agent'],
@@ -97,7 +97,7 @@ test('审批恢复后的 running 快照立即清除 approval_waiting，不等待
 
   assert.equal(store.sessionRuntime.state, 'running');
   assert.deepEqual(store.sessionRuntime.pending_interactions, []);
-  assert.equal(store.activeRun.phase, 'llm_waiting_first_token');
+  assert.equal(store.activeRun.phase, 'processing');
 });
 
 test('running 快照保留已经由实时事件投影出的更精确执行阶段', () => {

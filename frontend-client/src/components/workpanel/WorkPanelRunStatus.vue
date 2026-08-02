@@ -2,9 +2,15 @@
   <div class="wpr-root" :class="[`tone-${displayTone}`, { active: isEmphasized }]">
     <div class="wpr-phase-row">
       <span class="wpr-indicator" aria-hidden="true">
-        <WorkPanelStateIcon :kind="displayIcon" />
+        <Spinner v-if="displayIcon === 'running'" />
+        <WorkPanelStateIcon v-else :kind="displayIcon" />
       </span>
-      <div class="wpr-label-block">
+      <div
+        class="wpr-label-block"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         <span class="wpr-kicker">工作栏</span>
         <span class="wpr-label">{{ displayLabel }}</span>
       </div>
@@ -27,6 +33,7 @@
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
+import { Spinner } from '@/components/ui/spinner'
 import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 
 const props = defineProps({
@@ -35,24 +42,19 @@ const props = defineProps({
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
   pendingInput: { type: Boolean, default: false },
   approvalCount: { type: Number, default: 0 },
+  runningToolCount: { type: Number, default: 0 },
   hasError: { type: Boolean, default: false },
   completed: { type: Boolean, default: false },
   stopped: { type: Boolean, default: false },
 })
 
 const PHASE_LABELS = {
-  idle: '待命',
   creating_session: '创建会话中',
   preparing_attachments: '准备附件中',
   starting_agent: '启动 Agent 中',
-  llm_waiting_first_token: '等待模型响应',
-  llm_streaming: '模型输出中',
-  tool_running: '工具执行中',
-  background_waiting: '等待后台任务',
-  retrying: '重试中',
-  reflecting: '反思中',
-  approval_waiting: '等待审批',
-  suspended: '已挂起',
+  processing: 'Agent 处理中',
+  model_waiting: '等待模型响应',
+  model_streaming: '模型输出中',
 }
 
 const displayState = computed(() => {
@@ -62,6 +64,10 @@ const displayState = computed(() => {
   if (props.hasError) return { label: '执行异常', tone: 'error', icon: 'error' }
   if (props.stopped) return { label: '已停止', tone: 'idle', icon: 'idle' }
   if (props.phase === 'retrying') return { label: '重试中', tone: 'warning', icon: 'approval' }
+  if (props.phase === 'tool_running') {
+    const label = props.runningToolCount > 1 ? `工具执行中 · ${props.runningToolCount} 个` : '工具执行中'
+    return { label, tone: 'running', icon: 'running' }
+  }
   if (props.phase && props.phase !== 'idle') {
     return { label: PHASE_LABELS[props.phase] || '执行中', tone: 'running', icon: 'running' }
   }

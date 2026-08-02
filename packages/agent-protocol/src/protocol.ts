@@ -29,6 +29,7 @@ export const EnvelopeTypeSchema = z.enum([
   "run_ended",
   "agent_started",
   "agent_ended",
+  "model_request",
   "stream_output",
   "state_sync",
   "tool_call",
@@ -107,6 +108,7 @@ export type AgentEndedPayload = z.infer<typeof AgentEndedPayloadSchema>;
 export type AgentLifecyclePayload = z.infer<typeof AgentLifecyclePayloadSchema>;
 
 /* —— 内容流 —— */
+export type ModelRequestPayload = z.infer<typeof ModelRequestPayloadSchema>;
 export type StreamOutputPayload = z.infer<typeof StreamOutputPayloadSchema>;
 
 /**
@@ -237,6 +239,13 @@ export const RunStartedPayloadSchema = z.object({
 export const RunEndedPayloadSchema = z.object({
   status: z.enum(["completed", "failed", "interrupted", "suspended"]),
   reason: z.string().optional(),
+});
+
+export const ModelRequestPayloadSchema = z.object({
+  phase: z.literal("start"),
+  round: z.number().int().nonnegative(),
+  /** 当前 agent 的父调用；子 agent 模型请求不影响 root 消息状态。 */
+  lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
 });
 
 export const StreamOutputPayloadSchema = z.object({
@@ -600,6 +609,7 @@ export const ServerToClientEnvelopeSchema = z.discriminatedUnion("type", [
   typed({ type: z.literal("run_ended"), session_id: z.string().min(1), run_id: z.string().min(1), payload: RunEndedPayloadSchema }),
   typed({ type: z.literal("agent_started"), session_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1).optional(), payload: AgentStartedPayloadSchema.optional() }),
   typed({ type: z.literal("agent_ended"), session_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1).optional(), payload: AgentEndedPayloadSchema.optional() }),
+  typed({ type: z.literal("model_request"), session_id: z.string().min(1), run_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1), payload: ModelRequestPayloadSchema }),
   typed({ type: z.literal("stream_output"), session_id: z.string().min(1), payload: StreamOutputPayloadSchema }),
   typed({ type: z.literal("state_sync"), session_id: z.string().min(1), payload: StateSyncPayloadSchema }),
   typed({ type: z.literal("tool_call"), session_id: z.string().min(1), call_id: z.string().min(1), payload: ToolCallPayloadSchema }),

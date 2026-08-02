@@ -750,7 +750,7 @@ test('durable outbox replay 只有真实 run 事件才懒恢复 activeRun 并收
 });
 
 
-test('run_started 初始化运行态为等待模型首 token', () => {
+test('run_started 只确认 Agent 已进入处理态，不猜测模型请求已经发出', () => {
   const { deps, sessionRunStore } = createDeps();
   sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage()];
@@ -764,7 +764,7 @@ test('run_started 初始化运行态为等待模型首 token', () => {
   }, 'session-1');
 
   assert.equal(deps.activeRun.runId, 'run-1');
-  assert.equal(deps.activeRun.phase, 'llm_waiting_first_token');
+  assert.equal(deps.activeRun.phase, 'processing');
   assert.equal(deps.activeRun.runStartedAt, 100);
   assert.equal(deps.activeRun.firstTokenAt, null);
   assert.equal(deps.activeRun.firstTokenLatencyMs, null);
@@ -795,6 +795,103 @@ test('idle runtime 在 run_started 前到达时复用乐观 assistant 占位', (
   assert.equal(deps.activeRun.active, true);
 });
 
+test('model_request 到达后才进入等待模型响应', () => {
+  const { deps } = createDeps();
+  deps.messages.value = [createAssistantMessage()];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'model_request',
+    run_id: 'run-1',
+    call_id: 'root-call',
+    agent_id: 'agent',
+    payload: { phase: 'start', round: 2 },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.phase, 'model_waiting');
+});
+
+test('并发工具按 call_id 收敛，最后一个结果到达前保持工具执行中', () => {
+  const { deps } = createDeps();
+  const execution = useMessageExecution({
+    currentSessionId: deps.currentSessionId,
+    chatSdkClient: deps.chatSdkClient,
+    activeRun: deps.activeRun,
+  });
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
+  deps.isRootEvent = execution.isRootEvent;
+  deps.isMasterEvent = execution.isMasterEvent;
+  deps.messages.value = [createAssistantMessage()];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.runId = 'run-1';
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'agent_started',
+    run_id: 'run-1',
+    call_id: 'root-call',
+    agent_id: 'agent',
+    payload: { phase: 'start' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'tool_call',
+    run_id: 'run-1',
+    call_id: 'tool-1',
+    payload: { phase: 'start', tool: 'read_file', input: {}, lineage: { parent_call_id: 'root-call' } },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'tool_call',
+    run_id: 'run-1',
+    call_id: 'tool-2',
+    payload: { phase: 'start', tool: 'search', input: {}, lineage: { parent_call_id: 'root-call' } },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.phase, 'tool_running');
+  assert.deepEqual(Object.keys(deps.activeRun.runningToolCalls).sort(), ['tool-1', 'tool-2']);
+
+  stream.handleEnvelope({
+    type: 'tool_result',
+    run_id: 'run-1',
+    call_id: 'tool-1',
+    payload: { phase: 'end', tool: 'read_file', ok: true, lineage: { parent_call_id: 'root-call' } },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.phase, 'tool_running');
+  assert.deepEqual(Object.keys(deps.activeRun.runningToolCalls), ['tool-2']);
+
+  stream.handleEnvelope({
+    type: 'tool_result',
+    run_id: 'run-1',
+    call_id: 'tool-2',
+    payload: { phase: 'end', tool: 'search', ok: true, lineage: { parent_call_id: 'root-call' } },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.phase, 'processing');
+  assert.deepEqual(deps.activeRun.runningToolCalls, {});
+
+  deps.activeRun.phase = 'model_waiting';
+  stream.handleEnvelope({
+    type: 'tool_result',
+    run_id: 'run-1',
+    call_id: 'tool-2',
+    payload: { phase: 'end', tool: 'search', ok: true, lineage: { parent_call_id: 'root-call' } },
+  }, 'session-1');
+  assert.equal(deps.activeRun.phase, 'model_waiting');
+
+  stream.handleEnvelope({
+    type: 'tool_call',
+    run_id: 'run-child',
+    call_id: 'child-tool',
+    payload: { phase: 'start', tool: 'child_work', input: {}, lineage: { parent_call_id: 'child-call' } },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.phase, 'model_waiting');
+  assert.deepEqual(deps.activeRun.runningToolCalls, {});
+});
+
 test('stream_output(first_token) 设置首 token 时间并切换为模型输出中', () => {
   const { deps, calls } = createDeps();
   deps.messages.value = [createAssistantMessage()];
@@ -810,11 +907,10 @@ test('stream_output(first_token) 设置首 token 时间并切换为模型输出�
     payload: { phase: 'first_token', elapsed_ms: 350 },
   }, 'session-1');
 
-  assert.equal(deps.activeRun.phase, 'llm_streaming');
+  assert.equal(deps.activeRun.phase, 'model_streaming');
   assert.equal(deps.activeRun.firstTokenAt, 101.2);
   assert.equal(deps.activeRun.firstTokenLatencyMs, 350);
   assert.equal(deps.activeRun.latestLlmFirstTokenAt, 101.2);
-  assert.equal(deps.activeRun.waiting, null);
   assert.equal(deps.messages.value[0].content, '');
   assert.equal(calls.clearLlmRetryState, 1);
 });
@@ -855,7 +951,7 @@ test('stream_output(delta) 追加内容并在缺少 first token 事件时兜底 
   }, 'session-1');
 
   assert.equal(deps.messages.value[0].content, 'hello');
-  assert.equal(deps.activeRun.phase, 'llm_streaming');
+  assert.equal(deps.activeRun.phase, 'model_streaming');
   assert.equal(deps.activeRun.lastChunkAt, 10.5);
   assert.equal(deps.activeRun.outputCharCount, 5);
   assert.equal(deps.activeRun.firstTokenAt, 10.5);
@@ -925,52 +1021,6 @@ test('child compression_summary 不进入主消息流', () => {
   assert.equal(deps.activeRun.assistantMsgIndex, 0);
 });
 
-test('waiting 事件切换后台等待状态并在结束后回到等待模型响应', () => {
-  const { deps } = createDeps();
-  deps.messages.value = [createAssistantMessage()];
-  deps.activeRun.active = true;
-  deps.activeRun.assistantMsgIndex = 0;
-
-  const stream = useSessionAgentClient(deps);
-  stream.handleEnvelope({
-    type: 'state_sync',
-    timestamp: 20,
-    payload: {
-      category: 'waiting',
-      detail: {
-        phase: 'start',
-        wait_id: 'wait-1',
-        background_task_ids: ['bg-1'],
-        pending_task_ids: ['bg-1'],
-        pending_task_count: 1,
-        timeout_ms: 30000,
-      },
-    },
-  }, 'session-1');
-
-  assert.equal(deps.activeRun.phase, 'background_waiting');
-  assert.equal(deps.activeRun.waiting.waitId, 'wait-1');
-  assert.deepEqual(deps.activeRun.waiting.backgroundTaskIds, ['bg-1']);
-
-  stream.handleEnvelope({
-    type: 'state_sync',
-    timestamp: 21,
-    payload: { category: 'waiting', detail: { phase: 'end', wait_id: 'old-wait' } },
-  }, 'session-1');
-
-  assert.equal(deps.activeRun.phase, 'background_waiting');
-  assert.equal(deps.activeRun.waiting.waitId, 'wait-1');
-
-  stream.handleEnvelope({
-    type: 'state_sync',
-    timestamp: 22,
-    payload: { category: 'waiting', detail: { phase: 'end', wait_id: 'wait-1' } },
-  }, 'session-1');
-
-  assert.equal(deps.activeRun.waiting, null);
-  assert.equal(deps.activeRun.phase, 'llm_waiting_first_token');
-});
-
 test('原始 interaction(required) 事件不再拥有审批或输入 UI', () => {
   const approvals = [];
   const inputs = [];
@@ -1022,6 +1072,7 @@ test('session.reconnect 和 run 事件不能覆盖 suspended runtime', () => {
 
   assert.equal(deps.sessionRuntime.value.state, 'suspended');
   assert.equal(deps.sessionRuntime.value.resume_interaction_id, 'approval-1');
+  assert.equal(deps.activeRun.phase, 'suspended');
   assert.equal(deps.isLoading.value, true);
   assert.deepEqual(approvals, []);
 });
@@ -1080,6 +1131,7 @@ test('刷新 suspended 会话会恢复 active run 执行树并选中工作面板
   assert.equal(restored.has_execution, true);
   assert.equal(restored.executionTree.root.agentId, 'ocean-analysis');
   assert.equal(restored.executionTree.root.rounds[0].toolCalls[0].toolName, 'execute_skill_script');
+  assert.equal(deps.activeRun.phase, 'approval_waiting');
 
   const selection = useWorkPanelSelection({
     messages: deps.messages,
@@ -1317,7 +1369,7 @@ test('连续投递 seq 不触发 gap 对账', () => {
   deps.messages.value = [createAssistantMessage({ content: 'partial answer' })];
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.lastSeenSeq = 1;
-  deps.activeRun.phase = 'llm_streaming';
+  deps.activeRun.phase = 'model_streaming';
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
@@ -1327,7 +1379,7 @@ test('连续投递 seq 不触发 gap 对账', () => {
     payload: { kind: 'approval', phase: 'required' },
   }, 'session-1');
 
-  assert.equal(deps.activeRun.phase, 'llm_streaming');
+  assert.equal(deps.activeRun.phase, 'model_streaming');
   assert.deepEqual(calls.deleteMessageCache, []);
   assert.deepEqual(calls.loadSessionMessages, []);
 
@@ -1343,7 +1395,7 @@ test('真正的投递序号 gap 在已有最终答案时只做轻量对账', () 
   deps.messages.value = [createAssistantMessage({ content: 'partial answer' })];
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.lastSeenSeq = 1;
-  deps.activeRun.phase = 'llm_streaming';
+  deps.activeRun.phase = 'model_streaming';
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
@@ -1353,7 +1405,7 @@ test('真正的投递序号 gap 在已有最终答案时只做轻量对账', () 
     payload: { kind: 'approval', phase: 'required' },
   }, 'session-1');
 
-  assert.equal(deps.activeRun.phase, 'llm_streaming');
+  assert.equal(deps.activeRun.phase, 'model_streaming');
   assert.deepEqual(calls.deleteMessageCache, []);
   assert.deepEqual(calls.loadSessionMessages, []);
 
@@ -1370,7 +1422,7 @@ test('mergeMessageIdsFromServer 不可用时 gap 对账回退到全量刷新', (
   deps.messages.value = [createAssistantMessage({ content: 'final answer' })];
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.lastSeenSeq = 1;
-  deps.activeRun.phase = 'llm_streaming';
+  deps.activeRun.phase = 'model_streaming';
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
@@ -1391,7 +1443,7 @@ test('投递序号 gap 且没有可展示答案时仍回退到全量刷新', () 
   deps.messages.value = [createAssistantMessage()];
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.lastSeenSeq = 1;
-  deps.activeRun.phase = 'llm_streaming';
+  deps.activeRun.phase = 'model_streaming';
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({

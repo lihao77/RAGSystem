@@ -4,6 +4,7 @@ import type {
   IntentCompleteEvent,
   IntentDeltaEvent,
   KernelEvent,
+  ModelRequestEvent,
   OutputDeltaEvent,
   RuntimeErrorEvent,
   ToolCallEvent,
@@ -11,6 +12,7 @@ import type {
 } from "@ragsystem/agent-sdk";
 import type {
   Envelope,
+  ModelRequestPayload,
   StateSyncPayload,
   StreamOutputPayload,
   ToolCallPayload,
@@ -30,6 +32,8 @@ export interface WireTranslationContext {
 /** Translate one SDK event into the envelopes visible to this backend's clients. */
 export function translateKernelEvent(event: KernelEvent, ctx: WireTranslationContext): Envelope[] {
   switch (event.type) {
+    case "model_request":
+      return [onModelRequest(event, ctx)];
     case "first_token":
       return [onFirstToken(event, ctx)];
     case "output_delta":
@@ -71,6 +75,14 @@ function toolLineage(ctx: WireTranslationContext): { parent_call_id?: string } {
 
 function streamLineage(ctx: WireTranslationContext): { lineage?: { parent_call_id: string } } {
   return ctx.parentCallId ? { lineage: { parent_call_id: ctx.parentCallId } } : {};
+}
+
+function onModelRequest(event: ModelRequestEvent, ctx: WireTranslationContext): Envelope {
+  return {
+    type: "model_request",
+    ...topMarkers(ctx),
+    payload: { phase: "start", round: event.round, ...streamLineage(ctx) } satisfies ModelRequestPayload,
+  };
 }
 
 function onFirstToken(event: FirstTokenEvent, ctx: WireTranslationContext): Envelope {

@@ -1,8 +1,12 @@
 <template>
   <div
-    v-if="!msg.content && !msg.executionTree?.root && !msg.finished"
+    v-if="!msg.content && !msg.finished"
     class="loading-indicator"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
   >
+    <Spinner aria-hidden="true" />
     <span class="loading-text">{{ messageContext.getAssistantRuntimeStatusText(msg) || '正在运行...' }}</span>
   </div>
 
@@ -35,6 +39,7 @@
 <script setup>
 import MarkdownContent from './MarkdownContent.vue';
 import VisualizationLoader from '../VisualizationLoader.vue';
+import { Spinner } from '@/components/ui/spinner';
 import { parseMessageParts } from '../../utils/message-render.js';
 import { inject, computed } from 'vue';
 

@@ -146,6 +146,19 @@ describe("agent-protocol envelope compatibility", () => {
     });
   });
 
+  it("接受后端权威的模型请求开始事件", () => {
+    const parsed = ServerToClientEnvelopeSchema.parse({
+      type: "model_request",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "root-call",
+      agent_id: "agent",
+      payload: { phase: "start", round: 2 },
+    });
+
+    expect(parsed.payload).toEqual({ phase: "start", round: 2 });
+  });
+
   it("保留 message_saved 的服务端 round_index", () => {
     const parsed = ServerToClientEnvelopeSchema.parse({
       type: "state_sync",

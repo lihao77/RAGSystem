@@ -67,6 +67,8 @@ export class AguiTranslator {
         return { events: [this.step(env, true)] };
       case "agent_ended":
         return { events: [this.step(env, false)] };
+      case "model_request":
+        return { events: [{ type: "CUSTOM", ...this.base(), name: "model_request", value: payloadOf(env) }] };
       case "state_sync":
         return { events: this.stateSync(payloadOf(env)) };
       case "delegate_call":

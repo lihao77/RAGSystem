@@ -1348,6 +1348,20 @@ function aguiEventToEnvelope(
       if (event.name === "session.runtime" && isRuntimeSnapshot(event.value)) {
         return { type: "session.runtime", ...base, payload: event.value } as Envelope;
       }
+      if (event.name === "model_request" && event.value && typeof event.value === "object" && !Array.isArray(event.value)) {
+        const value = event.value as { round?: unknown; lineage?: unknown };
+        return {
+          type: "model_request",
+          ...base,
+          call_id: typeof event.callId === "string" && event.callId ? event.callId : `agui-model-${String(event.runId ?? Date.now())}`,
+          agent_id: typeof event.agentId === "string" ? event.agentId : "agent",
+          payload: {
+            phase: "start",
+            round: typeof value.round === "number" && Number.isInteger(value.round) && value.round >= 0 ? value.round : 0,
+            ...(value.lineage && typeof value.lineage === "object" && !Array.isArray(value.lineage) ? { lineage: value.lineage } : {}),
+          },
+        } as Envelope;
+      }
       return null;
     default:
       return null;

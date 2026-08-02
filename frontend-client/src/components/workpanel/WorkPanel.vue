@@ -11,6 +11,7 @@
         :context-usage="contextUsage"
         :pending-input="Boolean(pendingUserInput)"
         :approval-count="approvalQueue.length"
+        :running-tool-count="runningToolCount"
         :has-error="messageHasError"
         :completed="messageCompleted"
         :stopped="Boolean(currentMessage?.stopped)"
@@ -109,6 +110,8 @@ const messageCompleted = computed(() => {
   const msg = props.currentMessage
   return Boolean(msg?.finished && !msg?.stopped && !props.activeRun?.active && !messageHasError.value)
 })
+
+const runningToolCount = computed(() => Object.keys(props.activeRun?.runningToolCalls || {}).length)
 
 const executionTree = computed(() => props.currentMessage?.executionTree || { root: null, steps: [] })
 const currentInjections = computed(() => {

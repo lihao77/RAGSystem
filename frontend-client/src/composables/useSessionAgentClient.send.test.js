@@ -153,7 +153,7 @@ test('running 快照允许发送 followup，并等待服务端确认后再进入
   Object.assign(deps.activeRun, {
     assistantMsgIndex: 1,
     runId: 'run-1',
-    phase: 'llm_streaming',
+    phase: 'model_streaming',
   });
 
   const sender = useSessionAgentClient(deps);

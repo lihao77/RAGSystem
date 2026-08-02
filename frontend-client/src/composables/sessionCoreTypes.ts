@@ -28,11 +28,12 @@ export interface ActiveRunState extends OpenRecord {
   active: boolean;
   assistantMsgIndex: number;
   runId: string | null;
+  rootCallId: string | null;
   lastSeenSeq: number;
   isReplaying: boolean;
   phase: string;
+  runningToolCalls: Record<string, string>;
   runStartedAt: number | null;
-  waiting: OpenRecord | null;
 }
 
 export interface SessionClientDeps extends OpenRecord {

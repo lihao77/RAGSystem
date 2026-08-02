@@ -118,6 +118,7 @@ export class AgentKernel {
           const usage = this.contextUsage(ctx.requestMessages, session.profile);
           this.events.emit({ type: "context_usage", agentName, round, ...usage });
         }
+        this.events.emit({ type: "model_request", agentName, round });
         const outcome = await this.protocol.invoke(ctx, round);
         // 累计各轮 LLM 调用的 token 用量,run 结束时随 KernelResult 透出。
         if (outcome.usage) {

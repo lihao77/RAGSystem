@@ -74,6 +74,45 @@ describe("SessionAgentClient AG-UI fallback", () => {
     client.disconnect();
   });
 
+  it("restores AG-UI model request CUSTOM events as authoritative envelopes", async () => {
+    let onEvent: ((event: Record<string, unknown>) => void) | undefined;
+    const client = new SessionAgentClient({
+      baseUrl: "https://rag.example.test",
+      sessionId: "session-1",
+      issueWsTicket: async () => "ticket-1",
+      aguiFallback: (input, callback) => {
+        onEvent = callback as unknown as (event: Record<string, unknown>) => void;
+        return {
+          started: Promise.resolve({ type: "RUN_STARTED", runId: input.runId }),
+          completed: new Promise(() => {}),
+          abort: vi.fn(),
+        };
+      },
+    });
+    const envelopes: Array<{ type: string; phase?: unknown; round?: unknown }> = [];
+    client.events.subscribe((event) => {
+      if (event.type === "model_request") {
+        envelopes.push({
+          type: event.type,
+          phase: event.payload?.phase,
+          round: event.payload?.round,
+        });
+      }
+    });
+
+    await client.send({ task: "model" });
+    onEvent?.({
+      type: "CUSTOM",
+      threadId: "session-1",
+      runId: "run-1",
+      name: "model_request",
+      value: { phase: "start", round: 4 },
+    });
+
+    expect(envelopes).toEqual([{ type: "model_request", phase: "start", round: 4 }]);
+    client.disconnect();
+  });
+
   it("converts a post-start SSE failure into a terminal failed run", async () => {
     const callbacks: Array<(event: Record<string, unknown>) => void> = [];
     let rejectCompleted: ((error: Error) => void) | undefined;

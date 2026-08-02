@@ -7,6 +7,7 @@ export const EXECUTION_ENVELOPE_STEP_TYPE = "protocol.envelope.v1";
 const EXECUTION_ENVELOPE_TYPES = new Set<Envelope["type"]>([
   "agent_started",
   "agent_ended",
+  "model_request",
   "stream_output",
   "tool_call",
   "tool_result",

@@ -282,7 +282,7 @@ export function createSessionEnvelopeDispatcher({
     }
     activeRun.assistantMsgIndex = assistantMsgIndex;
     activeRun.runId = runId;
-    if (!activeRun.phase || activeRun.phase === 'idle') activeRun.phase = 'llm_waiting_first_token';
+    if (!activeRun.phase || activeRun.phase === 'idle') activeRun.phase = 'processing';
   };
 
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
@@ -333,9 +333,6 @@ export function createSessionEnvelopeDispatcher({
           finishOptimisticCommand();
           runtime.resetActiveRunRuntime();
           return;
-        }
-        if (activeRun.active && startupPhases.has(activeRun.phase)) {
-          activeRun.phase = 'llm_waiting_first_token';
         }
         return;
       }

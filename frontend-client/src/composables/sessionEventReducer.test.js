@@ -7,7 +7,7 @@ const reference = value => ({ value });
 
 function buildReducer() {
   const messages = reference([]);
-  const activeRun = { assistantMsgIndex: 0, phase: 'llm_waiting_first_token', waiting: null };
+  const activeRun = { assistantMsgIndex: 0, phase: 'processing', runningToolCalls: {} };
   const calls = { chunks: [], cached: 0, situation: 0 };
   const deps = {
     isMasterEvent: () => true,
@@ -21,11 +21,12 @@ function buildReducer() {
     scrollToBottom: () => {},
   };
   const runtime = {
+    markModelRequestStarted: () => {},
     markLlmFirstToken: () => {},
     markOutputChunk: (_event, content) => calls.chunks.push(content),
     markRecentSessionUpdated: () => {},
-    markWaitingStart: () => {},
-    markWaitingFinished: () => {},
+    markToolStarted: () => {},
+    markToolFinished: () => {},
   };
   const reducer = createSessionEventReducer({
     deps,
@@ -46,8 +47,7 @@ test('SessionEventReducer routes child stream output through execution projectio
   const currentMessage = { content: 'root output', metadata: {}, status: [], finished: false };
   messages.value.push(currentMessage);
 
-  // Real deps.isMasterEvent uses payload.lineage.parent_call_id, which is now
-  // emitted by translateKernelEvent for child stream_output events.
+  // Child stream_output carries lineage and must stay in the execution projection.
   const childReducer = createSessionEventReducer({
     deps: {
       isMasterEvent: event => !event.payload?.lineage?.parent_call_id,
@@ -61,13 +61,14 @@ test('SessionEventReducer routes child stream output through execution projectio
       scrollToBottom: () => {},
     },
     runtime: {
+      markModelRequestStarted: () => {},
       markLlmFirstToken: () => {},
       markOutputChunk: () => {},
       markRecentSessionUpdated: () => {},
-      markWaitingStart: () => {},
-      markWaitingFinished: () => {},
+      markToolStarted: () => {},
+      markToolFinished: () => {},
     },
-    activeRun: { assistantMsgIndex: 0, phase: 'llm_waiting_first_token', waiting: null },
+    activeRun: { assistantMsgIndex: 0, phase: 'processing', runningToolCalls: {} },
     messages,
     isCompressing: reference(false),
     contextUsage: reference({ used: 0, max: 0 }),

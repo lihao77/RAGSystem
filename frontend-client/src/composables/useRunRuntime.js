@@ -8,6 +8,7 @@ const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
   'run_ended',
   'agent_started',
   'agent_ended',
+  'model_request',
   'stream_output',
   'tool_call',
   'tool_result',
@@ -79,30 +80,45 @@ export function useRunRuntime(deps) {
     findAssistantMessageIndexByRunId(runId, msg => msg.finished === true) >= 0
   );
 
+  const phaseIsRuntimeLocked = () => activeRun.phase === 'approval_waiting' || activeRun.phase === 'suspended';
+
   const resetActiveRunRuntime = () => {
     Object.assign(activeRun, {
       phase: 'idle',
+      rootCallId: null,
+      runningToolCalls: {},
       runStartedAt: null,
       firstTokenAt: null,
       firstTokenLatencyMs: null,
       latestLlmFirstTokenAt: null,
       lastChunkAt: null,
-      waiting: null,
       outputCharCount: 0,
     });
   };
 
   const startActiveRunRuntime = (event) => {
+    const phase = phaseIsRuntimeLocked() ? activeRun.phase : 'processing';
     Object.assign(activeRun, {
-      phase: 'llm_waiting_first_token',
+      phase,
+      rootCallId: null,
+      runningToolCalls: {},
       runStartedAt: eventTimestampSeconds(event),
       firstTokenAt: null,
       firstTokenLatencyMs: null,
       latestLlmFirstTokenAt: null,
       lastChunkAt: null,
-      waiting: null,
       outputCharCount: 0,
     });
+  };
+
+  const markRootAgentStarted = (event) => {
+    if (event?.call_id) activeRun.rootCallId = event.call_id;
+  };
+
+  const markModelRequestStarted = (event) => {
+    if (event?.call_id) activeRun.rootCallId = event.call_id;
+    activeRun.runningToolCalls = {};
+    if (!phaseIsRuntimeLocked()) activeRun.phase = 'model_waiting';
   };
 
   const markLlmFirstToken = (event, eventData) => {
@@ -115,13 +131,12 @@ export function useRunRuntime(deps) {
         : computeLatencyMs(activeRun.runStartedAt, ts);
     }
     activeRun.latestLlmFirstTokenAt = ts;
-    activeRun.phase = 'llm_streaming';
-    activeRun.waiting = null;
+    if (!phaseIsRuntimeLocked()) activeRun.phase = 'model_streaming';
   };
 
   const markOutputChunk = (event, content) => {
     const ts = eventTimestampSeconds(event);
-    activeRun.phase = 'llm_streaming';
+    if (!phaseIsRuntimeLocked()) activeRun.phase = 'model_streaming';
     activeRun.lastChunkAt = ts;
     activeRun.outputCharCount = (activeRun.outputCharCount || 0) + (content?.length || 0);
     if (!activeRun.firstTokenAt) {
@@ -130,24 +145,25 @@ export function useRunRuntime(deps) {
     }
   };
 
-  const markWaitingStart = (event, eventData) => {
-    activeRun.phase = 'background_waiting';
-    activeRun.waiting = {
-      waitId: eventData.wait_id || '',
-      backgroundTaskIds: Array.isArray(eventData.background_task_ids) ? eventData.background_task_ids : [],
-      pendingTaskIds: Array.isArray(eventData.pending_task_ids) ? eventData.pending_task_ids : [],
-      pendingTaskCount: Number.isFinite(eventData.pending_task_count) ? eventData.pending_task_count : 0,
-      timeoutMs: Number.isFinite(eventData.timeout_ms) ? eventData.timeout_ms : null,
-      startedAt: eventTimestampSeconds(event),
+  const markToolStarted = (event, eventData) => {
+    const callId = event?.call_id;
+    if (!callId) return;
+    activeRun.runningToolCalls = {
+      ...(activeRun.runningToolCalls || {}),
+      [callId]: typeof eventData?.tool === 'string' ? eventData.tool : '',
     };
+    if (!phaseIsRuntimeLocked()) activeRun.phase = 'tool_running';
   };
 
-  const markWaitingFinished = (eventData) => {
-    const currentWaitId = activeRun.waiting?.waitId;
-    const finishedWaitId = eventData?.wait_id || '';
-    if (currentWaitId && finishedWaitId && currentWaitId !== finishedWaitId) return;
-    activeRun.waiting = null;
-    if (activeRun.active) activeRun.phase = 'llm_waiting_first_token';
+  const markToolFinished = (event) => {
+    const next = { ...(activeRun.runningToolCalls || {}) };
+    const callId = event?.call_id;
+    if (!callId || !Object.prototype.hasOwnProperty.call(next, callId)) return;
+    delete next[callId];
+    activeRun.runningToolCalls = next;
+    if (!phaseIsRuntimeLocked()) {
+      activeRun.phase = Object.keys(next).length > 0 ? 'tool_running' : 'processing';
+    }
   };
 
   const observeDeliverySeq = (event) => {
@@ -203,6 +219,8 @@ export function useRunRuntime(deps) {
     currentMsg.has_execution = false;
     currentMsg.finished = false;
     currentMsg.status = [];
+    activeRun.runningToolCalls = {};
+    activeRun.rootCallId = null;
   };
 
   const setDurableReplay = (state) => {
@@ -238,7 +256,7 @@ export function useRunRuntime(deps) {
     activeRun.runId = runId;
     activeRun.lastSeenSeq = 0;
     if (!activeRun.phase || activeRun.phase === 'idle') {
-      activeRun.phase = 'llm_waiting_first_token';
+      activeRun.phase = 'processing';
       activeRun.runStartedAt = eventTimestampSeconds(event);
     }
     return true;
@@ -318,10 +336,12 @@ export function useRunRuntime(deps) {
     // 计时
     startActiveRunRuntime,
     resetActiveRunRuntime,
+    markRootAgentStarted,
+    markModelRequestStarted,
     markLlmFirstToken,
     markOutputChunk,
-    markWaitingStart,
-    markWaitingFinished,
+    markToolStarted,
+    markToolFinished,
     // seq gap
     observeDeliverySeq,
     resetPendingReconciliation,

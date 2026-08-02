@@ -87,7 +87,8 @@ describe("durable run round continuation", () => {
         return observations;
       },
     };
-    const events: EventSink = { emit: () => undefined };
+    const emittedEvents: string[] = [];
+    const events: EventSink = { emit: (event) => { emittedEvents.push(event.type); } };
     const kernel = new AgentKernel({
       context,
       protocol,
@@ -153,5 +154,6 @@ describe("durable run round continuation", () => {
     expect(refreshedRounds).toEqual([1]);
     expect(calls.map((call) => ({ id: call.callId, index: call.index }))).toEqual([{ id: "tool-2", index: 1 }]);
     expect(restoredResults).toEqual(new Map([[1, "durable content"]]));
+    expect(emittedEvents).toContain("model_request");
   });
 });

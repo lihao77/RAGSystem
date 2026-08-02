@@ -38,6 +38,25 @@ function interactionEnvelope(callId = "approval-1"): Envelope {
 }
 
 describe("AguiTranslator text streaming", () => {
+  it("preserves model request lifecycle through AG-UI CUSTOM events", () => {
+    const result = translator().translate({
+      type: "model_request",
+      session_id: "thread-1",
+      run_id: "internal-1",
+      call_id: "root-call",
+      agent_id: "agent",
+      seq: 12,
+      payload: { phase: "start", round: 1 },
+    });
+
+    expect(result.events).toEqual([expect.objectContaining({
+      type: "CUSTOM",
+      name: "model_request",
+      eventSeq: 12,
+      value: { phase: "start", round: 1 },
+    })]);
+  });
+
   it("does not append the persisted final answer after streamed deltas", () => {
     const subject = translator();
     subject.translate(streamEnvelope("first_token"));

@@ -106,15 +106,20 @@ export function useMessageExecution(deps) {
     });
   };
 
-  // root/master 判定：优先使用 lineage；终态补偿事件来自独立 child run
-  // 时旧服务端版本可能没有携带 lineage，此时用当前根 run_id 做第二重隔离。
+  // root/master 判定：先按 root run_id 隔离 child run。工具事件的 lineage
+  // 指向所属 agent，因此 root 工具也有 parent_call_id，必须与 rootCallId 对齐。
   const isRootEvent = (event) => {
-    if (event?.payload?.lineage?.parent_call_id) return false;
     const scope = event?.payload?.conversation_scope;
     if (scope === 'child' || event?.payload?.thread_key?.startsWith?.('child:')) return false;
     const activeRootRunId = deps.activeRun?.runId || null;
     const eventRunId = event?.run_id || null;
-    return !(activeRootRunId && eventRunId && activeRootRunId !== eventRunId);
+    if (activeRootRunId && eventRunId && activeRootRunId !== eventRunId) return false;
+    const parentCallId = event?.payload?.lineage?.parent_call_id || null;
+    if (!parentCallId) return true;
+    if (event?.type === 'tool_call' || event?.type === 'tool_result') {
+      return Boolean(deps.activeRun?.rootCallId && deps.activeRun.rootCallId === parentCallId);
+    }
+    return false;
   };
   const isMasterEvent = (event) => isRootEvent(event);
 

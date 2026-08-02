@@ -13,15 +13,16 @@ export const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
   Object.assign(activeRun, {
     assistantMsgIndex,
     runId: null,
+    rootCallId: null,
     lastSeenSeq: 0,
     isReplaying: false,
-    phase: 'llm_waiting_first_token',
+    phase: 'starting_agent',
+    runningToolCalls: {},
     runStartedAt: Date.now() / 1000,
     firstTokenAt: null,
     firstTokenLatencyMs: null,
     latestLlmFirstTokenAt: null,
     lastChunkAt: null,
-    waiting: null,
     outputCharCount: 0,
   });
 };
@@ -30,7 +31,8 @@ export const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
 const resetActiveRunAfterSendError = (activeRun) => {
   Object.assign(activeRun, {
     phase: 'idle',
-    waiting: null,
+    rootCallId: null,
+    runningToolCalls: {},
     runStartedAt: null,
     firstTokenAt: null,
     firstTokenLatencyMs: null,
@@ -260,7 +262,6 @@ export function createSessionCommandController({
         throw new Error(result.error || '启动执行失败');
       }
       if (result.run_id || result.runId) activeRun.runId = result.run_id || result.runId;
-      if (!isRunningFollowup) activeRun.phase = 'llm_waiting_first_token';
       if (result.kind === 'command') scheduleCommandFallback(sessionId, assistantMsgIndex, 60000);
     } catch (error) {
       console.error('Error sending message:', error);
