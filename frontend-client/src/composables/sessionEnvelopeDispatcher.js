@@ -480,9 +480,18 @@ export function createSessionEnvelopeDispatcher({
     }
 
     if (eventType === 'run_ended') {
+      const currentMsg = messages.value[activeRun.assistantMsgIndex];
+      const activeRootRunId = activeRun.runId
+        || currentMsg?.run_id
+        || currentMsg?.metadata?.run_id
+        || null;
+      // Child delegation runs have their own terminal event. They must not
+      // finalize the parent assistant message while the root run continues.
+      if (event.run_id && activeRootRunId && event.run_id !== activeRootRunId) {
+        return;
+      }
       const terminalStatus = runtime.terminalStatusFromEvent(event);
       if (terminalStatus === 'suspended') return;
-      const currentMsg = messages.value[activeRun.assistantMsgIndex];
       if (currentMsg) {
         if (terminalStatus === 'interrupted') currentMsg.stopped = true;
         if (terminalStatus === 'failed') currentMsg.run_failed = true;

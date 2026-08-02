@@ -592,6 +592,37 @@ test('run_ended 只收尾展示，直到 runtime 快照确认终态', () => {
   assert.equal(deps.isLoading.value, false);
 });
 
+test('子 Run 的 run_ended 不会提前结束仍在运行的根 Run', () => {
+  const { deps, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
+  deps.messages.value = [createAssistantMessage({
+    content: '父 Run 尚未完成',
+    run_id: 'run-root',
+    metadata: { run_id: 'run-root' },
+  })];
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.runId = 'run-root';
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'run_ended',
+    run_id: 'run-child',
+    payload: { status: 'completed' },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.active, true);
+  assert.equal(deps.messages.value[0].finished, false);
+
+  stream.handleEnvelope({
+    type: 'run_ended',
+    run_id: 'run-root',
+    payload: { status: 'completed' },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.active, false);
+  assert.equal(deps.messages.value[0].finished, true);
+});
+
 test('durable outbox 纯终态 replay 不创建空 assistant 占位', () => {
   const { deps, calls } = createDeps();
   deps.messages.value = [
