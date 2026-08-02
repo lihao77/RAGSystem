@@ -41,7 +41,10 @@ export interface AsyncPersisterRunContext {
   sessionIdentity: SessionIdentity;
   parentRunId?: string | null;
   parentCallId?: string | null;
+  lineageParentCallId?: string | null;
   childAgentId?: string | null;
+  /** Background child runs retain lineage but own their write lease. */
+  ownsRunLease?: boolean;
   messageMetadata?: Record<string, unknown> | null;
   initialUserMessage?: { id: string; content: string; metadata?: Record<string, unknown> | null };
   pendingUserMessageId?: string | null;
@@ -74,7 +77,7 @@ export class AsyncKernelEventPersister {
   }
 
   async startRun(): Promise<ExecutionStartDisposition> {
-    if (this.ctx.parentRunId != null) await this.ensureRunLease();
+    if (this.ctx.parentRunId != null && !this.ctx.ownsRunLease) await this.ensureRunLease();
     const initialRecords = (this.ctx.initialEnvelopes ?? []).map((event, index) => this.clientEvents.prepare(
       this.ctx.sessionId,
       event,
@@ -103,7 +106,8 @@ export class AsyncKernelEventPersister {
       },
       ...(this.ctx.pendingUserMessageId ? { pendingUserMessageId: this.ctx.pendingUserMessageId } : {}),
       ...(this.ctx.sessionMaintenanceToken ? { sessionMaintenanceToken: this.ctx.sessionMaintenanceToken } : {}),
-      ...(this.ctx.parentRunId != null ? { leaseRootRunId: this.ctx.rootRunId ?? null } : {}),
+      ...(this.ctx.parentRunId != null && !this.ctx.ownsRunLease ? { leaseRootRunId: this.ctx.rootRunId ?? null } : {}),
+      ...(this.ctx.ownsRunLease ? { claimOwnLease: true } : {}),
       ...(this.ctx.initialUserMessage ? {
         initialUserMessage: {
           messageId: this.ctx.initialUserMessage.id,
@@ -182,7 +186,7 @@ export class AsyncKernelEventPersister {
         ...(result.message ? { messageId: result.message.id, messageSeq: result.message.seq } : {}),
       };
     }
-    if (this.isRootRun()) this.startLeaseHeartbeat();
+    if (this.isRootRun() || this.ctx.ownsRunLease) this.startLeaseHeartbeat();
     return { kind: "started" };
   }
 
@@ -193,7 +197,7 @@ export class AsyncKernelEventPersister {
         ? event.metadata.tool_result_media
         : [];
       await this.storage.operations.persistMessage({
-        leaseRootRunId: this.ctx.rootRunId ?? this.ctx.runId,
+        leaseRootRunId: this.leaseRunId(),
         message: {
           messageId: `${this.ctx.runId}:tool:${event.toolCallId}`,
           sessionId: this.ctx.sessionId,
@@ -228,17 +232,17 @@ export class AsyncKernelEventPersister {
       await this.ensureRunLease();
       const persistedFinal = this.buildFinalMessage(status, finalMessage);
       const rootRunId = this.ctx.rootRunId ?? this.ctx.runId;
-      const isRootRun = this.ctx.runId === rootRunId && this.ctx.parentRunId == null;
+      const isInteractionRoot = this.isRootRun() || this.ctx.ownsRunLease === true;
       await this.clientEvents.flush(this.ctx.sessionId);
       await this.ensureRunLease();
       const result = await this.storage.operations.finalizeRun({
       runId: this.ctx.runId,
       sessionId: this.ctx.sessionId,
       status,
-      leaseRootRunId: rootRunId,
+      leaseRootRunId: this.leaseRunId(),
       finalMessage: persistedFinal,
       ...(persistedFinal ? { attachStepsToFinalMessage: true } : {}),
-      ...(isRootRun ? { interactionRootRunId: rootRunId } : {}),
+      ...(isInteractionRoot ? { interactionRootRunId: this.ctx.runId } : {}),
       ...(status === "completed" || status === "interrupted"
         ? { deleteProviderContinuationThreadKey: this.ctx.threadKey }
         : {}),
@@ -278,6 +282,10 @@ export class AsyncKernelEventPersister {
     return this.ctx.parentRunId == null && this.ctx.runId === rootRunId;
   }
 
+  private leaseRunId(): string {
+    return this.ctx.ownsRunLease ? this.ctx.runId : this.ctx.rootRunId ?? this.ctx.runId;
+  }
+
   private startLeaseHeartbeat(): void {
     if (!this.storage.operations.renewRunLease || this.leaseHeartbeat) return;
     this.leaseHeartbeat = setInterval(() => {
@@ -305,11 +313,11 @@ export class AsyncKernelEventPersister {
     this.leaseRenewal = (async () => {
       const result = await this.storage.operations.renewRunLease!({
         sessionId: this.ctx.sessionId,
-        rootRunId: this.ctx.rootRunId ?? this.ctx.runId,
+        rootRunId: this.leaseRunId(),
       });
       if (!result.renewed) {
         this.stopLeaseHeartbeat();
-        this.leaseLostError = new Error(`root run lease was lost: ${this.ctx.rootRunId ?? this.ctx.runId}`);
+        this.leaseLostError = new Error(`run lease was lost: ${this.leaseRunId()}`);
       }
     })();
     try {
@@ -334,7 +342,7 @@ export class AsyncKernelEventPersister {
     }
     const providerContinuation = this.buildProviderContinuation(message, messageId);
     await this.storage.operations.persistMessage({
-      leaseRootRunId: this.ctx.rootRunId ?? this.ctx.runId,
+      leaseRootRunId: this.leaseRunId(),
       message: input,
       deleteProviderContinuationThreadKey: this.ctx.threadKey,
       ...(providerContinuation ? { providerContinuation } : {}),
@@ -409,7 +417,7 @@ export class AsyncKernelEventPersister {
     }[] | undefined,
     error: unknown,
   ): RuntimeRecordEnvelopeInput[] {
-    if (status === "suspended" || this.ctx.childAgentId) return [];
+    if (status === "suspended" || (this.ctx.childAgentId && !this.ctx.ownsRunLease)) return [];
     const events = buildTerminalEnvelopes(this.ctx, status, finalMessage, closedToolMessages ?? [], error);
     return events.map((event, index) => {
       const eventId = `${this.ctx.runId}:terminal:${index}:${event.type}`;
@@ -501,6 +509,7 @@ function buildTerminalEnvelopes(
           display_name: ctx.agentDisplayName,
           result: finalMessage.content.slice(0, 500),
           success: true,
+          ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
         },
       },
       {
@@ -544,6 +553,7 @@ function buildTerminalEnvelopes(
         display_name: ctx.agentDisplayName,
         result: status === "interrupted" ? "[已停止生成]" : errorMessage.slice(0, 500),
         success: false,
+        ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
       },
     },
     {

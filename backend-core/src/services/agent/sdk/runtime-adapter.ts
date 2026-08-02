@@ -78,6 +78,7 @@ export interface SdkExecuteRunInput {
   lineageParentCallId?: string | null;
   parentCallId?: string | null;
   childAgentId?: string | null;
+  ownsRunLease?: boolean;
   /** 父 run id（child delegation run 用；root run 不传 → null）。createRun 落 runs.parent_run_id。 */
   parentRunId?: string | null;
   sessionIdentity: SessionIdentity;
@@ -184,6 +185,11 @@ export async function executeRunWithSdk(
   });
   const rootRunId = input.rootRunId ?? input.parentRunId ?? input.runId;
   const isRootRun = input.runId === rootRunId && input.parentRunId == null;
+  const isInteractionRoot = isRootRun || input.ownsRunLease === true;
+  const interactionRootRunId = input.ownsRunLease ? input.runId : rootRunId;
+  const interactionRootCallId = input.ownsRunLease
+    ? input.rootCallId
+    : input.interactionRootCallId ?? input.rootCallId;
   // session metadata 端口只承载 team/entry_agent 等扩展配置；Workspace 从 Session 一等字段解析。
   const sessionMetadata = await resolveSessionMetadataPort(
     input.sessionId,
@@ -230,8 +236,8 @@ export async function executeRunWithSdk(
     tenantId: deps.storage.tenantId,
     sessionId: input.sessionId,
     runId: input.runId,
-    rootRunId,
-    rootCallId: input.interactionRootCallId ?? input.rootCallId,
+    rootRunId: interactionRootRunId,
+    rootCallId: interactionRootCallId,
     currentCallId: input.rootCallId,
     parentRunId: input.parentRunId ?? null,
     runParentCallId: input.parentCallId ?? null,
@@ -408,42 +414,44 @@ export async function executeRunWithSdk(
 
   // KernelEvent 落库（B1：从 SDK Dispatcher 迁回 backend）：createRun + 增量事件落库 + 终态合一全在此。
   const persister: ExecutionEventPersister = deps.storage.createEventPersister({
-      tenantId: deps.storage.tenantId,
-      sessionId: input.sessionId,
-      runId: input.runId,
-      threadKey: input.threadKey,
-      agentName: input.agent.agent_name,
-      agentDisplayName: input.agent.display_name ?? input.agent.agent_name,
-      rootCallId: input.rootCallId,
-      rootRunId,
-      taskId: input.taskId,
-      ...(input.provider.provider_type ? { providerType: input.provider.provider_type } : {}),
-      ...(input.executionKind ? { executionKind: input.executionKind } : {}),
-      taskSummary: input.task.slice(0, 200),
-      ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
-      ...(input.userId !== undefined ? { userId: input.userId } : {}),
-      sessionIdentity: input.sessionIdentity,
-      ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
-      ...(input.parentCallId !== undefined ? { parentCallId: input.parentCallId } : {}),
-      ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
-      ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
-      ...(input.userMessageId && input.initialUserMessageMetadata ? {
-        initialUserMessage: {
-          id: input.userMessageId,
-          content: input.initialUserMessageContent ?? input.task,
-          metadata: {
-            ...(input.initialUserMessageMetadata ?? {}),
-            agent: input.agent.agent_name,
-            run_id: input.runId,
-            task_id: input.taskId,
-            request_id: input.requestId,
-            execution_kind: input.executionKind ?? "agent_stream",
-          },
+    tenantId: deps.storage.tenantId,
+    sessionId: input.sessionId,
+    runId: input.runId,
+    threadKey: input.threadKey,
+    agentName: input.agent.agent_name,
+    agentDisplayName: input.agent.display_name ?? input.agent.agent_name,
+    rootCallId: input.rootCallId,
+    rootRunId: interactionRootRunId,
+    taskId: input.taskId,
+    ...(input.provider.provider_type ? { providerType: input.provider.provider_type } : {}),
+    ...(input.executionKind ? { executionKind: input.executionKind } : {}),
+    taskSummary: input.task.slice(0, 200),
+    ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+    ...(input.userId !== undefined ? { userId: input.userId } : {}),
+    sessionIdentity: input.sessionIdentity,
+    ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
+    ...(input.parentCallId !== undefined ? { parentCallId: input.parentCallId } : {}),
+    ...(input.lineageParentCallId !== undefined ? { lineageParentCallId: input.lineageParentCallId } : {}),
+    ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
+    ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
+    ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
+    ...(input.userMessageId && input.initialUserMessageMetadata ? {
+      initialUserMessage: {
+        id: input.userMessageId,
+        content: input.initialUserMessageContent ?? input.task,
+        metadata: {
+          ...(input.initialUserMessageMetadata ?? {}),
+          agent: input.agent.agent_name,
+          run_id: input.runId,
+          task_id: input.taskId,
+          request_id: input.requestId,
+          execution_kind: input.executionKind ?? "agent_stream",
         },
-      } : {}),
-      ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
-      ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
-      ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
+      },
+    } : {}),
+    ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
+    ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
+    ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
   });
   const startDisposition = await persister.startRun();
   if (startDisposition.kind === "followup") {
@@ -513,10 +521,10 @@ export async function executeRunWithSdk(
     await consumeEvents.catch(() => undefined);
     if (error instanceof RecoverableInterrupt) {
       const finalized = await persister.finalize("suspended", null, error);
-      if (isRootRun) {
+      if (isInteractionRoot) {
         await deps.pendingInteractions.onRootFinalized(
           input.sessionId,
-          rootRunId,
+          interactionRootRunId,
           "suspended",
           finalized.readyResumeInteractionIds,
         );
@@ -543,10 +551,10 @@ export async function executeRunWithSdk(
     const interrupted = input.signal.aborted;
     // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
     const finalized = await persister.finalize(interrupted ? "interrupted" : "failed", null, error);
-    if (isRootRun) {
+    if (isInteractionRoot) {
       await deps.pendingInteractions.onRootFinalized(
         input.sessionId,
-        rootRunId,
+        interactionRootRunId,
         interrupted ? "interrupted" : "failed",
         finalized.readyResumeInteractionIds,
       );
@@ -569,10 +577,10 @@ export async function executeRunWithSdk(
 
   // completed：终态合一落库（最终 assistant message + Envelope 关联 + updateRunStatus）。
   const finalized = await persister.finalize("completed", { content: result.content });
-  if (isRootRun) {
+  if (isInteractionRoot) {
     await deps.pendingInteractions.onRootFinalized(
       input.sessionId,
-      rootRunId,
+      interactionRootRunId,
       "completed",
       finalized.readyResumeInteractionIds,
     );

@@ -3,6 +3,8 @@ import { toolError, toolSuccess } from "../sdk/tool-results.js";
 
 export interface DelegationRunResult {
   success: boolean;
+  suspended?: boolean;
+  interaction_kind?: "approval" | "user_input";
   content: string;
   summary: string;
   outputType: string;

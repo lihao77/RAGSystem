@@ -195,13 +195,22 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
                 owner_instance_id, lease_expires_at,
                 (owner_instance_id=$3 AND lease_expires_at > CURRENT_TIMESTAMP) AS owned_by_current_instance
          FROM saas_runs
-         WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND child_agent_id IS NULL
+         WHERE tenant_id=$1 AND session_id=$2
+           AND (
+             (parent_run_id IS NULL AND child_agent_id IS NULL)
+             OR EXISTS (
+               SELECT 1 FROM pending_interactions AS pending
+               WHERE pending.session_id=$2
+                 AND pending.root_run_id=saas_runs.run_id
+                 AND pending.status IN ('waiting','suspended','resolved','resuming')
+             )
+           )
            AND status IN ('running','suspended')
-         ORDER BY updated_at DESC, created_at DESC, run_id DESC
-         LIMIT 2`,
+         ORDER BY (parent_run_id IS NULL AND child_agent_id IS NULL) DESC,
+                  updated_at DESC, created_at DESC, run_id DESC
+         LIMIT 1`,
         [this.tenantId, sessionId, this.ownerInstanceId],
       );
-      if (activeRoots.rows.length > 1) throw new Error(`session has multiple active root runs: ${sessionId}`);
       const terminalRoots = await transactionExecutor.query<Record<string, unknown>>(
         `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
                 request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
@@ -215,13 +224,10 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       );
       const activeRow = activeRoots.rows[0] ?? null;
       const activeRootRun = activeRow ? mapRun(activeRow) : null;
-      const pendingInteractions = activeRootRun
-        ? await tx.pendingInteractions.listPendingInteractions({
-            sessionId,
-            rootRunId: activeRootRun.run_id,
-            statuses: ["waiting", "suspended", "resolved", "resuming"],
-          })
-        : [];
+      const pendingInteractions = await tx.pendingInteractions.listPendingInteractions({
+        sessionId,
+        statuses: ["waiting", "suspended", "resolved", "resuming"],
+      });
       return {
         session,
         activeRootRun,
@@ -240,7 +246,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (!exists) return { runId: null };
       const active = await transactionExecutor.query<{ run_id: string }>(
         `SELECT run_id FROM saas_runs
-         WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND status IN ('running','suspended')
+         WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL
+           AND status IN ('running','suspended')
          ORDER BY created_at DESC LIMIT 1`,
         [this.tenantId, sessionId],
       );
@@ -298,7 +305,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (!exists) return { claimed: false, activeRunId: null };
       const active = await transactionExecutor.query<{ run_id: string }>(
         `SELECT run_id FROM saas_runs
-         WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND status IN ('running','suspended')
+         WHERE tenant_id=$1 AND session_id=$2 AND status IN ('running','suspended')
          ORDER BY created_at DESC LIMIT 1`,
         [this.tenantId, input.sessionId],
       );
@@ -409,7 +416,10 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         );
       }
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(input.run);
-      if (input.run.parentRunId == null) {
+      if (input.claimOwnLease && input.run.parentRunId == null) {
+        throw new Error("claimOwnLease is only valid for a child run");
+      }
+      if (input.run.parentRunId == null || input.claimOwnLease) {
         await this.claimRootRunLease(
           transactionExecutor,
           input.session.sessionId,
@@ -587,7 +597,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
          SET lease_expires_at=CURRENT_TIMESTAMP + ($1::bigint * INTERVAL '1 millisecond'),
              updated_at=CURRENT_TIMESTAMP
          WHERE tenant_id=$2 AND session_id=$3 AND run_id=$4
-           AND parent_run_id IS NULL AND status='running' AND owner_instance_id=$5
+            AND status='running' AND owner_instance_id=$5
          RETURNING lease_expires_at`,
         [leaseMs, this.tenantId, input.sessionId, input.rootRunId, this.ownerInstanceId],
       );
@@ -602,7 +612,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     const now = input.now ? new Date(input.now).toISOString() : null;
     const candidates = await this.executor.query<{ session_id: string }>(
       `SELECT DISTINCT session_id FROM saas_runs
-       WHERE tenant_id=$1 AND parent_run_id IS NULL AND status='running'
+       WHERE tenant_id=$1 AND status='running'
+         AND (parent_run_id IS NULL OR owner_instance_id IS NOT NULL)
          AND (lease_expires_at IS NULL OR lease_expires_at <= COALESCE($2::timestamptz, CURRENT_TIMESTAMP))
        ORDER BY session_id`,
       [this.tenantId, now],
@@ -639,7 +650,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
   ): Promise<RuntimeRecoverExpiredRunLeasesResult> {
     const expiredRoots = await transactionExecutor.query<{ run_id: string }>(
       `SELECT run_id FROM saas_runs
-       WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND status='running'
+       WHERE tenant_id=$1 AND session_id=$2 AND status='running'
+         AND (parent_run_id IS NULL OR owner_instance_id IS NOT NULL)
          AND (lease_expires_at IS NULL OR lease_expires_at <= COALESCE($3::timestamptz, CURRENT_TIMESTAMP))
        ORDER BY created_at, run_id FOR UPDATE`,
       [this.tenantId, sessionId, now],
@@ -685,6 +697,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
            SELECT child.run_id FROM saas_runs AS child
            JOIN run_tree AS parent ON child.parent_run_id=parent.run_id
            WHERE child.tenant_id=$1 AND child.session_id=$2
+             AND child.owner_instance_id IS NULL
          )
          UPDATE saas_runs AS run
          SET status=$4, final_message_id=NULL, owner_instance_id=NULL,
@@ -706,7 +719,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       const record = normalizeRecord(buildRunEndedRecord({
         sessionId,
         runId: rootRunId,
-        parentRunId: null,
+        parentRunId: projectedRuns.find((run) => run.runId === rootRunId)?.parentRunId ?? null,
         status: nextStatus,
         reason: shouldSuspend ? "backend_restarted_waiting_interaction" : "run_lease_expired",
       }));
@@ -728,7 +741,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
            lease_expires_at=CURRENT_TIMESTAMP + ($2::bigint * INTERVAL '1 millisecond'),
            updated_at=CURRENT_TIMESTAMP
        WHERE tenant_id=$3 AND session_id=$4 AND run_id=$5
-         AND parent_run_id IS NULL AND status='running'
+          AND status='running'
          AND (owner_instance_id=$1 OR lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
        RETURNING run_id`,
       [this.ownerInstanceId, this.rootLeaseMs, this.tenantId, sessionId, rootRunId],
@@ -976,13 +989,15 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (jsonObject(maintenance).token && Date.parse(String(jsonObject(maintenance).expires_at ?? "")) > Date.now()) {
         return { claimed: false, reason: "already_claimed" };
       }
-      const competing = await transactionExecutor.query<{ run_id: string }>(
-        `SELECT run_id FROM saas_runs
-         WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL
-           AND run_id<>$3 AND status='running' LIMIT 1`,
-        [this.tenantId, input.sessionId, rootRun.run_id],
-      );
-      if (competing.rows[0]) return { claimed: false, reason: "already_claimed" };
+      if (rootRun.parent_run_id === null) {
+        const competing = await transactionExecutor.query<{ run_id: string }>(
+          `SELECT run_id FROM saas_runs
+           WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL
+             AND run_id<>$3 AND status='running' LIMIT 1`,
+          [this.tenantId, input.sessionId, rootRun.run_id],
+        );
+        if (competing.rows[0]) return { claimed: false, reason: "already_claimed" };
+      }
       const repository = new PostgresPendingInteractionRepository(transactionExecutor);
       const claimed = await repository.claimPendingBatch(
         input.sessionId,
@@ -1006,6 +1021,12 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         rootRunId: rootRun.run_id,
         rootCallId: stringField(request.rootCallId) ?? `call_${rootRun.run_id}`,
         agentName: rootRun.agent_name,
+        threadKey: rootRun.thread_key,
+        parentRunId: rootRun.parent_run_id,
+        parentCallId: rootRun.parent_call_id,
+        lineageParentCallId: stringField(request.lineageParentCallId),
+        childAgentId: rootRun.child_agent_id,
+        workspaceRoot: stringField(request.workspaceRoot),
         task: stringField(request.task) ?? rootRun.task_summary ?? "",
         requestId: stringField(request.requestId) ?? rootRun.request_id,
         executionKind: stringField(request.executionKind) ?? rootRun.entrypoint ?? "agent_stream",
@@ -1195,7 +1216,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         const rootPending = activePending.filter((pending) => pending.root_run_id === rootRunId);
         cancelledInteractions += rootPending.length;
         await tx.pendingInteractions.finalizePendingInteractions(input.sessionId, rootRunId, "interrupted");
-        if (rootRun && (rootRun.session_id !== input.sessionId || rootRun.parent_run_id !== null)) {
+        if (rootRun && rootRun.session_id !== input.sessionId) {
           throw new Error(`pending interaction root is invalid while interrupting session: ${rootRunId}`);
         }
       }
@@ -1209,7 +1230,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         }
         const interrupted = { runId, parentRunId };
         interruptedRuns.push(interrupted);
-        if (parentRunId !== null) continue;
+        if (!runIds.has(runId)) continue;
         const normalized = normalizeRecord(input.buildRunEndedRecord(interrupted));
         assertRecordScope(normalized, input.sessionId, runId);
         await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
@@ -1321,9 +1342,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       const run = await lockTenantRun(transactionExecutor, this.tenantId, input.runId);
       if (!run || run.session_id !== input.sessionId) {
         throw new Error(`run not found while finalizing: ${input.runId}`);
-      }
-      if (input.interactionRootRunId && run.parent_run_id !== null) {
-        throw new Error(`root interaction finalization rejects a child run: ${input.runId}`);
       }
       assertTerminalTransition(run.status, input.status, input.runId);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
@@ -1489,7 +1507,8 @@ async function assertRunBelongsToRoot(
     run = await lockTenantRun(executor, tenantId, run.parent_run_id);
     if (!run || run.session_id !== sessionId) throw new Error(`interaction parent run not found: ${runId}`);
   }
-  if (run.parent_run_id !== null) throw new Error(`interaction root run is not a root: ${rootRunId}`);
+  // An independently leased background child is its own interaction recovery root
+  // while retaining parent_run_id for execution-tree lineage.
 }
 
 async function lockTenantRun(
@@ -1518,21 +1537,36 @@ async function assertOwnedRunLeaseForRun(
   let run = await lockTenantRun(executor, tenantId, runId);
   if (!run || run.session_id !== sessionId) throw new Error(`run not found while checking lease: ${runId}`);
   const visited = new Set<string>();
-  while (run.parent_run_id) {
+  while (run) {
     if (visited.has(run.run_id)) throw new Error(`run lineage cycle while checking lease: ${runId}`);
     visited.add(run.run_id);
+    const lease = await executor.query<{
+      run_id: string;
+      owner_instance_id: string | null;
+      lease_expires_at: unknown;
+      owned: boolean;
+    }>(
+      `SELECT run_id, owner_instance_id, lease_expires_at,
+              (owner_instance_id=$4 AND lease_expires_at > CURRENT_TIMESTAMP) AS owned
+       FROM saas_runs
+       WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
+         AND status='running'
+       FOR UPDATE`,
+      [tenantId, sessionId, run.run_id, ownerInstanceId],
+    );
+    const current = lease.rows[0];
+    if (current?.owned === true) return;
+    // A lease marker on a child means it is an independently leased run. It
+    // must not fall back to its parent's lease after ownership is lost.
+    if ((current?.owner_instance_id !== null && current?.owner_instance_id !== undefined)
+      || (current?.lease_expires_at !== null && current?.lease_expires_at !== undefined)) break;
+    if (!run.parent_run_id) break;
     run = await lockTenantRun(executor, tenantId, run.parent_run_id);
-    if (!run || run.session_id !== sessionId) throw new Error(`run root not found while checking lease: ${runId}`);
+    if (!run || run.session_id !== sessionId) {
+      throw new Error(`run parent not found while checking lease: ${runId}`);
+    }
   }
-  const owned = await executor.query<{ run_id: string }>(
-    `SELECT run_id FROM saas_runs
-     WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
-       AND parent_run_id IS NULL AND status='running'
-       AND owner_instance_id=$4 AND lease_expires_at > CURRENT_TIMESTAMP
-     FOR UPDATE`,
-    [tenantId, sessionId, run.run_id, ownerInstanceId],
-  );
-  if (!owned.rows[0]) throw new Error(`root run lease was lost: ${run.run_id}`);
+  throw new Error(`run lease was lost: ${runId}`);
 }
 
 function assertRunScope(existing: RunInfo, expected: RuntimeStartRunInput["run"]): void {

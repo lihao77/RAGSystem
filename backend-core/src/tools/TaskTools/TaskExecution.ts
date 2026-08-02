@@ -233,7 +233,7 @@ export class TaskToolService {
     }
   }
 
-  taskStop(input: TaskStopInput): ToolExecutionResult {
+  async taskStop(input: TaskStopInput): Promise<ToolExecutionResult> {
     const toolName = "task_stop";
     try {
       const taskId = input.taskId.trim();
@@ -264,7 +264,7 @@ export class TaskToolService {
       if (!cancelSupported) {
         return toolError(toolName, `后台任务 ${taskId} 当前类型不支持可靠停止`, { task_id: taskId, status });
       }
-      const stopped = this.backgroundTasks.cancel(taskId);
+      const stopped = await this.backgroundTasks.cancelAndWait(taskId);
       const updated = this.backgroundTasks.getTaskSnapshot(taskId) ?? snapshot;
       const currentStatus = String(updated.status ?? status);
       if (!stopped) {

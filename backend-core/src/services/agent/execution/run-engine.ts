@@ -427,6 +427,7 @@ export class AgentRunEngine {
     parentRunId?: string | null;
     parentCallId?: string | null | undefined;
     childAgentId?: string | null;
+    ownsRunLease?: boolean;
     userId?: string | null;
     userMessageId?: string | undefined;
     initialUserMessageContent?: string | undefined;
@@ -442,7 +443,13 @@ export class AgentRunEngine {
     // 终态回调（替代直接耦合 statusTracker）：root 由 startRun 壳传绑定 statusTracker 的回调，
     // child 不传。executeRun 自己用 startedAt 算 execution_time，不依赖外部 status 对象。
     onTerminal?: (finalStatus: "completed" | "failed" | "interrupted" | "suspended") => void;
-  }): Promise<{ content: string; success: boolean; suspended?: boolean; followup?: Extract<ExecutionStartDisposition, { kind: "followup" }> }> {
+  }): Promise<{
+    content: string;
+    success: boolean;
+    suspended?: boolean;
+    interactionKind?: "approval" | "user_input";
+    followup?: Extract<ExecutionStartDisposition, { kind: "followup" }>;
+  }> {
     // 性能监控落库:统一在此处采集(root/child 都走 executeRun),不挂 onTerminal——
     // child run 不绑 onTerminal,挂那里会漏采子智能体/委托调用。token/工具用量来自 executeRunWithSdk 返回值。
     const recordMetric = async (
@@ -520,27 +527,28 @@ export class AgentRunEngine {
           task: input.task,
           threadKey: input.threadKey,
           ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
-         ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
-         ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
+          ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
+          ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
+          ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
           sessionIdentity,
-         workspaceRoot,
+          workspaceRoot,
           ...(input.executionKind !== undefined ? { executionKind } : {}),
           ...(input.rootTask !== undefined ? { rootTask: input.rootTask } : {}),
-         ...(input.userId !== undefined ? { userId: input.userId } : {}),
-         ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
-         ...(input.initialUserMessageContent ? { initialUserMessageContent: input.initialUserMessageContent } : {}),
-         ...(input.initialUserMessageMetadata ? { initialUserMessageMetadata: input.initialUserMessageMetadata } : {}),
-         ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
-         ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
-         ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
-         ...(input.onStartDisposition ? { onStartDisposition: input.onStartDisposition } : {}),
-        signal: input.abortController.signal,
-         selectedLlm: input.selectedLlm ?? null,
-         // 最终 assistant 消息的调用点元数据：execution_kind + finalMetadataExtra（retry_of_* 等）。
-         messageMetadata: { execution_kind: executionKind, ...(input.finalMetadataExtra ?? {}) },
-         ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
-       },
-     );
+          ...(input.userId !== undefined ? { userId: input.userId } : {}),
+          ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
+          ...(input.initialUserMessageContent ? { initialUserMessageContent: input.initialUserMessageContent } : {}),
+          ...(input.initialUserMessageMetadata ? { initialUserMessageMetadata: input.initialUserMessageMetadata } : {}),
+          ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
+          ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
+          ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
+          ...(input.onStartDisposition ? { onStartDisposition: input.onStartDisposition } : {}),
+          signal: input.abortController.signal,
+          selectedLlm: input.selectedLlm ?? null,
+          // 最终 assistant 消息的调用点元数据：execution_kind + finalMetadataExtra（retry_of_* 等）。
+          messageMetadata: { execution_kind: executionKind, ...(input.finalMetadataExtra ?? {}) },
+          ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
+        },
+      );
 
       if (result.followup) {
         input.onTerminal?.("completed");
@@ -631,8 +639,8 @@ export class AgentRunEngine {
         }, "agent runtime execution failed");
       }
       await recordMetric(finalStatus, { inputTokens: 0, outputTokens: 0 }, {}, interrupted ? null : errorMessage);
-     input.onTerminal?.(finalStatus);
-     return { content: errorMessage, success: false };
+      input.onTerminal?.(finalStatus);
+      return { content: errorMessage, success: false };
     }
  }
 

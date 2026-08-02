@@ -73,18 +73,33 @@ export interface SpawnBashInput {
 export interface RunCallableInput {
   outputDir: string;
   description?: string | null | undefined;
-  run: () => unknown | Promise<unknown>;
+  /**
+   * Executes in a detached task scope. Use this task-local signal for all
+   * cancellable work; never capture a parent ToolExecContext signal here.
+   */
+  run: (context: BackgroundTaskExecutionContext) => unknown | Promise<unknown>;
   clientEvents?: ClientEventPublisher | null | undefined;
   sessionId?: string | null | undefined;
   runId?: string | null | undefined;
   ownerTaskId?: string | null | undefined;
   kind?: string | null | undefined;
   resultType?: string | null | undefined;
+  /** Optional cleanup for resources that cannot observe AbortSignal directly. */
+  cancel?: (() => void) | null | undefined;
+}
+
+export interface BackgroundTaskExecutionContext {
+  taskId: string;
+  /** Owned by the background task and aborted only by explicit task cancellation. */
+  signal: AbortSignal;
 }
 
 export class BackgroundTaskService {
   private readonly tasks = new Map<string, BackgroundTask>();
   private readonly processes = new Map<string, ChildProcess>();
+  private readonly callableAbortControllers = new Map<string, AbortController>();
+  private readonly callableCancellers = new Map<string, () => void>();
+  private readonly callableCompletions = new Map<string, Promise<void>>();
   private readonly ownedTaskIds = new Set<string>();
   private readonly taskClientEvents = new Map<string, ClientEventPublisher>();
   private readonly retentionSeconds: number;
@@ -335,6 +350,7 @@ export class BackgroundTaskService {
 
   runCallable(input: RunCallableInput): BackgroundTask {
     const taskId = randomUUID();
+    const abortController = new AbortController();
     fs.mkdirSync(input.outputDir, { recursive: true });
     const outputPath = path.join(input.outputDir, `bg_${taskId.slice(0, 8)}.json`);
     const task: BackgroundTask = {
@@ -352,15 +368,26 @@ export class BackgroundTaskService {
       completed_at: null,
       result_type: normalizeString(input.resultType) ?? "tool_execution_result",
       kind: normalizeString(input.kind) ?? "callable",
-      cancel_supported: false,
+      cancel_supported: true,
     };
     this.tasks.set(taskId, task);
     this.ownedTaskIds.add(taskId);
     this.registerClientEvents(taskId, input.clientEvents);
+    this.callableAbortControllers.set(taskId, abortController);
+    if (input.cancel) this.callableCancellers.set(taskId, input.cancel);
     this.persistTask(task);
     this.publishTaskLifecycle(task, "started");
 
-    void this.executeCallableTask(taskId, outputPath, input.run);
+    const completion = this.executeCallableTask(
+      taskId,
+      outputPath,
+      () => input.run({ taskId, signal: abortController.signal }),
+    );
+    this.callableCompletions.set(taskId, completion);
+    void completion.then(
+      () => { if (this.callableCompletions.get(taskId) === completion) this.callableCompletions.delete(taskId); },
+      () => { if (this.callableCompletions.get(taskId) === completion) this.callableCompletions.delete(taskId); },
+    );
     return { ...task };
   }
 
@@ -411,12 +438,28 @@ export class BackgroundTaskService {
     return task ? this.cancelKnownTask(task) : false;
   }
 
+  /** Cancels a task and waits briefly for its owned execution to unwind. */
+  async cancelAndWait(taskId: string, timeoutMs = 5_000): Promise<boolean> {
+    const task = this.tasks.get(taskId);
+    if (!task || !this.cancelKnownTask(task)) return false;
+    const process = this.processes.get(taskId);
+    const completion = this.callableCompletions.get(taskId);
+    await Promise.all([
+      process ? waitForProcessClose(process, timeoutMs) : Promise.resolve(),
+      completion ? waitForPromise(completion, timeoutMs) : Promise.resolve(),
+    ]);
+    return true;
+  }
+
   private cleanupExpiredTasks(): void {
     const now = nowSeconds();
     for (const [taskId, task] of this.tasks.entries()) {
       if (isDone(task.status) && task.expires_at !== null && task.expires_at <= now) {
         this.tasks.delete(taskId);
         this.processes.delete(taskId);
+        this.callableAbortControllers.delete(taskId);
+        this.callableCancellers.delete(taskId);
+        this.callableCompletions.delete(taskId);
         this.ownedTaskIds.delete(taskId);
         this.taskClientEvents.delete(taskId);
       }
@@ -428,12 +471,14 @@ export class BackgroundTaskService {
     outputPath: string,
     run: () => unknown | Promise<unknown>,
   ): Promise<void> {
-    const task = this.tasks.get(taskId);
+    let task = this.tasks.get(taskId);
     if (!task || isDone(task.status)) {
       return;
     }
     try {
       const result = await run();
+      task = this.tasks.get(taskId);
+      if (!task || isDone(task.status)) return;
       const success = !isRecord(result) || result.success !== false;
       fs.writeFileSync(
         outputPath,
@@ -448,6 +493,8 @@ export class BackgroundTaskService {
       task.status = success ? "completed" : "failed";
       task.completed_at = nowSeconds();
     } catch (error) {
+      task = this.tasks.get(taskId);
+      if (!task || isDone(task.status)) return;
       const message = error instanceof Error ? error.message : String(error);
       fs.writeFileSync(
         outputPath,
@@ -462,7 +509,11 @@ export class BackgroundTaskService {
       task.status = "failed";
       task.error = message;
       task.completed_at = nowSeconds();
+    } finally {
+      this.callableAbortControllers.delete(taskId);
+      this.callableCancellers.delete(taskId);
     }
+    if (!task || isDone(task.status)) return;
     this.persistTask(task);
     const snapshot = this.getTask(taskId);
     if (snapshot) {
@@ -530,6 +581,10 @@ export class BackgroundTaskService {
     const records = await this.repository.listBySession(this.tenantId, sessionId, now);
     const retainedIds = new Set(records.map((record) => record.task_id));
     for (const record of records) {
+      // Keep the live object for locally owned work. Replacing it with a durable
+      // snapshot can let an in-flight callback write completed after task_stop
+      // already marked the current task cancelled.
+      if (this.ownedTaskIds.has(record.task_id)) continue;
       this.tasks.set(record.task_id, fromDurableRecord(record));
     }
     for (const [taskId, task] of this.tasks) {
@@ -546,11 +601,15 @@ export class BackgroundTaskService {
     if (isDone(task.status)) return cancelResult(taskId, task.status, "already_finished");
     if (!task.cancel_supported) return cancelResult(taskId, task.status, "not_cancellable");
     if (!this.ownedTaskIds.has(taskId)) return cancelResult(taskId, task.status, "not_owned");
-    const process = this.processes.get(taskId);
     if (!this.cancelKnownTask(task)) return cancelResult(taskId, task.status, "not_owned");
     // The management endpoint acknowledges cancellation only after the owned process has exited
     // (or a bounded wait elapses), so callers do not immediately race open log handles on Windows.
-    if (process) await waitForProcessClose(process, 5_000);
+    const process = this.processes.get(taskId);
+    const completion = this.callableCompletions.get(taskId);
+    await Promise.all([
+      process ? waitForProcessClose(process, 5_000) : Promise.resolve(),
+      completion ? waitForPromise(completion, 5_000) : Promise.resolve(),
+    ]);
     return { task_id: taskId, cancelled: true, status: "cancelled", reason: null };
   }
 
@@ -563,6 +622,21 @@ export class BackgroundTaskService {
       // taskkill yet, while the close handler remains guarded by the cancelled status.
       terminateProcessTree(proc.pid, true);
       setTimeout(() => terminateProcessTree(proc.pid, true), 500);
+    }
+    const callableAbortController = this.callableAbortControllers.get(task.task_id);
+    if (callableAbortController) {
+      callableAbortController.abort(new Error(`background task cancelled: ${task.task_id}`));
+      this.callableAbortControllers.delete(task.task_id);
+    }
+    const cancelCallable = this.callableCancellers.get(task.task_id);
+    if (cancelCallable) {
+      try {
+        cancelCallable();
+      } catch {
+        // A legacy cleanup hook must not prevent cancellation from becoming durable.
+      } finally {
+        this.callableCancellers.delete(task.task_id);
+      }
     }
     task.status = "cancelled";
     task.completed_at = nowSeconds();
@@ -675,6 +749,13 @@ async function waitForProcessClose(process: ChildProcess, timeoutMs: number): Pr
     process.once("close", finish);
     if (process.exitCode !== null || process.signalCode !== null) finish();
   });
+}
+
+async function waitForPromise(promise: Promise<unknown>, timeoutMs: number): Promise<void> {
+  await Promise.race([
+    promise.then(() => undefined, () => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
 }
 
 function nowSeconds(): number {

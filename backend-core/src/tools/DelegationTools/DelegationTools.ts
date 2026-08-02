@@ -20,7 +20,7 @@ import {
   SEND_MESSAGE_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import { toolError } from "../../services/agent/sdk/tool-results.js";
-import { metadataFrom, optionalInteger, optionalString } from "../schema-helpers.js";
+import { metadataFrom, optionalBoolean, optionalInteger, optionalString } from "../schema-helpers.js";
 
 /**
  * agent 配置查找端口：delegation 工厂用它解析可委派 agent 的展示信息（display_name/description/use_cases），
@@ -52,6 +52,8 @@ const callAgentSchema = z.object({
   task: z.string(),
   context_hint: optionalString,
   contextHint: optionalString,
+  run_in_background: optionalBoolean,
+  runInBackground: optionalBoolean,
 }).strict();
 
 const listChildAgentsSchema = z.object({
@@ -64,6 +66,8 @@ const sendMessageSchema = z.object({
   child_agent_id: z.string(),
   childAgentId: z.string().optional(),
   message: z.string(),
+  run_in_background: optionalBoolean,
+  runInBackground: optionalBoolean,
 }).strict();
 
 const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
@@ -91,6 +95,10 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
         context_hint: {
           type: "string",
           description: "Optional extra constraints, output format, or background.",
+        },
+        run_in_background: {
+          type: "boolean",
+          description: "Run the child Agent independently and immediately return background_task_id, child_agent_id, and run_id.",
         },
       },
     },
@@ -139,6 +147,10 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
           type: "string",
           description: "Follow-up task or correction for the existing child Agent.",
         },
+        run_in_background: {
+          type: "boolean",
+          description: "Run this follow-up independently and immediately return background_task_id and run_id.",
+        },
       },
     },
   },
@@ -154,17 +166,21 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
   const delegatedAgents = resolveDelegatedAgents(agent, deps.agentConfig ?? null, teamName);
   const agentNames = delegatedAgents.map((item) => item.agent_name);
   const exampleAgent = delegatedAgents[0]?.agent_name ?? agentNames[0] ?? "agent_name";
+  const allowBackground = !!agent.tasks?.background;
 
   const definitionByName = new Map(AGENT_DELEGATION_TOOLS.map((definition) => [definition.name, definition]));
   const callAgentDef = withDelegationSelfDescription(
-    definitionByName.get(CALL_AGENT_TOOL_NAME)!,
+    omitBackgroundParam(definitionByName.get(CALL_AGENT_TOOL_NAME)!, allowBackground),
     agentNames,
     delegatedAgents,
     exampleAgent,
     /* includeExample */ true,
   );
   const listChildAgentsDef = withAgentNameEnum(definitionByName.get(LIST_CHILD_AGENTS_TOOL_NAME)!, agentNames);
-  const sendMessageDef = withSendMessageSelfDescription(definitionByName.get(SEND_MESSAGE_TOOL_NAME)!, exampleAgent);
+  const sendMessageDef = withSendMessageSelfDescription(
+    omitBackgroundParam(definitionByName.get(SEND_MESSAGE_TOOL_NAME)!, allowBackground),
+    exampleAgent,
+  );
 
   return [
     buildTool({
@@ -258,6 +274,16 @@ function withAgentNameEnum(definition: RuntimeToolDefinition, agentNames: string
   return { ...definition, parameters };
 }
 
+function omitBackgroundParam(definition: RuntimeToolDefinition, allowBackground: boolean): RuntimeToolDefinition {
+  if (allowBackground) return definition;
+  const parameters = definition.parameters;
+  const properties = isRecord(parameters.properties) ? { ...parameters.properties } : {};
+  if (!("run_in_background" in properties) && !("runInBackground" in properties)) return definition;
+  delete properties.run_in_background;
+  delete properties.runInBackground;
+  return { ...definition, parameters: { ...parameters, properties } };
+}
+
 /** call_agent 自描述：agent_name enum + extended_usage（委派语义 + 可委派清单）+ 创建示例。 */
 function withDelegationSelfDescription(
   definition: RuntimeToolDefinition,
@@ -275,6 +301,7 @@ function withDelegationSelfDescription(
     "- task 需写完整上下文、目标与输出要求；只有确实需要目标 Agent 专长或独立上下文时才委派",
     "- 若一个子 Agent 足以完成任务，就不要拆成多个；子 Agent 已返回足够结果时直接收束",
     "- 子 Agent 失败后，下一次委派必须改变任务描述/范围/输入/目标，不要原样重发",
+    "- 长耗时且可独立完成的任务可设 run_in_background=true；结果中的 task_id（兼容别名 background_task_id）可交给 task_output/task_stop 查询或停止",
     "",
     "可委派子 Agent：",
   ];
@@ -295,6 +322,7 @@ function withDelegationSelfDescription(
           agent_name: exampleAgent,
           task: "查询2023年广西洪涝灾害受灾人口，需要分市统计",
           context_hint: "返回 Markdown 表格，并保留统计口径说明",
+          run_in_background: true,
         },
       },
     ];

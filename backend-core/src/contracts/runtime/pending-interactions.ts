@@ -9,6 +9,9 @@ import type {
 
 export interface PendingUserInputRequest {
   sessionId: string; runId: string; rootRunId: string; parentRunId: string | null; parentCallId: string | null;
+  /** Execution-tree parent agent call; distinct from the run's invocation tool call. */
+  lineageParentCallId?: string | null | undefined;
+  workspaceRoot?: string | null | undefined;
   rootCallId?: string | undefined;
   taskId?: string | null | undefined; requestId?: string | null | undefined; toolCallId: string; interactionBatchId?: string | undefined;
   onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined; deadlineMs: number; task: string;
@@ -18,6 +21,9 @@ export interface PendingUserInputRequest {
 export interface PendingUserInputResolution { inputId: string; value: string; respondedAt: string }
 export interface PendingApprovalRequest {
   sessionId: string; runId: string; rootRunId: string; parentRunId: string | null; parentCallId: string | null;
+  /** Execution-tree parent agent call; distinct from the run's invocation tool call. */
+  lineageParentCallId?: string | null | undefined;
+  workspaceRoot?: string | null | undefined;
   rootCallId?: string | undefined;
   taskId?: string | null | undefined; requestId?: string | null | undefined; toolCallId: string; interactionBatchId?: string | undefined;
   onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined; deadlineMs: number; task: string;

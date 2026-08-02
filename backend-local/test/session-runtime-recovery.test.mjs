@@ -180,6 +180,69 @@ test('Local 崩溃恢复对无可恢复交互的 run 使用 interrupted', async 
   assert.equal(snapshot.last_run.status, 'interrupted');
 });
 
+test('Local 崩溃恢复把后台 child 作为独立交互根，并允许 child 独立续接', async (t) => {
+  const { store, storage, runtime } = await createHarness(t);
+  store.createRun({
+    runId: 'child-run-1',
+    sessionId: 'session-1',
+    entrypoint: 'agent_stream',
+    status: 'running',
+    taskSummary: 'child task',
+    requestId: 'child-req-1',
+    agentName: 'worker',
+    threadKey: 'child:child-1',
+    parentRunId: 'run-1',
+    parentCallId: 'parent-call-1',
+    childAgentId: 'child-1',
+  });
+  store.createPendingInteraction({
+    interactionId: 'child-interaction-1',
+    sessionId: 'session-1',
+    runId: 'child-run-1',
+    rootRunId: 'child-run-1',
+    toolCallId: 'child-tool-1',
+    batchId: 'child-batch-1',
+    kind: 'user_input',
+    requestPayload: {
+      rootCallId: 'child-call-1',
+      task: 'child task',
+      interaction_payload: {
+        kind: 'user_input',
+        phase: 'required',
+        prompt: '继续吗？',
+      },
+    },
+  });
+
+  const recovered = await storage.recoverOrphanedRuns(terminalRecord);
+  assert.deepEqual(recovered.interruptedRuns, [{ runId: 'run-1', parentRunId: null }]);
+  assert.deepEqual(recovered.suspendedRuns, [{ runId: 'child-run-1', parentRunId: 'run-1' }]);
+  assert.equal(store.getRun('session-1', 'run-1').status, 'interrupted');
+  assert.equal(store.getRun('session-1', 'child-run-1').status, 'suspended');
+
+  const snapshot = await runtime.getSnapshot('session-1');
+  assert.equal(snapshot.state, 'suspended');
+  assert.equal(snapshot.active_run.run_id, 'child-run-1');
+  assert.equal(snapshot.pending_interactions[0].root_run_id, 'child-run-1');
+
+  store.updatePendingInteractionStatus({
+    sessionId: 'session-1',
+    interactionId: 'child-interaction-1',
+    from: ['suspended'],
+    status: 'resolved',
+    resolution: { kind: 'user_input', value: '继续' },
+  });
+  const claim = await storage.operations.claimResume({
+    sessionId: 'session-1',
+    interactionId: 'child-interaction-1',
+    claimId: 'child-claim-1',
+    leaseMs: 60_000,
+  });
+  assert.equal(claim.claimed, true);
+  assert.equal(claim.rootRunId, 'child-run-1');
+  assert.equal(claim.parentRunId, 'run-1');
+});
+
 test('恢复同一 run 时 intent 必须续用下一逻辑轮次，不能覆盖旧 intent:0', async (t) => {
   const { store, storage } = await createHarness(t);
   const base = {

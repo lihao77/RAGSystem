@@ -138,6 +138,8 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
     const prompt = "prompt" in input ? input.prompt : undefined;
     const requestPayload = {
       ...meta,
+      ...(input.lineageParentCallId !== undefined ? { lineageParentCallId: input.lineageParentCallId } : {}),
+      ...(input.workspaceRoot !== undefined ? { workspaceRoot: input.workspaceRoot } : {}),
       interaction_payload: event.payload,
       ...(prompt !== undefined ? { prompt } : {}),
       ...("toolName" in input ? {

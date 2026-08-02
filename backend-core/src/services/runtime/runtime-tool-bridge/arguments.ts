@@ -66,12 +66,16 @@ export function readCallAgentArguments(value: Record<string, unknown> | undefine
   agentName: string;
   task: string;
   contextHint?: string | null;
+  runInBackground?: boolean | null;
   callId?: string | null;
 } {
   return {
     agentName: asString(value?.agent_name) ?? asString(value?.agentName) ?? "",
     task: asString(value?.task) ?? "",
     contextHint: asString(value?.context_hint) ?? asString(value?.contextHint),
+    runInBackground: typeof value?.run_in_background === "boolean"
+      ? value.run_in_background
+      : typeof value?.runInBackground === "boolean" ? value.runInBackground : null,
     callId: callId ?? null,
   };
 }
@@ -89,11 +93,15 @@ export function readListChildAgentsArguments(value: Record<string, unknown> | un
 export function readSendMessageArguments(value: Record<string, unknown> | undefined, callId: string | undefined): {
   childAgentId: string;
   message: string;
+  runInBackground?: boolean | null;
   callId?: string | null;
 } {
   return {
     childAgentId: asString(value?.child_agent_id) ?? asString(value?.childAgentId) ?? "",
     message: asString(value?.message) ?? "",
+    runInBackground: typeof value?.run_in_background === "boolean"
+      ? value.run_in_background
+      : typeof value?.runInBackground === "boolean" ? value.runInBackground : null,
     callId: callId ?? null,
   };
 }

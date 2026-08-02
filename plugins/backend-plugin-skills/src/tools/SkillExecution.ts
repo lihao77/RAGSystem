@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
+import { terminateProcessTree } from "@ragsystem/backend-core/services/runtime/process-tree.js";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
 import type { ClientEventPublisher } from "@ragsystem/backend-core/services/runtime/event-outbox/client-event-publisher.js";
@@ -440,7 +441,7 @@ export class SkillToolService {
     context: ToolExecContext,
     artifactOutputDirectory: string | null,
   ): Promise<{ stdout: string; stderr: string; returnCode: number }> {
-    const environment = await this.ensureSkillEnvironment(skill);
+    const environment = await this.ensureSkillEnvironment(skill, context.signal);
     if ("error" in environment) {
       return { stdout: "", stderr: `环境准备失败: ${environment.error}`, returnCode: 1 };
     }
@@ -448,6 +449,7 @@ export class SkillToolService {
       cwd: skill.skillDir,
       timeoutMs: 30_000,
       timeoutMessage: "脚本执行超时（>30秒）",
+      ...(context.signal ? { signal: context.signal } : {}),
       env: {
         ...process.env,
         PYTHONIOENCODING: "utf-8",
@@ -468,7 +470,7 @@ export class SkillToolService {
    *
    * 同一 skill 目录的环境准备通过 envLocks 串行化，避免并发创建 venv 竞态。
    */
-  private async ensureSkillEnvironment(skill: SkillInfo): Promise<{ python: string } | { error: string }> {
+  private async ensureSkillEnvironment(skill: SkillInfo, signal?: AbortSignal): Promise<{ python: string } | { error: string }> {
     if (this.skillIsolationMode === "shared") {
       return { python: resolvePythonExecutable() };
     }
@@ -477,7 +479,7 @@ export class SkillToolService {
       return { python: resolvePythonExecutable() };
     }
     const previous = this.envLocks.get(skill.skillDir) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(() => prepareVenv(skill.skillDir, requirementsFile));
+    const current = previous.catch(() => undefined).then(() => prepareVenv(skill.skillDir, requirementsFile, signal));
     this.envLocks.set(skill.skillDir, current.catch(() => undefined));
     return current;
   }
@@ -517,13 +519,19 @@ export class SkillToolService {
       kind: "callable",
       resultType: "tool_execution_result",
       clientEvents: this.clientEvents,
-      run: () => this.executeSkillScript({ skillName: skill.name, scriptName, arguments: args, runInBackground: false }, context, agent, config),
+      run: ({ signal }) => this.executeSkillScript(
+        { skillName: skill.name, scriptName, arguments: args, runInBackground: false },
+        { ...context, signal },
+        agent,
+        config,
+      ),
     });
     return successResult(
       {
         stdout: "",
         stderr: "",
         return_code: null,
+        task_id: task.task_id,
         background_task_id: task.task_id,
         background_started: true,
         skill: skill.name,
@@ -536,6 +544,7 @@ export class SkillToolService {
           success: true,
           skill: skill.name,
           script_name: scriptName,
+          task_id: task.task_id,
           background_task_id: task.task_id,
           background_started: true,
           background_output_path: toDisplayPath(task.output_path, this.dataRoot),
@@ -932,10 +941,14 @@ function venvPipExecutable(venvDir: string): string {
 async function prepareVenv(
   skillDir: string,
   requirementsFile: string,
+  signal?: AbortSignal,
 ): Promise<{ python: string } | { error: string }> {
   const venvDir = path.join(skillDir, ".venv");
   if (!fs.existsSync(venvDir)) {
-    const create = await spawnProcess(resolvePythonExecutable(), ["-m", "venv", venvDir], { timeoutMs: 60_000 });
+    const create = await spawnProcess(resolvePythonExecutable(), ["-m", "venv", venvDir], {
+      timeoutMs: 60_000,
+      ...(signal ? { signal } : {}),
+    });
     if (create.returnCode !== 0) {
       return { error: `创建虚拟环境失败: ${create.stderr.trim() || create.stdout.trim()}` };
     }
@@ -949,6 +962,7 @@ async function prepareVenv(
 
   const install = await spawnProcess(venvPipExecutable(venvDir), ["install", "-r", requirementsFile], {
     timeoutMs: 300_000,
+    ...(signal ? { signal } : {}),
   });
   if (install.returnCode !== 0) {
     return { error: `安装依赖失败: ${install.stderr.trim() || install.stdout.trim()}` };
@@ -963,29 +977,73 @@ async function prepareVenv(
 function spawnProcess(
   executable: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; timeoutMessage?: string },
+  options: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    timeoutMs: number;
+    timeoutMessage?: string;
+    signal?: AbortSignal;
+  },
 ): Promise<{ stdout: string; stderr: string; returnCode: number }> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     const errorChunks: Buffer[] = [];
     let timedOut = false;
+    let abortRequested = false;
+    let settled = false;
     const child = spawn(executable, args, {
       cwd: options.cwd,
       windowsHide: true,
       env: options.env ?? process.env,
     });
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
+    };
+    const onAbort = (): void => {
+      if (settled) return;
+      abortRequested = true;
+      try {
+        terminateProcessTree(child.pid, true);
+      } catch {
+        finishAbort();
+      }
+    };
+    const finishAbort = (): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const error = new Error("Skill script execution cancelled");
+      error.name = "AbortError";
+      reject(error);
+    };
     const timer = setTimeout(() => {
+      if (settled) return;
       timedOut = true;
-      child.kill("SIGKILL");
+      terminateProcessTree(child.pid, true);
     }, options.timeoutMs);
+    if (options.signal?.aborted) onAbort();
+    else options.signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => errorChunks.push(chunk));
     child.on("error", (error) => {
-      clearTimeout(timer);
+      if (settled) return;
+      if (abortRequested) {
+        finishAbort();
+        return;
+      }
+      settled = true;
+      cleanup();
       resolve({ stdout: "", stderr: error.message, returnCode: 1 });
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
+      if (settled) return;
+      if (abortRequested) {
+        finishAbort();
+        return;
+      }
+      settled = true;
+      cleanup();
       if (timedOut) {
         resolve({
           stdout: Buffer.concat(chunks).toString("utf8"),

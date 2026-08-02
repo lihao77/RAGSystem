@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { AgentConfigSchema } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
+import { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
 import {
   FilesystemSkillPackageStore,
   POSTGRES_SKILLS_MIGRATIONS,
@@ -81,6 +82,51 @@ test("Skills tools are absent when no Skill is enabled and expose three tools wh
       ["activate_skill", "load_skill_resource", "execute_skill_script"],
     );
   } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("background Skill scripts use the task signal instead of the parent Run signal", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-background-signal-"));
+  const previousPython = process.env.RAGSYSTEM_PYTHON;
+  try {
+    const builtinRoot = path.join(root, "builtin");
+    const skillRoot = path.join(builtinRoot, "long-skill");
+    const scriptsRoot = path.join(skillRoot, "scripts");
+    fs.mkdirSync(scriptsRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillRoot, "SKILL.md"),
+      "---\nname: long-skill\ndescription: Long running test\n---\nRun it.\n",
+    );
+    fs.writeFileSync(path.join(scriptsRoot, "wait.js"), "setTimeout(() => console.log('done'), 5000);\n");
+    process.env.RAGSYSTEM_PYTHON = process.execPath;
+    const backgroundTasks = new BackgroundTaskService();
+    const service = new SkillToolService({
+      dataRoot: root,
+      builtinSkillsRoot: builtinRoot,
+      backgroundTasks,
+      skillIsolationMode: "shared",
+    });
+    const parentAbort = new AbortController();
+    const result = await service.executeSkillScript(
+      { skillName: "long-skill", scriptName: "wait.js", arguments: [], runInBackground: true },
+      { sessionId: "session-a", runId: "run-a", taskId: "parent-task", signal: parentAbort.signal },
+      { agent_name: "worker", default_entry: false, tasks: { background: true }, custom_params: {} },
+      { enabled_skills: ["long-skill"] },
+    );
+    const taskId = result.content.task_id;
+    assert.equal(taskId, result.content.background_task_id);
+    assert.equal(backgroundTasks.getTaskSnapshot(taskId).cancel_supported, true);
+
+    parentAbort.abort();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(backgroundTasks.getTaskSnapshot(taskId).status, "running");
+
+    assert.equal(await backgroundTasks.cancelAndWait(taskId), true);
+    assert.equal(backgroundTasks.getTaskSnapshot(taskId).status, "cancelled");
+  } finally {
+    if (previousPython === undefined) delete process.env.RAGSYSTEM_PYTHON;
+    else process.env.RAGSYSTEM_PYTHON = previousPython;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

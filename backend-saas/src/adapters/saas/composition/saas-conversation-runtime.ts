@@ -154,7 +154,8 @@ export async function createSaaSConversationRuntime(
       try {
         const tenants = await executor.query<{ tenant_id: string }>(
           `SELECT DISTINCT tenant_id FROM saas_runs
-           WHERE parent_run_id IS NULL AND status='running'
+           WHERE status='running'
+             AND (parent_run_id IS NULL OR owner_instance_id IS NOT NULL)
              AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
            ORDER BY tenant_id`,
         );

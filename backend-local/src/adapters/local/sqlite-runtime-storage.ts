@@ -112,14 +112,16 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       if (activeRoots.length > 1) {
         throw new Error(`session has multiple active root runs: ${sessionId}`);
       }
-      const activeRootRun = activeRoots[0] ?? null;
-      const pendingInteractions = activeRootRun
-        ? this.store.listPendingInteractions({
-            sessionId,
-            rootRunId: activeRootRun.run_id,
-            statuses: ["waiting", "suspended", "resolved", "resuming"],
-          })
-        : [];
+      const pendingInteractions = this.store.listPendingInteractions({
+        sessionId,
+        statuses: ["waiting", "suspended", "resolved", "resuming"],
+      });
+      const interactionRootIds = new Set(pendingInteractions.map((item) => item.root_run_id));
+      const activeRootRun = activeRoots[0]
+        ?? this.store.listRuns(sessionId, Number.MAX_SAFE_INTEGER).items.find((run) =>
+          interactionRootIds.has(run.run_id) && (run.status === "running" || run.status === "suspended")
+        )
+        ?? null;
       return {
         session,
         activeRootRun,
@@ -170,9 +172,8 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
     return this.serial.run(() => this.store.runInTransaction((tx) => {
       const session = tx.getSession(input.sessionId);
       if (!session) return { claimed: false, activeRunId: null };
-      const activeRoots = tx.listActiveRootRuns(input.sessionId, 2);
-      if (activeRoots.length > 1) throw new Error(`session has multiple active root runs: ${input.sessionId}`);
-      const active = activeRoots[0];
+      const active = tx.listRuns(input.sessionId, Number.MAX_SAFE_INTEGER).items
+        .find((run) => run.status === "running" || run.status === "suspended");
       if (active) return { claimed: false, activeRunId: active.run_id };
       const maintenance = activeMaintenance(session.metadata);
       if (maintenance && maintenance.token !== input.token) {
@@ -256,15 +257,29 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           if (activeRuns.length === 0) {
             return { interruptedRuns: [], suspendedRuns: [], cancelledInteractions: 0, records: [] };
           }
-          const rootRunIds = activeRuns
-            .filter((run) => run.parent_run_id === null)
-            .map((run) => run.run_id);
           const activeById = new Map(activeRuns.map((run) => [run.run_id, run]));
+          // A background child owns its interaction root. If its parent root
+          // is still running, the child must be recovered separately; if the
+          // parent already finished, the child is the only recovery root left.
+          const pendingRootIds = new Set(
+            tx.listPendingInteractions({
+              sessionId: session.session_id,
+              statuses: ["waiting", "suspended", "resolved", "resuming"],
+            }).map((interaction) => interaction.root_run_id),
+          );
+          const recoveryRootRuns = activeRuns
+            .filter((run) => run.parent_run_id === null || pendingRootIds.has(run.run_id))
+            .sort((left, right) => {
+              const leftIndependent = pendingRootIds.has(left.run_id) ? 0 : 1;
+              const rightIndependent = pendingRootIds.has(right.run_id) ? 0 : 1;
+              return leftIndependent - rightIndependent || left.run_id.localeCompare(right.run_id);
+            });
           let sessionCancelledInteractions = 0;
           const sessionInterruptedRuns: RuntimeInterruptSessionResult["interruptedRuns"] = [];
           const sessionSuspendedRuns: Array<{ runId: string; parentRunId: string | null }> = [];
           const sessionRecords: RuntimeRecordEnvelopeResult[] = [];
-          for (const rootRunId of rootRunIds) {
+          for (const recoveryRoot of recoveryRootRuns) {
+            const rootRunId = recoveryRoot.run_id;
             let pending = tx.listPendingInteractions({
               sessionId: session.session_id,
               rootRunId,
@@ -288,7 +303,12 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
               sessionCancelledInteractions += pending.length;
               tx.finalizePendingInteractions(session.session_id, rootRunId, "interrupted");
             }
-            const treeRuns = activeRuns.filter((run) => runBelongsToRoot(run.run_id, rootRunId, activeById));
+            const treeRuns = activeRuns.filter((run) => runBelongsToRoot(
+              run.run_id,
+              rootRunId,
+              activeById,
+              pendingRootIds,
+            ));
             for (const run of treeRuns) {
               if (!tx.updateRunStatus(run.run_id, session.session_id, nextStatus, null)) {
                 throw new Error(`orphaned run not found while recovering session: ${run.run_id}`);
@@ -300,7 +320,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             sessionRecords.push(recordEnvelope(tx, buildRunEndedRecord({
                 sessionId: session.session_id,
                 runId: rootRunId,
-                parentRunId: null,
+                parentRunId: recoveryRoot.parent_run_id,
                 status: nextStatus,
                 reason: shouldSuspend
                   ? "backend_restarted_waiting_interaction"
@@ -356,6 +376,9 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           } catch (error) {
             throw new Error(`run scope conflict: ${input.run.runId}`, { cause: error });
           }
+        }
+        if (input.claimOwnLease && input.run.parentRunId == null) {
+          throw new Error("claimOwnLease is only valid for a child run");
         }
         const records = initialRecords.map((record) => recordEnvelope(tx, record));
         return { run, initialUserMessage, records };
@@ -583,10 +606,12 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (activeMaintenance(session.metadata)) {
           return { claimed: false, reason: "already_claimed" };
         }
-        const competingRoot = tx.listActiveRootRuns(input.sessionId, 2).find((run) =>
-          run.run_id !== rootRun.run_id && run.status === "running"
-        );
-        if (competingRoot) return { claimed: false, reason: "already_claimed" };
+        if (rootRun.parent_run_id === null) {
+          const competingRoot = tx.listActiveRootRuns(input.sessionId, 2).find((run) =>
+            run.run_id !== rootRun.run_id && run.status === "running"
+          );
+          if (competingRoot) return { claimed: false, reason: "already_claimed" };
+        }
         const claimed = tx.claimPendingBatch(input.sessionId, interaction.batch_id, claimId, resumeLeaseMs(input.leaseMs));
         if (claimed !== batch.length) {
           throw new Error(`resume batch claim was partial: ${interaction.batch_id}`);
@@ -603,6 +628,12 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           rootRunId: rootRun.run_id,
           rootCallId: stringField(request.rootCallId) ?? `call_${rootRun.run_id}`,
           agentName: rootRun.agent_name,
+          threadKey: rootRun.thread_key,
+          parentRunId: rootRun.parent_run_id,
+          parentCallId: rootRun.parent_call_id,
+          lineageParentCallId: stringField(request.lineageParentCallId),
+          childAgentId: rootRun.child_agent_id,
+          workspaceRoot: stringField(request.workspaceRoot),
           task: stringField(request.task) ?? rootRun.task_summary ?? "",
           requestId: stringField(request.requestId) ?? rootRun.request_id,
           executionKind: stringField(request.executionKind) ?? rootRun.entrypoint ?? "agent_stream",
@@ -702,7 +733,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         }
         const interrupted = { runId: run.run_id, parentRunId: run.parent_run_id };
         interruptedRuns.push(interrupted);
-        if (run.parent_run_id === null) records.push(recordEnvelope(tx, input.buildRunEndedRecord(interrupted)));
+        if (rootRunIds.has(run.run_id)) records.push(recordEnvelope(tx, input.buildRunEndedRecord(interrupted)));
       }
       return { interruptedRuns, cancelledInteractions, records };
     }));
@@ -767,9 +798,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (!currentRun) throw new Error(`run not found while finalizing: ${input.runId}`);
         if (input.interactionRootRunId && input.interactionRootRunId !== input.runId) {
           throw new Error(`root interaction finalization requires the root run: ${input.runId}`);
-        }
-        if (input.interactionRootRunId && currentRun.parent_run_id !== null) {
-          throw new Error(`root interaction finalization rejects a child run: ${input.runId}`);
         }
         const replayingTerminal = currentRun.status === input.status;
         if (currentRun.status !== "running" && !replayingTerminal) {
@@ -1017,7 +1045,8 @@ function assertRunBelongsToRoot(
     run = tx.getRun(sessionId, run.parent_run_id);
     if (!run) throw new Error(`interaction parent run not found: ${runId}`);
   }
-  if (run.parent_run_id !== null) throw new Error(`interaction root run is not a root: ${rootRunId}`);
+  // An independently leased background child is its own interaction recovery root
+  // while retaining parent_run_id for execution-tree lineage.
 }
 
 function assertInteractionIdentity(
@@ -1112,11 +1141,13 @@ function runBelongsToRoot(
   runId: string,
   rootRunId: string,
   activeById: ReadonlyMap<string, import("@ragsystem/backend-core/contracts/conversation-store/index.js").RunInfo>,
+  independentRootIds: ReadonlySet<string> = new Set(),
 ): boolean {
   let current = activeById.get(runId) ?? null;
   const visited = new Set<string>();
   while (current) {
     if (current.run_id === rootRunId) return true;
+    if (independentRootIds.has(current.run_id)) return false;
     if (!current.parent_run_id || visited.has(current.run_id)) return false;
     visited.add(current.run_id);
     current = activeById.get(current.parent_run_id) ?? null;

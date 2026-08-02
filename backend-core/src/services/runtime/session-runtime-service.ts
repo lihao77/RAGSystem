@@ -67,7 +67,13 @@ export function projectSessionRuntime(facts: RuntimeSessionFacts): SessionRuntim
 
 function projectState(facts: RuntimeSessionFacts, hasMaintenance: boolean): SessionRuntimeState {
   const active = facts.activeRootRun;
-  if (!active) return hasMaintenance ? "maintenance" : "idle";
+  if (!active) {
+    if (facts.pendingInteractions.some((item) => item.status === "resuming")) return "resuming";
+    if (facts.pendingInteractions.some((item) => item.status === "waiting" || item.status === "suspended" || item.status === "resolved")) {
+      return "suspended";
+    }
+    return hasMaintenance ? "maintenance" : "idle";
+  }
   if (facts.pendingInteractions.some((item) => item.status === "resuming")) return "resuming";
   if (active.status === "suspended") return "suspended";
   if (facts.pendingInteractions.some((item) => item.status === "waiting" || item.status === "suspended")) {

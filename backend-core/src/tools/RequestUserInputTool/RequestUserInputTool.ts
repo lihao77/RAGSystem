@@ -82,6 +82,8 @@ export function createRequestUserInputTools(deps: RequestUserInputToolDeps): Too
             rootRunId: ctx.rootRunId ?? ctx.runId,
             parentRunId: ctx.parentRunId ?? null,
             parentCallId: ctx.runParentCallId ?? null,
+            lineageParentCallId: ctx.parentCallId ?? null,
+            workspaceRoot: ctx.workspaceRoot ?? null,
             ...(ctx.rootCallId ? { rootCallId: ctx.rootCallId } : {}),
             taskId: ctx.taskId,
             requestId: ctx.requestId,

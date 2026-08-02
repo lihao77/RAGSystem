@@ -55,6 +55,8 @@ export function registerGateHook(hooks: HookRegistry, deps: GateHookDeps): void 
       rootRunId: runContext.rootRunId,
       parentRunId: runContext.parentRunId,
       parentCallId: runContext.parentCallId,
+      lineageParentCallId: input.ctx.parentCallId ?? null,
+      workspaceRoot: input.ctx.workspaceRoot ?? null,
       ...(input.ctx.rootCallId ? { rootCallId: input.ctx.rootCallId } : {}),
       toolCallId: runContext.toolCallId,
       ...(input.ctx.interactionBatchId ? { interactionBatchId: input.ctx.interactionBatchId } : {}),

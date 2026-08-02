@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 import type { AgentRunEngine } from "../execution/run-engine.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
@@ -6,6 +7,7 @@ import type { ChildAgentInfo } from "../../../contracts/conversation-store/index
 import type { AgentDelegationStorePort } from "../../../contracts/runtime/core-runtime-ports.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../execution/runtime-core-service.js";
+import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import type {
   DelegationPort,
@@ -31,13 +33,41 @@ import {
 } from "./results.js";
 import { toSessionIdentity } from "../../../contracts/session/session.js";
 
+interface ChildRunInput {
+  sessionId: string;
+  agentName: string;
+  task: string;
+  requestId: string | null;
+  parentRunId: string | null;
+  rootRunId: string | null;
+  rootCallId: string;
+  runParentCallId: string | null;
+  lineageParentCallId: string | null;
+  interactionRootCallId: string;
+  round: number | null;
+  childAgent: ChildAgentInfo;
+  childRunId: string;
+  resumeRunId: string | null;
+  entrypoint: "call_agent" | "send_message";
+  executionKind: string;
+  rootTask: string;
+  source: "agent_call";
+  signal?: AbortSignal | undefined;
+  teamName: string | null;
+  workspaceRoot: string | null;
+  ownsRunLease?: boolean;
+}
+
 export class AgentDelegationService implements DelegationPort {
   private runEngineProvider: (() => AgentRunEngine | null) | null = null;
+  private readonly activeChildRuns = new Map<string, string>();
 
   constructor(
     private readonly store: AgentDelegationStorePort,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly clientEvents: ClientEventPublisher | null = null,
+    private readonly backgroundTasks: BackgroundTaskService | null = null,
+    private readonly dataRoot: string | null = null,
   ) {}
 
   setRunEngine(provider: () => AgentRunEngine | null): void {
@@ -74,6 +104,12 @@ export class AgentDelegationService implements DelegationPort {
     if (targetAgentName === parentAgent.agent_name) {
       return errorResult("不允许委派给自身", toolName);
     }
+    if (input.runInBackground && !parentAgent.tasks?.background) {
+      return errorResult("当前 Agent 未启用 tasks.background，不能后台委派子 Agent", toolName);
+    }
+    if (input.runInBackground && (!this.backgroundTasks || !this.dataRoot)) {
+      return errorResult("子 Agent 后台委派暂不可用", toolName);
+    }
 
     const existingChild = await this.store.findChildAgentByCreator({
       sessionId,
@@ -84,6 +120,12 @@ export class AgentDelegationService implements DelegationPort {
     const existingRun = matchingChild?.last_run_id
       ? await this.store.getRun(sessionId, matchingChild.last_run_id)
       : null;
+    if (matchingChild && (existingRun?.status === "running" || this.activeChildRuns.has(matchingChild.child_agent_id))) {
+      return errorResult(
+        `该 call_agent 调用对应的子 Agent '${matchingChild.child_agent_id}' 仍在运行，请查询现有后台任务，勿重复委派`,
+        toolName,
+      );
+    }
     const resumedRun = existingRun?.status === "suspended" ? existingRun : null;
     const childAgentId = resumedRun && matchingChild ? matchingChild.child_agent_id : `child_${randomUUID()}`;
     const threadKey = resumedRun && matchingChild ? matchingChild.thread_key : `child:${childAgentId}`;
@@ -91,6 +133,7 @@ export class AgentDelegationService implements DelegationPort {
       ? normalizeString(matchingChild.metadata.agent_call_id) ?? resumedRun.parent_call_id
       : null;
     const agentCallId = resumedAgentCallId ?? `call_${randomUUID()}`;
+    const childRunId = resumedRun?.run_id ?? randomUUID();
     const child = resumedRun && matchingChild
       ? matchingChild
       : await this.store.createChildAgent({
@@ -116,7 +159,7 @@ export class AgentDelegationService implements DelegationPort {
         parentRunId,
         parentAgentName: parentAgent.agent_name,
         parentCallId,
-      rootParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId) ?? normalizeString(ctx.rootCallId),
+        rootParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId) ?? normalizeString(ctx.rootCallId),
         agentCallId,
         agentName: targetAgentName,
         childDisplayName,
@@ -126,7 +169,7 @@ export class AgentDelegationService implements DelegationPort {
       });
     }
 
-    const result = await this.executeChildRun({
+    const runInput: Omit<ChildRunInput, "signal"> = {
       sessionId,
       agentName: targetAgentName,
       task: buildDelegatedTask(task, input.contextHint),
@@ -139,15 +182,68 @@ export class AgentDelegationService implements DelegationPort {
       interactionRootCallId: normalizeString(ctx.rootCallId) ?? parentCallId,
       round: ctx.round ?? null,
       childAgent: child,
+      childRunId,
       resumeRunId: resumedRun?.run_id ?? null,
       entrypoint: "call_agent",
       executionKind: ctx.executionKind ?? "call_agent",
       rootTask: ctx.rootTask ?? task,
       source: "agent_call",
-      signal: ctx.signal,
       teamName: normalizeString(teamName),
       workspaceRoot: getChildWorkspaceRoot(child, ctx),
-    });
+    };
+    if (input.runInBackground) {
+      this.activeChildRuns.set(childAgentId, childRunId);
+      const backgroundTask = this.backgroundTasks!.runCallable({
+        outputDir: path.join(this.dataRoot!, "sessions", sessionId, "transient"),
+        description: `${childDisplayName}: ${task.slice(0, 120)}`,
+        sessionId,
+        runId: childRunId,
+        ownerTaskId: normalizeString(ctx.taskId),
+        kind: "agent",
+        resultType: "agent_delegation_result",
+        clientEvents: this.clientEvents,
+        run: async ({ signal }) => {
+          try {
+            return await this.executeChildRun({ ...runInput, ownsRunLease: true, signal });
+          } finally {
+            if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
+          }
+        },
+      });
+      return successResult(
+        {
+          task_id: backgroundTask.task_id,
+          background_task_id: backgroundTask.task_id,
+          background_started: true,
+          child_agent_id: childAgentId,
+          run_id: childRunId,
+          status: "running",
+        },
+        {
+          summary: `子 Agent ${childDisplayName} 已在后台启动`,
+          outputType: "json",
+          metadata: {
+            agent_name: targetAgentName,
+            agent_call_id: agentCallId,
+            parent_call_id: parentCallId,
+            child_agent_id: childAgentId,
+            run_id: childRunId,
+            background_task_id: backgroundTask.task_id,
+            task_id: backgroundTask.task_id,
+            background_started: true,
+            mode: "create",
+          },
+          toolName,
+        },
+      );
+    }
+    this.activeChildRuns.set(childAgentId, childRunId);
+    let result: DelegationRunResult;
+    try {
+      result = await this.executeChildRun({ ...runInput, signal: ctx.signal });
+    } finally {
+      if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
+    }
     publishAgentCallEnd(this.clientEvents, {
       sessionId,
       parentRunId,
@@ -195,6 +291,21 @@ export class AgentDelegationService implements DelegationPort {
     if (child.status !== "active") {
       return errorResult(`子 Agent '${childAgentId}' 当前不可用`, toolName);
     }
+    if (input.runInBackground && !parentAgent.tasks?.background) {
+      return errorResult("当前 Agent 未启用 tasks.background，不能后台委派子 Agent", toolName);
+    }
+    if (input.runInBackground && (!this.backgroundTasks || !this.dataRoot)) {
+      return errorResult("子 Agent 后台委派暂不可用", toolName);
+    }
+    if (this.activeChildRuns.has(childAgentId)) {
+      return errorResult(`子 Agent '${childAgentId}' 仍在运行，请等待当前 run 完成后再续接`, toolName);
+    }
+    if (child.last_run_id) {
+      const lastRun = await this.store.getRun(sessionId, child.last_run_id);
+      if (lastRun?.status === "running") {
+        return errorResult(`子 Agent '${childAgentId}' 仍在运行，请等待当前 run 完成后再续接`, toolName);
+      }
+    }
 
     const childDisplayName = this.resolveChildDisplayName(child.agent_name, normalizeString(teamName));
     publishAgentCallStart(this.clientEvents, {
@@ -211,7 +322,8 @@ export class AgentDelegationService implements DelegationPort {
       mode: "resume",
     });
 
-    const result = await this.executeChildRun({
+    const childRunId = randomUUID();
+    const runInput: Omit<ChildRunInput, "signal"> = {
       sessionId,
       agentName: child.agent_name,
       task: message,
@@ -224,15 +336,55 @@ export class AgentDelegationService implements DelegationPort {
       interactionRootCallId: normalizeString(ctx.rootCallId) ?? parentCallId ?? agentCallId,
       round: ctx.round ?? null,
       childAgent: child,
+      childRunId,
       resumeRunId: null,
       entrypoint: "send_message",
       executionKind: ctx.executionKind ?? "send_message",
       rootTask: ctx.rootTask ?? message,
       source: "agent_call",
-      signal: ctx.signal,
       teamName: normalizeString(teamName),
       workspaceRoot: getChildWorkspaceRoot(child, ctx),
-    });
+    };
+    if (input.runInBackground) {
+      this.activeChildRuns.set(childAgentId, childRunId);
+      const backgroundTask = this.backgroundTasks!.runCallable({
+        outputDir: path.join(this.dataRoot!, "sessions", sessionId, "transient"),
+        description: `${childDisplayName}: ${message.slice(0, 120)}`,
+        sessionId,
+        runId: childRunId,
+        ownerTaskId: normalizeString(ctx.taskId),
+        kind: "agent",
+        resultType: "agent_delegation_result",
+        clientEvents: this.clientEvents,
+        run: async ({ signal }) => {
+          try {
+            return await this.executeChildRun({ ...runInput, ownsRunLease: true, signal });
+          } finally {
+            if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
+          }
+        },
+      });
+      return successResult(
+        { task_id: backgroundTask.task_id, background_task_id: backgroundTask.task_id, background_started: true, child_agent_id: childAgentId, run_id: childRunId, status: "running" },
+        {
+          summary: `子 Agent ${childDisplayName} 已在后台续接`,
+          outputType: "json",
+          metadata: {
+            agent_name: child.agent_name, agent_call_id: agentCallId, parent_call_id: parentCallId,
+            child_agent_id: childAgentId, run_id: childRunId, task_id: backgroundTask.task_id, background_task_id: backgroundTask.task_id,
+            background_started: true, mode: "resume",
+          },
+          toolName,
+        },
+      );
+    }
+    this.activeChildRuns.set(childAgentId, childRunId);
+    let result: DelegationRunResult;
+    try {
+      result = await this.executeChildRun({ ...runInput, signal: ctx.signal });
+    } finally {
+      if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
+    }
     publishAgentCallEnd(this.clientEvents, {
       sessionId,
       parentRunId: normalizeString(ctx.runId),
@@ -269,13 +421,17 @@ export class AgentDelegationService implements DelegationPort {
       agentName,
       limit,
     });
-    const items = result.items.map((item) => ({
-      child_agent_id: item.child_agent_id,
-      agent_name: item.agent_name,
-      status: item.status,
-      last_run_id: item.last_run_id,
-      created_at: item.created_at,
-      updated_at: item.updated_at,
+    const items = await Promise.all(result.items.map(async (item) => {
+      const lastRun = item.last_run_id ? await this.store.getRun(sessionId, item.last_run_id) : null;
+      return {
+        child_agent_id: item.child_agent_id,
+        agent_name: item.agent_name,
+        status: item.status,
+        last_run_id: item.last_run_id,
+        last_run_status: lastRun?.status ?? (this.activeChildRuns.has(item.child_agent_id) ? "starting" : null),
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+      };
     }));
     return successResult(
       {
@@ -300,28 +456,7 @@ export class AgentDelegationService implements DelegationPort {
     return resolved.agent?.display_name || agentName;
   }
 
-  private async executeChildRun(input: {
-    sessionId: string;
-    agentName: string;
-    task: string;
-    requestId: string | null;
-    parentRunId: string | null;
-    rootRunId: string | null;
-    rootCallId: string;
-    runParentCallId: string | null;
-    lineageParentCallId: string | null;
-    interactionRootCallId: string;
-    round: number | null;
-    childAgent: ChildAgentInfo;
-    resumeRunId: string | null;
-    entrypoint: "call_agent" | "send_message";
-    executionKind: string;
-    rootTask: string;
-    source: "agent_call";
-    signal?: AbortSignal | undefined;
-    teamName: string | null;
-    workspaceRoot: string | null;
-  }): Promise<DelegationRunResult> {
+  private async executeChildRun(input: ChildRunInput): Promise<DelegationRunResult> {
     const resolved = this.runtimeCore.resolveExecutionConfig({
       agentName: input.agentName,
       teamName: input.teamName,
@@ -339,10 +474,11 @@ export class AgentDelegationService implements DelegationPort {
       };
     }
 
-    const childRunId = input.resumeRunId ?? randomUUID();
+    const childRunId = input.childRunId;
     const targetAgent = applyWorkspaceOverride(resolved.agent, input.workspaceRoot);
     const session = await this.store.getSession(input.sessionId);
     if (!session) throw new Error(`delegation session not found: ${input.sessionId}`);
+    throwIfAborted(input.signal);
     if (input.resumeRunId) {
       await this.store.updateRunStatus(childRunId, input.sessionId, "running", null);
     } else {
@@ -363,6 +499,7 @@ export class AgentDelegationService implements DelegationPort {
         childAgentId: input.childAgent.child_agent_id,
       });
     }
+    throwIfAborted(input.signal);
 
     const runEngine = this.runEngineProvider?.();
     if (!runEngine) {
@@ -397,6 +534,7 @@ export class AgentDelegationService implements DelegationPort {
       childAgentId: input.childAgent.child_agent_id,
       lastRunId: childRunId,
     });
+    throwIfAborted(input.signal);
 
     const outcome = await runEngine.executeRun({
       sessionId: input.sessionId,
@@ -418,9 +556,33 @@ export class AgentDelegationService implements DelegationPort {
       rootRunId: input.rootRunId ?? input.parentRunId ?? childRunId,
       parentRunId: input.parentRunId,
       childAgentId: input.childAgent.child_agent_id,
+      ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
       executionKind: input.executionKind,
-      rootTask: input.rootTask,
+      rootTask: input.ownsRunLease ? input.task : input.rootTask,
     });
+
+    if (outcome.suspended) {
+      const interactionKind = outcome.interactionKind ?? "approval";
+      const content = interactionKind === "approval"
+        ? "后台子 Agent 正在等待审批"
+        : "后台子 Agent 正在等待用户输入";
+      return {
+        success: true,
+        suspended: true,
+        interaction_kind: interactionKind,
+        content,
+        summary: content,
+        outputType: "json",
+        metadata: {
+          run_id: childRunId,
+          agent_name: targetAgent.agent_name,
+          child_agent_id: input.childAgent.child_agent_id,
+          thread_key: input.childAgent.thread_key,
+          suspended: true,
+          interaction_kind: interactionKind,
+        },
+      };
+    }
 
     return {
       success: outcome.success,
@@ -436,4 +598,11 @@ export class AgentDelegationService implements DelegationPort {
     };
   }
 
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  const error = new Error("子 Agent 执行已取消");
+  error.name = "AbortError";
+  throw error;
 }

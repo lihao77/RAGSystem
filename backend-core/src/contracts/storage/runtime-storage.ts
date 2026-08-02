@@ -134,6 +134,8 @@ export interface RuntimeStartRunInput {
   run: CreateRunInput;
   /** Existing root lease required when creating or resuming a child run. */
   leaseRootRunId?: string | null;
+  /** This non-root run owns an independent lease instead of inheriting its execution-tree root lease. */
+  claimOwnLease?: boolean;
   /** Existing durable follow-up message claimed atomically when starting a continuation root. */
   pendingUserMessageId?: string | null;
   /** Allows the maintenance owner to atomically replace its reservation with a new root run. */
@@ -333,6 +335,12 @@ export type RuntimeClaimResumeResult =
       rootRunId: string;
       rootCallId: string;
       agentName: string;
+      threadKey: string;
+      parentRunId: string | null;
+      parentCallId: string | null;
+      lineageParentCallId: string | null;
+      childAgentId: string | null;
+      workspaceRoot: string | null;
       task: string;
       requestId: string | null;
       executionKind: string;
@@ -385,7 +393,7 @@ export interface RuntimeRecoverExpiredRunLeasesInput {
   buildRunEndedRecord(run: {
     sessionId: string;
     runId: string;
-    parentRunId: null;
+    parentRunId: string | null;
     status: "interrupted" | "suspended";
     reason: "run_lease_expired" | "backend_restarted_waiting_interaction";
   }): RuntimeRecordEnvelopeInput;

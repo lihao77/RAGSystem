@@ -19,12 +19,14 @@ export interface AgentDelegationInput {
   agentName: string;
   task: string;
   contextHint?: string | null | undefined;
+  runInBackground?: boolean | null | undefined;
   callId?: string | null | undefined;
 }
 
 export interface SendMessageInput {
   childAgentId: string;
   message: string;
+  runInBackground?: boolean | null | undefined;
   callId?: string | null | undefined;
 }
 
