@@ -490,7 +490,11 @@ function buildTerminalEnvelopes(
         run_id: ctx.runId,
         call_id: ctx.rootCallId,
         agent_id: ctx.agentName,
-        payload: { phase: "final", content: finalMessage.content },
+        payload: {
+          phase: "final",
+          content: finalMessage.content,
+          ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
+        },
       },
       {
         type: "state_sync",

@@ -59,8 +59,17 @@ export function useChatSessionController(deps) {
   let entryAgentLoadSeq = 0;
   let routeSyncSeq = 0;
 
-  const connectSessionInBackground = (sessionId) => {
-    void Promise.resolve(deps.connectSessionWS(sessionId)).catch(() => undefined);
+  /**
+   * Sending a message must not race a reconnect.  The old implementation
+   * kicked off an unconditional cursor reconnect for every send and returned
+   * immediately; the next SDK send then observed a connecting socket and was
+   * diverted to the fallback transport (or rejected).
+   */
+  const ensureSessionConnection = async (sessionId) => {
+    if (!sessionId) return;
+    const client = deps.chatSdkClient;
+    if (client?.sessionId === sessionId && client?.isConnected === true) return;
+    await deps.connectSessionWS(sessionId);
   };
 
   const getChatSessionPath = (sessionId) => (sessionId
@@ -257,7 +266,7 @@ export function useChatSessionController(deps) {
 
   const ensureSession = async ({ replaceRoute = false } = {}) => {
     if (currentSessionId.value) {
-      connectSessionInBackground(currentSessionId.value);
+      await ensureSessionConnection(currentSessionId.value);
       return currentSessionId.value;
     }
     const workspaceRoot = normalizeWorkspaceRootInput(pendingWorkspaceRoot.value);
@@ -314,7 +323,7 @@ export function useChatSessionController(deps) {
       }
       const navigate = replaceRoute ? router.replace : router.push;
       await navigate(getChatSessionPath(sessionId));
-      connectSessionInBackground(sessionId);
+      await ensureSessionConnection(sessionId);
       await deps.loadSessionFiles(sessionId);
     }
     return currentSessionId.value;

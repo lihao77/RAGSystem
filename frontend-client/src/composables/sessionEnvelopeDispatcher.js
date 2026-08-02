@@ -374,10 +374,31 @@ export function createSessionEnvelopeDispatcher({
       runtime.resetPendingReconciliation();
       const nextRunId = event.run_id || null;
       bindUnassignedFollowupCandidates(nextRunId);
-      const shouldStartNewMessage = !activeRun.active
-        || (activeRun.runId && nextRunId && activeRun.runId !== nextRunId);
+      let currentAssistantIndex = activeRun.assistantMsgIndex;
+      let currentMsg = messages.value[currentAssistantIndex];
+      // An idle runtime reconciliation resets the active-run index. Recover
+      // the optimistic unfinished assistant that was just added by send().
+      if (currentMsg?.role !== 'assistant' || currentMsg.finished) {
+        currentAssistantIndex = -1;
+        for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+          const candidate = messages.value[index];
+          if (candidate?.role === 'assistant' && !candidate.finished) {
+            currentAssistantIndex = index;
+            currentMsg = candidate;
+            break;
+          }
+        }
+      }
+      const currentMsgRunId = getMessageRunId(currentMsg);
+      // The connection handshake can deliver an idle runtime snapshot between
+      // the optimistic assistant placeholder and run_started. Reuse that
+      // unfinished placeholder instead of appending a second assistant.
+      const canReuseCurrentAssistant = currentMsg?.role === 'assistant'
+        && !currentMsg.finished
+        && (!activeRun.runId || !nextRunId || activeRun.runId === nextRunId)
+        && (!currentMsgRunId || !nextRunId || currentMsgRunId === nextRunId);
+      const shouldStartNewMessage = !canReuseCurrentAssistant;
       if (shouldStartNewMessage) {
-        const currentMsg = messages.value[activeRun.assistantMsgIndex];
         if (currentMsg && !currentMsg.finished) currentMsg.finished = true;
         const startedCandidate = payload.request_id
           ? takeFollowupCandidate(payload.request_id)
@@ -408,6 +429,13 @@ export function createSessionEnvelopeDispatcher({
         activeRun.lastSeenSeq = 0;
         activeRun.isReplaying = runtime.isDurableReplayActive();
         runtime.startActiveRunRuntime(event);
+      } else {
+        activeRun.assistantMsgIndex = currentAssistantIndex;
+        activeRun.active = true;
+        if (currentMsg && nextRunId) {
+          currentMsg.run_id = nextRunId;
+          currentMsg.metadata = { ...(currentMsg.metadata || {}), run_id: nextRunId };
+        }
       }
       activeRun.runId = nextRunId;
       if (activeRun.phase === 'idle' || !activeRun.runStartedAt || startupPhases.has(activeRun.phase)) {

@@ -111,6 +111,19 @@ test('SDK 连接携带历史 cursor，并把事件交给现有 Session dispatche
   assert.deepEqual(calls.connect[1], ['session-1', { afterEventSeq: 5, historySnapshot: true }]);
 });
 
+test('已连接同一会话的普通连接请求不会触发游标重连', async () => {
+  const { sdk, calls } = createSdkMock();
+  sdk.sessionId = 'session-1';
+  sdk.isConnected = true;
+  const connection = useSessionAgentClient(createConnectionDeps(sdk));
+
+  connection.initializeSessionEventCursor('session-1', 12);
+  await connection.connectSessionWS('session-1');
+
+  assert.deepEqual(calls.connect, []);
+  assert.equal(calls.disconnect, 0);
+});
+
 test('SDK heartbeat watermark only advances the durable cursor', () => {
   const { sdk } = createSdkMock();
   const connection = useSessionAgentClient(createConnectionDeps(sdk));

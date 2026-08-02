@@ -1,3 +1,4 @@
+import { getCurrentInstance, onUnmounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { useRunRuntime } from './useRunRuntime.js';
@@ -76,7 +77,8 @@ export function useSessionAgentClient(deps) {
     deps.resetApprovalState();
   };
 
-  sdk.on('event', (event) => {
+  const sdkUnsubscribers = [];
+  sdkUnsubscribers.push(sdk.on('event', (event) => {
     const sessionId = event.session_id || sdk.sessionId || currentSessionId.value;
     const heartbeatSeq = event.type === 'heartbeat' ? event.payload?.last_seq : null;
     const observedSeq = typeof event.seq === 'number' ? event.seq : heartbeatSeq;
@@ -84,8 +86,8 @@ export function useSessionAgentClient(deps) {
       sdkEventCursors.set(sessionId, Math.max(sdkEventCursors.get(sessionId) || 0, observedSeq));
     }
     if (sessionId) envelopeDispatcher?.handleEnvelope(event, sessionId);
-  });
-  sdk.on('status', (status) => {
+  }));
+  sdkUnsubscribers.push(sdk.on('status', (status) => {
     if (status.state === 'reconnecting') clearCommandFallback();
     if (status.state === 'disconnected') {
       handleDisconnect();
@@ -93,9 +95,29 @@ export function useSessionAgentClient(deps) {
         finalizeActiveRun(currentSessionId.value);
       }
     }
-  });
+  }));
+
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    for (const unsubscribe of sdkUnsubscribers.splice(0)) unsubscribe?.();
+    clearCommandFallback();
+    envelopeDispatcher?.resetInteractionPresentation();
+  };
+  // ChatView is recreated when leaving/re-entering the page while the shared
+  // SDK remains alive. Remove this view's listeners or every remount would
+  // project each envelope multiple times.
+  if (getCurrentInstance()) onUnmounted(dispose);
 
   const connectSessionWS = async (sessionId, options = {}) => {
+    if (
+      !options.historySnapshot
+      && sdk.sessionId === sessionId
+      && sdk.isConnected === true
+    ) {
+      return;
+    }
     const afterEventSeq = sdkEventCursors.get(sessionId);
     await sdk.connect(sessionId, {
       ...(afterEventSeq !== undefined ? { afterEventSeq } : {}),
@@ -226,6 +248,7 @@ export function useSessionAgentClient(deps) {
     handleRunEvent,
     finalizeActiveRun,
     resetStreamSessionState,
+    dispose,
     send,
     stop,
     respondInteraction: interactionController.respond,

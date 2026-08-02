@@ -335,6 +335,38 @@ test('stream_output(final) 会用完整内容补偿并保留已有 metadata', ()
   assert.equal(deps.messages.value[0].finished, true);
 });
 
+test('子 Run 的终态 stream_output 即使缺少 lineage 也不会覆盖根回答', () => {
+  const { deps } = createDeps();
+  const execution = useMessageExecution({
+    currentSessionId: deps.currentSessionId,
+    chatSdkClient: deps.chatSdkClient,
+    activeRun: deps.activeRun,
+  });
+  deps.createAssistantMessage = execution.createAssistantMessage;
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
+  deps.isRootEvent = execution.isRootEvent;
+  deps.isMasterEvent = execution.isMasterEvent;
+  deps.messages.value = [createAssistantMessage({
+    content: '根回答',
+    run_id: 'run-root',
+    metadata: { run_id: 'run-root' },
+  })];
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.runId = 'run-root';
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'stream_output',
+    run_id: 'run-child',
+    call_id: 'child-call',
+    agent_id: 'child-agent',
+    payload: { phase: 'final', content: '子 Agent 最终结果' },
+  }, 'session-1');
+
+  assert.equal(deps.messages.value[0].content, '根回答');
+  assert.equal(deps.messages.value[0].finished, false);
+});
+
 test('state_sync(message_saved) 会将确认的 run 内 followup 移入执行树注入列表', () => {
   const { deps, calls } = createDeps();
   deps.messages.value = [
@@ -737,6 +769,30 @@ test('run_started 初始化运行态为等待模型首 token', () => {
   assert.equal(deps.activeRun.firstTokenAt, null);
   assert.equal(deps.activeRun.firstTokenLatencyMs, null);
   assert.equal(deps.isLoading.value, true);
+});
+
+test('idle runtime 在 run_started 前到达时复用乐观 assistant 占位', () => {
+  const { deps, sessionRunStore } = createDeps();
+  deps.messages.value = [
+    { role: 'user', content: '新任务', metadata: {}, attachments: [] },
+    createAssistantMessage(),
+  ];
+  deps.activeRun.assistantMsgIndex = 1;
+  // Connection bootstrap may reconcile the optimistic command to idle before
+  // the server publishes run_started.
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('idle'));
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'run_started',
+    run_id: 'run-new',
+    payload: { request_id: 'req-new' },
+  }, 'session-1');
+
+  assert.equal(deps.messages.value.filter(message => message.role === 'assistant').length, 1);
+  assert.equal(deps.messages.value[1].run_id, 'run-new');
+  assert.equal(deps.activeRun.assistantMsgIndex, 1);
+  assert.equal(deps.activeRun.active, true);
 });
 
 test('stream_output(first_token) 设置首 token 时间并切换为模型输出中', () => {

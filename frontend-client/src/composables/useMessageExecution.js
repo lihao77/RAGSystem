@@ -106,8 +106,16 @@ export function useMessageExecution(deps) {
     });
   };
 
-  // root/master 判定：无 lineage.parent_call_id 即根（顶层 orchestrator）。
-  const isRootEvent = (event) => !(event?.payload?.lineage?.parent_call_id);
+  // root/master 判定：优先使用 lineage；终态补偿事件来自独立 child run
+  // 时旧服务端版本可能没有携带 lineage，此时用当前根 run_id 做第二重隔离。
+  const isRootEvent = (event) => {
+    if (event?.payload?.lineage?.parent_call_id) return false;
+    const scope = event?.payload?.conversation_scope;
+    if (scope === 'child' || event?.payload?.thread_key?.startsWith?.('child:')) return false;
+    const activeRootRunId = deps.activeRun?.runId || null;
+    const eventRunId = event?.run_id || null;
+    return !(activeRootRunId && eventRunId && activeRootRunId !== eventRunId);
+  };
   const isMasterEvent = (event) => isRootEvent(event);
 
   // 按 agentId 找 status=running 的 agent（context_usage 挂 ctx 用）。
