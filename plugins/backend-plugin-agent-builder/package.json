@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@ragsystem/agent-sdk": "*",
+    "@ragsystem/backend-plugin-artifacts": "*",
     "@ragsystem/backend-plugin-mcp": "*",
     "@ragsystem/backend-plugin-skills": "*",
     "zod": "^3.23.0"

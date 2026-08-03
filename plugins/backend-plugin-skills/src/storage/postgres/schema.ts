@@ -120,4 +120,18 @@ export const POSTGRES_SKILLS_MIGRATIONS: PostgresSkillPackageMigration[] = [
         ON saas_skill_drafts(tenant_id, name);
     `,
   },
+  {
+    version: 5,
+    name: "skill_draft_artifact_idempotency",
+    sql: `
+      CREATE UNIQUE INDEX IF NOT EXISTS saas_skill_drafts_tenant_artifact_revision_idx
+      ON saas_skill_drafts(
+        tenant_id,
+        (draft->>'source_artifact_id'),
+        ((draft->>'source_artifact_revision')::INTEGER)
+      )
+      WHERE draft ? 'source_artifact_id'
+        AND draft->>'source_artifact_id' IS NOT NULL;
+    `,
+  },
 ];

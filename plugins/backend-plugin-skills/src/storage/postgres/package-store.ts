@@ -3,11 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type {
-  CreateSkillPackageInput,
+  CreateSkillPackageBundleInput,
   ISkillPackageStore,
   SkillPackageFileNode,
   SkillPackageRecord,
-  UpdateSkillPackageInput,
 } from "../../contracts/skills/skill-package-store.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
@@ -53,105 +52,43 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
     return toRecord(row, skillDir);
   }
 
-  async create(input: CreateSkillPackageInput): Promise<SkillPackageRecord> {
-    const markdown = serializeSkillMd(input.name, input.description, input.content);
+  async createBundle(input: CreateSkillPackageBundleInput): Promise<SkillPackageRecord> {
     const packagePrefix = this.packagePrefix(input.name);
-    const skillKey = this.objectKey(packagePrefix, "SKILL.md");
-    const contentHash = hashText(markdown);
+    const files = normalizeBundleFiles(input.files);
+    const contentHash = hashBundle(input.name, files);
     // Claim the name in Postgres first so concurrent creates race on PK (409), not silent overwrite.
     const row = await this.repository.insertPackage({
       tenantId: this.tenantId,
       skillName: input.name,
       description: input.description,
       content: input.content,
-      metadata: {},
+      metadata: input.metadata ?? {},
       contentHash,
       packagePrefix,
     });
+    const writtenKeys: string[] = [];
     try {
-      await this.objects.put(skillKey, Buffer.from(markdown, "utf8"), "text/markdown; charset=utf-8");
-      await this.repository.upsertFile({
-        tenantId: this.tenantId,
-        skillName: input.name,
-        relativePath: "SKILL.md",
-        objectKey: skillKey,
-        contentType: "text/markdown; charset=utf-8",
-        sizeBytes: Buffer.byteLength(markdown, "utf8"),
-      });
+      for (const file of files) {
+        const objectKey = this.objectKey(packagePrefix, file.relativePath);
+        const contentType = file.mediaType ?? guessMime(file.relativePath);
+        await this.objects.put(objectKey, file.body, contentType);
+        writtenKeys.push(objectKey);
+        await this.repository.upsertFile({
+          tenantId: this.tenantId,
+          skillName: input.name,
+          relativePath: file.relativePath,
+          objectKey,
+          contentType,
+          sizeBytes: file.body.byteLength,
+        });
+      }
       const skillDir = await this.materializeRow(row.skill_name, row.content_hash, row.package_prefix);
       return toRecord(row, skillDir);
     } catch (error) {
       await this.repository.deletePackage(this.tenantId, input.name).catch(() => undefined);
-      await this.objects.delete(skillKey).catch(() => undefined);
+      for (const key of writtenKeys) await this.objects.delete(key).catch(() => undefined);
       throw error;
     }
-  }
-
-  async updateMarkdown(name: string, input: UpdateSkillPackageInput): Promise<SkillPackageRecord> {
-    const existing = await this.repository.get(this.tenantId, name);
-    if (!existing) throw new Error(`Skill '${name}' 不存在`);
-    const description = input.description?.trim() || existing.description;
-    const content = input.content ?? existing.content;
-    const markdown = serializeSkillMd(name, description, content);
-    const skillKey = this.objectKey(existing.package_prefix, "SKILL.md");
-    await this.objects.put(skillKey, Buffer.from(markdown, "utf8"), "text/markdown; charset=utf-8");
-    // New content → new hash directory; never mutate/rm the previous by-hash tree in place.
-    const contentHash = hashText(`${existing.content_hash}:${markdown}`);
-    const row = await this.repository.upsertPackage({
-      tenantId: this.tenantId,
-      skillName: name,
-      description,
-      content,
-      metadata: existing.metadata,
-      contentHash,
-      packagePrefix: existing.package_prefix,
-    });
-    await this.repository.upsertFile({
-      tenantId: this.tenantId,
-      skillName: name,
-      relativePath: "SKILL.md",
-      objectKey: skillKey,
-      contentType: "text/markdown; charset=utf-8",
-      sizeBytes: Buffer.byteLength(markdown, "utf8"),
-    });
-    const skillDir = await this.materializeRow(row.skill_name, row.content_hash, row.package_prefix);
-    return toRecord(row, skillDir);
-  }
-
-  async writeFile(name: string, relativePath: string, body: Uint8Array): Promise<SkillPackageRecord> {
-    const existing = await this.repository.get(this.tenantId, name);
-    if (!existing) throw new Error(`Skill '${name}' 不存在`);
-    const normalized = normalizeRelativePath(relativePath);
-    if (!normalized) throw new Error("非法的文件路径");
-    if (normalized === "SKILL.md") throw new Error("SKILL.md 请用更新正文接口修改");
-    const isRootFile = !normalized.includes("/");
-    const topSegment = normalized.split("/")[0];
-    if (!isRootFile && topSegment !== "scripts") {
-      throw new Error("文件仅可上传到 scripts/ 目录或 Skill 根目录");
-    }
-    const objectKey = this.objectKey(existing.package_prefix, normalized);
-    await this.objects.put(objectKey, body, guessMime(normalized));
-    await this.repository.upsertFile({
-      tenantId: this.tenantId,
-      skillName: name,
-      relativePath: normalized,
-      objectKey,
-      contentType: guessMime(normalized),
-      sizeBytes: body.byteLength,
-    });
-    // New content → new hash directory; previous by-hash tree stays immutable.
-    const contentHash = hashText(`${existing.content_hash}:${normalized}:${body.byteLength}`);
-    const row = await this.repository.upsertPackage({
-      tenantId: this.tenantId,
-      skillName: name,
-      description: existing.description,
-      content: existing.content,
-      metadata: existing.metadata,
-      contentHash,
-      packagePrefix: existing.package_prefix,
-    });
-    const skillDir = await this.materializeRow(row.skill_name, row.content_hash, row.package_prefix);
-    return toRecord(row, skillDir);
   }
 
   async readFile(name: string, relativePath: string): Promise<{ body: Uint8Array; contentType: string } | null> {
@@ -344,9 +281,33 @@ function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 24);
 }
 
+function normalizeBundleFiles(files: readonly CreateSkillPackageBundleInput["files"][number][]): Array<{ relativePath: string; body: Uint8Array; mediaType?: string | null }> {
+  const seen = new Set<string>();
+  const normalized = files.map((file) => {
+    const relativePath = normalizeRelativePath(file.relativePath);
+    if (!relativePath || seen.has(relativePath)) throw new Error(`非法或重复的 Skill 文件路径: ${file.relativePath}`);
+    seen.add(relativePath);
+    return { relativePath, body: file.body, ...(file.mediaType !== undefined ? { mediaType: file.mediaType } : {}) };
+  });
+  if (!seen.has("SKILL.md")) throw new Error("Skill bundle 必须包含 SKILL.md");
+  return normalized;
+}
+
+function hashBundle(skillName: string, files: readonly { relativePath: string; body: Uint8Array }[]): string {
+  const hash = createHash("sha256");
+  hash.update(skillName, "utf8");
+  hash.update(Buffer.from([0]));
+  for (const file of [...files].sort((a, b) => a.relativePath.localeCompare(b.relativePath))) {
+    hash.update(file.relativePath, "utf8");
+    hash.update(Buffer.from([0]));
+    hash.update(file.body);
+  }
+  return hash.digest("hex").slice(0, 24);
+}
+
 function normalizeRelativePath(value: string): string | null {
   const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "").trim();
-  if (!normalized || normalized.includes("\0") || normalized.split("/").some((part) => part === ".." || part === "")) {
+  if (!normalized || /^[A-Za-z]:/.test(normalized) || normalized.includes("\0") || normalized.split("/").some((part) => part === ".." || part === "." || part === "")) {
     return null;
   }
   return normalized;

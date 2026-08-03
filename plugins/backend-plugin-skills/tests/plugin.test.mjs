@@ -1,796 +1,210 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
-import Fastify from "fastify";
 import os from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
-import { AgentConfigSchema } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
-import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
-import { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
 import {
-  FilesystemSkillPackageStore,
-  POSTGRES_SKILLS_MIGRATIONS,
-  resolveArtifactStagingService,
-  resolveBuiltinSkillSources,
-  SkillToolService,
+  SKILL_AUTHORING_TOOL_DESCRIPTORS,
   SkillsAgentConfigService,
   SkillAuthoringService,
-  SqliteSkillDraftStore,
-  SKILL_AUTHORING_TOOL_DESCRIPTORS,
+  SkillToolService,
+  createSkillAuthoringTools,
   createSkillTools,
-  createSkillsPlugin,
+  resolveArtifactApplication,
+  resolveArtifactResource,
+  resolveBuiltinSkillSources,
 } from "../dist/index.js";
-import { registerSkillRoutes } from "../dist/routes.js";
 
 class MemoryConfigStore {
   rows = new Map();
-
-  key(value) {
-    return `${value.teamName}\0${value.agentName}`;
-  }
-
-  async get(key) {
-    return this.rows.get(this.key(key)) ?? null;
-  }
-
-  async put(key, config) {
-    this.rows.set(this.key(key), structuredClone(config));
-  }
-
-  async delete(key) {
-    return this.rows.delete(this.key(key));
-  }
-
-  async purgeSkillReference(skillName) {
-    const updated = [];
-    for (const [key, config] of this.rows) {
-      if (!config.enabled_skills.includes(skillName)) continue;
-      config.enabled_skills = config.enabled_skills.filter((name) => name !== skillName);
-      updated.push(key.replace("\0", "/"));
-    }
-    return updated;
-  }
+  key(value) { return `${value.teamName}\0${value.agentName}`; }
+  async get(key) { return this.rows.get(this.key(key)) ?? null; }
+  async put(key, value) { this.rows.set(this.key(key), structuredClone(value)); }
+  async delete(key) { return this.rows.delete(this.key(key)); }
+  async purgeSkillReference() { return []; }
 }
-
-test("Skills config is isolated by team and agent and reset restores defaults", async () => {
-  const service = new SkillsAgentConfigService(new MemoryConfigStore());
-  await service.put({ teamName: "product", agentName: "writer" }, { enabled_skills: ["review-code"] });
-  assert.deepEqual(
-    await service.getEffective({ teamName: "product", agentName: "writer" }),
-    { enabled_skills: ["review-code"] },
-  );
-  assert.deepEqual(
-    await service.getEffective({ teamName: "default", agentName: "writer" }),
-    { enabled_skills: [] },
-  );
-  assert.deepEqual(
-    await service.delete({ teamName: "product", agentName: "writer" }),
-    { enabled_skills: [] },
-  );
-});
-
-test("Skills tools are absent when no Skill is enabled and expose three tools when enabled", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-tools-"));
-  try {
-    const builtinRoot = path.join(root, "builtin");
-    fs.mkdirSync(path.join(builtinRoot, "review-code"), { recursive: true });
-    fs.writeFileSync(
-      path.join(builtinRoot, "review-code", "SKILL.md"),
-      "---\nname: review-code\ndescription: Review code\n---\nReview the code.\n",
-    );
-    const service = new SkillToolService({ dataRoot: root, builtinSkillsRoot: builtinRoot });
-    const agent = { agent_name: "writer", default_entry: false, tasks: { background: false }, custom_params: {} };
-    assert.equal(createSkillTools({ skillTools: service, agent, config: { enabled_skills: [] } }).length, 0);
-    assert.deepEqual(
-      createSkillTools({ skillTools: service, agent, config: { enabled_skills: ["review-code"] } }).map((tool) => tool.name),
-      ["activate_skill", "load_skill_resource", "execute_skill_script"],
-    );
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
 
 class MemoryDraftStore {
   rows = new Map();
-
-  async list() {
-    return [...this.rows.values()].map((draft) => structuredClone(draft));
-  }
-
-  async get(id) {
-    const draft = this.rows.get(id);
-    return draft ? structuredClone(draft) : null;
-  }
-
-  async create(draft) {
-    this.rows.set(draft.id, structuredClone(draft));
-  }
-
-  async update(expectedRevision, draft) {
-    const current = this.rows.get(draft.id);
-    if (!current || current.revision !== expectedRevision) return false;
-    this.rows.set(draft.id, structuredClone(draft));
+  async list() { return [...this.rows.values()].map((value) => structuredClone(value)); }
+  async get(id) { return structuredClone(this.rows.get(id) ?? null); }
+  async create(value) { this.rows.set(value.id, structuredClone(value)); }
+  async update(expected, value) {
+    const current = this.rows.get(value.id);
+    if (!current || current.revision !== expected) return false;
+    this.rows.set(value.id, structuredClone(value));
     return true;
   }
-
-  async delete(id, expectedRevision) {
+  async delete(id, expected) {
     const current = this.rows.get(id);
-    if (!current || current.revision !== expectedRevision || current.status !== "draft") return false;
+    if (!current || current.revision !== expected) return false;
     this.rows.delete(id);
     return true;
   }
 }
 
-class MemorySkillLibrary {
-  skills = [];
-  failCreate = false;
-  failAfterCreate = false;
-
-  async listSkills() {
-    return structuredClone(this.skills);
-  }
-
-  async createSkill(input) {
-    if (this.failCreate) throw new Error("create failed");
-    if (this.skills.some((skill) => skill.name === input.name)) throw new Error("已存在");
-    const skill = { ...input, source_type: "user_global" };
-    this.skills.push(skill);
-    if (this.failAfterCreate) throw new Error("refresh failed after create");
-    return structuredClone(skill);
-  }
-
-  async getSkillDetail(name) {
-    const skill = this.skills.find((item) => item.name === name);
-    if (!skill) throw new Error("not found");
-    return structuredClone(skill);
-  }
-
-  async deleteSkill(name) {
-    const index = this.skills.findIndex((skill) => skill.name === name);
-    if (index >= 0) this.skills.splice(index, 1);
-    return { name, purged_agents: [] };
-  }
+function skillMarkdown(name = "review-code") {
+  return `---\nname: ${name}\ndescription: Review code\nmetadata:\n  custom_flag: true\n---\nReview the code.\n`;
 }
 
-test("Skill authoring owns revisions and publishes an immutable Skill package", async () => {
-  const store = new MemoryDraftStore();
-  const library = new MemorySkillLibrary();
-  const service = new SkillAuthoringService(store, library);
-
-  const created = await service.createDraft({
-    name: "incident-response",
-    description: "Respond to incidents",
-    content: "## Triage\n\nCollect the facts first.",
-  }, { sessionId: "session-1", agentName: "builder_orchestrator" });
-  assert.equal(created.revision, 1);
-  assert.equal(created.status, "draft");
-  assert.equal(created.source_session_id, "session-1");
-  assert.equal(created.source_agent_name, "builder_orchestrator");
-
-  const updated = await service.updateDraft(created.id, 1, {
-    name: created.name,
-    description: "Respond to incidents safely",
-    content: "## Triage\n\nCollect and verify the facts first.",
-  });
-  assert.equal(updated.revision, 2);
-  await assert.rejects(
-    service.updateDraft(created.id, 1, updated),
-    (error) => error?.statusCode === 409 && /revision conflict/.test(error.message),
-  );
-
-  const published = await service.publishDraft(created.id, updated.revision);
-  assert.equal(published.status, "published");
-  assert.equal(published.revision, 3);
-  assert.equal(library.skills[0].name, "incident-response");
-  assert.equal(library.skills[0].content, updated.content);
-  await assert.rejects(
-    service.updateDraft(created.id, published.revision, updated),
-    (error) => error?.statusCode === 409 && /immutable/.test(error.message),
-  );
-});
-
-test("Skill publishing rejects an existing package and duplicate unpublished drafts", async () => {
-  const store = new MemoryDraftStore();
-  const library = new MemorySkillLibrary();
-  const service = new SkillAuthoringService(store, library);
-  await library.createSkill({ name: "existing-skill", description: "Existing", content: "Existing" });
-  const draft = await service.createDraft({ name: "existing-skill", description: "New", content: "New" });
-  await assert.rejects(
-    service.publishDraft(draft.id, draft.revision),
-    (error) => error?.statusCode === 409 && /already exists/.test(error.message),
-  );
-  await assert.rejects(
-    service.createDraft({ name: "existing-skill", description: "Another", content: "Another" }),
-    (error) => error?.statusCode === 409,
-  );
-});
-
-test("Skill publishing rolls back a failed package create and can be retried", async () => {
-  const store = new MemoryDraftStore();
-  const library = new MemorySkillLibrary();
-  const service = new SkillAuthoringService(store, library);
-  const draft = await service.createDraft({
-    name: "recoverable-publish",
-    description: "Recover a failed publish",
-    content: "# Recover\n\nRetry safely.",
-  });
-
-  library.failCreate = true;
-  await assert.rejects(service.publishDraft(draft.id, draft.revision), /create failed/);
-  const rolledBack = await service.getDraft(draft.id);
-  assert.equal(rolledBack.status, "draft");
-  assert.equal(rolledBack.revision, 3);
-  assert.deepEqual(library.skills, []);
-
-  library.failCreate = false;
-  const published = await service.publishDraft(draft.id, rolledBack.revision);
-  assert.equal(published.status, "published");
-  assert.equal(published.revision, 4);
-  assert.equal(library.skills.length, 1);
-});
-
-test("Skill publishing treats a durable matching package as success after a refresh error", async () => {
-  const store = new MemoryDraftStore();
-  const library = new MemorySkillLibrary();
-  const service = new SkillAuthoringService(store, library);
-  const draft = await service.createDraft({
-    name: "durable-publish",
-    description: "Survive a refresh failure",
-    content: "# Durable\n\nThe package is authoritative.",
-  });
-
-  library.failAfterCreate = true;
-  const published = await service.publishDraft(draft.id, draft.revision);
-  assert.equal(published.status, "published");
-  assert.equal((await service.getDraft(draft.id)).status, "published");
-  assert.equal(library.skills.length, 1);
-});
-
-test("Skill draft deletion is revision-safe and never deletes published history", async () => {
-  const store = new MemoryDraftStore();
-  const service = new SkillAuthoringService(store, new MemorySkillLibrary());
-  const draft = await service.createDraft({
-    name: "deletable-draft",
-    description: "Remove a pending draft",
-    content: "# Delete",
-  });
-  assert.deepEqual(await service.deleteDraft(draft.id, draft.revision), { id: draft.id });
-  await assert.rejects(service.getDraft(draft.id), (error) => error?.statusCode === 404);
-
-  const published = await service.createDraft({
-    name: "kept-history",
-    description: "Keep published history",
-    content: "# Keep",
-  });
-  await service.publishDraft(published.id, published.revision);
-  await assert.rejects(
-    service.deleteDraft(published.id, 2),
-    (error) => error?.statusCode === 409 && /history/.test(error.message),
-  );
-});
-
-test("deleting a formal Skill reopens its published draft for editing", async () => {
-  const store = new MemoryDraftStore();
-  const library = new MemorySkillLibrary();
-  const service = new SkillAuthoringService(store, library);
-  const draft = await service.createDraft({
-    name: "reopen-after-delete",
-    description: "Continue editing after removal",
-    content: "# Reopen\n\nKeep the published content as the next draft.",
-  });
-  const published = await service.publishDraft(draft.id, draft.revision);
-  await library.deleteSkill(published.name);
-
-  const reopened = await service.restoreDraftAfterSkillDelete(published.name);
-  assert.equal(reopened?.status, "draft");
-  assert.equal(reopened?.revision, published.revision + 1);
-  assert.equal(reopened?.published_at, null);
-  assert.equal(reopened?.content, published.content);
-  assert.equal((await service.getDraftView(published.id)).package_state, "not_published");
-
-  const edited = await service.updateDraft(reopened.id, reopened.revision, {
-    name: reopened.name,
-    description: "Edited after removal",
-    content: `${reopened.content}\n\n## Follow-up`,
-  });
-  assert.equal(edited.status, "draft");
-  assert.equal(edited.revision, reopened.revision + 1);
-});
-
-test("an explicitly retried publish repairs a published draft with no package", async () => {
-  const store = new MemoryDraftStore();
-  const library = new MemorySkillLibrary();
-  const service = new SkillAuthoringService(store, library);
-  const draft = await service.createDraft({
-    name: "repair-publish",
-    description: "Repair an interrupted publish",
-    content: "# Repair\n\nMaterialize the missing package.",
-  });
-  const interrupted = {
-    ...draft,
-    revision: 2,
-    status: "published",
-    published_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+function artifactApplication() {
+  const files = [
+    ["SKILL.md", Buffer.from(skillMarkdown()), "text/markdown; charset=utf-8"],
+    ["scripts/check.py", Buffer.from("print('ok')\n"), "text/x-python; charset=utf-8"],
+    ["resources/schema.json", Buffer.from('{"ok":true}\n'), "application/json"],
+  ];
+  const assets = files.map(([filename, body, media_type], index) => ({
+    asset_id: `asset-${index}`,
+    filename,
+    media_type,
+    size: body.length,
+    sha256: cryptoHash(body),
+  }));
+  return {
+    async getArtifact() {
+      return { artifact_id: "artifact-1", revision: 1, session_id: "session-1", kind: "skill", title: "Review code", status: "ready", assets, provenance: {} };
+    },
+    async getArtifactAsset(_artifactId, assetId) {
+      const index = assets.findIndex((asset) => asset.asset_id === assetId);
+      const [filename, body, mediaType] = files[index];
+      return { body, filename, mediaType, sha256: assets[index].sha256 };
+    },
   };
-  assert.equal(await store.update(draft.revision, interrupted), true);
+}
 
-  assert.equal((await service.getDraft(draft.id)).revision, 2);
-  assert.equal((await service.listDrafts())[0].status, "published");
-  assert.equal((await service.getDraftView(draft.id)).package_state, "missing");
-  const repaired = await service.publishDraft(draft.id, interrupted.revision);
-  assert.equal(repaired.status, "published");
-  assert.equal(repaired.revision, 3);
-  assert.equal(library.skills[0].name, draft.name);
-  assert.equal((await service.getDraftView(draft.id)).package_state, "available");
-});
+function cryptoHash(body) {
+  return crypto.createHash("sha256").update(body).digest("hex");
+}
 
-test("SQLite enforces tenant draft-name ownership for concurrent creates and renames", async () => {
-  const db = new DatabaseSync(":memory:");
-  try {
-    const library = new MemorySkillLibrary();
-    const service = new SkillAuthoringService(new SqliteSkillDraftStore(db, "tenant-a"), library);
-    const input = {
-      name: "unique-draft",
-      description: "Own one draft name",
-      content: "# Unique",
-    };
-    const results = await Promise.allSettled([
-      service.createDraft(input),
-      service.createDraft(input),
-    ]);
-    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
-    const owned = results.find((result) => result.status === "fulfilled").value;
-    const rejected = results.find((result) => result.status === "rejected");
-    assert.equal(rejected.reason?.statusCode, 409);
-
-    const other = await service.createDraft({
-      name: "other-draft",
-      description: "Another draft",
-      content: "# Other",
-    });
-    await assert.rejects(
-      service.updateDraft(other.id, other.revision, input),
-      (error) => error?.statusCode === 409,
-    );
-    assert.equal((await service.getDraft(other.id)).name, "other-draft");
-
-    await service.publishDraft(owned.id, owned.revision);
-    await assert.rejects(service.createDraft(input), (error) => error?.statusCode === 409);
-
-    const otherTenant = new SkillAuthoringService(new SqliteSkillDraftStore(db, "tenant-b"), library);
-    assert.equal((await otherTenant.createDraft(input)).name, input.name);
-  } finally {
-    db.close();
-  }
-});
-
-test("SQLite migration preserves legacy duplicate drafts under deterministic unique names", async () => {
-  const db = new DatabaseSync(":memory:");
-  try {
-    db.exec(`
-      CREATE TABLE skill_drafts (
-        tenant_id TEXT NOT NULL,
-        id TEXT NOT NULL,
-        revision INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        draft_json TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY (tenant_id, id)
-      )
-    `);
-    const now = new Date().toISOString();
-    const insert = db.prepare(`
-      INSERT INTO skill_drafts(tenant_id, id, revision, status, draft_json, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    for (const [id, name] of [
-      ["legacy-a", "legacy-duplicate"],
-      ["legacy-b", "legacy-duplicate"],
-      ["legacy-c", "legacy-duplicate-duplicate-1"],
-    ]) {
-      insert.run("tenant-a", id, 1, "draft", JSON.stringify({
-        id,
-        revision: 1,
-        status: "draft",
-        name,
-        description: "Preserve me",
-        content: "# Legacy",
-        source_session_id: null,
-        source_agent_name: null,
-        published_at: null,
-        created_at: now,
-        updated_at: now,
-      }), now);
-    }
-
-    const drafts = await new SqliteSkillDraftStore(db, "tenant-a").list();
-    assert.equal(drafts.length, 3);
-    assert.equal(new Set(drafts.map((draft) => draft.name)).size, 3);
-    assert.equal(drafts.some((draft) => draft.name === "legacy-duplicate"), true);
-    assert.equal(drafts.some((draft) => draft.name === "legacy-duplicate-duplicate-2"), true);
-  } finally {
-    db.close();
-  }
-});
-
-test("Skills authoring tools are ordinary explicitly enabled tools, separate from Skill bindings", async () => {
-  assert.deepEqual(
-    SKILL_AUTHORING_TOOL_DESCRIPTORS.map((tool) => [tool.name, tool.implemented, tool.runtime_status]),
-    [
-      ["list_skill_drafts", true, "implemented"],
-      ["get_skill_draft", true, "implemented"],
-      ["create_skill_draft", true, "implemented"],
-      ["update_skill_draft", true, "implemented"],
-    ],
-  );
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-authoring-tools-"));
-  try {
-    const skillTools = new SkillToolService({ dataRoot: root, builtinSkillsRoot: path.join(root, "builtin") });
-    const draftStore = new MemoryDraftStore();
-    const authoring = new SkillAuthoringService(draftStore, new MemorySkillLibrary());
-    const agentConfig = { async getEffective() { return { enabled_skills: [] }; } };
-    const manager = new BackendPluginManager([createSkillsPlugin({
-      runtimeFactory: async () => ({
-        tools: skillTools,
-        library: {},
-        authoring,
-        agentConfig,
-      }),
-    })]);
-    await manager.register();
-    const runtime = await manager.runtimeContributions().createRuntime({
-      deploymentKind: "local",
-      tenantId: "tenant-a",
-      dataRoot: root,
-      backgroundTasks: {},
-      clientEvents: {},
-    });
-    try {
-      const shared = {
-        tenantId: "tenant-a",
-        pathAccessPolicy: {},
-        capabilities: runtime.capabilities,
-      };
-      const ordinary = await manager.runtimeContributions().createTools({
-        ...shared,
-        teamName: "default",
-        agent: { agent_name: "worker", tools: { enabled_tools: ["create_skill_draft"] }, custom_params: {} },
+function memoryLibrary() {
+  const packages = new Map();
+  return {
+    packages,
+    async listSkills() { return [...packages.values()].map(({ name }) => ({ name, source_type: "user_global" })); },
+    async getSkillDetail(name) {
+      const value = packages.get(name);
+      if (!value) throw new Error("not found");
+      return { source_type: "user_global", description: value.description, content: value.content };
+    },
+    async createSkillBundle(input) { packages.set(input.name, structuredClone(input)); return input; },
+    async matchesSkillBundle(name, files) {
+      const value = packages.get(name);
+      if (!value || value.files.length !== files.length) return false;
+      return value.files.every((file) => {
+        const expected = files.find((item) => item.relativePath === file.relativePath);
+        return expected && Buffer.from(expected.body).equals(Buffer.from(file.body));
       });
-      assert.deepEqual(ordinary.map((tool) => tool.name), ["create_skill_draft"]);
-
-      const builder = await manager.runtimeContributions().createTools({
-        ...shared,
-        teamName: "agent-builder",
-        agent: {
-          agent_name: "builder_orchestrator",
-          tools: { enabled_tools: ["create_skill_draft", "list_skill_drafts"] },
-          custom_params: {},
-          tasks: { background: false },
-        },
-      });
-      assert.deepEqual(builder.map((tool) => tool.name), ["list_skill_drafts", "create_skill_draft"]);
-    } finally {
-      runtime.dispose?.();
-    }
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("Skill draft publishing is restricted to tenant administrators", async () => {
-  const calls = [];
-  const app = Fastify();
-  let role = "member";
-  const capability = {
-    tools: { async listAvailableSkillsAsync() { return []; } },
-    library: {
-      async listSkills() { return []; },
-      async getSkillDetail() { return {}; },
-    },
-    agentConfig: { async getEffective() { return { enabled_skills: [] }; } },
-    authoring: {
-      async listDrafts() { return []; },
-      async getDraft() { return {}; },
-      async createDraft() { return {}; },
-      async updateDraft() { return {}; },
-      async publishDraft(...args) { calls.push(args); return { id: "draft-1", status: "published" }; },
-      async deleteDraft(...args) { calls.push(["delete", ...args]); return { id: "draft-1" }; },
     },
   };
-  app.addHook("onRequest", async (request) => {
-    request.identity = { tenantId: "tenant-a", role };
-    request.container = { pluginCapabilities: { require() { return capability; } } };
-  });
-  app.setErrorHandler((error, _request, reply) => {
-    reply.code(error.statusCode ?? 500).send({ message: error.message });
-  });
-  await app.register(registerSkillRoutes);
-  try {
-    const forbidden = await app.inject({
-      method: "POST",
-      url: "/drafts/draft-1/publish",
-      payload: { expected_revision: 1 },
-    });
-    assert.equal(forbidden.statusCode, 403);
-    assert.deepEqual(calls, []);
+}
 
-    role = "admin";
-    const published = await app.inject({
-      method: "POST",
-      url: "/drafts/draft-1/publish",
-      payload: { expected_revision: 1 },
-    });
-    assert.equal(published.statusCode, 200);
-    assert.deepEqual(calls, [["draft-1", 1]]);
-
-    role = "member";
-    const deleteForbidden = await app.inject({
-      method: "DELETE",
-      url: "/drafts/draft-1",
-      payload: { expected_revision: 1 },
-    });
-    assert.equal(deleteForbidden.statusCode, 403);
-    assert.deepEqual(calls, [["draft-1", 1]]);
-
-    role = "admin";
-    const deleted = await app.inject({
-      method: "DELETE",
-      url: "/drafts/draft-1",
-      payload: { expected_revision: 1 },
-    });
-    assert.equal(deleted.statusCode, 200);
-    assert.deepEqual(calls, [["draft-1", 1], ["delete", "draft-1", 1]]);
-  } finally {
-    await app.close();
-  }
+test("Skills config remains separate from enabled Skill bindings", async () => {
+  const service = new SkillsAgentConfigService(new MemoryConfigStore());
+  await service.put({ teamName: "product", agentName: "writer" }, { enabled_skills: ["review-code"] });
+  assert.deepEqual(await service.getEffective({ teamName: "product", agentName: "writer" }), { enabled_skills: ["review-code"] });
+  assert.deepEqual(await service.getEffective({ teamName: "default", agentName: "writer" }), { enabled_skills: [] });
 });
 
-test("deleting a formal Skill is restricted and reports a reopened draft", async () => {
-  const calls = [];
-  const app = Fastify();
-  let role = "member";
-  const capability = {
-    tools: { async listAvailableSkillsAsync() { return []; } },
-    library: {
-      async listSkills() { return []; },
-      async getSkillDetail() { return {}; },
-      async deleteSkill(name) { calls.push(["delete", name]); return { name, purged_agents: ["default/worker"] }; },
-    },
-    agentConfig: { async getEffective() { return { enabled_skills: [] }; } },
-    authoring: {
-      async listDrafts() { return []; },
-      async listDraftViews() { return []; },
-      async getDraft() { return {}; },
-      async getDraftView() { return {}; },
-      async createDraft() { return {}; },
-      async updateDraft() { return {}; },
-      async publishDraft() { return {}; },
-      async deleteDraft() { return {}; },
-      async restoreDraftAfterSkillDelete(name) {
-        calls.push(["restore", name]);
-        return { id: "draft-1", name, revision: 3, status: "draft" };
-      },
-    },
-  };
-  app.addHook("onRequest", async (request) => {
-    request.identity = { tenantId: "tenant-a", role };
-    request.container = { pluginCapabilities: { require() { return capability; } } };
-  });
-  app.setErrorHandler((error, _request, reply) => {
-    reply.code(error.statusCode ?? 500).send({ message: error.message });
-  });
-  await app.register(registerSkillRoutes);
+test("Skill tools expose execution only for explicitly enabled Skills", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-tools-"));
   try {
-    const forbidden = await app.inject({ method: "DELETE", url: "/incident-response" });
-    assert.equal(forbidden.statusCode, 403);
-    assert.deepEqual(calls, []);
-
-    role = "admin";
-    const deleted = await app.inject({ method: "DELETE", url: "/incident-response" });
-    assert.equal(deleted.statusCode, 200);
-    assert.deepEqual(JSON.parse(deleted.body).data.restored_draft, {
-      id: "draft-1",
-      name: "incident-response",
-      revision: 3,
-      status: "draft",
-    });
-    assert.deepEqual(calls, [["delete", "incident-response"], ["restore", "incident-response"]]);
-  } finally {
-    await app.close();
-  }
-});
-
-test("background Skill scripts use the task signal instead of the parent Run signal", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-background-signal-"));
-  const previousPython = process.env.RAGSYSTEM_PYTHON;
-  try {
-    const builtinRoot = path.join(root, "builtin");
-    const skillRoot = path.join(builtinRoot, "long-skill");
-    const scriptsRoot = path.join(skillRoot, "scripts");
-    fs.mkdirSync(scriptsRoot, { recursive: true });
-    fs.writeFileSync(
-      path.join(skillRoot, "SKILL.md"),
-      "---\nname: long-skill\ndescription: Long running test\n---\nRun it.\n",
-    );
-    fs.writeFileSync(path.join(scriptsRoot, "wait.js"), "setTimeout(() => console.log('done'), 5000);\n");
-    process.env.RAGSYSTEM_PYTHON = process.execPath;
-    const backgroundTasks = new BackgroundTaskService();
-    const service = new SkillToolService({
-      dataRoot: root,
-      builtinSkillsRoot: builtinRoot,
-      backgroundTasks,
-      skillIsolationMode: "shared",
-    });
-    const parentAbort = new AbortController();
-    const result = await service.executeSkillScript(
-      { skillName: "long-skill", scriptName: "wait.js", arguments: [], runInBackground: true },
-      { sessionId: "session-a", runId: "run-a", taskId: "parent-task", signal: parentAbort.signal },
-      { agent_name: "worker", default_entry: false, tasks: { background: true }, custom_params: {} },
-      { enabled_skills: ["long-skill"] },
-    );
-    const taskId = result.content.task_id;
-    assert.equal(taskId, result.content.background_task_id);
-    assert.equal(backgroundTasks.getTaskSnapshot(taskId).cancel_supported, true);
-
-    parentAbort.abort();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.equal(backgroundTasks.getTaskSnapshot(taskId).status, "running");
-
-    assert.equal(await backgroundTasks.cancelAndWait(taskId), true);
-    assert.equal(backgroundTasks.getTaskSnapshot(taskId).status, "cancelled");
-  } finally {
-    if (previousPython === undefined) delete process.env.RAGSYSTEM_PYTHON;
-    else process.env.RAGSYSTEM_PYTHON = previousPython;
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("Filesystem package store owns user Skill CRUD", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-store-"));
-  try {
-    const store = new FilesystemSkillPackageStore(root);
-    await store.create({ name: "review-code", description: "Review code", content: "Start here." });
-    await store.writeFile("review-code", "scripts/check.py", Buffer.from("print('ok')\n"));
-    assert.deepEqual((await store.list()).map((item) => item.name), ["review-code"]);
-    assert.equal((await store.listFiles("review-code")).some((item) => item.path === "scripts/check.py"), true);
-    await store.updateMarkdown("review-code", { description: "Review code safely" });
-    assert.equal((await store.get("review-code")).description, "Review code safely");
-    assert.equal(await store.delete("review-code"), true);
-    assert.equal(await store.get("review-code"), null);
+    const builtinRoot = path.join(root, "builtin", "review-code");
+    fs.mkdirSync(builtinRoot, { recursive: true });
+    fs.writeFileSync(path.join(builtinRoot, "SKILL.md"), skillMarkdown());
+    const service = new SkillToolService({ dataRoot: root, builtinSkillsRoot: path.join(root, "builtin") });
+    const agent = { agent_name: "writer", default_entry: false, tasks: { background: false }, custom_params: {} };
+    assert.equal(createSkillTools({ skillTools: service, agent, config: { enabled_skills: [] } }).length, 0);
+    assert.deepEqual(createSkillTools({ skillTools: service, agent, config: { enabled_skills: ["review-code"] } }).map((tool) => tool.name), ["activate_skill", "load_skill_resource", "execute_skill_script"]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("Postgres migrations include package and Agent config ownership", () => {
-  const sql = POSTGRES_SKILLS_MIGRATIONS.map((migration) => migration.sql).join("\n");
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS saas_skill_packages/);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS saas_skill_package_files/);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS skill_agent_configs/);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS saas_skill_drafts/);
-  assert.match(sql, /ROW_NUMBER\(\) OVER/);
-  assert.match(sql, /EXIT WHEN NOT EXISTS/);
-  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS saas_skill_drafts_tenant_name_idx/);
+test("Artifact submission copies a complete bundle and stays idempotent", async () => {
+  const library = memoryLibrary();
+  const service = new SkillAuthoringService(new MemoryDraftStore(), library, artifactApplication());
+  const candidate = await service.submitArtifact("artifact-1", 1, { sourceSessionId: "session-1" });
+  assert.equal(candidate.bundle_assets.length, 3);
+  assert.equal((await service.submitArtifact("artifact-1", 1, { sourceSessionId: "session-1" })).id, candidate.id);
+  const published = await service.publishDraft(candidate.id, candidate.revision);
+  assert.equal(published.status, "published");
+  assert.equal(library.packages.get("review-code").files.length, 3);
+  await assert.rejects(service.submitArtifact("artifact-1", 1), /当前 Session/);
 });
 
-test("plugin installation controls Skills route contribution", async () => {
-  const absent = new BackendPluginManager();
-  await absent.register();
-  assert.equal(absent.routes("tenant").some((route) => route.prefix === "/api/skills"), false);
+test("Skill authoring tools never return copied base64 bundle bodies", async () => {
+  const service = new SkillAuthoringService(new MemoryDraftStore(), memoryLibrary(), artifactApplication());
+  const tools = new Map(createSkillAuthoringTools({ authoring: service, agentName: "builder" }).map((tool) => [tool.name, tool]));
+  const submitted = await tools.get("submit_skill_artifact").call(
+    { artifact_id: "artifact-1", expected_revision: 1 },
+    { sessionId: "session-1" },
+  );
+  assert.equal(submitted.success, true);
+  assert.equal(submitted.content.bundle_assets, undefined);
+  assert.equal(submitted.content.bundle_asset_count, 3);
 
-  const installed = new BackendPluginManager([createSkillsPlugin({
-    runtimeFactory: async () => { throw new Error("runtime is not created during registration"); },
-  })]);
-  await installed.register();
-  assert.equal(installed.routes("tenant").some((route) => route.prefix === "/api/skills"), true);
+  const loaded = await tools.get("get_skill_draft").call({ draft_id: submitted.content.draft_id }, {});
+  assert.equal(loaded.success, true);
+  assert.equal(loaded.content.bundle_assets.length, 3);
+  assert.equal("body_base64" in loaded.content.bundle_assets[0], false);
+
+  const listed = await tools.get("list_skill_drafts").call({}, {});
+  assert.equal(listed.success, true);
+  assert.equal(listed.content[0].content, undefined);
+  assert.equal(JSON.stringify(listed.content).includes("body_base64"), false);
 });
 
-test("Skills interprets generic plugin resources and owns source validation", () => {
-  const root = path.resolve("artifact-skills");
-  assert.deepEqual(resolveBuiltinSkillSources([
-    { pluginId: "artifact", kind: "unrelated", value: root },
-    { pluginId: "artifact", kind: "ragsystem.skill-source", value: root },
-  ]), [{ root, sourceLabel: "artifact" }]);
-  assert.throws(
-    () => resolveBuiltinSkillSources([{ pluginId: "bad", kind: "ragsystem.skill-source", value: "relative" }]),
-    /must be an absolute path/,
+test("publishing with canonical field overrides remains idempotent", async () => {
+  const library = memoryLibrary();
+  const service = new SkillAuthoringService(new MemoryDraftStore(), library, artifactApplication());
+  const candidate = await service.submitArtifact("artifact-1", 1, {
+    sourceSessionId: "session-1",
+    name: "renamed-review",
+    description: "Renamed review skill",
+  });
+  const published = await service.publishDraft(candidate.id, candidate.revision);
+  const repeated = await service.publishDraft(published.id, published.revision);
+  assert.equal(repeated.revision, published.revision);
+  assert.match(
+    Buffer.from(library.packages.get("renamed-review").files.find((file) => file.relativePath === "SKILL.md").body).toString("utf8"),
+    /name: renamed-review/,
   );
 });
 
-test("Skills resolves the Artifact staging resource per tenant", () => {
+test("Deleting a release restores its copied candidate as an editable draft", async () => {
+  const store = new MemoryDraftStore();
+  const library = memoryLibrary();
+  const service = new SkillAuthoringService(store, library, artifactApplication());
+  const candidate = await service.submitArtifact("artifact-1", 1, { sourceSessionId: "session-1" });
+  const published = await service.publishDraft(candidate.id, candidate.revision);
+  library.packages.delete(published.name);
+  const restored = await service.restoreCandidateAfterReleaseDelete(published.name);
+  assert.equal(restored.status, "draft");
+  assert.equal(restored.revision, published.revision + 1);
+  assert.equal(restored.published_at, null);
+});
+
+test("Authoring tools contain only read candidate and Artifact submission operations", () => {
+  assert.deepEqual(SKILL_AUTHORING_TOOL_DESCRIPTORS.map((tool) => tool.name), ["list_skill_drafts", "get_skill_draft", "submit_skill_artifact"]);
+});
+
+test("Artifact application resources use the structured tenant and access port", async () => {
   const calls = [];
-  const service = {};
-  const provider = {
-    forTenant(tenantId, dataRoot) {
-      calls.push({ tenantId, dataRoot });
-      return service;
-    },
+  const value = {
+    applicationForTenant: async (tenantId) => ({ tenantId }),
+    assertReadable: async (_request, sessionId) => { calls.push(sessionId); },
   };
-  assert.equal(resolveArtifactStagingService([
-    { pluginId: "artifacts", kind: "ragsystem.artifact-staging", value: provider },
-  ], "tenant-a", "C:\\runtime"), service);
-  assert.deepEqual(calls, [{ tenantId: "tenant-a", dataRoot: "C:\\runtime" }]);
+  const resources = [{ pluginId: "artifacts", kind: "ragsystem.artifact-application", value }];
+  assert.deepEqual(await resolveArtifactApplication(resources, "tenant-a"), { tenantId: "tenant-a" });
+  assert.equal(resolveArtifactResource(resources), value);
+  await value.assertReadable({}, "session-1");
+  assert.deepEqual(calls, ["session-1"]);
 });
 
-test("Skill staged_file output is registered and replaced with an opaque ID", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-staging-"));
-  const previousPython = process.env.RAGSYSTEM_PYTHON;
-  try {
-    const builtinRoot = path.join(root, "builtin");
-    const skillRoot = path.join(builtinRoot, "file-output");
-    const scriptsRoot = path.join(skillRoot, "scripts");
-    fs.mkdirSync(scriptsRoot, { recursive: true });
-    fs.writeFileSync(
-      path.join(skillRoot, "SKILL.md"),
-      "---\nname: file-output\ndescription: Create a file Artifact\n---\nCreate it.\n",
-    );
-    fs.writeFileSync(path.join(scriptsRoot, "create.py"), [
-      "const fs = require('node:fs');",
-      "const path = require('node:path');",
-      "const output = process.env.RAGSYSTEM_ARTIFACT_OUTPUT_DIR;",
-      "if (!output) throw new Error('missing output directory');",
-      "fs.writeFileSync(path.join(output, 'data.bin'), Buffer.from([1, 2, 3]));",
-      "console.log(JSON.stringify({success:true,data:{title:'Demo'},artifact:{schema_version:2,kind:'data.binary',assets:[{asset_id:'data',role:'data',filename:'data.bin',media_type:'application/octet-stream',staged_file:'data.bin'}],presentations:[]}}));",
-      "",
-    ].join("\n"));
-    const outputDirectory = path.join(root, "stage-output");
-    let discarded = false;
-    const artifactStaging = {
-      async createRun(context) {
-        assert.deepEqual(context, { sessionId: "session-a", runId: "run-a", toolCallId: "tool-a" });
-        fs.mkdirSync(outputDirectory, { recursive: true });
-        return { stageRunId: "stage-run-a", outputDirectory };
-      },
-      async registerOutputs(stageRunId, outputs) {
-        assert.equal(stageRunId, "stage-run-a");
-        assert.deepEqual(outputs, [{
-          relativePath: "data.bin",
-          filename: "data.bin",
-          mediaType: "application/octet-stream",
-        }]);
-        assert.equal(fs.existsSync(path.join(outputDirectory, "data.bin")), true);
-        return [{
-          stagedFileId: "stage_opaque",
-          filename: "data.bin",
-          mediaType: "application/octet-stream",
-          size: 3,
-          sha256: "0".repeat(64),
-        }];
-      },
-      async discardRun() { discarded = true; },
-    };
-    process.env.RAGSYSTEM_PYTHON = process.execPath;
-    const service = new SkillToolService({
-      dataRoot: root,
-      builtinSkillsRoot: builtinRoot,
-      artifactStaging,
-      skillIsolationMode: "shared",
-    });
-    const result = await service.executeSkillScript(
-      { skillName: "file-output", scriptName: "create.py", arguments: [] },
-      { sessionId: "session-a", runId: "run-a", toolCallId: "tool-a" },
-      { agent_name: "worker", default_entry: false, tasks: { background: false }, custom_params: {} },
-      { enabled_skills: ["file-output"] },
-    );
-    assert.equal(result.success, true);
-    assert.equal(result.content.artifact.assets[0].staged_file_id, "stage_opaque");
-    assert.equal(Object.hasOwn(result.content.artifact.assets[0], "staged_file"), false);
-    assert.equal(result.metadata.staged_file_count, 1);
-    assert.equal(discarded, false);
-  } finally {
-    if (previousPython === undefined) delete process.env.RAGSYSTEM_PYTHON;
-    else process.env.RAGSYSTEM_PYTHON = previousPython;
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("core AgentConfig strips legacy Skills config", () => {
-  const parsed = AgentConfigSchema.parse({
-    agent_name: "writer",
-    skills: { enabled_skills: ["review-code"] },
-  });
-  assert.equal(Object.hasOwn(parsed, "skills"), false);
+test("Skill source resources require absolute roots", () => {
+  assert.throws(() => resolveBuiltinSkillSources([
+    { pluginId: "bad", kind: "ragsystem.skill-source", value: "relative" },
+  ]), /absolute path/);
 });

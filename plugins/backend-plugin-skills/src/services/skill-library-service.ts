@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
-import type { ISkillPackageStore } from "../contracts/skills/skill-package-store.js";
+import type { CreateSkillPackageBundleInput, ISkillPackageStore } from "../contracts/skills/skill-package-store.js";
 import type { SkillInfo, SkillListItem, SkillToolService } from "../tools/SkillExecution.js";
 
 export interface SkillFileNode {
@@ -22,26 +23,17 @@ export interface SkillDetail {
   /** SKILL.md 正文（去 frontmatter）。 */
   content: string;
   files: SkillFileNode[];
-  /** 仅 user_global 来源为 true。 */
+  /** Published bundles are immutable; changes arrive through a new Artifact candidate. */
   writable: boolean;
 }
 
-export interface CreateSkillInput {
-  name: string;
-  description: string;
-  content: string;
-}
-
-export interface UpdateSkillInput {
-  description?: string;
-  content?: string;
-}
+export type CreateSkillBundleInput = CreateSkillPackageBundleInput;
 
 const SKILL_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 /**
  * Skill 库管理服务。
- * 租户 user_global 包的读写经 ISkillPackageStore（Local 文件 / SaaS PG+对象存储）。
+ * 租户发布包经 ISkillPackageStore（Local 文件 / SaaS PG+对象存储）持久化，正文只能通过新 Artifact 候选变更。
  * builtin/workspace 只读，仍由 SkillToolService 解析。
  */
 export class SkillLibraryService {
@@ -68,7 +60,7 @@ export class SkillLibraryService {
       source_label: skill.sourceLabel,
       content: skill.content,
       files,
-      writable: skill.sourceType === "user_global",
+      writable: false,
     };
   }
 
@@ -94,51 +86,35 @@ export class SkillLibraryService {
     return { buffer: fs.readFileSync(filePath), mime: guessMime(filePath) };
   }
 
-  async createSkill(input: CreateSkillInput): Promise<SkillDetail> {
+  async createSkillBundle(input: CreateSkillBundleInput): Promise<SkillDetail> {
     const name = input.name.trim();
-    if (!SKILL_NAME_PATTERN.test(name)) {
-      throw new HttpError(400, "invalid_request", "Skill 名称只能包含小写字母、数字和连字符");
-    }
-    const description = input.description.trim();
-    if (!description) {
-      throw new HttpError(400, "invalid_request", "description 不能为空");
-    }
+    if (!SKILL_NAME_PATTERN.test(name)) throw new HttpError(400, "invalid_request", "Skill 名称只能包含小写字母、数字和连字符");
+    if (!input.description.trim()) throw new HttpError(400, "invalid_request", "description 不能为空");
     try {
-      await this.packageStore.create({ name, description, content: input.content ?? "" });
+      await this.packageStore.createBundle({ ...input, name });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("已存在")) throw new HttpError(409, "conflict", message);
       throw new HttpError(400, "invalid_request", message);
     }
-    // packageStore mutation → rehydrate before any discovery/detail read.
     await this.skillTools.hydrateUserGlobalPackages();
     return this.getSkillDetail(name);
   }
 
-  async updateSkillMd(name: string, input: UpdateSkillInput): Promise<SkillDetail> {
+  async matchesSkillBundle(name: string, files: readonly { relativePath: string; body: Uint8Array }[]): Promise<boolean> {
     await this.skillTools.hydrateUserGlobalPackages();
     const skill = this.findSkill(name);
-    this.assertWritable(skill);
-    try {
-      await this.packageStore.updateMarkdown(skill.name, input);
-    } catch (error) {
-      throw new HttpError(400, "invalid_request", error instanceof Error ? error.message : String(error));
+    if (skill.sourceType !== "user_global") return false;
+    const expected = new Map(files.map((file) => [file.relativePath, file.body]));
+    const actual = (await this.packageStore.listFiles(name)).filter((file) => file.type === "file");
+    if (actual.length !== expected.size || actual.some((file) => !expected.has(file.path))) return false;
+    for (const file of actual) {
+      const stored = await this.packageStore.readFile(name, file.path);
+      const body = expected.get(file.path);
+      if (!stored || !body || stored.body.byteLength !== body.byteLength
+        || createHash("sha256").update(stored.body).digest("hex") !== createHash("sha256").update(body).digest("hex")) return false;
     }
-    await this.skillTools.hydrateUserGlobalPackages();
-    return this.getSkillDetail(name);
-  }
-
-  async writeSkillFile(name: string, relativePath: string, buffer: Buffer): Promise<SkillDetail> {
-    await this.skillTools.hydrateUserGlobalPackages();
-    const skill = this.findSkill(name);
-    this.assertWritable(skill);
-    try {
-      await this.packageStore.writeFile(skill.name, relativePath, buffer);
-    } catch (error) {
-      throw new HttpError(400, "invalid_request", error instanceof Error ? error.message : String(error));
-    }
-    await this.skillTools.hydrateUserGlobalPackages();
-    return this.getSkillDetail(name);
+    return true;
   }
 
   async deleteSkill(name: string): Promise<{ name: string; purged_agents: string[] }> {
@@ -166,9 +142,10 @@ export class SkillLibraryService {
 
   private assertWritable(skill: SkillInfo): void {
     if (skill.sourceType !== "user_global") {
-      throw new HttpError(403, "forbidden", `Skill '${skill.name}' 来源为 ${skill.sourceLabel}，仅用户全局 Skill 可编辑`);
+      throw new HttpError(403, "forbidden", `Skill '${skill.name}' 来源为 ${skill.sourceLabel}，仅用户全局 Skill 可删除`);
     }
   }
+
 }
 
 function listLocalSkillFiles(skillDir: string): SkillFileNode[] {
@@ -199,8 +176,8 @@ function listLocalSkillFiles(skillDir: string): SkillFileNode[] {
 function normalizeRelativePath(raw: string): string | null {
   if (typeof raw !== "string" || raw.includes("\0")) return null;
   const trimmed = raw.trim().replace(/\\/g, "/");
-  if (!trimmed || trimmed.startsWith("/")) return null;
-  if (trimmed.split("/").some((segment) => segment === ".." || segment === "")) return null;
+  if (!trimmed || trimmed.startsWith("/") || /^[A-Za-z]:/.test(trimmed)) return null;
+  if (trimmed.split("/").some((segment) => segment === ".." || segment === "." || segment === "")) return null;
   return trimmed;
 }
 

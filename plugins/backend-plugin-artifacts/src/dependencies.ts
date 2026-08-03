@@ -1,7 +1,20 @@
 import type { FastifyRequest } from "fastify";
 
+import type { ArtifactApplication } from "./contracts/artifact-application.js";
 import type { ArtifactStorageProvider } from "./storage/storage-provider.js";
 import type { ArtifactStagingProvider } from "./staging/contracts.js";
+
+export const ARTIFACT_APPLICATION_RESOURCE_KIND = "ragsystem.artifact-application";
+
+/** Tenant-scoped read/write application exposed to other plugins through the resource registry. */
+export type ArtifactApplicationResource = (
+  tenantId: string,
+) => ArtifactApplication | Promise<ArtifactApplication>;
+
+export interface ArtifactAccessResource {
+  applicationForTenant(tenantId: string): ArtifactApplication | Promise<ArtifactApplication>;
+  assertReadable(request: FastifyRequest, sessionId: string): Promise<void>;
+}
 
 export interface ArtifactSessionAccess {
   assertReadable(request: FastifyRequest, sessionId: string): Promise<void>;

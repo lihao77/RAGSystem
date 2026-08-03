@@ -15,7 +15,11 @@ export function createAgentBuilderPlugin(): BackendPlugin {
     manifest: {
       id: AGENT_BUILDER_PLUGIN_ID,
       version: "0.1.0",
-      requires: ["@ragsystem/backend-plugin-mcp", "@ragsystem/backend-plugin-skills"],
+      requires: [
+        "@ragsystem/backend-plugin-artifacts",
+        "@ragsystem/backend-plugin-mcp",
+        "@ragsystem/backend-plugin-skills",
+      ],
     },
     register(context) {
       context.runtimes.register(async (runtimeContext) => {

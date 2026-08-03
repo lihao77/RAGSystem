@@ -4,11 +4,8 @@ import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk
 import type { BackendToolDescriptor } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 
-import {
-  SkillDraftContentSchema,
-  UpdateSkillDraftSchema,
-} from "../contracts/skills/skill-draft.js";
 import type { SkillAuthoringService } from "../services/skill-authoring-service.js";
+import { toSkillDraftView, type SkillDraft } from "../contracts/skills/skill-draft.js";
 
 const EmptySchema = z.object({}).strict();
 const DraftIdSchema = z.object({ draft_id: z.string().trim().min(1) }).strict();
@@ -16,28 +13,18 @@ const DraftIdSchema = z.object({ draft_id: z.string().trim().min(1) }).strict();
 export const SKILL_AUTHORING_TOOL_DESCRIPTORS: readonly BackendToolDescriptor[] = [
   { name: "list_skill_drafts", description: "List tenant Skill authoring drafts", category: "skill_authoring", risk_level: "low", implemented: true, runtime_status: "implemented" },
   { name: "get_skill_draft", description: "Read one Skill authoring draft", category: "skill_authoring", risk_level: "low", implemented: true, runtime_status: "implemented" },
-  { name: "create_skill_draft", description: "Create a reviewable Skill draft", category: "skill_authoring", risk_level: "low", implemented: true, runtime_status: "implemented" },
-  { name: "update_skill_draft", description: "Update a reviewable Skill draft", category: "skill_authoring", risk_level: "low", implemented: true, runtime_status: "implemented" },
+  { name: "submit_skill_artifact", description: "Copy a session Skill Artifact into a reviewable Skill candidate", category: "skill_authoring", risk_level: "low", implemented: true, runtime_status: "implemented" },
 ];
 
-const SKILL_CONTENT_JSON_SCHEMA = {
+const SUBMIT_ARTIFACT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["name", "description", "content"],
+  required: ["artifact_id", "expected_revision"],
   properties: {
-    name: {
-      type: "string",
-      pattern: "^[a-z0-9][a-z0-9-]*$",
-      description: "Lower-case Skill package name using letters, digits, and hyphens.",
-    },
-    description: {
-      type: "string",
-      description: "Concise statement of when this Skill should be used.",
-    },
-    content: {
-      type: "string",
-      description: "Complete SKILL.md body without YAML frontmatter. Do not include executable scripts.",
-    },
+    artifact_id: { type: "string", minLength: 1, description: "The session Artifact id whose kind is skill." },
+    expected_revision: { type: "integer", minimum: 1, description: "The artifact_revision returned by execute_skill_script for this Skill Artifact." },
+    name: { type: "string", minLength: 1, pattern: "^[a-z0-9][a-z0-9-]*$" },
+    description: { type: "string", minLength: 1 },
   },
 } as const;
 
@@ -59,7 +46,7 @@ export function createSkillAuthoringTools(input: {
       async call() {
         try {
           const drafts = await input.authoring.listDrafts();
-          return toolSuccess(drafts, {
+          return toolSuccess(drafts.map(candidateSummary), {
             toolName: "list_skill_drafts",
             summary: `${drafts.length} Skill draft(s) found`,
             outputType: "skills.drafts",
@@ -87,7 +74,10 @@ export function createSkillAuthoringTools(input: {
       async call(args) {
         try {
           const draft = await input.authoring.getDraft(args.draft_id);
-          return toolSuccess(draft, {
+          return toolSuccess(toSkillDraftView(
+            draft,
+            draft.status === "published" ? "unknown" : "not_published",
+          ), {
             toolName: "get_skill_draft",
             summary: `Skill draft '${draft.id}' loaded at revision ${draft.revision}`,
             outputType: "skills.draft",
@@ -98,10 +88,15 @@ export function createSkillAuthoringTools(input: {
       },
     }),
     buildTool({
-      name: "create_skill_draft",
-      description: "Extract a reusable workflow into a reviewable Skill draft. The draft is not published and cannot be enabled on an Agent yet.",
-      inputSchema: SkillDraftContentSchema,
-      parameters: SKILL_CONTENT_JSON_SCHEMA,
+      name: "submit_skill_artifact",
+      description: "Copy a complete kind=skill session Artifact, including SKILL.md, scripts, and resources, into a reviewable Skill candidate. Use the exact artifact_id and artifact_revision returned by execute_skill_script as artifact_id and expected_revision. This does not publish or bind it.",
+      inputSchema: z.object({
+        artifact_id: z.string().trim().min(1),
+        expected_revision: z.number().int().positive(),
+        name: z.string().trim().min(1).regex(/^[a-z0-9][a-z0-9-]*$/).optional(),
+        description: z.string().trim().min(1).optional(),
+      }).strict(),
+      parameters: SUBMIT_ARTIFACT_SCHEMA,
       source: "agent_tool",
       category: "skill_authoring",
       riskLevel: "low",
@@ -109,57 +104,43 @@ export function createSkillAuthoringTools(input: {
       isConcurrencySafe: () => false,
       async call(args, context: ToolExecContext) {
         try {
-          const draft = await input.authoring.createDraft(args, {
-            sessionId: context.sessionId,
-            agentName: input.agentName,
+          const draft = await input.authoring.submitArtifact(args.artifact_id, args.expected_revision, {
+            ...(args.name !== undefined ? { name: args.name } : {}),
+            ...(args.description !== undefined ? { description: args.description } : {}),
+            sourceAgentName: input.agentName,
+            sourceSessionId: context.sessionId,
           });
-          return toolSuccess(draft, {
-            toolName: "create_skill_draft",
-            summary: `Skill draft '${draft.id}' created for '${draft.name}'`,
-            outputType: "skills.draft",
-          });
-        } catch (error) {
-          return toolError("create_skill_draft", errorMessage(error));
-        }
-      },
-    }),
-    buildTool({
-      name: "update_skill_draft",
-      description: "Replace an unpublished Skill draft using optimistic revision control. This does not update an enabled Skill binding.",
-      inputSchema: UpdateSkillDraftSchema.extend({ draft_id: z.string().trim().min(1) }).strict(),
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["draft_id", "expected_revision", "name", "description", "content"],
-        properties: {
-          draft_id: { type: "string", minLength: 1 },
-          expected_revision: { type: "integer", minimum: 1 },
-          ...SKILL_CONTENT_JSON_SCHEMA.properties,
-        },
-      },
-      source: "agent_tool",
-      category: "skill_authoring",
-      riskLevel: "low",
-      isReadOnly: () => false,
-      isConcurrencySafe: () => false,
-      async call(args) {
-        try {
-          const draft = await input.authoring.updateDraft(args.draft_id, args.expected_revision, {
-            name: args.name,
-            description: args.description,
-            content: args.content,
-          });
-          return toolSuccess(draft, {
-            toolName: "update_skill_draft",
-            summary: `Skill draft '${draft.id}' updated to revision ${draft.revision}`,
-            outputType: "skills.draft",
+          return toolSuccess({
+            ...candidateSummary(draft),
+            awaiting_review: draft.status !== "published",
+          }, {
+            toolName: "submit_skill_artifact",
+            summary: `Skill Artifact copied to candidate '${draft.id}'`,
+            outputType: "skills.candidate",
           });
         } catch (error) {
-          return toolError("update_skill_draft", errorMessage(error));
+          return toolError("submit_skill_artifact", errorMessage(error));
         }
       },
     }),
   ];
+}
+
+function candidateSummary(draft: SkillDraft): Record<string, unknown> {
+  return {
+    draft_id: draft.id,
+    candidate_id: draft.id,
+    name: draft.name,
+    description: draft.description,
+    revision: draft.revision,
+    status: draft.status,
+    source_artifact_id: draft.source_artifact_id,
+    source_artifact_revision: draft.source_artifact_revision,
+    source_session_id: draft.source_session_id,
+    bundle_asset_count: draft.bundle_assets.length,
+    published_at: draft.published_at,
+    updated_at: draft.updated_at,
+  };
 }
 
 function errorMessage(error: unknown): string {

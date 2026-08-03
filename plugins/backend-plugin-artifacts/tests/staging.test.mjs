@@ -121,6 +121,8 @@ test("failed Artifact persistence rolls a claimed staging run back to ready", as
       ctx: { tenantId: "tenant-a", sessionId: "session-a", runId: "run-a", toolCallId: "tool-a" },
     });
     assert.match(output.modifiedResult.metadata.artifact_error, /storage down/);
+    assert.equal(output.modifiedResult.success, false);
+    assert.match(output.modifiedResult.content, /storage down/);
     assert.equal(fs.existsSync(path.join(run.outputDirectory, "data.bin")), true);
     const claims = await provider.claimFiles({
       tenantId: "tenant-a",

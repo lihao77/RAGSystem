@@ -1,6 +1,11 @@
 export { backendPluginModule } from "./module.js";
 export { ARTIFACTS_PLUGIN_ID, createArtifactsPlugin } from "./plugin.js";
 export { createArtifactToolAfterHook } from "./artifact-hook.js";
+export {
+  CREATE_SKILL_ARTIFACT_TOOL_DESCRIPTOR,
+  CREATE_SKILL_ARTIFACT_TOOL_NAME,
+  createSkillArtifactTools,
+} from "./tools/create-skill-artifact.js";
 export { ArtifactServiceError } from "./artifact-error.js";
 export {
   assetContentUrl,
@@ -31,7 +36,15 @@ export type {
   ArtifactSummary,
 } from "./contracts/artifacts.js";
 export type { JsonObject, JsonPrimitive, JsonValue } from "./contracts/json.js";
-export type { ArtifactSessionAccess, ArtifactsPluginDependencies } from "./dependencies.js";
+export {
+  ARTIFACT_APPLICATION_RESOURCE_KIND,
+} from "./dependencies.js";
+export type {
+  ArtifactAccessResource,
+  ArtifactApplicationResource,
+  ArtifactSessionAccess,
+  ArtifactsPluginDependencies,
+} from "./dependencies.js";
 export type { ArtifactStorageProvider } from "./storage/storage-provider.js";
 export { ARTIFACT_STAGING_RESOURCE_KIND } from "./staging/contracts.js";
 export type {

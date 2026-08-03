@@ -1,22 +1,16 @@
 <template>
   <PageLayout
     title="Skill 库"
-    subtitle="领域技能的增删改与上下传"
+    subtitle="由 Session Artifact 导入、审核并发布租户 Skill"
     mobile-content-padding="var(--spacing-sm)"
   >
-    <template #header-actions>
-      <Button variant="ghost" size="icon-sm" :disabled="loading || editorBusy" aria-label="新建 Skill" title="新建 Skill" @click="openCreate">
-        <IconPlus :size="14" :stroke-width="2.5" />
-      </Button>
-    </template>
-
     <KpiCards :items="kpiItems" />
 
     <section class="skill-drafts" aria-labelledby="skill-drafts-title">
       <div class="skill-drafts__header">
         <div>
-          <h2 id="skill-drafts-title" class="skill-drafts__title">Skill 草稿审核</h2>
-          <p class="skill-drafts__description">Agent 通过作者工具只能提交草稿；发布后才会进入可用 Skill 清单。</p>
+          <h2 id="skill-drafts-title" class="skill-drafts__title">Skill 候选审核</h2>
+          <p class="skill-drafts__description">Agent 或用户提交完整 Skill Artifact；发布后才会进入可用 Skill 清单。</p>
         </div>
         <div class="skill-drafts__actions">
           <Badge variant="secondary">{{ skillDrafts.length }}</Badge>
@@ -32,8 +26,8 @@
       </div>
       <Empty v-else-if="!skillDrafts.length" class="skill-drafts__empty">
         <EmptyHeader>
-          <EmptyTitle>暂无 Skill 草稿</EmptyTitle>
-          <EmptyDescription>Agent Builder 提炼出可复用流程后，草稿会出现在这里。</EmptyDescription>
+            <EmptyTitle>暂无 Skill 候选</EmptyTitle>
+            <EmptyDescription>Session 中的 Skill Artifact 提交到 Skill 库后会出现在这里。</EmptyDescription>
         </EmptyHeader>
       </Empty>
       <div v-else class="skill-drafts__list">
@@ -46,7 +40,8 @@
             </div>
             <p class="skill-draft-row__description">{{ draft.description }}</p>
             <p class="skill-draft-row__source">
-              {{ draft.source_agent_name || '人工创建' }}<span v-if="draft.source_session_id"> · 会话 {{ draft.source_session_id }}</span>
+              {{ draft.source_agent_name || 'Artifact 提交' }}<span v-if="draft.source_session_id"> · 会话 {{ draft.source_session_id }}</span>
+              <span v-if="draft.source_artifact_id"> · Artifact {{ draft.source_artifact_id }}@{{ draft.source_artifact_revision }}</span>
               <span> · 更新于 {{ formatDraftDate(draft.updated_at) }}</span>
             </p>
           </div>
@@ -65,7 +60,7 @@
         :loading="loading"
         :error="error"
         empty-title="暂无 Skill"
-        empty-hint="点“新建 Skill”创建第一个"
+        empty-hint="在 Session 中生成 kind=skill Artifact 后提交候选"
         :empty="!loading && !error && !skills.length"
         @retry="refresh"
       >
@@ -125,18 +120,10 @@
               <CardDescription>{{ selected.description }}</CardDescription>
               <div class="skill-detail__chips">
                 <UiBadge size="sm">{{ selected.source_label }}</UiBadge>
-                <UiBadge v-if="!selected.writable" size="sm">只读</UiBadge>
-                <UiBadge v-else size="sm" tone="success">可编辑</UiBadge>
+                <UiBadge size="sm">发布包只读</UiBadge>
               </div>
             </div>
-            <div v-if="selected.writable" class="skill-detail__actions">
-              <Button variant="secondary" size="sm" @click="openEdit">
-                <IconEdit :size="13" /><span>编辑正文</span>
-              </Button>
-              <Button variant="secondary" size="sm" @click="openUpload">
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
-                <span>上传脚本</span>
-              </Button>
+            <div v-if="selected.source_type === 'user_global'" class="skill-detail__actions">
               <Button variant="destructive" size="sm" :disabled="deleting" @click="confirmDelete">
                 <IconTrash :size="13" /><span>{{ deleting ? '删除中…' : '删除' }}</span>
               </Button>
@@ -185,90 +172,25 @@
       </Card>
     </div>
 
-    <Dialog :open="editor.open" @update:open="(v) => { if (!v) closeEditor() }">
-      <DialogContent class="max-w-[680px]">
-        <DialogHeader>
-          <DialogTitle>{{ editorTitle }}</DialogTitle>
-        </DialogHeader>
-        <div class="form-section">
-        <label v-if="editor.mode === 'create'" class="form-item">
-          <span class="field-label-text">名称（小写字母 / 数字 / 连字符）</span>
-          <Input v-model.trim="editor.form.name" placeholder="如 my-skill" />
-        </label>
-        <label v-if="editor.mode === 'create'" class="form-item">
-          <span class="field-label-text">描述</span>
-          <Input v-model="editor.form.description" placeholder="一句话说明适用场景" />
-        </label>
-        <label class="form-item">
-          <span class="field-label-text">正文（Markdown）</span>
-          <Textarea v-model="editor.form.content" rows="14" class="form-control--textarea skill-textarea"></Textarea>
-        </label>
-        <p v-if="editor.error" class="form-error">{{ editor.error }}</p>
-      </div>
-      <DialogFooter>
-        <Button variant="ghost" @click="closeEditor">取消</Button>
-        <Button variant="default" :disabled="editorBusy" @click="saveEditor">
-          {{ editorBusy ? '保存中…' : '保存' }}
-        </Button>
-      </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
-    <Dialog :open="uploader.open" @update:open="(v) => { if (!v) closeUploader() }">
-      <DialogContent class="max-w-[480px]">
-        <DialogHeader>
-          <DialogTitle>{{ uploadTitle }}</DialogTitle>
-        </DialogHeader>
-        <div class="form-section">
-        <div class="form-item">
-          <span class="field-label-text">目标目录</span>
-          <CustomSelect v-model="uploader.dir" :options="dirOptions" />
-        </div>
-        <div class="form-item">
-          <span class="field-label-text">文件</span>
-          <div class="skill-file-picker" @click="triggerFilePick">
-            <input ref="fileInputRef" type="file" multiple class="skill-file-picker__input" @change="onFileChange" />
-            <template v-if="uploader.files.length">
-              <IconFile :size="14" class="skill-file-picker__icon" />
-              <span class="skill-file-picker__list">{{ uploader.files.map((f) => f.name).join('、') }}</span>
-              <Button variant="action-danger" size="action" title="清除" @click.stop="clearFiles"><IconClose :size="12" /></Button>
-            </template>
-            <template v-else>
-              <IconFile :size="14" class="skill-file-picker__icon" />
-              <span class="skill-file-picker__hint">点击选择文件（可多选）</span>
-            </template>
-          </div>
-        </div>
-        <p v-if="uploader.error" class="form-error">{{ uploader.error }}</p>
-      </div>
-      <DialogFooter>
-        <Button variant="ghost" @click="closeUploader">取消</Button>
-        <Button variant="default" :disabled="uploaderBusy || !uploader.files.length" @click="doUpload">
-          {{ uploaderBusy ? '上传中…' : '上传' }}
-        </Button>
-      </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
     <Dialog :open="draftReview.open" @update:open="(v) => { if (!v) closeDraftReview() }">
       <DialogContent class="max-w-[900px]">
         <DialogHeader>
-          <DialogTitle>{{ draftReview.form.name || 'Skill 草稿审核' }}</DialogTitle>
-          <DialogDescription>草稿不会自动绑定到 Agent；管理员发布后才会成为正式 Skill。</DialogDescription>
+          <DialogTitle>{{ draftReview.form.name || 'Skill 候选审核' }}</DialogTitle>
+          <DialogDescription>候选已经独立复制到 Skill 库，不会自动绑定到 Agent；管理员发布后才会成为正式 Skill。</DialogDescription>
         </DialogHeader>
         <FieldGroup class="skill-draft-form">
           <Field>
             <FieldLabel for="skill-draft-name">名称</FieldLabel>
-            <Input id="skill-draft-name" v-model.trim="draftReview.form.name" :disabled="draftReviewReadonly || draftReviewBusy" />
+            <Input id="skill-draft-name" v-model.trim="draftReview.form.name" disabled />
           </Field>
           <Field>
             <FieldLabel for="skill-draft-description">描述</FieldLabel>
-            <Input id="skill-draft-description" v-model="draftReview.form.description" :disabled="draftReviewReadonly || draftReviewBusy" />
+            <Input id="skill-draft-description" v-model="draftReview.form.description" disabled />
           </Field>
           <Field>
             <FieldLabel for="skill-draft-content">SKILL.md 正文</FieldLabel>
-            <Textarea id="skill-draft-content" v-model="draftReview.form.content" rows="12" class="skill-textarea" :disabled="draftReviewReadonly || draftReviewBusy" />
-            <FieldDescription>模型生成的草稿只包含正文，不包含脚本或其他可执行文件。</FieldDescription>
+            <Textarea id="skill-draft-content" v-model="draftReview.form.content" rows="12" class="skill-textarea" disabled />
+            <FieldDescription>候选内容来自完整 Skill Artifact，包含 SKILL.md、脚本和资源文件。</FieldDescription>
           </Field>
         </FieldGroup>
         <div class="skill-draft-preview">
@@ -282,20 +204,16 @@
         <DialogFooter>
           <Button variant="ghost" @click="closeDraftReview">关闭</Button>
           <Button
-            v-if="!draftReviewReadonly && canPublishSkillDraft"
+            v-if="draftReview.draft?.status !== 'published' && canPublishSkillDraft"
             variant="destructive"
             :disabled="draftReviewBusy"
             @click="confirmDeleteDraft"
           >
             <IconTrash :size="13" /><span>{{ draftDeleteBusy ? '删除中…' : '删除草稿' }}</span>
           </Button>
-          <Button v-if="!draftReviewReadonly" variant="secondary" :disabled="draftReviewBusy" @click="saveDraftReview">
-            <Save data-icon="inline-start" />
-            <span>{{ draftReviewBusy ? '保存中…' : '保存草稿' }}</span>
-          </Button>
-          <Button v-if="canRunSkillDraftPublish" :variant="draftReviewReadonly ? 'secondary' : 'success'" :disabled="draftReviewBusy" @click="confirmPublishDraft">
+          <Button v-if="canRunSkillDraftPublish" variant="success" :disabled="draftReviewBusy" @click="confirmPublishDraft">
             <Send data-icon="inline-start" />
-            <span>{{ draftReviewBusy ? '处理中…' : (draftReviewReadonly ? '恢复发布' : '发布 Skill') }}</span>
+            <span>{{ draftReviewBusy ? '发布中…' : '发布 Skill' }}</span>
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -305,10 +223,9 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { Eye, RefreshCw, Save, Send } from 'lucide-vue-next';
+import { Eye, RefreshCw, Send } from 'lucide-vue-next';
 
 import PageLayout from '../components/PageLayout.vue';
-import IconPlus from '../components/icons/IconPlus.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import EmptyState from '../components/EmptyState.vue';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
@@ -323,12 +240,9 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../co
 import { UiBadge } from '../components/ui';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
-import CustomSelect from '../components/ui/CustomSelect.vue';
 import IconSearch from '../components/icons/IconSearch.vue';
 import IconClose from '../components/icons/IconClose.vue';
-import IconEdit from '../components/icons/IconEdit.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
-import IconFile from '../components/icons/IconFile.vue';
 import IconChevronDown from '../components/icons/IconChevronDown.vue';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
@@ -336,7 +250,6 @@ import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { useEntityList } from '../composables/useEntityList.js';
 import { useAuthStore } from '../stores/auth.js';
 import {
-  createSkill,
   deleteSkillDraft,
   deleteSkill,
   getSkillDetail,
@@ -345,9 +258,6 @@ import {
   listSkillDrafts,
   listSkills,
   publishSkillDraft,
-  updateSkillDraft,
-  updateSkill,
-  uploadSkillFiles,
 } from '../api/skillLibrary.js';
 
 const toast = useToast();
@@ -389,10 +299,9 @@ const draftReview = ref({
   form: { name: '', description: '', content: '' },
 });
 
-const draftReviewReadonly = computed(() => draftReview.value.draft?.status === 'published');
-const canRunSkillDraftPublish = computed(() => canPublishSkillDraft.value && (
-  !draftReviewReadonly.value || draftReview.value.draft?.package_state === 'missing'
-));
+const canRunSkillDraftPublish = computed(() => canPublishSkillDraft.value
+  && draftReview.value.draft?.status !== 'published'
+  && (draftReview.value.draft?.bundle_assets?.length ?? 0) > 0);
 
 async function loadDrafts() {
   draftLoading.value = true;
@@ -409,7 +318,7 @@ async function loadDrafts() {
 onMounted(loadDrafts);
 
 function draftStatusLabel(draft) {
-  if (draft.status === 'published' && draft.package_state === 'missing') return '发布待恢复';
+  if (draft.status !== 'published' && !draft.bundle_assets?.length) return '需重新提交 Artifact';
   if (draft.status === 'published' && draft.package_state === 'conflict') return '发布冲突';
   return draft.status === 'published' ? '已发布' : '待审核';
 }
@@ -445,22 +354,6 @@ function closeDraftReview() {
   draftReview.value.open = false;
   draftReview.value.error = '';
 }
-
-const { run: runSaveDraft, loading: draftSaveBusy } = useAsyncAction(
-  async () => {
-    const current = draftReview.value.draft;
-    const saved = await updateSkillDraft(current.id, current.revision, draftReview.value.form);
-    draftReview.value.draft = saved;
-    draftReview.value.form = { name: saved.name, description: saved.description, content: saved.content };
-    skillDrafts.value = skillDrafts.value.map((item) => item.id === saved.id ? saved : item);
-    return saved;
-  },
-  {
-    successMessage: 'Skill 草稿已保存',
-    showErrorToast: false,
-    onError: (e) => { draftReview.value.error = e?.message || '保存草稿失败'; },
-  },
-);
 
 const { run: runPublishDraft, loading: draftPublishBusy } = useAsyncAction(
   async () => {
@@ -508,12 +401,7 @@ const { run: runDeleteDraft, loading: draftDeleteBusy } = useAsyncAction(
   },
 );
 
-const draftReviewBusy = computed(() => draftSaveBusy.value || draftPublishBusy.value || draftDeleteBusy.value);
-
-function saveDraftReview() {
-  draftReview.value.error = '';
-  runSaveDraft();
-}
+const draftReviewBusy = computed(() => draftPublishBusy.value || draftDeleteBusy.value);
 
 async function confirmDeleteDraft() {
   const draft = draftReview.value.draft;
@@ -532,13 +420,10 @@ async function confirmDeleteDraft() {
 async function confirmPublishDraft() {
   const draft = draftReview.value.draft;
   if (!draft || !canPublishSkillDraft.value) return;
-  const recovering = draft.status === 'published';
   const accepted = await confirm({
-    title: recovering ? '恢复 Skill 发布' : '发布 Skill 草稿',
-    message: recovering
-      ? `确认检查并恢复“${draftReview.value.form.name}”的正式 Skill 包？`
-      : `确认发布“${draftReview.value.form.name}”？发布后草稿不可再编辑，也不会自动绑定到任何 Agent。`,
-    confirmText: recovering ? '恢复' : '发布',
+    title: '发布 Skill 候选',
+    message: `确认发布“${draftReview.value.form.name}”？发布后候选不可再编辑，也不会自动绑定到任何 Agent。`,
+    confirmText: '发布',
     danger: false,
   });
   if (!accepted) return;
@@ -554,7 +439,7 @@ const countByType = computed(() => {
 
 const kpiItems = computed(() => [
   { key: 'total', label: 'Skill 总数', value: skills.value.length },
-  { key: 'user', label: '用户全局（可编辑）', value: countByType.value.user_global },
+  { key: 'user', label: '租户 Skill 包', value: countByType.value.user_global },
   { key: 'builtin', label: '内置', value: countByType.value.builtin },
   { key: 'workspace', label: '工作区', value: countByType.value.workspace },
 ]);
@@ -573,14 +458,14 @@ const filteredSkills = computed(() => {
 
 const groups = computed(() =>
   [
-    { key: 'user_global', title: '用户全局（可编辑）', items: filteredSkills.value.filter((s) => s.source_type === 'user_global') },
+    { key: 'user_global', title: '租户发布包', items: filteredSkills.value.filter((s) => s.source_type === 'user_global') },
     { key: 'workspace', title: '工作区', items: filteredSkills.value.filter((s) => s.source_type === 'workspace') },
     { key: 'builtin', title: '内置', items: filteredSkills.value.filter((s) => s.source_type === 'builtin') },
   ].filter((g) => g.items.length),
 );
 
-function isWritable(skill) {
-  return skill.source_type === 'user_global';
+function isWritable() {
+  return false;
 }
 
 // 来源类型 → 短标签 + 语义色（列表行徽章用）
@@ -652,16 +537,6 @@ const flatFiles = computed(() => {
   return out;
 });
 
-// 上传目录选项（CustomSelect）
-const dirOptions = [
-  { value: 'scripts', label: 'scripts/（Python 脚本）' },
-  { value: '', label: 'Skill 根目录（资源文件）' },
-];
-const fileInputRef = ref(null);
-function triggerFilePick() {
-  fileInputRef.value?.click();
-}
-
 async function selectSkill(name) {
   detailLoading.value = true;
   detailError.value = '';
@@ -675,98 +550,6 @@ async function selectSkill(name) {
   }
 }
 
-const editor = ref({ open: false, mode: 'create', error: '', form: { name: '', description: '', content: '# ' } });
-const editorTitle = computed(() =>
-  editor.value.mode === 'create' ? '新建 Skill' : `编辑 ${selected.value ? selected.value.name : ''}`,
-);
-
-function openCreate() {
-  editor.value = { open: true, mode: 'create', error: '', form: { name: '', description: '', content: '# ' } };
-}
-function openEdit() {
-  const s = selected.value;
-  editor.value = {
-    open: true,
-    mode: 'edit',
-    error: '',
-    form: { name: s.name, description: s.description, content: s.content },
-  };
-}
-function closeEditor() {
-  editor.value.open = false;
-  editor.value.error = '';
-}
-
-const { run: runSave, loading: editorBusy } = useAsyncAction(
-  async () => {
-    if (editor.value.mode === 'create') {
-      const res = await createSkill(editor.value.form);
-      editor.value.open = false;
-      await refresh();
-      await selectSkill(res.data.name);
-      return res;
-    }
-    const res = await updateSkill(selected.value.name, {
-      description: editor.value.form.description,
-      content: editor.value.form.content,
-    });
-    editor.value.open = false;
-    await selectSkill(selected.value.name);
-    return res;
-  },
-  {
-    successMessage: 'Skill 已保存',
-    showErrorToast: false,
-    onError: (e) => {
-      editor.value.error = e?.message || '保存失败';
-    },
-  },
-);
-
-function saveEditor() {
-  editor.value.error = '';
-  runSave();
-}
-
-const uploader = ref({ open: false, error: '', dir: 'scripts', files: [] });
-const uploadTitle = computed(() => `上传文件到 ${selected.value ? selected.value.name : ''}`);
-
-function openUpload() {
-  uploader.value = { open: true, error: '', dir: 'scripts', files: [] };
-}
-function closeUploader() {
-  uploader.value.open = false;
-  uploader.value.error = '';
-}
-function onFileChange(e) {
-  uploader.value.files = Array.from(e.target.files || []);
-}
-function clearFiles() {
-  uploader.value.files = [];
-  if (fileInputRef.value) fileInputRef.value.value = '';
-}
-
-const { run: runUpload, loading: uploaderBusy } = useAsyncAction(
-  async () => {
-    const res = await uploadSkillFiles(selected.value.name, uploader.value.files, uploader.value.dir);
-    uploader.value.open = false;
-    await selectSkill(selected.value.name);
-    return res;
-  },
-  {
-    successMessage: '文件已上传',
-    showErrorToast: false,
-    onError: (e) => {
-      uploader.value.error = e?.message || '上传失败';
-    },
-  },
-);
-
-function doUpload() {
-  uploader.value.error = '';
-  runUpload();
-}
-
 const { run: runDelete, loading: deleting } = useAsyncAction(
   async () => {
     const res = await deleteSkill(selected.value.name);
@@ -777,14 +560,7 @@ const { run: runDelete, loading: deleting } = useAsyncAction(
   {
     onSuccess: (res) => {
       const purged = res?.data?.purged_agents?.length ?? 0;
-      const restored = res?.data?.restored_draft;
-      if (restored) {
-        toast.success(purged > 0
-          ? `已删除 Skill，草稿已恢复为可编辑状态，并移除 ${purged} 个智能体引用`
-          : '已删除 Skill，关联草稿已恢复为可编辑状态');
-      } else {
-        toast.success(purged > 0 ? `已删除 Skill，并从 ${purged} 个智能体配置中移除引用` : 'Skill 已删除');
-      }
+      toast.success(purged > 0 ? `已删除 Skill，并从 ${purged} 个智能体配置中移除引用` : 'Skill 已删除');
     },
   },
 );
@@ -793,7 +569,7 @@ async function confirmDelete() {
   const s = selected.value;
   if (!s) return;
   const ok = await confirm({
-    message: `确认删除 Skill “${s.name}”？如有关联发布草稿，草稿会恢复为可编辑状态。`,
+    message: `确认删除 Skill “${s.name}”？删除后其候选会恢复为可编辑状态。`,
     confirmText: '删除',
     danger: true,
   });
@@ -1041,44 +817,6 @@ async function confirmDelete() {
 }
 .skill-file a:hover {
   text-decoration: underline;
-}
-
-/* 上传文件选择器（包裹隐藏 input）*/
-.skill-file-picker {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  min-height: var(--control-height-md);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--control-radius);
-  border: 1px dashed var(--color-border);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-  transition: border-color var(--transition-fast), color var(--transition-fast);
-}
-.skill-file-picker:hover {
-  border-color: var(--color-brand-accent);
-  color: var(--color-text-primary);
-}
-.skill-file-picker__input {
-  display: none;
-}
-.skill-file-picker__icon {
-  flex-shrink: 0;
-  color: var(--color-text-muted);
-}
-.skill-file-picker__list {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-text-primary);
-}
-.skill-file-picker__hint {
-  color: var(--color-text-muted);
 }
 
 .skill-textarea {

@@ -1,6 +1,6 @@
 /**
- * Skill 库管理 API
- * 列/看/改/建/删 skill 本体（文件目录管理）；写操作仅对用户全局 skill 生效。
+ * Skill 库管理 API。
+ * Artifact 候选提交、审核发布与租户 Skill 包读取/删除；已发布 bundle 不提供直接正文写入。
  */
 
 import { http } from './http.js';
@@ -47,18 +47,12 @@ export async function getSkillDraft(id) {
   return result.data || result;
 }
 
-export async function createSkillDraft({ name, description, content }) {
-  const result = await http.post('/api/skills/drafts', { name, description, content });
-  return result.data || result;
-}
-
-export async function updateSkillDraft(id, expectedRevision, { name, description, content }) {
-  const result = await http.put(`/api/skills/drafts/${encodeURIComponent(id)}`, {
-    expected_revision: expectedRevision,
-    name,
-    description,
-    content,
-  });
+export async function submitSkillArtifact({ artifactId, expectedRevision, sessionId, name, description }) {
+  const body = { artifact_id: artifactId, expected_revision: expectedRevision };
+  if (sessionId) body.session_id = sessionId;
+  if (name) body.name = name;
+  if (description) body.description = description;
+  const result = await http.post('/api/skills/drafts/import', body);
   return result.data || result;
 }
 
@@ -80,28 +74,8 @@ export async function getSkillDetail(name) {
   return http.get(`/api/skills/${encodeURIComponent(name)}`);
 }
 
-export async function createSkill({ name, description, content }) {
-  return http.post('/api/skills', { name, description, content: content ?? '' });
-}
-
-export async function updateSkill(name, { description, content }) {
-  const body = {};
-  if (description !== undefined) body.description = description;
-  if (content !== undefined) body.content = content;
-  return http.put(`/api/skills/${encodeURIComponent(name)}`, body);
-}
-
 export async function deleteSkill(name) {
   return http.del(`/api/skills/${encodeURIComponent(name)}`);
-}
-
-export async function uploadSkillFiles(name, files, dir = 'scripts') {
-  const formData = new FormData();
-  for (const file of files) {
-    formData.append('files', file, file.name);
-  }
-  const suffix = dir ? `?dir=${encodeURIComponent(dir)}` : '';
-  return http.post(`/api/skills/${encodeURIComponent(name)}/files${suffix}`, formData);
 }
 
 export function getSkillFileUrl(name, relPath) {

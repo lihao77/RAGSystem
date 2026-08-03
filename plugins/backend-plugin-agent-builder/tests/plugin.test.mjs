@@ -192,9 +192,10 @@ test("plugin contributes the Builder route only when installed", async () => {
   await absent.register();
   assert.equal(absent.routes("tenant").some((route) => route.prefix === "/api/agent-builder"), false);
 
+  const artifacts = { manifest: { id: "@ragsystem/backend-plugin-artifacts", version: "0.1.0" }, register() {} };
   const mcp = { manifest: { id: "@ragsystem/backend-plugin-mcp", version: "0.1.0" }, register() {} };
   const skills = { manifest: { id: "@ragsystem/backend-plugin-skills", version: "0.1.0" }, register() {} };
-  const installed = new BackendPluginManager([mcp, skills, createAgentBuilderPlugin()]);
+  const installed = new BackendPluginManager([artifacts, mcp, skills, createAgentBuilderPlugin()]);
   await installed.register();
   assert.equal(installed.routes("tenant").some((route) => route.prefix === "/api/agent-builder"), true);
 });
@@ -305,16 +306,38 @@ test("Builder template migration adds Skill authoring tools without replacing us
       [
         "read_file",
         "custom_tool",
+        "create_skill_artifact",
         "list_skill_drafts",
         "get_skill_draft",
-        "create_skill_draft",
-        "update_skill_draft",
+        "submit_skill_artifact",
       ],
     );
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction\./);
-    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /reviewable Skill draft/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 2);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /reviewable Skill candidate/);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 5);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /content\.artifact_id/);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /content\.artifact_revision/);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Builder template migration replaces script-based Artifact handoff instructions", async () => {
+  const fixture = await createFixture();
+  try {
+    const legacy = buildAgentBuilderTeam();
+    legacy.builder_orchestrator.custom_params.behavior.system_prompt = "Create the Artifact, then call submit_skill_artifact to create a candidate.";
+    legacy.builder_orchestrator.custom_params.behavior.builder_template_version = 3;
+    await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, legacy);
+
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
+    const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /^Create the Artifact, then call submit_skill_artifact/);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /content\.artifact_id/);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /content\.artifact_revision/);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /create_skill_artifact result/);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 5);
   } finally {
     fixture.cleanup();
   }
@@ -385,8 +408,8 @@ test("Builder template opts its orchestrator into Skill authoring tools explicit
   const team = buildAgentBuilderTeam();
   const orchestrator = team.builder_orchestrator;
   assert.deepEqual(
-    orchestrator.tools.enabled_tools.filter((name) => name.includes("skill_draft")),
-    ["list_skill_drafts", "get_skill_draft", "create_skill_draft", "update_skill_draft"],
+    orchestrator.tools.enabled_tools.filter((name) => name === "create_skill_artifact" || name.includes("skill_draft") || name === "submit_skill_artifact"),
+    ["create_skill_artifact", "list_skill_drafts", "get_skill_draft", "submit_skill_artifact"],
   );
   for (const [name, agent] of Object.entries(team)) {
     if (name === "builder_orchestrator") continue;
@@ -451,9 +474,10 @@ function cloneLoaded(value) {
 }
 
 function installedAgentBuilderManager() {
+  const artifacts = { manifest: { id: "@ragsystem/backend-plugin-artifacts", version: "0.1.0" }, register() {} };
   const mcp = { manifest: { id: "@ragsystem/backend-plugin-mcp", version: "0.1.0" }, register() {} };
   const skills = { manifest: { id: "@ragsystem/backend-plugin-skills", version: "0.1.0" }, register() {} };
-  return new BackendPluginManager([mcp, skills, createAgentBuilderPlugin()]);
+  return new BackendPluginManager([artifacts, mcp, skills, createAgentBuilderPlugin()]);
 }
 
 function runtimeContext(fixture) {

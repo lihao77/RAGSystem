@@ -7,7 +7,7 @@ import type { SkillsPluginRuntimeFactory } from "../../dependencies.js";
 import { SkillLibraryService } from "../../services/skill-library-service.js";
 import { SkillAuthoringService } from "../../services/skill-authoring-service.js";
 import { SkillToolService } from "../../tools/SkillExecution.js";
-import { resolveArtifactStagingService, resolveBuiltinSkillSources } from "../../resources.js";
+import { resolveArtifactApplication, resolveArtifactResource, resolveArtifactStagingService, resolveBuiltinSkillSources } from "../../resources.js";
 import { SqliteSkillsAgentConfigStore } from "./agent-config-store.js";
 import { FilesystemSkillPackageStore } from "./package-store.js";
 import { SqliteSkillDraftStore } from "./skill-draft-store.js";
@@ -16,7 +16,7 @@ const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 export function createLocalSkillsRuntimeFactory(): SkillsPluginRuntimeFactory {
-  return (context) => {
+  return async (context) => {
     if (context.deploymentKind !== "local") {
       throw new Error("Local Skills runtime factory requires a Local deployment");
     }
@@ -45,6 +45,7 @@ export function createLocalSkillsRuntimeFactory(): SkillsPluginRuntimeFactory {
       ),
     });
     const library = new SkillLibraryService(tools, packageStore);
+    const artifactResource = resolveArtifactResource(context.resources ?? []);
     return {
       tools,
       agentConfig,
@@ -52,7 +53,9 @@ export function createLocalSkillsRuntimeFactory(): SkillsPluginRuntimeFactory {
       authoring: new SkillAuthoringService(
         new SqliteSkillDraftStore(db, context.tenantId),
         library,
+        await resolveArtifactApplication(context.resources ?? [], context.tenantId),
       ),
+      artifactResource,
       dispose: () => db.close(),
     };
   };

@@ -33,9 +33,27 @@ export function parseSkillMarkdown(raw: string): ParsedSkillMarkdown | null {
   };
 }
 
-export function serializeSkillMd(name: string, description: string, content: string): string {
+export function serializeSkillMd(name: string, description: string, content: string, metadata: Record<string, unknown> = {}): string {
   const body = content.replace(/^\r?\n/, "");
-  return `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n${body.startsWith("\n") ? body : `\n${body}`}`;
+  const metadataYaml = Object.keys(metadata).length > 0
+    ? `metadata:\n${Object.entries(metadata).map(([key, value]) => `  ${key}: ${JSON.stringify(value)}\n`).join("")}`
+    : "";
+  return `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n${metadataYaml}---\n${body.startsWith("\n") ? body : `\n${body}`}`;
+}
+
+/** Update only canonical frontmatter fields while retaining unknown YAML keys and body text. */
+export function updateSkillMarkdownFrontmatter(raw: string, name: string, description: string): string {
+  const match = raw.match(/^(---\r?\n)([\s\S]*?)(\r?\n---\r?\n?)([\s\S]*)$/);
+  if (!match) return serializeSkillMd(name, description, raw);
+  try {
+    const document = YAML.parseDocument(match[2] ?? "");
+    if (!isRecord(document.toJSON())) return serializeSkillMd(name, description, match[4] ?? "");
+    document.set("name", name);
+    document.set("description", description);
+    return `${match[1]}${document.toString().trimEnd()}${match[3]}${match[4] ?? ""}`;
+  } catch {
+    return serializeSkillMd(name, description, match[4] ?? "");
+  }
 }
 
 function parseRequires(metadata: Record<string, unknown>): ParsedSkillMarkdown["requires"] {

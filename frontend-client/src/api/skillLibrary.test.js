@@ -5,12 +5,11 @@ import MockAdapter from 'axios-mock-adapter';
 import { createPinia, setActivePinia } from 'pinia';
 
 import {
-  createSkillDraft,
   deleteSkillDraft,
   getSkillDraft,
   listSkillDrafts,
   publishSkillDraft,
-  updateSkillDraft,
+  submitSkillArtifact,
 } from './skillLibrary.js';
 import { httpClient } from './http.js';
 
@@ -31,45 +30,27 @@ test('Skill draft API unwraps list and item responses', async () => {
   });
 });
 
-test('Skill draft API sends explicit revisions for create, update, publish, and delete', async () => {
+test('Skill candidate API submits an Artifact and sends explicit revisions for publish and delete', async () => {
   await withMock((mock) => {
-    mock.onPost('/api/skills/drafts').reply((config) => {
+    mock.onPost('/api/skills/drafts/import').reply((config) => {
       assert.deepEqual(JSON.parse(config.data), {
-        name: 'incident-response',
-        description: 'Respond safely',
-        content: '# Triage',
+        artifact_id: 'artifact_1',
+        expected_revision: 1,
+        session_id: 'session_1',
       });
       return [200, { success: true, data: { id: 'draft_1', revision: 1 } }];
     });
-    mock.onPut('/api/skills/drafts/draft_1').reply((config) => {
-      assert.deepEqual(JSON.parse(config.data), {
-        expected_revision: 1,
-        name: 'incident-response',
-        description: 'Respond safely',
-        content: '# Triage updated',
-      });
-      return [200, { success: true, data: { id: 'draft_1', revision: 2 } }];
-    });
     mock.onPost('/api/skills/drafts/draft_1/publish').reply((config) => {
-      assert.deepEqual(JSON.parse(config.data), { expected_revision: 2 });
+      assert.deepEqual(JSON.parse(config.data), { expected_revision: 1 });
       return [200, { success: true, data: { id: 'draft_1', status: 'published' } }];
     });
     mock.onDelete('/api/skills/drafts/draft_1').reply((config) => {
-      assert.deepEqual(JSON.parse(config.data), { expected_revision: 2 });
+      assert.deepEqual(JSON.parse(config.data), { expected_revision: 1 });
       return [200, { success: true, data: { id: 'draft_1' } }];
     });
   }, async () => {
-    assert.equal((await createSkillDraft({
-      name: 'incident-response',
-      description: 'Respond safely',
-      content: '# Triage',
-    })).revision, 1);
-    assert.equal((await updateSkillDraft('draft_1', 1, {
-      name: 'incident-response',
-      description: 'Respond safely',
-      content: '# Triage updated',
-    })).revision, 2);
-    assert.equal((await publishSkillDraft('draft_1', 2)).status, 'published');
-    assert.equal((await deleteSkillDraft('draft_1', 2)).id, 'draft_1');
+    assert.equal((await submitSkillArtifact({ artifactId: 'artifact_1', expectedRevision: 1, sessionId: 'session_1' })).revision, 1);
+    assert.equal((await publishSkillDraft('draft_1', 1)).status, 'published');
+    assert.equal((await deleteSkillDraft('draft_1', 1)).id, 'draft_1');
   });
 });

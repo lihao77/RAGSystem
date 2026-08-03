@@ -1,13 +1,21 @@
 import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import type { FastifyRequest } from "fastify";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { registerArtifactRoutes } from "./routes.js";
-import type { ArtifactsPluginDependencies } from "./dependencies.js";
+import {
+  ARTIFACT_APPLICATION_RESOURCE_KIND,
+  type ArtifactsPluginDependencies,
+} from "./dependencies.js";
 import { createArtifactToolAfterHook } from "./artifact-hook.js";
 import { ARTIFACT_STAGING_RESOURCE_KIND } from "./staging/contracts.js";
 import { createFilesystemArtifactStagingProvider } from "./staging/filesystem-staging-provider.js";
+import {
+  CREATE_SKILL_ARTIFACT_TOOL_DESCRIPTOR,
+  createSkillArtifactTools,
+} from "./tools/create-skill-artifact.js";
 
 const SKILL_SOURCE_RESOURCE_KIND = "ragsystem.skill-source";
 export const ARTIFACTS_PLUGIN_ID = "@ragsystem/backend-plugin-artifacts";
@@ -20,9 +28,20 @@ export function createArtifactsPlugin(dependencies: ArtifactsPluginDependencies)
       version: "0.1.0",
     },
     register(context) {
+      context.resources.register(
+        ARTIFACT_APPLICATION_RESOURCE_KIND,
+        {
+          applicationForTenant: (tenantId: string) => dependencies.storage.applicationForTenant(tenantId),
+          assertReadable: (request: FastifyRequest, sessionId: string) => dependencies.sessionAccess.assertReadable(request, sessionId),
+        },
+      );
       context.resources.register(SKILL_SOURCE_RESOURCE_KIND, resolveArtifactSkillsRoot());
       context.resources.register(ARTIFACT_STAGING_RESOURCE_KIND, staging);
       context.hooks.on("tool.after", createArtifactToolAfterHook({ ...dependencies, staging }));
+      context.tools.register(
+        ({ agent }) => createSkillArtifactTools(agent),
+        [CREATE_SKILL_ARTIFACT_TOOL_DESCRIPTOR],
+      );
       context.routes.register("tenant", "/api/artifacts", async (app) => {
         await app.register(registerArtifactRoutes, dependencies);
       });

@@ -3,13 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type {
-  CreateSkillPackageInput,
+  CreateSkillPackageBundleInput,
   ISkillPackageStore,
   SkillPackageFileNode,
   SkillPackageRecord,
-  UpdateSkillPackageInput,
 } from "../../contracts/skills/skill-package-store.js";
-import { parseSkillMarkdown, serializeSkillMd } from "../../contracts/skills/skill-markdown.js";
+import { parseSkillMarkdown } from "../../contracts/skills/skill-markdown.js";
 
 const SKIP_ENTRIES = new Set([".venv", ".cache", "__pycache__", ".installed", "node_modules", ".DS_Store"]);
 
@@ -34,7 +33,7 @@ export class FilesystemSkillPackageStore implements ISkillPackageStore {
     return parseSkillDir(skillDir);
   }
 
-  async create(input: CreateSkillPackageInput): Promise<SkillPackageRecord> {
+  async createBundle(input: CreateSkillPackageBundleInput): Promise<SkillPackageRecord> {
     const skillDir = path.join(this.root, input.name);
     if (!isPathUnder(skillDir, this.root)) throw new Error("非法的 Skill 名称");
     if (fs.existsSync(skillDir)) throw new Error(`Skill '${input.name}' 已存在`);
@@ -42,7 +41,17 @@ export class FilesystemSkillPackageStore implements ISkillPackageStore {
     const stagingDir = path.join(this.root, `.creating-${input.name}-${randomUUID()}`);
     fs.mkdirSync(stagingDir);
     try {
-      fs.writeFileSync(path.join(stagingDir, "SKILL.md"), serializeSkillMd(input.name, input.description, input.content));
+      const seen = new Set<string>();
+      for (const file of input.files) {
+        const relativePath = normalizeRelativePath(file.relativePath);
+        if (!relativePath || seen.has(relativePath)) throw new Error(`非法或重复的 Skill 文件路径: ${file.relativePath}`);
+        seen.add(relativePath);
+        const filePath = path.resolve(stagingDir, relativePath);
+        if (!isPathUnder(filePath, stagingDir)) throw new Error("文件路径越出 Skill 目录");
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, file.body);
+      }
+      if (!seen.has("SKILL.md")) throw new Error("Skill bundle 必须包含 SKILL.md");
       const staged = parseSkillDir(stagingDir);
       if (!staged) throw new Error(`Skill '${input.name}' 创建失败`);
       try {
@@ -56,37 +65,6 @@ export class FilesystemSkillPackageStore implements ISkillPackageStore {
       fs.rmSync(stagingDir, { recursive: true, force: true });
       throw error;
     }
-  }
-
-  async updateMarkdown(name: string, input: UpdateSkillPackageInput): Promise<SkillPackageRecord> {
-    const existing = await this.get(name);
-    if (!existing) throw new Error(`Skill '${name}' 不存在`);
-    const description = input.description?.trim() || existing.description;
-    const content = input.content ?? existing.content;
-    fs.writeFileSync(path.join(existing.skillDir, "SKILL.md"), serializeSkillMd(name, description, content));
-    const record = await this.get(name);
-    if (!record) throw new Error(`Skill '${name}' 更新失败`);
-    return record;
-  }
-
-  async writeFile(name: string, relativePath: string, body: Uint8Array): Promise<SkillPackageRecord> {
-    const existing = await this.get(name);
-    if (!existing) throw new Error(`Skill '${name}' 不存在`);
-    const normalized = normalizeRelativePath(relativePath);
-    if (!normalized) throw new Error("非法的文件路径");
-    if (normalized === "SKILL.md") throw new Error("SKILL.md 请用更新正文接口修改");
-    const isRootFile = !normalized.includes("/");
-    const topSegment = normalized.split("/")[0];
-    if (!isRootFile && topSegment !== "scripts") {
-      throw new Error("文件仅可上传到 scripts/ 目录或 Skill 根目录");
-    }
-    const filePath = path.resolve(existing.skillDir, normalized);
-    if (!isPathUnder(filePath, existing.skillDir)) throw new Error("文件路径越出 Skill 目录");
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, body);
-    const record = await this.get(name);
-    if (!record) throw new Error(`Skill '${name}' 写文件后读取失败`);
-    return record;
   }
 
   async readFile(name: string, relativePath: string): Promise<{ body: Uint8Array; contentType: string } | null> {
@@ -169,7 +147,7 @@ function listSkillFiles(skillDir: string, relative = ""): SkillPackageFileNode[]
 
 function normalizeRelativePath(value: string): string | null {
   const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "").trim();
-  if (!normalized || normalized.includes("\0") || normalized.split("/").some((part) => part === ".." || part === "")) {
+  if (!normalized || /^[A-Za-z]:/.test(normalized) || normalized.includes("\0") || normalized.split("/").some((part) => part === ".." || part === "." || part === "")) {
     return null;
   }
   return normalized;

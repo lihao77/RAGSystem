@@ -1,18 +1,15 @@
-import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
-import path from "node:path";
 import type { FastifyPluginAsync } from "fastify";
 
 import { ok } from "@ragsystem/backend-core/contracts/common.js";
 import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
-import { collectMultipartFiles } from "@ragsystem/backend-core/routes/file-route-utils.js";
 import { requireTenantAdmin, requireTenantMember } from "@ragsystem/backend-core/routes/tenant-role.js";
 import type {} from "@ragsystem/backend-core/fastify-context.js";
 import { SKILLS_RUNTIME_CAPABILITY } from "./capability.js";
 import {
   DeleteSkillDraftSchema,
   PublishSkillDraftSchema,
-  SkillDraftContentSchema,
-  UpdateSkillDraftSchema,
+  SubmitSkillArtifactSchema,
+  toSkillDraftView,
 } from "./contracts/skills/skill-draft.js";
 
 interface SkillParams {
@@ -27,10 +24,6 @@ interface FileQuery {
   path?: string;
 }
 
-interface UploadQuery {
-  dir?: string;
-}
-
 interface AvailableQuery {
   workspace_root?: string;
 }
@@ -43,15 +36,12 @@ interface TeamQuery {
   team?: string;
 }
 
-interface CreateBody {
-  name?: unknown;
-  description?: unknown;
-  content?: unknown;
-}
-
-interface UpdateBody {
-  description?: unknown;
-  content?: unknown;
+interface SubmitArtifactBody {
+  artifact_id: string;
+  expected_revision: number;
+  session_id: string;
+  name?: string;
+  description?: string;
 }
 
 /**
@@ -86,32 +76,36 @@ export const registerSkillRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/drafts", async (request) => {
-    return ok(await resolveSkills(request).authoring.listDraftViews(), "Skill drafts");
+    return ok(await resolveSkills(request).authoring.listDraftViews(), "Skill candidates");
   });
 
   app.get<{ Params: DraftParams }>("/drafts/:id", async (request) => {
-    return ok(await resolveSkills(request).authoring.getDraftView(request.params.id), "Skill draft");
+    return ok(await resolveSkills(request).authoring.getDraftView(request.params.id), "Skill candidate");
   });
 
-  app.post("/drafts", async (request) => {
-    const input = SkillDraftContentSchema.parse(request.body);
-    return ok(await resolveSkills(request).authoring.createDraft(input), "Skill draft created");
-  });
-
-  app.put<{ Params: DraftParams }>("/drafts/:id", async (request) => {
-    const input = UpdateSkillDraftSchema.parse(request.body);
-    return ok(await resolveSkills(request).authoring.updateDraft(
-      request.params.id,
-      input.expected_revision,
-      { name: input.name, description: input.description, content: input.content },
-    ), "Skill draft updated");
+  app.post<{ Body: SubmitArtifactBody }>("/drafts/import", async (request) => {
+    requireTenantMember(request);
+    const body = SubmitSkillArtifactSchema.parse(request.body);
+    const sessionId = body.session_id;
+    if (!sessionId) throw new HttpError(400, "invalid_request", "session_id is required");
+    await resolveArtifactResource(request).assertReadable(request, sessionId);
+    const candidate = await resolveSkills(request).authoring.submitArtifact(
+      body.artifact_id,
+      body.expected_revision,
+      {
+        sourceSessionId: sessionId,
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.description !== undefined ? { description: body.description } : {}),
+      },
+    );
+    return ok(toSkillDraftView(candidate, "not_published"), "Skill Artifact 已复制为候选");
   });
 
   app.post<{ Params: DraftParams }>("/drafts/:id/publish", async (request) => {
     requireTenantAdmin(request);
     const input = PublishSkillDraftSchema.parse(request.body);
     const published = await resolveSkills(request).authoring.publishDraft(request.params.id, input.expected_revision);
-    return ok({ ...published, package_state: "available" as const }, "Skill draft published");
+    return ok(toSkillDraftView(published, "available"), "Skill draft published");
   });
 
   app.delete<{ Params: DraftParams }>("/drafts/:id", async (request) => {
@@ -137,65 +131,15 @@ export const registerSkillRoutes: FastifyPluginAsync = async (app) => {
     return buffer;
   });
 
-  app.post<{ Body: CreateBody }>("/", async (request) => {
-    requireTenantAdmin(request);
-    if (!isRecord(request.body)) {
-      throw new HttpError(400, "invalid_request", "请求体必须是对象");
-    }
-    const name = asString(request.body.name);
-    const description = asString(request.body.description);
-    if (!name || !description) {
-      throw new HttpError(400, "invalid_request", "name 与 description 必填");
-    }
-    const skill = await resolveSkills(request).library.createSkill({
-      name,
-      description,
-      content: asString(request.body.content) ?? "",
-    });
-    return ok(skill, `Skill '${skill.name}' 已创建`);
-  });
-
-  app.put<{ Params: SkillParams; Body: UpdateBody }>("/:name", async (request) => {
-    requireTenantAdmin(request);
-    if (!isRecord(request.body)) {
-      throw new HttpError(400, "invalid_request", "请求体必须是对象");
-    }
-    const patch: { description?: string; content?: string } = {};
-    const description = asString(request.body.description);
-    if (description) {
-      patch.description = description;
-    }
-    const content = asString(request.body.content);
-    if (content !== null) {
-      patch.content = content;
-    }
-    const skill = await resolveSkills(request).library.updateSkillMd(request.params.name, patch);
-    return ok(skill, `Skill '${skill.name}' 已更新`);
-  });
-
-  app.post<{ Params: SkillParams; Querystring: UploadQuery }>("/:name/files", async (request) => {
-    requireTenantAdmin(request);
-    const parts = await collectMultipartFiles(request);
-    const dir = request.query.dir === "scripts" ? "scripts" : "";
-    const uploaded = [];
-    for (const part of parts) {
-      const base = path.basename(part.filename);
-      const rel = dir ? `${dir}/${base}` : base;
-      await resolveSkills(request).library.writeSkillFile(request.params.name, rel, part.buffer);
-      uploaded.push({ path: rel, bytes: part.buffer.length });
-    }
-    return ok({ uploaded }, `已上传 ${uploaded.length} 个文件`);
-  });
-
   app.delete<{ Params: SkillParams }>("/:name", async (request) => {
     requireTenantAdmin(request);
     const skills = resolveSkills(request);
     const deleted = await skills.library.deleteSkill(request.params.name);
-    const restoredDraft = await skills.authoring.restoreDraftAfterSkillDelete(deleted.name);
+    const restoredCandidate = await skills.authoring.restoreCandidateAfterReleaseDelete(deleted.name);
     return ok({
       ...deleted,
-      restored_draft: restoredDraft
-        ? { id: restoredDraft.id, name: restoredDraft.name, revision: restoredDraft.revision, status: restoredDraft.status }
+      restored_candidate: restoredCandidate
+        ? toSkillDraftView(restoredCandidate, "not_published")
         : null,
     }, `Skill '${deleted.name}' 已删除`);
   });
@@ -205,13 +149,15 @@ function resolveSkills(request: Parameters<typeof requireTenantMember>[0]) {
   return request.container.pluginCapabilities.require(SKILLS_RUNTIME_CAPABILITY);
 }
 
+function resolveArtifactResource(request: Parameters<typeof requireTenantMember>[0]) {
+  const resource = request.container.pluginCapabilities.require(SKILLS_RUNTIME_CAPABILITY).artifactResource;
+  if (!resource) throw new HttpError(503, "dependency_unavailable", "Artifact 插件未启用，无法提交 Skill Artifact");
+  return resource;
+}
+
 function configKey(params: AgentParams, query: TeamQuery): { teamName: string; agentName: string } {
   return {
     teamName: query.team?.trim() || "default",
     agentName: params.agentName,
   };
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
 }

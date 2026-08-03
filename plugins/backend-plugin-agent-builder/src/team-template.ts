@@ -4,16 +4,19 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 2;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 5;
+
+const SKILL_ARTIFACT_TOOL = "create_skill_artifact";
 
 const SKILL_AUTHORING_TOOLS = [
   "list_skill_drafts",
   "get_skill_draft",
-  "create_skill_draft",
-  "update_skill_draft",
+  "submit_skill_artifact",
 ] as const;
 
-const SKILL_AUTHORING_PROMPT = "When the workflow contains reusable domain instructions that are not covered by an existing Skill, use the Skills plugin authoring tools to create or update a reviewable Skill draft. A Skill draft is not an enabled Skill: never reference it from an Agent Blueprint until an administrator publishes it in the Skill Library.";
+const SKILL_ARTIFACT_HANDOFF_PROMPT = "Wait for the create_skill_artifact result before calling submit_skill_artifact; read the exact content.artifact_id and content.artifact_revision returned by that tool, pass them as artifact_id and expected_revision, and never invent identifiers or submit in the same concurrent tool batch.";
+const SKILL_AUTHORING_PROMPT = `When the workflow produces reusable domain instructions that are not covered by an existing Skill, call create_skill_artifact to create a complete kind=skill Artifact in the current Session containing the generated SKILL.md and every script or resource needed to run it. This is an ordinary Artifact authoring tool and does not enable or bind any Skill. ${SKILL_ARTIFACT_HANDOFF_PROMPT} After validating the complete bundle, use submit_skill_artifact to copy it into a reviewable Skill candidate. A candidate is not an enabled Skill: never reference it from an Agent Blueprint until an administrator publishes it in the Skill Library.`;
+const LEGACY_SKILL_AUTHORING_PROMPT = "When the workflow produces reusable domain instructions that are not covered by an existing Skill, use the enabled artifact skill-authoring Skill to create a kind=skill Artifact in the current Session containing SKILL.md and every script or resource needed to run it. The bundle may be assembled as JSON with write_file and passed to create_skill_artifact.py through execute_skill_script. Wait for the execute_skill_script result before calling submit_skill_artifact; read the exact content.artifact_id and content.artifact_revision returned by that tool, pass them as artifact_id and expected_revision, and never invent identifiers or submit in the same concurrent tool batch. After validating the complete bundle, use submit_skill_artifact to copy it into a reviewable Skill candidate. A candidate is not an enabled Skill: never reference it from an Agent Blueprint until an administrator publishes it in the Skill Library.";
 
 /**
  * Seed the managed Team once per tenant. Existing user changes are preserved;
@@ -46,6 +49,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "grep",
         "web_fetch",
         "todo_write",
+        SKILL_ARTIFACT_TOOL,
         "list_agent_drafts",
         "get_agent_draft",
         "create_agent_draft",
@@ -124,14 +128,19 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   const existingTools = Array.isArray(orchestrator.tools?.enabled_tools)
     ? orchestrator.tools.enabled_tools
     : [];
-  const enabledTools = [...existingTools];
+  const deprecatedSkillTools = new Set(["create_skill_draft", "update_skill_draft"]);
+  const enabledTools = existingTools.filter((tool) => !deprecatedSkillTools.has(tool));
+  if (!enabledTools.includes(SKILL_ARTIFACT_TOOL)) enabledTools.push(SKILL_ARTIFACT_TOOL);
   for (const tool of SKILL_AUTHORING_TOOLS) {
     if (!enabledTools.includes(tool)) enabledTools.push(tool);
   }
   const prompt = typeof behavior.system_prompt === "string" ? behavior.system_prompt.trim() : "";
-  const nextPrompt = prompt.includes("create or update a reviewable Skill draft")
-    ? prompt
-    : `${prompt} ${SKILL_AUTHORING_PROMPT}`.trim();
+  const withoutLegacyAuthoring = prompt.replace(LEGACY_SKILL_AUTHORING_PROMPT, SKILL_AUTHORING_PROMPT);
+  const nextPrompt = withoutLegacyAuthoring.includes("submit_skill_artifact")
+    ? (withoutLegacyAuthoring.includes("create_skill_artifact") && withoutLegacyAuthoring.includes("content.artifact_id")
+      ? withoutLegacyAuthoring
+      : `${withoutLegacyAuthoring} ${SKILL_ARTIFACT_HANDOFF_PROMPT}`.trim())
+    : `${withoutLegacyAuthoring} ${SKILL_AUTHORING_PROMPT}`.trim();
   return {
     ...configs,
     builder_orchestrator: {

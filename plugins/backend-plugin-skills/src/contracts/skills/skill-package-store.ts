@@ -22,15 +22,18 @@ export interface SkillPackageRecord {
   };
 }
 
-export interface CreateSkillPackageInput {
+export interface SkillPackageBundleFile {
+  relativePath: string;
+  body: Uint8Array;
+  mediaType?: string | null;
+}
+
+export interface CreateSkillPackageBundleInput {
   name: string;
   description: string;
   content: string;
-}
-
-export interface UpdateSkillPackageInput {
-  description?: string;
-  content?: string;
+  files: readonly SkillPackageBundleFile[];
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -40,9 +43,7 @@ export interface UpdateSkillPackageInput {
 export interface ISkillPackageStore {
   list(): Promise<SkillPackageRecord[]>;
   get(name: string): Promise<SkillPackageRecord | null>;
-  create(input: CreateSkillPackageInput): Promise<SkillPackageRecord>;
-  updateMarkdown(name: string, input: UpdateSkillPackageInput): Promise<SkillPackageRecord>;
-  writeFile(name: string, relativePath: string, body: Uint8Array): Promise<SkillPackageRecord>;
+  createBundle(input: CreateSkillPackageBundleInput): Promise<SkillPackageRecord>;
   readFile(name: string, relativePath: string): Promise<{ body: Uint8Array; contentType: string } | null>;
   listFiles(name: string): Promise<SkillPackageFileNode[]>;
   delete(name: string): Promise<boolean>;

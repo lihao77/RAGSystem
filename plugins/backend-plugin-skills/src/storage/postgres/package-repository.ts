@@ -78,40 +78,6 @@ export class PostgresSkillPackageRepository {
     }
   }
 
-  async upsertPackage(input: {
-    tenantId: TenantId;
-    skillName: string;
-    description: string;
-    content: string;
-    metadata: Record<string, unknown>;
-    contentHash: string;
-    packagePrefix: string;
-  }): Promise<SkillPackageMetadataRow> {
-    const result = await this.executor.query(
-      `INSERT INTO saas_skill_packages(
-         tenant_id, skill_name, description, content, metadata, content_hash, package_prefix
-       ) VALUES($1,$2,$3,$4,$5::jsonb,$6,$7)
-       ON CONFLICT (tenant_id, skill_name) DO UPDATE SET
-         description = EXCLUDED.description,
-         content = EXCLUDED.content,
-         metadata = EXCLUDED.metadata,
-         content_hash = EXCLUDED.content_hash,
-         package_prefix = EXCLUDED.package_prefix,
-         updated_at = CURRENT_TIMESTAMP
-       RETURNING *`,
-      [
-        input.tenantId,
-        input.skillName,
-        input.description,
-        input.content,
-        JSON.stringify(input.metadata),
-        input.contentHash,
-        input.packagePrefix,
-      ],
-    );
-    return toPackageRow(result.rows[0]!);
-  }
-
   async deletePackage(tenantId: TenantId, skillName: string): Promise<boolean> {
     const result = await this.executor.query(
       "DELETE FROM saas_skill_packages WHERE tenant_id=$1 AND skill_name=$2",

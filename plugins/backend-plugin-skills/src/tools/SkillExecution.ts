@@ -153,7 +153,7 @@ export class SkillToolService {
     return this.builtinSkillsRoot;
   }
 
-  /** 用户全局 skill 根目录（dataRoot/skills，可读写）。 */
+  /** 用户全局 skill 根目录（dataRoot/skills，由 Skill 库物化）。 */
   getUserGlobalSkillsRoot(): string {
     return this.userGlobalSkillsRoot;
   }

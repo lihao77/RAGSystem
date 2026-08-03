@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   createArtifactToolAfterHook,
   createArtifactsPlugin,
+  createSkillArtifactTools,
   parseArtifactManifest,
 } from "../dist/index.js";
 import { FilesystemArtifactService } from "../dist/storage/filesystem/filesystem-artifact-service.js";
@@ -31,14 +32,18 @@ test("Artifact plugin registers its contributions and owns storage lifecycle", a
     routes: { register: (scope, prefix) => { contributions.route = { scope, prefix }; } },
     runtimes: {},
     resources: { register: (kind, value) => { resources.push({ kind, value }); } },
-    tools: {},
+    tools: { register: (factory, descriptors) => { contributions.tools = { factory, descriptors }; } },
   });
   await plugin.start();
   await plugin.stop();
 
   assert.deepEqual(contributions.route, { scope: "tenant", prefix: "/api/artifacts" });
   assert.equal(contributions.hook.event, "tool.after");
-  assert.match(resources.find((item) => item.kind === "ragsystem.skill-source").value, /[\\/]skills$/);
+  const skillSource = resources.find((item) => item.kind === "ragsystem.skill-source").value;
+  assert.match(skillSource, /[\\/]skills$/);
+  assert.equal(fs.existsSync(path.join(skillSource, "visualization", "SKILL.md")), true);
+  assert.equal(fs.existsSync(path.join(skillSource, "skill-authoring", "SKILL.md")), true);
+  assert.deepEqual(contributions.tools.descriptors.map((tool) => tool.name), ["create_skill_artifact"]);
   assert.equal(typeof resources.find((item) => item.kind === "ragsystem.artifact-staging").value.forTenant, "function");
   assert.deepEqual(events, ["start", "stop"]);
 });
@@ -92,6 +97,64 @@ test("Artifact hook persists a V2 manifest with multiple embedded assets", async
   assert.equal(output.modifiedResult.outputType, "map.raster");
 });
 
+test("Skill Artifact result exposes stable identifiers for a later submit call", async () => {
+  const hook = createArtifactToolAfterHook({
+    storage: {
+      applicationForTenant: () => artifactApplication({
+        createArtifact: async () => artifactRecord({
+          artifact_id: "art_skill_123",
+          kind: "skill",
+          subtype: null,
+          revision: 3,
+          asset_count: 4,
+          presentation_count: 0,
+        }),
+      }),
+    },
+  });
+
+  const output = await hook({
+    toolName: "execute_skill_script",
+    arguments: {},
+    result: toolResult({ artifact: { schema_version: 2, kind: "skill", assets: [] } }),
+    ctx: { tenantId: "tenant-a", sessionId: "session-a", runId: "run-a" },
+  });
+
+  assert.equal(output.modifiedResult.content.artifact_id, "art_skill_123");
+  assert.equal(output.modifiedResult.content.artifact_kind, "skill");
+  assert.equal(output.modifiedResult.content.artifact_revision, 3);
+  assert.equal(output.modifiedResult.metadata.artifact_id, "art_skill_123");
+  assert.equal(output.modifiedResult.metadata.artifact_kind, "skill");
+  assert.equal(output.modifiedResult.metadata.artifact_revision, 3);
+  assert.equal(output.modifiedResult.metadata.artifact_status, "ready");
+  assert.equal(output.modifiedResult.summary, "Skill Artifact 已创建：artifact_id=art_skill_123, revision=3");
+  assert.match(output.modifiedResult.llmHint, /artifact_id=art_skill_123/);
+  assert.match(output.modifiedResult.llmHint, /expected_revision=3/);
+  assert.match(output.modifiedResult.llmHint, /不要在同一并发工具批次中提前提交/);
+});
+
+test("create_skill_artifact builds valid text and binary bundle assets", async () => {
+  assert.deepEqual(createSkillArtifactTools({ tools: { enabled_tools: [] } }), []);
+  const [tool] = createSkillArtifactTools({ tools: { enabled_tools: ["create_skill_artifact"] } });
+  const result = await tool.call({
+    name: "hello-world",
+    description: "Say hello",
+    content: "Greet the user.",
+    files: [
+      { path: "scripts/run.py", content: "print('hello')\n" },
+      { path: "assets/icon.bin", data_base64: Buffer.from([1, 2, 3]).toString("base64") },
+    ],
+  }, { tenantId: "tenant-a", sessionId: "session-a" });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(result.content.artifact.assets.map((asset) => asset.media_type), [
+    "text/markdown",
+    "text/x-python",
+    "application/octet-stream",
+  ]);
+  assert.equal(Buffer.from(result.content.artifact.assets[2].data_base64, "base64").toString("hex"), "010203");
+});
+
 test("Artifact hook rejects the old V1 protocol", async () => {
   const hook = createArtifactToolAfterHook({ storage: { applicationForTenant: () => artifactApplication() } });
   const output = await hook({
@@ -101,6 +164,8 @@ test("Artifact hook rejects the old V1 protocol", async () => {
     ctx: { tenantId: "tenant-a", sessionId: "session-a", runId: "run-a" },
   });
   assert.equal(output.modifiedResult.metadata.artifact_error, "artifact.schema_version 必须是 2");
+  assert.equal(output.modifiedResult.success, false);
+  assert.match(output.modifiedResult.content, /Artifact 处理失败/);
 });
 
 test("Filesystem Artifact V2 stores multiple binary assets with checksums and real extensions", () => {

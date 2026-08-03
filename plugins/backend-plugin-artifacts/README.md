@@ -2,6 +2,10 @@
 
 Artifact V2 将一个 Artifact 定义为有语义的产物 Manifest。Manifest 可以引用多个二进制 Asset，并声明一个或多个受控 Presentation。`kind`、`surface` 和 `renderer` 使用开放的命名空间字符串，新类型不需要修改存储层。
 
+Artifact 插件提供普通工具 `create_skill_artifact`。管理员可像配置其他工具一样单独授予任意 Agent；它不依赖 `enabled_skills`，也不会让 Agent 获得任何已发布 Skill 的使用权。工具从结构化的名称、描述、正文、元数据和附加文件生成完整 `SKILL.md` bundle，并保存为当前 Session 的 `kind=skill` Artifact。它不负责提交、发布或绑定 Skill；提交由 Skills 插件的 `submit_skill_artifact` 工具单独完成。
+
+`create_skill_artifact` 完成后，Artifact Hook 会移除包含 Base64 的内部 bundle，只向 Agent 返回真实的 `content.artifact_id` 和 `content.artifact_revision`。后续提交必须等待当前工具结果完成，并把这两个值分别传给 `submit_skill_artifact.artifact_id` 与 `expected_revision`。
+
 ## Skill 输出协议
 
 `execute_skill_script` 成功结果中的 `artifact` 字段使用以下结构：

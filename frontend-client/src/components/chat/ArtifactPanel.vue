@@ -52,26 +52,36 @@
         </span>
       </button>
 
-      <button
+      <div
         v-for="artifact in artifacts"
         :key="artifact.artifactId"
-        type="button"
         class="artifact-item"
         :title="`定位 ${artifact.artifactId}`"
-        @click="emit('select', artifact)"
       >
-        <span class="artifact-item-index">{{ artifact.index + 1 }}</span>
-        <span class="artifact-item-main">
-          <span class="artifact-item-title">{{ artifact.label }}</span>
-          <span class="artifact-item-id">{{ artifact.artifactId }}</span>
-        </span>
+        <button type="button" class="artifact-item-trigger" @click="emit('select', artifact)">
+          <span class="artifact-item-index">{{ artifact.index + 1 }}</span>
+          <span class="artifact-item-main">
+            <span class="artifact-item-title">{{ artifact.label }}</span>
+            <span class="artifact-item-id">{{ artifact.artifactId }}</span>
+          </span>
+        </button>
+        <button
+          v-if="artifactDetails[artifact.artifactId]?.kind === 'skill'"
+          type="button"
+          class="artifact-submit-skill"
+          :disabled="submitBusy[artifact.artifactId]"
+          title="复制到 Skill 库候选"
+          @click.stop="submitSkillArtifact(artifact)"
+        >
+          {{ submitBusy[artifact.artifactId] ? '提交中…' : '提交到 Skill 库' }}
+        </button>
         <span class="artifact-item-action" aria-hidden="true">
           <svg viewBox="0 0 20 20">
             <path d="M7 4.5h8.5V13" />
             <path d="M15.5 4.5 5 15" />
           </svg>
         </span>
-      </button>
+      </div>
     </div>
       </div>
     </Transition>
@@ -81,6 +91,9 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { getLatestFileChanges } from '../../api/fileChanges.js';
+import { getArtifact } from '../../api/artifact.js';
+import { submitSkillArtifact as submitSkillArtifactApi } from '../../api/skillLibrary.js';
+import { useToast } from '../../composables/useToast.js';
 
 const props = defineProps({
   message: { type: Object, default: null },
@@ -89,7 +102,8 @@ const props = defineProps({
   running: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['select', 'fileChanges']);
+const emit = defineEmits(['select', 'fileChanges', 'skillSubmitted']);
+const toast = useToast();
 const files = ref([]);
 let fileChangesRequest = 0;
 
@@ -113,6 +127,41 @@ const artifacts = computed(() => {
 
   return items;
 });
+
+const artifactDetails = ref({});
+const submitBusy = ref({});
+watch(artifacts, async (items) => {
+  const next = { ...artifactDetails.value };
+  await Promise.all(items.map(async (item) => {
+    if (next[item.artifactId]) return;
+    try {
+      const result = await getArtifact(item.artifactId);
+      next[item.artifactId] = result.data || result;
+    } catch {
+      // Artifact details remain optional for the compact work panel.
+    }
+  }));
+  artifactDetails.value = next;
+}, { immediate: true });
+
+async function submitSkillArtifact(artifact) {
+  const manifest = artifactDetails.value[artifact.artifactId];
+  if (!manifest || manifest.kind !== 'skill') return;
+  submitBusy.value = { ...submitBusy.value, [artifact.artifactId]: true };
+  try {
+    const result = await submitSkillArtifactApi({
+      artifactId: artifact.artifactId,
+      expectedRevision: manifest.revision,
+      sessionId: props.sessionId,
+    });
+    emit('skillSubmitted', result);
+    toast.success('Skill Artifact 已提交到候选审核');
+  } catch (error) {
+    toast.error(error?.message || '提交 Skill Artifact 失败');
+  } finally {
+    submitBusy.value = { ...submitBusy.value, [artifact.artifactId]: false };
+  }
+}
 
 const outputCount = computed(() => artifacts.value.length + (files.value.length ? 1 : 0));
 const fileChangeSummary = computed(() => {
@@ -288,7 +337,7 @@ function onAfterLeave(el) {
   width: 100%;
   min-height: 42px;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 22px;
+  grid-template-columns: minmax(0, 1fr) auto 22px;
   align-items: center;
   gap: 8px;
   padding: 7px 8px;
@@ -303,6 +352,44 @@ function onAfterLeave(el) {
     background var(--transition-fast),
     border-color var(--transition-fast),
     color var(--transition-fast);
+}
+
+.artifact-item-trigger {
+  min-width: 0;
+  grid-column: 1;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifact-submit-skill {
+  grid-column: 2;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px 7px;
+  color: var(--color-text-secondary);
+  background: var(--surface-shell);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.artifact-submit-skill:hover:not(:disabled) {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-focus);
+}
+
+.artifact-submit-skill:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .artifact-item:hover {

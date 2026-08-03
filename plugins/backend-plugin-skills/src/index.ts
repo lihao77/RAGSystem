@@ -16,6 +16,9 @@ export { backendPluginModule } from "./module.js";
 export { createSkillsPlugin, SKILLS_PLUGIN_ID } from "./plugin.js";
 export {
   ARTIFACT_STAGING_RESOURCE_KIND,
+  ARTIFACT_APPLICATION_RESOURCE_KIND,
+  resolveArtifactApplication,
+  resolveArtifactResource,
   resolveArtifactStagingService,
   resolveBuiltinSkillSources,
   SKILL_SOURCE_RESOURCE_KIND,
@@ -24,6 +27,8 @@ export type {
   ArtifactStagedFileResource,
   ArtifactStagingRunResource,
   ArtifactStagingServiceResource,
+  SkillArtifactApplication,
+  SkillArtifactResource,
 } from "./resources.js";
 export { createLocalSkillsRuntimeFactory } from "./storage/local/runtime.js";
 export { FilesystemSkillPackageStore } from "./storage/local/package-store.js";
@@ -39,18 +44,27 @@ export {
 } from "./tools/SkillAuthoringTools.js";
 export {
   SkillDraftContentSchema,
+  SkillDraftAssetSchema,
+  SkillDraftAssetViewSchema,
   SkillDraftSchema,
-  UpdateSkillDraftSchema,
   PublishSkillDraftSchema,
   DeleteSkillDraftSchema,
+  SubmitSkillArtifactSchema,
   SkillDraftNameConflictError,
   isSkillDraftNameConflict,
+  toSkillDraftView,
   type SkillDraft,
+  type SkillDraftAssetView,
   type SkillDraftContent,
   type SkillDraftPackageState,
   type SkillDraftView,
   type SkillDraftStore,
 } from "./contracts/skills/skill-draft.js";
-export { SkillAuthoringService, type SkillDraftSource } from "./services/skill-authoring-service.js";
+export { SkillAuthoringService, type SubmitSkillArtifactOptions } from "./services/skill-authoring-service.js";
+export type {
+  CreateSkillPackageBundleInput,
+  ISkillPackageStore,
+  SkillPackageBundleFile,
+} from "./contracts/skills/skill-package-store.js";
 export { SqliteSkillDraftStore } from "./storage/local/skill-draft-store.js";
 export { PostgresSkillDraftStore } from "./storage/postgres/skill-draft-store.js";

@@ -125,8 +125,17 @@ export function storedAssetFilename(assetId: string, filename: string): string {
 }
 
 export function safeAssetFilename(filename: string | null | undefined, assetId: string, mediaType: string): string {
-  const normalized = typeof filename === "string" ? path.basename(filename.trim()).slice(0, 255) : "";
-  return normalized || `${assetId}${extensionForMediaType(mediaType)}`;
+  if (typeof filename !== "string" || !filename.trim()) return `${assetId}${extensionForMediaType(mediaType)}`;
+  const normalized = filename.trim().replaceAll("\\", "/");
+  const parts = normalized.split("/");
+  if (normalized.length > 512
+    || path.posix.isAbsolute(normalized)
+    || /^[A-Za-z]:/u.test(normalized)
+    || /[\u0000-\u001f\u007f]/u.test(normalized)
+    || parts.some((part) => !part || part === "." || part === "..")) {
+    throw new ArtifactServiceError("asset.filename 必须是安全相对路径");
+  }
+  return normalized;
 }
 
 export function namespace(value: unknown, field: string): string {

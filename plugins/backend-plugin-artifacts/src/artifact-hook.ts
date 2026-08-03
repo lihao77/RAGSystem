@@ -12,6 +12,7 @@ import type {
 import type { ArtifactPresentation, ArtifactRelation, ArtifactStatus } from "./contracts/artifacts.js";
 import type { JsonObject } from "./contracts/json.js";
 import type { ArtifactStagingClaim, ArtifactStagingProvider } from "./staging/contracts.js";
+import { CREATE_SKILL_ARTIFACT_TOOL_NAME } from "./tools/create-skill-artifact.js";
 
 const MAX_EMBEDDED_ASSET_BYTES = 32 * 1024 * 1024;
 const MAX_EMBEDDED_ASSET_TOTAL_BYTES = 128 * 1024 * 1024;
@@ -20,9 +21,22 @@ export function createArtifactToolAfterHook(
   dependencies: Pick<ArtifactsPluginDependencies, "storage" | "staging">,
 ): (input: ToolAfterInput) => Promise<ToolAfterOutput | void> {
   return async ({ toolName, result, ctx }) => {
-    if (toolName !== "execute_skill_script" || !result.success || !isRecord(result.content) || !("artifact" in result.content)) return;
+    if ((toolName !== "execute_skill_script" && toolName !== CREATE_SKILL_ARTIFACT_TOOL_NAME)
+      || !result.success
+      || !isRecord(result.content)
+      || !("artifact" in result.content)) return;
     const { artifact: rawArtifact, ...content } = result.content;
-    const fail = (message: string): ToolAfterOutput => ({ modifiedResult: replace(result, content, { ...result.metadata, artifact_error: message }) });
+    const fail = (message: string): ToolAfterOutput => ({
+      modifiedResult: {
+        ...result,
+        success: false,
+        summary: message,
+        outputType: "error",
+        content: `Artifact 处理失败: ${message}`,
+        metadata: { ...result.metadata, artifact_error: message },
+        llmHint: null,
+      },
+    });
     if (!isRecord(rawArtifact)) return fail("artifact 字段必须是对象");
     const tenantId = normalizeString(ctx.tenantId);
     if (!tenantId) return fail("Artifact 插件需要 tenant_id");
@@ -40,6 +54,13 @@ export function createArtifactToolAfterHook(
       );
       if ("error" in persisted) return fail(persisted.error);
       const info = persisted.record;
+      const isSkillArtifact = info.kind === "skill";
+      const summary = isSkillArtifact
+        ? `Skill Artifact 已${normalizeString(rawArtifact.action) === "revise" ? "更新" : "创建"}：artifact_id=${info.artifact_id}, revision=${info.revision}`
+        : result.summary;
+      const llmHint = isSkillArtifact
+        ? `Skill Artifact 已保存。等待本工具结果完成后，使用 artifact_id=${info.artifact_id}、expected_revision=${info.revision} 调用 submit_skill_artifact。不要编造 ID，也不要在同一并发工具批次中提前提交。`
+        : `在 <final_answer> 中插入 [artifact:${info.artifact_id}] 来展示此产物`;
       return {
         modifiedResult: {
           ...replace(result, {
@@ -53,11 +74,15 @@ export function createArtifactToolAfterHook(
           }, {
             ...result.metadata,
             artifact_id: info.artifact_id,
+            artifact_kind: info.kind,
             artifact_persisted: true,
+            artifact_revision: info.revision,
+            artifact_status: info.status,
             ...(persisted.cleanupError ? { artifact_staging_cleanup_error: persisted.cleanupError } : {}),
           }),
+          summary,
           outputType: info.kind,
-          llmHint: `在 <final_answer> 中插入 [artifact:${info.artifact_id}] 来展示此产物`,
+          llmHint,
         },
       };
     } catch (error) {
