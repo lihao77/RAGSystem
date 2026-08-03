@@ -67,9 +67,6 @@ export interface BackendToolDescriptor {
   readonly description: string;
   readonly category: string;
   readonly risk_level: "low" | "medium" | "high";
-  /** Optional management metadata used by the Agent tool configuration UI. */
-  readonly implemented?: boolean;
-  readonly runtime_status?: "implemented" | "not_migrated";
 }
 
 export type BackendToolFactory = (

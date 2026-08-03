@@ -105,8 +105,6 @@ export function createAgentBuilderTools(service: AgentBuilderService, capabiliti
               description: tool.description,
               category: tool.category,
               risk_level: tool.risk_level,
-              ...(tool.implemented !== undefined ? { implemented: tool.implemented } : {}),
-              ...(tool.runtime_status !== undefined ? { runtime_status: tool.runtime_status } : {}),
             })),
             skills: skills.map((skill) => {
               const info = skillInfoByName.get(skill.name);

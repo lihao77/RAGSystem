@@ -10,8 +10,6 @@ work from reintroducing placeholder behavior or stale `501 not_migrated` assumpt
   plan.
 - There are no active route-level `501 not_migrated` placeholders in `backend-ts/src`.
 - Health/status endpoints report the TS runtime as migrated.
-- The remaining `not_migrated` type value in tool metadata is a compatibility value for hidden or
-  future unavailable tools; current visible runtime tools report `implemented`.
 
 ## Migrated Scope
 

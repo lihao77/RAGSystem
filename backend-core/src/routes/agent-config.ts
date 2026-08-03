@@ -238,8 +238,6 @@ function normalizeAvailableTool(tool: unknown): Record<string, unknown> {
     description: typeof item.description === "string" ? item.description : "",
     category: typeof item.category === "string" ? item.category : "",
     source: "decorator",
-    runtime_status: typeof item.runtime_status === "string" ? item.runtime_status : "not_migrated",
-    implemented: typeof item.implemented === "boolean" ? item.implemented : false,
     risk_level: typeof item.risk_level === "string" ? item.risk_level : "low",
   };
 }

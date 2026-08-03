@@ -325,22 +325,15 @@
                 v-for="tool in tools"
                 :key="tool.name"
                 class="toggle-card"
-                :class="{
-                  active: isToolRuntimeActive(tool),
-                  disabled: !isToolImplemented(tool),
-                  'configured-unavailable': isToolConfigured(tool) && !isToolImplemented(tool)
-                }"
-                :aria-disabled="!isToolImplemented(tool)"
-                @click="isToolImplemented(tool) && toggleTool(tool.name, !isToolConfigured(tool))"
+                :class="{ active: configForm.tools.enabled_tools.includes(tool.name) }"
+                @click="toggleTool(tool.name, !configForm.tools.enabled_tools.includes(tool.name))"
               >
                 <div class="toggle-card__indicator">
-                  <IconCheck v-if="isToolRuntimeActive(tool)" :size="13" />
+                  <IconCheck v-if="configForm.tools.enabled_tools.includes(tool.name)" :size="13" />
                 </div>
                 <div class="toggle-card__name">{{ tool.display_name || tool.name }}</div>
                 <div class="toggle-card__desc">{{ tool.description || tool.name }}</div>
                 <div class="toggle-card__meta toggle-card__meta--badges">
-                  <span class="toggle-card__badge" :class="{ 'toggle-card__badge--danger': !isToolImplemented(tool) }">{{ toolStatusLabel(tool) }}</span>
-                  <span v-if="isToolConfigured(tool) && !isToolImplemented(tool)" class="toggle-card__badge toggle-card__badge--warning">配置中</span>
                   <span v-if="tool.risk_level" class="toggle-card__badge">{{ tool.risk_level }}</span>
                 </div>
               </div>
@@ -1268,8 +1261,9 @@ function buildPayload() {
   if (tiers.powerful) builtTiers.powerful = buildTier(tiers.powerful, 'powerful');
   merged.llm_tiers = Object.keys(builtTiers).length ? builtTiers : null;
 
+  // Tools are configured solely through the current enabled_tools allowlist.
+  // Rebuilding this object drops retired fields left by older agent configs.
   merged.tools = {
-    ...(merged.tools || {}),
     enabled_tools: sanitizeEnabledTools(configForm.value.tools.enabled_tools)
   };
 
@@ -1504,22 +1498,6 @@ function handleTierProviderChange(tier, key) {
   if (p.temperature != null) t.temperature = Number(p.temperature);
   if (p.max_completion_tokens != null) t.max_completion_tokens = Number(p.max_completion_tokens);
   if (p.max_context_tokens != null) t.max_context_tokens = Number(p.max_context_tokens);
-}
-
-function isToolImplemented(tool) {
-  return tool?.implemented !== false && tool?.runtime_status !== 'not_migrated';
-}
-
-function isToolConfigured(tool) {
-  return !!tool?.name && configForm.value.tools.enabled_tools.includes(tool.name);
-}
-
-function isToolRuntimeActive(tool) {
-  return isToolImplemented(tool) && isToolConfigured(tool);
-}
-
-function toolStatusLabel(tool) {
-  return isToolImplemented(tool) ? 'TS 已迁移' : 'TS 未迁移';
 }
 
 function toggleTool(name, checked) {

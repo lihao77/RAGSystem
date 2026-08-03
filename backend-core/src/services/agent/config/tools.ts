@@ -8,8 +8,6 @@ export interface AvailableToolInfo {
   name: string;
   description: string;
   category: string;
-  runtime_status: "implemented" | "not_migrated";
-  implemented: boolean;
   risk_level: ToolRiskLevel;
 }
 
@@ -19,19 +17,19 @@ export function listAvailableTools(): AvailableToolInfo[] {
 
 function allRuntimeTools(): AvailableToolInfo[] {
   return [
-    implementedTool("goal_create", "Create a durable session Goal with success criteria and stages", "goal", "low"),
-    implementedTool("goal_get", "Read the current or historical session Goal", "goal", "low"),
-    implementedTool("goal_update", "Update Goal progress, stages, checkpoint, or lifecycle", "goal", "low"),
-    implementedTool("goal_list", "List current and historical session Goals", "goal", "low"),
-    implementedTool("task_output", "Read a background task status and output", "task", "low"),
-    implementedTool("task_stop", "Stop a cancellable background task", "task", "medium"),
-    implementedTool("call_agent", "Delegate a subtask to an allowed child Agent", "agent_delegation", "low"),
-    implementedTool("list_child_agents", "List child Agent sessions for the current session", "agent_delegation", "low"),
-    implementedTool("send_message", "Continue an existing child Agent session", "agent_delegation", "low"),
+    availableTool("goal_create", "Create a durable session Goal with success criteria and stages", "goal", "low"),
+    availableTool("goal_get", "Read the current or historical session Goal", "goal", "low"),
+    availableTool("goal_update", "Update Goal progress, stages, checkpoint, or lifecycle", "goal", "low"),
+    availableTool("goal_list", "List current and historical session Goals", "goal", "low"),
+    availableTool("task_output", "Read a background task status and output", "task", "low"),
+    availableTool("task_stop", "Stop a cancellable background task", "task", "medium"),
+    availableTool("call_agent", "Delegate a subtask to an allowed child Agent", "agent_delegation", "low"),
+    availableTool("list_child_agents", "List child Agent sessions for the current session", "agent_delegation", "low"),
+    availableTool("send_message", "Continue an existing child Agent session", "agent_delegation", "low"),
   ];
 }
 
-function implementedTool(
+function availableTool(
   name: string,
   description: string,
   category: string,
@@ -41,8 +39,6 @@ function implementedTool(
     name,
     description,
     category,
-    runtime_status: "implemented",
-    implemented: true,
     risk_level: riskLevel,
   };
 }

@@ -11,9 +11,9 @@ const EmptySchema = z.object({}).strict();
 const DraftIdSchema = z.object({ draft_id: z.string().trim().min(1) }).strict();
 
 export const SKILL_AUTHORING_TOOL_DESCRIPTORS: readonly BackendToolDescriptor[] = [
-  { name: "list_skill_drafts", description: "List tenant Skill authoring drafts", category: "skill_authoring", risk_level: "low", implemented: true, runtime_status: "implemented" },
-  { name: "get_skill_draft", description: "Read one Skill authoring draft", category: "skill_authoring", risk_level: "low", implemented: true, runtime_status: "implemented" },
-  { name: "submit_skill_artifact", description: "Copy a session Skill Artifact into a reviewable Skill candidate", category: "skill_authoring", risk_level: "low", implemented: true, runtime_status: "implemented" },
+  { name: "list_skill_drafts", description: "List tenant Skill authoring drafts", category: "skill_authoring", risk_level: "low" },
+  { name: "get_skill_draft", description: "Read one Skill authoring draft", category: "skill_authoring", risk_level: "low" },
+  { name: "submit_skill_artifact", description: "Copy a session Skill Artifact into a reviewable Skill candidate", category: "skill_authoring", risk_level: "low" },
 ];
 
 const SUBMIT_ARTIFACT_SCHEMA = {

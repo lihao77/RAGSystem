@@ -10,8 +10,6 @@ export const CREATE_SKILL_ARTIFACT_TOOL_DESCRIPTOR: BackendToolDescriptor = {
   description: "Create a complete kind=skill Artifact in the current Session",
   category: "artifact",
   risk_level: "low",
-  implemented: true,
-  runtime_status: "implemented",
 };
 
 const SkillNameSchema = z.string()
