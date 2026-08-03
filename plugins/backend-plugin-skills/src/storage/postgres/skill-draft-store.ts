@@ -1,6 +1,8 @@
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 
 import {
+  SkillDraftNameConflictError,
+  isSkillDraftNameConflict,
   SkillDraftSchema,
   type SkillDraft,
   type SkillDraftStore,
@@ -32,26 +34,31 @@ export class PostgresSkillDraftStore implements SkillDraftStore {
   async create(draft: SkillDraft): Promise<void> {
     const parsed = SkillDraftSchema.parse(draft);
     await this.executor.query(
-      `INSERT INTO saas_skill_drafts(tenant_id, id, revision, status, draft, updated_at)
-       VALUES($1,$2,$3,$4,$5::jsonb,$6)`,
+      `INSERT INTO saas_skill_drafts(tenant_id, id, name, revision, status, draft, updated_at)
+       VALUES($1,$2,$3,$4,$5,$6::jsonb,$7)`,
       [
         this.tenantId,
         parsed.id,
+        parsed.name,
         parsed.revision,
         parsed.status,
         JSON.stringify(parsed),
         parsed.updated_at,
       ],
-    );
+    ).catch((error) => {
+      if (isSkillDraftNameConflict(error)) throw new SkillDraftNameConflictError();
+      throw error;
+    });
   }
 
   async update(expectedRevision: number, draft: SkillDraft): Promise<boolean> {
     const parsed = SkillDraftSchema.parse(draft);
     const result = await this.executor.query(
       `UPDATE saas_skill_drafts
-       SET revision=$1, status=$2, draft=$3::jsonb, updated_at=$4
-       WHERE tenant_id=$5 AND id=$6 AND revision=$7`,
+       SET name=$1, revision=$2, status=$3, draft=$4::jsonb, updated_at=$5
+       WHERE tenant_id=$6 AND id=$7 AND revision=$8`,
       [
+        parsed.name,
         parsed.revision,
         parsed.status,
         JSON.stringify(parsed),
@@ -60,6 +67,18 @@ export class PostgresSkillDraftStore implements SkillDraftStore {
         parsed.id,
         expectedRevision,
       ],
+    ).catch((error) => {
+      if (isSkillDraftNameConflict(error)) throw new SkillDraftNameConflictError();
+      throw error;
+    });
+    return Number(result.rowCount ?? 0) > 0;
+  }
+
+  async delete(id: string, expectedRevision: number): Promise<boolean> {
+    const result = await this.executor.query(
+      `DELETE FROM saas_skill_drafts
+       WHERE tenant_id=$1 AND id=$2 AND revision=$3 AND status='draft'`,
+      [this.tenantId, id, expectedRevision],
     );
     return Number(result.rowCount ?? 0) > 0;
   }

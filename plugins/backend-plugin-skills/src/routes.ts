@@ -9,6 +9,7 @@ import { requireTenantAdmin, requireTenantMember } from "@ragsystem/backend-core
 import type {} from "@ragsystem/backend-core/fastify-context.js";
 import { SKILLS_RUNTIME_CAPABILITY } from "./capability.js";
 import {
+  DeleteSkillDraftSchema,
   PublishSkillDraftSchema,
   SkillDraftContentSchema,
   UpdateSkillDraftSchema,
@@ -85,11 +86,11 @@ export const registerSkillRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/drafts", async (request) => {
-    return ok(await resolveSkills(request).authoring.listDrafts(), "Skill drafts");
+    return ok(await resolveSkills(request).authoring.listDraftViews(), "Skill drafts");
   });
 
   app.get<{ Params: DraftParams }>("/drafts/:id", async (request) => {
-    return ok(await resolveSkills(request).authoring.getDraft(request.params.id), "Skill draft");
+    return ok(await resolveSkills(request).authoring.getDraftView(request.params.id), "Skill draft");
   });
 
   app.post("/drafts", async (request) => {
@@ -109,9 +110,16 @@ export const registerSkillRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: DraftParams }>("/drafts/:id/publish", async (request) => {
     requireTenantAdmin(request);
     const input = PublishSkillDraftSchema.parse(request.body);
+    const published = await resolveSkills(request).authoring.publishDraft(request.params.id, input.expected_revision);
+    return ok({ ...published, package_state: "available" as const }, "Skill draft published");
+  });
+
+  app.delete<{ Params: DraftParams }>("/drafts/:id", async (request) => {
+    requireTenantAdmin(request);
+    const input = DeleteSkillDraftSchema.parse(request.body);
     return ok(
-      await resolveSkills(request).authoring.publishDraft(request.params.id, input.expected_revision),
-      "Skill draft published",
+      await resolveSkills(request).authoring.deleteDraft(request.params.id, input.expected_revision),
+      "Skill draft deleted",
     );
   });
 
@@ -181,8 +189,15 @@ export const registerSkillRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete<{ Params: SkillParams }>("/:name", async (request) => {
     requireTenantAdmin(request);
-    await resolveSkills(request).library.deleteSkill(request.params.name);
-    return ok({ name: request.params.name }, `Skill '${request.params.name}' 已删除`);
+    const skills = resolveSkills(request);
+    const deleted = await skills.library.deleteSkill(request.params.name);
+    const restoredDraft = await skills.authoring.restoreDraftAfterSkillDelete(deleted.name);
+    return ok({
+      ...deleted,
+      restored_draft: restoredDraft
+        ? { id: restoredDraft.id, name: restoredDraft.name, revision: restoredDraft.revision, status: restoredDraft.status }
+        : null,
+    }, `Skill '${deleted.name}' 已删除`);
   });
 };
 

@@ -6,6 +6,7 @@ import { createPinia, setActivePinia } from 'pinia';
 
 import {
   createSkillDraft,
+  deleteSkillDraft,
   getSkillDraft,
   listSkillDrafts,
   publishSkillDraft,
@@ -30,7 +31,7 @@ test('Skill draft API unwraps list and item responses', async () => {
   });
 });
 
-test('Skill draft API sends explicit revisions for create, update, and publish', async () => {
+test('Skill draft API sends explicit revisions for create, update, publish, and delete', async () => {
   await withMock((mock) => {
     mock.onPost('/api/skills/drafts').reply((config) => {
       assert.deepEqual(JSON.parse(config.data), {
@@ -53,6 +54,10 @@ test('Skill draft API sends explicit revisions for create, update, and publish',
       assert.deepEqual(JSON.parse(config.data), { expected_revision: 2 });
       return [200, { success: true, data: { id: 'draft_1', status: 'published' } }];
     });
+    mock.onDelete('/api/skills/drafts/draft_1').reply((config) => {
+      assert.deepEqual(JSON.parse(config.data), { expected_revision: 2 });
+      return [200, { success: true, data: { id: 'draft_1' } }];
+    });
   }, async () => {
     assert.equal((await createSkillDraft({
       name: 'incident-response',
@@ -65,5 +70,6 @@ test('Skill draft API sends explicit revisions for create, update, and publish',
       content: '# Triage updated',
     })).revision, 2);
     assert.equal((await publishSkillDraft('draft_1', 2)).status, 'published');
+    assert.equal((await deleteSkillDraft('draft_1', 2)).id, 'draft_1');
   });
 });

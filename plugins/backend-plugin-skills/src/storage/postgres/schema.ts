@@ -65,7 +65,59 @@ export const POSTGRES_SKILLS_MIGRATIONS: PostgresSkillPackageMigration[] = [
         PRIMARY KEY (tenant_id, id)
       );
       CREATE INDEX IF NOT EXISTS saas_skill_drafts_tenant_updated_idx
-        ON saas_skill_drafts(tenant_id, updated_at DESC);
+      ON saas_skill_drafts(tenant_id, updated_at DESC);
+    `,
+  },
+  {
+    version: 4,
+    name: "skill_draft_names",
+    sql: `
+      ALTER TABLE saas_skill_drafts ADD COLUMN IF NOT EXISTS name TEXT;
+      UPDATE saas_skill_drafts
+      SET name = draft->>'name'
+      WHERE name IS NULL OR name = '';
+      DO $skill_draft_names$
+      DECLARE
+        duplicate_row RECORD;
+        attempt INTEGER;
+        suffix TEXT;
+        candidate TEXT;
+      BEGIN
+        FOR duplicate_row IN
+          SELECT tenant_id, id, name
+          FROM (
+            SELECT tenant_id, id, name,
+              ROW_NUMBER() OVER (
+                PARTITION BY tenant_id, name
+                ORDER BY CASE status WHEN 'published' THEN 0 ELSE 1 END, updated_at DESC, id
+              ) AS duplicate_number
+            FROM saas_skill_drafts
+          ) AS ranked
+          WHERE duplicate_number > 1
+          ORDER BY tenant_id, id
+        LOOP
+          attempt := 1;
+          LOOP
+            suffix := attempt::TEXT;
+            candidate := RTRIM(LEFT(duplicate_row.name, 53 - LENGTH(suffix)), '-')
+              || '-duplicate-' || suffix;
+            EXIT WHEN NOT EXISTS (
+              SELECT 1
+              FROM saas_skill_drafts
+              WHERE tenant_id = duplicate_row.tenant_id AND name = candidate
+            );
+            attempt := attempt + 1;
+          END LOOP;
+          UPDATE saas_skill_drafts
+          SET name = candidate,
+              draft = jsonb_set(draft, '{name}', to_jsonb(candidate), true)
+          WHERE tenant_id = duplicate_row.tenant_id AND id = duplicate_row.id;
+        END LOOP;
+      END;
+      $skill_draft_names$;
+      ALTER TABLE saas_skill_drafts ALTER COLUMN name SET NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS saas_skill_drafts_tenant_name_idx
+        ON saas_skill_drafts(tenant_id, name);
     `,
   },
 ];

@@ -69,6 +69,13 @@ export async function publishSkillDraft(id, expectedRevision) {
   return result.data || result;
 }
 
+export async function deleteSkillDraft(id, expectedRevision) {
+  const result = await http.del(`/api/skills/drafts/${encodeURIComponent(id)}`, {
+    body: { expected_revision: expectedRevision },
+  });
+  return result.data || result;
+}
+
 export async function getSkillDetail(name) {
   return http.get(`/api/skills/${encodeURIComponent(name)}`);
 }

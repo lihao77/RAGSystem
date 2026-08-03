@@ -41,7 +41,7 @@
           <div class="skill-draft-row__main">
             <div class="skill-draft-row__title">
               <span class="skill-draft-row__name">{{ draft.name }}</span>
-              <Badge :variant="draftStatusVariant(draft.status)">{{ draftStatusLabel(draft.status) }}</Badge>
+              <Badge :variant="draftStatusVariant(draft)">{{ draftStatusLabel(draft) }}</Badge>
               <span class="skill-draft-row__revision">修订 {{ draft.revision }}</span>
             </div>
             <p class="skill-draft-row__description">{{ draft.description }}</p>
@@ -281,13 +281,21 @@
         <p v-if="draftReview.error" class="form-error" role="alert">{{ draftReview.error }}</p>
         <DialogFooter>
           <Button variant="ghost" @click="closeDraftReview">关闭</Button>
+          <Button
+            v-if="!draftReviewReadonly && canPublishSkillDraft"
+            variant="destructive"
+            :disabled="draftReviewBusy"
+            @click="confirmDeleteDraft"
+          >
+            <IconTrash :size="13" /><span>{{ draftDeleteBusy ? '删除中…' : '删除草稿' }}</span>
+          </Button>
           <Button v-if="!draftReviewReadonly" variant="secondary" :disabled="draftReviewBusy" @click="saveDraftReview">
             <Save data-icon="inline-start" />
             <span>{{ draftReviewBusy ? '保存中…' : '保存草稿' }}</span>
           </Button>
-          <Button v-if="!draftReviewReadonly && canPublishSkillDraft" variant="success" :disabled="draftReviewBusy" @click="confirmPublishDraft">
+          <Button v-if="canRunSkillDraftPublish" :variant="draftReviewReadonly ? 'secondary' : 'success'" :disabled="draftReviewBusy" @click="confirmPublishDraft">
             <Send data-icon="inline-start" />
-            <span>{{ draftReviewBusy ? '处理中…' : '发布 Skill' }}</span>
+            <span>{{ draftReviewBusy ? '处理中…' : (draftReviewReadonly ? '恢复发布' : '发布 Skill') }}</span>
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -329,6 +337,7 @@ import { useEntityList } from '../composables/useEntityList.js';
 import { useAuthStore } from '../stores/auth.js';
 import {
   createSkill,
+  deleteSkillDraft,
   deleteSkill,
   getSkillDetail,
   getSkillDraft,
@@ -381,6 +390,9 @@ const draftReview = ref({
 });
 
 const draftReviewReadonly = computed(() => draftReview.value.draft?.status === 'published');
+const canRunSkillDraftPublish = computed(() => canPublishSkillDraft.value && (
+  !draftReviewReadonly.value || draftReview.value.draft?.package_state === 'missing'
+));
 
 async function loadDrafts() {
   draftLoading.value = true;
@@ -396,12 +408,15 @@ async function loadDrafts() {
 
 onMounted(loadDrafts);
 
-function draftStatusLabel(status) {
-  return status === 'published' ? '已发布' : '待审核';
+function draftStatusLabel(draft) {
+  if (draft.status === 'published' && draft.package_state === 'missing') return '发布待恢复';
+  if (draft.status === 'published' && draft.package_state === 'conflict') return '发布冲突';
+  return draft.status === 'published' ? '已发布' : '待审核';
 }
 
-function draftStatusVariant(status) {
-  return status === 'published' ? 'success' : 'warning';
+function draftStatusVariant(draft) {
+  if (draft.status === 'published' && draft.package_state === 'conflict') return 'destructive';
+  return draft.status === 'published' && draft.package_state !== 'missing' ? 'success' : 'warning';
 }
 
 function formatDraftDate(value) {
@@ -450,34 +465,80 @@ const { run: runSaveDraft, loading: draftSaveBusy } = useAsyncAction(
 const { run: runPublishDraft, loading: draftPublishBusy } = useAsyncAction(
   async () => {
     const current = draftReview.value.draft;
-    const published = await publishSkillDraft(current.id, current.revision);
-    draftReview.value.draft = published;
-    draftReview.value.form = { name: published.name, description: published.description, content: published.content };
-    skillDrafts.value = skillDrafts.value.map((item) => item.id === published.id ? published : item);
-    await refresh();
-    return published;
+    try {
+      const published = await publishSkillDraft(current.id, current.revision);
+      draftReview.value.draft = published;
+      draftReview.value.form = { name: published.name, description: published.description, content: published.content };
+      skillDrafts.value = skillDrafts.value.map((item) => item.id === published.id ? published : item);
+      await refresh();
+      return published;
+    } catch (error) {
+      try {
+        const latest = await getSkillDraft(current.id);
+        if (draftReview.value.draft?.id === current.id) {
+          draftReview.value.draft = latest;
+          draftReview.value.form = { name: latest.name, description: latest.description, content: latest.content };
+        }
+        skillDrafts.value = skillDrafts.value.map((item) => item.id === latest.id ? latest : item);
+      } catch {
+        // Keep the original publish error when the server is still unavailable.
+      }
+      throw error;
+    }
   },
   {
-    successMessage: 'Skill 已发布并加入可用清单',
+    successMessage: 'Skill 发布状态已确认',
     showErrorToast: false,
     onError: (e) => { draftReview.value.error = e?.message || '发布 Skill 失败'; },
   },
 );
 
-const draftReviewBusy = computed(() => draftSaveBusy.value || draftPublishBusy.value);
+const { run: runDeleteDraft, loading: draftDeleteBusy } = useAsyncAction(
+  async () => {
+    const current = draftReview.value.draft;
+    await deleteSkillDraft(current.id, current.revision);
+    skillDrafts.value = skillDrafts.value.filter((item) => item.id !== current.id);
+    closeDraftReview();
+    return current;
+  },
+  {
+    successMessage: 'Skill 草稿已删除',
+    showErrorToast: false,
+    onError: (e) => { draftReview.value.error = e?.message || '删除 Skill 草稿失败'; },
+  },
+);
+
+const draftReviewBusy = computed(() => draftSaveBusy.value || draftPublishBusy.value || draftDeleteBusy.value);
 
 function saveDraftReview() {
   draftReview.value.error = '';
   runSaveDraft();
 }
 
-async function confirmPublishDraft() {
+async function confirmDeleteDraft() {
   const draft = draftReview.value.draft;
   if (!draft || draft.status === 'published' || !canPublishSkillDraft.value) return;
   const accepted = await confirm({
-    title: '发布 Skill 草稿',
-    message: `确认发布“${draftReview.value.form.name}”？发布后草稿不可再编辑，也不会自动绑定到任何 Agent。`,
-    confirmText: '发布',
+    title: '删除 Skill 草稿',
+    message: `确认删除“${draft.name}”？此操作不可恢复。`,
+    confirmText: '删除',
+    danger: true,
+  });
+  if (!accepted) return;
+  draftReview.value.error = '';
+  runDeleteDraft();
+}
+
+async function confirmPublishDraft() {
+  const draft = draftReview.value.draft;
+  if (!draft || !canPublishSkillDraft.value) return;
+  const recovering = draft.status === 'published';
+  const accepted = await confirm({
+    title: recovering ? '恢复 Skill 发布' : '发布 Skill 草稿',
+    message: recovering
+      ? `确认检查并恢复“${draftReview.value.form.name}”的正式 Skill 包？`
+      : `确认发布“${draftReview.value.form.name}”？发布后草稿不可再编辑，也不会自动绑定到任何 Agent。`,
+    confirmText: recovering ? '恢复' : '发布',
     danger: false,
   });
   if (!accepted) return;
@@ -710,13 +771,20 @@ const { run: runDelete, loading: deleting } = useAsyncAction(
   async () => {
     const res = await deleteSkill(selected.value.name);
     selected.value = null;
-    await refresh();
+    await Promise.allSettled([refresh(), loadDrafts()]);
     return res;
   },
   {
     onSuccess: (res) => {
       const purged = res?.data?.purged_agents?.length ?? 0;
-      toast.success(purged > 0 ? `已删除 Skill，并从 ${purged} 个智能体配置中移除引用` : 'Skill 已删除');
+      const restored = res?.data?.restored_draft;
+      if (restored) {
+        toast.success(purged > 0
+          ? `已删除 Skill，草稿已恢复为可编辑状态，并移除 ${purged} 个智能体引用`
+          : '已删除 Skill，关联草稿已恢复为可编辑状态');
+      } else {
+        toast.success(purged > 0 ? `已删除 Skill，并从 ${purged} 个智能体配置中移除引用` : 'Skill 已删除');
+      }
     },
   },
 );
@@ -724,7 +792,11 @@ const { run: runDelete, loading: deleting } = useAsyncAction(
 async function confirmDelete() {
   const s = selected.value;
   if (!s) return;
-  const ok = await confirm({ message: `确认删除 Skill “${s.name}”？此操作不可恢复。`, confirmText: '删除', danger: true });
+  const ok = await confirm({
+    message: `确认删除 Skill “${s.name}”？如有关联发布草稿，草稿会恢复为可编辑状态。`,
+    confirmText: '删除',
+    danger: true,
+  });
   if (!ok) return;
   runDelete();
 }

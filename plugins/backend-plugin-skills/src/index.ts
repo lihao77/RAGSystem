@@ -42,8 +42,13 @@ export {
   SkillDraftSchema,
   UpdateSkillDraftSchema,
   PublishSkillDraftSchema,
+  DeleteSkillDraftSchema,
+  SkillDraftNameConflictError,
+  isSkillDraftNameConflict,
   type SkillDraft,
   type SkillDraftContent,
+  type SkillDraftPackageState,
+  type SkillDraftView,
   type SkillDraftStore,
 } from "./contracts/skills/skill-draft.js";
 export { SkillAuthoringService, type SkillDraftSource } from "./services/skill-authoring-service.js";

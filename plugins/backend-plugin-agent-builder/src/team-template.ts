@@ -1,9 +1,19 @@
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
+import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 1;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 2;
+
+const SKILL_AUTHORING_TOOLS = [
+  "list_skill_drafts",
+  "get_skill_draft",
+  "create_skill_draft",
+  "update_skill_draft",
+] as const;
+
+const SKILL_AUTHORING_PROMPT = "When the workflow contains reusable domain instructions that are not covered by an existing Skill, use the Skills plugin authoring tools to create or update a reviewable Skill draft. A Skill draft is not an enabled Skill: never reference it from an Agent Blueprint until an administrator publishes it in the Skill Library.";
 
 /**
  * Seed the managed Team once per tenant. Existing user changes are preserved;
@@ -11,7 +21,13 @@ export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 1;
  */
 export async function ensureAgentBuilderTeam(agentConfig: AgentConfigService): Promise<boolean> {
   const summary = await agentConfig.listTeams();
-  if (summary.teams.some((team) => team.team_name === AGENT_BUILDER_TEAM_NAME)) return false;
+  if (summary.teams.some((team) => team.team_name === AGENT_BUILDER_TEAM_NAME)) {
+    const current = agentConfig.listConfigs({ teamName: AGENT_BUILDER_TEAM_NAME });
+    const migrated = migrateAgentBuilderTeam(current);
+    if (!migrated) return false;
+    await agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, migrated);
+    return true;
+  }
   await agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, buildAgentBuilderTeam());
   return true;
 }
@@ -34,10 +50,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "get_agent_draft",
         "create_agent_draft",
         "update_agent_draft",
-        "list_skill_drafts",
-        "get_skill_draft",
-        "create_skill_draft",
-        "update_skill_draft",
+        ...SKILL_AUTHORING_TOOLS,
       ],
       delegation: [
         "requirements_researcher",
@@ -54,8 +67,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "First clarify the outcome, users, inputs, outputs, constraints, and acceptance criteria.",
         "Delegate research, architecture, evaluation, and optimization to the specialized Agents in this Team.",
         "Use the Agent Builder tools to create or update one Draft and keep its revision current.",
-        "When the workflow contains reusable domain instructions that are not covered by an existing Skill, use the Skills plugin authoring tools to create or update a reviewable Skill draft.",
-        "A Skill draft is not an enabled Skill: never reference it from an Agent Blueprint until an administrator publishes it in the Skill Library.",
+        SKILL_AUTHORING_PROMPT,
         "Never publish a Release yourself; stop at a validated candidate and explain what an administrator must approve.",
         "Keep optimization bounded: at most three revisions per build request unless the user explicitly asks to continue.",
       ].join(" "),
@@ -95,6 +107,45 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
       tools: ["read_file", "preview_data_structure", "glob", "grep"],
       prompt: "Use evaluation findings to propose the smallest high-impact Blueprint revision. Preserve working behavior, avoid speculative new Tools, and state the expected acceptance-test improvement. Return a patch plan to the Orchestrator.",
     }),
+  };
+}
+
+function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<string, AgentConfig> | null {
+  const orchestrator = configs.builder_orchestrator;
+  if (!orchestrator) return null;
+  const customParams = orchestrator.custom_params;
+  if (!isRecord(customParams) || !isRecord(customParams.behavior)) return null;
+  const behavior = customParams.behavior;
+  const version = typeof behavior.builder_template_version === "number"
+    ? behavior.builder_template_version
+    : null;
+  if (version === null || version >= AGENT_BUILDER_TEAM_TEMPLATE_VERSION) return null;
+
+  const existingTools = Array.isArray(orchestrator.tools?.enabled_tools)
+    ? orchestrator.tools.enabled_tools
+    : [];
+  const enabledTools = [...existingTools];
+  for (const tool of SKILL_AUTHORING_TOOLS) {
+    if (!enabledTools.includes(tool)) enabledTools.push(tool);
+  }
+  const prompt = typeof behavior.system_prompt === "string" ? behavior.system_prompt.trim() : "";
+  const nextPrompt = prompt.includes("create or update a reviewable Skill draft")
+    ? prompt
+    : `${prompt} ${SKILL_AUTHORING_PROMPT}`.trim();
+  return {
+    ...configs,
+    builder_orchestrator: {
+      ...orchestrator,
+      tools: { ...orchestrator.tools, enabled_tools: enabledTools },
+      custom_params: {
+        ...customParams,
+        behavior: {
+          ...behavior,
+          system_prompt: nextPrompt,
+          builder_template_version: AGENT_BUILDER_TEAM_TEMPLATE_VERSION,
+        },
+      },
+    },
   };
 }
 

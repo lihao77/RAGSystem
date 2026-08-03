@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -37,11 +38,24 @@ export class FilesystemSkillPackageStore implements ISkillPackageStore {
     const skillDir = path.join(this.root, input.name);
     if (!isPathUnder(skillDir, this.root)) throw new Error("非法的 Skill 名称");
     if (fs.existsSync(skillDir)) throw new Error(`Skill '${input.name}' 已存在`);
-    fs.mkdirSync(skillDir, { recursive: true });
-    fs.writeFileSync(path.join(skillDir, "SKILL.md"), serializeSkillMd(input.name, input.description, input.content));
-    const record = await this.get(input.name);
-    if (!record) throw new Error(`Skill '${input.name}' 创建失败`);
-    return record;
+    fs.mkdirSync(this.root, { recursive: true });
+    const stagingDir = path.join(this.root, `.creating-${input.name}-${randomUUID()}`);
+    fs.mkdirSync(stagingDir);
+    try {
+      fs.writeFileSync(path.join(stagingDir, "SKILL.md"), serializeSkillMd(input.name, input.description, input.content));
+      const staged = parseSkillDir(stagingDir);
+      if (!staged) throw new Error(`Skill '${input.name}' 创建失败`);
+      try {
+        fs.renameSync(stagingDir, skillDir);
+      } catch (error) {
+        if (fs.existsSync(skillDir)) throw new Error(`Skill '${input.name}' 已存在`, { cause: error });
+        throw error;
+      }
+      return { ...staged, skillDir };
+    } catch (error) {
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+      throw error;
+    }
   }
 
   async updateMarkdown(name: string, input: UpdateSkillPackageInput): Promise<SkillPackageRecord> {

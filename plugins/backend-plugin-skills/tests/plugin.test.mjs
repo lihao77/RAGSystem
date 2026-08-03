@@ -3,6 +3,7 @@ import fs from "node:fs";
 import Fastify from "fastify";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { AgentConfigSchema } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
@@ -16,6 +17,7 @@ import {
   SkillToolService,
   SkillsAgentConfigService,
   SkillAuthoringService,
+  SqliteSkillDraftStore,
   SKILL_AUTHORING_TOOL_DESCRIPTORS,
   createSkillTools,
   createSkillsPlugin,
@@ -112,11 +114,19 @@ class MemoryDraftStore {
     this.rows.set(draft.id, structuredClone(draft));
     return true;
   }
+
+  async delete(id, expectedRevision) {
+    const current = this.rows.get(id);
+    if (!current || current.revision !== expectedRevision || current.status !== "draft") return false;
+    this.rows.delete(id);
+    return true;
+  }
 }
 
 class MemorySkillLibrary {
   skills = [];
   failCreate = false;
+  failAfterCreate = false;
 
   async listSkills() {
     return structuredClone(this.skills);
@@ -127,6 +137,13 @@ class MemorySkillLibrary {
     if (this.skills.some((skill) => skill.name === input.name)) throw new Error("已存在");
     const skill = { ...input, source_type: "user_global" };
     this.skills.push(skill);
+    if (this.failAfterCreate) throw new Error("refresh failed after create");
+    return structuredClone(skill);
+  }
+
+  async getSkillDetail(name) {
+    const skill = this.skills.find((item) => item.name === name);
+    if (!skill) throw new Error("not found");
     return structuredClone(skill);
   }
 
@@ -188,6 +205,215 @@ test("Skill publishing rejects an existing package and duplicate unpublished dra
     service.createDraft({ name: "existing-skill", description: "Another", content: "Another" }),
     (error) => error?.statusCode === 409,
   );
+});
+
+test("Skill publishing rolls back a failed package create and can be retried", async () => {
+  const store = new MemoryDraftStore();
+  const library = new MemorySkillLibrary();
+  const service = new SkillAuthoringService(store, library);
+  const draft = await service.createDraft({
+    name: "recoverable-publish",
+    description: "Recover a failed publish",
+    content: "# Recover\n\nRetry safely.",
+  });
+
+  library.failCreate = true;
+  await assert.rejects(service.publishDraft(draft.id, draft.revision), /create failed/);
+  const rolledBack = await service.getDraft(draft.id);
+  assert.equal(rolledBack.status, "draft");
+  assert.equal(rolledBack.revision, 3);
+  assert.deepEqual(library.skills, []);
+
+  library.failCreate = false;
+  const published = await service.publishDraft(draft.id, rolledBack.revision);
+  assert.equal(published.status, "published");
+  assert.equal(published.revision, 4);
+  assert.equal(library.skills.length, 1);
+});
+
+test("Skill publishing treats a durable matching package as success after a refresh error", async () => {
+  const store = new MemoryDraftStore();
+  const library = new MemorySkillLibrary();
+  const service = new SkillAuthoringService(store, library);
+  const draft = await service.createDraft({
+    name: "durable-publish",
+    description: "Survive a refresh failure",
+    content: "# Durable\n\nThe package is authoritative.",
+  });
+
+  library.failAfterCreate = true;
+  const published = await service.publishDraft(draft.id, draft.revision);
+  assert.equal(published.status, "published");
+  assert.equal((await service.getDraft(draft.id)).status, "published");
+  assert.equal(library.skills.length, 1);
+});
+
+test("Skill draft deletion is revision-safe and never deletes published history", async () => {
+  const store = new MemoryDraftStore();
+  const service = new SkillAuthoringService(store, new MemorySkillLibrary());
+  const draft = await service.createDraft({
+    name: "deletable-draft",
+    description: "Remove a pending draft",
+    content: "# Delete",
+  });
+  assert.deepEqual(await service.deleteDraft(draft.id, draft.revision), { id: draft.id });
+  await assert.rejects(service.getDraft(draft.id), (error) => error?.statusCode === 404);
+
+  const published = await service.createDraft({
+    name: "kept-history",
+    description: "Keep published history",
+    content: "# Keep",
+  });
+  await service.publishDraft(published.id, published.revision);
+  await assert.rejects(
+    service.deleteDraft(published.id, 2),
+    (error) => error?.statusCode === 409 && /history/.test(error.message),
+  );
+});
+
+test("deleting a formal Skill reopens its published draft for editing", async () => {
+  const store = new MemoryDraftStore();
+  const library = new MemorySkillLibrary();
+  const service = new SkillAuthoringService(store, library);
+  const draft = await service.createDraft({
+    name: "reopen-after-delete",
+    description: "Continue editing after removal",
+    content: "# Reopen\n\nKeep the published content as the next draft.",
+  });
+  const published = await service.publishDraft(draft.id, draft.revision);
+  await library.deleteSkill(published.name);
+
+  const reopened = await service.restoreDraftAfterSkillDelete(published.name);
+  assert.equal(reopened?.status, "draft");
+  assert.equal(reopened?.revision, published.revision + 1);
+  assert.equal(reopened?.published_at, null);
+  assert.equal(reopened?.content, published.content);
+  assert.equal((await service.getDraftView(published.id)).package_state, "not_published");
+
+  const edited = await service.updateDraft(reopened.id, reopened.revision, {
+    name: reopened.name,
+    description: "Edited after removal",
+    content: `${reopened.content}\n\n## Follow-up`,
+  });
+  assert.equal(edited.status, "draft");
+  assert.equal(edited.revision, reopened.revision + 1);
+});
+
+test("an explicitly retried publish repairs a published draft with no package", async () => {
+  const store = new MemoryDraftStore();
+  const library = new MemorySkillLibrary();
+  const service = new SkillAuthoringService(store, library);
+  const draft = await service.createDraft({
+    name: "repair-publish",
+    description: "Repair an interrupted publish",
+    content: "# Repair\n\nMaterialize the missing package.",
+  });
+  const interrupted = {
+    ...draft,
+    revision: 2,
+    status: "published",
+    published_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  assert.equal(await store.update(draft.revision, interrupted), true);
+
+  assert.equal((await service.getDraft(draft.id)).revision, 2);
+  assert.equal((await service.listDrafts())[0].status, "published");
+  assert.equal((await service.getDraftView(draft.id)).package_state, "missing");
+  const repaired = await service.publishDraft(draft.id, interrupted.revision);
+  assert.equal(repaired.status, "published");
+  assert.equal(repaired.revision, 3);
+  assert.equal(library.skills[0].name, draft.name);
+  assert.equal((await service.getDraftView(draft.id)).package_state, "available");
+});
+
+test("SQLite enforces tenant draft-name ownership for concurrent creates and renames", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    const library = new MemorySkillLibrary();
+    const service = new SkillAuthoringService(new SqliteSkillDraftStore(db, "tenant-a"), library);
+    const input = {
+      name: "unique-draft",
+      description: "Own one draft name",
+      content: "# Unique",
+    };
+    const results = await Promise.allSettled([
+      service.createDraft(input),
+      service.createDraft(input),
+    ]);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    const owned = results.find((result) => result.status === "fulfilled").value;
+    const rejected = results.find((result) => result.status === "rejected");
+    assert.equal(rejected.reason?.statusCode, 409);
+
+    const other = await service.createDraft({
+      name: "other-draft",
+      description: "Another draft",
+      content: "# Other",
+    });
+    await assert.rejects(
+      service.updateDraft(other.id, other.revision, input),
+      (error) => error?.statusCode === 409,
+    );
+    assert.equal((await service.getDraft(other.id)).name, "other-draft");
+
+    await service.publishDraft(owned.id, owned.revision);
+    await assert.rejects(service.createDraft(input), (error) => error?.statusCode === 409);
+
+    const otherTenant = new SkillAuthoringService(new SqliteSkillDraftStore(db, "tenant-b"), library);
+    assert.equal((await otherTenant.createDraft(input)).name, input.name);
+  } finally {
+    db.close();
+  }
+});
+
+test("SQLite migration preserves legacy duplicate drafts under deterministic unique names", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(`
+      CREATE TABLE skill_drafts (
+        tenant_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        draft_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (tenant_id, id)
+      )
+    `);
+    const now = new Date().toISOString();
+    const insert = db.prepare(`
+      INSERT INTO skill_drafts(tenant_id, id, revision, status, draft_json, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    for (const [id, name] of [
+      ["legacy-a", "legacy-duplicate"],
+      ["legacy-b", "legacy-duplicate"],
+      ["legacy-c", "legacy-duplicate-duplicate-1"],
+    ]) {
+      insert.run("tenant-a", id, 1, "draft", JSON.stringify({
+        id,
+        revision: 1,
+        status: "draft",
+        name,
+        description: "Preserve me",
+        content: "# Legacy",
+        source_session_id: null,
+        source_agent_name: null,
+        published_at: null,
+        created_at: now,
+        updated_at: now,
+      }), now);
+    }
+
+    const drafts = await new SqliteSkillDraftStore(db, "tenant-a").list();
+    assert.equal(drafts.length, 3);
+    assert.equal(new Set(drafts.map((draft) => draft.name)).size, 3);
+    assert.equal(drafts.some((draft) => draft.name === "legacy-duplicate"), true);
+    assert.equal(drafts.some((draft) => draft.name === "legacy-duplicate-duplicate-2"), true);
+  } finally {
+    db.close();
+  }
 });
 
 test("Skills authoring tools are ordinary explicitly enabled tools, separate from Skill bindings", async () => {
@@ -271,6 +497,7 @@ test("Skill draft publishing is restricted to tenant administrators", async () =
       async createDraft() { return {}; },
       async updateDraft() { return {}; },
       async publishDraft(...args) { calls.push(args); return { id: "draft-1", status: "published" }; },
+      async deleteDraft(...args) { calls.push(["delete", ...args]); return { id: "draft-1" }; },
     },
   };
   app.addHook("onRequest", async (request) => {
@@ -298,6 +525,79 @@ test("Skill draft publishing is restricted to tenant administrators", async () =
     });
     assert.equal(published.statusCode, 200);
     assert.deepEqual(calls, [["draft-1", 1]]);
+
+    role = "member";
+    const deleteForbidden = await app.inject({
+      method: "DELETE",
+      url: "/drafts/draft-1",
+      payload: { expected_revision: 1 },
+    });
+    assert.equal(deleteForbidden.statusCode, 403);
+    assert.deepEqual(calls, [["draft-1", 1]]);
+
+    role = "admin";
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: "/drafts/draft-1",
+      payload: { expected_revision: 1 },
+    });
+    assert.equal(deleted.statusCode, 200);
+    assert.deepEqual(calls, [["draft-1", 1], ["delete", "draft-1", 1]]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("deleting a formal Skill is restricted and reports a reopened draft", async () => {
+  const calls = [];
+  const app = Fastify();
+  let role = "member";
+  const capability = {
+    tools: { async listAvailableSkillsAsync() { return []; } },
+    library: {
+      async listSkills() { return []; },
+      async getSkillDetail() { return {}; },
+      async deleteSkill(name) { calls.push(["delete", name]); return { name, purged_agents: ["default/worker"] }; },
+    },
+    agentConfig: { async getEffective() { return { enabled_skills: [] }; } },
+    authoring: {
+      async listDrafts() { return []; },
+      async listDraftViews() { return []; },
+      async getDraft() { return {}; },
+      async getDraftView() { return {}; },
+      async createDraft() { return {}; },
+      async updateDraft() { return {}; },
+      async publishDraft() { return {}; },
+      async deleteDraft() { return {}; },
+      async restoreDraftAfterSkillDelete(name) {
+        calls.push(["restore", name]);
+        return { id: "draft-1", name, revision: 3, status: "draft" };
+      },
+    },
+  };
+  app.addHook("onRequest", async (request) => {
+    request.identity = { tenantId: "tenant-a", role };
+    request.container = { pluginCapabilities: { require() { return capability; } } };
+  });
+  app.setErrorHandler((error, _request, reply) => {
+    reply.code(error.statusCode ?? 500).send({ message: error.message });
+  });
+  await app.register(registerSkillRoutes);
+  try {
+    const forbidden = await app.inject({ method: "DELETE", url: "/incident-response" });
+    assert.equal(forbidden.statusCode, 403);
+    assert.deepEqual(calls, []);
+
+    role = "admin";
+    const deleted = await app.inject({ method: "DELETE", url: "/incident-response" });
+    assert.equal(deleted.statusCode, 200);
+    assert.deepEqual(JSON.parse(deleted.body).data.restored_draft, {
+      id: "draft-1",
+      name: "incident-response",
+      revision: 3,
+      status: "draft",
+    });
+    assert.deepEqual(calls, [["delete", "incident-response"], ["restore", "incident-response"]]);
   } finally {
     await app.close();
   }
@@ -371,6 +671,9 @@ test("Postgres migrations include package and Agent config ownership", () => {
   assert.match(sql, /CREATE TABLE IF NOT EXISTS saas_skill_package_files/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS skill_agent_configs/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS saas_skill_drafts/);
+  assert.match(sql, /ROW_NUMBER\(\) OVER/);
+  assert.match(sql, /EXIT WHEN NOT EXISTS/);
+  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS saas_skill_drafts_tenant_name_idx/);
 });
 
 test("plugin installation controls Skills route contribution", async () => {

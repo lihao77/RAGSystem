@@ -14,6 +14,7 @@ import {
   AGENT_BUILDER_TEAM_NAME,
   buildAgentBuilderTeam,
   createAgentBuilderPlugin,
+  ensureAgentBuilderTeam,
   validateBlueprint,
 } from "../dist/index.js";
 
@@ -272,6 +273,48 @@ test("plugin preserves an existing Builder Team instead of overwriting it", asyn
     } finally {
       runtime.dispose();
     }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Builder template migration adds Skill authoring tools without replacing user changes", async () => {
+  const fixture = await createFixture();
+  try {
+    const legacy = buildAgentBuilderTeam();
+    legacy.builder_orchestrator.tools.enabled_tools = ["read_file", "custom_tool"];
+    legacy.builder_orchestrator.display_name = "Customized Builder";
+    legacy.builder_orchestrator.custom_params.behavior.system_prompt = "Keep this custom instruction.";
+    legacy.builder_orchestrator.custom_params.behavior.builder_template_version = 1;
+    legacy.custom_reviewer = {
+      ...legacy.agent_evaluator,
+      agent_name: "custom_reviewer",
+      display_name: "Custom Reviewer",
+      tools: { enabled_tools: ["custom_tool"] },
+      custom_params: { user_customized: true },
+    };
+    await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, legacy);
+    const customBefore = fixture.agentConfig.getConfig("custom_reviewer", { teamName: AGENT_BUILDER_TEAM_NAME });
+
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
+    const configs = fixture.agentConfig.listConfigs({ teamName: AGENT_BUILDER_TEAM_NAME });
+    assert.equal(configs.builder_orchestrator.display_name, "Customized Builder");
+    assert.deepEqual(configs.custom_reviewer, customBefore);
+    assert.deepEqual(
+      configs.builder_orchestrator.tools.enabled_tools,
+      [
+        "read_file",
+        "custom_tool",
+        "list_skill_drafts",
+        "get_skill_draft",
+        "create_skill_draft",
+        "update_skill_draft",
+      ],
+    );
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction\./);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /reviewable Skill draft/);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 2);
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
   }
