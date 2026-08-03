@@ -423,6 +423,13 @@ test("Builder capability inventory exposes existing Tools, Skills, and MCP Serve
         library: {
           listSkills: async () => [{ name: "review-code", display_name: "Review Code", description: "Review changes" }],
         },
+        tools: {
+          loadAllSkills: () => [{
+            name: "review-code",
+            description: "Review changes",
+            requires: { mcp_servers: ["github"] },
+          }],
+        },
       }),
       provideCapability(MCP_RUNTIME_CAPABILITY, {
         application: {
@@ -449,7 +456,12 @@ test("Builder capability inventory exposes existing Tools, Skills, and MCP Serve
       risk_level: "low",
     });
     assert.deepEqual(result.content.skills, [
-      { name: "review-code", display_name: "Review Code", description: "Review changes" },
+      {
+        name: "review-code",
+        display_name: "Review Code",
+        description: "Review changes",
+        requires: { mcp_servers: ["github"] },
+      },
     ]);
     assert.deepEqual(result.content.mcp_servers, [{
       name: "github",

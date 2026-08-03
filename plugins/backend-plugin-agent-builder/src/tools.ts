@@ -76,7 +76,7 @@ export function createAgentBuilderTools(service: AgentBuilderService, capabiliti
   return [
     buildTool({
       name: "list_agent_builder_capabilities",
-      description: "List the existing Tools, Skills, and MCP Servers available to this tenant. Use this before designing a Blueprint; only bind names returned by this tool and never invent capabilities.",
+      description: "List the existing Tools, Skills, and MCP Servers available to this tenant. Skill entries may include declared MCP dependencies as guidance. Use this before designing a Blueprint; only bind names returned by this tool and never invent capabilities.",
       inputSchema: EmptyToolInputSchema,
       parameters: {
         type: "object",
@@ -97,6 +97,8 @@ export function createAgentBuilderTools(service: AgentBuilderService, capabiliti
             mcpRuntime?.application.listServers() ?? Promise.resolve([]),
           ]);
           const tools = service.listAvailableTools();
+          const skillInfos = skillsRuntime?.tools?.loadAllSkills?.() ?? [];
+          const skillInfoByName = new Map(skillInfos.map((skill) => [skill.name, skill]));
           return toolSuccess({
             tools: tools.map((tool) => ({
               name: tool.name,
@@ -106,11 +108,16 @@ export function createAgentBuilderTools(service: AgentBuilderService, capabiliti
               ...(tool.implemented !== undefined ? { implemented: tool.implemented } : {}),
               ...(tool.runtime_status !== undefined ? { runtime_status: tool.runtime_status } : {}),
             })),
-            skills: skills.map((skill) => ({
-              name: skill.name,
-              display_name: skill.display_name,
-              description: skill.description,
-            })),
+            skills: skills.map((skill) => {
+              const info = skillInfoByName.get(skill.name);
+              const requires = info?.requires;
+              return {
+                name: skill.name,
+                display_name: skill.display_name,
+                description: skill.description,
+                ...(requires ? { requires } : {}),
+              };
+            }),
             mcp_servers: mcpServers.map((server) => ({
               name: server.name,
               display_name: server.display_name,
