@@ -8,9 +8,18 @@ import { collectMultipartFiles } from "@ragsystem/backend-core/routes/file-route
 import { requireTenantAdmin, requireTenantMember } from "@ragsystem/backend-core/routes/tenant-role.js";
 import type {} from "@ragsystem/backend-core/fastify-context.js";
 import { SKILLS_RUNTIME_CAPABILITY } from "./capability.js";
+import {
+  PublishSkillDraftSchema,
+  SkillDraftContentSchema,
+  UpdateSkillDraftSchema,
+} from "./contracts/skills/skill-draft.js";
 
 interface SkillParams {
   name: string;
+}
+
+interface DraftParams {
+  id: string;
 }
 
 interface FileQuery {
@@ -73,6 +82,37 @@ export const registerSkillRoutes: FastifyPluginAsync = async (app) => {
   app.delete<{ Params: AgentParams; Querystring: TeamQuery }>("/agents/:agentName/config", async (request) => {
     requireTenantAdmin(request);
     return ok(await resolveSkills(request).agentConfig.delete(configKey(request.params, request.query)), "Skills Agent 配置已重置");
+  });
+
+  app.get("/drafts", async (request) => {
+    return ok(await resolveSkills(request).authoring.listDrafts(), "Skill drafts");
+  });
+
+  app.get<{ Params: DraftParams }>("/drafts/:id", async (request) => {
+    return ok(await resolveSkills(request).authoring.getDraft(request.params.id), "Skill draft");
+  });
+
+  app.post("/drafts", async (request) => {
+    const input = SkillDraftContentSchema.parse(request.body);
+    return ok(await resolveSkills(request).authoring.createDraft(input), "Skill draft created");
+  });
+
+  app.put<{ Params: DraftParams }>("/drafts/:id", async (request) => {
+    const input = UpdateSkillDraftSchema.parse(request.body);
+    return ok(await resolveSkills(request).authoring.updateDraft(
+      request.params.id,
+      input.expected_revision,
+      { name: input.name, description: input.description, content: input.content },
+    ), "Skill draft updated");
+  });
+
+  app.post<{ Params: DraftParams }>("/drafts/:id/publish", async (request) => {
+    requireTenantAdmin(request);
+    const input = PublishSkillDraftSchema.parse(request.body);
+    return ok(
+      await resolveSkills(request).authoring.publishDraft(request.params.id, input.expected_revision),
+      "Skill draft published",
+    );
   });
 
   app.get<{ Params: SkillParams }>("/:name", async (request) => {

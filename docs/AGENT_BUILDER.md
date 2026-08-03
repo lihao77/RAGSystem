@@ -11,12 +11,13 @@ Agent Builder 将自然语言中的 Agent 需求转换为可审查、可校验�
 ## 能力分层
 
 - Agent Builder 插件：管理 Draft、校验、Release 和 Team 物化，是控制面。
-- Skill：承载可复用的领域知识、流程和脚本，由 Blueprint 引用。
+- Skills 插件：拥有 Skill 草稿、正式 Skill 的创建、更新、发布和管理生命周期。
+- Skill：承载可复用的领域知识、流程和脚本，由 Blueprint 引用；`enabled_skills` 只表示 Agent 可以使用已发布 Skill。
 - MCP：连接外部系统和远程工具服务，由 Blueprint 引用。
 - 原生工具：承载宿主运行时中稳定、受权限约束的操作能力。
 - ReAct 与委派运行时：执行发布后的 Agent Team，不由 Builder 重复实现。
 
-因此 Builder 不在 Skill、MCP 和原生实现之间三选一。它将三类能力作为可绑定资源，并在发布前确认引用真实存在。
+因此 Builder 不在 Skill、MCP 和原生实现之间三选一。它将三类能力作为可绑定资源，并在发布前确认引用真实存在。Skill 的作者工具属于普通工具配置，不和 `enabled_skills` 混在一起；任何 Agent 都可以在工具配置中显式启用 `list_skill_drafts`、`get_skill_draft`、`create_skill_draft`、`update_skill_draft`，但不能通过工具发布 Skill。
 
 ## 使用流程
 
@@ -26,7 +27,7 @@ Agent Builder 将自然语言中的 Agent 需求转换为可审查、可校验�
 
 用户从 Team 列表激活 `agent-builder`，然后返回聊天页与 Builder Team 对话。它包含一个编排入口 Agent，以及需求调研、能力调研、Agent 架构、评估和优化五个专职 Agent。入口 Agent 会按工作流委派这些子 Agent，汇总结果后创建或更新一个 Draft。
 
-Builder Team 的草稿工具包括 `list_agent_drafts`、`get_agent_draft`、`create_agent_draft` 和 `update_agent_draft`。这些工具只对 `agent-builder` 的入口 Agent 暴露，不会出现在普通业务 Team 的工具集合或能力清单中。
+Builder Team 的草稿工具包括 `list_agent_drafts`、`get_agent_draft`、`create_agent_draft` 和 `update_agent_draft`。Skill 作者工具由 Skills 插件贡献，默认由 Builder 编排 Agent 显式启用；普通 Agent 也可以单独配置这些工具。它们不会因为 `enabled_skills` 自动出现，也不会因为创建草稿就自动绑定 Skill。
 
 ### 2. 在 Builder Team 中创建草稿
 
@@ -38,6 +39,8 @@ Builder Team 的草稿工具包括 `list_agent_drafts`、`get_agent_draft`、`cr
 ```
 
 Builder 入口 Agent 会在调研和设计完成后调用 `create_agent_draft`，后续通过 `get_agent_draft` 与 `update_agent_draft` 维护同一个 Draft 的 revision。工具只保存非执行 Blueprint，不会发布版本、修改当前生效 Team，也不会生成后端插件代码。模型不能调用发布接口。
+
+如果调研发现某段领域流程值得复用，编排 Agent 可以调用 Skills 插件的 `create_skill_draft`，并在需要时用 `update_skill_draft` 维护 revision。草稿只保存 `SKILL.md` 正文、名称和描述，不包含脚本或其他可执行文件。管理员在 Skill 库审核并发布后，Skill 才会进入可用清单；发布不会自动修改任何 Agent 的 `enabled_skills`。
 
 Blueprint v1 包含：
 
@@ -70,6 +73,8 @@ Blueprint v1 包含：
 
 任一步骤失败都会尝试回滚本次 Team、Skill、MCP 和 Release 变更。
 如果目标版本 Team 名称已被手工占用，发布会返回冲突，不会覆盖既有 Team。
+
+Skill 草稿发布由 Skills 插件单独负责，入口为 Skill 库中的审核界面或 `/api/skills/drafts/:id/publish`，同样只接受租户管理员。已发布 Skill 草稿不可变；后续修改必须创建新的草稿。
 
 每次发布使用唯一的 `runtime_team_name`：
 

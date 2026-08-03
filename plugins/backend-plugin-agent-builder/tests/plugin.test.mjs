@@ -12,6 +12,7 @@ import {
   AgentBuilderValidationError,
   FilesystemAgentBuilderStore,
   AGENT_BUILDER_TEAM_NAME,
+  buildAgentBuilderTeam,
   createAgentBuilderPlugin,
   validateBlueprint,
 } from "../dist/index.js";
@@ -334,6 +335,19 @@ test("Builder-only draft tools are visible only to the Builder entry Agent", asy
     }
   } finally {
     fixture.cleanup();
+  }
+});
+
+test("Builder template opts its orchestrator into Skill authoring tools explicitly", () => {
+  const team = buildAgentBuilderTeam();
+  const orchestrator = team.builder_orchestrator;
+  assert.deepEqual(
+    orchestrator.tools.enabled_tools.filter((name) => name.includes("skill_draft")),
+    ["list_skill_drafts", "get_skill_draft", "create_skill_draft", "update_skill_draft"],
+  );
+  for (const [name, agent] of Object.entries(team)) {
+    if (name === "builder_orchestrator") continue;
+    assert.equal(agent.tools.enabled_tools.some((tool) => tool.endsWith("_skill_draft")), false);
   }
 });
 

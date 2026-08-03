@@ -12,6 +12,52 @@
 
     <KpiCards :items="kpiItems" />
 
+    <section class="skill-drafts" aria-labelledby="skill-drafts-title">
+      <div class="skill-drafts__header">
+        <div>
+          <h2 id="skill-drafts-title" class="skill-drafts__title">Skill 草稿审核</h2>
+          <p class="skill-drafts__description">Agent 通过作者工具只能提交草稿；发布后才会进入可用 Skill 清单。</p>
+        </div>
+        <div class="skill-drafts__actions">
+          <Badge variant="secondary">{{ skillDrafts.length }}</Badge>
+          <Button variant="ghost" size="icon-sm" :disabled="draftLoading" aria-label="刷新 Skill 草稿" title="刷新 Skill 草稿" @click="loadDrafts">
+            <RefreshCw data-icon="inline-start" :class="{ 'animate-spin': draftLoading }" />
+          </Button>
+        </div>
+      </div>
+      <div v-if="draftLoading && !skillDrafts.length" class="skill-drafts__state">加载草稿中…</div>
+      <div v-else-if="draftError" class="skill-drafts__state skill-drafts__state--error" role="alert">
+        <span>{{ draftError }}</span>
+        <Button variant="outline" size="sm" @click="loadDrafts">重试</Button>
+      </div>
+      <Empty v-else-if="!skillDrafts.length" class="skill-drafts__empty">
+        <EmptyHeader>
+          <EmptyTitle>暂无 Skill 草稿</EmptyTitle>
+          <EmptyDescription>Agent Builder 提炼出可复用流程后，草稿会出现在这里。</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+      <div v-else class="skill-drafts__list">
+        <div v-for="draft in skillDrafts" :key="draft.id" class="skill-draft-row">
+          <div class="skill-draft-row__main">
+            <div class="skill-draft-row__title">
+              <span class="skill-draft-row__name">{{ draft.name }}</span>
+              <Badge :variant="draftStatusVariant(draft.status)">{{ draftStatusLabel(draft.status) }}</Badge>
+              <span class="skill-draft-row__revision">修订 {{ draft.revision }}</span>
+            </div>
+            <p class="skill-draft-row__description">{{ draft.description }}</p>
+            <p class="skill-draft-row__source">
+              {{ draft.source_agent_name || '人工创建' }}<span v-if="draft.source_session_id"> · 会话 {{ draft.source_session_id }}</span>
+              <span> · 更新于 {{ formatDraftDate(draft.updated_at) }}</span>
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" @click="openDraftReview(draft)">
+            <Eye data-icon="inline-start" />
+            <span>{{ draft.status === 'published' ? '查看' : '审核' }}</span>
+          </Button>
+        </div>
+      </div>
+    </section>
+
     <div class="skill-lib">
       <EntityListLayout
         title="技能清单"
@@ -203,17 +249,64 @@
       </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <Dialog :open="draftReview.open" @update:open="(v) => { if (!v) closeDraftReview() }">
+      <DialogContent class="max-w-[900px]">
+        <DialogHeader>
+          <DialogTitle>{{ draftReview.form.name || 'Skill 草稿审核' }}</DialogTitle>
+          <DialogDescription>草稿不会自动绑定到 Agent；管理员发布后才会成为正式 Skill。</DialogDescription>
+        </DialogHeader>
+        <FieldGroup class="skill-draft-form">
+          <Field>
+            <FieldLabel for="skill-draft-name">名称</FieldLabel>
+            <Input id="skill-draft-name" v-model.trim="draftReview.form.name" :disabled="draftReviewReadonly || draftReviewBusy" />
+          </Field>
+          <Field>
+            <FieldLabel for="skill-draft-description">描述</FieldLabel>
+            <Input id="skill-draft-description" v-model="draftReview.form.description" :disabled="draftReviewReadonly || draftReviewBusy" />
+          </Field>
+          <Field>
+            <FieldLabel for="skill-draft-content">SKILL.md 正文</FieldLabel>
+            <Textarea id="skill-draft-content" v-model="draftReview.form.content" rows="12" class="skill-textarea" :disabled="draftReviewReadonly || draftReviewBusy" />
+            <FieldDescription>模型生成的草稿只包含正文，不包含脚本或其他可执行文件。</FieldDescription>
+          </Field>
+        </FieldGroup>
+        <div class="skill-draft-preview">
+          <div class="skill-draft-preview__header">
+            <span>Markdown 预览</span>
+            <Badge variant="outline">修订 {{ draftReview.draft?.revision || '-' }}</Badge>
+          </div>
+          <MarkdownContent :content="draftReview.form.content" :render-markdown="renderMarkdown" @notify="onMdNotify" />
+        </div>
+        <p v-if="draftReview.error" class="form-error" role="alert">{{ draftReview.error }}</p>
+        <DialogFooter>
+          <Button variant="ghost" @click="closeDraftReview">关闭</Button>
+          <Button v-if="!draftReviewReadonly" variant="secondary" :disabled="draftReviewBusy" @click="saveDraftReview">
+            <Save data-icon="inline-start" />
+            <span>{{ draftReviewBusy ? '保存中…' : '保存草稿' }}</span>
+          </Button>
+          <Button v-if="!draftReviewReadonly && canPublishSkillDraft" variant="success" :disabled="draftReviewBusy" @click="confirmPublishDraft">
+            <Send data-icon="inline-start" />
+            <span>{{ draftReviewBusy ? '处理中…' : '发布 Skill' }}</span>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </PageLayout>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { Eye, RefreshCw, Save, Send } from 'lucide-vue-next';
 
 import PageLayout from '../components/PageLayout.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import EmptyState from '../components/EmptyState.vue';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '../components/ui/empty';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '../components/ui/field';
+import { Badge } from '../components/ui/badge';
 import KpiCards from '../components/admin/KpiCards.vue';
 import MarkdownContent from '../components/chat/MarkdownContent.vue';
 import { renderMarkdown } from '../utils/markdown';
@@ -233,18 +326,25 @@ import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { useEntityList } from '../composables/useEntityList.js';
+import { useAuthStore } from '../stores/auth.js';
 import {
   createSkill,
   deleteSkill,
   getSkillDetail,
+  getSkillDraft,
   getSkillFileUrl,
+  listSkillDrafts,
   listSkills,
+  publishSkillDraft,
+  updateSkillDraft,
   updateSkill,
   uploadSkillFiles,
 } from '../api/skillLibrary.js';
 
 const toast = useToast();
 const { confirm } = useConfirm();
+const authStore = useAuthStore();
+const canPublishSkillDraft = computed(() => authStore.hasTenantRole('admin'));
 
 const onMdNotify = ({ message, type }) => {
   if (type === 'success') toast.success(message);
@@ -269,6 +369,121 @@ const { items: skills, loading, error, refresh } = useEntityList(
     },
   },
 );
+
+const skillDrafts = ref([]);
+const draftLoading = ref(false);
+const draftError = ref('');
+const draftReview = ref({
+  open: false,
+  error: '',
+  draft: null,
+  form: { name: '', description: '', content: '' },
+});
+
+const draftReviewReadonly = computed(() => draftReview.value.draft?.status === 'published');
+
+async function loadDrafts() {
+  draftLoading.value = true;
+  draftError.value = '';
+  try {
+    skillDrafts.value = await listSkillDrafts();
+  } catch (e) {
+    draftError.value = e?.message || '加载 Skill 草稿失败';
+  } finally {
+    draftLoading.value = false;
+  }
+}
+
+onMounted(loadDrafts);
+
+function draftStatusLabel(status) {
+  return status === 'published' ? '已发布' : '待审核';
+}
+
+function draftStatusVariant(status) {
+  return status === 'published' ? 'success' : 'warning';
+}
+
+function formatDraftDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+async function openDraftReview(draft) {
+  draftReview.value = {
+    open: true,
+    error: '',
+    draft: { ...draft },
+    form: { name: draft.name, description: draft.description, content: draft.content },
+  };
+  try {
+    const loaded = await getSkillDraft(draft.id);
+    draftReview.value.draft = loaded;
+    draftReview.value.form = { name: loaded.name, description: loaded.description, content: loaded.content };
+  } catch (e) {
+    draftReview.value.error = e?.message || '加载草稿详情失败';
+  }
+}
+
+function closeDraftReview() {
+  draftReview.value.open = false;
+  draftReview.value.error = '';
+}
+
+const { run: runSaveDraft, loading: draftSaveBusy } = useAsyncAction(
+  async () => {
+    const current = draftReview.value.draft;
+    const saved = await updateSkillDraft(current.id, current.revision, draftReview.value.form);
+    draftReview.value.draft = saved;
+    draftReview.value.form = { name: saved.name, description: saved.description, content: saved.content };
+    skillDrafts.value = skillDrafts.value.map((item) => item.id === saved.id ? saved : item);
+    return saved;
+  },
+  {
+    successMessage: 'Skill 草稿已保存',
+    showErrorToast: false,
+    onError: (e) => { draftReview.value.error = e?.message || '保存草稿失败'; },
+  },
+);
+
+const { run: runPublishDraft, loading: draftPublishBusy } = useAsyncAction(
+  async () => {
+    const current = draftReview.value.draft;
+    const published = await publishSkillDraft(current.id, current.revision);
+    draftReview.value.draft = published;
+    draftReview.value.form = { name: published.name, description: published.description, content: published.content };
+    skillDrafts.value = skillDrafts.value.map((item) => item.id === published.id ? published : item);
+    await refresh();
+    return published;
+  },
+  {
+    successMessage: 'Skill 已发布并加入可用清单',
+    showErrorToast: false,
+    onError: (e) => { draftReview.value.error = e?.message || '发布 Skill 失败'; },
+  },
+);
+
+const draftReviewBusy = computed(() => draftSaveBusy.value || draftPublishBusy.value);
+
+function saveDraftReview() {
+  draftReview.value.error = '';
+  runSaveDraft();
+}
+
+async function confirmPublishDraft() {
+  const draft = draftReview.value.draft;
+  if (!draft || draft.status === 'published' || !canPublishSkillDraft.value) return;
+  const accepted = await confirm({
+    title: '发布 Skill 草稿',
+    message: `确认发布“${draftReview.value.form.name}”？发布后草稿不可再编辑，也不会自动绑定到任何 Agent。`,
+    confirmText: '发布',
+    danger: false,
+  });
+  if (!accepted) return;
+  draftReview.value.error = '';
+  runPublishDraft();
+}
 
 const countByType = computed(() => {
   const acc = { user_global: 0, builtin: 0, workspace: 0 };
@@ -799,5 +1014,130 @@ async function confirmDelete() {
   font-size: var(--font-size-sm);
   min-height: 240px !important;
   resize: vertical;
+}
+
+.skill-drafts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  margin: var(--spacing-xl) 0;
+  padding: var(--spacing-lg) 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+.skill-drafts__header,
+.skill-draft-row,
+.skill-drafts__state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+}
+.skill-drafts__title {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 650;
+}
+.skill-drafts__description {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+.skill-drafts__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+.skill-drafts__state {
+  justify-content: flex-start;
+  min-height: 56px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+.skill-drafts__state--error {
+  color: var(--color-error);
+}
+.skill-drafts__empty {
+  min-height: 120px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+.skill-drafts__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+.skill-draft-row {
+  min-width: 0;
+  padding: var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+}
+.skill-draft-row__main {
+  min-width: 0;
+  flex: 1;
+}
+.skill-draft-row__title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+.skill-draft-row__name {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 650;
+}
+.skill-draft-row__revision,
+.skill-draft-row__source {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+.skill-draft-row__description {
+  margin: 4px 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.skill-draft-row__source {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.skill-draft-form {
+  gap: var(--spacing-md);
+}
+.skill-draft-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  max-height: 260px;
+  overflow: auto;
+  padding: var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+}
+.skill-draft-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+@media (max-width: 640px) {
+  .skill-drafts__header,
+  .skill-draft-row {
+    align-items: flex-start;
+  }
+  .skill-draft-row {
+    flex-direction: column;
+  }
 }
 </style>

@@ -51,4 +51,21 @@ export const POSTGRES_SKILLS_MIGRATIONS: PostgresSkillPackageMigration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    name: "skill_drafts",
+    sql: `
+      CREATE TABLE IF NOT EXISTS saas_skill_drafts (
+        tenant_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        draft JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (tenant_id, id)
+      );
+      CREATE INDEX IF NOT EXISTS saas_skill_drafts_tenant_updated_idx
+        ON saas_skill_drafts(tenant_id, updated_at DESC);
+    `,
+  },
 ];

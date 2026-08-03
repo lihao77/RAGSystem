@@ -5,12 +5,14 @@ import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/ob
 import { SkillsAgentConfigService } from "../../config.js";
 import type { SkillsPluginRuntimeFactory } from "../../dependencies.js";
 import { SkillLibraryService } from "../../services/skill-library-service.js";
+import { SkillAuthoringService } from "../../services/skill-authoring-service.js";
 import { SkillToolService } from "../../tools/SkillExecution.js";
 import { resolveArtifactStagingService, resolveBuiltinSkillSources } from "../../resources.js";
 import { PostgresSkillsAgentConfigStore } from "./agent-config-store.js";
 import type { SkillsPostgresExecutor } from "./executor.js";
 import { PostgresSkillPackageRepository } from "./package-repository.js";
 import { SaaSSkillPackageStore } from "./package-store.js";
+import { PostgresSkillDraftStore } from "./skill-draft-store.js";
 
 export function createPostgresSkillsRuntimeFactory(options: {
   executor: SkillsPostgresExecutor;
@@ -45,10 +47,15 @@ export function createPostgresSkillsRuntimeFactory(options: {
         context.dataRoot,
       ),
     });
+    const library = new SkillLibraryService(tools, packageStore);
     return {
       tools,
       agentConfig,
-      library: new SkillLibraryService(tools, packageStore),
+      library,
+      authoring: new SkillAuthoringService(
+        new PostgresSkillDraftStore(options.executor, context.tenantId),
+        library,
+      ),
     };
   };
 }

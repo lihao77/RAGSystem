@@ -37,6 +37,38 @@ export async function listSkills() {
   return http.get('/api/skills');
 }
 
+export async function listSkillDrafts() {
+  const result = await http.get('/api/skills/drafts');
+  return result.data || [];
+}
+
+export async function getSkillDraft(id) {
+  const result = await http.get(`/api/skills/drafts/${encodeURIComponent(id)}`);
+  return result.data || result;
+}
+
+export async function createSkillDraft({ name, description, content }) {
+  const result = await http.post('/api/skills/drafts', { name, description, content });
+  return result.data || result;
+}
+
+export async function updateSkillDraft(id, expectedRevision, { name, description, content }) {
+  const result = await http.put(`/api/skills/drafts/${encodeURIComponent(id)}`, {
+    expected_revision: expectedRevision,
+    name,
+    description,
+    content,
+  });
+  return result.data || result;
+}
+
+export async function publishSkillDraft(id, expectedRevision) {
+  const result = await http.post(`/api/skills/drafts/${encodeURIComponent(id)}/publish`, {
+    expected_revision: expectedRevision,
+  });
+  return result.data || result;
+}
+
 export async function getSkillDetail(name) {
   return http.get(`/api/skills/${encodeURIComponent(name)}`);
 }

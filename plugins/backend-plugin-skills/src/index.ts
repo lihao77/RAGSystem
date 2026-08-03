@@ -33,3 +33,19 @@ export type { SkillsPostgresExecutor, SkillsPostgresQueryExecutor } from "./stor
 export { POSTGRES_SKILLS_MIGRATIONS } from "./storage/postgres/schema.js";
 export { SkillToolService } from "./tools/SkillExecution.js";
 export { createSkillTools } from "./tools/SkillTools.js";
+export {
+  createSkillAuthoringTools,
+  SKILL_AUTHORING_TOOL_DESCRIPTORS,
+} from "./tools/SkillAuthoringTools.js";
+export {
+  SkillDraftContentSchema,
+  SkillDraftSchema,
+  UpdateSkillDraftSchema,
+  PublishSkillDraftSchema,
+  type SkillDraft,
+  type SkillDraftContent,
+  type SkillDraftStore,
+} from "./contracts/skills/skill-draft.js";
+export { SkillAuthoringService, type SkillDraftSource } from "./services/skill-authoring-service.js";
+export { SqliteSkillDraftStore } from "./storage/local/skill-draft-store.js";
+export { PostgresSkillDraftStore } from "./storage/postgres/skill-draft-store.js";

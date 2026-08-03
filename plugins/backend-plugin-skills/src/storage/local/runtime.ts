@@ -5,10 +5,12 @@ import { createRequire } from "node:module";
 import { SkillsAgentConfigService } from "../../config.js";
 import type { SkillsPluginRuntimeFactory } from "../../dependencies.js";
 import { SkillLibraryService } from "../../services/skill-library-service.js";
+import { SkillAuthoringService } from "../../services/skill-authoring-service.js";
 import { SkillToolService } from "../../tools/SkillExecution.js";
 import { resolveArtifactStagingService, resolveBuiltinSkillSources } from "../../resources.js";
 import { SqliteSkillsAgentConfigStore } from "./agent-config-store.js";
 import { FilesystemSkillPackageStore } from "./package-store.js";
+import { SqliteSkillDraftStore } from "./skill-draft-store.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -42,10 +44,15 @@ export function createLocalSkillsRuntimeFactory(): SkillsPluginRuntimeFactory {
         context.dataRoot,
       ),
     });
+    const library = new SkillLibraryService(tools, packageStore);
     return {
       tools,
       agentConfig,
-      library: new SkillLibraryService(tools, packageStore),
+      library,
+      authoring: new SkillAuthoringService(
+        new SqliteSkillDraftStore(db, context.tenantId),
+        library,
+      ),
       dispose: () => db.close(),
     };
   };
