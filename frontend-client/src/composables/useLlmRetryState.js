@@ -70,9 +70,12 @@ export function useLlmRetryState() {
   };
 
   const setLlmRetryState = (retryData) => {
+    const providedNextRetryAt = retryData?.nextRetryAt;
     llmRetryState.value = retryData ? {
       ...retryData,
-      nextRetryAt: Date.now() + Math.max(0, retryData.waitMs || 0),
+      nextRetryAt: Number.isFinite(providedNextRetryAt)
+        ? providedNextRetryAt
+        : Date.now() + Math.max(0, retryData.waitMs || 0),
     } : null;
     retryClockMs.value = Date.now();
     if (llmRetryState.value) {

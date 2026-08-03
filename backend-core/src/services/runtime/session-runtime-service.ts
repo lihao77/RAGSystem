@@ -90,6 +90,7 @@ function projectActiveRunActivity(facts: RuntimeSessionFacts): RuntimeActivity {
     const callId = typeof event.call_id === "string" ? event.call_id : "";
     const agentId = typeof event.agent_id === "string" ? event.agent_id : "";
     const payload = asRecord(event.payload);
+    const invocationCallId = toolInvocationCallId(payload);
     const modelKey = callId ? `${agentId}\u0000${callId}` : "";
 
     if (event.type === "model_request" && modelKey) {
@@ -172,10 +173,11 @@ function projectActiveRunActivity(facts: RuntimeSessionFacts): RuntimeActivity {
     }
 
     if (event.type === "tool_call" && callId) {
-      removeAgentModels(models, agentId);
+      removeInvocationModels(models, invocationCallId);
       tools.set(callId, {
         call_id: callId,
         agent_id: agentId,
+        ...(invocationCallId ? { parent_call_id: invocationCallId } : {}),
         tool: typeof payload.tool === "string" ? payload.tool : "",
         started_at: eventUpdatedAt,
       });
@@ -189,10 +191,10 @@ function projectActiveRunActivity(facts: RuntimeSessionFacts): RuntimeActivity {
       continue;
     }
 
-    if (event.type === "agent_ended" && agentId) {
-      removeAgentModels(models, agentId);
+    if (event.type === "agent_ended" && callId) {
+      removeInvocationModels(models, callId);
       for (const [toolCallId, tool] of tools) {
-        if (tool.agent_id === agentId) tools.delete(toolCallId);
+        if (tool.parent_call_id === callId) tools.delete(toolCallId);
       }
       updatedAt = eventUpdatedAt;
     }
@@ -229,10 +231,16 @@ function modelActivity(
   };
 }
 
-function removeAgentModels(models: Map<string, RuntimeModelActivity>, agentId: string): void {
+function removeInvocationModels(models: Map<string, RuntimeModelActivity>, invocationCallId: string): void {
+  if (!invocationCallId) return;
   for (const [key, model] of models) {
-    if (model.agent_id === agentId) models.delete(key);
+    if (model.call_id === invocationCallId) models.delete(key);
   }
+}
+
+function toolInvocationCallId(payload: Record<string, unknown>): string {
+  const lineage = asRecord(payload.lineage);
+  return typeof lineage.parent_call_id === "string" ? lineage.parent_call_id : "";
 }
 
 function nonnegativeInteger(value: unknown): number {
@@ -248,7 +256,10 @@ function nonnegativeNumber(value: unknown): number {
 }
 
 function addMilliseconds(value: string, milliseconds: number): string | null {
-  const timestamp = Date.parse(value);
+  const normalized = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value)
+    ? `${value.replace(" ", "T")}Z`
+    : value;
+  const timestamp = Date.parse(normalized);
   return Number.isFinite(timestamp) ? new Date(timestamp + milliseconds).toISOString() : null;
 }
 

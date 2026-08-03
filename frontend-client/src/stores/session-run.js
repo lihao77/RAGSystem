@@ -26,6 +26,17 @@ export const resetActiveRunState = (activeRun) => {
   activeRun.active = active;
 };
 
+const parseRuntimeTimestampSeconds = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const timestamp = value.trim();
+  const sqliteUtcTimestamp = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+  const normalized = sqliteUtcTimestamp.test(timestamp)
+    ? `${timestamp.replace(' ', 'T')}Z`
+    : timestamp;
+  const milliseconds = Date.parse(normalized);
+  return Number.isFinite(milliseconds) ? milliseconds / 1000 : null;
+};
+
 /**
  * 当前会话运行态单源。
  *
@@ -90,7 +101,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
     activeRun.active = hasActiveRun;
     activeRun.runId = nextRunId;
     activeRun.runStartedAt = hasActiveRun && snapshot.active_run.started_at
-      ? Date.parse(snapshot.active_run.started_at) / 1000
+      ? parseRuntimeTimestampSeconds(snapshot.active_run.started_at)
       : null;
     if (!hasActiveRun) {
       // An idle snapshot is authoritative once a run was already attached.

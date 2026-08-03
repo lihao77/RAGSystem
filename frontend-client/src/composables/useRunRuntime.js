@@ -142,6 +142,13 @@ export function useRunRuntime(deps) {
   const updateModelCall = (event, status) => {
     if (!event?.call_id) return;
     const key = modelCallKey(event);
+    const retryDelayMs = Number(event?.payload?.retry_delay_ms);
+    const retryAt = status === 'retry_wait'
+      ? new Date(
+          eventTimestampSeconds(event) * 1000
+          + (Number.isFinite(retryDelayMs) ? Math.max(0, retryDelayMs) : 0),
+        ).toISOString()
+      : null;
     activeRun.runningModelCalls = {
       ...(activeRun.runningModelCalls || {}),
       [key]: {
@@ -150,6 +157,7 @@ export function useRunRuntime(deps) {
         call_id: event.call_id,
         agent_id: event.agent_id || '',
         status,
+        retry_at: retryAt,
       },
     };
     refreshActivityPhase();
@@ -166,6 +174,8 @@ export function useRunRuntime(deps) {
     event,
     event?.payload?.will_retry ? 'retry_wait' : 'failed',
   );
+
+  const markModelStreaming = event => updateModelCall(event, 'streaming');
 
   const markModelAttemptCompleted = (event) => {
     const next = { ...(activeRun.runningModelCalls || {}) };
@@ -201,8 +211,9 @@ export function useRunRuntime(deps) {
   const markToolStarted = (event, eventData) => {
     const callId = event?.call_id;
     if (!callId) return;
+    const invocationCallId = eventData?.lineage?.parent_call_id || '';
     const models = Object.fromEntries(Object.entries(activeRun.runningModelCalls || {}).filter(
-      ([, model]) => model.agent_id !== (event.agent_id || ''),
+      ([, model]) => !invocationCallId || model.call_id !== invocationCallId,
     ));
     activeRun.runningModelCalls = models;
     activeRun.runningToolCalls = {
@@ -210,6 +221,7 @@ export function useRunRuntime(deps) {
       [callId]: {
         tool: typeof eventData?.tool === 'string' ? eventData.tool : '',
         agent_id: event.agent_id || '',
+        parent_call_id: invocationCallId,
       },
     };
     refreshActivityPhase();
@@ -225,13 +237,13 @@ export function useRunRuntime(deps) {
   };
 
   const markAgentFinished = (event) => {
-    const agentId = event?.agent_id;
-    if (!agentId) return;
+    const invocationCallId = event?.call_id;
+    if (!invocationCallId) return;
     activeRun.runningModelCalls = Object.fromEntries(Object.entries(activeRun.runningModelCalls || {}).filter(
-      ([, model]) => model.agent_id !== agentId,
+      ([, model]) => model.call_id !== invocationCallId,
     ));
     activeRun.runningToolCalls = Object.fromEntries(Object.entries(activeRun.runningToolCalls || {}).filter(
-      ([, tool]) => tool.agent_id !== agentId,
+      ([, tool]) => tool.parent_call_id !== invocationCallId,
     ));
     refreshActivityPhase();
   };
@@ -412,6 +424,7 @@ export function useRunRuntime(deps) {
     markModelAttemptStarted,
     markModelAttemptFailed,
     markModelAttemptCompleted,
+    markModelStreaming,
     markLlmFirstToken,
     markOutputChunk,
     markToolStarted,

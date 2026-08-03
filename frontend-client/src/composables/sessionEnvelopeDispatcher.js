@@ -234,11 +234,15 @@ export function createSessionEnvelopeDispatcher({
       /** @param {AnyRecord} model */ model => model.status === 'retry_wait',
     );
     if (retryModel) {
+      const nextRetryAt = retryModel.retry_at ? Date.parse(retryModel.retry_at) : Date.now();
       deps.setLlmRetryState({
         scope: 'model_attempt',
+        callId: retryModel.call_id,
+        agentId: retryModel.agent_id || '',
         nextAttempt: (retryModel.attempt || 0) + 1,
         maxAttempts: retryModel.max_attempts || 1,
-        waitMs: retryModel.retry_at ? Math.max(0, Date.parse(retryModel.retry_at) - Date.now()) : 0,
+        waitMs: Number.isFinite(nextRetryAt) ? Math.max(0, nextRetryAt - Date.now()) : 0,
+        nextRetryAt: Number.isFinite(nextRetryAt) ? nextRetryAt : Date.now(),
         error: retryModel.error || '',
         provider: retryModel.provider || '',
         model: retryModel.model || '',

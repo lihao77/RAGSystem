@@ -199,7 +199,7 @@ describe("SessionRuntimeService projection", () => {
           run_id: "run-child",
           call_id: "tool-1",
           agent_id: "child-1",
-          payload: { phase: "start", tool: "search" },
+          payload: { phase: "start", tool: "search", lineage: { parent_call_id: "child-call" } },
         }),
       ],
     }));
@@ -214,13 +214,80 @@ describe("SessionRuntimeService projection", () => {
       tools: [{
         call_id: "tool-1",
         agent_id: "child-1",
+        parent_call_id: "child-call",
         tool: "search",
         started_at: "2026-07-30T00:00:03.000Z",
       }],
       updated_at: "2026-07-30T00:00:03.000Z",
     });
   });
+
+  it("cleans up only the completed invocation when same-name agents run concurrently", () => {
+    const snapshot = projectSessionRuntime(facts({
+      activeRootRun: run(),
+      ownedByCurrentInstance: true,
+      activeRunEvents: [
+        outbox(1, modelAttemptStarted("worker-call-1", "attempt-1")),
+        outbox(2, modelAttemptStarted("worker-call-2", "attempt-2")),
+        outbox(3, {
+          type: "tool_call",
+          session_id: "session-1",
+          run_id: "run-child-1",
+          call_id: "tool-1",
+          agent_id: "worker",
+          payload: { phase: "start", tool: "search", lineage: { parent_call_id: "worker-call-1" } },
+        }),
+        outbox(4, {
+          type: "tool_call",
+          session_id: "session-1",
+          run_id: "run-child-2",
+          call_id: "tool-2",
+          agent_id: "worker",
+          payload: { phase: "start", tool: "read_file", lineage: { parent_call_id: "worker-call-2" } },
+        }),
+        outbox(5, modelAttemptStarted("worker-call-2", "attempt-3")),
+        outbox(6, {
+          type: "agent_ended",
+          session_id: "session-1",
+          run_id: "run-child-1",
+          call_id: "worker-call-1",
+          agent_id: "worker",
+          payload: { phase: "end", success: true },
+        }),
+      ],
+    }));
+
+    expect(snapshot.active_run?.activity.models).toEqual([
+      expect.objectContaining({ call_id: "worker-call-2", agent_id: "worker", attempt_id: "attempt-3" }),
+    ]);
+    expect(snapshot.active_run?.activity.tools).toEqual([{
+      call_id: "tool-2",
+      agent_id: "worker",
+      parent_call_id: "worker-call-2",
+      tool: "read_file",
+      started_at: "2026-07-30T00:00:04.000Z",
+    }]);
+  });
 });
+
+function modelAttemptStarted(callId: string, attemptId: string) {
+  return {
+    type: "model_attempt_started",
+    session_id: "session-1",
+    run_id: `run-${callId}`,
+    call_id: callId,
+    agent_id: "worker",
+    payload: {
+      phase: "start",
+      attempt_id: attemptId,
+      attempt: 1,
+      max_attempts: 3,
+      round: 1,
+      provider: "OpenAI",
+      model: "gpt-test",
+    },
+  };
+}
 
 function outbox(sequence: number, event: Record<string, unknown>) {
   return {

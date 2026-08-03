@@ -9,6 +9,27 @@ const isVisibleRootCompressionSummary = (eventData) => {
   return threadKey == null || threadKey === '' || threadKey === 'root';
 };
 
+/** @param {AnyRecord} model */
+const retryStateForModel = (model) => {
+  const parsedRetryAt = model.retry_at ? Date.parse(model.retry_at) : Number.NaN;
+  const fallbackWaitMs = Number(model.retry_delay_ms);
+  const waitMs = Number.isFinite(parsedRetryAt)
+    ? Math.max(0, parsedRetryAt - Date.now())
+    : Number.isFinite(fallbackWaitMs) ? Math.max(0, fallbackWaitMs) : 0;
+  return {
+    scope: 'model_attempt',
+    callId: model.call_id,
+    agentId: model.agent_id || '',
+    nextAttempt: (model.attempt || 0) + 1,
+    maxAttempts: model.max_attempts || 1,
+    waitMs,
+    nextRetryAt: Number.isFinite(parsedRetryAt) ? parsedRetryAt : Date.now() + waitMs,
+    error: model.error || '',
+    provider: model.provider || '',
+    model: model.model || '',
+  };
+};
+
 /** @param {import('./sessionCoreTypes.js').EventReducerOptions} options */
 export function createSessionEventReducer({
   deps,
@@ -21,18 +42,25 @@ export function createSessionEventReducer({
   handleApprovalRequired,
   handleUserInputRequired,
 }) {
+  const syncLlmRetryState = () => {
+    const retryModels = Object.values(activeRun.runningModelCalls || {}).filter(
+      model => model.status === 'retry_wait',
+    );
+    const current = llmRetryState.value;
+    const selected = retryModels.find(
+      model => model.call_id === current?.callId && (model.agent_id || '') === (current?.agentId || ''),
+    ) || retryModels[0];
+    if (selected) {
+      deps.setLlmRetryState(retryStateForModel(selected));
+    } else if (current) {
+      deps.clearLlmRetryState();
+    }
+  };
+
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {import('./sessionCoreTypes.js').SessionMessage} currentMsg @param {string} sessionId */
   return (event, currentMsg, sessionId) => {
     const eventType = event.type;
     const payload = event.payload || {};
-
-    if (
-      llmRetryState.value
-      && eventType !== 'model_attempt_failed'
-      && ['model_request', 'model_attempt_started', 'model_attempt_completed', 'stream_output', 'tool_call', 'tool_result', 'agent_ended', 'error'].includes(eventType)
-    ) {
-      deps.clearLlmRetryState();
-    }
 
     if (eventType === 'state_sync') {
       const category = payload.category;
@@ -80,31 +108,24 @@ export function createSessionEventReducer({
       }
     } else if (eventType === 'model_request') {
       runtime.markModelRequestStarted(event, deps.isMasterEvent(event));
+      syncLlmRetryState();
     } else if (eventType === 'model_attempt_started') {
       runtime.markModelAttemptStarted(event);
+      syncLlmRetryState();
     } else if (eventType === 'model_attempt_failed') {
       runtime.markModelAttemptFailed(event);
-      if (payload.will_retry) {
-        deps.setLlmRetryState({
-          scope: 'model_attempt',
-          nextAttempt: (payload.attempt || 0) + 1,
-          maxAttempts: payload.max_attempts || 1,
-          waitMs: payload.retry_delay_ms || 0,
-          error: payload.error || '',
-          provider: payload.provider || '',
-          model: payload.model || '',
-        });
-      } else {
-        deps.clearLlmRetryState();
-      }
+      syncLlmRetryState();
     } else if (eventType === 'model_attempt_completed') {
       runtime.markModelAttemptCompleted(event);
+      syncLlmRetryState();
     } else if (eventType === 'stream_output') {
       const phase = payload.phase;
       if (phase === 'first_token') {
         runtime.markLlmFirstToken(event, payload);
+        syncLlmRetryState();
       } else if (phase === 'delta') {
         runtime.markOutputChunk(event, payload.content || '');
+        syncLlmRetryState();
         if (deps.isMasterEvent(event)) {
           currentMsg.content += payload.content;
         } else {
@@ -112,6 +133,7 @@ export function createSessionEventReducer({
         }
       } else if (phase === 'final') {
         runtime.markModelAttemptCompleted(event);
+        syncLlmRetryState();
         if (deps.isMasterEvent(event)) {
           const serverContent = payload.content || '';
           if (serverContent && (!currentMsg.content || currentMsg.content.length < serverContent.length)) {
@@ -125,26 +147,33 @@ export function createSessionEventReducer({
           deps.applyEnvelopeToMessage(currentMsg, event);
         }
       } else if (phase === 'intent_delta' || phase === 'intent_complete') {
+        runtime.markModelStreaming(event);
+        syncLlmRetryState();
         deps.applyEnvelopeToMessage(currentMsg, event);
       }
     } else if (eventType === 'tool_call') {
       deps.applyEnvelopeToMessage(currentMsg, event);
       runtime.markToolStarted(event, payload);
+      syncLlmRetryState();
     } else if (eventType === 'tool_result') {
       deps.applyEnvelopeToMessage(currentMsg, event);
       runtime.markToolFinished(event);
+      syncLlmRetryState();
     } else if (eventType === 'agent_started') {
       deps.applyEnvelopeToMessage(currentMsg, event);
       if (deps.isMasterEvent(event)) runtime.markRootAgentStarted(event);
     } else if (eventType === 'agent_ended') {
       deps.applyEnvelopeToMessage(currentMsg, event);
       runtime.markAgentFinished(event);
+      syncLlmRetryState();
       if (deps.isMasterEvent(event) && !currentMsg.finished) {
         currentMsg.finished = true;
         runtime.markRecentSessionUpdated(sessionId, currentMsg);
         deps.checkSituationScreenTrigger(currentMsg.content);
       }
     } else if (eventType === 'error') {
+      runtime.markModelAttemptCompleted(event);
+      syncLlmRetryState();
       currentMsg.status.push({ type: 'error', content: payload.message || '' });
     } else if (eventType === 'interaction' && payload.phase === 'required') {
       if (payload.kind === 'approval') handleApprovalRequired(event, payload, sessionId);

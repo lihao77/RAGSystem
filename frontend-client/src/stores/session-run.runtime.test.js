@@ -117,6 +117,18 @@ test('running 快照用权威活动覆盖本地旧阶段', () => {
   assert.equal(store.activeRun.phase, 'processing');
 });
 
+test('SQLite 无时区运行时间按 UTC 解析', () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const activeRun = snapshot('running').active_run;
+
+  store.applySessionRuntime(snapshot('running', {
+    active_run: { ...activeRun, started_at: '2026-08-03 08:00:00' },
+  }));
+
+  assert.equal(store.activeRun.runStartedAt, Date.UTC(2026, 7, 3, 8, 0, 0) / 1000);
+});
+
 test('running 快照恢复模型重试等待及真实 attempt 元数据', () => {
   setActivePinia(createPinia());
   const store = useSessionRunStore();
@@ -176,6 +188,7 @@ test('running 快照恢复子 Agent 模型与工具并行活动', () => {
         tools: [{
           call_id: 'root-tool',
           agent_id: 'agent',
+          parent_call_id: 'root-call',
           tool: 'read_file',
           started_at: '2026-07-30T00:00:00.500Z',
         }],
@@ -187,6 +200,7 @@ test('running 快照恢复子 Agent 模型与工具并行活动', () => {
   assert.equal(store.activeRun.phase, 'parallel_running');
   assert.equal(store.activeRun.runningToolCalls['root-tool'].tool, 'read_file');
   assert.equal(store.activeRun.runningToolCalls['root-tool'].agent_id, 'agent');
+  assert.equal(store.activeRun.runningToolCalls['root-tool'].parent_call_id, 'root-call');
   assert.equal(Object.keys(store.activeRun.runningModelCalls).length, 1);
 });
 

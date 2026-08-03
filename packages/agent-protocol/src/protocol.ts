@@ -460,6 +460,7 @@ export const SessionRuntimeActiveRunSchema = z.object({
     tools: z.array(z.object({
       call_id: z.string().min(1),
       agent_id: z.string(),
+      parent_call_id: z.string().min(1).optional(),
       tool: z.string(),
       started_at: z.string(),
     })),
