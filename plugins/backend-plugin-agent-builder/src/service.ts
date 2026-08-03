@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentConfig, AgentLlmConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { BackendToolDescriptor } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import type { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
 
 import {
@@ -39,7 +40,19 @@ export class AgentBuilderService {
   constructor(
     private readonly store: AgentBuilderStore,
     private readonly agentConfig: AgentConfigService,
+    private readonly pluginTools: readonly BackendToolDescriptor[] = [],
   ) {}
+
+  listAvailableTools(): BackendToolDescriptor[] {
+    const tools = new Map<string, BackendToolDescriptor>();
+    for (const tool of this.agentConfig.listAvailableTools()) {
+      tools.set(tool.name, tool);
+    }
+    for (const tool of this.pluginTools) {
+      tools.set(tool.name, tool);
+    }
+    return [...tools.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }
 
   listDrafts(): Promise<AgentDraft[]> {
     return this.store.listDrafts();

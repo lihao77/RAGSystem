@@ -78,6 +78,35 @@ describe("BackendPluginManager", () => {
     runtime.dispose();
   });
 
+  it("injects registered tool descriptors into runtime factories", async () => {
+    let receivedTools: readonly { name: string }[] | undefined;
+    const manager = new BackendPluginManager([{
+      manifest: { id: "tools", version: "1.0.0" },
+      register(context) {
+        context.tools.register(() => [], [{
+          name: "read_file",
+          description: "Read a managed file",
+          category: "filesystem",
+          risk_level: "low",
+        }]);
+        context.runtimes.register((runtimeContext) => {
+          receivedTools = runtimeContext.listPluginTools?.();
+          return {};
+        });
+      },
+    }]);
+    await manager.register();
+
+    const runtime = await manager.runtimeContributions().createRuntime({} as BackendPluginRuntimeContext);
+    expect(receivedTools).toEqual([{
+      name: "read_file",
+      description: "Read a managed file",
+      category: "filesystem",
+      risk_level: "low",
+    }]);
+    runtime.dispose();
+  });
+
   it("merges deployment host resources into application and tenant runtime factories", async () => {
     const hostResource: BackendPluginResourceContribution = {
       pluginId: "host",

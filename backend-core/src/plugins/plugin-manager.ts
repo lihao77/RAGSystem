@@ -405,6 +405,7 @@ export class BackendPluginManager {
       configureHooks: (registry) => manager.hookRegistry.install(registry),
       createRuntime: (context) => manager.runtimeFactoryRegistry.create({
         ...context,
+        listPluginTools: () => manager.toolRegistry.list(),
         resources: [
           ...(context.resources ?? []),
           ...hostResources,

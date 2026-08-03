@@ -29,6 +29,7 @@ export function createAgentBuilderPlugin(): BackendPlugin {
           service: new AgentBuilderService(
             new FilesystemAgentBuilderStore(runtimeContext.dataRoot),
             runtimeContext.agentConfig,
+            runtimeContext.listPluginTools?.() ?? [],
           ),
         })],
         };
@@ -40,7 +41,10 @@ export function createAgentBuilderPlugin(): BackendPlugin {
         if (teamName !== AGENT_BUILDER_TEAM_NAME || !agent.default_entry) return [];
         if (!capabilities) throw new Error("Agent Builder plugin requires runtime capabilities");
         const enabledTools = new Set(agent.tools.enabled_tools);
-        return createAgentBuilderTools(capabilities.require(AGENT_BUILDER_RUNTIME_CAPABILITY).service)
+        return createAgentBuilderTools(
+          capabilities.require(AGENT_BUILDER_RUNTIME_CAPABILITY).service,
+          capabilities,
+        )
           .filter((tool) => enabledTools.has(tool.name));
       });
     },

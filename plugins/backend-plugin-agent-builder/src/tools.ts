@@ -2,6 +2,9 @@ import { z } from "zod";
 
 import { buildTool, type Tool } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
+import type { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
+import { MCP_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-mcp/capability.js";
+import { SKILLS_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-skills/capability.js";
 
 import { AgentBlueprintSchema } from "./contracts.js";
 import type { AgentBuilderService } from "./service.js";
@@ -69,8 +72,63 @@ const BLUEPRINT_JSON_SCHEMA = {
   },
 } as const;
 
-export function createAgentBuilderTools(service: AgentBuilderService): Tool[] {
+export function createAgentBuilderTools(service: AgentBuilderService, capabilities?: CapabilityRegistry): Tool[] {
   return [
+    buildTool({
+      name: "list_agent_builder_capabilities",
+      description: "List the existing Tools, Skills, and MCP Servers available to this tenant. Use this before designing a Blueprint; only bind names returned by this tool and never invent capabilities.",
+      inputSchema: EmptyToolInputSchema,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
+      riskLevel: "low",
+      source: "agent_tool",
+      category: "agent_builder",
+      isReadOnly: () => true,
+      isConcurrencySafe: () => true,
+      async call() {
+        try {
+          const skillsRuntime = capabilities?.get(SKILLS_RUNTIME_CAPABILITY);
+          const mcpRuntime = capabilities?.get(MCP_RUNTIME_CAPABILITY);
+          const [skills, mcpServers] = await Promise.all([
+            skillsRuntime?.library.listSkills() ?? Promise.resolve([]),
+            mcpRuntime?.application.listServers() ?? Promise.resolve([]),
+          ]);
+          const tools = service.listAvailableTools();
+          return toolSuccess({
+            tools: tools.map((tool) => ({
+              name: tool.name,
+              description: tool.description,
+              category: tool.category,
+              risk_level: tool.risk_level,
+              ...(tool.implemented !== undefined ? { implemented: tool.implemented } : {}),
+              ...(tool.runtime_status !== undefined ? { runtime_status: tool.runtime_status } : {}),
+            })),
+            skills: skills.map((skill) => ({
+              name: skill.name,
+              display_name: skill.display_name,
+              description: skill.description,
+            })),
+            mcp_servers: mcpServers.map((server) => ({
+              name: server.name,
+              display_name: server.display_name,
+              transport: server.transport,
+              enabled: server.enabled,
+              status: server.status,
+              tool_count: server.tool_count,
+            })),
+          }, {
+            toolName: "list_agent_builder_capabilities",
+            summary: `Found ${tools.length} Tool(s), ${skills.length} Skill(s), and ${mcpServers.length} MCP Server(s)`,
+            outputType: "agent_builder.capabilities",
+          });
+        } catch (error) {
+          return toolError("list_agent_builder_capabilities", error instanceof Error ? error.message : String(error));
+        }
+      },
+    }),
     buildTool({
       name: "list_agent_drafts",
       description: "List the Agent Builder drafts available to the current tenant.",

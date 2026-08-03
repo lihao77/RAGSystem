@@ -3,6 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { CapabilityRegistry, provideCapability } from "@ragsystem/backend-core/plugins/capability-registry.js";
+import { MCP_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-mcp/capability.js";
+import { SKILLS_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-skills/capability.js";
 
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
@@ -14,6 +17,7 @@ import {
   AGENT_BUILDER_TEAM_NAME,
   buildAgentBuilderTeam,
   createAgentBuilderPlugin,
+  createAgentBuilderTools,
   ensureAgentBuilderTeam,
   validateBlueprint,
 } from "../dist/index.js";
@@ -306,6 +310,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
       [
         "read_file",
         "custom_tool",
+        "list_agent_builder_capabilities",
         "create_skill_artifact",
         "list_skill_drafts",
         "get_skill_draft",
@@ -314,7 +319,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
     );
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction\./);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /reviewable Skill candidate/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 5);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 6);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /content\.artifact_id/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /content\.artifact_revision/);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
@@ -337,7 +342,7 @@ test("Builder template migration replaces script-based Artifact handoff instruct
     assert.match(orchestrator.custom_params.behavior.system_prompt, /content\.artifact_id/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /content\.artifact_revision/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /create_skill_artifact result/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 5);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 6);
   } finally {
     fixture.cleanup();
   }
@@ -370,6 +375,7 @@ test("Builder-only draft tools are visible only to the Builder entry Agent", asy
       assert.deepEqual(builderTools.map((tool) => tool.name).sort(), [
         "create_agent_draft",
         "get_agent_draft",
+        "list_agent_builder_capabilities",
         "list_agent_drafts",
         "update_agent_draft",
       ]);
@@ -404,6 +410,60 @@ test("Builder-only draft tools are visible only to the Builder entry Agent", asy
   }
 });
 
+test("Builder capability inventory exposes existing Tools, Skills, and MCP Servers", async () => {
+  const fixture = await createFixture([{
+    name: "read_file",
+    description: "Read a managed file",
+    category: "filesystem",
+    risk_level: "low",
+  }]);
+  try {
+    const capabilities = new CapabilityRegistry([
+      provideCapability(SKILLS_RUNTIME_CAPABILITY, {
+        library: {
+          listSkills: async () => [{ name: "review-code", display_name: "Review Code", description: "Review changes" }],
+        },
+      }),
+      provideCapability(MCP_RUNTIME_CAPABILITY, {
+        application: {
+          listServers: async () => [{
+            name: "github",
+            display_name: "GitHub",
+            transport: "streamable_http",
+            enabled: true,
+            status: "connected",
+            tool_count: 3,
+          }],
+        },
+      }),
+    ]);
+    const tool = createAgentBuilderTools(fixture.service, capabilities)
+      .find((item) => item.name === "list_agent_builder_capabilities");
+    assert.ok(tool);
+    const result = await tool.call({}, {});
+    assert.equal(result.success, true);
+    assert.deepEqual(result.content.tools.find((item) => item.name === "read_file"), {
+      name: "read_file",
+      description: "Read a managed file",
+      category: "filesystem",
+      risk_level: "low",
+    });
+    assert.deepEqual(result.content.skills, [
+      { name: "review-code", display_name: "Review Code", description: "Review changes" },
+    ]);
+    assert.deepEqual(result.content.mcp_servers, [{
+      name: "github",
+      display_name: "GitHub",
+      transport: "streamable_http",
+      enabled: true,
+      status: "connected",
+      tool_count: 3,
+    }]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("Builder template opts its orchestrator into Skill authoring tools explicitly", () => {
   const team = buildAgentBuilderTeam();
   const orchestrator = team.builder_orchestrator;
@@ -417,14 +477,14 @@ test("Builder template opts its orchestrator into Skill authoring tools explicit
   }
 });
 
-async function createFixture() {
+async function createFixture(pluginTools = []) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-builder-"));
   const agentConfig = new AgentConfigService(new MemoryTeamStore());
   await agentConfig.initialize();
   return {
     root,
     agentConfig,
-    service: new AgentBuilderService(new FilesystemAgentBuilderStore(root), agentConfig),
+    service: new AgentBuilderService(new FilesystemAgentBuilderStore(root), agentConfig, pluginTools),
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
   };
 }

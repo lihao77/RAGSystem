@@ -91,6 +91,8 @@ export interface BackendPluginRuntimeContext {
   readonly backgroundTasks: BackgroundTaskService;
   readonly clientEvents: ClientEventPublisherPort;
   readonly resources?: readonly BackendPluginResourceContribution[];
+  /** Tool descriptors registered by all installed plugins, for runtime control-plane consumers. */
+  readonly listPluginTools?: () => readonly BackendToolDescriptor[];
 }
 
 export interface BackendPluginRuntimeContribution {

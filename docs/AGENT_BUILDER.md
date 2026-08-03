@@ -27,7 +27,7 @@ Agent Builder 将自然语言中的 Agent 需求转换为可审查、可校验�
 
 用户从 Team 列表激活 `agent-builder`，然后返回聊天页与 Builder Team 对话。它包含一个编排入口 Agent，以及需求调研、能力调研、Agent 架构、评估和优化五个专职 Agent。入口 Agent 会按工作流委派这些子 Agent，汇总结果后创建或更新一个 Draft。
 
-Builder Team 的草稿工具包括 `list_agent_drafts`、`get_agent_draft`、`create_agent_draft` 和 `update_agent_draft`。Skill 作者工具由 Skills 插件贡献，默认由 Builder 编排 Agent 显式启用；普通 Agent 也可以单独配置这些工具。它们不会因为 `enabled_skills` 自动出现，也不会因为提交 Artifact 就自动绑定 Skill。
+Builder Team 的草稿工具包括 `list_agent_builder_capabilities`、`list_agent_drafts`、`get_agent_draft`、`create_agent_draft` 和 `update_agent_draft`。编排 Agent 应先调用 `list_agent_builder_capabilities` 获取当前租户已有的 Tool、Skill 与 MCP Server 名称，再把真实名称写入 Blueprint；该工具只读，不会创建或授权 MCP。Skill 作者工具由 Skills 插件贡献，默认由 Builder 编排 Agent 显式启用；普通 Agent 也可以单独配置这些工具。它们不会因为 `enabled_skills` 自动出现，也不会因为提交 Artifact 就自动绑定 Skill。
 
 ### 2. 在 Builder Team 中创建草稿
 
