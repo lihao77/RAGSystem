@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { request as requestHttp, type IncomingHttpHeaders } from "node:http";
 import { Readable } from "node:stream";
 import type { LlmRequest, ProviderConfig } from "./types.js";
@@ -12,6 +13,18 @@ import {
 import { isRecord } from "./internal/records.js";
 
 export type EndpointKind = "chat" | "responses" | "anthropic";
+
+interface ProviderAttemptContext {
+  attemptId: string;
+  attempt: number;
+  maxAttempts: number;
+  startedAt: number;
+  key: string;
+  policy: ReturnType<typeof providerCallPolicy>;
+  settled: boolean;
+}
+
+const responseAttempts = new WeakMap<Response, ProviderAttemptContext>();
 
 export function resolveEndpoint(provider: ProviderConfig, kind: EndpointKind): string {
   const configured = String(provider.api_endpoint ?? DEFAULT_ENDPOINTS[provider.provider_type] ?? "").trim();
@@ -46,14 +59,38 @@ export async function fetchProvider(
   request: LlmRequest,
   endpoint: string,
   init: RequestInit,
-  deferSuccess = false,
 ): Promise<Response> {
-  return externalCallPolicy.execute({
-    key: circuitKey(request),
-    ...providerCallPolicy(request.provider),
+  const key = circuitKey(request);
+  const policy = providerCallPolicy(request.provider);
+  const attemptIds = new Map<number, { id: string; startedAt: number }>();
+  let completedAttempt = 1;
+  const response = await externalCallPolicy.execute({
+    key,
+    ...policy,
     ...(request.signal ? { signal: request.signal } : {}),
-    deferSuccess,
-    operation: async ({ signal }) => {
+    // A provider call is complete only after its JSON body or response stream
+    // has been fully consumed. HTTP headers alone are not a successful attempt.
+    deferSuccess: true,
+    onAttemptStarted: ({ attempt, maxAttempts }) => {
+      const attemptId = randomUUID();
+      attemptIds.set(attempt, { id: attemptId, startedAt: Date.now() });
+      request.onAttemptLifecycle?.({ phase: "started", attemptId, attempt, maxAttempts });
+    },
+    onAttemptFailed: ({ attempt, maxAttempts, error, willRetry, delayMs }) => {
+      const current = attemptIds.get(attempt) ?? { id: randomUUID(), startedAt: Date.now() };
+      request.onAttemptLifecycle?.({
+        phase: "failed",
+        attemptId: current.id,
+        attempt,
+        maxAttempts,
+        willRetry,
+        ...(delayMs !== undefined ? { retryDelayMs: delayMs } : {}),
+        elapsedMs: Math.max(0, Date.now() - current.startedAt),
+        error: errorMessage(error),
+      });
+    },
+    operation: async ({ attempt, signal }) => {
+      completedAttempt = attempt;
       const requestInit = { ...init, signal };
       const response = request.provider.transport?.type === "ipc_socket"
         ? await fetchOverIpcSocket(request.provider, endpoint, requestInit)
@@ -65,6 +102,17 @@ export async function fetchProvider(
       return response;
     },
   });
+  const current = attemptIds.get(completedAttempt) ?? { id: randomUUID(), startedAt: Date.now() };
+  responseAttempts.set(response, {
+    attemptId: current.id,
+    attempt: completedAttempt,
+    maxAttempts: policy.maxAttempts ?? 1,
+    startedAt: current.startedAt,
+    key,
+    policy,
+    settled: false,
+  });
+  return response;
 }
 
 async function fetchOverIpcSocket(
@@ -129,22 +177,15 @@ function responseHeaders(headers: IncomingHttpHeaders): Headers {
   return result;
 }
 
-export async function readProviderStream<T>(request: LlmRequest, read: () => Promise<T>): Promise<T> {
-  const key = circuitKey(request);
-  const policy = providerCallPolicy(request.provider);
+export async function readProviderStream<T>(request: LlmRequest, response: Response, read: () => Promise<T>): Promise<T> {
   try {
     const result = await read();
-    externalCallPolicy.recordSuccess(key, policy);
+    settleProviderAttempt(request, response, true);
     return result;
   } catch (error) {
-    if (request.signal?.aborted) externalCallPolicy.recordAbort(key);
-    else externalCallPolicy.recordFailure(key, error, policy);
+    settleProviderAttempt(request, response, false, error);
     throw error;
   }
-}
-
-export function recordStreamFailure(request: LlmRequest, error: unknown): void {
-  externalCallPolicy.recordFailure(circuitKey(request), error, providerCallPolicy(request.provider));
 }
 
 export function providerTimeoutMs(request: LlmRequest): number {
@@ -152,16 +193,19 @@ export function providerTimeoutMs(request: LlmRequest): number {
 }
 
 export async function requireOkJson(response: Response, request: LlmRequest): Promise<Record<string, unknown>> {
-  const body = await readJson(response, providerTimeoutMs(request));
-  if (!response.ok) throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
-  return body;
+  try {
+    const body = await readJson(response, providerTimeoutMs(request));
+    if (!response.ok) throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
+    settleProviderAttempt(request, response, true);
+    return body;
+  } catch (error) {
+    settleProviderAttempt(request, response, false, error);
+    throw error;
+  }
 }
 
 export async function readJson(response: Response, timeoutMs?: number): Promise<Record<string, unknown>> {
-  const text = await readText(response, timeoutMs).catch((error: unknown) => {
-    if (error instanceof ExternalCallTimeoutError) throw error;
-    return "";
-  });
+  const text = await readText(response, timeoutMs);
   if (!text) return {};
   try {
     return JSON.parse(text) as Record<string, unknown>;
@@ -179,6 +223,38 @@ export function extractErrorMessage(body: unknown): string | null {
 function circuitKey(request: LlmRequest): string {
   const provider = request.provider;
   return `provider:${provider.key ?? provider.name ?? provider.provider_type}`;
+}
+
+function settleProviderAttempt(request: LlmRequest, response: Response, success: boolean, error?: unknown): void {
+  const attempt = responseAttempts.get(response);
+  if (!attempt || attempt.settled) return;
+  attempt.settled = true;
+  if (success) {
+    externalCallPolicy.recordSuccess(attempt.key, attempt.policy);
+    request.onAttemptLifecycle?.({
+      phase: "completed",
+      attemptId: attempt.attemptId,
+      attempt: attempt.attempt,
+      maxAttempts: attempt.maxAttempts,
+      elapsedMs: Math.max(0, Date.now() - attempt.startedAt),
+    });
+    return;
+  }
+  if (request.signal?.aborted) externalCallPolicy.recordAbort(attempt.key);
+  else externalCallPolicy.recordFailure(attempt.key, error, attempt.policy);
+  request.onAttemptLifecycle?.({
+    phase: "failed",
+    attemptId: attempt.attemptId,
+    attempt: attempt.attempt,
+    maxAttempts: attempt.maxAttempts,
+    willRetry: false,
+    elapsedMs: Math.max(0, Date.now() - attempt.startedAt),
+    error: errorMessage(error),
+  });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error ?? "Unknown provider error");
 }
 
 async function readText(response: Response, timeoutMs?: number): Promise<string> {

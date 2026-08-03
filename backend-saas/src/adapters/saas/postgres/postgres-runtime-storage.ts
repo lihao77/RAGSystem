@@ -183,6 +183,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           activeRootRun: null,
           latestTerminalRootRun: null,
           pendingInteractions: [],
+          activeRunEvents: [],
           ownedByCurrentInstance: false,
         };
       }
@@ -228,11 +229,51 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         sessionId,
         statuses: ["waiting", "suspended", "resolved", "resuming"],
       });
+      const activeRunIds = activeRootRun
+        ? (await transactionExecutor.query<{ run_id: string }>(
+            `WITH RECURSIVE run_tree AS (
+               SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
+               UNION ALL
+               SELECT child.run_id
+               FROM saas_runs AS child
+               JOIN run_tree AS parent ON child.parent_run_id=parent.run_id
+               WHERE child.tenant_id=$1 AND child.session_id=$2
+             )
+             SELECT run_id FROM run_tree`,
+            [this.tenantId, sessionId, activeRootRun.run_id],
+          )).rows.map((row) => row.run_id)
+        : [];
       return {
         session,
         activeRootRun,
         latestTerminalRootRun: terminalRoots.rows[0] ? mapRun(terminalRoots.rows[0]) : null,
         pendingInteractions,
+        activeRunEvents: activeRunIds.length > 0
+          ? (await Promise.all([
+              tx.outbox.listOutboxForReplay({
+                sessionId,
+                runIds: activeRunIds,
+                limit: 500,
+                latest: true,
+                eventTypes: [
+                  "client.agent_ended",
+                  "client.model_request",
+                  "client.model_attempt_started",
+                  "client.model_attempt_failed",
+                  "client.model_attempt_completed",
+                  "client.tool_call",
+                  "client.tool_result",
+                ],
+              }),
+              tx.outbox.listOutboxForReplay({
+                sessionId,
+                runIds: activeRunIds,
+                limit: 100,
+                latest: true,
+                eventTypes: ["client.stream_output"],
+              }),
+            ])).flat().sort((left, right) => left.session_seq - right.session_seq)
+          : [],
         ownedByCurrentInstance: activeRootRun?.status === "running"
           && activeRow?.owned_by_current_instance === true,
       };

@@ -52,6 +52,7 @@ function runtimeSnapshot(state, overrides = {}) {
       execution_kind: 'agent_stream',
       started_at: '2026-07-30T00:00:00.000Z',
       updated_at: '2026-07-30T00:00:01.000Z',
+      activity: { models: [], tools: [], updated_at: '2026-07-30T00:00:01.000Z' },
     } : null,
     last_run: null,
     pending_interactions: state === 'waiting_interaction' || state === 'suspended'
@@ -765,7 +766,7 @@ test('run_started 只确认 Agent 已进入处理态，不猜测模型请求已�
 
   assert.equal(deps.activeRun.runId, 'run-1');
   assert.equal(deps.activeRun.phase, 'processing');
-  assert.equal(deps.activeRun.runStartedAt, 100);
+  assert.equal(deps.activeRun.runStartedAt, Date.parse('2026-07-30T00:00:00.000Z') / 1000);
   assert.equal(deps.activeRun.firstTokenAt, null);
   assert.equal(deps.activeRun.firstTokenLatencyMs, null);
   assert.equal(deps.isLoading.value, true);
@@ -811,6 +812,113 @@ test('model_request 到达后才进入等待模型响应', () => {
   }, 'session-1');
 
   assert.equal(deps.activeRun.phase, 'model_waiting');
+});
+
+test('模型物理 attempt 按 start → retry wait → next start → completed 收敛', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [createAssistantMessage()];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.setLlmRetryState = state => { deps.llmRetryState.value = state; };
+  deps.clearLlmRetryState = () => {
+    calls.clearLlmRetryState += 1;
+    deps.llmRetryState.value = null;
+  };
+
+  const stream = useSessionAgentClient(deps);
+  const identity = { run_id: 'run-1', call_id: 'root-call', agent_id: 'agent' };
+  stream.handleEnvelope({
+    type: 'model_request',
+    ...identity,
+    payload: { phase: 'start', round: 2 },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'model_attempt_started',
+    ...identity,
+    payload: {
+      phase: 'start', attempt_id: 'attempt-1', attempt: 1, max_attempts: 3,
+      round: 2, provider: 'openai', model: 'gpt-test',
+    },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'model_attempt_failed',
+    ...identity,
+    payload: {
+      phase: 'failed', attempt_id: 'attempt-1', attempt: 1, max_attempts: 3,
+      round: 2, provider: 'openai', model: 'gpt-test', will_retry: true,
+      retry_delay_ms: 1200, elapsed_ms: 80, error: '503',
+    },
+  }, 'session-1');
+
+  const key = 'agent\u0000root-call';
+  assert.equal(deps.activeRun.phase, 'retrying');
+  assert.equal(deps.activeRun.runningModelCalls[key].attempt_id, 'attempt-1');
+  assert.equal(deps.activeRun.runningModelCalls[key].status, 'retry_wait');
+  assert.equal(deps.llmRetryState.value.nextAttempt, 2);
+  assert.equal(deps.llmRetryState.value.waitMs, 1200);
+
+  stream.handleEnvelope({
+    type: 'model_attempt_started',
+    ...identity,
+    payload: {
+      phase: 'start', attempt_id: 'attempt-2', attempt: 2, max_attempts: 3,
+      round: 2, provider: 'openai', model: 'gpt-test',
+    },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.phase, 'model_waiting');
+  assert.equal(deps.activeRun.runningModelCalls[key].attempt_id, 'attempt-2');
+  assert.equal(deps.activeRun.runningModelCalls[key].status, 'waiting');
+  assert.equal(deps.llmRetryState.value, null);
+
+  stream.handleEnvelope({
+    type: 'model_attempt_completed',
+    ...identity,
+    payload: {
+      phase: 'end', attempt_id: 'attempt-2', attempt: 2, max_attempts: 3,
+      round: 2, provider: 'openai', model: 'gpt-test', elapsed_ms: 240,
+    },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.phase, 'processing');
+  assert.deepEqual(deps.activeRun.runningModelCalls, {});
+});
+
+test('session.runtime 从 retry_wait 恢复倒计时状态', () => {
+  const { deps } = createDeps();
+  let restoredRetry = null;
+  deps.setLlmRetryState = state => {
+    restoredRetry = state;
+    deps.llmRetryState.value = state;
+  };
+  const retryAt = new Date(Date.now() + 5000).toISOString();
+  const snapshot = runtimeSnapshot('running');
+  snapshot.active_run.activity.models.push({
+    call_id: 'root-call',
+    agent_id: 'agent',
+    round: 0,
+    status: 'retry_wait',
+    attempt_id: 'attempt-1',
+    attempt: 1,
+    max_attempts: 3,
+    provider: 'openai',
+    model: 'gpt-test',
+    started_at: new Date().toISOString(),
+    retry_at: retryAt,
+    error: 'rate limited',
+    updated_at: new Date().toISOString(),
+  });
+
+  useSessionAgentClient(deps).handleEnvelope({
+    type: 'session.runtime',
+    payload: snapshot,
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.phase, 'retrying');
+  assert.equal(restoredRetry.nextAttempt, 2);
+  assert.equal(restoredRetry.maxAttempts, 3);
+  assert.equal(restoredRetry.error, 'rate limited');
+  assert.ok(restoredRetry.waitMs > 0 && restoredRetry.waitMs <= 5000);
 });
 
 test('并发工具按 call_id 收敛，最后一个结果到达前保持工具执行中', () => {
@@ -888,8 +996,44 @@ test('并发工具按 call_id 收敛，最后一个结果到达前保持工具�
     payload: { phase: 'start', tool: 'child_work', input: {}, lineage: { parent_call_id: 'child-call' } },
   }, 'session-1');
 
-  assert.equal(deps.activeRun.phase, 'model_waiting');
+  assert.equal(deps.activeRun.phase, 'tool_running');
+  assert.deepEqual(deps.activeRun.runningToolCalls, {
+    'child-tool': { tool: 'child_work', agent_id: '' },
+  });
+});
+
+test('agent_ended 清理对应子 Agent 的悬挂模型和工具活动', () => {
+  const { deps } = createDeps();
+  deps.messages.value = [createAssistantMessage()];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.isMasterEvent = event => event.agent_id === 'root-agent';
+  const stream = useSessionAgentClient(deps);
+
+  stream.handleEnvelope({
+    type: 'model_request', run_id: 'child-run-1', call_id: 'child-model', agent_id: 'child-1',
+    payload: { phase: 'start', round: 0 },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'tool_call', run_id: 'child-run-2', call_id: 'child-tool', agent_id: 'child-2',
+    payload: { phase: 'start', tool: 'search', input: {} },
+  }, 'session-1');
+  assert.equal(deps.activeRun.phase, 'parallel_running');
+
+  stream.handleEnvelope({
+    type: 'agent_ended', run_id: 'child-run-1', call_id: 'child-model', agent_id: 'child-1',
+    payload: { phase: 'end', success: false },
+  }, 'session-1');
+  assert.deepEqual(deps.activeRun.runningModelCalls, {});
+  assert.equal(deps.activeRun.phase, 'tool_running');
+
+  stream.handleEnvelope({
+    type: 'agent_ended', run_id: 'child-run-2', call_id: 'child-agent-call', agent_id: 'child-2',
+    payload: { phase: 'end', success: true },
+  }, 'session-1');
   assert.deepEqual(deps.activeRun.runningToolCalls, {});
+  assert.equal(deps.activeRun.phase, 'processing');
+  assert.equal(deps.messages.value[0].finished, false);
 });
 
 test('stream_output(first_token) 设置首 token 时间并切换为模型输出中', () => {
@@ -903,6 +1047,9 @@ test('stream_output(first_token) 设置首 token 时间并切换为模型输出�
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
     type: 'stream_output',
+    run_id: 'run-1',
+    call_id: 'root-call',
+    agent_id: 'agent',
     timestamp: 101.2,
     payload: { phase: 'first_token', elapsed_ms: 350 },
   }, 'session-1');
@@ -927,6 +1074,9 @@ test('后续 stream_output(first_token) 不覆盖 run 首 token', () => {
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
     type: 'stream_output',
+    run_id: 'run-1',
+    call_id: 'root-call',
+    agent_id: 'agent',
     timestamp: 110,
     payload: { phase: 'first_token', elapsed_ms: 200 },
   }, 'session-1');
@@ -946,6 +1096,9 @@ test('stream_output(delta) 追加内容并在缺少 first token 事件时兜底 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
     type: 'stream_output',
+    run_id: 'run-1',
+    call_id: 'root-call',
+    agent_id: 'agent',
     timestamp: 10.5,
     payload: { phase: 'delta', content: 'hello' },
   }, 'session-1');

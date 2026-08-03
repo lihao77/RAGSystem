@@ -30,6 +30,9 @@ export const EnvelopeTypeSchema = z.enum([
   "agent_started",
   "agent_ended",
   "model_request",
+  "model_attempt_started",
+  "model_attempt_failed",
+  "model_attempt_completed",
   "stream_output",
   "state_sync",
   "tool_call",
@@ -109,6 +112,9 @@ export type AgentLifecyclePayload = z.infer<typeof AgentLifecyclePayloadSchema>;
 
 /* —— 内容流 —— */
 export type ModelRequestPayload = z.infer<typeof ModelRequestPayloadSchema>;
+export type ModelAttemptStartedPayload = z.infer<typeof ModelAttemptStartedPayloadSchema>;
+export type ModelAttemptFailedPayload = z.infer<typeof ModelAttemptFailedPayloadSchema>;
+export type ModelAttemptCompletedPayload = z.infer<typeof ModelAttemptCompletedPayloadSchema>;
 export type StreamOutputPayload = z.infer<typeof StreamOutputPayloadSchema>;
 
 /**
@@ -248,6 +254,34 @@ export const ModelRequestPayloadSchema = z.object({
   lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
 });
 
+const ModelAttemptPayloadBaseSchema = z.object({
+  attempt_id: z.string().min(1),
+  attempt: z.number().int().positive(),
+  max_attempts: z.number().int().positive(),
+  round: z.number().int().nonnegative(),
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  /** 当前 agent 的父调用；用于并发子 agent 活动投影。 */
+  lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
+});
+
+export const ModelAttemptStartedPayloadSchema = ModelAttemptPayloadBaseSchema.extend({
+  phase: z.literal("start"),
+});
+
+export const ModelAttemptFailedPayloadSchema = ModelAttemptPayloadBaseSchema.extend({
+  phase: z.literal("failed"),
+  will_retry: z.boolean(),
+  retry_delay_ms: z.number().nonnegative().optional(),
+  elapsed_ms: z.number().nonnegative(),
+  error: z.string(),
+});
+
+export const ModelAttemptCompletedPayloadSchema = ModelAttemptPayloadBaseSchema.extend({
+  phase: z.literal("end"),
+  elapsed_ms: z.number().nonnegative(),
+});
+
 export const StreamOutputPayloadSchema = z.object({
   phase: z.enum([
     "first_token",
@@ -270,7 +304,6 @@ export const StateSyncPayloadSchema = z.object({
     "context_usage",
     "compression",
     "command_result",
-    "retry",
   ]),
   ref: z
     .object({
@@ -408,6 +441,30 @@ export const SessionRuntimeActiveRunSchema = z.object({
   execution_kind: z.string(),
   started_at: z.string(),
   updated_at: z.string(),
+  activity: z.object({
+    models: z.array(z.object({
+      call_id: z.string().min(1),
+      agent_id: z.string(),
+      round: z.number().int().nonnegative(),
+      status: z.enum(["requested", "waiting", "streaming", "retry_wait", "failed"]),
+      attempt_id: z.string().min(1).nullable(),
+      attempt: z.number().int().positive().nullable(),
+      max_attempts: z.number().int().positive().nullable(),
+      provider: z.string().nullable(),
+      model: z.string().nullable(),
+      started_at: z.string().nullable(),
+      retry_at: z.string().nullable(),
+      error: z.string().nullable(),
+      updated_at: z.string(),
+    })),
+    tools: z.array(z.object({
+      call_id: z.string().min(1),
+      agent_id: z.string(),
+      tool: z.string(),
+      started_at: z.string(),
+    })),
+    updated_at: z.string(),
+  }),
 });
 
 export const SessionRuntimeLastRunSchema = z.object({
@@ -610,7 +667,10 @@ export const ServerToClientEnvelopeSchema = z.discriminatedUnion("type", [
   typed({ type: z.literal("agent_started"), session_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1).optional(), payload: AgentStartedPayloadSchema.optional() }),
   typed({ type: z.literal("agent_ended"), session_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1).optional(), payload: AgentEndedPayloadSchema.optional() }),
   typed({ type: z.literal("model_request"), session_id: z.string().min(1), run_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1), payload: ModelRequestPayloadSchema }),
-  typed({ type: z.literal("stream_output"), session_id: z.string().min(1), payload: StreamOutputPayloadSchema }),
+  typed({ type: z.literal("model_attempt_started"), session_id: z.string().min(1), run_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1), payload: ModelAttemptStartedPayloadSchema }),
+  typed({ type: z.literal("model_attempt_failed"), session_id: z.string().min(1), run_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1), payload: ModelAttemptFailedPayloadSchema }),
+  typed({ type: z.literal("model_attempt_completed"), session_id: z.string().min(1), run_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1), payload: ModelAttemptCompletedPayloadSchema }),
+  typed({ type: z.literal("stream_output"), session_id: z.string().min(1), run_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1), payload: StreamOutputPayloadSchema }),
   typed({ type: z.literal("state_sync"), session_id: z.string().min(1), payload: StateSyncPayloadSchema }),
   typed({ type: z.literal("tool_call"), session_id: z.string().min(1), call_id: z.string().min(1), payload: ToolCallPayloadSchema }),
   typed({ type: z.literal("tool_result"), session_id: z.string().min(1), call_id: z.string().min(1), payload: ToolResultPayloadSchema }),

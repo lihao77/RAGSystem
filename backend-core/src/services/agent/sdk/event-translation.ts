@@ -4,6 +4,9 @@ import type {
   IntentCompleteEvent,
   IntentDeltaEvent,
   KernelEvent,
+  ModelAttemptCompletedEvent,
+  ModelAttemptFailedEvent,
+  ModelAttemptStartedEvent,
   ModelRequestEvent,
   OutputDeltaEvent,
   RuntimeErrorEvent,
@@ -12,6 +15,9 @@ import type {
 } from "@ragsystem/agent-sdk";
 import type {
   Envelope,
+  ModelAttemptCompletedPayload,
+  ModelAttemptFailedPayload,
+  ModelAttemptStartedPayload,
   ModelRequestPayload,
   StateSyncPayload,
   StreamOutputPayload,
@@ -34,6 +40,12 @@ export function translateKernelEvent(event: KernelEvent, ctx: WireTranslationCon
   switch (event.type) {
     case "model_request":
       return [onModelRequest(event, ctx)];
+    case "model_attempt_started":
+      return [onModelAttemptStarted(event, ctx)];
+    case "model_attempt_failed":
+      return [onModelAttemptFailed(event, ctx)];
+    case "model_attempt_completed":
+      return [onModelAttemptCompleted(event, ctx)];
     case "first_token":
       return [onFirstToken(event, ctx)];
     case "output_delta":
@@ -82,6 +94,56 @@ function onModelRequest(event: ModelRequestEvent, ctx: WireTranslationContext): 
     type: "model_request",
     ...topMarkers(ctx),
     payload: { phase: "start", round: event.round, ...streamLineage(ctx) } satisfies ModelRequestPayload,
+  };
+}
+
+function modelAttemptPayload(
+  event: ModelAttemptStartedEvent | ModelAttemptFailedEvent | ModelAttemptCompletedEvent,
+  ctx: WireTranslationContext,
+) {
+  return {
+    attempt_id: event.attemptId,
+    attempt: event.attempt,
+    max_attempts: event.maxAttempts,
+    round: event.round,
+    provider: event.provider,
+    model: event.model,
+    ...streamLineage(ctx),
+  };
+}
+
+function onModelAttemptStarted(event: ModelAttemptStartedEvent, ctx: WireTranslationContext): Envelope {
+  return {
+    type: "model_attempt_started",
+    ...topMarkers(ctx),
+    payload: { phase: "start", ...modelAttemptPayload(event, ctx) } satisfies ModelAttemptStartedPayload,
+  };
+}
+
+function onModelAttemptFailed(event: ModelAttemptFailedEvent, ctx: WireTranslationContext): Envelope {
+  return {
+    type: "model_attempt_failed",
+    ...topMarkers(ctx),
+    payload: {
+      phase: "failed",
+      ...modelAttemptPayload(event, ctx),
+      will_retry: event.willRetry,
+      ...(event.retryDelayMs !== undefined ? { retry_delay_ms: event.retryDelayMs } : {}),
+      elapsed_ms: event.elapsedMs,
+      error: event.error,
+    } satisfies ModelAttemptFailedPayload,
+  };
+}
+
+function onModelAttemptCompleted(event: ModelAttemptCompletedEvent, ctx: WireTranslationContext): Envelope {
+  return {
+    type: "model_attempt_completed",
+    ...topMarkers(ctx),
+    payload: {
+      phase: "end",
+      ...modelAttemptPayload(event, ctx),
+      elapsed_ms: event.elapsedMs,
+    } satisfies ModelAttemptCompletedPayload,
   };
 }
 

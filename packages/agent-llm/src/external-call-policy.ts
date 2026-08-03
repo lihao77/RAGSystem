@@ -29,6 +29,15 @@ export interface ExternalCallOptions<T> extends ExternalCallPolicy {
   operation: (context: { attempt: number; signal: AbortSignal }) => Promise<T>;
   signal?: AbortSignal;
   shouldRetry?: (error: unknown) => boolean;
+  onAttemptStarted?: (context: { attempt: number; maxAttempts: number }) => void;
+  onAttemptFailed?: (context: {
+    attempt: number;
+    maxAttempts: number;
+    error: unknown;
+    willRetry: boolean;
+    delayMs?: number;
+  }) => void;
+  onAttemptCompleted?: (context: { attempt: number; maxAttempts: number }) => void;
   onRetry?: (context: { attempt: number; delayMs: number; error: unknown }) => void;
   /** Leaves success accounting and circuit closure to recordSuccess(), for operations that return a stream. */
   deferSuccess?: boolean;
@@ -71,19 +80,30 @@ export class ExternalCallPolicyRegistry {
     const maxAttempts = clampInteger(options.maxAttempts ?? 1, 1, 10);
     try {
       for (let attempt = 1; ; attempt += 1) {
+        options.onAttemptStarted?.({ attempt, maxAttempts });
         try {
           const result = await runWithTimeout(options.operation, attempt, options.timeoutMs, options.signal);
           if (!options.deferSuccess) {
             circuit.successes += 1;
             this.close(circuit);
+            options.onAttemptCompleted?.({ attempt, maxAttempts });
           }
           return result;
         } catch (error) {
           if (error instanceof ExternalCallTimeoutError) circuit.timeouts += 1;
-          if (options.signal?.aborted) throw options.signal.reason ?? error;
-          const retryable = (options.shouldRetry ?? isRetryableExternalError)(error);
-          if (!retryable || attempt >= maxAttempts) throw error;
-          const delayMs = retryDelay(options, attempt);
+          const aborted = options.signal?.aborted === true;
+          const retryable = !aborted && (options.shouldRetry ?? isRetryableExternalError)(error);
+          const willRetry = retryable && attempt < maxAttempts;
+          const delayMs = willRetry ? retryDelay(options, attempt) : undefined;
+          options.onAttemptFailed?.({
+            attempt,
+            maxAttempts,
+            error: aborted ? options.signal?.reason ?? error : error,
+            willRetry,
+            ...(delayMs !== undefined ? { delayMs } : {}),
+          });
+          if (aborted) throw options.signal?.reason ?? error;
+          if (!willRetry || delayMs === undefined) throw error;
           circuit.retries += 1;
           options.onRetry?.({ attempt, delayMs, error });
           await delay(delayMs, options.signal);

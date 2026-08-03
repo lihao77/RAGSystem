@@ -9,6 +9,9 @@ const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
   'agent_started',
   'agent_ended',
   'model_request',
+  'model_attempt_started',
+  'model_attempt_failed',
+  'model_attempt_completed',
   'stream_output',
   'tool_call',
   'tool_result',
@@ -87,6 +90,7 @@ export function useRunRuntime(deps) {
       phase: 'idle',
       rootCallId: null,
       runningToolCalls: {},
+      runningModelCalls: {},
       runStartedAt: null,
       firstTokenAt: null,
       firstTokenLatencyMs: null,
@@ -102,6 +106,7 @@ export function useRunRuntime(deps) {
       phase,
       rootCallId: null,
       runningToolCalls: {},
+      runningModelCalls: {},
       runStartedAt: eventTimestampSeconds(event),
       firstTokenAt: null,
       firstTokenLatencyMs: null,
@@ -115,10 +120,58 @@ export function useRunRuntime(deps) {
     if (event?.call_id) activeRun.rootCallId = event.call_id;
   };
 
-  const markModelRequestStarted = (event) => {
-    if (event?.call_id) activeRun.rootCallId = event.call_id;
-    activeRun.runningToolCalls = {};
-    if (!phaseIsRuntimeLocked()) activeRun.phase = 'model_waiting';
+  const modelCallKey = event => `${event?.agent_id || ''}\u0000${event?.call_id || ''}`;
+
+  const refreshActivityPhase = () => {
+    if (phaseIsRuntimeLocked()) return;
+    const toolCount = Object.keys(activeRun.runningToolCalls || {}).length;
+    const models = Object.values(activeRun.runningModelCalls || {});
+    activeRun.phase = toolCount > 0 && models.length > 0
+      ? 'parallel_running'
+      : toolCount > 0
+        ? 'tool_running'
+        : models.some(model => model.status === 'retry_wait')
+          ? 'retrying'
+          : models.some(model => model.status === 'streaming')
+            ? 'model_streaming'
+            : models.some(model => model.status === 'failed')
+              ? 'model_failed'
+              : models.length > 0 ? 'model_waiting' : 'processing';
+  };
+
+  const updateModelCall = (event, status) => {
+    if (!event?.call_id) return;
+    const key = modelCallKey(event);
+    activeRun.runningModelCalls = {
+      ...(activeRun.runningModelCalls || {}),
+      [key]: {
+        ...(activeRun.runningModelCalls?.[key] || {}),
+        ...(event.payload || {}),
+        call_id: event.call_id,
+        agent_id: event.agent_id || '',
+        status,
+      },
+    };
+    refreshActivityPhase();
+  };
+
+  const markModelRequestStarted = (event, isRoot = false) => {
+    if (isRoot && event?.call_id) activeRun.rootCallId = event.call_id;
+    updateModelCall(event, 'requested');
+  };
+
+  const markModelAttemptStarted = event => updateModelCall(event, 'waiting');
+
+  const markModelAttemptFailed = event => updateModelCall(
+    event,
+    event?.payload?.will_retry ? 'retry_wait' : 'failed',
+  );
+
+  const markModelAttemptCompleted = (event) => {
+    const next = { ...(activeRun.runningModelCalls || {}) };
+    delete next[modelCallKey(event)];
+    activeRun.runningModelCalls = next;
+    refreshActivityPhase();
   };
 
   const markLlmFirstToken = (event, eventData) => {
@@ -131,12 +184,12 @@ export function useRunRuntime(deps) {
         : computeLatencyMs(activeRun.runStartedAt, ts);
     }
     activeRun.latestLlmFirstTokenAt = ts;
-    if (!phaseIsRuntimeLocked()) activeRun.phase = 'model_streaming';
+    updateModelCall(event, 'streaming');
   };
 
   const markOutputChunk = (event, content) => {
     const ts = eventTimestampSeconds(event);
-    if (!phaseIsRuntimeLocked()) activeRun.phase = 'model_streaming';
+    updateModelCall(event, 'streaming');
     activeRun.lastChunkAt = ts;
     activeRun.outputCharCount = (activeRun.outputCharCount || 0) + (content?.length || 0);
     if (!activeRun.firstTokenAt) {
@@ -148,11 +201,18 @@ export function useRunRuntime(deps) {
   const markToolStarted = (event, eventData) => {
     const callId = event?.call_id;
     if (!callId) return;
+    const models = Object.fromEntries(Object.entries(activeRun.runningModelCalls || {}).filter(
+      ([, model]) => model.agent_id !== (event.agent_id || ''),
+    ));
+    activeRun.runningModelCalls = models;
     activeRun.runningToolCalls = {
       ...(activeRun.runningToolCalls || {}),
-      [callId]: typeof eventData?.tool === 'string' ? eventData.tool : '',
+      [callId]: {
+        tool: typeof eventData?.tool === 'string' ? eventData.tool : '',
+        agent_id: event.agent_id || '',
+      },
     };
-    if (!phaseIsRuntimeLocked()) activeRun.phase = 'tool_running';
+    refreshActivityPhase();
   };
 
   const markToolFinished = (event) => {
@@ -161,9 +221,19 @@ export function useRunRuntime(deps) {
     if (!callId || !Object.prototype.hasOwnProperty.call(next, callId)) return;
     delete next[callId];
     activeRun.runningToolCalls = next;
-    if (!phaseIsRuntimeLocked()) {
-      activeRun.phase = Object.keys(next).length > 0 ? 'tool_running' : 'processing';
-    }
+    refreshActivityPhase();
+  };
+
+  const markAgentFinished = (event) => {
+    const agentId = event?.agent_id;
+    if (!agentId) return;
+    activeRun.runningModelCalls = Object.fromEntries(Object.entries(activeRun.runningModelCalls || {}).filter(
+      ([, model]) => model.agent_id !== agentId,
+    ));
+    activeRun.runningToolCalls = Object.fromEntries(Object.entries(activeRun.runningToolCalls || {}).filter(
+      ([, tool]) => tool.agent_id !== agentId,
+    ));
+    refreshActivityPhase();
   };
 
   const observeDeliverySeq = (event) => {
@@ -220,6 +290,7 @@ export function useRunRuntime(deps) {
     currentMsg.finished = false;
     currentMsg.status = [];
     activeRun.runningToolCalls = {};
+    activeRun.runningModelCalls = {};
     activeRun.rootCallId = null;
   };
 
@@ -338,10 +409,14 @@ export function useRunRuntime(deps) {
     resetActiveRunRuntime,
     markRootAgentStarted,
     markModelRequestStarted,
+    markModelAttemptStarted,
+    markModelAttemptFailed,
+    markModelAttemptCompleted,
     markLlmFirstToken,
     markOutputChunk,
     markToolStarted,
     markToolFinished,
+    markAgentFinished,
     // seq gap
     observeDeliverySeq,
     resetPendingReconciliation,

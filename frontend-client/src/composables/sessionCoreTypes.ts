@@ -32,7 +32,8 @@ export interface ActiveRunState extends OpenRecord {
   lastSeenSeq: number;
   isReplaying: boolean;
   phase: string;
-  runningToolCalls: Record<string, string>;
+  runningToolCalls: Record<string, OpenRecord>;
+  runningModelCalls: Record<string, OpenRecord>;
   runStartedAt: number | null;
 }
 

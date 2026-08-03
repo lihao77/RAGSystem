@@ -15,6 +15,9 @@ import type { KernelEvent } from "./kernel-events.js";
 export type {
   KernelEvent,
   ModelRequestEvent,
+  ModelAttemptStartedEvent,
+  ModelAttemptFailedEvent,
+  ModelAttemptCompletedEvent,
   FirstTokenEvent,
   OutputDeltaEvent,
   IntentDeltaEvent,

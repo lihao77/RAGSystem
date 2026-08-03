@@ -89,11 +89,13 @@ describe("SessionAgentClient AG-UI fallback", () => {
         };
       },
     });
-    const envelopes: Array<{ type: string; phase?: unknown; round?: unknown }> = [];
+    const envelopes: Array<{ type: string; callId?: string; agentId?: string; phase?: unknown; round?: unknown }> = [];
     client.events.subscribe((event) => {
       if (event.type === "model_request") {
         envelopes.push({
           type: event.type,
+          callId: event.call_id,
+          agentId: event.agent_id,
           phase: event.payload?.phase,
           round: event.payload?.round,
         });
@@ -106,10 +108,20 @@ describe("SessionAgentClient AG-UI fallback", () => {
       threadId: "session-1",
       runId: "run-1",
       name: "model_request",
-      value: { phase: "start", round: 4 },
+      value: {
+        call_id: "root-call",
+        agent_id: "agent-1",
+        payload: { phase: "start", round: 4 },
+      },
     });
 
-    expect(envelopes).toEqual([{ type: "model_request", phase: "start", round: 4 }]);
+    expect(envelopes).toEqual([{
+      type: "model_request",
+      callId: "root-call",
+      agentId: "agent-1",
+      phase: "start",
+      round: 4,
+    }]);
     client.disconnect();
   });
 

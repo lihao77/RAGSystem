@@ -3,7 +3,7 @@
     <div class="wpr-phase-row">
       <span class="wpr-indicator" aria-hidden="true">
         <Spinner v-if="displayIcon === 'running'" />
-        <WorkPanelStateIcon v-else :kind="displayIcon" />
+        <span v-else class="wpr-state-dot" />
       </span>
       <div
         class="wpr-label-block"
@@ -34,7 +34,6 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { Spinner } from '@/components/ui/spinner'
-import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 
 const props = defineProps({
   phase: { type: String, default: 'idle' },
@@ -43,6 +42,7 @@ const props = defineProps({
   pendingInput: { type: Boolean, default: false },
   approvalCount: { type: Number, default: 0 },
   runningToolCount: { type: Number, default: 0 },
+  runningModelCount: { type: Number, default: 0 },
   hasError: { type: Boolean, default: false },
   completed: { type: Boolean, default: false },
   stopped: { type: Boolean, default: false },
@@ -63,7 +63,15 @@ const displayState = computed(() => {
   if (props.phase === 'suspended') return { label: '已挂起', tone: 'warning', icon: 'idle' }
   if (props.hasError) return { label: '执行异常', tone: 'error', icon: 'error' }
   if (props.stopped) return { label: '已停止', tone: 'idle', icon: 'idle' }
+  if (props.phase === 'model_failed') return { label: '模型调用失败', tone: 'error', icon: 'error' }
   if (props.phase === 'retrying') return { label: '重试中', tone: 'warning', icon: 'approval' }
+  if (props.phase === 'parallel_running') {
+    return {
+      label: `并行处理中 · ${props.runningToolCount} 工具 / ${props.runningModelCount} 模型`,
+      tone: 'running',
+      icon: 'running',
+    }
+  }
   if (props.phase === 'tool_running') {
     const label = props.runningToolCount > 1 ? `工具执行中 · ${props.runningToolCount} 个` : '工具执行中'
     return { label, tone: 'running', icon: 'running' }
@@ -212,6 +220,13 @@ function compactNumber(value) {
 .wpr-indicator :deep(svg) {
   width: 14px;
   height: 14px;
+}
+
+.wpr-state-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 .wpr-label-block {

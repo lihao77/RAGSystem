@@ -10,6 +10,7 @@ export const createActiveRunState = () => ({
   isReplaying: false,
   phase: 'idle',
   runningToolCalls: {},
+  runningModelCalls: {},
   runStartedAt: null,
   firstTokenAt: null,
   firstTokenLatencyMs: null,
@@ -74,17 +75,23 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const resetActiveRun = () => resetActiveRunState(activeRun);
 
   const applySessionRuntime = (snapshot) => {
-    const previousState = sessionRuntime.value?.state || null;
     const previousRunId = activeRun.runId;
     sessionRuntime.value = snapshot;
     const hasActiveRun = Boolean(snapshot?.active_run);
     const nextRunId = snapshot?.active_run?.run_id || null;
-    if (previousRunId !== nextRunId) {
-      activeRun.runningToolCalls = {};
-      activeRun.rootCallId = null;
-    }
+    const activity = snapshot?.active_run?.activity || { models: [], tools: [] };
+    activeRun.runningToolCalls = Object.fromEntries(
+      (activity.tools || []).map(tool => [tool.call_id, tool]),
+    );
+    activeRun.runningModelCalls = Object.fromEntries(
+      (activity.models || []).map(model => [`${model.agent_id || ''}\u0000${model.call_id}`, model]),
+    );
+    if (previousRunId !== nextRunId) activeRun.rootCallId = null;
     activeRun.active = hasActiveRun;
     activeRun.runId = nextRunId;
+    activeRun.runStartedAt = hasActiveRun && snapshot.active_run.started_at
+      ? Date.parse(snapshot.active_run.started_at) / 1000
+      : null;
     if (!hasActiveRun) {
       // An idle snapshot is authoritative once a run was already attached.
       // Only keep the active presentation while a send/rollback is still
@@ -101,21 +108,19 @@ export const useSessionRunStore = defineStore('session-run', () => {
     } else if (snapshot.state === 'resuming') {
       activeRun.phase = 'starting_agent';
     } else if (snapshot.state === 'running') {
-      // Session runtime 已离开审批/恢复态时必须立刻清掉旧展示 phase。
-      // 不能等待下一条 ReAct/stream 事件，否则进程重启后会一直显示“等待审批”。
-      const needsRunningBaseline = previousRunId !== nextRunId
-        || activeRun.phase === 'idle'
-        || activeRun.phase === 'approval_waiting'
-        || activeRun.phase === 'suspended'
-        || activeRun.phase === 'starting_agent'
-        || previousState === 'waiting_interaction'
-        || previousState === 'suspended'
-        || previousState === 'resuming';
-      if (needsRunningBaseline) {
-        activeRun.phase = Object.keys(activeRun.runningToolCalls || {}).length > 0
+      const toolCount = Object.keys(activeRun.runningToolCalls).length;
+      const models = Object.values(activeRun.runningModelCalls);
+      activeRun.phase = toolCount > 0 && models.length > 0
+        ? 'parallel_running'
+        : toolCount > 0
           ? 'tool_running'
-          : 'processing';
-      }
+          : models.some(model => model.status === 'retry_wait')
+            ? 'retrying'
+            : models.some(model => model.status === 'streaming')
+              ? 'model_streaming'
+              : models.some(model => model.status === 'failed')
+                ? 'model_failed'
+                : models.length > 0 ? 'model_waiting' : 'processing';
     }
     if (snapshot?.state !== 'idle') optimisticCommand.value = null;
   };

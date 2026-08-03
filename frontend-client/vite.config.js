@@ -26,6 +26,10 @@ export default defineConfig(({ mode }) => {
       host: true,
     },
     build: {
+      // The client targets current evergreen browsers. Keeping the emitted
+      // syntax at ES2022 avoids Vite's baseline transforms duplicating modern
+      // language helpers across lazy chunks.
+      target: 'es2022',
       rollupOptions: {
         output: {
           manualChunks(id) {

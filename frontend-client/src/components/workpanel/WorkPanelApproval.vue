@@ -3,7 +3,7 @@
     <div class="wpa-card">
       <div class="wpa-section-label">
         <span class="wpa-section-icon" aria-hidden="true">
-          <WorkPanelStateIcon kind="approval" />
+          <span class="wpa-state-dot" />
         </span>
         <span>待审批</span>
         <span v-if="queue.length > 1" class="wpa-queue-badge">{{ queue.length }}</span>
@@ -61,7 +61,6 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 import { Button } from '../ui/button'
 import IconChevronRight from '../icons/IconChevronRight.vue'
 
@@ -153,9 +152,11 @@ function submit(approved) {
   background: rgba(var(--color-warning-rgb), 0.16);
 }
 
-.wpa-section-icon :deep(svg) {
-  width: 11px;
-  height: 11px;
+.wpa-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 .wpa-queue-badge {

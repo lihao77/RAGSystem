@@ -96,7 +96,7 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
     });
   }
 
-  async listOutboxForReplay(input: { tenantId: string; sessionId: string; runIds?: readonly string[] | null; afterSeq?: number; limit?: number }): Promise<OutboxRow[]> {
+  async listOutboxForReplay(input: { tenantId: string; sessionId: string; runIds?: readonly string[] | null; afterSeq?: number; limit?: number; latest?: boolean; eventTypes?: readonly string[] | null }): Promise<OutboxRow[]> {
     const clauses = ["tenant_id=$1", "session_id=$2", "event_type LIKE 'client.%'"];
     const params: unknown[] = [input.tenantId, input.sessionId];
     if (input.runIds) {
@@ -108,11 +108,17 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
       params.push(input.afterSeq);
       clauses.push(`session_seq>$${params.length}`);
     }
+    if (input.eventTypes) {
+      if (input.eventTypes.length === 0) return [];
+      params.push(input.eventTypes);
+      clauses.push(`event_type=ANY($${params.length}::text[])`);
+    }
     params.push(Math.max(1, Math.min(500, Math.trunc(input.limit ?? 500))));
-    const result = await this.executor.query(
-      `SELECT ${SELECT} FROM event_outbox WHERE ${clauses.join(" AND ")} ORDER BY session_seq ASC LIMIT $${params.length}`,
-      params,
-    );
+    const base = `SELECT ${SELECT} FROM event_outbox WHERE ${clauses.join(" AND ")}`;
+    const result = await this.executor.query(input.latest
+      ? `SELECT * FROM (${base} ORDER BY session_seq DESC LIMIT $${params.length}) AS recent ORDER BY session_seq ASC`
+      : `${base} ORDER BY session_seq ASC LIMIT $${params.length}`,
+    params);
     return result.rows.map(row);
   }
 

@@ -105,6 +105,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           activeRootRun: null,
           latestTerminalRootRun: null,
           pendingInteractions: [],
+          activeRunEvents: [],
           ownedByCurrentInstance: false,
         };
       }
@@ -117,16 +118,21 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         statuses: ["waiting", "suspended", "resolved", "resuming"],
       });
       const interactionRootIds = new Set(pendingInteractions.map((item) => item.root_run_id));
+      const runs = this.store.listRuns(sessionId, Number.MAX_SAFE_INTEGER).items;
       const activeRootRun = activeRoots[0]
-        ?? this.store.listRuns(sessionId, Number.MAX_SAFE_INTEGER).items.find((run) =>
+        ?? runs.find((run) =>
           interactionRootIds.has(run.run_id) && (run.status === "running" || run.status === "suspended")
         )
         ?? null;
+      const activeRunIds = activeRootRun ? collectRunTreeIds(runs, activeRootRun.run_id) : [];
       return {
         session,
         activeRootRun,
         latestTerminalRootRun: this.store.getLatestTerminalRootRun(sessionId),
         pendingInteractions,
+        activeRunEvents: activeRunIds.length > 0
+          ? loadActiveRunEvents((input) => this.store.listOutboxForReplay(input), sessionId, activeRunIds)
+          : [],
         ownedByCurrentInstance: activeRootRun?.status === "running",
       };
     });
@@ -851,6 +857,55 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       });
     });
   }
+}
+
+function collectRunTreeIds(runs: readonly { run_id: string; parent_run_id: string | null }[], rootRunId: string): string[] {
+  const children = new Map<string, string[]>();
+  for (const run of runs) {
+    if (!run.parent_run_id) continue;
+    const current = children.get(run.parent_run_id) ?? [];
+    current.push(run.run_id);
+    children.set(run.parent_run_id, current);
+  }
+  const result: string[] = [];
+  const pending = [rootRunId];
+  while (pending.length > 0) {
+    const runId = pending.shift();
+    if (!runId) continue;
+    result.push(runId);
+    pending.push(...(children.get(runId) ?? []));
+  }
+  return result;
+}
+
+function loadActiveRunEvents(
+  load: (input: { sessionId: string; runIds: readonly string[]; limit: number; latest: true; eventTypes: readonly string[] }) => import("@ragsystem/backend-core/contracts/conversation-store/index.js").OutboxRow[],
+  sessionId: string,
+  runIds: readonly string[],
+): import("@ragsystem/backend-core/contracts/conversation-store/index.js").OutboxRow[] {
+  const lifecycle = load({
+    sessionId,
+    runIds,
+    limit: 500,
+    latest: true,
+    eventTypes: [
+      "client.agent_ended",
+      "client.model_request",
+      "client.model_attempt_started",
+      "client.model_attempt_failed",
+      "client.model_attempt_completed",
+      "client.tool_call",
+      "client.tool_result",
+    ],
+  });
+  const streams = load({
+    sessionId,
+    runIds,
+    limit: 100,
+    latest: true,
+    eventTypes: ["client.stream_output"],
+  });
+  return [...lifecycle, ...streams].sort((left, right) => left.session_seq - right.session_seq);
 }
 
 function recordEnvelope(

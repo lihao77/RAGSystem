@@ -32,6 +32,9 @@ export interface AguiBaseEvent {
   threadId: string;
   runId: string;
   timestamp?: number;
+  /** Canonical RAGSystem call identity retained across AG-UI projections. */
+  callId?: string;
+  agentId?: string;
   /** RAGSystem durable outbox cursor. Compatible AG-UI clients ignore it. */
   eventSeq?: number;
 }

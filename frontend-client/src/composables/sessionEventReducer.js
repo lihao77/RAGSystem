@@ -28,30 +28,15 @@ export function createSessionEventReducer({
 
     if (
       llmRetryState.value
-      && eventType !== 'state_sync'
-      && ['model_request', 'stream_output', 'tool_call', 'tool_result', 'agent_ended', 'error'].includes(eventType)
+      && eventType !== 'model_attempt_failed'
+      && ['model_request', 'model_attempt_started', 'model_attempt_completed', 'stream_output', 'tool_call', 'tool_result', 'agent_ended', 'error'].includes(eventType)
     ) {
       deps.clearLlmRetryState();
     }
 
     if (eventType === 'state_sync') {
       const category = payload.category;
-      if (category === 'retry') {
-        const detail = payload.detail || {};
-        const waitMs = Number.isFinite(detail.wait_ms)
-          ? detail.wait_ms
-          : Math.round((detail.wait_seconds || 0) * 1000);
-        deps.setLlmRetryState({
-          scope: detail.scope || 'chat_completion_stream',
-          nextAttempt: detail.next_attempt || ((detail.failed_attempt || 0) + 1),
-          maxAttempts: detail.max_attempts || 1,
-          waitMs,
-          error: detail.error || '',
-          provider: detail.provider || '',
-          model: detail.model || '',
-        });
-        activeRun.phase = 'retrying';
-      } else if (category === 'context_usage') {
+      if (category === 'context_usage') {
         const detail = payload.detail || {};
         if (detail.compressing) isCompressing.value = true;
         const ctx = { used: detail.used_tokens, max: detail.budget_tokens };
@@ -94,19 +79,39 @@ export function createSessionEventReducer({
         }
       }
     } else if (eventType === 'model_request') {
-      if (deps.isMasterEvent(event)) runtime.markModelRequestStarted(event);
+      runtime.markModelRequestStarted(event, deps.isMasterEvent(event));
+    } else if (eventType === 'model_attempt_started') {
+      runtime.markModelAttemptStarted(event);
+    } else if (eventType === 'model_attempt_failed') {
+      runtime.markModelAttemptFailed(event);
+      if (payload.will_retry) {
+        deps.setLlmRetryState({
+          scope: 'model_attempt',
+          nextAttempt: (payload.attempt || 0) + 1,
+          maxAttempts: payload.max_attempts || 1,
+          waitMs: payload.retry_delay_ms || 0,
+          error: payload.error || '',
+          provider: payload.provider || '',
+          model: payload.model || '',
+        });
+      } else {
+        deps.clearLlmRetryState();
+      }
+    } else if (eventType === 'model_attempt_completed') {
+      runtime.markModelAttemptCompleted(event);
     } else if (eventType === 'stream_output') {
       const phase = payload.phase;
       if (phase === 'first_token') {
-        if (deps.isMasterEvent(event)) runtime.markLlmFirstToken(event, payload);
+        runtime.markLlmFirstToken(event, payload);
       } else if (phase === 'delta') {
+        runtime.markOutputChunk(event, payload.content || '');
         if (deps.isMasterEvent(event)) {
           currentMsg.content += payload.content;
-          runtime.markOutputChunk(event, payload.content || '');
         } else {
           deps.applyEnvelopeToMessage(currentMsg, event);
         }
       } else if (phase === 'final') {
+        runtime.markModelAttemptCompleted(event);
         if (deps.isMasterEvent(event)) {
           const serverContent = payload.content || '';
           if (serverContent && (!currentMsg.content || currentMsg.content.length < serverContent.length)) {
@@ -124,15 +129,16 @@ export function createSessionEventReducer({
       }
     } else if (eventType === 'tool_call') {
       deps.applyEnvelopeToMessage(currentMsg, event);
-      if (deps.isMasterEvent(event)) runtime.markToolStarted(event, payload);
+      runtime.markToolStarted(event, payload);
     } else if (eventType === 'tool_result') {
       deps.applyEnvelopeToMessage(currentMsg, event);
-      if (deps.isMasterEvent(event)) runtime.markToolFinished(event);
+      runtime.markToolFinished(event);
     } else if (eventType === 'agent_started') {
       deps.applyEnvelopeToMessage(currentMsg, event);
       if (deps.isMasterEvent(event)) runtime.markRootAgentStarted(event);
     } else if (eventType === 'agent_ended') {
       deps.applyEnvelopeToMessage(currentMsg, event);
+      runtime.markAgentFinished(event);
       if (deps.isMasterEvent(event) && !currentMsg.finished) {
         currentMsg.finished = true;
         runtime.markRecentSessionUpdated(sessionId, currentMsg);

@@ -11,7 +11,6 @@ import {
   fetchProvider,
   providerTimeoutMs,
   readProviderStream,
-  recordStreamFailure,
   requestInit,
   requireApiKey,
   requireOkJson,
@@ -33,14 +32,9 @@ export class OpenAiResponsesAdapter implements LlmProviderAdapter {
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
     const response = await this.fetch(request, true);
     if (!response.ok) {
-      try {
-        await requireOkJson(response, request);
-      } catch (error) {
-        recordStreamFailure(request, error);
-        throw error;
-      }
+      await requireOkJson(response, request);
     }
-    return readProviderStream(request, () => parseResponseStream(response, request, onChunk));
+    return readProviderStream(request, response, () => parseResponseStream(response, request, onChunk));
   }
 
   private fetch(request: LlmRequest, stream: boolean): Promise<Response> {
@@ -49,7 +43,6 @@ export class OpenAiResponsesAdapter implements LlmProviderAdapter {
       request,
       resolveEndpoint(request.provider, "responses"),
       requestInit(request, bearerHeaders(apiKey), buildResponsesBody(request, stream)),
-      stream,
     );
   }
 }

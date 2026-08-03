@@ -159,6 +159,39 @@ describe("agent-protocol envelope compatibility", () => {
     expect(parsed.payload).toEqual({ phase: "start", round: 2 });
   });
 
+  it("接受真实模型 attempt 失败与重试计划", () => {
+    const parsed = ServerToClientEnvelopeSchema.parse({
+      type: "model_attempt_failed",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "root-call",
+      agent_id: "agent",
+      payload: {
+        phase: "failed",
+        attempt_id: "attempt-1",
+        attempt: 1,
+        max_attempts: 3,
+        round: 2,
+        provider: "OpenAI",
+        model: "gpt-test",
+        will_retry: true,
+        retry_delay_ms: 500,
+        elapsed_ms: 120,
+        error: "overloaded",
+      },
+    });
+
+    expect(parsed.payload).toMatchObject({ attempt_id: "attempt-1", will_retry: true });
+  });
+
+  it("拒绝已删除的猜测式 retry state_sync", () => {
+    expect(() => ServerToClientEnvelopeSchema.parse({
+      type: "state_sync",
+      session_id: "session-1",
+      payload: { category: "retry", detail: {} },
+    })).toThrow();
+  });
+
   it("保留 message_saved 的服务端 round_index", () => {
     const parsed = ServerToClientEnvelopeSchema.parse({
       type: "state_sync",
@@ -283,6 +316,11 @@ describe("Session runtime snapshot invariants", () => {
     execution_kind: "agent_stream",
     started_at: "2026-07-30T00:00:00.000Z",
     updated_at: "2026-07-30T00:00:01.000Z",
+    activity: {
+      models: [],
+      tools: [],
+      updated_at: "2026-07-30T00:00:01.000Z",
+    },
   };
 
   it("accepts a canonical idle snapshot", () => {

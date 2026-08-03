@@ -110,6 +110,82 @@ test("OpenAI-compatible client keeps the default HTTP transport", async (t) => {
   assert.equal(result.content, "HTTP completion");
 });
 
+test("provider attempt lifecycle follows physical retries and full stream consumption", async (t) => {
+  let completionCalls = 0;
+  const server = http.createServer(async (request, response) => {
+    const body = JSON.parse(await readBody(request));
+    if (body.stream) {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end("data: not-json\n\n");
+      return;
+    }
+    completionCalls += 1;
+    if (completionCalls === 1) {
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "retry me" } }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      choices: [{ message: { role: "assistant", content: "recovered" }, finish_reason: "stop" }],
+    }));
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  t.after(() => close(server));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const endpoint = `http://127.0.0.1:${address.port}`;
+  const client = new OpenAiCompatibleClient();
+  const attempts = [];
+  const result = await client.complete({
+    provider: {
+      key: "attempt-complete",
+      name: "Attempt Complete",
+      provider_type: "openai_proxy",
+      api_endpoint: endpoint,
+      api_key: "placeholder",
+      retry_attempts: 1,
+      retry_delay: 0,
+    },
+    model: "planning-default",
+    messages: [{ role: "user", content: "retry" }],
+    onAttemptLifecycle: (event) => attempts.push(event),
+  });
+  assert.equal(result.content, "recovered");
+  assert.deepEqual(attempts.map((event) => [event.phase, event.attempt]), [
+    ["started", 1],
+    ["failed", 1],
+    ["started", 2],
+    ["completed", 2],
+  ]);
+  assert.equal(attempts[1].attemptId, attempts[0].attemptId);
+  assert.equal(attempts[1].willRetry, true);
+  assert.equal(attempts[3].attemptId, attempts[2].attemptId);
+
+  const streamAttempts = [];
+  await assert.rejects(
+    client.stream({
+      provider: {
+        key: "attempt-stream",
+        name: "Attempt Stream",
+        provider_type: "openai_proxy",
+        api_endpoint: endpoint,
+        api_key: "placeholder",
+      },
+      model: "planning-default",
+      messages: [{ role: "user", content: "stream" }],
+      onAttemptLifecycle: (event) => streamAttempts.push(event),
+    }, async () => undefined),
+    /invalid JSON/,
+  );
+  assert.deepEqual(streamAttempts.map((event) => event.phase), ["started", "failed"]);
+  assert.equal(streamAttempts[1].attemptId, streamAttempts[0].attemptId);
+  assert.equal(streamAttempts[1].willRetry, false);
+});
+
 function llmRequest(key, socketEnv, content, signal) {
   return {
     provider: {

@@ -10,7 +10,6 @@ import {
   fetchProvider,
   providerTimeoutMs,
   readProviderStream,
-  recordStreamFailure,
   requestInit,
   requireApiKey,
   requireOkJson,
@@ -33,13 +32,10 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
     const response = await this.fetch(request, true);
     if (!response.ok) {
-      const body = await requireOkJson(response, request).catch((error: unknown) => {
-        recordStreamFailure(request, error);
-        throw error;
-      });
+      const body = await requireOkJson(response, request);
       throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
     }
-    return readProviderStream(request, () => parseStream(response, request, onChunk));
+    return readProviderStream(request, response, () => parseStream(response, request, onChunk));
   }
 
   private fetch(request: LlmRequest, stream: boolean): Promise<Response> {
@@ -49,7 +45,6 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
       request,
       endpoint,
       requestInit(request, bearerHeaders(apiKey), buildChatBody(request, stream)),
-      stream,
     );
   }
 }

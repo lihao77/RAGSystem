@@ -84,6 +84,7 @@ function facts(overrides: Partial<RuntimeSessionFacts> = {}): RuntimeSessionFact
     activeRootRun: null,
     latestTerminalRootRun: null,
     pendingInteractions: [],
+    activeRunEvents: [],
     ownedByCurrentInstance: false,
     ...overrides,
   };
@@ -162,4 +163,83 @@ describe("SessionRuntimeService projection", () => {
     expect(snapshot.active_run?.run_id).toBe("run-active");
     expect(snapshot.last_run).toEqual(expect.objectContaining({ run_id: "run-failed", status: "failed" }));
   });
+
+  it("rebuilds concurrent model and tool activity from durable envelopes", () => {
+    const snapshot = projectSessionRuntime(facts({
+      activeRootRun: run(),
+      ownedByCurrentInstance: true,
+      activeRunEvents: [
+        outbox(1, {
+          type: "model_attempt_started",
+          session_id: "session-1",
+          run_id: "run-1",
+          call_id: "root-call",
+          agent_id: "root",
+          payload: {
+            phase: "start",
+            attempt_id: "attempt-1",
+            attempt: 1,
+            max_attempts: 3,
+            round: 2,
+            provider: "OpenAI",
+            model: "gpt-test",
+          },
+        }),
+        outbox(2, {
+          type: "stream_output",
+          session_id: "session-1",
+          run_id: "run-1",
+          call_id: "root-call",
+          agent_id: "root",
+          payload: { phase: "delta", content: "a" },
+        }),
+        outbox(3, {
+          type: "tool_call",
+          session_id: "session-1",
+          run_id: "run-child",
+          call_id: "tool-1",
+          agent_id: "child-1",
+          payload: { phase: "start", tool: "search" },
+        }),
+      ],
+    }));
+
+    expect(snapshot.active_run?.activity).toEqual({
+      models: [expect.objectContaining({
+        call_id: "root-call",
+        agent_id: "root",
+        status: "streaming",
+        attempt_id: "attempt-1",
+      })],
+      tools: [{
+        call_id: "tool-1",
+        agent_id: "child-1",
+        tool: "search",
+        started_at: "2026-07-30T00:00:03.000Z",
+      }],
+      updated_at: "2026-07-30T00:00:03.000Z",
+    });
+  });
 });
+
+function outbox(sequence: number, event: Record<string, unknown>) {
+  return {
+    id: sequence,
+    event_id: `event-${sequence}`,
+    session_id: "session-1",
+    tenant_id: "tnt_test",
+    run_id: typeof event.run_id === "string" ? event.run_id : "run-1",
+    session_seq: sequence,
+    event_type: `client.${String(event.type)}`,
+    aggregate_type: "run",
+    aggregate_id: "run-1",
+    payload: JSON.stringify({ client_event: event }),
+    status: "delivered" as const,
+    attempts: 0,
+    available_at: null,
+    locked_at: null,
+    delivered_at: "2026-07-30T00:00:04.000Z",
+    last_error: null,
+    created_at: `2026-07-30T00:00:0${sequence}.000Z`,
+  };
+}

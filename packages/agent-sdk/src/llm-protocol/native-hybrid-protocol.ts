@@ -20,6 +20,7 @@ import { RuntimeAbortError, throwIfAborted } from "../abort.js";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
 import { buildPromptCacheKey, readTierParams } from "../llm-params/index.js";
 import type { RuntimeToolDefinition } from "../prompt/tool-types.js";
+import { withModelAttemptLifecycle } from "./model-attempt-lifecycle.js";
 import { renderNativeXmlProtocolInstruction, StreamingRuntimeXmlParser } from "./xml/index.js";
 import { renderNativeModelMessage } from "./message-rendering.js";
 
@@ -34,7 +35,12 @@ export class NativeHybridProtocol implements Protocol {
   constructor(private readonly deps: NativeHybridProtocolDeps) {}
 
   async invoke(ctx: KernelContext, round: number): Promise<KernelOutcome> {
-    const baseRequest = this.buildRequest(ctx);
+    const baseRequest = withModelAttemptLifecycle(
+      this.buildRequest(ctx),
+      this.deps.events,
+      ctx.session.profile.agentName,
+      round,
+    );
     const stream = this.deps.llm.stream;
     if (stream) {
       return this.invokeStreaming(ctx, baseRequest, round, stream.bind(this.deps.llm));

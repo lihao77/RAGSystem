@@ -120,6 +120,8 @@ describe("Session REST contracts", () => {
           protocol_version: "1.0",
           session_id: detail.session_id,
           run_id: "run-1",
+          call_id: "model-call-1",
+          agent_id: "agent",
           payload: { phase: "final", content: "done" },
         }],
         total: 1,

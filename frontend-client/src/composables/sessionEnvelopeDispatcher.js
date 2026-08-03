@@ -230,6 +230,22 @@ export function createSessionEnvelopeDispatcher({
   /** @param {AnyRecord} snapshot @param {string} sessionId */
   const applyRuntimeSnapshot = (snapshot, sessionId) => {
     applySessionRuntime(snapshot);
+    const retryModel = snapshot.active_run?.activity?.models?.find(
+      /** @param {AnyRecord} model */ model => model.status === 'retry_wait',
+    );
+    if (retryModel) {
+      deps.setLlmRetryState({
+        scope: 'model_attempt',
+        nextAttempt: (retryModel.attempt || 0) + 1,
+        maxAttempts: retryModel.max_attempts || 1,
+        waitMs: retryModel.retry_at ? Math.max(0, Date.parse(retryModel.retry_at) - Date.now()) : 0,
+        error: retryModel.error || '',
+        provider: retryModel.provider || '',
+        model: retryModel.model || '',
+      });
+    } else if (llmRetryState.value) {
+      deps.clearLlmRetryState();
+    }
     onRuntimeSnapshot?.(sessionId, snapshot);
     const presentableInteractions = (snapshot.pending_interactions || []).filter(
       /** @param {AnyRecord} item */

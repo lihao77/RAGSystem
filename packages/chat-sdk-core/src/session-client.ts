@@ -827,6 +827,9 @@ export class SessionAgentClient implements AgentClient {
         execution_kind: "agui_stream",
         started_at: startedAt,
         updated_at: new Date().toISOString(),
+        activity: current.active_run?.run_id === effectiveRunId
+          ? current.active_run.activity
+          : { models: [], tools: [], updated_at: new Date().toISOString() },
       }
       : null;
     const runtimePending = pending.map((item) => ({
@@ -1276,6 +1279,8 @@ function aguiEventToEnvelope(
   const base = {
     session_id: typeof event.threadId === "string" && event.threadId ? event.threadId : sessionId,
     ...(typeof event.runId === "string" && event.runId ? { run_id: event.runId } : {}),
+    ...(typeof event.callId === "string" && event.callId ? { call_id: event.callId } : {}),
+    ...(typeof event.agentId === "string" ? { agent_id: event.agentId } : {}),
     ...(typeof event.eventSeq === "number" ? { seq: event.eventSeq } : {}),
   };
   switch (event.type) {
@@ -1348,18 +1353,23 @@ function aguiEventToEnvelope(
       if (event.name === "session.runtime" && isRuntimeSnapshot(event.value)) {
         return { type: "session.runtime", ...base, payload: event.value } as Envelope;
       }
-      if (event.name === "model_request" && event.value && typeof event.value === "object" && !Array.isArray(event.value)) {
-        const value = event.value as { round?: unknown; lineage?: unknown };
+      if (
+        (event.name === "model_request"
+          || event.name === "model_attempt_started"
+          || event.name === "model_attempt_failed"
+          || event.name === "model_attempt_completed")
+        && event.value && typeof event.value === "object" && !Array.isArray(event.value)
+      ) {
+        const value = event.value as { call_id?: unknown; agent_id?: unknown; payload?: unknown };
+        if (typeof value.call_id !== "string" || !value.call_id
+          || typeof value.agent_id !== "string"
+          || !value.payload || typeof value.payload !== "object" || Array.isArray(value.payload)) return null;
         return {
-          type: "model_request",
+          type: event.name,
           ...base,
-          call_id: typeof event.callId === "string" && event.callId ? event.callId : `agui-model-${String(event.runId ?? Date.now())}`,
-          agent_id: typeof event.agentId === "string" ? event.agentId : "agent",
-          payload: {
-            phase: "start",
-            round: typeof value.round === "number" && Number.isInteger(value.round) && value.round >= 0 ? value.round : 0,
-            ...(value.lineage && typeof value.lineage === "object" && !Array.isArray(value.lineage) ? { lineage: value.lineage } : {}),
-          },
+          call_id: value.call_id,
+          agent_id: value.agent_id,
+          payload: value.payload,
         } as Envelope;
       }
       return null;

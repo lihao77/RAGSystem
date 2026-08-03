@@ -116,6 +116,31 @@ export interface ProviderConfig {
   [extra: string]: unknown;
 }
 
+export type LlmAttemptLifecycleEvent =
+  | {
+      phase: "started";
+      attemptId: string;
+      attempt: number;
+      maxAttempts: number;
+    }
+  | {
+      phase: "failed";
+      attemptId: string;
+      attempt: number;
+      maxAttempts: number;
+      willRetry: boolean;
+      retryDelayMs?: number;
+      elapsedMs: number;
+      error: string;
+    }
+  | {
+      phase: "completed";
+      attemptId: string;
+      attempt: number;
+      maxAttempts: number;
+      elapsedMs: number;
+    };
+
 /** 一次 LLM 调用的请求壳（无 agent；参数已由消费者解析）。 */
 export interface LlmRequest {
   messages: ChatMessage[];
@@ -130,6 +155,8 @@ export interface LlmRequest {
   extraParams?: Record<string, unknown> | null;
   /** Stable, non-sensitive routing key used by providers that support prompt caching. */
   promptCacheKey?: string;
+  /** 真实 provider I/O attempt 生命周期；由 transport 在物理重试边界触发。 */
+  onAttemptLifecycle?: (event: LlmAttemptLifecycleEvent) => void;
 }
 
 /** 一次 LLM 调用的 token 用量（厂商返回的 usage 解析归一化）。 */

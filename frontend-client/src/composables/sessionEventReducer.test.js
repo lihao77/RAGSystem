@@ -7,7 +7,7 @@ const reference = value => ({ value });
 
 function buildReducer() {
   const messages = reference([]);
-  const activeRun = { assistantMsgIndex: 0, phase: 'processing', runningToolCalls: {} };
+  const activeRun = { assistantMsgIndex: 0, phase: 'processing', runningToolCalls: {}, runningModelCalls: {} };
   const calls = { chunks: [], cached: 0, situation: 0 };
   const deps = {
     isMasterEvent: () => true,
@@ -22,6 +22,9 @@ function buildReducer() {
   };
   const runtime = {
     markModelRequestStarted: () => {},
+    markModelAttemptStarted: () => {},
+    markModelAttemptFailed: () => {},
+    markModelAttemptCompleted: () => {},
     markLlmFirstToken: () => {},
     markOutputChunk: (_event, content) => calls.chunks.push(content),
     markRecentSessionUpdated: () => {},
@@ -62,13 +65,16 @@ test('SessionEventReducer routes child stream output through execution projectio
     },
     runtime: {
       markModelRequestStarted: () => {},
+      markModelAttemptStarted: () => {},
+      markModelAttemptFailed: () => {},
+      markModelAttemptCompleted: () => {},
       markLlmFirstToken: () => {},
       markOutputChunk: () => {},
       markRecentSessionUpdated: () => {},
       markToolStarted: () => {},
       markToolFinished: () => {},
     },
-    activeRun: { assistantMsgIndex: 0, phase: 'processing', runningToolCalls: {} },
+    activeRun: { assistantMsgIndex: 0, phase: 'processing', runningToolCalls: {}, runningModelCalls: {} },
     messages,
     isCompressing: reference(false),
     contextUsage: reference({ used: 0, max: 0 }),

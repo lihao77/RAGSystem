@@ -221,6 +221,7 @@ test('confirmEditAndResend 在运行中会被拦截，不发起请求', async ()
         execution_kind: 'agent_stream',
         started_at: '2026-07-30T00:00:00.000Z',
         updated_at: '2026-07-30T00:00:01.000Z',
+        activity: { models: [], tools: [], updated_at: '2026-07-30T00:00:01.000Z' },
       },
       last_run: null,
       pending_interactions: [],

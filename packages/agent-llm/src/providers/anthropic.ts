@@ -18,7 +18,6 @@ import {
   fetchProvider,
   providerTimeoutMs,
   readProviderStream,
-  recordStreamFailure,
   requestInit,
   requireApiKey,
   requireOkJson,
@@ -45,14 +44,9 @@ export class AnthropicAdapter implements LlmProviderAdapter {
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
     const response = await this.fetch(request, true);
     if (!response.ok) {
-      try {
-        await requireOkJson(response, request);
-      } catch (error) {
-        recordStreamFailure(request, error);
-        throw error;
-      }
+      await requireOkJson(response, request);
     }
-    return readProviderStream(request, () => parseAnthropicStream(response, request, onChunk));
+    return readProviderStream(request, response, () => parseAnthropicStream(response, request, onChunk));
   }
 
   private fetch(request: LlmRequest, stream: boolean): Promise<Response> {
@@ -61,7 +55,6 @@ export class AnthropicAdapter implements LlmProviderAdapter {
       request,
       resolveEndpoint(request.provider, "anthropic"),
       requestInit(request, anthropicHeaders(apiKey), buildAnthropicBody(request, stream)),
-      stream,
     );
   }
 }

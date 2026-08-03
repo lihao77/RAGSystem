@@ -146,7 +146,7 @@ export class OutboxOps {
     });
   }
 
-  listOutboxForReplay(input: { sessionId: string; runId?: string | null; runIds?: readonly string[] | null; afterSeq?: number; limit?: number }): OutboxRow[] {
+  listOutboxForReplay(input: { sessionId: string; runId?: string | null; runIds?: readonly string[] | null; afterSeq?: number; limit?: number; latest?: boolean; eventTypes?: readonly string[] | null }): OutboxRow[] {
     const limit = input.limit ?? 100;
     const afterSeq = input.afterSeq ?? 0;
     const runIds = input.runIds && input.runIds.length > 0
@@ -154,28 +154,62 @@ export class OutboxOps {
       : input.runId
         ? [input.runId]
         : null;
+    const eventTypes = input.eventTypes && input.eventTypes.length > 0 ? [...input.eventTypes] : null;
+    const eventTypeClause = eventTypes ? ` AND event_type IN (${eventTypes.map(() => "?").join(",")})` : "";
+    const eventTypeValues = eventTypes ?? [];
     if (runIds && runIds.length > 0) {
       const placeholders = runIds.map(() => "?").join(",");
+      if (input.latest) {
+        return this.db
+          .prepare(`
+            SELECT * FROM (
+              SELECT ${OUTBOX_SELECT_COLUMNS}
+              FROM event_outbox
+              WHERE session_id=? AND session_seq > ? AND event_type LIKE 'client.%'
+                AND run_id IN (${placeholders})
+                ${eventTypeClause}
+              ORDER BY session_seq DESC
+              LIMIT ?
+            ) ORDER BY session_seq ASC
+          `)
+          .all(input.sessionId, afterSeq, ...runIds, ...eventTypeValues, limit) as unknown as OutboxRow[];
+      }
       return this.db
         .prepare(`
           SELECT ${OUTBOX_SELECT_COLUMNS}
           FROM event_outbox
           WHERE session_id=? AND session_seq > ? AND event_type LIKE 'client.%'
             AND run_id IN (${placeholders})
+            ${eventTypeClause}
           ORDER BY session_seq ASC
           LIMIT ?
         `)
-        .all(input.sessionId, afterSeq, ...runIds, limit) as unknown as OutboxRow[];
+        .all(input.sessionId, afterSeq, ...runIds, ...eventTypeValues, limit) as unknown as OutboxRow[];
+    }
+    if (input.latest) {
+      return this.db
+        .prepare(`
+          SELECT * FROM (
+            SELECT ${OUTBOX_SELECT_COLUMNS}
+            FROM event_outbox
+            WHERE session_id=? AND session_seq > ? AND event_type LIKE 'client.%'
+              ${eventTypeClause}
+            ORDER BY session_seq DESC
+            LIMIT ?
+          ) ORDER BY session_seq ASC
+        `)
+        .all(input.sessionId, afterSeq, ...eventTypeValues, limit) as unknown as OutboxRow[];
     }
     return this.db
       .prepare(`
         SELECT ${OUTBOX_SELECT_COLUMNS}
         FROM event_outbox
         WHERE session_id=? AND session_seq > ? AND event_type LIKE 'client.%'
+          ${eventTypeClause}
         ORDER BY session_seq ASC
         LIMIT ?
       `)
-      .all(input.sessionId, afterSeq, limit) as unknown as OutboxRow[];
+      .all(input.sessionId, afterSeq, ...eventTypeValues, limit) as unknown as OutboxRow[];
   }
 
   getSessionOutboxWatermark(sessionId: string): number {

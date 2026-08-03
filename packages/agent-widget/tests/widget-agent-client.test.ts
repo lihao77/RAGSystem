@@ -49,6 +49,12 @@ function runtimeSnapshot(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const emptyActivity = {
+  models: [],
+  tools: [],
+  updated_at: "2026-07-30T00:00:01.000Z",
+};
+
 function sendEnvelope(socket: FakeWebSocket | undefined, envelope: Record<string, unknown>): void {
   socket?.onmessage?.({ data: JSON.stringify(envelope) });
 }
@@ -115,6 +121,8 @@ describe("WidgetAgentClient websocket ticket", () => {
       type: "stream_output",
       session_id: "session-1",
       run_id: "run-1",
+      call_id: "model-call-1",
+      agent_id: "agent",
       seq: 4,
       payload: { phase: "delta", content: "hello" },
     });
@@ -242,6 +250,7 @@ describe("WidgetAgentClient websocket ticket", () => {
       execution_kind: "agent_stream",
       started_at: "2026-07-30T00:00:00.000Z",
       updated_at: "2026-07-30T00:00:01.000Z",
+      activity: emptyActivity,
     };
     const pending = {
       interaction_id: "interaction-1",
@@ -330,6 +339,7 @@ describe("WidgetAgentClient websocket ticket", () => {
           execution_kind: "agent_stream",
           started_at: "2026-07-30T00:00:00.000Z",
           updated_at: "2026-07-30T00:00:01.000Z",
+          activity: emptyActivity,
         },
         pending_interactions: [{
           interaction_id: "interaction-1",
@@ -381,6 +391,7 @@ describe("WidgetAgentClient websocket ticket", () => {
           execution_kind: "agent_stream",
           started_at: "2026-07-30T00:00:00.000Z",
           updated_at: "2026-07-30T00:00:01.000Z",
+          activity: emptyActivity,
         },
         resume_interaction_id: "interaction-1",
       }),

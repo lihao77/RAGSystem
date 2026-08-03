@@ -53,7 +53,13 @@ describe("AguiTranslator text streaming", () => {
       type: "CUSTOM",
       name: "model_request",
       eventSeq: 12,
-      value: { phase: "start", round: 1 },
+      callId: "root-call",
+      agentId: "agent",
+      value: {
+        call_id: "root-call",
+        agent_id: "agent",
+        payload: { phase: "start", round: 1 },
+      },
     })]);
   });
 

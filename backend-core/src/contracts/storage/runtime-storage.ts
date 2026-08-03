@@ -74,6 +74,9 @@ export interface RuntimeOutboxStorage {
     runIds?: readonly string[] | null;
     afterSeq?: number;
     limit?: number;
+    /** Return the newest matching page, still ordered by ascending session sequence. */
+    latest?: boolean;
+    eventTypes?: readonly string[] | null;
   }): Promise<OutboxRow[]>;
 }
 
@@ -415,6 +418,8 @@ export interface RuntimeSessionFacts {
   activeRootRun: RunInfo | null;
   latestTerminalRootRun: RunInfo | null;
   pendingInteractions: PendingInteractionRecord[];
+  /** Ordered durable client envelopes for the active root run and all descendants. */
+  activeRunEvents: OutboxRow[];
   ownedByCurrentInstance: boolean;
 }
 

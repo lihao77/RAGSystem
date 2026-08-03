@@ -2,7 +2,7 @@
   <div v-if="inputData" class="wpui-root">
     <div class="wpui-section-label">
       <span class="wpui-section-icon" aria-hidden="true">
-        <WorkPanelStateIcon kind="input" />
+        <span class="wpui-state-dot" />
       </span>
       <span>需要输入</span>
     </div>
@@ -47,7 +47,6 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 import { Button } from '../ui/button'
 
 const props = defineProps({
@@ -104,9 +103,11 @@ function submit() {
   border: 1px solid rgba(var(--color-brand-accent-rgb), 0.2);
 }
 
-.wpui-section-icon :deep(svg) {
-  width: 12px;
-  height: 12px;
+.wpui-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 .wpui-card {

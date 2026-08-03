@@ -44,7 +44,13 @@ export function useRuntimeStatusView({
       const count = Object.keys(activeRun.runningToolCalls || {}).length;
       return count > 1 ? `工具执行中 · ${count} 个` : '工具执行中';
     }
+    if (activeRun.phase === 'parallel_running') {
+      const tools = Object.keys(activeRun.runningToolCalls || {}).length;
+      const models = Object.keys(activeRun.runningModelCalls || {}).length;
+      return `并行处理中 · ${tools} 工具 / ${models} 模型`;
+    }
     if (activeRun.phase === 'retrying') return '重试中';
+    if (activeRun.phase === 'model_failed') return '模型调用失败';
     return 'Agent 处理中';
   };
 

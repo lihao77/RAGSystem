@@ -131,6 +131,7 @@ describe("SessionAgentClient ACK correlation", () => {
           execution_kind: "agent_stream",
           started_at: "2026-07-31T00:00:00.000Z",
           updated_at: "2026-07-31T00:00:01.000Z",
+          activity: { models: [], tools: [], updated_at: "2026-07-31T00:00:01.000Z" },
         },
         resume_interaction_id: "interaction-1",
       }),
@@ -257,6 +258,7 @@ describe("SessionAgentClient connection lifecycle", () => {
           execution_kind: "agent_stream",
           started_at: "2026-07-31T00:00:00.000Z",
           updated_at: "2026-07-31T00:00:01.000Z",
+          activity: { models: [], tools: [], updated_at: "2026-07-31T00:00:01.000Z" },
         },
       }),
     });

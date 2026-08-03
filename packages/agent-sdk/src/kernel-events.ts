@@ -6,6 +6,33 @@ export interface ModelRequestEvent {
   round: number;
 }
 
+interface ModelAttemptEventBase {
+  agentName: string;
+  round: number;
+  attemptId: string;
+  attempt: number;
+  maxAttempts: number;
+  provider: string;
+  model: string;
+}
+
+export interface ModelAttemptStartedEvent extends ModelAttemptEventBase {
+  type: "model_attempt_started";
+}
+
+export interface ModelAttemptFailedEvent extends ModelAttemptEventBase {
+  type: "model_attempt_failed";
+  willRetry: boolean;
+  retryDelayMs?: number;
+  elapsedMs: number;
+  error: string;
+}
+
+export interface ModelAttemptCompletedEvent extends ModelAttemptEventBase {
+  type: "model_attempt_completed";
+  elapsedMs: number;
+}
+
 /** Events emitted by the agent runtime and consumed by its host. */
 export interface FirstTokenEvent {
   type: "first_token";
@@ -90,6 +117,9 @@ export interface ContextUsageEvent {
 /** Complete event union exposed through RunHandle.events. */
 export type KernelEvent =
   | ModelRequestEvent
+  | ModelAttemptStartedEvent
+  | ModelAttemptFailedEvent
+  | ModelAttemptCompletedEvent
   | FirstTokenEvent
   | OutputDeltaEvent
   | IntentDeltaEvent

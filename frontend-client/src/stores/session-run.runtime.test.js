@@ -34,6 +34,7 @@ function snapshot(state, overrides = {}) {
       execution_kind: 'agent_stream',
       started_at: '2026-07-30T00:00:00.000Z',
       updated_at: '2026-07-30T00:00:01.000Z',
+      activity: { models: [], tools: [], updated_at: '2026-07-30T00:00:01.000Z' },
     } : null,
     last_run: null,
     pending_interactions: state === 'waiting_interaction' || state === 'suspended'
@@ -100,7 +101,7 @@ test('审批恢复后的 running 快照立即清除 approval_waiting，不等待
   assert.equal(store.activeRun.phase, 'processing');
 });
 
-test('running 快照保留已经由实时事件投影出的更精确执行阶段', () => {
+test('running 快照用权威活动覆盖本地旧阶段', () => {
   setActivePinia(createPinia());
   const store = useSessionRunStore();
   store.applySessionRuntime(snapshot('running'));
@@ -113,7 +114,80 @@ test('running 快照保留已经由实时事件投影出的更精确执行阶段
     },
   }));
 
-  assert.equal(store.activeRun.phase, 'tool_running');
+  assert.equal(store.activeRun.phase, 'processing');
+});
+
+test('running 快照恢复模型重试等待及真实 attempt 元数据', () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const retryModel = {
+    call_id: 'model-call',
+    agent_id: 'agent',
+    round: 2,
+    status: 'retry_wait',
+    attempt_id: 'attempt-1',
+    attempt: 1,
+    max_attempts: 3,
+    provider: 'openai',
+    model: 'gpt-test',
+    started_at: '2026-07-30T00:00:00.100Z',
+    retry_at: '2026-07-30T00:00:03.000Z',
+    error: 'upstream unavailable',
+    updated_at: '2026-07-30T00:00:01.000Z',
+  };
+
+  store.applySessionRuntime(snapshot('running', {
+    active_run: {
+      ...snapshot('running').active_run,
+      activity: {
+        models: [retryModel],
+        tools: [],
+        updated_at: '2026-07-30T00:00:01.000Z',
+      },
+    },
+  }));
+
+  assert.equal(store.activeRun.phase, 'retrying');
+  assert.deepEqual(store.activeRun.runningModelCalls['agent\u0000model-call'], retryModel);
+});
+
+test('running 快照恢复子 Agent 模型与工具并行活动', () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  store.applySessionRuntime(snapshot('running', {
+    active_run: {
+      ...snapshot('running').active_run,
+      activity: {
+        models: [{
+          call_id: 'child-model',
+          agent_id: 'child-agent',
+          round: 1,
+          status: 'streaming',
+          attempt_id: 'attempt-child',
+          attempt: 1,
+          max_attempts: 2,
+          provider: 'openai',
+          model: 'gpt-test',
+          started_at: '2026-07-30T00:00:00.100Z',
+          retry_at: null,
+          error: null,
+          updated_at: '2026-07-30T00:00:01.000Z',
+        }],
+        tools: [{
+          call_id: 'root-tool',
+          agent_id: 'agent',
+          tool: 'read_file',
+          started_at: '2026-07-30T00:00:00.500Z',
+        }],
+        updated_at: '2026-07-30T00:00:01.000Z',
+      },
+    },
+  }));
+
+  assert.equal(store.activeRun.phase, 'parallel_running');
+  assert.equal(store.activeRun.runningToolCalls['root-tool'].tool, 'read_file');
+  assert.equal(store.activeRun.runningToolCalls['root-tool'].agent_id, 'agent');
+  assert.equal(Object.keys(store.activeRun.runningModelCalls).length, 1);
 });
 
 test('已响应但尚未恢复的 suspended 快照不会伪装成等待审批', () => {

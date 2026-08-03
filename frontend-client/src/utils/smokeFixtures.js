@@ -95,6 +95,7 @@ const smokeExecutionEvents = [
   {
     type: 'stream_output',
     session_id: 'smoke-session',
+    run_id: 'smoke-run',
     call_id: 'smoke-root',
     agent_id: 'orchestrator_agent',
     payload: { phase: 'intent_complete', round: 1, content: '读取监测数据并生成趋势图。' },

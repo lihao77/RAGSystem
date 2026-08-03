@@ -47,11 +47,15 @@ export class AguiTranslator {
   private textHasStreamedContent = false;
   private reasoningMessageId: string | null = null;
   private eventSeq: number | undefined;
+  private callId: string | undefined;
+  private agentId: string | undefined;
 
   constructor(private readonly ctx: TranslateContext) {}
 
   translate(env: Envelope): TranslateResult {
     this.eventSeq = typeof env.seq === "number" ? env.seq : undefined;
+    this.callId = typeof env.call_id === "string" ? env.call_id : undefined;
+    this.agentId = typeof env.agent_id === "string" ? env.agent_id : undefined;
     switch (env.type) {
       case "run_started":
         return { events: [this.runStarted()] };
@@ -68,7 +72,10 @@ export class AguiTranslator {
       case "agent_ended":
         return { events: [this.step(env, false)] };
       case "model_request":
-        return { events: [{ type: "CUSTOM", ...this.base(), name: "model_request", value: payloadOf(env) }] };
+      case "model_attempt_started":
+      case "model_attempt_failed":
+      case "model_attempt_completed":
+        return { events: [this.modelLifecycle(env)] };
       case "state_sync":
         return { events: this.stateSync(payloadOf(env)) };
       case "delegate_call":
@@ -84,12 +91,34 @@ export class AguiTranslator {
     }
   }
 
-  private base(): { threadId: string; runId: string; timestamp: number; eventSeq?: number } {
+  private base(): {
+    threadId: string;
+    runId: string;
+    timestamp: number;
+    eventSeq?: number;
+    callId?: string;
+    agentId?: string;
+  } {
     return {
       threadId: this.ctx.threadId,
       runId: this.ctx.externalRunId,
       timestamp: Date.now(),
       ...(this.eventSeq !== undefined ? { eventSeq: this.eventSeq } : {}),
+      ...(this.callId ? { callId: this.callId } : {}),
+      ...(this.agentId !== undefined ? { agentId: this.agentId } : {}),
+    };
+  }
+
+  private modelLifecycle(env: Envelope): CustomEvent {
+    return {
+      type: "CUSTOM",
+      ...this.base(),
+      name: env.type,
+      value: {
+        call_id: env.call_id,
+        agent_id: env.agent_id,
+        payload: payloadOf(env),
+      },
     };
   }
 

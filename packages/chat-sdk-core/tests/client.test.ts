@@ -334,6 +334,7 @@ describe("RagChatClient", () => {
           execution_kind: "agent_stream",
           started_at: "2026-08-02T00:00:00.000Z",
           updated_at: "2026-08-02T00:00:01.000Z",
+          activity: { models: [], tools: [], updated_at: "2026-08-02T00:00:01.000Z" },
         },
         pending_interactions: [{
           interaction_id: "interaction-1",
