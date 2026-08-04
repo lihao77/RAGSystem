@@ -101,23 +101,24 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
 
   async collectOutputs(lease: SandboxLease, owner: SandboxOwner, provider: SandboxProvider): Promise<void> {
     const listed = await provider.glob(lease, {
-      root: "/output",
+      root: "/work",
       pattern: "**/*",
       recursive: true,
       maxResults: this.limits.maxOutputFiles + 1,
     });
-    if (listed.truncated || listed.files.length > this.limits.maxOutputFiles) {
+    const outputFiles = listed.files.filter((file) => !isTransientWorkspacePath(file));
+    if (listed.truncated || outputFiles.length > this.limits.maxOutputFiles) {
       throw new Error(`Sandbox output file count exceeds limit ${this.limits.maxOutputFiles}`);
     }
 
     const seen = new Set<string>();
     let totalBytes = 0;
-    for (const rawPath of listed.files) {
+    for (const rawPath of outputFiles) {
       const relativePath = validateProviderRelativePath(rawPath);
       if (seen.has(relativePath)) throw new Error(`Sandbox provider returned duplicate output path: ${relativePath}`);
       seen.add(relativePath);
       const result = await provider.readFile(lease, {
-        path: `/output/${relativePath}`,
+        path: `/work/${relativePath}`,
         encoding: "base64",
         maxBytes: this.limits.maxOutputFileBytes,
       });
@@ -134,6 +135,11 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
       });
     }
   }
+}
+
+function isTransientWorkspacePath(value: string): boolean {
+  const normalized = value.trim().replace(/\\/g, "/");
+  return normalized === "transient" || normalized.startsWith("transient/");
 }
 
 function validateInputMetadata(

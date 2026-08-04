@@ -83,7 +83,6 @@ export interface SandboxProvider {
     filesystem: {
       input: "read_only";
       work: "read_write";
-      output: "read_write";
     };
   }): Promise<SandboxLease>;
   destroy(lease: SandboxLease): Promise<void>;

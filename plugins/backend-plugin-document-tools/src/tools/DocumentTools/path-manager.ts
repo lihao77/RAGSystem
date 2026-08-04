@@ -11,7 +11,7 @@ export type ManagedOperation = "read" | "write" | "edit";
 export type ManagedSpace = keyof ExecutionPaths;
 
 /**
- * Document tools share the same five-directory view as shell and code tools.
+ * Document tools share the same four-directory view as shell and code tools.
  * Relative paths have exactly one meaning: workspace, unless a space is
  * explicitly selected. This class does not search candidate roots or create
  * display aliases.
@@ -113,7 +113,7 @@ export class LocalDocumentPathManager {
 
   private allowedRoots(roots: ExecutionPaths, operation: ManagedOperation): string[] {
     if (operation === "read") return Object.values(roots);
-    return [roots.workspace, roots.transient, roots.exports];
+    return [roots.workspace, roots.transient];
   }
 }
 
@@ -124,10 +124,10 @@ function randomSuffix(): string {
 function normalizeManagedSpace(value: unknown): ManagedSpace | null {
   const normalized = normalizeString(value)?.toLowerCase();
   if (!normalized) return null;
-  if (normalized === "uploads" || normalized === "workspace" || normalized === "artifacts" || normalized === "transient" || normalized === "exports") {
+  if (normalized === "uploads" || normalized === "workspace" || normalized === "artifacts" || normalized === "transient") {
     return normalized;
   }
-  throw new Error(`不支持的显式空间: ${value}；请使用 workspace/uploads/artifacts/transient/exports`);
+  throw new Error(`不支持的显式空间: ${value}；请使用 workspace/uploads/artifacts/transient`);
 }
 
 function documentOperationForTool(toolName: string): ManagedOperation | null {

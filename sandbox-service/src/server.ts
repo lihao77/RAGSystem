@@ -58,7 +58,7 @@ async function handleRequest(
     const owner = requireOwner(body.owner);
     if (body.network !== "none") throw new HttpError(400, "invalid_network", "Sandbox network must be none");
     const filesystem = requireRecord(body.filesystem, "filesystem");
-    if (filesystem.input !== "read_only" || filesystem.work !== "read_write" || filesystem.output !== "read_write") {
+    if (filesystem.input !== "read_only" || filesystem.work !== "read_write" || filesystem.output !== undefined) {
       throw new HttpError(400, "invalid_filesystem", "Sandbox filesystem policy is not supported");
     }
     const timeoutSeconds = requireInteger(body.timeoutSeconds, "timeoutSeconds", 1, 3_600);

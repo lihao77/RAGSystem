@@ -11,7 +11,6 @@ export interface SandboxLeaseRecord {
   containerName: string;
   inputVolume: string;
   workVolume: string;
-  outputVolume: string;
   createdAt: string;
   expiresAt: string;
   expiresTimer: NodeJS.Timeout;

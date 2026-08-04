@@ -46,7 +46,7 @@ export class SandboxLeaseManager {
       owner,
       network: "none",
       timeoutSeconds: this.timeoutSeconds,
-      filesystem: { input: "read_only", work: "read_write", output: "read_write" },
+      filesystem: { input: "read_only", work: "read_write" },
     })
       .then(async (lease) => {
         assertSameOwner(lease.owner, owner);

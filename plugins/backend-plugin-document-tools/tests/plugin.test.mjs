@@ -144,7 +144,7 @@ test("document relative writes and reads use the same workspace", async () => {
     assert.equal(read.content, "workspace content");
     assert.equal(read.metadata.file_path, written.metadata.file_path);
     assert.equal(read.metadata.execution_paths.workspace, path.join(root, "sessions", "session-workspace", "workspace"));
-    assert.equal(read.metadata.execution_paths.exports, path.join(root, "sessions", "session-workspace", "exports", "run-workspace"));
+    assert.deepEqual(Object.keys(read.metadata.execution_paths).sort(), ["artifacts", "transient", "uploads", "workspace"]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -16,7 +16,6 @@ describe("sandbox lease capacity", () => {
           containerName: "container",
           inputVolume: "input",
           workVolume: "work",
-          outputVolume: "output",
           createdAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
         };

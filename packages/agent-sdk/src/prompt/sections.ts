@@ -9,7 +9,7 @@
  * 输出效率 / 执行规则 / 数据文件），行为用自然语言描述，不嵌入调用语法细节。
  */
 import type { RuntimeToolDefinition } from "./tool-types.js";
-import type { ToolInstructionMode } from "../contracts.js";
+import type { ToolExecutionPaths, ToolInstructionMode } from "../contracts.js";
 import { collectSections } from "./types.js";
 import {
   formatAllowedCallers,
@@ -79,6 +79,16 @@ function buildPromptUsingToolsSection(): string {
   ].join("\n");
 }
 
+export function buildExecutionPathsSection(paths: ToolExecutionPaths | null | undefined): string {
+  if (!paths) return "";
+  return `### 当前执行目录
+- \`workspace\`: \`${formatPromptPath(paths.workspace)}\`（默认读写目录，最终产物写入这里）
+- \`uploads\`: \`${formatPromptPath(paths.uploads)}\`（用户输入，只读）
+- \`artifacts\`: \`${formatPromptPath(paths.artifacts)}\`（已有输入产物，只读）
+- \`transient\`: \`${formatPromptPath(paths.transient)}\`（临时文件）
+- 相对路径默认从 \`workspace\` 解析；不要自行猜测其他根目录`;
+}
+
 export function buildPromptToolsSection(tools: RuntimeToolDefinition[], mode: ToolInstructionMode): string {
   if (!tools.length) {
     return "";
@@ -144,7 +154,7 @@ function buildPathRuleForTools(tools: RuntimeToolDefinition[]): string {
     return "";
   }
   const pathParams = new Set(tools.flatMap((tool) => parameterNames(tool)).filter((name) => name === "file_path" || name === "working_dir"));
-  return `- 路径类工具统一使用 \`workspace / transient / exports\` 三个受管目录空间；\`space\` 只影响相对 ${Array.from(pathParams).map((name) => `\`${name}\``).join(" / ")} 的解析根`;
+  return `- 路径类工具统一使用 \`workspace / uploads / artifacts / transient\` 四个受管目录空间；\`space\` 只影响相对 ${Array.from(pathParams).map((name) => `\`${name}\``).join(" / ")} 的解析根`;
 }
 
 function buildManagedSpaceRules(mode: ToolInstructionMode = "xml"): string {
@@ -154,10 +164,15 @@ function buildManagedSpaceRules(mode: ToolInstructionMode = "xml"): string {
     : "工具参数为 JSON 对象：用 `file_path_space`/`working_dir_space` 字段指定目录桶（例如 `{ \"file_path\": \"tmp.txt\", \"file_path_space\": \"transient\" }`）";
   return `### 受管目录 space 说明
 - \`workspace\`: 当前 effective workspace，相对路径默认按这里解析
+- \`uploads\`: 用户输入目录，只读
+- \`artifacts\`: 已有输入产物目录，只读
 - \`transient\`: 当前 session 的临时目录，适合中间文件与临时产物
-- \`exports\`: 当前 session 的导出目录 \`exports/<run_id>\`，适合最终交付文件；使用时需要当前运行上下文提供 \`run_id\`
 - ${channel}
 - \`space\` 只影响相对路径参数的解析根；绝对路径仍只做受管边界校验`;
+}
+
+function formatPromptPath(value: string): string {
+  return value.replaceAll("`", "\\`").replace(/[\r\n]+/g, " ");
 }
 
 export function buildPromptRulesSection(_mode: ToolInstructionMode): string {

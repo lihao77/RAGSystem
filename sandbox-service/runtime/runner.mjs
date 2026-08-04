@@ -80,7 +80,7 @@ async function requireCwd(value) {
   const cwd = requireString(value, "cwd");
   if (!cwd.startsWith("/") || cwd.includes("\0") || cwd.split("/").includes("..")) throw new Error("Invalid sandbox cwd");
   const real = await fs.realpath(cwd);
-  if (!["/input", "/work", "/output"].some((root) => real === root || real.startsWith(`${root}/`))) {
+  if (!["/input", "/work"].some((root) => real === root || real.startsWith(`${root}/`))) {
     throw new Error("Sandbox cwd is outside the allowed roots");
   }
   if (!(await fs.stat(real)).isDirectory()) throw new Error("Sandbox cwd is not a directory");

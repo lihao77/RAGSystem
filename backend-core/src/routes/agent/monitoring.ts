@@ -20,6 +20,7 @@ import { ensureRequestApplications } from "../../app/request-applications.js";
 import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
 import { assertSessionReadable } from "../session-owner.js";
 import { isRecord, normalizeString } from "../../utils/guards.js";
+import { EXECUTION_ENVIRONMENT_CAPABILITY } from "../../contracts/execution/execution-environment.js";
 
 interface ContextSnapshotQuery {
   session_id?: string;
@@ -151,6 +152,10 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       ? (await sessionApplication.listWorkspacesByIds([sessionInfo.workspace_id]))[0]?.root_path ?? null
       : null;
     const agent = applySessionWorkspace(resolved.agent, workspaceRoot);
+    const executionEnvironment = request.container.pluginCapabilities.get(EXECUTION_ENVIRONMENT_CAPABILITY);
+    const executionPaths = sessionId && executionEnvironment
+      ? executionEnvironment.paths({ sessionId, workspaceRoot })
+      : undefined;
     const teamName = normalizeString(sessionMetadata.team);
 
     // 装配 createRuntime（轻量，只 preview 不 run）—— preview 内部用 SDK builder + protocol.buildRequest，
@@ -201,6 +206,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           sessionId,
           threadKey,
           sessionFiles: request.container.sessionFiles,
+          ...(executionPaths ? { executionPaths } : {}),
         })
       : null;
     await sessionMetadataPort?.flush();

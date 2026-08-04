@@ -114,8 +114,8 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
       "Execute a Skill utility script from the shared workspace. The arguments field is argv-style: each command-line token must be one array item.",
     usage_contract: [
       "arguments 是 argv token 数组，每个 token 一个数组项，不要合并成单个字符串或 JSON 对象。",
-      "脚本进程的当前工作目录是 workspace；相对 request/output 文件应直接使用 workspace 下的相对路径。",
-      "脚本可通过 SESSION_WORKSPACE_DIR、SESSION_UPLOADS_DIR、SESSION_ARTIFACTS_DIR、SESSION_TRANSIENT_DIR、SESSION_EXPORTS_DIR 访问五类路径。",
+      "脚本进程的当前工作目录是 workspace；相对 request 文件和脚本输出文件应直接使用 workspace 下的相对路径。",
+      "脚本可通过 SESSION_WORKSPACE_DIR、SESSION_UPLOADS_DIR、SESSION_ARTIFACTS_DIR、SESSION_TRANSIENT_DIR 访问四类路径。",
     ],
     parameters: {
       type: "object",

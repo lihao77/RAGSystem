@@ -367,7 +367,10 @@ export async function executeRunWithSdk(
         hookRegistry.on("round.before", async (hookInput) => {
           // Compression budgets use the stable core prompt. Plugin hooks add their context afterward.
           const mode = resolveToolInstructionMode(profile.llmTiers.default?.provider);
-          const systemPromptBase = buildFullSystemPrompt(profile, { tools: registry.listDefinitions() }, mode);
+          const systemPromptBase = buildFullSystemPrompt(profile, {
+            tools: registry.listDefinitions(),
+            ...(baseExecCtx.executionPaths ? { executionPaths: baseExecCtx.executionPaths } : {}),
+          }, mode);
           const systemPromptTokens = estimateTokens(systemPromptBase);
           const result = await deps.compressionService!.compressIfNeeded({
             agent: input.agent,

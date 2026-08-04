@@ -5,8 +5,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 sandbox \
     && useradd --uid 10001 --gid 10001 --home-dir /work --shell /bin/bash sandbox \
-    && mkdir -p /opt/ragsystem /input/uploads /work/transient /output \
-    && chown -R 10001:10001 /work /output
+    && mkdir -p /opt/ragsystem /input/uploads /input/artifacts /work/transient \
+    && chown -R 10001:10001 /work
 
 COPY helper.mjs runner.mjs /opt/ragsystem/
 

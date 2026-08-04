@@ -130,7 +130,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
         },
         file_path_space: {
           type: "string",
-          enum: ["uploads", "workspace", "transient", "exports"],
+          enum: ["uploads", "workspace", "transient"],
           description: "Optional managed path space for relative file_path.",
         },
         encoding: {
@@ -193,7 +193,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
         },
         file_path_space: {
           type: "string",
-          enum: ["uploads", "workspace", "transient", "exports"],
+          enum: ["uploads", "workspace", "transient"],
           description: "Optional managed path space for relative file_path.",
         },
         mode: {
@@ -252,7 +252,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
         },
         file_path_space: {
           type: "string",
-          enum: ["uploads", "workspace", "transient", "exports"],
+          enum: ["uploads", "workspace", "transient"],
           description: "Optional managed path space for relative file_path.",
         },
         encoding: {
@@ -311,7 +311,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
         },
         file_path_space: {
           type: "string",
-          enum: ["uploads", "workspace", "transient", "exports"],
+          enum: ["uploads", "workspace", "transient"],
           description: "Optional managed path space for relative file_path.",
         },
         encoding: {

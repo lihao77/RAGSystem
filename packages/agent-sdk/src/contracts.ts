@@ -232,7 +232,6 @@ export interface ToolExecutionPaths {
   uploads: string;
   artifacts: string;
   transient: string;
-  exports: string;
 }
 
 /** 后台任务等待请求。 */

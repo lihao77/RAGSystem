@@ -88,7 +88,7 @@ export class ManagedPathResolver {
 
   private allowedRoots(context: ToolExecContext, mode: "working_directory" | "read"): string[] {
     const roots = this.roots(context);
-    if (mode === "working_directory") return [roots.workspace, roots.transient, roots.exports];
+    if (mode === "working_directory") return [roots.workspace, roots.transient];
     return Object.values(roots);
   }
 
@@ -112,10 +112,10 @@ export class ManagedPathResolver {
 function normalizeManagedSpace(value: unknown): ManagedSpace | null {
   const normalized = normalizeString(value)?.toLowerCase();
   if (!normalized) return null;
-  if (normalized === "workspace" || normalized === "uploads" || normalized === "artifacts" || normalized === "transient" || normalized === "exports") {
+  if (normalized === "workspace" || normalized === "uploads" || normalized === "artifacts" || normalized === "transient") {
     return normalized;
   }
-  throw new Error(`不支持的路径空间: ${value}；请使用绝对路径或 workspace/transient/exports`);
+  throw new Error(`不支持的路径空间: ${value}；请使用绝对路径或 workspace/uploads/artifacts/transient`);
 }
 
 function normalizeString(value: unknown): string | null {

@@ -56,8 +56,8 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
  本次 run 的默认工作目录是 workspace。相对路径只按当前 workspace 解析；不会在多个目录之间搜索或自动切换。
 
  - 需要其他目录时，请传入该目录的绝对路径，或显式使用 \`working_dir_space\`。
- - 工具运行时会注入五个 \`SESSION_*_DIR\` 环境变量。
- - 返回 metadata 会包含本次 run 的五类实际路径。`,
+ - 工具运行时会注入四个 \`SESSION_*_DIR\` 环境变量。
+ - 返回 metadata 会包含本次 run 的四类实际路径。`,
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -73,7 +73,7 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
           },
           working_dir_space: {
             type: "string",
-            enum: ["workspace", "transient", "exports"],
+            enum: ["workspace", "transient"],
             description: "Optional explicit base for a relative working_dir. Without this parameter, workspace is always the base.",
           },
           timeout: {

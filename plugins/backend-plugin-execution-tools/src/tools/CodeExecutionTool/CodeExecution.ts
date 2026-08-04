@@ -374,8 +374,8 @@ def _resolve_managed_path(raw_path, space="workspace"):
     raw = str(raw_path)
     if os.path.isabs(raw):
         return os.path.abspath(raw)
-    if space not in ("workspace", "transient", "exports"):
-        raise ValueError("space 必须是 workspace/transient/exports 之一")
+    if space not in ("workspace", "transient"):
+        raise ValueError("space 必须是 workspace/transient 之一")
     return os.path.abspath(os.path.join(roots[space], raw))
 
 def _path_ops_path(value):
@@ -386,7 +386,6 @@ path_ops.SESSION_WORKSPACE_DIR = roots["workspace"]
 path_ops.SESSION_UPLOADS_DIR = roots["uploads"]
 path_ops.SESSION_ARTIFACTS_DIR = roots["artifacts"]
 path_ops.SESSION_TRANSIENT_DIR = roots["transient"]
-path_ops.SESSION_EXPORTS_DIR = roots["exports"]
 path_ops.join = os.path.join
 path_ops.basename = os.path.basename
 path_ops.dirname = os.path.dirname
@@ -442,7 +441,6 @@ env = {
     "SESSION_TRANSIENT_DIR": roots["transient"],
     "SESSION_UPLOADS_DIR": roots["uploads"],
     "SESSION_ARTIFACTS_DIR": roots["artifacts"],
-    "SESSION_EXPORTS_DIR": roots["exports"],
     "path_ops": path_ops,
 }
 

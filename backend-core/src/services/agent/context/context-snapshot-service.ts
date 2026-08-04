@@ -1,4 +1,4 @@
-import { createRuntime, type AgentProfile, type PreviewResult, type ToolRegistry } from "@ragsystem/agent-sdk";
+import { createRuntime, type AgentProfile, type PreviewResult, type ToolExecutionPaths, type ToolRegistry } from "@ragsystem/agent-sdk";
 
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import { buildBackendAgentContext } from "./backend-context-builder.js";
@@ -15,6 +15,7 @@ export async function previewBackendAgentContext(
     sessionId: string;
     threadKey?: string | null;
     sessionFiles?: SessionFileLookupPort | null;
+    executionPaths?: ToolExecutionPaths | undefined;
   },
 ): Promise<Awaited<ReturnType<typeof buildBackendAgentContext>> & { preview: PreviewResult }> {
   const context = await buildBackendAgentContext(agent, profile, historyPort, {
@@ -25,6 +26,7 @@ export async function previewBackendAgentContext(
     profile,
     tools: registry,
     dataRoot: options.dataRoot,
+    ...(options.executionPaths ? { execContext: { executionPaths: options.executionPaths } } : {}),
   });
   try {
     const preview = runtime.preview({

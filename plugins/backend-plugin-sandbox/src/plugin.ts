@@ -31,9 +31,7 @@ function createSandboxExecutionEnvironment(context: BackendPluginRuntimeContext)
     };
   }
 
-  // SaaS currently keeps its existing remote sandbox layout. The provider is
-  // intentionally exposed through the same capability so tools can migrate
-  // without knowing the deployment kind.
+  // SaaS exposes the same four-directory contract inside its remote sandbox.
   return {
     deploymentKind: "saas",
     paths: () => ({
@@ -41,19 +39,16 @@ function createSandboxExecutionEnvironment(context: BackendPluginRuntimeContext)
       uploads: "/input/uploads",
       artifacts: "/input/artifacts",
       transient: "/work/transient",
-      exports: "/output",
     }),
     environment: () => ({
       SESSION_WORKSPACE_DIR: "/work",
       SESSION_UPLOADS_DIR: "/input/uploads",
       SESSION_ARTIFACTS_DIR: "/input/artifacts",
       SESSION_TRANSIENT_DIR: "/work/transient",
-      SESSION_EXPORTS_DIR: "/output",
       RAGSYSTEM_WORKSPACE_DIR: "/work",
       RAGSYSTEM_UPLOADS_DIR: "/input/uploads",
       RAGSYSTEM_ARTIFACTS_DIR: "/input/artifacts",
       RAGSYSTEM_TRANSIENT_DIR: "/work/transient",
-      RAGSYSTEM_EXPORTS_DIR: "/output",
     }),
   };
 }

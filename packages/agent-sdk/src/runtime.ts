@@ -144,9 +144,11 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
     events: NOOP_EVENT_SINK,
     getTools: () => registry.listDefinitions(),
   });
-  const contextPort: Context = makeContextPort(profile, toolInstructionMode, {
+  const promptContext: AgentPromptContext = {
     tools: registry.listDefinitions(),
-  });
+    ...(options.execContext?.executionPaths ? { executionPaths: options.execContext.executionPaths } : {}),
+  };
+  const contextPort: Context = makeContextPort(profile, toolInstructionMode, promptContext);
 
   return {
     run: (input: RunInput): RunHandle => {
@@ -246,7 +248,6 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       return { events: dispatcher.events, result: resultPromise, runId };
     },
     preview: (input: PreviewInput): PreviewResult => {
-      const promptContext = { tools: registry.listDefinitions() };
       // conversation 由 backend 组装注入（memory + recent + 压缩视图）；preview 仅组 LLM request（与 run 第一轮同源），不读 store、不组 context。
       const systemPrompt = buildFullSystemPrompt(profile, promptContext, toolInstructionMode);
       const prefix: ChatMessage[] = systemPrompt ? [{ role: "system", content: systemPrompt }] : [];

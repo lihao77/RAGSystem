@@ -8,13 +8,12 @@ export interface ExecutionPathContext {
   workspaceRoot?: string | null | undefined;
 }
 
-/** The five user-visible directories shared by every execution tool. */
+/** The four user-visible directories shared by every execution tool. */
 export interface ExecutionPaths {
   workspace: string;
   uploads: string;
   artifacts: string;
   transient: string;
-  exports: string;
 }
 
 /**
@@ -37,14 +36,12 @@ export const EXECUTION_ENVIRONMENT_CAPABILITY = createCapability<ExecutionEnviro
  */
 export function createLocalExecutionPaths(dataRoot: string, context: ExecutionPathContext): ExecutionPaths {
   const sessionId = normalizeId(context.sessionId) ?? "anonymous";
-  const runId = normalizeId(context.runId);
   const sessionRoot = absolutePath(path.join(dataRoot, "sessions", sessionId));
   return {
     workspace: absolutePath(normalizeId(context.workspaceRoot) ?? path.join(sessionRoot, "workspace")),
     uploads: path.join(sessionRoot, "uploads"),
     artifacts: path.join(sessionRoot, "artifacts"),
     transient: path.join(sessionRoot, "transient"),
-    exports: path.join(sessionRoot, "exports", runId ?? "shared"),
   };
 }
 
@@ -54,12 +51,10 @@ export function executionPathEnvironment(paths: ExecutionPaths): Record<string, 
     SESSION_UPLOADS_DIR: paths.uploads,
     SESSION_ARTIFACTS_DIR: paths.artifacts,
     SESSION_TRANSIENT_DIR: paths.transient,
-    SESSION_EXPORTS_DIR: paths.exports,
     RAGSYSTEM_WORKSPACE_DIR: paths.workspace,
     RAGSYSTEM_UPLOADS_DIR: paths.uploads,
     RAGSYSTEM_ARTIFACTS_DIR: paths.artifacts,
     RAGSYSTEM_TRANSIENT_DIR: paths.transient,
-    RAGSYSTEM_EXPORTS_DIR: paths.exports,
   };
 }
 

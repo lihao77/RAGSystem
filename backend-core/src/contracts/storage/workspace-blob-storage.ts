@@ -1,4 +1,4 @@
-export type DurableManagedSpace = "workspace" | "exports";
+export type DurableManagedSpace = "workspace";
 
 export interface WorkspaceBlobRef {
   key: string;

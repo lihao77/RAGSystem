@@ -47,7 +47,7 @@
 - 内容包括：
   - 禁止/允许导入的模块列表
   - 已注入的全局变量说明（path_ops、call_tool、save_file 等）
-  - 文件操作规则（workspace/transient/exports）
+  - 文件操作规则（workspace/uploads/artifacts/transient）
   - call_tool 使用说明
   - 正确/错误示例
 

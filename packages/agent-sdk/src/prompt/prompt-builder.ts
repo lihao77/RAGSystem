@@ -11,6 +11,7 @@ import type { AgentPromptContext } from "./types.js";
 import { collectSections, normalizeString } from "./types.js";
 import {
   buildDataFileRulesSection,
+  buildExecutionPathsSection,
   buildPromptActionsSection,
   buildPromptDoingTasksSection,
   buildPromptGoalSection,
@@ -45,6 +46,7 @@ function buildDynamicSystemPrompt(profile: PromptProfile, context: AgentPromptCo
     buildPromptPrinciplesSection(mode),
     buildPromptActionsSection(mode),
     getAgentBaseSystemPrompt(profile),
+    buildExecutionPathsSection(context.executionPaths),
     buildPromptToolsSection(tools, mode),
     buildPromptRulesSection(mode),
     buildDataFileRulesSection(),

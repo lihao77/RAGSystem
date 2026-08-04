@@ -49,7 +49,6 @@ export class DockerSandboxEngine {
     const containerName = `ragsystem-sbx-${shortId}`;
     const inputVolume = `ragsystem-sbx-${shortId}-input`;
     const workVolume = `ragsystem-sbx-${shortId}-work`;
-    const outputVolume = `ragsystem-sbx-${shortId}-output`;
     const ownerHash = createHash("sha256")
       .update([owner.tenantId, owner.userId, owner.sessionId, owner.runId].join("\0"))
       .digest("hex");
@@ -60,7 +59,7 @@ export class DockerSandboxEngine {
     ];
 
     try {
-      for (const volume of [inputVolume, workVolume, outputVolume]) {
+      for (const volume of [inputVolume, workVolume]) {
         await this.run(["volume", "create", ...labels, volume], { timeoutMs: 15_000 });
       }
       await this.run([
@@ -76,7 +75,6 @@ export class DockerSandboxEngine {
         "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=67108864",
         "--mount", `type=volume,src=${inputVolume},dst=/input`,
         "--mount", `type=volume,src=${workVolume},dst=/work`,
-        "--mount", `type=volume,src=${outputVolume},dst=/output`,
         this.config.runtimeImage,
         "node", "/opt/ragsystem/helper.mjs", "initialize",
       ], { timeoutMs: 30_000 });
@@ -96,7 +94,6 @@ export class DockerSandboxEngine {
         "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=67108864",
         "--mount", `type=volume,src=${inputVolume},dst=/input,readonly`,
         "--mount", `type=volume,src=${workVolume},dst=/work`,
-        "--mount", `type=volume,src=${outputVolume},dst=/output`,
         ...(this.config.dockerRuntime ? ["--runtime", this.config.dockerRuntime] : []),
         this.config.runtimeImage,
         "sleep", "infinity",
@@ -104,7 +101,7 @@ export class DockerSandboxEngine {
       await this.run(createArgs, { timeoutMs: 30_000 });
       await this.run(["start", containerName], { timeoutMs: 30_000 });
     } catch (error) {
-      await this.destroyResources(containerName, inputVolume, workVolume, outputVolume);
+      await this.destroyResources(containerName, inputVolume, workVolume);
       throw error;
     }
 
@@ -115,14 +112,13 @@ export class DockerSandboxEngine {
       containerName,
       inputVolume,
       workVolume,
-      outputVolume,
       createdAt: createdAt.toISOString(),
       expiresAt: new Date(createdAt.getTime() + timeoutSeconds * 1_000).toISOString(),
     };
   }
 
-  async destroy(lease: Pick<SandboxLeaseRecord, "containerName" | "inputVolume" | "workVolume" | "outputVolume">): Promise<void> {
-    await this.destroyResources(lease.containerName, lease.inputVolume, lease.workVolume, lease.outputVolume);
+  async destroy(lease: Pick<SandboxLeaseRecord, "containerName" | "inputVolume" | "workVolume">): Promise<void> {
+    await this.destroyResources(lease.containerName, lease.inputVolume, lease.workVolume);
   }
 
   async stageInput(lease: SandboxLeaseRecord, input: unknown): Promise<unknown> {

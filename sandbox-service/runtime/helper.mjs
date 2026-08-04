@@ -28,18 +28,17 @@ async function dispatch(name, input) {
 
 async function initialize() {
   await fs.mkdir("/input/uploads", { recursive: true });
+  await fs.mkdir("/input/artifacts", { recursive: true });
   await fs.mkdir("/work/transient", { recursive: true });
-  await fs.mkdir("/output", { recursive: true });
   // The trusted staging helper owns the volume and needs write permission.
   // The untrusted agent still sees this volume through a read-only mount.
   await fs.chmod("/input", 0o755);
   await fs.chmod("/input/uploads", 0o755);
+  await fs.chmod("/input/artifacts", 0o755);
   await fs.chmod("/work/transient", 0o750);
-  await fs.chmod("/output", 0o750);
   await fs.chown("/work/transient", 10001, 10001);
   await fs.chmod("/work", 0o750);
   await fs.chown("/work", 10001, 10001);
-  await fs.chown("/output", 10001, 10001);
   return { initialized: true };
 }
 
@@ -54,7 +53,7 @@ async function stageInput(input) {
 }
 
 async function readFile(input) {
-  const resolved = await resolveExisting(requireString(input.path, "path"), ["/input", "/work", "/output"]);
+  const resolved = await resolveExisting(requireString(input.path, "path"), ["/input", "/work"]);
   const encoding = normalizeEncoding(input.encoding);
   const maxBytes = optionalInteger(input.maxBytes, 16 * 1024 * 1024, 1, 100 * 1024 * 1024, "maxBytes");
   const stat = await fs.stat(resolved);
@@ -153,7 +152,7 @@ async function grepFiles(input) {
 }
 
 async function previewFile(input) {
-  const resolved = await resolveExisting(requireString(input.path, "path"), ["/input", "/work", "/output"]);
+  const resolved = await resolveExisting(requireString(input.path, "path"), ["/input", "/work"]);
   const maxBytes = optionalInteger(input.maxBytes, 16 * 1024 * 1024, 1, 100 * 1024 * 1024, "maxBytes");
   const maxPreviewRows = optionalInteger(input.maxPreviewRows, 5, 1, 1000, "maxPreviewRows");
   const stat = await fs.stat(resolved);
@@ -181,7 +180,7 @@ async function resolveExisting(rawPath, roots) {
 }
 
 async function resolveExistingDirectory(rawPath) {
-  const resolved = await resolveExisting(rawPath, ["/input", "/work", "/output"]);
+  const resolved = await resolveExisting(rawPath, ["/input", "/work"]);
   if (!(await fs.stat(resolved)).isDirectory()) throw new Error("Sandbox search root is not a directory");
   return resolved;
 }
@@ -203,8 +202,7 @@ function assertUnderRoots(candidate, roots) {
 
 function writableRoot(filePath) {
   if (filePath === "/work" || filePath.startsWith("/work/")) return "/work";
-  if (filePath === "/output" || filePath.startsWith("/output/")) return "/output";
-  throw new Error("Sandbox write path must be under /work or /output");
+  throw new Error("Sandbox write path must be under /work");
 }
 
 async function ensureWritableTarget(target, root) {
