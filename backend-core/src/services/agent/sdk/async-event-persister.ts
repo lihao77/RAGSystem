@@ -22,6 +22,7 @@ import {
   buildExecutionEnvelopeRunStep,
   buildExpiredRunLeaseRecord,
 } from "../../runtime/event-outbox/execution-envelope-archive.js";
+import { terminalReason } from "./terminal-reason.js";
 
 export interface AsyncPersisterRunContext {
   tenantId: TenantId;
@@ -239,6 +240,7 @@ export class AsyncKernelEventPersister {
       runId: this.ctx.runId,
       sessionId: this.ctx.sessionId,
       status,
+      ...(status === "failed" || status === "interrupted" ? { reason: terminalReason(status, error) } : {}),
       leaseRootRunId: this.leaseRunId(),
       finalMessage: persistedFinal,
       ...(persistedFinal ? { attachStepsToFinalMessage: true } : {}),
@@ -573,14 +575,4 @@ function buildTerminalEnvelopes(
       payload: { status, ...(status !== "interrupted" ? { reason: errorMessage } : {}) },
     },
   ];
-}
-
-function terminalReason(
-  status: "failed" | "interrupted",
-  error: unknown,
-): string {
-  const reason = error instanceof Error
-    ? error.message
-    : typeof error === "string" ? error : error == null ? "" : String(error);
-  return (reason.trim() || (status === "failed" ? "未提供失败原因" : "未提供中断原因")).slice(0, 2_000);
 }

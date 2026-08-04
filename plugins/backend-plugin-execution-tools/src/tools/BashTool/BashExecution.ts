@@ -27,6 +27,7 @@ const MAX_TIMEOUT_SECONDS = 600;
 const DEFAULT_MAX_OUTPUT_CHARS = 50000;
 const MAX_STDERR_CHARS = 2000;
 const PROCESS_TERMINATION_WAIT_MS = 5_000;
+const GROUP_KILLER_TIMEOUT_MS = 1_000;
 
 export interface BashExecutionInput {
   command: string;
@@ -417,9 +418,26 @@ export class LocalBashToolService {
               ["-c", `kill -KILL -- -${msysProcessGroupId}`],
               { stdio: "ignore", windowsHide: true },
             );
-            groupKiller.once("error", () => resolve());
-            groupKiller.once("exit", () => resolve());
-            groupKiller.unref();
+            let settled = false;
+            const timer = setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              try { groupKiller.kill("SIGKILL"); } catch { /* already exited */ }
+              resolve();
+            }, GROUP_KILLER_TIMEOUT_MS);
+            timer.unref?.();
+            const finishGroupKill = (code: number | null): void => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              if (code !== null && code !== 0) {
+                void terminateProcessTree(proc.pid, true).finally(resolve);
+                return;
+              }
+              resolve();
+            };
+            groupKiller.once("error", () => finishGroupKill(null));
+            groupKiller.once("exit", (code) => finishGroupKill(code));
           }));
         }
         killOperations.push(Promise.resolve(terminateProcessTree(proc.pid, true)));

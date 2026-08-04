@@ -33,6 +33,7 @@ import { resolveSessionMetadataPort } from "../context/async-session-metadata-re
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import { AttachmentsExtensionSchema } from "@ragsystem/agent-protocol";
 import { resolveResumeToolResults, resolveRunStartRound } from "./run-round.js";
+import { terminalReason } from "./terminal-reason.js";
 
 export interface SdkRuntimeAdapterDeps {
   storage: ExecutionStorage;
@@ -559,7 +560,7 @@ export async function executeRunWithSdk(
         finalized.readyResumeInteractionIds,
       );
     }
-    const message = error instanceof Error ? error.message : String(error);
+    const message = terminalReason(interrupted ? "interrupted" : "failed", error);
     const pendingFollowup = isRootRun
       ? await findPendingFollowup(deps.storage, input.sessionId, input.threadKey)
       : null;

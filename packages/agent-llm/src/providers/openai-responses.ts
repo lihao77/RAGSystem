@@ -216,7 +216,7 @@ async function parseResponseStream(
       return true;
     }
     return false;
-  });
+  }, request.signal);
 
   const toolCalls = [...tools.entries()]
     .sort(([a], [b]) => a - b)

@@ -75,6 +75,7 @@ export interface RunRow {
   entrypoint: string | null;
   status: string;
   task_summary: string | null;
+  terminal_reason: string | null;
   request_id: string | null;
   user_id: string | null;
   agent_name: string | null;

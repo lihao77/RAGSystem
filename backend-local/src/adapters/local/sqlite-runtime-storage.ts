@@ -316,7 +316,13 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
               pendingRootIds,
             ));
             for (const run of treeRuns) {
-              if (!tx.updateRunStatus(run.run_id, session.session_id, nextStatus, null)) {
+              if (!tx.updateRunStatus(
+                run.run_id,
+                session.session_id,
+                nextStatus,
+                null,
+                nextStatus === "interrupted" ? "backend_restarted" : null,
+              )) {
                 throw new Error(`orphaned run not found while recovering session: ${run.run_id}`);
               }
               if (nextStatus === "interrupted") {
@@ -750,7 +756,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         tx.finalizePendingInteractions(input.sessionId, rootRunId, "interrupted");
       }
       for (const run of activeRuns) {
-        if (!tx.updateRunStatus(run.run_id, input.sessionId, "interrupted", null)) {
+        if (!tx.updateRunStatus(run.run_id, input.sessionId, "interrupted", null, "session_stopped")) {
           throw new Error(`run not found while interrupting session: ${run.run_id}`);
         }
         const threadKey = run.thread_key || "root";
@@ -841,6 +847,17 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             `run terminal status conflict: expected running or ${input.status}, received ${currentRun.status}`,
           );
         }
+        const terminalToolCleanup = input.closeDanglingToolCalls;
+        if (terminalToolCleanup?.terminalStatus !== undefined && terminalToolCleanup.terminalStatus !== input.status) {
+          throw new Error(`terminal tool status mismatch: ${input.runId}`);
+        }
+        if (terminalToolCleanup && input.reason != null && input.reason !== terminalToolCleanup.reason) {
+          throw new Error(`terminal reason mismatch: ${input.runId}`);
+        }
+        const expectedTerminalReason = input.reason ?? terminalToolCleanup?.reason ?? null;
+        if (replayingTerminal && currentRun.terminal_reason !== expectedTerminalReason) {
+          throw new Error(`run terminal reason conflicts with idempotent finalize: ${input.runId}`);
+        }
         if (input.deleteProviderContinuationThreadKey) {
           tx.deleteProviderContinuations(input.sessionId, input.deleteProviderContinuationThreadKey);
         }
@@ -848,11 +865,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           ? tx.finalizePendingInteractions(input.sessionId, input.interactionRootRunId, input.status)
           : [];
         const closedToolMessages: MessageInfo[] = [];
-        const terminalToolCleanup = input.closeDanglingToolCalls;
         if (terminalToolCleanup) {
-          if (terminalToolCleanup.terminalStatus !== input.status) {
-            throw new Error(`terminal tool status mismatch: ${input.runId}`);
-          }
           const messages = tx.getRecentMessages(
             input.sessionId,
             Number.MAX_SAFE_INTEGER,
@@ -886,6 +899,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           input.sessionId,
           input.status,
           finalMessage?.id ?? null,
+          expectedTerminalReason,
         );
         if (!updated) throw new Error(`run not found while finalizing: ${input.runId}`);
         return { finalMessage, records, readyResumeInteractionIds };

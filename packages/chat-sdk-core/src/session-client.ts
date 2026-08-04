@@ -721,6 +721,7 @@ export class SessionAgentClient implements AgentClient {
       this.publishAguiRuntime("idle", null, [], context, {
         status: "failed",
         runId: event.runId ?? context?.input.runId ?? null,
+        reason: typeof event.message === "string" ? event.message : "AG-UI run failed",
       });
     }
   }
@@ -783,6 +784,7 @@ export class SessionAgentClient implements AgentClient {
         this.publishAguiRuntime("idle", null, [], context, {
           status: "failed",
           runId: input.runId ?? null,
+          reason: errorMessage || null,
         });
       },
     );
@@ -808,7 +810,7 @@ export class SessionAgentClient implements AgentClient {
     runId: string | null,
     pending: PendingInteraction[],
     context?: AguiSegmentContext,
-    terminal?: { status: "completed" | "failed" | "interrupted"; runId: string | null },
+    terminal?: { status: "completed" | "failed" | "interrupted"; runId: string | null; reason?: string | null },
   ): void {
     const current = this.runtimeValue.get();
     const effectiveRunId = runId || (state === "idle" ? null : `agui-${Date.now()}`);
@@ -853,6 +855,7 @@ export class SessionAgentClient implements AgentClient {
         run_id: terminal.runId,
         status: terminal.status,
         task,
+        reason: terminal.reason ?? null,
         started_at: startedAt,
         finished_at: new Date().toISOString(),
       }

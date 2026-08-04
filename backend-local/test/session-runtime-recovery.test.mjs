@@ -196,6 +196,7 @@ test('Local 崩溃恢复对无可恢复交互的 run 使用 interrupted', async 
   );
   assert.equal(snapshot.state, 'idle');
   assert.equal(snapshot.last_run.status, 'interrupted');
+  assert.equal(snapshot.last_run.reason, 'backend_restarted');
 });
 
 test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async (t) => {
@@ -254,6 +255,7 @@ test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async
   assert.equal(result.records.length, 1);
   assert.equal(result.records[0]?.outbox.event_type, 'client.tool_result');
   assert.equal(store.getRun('session-1', 'run-1').status, 'interrupted');
+  assert.equal(store.getRun('session-1', 'run-1').terminal_reason, 'user stopped the run');
 });
 
 test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) => {
@@ -272,7 +274,7 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
     metadata: { run_id: 'run-1', round: 1, agent_name: 'root' },
   });
 
-  await storage.operations.finalizeRun({
+  const finalizeInput = {
     runId: 'run-1',
     sessionId: 'session-1',
     status: 'failed',
@@ -282,7 +284,19 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
       terminalStatus: 'failed',
       reason: 'provider stream disconnected',
     },
-  });
+  };
+  await storage.operations.finalizeRun(finalizeInput);
+  await storage.operations.finalizeRun(finalizeInput);
+  await assert.rejects(
+    storage.operations.finalizeRun({
+      ...finalizeInput,
+      closeDanglingToolCalls: {
+        ...finalizeInput.closeDanglingToolCalls,
+        reason: 'different failure reason',
+      },
+    }),
+    /run terminal reason conflicts with idempotent finalize/,
+  );
 
   const closed = store.getRecentMessages('session-1', 100, 'root')
     .find((message) => message.role === 'tool' && message.tool_call_id === 'call-provider-1');
@@ -290,9 +304,11 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
   assert.equal(closed?.metadata.terminal_reason, 'provider stream disconnected');
   assert.equal(closed?.content, '工具执行因 Run 失败而终止：provider stream disconnected');
   assert.equal(store.getRun('session-1', 'run-1').status, 'failed');
+  assert.equal(store.getRun('session-1', 'run-1').terminal_reason, 'provider stream disconnected');
 
   const failedSnapshot = await runtime.getSnapshot('session-1');
   assert.equal(failedSnapshot.state, 'idle');
+  assert.equal(failedSnapshot.last_run.reason, 'provider stream disconnected');
   assert.deepEqual(failedSnapshot.allowed_actions, ['send_message', 'start_maintenance']);
 
   const started = await storage.operations.startOrAppendRoot({

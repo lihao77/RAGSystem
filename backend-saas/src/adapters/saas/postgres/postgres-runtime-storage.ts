@@ -87,12 +87,13 @@ function createTransactionFacade(
 
   const runs: RuntimeRunStorage = {
     createRun: (input) => runRepository.createRun({ ...input, tenantId }),
-    updateRunStatus: (runId, sessionId, status, finalMessageId) => runRepository.updateRunStatus(
+    updateRunStatus: (runId, sessionId, status, finalMessageId, terminalReason) => runRepository.updateRunStatus(
       tenantId,
       runId,
       sessionId,
       status,
       finalMessageId,
+      terminalReason,
     ),
     getRun: (sessionId, runId) => runRepository.getRun(tenantId, sessionId, runId),
     addRunStep: (input) => runRepository.addRunStep({ ...input, tenantId }),
@@ -190,7 +191,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       const session = await tx.conversation.getSession(sessionId);
       const activeRoots = await transactionExecutor.query<Record<string, unknown>>(
-        `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
+        `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
                 request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
                 child_agent_id, final_message_id, created_at, updated_at,
                 owner_instance_id, lease_expires_at,
@@ -213,7 +214,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         [this.tenantId, sessionId, this.ownerInstanceId],
       );
       const terminalRoots = await transactionExecutor.query<Record<string, unknown>>(
-        `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
+        `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
                 request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
                 child_agent_id, final_message_id, created_at, updated_at
          FROM saas_runs
@@ -746,13 +747,19 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
              AND child.owner_instance_id IS NULL
          )
          UPDATE saas_runs AS run
-         SET status=$4, final_message_id=NULL, owner_instance_id=NULL,
+         SET status=$4, final_message_id=NULL, terminal_reason=$5, owner_instance_id=NULL,
              lease_expires_at=NULL, updated_at=CURRENT_TIMESTAMP
          FROM run_tree
          WHERE run.tenant_id=$1 AND run.session_id=$2 AND run.run_id=run_tree.run_id
            AND run.status IN ('running','suspended')
          RETURNING run.run_id, run.parent_run_id, run.thread_key, run.agent_name`,
-        [this.tenantId, sessionId, rootRunId, nextStatus],
+        [
+          this.tenantId,
+          sessionId,
+          rootRunId,
+          nextStatus,
+          nextStatus === "interrupted" ? "run_lease_expired" : null,
+        ],
       );
       if (!recoveredRuns.rows.some((row) => row.run_id === rootRunId)) continue;
       if (nextStatus === "interrupted") {
@@ -1289,7 +1296,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         const parentRunId = row.parent_run_id === null ? null : String(row.parent_run_id);
         const run = await lockTenantRun(transactionExecutor, this.tenantId, runId);
         if (!run || run.session_id !== input.sessionId || run.status !== "suspended") continue;
-        if (!await tx.runs.updateRunStatus(runId, input.sessionId, "interrupted", null)) {
+        if (!await tx.runs.updateRunStatus(runId, input.sessionId, "interrupted", null, "session_stopped")) {
           throw new Error(`run not found while interrupting session: ${runId}`);
         }
         const threadKey = run.thread_key || "root";
@@ -1422,6 +1429,17 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         throw new Error(`run not found while finalizing: ${input.runId}`);
       }
       assertTerminalTransition(run.status, input.status, input.runId);
+      const terminalToolCleanup = input.closeDanglingToolCalls;
+      if (terminalToolCleanup?.terminalStatus !== undefined && terminalToolCleanup.terminalStatus !== input.status) {
+        throw new Error(`terminal tool status mismatch: ${input.runId}`);
+      }
+      if (terminalToolCleanup && input.reason != null && input.reason !== terminalToolCleanup.reason) {
+        throw new Error(`terminal reason mismatch: ${input.runId}`);
+      }
+      const expectedTerminalReason = input.reason ?? terminalToolCleanup?.reason ?? null;
+      if (run.status === input.status && run.terminal_reason !== expectedTerminalReason) {
+        throw new Error(`run terminal reason conflicts with idempotent finalize: ${input.runId}`);
+      }
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       const readyResumeInteractionIds = input.interactionRootRunId
         ? await tx.pendingInteractions.finalizePendingInteractions(
@@ -1437,11 +1455,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         );
       }
       const closedToolMessages: MessageInfo[] = [];
-      const terminalToolCleanup = input.closeDanglingToolCalls;
       if (terminalToolCleanup) {
-        if (terminalToolCleanup.terminalStatus !== input.status) {
-          throw new Error(`terminal tool status mismatch: ${input.runId}`);
-        }
         const messages = await tx.conversation.getRecentMessages(
           input.sessionId,
           10_000,
@@ -1489,6 +1503,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           input.sessionId,
           input.status,
           finalMessage?.id ?? null,
+          expectedTerminalReason,
         );
         if (!updated) {
           throw new Error(`run not found while finalizing: ${input.runId}`);
@@ -1600,7 +1615,7 @@ async function lockTenantRun(
   runId: string,
 ): Promise<RunInfo | null> {
   const result = await executor.query<Record<string, unknown>>(
-    `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
+    `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
       request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
       child_agent_id, final_message_id, created_at, updated_at
      FROM saas_runs WHERE tenant_id=$1 AND run_id=$2 FOR UPDATE`,
@@ -1930,6 +1945,7 @@ function mapRun(row: Record<string, unknown>): RunInfo {
   return {
     run_id: String(row.run_id), session_id: String(row.session_id), tenant_id: String(row.tenant_id),
     entrypoint: nullable(row.entrypoint), status: String(row.status), task_summary: nullable(row.task_summary),
+    terminal_reason: nullable(row.terminal_reason),
     request_id: nullable(row.request_id), user_id: nullable(row.user_id), agent_name: nullable(row.agent_name),
     thread_key: String(row.thread_key ?? "root"), parent_run_id: nullable(row.parent_run_id),
     parent_call_id: nullable(row.parent_call_id), child_agent_id: nullable(row.child_agent_id),

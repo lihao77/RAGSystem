@@ -37,12 +37,20 @@ export async function readSse(
   response: Response,
   idleTimeoutMs: number,
   consume: (event: ServerSentEvent) => Promise<boolean | void>,
+  signal?: AbortSignal,
 ): Promise<void> {
   if (!response.body) throw new Error("LLM streaming response did not include a readable body");
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const sse = new SseDecoder();
   let stopped = false;
+  let aborted = false;
+  const abortReader = (): void => {
+    aborted = true;
+    void reader.cancel(signal?.reason).catch(() => undefined);
+  };
+  signal?.addEventListener("abort", abortReader, { once: true });
+  if (signal?.aborted) abortReader();
   try {
     while (!stopped) {
       const chunk = await readChunk(reader, idleTimeoutMs);
@@ -60,7 +68,9 @@ export async function readSse(
       }
     }
   } finally {
-    if (stopped) await reader.cancel().catch(() => undefined);
+    signal?.removeEventListener("abort", abortReader);
+    if (stopped || aborted) await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
 }
 

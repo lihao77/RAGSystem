@@ -243,6 +243,7 @@ export const RunInfoSchema = z.object({
   entrypoint: z.string().nullable(),
   status: z.string(),
   task_summary: z.string().nullable(),
+  terminal_reason: z.string().nullable(),
   request_id: z.string().nullable(),
   user_id: z.string().nullable(),
   agent_name: z.string().nullable(),

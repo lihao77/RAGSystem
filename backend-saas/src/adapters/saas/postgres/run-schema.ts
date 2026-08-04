@@ -131,6 +131,14 @@ export const POSTGRES_RUN_MIGRATIONS: readonly PostgresRunMigration[] = [
       CREATE INDEX IF NOT EXISTS saas_runs_expired_root_lease_idx
         ON saas_runs(tenant_id, lease_expires_at)
         WHERE parent_run_id IS NULL AND status = 'running';
+      `,
+  },
+  {
+    version: 6,
+    name: "run-terminal-reason",
+    sql: `
+      ALTER TABLE saas_runs
+        ADD COLUMN IF NOT EXISTS terminal_reason TEXT;
     `,
   },
 ];

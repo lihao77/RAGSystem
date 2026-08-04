@@ -72,16 +72,16 @@ export class RunOps {
     };
   }
 
-  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId: string | null = null): boolean {
+  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId: string | null = null, terminalReason: string | null = null): boolean {
     const result = this.db
       .prepare(
         `
           UPDATE runs
-          SET status=?, final_message_id=?, updated_at=CURRENT_TIMESTAMP
+          SET status=?, final_message_id=?, terminal_reason=?, updated_at=CURRENT_TIMESTAMP
           WHERE run_id=? AND session_id=?
         `,
       )
-      .run(status, finalMessageId, runId, sessionId);
+      .run(status, finalMessageId, terminalReason, runId, sessionId);
     return Number(result.changes) > 0;
   }
 
@@ -89,7 +89,7 @@ export class RunOps {
     const row = this.db
       .prepare(
         `
-          SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
+          SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
                  request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
                  child_agent_id, final_message_id, created_at, updated_at
           FROM runs
@@ -107,7 +107,7 @@ export class RunOps {
     const rows = this.db
       .prepare(
         `
-          SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
+          SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
                  request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
                  child_agent_id, final_message_id, created_at, updated_at
           FROM runs
@@ -123,7 +123,7 @@ export class RunOps {
 
   listActiveRootRuns(sessionId: string, limit = 2): RunInfo[] {
     const rows = this.db.prepare(`
-      SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
+      SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
              request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
              child_agent_id, final_message_id, created_at, updated_at
       FROM runs
@@ -137,7 +137,7 @@ export class RunOps {
 
   getLatestTerminalRootRun(sessionId: string): RunInfo | null {
     const row = this.db.prepare(`
-      SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
+      SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
              request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
              child_agent_id, final_message_id, created_at, updated_at
       FROM runs

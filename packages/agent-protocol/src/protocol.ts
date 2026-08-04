@@ -472,6 +472,7 @@ export const SessionRuntimeLastRunSchema = z.object({
   run_id: z.string().min(1),
   status: z.enum(["completed", "failed", "interrupted"]),
   task: z.string(),
+  reason: z.string().nullable(),
   started_at: z.string(),
   finished_at: z.string(),
 });

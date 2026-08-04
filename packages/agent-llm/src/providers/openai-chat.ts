@@ -132,7 +132,7 @@ async function parseStream(response: Response, request: LlmRequest, onChunk: Llm
       }
     }
     return finishReason === "interrupted";
-  });
+  }, request.signal);
 
   const toolCalls = collectToolCalls(tools);
   if (toolCalls.length > 0 && !stopped) await onChunk({ content: "", finishReason, toolCalls });

@@ -31,6 +31,7 @@ function run(status = "running", overrides: Partial<RunInfo> = {}): RunInfo {
     entrypoint: "agent_stream",
     status,
     task_summary: "task",
+    terminal_reason: null,
     request_id: "req-1",
     user_id: null,
     agent_name: "root",
@@ -154,6 +155,7 @@ describe("SessionRuntimeService projection", () => {
       activeRootRun: run("running", { run_id: "run-active" }),
       latestTerminalRootRun: run("failed", {
         run_id: "run-failed",
+        terminal_reason: "provider stream disconnected",
         updated_at: "2026-07-29T23:59:59.000Z",
       }),
       ownedByCurrentInstance: true,
@@ -162,6 +164,7 @@ describe("SessionRuntimeService projection", () => {
     expect(snapshot.state).toBe("running");
     expect(snapshot.active_run?.run_id).toBe("run-active");
     expect(snapshot.last_run).toEqual(expect.objectContaining({ run_id: "run-failed", status: "failed" }));
+    expect(snapshot.last_run?.reason).toBe("provider stream disconnected");
   });
 
   it("rebuilds concurrent model and tool activity from durable envelopes", () => {

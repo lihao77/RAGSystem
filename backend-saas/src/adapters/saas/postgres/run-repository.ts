@@ -10,7 +10,7 @@ import type { PostgresExecutor } from "./postgres-executor.js";
 import type { AsyncRunStore } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 export type { AsyncRunStore } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 
-const runColumns = `run_id, session_id, tenant_id, entrypoint, status, task_summary,
+const runColumns = `run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
   request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
   child_agent_id, final_message_id, created_at, updated_at`;
 
@@ -28,6 +28,7 @@ function run(row: Record<string, unknown>): RunInfo {
   return {
     run_id: String(row.run_id), session_id: String(row.session_id), tenant_id: String(row.tenant_id ?? ""),
     entrypoint: textOrNull(row.entrypoint), status: String(row.status), task_summary: textOrNull(row.task_summary),
+    terminal_reason: textOrNull(row.terminal_reason),
     request_id: textOrNull(row.request_id), user_id: textOrNull(row.user_id), agent_name: textOrNull(row.agent_name),
     thread_key: String(row.thread_key ?? "root"), parent_run_id: textOrNull(row.parent_run_id), parent_call_id: textOrNull(row.parent_call_id),
     child_agent_id: textOrNull(row.child_agent_id), final_message_id: textOrNull(row.final_message_id),
@@ -52,8 +53,8 @@ export class PostgresRunRepository implements AsyncRunStore {
       parent_run_id: input.parentRunId ?? null, parent_call_id: input.parentCallId ?? null, child_agent_id: input.childAgentId ?? null };
   }
 
-  async updateRunStatus(tenantId: string, runId: string, sessionId: string, status: string, finalMessageId: string | null = null): Promise<boolean> {
-    const result = await this.executor.query("UPDATE saas_runs SET status=$1, final_message_id=$2, owner_instance_id=NULL, lease_expires_at=NULL, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$3 AND run_id=$4 AND session_id=$5", [status, finalMessageId, tenantId, runId, sessionId]);
+  async updateRunStatus(tenantId: string, runId: string, sessionId: string, status: string, finalMessageId: string | null = null, terminalReason: string | null = null): Promise<boolean> {
+    const result = await this.executor.query("UPDATE saas_runs SET status=$1, final_message_id=$2, terminal_reason=$3, owner_instance_id=NULL, lease_expires_at=NULL, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$4 AND run_id=$5 AND session_id=$6", [status, finalMessageId, terminalReason, tenantId, runId, sessionId]);
     return Number(result.rowCount ?? 0) > 0;
   }
 

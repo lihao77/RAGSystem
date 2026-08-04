@@ -306,6 +306,7 @@ function terminalLastRun(run: RunInfo | null): SessionRuntimePayload["last_run"]
     run_id: run.run_id,
     status: run.status as "completed" | "failed" | "interrupted",
     task: run.task_summary ?? "",
+    reason: run.terminal_reason,
     started_at: run.created_at,
     finished_at: run.updated_at,
   };

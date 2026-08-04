@@ -77,6 +77,7 @@ export function rowToRun(row: RunRow): RunInfo {
     entrypoint: row.entrypoint,
     status: row.status,
     task_summary: row.task_summary,
+    terminal_reason: row.terminal_reason,
     request_id: row.request_id,
     user_id: row.user_id,
     agent_name: row.agent_name,

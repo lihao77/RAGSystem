@@ -56,6 +56,7 @@ export interface RuntimeRunStorage {
     sessionId: string,
     status: string,
     finalMessageId?: string | null,
+    terminalReason?: string | null,
   ): Promise<boolean>;
   getRun(sessionId: string, runId: string): Promise<RunInfo | null>;
   addRunStep(input: AddRunStepInput): Promise<RunStepRecord>;
@@ -210,6 +211,8 @@ export interface RuntimeFinalizeRunInput {
   runId: string;
   sessionId: string;
   status: RuntimeFinalizeStatus;
+  /** Normalized terminal reason persisted with failed/interrupted runs. */
+  reason?: string | null;
   /** Root lease that must still belong to this storage instance in the finalization transaction. */
   leaseRootRunId?: string | null;
   finalMessage?: (AddMessageInput & { messageId: string }) | null;

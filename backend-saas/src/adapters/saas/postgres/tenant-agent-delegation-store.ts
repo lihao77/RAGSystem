@@ -54,8 +54,8 @@ export class TenantBoundPostgresAgentDelegationStore implements AgentDelegationS
     return this.runs.getRun(this.tenantId, sessionId, runId);
   }
 
-  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): Promise<boolean> {
-    return this.runs.updateRunStatus(this.tenantId, runId, sessionId, status, finalMessageId);
+  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null, terminalReason?: string | null): Promise<boolean> {
+    return this.runs.updateRunStatus(this.tenantId, runId, sessionId, status, finalMessageId, terminalReason);
   }
 
   createChildAgent(input: CreateChildAgentInput): Promise<ChildAgentInfo> {

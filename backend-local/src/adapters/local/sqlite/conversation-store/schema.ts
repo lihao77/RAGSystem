@@ -102,6 +102,7 @@ export const BASELINE_SCHEMA_SQL = `
       entrypoint TEXT,
       status TEXT NOT NULL DEFAULT 'running',
       task_summary TEXT,
+      terminal_reason TEXT,
       request_id TEXT,
       user_id TEXT,
       agent_name TEXT,

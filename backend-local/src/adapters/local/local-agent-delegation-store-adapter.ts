@@ -38,8 +38,9 @@ export class LocalAgentDelegationStoreAdapter implements AgentDelegationStorePor
     sessionId: string,
     status: string,
     finalMessageId?: string | null,
+    terminalReason?: string | null,
   ) {
-    return this.store.updateRunStatus(runId, sessionId, status, finalMessageId);
+    return this.store.updateRunStatus(runId, sessionId, status, finalMessageId, terminalReason);
   }
 
   async createChildAgent(input: CreateChildAgentInput) {

@@ -322,7 +322,7 @@ async function parseAnthropicStream(
       return true;
     }
     return false;
-  });
+  }, request.signal);
 
   for (const index of [...thinking.keys()].sort((a, b) => a - b)) finishThinking(index);
   for (const index of [...tools.keys()].sort((a, b) => a - b)) await finishTool(index);

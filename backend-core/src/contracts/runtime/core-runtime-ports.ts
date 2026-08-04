@@ -66,7 +66,7 @@ export interface AgentDelegationStorePort {
   addMessage(input: AddMessageInput): Promise<MessageInfo>;
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
   getRun(sessionId: string, runId: string): Promise<RunInfo | null>;
-  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): Promise<boolean>;
+  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null, terminalReason?: string | null): Promise<boolean>;
   createChildAgent(input: CreateChildAgentInput): Promise<ChildAgentInfo>;
   findChildAgentByCreator(input: FindChildAgentByCreatorInput): Promise<ChildAgentInfo | null>;
   getChildAgent(sessionId: string, childAgentId: string): Promise<ChildAgentInfo | null>;
