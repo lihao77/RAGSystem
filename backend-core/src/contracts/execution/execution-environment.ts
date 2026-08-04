@@ -31,6 +31,18 @@ export const EXECUTION_ENVIRONMENT_CAPABILITY = createCapability<ExecutionEnviro
 );
 
 /**
+ * Local's host execution environment. This is the deliberate no-sandbox
+ * fallback used when the optional sandbox plugin is not installed.
+ */
+export function createLocalExecutionEnvironment(dataRoot: string): ExecutionEnvironmentCapability {
+  return {
+    deploymentKind: "local",
+    paths: (context) => createLocalExecutionPaths(dataRoot, context),
+    environment: (context) => executionPathEnvironment(createLocalExecutionPaths(dataRoot, context)),
+  };
+}
+
+/**
  * Local's deterministic directory layout. This is a path layout helper, not a
  * security boundary: Local phase one intentionally runs processes on the host.
  */
