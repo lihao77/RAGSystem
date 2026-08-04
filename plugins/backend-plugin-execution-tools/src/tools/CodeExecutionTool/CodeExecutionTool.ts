@@ -49,6 +49,8 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
 
 - \`result\` — 必须赋值为最终输出
 - \`call_tool(tool_name, arguments)\` — 调用其他工具（仅限 \`allowed_callers\` 包含 \`code_execution\` 的工具）
+- 可用常用标准库：\`json\`、\`csv\`、\`math\`、\`datetime\`、\`collections\`、\`urllib.request\`、\`urllib.parse\` 等；HTTP 请求仍受 execute_code 的审批策略约束
+- 文件路径请使用 \`path_ops\`、\`SESSION_WORKSPACE_DIR\` 等受管接口；\`os\` 仅提供受限的 \`path/listdir/makedirs\`，进程和 socket API 不可用
 
 只在需要程序化处理、批量转换或有限工具编排时使用 execute_code。`,
       parameters: {

@@ -14,7 +14,7 @@ import {
   validateCommand,
   type CommandCategory,
 } from "@ragsystem/agent-sdk";
-import { BashPathResolver } from "./paths.js";
+import { ManagedPathResolver } from "../../paths/managed-path-resolver.js";
 import { RuntimeAbortError, throwIfAborted, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
@@ -96,7 +96,7 @@ export class LocalBashToolService {
   private readonly bashExecutable: string | null;
   private readonly backgroundTasks: BackgroundTaskService | null;
   private readonly clientEvents: ClientEventPublisher | null;
-  private readonly paths: BashPathResolver;
+  private readonly paths: ManagedPathResolver;
 
   constructor(options: {
     dataRoot?: string | undefined;
@@ -104,6 +104,7 @@ export class LocalBashToolService {
     maxTimeoutSeconds?: number | undefined;
     maxOutputChars?: number | undefined;
     bashExecutable?: string | null | undefined;
+    pathResolver?: ManagedPathResolver | undefined;
     backgroundTasks?: BackgroundTaskService | null | undefined;
     clientEvents?: ClientEventPublisher | null | undefined;
   } = {}) {
@@ -117,7 +118,7 @@ export class LocalBashToolService {
     this.bashExecutable = options.bashExecutable === undefined ? findBashExecutable() : options.bashExecutable;
     this.backgroundTasks = options.backgroundTasks ?? null;
     this.clientEvents = options.clientEvents ?? null;
-    this.paths = new BashPathResolver(this.dataRoot);
+    this.paths = options.pathResolver ?? new ManagedPathResolver(this.dataRoot);
   }
 
   /**

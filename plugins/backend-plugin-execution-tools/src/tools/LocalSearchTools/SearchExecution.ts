@@ -7,6 +7,7 @@ import { URL } from "node:url";
 
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
+import { ManagedPathResolver } from "../../paths/managed-path-resolver.js";
 
 const DEFAULT_MAX_RESULTS = 200;
 const DEFAULT_MAX_CHARS = 20_000;
@@ -15,13 +16,15 @@ const TODO_STATUS_VALUES = new Set(["pending", "in_progress", "completed"]);
 
 export class LocalSearchToolService {
   private readonly dataRoot: string;
+  private readonly paths: ManagedPathResolver;
   private readonly todosBySession = new Map<string, TodoItem[]>();
 
-  constructor(options: { dataRoot?: string | undefined } = {}) {
+  constructor(options: { dataRoot?: string | undefined; pathResolver?: ManagedPathResolver | undefined } = {}) {
     if (!options.dataRoot?.trim()) {
       throw new Error("LocalSearchToolService 必须传入已解析的 dataRoot");
     }
     this.dataRoot = path.resolve(options.dataRoot);
+    this.paths = options.pathResolver ?? new ManagedPathResolver(this.dataRoot);
   }
 
   glob(
@@ -40,7 +43,7 @@ export class LocalSearchToolService {
         return toolError(toolName, "pattern 不能为空");
       }
       const maxResults = clampPositiveInt(input.maxResults, DEFAULT_MAX_RESULTS, 1, 5000);
-      const baseRoot = this.resolveSearchRoot(input.path ?? null, context);
+      const baseRoot = this.paths.resolveSearchRoot(input.path ?? null, context);
       const matches = globSearch(baseRoot, pattern, {
         recursive: input.recursive ?? pattern.includes("**"),
         maxResults,
@@ -90,7 +93,7 @@ export class LocalSearchToolService {
       }
       const maxResults = clampPositiveInt(input.maxResults, DEFAULT_MAX_RESULTS, 1, 5000);
       const contextLines = clampPositiveInt(input.contextLines, 0, 0, 20);
-      const baseRoot = this.resolveSearchRoot(input.path ?? null, context);
+      const baseRoot = this.paths.resolveSearchRoot(input.path ?? null, context);
       const filePattern = input.glob?.trim() || "**/*";
       const files = globSearch(baseRoot, filePattern, {
         recursive: filePattern.includes("**") || !input.glob,
@@ -222,22 +225,6 @@ export class LocalSearchToolService {
     );
   }
 
-  private resolveSearchRoot(rawPath: string | null, context: ToolExecContext): string {
-    const workspaceRoot = normalizeString(context.workspaceRoot) ?? null;
-    const root = workspaceRoot ?? (context.sessionId ? path.join(this.dataRoot, "sessions", context.sessionId, "workspace") : this.dataRoot);
-    const candidate = rawPath?.trim() ? path.resolve(root, rawPath) : path.resolve(root);
-    const allowedRoots = [path.resolve(root), path.resolve(this.dataRoot)];
-    if (!allowedRoots.some((allowedRoot) => isPathUnder(candidate, allowedRoot))) {
-      throw new Error(`路径 '${rawPath}' 超出允许的受管目录范围，禁止访问`);
-    }
-    if (!fs.existsSync(candidate)) {
-      throw new Error(`路径不存在: ${rawPath ?? root}`);
-    }
-    if (!fs.statSync(candidate).isDirectory()) {
-      throw new Error(`路径不是目录: ${rawPath ?? root}`);
-    }
-    return candidate;
-  }
 }
 
 interface TodoItem {
@@ -464,14 +451,6 @@ function toPortableRelative(root: string, filePath: string): string {
   return path.relative(root, filePath).split(path.sep).join("/");
 }
 
-
-
-
-
-function isPathUnder(candidate: string, root: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -10,3 +10,4 @@ export * from "./tools/BashTool/BashExecution.js";
 export { buildApprovalDescription, categoryRisk, classifyCommand, validateCommand } from "@ragsystem/agent-sdk";
 export type { CommandCategory } from "@ragsystem/agent-sdk";
 export * from "./tools/CodeExecutionTool/CodeExecution.js";
+export * from "./paths/managed-path-resolver.js";

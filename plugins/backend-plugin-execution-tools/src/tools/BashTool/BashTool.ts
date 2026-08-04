@@ -55,7 +55,8 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
 
 三个受管目录空间：\`workspace\`（默认）、\`transient\`（临时）、\`exports\`（导出）。
 
-- 相对路径：默认按 \`workspace\` 解析
+- 相对路径：默认按 \`workspace\` 解析；\`workspace\`/\`transient\`/\`exports\` 单独出现时表示对应空间根目录
+- 路径前带 \`./\` 会按真实子目录解析，例如 \`./workspace\` 是 workspace 内名为 workspace 的子目录
 - 绝对路径：必须在受管目录内
 - 指定空间：使用 \`working_dir_space\` 参数`,
       parameters: {
@@ -69,12 +70,12 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
           },
           working_dir: {
             type: "string",
-            description: "Optional working directory. Relative paths resolve against the selected managed space, defaulting to workspace.",
+            description: "Optional working directory. Relative paths resolve against the selected managed space (workspace by default); a bare workspace/transient/exports value selects that space root.",
           },
           working_dir_space: {
             type: "string",
             enum: ["workspace", "transient", "exports"],
-            description: "Managed directory space for working_dir.",
+            description: "Managed directory space for working_dir. Use with a relative path; workspace/transient/exports are isolated per session, and exports is isolated per run.",
           },
           timeout: {
             type: "integer",

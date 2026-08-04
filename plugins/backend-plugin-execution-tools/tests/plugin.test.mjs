@@ -1,16 +1,22 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
+import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/path-approval-service.js";
 import {
   backendPluginModule,
+  CodeExecutionToolService,
   createExecutionToolsPlugin,
   createLocalExecutionToolsRuntimeFactory,
   EXECUTION_TOOLS_RUNTIME_CAPABILITY,
+  ManagedPathResolver,
 } from "../dist/index.js";
 import { LocalBashToolService } from "../dist/tools/BashTool/BashExecution.js";
+import { LocalSearchToolService } from "../dist/tools/LocalSearchTools/SearchExecution.js";
 
 const descriptors = [
   "glob",
@@ -131,6 +137,92 @@ test("execute_code receives the generic plugin callTool callback", async () => {
   assert.equal(typeof receivedCaller, "function");
   await receivedCaller("nested", {}, {});
   assert.equal(receivedContext.caller, "code_execution");
+});
+
+test("managed paths use one alias and isolation policy across execution tools", () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-managed-paths-"));
+  const externalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-external-path-"));
+  try {
+    const resolver = new ManagedPathResolver(dataRoot);
+    const context = {
+      sessionId: "session-a",
+      runId: "run-a",
+    };
+    const roots = resolver.roots(context);
+    for (const root of Object.values(roots)) fs.mkdirSync(root, { recursive: true });
+    fs.mkdirSync(path.join(roots.workspace, "workspace"));
+    fs.writeFileSync(path.join(roots.workspace, "root.txt"), "root", "utf8");
+
+    const pathPolicy = new PathApprovalService();
+    assert.equal(resolver.resolveWorkingDirectory(null, null, context, pathPolicy), roots.workspace);
+    assert.equal(resolver.resolveWorkingDirectory(".", "workspace", context, pathPolicy), roots.workspace);
+    assert.equal(resolver.resolveWorkingDirectory("workspace", null, context, pathPolicy), roots.workspace);
+    assert.equal(
+      resolver.resolveWorkingDirectory("./workspace", null, context, pathPolicy),
+      path.join(roots.workspace, "workspace"),
+    );
+    assert.equal(resolver.resolveWorkingDirectory("transient", null, context, pathPolicy), roots.transient);
+    assert.equal(resolver.resolveWorkingDirectory("exports", null, context, pathPolicy), roots.exports);
+    assert.throws(
+      () => resolver.resolveWorkingDirectory("exports", null, { sessionId: "session-a" }, pathPolicy),
+      /缺少 run_id/,
+    );
+
+    const bash = new LocalBashToolService({ dataRoot, pathResolver: resolver });
+    const bashPlan = bash.prepareExecution({ command: "pwd", workingDir: "workspace" }, context, null, pathPolicy);
+    assert.equal(bashPlan.ok, true);
+    assert.equal(bashPlan.plan.cwd, roots.workspace);
+
+    const search = new LocalSearchToolService({ dataRoot, pathResolver: resolver });
+    const globResult = search.glob({ pattern: "*.txt", path: "workspace" }, context);
+    assert.equal(globResult.success, true);
+    assert.equal(globResult.metadata.base_path, roots.workspace);
+    assert.deepEqual(globResult.content.files, ["root.txt"]);
+
+    const code = new CodeExecutionToolService({ dataRoot, pathResolver: resolver });
+    assert.deepEqual(code.getManagedRoots(context), roots);
+
+    const otherSessionRoots = resolver.roots({ sessionId: "session-b", runId: "run-a" });
+    const otherRunRoots = resolver.roots({ sessionId: "session-a", runId: "run-b" });
+    assert.notEqual(otherSessionRoots.workspace, roots.workspace);
+    assert.notEqual(otherSessionRoots.transient, roots.transient);
+    assert.notEqual(otherRunRoots.exports, roots.exports);
+    assert.equal(otherRunRoots.workspace, roots.workspace);
+
+    assert.deepEqual(resolver.getExternalCandidates(externalRoot, context, pathPolicy), [externalRoot]);
+    assert.throws(
+      () => resolver.resolveWorkingDirectory(externalRoot, null, context, pathPolicy),
+      /超出允许的受管目录范围/,
+    );
+    pathPolicy.approve([externalRoot]);
+    assert.equal(resolver.resolveWorkingDirectory(externalRoot, null, context, pathPolicy), externalRoot);
+  } finally {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+    fs.rmSync(externalRoot, { recursive: true, force: true });
+  }
+});
+
+test("execute_code supports approved HTTP modules and a safe os.path shim", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-code-modules-"));
+  try {
+    const service = new CodeExecutionToolService({ dataRoot });
+    const context = { sessionId: "session-modules", runId: "run-modules" };
+    const allowed = await service.executeCode({
+      code: [
+        "import urllib.request",
+        "import os",
+        "result = {\"url\": urllib.request.Request(\"http://example.com\").full_url, \"name\": os.path.basename(\"a/b.txt\")}",
+      ].join("\n"),
+    }, context);
+    assert.equal(allowed.success, true, allowed.summary);
+    assert.deepEqual(allowed.content, { url: "http://example.com", name: "b.txt" });
+
+    const forbidden = await service.executeCode({ code: "from os import system\nresult = 1" }, context);
+    assert.equal(forbidden.success, false);
+    assert.match(forbidden.summary, /禁止导入模块: os/);
+  } finally {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
 });
 
 test("foreground bash abort terminates the shell and its child process tree", async () => {

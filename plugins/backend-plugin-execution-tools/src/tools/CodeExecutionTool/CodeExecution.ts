@@ -1,14 +1,12 @@
-import { normalizeString, asRecord } from "@ragsystem/backend-core/utils/guards.js";
+import { asRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import path from "node:path";
 
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { ManagedPathResolver, type ManagedRoots } from "../../paths/managed-path-resolver.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 60;
 const MAX_TIMEOUT_SECONDS = 300;
-const DISPLAY_PATH_PREFIX = "./data/";
-
 /** 工具互调回调——execute_code 沙箱内 call_tool 用。runtime-adapter per-run 注入。 */
 export type ToolCaller = (
   toolName: string,
@@ -24,18 +22,21 @@ export interface CodeExecutionInput {
 
 export class CodeExecutionToolService {
   private readonly dataRoot: string;
+  private readonly paths: ManagedPathResolver;
   private readonly defaultTimeoutSeconds: number;
   private readonly maxTimeoutSeconds: number;
 
   constructor(options: {
     dataRoot?: string | undefined;
+    pathResolver?: ManagedPathResolver | undefined;
     defaultTimeoutSeconds?: number | undefined;
     maxTimeoutSeconds?: number | undefined;
   } = {}) {
     if (!options.dataRoot?.trim()) {
       throw new Error("CodeExecutionToolService 必须传入已解析的 dataRoot");
     }
-    this.dataRoot = path.resolve(options.dataRoot);
+    this.paths = options.pathResolver ?? new ManagedPathResolver(options.dataRoot);
+    this.dataRoot = this.paths.getDataRoot();
     this.defaultTimeoutSeconds = options.defaultTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
     this.maxTimeoutSeconds = options.maxTimeoutSeconds ?? MAX_TIMEOUT_SECONDS;
   }
@@ -45,6 +46,10 @@ export class CodeExecutionToolService {
       return this.defaultTimeoutSeconds;
     }
     return Math.max(1, Math.min(this.maxTimeoutSeconds, value));
+  }
+
+  getManagedRoots(context: ToolExecContext): ManagedRoots {
+    return this.paths.roots(context);
   }
 
   async executeCode(
@@ -63,7 +68,7 @@ export class CodeExecutionToolService {
     }
 
     const timeoutSeconds = this.clampTimeout(input.timeout);
-    const roots = this.buildRoots(context);
+    const roots = this.getManagedRoots(context);
     for (const root of Object.values(roots)) {
       fs.mkdirSync(root, { recursive: true });
     }
@@ -208,21 +213,6 @@ export class CodeExecutionToolService {
     }
   }
 
-  private buildRoots(context: ToolExecContext): Record<string, string> {
-    const sessionId = normalizeString(context.sessionId) ?? "anonymous";
-    const runId = normalizeString(context.runId);
-    const workspaceRoot = normalizeString(context.workspaceRoot);
-    const sessionRoot = path.join(this.dataRoot, "sessions", sessionId);
-    const exportsRoot = runId ? path.join(sessionRoot, "exports", runId) : path.join(sessionRoot, "exports");
-    return {
-      workspace: path.resolve(workspaceRoot ?? path.join(sessionRoot, "workspace")),
-      transient: path.join(sessionRoot, "transient"),
-      uploads: path.join(sessionRoot, "uploads"),
-      artifacts: path.join(sessionRoot, "artifacts"),
-      exports: exportsRoot,
-      sandbox: path.join(sessionRoot, "sandbox"),
-    };
-  }
 }
 
 function resolvePythonExecutable(): string {
@@ -236,7 +226,11 @@ function validateCodeSafety(code: string): string | null {
     if (!trimmed || trimmed.startsWith("#")) {
       continue;
     }
+    const safeOsPathImport = /^(?:import\s+os(?:\.path)?(?:\s+as\s+[A-Za-z_]\w*)?|from\s+os\s+import\s+(?:path|listdir|makedirs)(?:\s*,\s*(?:path|listdir|makedirs))*)$/.test(trimmed);
     for (const moduleName of forbiddenModules) {
+      if (moduleName === "os" && safeOsPathImport) {
+        continue;
+      }
       if (new RegExp(`(^|\\s)import\\s+${escapeRegExp(moduleName)}(\\s|,|$)`).test(trimmed)) {
         return `禁止导入模块: ${moduleName}`;
       }
@@ -431,6 +425,7 @@ ALLOWED_IMPORT_NAMES = set(ALLOWED_MODULES.keys()) | {
     "ast", "_ast", "_io", "io", "_decimal", "_pydecimal", "numbers", "_hashlib", "_blake2",
     "_sha256", "_sha512", "_sha1", "_sha3", "_md5", "binascii", "copyreg", "_copy", "_struct",
     "_operator", "_textwrap", "_string",
+    "urllib.request", "urllib.parse", "urllib.error",
 }
 
 def _ensure_serializable(value):
@@ -481,9 +476,13 @@ def _resolve_path(raw_path, operation="read", explicit_space=None):
     elif explicit_space:
         if explicit_space not in ("workspace", "transient", "exports"):
             raise ValueError("space 必须是 workspace/transient/exports 之一")
-        candidate = Path(roots[explicit_space]) / raw
+        candidate = Path(roots[explicit_space]) if raw == explicit_space else Path(roots[explicit_space]) / raw
     elif Path(raw).is_absolute():
         candidate = Path(raw)
+    elif raw in roots:
+        # Bare managed-space names are aliases for their roots. A path such
+        # as ./workspace intentionally remains a real child directory.
+        candidate = Path(roots[raw])
     else:
         ordered = _allowed_roots("read" if operation == "read" else "write")
         if operation == "read":
@@ -511,6 +510,26 @@ class SafePathOps:
     isdir = staticmethod(lambda value: Path(_resolve_path(value, "read")).is_dir())
     abspath = staticmethod(lambda value: _resolve_path(value, "read"))
     normpath = staticmethod(lambda value: str(Path(value)))
+
+class SafeOSModule:
+    # Only path inspection and managed-directory listing are exposed. The
+    # real os module (process, environment, and filesystem mutation APIs)
+    # remains unavailable to user code.
+    path = SafePathOps
+
+    @staticmethod
+    def listdir(value="."):
+        directory = Path(_resolve_path(value, "read"))
+        if not directory.is_dir():
+            raise NotADirectoryError(str(value))
+        return [entry.name for entry in directory.iterdir()]
+
+    @staticmethod
+    def makedirs(value, exist_ok=False):
+        directory = Path(_resolve_path(value, "write"))
+        directory.mkdir(parents=True, exist_ok=exist_ok)
+
+SAFE_OS = SafeOSModule()
 
 def safe_open(raw_path, mode="r", encoding=None, **kwargs):
     normalized = mode.replace("t", "")
@@ -566,6 +585,13 @@ def call_tool(tool_name, arguments=None):
     return response.get("content")
 
 def _safe_import(name, *args, **kwargs):
+    fromlist = args[2] if len(args) > 2 else kwargs.get("fromlist")
+    if name == "os.path" or (name == "os" and (not fromlist or all(item in ("path", "listdir", "makedirs") for item in fromlist))):
+        return SAFE_OS
+    if name == "os":
+        raise ImportError("os 仅提供 path/listdir/makedirs；进程和系统 API 不可用")
+    if name == "urllib" and fromlist and all(item in ("request", "parse", "error") for item in fromlist):
+        return __import__(name, *args, **kwargs)
     root = name.split(".")[0]
     if name not in ALLOWED_IMPORT_NAMES and root not in ALLOWED_IMPORT_NAMES:
         raise ImportError(f"禁止导入模块: {name}")

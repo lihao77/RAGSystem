@@ -1,6 +1,7 @@
 import { LocalBashToolService } from "../../tools/BashTool/BashExecution.js";
 import { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExecution.js";
 import { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecution.js";
+import { ManagedPathResolver } from "../../paths/managed-path-resolver.js";
 import type { ExecutionToolsRuntimeFactory } from "../../dependencies.js";
 import { EXECUTION_TOOLS_ENABLED_RESOURCE } from "../../resources.js";
 
@@ -18,9 +19,11 @@ export function createLocalExecutionToolsRuntimeFactory(
     const runtimeEnabled = context.resources?.find((resource) => resource.kind === EXECUTION_TOOLS_ENABLED_RESOURCE)?.value;
     if (options.enabled === false || runtimeEnabled === false) return { bash: null, code: null, search: null };
     const tools = context.systemConfig.getToolsConfig();
+    const pathResolver = new ManagedPathResolver(context.dataRoot);
     return {
       bash: new LocalBashToolService({
         dataRoot: context.dataRoot,
+        pathResolver,
         defaultTimeoutSeconds: tools.bash_default_timeout,
         maxTimeoutSeconds: tools.bash_max_timeout,
         maxOutputChars: tools.bash_max_output,
@@ -29,10 +32,11 @@ export function createLocalExecutionToolsRuntimeFactory(
       }),
       code: new CodeExecutionToolService({
         dataRoot: context.dataRoot,
+        pathResolver,
         defaultTimeoutSeconds: tools.code_default_timeout,
         maxTimeoutSeconds: tools.code_max_timeout,
       }),
-      search: new LocalSearchToolService({ dataRoot: context.dataRoot }),
+      search: new LocalSearchToolService({ dataRoot: context.dataRoot, pathResolver }),
     };
   };
 }
