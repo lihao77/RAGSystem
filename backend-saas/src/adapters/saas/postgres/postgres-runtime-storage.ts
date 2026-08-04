@@ -608,6 +608,18 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         }
       }
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(start.run);
+      if (!existingRun) {
+        const threadKey = start.run.threadKey ?? "root";
+        const staleMessages = await tx.conversation.getRecentMessages(start.session.sessionId, 1000, threadKey);
+        for (const message of buildInterruptedToolMessages(staleMessages, {
+          sessionId: start.session.sessionId,
+          runId: start.run.runId,
+          threadKey,
+          agentName: start.run.agentName ?? "unknown",
+        })) {
+          await getOrCreateMessage(transactionExecutor, tx, message, "interrupted tool message");
+        }
+      }
       await this.claimRootRunLease(transactionExecutor, start.session.sessionId, start.run.runId);
       if (input.sessionMaintenanceToken) {
         await transactionExecutor.query(

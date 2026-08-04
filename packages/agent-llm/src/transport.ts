@@ -91,7 +91,13 @@ export async function fetchProvider(
     },
     operation: async ({ attempt, signal }) => {
       completedAttempt = attempt;
-      const requestInit = { ...init, signal };
+      // The attempt controller owns the per-attempt timeout, while the caller
+      // signal must remain attached after headers arrive and the response body
+      // is being consumed (especially for streaming LLM responses).
+      const requestSignal = request.signal
+        ? AbortSignal.any([signal, request.signal])
+        : signal;
+      const requestInit = { ...init, signal: requestSignal };
       const response = request.provider.transport?.type === "ipc_socket"
         ? await fetchOverIpcSocket(request.provider, endpoint, requestInit)
         : await fetch(endpoint, requestInit);
@@ -179,7 +185,7 @@ function responseHeaders(headers: IncomingHttpHeaders): Headers {
 
 export async function readProviderStream<T>(request: LlmRequest, response: Response, read: () => Promise<T>): Promise<T> {
   try {
-    const result = await read();
+    const result = await raceAbort(read(), request.signal, response);
     settleProviderAttempt(request, response, true);
     return result;
   } catch (error) {
@@ -194,7 +200,7 @@ export function providerTimeoutMs(request: LlmRequest): number {
 
 export async function requireOkJson(response: Response, request: LlmRequest): Promise<Record<string, unknown>> {
   try {
-    const body = await readJson(response, providerTimeoutMs(request));
+    const body = await raceAbort(readJson(response, providerTimeoutMs(request)), request.signal, response);
     if (!response.ok) throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
     settleProviderAttempt(request, response, true);
     return body;
@@ -202,6 +208,27 @@ export async function requireOkJson(response: Response, request: LlmRequest): Pr
     settleProviderAttempt(request, response, false, error);
     throw error;
   }
+}
+
+function raceAbort<T>(operation: Promise<T>, signal: AbortSignal | undefined, response: Response): Promise<T> {
+  if (!signal) return operation;
+  if (signal.aborted) {
+    void response.body?.cancel().catch(() => undefined);
+    return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = (): void => signal.removeEventListener("abort", onAbort);
+    const onAbort = (): void => {
+      cleanup();
+      void response.body?.cancel().catch(() => undefined);
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    operation.then(
+      (value) => { cleanup(); resolve(value); },
+      (error) => { cleanup(); reject(error); },
+    );
+  });
 }
 
 export async function readJson(response: Response, timeoutMs?: number): Promise<Record<string, unknown>> {

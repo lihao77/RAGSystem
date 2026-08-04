@@ -7,7 +7,7 @@ export type { HookEvent, HookHandler, HookInputMap, HookOutputMap, HookRegistry,
 export type { AgentProfile, ResolvedTier, TierMap, CompressionBudgetConfig, AgentBehavior, MessageInfo, RunStepRecord, RunRecord, RunStatus, MessageRole, ToolCallRef } from "./types.js";
 export { DEFAULT_COMPRESSION_BUDGET } from "./types.js";
 export type { KernelEvent, ModelRequestEvent, ModelAttemptStartedEvent, ModelAttemptFailedEvent, ModelAttemptCompletedEvent, FirstTokenEvent, OutputDeltaEvent, IntentDeltaEvent, IntentCompleteEvent, AssistantIntermediateEvent, ToolCallEvent, ToolResultEvent, RuntimeErrorEvent, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, ToolInstructionMode, RuntimeSession, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult, ToolResultMedia } from "./contracts.js";
-export { RuntimeAbortError, isAbortError, throwIfAborted } from "./abort.js";
+export { RuntimeAbortError, abortable, isAbortError, throwIfAborted } from "./abort.js";
 export { RecoverableInterrupt } from "./recoverable-interrupt.js";
 export type { RecoverableInterruptContext, RecoverableInterruptKind } from "./recoverable-interrupt.js";
 export { AgentKernel } from "./kernel.js";

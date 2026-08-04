@@ -180,6 +180,57 @@ test('Local 崩溃恢复对无可恢复交互的 run 使用 interrupted', async 
   assert.equal(snapshot.last_run.status, 'interrupted');
 });
 
+test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async (t) => {
+  const { store, storage } = await createHarness(t);
+  store.addMessage({
+    messageId: 'run-1:intent:0',
+    sessionId: 'session-1',
+    role: 'assistant',
+    content: '正在执行命令',
+    threadKey: 'root',
+    toolCalls: [{
+      id: 'call-bash-1',
+      type: 'function',
+      function: { name: 'execute_bash', arguments: '{"command":"find /"}' },
+    }],
+    metadata: { run_id: 'run-1', round: 1, agent_name: 'root' },
+  });
+
+  const result = await storage.operations.finalizeRun({
+    runId: 'run-1',
+    sessionId: 'session-1',
+    status: 'interrupted',
+    closeDanglingToolCalls: { threadKey: 'root', agentName: 'root' },
+    buildTerminalRecords: (_finalMessage, closedToolMessages = []) => closedToolMessages.map((message) => ({
+      outbox: {
+        eventId: `run-1:${message.tool_call_id}:tool_result`,
+        sessionId: 'session-1',
+        runId: 'run-1',
+        eventType: 'client.tool_result',
+        aggregateType: 'run',
+        aggregateId: 'run-1',
+        payload: {
+          client_event: {
+            type: 'tool_result',
+            session_id: 'session-1',
+            run_id: 'run-1',
+            call_id: message.tool_call_id,
+            payload: { phase: 'end', ok: false, status: 'failed' },
+          },
+        },
+      },
+    })),
+  });
+
+  const closed = store.getRecentMessages('session-1', 100, 'root')
+    .find((message) => message.role === 'tool' && message.tool_call_id === 'call-bash-1');
+  assert.equal(closed?.metadata.interrupted, true);
+  assert.equal(closed?.content, '工具执行被中断');
+  assert.equal(result.records.length, 1);
+  assert.equal(result.records[0]?.outbox.event_type, 'client.tool_result');
+  assert.equal(store.getRun('session-1', 'run-1').status, 'interrupted');
+});
+
 test('Local 崩溃恢复把后台 child 作为独立交互根，并允许 child 独立续接', async (t) => {
   const { store, storage, runtime } = await createHarness(t);
   store.createRun({

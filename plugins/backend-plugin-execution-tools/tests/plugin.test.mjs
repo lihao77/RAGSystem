@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import test from "node:test";
 
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
@@ -8,6 +10,7 @@ import {
   createLocalExecutionToolsRuntimeFactory,
   EXECUTION_TOOLS_RUNTIME_CAPABILITY,
 } from "../dist/index.js";
+import { LocalBashToolService } from "../dist/tools/BashTool/BashExecution.js";
 
 const descriptors = [
   "glob",
@@ -129,6 +132,63 @@ test("execute_code receives the generic plugin callTool callback", async () => {
   await receivedCaller("nested", {}, {});
   assert.equal(receivedContext.caller, "code_execution");
 });
+
+test("foreground bash abort terminates the shell and its child process tree", async () => {
+  const service = new LocalBashToolService({
+    dataRoot: process.cwd(),
+  });
+  const controller = new AbortController();
+  const pidFile = `.bash-abort-${randomUUID()}.pid`;
+  const plan = {
+    command: `node -e "require('node:fs').writeFileSync('${pidFile}', String(process.pid)); setTimeout(() => {}, 60000)" | head -20`,
+    cwd: process.cwd(),
+    timeoutSeconds: 60,
+    description: "abort test",
+    category: "read_only",
+    riskLevel: "low",
+    approvalRequired: false,
+    approvalCommands: [],
+    dangerousCommands: [],
+    approvalDescription: "",
+    approvalArguments: {},
+    metadata: {},
+    runInBackground: false,
+  };
+  const startedAt = Date.now();
+  const execution = service.executePlan(plan, {
+    signal: controller.signal,
+    sessionId: "session-abort-test",
+    runId: "run-abort-test",
+    taskId: "task-abort-test",
+  });
+  try {
+    await waitFor(() => fs.existsSync(pidFile), 3000, "bash child did not start");
+    const childPid = Number(fs.readFileSync(pidFile, "utf8"));
+    controller.abort();
+    await assert.rejects(execution, (error) => error?.name === "AbortError");
+    assert.ok(Date.now() - startedAt < 5000, "foreground bash did not stop promptly");
+    await waitFor(() => !isProcessAlive(childPid), 3000, "bash child process survived abort");
+  } finally {
+    fs.rmSync(pidFile, { force: true });
+  }
+});
+
+async function waitFor(predicate, timeoutMs, message) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(message);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function toolContext(capabilities, enabledTools) {
   return {

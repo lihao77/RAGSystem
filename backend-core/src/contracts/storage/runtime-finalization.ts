@@ -17,7 +17,11 @@ export function buildInterruptedToolMessages(
   );
   const result: Array<AddMessageInput & { messageId: string }> = [];
   for (const message of messages) {
-    if (message.role !== "assistant" || message.metadata.run_id !== input.runId) continue;
+    // A new run may begin by resuming a dangling tool call persisted by an
+    // older run. Closing only assistant messages owned by the current run
+    // leaves that historical call permanently running and causes every later
+    // user message to execute it again.
+    if (message.role !== "assistant") continue;
     const round = resolveRound(message.metadata.round);
     for (const toolCall of message.tool_calls ?? []) {
       if (answered.has(toolCall.id)) continue;

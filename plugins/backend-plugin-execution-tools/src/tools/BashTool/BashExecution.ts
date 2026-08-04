@@ -1,5 +1,6 @@
 import { normalizeString } from "@ragsystem/backend-core/utils/guards.js";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -14,7 +15,7 @@ import {
   type CommandCategory,
 } from "@ragsystem/agent-sdk";
 import { BashPathResolver } from "./paths.js";
-import { throwIfAborted, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { RuntimeAbortError, throwIfAborted, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
@@ -353,8 +354,17 @@ export class LocalBashToolService {
         ...process.env,
         LC_ALL: process.platform === "win32" ? process.env.LC_ALL : "C.UTF-8",
       };
+      // Git Bash/MSYS children do not retain a usable Windows parent chain.
+      // Capture the MSYS process-group id before running the command so abort
+      // can kill the whole pipeline with the MSYS `kill` builtin.
+      const msysMarker = process.platform === "win32" && this.bashExecutable
+        ? `__RAGSYSTEM_PGID_${randomUUID()}__=`
+        : null;
+      const shellCommand = msysMarker
+        ? `printf '${msysMarker}%s\\n' "$$" >&2\n${plan.command}`
+        : plan.command;
       const proc = this.bashExecutable
-        ? spawn(this.bashExecutable, ["-c", plan.command], {
+        ? spawn(this.bashExecutable, ["-c", shellCommand], {
             cwd: plan.cwd,
             env,
             windowsHide: true,
@@ -372,23 +382,54 @@ export class LocalBashToolService {
       let stderr = "";
       let interrupted = false;
       let settled = false;
-      let forceKillTimer: NodeJS.Timeout | null = null;
+      let msysProcessGroupId: number | null = null;
 
       const cleanup = (): void => {
         clearTimeout(timeoutTimer);
-        if (forceKillTimer) {
-          clearTimeout(forceKillTimer);
-        }
         signal?.removeEventListener("abort", abortHandler);
       };
-      const killProcess = (): void => {
-        interrupted = true;
-        terminateProcessTree(proc.pid, false);
-        forceKillTimer = setTimeout(() => {
+      const terminate = (): void => {
+        setImmediate(() => {
+          if (this.bashExecutable && msysProcessGroupId !== null) {
+            const groupKiller = spawn(
+              this.bashExecutable,
+              ["-c", `kill -KILL -- -${msysProcessGroupId}`],
+              { stdio: "ignore", windowsHide: true },
+            );
+            groupKiller.on("error", () => undefined);
+            groupKiller.unref();
+          }
           terminateProcessTree(proc.pid, true);
-        }, 500);
+          try {
+            proc.kill("SIGKILL");
+          } catch {
+            // The child may have exited between the signal and this call.
+          }
+        });
       };
-      const abortHandler = (): void => killProcess();
+      const killProcess = (): void => {
+        if (settled) return;
+        interrupted = true;
+        settled = true;
+        cleanup();
+        resolve({
+          stdout,
+          stderr,
+          returnCode: -1,
+          interrupted: true,
+        });
+        terminate();
+      };
+      // User cancellation is explicit: force-kill the complete tree so a shell
+      // wrapper cannot leave its command child running on Windows.
+      const abortHandler = (): void => {
+        if (settled) return;
+        interrupted = true;
+        settled = true;
+        cleanup();
+        reject(new RuntimeAbortError("Bash execution aborted"));
+        terminate();
+      };
       const timeoutTimer = setTimeout(killProcess, plan.timeoutSeconds * 1000);
 
       signal?.addEventListener("abort", abortHandler, { once: true });
@@ -400,6 +441,17 @@ export class LocalBashToolService {
       proc.stderr?.on("data", (chunk: Buffer | string) => {
         if (stderr.length <= MAX_STDERR_CHARS + 1) {
           stderr += chunk.toString();
+          if (msysMarker && msysProcessGroupId === null) {
+            const markerIndex = stderr.indexOf(msysMarker);
+            if (markerIndex >= 0) {
+              const valueStart = markerIndex + msysMarker.length;
+              const valueMatch = /^(\d+)\r?\n/.exec(stderr.slice(valueStart));
+              if (valueMatch?.[1]) {
+                msysProcessGroupId = Number(valueMatch[1]);
+                stderr = stderr.slice(0, markerIndex) + stderr.slice(valueStart + valueMatch[0].length);
+              }
+            }
+          }
         }
       });
       proc.on("error", (error) => {

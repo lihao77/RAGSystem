@@ -13,7 +13,24 @@ export function terminateProcessTree(pid: number | undefined, force: boolean): v
       stdio: "ignore",
       windowsHide: true,
     });
-    killer.on("error", () => undefined);
+    const fallback = (): void => {
+      try {
+        process.kill(pid, force ? "SIGKILL" : "SIGTERM");
+      } catch {
+        // Process already exited.
+      }
+    };
+    const fallbackTimer = setTimeout(fallback, 1_000);
+    fallbackTimer.unref?.();
+    killer.once("error", () => {
+      clearTimeout(fallbackTimer);
+      fallback();
+    });
+    killer.once("exit", (code) => {
+      clearTimeout(fallbackTimer);
+      if (code !== 0) fallback();
+    });
+    killer.unref();
     return;
   }
   try {
