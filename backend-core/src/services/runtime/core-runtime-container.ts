@@ -16,6 +16,7 @@ import { RuntimeInteractionCoordinator } from "./pending-interaction-service.js"
 import { PermissionPolicyService } from "./permission-policy-service.js";
 import { CapabilityRegistry } from "../../plugins/capability-registry.js";
 import { SessionRuntimeService } from "./session-runtime-service.js";
+import { EXECUTION_ENVIRONMENT_CAPABILITY, type ExecutionEnvironmentCapability } from "../../contracts/execution/execution-environment.js";
 
 /** Assemble deployment-provided services into the shared agent runtime. */
 export function createCoreRuntimeContainer(dependencies: LocalCoreRuntimeDependencies): LocalRuntimeContainer;
@@ -46,6 +47,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     clientEvents,
   } = dependencies;
   const pluginCapabilities = dependencies.pluginCapabilities ?? new CapabilityRegistry();
+  const executionEnvironment = pluginCapabilities.get(EXECUTION_ENVIRONMENT_CAPABILITY) ?? null;
   const createPluginTools = (context: import("../../plugins/backend-plugin.js").BackendToolFactoryContext) =>
     dependencies.plugins?.createTools({ ...context, capabilities: pluginCapabilities }) ?? Promise.resolve([]);
   const listPluginTools = () => dependencies.plugins?.listTools() ?? [];
@@ -109,6 +111,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     } : {}),
     ...(dependencies.plugins ? { pluginTools: createPluginTools } : {}),
     runtimeStorage: dependencies.runtimeStorage,
+    executionEnvironment,
   });
   const resumeExecutor = createResumeExecutor({
     runEngine: agentExecution.runEngine,

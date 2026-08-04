@@ -81,7 +81,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     allowed_callers: ["direct"],
     observationPolicy: "inline",
     description:
-      "Read a managed workspace/session file by line range. Defaults to line 1 and at most 2000 lines. Use offset/limit for large files.",
+      "Read a managed workspace file by line range. Defaults to line 1 and at most 2000 lines. Use offset/limit for large files.",
     returns: {
       description: "成功时返回文件内容和分页元数据。",
       shape: {
@@ -112,7 +112,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
         result_hint: { content: "temporary text" },
       },
       {
-        input: { file_path: "./data/large.txt", offset: 100, limit: 50 },
+        input: { file_path: "large.txt", offset: 100, limit: 50 },
         result_hint: {
           content: "line 100 ...",
           metadata: { start_line: 100, end_line: 149, has_more: true, next_offset: 150 },
@@ -126,7 +126,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
       properties: {
         file_path: {
           type: "string",
-          description: "File path. Relative paths resolve against the current workspace first, then session managed directories.",
+          description: "File path. Relative paths resolve against the shared workspace; use file_path_space for another managed directory.",
         },
         file_path_space: {
           type: "string",
@@ -158,7 +158,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     riskLevel: "high",
     allowed_callers: ["direct"],
     description:
-      "Write text or JSON content to a managed workspace/session file. If file_path is omitted, the runtime allocates a managed output path.",
+      "Write text or JSON content to a managed workspace file. If file_path is omitted, the runtime allocates a managed transient output path.",
     returns: {
       description: "成功时返回保存后的文件信息。",
       shape: {
@@ -176,7 +176,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
       {
         input: { content: "temporary text", file_path: "tmp.txt" },
         xml_attrs: { file_path: { space: "transient" } },
-        result_hint: { display_path: "./data/sessions/<session_id>/transient/tmp.txt" },
+        result_hint: { display_path: "<absolute workspace or transient path>/tmp.txt" },
       },
     ],
     parameters: {
@@ -189,7 +189,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
         },
         file_path: {
           type: "string",
-          description: "Optional file path. Relative paths resolve to managed workspace/session roots.",
+          description: "Optional file path. Relative paths resolve to the shared workspace unless file_path_space is set.",
         },
         file_path_space: {
           type: "string",
@@ -236,7 +236,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
       properties: {
         file_path: {
           type: "string",
-          description: "File path to edit. Relative paths resolve to managed workspace/session roots.",
+          description: "File path to edit. Relative paths resolve to the shared workspace unless file_path_space is set.",
         },
         old_string: {
           type: "string",
@@ -296,7 +296,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     ],
     examples: [
       {
-        input: { file_path: "./data/sample.json", max_depth: 2 },
+        input: { file_path: "sample.json", max_depth: 2 },
         result_hint: { file_type: "json", structure: { type: "object" } },
       },
     ],
@@ -307,7 +307,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
       properties: {
         file_path: {
           type: "string",
-          description: "File path to preview. Relative paths resolve against managed workspace/session roots.",
+          description: "File path to preview. Relative paths resolve against the shared workspace unless file_path_space is set.",
         },
         file_path_space: {
           type: "string",

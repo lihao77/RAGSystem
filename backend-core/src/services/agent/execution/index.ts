@@ -44,6 +44,7 @@ import {
 } from "./launchers.js";
 import { createSessionControl } from "./session-control.js";
 import { createExecutionQueryService } from "./query.js";
+import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
 
 export type { AgentExecutionLogger } from "./run-engine.js";
 export type { RollbackRetryInput } from "./launchers.js";
@@ -105,6 +106,7 @@ export interface AgentExecutionServiceParams {
  /** backend 压缩服务（slash /compact + run 内 round.before 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
   runtimeStorage: RuntimeStorage;
+  executionEnvironment?: ExecutionEnvironmentCapability | null;
 }
 
 /**
@@ -159,6 +161,7 @@ export function createAgentExecutionService(
     params.compressionService ?? null,
     params.sessionFiles ?? null,
     params.pluginTools ?? null,
+    params.executionEnvironment ?? null,
   );
   const launchers = createLaunchers({
     tenantId: params.tenantId,

@@ -8,6 +8,7 @@ import { createSaaSProductPlugins } from "../dist/product-plugins.js";
 
 const ALL_IDS = [
   "@ragsystem/backend-plugin-artifacts",
+  "@ragsystem/backend-plugin-sandbox",
   "@ragsystem/backend-plugin-execution-tools",
   "@ragsystem/backend-plugin-document-tools",
   "@ragsystem/backend-plugin-daemon-feishu",

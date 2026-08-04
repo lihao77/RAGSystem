@@ -4,10 +4,11 @@ import fs from "node:fs";
 
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { ManagedPathResolver, type ManagedRoots } from "../../paths/managed-path-resolver.js";
+import { executionPathEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 60;
 const MAX_TIMEOUT_SECONDS = 300;
-/** 工具互调回调——execute_code 沙箱内 call_tool 用。runtime-adapter per-run 注入。 */
+/** 工具互调回调——execute_code 子进程内 call_tool 用。runtime-adapter per-run 注入。 */
 export type ToolCaller = (
   toolName: string,
   args: Record<string, unknown>,
@@ -62,11 +63,6 @@ export class CodeExecutionToolService {
     if (!code.trim()) {
       return errorResult("代码不能为空", toolName);
     }
-    const safetyError = validateCodeSafety(code);
-    if (safetyError) {
-      return errorResult(`代码安全检查失败: ${safetyError}`, toolName);
-    }
-
     const timeoutSeconds = this.clampTimeout(input.timeout);
     const roots = this.getManagedRoots(context);
     for (const root of Object.values(roots)) {
@@ -75,11 +71,12 @@ export class CodeExecutionToolService {
 
     const startedAt = Date.now();
     const child = spawn(resolvePythonExecutable(), ["-u", "-c", PYTHON_RUNNER], {
-      cwd: roots.sandbox,
+      cwd: roots.workspace,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       env: {
         ...process.env,
+        ...executionPathEnvironment(roots),
         PYTHONIOENCODING: "utf-8",
         PYTHONUTF8: "1",
       },
@@ -114,10 +111,10 @@ export class CodeExecutionToolService {
       clearTimeout(timer);
       context.signal?.removeEventListener("abort", abortListener);
       if (context.signal?.aborted) {
-        return errorResult("代码执行失败: 执行已取消", toolName);
+        return errorResult("代码执行失败: 执行已取消", toolName, { execution_paths: roots });
       }
       if (timedOut.value) {
-        return errorResult(`代码执行失败: 代码执行超时（超过 ${timeoutSeconds} 秒）`, toolName);
+        return errorResult(`代码执行失败: 代码执行超时（超过 ${timeoutSeconds} 秒）`, toolName, { execution_paths: roots });
       }
 
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
@@ -125,11 +122,12 @@ export class CodeExecutionToolService {
       const parsed = protocolLines.doneMessage;
       if (!parsed) {
         return errorResult(
-          `代码执行失败: 沙箱进程异常退出${stderr.trim() ? `: ${stderr.trim()}` : exit.code !== 0 ? ` (exit ${exit.code})` : ""}`,
+          `代码执行失败: 执行进程异常退出${stderr.trim() ? `: ${stderr.trim()}` : exit.code !== 0 ? ` (exit ${exit.code})` : ""}`,
           toolName,
           {
             stderr,
             exit_code: exit.code,
+            execution_paths: roots,
           },
         );
       }
@@ -139,6 +137,7 @@ export class CodeExecutionToolService {
           stdout: parsed.stdout ?? "",
           stderr,
           exit_code: exit.code,
+          execution_paths: roots,
         });
       }
 
@@ -156,6 +155,7 @@ export class CodeExecutionToolService {
           tool_calls_count: parsed.tool_calls_count ?? 0,
           execution_time: executionTime,
           classification: classifyCodeRisk(code),
+          execution_paths: roots,
         },
         artifacts: [],
         llmHint: null,
@@ -217,41 +217,6 @@ export class CodeExecutionToolService {
 
 function resolvePythonExecutable(): string {
   return process.env.RAGSYSTEM_PYTHON ?? process.env.PYTHON ?? "python";
-}
-
-function validateCodeSafety(code: string): string | null {
-  const forbiddenModules = ["os", "sys", "subprocess", "shutil", "socket"];
-  for (const line of code.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-    const safeOsPathImport = /^(?:import\s+os(?:\.path)?(?:\s+as\s+[A-Za-z_]\w*)?|from\s+os\s+import\s+(?:path|listdir|makedirs)(?:\s*,\s*(?:path|listdir|makedirs))*)$/.test(trimmed);
-    for (const moduleName of forbiddenModules) {
-      if (moduleName === "os" && safeOsPathImport) {
-        continue;
-      }
-      if (new RegExp(`(^|\\s)import\\s+${escapeRegExp(moduleName)}(\\s|,|$)`).test(trimmed)) {
-        return `禁止导入模块: ${moduleName}`;
-      }
-      if (new RegExp(`(^|\\s)from\\s+${escapeRegExp(moduleName)}(\\.|\\s)`).test(trimmed)) {
-        return `禁止导入模块: ${moduleName}`;
-      }
-    }
-    for (const [pattern, label] of [
-      [/__import__/, "__import__"],
-      [/(?<![.\w])eval\s*\(/, "eval("],
-      [/(?<![.\w])exec\s*\(/, "exec("],
-      [/(?<![.\w])globals\s*\(/, "globals("],
-      [/(?<![.\w])locals\s*\(/, "locals("],
-      [/(?<![.\w])compile\s*\(/, "compile("],
-    ] as Array<[RegExp, string]>) {
-      if (pattern.test(trimmed)) {
-        return `禁止使用: ${label}`;
-      }
-    }
-  }
-  return null;
 }
 
 function classifyCodeRisk(code: string): "read_only" | "write" {
@@ -361,33 +326,16 @@ function errorResult(
   };
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 const PYTHON_RUNNER = String.raw`
-import ast
-import base64
-import collections
-import copy
-import csv
+import builtins
 import datetime
-import decimal
-import functools
-import hashlib
 import io
-import itertools
 import json
-import math
-import operator
-import re
-import statistics
-import string
-import struct
-import textwrap
-import time
+import os
 import sys
+import time
 import traceback
+import types
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -395,38 +343,6 @@ payload = json.loads(sys.stdin.readline())
 roots = payload["roots"]
 code = payload["code"]
 tool_calls_count = 0
-
-ALLOWED_MODULES = {
-    "math": math,
-    "json": json,
-    "re": re,
-    "csv": csv,
-    "datetime": datetime,
-    "collections": collections,
-    "itertools": itertools,
-    "functools": functools,
-    "statistics": statistics,
-    "time": time,
-    "io": io,
-    "string": string,
-    "decimal": decimal,
-    "operator": operator,
-    "copy": copy,
-    "textwrap": textwrap,
-    "hashlib": hashlib,
-    "base64": base64,
-    "struct": struct,
-    "ast": ast,
-}
-ALLOWED_IMPORT_NAMES = set(ALLOWED_MODULES.keys()) | {
-    "collections.abc", "datetime", "math", "json", "re", "csv", "itertools", "functools", "statistics",
-    "_datetime", "_collections", "_collections_abc", "_functools", "_itertools", "_statistics",
-    "_json", "json.decoder", "json.encoder", "json.scanner", "time", "_strptime", "_csv",
-    "ast", "_ast", "_io", "io", "_decimal", "_pydecimal", "numbers", "_hashlib", "_blake2",
-    "_sha256", "_sha512", "_sha1", "_sha3", "_md5", "binascii", "copyreg", "_copy", "_struct",
-    "_operator", "_textwrap", "_string",
-    "urllib.request", "urllib.parse", "urllib.error",
-}
 
 def _ensure_serializable(value):
     if value is None or isinstance(value, (bool, int, float, str)):
@@ -454,98 +370,36 @@ def _send(message):
 def _emit(message):
     _send({"type": "done", **message})
 
-def _is_under(candidate, root):
-    candidate_path = Path(candidate).resolve()
-    root_path = Path(root).resolve()
-    try:
-        candidate_path.relative_to(root_path)
-        return True
-    except ValueError:
-        return candidate_path == root_path
-
-def _allowed_roots(operation):
-    base = [roots["workspace"], roots["transient"], roots["exports"], roots["sandbox"]]
-    if operation == "read":
-      base.extend([roots["uploads"], roots["artifacts"]])
-    return [str(Path(item).resolve()) for item in base if item]
-
-def _resolve_path(raw_path, operation="read", explicit_space=None):
+def _resolve_managed_path(raw_path, space="workspace"):
     raw = str(raw_path)
-    if raw.startswith("./data/"):
-        candidate = Path(payload["data_root"]) / raw[len("./data/"):]
-    elif explicit_space:
-        if explicit_space not in ("workspace", "transient", "exports"):
-            raise ValueError("space 必须是 workspace/transient/exports 之一")
-        candidate = Path(roots[explicit_space]) if raw == explicit_space else Path(roots[explicit_space]) / raw
-    elif Path(raw).is_absolute():
-        candidate = Path(raw)
-    elif raw in roots:
-        # Bare managed-space names are aliases for their roots. A path such
-        # as ./workspace intentionally remains a real child directory.
-        candidate = Path(roots[raw])
-    else:
-        ordered = _allowed_roots("read" if operation == "read" else "write")
-        if operation == "read":
-            existing = None
-            for root in ordered:
-                maybe = Path(root) / raw
-                if maybe.exists():
-                    existing = maybe
-                    break
-            candidate = existing or (Path(roots["workspace"]) / raw)
-        else:
-            candidate = Path(roots["sandbox"]) / raw
-    resolved = str(candidate.resolve())
-    if not any(_is_under(resolved, root) for root in _allowed_roots(operation)):
-        raise PermissionError("路径超出允许的受管目录范围，禁止访问")
-    return resolved
+    if os.path.isabs(raw):
+        return os.path.abspath(raw)
+    if space not in ("workspace", "transient", "exports"):
+        raise ValueError("space 必须是 workspace/transient/exports 之一")
+    return os.path.abspath(os.path.join(roots[space], raw))
 
-class SafePathOps:
-    join = staticmethod(lambda *parts: str(Path(parts[0]).joinpath(*parts[1:])) if parts else "")
-    basename = staticmethod(lambda value: Path(value).name)
-    dirname = staticmethod(lambda value: str(Path(value).parent))
-    splitext = staticmethod(lambda value: (str(Path(value).with_suffix("")), Path(value).suffix))
-    exists = staticmethod(lambda value: Path(_resolve_path(value, "read")).exists())
-    isfile = staticmethod(lambda value: Path(_resolve_path(value, "read")).is_file())
-    isdir = staticmethod(lambda value: Path(_resolve_path(value, "read")).is_dir())
-    abspath = staticmethod(lambda value: _resolve_path(value, "read"))
-    normpath = staticmethod(lambda value: str(Path(value)))
+def _path_ops_path(value):
+    return _resolve_managed_path(value, "workspace")
 
-class SafeOSModule:
-    # Only path inspection and managed-directory listing are exposed. The
-    # real os module (process, environment, and filesystem mutation APIs)
-    # remains unavailable to user code.
-    path = SafePathOps
-
-    @staticmethod
-    def listdir(value="."):
-        directory = Path(_resolve_path(value, "read"))
-        if not directory.is_dir():
-            raise NotADirectoryError(str(value))
-        return [entry.name for entry in directory.iterdir()]
-
-    @staticmethod
-    def makedirs(value, exist_ok=False):
-        directory = Path(_resolve_path(value, "write"))
-        directory.mkdir(parents=True, exist_ok=exist_ok)
-
-SAFE_OS = SafeOSModule()
-
-def safe_open(raw_path, mode="r", encoding=None, **kwargs):
-    normalized = mode.replace("t", "")
-    is_write = any(flag in normalized for flag in ("w", "a", "x", "+"))
-    resolved = _resolve_path(raw_path, "write" if is_write else "read")
-    if is_write:
-        Path(resolved).parent.mkdir(parents=True, exist_ok=True)
-    open_kwargs = {}
-    if encoding is not None:
-        open_kwargs["encoding"] = encoding
-    elif "b" not in mode:
-        open_kwargs["encoding"] = "utf-8"
-    return open(resolved, mode, **{**open_kwargs, **kwargs})
+path_ops = types.ModuleType("path_ops")
+path_ops.SESSION_WORKSPACE_DIR = roots["workspace"]
+path_ops.SESSION_UPLOADS_DIR = roots["uploads"]
+path_ops.SESSION_ARTIFACTS_DIR = roots["artifacts"]
+path_ops.SESSION_TRANSIENT_DIR = roots["transient"]
+path_ops.SESSION_EXPORTS_DIR = roots["exports"]
+path_ops.join = os.path.join
+path_ops.basename = os.path.basename
+path_ops.dirname = os.path.dirname
+path_ops.splitext = os.path.splitext
+path_ops.exists = lambda value: os.path.exists(_path_ops_path(value))
+path_ops.isfile = lambda value: os.path.isfile(_path_ops_path(value))
+path_ops.isdir = lambda value: os.path.isdir(_path_ops_path(value))
+path_ops.abspath = _path_ops_path
+path_ops.normpath = os.path.normpath
+sys.modules["path_ops"] = path_ops
 
 def save_file(content, filename, space="workspace"):
-    resolved = _resolve_path(filename, "write", explicit_space=space)
+    resolved = _resolve_managed_path(filename, space)
     Path(resolved).parent.mkdir(parents=True, exist_ok=True)
     if isinstance(content, bytes):
         Path(resolved).write_bytes(content)
@@ -553,15 +407,9 @@ def save_file(content, filename, space="workspace"):
         Path(resolved).write_text(content, encoding="utf-8")
     else:
         Path(resolved).write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
-    data_root = Path(payload["data_root"]).resolve()
-    try:
-        rel = Path(resolved).resolve().relative_to(data_root)
-        return "./data/" + str(rel).replace("\\", "/")
-    except ValueError:
-        return resolved
+    return resolved
 
-def request_write_approval(path, reason="沙箱代码写文件"):
-    _resolve_path(path, "write")
+def request_write_approval(path, reason="代码写文件"):
     return "approved"
 
 def call_tool(tool_name, arguments=None):
@@ -584,56 +432,18 @@ def call_tool(tool_name, arguments=None):
         raise RuntimeError(response.get("error") or f"工具 '{tool_name}' 执行失败")
     return response.get("content")
 
-def _safe_import(name, *args, **kwargs):
-    fromlist = args[2] if len(args) > 2 else kwargs.get("fromlist")
-    if name == "os.path" or (name == "os" and (not fromlist or all(item in ("path", "listdir", "makedirs") for item in fromlist))):
-        return SAFE_OS
-    if name == "os":
-        raise ImportError("os 仅提供 path/listdir/makedirs；进程和系统 API 不可用")
-    if name == "urllib" and fromlist and all(item in ("request", "parse", "error") for item in fromlist):
-        return __import__(name, *args, **kwargs)
-    root = name.split(".")[0]
-    if name not in ALLOWED_IMPORT_NAMES and root not in ALLOWED_IMPORT_NAMES:
-        raise ImportError(f"禁止导入模块: {name}")
-    return __import__(name, *args, **kwargs)
-
-safe_builtins = {
-    "__import__": _safe_import,
-    "print": print, "len": len, "range": range, "enumerate": enumerate, "zip": zip,
-    "map": map, "filter": filter, "sum": sum, "min": min, "max": max, "abs": abs,
-    "round": round, "sorted": sorted, "reversed": reversed, "any": any, "all": all,
-    "isinstance": isinstance, "issubclass": issubclass, "hasattr": hasattr, "callable": callable,
-    "ascii": ascii, "getattr": getattr, "setattr": setattr, "delattr": delattr,
-    "id": id, "hash": hash, "repr": repr, "format": format, "iter": iter, "next": next,
-    "chr": chr, "ord": ord, "hex": hex, "oct": oct, "bin": bin, "pow": pow, "divmod": divmod,
-    "slice": slice, "int": int, "float": float, "str": str, "bool": bool, "list": list,
-    "dict": dict, "set": set, "tuple": tuple, "frozenset": frozenset, "bytes": bytes,
-    "bytearray": bytearray, "complex": complex, "type": type, "object": object,
-    "property": property, "staticmethod": staticmethod, "classmethod": classmethod, "super": super,
-    "Exception": Exception, "BaseException": BaseException, "ValueError": ValueError,
-    "TypeError": TypeError, "KeyError": KeyError, "IndexError": IndexError,
-    "AttributeError": AttributeError, "RuntimeError": RuntimeError, "StopIteration": StopIteration,
-    "ZeroDivisionError": ZeroDivisionError, "OverflowError": OverflowError,
-    "PermissionError": PermissionError, "NotImplementedError": NotImplementedError,
-    "FileNotFoundError": FileNotFoundError, "IOError": IOError, "ArithmeticError": ArithmeticError,
-    "LookupError": LookupError, "True": True, "False": False, "None": None,
-}
-
 env = {
-    "__builtins__": safe_builtins,
-    **ALLOWED_MODULES,
+    "__builtins__": builtins.__dict__,
     "call_tool": call_tool,
-    "open": safe_open,
     "save_file": save_file,
     "request_write_approval": request_write_approval,
-    "SANDBOX_DIR": roots["sandbox"],
     "DATA_DIR": roots["workspace"],
     "SESSION_WORKSPACE_DIR": roots["workspace"],
     "SESSION_TRANSIENT_DIR": roots["transient"],
     "SESSION_UPLOADS_DIR": roots["uploads"],
     "SESSION_ARTIFACTS_DIR": roots["artifacts"],
     "SESSION_EXPORTS_DIR": roots["exports"],
-    "path_ops": SafePathOps,
+    "path_ops": path_ops,
 }
 
 stdout_capture = io.StringIO()

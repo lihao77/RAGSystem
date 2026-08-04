@@ -115,6 +115,41 @@ test("local document runtime owns file writes and consumes the edit-history reso
   }
 });
 
+test("document relative writes and reads use the same workspace", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-document-workspace-"));
+  try {
+    const runtime = createLocalDocumentToolsRuntimeFactory()({
+      deploymentKind: "local",
+      dataRoot: root,
+    });
+    const context = { sessionId: "session-workspace", runId: "run-workspace" };
+    const pathPolicy = {
+      isApproved: () => false,
+      assertWithin: (candidatePath) => candidatePath,
+    };
+    const written = await runtime.document.writeFile(
+      { content: "workspace content", filePath: "shared.txt" },
+      context,
+      { custom_params: {} },
+      pathPolicy,
+    );
+    assert.equal(written.success, true, written.summary);
+    const read = runtime.document.readFile(
+      { filePath: "shared.txt" },
+      context,
+      { custom_params: {} },
+      pathPolicy,
+    );
+    assert.equal(read.success, true, read.summary);
+    assert.equal(read.content, "workspace content");
+    assert.equal(read.metadata.file_path, written.metadata.file_path);
+    assert.equal(read.metadata.execution_paths.workspace, path.join(root, "sessions", "session-workspace", "workspace"));
+    assert.equal(read.metadata.execution_paths.exports, path.join(root, "sessions", "session-workspace", "exports", "run-workspace"));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function toolContext(capabilities, enabledTools) {
   return {
     tenantId: "tenant-a",

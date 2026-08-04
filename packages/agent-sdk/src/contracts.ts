@@ -215,6 +215,8 @@ export interface ToolExecContext {
   currentAgentName?: string | null;
   /** 工作空间根路径（文件类工具判断外部路径用）。 */
   workspaceRoot?: string | null;
+  /** Concrete run-scoped directories shared by file, shell, code, and Skill tools. */
+  executionPaths?: ToolExecutionPaths;
   /** 当前有效上下文引用的会话附件；SaaS 沙箱据此执行最小权限挂载。 */
   attachmentFileIds?: readonly string[];
   /**
@@ -222,6 +224,15 @@ export interface ToolExecContext {
    * 由 createRuntime 从 options.emitDelegateCall 注入；SDK 内核不调用，仅供消费端构造的委托壳 Tool.call 使用。
    */
   emitDelegateCall?: (input: { toolCallId: string; toolName: string; arguments: Record<string, unknown> }) => void;
+}
+
+/** Kept in the SDK so tool contexts do not depend on backend implementation packages. */
+export interface ToolExecutionPaths {
+  workspace: string;
+  uploads: string;
+  artifacts: string;
+  transient: string;
+  exports: string;
 }
 
 /** 后台任务等待请求。 */

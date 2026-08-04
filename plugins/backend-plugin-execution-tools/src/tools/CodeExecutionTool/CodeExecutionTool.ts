@@ -40,7 +40,7 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
     buildTool({
       name: EXECUTE_CODE_TOOL_NAME,
       description:
-        "Execute Python code in a restricted sandbox for data processing and limited tool orchestration. Set result as the final output.",
+        "Execute Python code from the shared Local workspace for data processing and tool orchestration. Set result as the final output.",
       source: "execution",
       category: "execution",
       riskLevel: "high",
@@ -49,10 +49,11 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
 
 - \`result\` — 必须赋值为最终输出
 - \`call_tool(tool_name, arguments)\` — 调用其他工具（仅限 \`allowed_callers\` 包含 \`code_execution\` 的工具）
-- 可用常用标准库：\`json\`、\`csv\`、\`math\`、\`datetime\`、\`collections\`、\`urllib.request\`、\`urllib.parse\` 等；HTTP 请求仍受 execute_code 的审批策略约束
-- 文件路径请使用 \`path_ops\`、\`SESSION_WORKSPACE_DIR\` 等受管接口；\`os\` 仅提供受限的 \`path/listdir/makedirs\`，进程和 socket API 不可用
+- Local 阶段使用标准 Python 运行时：可正常导入标准库（例如 \`html\`、\`os\`），\`os.getcwd()\` 是共享 workspace
+- 相对路径默认相对 workspace；可通过 \`os.environ["SESSION_*_DIR"]\` 或同名全局变量访问 workspace、uploads、artifacts、transient、exports
+- \`path_ops\` 仅作为兼容模块提供五个目录常量；Local 当前是宿主机直执行，不提供 OS 级隔离
 
-只在需要程序化处理、批量转换或有限工具编排时使用 execute_code。`,
+只在需要程序化处理、批量转换或工具编排时使用 execute_code。`,
       parameters: {
         type: "object",
         additionalProperties: false,

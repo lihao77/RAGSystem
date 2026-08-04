@@ -122,6 +122,40 @@ test("Skill tools expose execution only for explicitly enabled Skills", () => {
   }
 });
 
+test("execute_skill_script runs from the shared workspace", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-workspace-"));
+  try {
+    const builtinRoot = path.join(root, "builtin", "review-code");
+    const workspace = path.join(root, "workspace");
+    fs.mkdirSync(path.join(builtinRoot, "scripts"), { recursive: true });
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.writeFileSync(path.join(builtinRoot, "SKILL.md"), skillMarkdown());
+    fs.writeFileSync(path.join(builtinRoot, "scripts", "check.py"), [
+      "import json",
+      "import os",
+      "from pathlib import Path",
+      "request = Path(__import__('sys').argv[1]).read_text(encoding='utf-8')",
+      "Path('script-output.txt').write_text(request, encoding='utf-8')",
+      "print(json.dumps({'cwd': os.getcwd(), 'workspace': os.environ['SESSION_WORKSPACE_DIR'], 'request': request}))",
+    ].join("\n"));
+    fs.writeFileSync(path.join(workspace, "request.json"), "{\"ok\":true}\n");
+    const service = new SkillToolService({ dataRoot: root, builtinSkillsRoot: path.join(root, "builtin") });
+    const result = await service.executeSkillScript(
+      { skillName: "review-code", scriptName: "check.py", arguments: ["request.json"] },
+      { sessionId: "session-skill", runId: "run-skill", workspaceRoot: workspace },
+      { agent_name: "writer", default_entry: false, tasks: { background: false }, custom_params: {} },
+      { enabled_skills: ["review-code"] },
+    );
+    assert.equal(result.success, true, result.summary);
+    assert.equal(result.content.cwd, workspace);
+    assert.equal(result.content.workspace, workspace);
+    assert.equal(result.content.request, "{\"ok\":true}\n");
+    assert.equal(fs.readFileSync(path.join(workspace, "script-output.txt"), "utf8").replaceAll("\r\n", "\n"), "{\"ok\":true}\n");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Artifact submission copies a complete bundle and stays idempotent", async () => {
   const library = memoryLibrary();
   const service = new SkillAuthoringService(new MemoryDraftStore(), library, artifactApplication());

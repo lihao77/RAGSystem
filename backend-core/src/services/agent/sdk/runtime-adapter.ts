@@ -34,6 +34,7 @@ import type { SessionFileLookupPort } from "../../../contracts/session/session-f
 import { AttachmentsExtensionSchema } from "@ragsystem/agent-protocol";
 import { resolveResumeToolResults, resolveRunStartRound } from "./run-round.js";
 import { terminalReason } from "./terminal-reason.js";
+import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
 
 export interface SdkRuntimeAdapterDeps {
   storage: ExecutionStorage;
@@ -60,6 +61,7 @@ export interface SdkRuntimeAdapterDeps {
   /** backend 压缩服务（run 内 round.before 触发 + /compact 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
   sessionFiles?: SessionFileLookupPort | null;
+  executionEnvironment?: ExecutionEnvironmentCapability | null;
 }
 
 export interface SdkExecuteRunInput {
@@ -255,6 +257,13 @@ export async function executeRunWithSdk(
     rootTask: input.rootTask ?? input.task,
     userId: input.userId ?? null,
     workspaceRoot: input.workspaceRoot ?? asString(input.agent.custom_params.workspace_root),
+    ...(deps.executionEnvironment ? {
+      executionPaths: deps.executionEnvironment.paths({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        workspaceRoot: input.workspaceRoot ?? asString(input.agent.custom_params.workspace_root),
+      }),
+    } : {}),
     ...(input.signal ? { signal: input.signal } : {}),
   };
 

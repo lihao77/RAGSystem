@@ -62,6 +62,7 @@ export class LocalSearchToolService {
           summary: `glob 匹配 ${displayMatches.length} 个文件${matches.truncated ? "（已截断）" : ""}`,
           outputType: "json",
           metadata: {
+            execution_paths: this.paths.roots(context),
             base_path: baseRoot,
             pattern,
             count: displayMatches.length,
@@ -144,6 +145,7 @@ export class LocalSearchToolService {
           summary: `grep 找到 ${matches.length} 个匹配${truncated ? "（已截断）" : ""}`,
           outputType: "json",
           metadata: {
+            execution_paths: this.paths.roots(context),
             base_path: baseRoot,
             pattern,
             count: matches.length,

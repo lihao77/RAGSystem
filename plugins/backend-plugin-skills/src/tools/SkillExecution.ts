@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
 import { terminateProcessTree } from "@ragsystem/backend-core/services/runtime/process-tree.js";
+import {
+  createLocalExecutionPaths,
+  executionPathEnvironment,
+} from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
 import type { ClientEventPublisher } from "@ragsystem/backend-core/services/runtime/event-outbox/client-event-publisher.js";
@@ -300,7 +304,7 @@ export class SkillToolService {
       });
     }
     if (input.runInBackground) {
-      return this.executeSkillScriptInBackground(skill, scriptPath, scriptName, input.arguments ?? [], context, agent, config);
+      return this.executeSkillScriptInBackground(skill, scriptPath, scriptName, input.arguments ?? [], workspaceRoot, context, agent, config);
     }
 
     let stagingRun: ArtifactStagingRunResource | null = null;
@@ -324,6 +328,7 @@ export class SkillToolService {
         scriptPath,
         input.arguments ?? [],
         context,
+        workspaceRoot,
         stagingRun?.outputDirectory ?? null,
       );
       const meta: Record<string, unknown> = {
@@ -439,14 +444,19 @@ export class SkillToolService {
     scriptPath: string,
     args: string[],
     context: ToolExecContext,
+    workspaceRoot: string | null,
     artifactOutputDirectory: string | null,
   ): Promise<{ stdout: string; stderr: string; returnCode: number }> {
     const environment = await this.ensureSkillEnvironment(skill, context.signal);
     if ("error" in environment) {
       return { stdout: "", stderr: `环境准备失败: ${environment.error}`, returnCode: 1 };
     }
+    const resolvedWorkspace = workspaceRoot ?? context.executionPaths?.workspace ?? createLocalExecutionPaths(this.dataRoot, context).workspace;
+    const executionPaths = context.executionPaths
+      ? { ...context.executionPaths, workspace: resolvedWorkspace }
+      : createLocalExecutionPaths(this.dataRoot, { ...context, workspaceRoot: resolvedWorkspace });
     return spawnProcess(environment.python, [scriptPath, ...args.map(String)], {
-      cwd: skill.skillDir,
+      cwd: resolvedWorkspace,
       timeoutMs: 30_000,
       timeoutMessage: "脚本执行超时（>30秒）",
       ...(context.signal ? { signal: context.signal } : {}),
@@ -457,6 +467,7 @@ export class SkillToolService {
         RAG_DATA_ROOT: this.dataRoot,
         ...(context.sessionId ? { RAG_SESSION_ID: context.sessionId } : {}),
         ...(artifactOutputDirectory ? { RAGSYSTEM_ARTIFACT_OUTPUT_DIR: artifactOutputDirectory } : {}),
+        ...executionPathEnvironment(executionPaths),
       },
     });
   }
@@ -489,6 +500,7 @@ export class SkillToolService {
     scriptPath: string,
     scriptName: string,
     args: string[],
+    workspaceRoot: string | null,
     context: ToolExecContext,
     agent: AgentConfig | null,
     config: SkillsAgentConfig,
@@ -510,6 +522,10 @@ export class SkillToolService {
       });
     }
     const outputDir = path.join(this.dataRoot, "sessions", sessionId, "transient");
+    const resolvedWorkspace = workspaceRoot ?? context.executionPaths?.workspace ?? createLocalExecutionPaths(this.dataRoot, context).workspace;
+    const executionPaths = context.executionPaths
+      ? { ...context.executionPaths, workspace: resolvedWorkspace }
+      : createLocalExecutionPaths(this.dataRoot, { ...context, workspaceRoot: resolvedWorkspace });
     const task = this.backgroundTasks.runCallable({
       outputDir,
       description: `${skill.name}/${scriptName}`,
@@ -520,7 +536,7 @@ export class SkillToolService {
       resultType: "tool_execution_result",
       clientEvents: this.clientEvents,
       run: ({ signal }) => this.executeSkillScript(
-        { skillName: skill.name, scriptName, arguments: args, runInBackground: false },
+        { skillName: skill.name, scriptName, arguments: args, runInBackground: false, workspaceRoot },
         { ...context, signal },
         agent,
         config,
@@ -547,7 +563,8 @@ export class SkillToolService {
           task_id: task.task_id,
           background_task_id: task.task_id,
           background_started: true,
-          background_output_path: toDisplayPath(task.output_path, this.dataRoot),
+          execution_paths: executionPaths,
+          background_output_path: toDisplayPath(task.output_path),
           background_kind: task.kind,
           cancel_supported: task.cancel_supported,
           run_id: normalizeString(context.runId),
@@ -1062,7 +1079,7 @@ function spawnProcess(
 }
 
 function resolveWorkspaceRoot(context: ToolExecContext, agent: AgentConfig | null): string | null {
-  return normalizeString(context.workspaceRoot) ?? resolveAgentWorkspaceRoot(agent);
+  return context.executionPaths?.workspace ?? normalizeString(context.workspaceRoot) ?? resolveAgentWorkspaceRoot(agent);
 }
 
 function resolveAgentWorkspaceRoot(agent: AgentConfig | null): string | null {
@@ -1088,13 +1105,8 @@ function readStringArray(value: unknown): string[] | null {
 
 
 
-function toDisplayPath(filePath: string, dataRoot: string): string {
-  const resolved = path.resolve(filePath);
-  const root = path.resolve(dataRoot);
-  if (isPathUnder(resolved, root)) {
-    return `./data/${path.relative(root, resolved).replaceAll(path.sep, "/")}`;
-  }
-  return resolved;
+function toDisplayPath(filePath: string): string {
+  return path.resolve(filePath);
 }
 
 function isPathUnder(candidate: string, root: string): boolean {

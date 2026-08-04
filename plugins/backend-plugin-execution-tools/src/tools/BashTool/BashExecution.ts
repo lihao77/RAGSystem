@@ -20,6 +20,7 @@ import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/s
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import { terminateProcessTree } from "@ragsystem/backend-core/services/runtime/process-tree.js";
+import { executionPathEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 
 const TOOL_NAME = "execute_bash";
 const DEFAULT_TIMEOUT_SECONDS = 120;
@@ -248,7 +249,7 @@ export class LocalBashToolService {
       return this.executeBackgroundPlan(plan, context);
     }
     try {
-      const result = await this.runForegroundCommand(plan, context.signal);
+      const result = await this.runForegroundCommand(plan, context);
       throwIfAborted(context.signal, "Bash execution aborted");
       let stdout = result.stdout;
       let stderr = result.stderr;
@@ -279,6 +280,7 @@ export class LocalBashToolService {
         outputType: "json",
         metadata: {
           ...plan.metadata,
+          execution_paths: this.paths.roots(context),
           truncated,
           shell: this.bashExecutable ? "bash" : "system",
         },
@@ -311,6 +313,7 @@ export class LocalBashToolService {
       command: plan.command,
       bashExecutable: this.bashExecutable,
       cwd: plan.cwd,
+      env: executionPathEnvironment(this.paths.roots(context)),
       outputDir,
       description: plan.description || plan.command.slice(0, 80),
       maxRuntimeSeconds: plan.timeoutSeconds,
@@ -335,6 +338,7 @@ export class LocalBashToolService {
         outputType: "json",
         metadata: {
           ...plan.metadata,
+          execution_paths: this.paths.roots(context),
           background_task_id: task.task_id,
           background_started: true,
           run_id: normalizeString(context.runId),
@@ -347,7 +351,8 @@ export class LocalBashToolService {
     );
   }
 
-  private runForegroundCommand(plan: BashExecutionPlan, signal: AbortSignal | undefined): Promise<ForegroundResult> {
+  private runForegroundCommand(plan: BashExecutionPlan, context: ToolExecContext): Promise<ForegroundResult> {
+    const signal = context.signal;
     return new Promise((resolve, reject) => {
       if (signal?.aborted) {
         reject(new Error("Bash execution aborted"));
@@ -355,6 +360,7 @@ export class LocalBashToolService {
       }
       const env = {
         ...process.env,
+        ...executionPathEnvironment(this.paths.roots(context)),
         LC_ALL: process.platform === "win32" ? process.env.LC_ALL : "C.UTF-8",
       };
       // Git Bash/MSYS children do not retain a usable Windows parent chain.

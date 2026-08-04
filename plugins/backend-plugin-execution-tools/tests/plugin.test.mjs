@@ -139,7 +139,7 @@ test("execute_code receives the generic plugin callTool callback", async () => {
   assert.equal(receivedContext.caller, "code_execution");
 });
 
-test("managed paths use one alias and isolation policy across execution tools", () => {
+test("managed paths share one deterministic workspace view across execution tools", () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-managed-paths-"));
   const externalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-external-path-"));
   try {
@@ -150,31 +150,22 @@ test("managed paths use one alias and isolation policy across execution tools", 
     };
     const roots = resolver.roots(context);
     for (const root of Object.values(roots)) fs.mkdirSync(root, { recursive: true });
-    fs.mkdirSync(path.join(roots.workspace, "workspace"));
     fs.writeFileSync(path.join(roots.workspace, "root.txt"), "root", "utf8");
 
     const pathPolicy = new PathApprovalService();
     assert.equal(resolver.resolveWorkingDirectory(null, null, context, pathPolicy), roots.workspace);
     assert.equal(resolver.resolveWorkingDirectory(".", "workspace", context, pathPolicy), roots.workspace);
-    assert.equal(resolver.resolveWorkingDirectory("workspace", null, context, pathPolicy), roots.workspace);
-    assert.equal(
-      resolver.resolveWorkingDirectory("./workspace", null, context, pathPolicy),
-      path.join(roots.workspace, "workspace"),
-    );
-    assert.equal(resolver.resolveWorkingDirectory("transient", null, context, pathPolicy), roots.transient);
-    assert.equal(resolver.resolveWorkingDirectory("exports", null, context, pathPolicy), roots.exports);
-    assert.throws(
-      () => resolver.resolveWorkingDirectory("exports", null, { sessionId: "session-a" }, pathPolicy),
-      /缺少 run_id/,
-    );
+    assert.equal(resolver.resolveWorkingDirectory(".", "transient", context, pathPolicy), roots.transient);
+    assert.equal(resolver.resolveWorkingDirectory(".", "exports", context, pathPolicy), roots.exports);
+    assert.equal(resolver.toDisplayPath(roots.workspace), roots.workspace);
 
     const bash = new LocalBashToolService({ dataRoot, pathResolver: resolver });
-    const bashPlan = bash.prepareExecution({ command: "pwd", workingDir: "workspace" }, context, null, pathPolicy);
+    const bashPlan = bash.prepareExecution({ command: "pwd" }, context, null, pathPolicy);
     assert.equal(bashPlan.ok, true);
     assert.equal(bashPlan.plan.cwd, roots.workspace);
 
     const search = new LocalSearchToolService({ dataRoot, pathResolver: resolver });
-    const globResult = search.glob({ pattern: "*.txt", path: "workspace" }, context);
+    const globResult = search.glob({ pattern: "*.txt" }, context);
     assert.equal(globResult.success, true);
     assert.equal(globResult.metadata.base_path, roots.workspace);
     assert.deepEqual(globResult.content.files, ["root.txt"]);
@@ -202,24 +193,55 @@ test("managed paths use one alias and isolation policy across execution tools", 
   }
 });
 
-test("execute_code supports approved HTTP modules and a safe os.path shim", async () => {
+test("execute_code uses standard Python and the shared workspace", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-code-modules-"));
   try {
     const service = new CodeExecutionToolService({ dataRoot });
     const context = { sessionId: "session-modules", runId: "run-modules" };
-    const allowed = await service.executeCode({
+    const result = await service.executeCode({
       code: [
-        "import urllib.request",
+        "import html",
         "import os",
-        "result = {\"url\": urllib.request.Request(\"http://example.com\").full_url, \"name\": os.path.basename(\"a/b.txt\")}",
+        "from path_ops import SESSION_WORKSPACE_DIR",
+        "with open('code-output.txt', 'w', encoding='utf-8') as handle: handle.write('code')",
+        "result = {\"cwd\": os.getcwd(), \"escaped\": html.escape('<ok>'), \"workspace\": os.environ['SESSION_WORKSPACE_DIR'], \"path_ops_workspace\": SESSION_WORKSPACE_DIR}",
       ].join("\n"),
     }, context);
-    assert.equal(allowed.success, true, allowed.summary);
-    assert.deepEqual(allowed.content, { url: "http://example.com", name: "b.txt" });
+    assert.equal(result.success, true, result.summary);
+    assert.equal(result.content.cwd, result.metadata.execution_paths.workspace);
+    assert.equal(result.content.workspace, result.metadata.execution_paths.workspace);
+    assert.equal(result.content.path_ops_workspace, result.metadata.execution_paths.workspace);
+    assert.equal(result.content.escaped, "&lt;ok&gt;");
+    assert.equal(fs.readFileSync(path.join(result.metadata.execution_paths.workspace, "code-output.txt"), "utf8"), "code");
 
-    const forbidden = await service.executeCode({ code: "from os import system\nresult = 1" }, context);
-    assert.equal(forbidden.success, false);
-    assert.match(forbidden.summary, /禁止导入模块: os/);
+    const search = new LocalSearchToolService({ dataRoot });
+    const globResult = search.glob({ pattern: "code-output.txt" }, context);
+    assert.deepEqual(globResult.content.files, ["code-output.txt"]);
+  } finally {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("execute_bash writes into the same workspace seen by glob", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-bash-workspace-"));
+  try {
+    const resolver = new ManagedPathResolver(dataRoot);
+    const context = { sessionId: "session-bash", runId: "run-bash" };
+    const pathPolicy = new PathApprovalService();
+    const bash = new LocalBashToolService({ dataRoot, pathResolver: resolver, bashExecutable: null });
+    const prepared = bash.prepareExecution(
+      { command: `node -e "require('node:fs').writeFileSync('bash-output.txt', 'bash')"` },
+      context,
+      null,
+      pathPolicy,
+    );
+    assert.equal(prepared.ok, true, prepared.ok ? "" : prepared.result.summary);
+    const executed = await bash.executePlan(prepared.plan, context);
+    assert.equal(executed.success, true, executed.summary);
+    const search = new LocalSearchToolService({ dataRoot, pathResolver: resolver });
+    const globResult = search.glob({ pattern: "bash-output.txt" }, context);
+    assert.deepEqual(globResult.content.files, ["bash-output.txt"]);
+    assert.equal(fs.readFileSync(path.join(resolver.roots(context).workspace, "bash-output.txt"), "utf8"), "bash");
   } finally {
     fs.rmSync(dataRoot, { recursive: true, force: true });
   }

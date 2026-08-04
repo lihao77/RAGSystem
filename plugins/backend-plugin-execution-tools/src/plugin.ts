@@ -15,7 +15,7 @@ const TOOL_DESCRIPTORS: readonly BackendToolDescriptor[] = [
   { name: "web_fetch", description: "Fetch HTTP/HTTPS content as readable text", category: "network", risk_level: "medium" },
   { name: "todo_write", description: "Replace the current session todo list", category: "task", risk_level: "low" },
   { name: "execute_bash", description: "Execute a foreground shell command with approval boundaries", category: "execution", risk_level: "high" },
-  { name: "execute_code", description: "Execute Python code in a restricted sandbox", category: "execution", risk_level: "high" },
+  { name: "execute_code", description: "Execute Python code from the shared workspace", category: "execution", risk_level: "high" },
 ];
 
 export function createExecutionToolsPlugin(dependencies: ExecutionToolsPluginDependencies): BackendPlugin {

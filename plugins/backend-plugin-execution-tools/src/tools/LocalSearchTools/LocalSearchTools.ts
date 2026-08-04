@@ -82,7 +82,7 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
         },
         path: {
           type: "string",
-          description: "Optional directory relative to workspace. A bare managed-space name such as workspace, transient, exports, uploads, artifacts, or sandbox selects that root.",
+          description: "Optional directory relative to workspace. Relative paths do not search other managed directories; use an absolute path when needed.",
         },
         recursive: {
           type: "boolean",
@@ -121,7 +121,7 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
         },
         path: {
           type: "string",
-          description: "Optional directory relative to workspace. A bare managed-space name such as workspace, transient, exports, uploads, artifacts, or sandbox selects that root.",
+          description: "Optional directory relative to workspace. Relative paths do not search other managed directories; use an absolute path when needed.",
         },
         glob: {
           type: "string",

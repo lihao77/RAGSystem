@@ -77,6 +77,7 @@ export class LocalDocumentToolService {
           summary: `offset ${offset} 超出文件总行数 ${totalLines}`,
           outputType: "text",
           metadata: {
+            execution_paths: this.pathManager.executionPaths(context, agent.custom_params),
             file_path: resolvedPath,
             display_path: this.pathManager.toDisplayPath(resolvedPath),
             file_size: stat.size,
@@ -106,6 +107,7 @@ export class LocalDocumentToolService {
         summary,
         outputType: "text",
         metadata: {
+          execution_paths: this.pathManager.executionPaths(context, agent.custom_params),
           file_path: resolvedPath,
           display_path: this.pathManager.toDisplayPath(resolvedPath),
           file_size: stat.size,
@@ -161,6 +163,7 @@ export class LocalDocumentToolService {
           summary: `文件已写入: ${displayPath}（${stat.size} 字节）`,
           outputType: "text",
           metadata: {
+            execution_paths: this.pathManager.executionPaths(context, agent.custom_params),
             file_path: resolvedPath,
             display_path: displayPath,
             file_size: stat.size,
@@ -239,6 +242,7 @@ export class LocalDocumentToolService {
           summary: `文件编辑成功: ${displayPath}（替换 ${replacements} 处，${updatedStat.size} 字节）`,
           outputType: "json",
           metadata: {
+            execution_paths: this.pathManager.executionPaths(context, agent.custom_params),
             file_path: resolvedPath,
             display_path: displayPath,
             replacements,
@@ -312,6 +316,7 @@ export class LocalDocumentToolService {
         summary: `已预览文件数据结构: ${path.basename(resolvedPath)}`,
         outputType: "json",
         metadata: {
+          execution_paths: this.pathManager.executionPaths(context, agent.custom_params),
           file_path: resolvedPath,
           file_type: fileType,
           file_size: stat.size,
