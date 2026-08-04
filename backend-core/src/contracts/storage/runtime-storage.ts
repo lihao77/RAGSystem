@@ -220,9 +220,11 @@ export interface RuntimeFinalizeRunInput {
   closeDanglingToolCalls?: {
     threadKey: string;
     agentName: string;
+    terminalStatus: "failed" | "interrupted";
+    reason: string;
   } | null;
   /**
-   * Builds terminal step/outbox records after final and interrupted-tool messages have been inserted.
+   * Builds terminal step/outbox records after final and terminal-tool messages have been inserted.
    * This callback runs inside the database transaction and must be synchronous and free of I/O.
    */
   buildTerminalRecords?: (

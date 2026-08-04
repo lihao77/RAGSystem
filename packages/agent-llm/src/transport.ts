@@ -213,6 +213,10 @@ export async function requireOkJson(response: Response, request: LlmRequest): Pr
 function raceAbort<T>(operation: Promise<T>, signal: AbortSignal | undefined, response: Response): Promise<T> {
   if (!signal) return operation;
   if (signal.aborted) {
+    // `read` is evaluated by the caller before entering raceAbort. Attach the
+    // same settlement observers as the normal branch before returning the
+    // abort error so a late body-read rejection is not left unhandled.
+    void operation.then(undefined, () => undefined);
     void response.body?.cancel().catch(() => undefined);
     return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
   }

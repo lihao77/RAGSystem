@@ -2,26 +2,35 @@ import type { AddMessageInput } from "../conversation-store/index.js";
 import { MSG_TYPE } from "../message-kinds.js";
 import type { MessageInfo } from "../session/session.js";
 
-export function buildInterruptedToolMessages(
+export function buildTerminalToolMessages(
   messages: readonly MessageInfo[],
   input: {
     sessionId: string;
     runId: string;
     threadKey: string;
     agentName: string;
+    terminalStatus: "failed" | "interrupted";
+    reason: string;
   },
 ): Array<AddMessageInput & { messageId: string }> {
   const answered = new Set(
     messages
-      .flatMap((message) => message.role === "tool" && message.tool_call_id ? [message.tool_call_id] : []),
+      .flatMap((message) => (
+        message.role === "tool"
+        && message.metadata.run_id === input.runId
+        && message.tool_call_id
+          ? [message.tool_call_id]
+          : []
+      )),
   );
+  const reason = (
+    input.reason.trim()
+    || (input.terminalStatus === "failed" ? "未提供失败原因" : "未提供中断原因")
+  ).slice(0, 2_000);
+  const summary = input.terminalStatus === "failed" ? "工具执行因 Run 失败而终止" : "工具执行被中断";
   const result: Array<AddMessageInput & { messageId: string }> = [];
   for (const message of messages) {
-    // A new run may begin by resuming a dangling tool call persisted by an
-    // older run. Closing only assistant messages owned by the current run
-    // leaves that historical call permanently running and causes every later
-    // user message to execute it again.
-    if (message.role !== "assistant") continue;
+    if (message.role !== "assistant" || message.metadata.run_id !== input.runId) continue;
     const round = resolveRound(message.metadata.round);
     for (const toolCall of message.tool_calls ?? []) {
       if (answered.has(toolCall.id)) continue;
@@ -30,12 +39,14 @@ export function buildInterruptedToolMessages(
         messageId: `${input.runId}:tool:${toolCall.id}`,
         sessionId: input.sessionId,
         role: "tool",
-        content: "工具执行被中断",
+        content: `${summary}：${reason}`,
         toolCallId: toolCall.id,
         name: toolCall.function.name,
         threadKey: input.threadKey,
         metadata: {
-          interrupted: true,
+          terminal_tool_result: true,
+          terminal_status: input.terminalStatus,
+          terminal_reason: reason,
           agent_name: input.agentName,
           run_id: input.runId,
           round: round + 1,

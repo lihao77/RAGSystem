@@ -36,7 +36,7 @@ import type {
   RuntimeSessionMaintenanceInput,
   RuntimeSessionFacts,
 } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
-import { buildInterruptedToolMessages } from "@ragsystem/backend-core/contracts/storage/runtime-finalization.js";
+import { buildTerminalToolMessages } from "@ragsystem/backend-core/contracts/storage/runtime-finalization.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import {
   toSessionIdentity,
@@ -257,26 +257,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       let cancelledInteractions = 0;
       for (const session of sessions) {
         const recovered = this.store.runInTransaction((tx) => {
-          // Older interrupted runs may have been finalized without closing
-          // their assistant tool calls. Repair those terminal histories before
-          // accepting a new message so recovery cannot replay the same tool.
-          const terminalRuns = tx.listRuns(session.session_id, Number.MAX_SAFE_INTEGER).items
-            .filter((run) => run.status === "interrupted" || run.status === "failed");
-          for (const terminalRun of terminalRuns) {
-            const threadKey = terminalRun.thread_key || "root";
-            const staleToolMessages = buildInterruptedToolMessages(
-              tx.getRecentMessages(session.session_id, Number.MAX_SAFE_INTEGER, threadKey),
-              {
-                sessionId: session.session_id,
-                runId: terminalRun.run_id,
-                threadKey,
-                agentName: terminalRun.agent_name ?? "unknown",
-              },
-            );
-            for (const message of staleToolMessages) {
-              resolveDeterministicMessage(tx, message, "interrupted tool message");
-            }
-          }
           const activeRuns = tx.listRuns(session.session_id, Number.MAX_SAFE_INTEGER).items
             .filter((run) => run.status === "running")
             .sort((left, right) => left.run_id.localeCompare(right.run_id));
@@ -338,6 +318,22 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             for (const run of treeRuns) {
               if (!tx.updateRunStatus(run.run_id, session.session_id, nextStatus, null)) {
                 throw new Error(`orphaned run not found while recovering session: ${run.run_id}`);
+              }
+              if (nextStatus === "interrupted") {
+                const threadKey = run.thread_key || "root";
+                for (const message of buildTerminalToolMessages(
+                  tx.getRecentMessages(session.session_id, Number.MAX_SAFE_INTEGER, threadKey),
+                  {
+                    sessionId: session.session_id,
+                    runId: run.run_id,
+                    threadKey,
+                    agentName: run.agent_name ?? "unknown",
+                    terminalStatus: "interrupted",
+                    reason: "backend_restarted",
+                  },
+                )) {
+                  resolveDeterministicMessage(tx, message, "terminal tool message");
+                }
               }
               const recoveredRun = { runId: run.run_id, parentRunId: run.parent_run_id };
               if (shouldSuspend) sessionSuspendedRuns.push(recoveredRun);
@@ -401,25 +397,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             run = tx.createRun(input.run);
           } catch (error) {
             throw new Error(`run scope conflict: ${input.run.runId}`, { cause: error });
-          }
-        }
-        // A terminal run can still contain a historical assistant tool call
-        // when it was interrupted before the tool result transaction landed.
-        // Close it before the next root run builds context, otherwise the SDK
-        // will deliberately resume that call on every new user message.
-        if (!existingRun) {
-          const threadKey = input.run.threadKey ?? "root";
-          const staleToolMessages = buildInterruptedToolMessages(
-            tx.getRecentMessages(input.session.sessionId, Number.MAX_SAFE_INTEGER, threadKey),
-            {
-              sessionId: input.session.sessionId,
-              runId: input.run.runId,
-              threadKey,
-              agentName: input.run.agentName ?? "unknown",
-            },
-          );
-          for (const message of staleToolMessages) {
-            resolveDeterministicMessage(tx, message, "interrupted tool message");
           }
         }
         if (input.claimOwnLease && input.run.parentRunId == null) {
@@ -505,21 +482,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         const existingRun = tx.getRun(start.session.sessionId, start.run.runId);
         const run = existingRun ? toCreatedRun(existingRun) : tx.createRun(start.run);
         if (existingRun) assertRunScope(existingRun, start.run, this.tenantId);
-        if (!existingRun) {
-          const threadKey = start.run.threadKey ?? "root";
-          const staleToolMessages = buildInterruptedToolMessages(
-            tx.getRecentMessages(start.session.sessionId, Number.MAX_SAFE_INTEGER, threadKey),
-            {
-              sessionId: start.session.sessionId,
-              runId: start.run.runId,
-              threadKey,
-              agentName: start.run.agentName ?? "unknown",
-            },
-          );
-          for (const message of staleToolMessages) {
-            resolveDeterministicMessage(tx, message, "interrupted tool message");
-          }
-        }
         if (maintenance?.token === input.sessionMaintenanceToken) {
           tx.updateSessionMetadata(start.session.sessionId, { runtime_maintenance: null });
         }
@@ -791,6 +753,20 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (!tx.updateRunStatus(run.run_id, input.sessionId, "interrupted", null)) {
           throw new Error(`run not found while interrupting session: ${run.run_id}`);
         }
+        const threadKey = run.thread_key || "root";
+        for (const message of buildTerminalToolMessages(
+          tx.getRecentMessages(input.sessionId, Number.MAX_SAFE_INTEGER, threadKey),
+          {
+            sessionId: input.sessionId,
+            runId: run.run_id,
+            threadKey,
+            agentName: run.agent_name ?? "unknown",
+            terminalStatus: "interrupted",
+            reason: "session_stopped",
+          },
+        )) {
+          resolveDeterministicMessage(tx, message, "terminal tool message");
+        }
         const interrupted = { runId: run.run_id, parentRunId: run.parent_run_id };
         interruptedRuns.push(interrupted);
         if (rootRunIds.has(run.run_id)) records.push(recordEnvelope(tx, input.buildRunEndedRecord(interrupted)));
@@ -872,23 +848,28 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           ? tx.finalizePendingInteractions(input.sessionId, input.interactionRootRunId, input.status)
           : [];
         const closedToolMessages: MessageInfo[] = [];
-        if (input.closeDanglingToolCalls) {
+        const terminalToolCleanup = input.closeDanglingToolCalls;
+        if (terminalToolCleanup) {
+          if (terminalToolCleanup.terminalStatus !== input.status) {
+            throw new Error(`terminal tool status mismatch: ${input.runId}`);
+          }
           const messages = tx.getRecentMessages(
             input.sessionId,
             Number.MAX_SAFE_INTEGER,
-            input.closeDanglingToolCalls.threadKey,
+            terminalToolCleanup.threadKey,
           );
           closedToolMessages.push(...messages.filter((message) => (
             message.role === "tool"
             && message.metadata.run_id === input.runId
-            && message.metadata.interrupted === true
+            && message.metadata.terminal_tool_result === true
+            && message.metadata.terminal_status === terminalToolCleanup.terminalStatus
           )));
-          for (const message of buildInterruptedToolMessages(messages, {
+          for (const message of buildTerminalToolMessages(messages, {
             sessionId: input.sessionId,
             runId: input.runId,
-            ...input.closeDanglingToolCalls,
+            ...terminalToolCleanup,
           })) {
-            closedToolMessages.push(resolveDeterministicMessage(tx, message, "interrupted tool message"));
+            closedToolMessages.push(resolveDeterministicMessage(tx, message, "terminal tool message"));
           }
         }
         const finalMessage = resolveFinalMessage(tx, input, currentRun, replayingTerminal);

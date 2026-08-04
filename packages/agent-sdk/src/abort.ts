@@ -24,7 +24,13 @@ export function abortable<T>(
   message = "Runtime execution aborted",
 ): Promise<T> {
   if (!signal) return Promise.resolve(operation);
-  if (signal.aborted) return Promise.reject(new RuntimeAbortError(message));
+  if (signal.aborted) {
+    // The operation is created before this helper is called. Observe it even
+    // when cancellation wins immediately, otherwise a rejecting tool promise
+    // becomes an unhandled rejection.
+    void Promise.resolve(operation).then(undefined, () => undefined);
+    return Promise.reject(new RuntimeAbortError(message));
+  }
   return new Promise<T>((resolve, reject) => {
     const cleanup = (): void => signal.removeEventListener("abort", onAbort);
     const onAbort = (): void => {

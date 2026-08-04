@@ -170,12 +170,30 @@ test('Local 崩溃恢复释放 resuming claim，并保留 durable resolution 供
 
 test('Local 崩溃恢复对无可恢复交互的 run 使用 interrupted', async (t) => {
   const { store, storage, runtime } = await createHarness(t);
+  store.addMessage({
+    messageId: 'run-1:intent:0',
+    sessionId: 'session-1',
+    role: 'assistant',
+    content: '正在执行命令',
+    threadKey: 'root',
+    toolCalls: [{
+      id: 'call-recovery-1',
+      type: 'function',
+      function: { name: 'execute_bash', arguments: '{"command":"pwd"}' },
+    }],
+    metadata: { run_id: 'run-1', round: 1, agent_name: 'root' },
+  });
 
   const recovered = await storage.recoverOrphanedRuns(terminalRecord);
   const snapshot = await runtime.getSnapshot('session-1');
 
   assert.deepEqual(recovered.interruptedRuns, [{ runId: 'run-1', parentRunId: null }]);
   assert.equal(store.getRun('session-1', 'run-1').status, 'interrupted');
+  assert.equal(
+    store.getRecentMessages('session-1', 100, 'root')
+      .some((message) => message.role === 'tool' && message.tool_call_id === 'call-recovery-1'),
+    true,
+  );
   assert.equal(snapshot.state, 'idle');
   assert.equal(snapshot.last_run.status, 'interrupted');
 });
@@ -200,7 +218,12 @@ test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async
     runId: 'run-1',
     sessionId: 'session-1',
     status: 'interrupted',
-    closeDanglingToolCalls: { threadKey: 'root', agentName: 'root' },
+    closeDanglingToolCalls: {
+      threadKey: 'root',
+      agentName: 'root',
+      terminalStatus: 'interrupted',
+      reason: 'user stopped the run',
+    },
     buildTerminalRecords: (_finalMessage, closedToolMessages = []) => closedToolMessages.map((message) => ({
       outbox: {
         eventId: `run-1:${message.tool_call_id}:tool_result`,
@@ -224,11 +247,91 @@ test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async
 
   const closed = store.getRecentMessages('session-1', 100, 'root')
     .find((message) => message.role === 'tool' && message.tool_call_id === 'call-bash-1');
-  assert.equal(closed?.metadata.interrupted, true);
-  assert.equal(closed?.content, '工具执行被中断');
+  assert.equal(closed?.metadata.terminal_tool_result, true);
+  assert.equal(closed?.metadata.terminal_status, 'interrupted');
+  assert.equal(closed?.metadata.terminal_reason, 'user stopped the run');
+  assert.equal(closed?.content, '工具执行被中断：user stopped the run');
   assert.equal(result.records.length, 1);
   assert.equal(result.records[0]?.outbox.event_type, 'client.tool_result');
   assert.equal(store.getRun('session-1', 'run-1').status, 'interrupted');
+});
+
+test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) => {
+  const { store, storage, runtime } = await createHarness(t);
+  store.addMessage({
+    messageId: 'run-1:intent:0',
+    sessionId: 'session-1',
+    role: 'assistant',
+    content: '正在调用模型工具',
+    threadKey: 'root',
+    toolCalls: [{
+      id: 'call-provider-1',
+      type: 'function',
+      function: { name: 'search', arguments: '{}' },
+    }],
+    metadata: { run_id: 'run-1', round: 1, agent_name: 'root' },
+  });
+
+  await storage.operations.finalizeRun({
+    runId: 'run-1',
+    sessionId: 'session-1',
+    status: 'failed',
+    closeDanglingToolCalls: {
+      threadKey: 'root',
+      agentName: 'root',
+      terminalStatus: 'failed',
+      reason: 'provider stream disconnected',
+    },
+  });
+
+  const closed = store.getRecentMessages('session-1', 100, 'root')
+    .find((message) => message.role === 'tool' && message.tool_call_id === 'call-provider-1');
+  assert.equal(closed?.metadata.terminal_status, 'failed');
+  assert.equal(closed?.metadata.terminal_reason, 'provider stream disconnected');
+  assert.equal(closed?.content, '工具执行因 Run 失败而终止：provider stream disconnected');
+  assert.equal(store.getRun('session-1', 'run-1').status, 'failed');
+
+  const failedSnapshot = await runtime.getSnapshot('session-1');
+  assert.equal(failedSnapshot.state, 'idle');
+  assert.deepEqual(failedSnapshot.allowed_actions, ['send_message', 'start_maintenance']);
+
+  const started = await storage.operations.startOrAppendRoot({
+    session: {
+      sessionId: 'session-1',
+      ownerUserId: 'usr_test',
+      visibility: 'private',
+      originType: 'direct',
+      originId: null,
+      originChannel: 'web',
+      workspaceId: null,
+      metadata: {},
+    },
+    run: {
+      runId: 'run-2',
+      sessionId: 'session-1',
+      status: 'running',
+      taskSummary: 'next task',
+      requestId: 'req-2',
+      agentName: 'root',
+      threadKey: 'root',
+    },
+    initialUserMessage: {
+      messageId: 'run-2:user',
+      sessionId: 'session-1',
+      role: 'user',
+      content: '继续新任务',
+      threadKey: 'root',
+      metadata: { run_id: 'run-2' },
+    },
+    followupFactory: () => {
+      throw new Error('no active run should receive a followup');
+    },
+  });
+  assert.equal(started.kind, 'started');
+  const history = store.getRecentMessages('session-1', 100, 'root');
+  const toolIndex = history.findIndex((message) => message.tool_call_id === 'call-provider-1');
+  const nextUserIndex = history.findIndex((message) => message.id === 'run-2:user');
+  assert.equal(toolIndex >= 0 && nextUserIndex > toolIndex, true);
 });
 
 test('Local 崩溃恢复把后台 child 作为独立交互根，并允许 child 独立续接', async (t) => {

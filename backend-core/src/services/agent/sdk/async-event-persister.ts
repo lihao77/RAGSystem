@@ -243,13 +243,15 @@ export class AsyncKernelEventPersister {
       finalMessage: persistedFinal,
       ...(persistedFinal ? { attachStepsToFinalMessage: true } : {}),
       ...(isInteractionRoot ? { interactionRootRunId: this.ctx.runId } : {}),
-      ...(status === "completed" || status === "interrupted"
+      ...(status !== "suspended"
         ? { deleteProviderContinuationThreadKey: this.ctx.threadKey }
         : {}),
-      ...(status === "interrupted" ? {
+      ...(status === "failed" || status === "interrupted" ? {
         closeDanglingToolCalls: {
           threadKey: this.ctx.threadKey,
           agentName: this.ctx.agentName,
+          terminalStatus: status,
+          reason: terminalReason(status, error),
         },
       } : {}),
       buildTerminalRecords: (message, closedToolMessages) => this.buildTerminalRecords(
@@ -482,7 +484,8 @@ function buildTerminalEnvelopes(
   }[],
   error: unknown,
 ): Envelope[] {
-  if (status === "completed" && finalMessage) {
+  if (status === "completed") {
+    if (!finalMessage) return [];
     return [
       {
         type: "stream_output",
@@ -525,7 +528,10 @@ function buildTerminalEnvelopes(
     ];
   }
   if (status === "suspended") return [];
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorMessage = terminalReason(status, error);
+  const closedToolSummary = status === "failed"
+    ? "工具执行因 Run 失败而终止"
+    : "工具执行被中断";
   return [
     ...closedToolMessages.flatMap((message) => {
       if (!message.tool_call_id) return [];
@@ -541,7 +547,7 @@ function buildTerminalEnvelopes(
           ok: false,
           status: "failed" as const,
           observation: message.content,
-          summary: "工具执行被中断",
+          summary: closedToolSummary,
           lineage: { parent_call_id: ctx.rootCallId },
         },
       }];
@@ -567,4 +573,14 @@ function buildTerminalEnvelopes(
       payload: { status, ...(status !== "interrupted" ? { reason: errorMessage } : {}) },
     },
   ];
+}
+
+function terminalReason(
+  status: "failed" | "interrupted",
+  error: unknown,
+): string {
+  const reason = error instanceof Error
+    ? error.message
+    : typeof error === "string" ? error : error == null ? "" : String(error);
+  return (reason.trim() || (status === "failed" ? "未提供失败原因" : "未提供中断原因")).slice(0, 2_000);
 }

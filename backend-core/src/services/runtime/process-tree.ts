@@ -1,37 +1,43 @@
 import { spawn } from "node:child_process";
 
-export function terminateProcessTree(pid: number | undefined, force: boolean): void {
+export function terminateProcessTree(pid: number | undefined, force: boolean): Promise<void> {
   if (!pid) {
-    return;
+    return Promise.resolve();
   }
   if (process.platform === "win32") {
-    const args = ["/pid", String(pid), "/t"];
-    if (force) {
-      args.push("/f");
-    }
-    const killer = spawn("taskkill", args, {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    const fallback = (): void => {
+    return new Promise<void>((resolve) => {
+      const args = ["/pid", String(pid), "/t"];
+      if (force) args.push("/f");
+      let finished = false;
+      let fallbackTimer: NodeJS.Timeout | undefined;
+      const finish = (): void => {
+        if (finished) return;
+        finished = true;
+        if (fallbackTimer) clearTimeout(fallbackTimer);
+        resolve();
+      };
+      const fallback = (): void => {
+        try {
+          process.kill(pid, force ? "SIGKILL" : "SIGTERM");
+        } catch {
+          // Process already exited.
+        }
+        finish();
+      };
       try {
-        process.kill(pid, force ? "SIGKILL" : "SIGTERM");
+        const killer = spawn("taskkill", args, { stdio: "ignore", windowsHide: true });
+        fallbackTimer = setTimeout(fallback, 1_000);
+        fallbackTimer.unref?.();
+        killer.once("error", fallback);
+        killer.once("exit", (code) => {
+          if (code === 0) finish();
+          else fallback();
+        });
+        killer.unref();
       } catch {
-        // Process already exited.
+        fallback();
       }
-    };
-    const fallbackTimer = setTimeout(fallback, 1_000);
-    fallbackTimer.unref?.();
-    killer.once("error", () => {
-      clearTimeout(fallbackTimer);
-      fallback();
     });
-    killer.once("exit", (code) => {
-      clearTimeout(fallbackTimer);
-      if (code !== 0) fallback();
-    });
-    killer.unref();
-    return;
   }
   try {
     process.kill(-pid, force ? "SIGKILL" : "SIGTERM");
@@ -42,4 +48,5 @@ export function terminateProcessTree(pid: number | undefined, force: boolean): v
       // Process already exited.
     }
   }
+  return Promise.resolve();
 }

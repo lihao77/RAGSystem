@@ -26,6 +26,7 @@ const DEFAULT_TIMEOUT_SECONDS = 120;
 const MAX_TIMEOUT_SECONDS = 600;
 const DEFAULT_MAX_OUTPUT_CHARS = 50000;
 const MAX_STDERR_CHARS = 2000;
+const PROCESS_TERMINATION_WAIT_MS = 5_000;
 
 export interface BashExecutionInput {
   command: string;
@@ -383,55 +384,92 @@ export class LocalBashToolService {
       let stderr = "";
       let interrupted = false;
       let settled = false;
+      let terminating = false;
+      let processClosed = false;
       let msysProcessGroupId: number | null = null;
 
       const cleanup = (): void => {
         clearTimeout(timeoutTimer);
         signal?.removeEventListener("abort", abortHandler);
       };
-      const terminate = (): void => {
-        setImmediate(() => {
-          if (this.bashExecutable && msysProcessGroupId !== null) {
+      const waitForClose = (): Promise<void> => {
+        if (processClosed) return Promise.resolve();
+        return new Promise<void>((resolve, reject) => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const onClose = (): void => {
+            if (timer) clearTimeout(timer);
+            resolve();
+          };
+          proc.once("close", onClose);
+          timer = setTimeout(() => {
+            proc.removeListener("close", onClose);
+            reject(new Error("Bash process did not exit after termination"));
+          }, PROCESS_TERMINATION_WAIT_MS);
+          timer.unref?.();
+        });
+      };
+      const terminate = async (): Promise<void> => {
+        const killOperations: Promise<void>[] = [];
+        if (this.bashExecutable && msysProcessGroupId !== null) {
+          killOperations.push(new Promise<void>((resolve) => {
             const groupKiller = spawn(
-              this.bashExecutable,
+              this.bashExecutable!,
               ["-c", `kill -KILL -- -${msysProcessGroupId}`],
               { stdio: "ignore", windowsHide: true },
             );
-            groupKiller.on("error", () => undefined);
+            groupKiller.once("error", () => resolve());
+            groupKiller.once("exit", () => resolve());
             groupKiller.unref();
-          }
-          terminateProcessTree(proc.pid, true);
-          try {
-            proc.kill("SIGKILL");
-          } catch {
-            // The child may have exited between the signal and this call.
-          }
+          }));
+        }
+        killOperations.push(Promise.resolve(terminateProcessTree(proc.pid, true)));
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // The child may have exited between the signal and this call.
+        }
+        await Promise.all(killOperations);
+        await waitForClose();
+      };
+      const finishTimeout = (): void => {
+        if (settled || terminating) return;
+        interrupted = true;
+        terminating = true;
+        cleanup();
+        void terminate().then(() => {
+          if (settled) return;
+          settled = true;
+          resolve({
+            stdout,
+            stderr,
+            returnCode: -1,
+            interrupted: true,
+          });
+        }, () => {
+          if (settled) return;
+          settled = true;
+          reject(new Error("Bash execution could not be terminated"));
         });
       };
-      const killProcess = (): void => {
-        if (settled) return;
+      const finishAbort = (): void => {
+        if (settled || terminating) return;
         interrupted = true;
-        settled = true;
+        terminating = true;
         cleanup();
-        resolve({
-          stdout,
-          stderr,
-          returnCode: -1,
-          interrupted: true,
+        void terminate().then(() => {
+          if (settled) return;
+          settled = true;
+          reject(new RuntimeAbortError("Bash execution aborted"));
+        }, () => {
+          if (settled) return;
+          settled = true;
+          reject(new RuntimeAbortError("Bash execution aborted"));
         });
-        terminate();
       };
       // User cancellation is explicit: force-kill the complete tree so a shell
       // wrapper cannot leave its command child running on Windows.
-      const abortHandler = (): void => {
-        if (settled) return;
-        interrupted = true;
-        settled = true;
-        cleanup();
-        reject(new RuntimeAbortError("Bash execution aborted"));
-        terminate();
-      };
-      const timeoutTimer = setTimeout(killProcess, plan.timeoutSeconds * 1000);
+      const abortHandler = (): void => finishAbort();
+      const timeoutTimer = setTimeout(finishTimeout, plan.timeoutSeconds * 1000);
 
       signal?.addEventListener("abort", abortHandler, { once: true });
       proc.stdout?.on("data", (chunk: Buffer | string) => {
@@ -456,17 +494,14 @@ export class LocalBashToolService {
         }
       });
       proc.on("error", (error) => {
-        if (settled) {
-          return;
-        }
+        if (settled || terminating) return;
         settled = true;
         cleanup();
         reject(error);
       });
       proc.on("close", (code) => {
-        if (settled) {
-          return;
-        }
+        processClosed = true;
+        if (settled || terminating) return;
         settled = true;
         cleanup();
         resolve({

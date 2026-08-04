@@ -56,7 +56,7 @@ import type {
   RunStepRecord,
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { toSessionIdentity, type MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
-import { buildInterruptedToolMessages } from "@ragsystem/backend-core/contracts/storage/runtime-finalization.js";
+import { buildTerminalToolMessages } from "@ragsystem/backend-core/contracts/storage/runtime-finalization.js";
 import type { PostgresExecutor } from "./postgres-executor.js";
 import { PostgresConversationRepository } from "./conversation-repository.js";
 import { PostgresOutboxRepository } from "./outbox-repository.js";
@@ -608,18 +608,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         }
       }
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(start.run);
-      if (!existingRun) {
-        const threadKey = start.run.threadKey ?? "root";
-        const staleMessages = await tx.conversation.getRecentMessages(start.session.sessionId, 1000, threadKey);
-        for (const message of buildInterruptedToolMessages(staleMessages, {
-          sessionId: start.session.sessionId,
-          runId: start.run.runId,
-          threadKey,
-          agentName: start.run.agentName ?? "unknown",
-        })) {
-          await getOrCreateMessage(transactionExecutor, tx, message, "interrupted tool message");
-        }
-      }
       await this.claimRootRunLease(transactionExecutor, start.session.sessionId, start.run.runId);
       if (input.sessionMaintenanceToken) {
         await transactionExecutor.query(
@@ -742,7 +730,12 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         await tx.pendingInteractions.finalizePendingInteractions(sessionId, rootRunId, "interrupted");
       }
       const nextStatus = shouldSuspend ? "suspended" as const : "interrupted" as const;
-      const recoveredRuns = await transactionExecutor.query<{ run_id: string; parent_run_id: string | null }>(
+      const recoveredRuns = await transactionExecutor.query<{
+        run_id: string;
+        parent_run_id: string | null;
+        thread_key: string;
+        agent_name: string | null;
+      }>(
         `WITH RECURSIVE run_tree AS (
            SELECT run_id FROM saas_runs
            WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
@@ -758,10 +751,28 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
          FROM run_tree
          WHERE run.tenant_id=$1 AND run.session_id=$2 AND run.run_id=run_tree.run_id
            AND run.status IN ('running','suspended')
-         RETURNING run.run_id, run.parent_run_id`,
+         RETURNING run.run_id, run.parent_run_id, run.thread_key, run.agent_name`,
         [this.tenantId, sessionId, rootRunId, nextStatus],
       );
       if (!recoveredRuns.rows.some((row) => row.run_id === rootRunId)) continue;
+      if (nextStatus === "interrupted") {
+        for (const row of recoveredRuns.rows) {
+          const threadKey = String(row.thread_key || "root");
+          for (const message of buildTerminalToolMessages(
+            await tx.conversation.getRecentMessages(sessionId, 10_000, threadKey),
+            {
+              sessionId,
+              runId: String(row.run_id),
+              threadKey,
+              agentName: row.agent_name ?? "unknown",
+              terminalStatus: "interrupted",
+              reason: "run_lease_expired",
+            },
+          )) {
+            await getOrCreateMessage(transactionExecutor, tx, message, "terminal tool message");
+          }
+        }
+      }
       const projectedRuns = recoveredRuns.rows.map((row) => ({
         sessionId,
         runId: String(row.run_id),
@@ -1281,6 +1292,20 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         if (!await tx.runs.updateRunStatus(runId, input.sessionId, "interrupted", null)) {
           throw new Error(`run not found while interrupting session: ${runId}`);
         }
+        const threadKey = run.thread_key || "root";
+        for (const message of buildTerminalToolMessages(
+          await tx.conversation.getRecentMessages(input.sessionId, 10_000, threadKey),
+          {
+            sessionId: input.sessionId,
+            runId,
+            threadKey,
+            agentName: run.agent_name ?? "unknown",
+            terminalStatus: "interrupted",
+            reason: "session_stopped",
+          },
+        )) {
+          await getOrCreateMessage(transactionExecutor, tx, message, "terminal tool message");
+        }
         const interrupted = { runId, parentRunId };
         interruptedRuns.push(interrupted);
         if (!runIds.has(runId)) continue;
@@ -1412,27 +1437,32 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         );
       }
       const closedToolMessages: MessageInfo[] = [];
-      if (input.closeDanglingToolCalls) {
+      const terminalToolCleanup = input.closeDanglingToolCalls;
+      if (terminalToolCleanup) {
+        if (terminalToolCleanup.terminalStatus !== input.status) {
+          throw new Error(`terminal tool status mismatch: ${input.runId}`);
+        }
         const messages = await tx.conversation.getRecentMessages(
           input.sessionId,
-          1000,
-          input.closeDanglingToolCalls.threadKey,
+          10_000,
+          terminalToolCleanup.threadKey,
         );
         closedToolMessages.push(...messages.filter((message) => (
           message.role === "tool"
           && message.metadata.run_id === input.runId
-          && message.metadata.interrupted === true
+          && message.metadata.terminal_tool_result === true
+          && message.metadata.terminal_status === terminalToolCleanup.terminalStatus
         )));
-        for (const message of buildInterruptedToolMessages(messages, {
+        for (const message of buildTerminalToolMessages(messages, {
           sessionId: input.sessionId,
           runId: input.runId,
-          ...input.closeDanglingToolCalls,
+          ...terminalToolCleanup,
         })) {
           closedToolMessages.push(await getOrCreateMessage(
             transactionExecutor,
             tx,
             message,
-            "interrupted tool message",
+            "terminal tool message",
           ));
         }
       }

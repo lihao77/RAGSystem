@@ -549,7 +549,7 @@ export async function executeRunWithSdk(
     }
     runtime.close();
     const interrupted = input.signal.aborted;
-    // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
+    // 终态合一落库：failed/interrupted 更新 run 状态并补齐本 run 的悬空 tool observation。
     const finalized = await persister.finalize(interrupted ? "interrupted" : "failed", null, error);
     if (isInteractionRoot) {
       await deps.pendingInteractions.onRootFinalized(
