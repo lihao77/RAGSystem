@@ -5,6 +5,7 @@ import path from "node:path";
 import YAML from "yaml";
 
 import type {
+  EmbeddingClientPort,
   ModelMap,
   ModelMapValue,
   ModelProviderConfig,
@@ -112,6 +113,14 @@ export class ModelAdapterService {
   getProvider(providerKey: string): ModelProviderConfig | null {
     const config = this.providers.get(providerKey);
     return config ? cloneProviderConfig(config) : null;
+  }
+
+  createEmbeddingClient(): EmbeddingClientPort {
+    return new OpenAiCompatibleEmbeddingClient();
+  }
+
+  createRerankClient() {
+    return new OpenAiCompatibleRerankClient();
   }
 
   getProviderMetrics(providerKey: string): { provider_key: string; resilience: ExternalCallMetrics | null } {

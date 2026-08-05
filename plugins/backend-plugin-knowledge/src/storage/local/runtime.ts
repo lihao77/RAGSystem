@@ -80,6 +80,9 @@ export function createLocalKnowledgeRuntime(options: LocalKnowledgeRuntimeOption
     driver,
     driver,
     options.embedderFactory,
+    undefined,
+    options.modelAdapter.createEmbeddingClient(),
+    options.modelAdapter.createRerankClient(),
   );
   const markdown = new LocalAsyncKnowledgeMarkdownPipeline(
     driver,

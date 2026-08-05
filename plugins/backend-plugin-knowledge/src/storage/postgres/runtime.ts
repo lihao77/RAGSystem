@@ -66,6 +66,10 @@ export function createPostgresKnowledgeApplication(
     options.modelAdapter,
     new PostgresKnowledgeConfigRepository(options.executor),
     new PostgresPgVectorRepository(options.executor),
+    undefined,
+    undefined,
+    options.modelAdapter.createEmbeddingClient(),
+    options.modelAdapter.createRerankClient(),
   );
   const files = new SaaSKnowledgeFileStorage(
     options.tenantId,

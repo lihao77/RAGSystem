@@ -11,7 +11,11 @@ import { isRecord } from "../../utils/guards.js";
  * - api_key 与 api_endpoint 支持 ${ENV_VAR} 占位符(resolveEnvPlaceholder),敏感值不落盘明文;
  * - HTTP 非 2xx 抛异常(携带响应 message),非静默。
  */
-import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
+import type {
+  EmbeddingClientPort,
+  EmbeddingRequest,
+  ModelProviderConfig,
+} from "../../contracts/integrations/model-adapter.js";
 import {
   externalCallPolicy,
   isRetryableHttpStatus,
@@ -20,17 +24,9 @@ import {
   RetryableHttpError,
 } from "@ragsystem/agent-llm";
 
-export interface EmbeddingRequest {
-  texts: string[];
-  model: string;
-  provider: ModelProviderConfig;
-}
+export type { EmbeddingRequest, EmbeddingClientPort as EmbeddingClient } from "../../contracts/integrations/model-adapter.js";
 
-export interface EmbeddingClient {
-  embed(request: EmbeddingRequest): Promise<number[][]>;
-}
-
-export class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
+export class OpenAiCompatibleEmbeddingClient implements EmbeddingClientPort {
   async embed(request: EmbeddingRequest): Promise<number[][]> {
     if (request.texts.length === 0) {
       return [];
@@ -130,5 +126,4 @@ function extractErrorMessage(body: unknown): string | null {
   }
   return typeof body.message === "string" ? body.message : null;
 }
-
 

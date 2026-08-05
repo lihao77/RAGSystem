@@ -1,26 +1,13 @@
 import { externalCallPolicy, isRetryableHttpStatus, RetryableHttpError } from "@ragsystem/agent-llm";
 import { resolveEnvPlaceholder } from "./embedding-client.js";
+import type { RerankClientPort, RerankRequest as ContractRerankRequest } from "../../contracts/integrations/model-adapter.js";
 
-export interface RerankerEndpointConfig {
-  reranker_key: string;
-  model_name: string;
-  api_endpoint: string;
-  api_key: string | null;
-}
-
-export interface RerankRequest {
-  query: string;
-  documents: string[];
-  reranker: RerankerEndpointConfig;
-  topN?: number | undefined;
-}
-
-export interface RerankClient {
-  rerank(request: RerankRequest): Promise<number[]>;
-}
+export type RerankerEndpointConfig = ContractRerankRequest["reranker"];
+export type RerankClient = RerankClientPort;
+export type RerankRequest = ContractRerankRequest;
 
 /** OpenAI 兼容 rerank 客户端。 */
-export class OpenAiCompatibleRerankClient implements RerankClient {
+export class OpenAiCompatibleRerankClient implements RerankClientPort {
   async rerank(request: RerankRequest): Promise<number[]> {
     if (request.documents.length === 0) return [];
     const endpoint = resolveRerankEndpoint(request.reranker);

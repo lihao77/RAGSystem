@@ -5,8 +5,12 @@ import type { KnowledgeCollectionSummary, KnowledgeSearchResponse } from "../../
 import type { KnowledgeFile } from "../../contracts/vector-store/knowledge-file-store.js";
 import type { StoredReranker, StoredVectorizer } from "../../contracts/vector-store/knowledge-config.js";
 import type { IEmbedder } from "../../contracts/vector-store/embedder.js";
-import type { ModelProviderConfig } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
-import type { ModelProviderCatalogPort } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
+import type {
+  EmbeddingClientPort,
+  ModelProviderConfig,
+  ModelProviderCatalogPort,
+  RerankClientPort,
+} from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
 import { createEmbedder } from "../integrations/embedder-registry.js";
 import { createReranker, type IReranker } from "../integrations/reranker-registry.js";
 import { lexicalRerank } from "./rerank/lexical-rerank.js";
@@ -31,11 +35,15 @@ export class KnowledgeApplicationService {
     private readonly modelAdapter: ModelProviderCatalogPort,
     private readonly config: AsyncKnowledgeConfigStore,
     private readonly vectors: AsyncKnowledgeVectorStore,
-    embedderFactory: KnowledgeEmbedderFactory = createEmbedder,
-    rerankerFactory: KnowledgeRerankerFactory = createReranker,
+    embedderFactory?: KnowledgeEmbedderFactory,
+    rerankerFactory?: KnowledgeRerankerFactory,
+    embeddingClient?: EmbeddingClientPort,
+    rerankClient?: RerankClientPort,
   ) {
-    this.embedderFactory = embedderFactory;
-    this.rerankerFactory = rerankerFactory;
+    this.embedderFactory = embedderFactory
+      ?? ((provider, modelName) => createEmbedder(provider, modelName, embeddingClient));
+    this.rerankerFactory = rerankerFactory
+      ?? ((stored) => createReranker(stored, rerankClient));
   }
 
   async listCollections(): Promise<KnowledgeCollectionSummary[]> {

@@ -88,4 +88,32 @@ export interface ModelProviderConfig {
 export interface ModelProviderCatalogPort {
   hasProvider(providerKey: string): boolean;
   getProvider(providerKey: string): ModelProviderConfig | null;
+  createEmbeddingClient(): EmbeddingClientPort;
+  createRerankClient(): RerankClientPort;
+}
+
+export interface EmbeddingRequest {
+  texts: string[];
+  model: string;
+  provider: ModelProviderConfig;
+}
+
+export interface EmbeddingClientPort {
+  embed(request: EmbeddingRequest): Promise<number[][]>;
+}
+
+export interface RerankRequest {
+  query: string;
+  documents: string[];
+  reranker: {
+    reranker_key: string;
+    model_name: string;
+    api_endpoint: string;
+    api_key: string | null;
+  };
+  topN?: number | undefined;
+}
+
+export interface RerankClientPort {
+  rerank(request: RerankRequest): Promise<number[]>;
 }
