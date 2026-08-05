@@ -669,9 +669,12 @@ function resolveDefaultBuiltinSkillsRoot(): string {
   const candidates = [
     path.resolve(moduleDir, "../../skills"),
     path.resolve(moduleDir, "plugin-assets/skills"),
-    path.resolve(process.cwd(), "plugins/backend-plugin-skills/skills"),
   ];
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]!;
+  const root = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!root) {
+    throw new Error(`Packaged Skills assets are missing; checked: ${candidates.join(", ")}`);
+  }
+  return root;
 }
 
 function skillInfoFromPackageRecord(record: SkillPackageRecord, originRoot: string): SkillInfo {
