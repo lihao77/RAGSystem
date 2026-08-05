@@ -51,6 +51,17 @@ Blueprint v1 包含：
 
 租户成员可以创建 Draft；发布权限不随模型工具下放。
 
+### 自动审批
+
+租户 Owner 可以在 `/system-config` 的 Agent Builder 审批和 Skills 审批配置组中开启：
+
+- `agent_builder.approval.auto_publish_releases`：Agent Draft 通过结构、能力和委派拓扑校验后自动发布为新的不可变 Release。
+- `skills.approval.auto_publish_candidates`：Skill Artifact 候选完成 bundle 和 `SKILL.md` 校验后自动发布到 Skill 库。
+
+两个开关默认关闭。自动审批不会绕过校验、覆盖已有版本或自动激活 Agent Team；新 Agent Release 仍需单独激活。关闭开关后恢复人工校验和发布流程。每次自动发布仍保留 Draft/Release revision，便于追踪和回滚。
+
+审批字段由各自插件注册到统一的系统配置页面；卸载对应插件后，其业务配置不再参与运行。旧版 `automation.*` 字段会在读取时兼容，但新配置应使用插件所属的配置组。
+
 ### 3. 管理员校验
 
 租户管理员进入 `/team-builder`，在 Agent Builder 面板中选择草稿并执行校验。校验会检查：

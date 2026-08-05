@@ -9,6 +9,7 @@ import {
   createSkillAuthoringTools,
   SKILL_AUTHORING_TOOL_DESCRIPTORS,
 } from "./tools/SkillAuthoringTools.js";
+import { createSkillsSystemConfigExtension } from "./system-config.js";
 
 export const SKILLS_PLUGIN_ID = "@ragsystem/backend-plugin-skills";
 
@@ -17,11 +18,31 @@ export function createSkillsPlugin(dependencies: SkillsPluginDependencies): Back
     manifest: { id: SKILLS_PLUGIN_ID, version: "0.1.0" },
     register(context) {
       context.runtimes.register(async (runtimeContext) => {
-        const runtime = await dependencies.runtimeFactory(runtimeContext);
-        return {
-          capabilities: [provideCapability(SKILLS_RUNTIME_CAPABILITY, runtime)],
-          ...(runtime.dispose ? { dispose: () => runtime.dispose?.() } : {}),
-        };
+        const unregisterSystemConfig = runtimeContext.systemConfig
+          ? runtimeContext.systemConfig.registerExtension(
+            SKILLS_PLUGIN_ID,
+            createSkillsSystemConfigExtension(
+              runtimeContext.systemConfig.getSection("skills"),
+              runtimeContext.systemConfig.getSection("automation"),
+            ),
+          )
+          : () => undefined;
+        try {
+          const runtime = await dependencies.runtimeFactory(runtimeContext);
+          return {
+            capabilities: [provideCapability(SKILLS_RUNTIME_CAPABILITY, runtime)],
+            dispose: () => {
+              try {
+                runtime.dispose?.();
+              } finally {
+                unregisterSystemConfig();
+              }
+            },
+          };
+        } catch (error) {
+          unregisterSystemConfig();
+          throw error;
+        }
       });
       context.routes.register("tenant", "/api/skills", async (app) => {
         await app.register(registerSkillRoutes);

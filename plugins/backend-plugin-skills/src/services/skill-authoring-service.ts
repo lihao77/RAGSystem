@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
+import type { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
 
 import {
   isSkillDraftNameConflict,
@@ -16,6 +17,7 @@ import {
 import type { SkillLibraryService } from "./skill-library-service.js";
 import { parseSkillMarkdown, updateSkillMarkdownFrontmatter } from "../contracts/skills/skill-markdown.js";
 import type { SkillArtifactApplication } from "../resources.js";
+import { resolveSkillsApprovalConfig } from "../system-config.js";
 
 export interface SubmitSkillArtifactOptions {
   name?: string | null;
@@ -30,6 +32,7 @@ export class SkillAuthoringService {
     private readonly store: SkillDraftStore,
     private readonly library: SkillLibraryService,
     private readonly artifacts: SkillArtifactApplication | null = null,
+    private readonly systemConfig: SystemConfigService | null = null,
   ) {}
 
   listDrafts(): Promise<SkillDraft[]> {
@@ -71,7 +74,7 @@ export class SkillAuthoringService {
       if (existing.source_session_id !== options.sourceSessionId.trim()) {
         throw new HttpError(403, "forbidden", "只能从当前 Session 提交 Skill Artifact");
       }
-      return existing;
+      return this.maybeAutoPublish(existing);
     }
     const manifest = await this.artifacts.getArtifact(normalizedArtifactId);
     if (manifest.revision !== expectedRevision) {
@@ -160,7 +163,20 @@ export class SkillAuthoringService {
       }
       throw error;
     }
-    return draft;
+    return this.maybeAutoPublish(draft);
+  }
+
+  private async maybeAutoPublish(draft: SkillDraft): Promise<SkillDraft> {
+    const approval = this.systemConfig
+      ? resolveSkillsApprovalConfig(
+        this.systemConfig.getSection("skills"),
+        this.systemConfig.getSection("automation"),
+      )
+      : { auto_publish_candidates: false };
+    if (draft.status === "published" || !approval.auto_publish_candidates) {
+      return draft;
+    }
+    return this.publishDraft(draft.id, draft.revision);
   }
 
   async deleteDraft(id: string, expectedRevision: number): Promise<{ id: string }> {

@@ -15,6 +15,12 @@ export type {
 export { backendPluginModule } from "./module.js";
 export { createSkillsPlugin, SKILLS_PLUGIN_ID } from "./plugin.js";
 export {
+  SKILLS_SYSTEM_CONFIG_EXTENSION,
+  createSkillsSystemConfigExtension,
+  resolveSkillsApprovalConfig,
+  type SkillsApprovalConfig,
+} from "./system-config.js";
+export {
   ARTIFACT_STAGING_RESOURCE_KIND,
   ARTIFACT_APPLICATION_RESOURCE_KIND,
   resolveArtifactApplication,

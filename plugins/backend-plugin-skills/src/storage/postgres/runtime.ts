@@ -57,6 +57,7 @@ export function createPostgresSkillsRuntimeFactory(options: {
         new PostgresSkillDraftStore(options.executor, context.tenantId),
         library,
         await resolveArtifactApplication(context.resources ?? [], context.tenantId),
+        context.systemConfig,
       ),
       artifactResource,
     };

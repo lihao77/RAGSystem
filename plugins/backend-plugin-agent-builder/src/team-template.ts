@@ -76,7 +76,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         CAPABILITY_DISCOVERY_PROMPT,
         "Use the Agent Builder tools to create or update one Draft and keep its revision current.",
         SKILL_AUTHORING_PROMPT,
-        "Never publish a Release yourself; stop at a validated candidate and explain what an administrator must approve.",
+        "Do not bypass the publish API or change runtime files. The platform may auto-publish validated drafts when the tenant automation setting is enabled; report whether the draft remained pending or became a published Release, and never auto-activate a Team.",
         "Keep optimization bounded: at most three revisions per build request unless the user explicitly asks to continue.",
       ].join(" "),
     }),

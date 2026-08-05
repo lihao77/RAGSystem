@@ -117,6 +117,25 @@ test("publishing creates an immutable release and materializes Team bindings", a
   }
 });
 
+test("auto approval publishes a valid Agent draft without activating its Team", async () => {
+  const fixture = await createFixture([], {
+    getSection: (key) => key === "agent_builder"
+      ? { approval: { auto_publish_releases: true } }
+      : undefined,
+  });
+  try {
+    const bindings = new MemoryBindings();
+    const draft = await fixture.service.createDraft(blueprint());
+    const published = await fixture.service.autoApproveDraft(draft, async () => bindings);
+    assert.equal(published.status, "published");
+    assert.ok(published.published_release_id);
+    assert.equal((await fixture.service.listReleases("support-team")).length, 1);
+    assert.equal((await fixture.agentConfig.listTeams()).active_team, "default");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("a second published draft increments the release version", async () => {
   const fixture = await createFixture();
   try {
@@ -489,14 +508,14 @@ test("Builder template opts its orchestrator into Skill authoring tools explicit
   }
 });
 
-async function createFixture(pluginTools = []) {
+async function createFixture(pluginTools = [], systemConfig = null) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-builder-"));
   const agentConfig = new AgentConfigService(new MemoryTeamStore());
   await agentConfig.initialize();
   return {
     root,
     agentConfig,
-    service: new AgentBuilderService(new FilesystemAgentBuilderStore(root), agentConfig, pluginTools),
+    service: new AgentBuilderService(new FilesystemAgentBuilderStore(root), agentConfig, pluginTools, systemConfig),
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
   };
 }

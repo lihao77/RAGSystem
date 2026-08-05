@@ -7,6 +7,7 @@ import { MCP_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-mcp/capability
 import { SKILLS_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-skills/capability.js";
 
 import { AgentBlueprintSchema } from "./contracts.js";
+import type { AgentDraft } from "./contracts.js";
 import type { AgentBuilderService } from "./service.js";
 
 const CreateDraftToolInputSchema = z.object({
@@ -72,7 +73,15 @@ const BLUEPRINT_JSON_SCHEMA = {
   },
 } as const;
 
-export function createAgentBuilderTools(service: AgentBuilderService, capabilities?: CapabilityRegistry): Tool[] {
+export interface AgentBuilderToolOptions {
+  autoApproveDraft?: (draft: AgentDraft) => Promise<AgentDraft>;
+}
+
+export function createAgentBuilderTools(
+  service: AgentBuilderService,
+  capabilities?: CapabilityRegistry,
+  options: AgentBuilderToolOptions = {},
+): Tool[] {
   return [
     buildTool({
       name: "list_agent_builder_capabilities",
@@ -212,9 +221,10 @@ export function createAgentBuilderTools(service: AgentBuilderService, capabiliti
       async call(input) {
         try {
           const draft = await service.createDraft(input.blueprint);
-          return toolSuccess(draft, {
+          const result = options.autoApproveDraft ? await options.autoApproveDraft(draft) : draft;
+          return toolSuccess(result, {
             toolName: "create_agent_draft",
-            summary: `Agent draft '${draft.id}' created for '${draft.blueprint.name}'`,
+            summary: `Agent draft '${result.id}' created for '${result.blueprint.name}'`,
             outputType: "agent_builder.draft",
           });
         } catch (error) {
@@ -247,9 +257,10 @@ export function createAgentBuilderTools(service: AgentBuilderService, capabiliti
       async call(input) {
         try {
           const draft = await service.updateDraft(input.draft_id, input.expected_revision, input.blueprint);
-          return toolSuccess(draft, {
+          const result = options.autoApproveDraft ? await options.autoApproveDraft(draft) : draft;
+          return toolSuccess(result, {
             toolName: "update_agent_draft",
-            summary: `Agent draft '${draft.id}' updated to revision ${draft.revision}`,
+            summary: `Agent draft '${result.id}' updated to revision ${result.revision}`,
             outputType: "agent_builder.draft",
           });
         } catch (error) {

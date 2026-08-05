@@ -36,21 +36,23 @@ export const registerAgentBuilderRoutes: FastifyPluginAsync = async (app) => {
 
   app.post("/drafts", async (request) => handle(async () => {
     const body = CreateAgentDraftRequestSchema.parse(request.body);
-    return ok(await service(request).createDraft(body.blueprint), "Agent draft created");
+    const builder = service(request);
+    const draft = await builder.createDraft(body.blueprint);
+    return ok(await builder.autoApproveDraft(draft, () => bindingsFor(request.container)), "Agent draft created");
   }));
 
   app.put<{ Params: IdParams }>("/drafts/:id", async (request) => handle(async () => {
     const body = UpdateAgentDraftRequestSchema.parse(request.body);
-    return ok(
-      await service(request).updateDraft(request.params.id, body.expected_revision, body.blueprint),
-      "Agent draft updated",
-    );
+    const builder = service(request);
+    const draft = await builder.updateDraft(request.params.id, body.expected_revision, body.blueprint);
+    return ok(await builder.autoApproveDraft(draft, () => bindingsFor(request.container)), "Agent draft updated");
   }));
 
   app.post<{ Params: IdParams }>("/drafts/:id/validate", async (request) => handle(async () => {
-    const draft = await service(request).getDraft(request.params.id);
     const bindings = await bindingsFor(request.container);
-    return ok(await service(request).validateDraft(request.params.id, bindings.inventory), "Agent draft validated");
+    const builder = service(request);
+    const draft = await builder.validateDraft(request.params.id, bindings.inventory);
+    return ok(await builder.autoApproveDraft(draft, () => Promise.resolve(bindings)), "Agent draft validated");
   }));
 
   app.post<{ Params: IdParams }>("/drafts/:id/publish", async (request) => handle(async () => {

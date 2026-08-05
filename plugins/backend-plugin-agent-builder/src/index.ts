@@ -1,5 +1,6 @@
 export * from "./bindings.js";
 export * from "./capability.js";
+export * from "./config.js";
 export * from "./contracts.js";
 export * from "./filesystem-store.js";
 export * from "./module.js";

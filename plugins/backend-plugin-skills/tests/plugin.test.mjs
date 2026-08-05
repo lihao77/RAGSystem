@@ -168,6 +168,19 @@ test("Artifact submission copies a complete bundle and stays idempotent", async 
   await assert.rejects(service.submitArtifact("artifact-1", 1), /当前 Session/);
 });
 
+test("auto approval publishes a valid Skill candidate after Artifact submission", async () => {
+  const library = memoryLibrary();
+  const service = new SkillAuthoringService(
+    new MemoryDraftStore(),
+    library,
+    artifactApplication(),
+    { getSection: (key) => key === "skills" ? { approval: { auto_publish_candidates: true } } : undefined },
+  );
+  const candidate = await service.submitArtifact("artifact-1", 1, { sourceSessionId: "session-1" });
+  assert.equal(candidate.status, "published");
+  assert.equal(library.packages.has("review-code"), true);
+});
+
 test("Skill authoring tools never return copied base64 bundle bodies", async () => {
   const service = new SkillAuthoringService(new MemoryDraftStore(), memoryLibrary(), artifactApplication());
   const tools = new Map(createSkillAuthoringTools({ authoring: service, agentName: "builder" }).map((tool) => [tool.name, tool]));

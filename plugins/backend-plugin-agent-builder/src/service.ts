@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentConfig, AgentLlmConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { BackendToolDescriptor } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import type { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
+import type { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
 
 import {
   AgentBlueprintSchema,
@@ -17,6 +18,7 @@ import {
   type AgentRelease,
 } from "./contracts.js";
 import type { AgentBuilderStore } from "./store.js";
+import { resolveAgentBuilderApprovalConfig } from "./config.js";
 
 export interface AgentBuilderBindings {
   readonly inventory: AgentBuilderCapabilityInventory;
@@ -41,7 +43,12 @@ export class AgentBuilderService {
     private readonly store: AgentBuilderStore,
     private readonly agentConfig: AgentConfigService,
     private readonly pluginTools: readonly BackendToolDescriptor[] = [],
+    private readonly systemConfig: SystemConfigService | null = null,
   ) {}
+
+  getAgentConfigService(): AgentConfigService {
+    return this.agentConfig;
+  }
 
   listAvailableTools(): BackendToolDescriptor[] {
     const tools = new Map<string, BackendToolDescriptor>();
@@ -100,6 +107,22 @@ export class AgentBuilderService {
       await this.store.putDraft(updated);
       return updated;
     });
+  }
+
+  async autoApproveDraft(
+    draft: AgentDraft,
+    bindingsProvider: () => Promise<AgentBuilderBindings>,
+  ): Promise<AgentDraft> {
+    const approval = this.systemConfig
+      ? resolveAgentBuilderApprovalConfig(
+        this.systemConfig.getSection("agent_builder"),
+        this.systemConfig.getSection("automation"),
+      )
+      : { auto_publish_releases: false };
+    if (!approval.auto_publish_releases) return draft;
+    if (draft.status === "published" || draft.published_release_id) return draft;
+    await this.publishDraft(draft.id, draft.revision, await bindingsProvider());
+    return this.getDraft(draft.id);
   }
 
   validateDraft(id: string, inventory: AgentBuilderCapabilityInventory): Promise<AgentDraft> {

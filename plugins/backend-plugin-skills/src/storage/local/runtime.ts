@@ -54,6 +54,7 @@ export function createLocalSkillsRuntimeFactory(): SkillsPluginRuntimeFactory {
         new SqliteSkillDraftStore(db, context.tenantId),
         library,
         await resolveArtifactApplication(context.resources ?? [], context.tenantId),
+        context.systemConfig,
       ),
       artifactResource,
       dispose: () => db.close(),

@@ -7,6 +7,8 @@ import { registerAgentBuilderRoutes } from "./routes.js";
 import { AgentBuilderService } from "./service.js";
 import { AGENT_BUILDER_TEAM_NAME, ensureAgentBuilderTeam } from "./team-template.js";
 import { createAgentBuilderTools } from "./tools.js";
+import { createAgentBuilderBindings } from "./bindings.js";
+import { createAgentBuilderSystemConfigExtension } from "./config.js";
 
 export const AGENT_BUILDER_PLUGIN_ID = "@ragsystem/backend-plugin-agent-builder";
 
@@ -23,16 +25,32 @@ export function createAgentBuilderPlugin(): BackendPlugin {
     },
     register(context) {
       context.runtimes.register(async (runtimeContext) => {
-        await ensureAgentBuilderTeam(runtimeContext.agentConfig);
-        return {
-        capabilities: [provideCapability(AGENT_BUILDER_RUNTIME_CAPABILITY, {
-          service: new AgentBuilderService(
-            new FilesystemAgentBuilderStore(runtimeContext.dataRoot),
-            runtimeContext.agentConfig,
-            runtimeContext.listPluginTools?.() ?? [],
-          ),
-        })],
-        };
+        const unregisterSystemConfig = runtimeContext.systemConfig
+          ? runtimeContext.systemConfig.registerExtension(
+            AGENT_BUILDER_PLUGIN_ID,
+            createAgentBuilderSystemConfigExtension(
+              runtimeContext.systemConfig.getSection("agent_builder"),
+              runtimeContext.systemConfig.getSection("automation"),
+            ),
+          )
+          : () => undefined;
+        try {
+          await ensureAgentBuilderTeam(runtimeContext.agentConfig);
+          return {
+            capabilities: [provideCapability(AGENT_BUILDER_RUNTIME_CAPABILITY, {
+              service: new AgentBuilderService(
+                new FilesystemAgentBuilderStore(runtimeContext.dataRoot),
+                runtimeContext.agentConfig,
+                runtimeContext.listPluginTools?.() ?? [],
+                runtimeContext.systemConfig,
+              ),
+            })],
+            dispose: unregisterSystemConfig,
+          };
+        } catch (error) {
+          unregisterSystemConfig();
+          throw error;
+        }
       });
       context.routes.register("tenant", "/api/agent-builder", async (app) => {
         await app.register(registerAgentBuilderRoutes);
@@ -41,10 +59,14 @@ export function createAgentBuilderPlugin(): BackendPlugin {
         if (teamName !== AGENT_BUILDER_TEAM_NAME || !agent.default_entry) return [];
         if (!capabilities) throw new Error("Agent Builder plugin requires runtime capabilities");
         const enabledTools = new Set(agent.tools.enabled_tools);
-        return createAgentBuilderTools(
-          capabilities.require(AGENT_BUILDER_RUNTIME_CAPABILITY).service,
-          capabilities,
-        )
+        const builder = capabilities.require(AGENT_BUILDER_RUNTIME_CAPABILITY).service;
+        return createAgentBuilderTools(builder, capabilities, {
+          autoApproveDraft: (draft) => builder.autoApproveDraft(draft, () => createAgentBuilderBindings({
+            agentConfig: builder.getAgentConfigService(),
+            capabilities,
+            pluginTools: builder.listAvailableTools(),
+          })),
+        })
           .filter((tool) => enabledTools.has(tool.name));
       });
     },
