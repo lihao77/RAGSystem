@@ -1,22 +1,15 @@
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  AgentDraftSchema,
-  AgentReleaseSchema,
-  type AgentDraft,
-  type AgentRelease,
-} from "./contracts.js";
+import { AgentDraftSchema, type AgentDraft } from "./contracts.js";
 import type { AgentBuilderStore } from "./store.js";
 
 export class FilesystemAgentBuilderStore implements AgentBuilderStore {
   private readonly draftsRoot: string;
-  private readonly releasesRoot: string;
 
   constructor(dataRoot: string) {
     const root = path.join(path.resolve(dataRoot), "agent-builder");
     this.draftsRoot = path.join(root, "drafts");
-    this.releasesRoot = path.join(root, "releases");
   }
 
   async listDrafts(): Promise<AgentDraft[]> {
@@ -36,44 +29,8 @@ export class FilesystemAgentBuilderStore implements AgentBuilderStore {
     await rm(this.draftPath(id), { force: true });
   }
 
-  async listReleases(packageName?: string): Promise<AgentRelease[]> {
-    const directories = packageName
-      ? [safeSegment(packageName)]
-      : await listDirectoryNames(this.releasesRoot);
-    const releases: AgentRelease[] = [];
-    for (const directory of directories) {
-      releases.push(...await readRecords(path.join(this.releasesRoot, directory), AgentReleaseSchema.parse));
-    }
-    return releases.sort((left, right) => {
-      const byName = left.package_name.localeCompare(right.package_name);
-      return byName === 0 ? right.version - left.version : byName;
-    });
-  }
-
-  async getRelease(id: string): Promise<AgentRelease | null> {
-    const releases = await this.listReleases();
-    return releases.find((release) => release.id === id) ?? null;
-  }
-
-  async createRelease(release: AgentRelease): Promise<void> {
-    const parsed = AgentReleaseSchema.parse(release);
-    const file = this.releasePath(parsed.package_name, parsed.version);
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, serialize(parsed), { encoding: "utf8", flag: "wx" });
-  }
-
-  async deleteRelease(id: string): Promise<void> {
-    const release = await this.getRelease(id);
-    if (!release) return;
-    await rm(this.releasePath(release.package_name, release.version), { force: true });
-  }
-
   private draftPath(id: string): string {
     return path.join(this.draftsRoot, `${safeSegment(id)}.json`);
-  }
-
-  private releasePath(packageName: string, version: number): string {
-    return path.join(this.releasesRoot, safeSegment(packageName), `v${version}.json`);
   }
 }
 
@@ -108,18 +65,6 @@ async function listFileNames(directory: string): Promise<string[]> {
   try {
     return (await readdir(directory, { withFileTypes: true }))
       .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-      .map((entry) => entry.name)
-      .sort();
-  } catch (error) {
-    if (isMissing(error)) return [];
-    throw error;
-  }
-}
-
-async function listDirectoryNames(directory: string): Promise<string[]> {
-  try {
-    return (await readdir(directory, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort();
   } catch (error) {

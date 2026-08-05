@@ -10,6 +10,7 @@ import { SKILLS_RUNTIME_CAPABILITY } from "./capability.js";
 import {
   PublishSkillDraftSchema,
   toSkillDraftView,
+  UpdateSkillDraftSchema,
 } from "./contracts/skills/skill-draft.js";
 
 interface SkillParams {
@@ -91,6 +92,15 @@ export const registerSkillRoutes: FastifyPluginAsync<SkillRouteOptions> = async 
 
   app.get<{ Params: DraftParams }>("/drafts/:id", async (request) => {
     return ok(await resolveSkills(request).authoring.getDraftView(request.params.id), "Skill draft");
+  });
+
+  app.put<{ Params: DraftParams }>("/drafts/:id", async (request) => {
+    requireTenantAdmin(request);
+    const input = UpdateSkillDraftSchema.parse(request.body);
+    const authoring = resolveSkills(request).authoring;
+    const { expected_revision: expectedRevision, ...content } = input;
+    const updated = await authoring.updateDraft(request.params.id, expectedRevision, content);
+    return ok(await authoring.getDraftView(updated.id), "Skill draft updated");
   });
 
   app.post<{ Params: DraftParams }>("/drafts/:id/publish", async (request) => {

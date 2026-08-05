@@ -36,7 +36,6 @@ export function createAgentBuilderPlugin(): BackendPlugin {
             AGENT_BUILDER_PLUGIN_ID,
             createAgentBuilderSystemConfigExtension(
               runtimeContext.systemConfig.getSection("agent_builder"),
-              runtimeContext.systemConfig.getSection("automation"),
             ),
           )
           : () => undefined;

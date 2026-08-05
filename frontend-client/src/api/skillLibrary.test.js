@@ -9,6 +9,7 @@ import {
   getSkillDraft,
   listSkillDrafts,
   publishSkillDraft,
+  updateSkillDraft,
 } from './skillLibrary.js';
 import { httpClient } from './http.js';
 
@@ -29,8 +30,17 @@ test('Skill draft API unwraps list and item responses', async () => {
   });
 });
 
-test('Skill draft API sends a revision for publish and deletes directly', async () => {
+test('Skill draft API updates content, publishes by revision, and deletes directly', async () => {
   await withMock((mock) => {
+    mock.onPut('/api/skills/drafts/draft_1').reply((config) => {
+      assert.deepEqual(JSON.parse(config.data), {
+        expected_revision: 1,
+        name: 'review-code',
+        description: 'Review code',
+        content: 'Updated instructions',
+      });
+      return [200, { success: true, data: { id: 'draft_1', revision: 2, status: 'draft' } }];
+    });
     mock.onPost('/api/skills/drafts/draft_1/publish').reply((config) => {
       assert.deepEqual(JSON.parse(config.data), { expected_revision: 1 });
       return [200, { success: true, data: { id: 'draft_1', status: 'published' } }];
@@ -40,6 +50,11 @@ test('Skill draft API sends a revision for publish and deletes directly', async 
       return [200, { success: true, data: { id: 'draft_1' } }];
     });
   }, async () => {
+    assert.equal((await updateSkillDraft('draft_1', 1, {
+      name: 'review-code',
+      description: 'Review code',
+      content: 'Updated instructions',
+    })).revision, 2);
     assert.equal((await publishSkillDraft('draft_1', 1)).status, 'published');
     assert.equal((await deleteSkillDraft('draft_1')).id, 'draft_1');
   });

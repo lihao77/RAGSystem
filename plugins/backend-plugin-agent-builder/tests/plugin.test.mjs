@@ -70,7 +70,10 @@ class MemoryBindings {
   async putSkillConfig(teamName, agentName, names) { this.skills.set(this.key(teamName, agentName), [...names]); }
   async getMcpConfig(teamName, agentName) { return [...(this.mcp.get(this.key(teamName, agentName)) ?? [])]; }
   async putMcpConfig(teamName, agentName, names) {
-    if (this.failMcpWrite && names.length > 0) throw new Error("MCP write failed");
+    if (this.failMcpWrite && names.length > 0) {
+      this.failMcpWrite = false;
+      throw new Error("MCP write failed");
+    }
     this.mcp.set(this.key(teamName, agentName), [...names]);
   }
 }
@@ -91,29 +94,24 @@ test("validation rejects missing capabilities and delegation cycles", () => {
   assert.ok(report.issues.some((issue) => issue.code === "delegation_cycle"));
 });
 
-test("publishing creates an immutable release and materializes Team bindings", async () => {
+test("publishing materializes the Draft as a same-name Team", async () => {
   const fixture = await createFixture();
   try {
     const bindings = new MemoryBindings();
     const draft = await fixture.service.createDraft(blueprint());
-    const ready = await fixture.service.validateDraft(draft.id, bindings.inventory);
-    assert.equal(ready.status, "ready");
+    const published = await fixture.service.publishDraft(draft.id, draft.revision, bindings);
+    assert.equal(published.status, "published");
+    assert.equal(published.revision, draft.revision + 1);
+    assert.equal(published.source_team_name, "support-team");
+    assert.ok(published.published_at);
+    assert.deepEqual(Object.keys(fixture.agentConfig.listConfigs({ teamName: "support-team" })).sort(), ["lead", "worker"]);
+    assert.deepEqual(bindings.skills.get("support-team/lead"), ["review-code"]);
+    assert.deepEqual(bindings.mcp.get("support-team/lead"), ["github"]);
 
-    const release = await fixture.service.publishDraft(draft.id, draft.revision, bindings);
-    assert.equal(release.version, 1);
-    assert.equal(release.runtime_team_name, "support-team--v1");
-    assert.equal((await fixture.service.getDraft(draft.id)).status, "published");
-    assert.deepEqual(Object.keys(fixture.agentConfig.listConfigs({ teamName: "support-team--v1" })).sort(), ["lead", "worker"]);
-    assert.deepEqual(bindings.skills.get("support-team--v1/lead"), ["review-code"]);
-    assert.deepEqual(bindings.mcp.get("support-team--v1/lead"), ["github"]);
-
-    const repeated = await fixture.service.publishDraft(draft.id, draft.revision, bindings);
-    assert.equal(repeated.id, release.id);
-    assert.equal((await fixture.service.listReleases("support-team")).length, 1);
-    await assert.rejects(
-      fixture.service.updateDraft(draft.id, draft.revision, blueprint({ description: "Changed" })),
-      AgentBuilderConflictError,
-    );
+    const repeated = await fixture.service.publishDraft(draft.id, published.revision, bindings);
+    assert.equal(repeated.id, published.id);
+    assert.equal(repeated.revision, published.revision);
+    assert.equal((await fixture.agentConfig.listTeams()).teams.filter((team) => team.team_name === "support-team").length, 1);
   } finally {
     fixture.cleanup();
   }
@@ -122,7 +120,7 @@ test("publishing creates an immutable release and materializes Team bindings", a
 test("auto approval publishes a valid Agent draft without activating its Team", async () => {
   const fixture = await createFixture([], {
     getSection: (key) => key === "agent_builder"
-      ? { approval: { auto_publish_releases: true } }
+      ? { approval: { auto_publish_candidates: true } }
       : undefined,
   });
   try {
@@ -130,36 +128,78 @@ test("auto approval publishes a valid Agent draft without activating its Team", 
     const draft = await fixture.service.createDraft(blueprint());
     const published = await fixture.service.autoApproveDraft(draft, async () => bindings);
     assert.equal(published.status, "published");
-    assert.ok(published.published_release_id);
-    assert.equal((await fixture.service.listReleases("support-team")).length, 1);
+    assert.equal(published.source_team_name, "support-team");
+    assert.ok(published.published_at);
     assert.equal((await fixture.agentConfig.listTeams()).active_team, "default");
   } finally {
     fixture.cleanup();
   }
 });
 
-test("a second published draft increments the release version", async () => {
+test("an edited published Draft updates the same Team", async () => {
   const fixture = await createFixture();
   try {
     const bindings = new MemoryBindings();
     const first = await fixture.service.createDraft(blueprint());
-    const release1 = await fixture.service.publishDraft(first.id, first.revision, bindings);
-    const second = await fixture.service.createDraft(blueprint({ description: "Second release" }));
-    const release2 = await fixture.service.publishDraft(second.id, second.revision, bindings);
-    assert.equal(release1.version, 1);
-    assert.equal(release2.version, 2);
-    assert.equal(release2.runtime_team_name, "support-team--v2");
-    assert.notEqual(release1.id, release2.id);
+    const published = await fixture.service.publishDraft(first.id, first.revision, bindings);
+    const edited = await fixture.service.updateDraft(published.id, published.revision, blueprint({
+      description: "Updated Team",
+      agents: [
+        agent("lead", { description: "Updated lead", tools: ["read_file"], skills: ["review-code"], mcp_servers: ["github"], delegates: ["worker"] }),
+        agent("worker", { description: "Worker" }),
+      ],
+    }));
+    assert.equal(edited.id, first.id);
+    assert.equal(edited.status, "draft");
+    assert.equal(edited.source_team_name, "support-team");
+
+    const republished = await fixture.service.publishDraft(edited.id, edited.revision, bindings);
+    assert.equal(republished.id, first.id);
+    assert.equal(republished.status, "published");
+    assert.equal(republished.source_team_name, "support-team");
+    assert.equal(fixture.agentConfig.getConfig("lead", { teamName: "support-team" }).description, "Updated lead");
+    assert.equal((await fixture.agentConfig.listTeams()).teams.filter((team) => team.team_name === "support-team").length, 1);
   } finally {
     fixture.cleanup();
   }
 });
 
-test("publishing never overwrites an existing version Team", async () => {
+test("failed republish restores the existing Team configuration", async () => {
   const fixture = await createFixture();
   try {
     const bindings = new MemoryBindings();
-    await fixture.agentConfig.createTeam("support-team--v1");
+    const draft = await fixture.service.createDraft(blueprint());
+    const published = await fixture.service.publishDraft(draft.id, draft.revision, bindings);
+    const originalConfig = fixture.agentConfig.getConfig("lead", { teamName: "support-team" });
+    const edited = await fixture.service.updateDraft(published.id, published.revision, blueprint({
+      agents: [
+        agent("lead", { description: "Must roll back", tools: ["read_file"], skills: ["review-code"], mcp_servers: ["github"], delegates: ["worker"] }),
+        agent("worker", { description: "Worker" }),
+      ],
+    }));
+    bindings.failMcpWrite = true;
+
+    await assert.rejects(
+      fixture.service.publishDraft(edited.id, edited.revision, bindings),
+      /MCP write failed/,
+    );
+
+    const liveConfig = fixture.agentConfig.getConfig("lead", { teamName: "support-team" });
+    assert.equal(liveConfig.description, originalConfig.description);
+    assert.deepEqual(await bindings.getMcpConfig("support-team", "lead"), ["github"]);
+    const unchanged = await fixture.service.getDraft(edited.id);
+    assert.equal(unchanged.status, "draft");
+    assert.equal(unchanged.revision, edited.revision);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a new Draft never overwrites an existing Team", async () => {
+  const fixture = await createFixture();
+  try {
+    const bindings = new MemoryBindings();
+    await fixture.agentConfig.createTeam("support-team");
     const draft = await fixture.service.createDraft(blueprint());
 
     await assert.rejects(
@@ -167,10 +207,9 @@ test("publishing never overwrites an existing version Team", async () => {
       AgentBuilderConflictError,
     );
 
-    assert.equal((await fixture.service.listReleases()).length, 0);
     assert.equal((await fixture.service.getDraft(draft.id)).status, "draft");
     assert.equal(
-      (await fixture.agentConfig.listTeams()).teams.some((team) => team.team_name === "support-team--v1"),
+      (await fixture.agentConfig.listTeams()).teams.some((team) => team.team_name === "support-team"),
       true,
     );
   } finally {
@@ -178,7 +217,7 @@ test("publishing never overwrites an existing version Team", async () => {
   }
 });
 
-test("failed materialization does not create a release or leave a Team", async () => {
+test("failed materialization does not publish the Draft or leave a Team", async () => {
   const fixture = await createFixture();
   try {
     const bindings = new MemoryBindings();
@@ -188,8 +227,7 @@ test("failed materialization does not create a release or leave a Team", async (
       fixture.service.publishDraft(draft.id, draft.revision, bindings),
       /MCP write failed/,
     );
-    assert.equal((await fixture.service.listReleases()).length, 0);
-    assert.equal((await fixture.agentConfig.listTeams()).teams.some((team) => team.team_name === "support-team--v1"), false);
+    assert.equal((await fixture.agentConfig.listTeams()).teams.some((team) => team.team_name === "support-team"), false);
     assert.equal((await fixture.service.getDraft(draft.id)).status, "draft");
   } finally {
     fixture.cleanup();
@@ -256,10 +294,9 @@ test("manual Team snapshots create one linked Draft and update it idempotently",
     assert.equal(renamed.source_team_name, "renamed-team");
     assert.equal(renamed.blueprint.name, "renamed-team");
     assert.equal((await fixture.service.listDrafts()).length, 1);
-    await assert.rejects(
-      fixture.service.publishDraft(renamed.id, renamed.revision, bindings),
-      /already represents a published Team/,
-    );
+    const repeated = await fixture.service.publishDraft(renamed.id, renamed.revision, bindings);
+    assert.equal(repeated.id, renamed.id);
+    assert.equal(repeated.revision, renamed.revision);
   } finally {
     fixture.cleanup();
   }
@@ -286,30 +323,29 @@ test("editing a published Team updates the same published Draft without losing c
         },
       })],
     }));
-    const release = await fixture.service.publishDraft(first.id, first.revision, bindings);
-    const published = await fixture.service.getDraft(first.id);
+    const published = await fixture.service.publishDraft(first.id, first.revision, bindings);
     assert.equal(published.status, "published");
-    assert.equal(published.source_team_name, release.runtime_team_name);
-    const releasedConfig = fixture.agentConfig.getConfig("lead", { teamName: release.runtime_team_name });
-    assert.equal(releasedConfig.enabled, false);
-    assert.equal(releasedConfig.display_name, null);
-    assert.equal(releasedConfig.llm_tiers.fast.model_name, "fast-model");
-    assert.equal(releasedConfig.custom_params.extension_setting, "preserved");
-    assert.equal(releasedConfig.custom_params.behavior.preserve_recent_turns, 9);
-    assert.equal(releasedConfig.custom_params.behavior.system_prompt, "Keep this prompt.");
+    assert.equal(published.source_team_name, "support-team");
+    const liveConfig = fixture.agentConfig.getConfig("lead", { teamName: "support-team" });
+    assert.equal(liveConfig.enabled, false);
+    assert.equal(liveConfig.display_name, null);
+    assert.equal(liveConfig.llm_tiers.fast.model_name, "fast-model");
+    assert.equal(liveConfig.custom_params.extension_setting, "preserved");
+    assert.equal(liveConfig.custom_params.behavior.preserve_recent_turns, 9);
+    assert.equal(liveConfig.custom_params.behavior.system_prompt, "Keep this prompt.");
 
-    await fixture.agentConfig.activateTeam(release.runtime_team_name);
+    await fixture.agentConfig.activateTeam("support-team");
     await fixture.agentConfig.patchConfig("lead", { description: "Edited while live" });
-    const next = await fixture.service.synchronizeTeamDraft(release.runtime_team_name, bindings);
+    const next = await fixture.service.synchronizeTeamDraft("support-team", bindings);
     assert.equal(next.id, first.id);
     assert.equal(next.status, "published");
-    assert.equal(next.source_team_name, release.runtime_team_name);
-    assert.equal(next.blueprint.name, release.package_name);
+    assert.equal(next.source_team_name, "support-team");
+    assert.equal(next.blueprint.name, "support-team");
     assert.equal(next.blueprint.agents[0].description, "Edited while live");
     assert.equal(next.blueprint.agents[0].llm_tiers.fast.model_name, "fast-model");
     assert.equal(next.blueprint.agents[0].custom_params.extension_setting, "preserved");
 
-    const unchanged = await fixture.service.synchronizeTeamDraft(release.runtime_team_name, bindings);
+    const unchanged = await fixture.service.synchronizeTeamDraft("support-team", bindings);
     assert.equal(unchanged.id, next.id);
     assert.equal(unchanged.revision, next.revision);
     assert.equal((await fixture.service.listDrafts()).length, 1);
@@ -327,31 +363,29 @@ test("Agent Drafts delete independently and Team deletion restores Drafts that s
     await assert.rejects(fixture.service.getDraft(removable.id), /does not exist/);
 
     const published = await fixture.service.createDraft(blueprint());
-    const publishedRelease = await fixture.service.publishDraft(published.id, published.revision, bindings);
+    const publishedDraft = await fixture.service.publishDraft(published.id, published.revision, bindings);
     assert.deepEqual(await fixture.service.deleteDraft(published.id), { id: published.id });
     await assert.rejects(fixture.service.getDraft(published.id), /does not exist/);
-    assert.ok((await fixture.agentConfig.listTeams()).teams.some((team) => team.team_name === publishedRelease.runtime_team_name));
-    await fixture.agentConfig.activateTeam(publishedRelease.runtime_team_name);
+    assert.ok((await fixture.agentConfig.listTeams()).teams.some((team) => team.team_name === publishedDraft.source_team_name));
+    await fixture.agentConfig.activateTeam(publishedDraft.source_team_name);
     await fixture.agentConfig.patchConfig("lead", { description: "Edited after its Draft was deleted" });
-    const recreated = await fixture.service.synchronizeTeamDraft(publishedRelease.runtime_team_name, bindings);
+    const recreated = await fixture.service.synchronizeTeamDraft(publishedDraft.source_team_name, bindings);
     assert.notEqual(recreated.id, published.id);
     assert.equal(recreated.status, "published");
-    assert.equal(recreated.source_team_name, publishedRelease.runtime_team_name);
+    assert.equal(recreated.source_team_name, publishedDraft.source_team_name);
     assert.equal(recreated.blueprint.agents[0].description, "Edited after its Draft was deleted");
     await fixture.service.deleteDraft(recreated.id);
-    await fixture.agentConfig.deleteTeam(publishedRelease.runtime_team_name);
-    assert.equal(await fixture.service.restoreDraftAfterTeamDelete(publishedRelease.runtime_team_name), null);
-    assert.equal((await fixture.service.listReleases()).length, 0);
+    await fixture.agentConfig.deleteTeam(publishedDraft.source_team_name);
+    assert.equal(await fixture.service.restoreDraftAfterTeamDelete(publishedDraft.source_team_name), null);
 
     const restorable = await fixture.service.createDraft(blueprint());
-    await fixture.service.publishDraft(restorable.id, restorable.revision, bindings);
-    const release = (await fixture.service.listReleases())[0];
-    const renamedTeam = `${release.runtime_team_name}-renamed`;
-    await fixture.agentConfig.renameTeam(release.runtime_team_name, renamedTeam);
+    const restorablePublished = await fixture.service.publishDraft(restorable.id, restorable.revision, bindings);
+    const renamedTeam = `${restorablePublished.source_team_name}-renamed`;
+    await fixture.agentConfig.renameTeam(restorablePublished.source_team_name, renamedTeam);
     const renamed = await fixture.service.synchronizeTeamDraft(
       renamedTeam,
       bindings,
-      { previousTeamName: release.runtime_team_name },
+      { previousTeamName: restorablePublished.source_team_name },
     );
     assert.equal(renamed.status, "published");
     assert.equal(renamed.source_team_name, renamedTeam);
@@ -360,8 +394,7 @@ test("Agent Drafts delete independently and Team deletion restores Drafts that s
     assert.equal(restored.id, restorable.id);
     assert.equal(restored.status, "draft");
     assert.equal(restored.source_team_name, null);
-    assert.equal(restored.published_release_id, null);
-    assert.equal((await fixture.service.listReleases()).length, 0);
+    assert.equal(restored.published_at, null);
     assert.deepEqual(await fixture.service.deleteDraft(restored.id), { id: restored.id });
   } finally {
     fixture.cleanup();
@@ -390,10 +423,10 @@ test("workspace validation failure does not synchronize the system Agent draft",
   }
 });
 
-test("workspace publish auto-publishes and forks an edited published Agent draft", async () => {
+test("workspace publish auto-publishes edits through the same Agent Draft", async () => {
   const fixture = await createFixture([], {
     getSection: (key) => key === "agent_builder"
-      ? { approval: { auto_publish_releases: true } }
+      ? { approval: { auto_publish_candidates: true } }
       : undefined,
   });
   try {
@@ -402,16 +435,18 @@ test("workspace publish auto-publishes and forks an edited published Agent draft
     const first = await fixture.service.publishWorkspaceDraft(created.draft.id, workspace, new MemoryBindings());
     assert.equal(first.auto_published, true);
     assert.equal(first.draft.status, "published");
-    assert.equal(first.release.version, 1);
+    assert.equal(first.draft.revision, created.draft.revision + 1);
+    assert.equal(first.draft.source_team_name, "workspace-team");
 
     const localBlueprintPath = path.join(created.workspacePath, "blueprint.json");
     const localBlueprint = JSON.parse(fs.readFileSync(localBlueprintPath, "utf8"));
-    localBlueprint.description = "Second workspace release";
+    localBlueprint.description = "Updated workspace Team";
     fs.writeFileSync(localBlueprintPath, `${JSON.stringify(localBlueprint, null, 2)}\n`);
     const second = await fixture.service.publishWorkspaceDraft(created.draft.id, workspace, new MemoryBindings());
-    assert.notEqual(second.draft.id, created.draft.id);
-    assert.equal(second.release.version, 2);
+    assert.equal(second.draft.id, created.draft.id);
     assert.equal(second.draft.status, "published");
+    assert.equal(second.draft.revision, first.draft.revision + 1);
+    assert.equal(second.draft.source_team_name, "workspace-team");
   } finally {
     fixture.cleanup();
   }

@@ -21,7 +21,6 @@ import {
 } from "./service.js";
 
 interface IdParams { id: string }
-interface ReleaseQuery { package_name?: string }
 
 export const registerAgentBuilderRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", async (request) => { requireTenantMember(request); });
@@ -56,13 +55,6 @@ export const registerAgentBuilderRoutes: FastifyPluginAsync = async (app) => {
     );
   }));
 
-  app.post<{ Params: IdParams }>("/drafts/:id/validate", async (request) => handle(async () => {
-    const bindings = await bindingsFor(request.container);
-    const builder = service(request);
-    const draft = await builder.validateDraft(request.params.id, bindings.inventory);
-    return ok(await builder.autoApproveDraft(draft, () => Promise.resolve(bindings)), "Agent draft validated");
-  }));
-
   app.post<{ Params: IdParams }>("/drafts/:id/publish", async (request) => handle(async () => {
     requireTenantAdmin(request);
     const body = PublishAgentDraftRequestSchema.parse(request.body);
@@ -72,17 +64,9 @@ export const registerAgentBuilderRoutes: FastifyPluginAsync = async (app) => {
         body.expected_revision,
         await bindingsFor(request.container),
       ),
-      "Agent release published",
+      "Agent draft published",
     );
   }));
-
-  app.get<{ Querystring: ReleaseQuery }>("/releases", async (request) =>
-    ok(await service(request).listReleases(request.query.package_name), "Agent releases"),
-  );
-
-  app.get<{ Params: IdParams }>("/releases/:id", async (request) =>
-    handle(async () => ok(await service(request).getRelease(request.params.id), "Agent release")),
-  );
 };
 
 function service(request: FastifyRequest) {

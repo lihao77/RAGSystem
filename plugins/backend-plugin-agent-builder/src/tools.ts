@@ -211,13 +211,12 @@ export function createAgentBuilderTools(
           const result = await service.publishWorkspaceDraft(input.draft_id, workspaceRoot(context), bindings);
           return toolSuccess({
             ...result.draft,
-            release: result.release,
             auto_published: result.auto_published,
             workspace_path: result.workspacePath,
           }, {
             toolName: "publish_agent_draft",
-            summary: result.release
-              ? `Agent draft '${result.draft.id}' published as release '${result.release.id}'`
+            summary: result.auto_published
+              ? `Agent draft '${result.draft.id}' published to Team '${result.draft.source_team_name}'`
               : `Agent draft '${result.draft.id}' synchronized and is awaiting administrator publication`,
             outputType: "agent_builder.draft",
           });

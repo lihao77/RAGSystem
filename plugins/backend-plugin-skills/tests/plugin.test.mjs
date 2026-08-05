@@ -151,6 +151,11 @@ test("workspace publish auto-publishes and updates an existing Skill package", a
     const first = await service.publishWorkspaceDraft(draft.id, root);
     assert.equal(first.published, true);
     assert.equal(first.draft.status, "published");
+    assert.equal(first.draft.revision, draft.revision + 1);
+
+    const repeated = await service.publishWorkspaceDraft(draft.id, root);
+    assert.equal(repeated.published, true);
+    assert.equal(repeated.draft.revision, first.draft.revision);
 
     fs.writeFileSync(
       path.join(local.workspacePath, "SKILL.md"),
@@ -158,6 +163,7 @@ test("workspace publish auto-publishes and updates an existing Skill package", a
     );
     const second = await service.publishWorkspaceDraft(draft.id, root);
     assert.equal(second.published, true);
+    assert.equal(second.draft.revision, first.draft.revision + 1);
     assert.match(library.packages.get("workspace-skill").content, /Updated reusable instructions/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -201,7 +207,97 @@ test("publishing a Draft remains idempotent", async () => {
   );
 });
 
-test("Deleting a release restores its Draft as editable", async () => {
+test("a saved Draft can return to published when its Skill package already matches", async () => {
+  const library = memoryLibrary();
+  const service = new SkillAuthoringService(new MemoryDraftStore(), library);
+  const candidate = await service.createDraft("review-code", "Review code");
+  const published = await service.publishDraft(candidate.id, candidate.revision);
+  const saved = await service.updateDraft(published.id, published.revision, {
+    name: published.name,
+    description: published.description,
+    content: published.content,
+  });
+  assert.equal(saved.status, "draft");
+
+  const republished = await service.publishDraft(saved.id, saved.revision);
+  assert.equal(republished.status, "published");
+  assert.equal(republished.revision, saved.revision + 1);
+  assert.equal(library.packages.has("review-code"), true);
+});
+
+test("an administrator can edit and republish a published Skill Draft", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skill-draft-admin-edit-"));
+  try {
+    const store = new MemoryDraftStore();
+    const library = memoryLibrary();
+    const service = new SkillAuthoringService(store, library);
+    const created = await service.createDraft("review-code", "Review code");
+    const local = await service.materializeDraftToWorkspace(created, root);
+    fs.mkdirSync(path.join(local.workspacePath, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(local.workspacePath, "SKILL.md"),
+      "---\nname: review-code\ndescription: Review code\nlicense: MIT\nmetadata:\n  custom_flag: true\n---\nReview the code.\n",
+    );
+    fs.writeFileSync(path.join(local.workspacePath, "scripts", "check.py"), "print('ok')\n");
+    const synchronized = await service.publishWorkspaceDraft(created.id, root);
+    const published = await service.publishDraft(synchronized.draft.id, synchronized.draft.revision);
+
+    const updated = await service.updateDraft(published.id, published.revision, {
+      name: published.name,
+      description: "Review code carefully",
+      content: "Use the updated review workflow.",
+    });
+    assert.equal(updated.status, "draft");
+    assert.equal(updated.revision, published.revision + 1);
+    assert.equal(updated.published_at, published.published_at);
+    assert.match(library.packages.get("review-code").content, /Review the code/);
+    assert.ok(updated.bundle_assets.some((asset) => asset.relative_path === "scripts/check.py"));
+    const markdown = Buffer.from(
+      updated.bundle_assets.find((asset) => asset.relative_path === "SKILL.md").body_base64,
+      "base64",
+    ).toString("utf8");
+    assert.match(markdown, /license: MIT/);
+    assert.match(markdown, /custom_flag: true/);
+    assert.match(markdown, /Use the updated review workflow/);
+
+    const republished = await service.publishDraft(updated.id, updated.revision);
+    assert.equal(republished.status, "published");
+    assert.equal(republished.revision, updated.revision + 1);
+    assert.match(library.packages.get("review-code").content, /Use the updated review workflow/);
+    await assert.rejects(
+      service.updateDraft(republished.id, republished.revision, {
+        name: "renamed-review",
+        description: republished.description,
+        content: republished.content,
+      }),
+      /names are immutable/,
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("administrator edits auto-publish with one Skill Draft revision", async () => {
+  const library = memoryLibrary();
+  const service = new SkillAuthoringService(
+    new MemoryDraftStore(),
+    library,
+    { getSection: (key) => key === "skills" ? { approval: { auto_publish_candidates: true } } : undefined },
+  );
+  const created = await service.createDraft("review-code", "Review code");
+  const published = await service.publishDraft(created.id, created.revision);
+  const updated = await service.updateDraft(published.id, published.revision, {
+    name: published.name,
+    description: published.description,
+    content: "Automatically published instructions.",
+  });
+
+  assert.equal(updated.status, "published");
+  assert.equal(updated.revision, published.revision + 1);
+  assert.match(library.packages.get("review-code").content, /Automatically published instructions/);
+});
+
+test("Deleting a published Skill restores its Draft as editable", async () => {
   const store = new MemoryDraftStore();
   const library = memoryLibrary();
   const service = new SkillAuthoringService(store, library);

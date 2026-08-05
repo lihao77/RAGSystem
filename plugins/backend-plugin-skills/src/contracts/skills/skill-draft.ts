@@ -39,7 +39,12 @@ export const PublishSkillDraftSchema = z.object({
   expected_revision: z.number().int().positive(),
 }).strict();
 
+export const UpdateSkillDraftSchema = SkillDraftContentSchema.extend({
+  expected_revision: z.number().int().positive(),
+}).strict();
+
 export type SkillDraftContent = z.infer<typeof SkillDraftContentSchema>;
+export type UpdateSkillDraft = z.infer<typeof UpdateSkillDraftSchema>;
 export type SkillDraft = z.infer<typeof SkillDraftSchema>;
 export type SkillDraftPackageState = "not_published" | "available" | "missing" | "conflict" | "unknown";
 export type SkillDraftAssetView = z.infer<typeof SkillDraftAssetViewSchema>;

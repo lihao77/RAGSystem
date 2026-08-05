@@ -12,14 +12,12 @@ import {
   AgentBlueprintSchema,
   AgentBlueprintAgentSchema,
   AgentDraftSchema,
-  AgentReleaseSchema,
   type AgentBlueprint,
   type AgentBlueprintAgent,
   type AgentBuilderCapabilityInventory,
   type AgentBuilderValidationIssue,
   type AgentBuilderValidationReport,
   type AgentDraft,
-  type AgentRelease,
 } from "./contracts.js";
 import type { AgentBuilderStore } from "./store.js";
 import { resolveAgentBuilderApprovalConfig } from "./config.js";
@@ -103,11 +101,11 @@ export class AgentBuilderService {
     const draft = AgentDraftSchema.parse({
       id: `draft_${randomUUID().replaceAll("-", "")}`,
       revision: 1,
-      status: options.status ?? (validation ? "ready" : "draft"),
+      status: options.status ?? "draft",
       source_team_name: options.sourceTeamName?.trim() || null,
       blueprint: AgentBlueprintSchema.parse(blueprintInput),
       validation,
-      published_release_id: null,
+      published_at: options.status === "published" ? now : null,
       created_at: now,
       updated_at: now,
     });
@@ -127,25 +125,17 @@ export class AgentBuilderService {
       if (Object.keys(configs).length === 0) return null;
 
       const drafts = await this.store.listDrafts();
-      const releases = await this.store.listReleases();
       const linked = drafts.find((draft) => draft.source_team_name === normalizedTeamName) ?? null;
       const renamedDraft = options.previousTeamName?.trim()
         ? drafts.find((draft) => draft.source_team_name === options.previousTeamName?.trim()) ?? null
         : null;
-      const linkedReleaseId = linked?.published_release_id ?? renamedDraft?.published_release_id;
-      const release = releases.find((item) => item.runtime_team_name === normalizedTeamName)
-        ?? (linkedReleaseId ? releases.find((item) => item.id === linkedReleaseId) : null)
-        ?? null;
-      const releaseSource = release
-        ? drafts.find((draft) => draft.id === release.source_draft_id) ?? null
-        : null;
-      const blueprintName = release?.package_name ?? blueprintNameFromTeam(normalizedTeamName);
-      const editableByName = linked || renamedDraft || releaseSource
+      const blueprintName = blueprintNameFromTeam(normalizedTeamName);
+      const editableByName = linked || renamedDraft
         ? null
-        : !release ? drafts.find((draft) => draft.source_team_name === null
+        : drafts.find((draft) => draft.source_team_name === null
           && draft.blueprint.name === blueprintName
-          && draft.status !== "published") ?? null : null;
-      const current = linked ?? renamedDraft ?? releaseSource ?? editableByName;
+          && draft.status !== "published") ?? null;
+      const current = linked ?? renamedDraft ?? editableByName;
       const blueprint = await teamConfigToBlueprint(
         normalizedTeamName,
         blueprintName,
@@ -167,6 +157,7 @@ export class AgentBuilderService {
           source_team_name: normalizedTeamName,
           blueprint,
           validation: null,
+          published_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
         await this.store.putDraft(updated);
@@ -185,36 +176,19 @@ export class AgentBuilderService {
       const normalizedTeamName = teamName.trim();
       if (!normalizedTeamName) throw new AgentBuilderConflictError("Team name is required for Draft restoration");
       const drafts = await this.store.listDrafts();
-      const releases = await this.store.listReleases();
       const linked = drafts.find((draft) => draft.source_team_name === normalizedTeamName) ?? null;
-      const release = releases.find((item) => item.runtime_team_name === normalizedTeamName)
-        ?? (linked?.published_release_id
-          ? releases.find((item) => item.id === linked.published_release_id)
-          : null)
-        ?? null;
-      const releaseSource = release
-        ? drafts.find((draft) => draft.id === release.source_draft_id) ?? null
-        : null;
-      const current = linked ?? releaseSource;
-      if (!current) {
-        if (release) await this.store.deleteRelease(release.id);
-        return null;
-      }
+      if (!linked) return null;
 
       const restored = AgentDraftSchema.parse({
-        ...current,
-        revision: current.revision + 1,
+        ...linked,
+        revision: linked.revision + 1,
         status: "draft",
         source_team_name: null,
         validation: null,
-        published_release_id: null,
+        published_at: null,
         updated_at: new Date().toISOString(),
       });
       await this.store.putDraft(restored);
-      if (release) await this.store.deleteRelease(release.id);
-      if (releaseSource && releaseSource.id !== restored.id) {
-        await this.store.deleteDraft(releaseSource.id);
-      }
       return restored;
     });
   }
@@ -268,7 +242,7 @@ export class AgentBuilderService {
     draftId: string,
     workspaceRoot: string,
     bindings: AgentBuilderBindings,
-  ): Promise<{ draft: AgentDraft; release: AgentRelease | null; auto_published: boolean; workspacePath: string }> {
+  ): Promise<{ draft: AgentDraft; auto_published: boolean; workspacePath: string }> {
     const current = await this.getDraft(draftId);
     const workspacePath = agentDraftWorkspacePath(workspaceRoot, draftId);
     const manifest = parseWorkspaceManifest(await readWorkspaceJson(workspacePath, "manifest.json"));
@@ -287,24 +261,21 @@ export class AgentBuilderService {
     const validation = validateBlueprint(blueprint, bindings.inventory);
     if (!validation.valid) throw new AgentBuilderValidationError(validation);
 
-    const draft = current.status === "published" || current.published_release_id
-      ? await this.createDraft(blueprint, validation)
-      : await this.updateDraft(current.id, current.revision, blueprint, validation);
     const autoPublished = this.isAutoPublishEnabled();
-    const release = autoPublished ? await this.publishDraft(draft.id, draft.revision, bindings) : null;
-    const result = await this.getDraft(draft.id);
+    const result = autoPublished
+      ? await this.publishBlueprint(current.id, current.revision, blueprint, validation, bindings)
+      : await this.updateDraft(current.id, current.revision, blueprint, validation);
     await this.materializeDraftToWorkspace(result, workspaceRoot);
-    return { draft: result, release, auto_published: Boolean(release), workspacePath: agentDraftWorkspacePath(workspaceRoot, result.id) };
+    return { draft: result, auto_published: autoPublished, workspacePath: agentDraftWorkspacePath(workspaceRoot, result.id) };
   }
 
   isAutoPublishEnabled(): boolean {
     const approval = this.systemConfig
       ? resolveAgentBuilderApprovalConfig(
         this.systemConfig.getSection("agent_builder"),
-        this.systemConfig.getSection("automation"),
       )
-      : { auto_publish_releases: false };
-    return approval.auto_publish_releases;
+      : { auto_publish_candidates: false };
+    return approval.auto_publish_candidates;
   }
 
   updateDraft(
@@ -316,14 +287,15 @@ export class AgentBuilderService {
     return this.exclusive(async () => {
       const current = await this.getDraft(id);
       assertRevision(current, expectedRevision);
-      if (current.status === "published") {
-        throw new AgentBuilderConflictError("Published drafts are immutable; create a new draft instead");
+      const blueprint = AgentBlueprintSchema.parse(blueprintInput);
+      if (current.source_team_name && blueprint.name !== current.blueprint.name) {
+        throw new AgentBuilderConflictError("Published Team names are immutable; create a separate Draft for a rename");
       }
       const updated = AgentDraftSchema.parse({
         ...current,
         revision: current.revision + 1,
-        status: validation ? "ready" : "draft",
-        blueprint: AgentBlueprintSchema.parse(blueprintInput),
+        status: "draft",
+        blueprint,
         validation,
         updated_at: new Date().toISOString(),
       });
@@ -347,112 +319,86 @@ export class AgentBuilderService {
     const approval = this.systemConfig
       ? resolveAgentBuilderApprovalConfig(
         this.systemConfig.getSection("agent_builder"),
-        this.systemConfig.getSection("automation"),
       )
-      : { auto_publish_releases: false };
-    if (!approval.auto_publish_releases) return draft;
-    if (draft.status === "published" || draft.published_release_id) return draft;
+      : { auto_publish_candidates: false };
+    if (!approval.auto_publish_candidates || draft.status === "published") return draft;
     await this.publishDraft(draft.id, draft.revision, await bindingsProvider());
     return this.getDraft(draft.id);
   }
 
-  validateDraft(id: string, inventory: AgentBuilderCapabilityInventory): Promise<AgentDraft> {
-    return this.exclusive(async () => {
-      const current = await this.getDraft(id);
-      if (current.status === "published") return current;
-      const validation = validateBlueprint(current.blueprint, inventory);
-      const updated = AgentDraftSchema.parse({
-        ...current,
-        status: validation.valid ? "ready" : "validation_failed",
-        validation,
-        updated_at: new Date().toISOString(),
-      });
-      await this.store.putDraft(updated);
-      return updated;
-    });
-  }
-
-  listReleases(packageName?: string): Promise<AgentRelease[]> {
-    return this.store.listReleases(packageName);
-  }
-
-  async getRelease(id: string): Promise<AgentRelease> {
-    const release = await this.store.getRelease(id);
-    if (!release) throw new AgentBuilderNotFoundError(`Agent release '${id}' does not exist`);
-    return release;
-  }
-
-  publishDraft(id: string, expectedRevision: number, bindings: AgentBuilderBindings): Promise<AgentRelease> {
+  publishDraft(id: string, expectedRevision: number, bindings: AgentBuilderBindings): Promise<AgentDraft> {
     return this.exclusive(async () => {
       const current = await this.getDraft(id);
       assertRevision(current, expectedRevision);
-      if (current.published_release_id) return this.getRelease(current.published_release_id);
-      if (current.status === "published") {
-        throw new AgentBuilderConflictError("The Agent Draft already represents a published Team");
+      if (current.status === "published" && current.source_team_name) {
+        const teams = await this.agentConfig.listTeams();
+        if (teams.teams.some((team) => team.team_name === current.source_team_name)) return current;
       }
-
       const validation = validateBlueprint(current.blueprint, bindings.inventory);
       if (!validation.valid) {
         throw new AgentBuilderValidationError(validation);
       }
+      return this.publishValidatedBlueprint(current, current.blueprint, validation, bindings);
+    });
+  }
 
-      const existingReleases = await this.store.listReleases(current.blueprint.name);
-      const version = Math.max(0, ...existingReleases.map((release) => release.version)) + 1;
-      const runtimeTeamName = `${current.blueprint.name}--v${version}`;
+  private publishBlueprint(
+    id: string,
+    expectedRevision: number,
+    blueprint: AgentBlueprint,
+    validation: AgentBuilderValidationReport,
+    bindings: AgentBuilderBindings,
+  ): Promise<AgentDraft> {
+    return this.exclusive(async () => {
+      const current = await this.getDraft(id);
+      assertRevision(current, expectedRevision);
+      if (current.source_team_name && blueprint.name !== current.blueprint.name) {
+        throw new AgentBuilderConflictError("Published Team names are immutable; create a separate Draft for a rename");
+      }
+      return this.publishValidatedBlueprint(current, blueprint, validation, bindings);
+    });
+  }
+
+  private async publishValidatedBlueprint(
+    current: AgentDraft,
+    blueprint: AgentBlueprint,
+    validation: AgentBuilderValidationReport,
+    bindings: AgentBuilderBindings,
+  ): Promise<AgentDraft> {
+      const runtimeTeamName = current.source_team_name ?? blueprint.name;
       const teams = await this.agentConfig.listTeams();
-      if (teams.teams.some((team) => team.team_name === runtimeTeamName)) {
+      const teamExists = teams.teams.some((team) => team.team_name === runtimeTeamName);
+      if (current.status === "published" && teamExists && sameBlueprint(current.blueprint, blueprint)) return current;
+
+      if (!current.source_team_name && teamExists) {
         throw new AgentBuilderConflictError(
-          `Runtime Team '${runtimeTeamName}' already exists; publishing will not overwrite it`,
+          `Team '${runtimeTeamName}' already exists; publishing a new Draft will not overwrite it`,
         );
       }
       const publishedAt = new Date().toISOString();
-      const release = AgentReleaseSchema.parse({
-        id: `release_${randomUUID().replaceAll("-", "")}`,
-        package_name: current.blueprint.name,
-        version,
-        runtime_team_name: runtimeTeamName,
-        blueprint: current.blueprint,
-        validation,
-        source_draft_id: current.id,
-        source_draft_revision: current.revision,
-        published_at: publishedAt,
-      });
-
       const rollback = await this.captureMaterialization(runtimeTeamName, bindings);
-      let releaseCreated = false;
       try {
-        await this.materialize(runtimeTeamName, current.blueprint, bindings, rollback);
-        await this.store.createRelease(release);
-        releaseCreated = true;
-        await this.store.putDraft(AgentDraftSchema.parse({
+        await this.materialize(runtimeTeamName, blueprint, bindings, rollback);
+        const published = AgentDraftSchema.parse({
           ...current,
+          revision: current.revision + 1,
           status: "published",
           source_team_name: runtimeTeamName,
+          blueprint,
           validation,
-          published_release_id: release.id,
+          published_at: publishedAt,
           updated_at: publishedAt,
-        }));
-        return release;
+        });
+        await this.store.putDraft(published);
+        return published;
       } catch (error) {
-        const rollbackErrors: unknown[] = [];
-        if (releaseCreated) {
-          try {
-            await this.store.deleteRelease(release.id);
-          } catch (releaseRollbackError) {
-            rollbackErrors.push(releaseRollbackError);
-          }
-        }
         try {
-          await this.restoreMaterialization(runtimeTeamName, current.blueprint, bindings, rollback);
+          await this.restoreMaterialization(runtimeTeamName, blueprint, bindings, rollback);
         } catch (materializationRollbackError) {
-          rollbackErrors.push(materializationRollbackError);
-        }
-        if (rollbackErrors.length > 0) {
-          throw new AggregateError([error, ...rollbackErrors], "Agent release failed and rollback was incomplete");
+          throw new AggregateError([error, materializationRollbackError], "Agent publish failed and rollback was incomplete");
         }
         throw error;
       }
-    });
   }
 
   private async captureMaterialization(teamName: string, bindings: AgentBuilderBindings): Promise<MaterializationSnapshot> {

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
@@ -13,11 +14,12 @@ import {
   SkillDraftAssetSchema,
   toSkillDraftView,
   type SkillDraft,
+  type SkillDraftContent,
   type SkillDraftView,
   type SkillDraftStore,
 } from "../contracts/skills/skill-draft.js";
 import type { SkillLibraryService } from "./skill-library-service.js";
-import { parseSkillMarkdown, serializeSkillMd, updateSkillMarkdownFrontmatter } from "../contracts/skills/skill-markdown.js";
+import { parseSkillMarkdown, serializeSkillMd, updateSkillMarkdown, updateSkillMarkdownFrontmatter } from "../contracts/skills/skill-markdown.js";
 import { resolveSkillsApprovalConfig } from "../system-config.js";
 
 /** Owns Skill Draft workspaces and promotes validated bundles through SkillLibraryService. */
@@ -127,21 +129,28 @@ export class SkillAuthoringService {
     if (current.published_at !== null && content.name !== current.name) {
       throw new HttpError(409, "conflict", "Published Skill names are immutable; create a separate Draft for a rename");
     }
-    const next = SkillDraftSchema.parse({
+    const candidate = SkillDraftSchema.parse({
       ...current,
       ...content,
-      revision: current.revision + 1,
+      revision: current.revision,
       status: "draft",
       published_at: current.published_at,
       skill_metadata: parsed.metadata,
       bundle_assets: bundle.assets,
       updated_at: new Date().toISOString(),
     });
-    if (!await this.store.update(current.revision, next)) throw revisionConflict(current.revision, await this.getDraft(draftId));
     const approval = this.systemConfig
       ? resolveSkillsApprovalConfig(this.systemConfig.getSection("skills"), this.systemConfig.getSection("automation"))
       : { auto_publish_candidates: false };
-    const published = approval.auto_publish_candidates ? await this.publishDraft(next.id, next.revision) : next;
+    let published: SkillDraft;
+    if (approval.auto_publish_candidates) {
+      published = await this.publishWorkspaceCandidate(current, candidate);
+    } else {
+      published = SkillDraftSchema.parse({ ...candidate, revision: current.revision + 1 });
+      if (!await this.store.update(current.revision, published)) {
+        throw revisionConflict(current.revision, await this.getDraft(draftId));
+      }
+    }
     await this.materializeDraftToWorkspace(published, workspaceRoot);
     return {
       draft: published,
@@ -165,6 +174,53 @@ export class SkillAuthoringService {
     return { id };
   }
 
+  async updateDraft(id: string, expectedRevision: number, input: SkillDraftContent): Promise<SkillDraft> {
+    const current = await this.getDraft(id);
+    assertRevision(current, expectedRevision);
+    const content = SkillDraftContentSchema.parse(input);
+    if (current.published_at !== null && content.name !== current.name) {
+      throw new HttpError(409, "conflict", "Published Skill names are immutable; create a separate Draft for a rename");
+    }
+
+    const skillAssetIndex = current.bundle_assets.findIndex((asset) => asset.relative_path === "SKILL.md");
+    if (skillAssetIndex < 0) throw new HttpError(409, "conflict", "Skill Draft bundle 缺少 SKILL.md");
+    const skillAsset = current.bundle_assets[skillAssetIndex]!;
+    const skillMarkdown = updateSkillMarkdown(
+      Buffer.from(skillAsset.body_base64, "base64").toString("utf8"),
+      content.name,
+      content.description,
+      content.content,
+    );
+    const body = Buffer.from(skillMarkdown, "utf8");
+    const bundleAssets = [...current.bundle_assets];
+    bundleAssets[skillAssetIndex] = SkillDraftAssetSchema.parse({
+      ...skillAsset,
+      size: body.byteLength,
+      sha256: createHash("sha256").update(body).digest("hex"),
+      body_base64: body.toString("base64"),
+    });
+    const candidate = SkillDraftSchema.parse({
+      ...current,
+      ...content,
+      revision: current.revision,
+      status: "draft",
+      bundle_assets: bundleAssets,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (this.isAutoPublishEnabled()) return this.publishWorkspaceCandidate(current, candidate);
+    const updated = SkillDraftSchema.parse({ ...candidate, revision: current.revision + 1 });
+    try {
+      if (!await this.store.update(current.revision, updated)) {
+        throw revisionConflict(current.revision, await this.getDraft(id));
+      }
+    } catch (error) {
+      if (isSkillDraftNameConflict(error)) throw new HttpError(409, "conflict", `A Skill draft already targets '${content.name}'`);
+      throw error;
+    }
+    return updated;
+  }
+
   async publishDraft(id: string, expectedRevision: number): Promise<SkillDraft> {
     const current = await this.getDraft(id);
     assertRevision(current, expectedRevision);
@@ -176,8 +232,10 @@ export class SkillAuthoringService {
       }
       return this.materializePublishedDraft(current, true, false, current.published_at);
     }
-    const replacesPublishedPackage = packageState === "conflict" && current.published_at !== null;
-    if (packageState !== "absent" && !replacesPublishedPackage) {
+    const ownsPublishedPackage = current.published_at !== null;
+    const replacesPublishedPackage = packageState === "conflict" && ownsPublishedPackage;
+    const alreadyMaterialized = packageState === "matching" && ownsPublishedPackage;
+    if (packageState !== "absent" && !replacesPublishedPackage && !alreadyMaterialized) {
       throw new HttpError(409, "conflict", `Skill '${current.name}' already exists; publishing will not overwrite it`);
     }
 
@@ -196,7 +254,43 @@ export class SkillAuthoringService {
       throw revisionConflict(expectedRevision, await this.getDraft(id));
     }
 
+    if (alreadyMaterialized) return published;
     return this.materializePublishedDraft(published, false, replacesPublishedPackage, current.published_at);
+  }
+
+  private async publishWorkspaceCandidate(current: SkillDraft, candidate: SkillDraft): Promise<SkillDraft> {
+    const packageState = await this.inspectPackage(candidate);
+    const ownsPublishedPackage = current.published_at !== null;
+    if (current.status === "published"
+      && packageState === "matching"
+      && sameSkillDraftContent(current, candidate)) return current;
+    const replacesPublishedPackage = packageState === "conflict" && ownsPublishedPackage;
+    const alreadyMaterialized = packageState === "matching" && ownsPublishedPackage;
+    if (packageState !== "absent" && !replacesPublishedPackage && !alreadyMaterialized) {
+      throw new HttpError(409, "conflict", `Skill '${candidate.name}' already exists; publishing will not overwrite it`);
+    }
+
+    const publishedAt = new Date().toISOString();
+    const published = SkillDraftSchema.parse({
+      ...candidate,
+      revision: current.revision + 1,
+      status: "published",
+      published_at: publishedAt,
+      updated_at: publishedAt,
+    });
+    if (!await this.store.update(current.revision, published)) {
+      throw revisionConflict(current.revision, await this.getDraft(current.id));
+    }
+    if (alreadyMaterialized) return published;
+    return this.materializePublishedDraft(published, false, replacesPublishedPackage, current.published_at);
+  }
+
+  private isAutoPublishEnabled(): boolean {
+    if (!this.systemConfig) return false;
+    return resolveSkillsApprovalConfig(
+      this.systemConfig.getSection("skills"),
+      this.systemConfig.getSection("automation"),
+    ).auto_publish_candidates;
   }
 
   private async materializePublishedDraft(
@@ -452,6 +546,17 @@ function isPathUnder(candidate: string, root: string): boolean {
 }
 
 type PackageState = "absent" | "matching" | "conflict";
+
+function sameSkillDraftContent(left: SkillDraft, right: SkillDraft): boolean {
+  if (left.name !== right.name
+    || left.description !== right.description
+    || left.content !== right.content
+    || !isDeepStrictEqual(left.skill_metadata, right.skill_metadata)
+    || left.bundle_assets.length !== right.bundle_assets.length) return false;
+
+  const leftAssets = new Map(left.bundle_assets.map((asset) => [asset.relative_path, asset]));
+  return right.bundle_assets.every((asset) => isDeepStrictEqual(leftAssets.get(asset.relative_path), asset));
+}
 
 function assertRevision(draft: SkillDraft, expectedRevision: number): void {
   if (draft.revision !== expectedRevision) throw revisionConflict(expectedRevision, draft);

@@ -49,6 +49,7 @@ export {
   SkillDraftAssetViewSchema,
   SkillDraftSchema,
   PublishSkillDraftSchema,
+  UpdateSkillDraftSchema,
   SkillDraftNameConflictError,
   isSkillDraftNameConflict,
   toSkillDraftView,

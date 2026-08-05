@@ -46,7 +46,7 @@
           </div>
           <Button variant="secondary" size="sm" @click="openDraftReview(draft)">
             <Eye data-icon="inline-start" />
-            <span>{{ draft.status === 'published' ? '查看' : '审核' }}</span>
+            <span>{{ canEditSkillDraft ? '编辑' : '查看' }}</span>
           </Button>
         </div>
       </div>
@@ -119,10 +119,13 @@
               <CardDescription>{{ selected.description }}</CardDescription>
               <div class="skill-detail__chips">
                 <UiBadge size="sm">{{ selected.source_label }}</UiBadge>
-                <UiBadge size="sm">发布包只读</UiBadge>
+                <UiBadge size="sm">通过 Draft 更新</UiBadge>
               </div>
             </div>
             <div v-if="selected.source_type === 'user_global'" class="skill-detail__actions">
+              <Button v-if="selectedDraft" variant="outline" size="sm" @click="openDraftReview(selectedDraft)">
+                <FilePenLine data-icon="inline-start" /><span>编辑草稿</span>
+              </Button>
               <Button variant="destructive" size="sm" :disabled="deleting" @click="confirmDelete">
                 <IconTrash :size="13" /><span>{{ deleting ? '删除中…' : '删除' }}</span>
               </Button>
@@ -174,22 +177,23 @@
     <Dialog :open="draftReview.open" @update:open="(v) => { if (!v) closeDraftReview() }">
       <DialogContent class="max-w-[900px]">
         <DialogHeader>
-          <DialogTitle>{{ draftReview.form.name || 'Skill Draft 发布' }}</DialogTitle>
-          <DialogDescription>Draft 不会自动绑定到 Agent；管理员发布后才会成为正式 Skill。</DialogDescription>
+          <DialogTitle>{{ draftReview.form.name || 'Skill Draft' }}</DialogTitle>
+          <DialogDescription>编辑并保存 Draft；发布前自动校验，发布成功后才会更新正式 Skill。</DialogDescription>
         </DialogHeader>
         <FieldGroup class="skill-draft-form">
-          <Field>
+          <Field :data-disabled="!canEditSkillDraft || draftNameLocked || draftReviewBusy">
             <FieldLabel for="skill-draft-name">名称</FieldLabel>
-            <Input id="skill-draft-name" v-model.trim="draftReview.form.name" disabled />
+            <Input id="skill-draft-name" v-model.trim="draftReview.form.name" :disabled="!canEditSkillDraft || draftNameLocked || draftReviewBusy" />
+            <FieldDescription v-if="draftNameLocked">已发布 Skill 的名称不可修改。</FieldDescription>
           </Field>
-          <Field>
+          <Field :data-disabled="!canEditSkillDraft || draftReviewBusy">
             <FieldLabel for="skill-draft-description">描述</FieldLabel>
-            <Input id="skill-draft-description" v-model="draftReview.form.description" disabled />
+            <Input id="skill-draft-description" v-model="draftReview.form.description" :disabled="!canEditSkillDraft || draftReviewBusy" />
           </Field>
-          <Field>
+          <Field :data-disabled="!canEditSkillDraft || draftReviewBusy">
             <FieldLabel for="skill-draft-content">SKILL.md 正文</FieldLabel>
-            <Textarea id="skill-draft-content" v-model="draftReview.form.content" rows="12" class="skill-textarea" disabled />
-            <FieldDescription>Draft 包含 SKILL.md、脚本和资源文件，发布前会自动校验。</FieldDescription>
+            <Textarea id="skill-draft-content" v-model="draftReview.form.content" rows="12" class="skill-textarea" :disabled="!canEditSkillDraft || draftReviewBusy" />
+            <FieldDescription>保存会更新 SKILL.md，并保留 Draft 中的脚本、资源文件和其他元数据。</FieldDescription>
           </Field>
         </FieldGroup>
         <div class="skill-draft-preview">
@@ -203,16 +207,25 @@
         <DialogFooter>
           <Button variant="ghost" @click="closeDraftReview">关闭</Button>
           <Button
-            v-if="canPublishSkillDraft"
+            v-if="canEditSkillDraft"
             variant="destructive"
             :disabled="draftReviewBusy"
             @click="confirmDeleteDraft"
           >
             <IconTrash :size="13" /><span>{{ draftDeleteBusy ? '删除中…' : '删除草稿' }}</span>
           </Button>
+          <Button
+            v-if="canEditSkillDraft"
+            variant="outline"
+            :disabled="draftReviewBusy || !isDraftFormDirty"
+            @click="runSaveDraft"
+          >
+            <Save data-icon="inline-start" />
+            <span>{{ draftSaveBusy ? '保存中…' : '保存草稿' }}</span>
+          </Button>
           <Button v-if="canRunSkillDraftPublish" variant="success" :disabled="draftReviewBusy" @click="confirmPublishDraft">
             <Send data-icon="inline-start" />
-            <span>{{ draftReviewBusy ? '发布中…' : '发布 Skill' }}</span>
+            <span>{{ draftPublishBusy ? '发布中…' : (draftReview.draft?.published_at ? '重新发布' : '发布 Skill') }}</span>
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -222,7 +235,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { Eye, RefreshCw, Send } from 'lucide-vue-next';
+import { Eye, FilePenLine, RefreshCw, Save, Send } from 'lucide-vue-next';
 
 import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
@@ -257,12 +270,13 @@ import {
   listSkillDrafts,
   listSkills,
   publishSkillDraft,
+  updateSkillDraft,
 } from '../api/skillLibrary.js';
 
 const toast = useToast();
 const { confirm } = useConfirm();
 const authStore = useAuthStore();
-const canPublishSkillDraft = computed(() => authStore.hasTenantRole('admin'));
+const canEditSkillDraft = computed(() => authStore.hasTenantRole('admin'));
 
 const onMdNotify = ({ message, type }) => {
   if (type === 'success') toast.success(message);
@@ -289,6 +303,7 @@ const { items: skills, loading, error, refresh } = useEntityList(
 );
 
 const skillDrafts = ref([]);
+const selectedDraft = computed(() => skillDrafts.value.find((draft) => draft.name === selected.value?.name) ?? null);
 const draftLoading = ref(false);
 const draftError = ref('');
 const draftReview = ref({
@@ -298,8 +313,17 @@ const draftReview = ref({
   form: { name: '', description: '', content: '' },
 });
 
-const canRunSkillDraftPublish = computed(() => canPublishSkillDraft.value
+const draftNameLocked = computed(() => Boolean(draftReview.value.draft?.published_at));
+const isDraftFormDirty = computed(() => {
+  const draft = draftReview.value.draft;
+  if (!draft) return false;
+  return draftReview.value.form.name !== draft.name
+    || draftReview.value.form.description !== draft.description
+    || draftReview.value.form.content !== draft.content;
+});
+const canRunSkillDraftPublish = computed(() => canEditSkillDraft.value
   && draftReview.value.draft?.status !== 'published'
+  && !isDraftFormDirty.value
   && (draftReview.value.draft?.bundle_assets?.length ?? 0) > 0);
 
 async function loadDrafts() {
@@ -354,27 +378,55 @@ function closeDraftReview() {
   draftReview.value.error = '';
 }
 
+function applyDraftUpdate(draft) {
+  draftReview.value.draft = draft;
+  draftReview.value.form = { name: draft.name, description: draft.description, content: draft.content };
+  skillDrafts.value = skillDrafts.value.map((item) => item.id === draft.id ? draft : item);
+}
+
+async function recoverLatestDraft(current) {
+  try {
+    const latest = await getSkillDraft(current.id);
+    if (draftReview.value.draft?.id === current.id) applyDraftUpdate(latest);
+    else skillDrafts.value = skillDrafts.value.map((item) => item.id === latest.id ? latest : item);
+  } catch {
+    // Keep the original mutation error when the server is still unavailable.
+  }
+}
+
+const { run: runSaveDraft, loading: draftSaveBusy } = useAsyncAction(
+  async () => {
+    const current = draftReview.value.draft;
+    const updated = await updateSkillDraft(current.id, current.revision, draftReview.value.form);
+    applyDraftUpdate(updated);
+    if (updated.status === 'published') {
+      await refresh();
+      if (selected.value?.name === updated.name) await selectSkill(updated.name);
+    }
+    return updated;
+  },
+  {
+    successMessage: (draft) => draft.status === 'published' ? 'Skill 已保存并自动发布' : 'Skill 草稿已保存',
+    showErrorToast: false,
+    onError: async (e) => {
+      draftReview.value.error = e?.message || '保存 Skill 草稿失败';
+      const current = draftReview.value.draft;
+      if (current) await recoverLatestDraft(current);
+    },
+  },
+);
+
 const { run: runPublishDraft, loading: draftPublishBusy } = useAsyncAction(
   async () => {
     const current = draftReview.value.draft;
     try {
       const published = await publishSkillDraft(current.id, current.revision);
-      draftReview.value.draft = published;
-      draftReview.value.form = { name: published.name, description: published.description, content: published.content };
-      skillDrafts.value = skillDrafts.value.map((item) => item.id === published.id ? published : item);
+      applyDraftUpdate(published);
       await refresh();
+      if (selected.value?.name === published.name) await selectSkill(published.name);
       return published;
     } catch (error) {
-      try {
-        const latest = await getSkillDraft(current.id);
-        if (draftReview.value.draft?.id === current.id) {
-          draftReview.value.draft = latest;
-          draftReview.value.form = { name: latest.name, description: latest.description, content: latest.content };
-        }
-        skillDrafts.value = skillDrafts.value.map((item) => item.id === latest.id ? latest : item);
-      } catch {
-        // Keep the original publish error when the server is still unavailable.
-      }
+      await recoverLatestDraft(current);
       throw error;
     }
   },
@@ -400,11 +452,11 @@ const { run: runDeleteDraft, loading: draftDeleteBusy } = useAsyncAction(
   },
 );
 
-const draftReviewBusy = computed(() => draftPublishBusy.value || draftDeleteBusy.value);
+const draftReviewBusy = computed(() => draftSaveBusy.value || draftPublishBusy.value || draftDeleteBusy.value);
 
 async function confirmDeleteDraft() {
   const draft = draftReview.value.draft;
-  if (!draft || !canPublishSkillDraft.value) return;
+  if (!draft || !canEditSkillDraft.value) return;
   const accepted = await confirm({
     title: '删除 Skill 草稿',
     message: draft.status === 'published'
@@ -420,11 +472,11 @@ async function confirmDeleteDraft() {
 
 async function confirmPublishDraft() {
   const draft = draftReview.value.draft;
-  if (!draft || !canPublishSkillDraft.value) return;
+  if (!draft || !canEditSkillDraft.value || isDraftFormDirty.value) return;
   const accepted = await confirm({
     title: '发布 Skill Draft',
-    message: `确认发布“${draftReview.value.form.name}”？发布后 Draft 不可再编辑，也不会自动绑定到任何 Agent。`,
-    confirmText: '发布',
+    message: `确认${draft.published_at ? '重新发布' : '发布'}“${draftReview.value.form.name}”？发布成功后仍可继续编辑 Draft。`,
+    confirmText: draft.published_at ? '重新发布' : '发布',
     danger: false,
   });
   if (!accepted) return;
@@ -465,8 +517,10 @@ const groups = computed(() =>
   ].filter((g) => g.items.length),
 );
 
-function isWritable() {
-  return false;
+function isWritable(skill) {
+  return canEditSkillDraft.value
+    && skill.source_type === 'user_global'
+    && skillDrafts.value.some((draft) => draft.name === skill.name);
 }
 
 // 来源类型 → 短标签 + 语义色（列表行徽章用）

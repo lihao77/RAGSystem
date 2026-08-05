@@ -56,6 +56,15 @@ export function updateSkillMarkdownFrontmatter(raw: string, name: string, descri
   }
 }
 
+/** Update canonical frontmatter fields and body while retaining unknown YAML keys. */
+export function updateSkillMarkdown(raw: string, name: string, description: string, content: string): string {
+  const withFrontmatter = updateSkillMarkdownFrontmatter(raw, name, description);
+  const match = withFrontmatter.match(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?)[\s\S]*$/);
+  if (!match) return serializeSkillMd(name, description, content);
+  const body = content.replace(/^\r?\n/, "");
+  return `${match[1]}${body}`;
+}
+
 function parseRequires(metadata: Record<string, unknown>): ParsedSkillMarkdown["requires"] {
   const mcp = splitCsv(metadata.ragsystem_requires_mcp_servers);
   const tools = splitCsv(metadata.ragsystem_requires_tools);

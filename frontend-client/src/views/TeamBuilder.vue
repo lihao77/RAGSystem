@@ -21,78 +21,44 @@
       <template v-else>
         <KpiCards :items="kpiItems" />
 
-        <section class="glass-card builder-panel release-panel">
+        <section class="glass-card builder-panel">
           <div class="section-toolbar">
             <div>
               <h2 class="section-title">Agent Builder</h2>
-              <p class="section-desc">审查模型生成的 Agent 草稿，校验能力绑定，并发布为独立版本。</p>
+              <p class="section-desc">审查模型生成的 Agent 草稿，校验能力绑定，并发布到同名 Team。</p>
             </div>
-            <Button variant="ghost" size="sm" :disabled="builderLoading" @click="loadBuilderData">刷新</Button>
-          </div>
-
-          <div class="release-grid">
-            <div class="release-column">
-              <div class="release-column__head">
-                <span class="board-caption">待处理草稿</span>
-                <span class="board-metric">{{ drafts.length }}</span>
-              </div>
-              <div v-if="drafts.length" class="release-list">
-                <article v-for="draft in drafts" :key="draft.id" class="release-row">
-                  <div class="release-row__content">
-                    <div class="release-row__title">
-                      <strong>{{ draft.blueprint.name }}</strong>
-                      <UiBadge size="sm" :tone="draftStatusTone(draft.status)">{{ draftStatusLabel(draft.status) }}</UiBadge>
-                    </div>
-                    <p>{{ draft.blueprint.description }}</p>
-                    <div class="release-row__meta">
-                      <span>rev {{ draft.revision }}</span>
-                      <span>{{ draft.blueprint.agents.length }} Agents</span>
-                      <span>{{ draft.validation?.issues?.length || 0 }} Issues</span>
-                    </div>
-                    <ul v-if="draft.validation?.issues?.length" class="validation-list">
-                      <li v-for="item in draft.validation.issues.slice(0, 3)" :key="`${draft.id}-${item.code}-${item.path}`" :class="`validation-list__${item.level}`">
-                        {{ item.message }}
-                      </li>
-                    </ul>
-                  </div>
-                  <div class="release-row__actions">
-                    <Button variant="action-neutral" size="action" :disabled="builderWorking || draft.status === 'published'" @click="handleValidateDraft(draft)">校验</Button>
-                    <Button variant="action-success" size="action" :disabled="builderWorking || draft.status !== 'ready'" @click="handlePublishDraft(draft)">发布</Button>
-                    <Button variant="action-danger" size="action" :disabled="builderWorking" @click="handleDeleteDraft(draft)">删除</Button>
-                  </div>
-                </article>
-              </div>
-              <div v-else class="empty-inline">暂无 Agent 草稿。模型创建草稿后会显示在这里。</div>
-            </div>
-
-            <div class="release-column">
-              <div class="release-column__head">
-                <span class="board-caption">已发布版本</span>
-                <span class="board-metric">{{ releases.length }}</span>
-              </div>
-              <div v-if="releases.length" class="release-list">
-                <article v-for="release in releases" :key="release.id" class="release-row release-row--published">
-                  <div class="release-row__content">
-                    <div class="release-row__title">
-                      <strong>{{ release.package_name }}</strong>
-                      <UiBadge size="sm" tone="success">v{{ release.version }}</UiBadge>
-                    </div>
-                    <p>{{ release.blueprint.description }}</p>
-                    <div class="release-row__meta">
-                      <code>{{ release.runtime_team_name }}</code>
-                      <span>{{ release.blueprint.agents.length }} Agents</span>
-                    </div>
-                  </div>
-                  <div class="release-row__actions">
-                    <Button variant="action-success" size="action" :disabled="working || activeTeam === release.runtime_team_name" @click="handleActivateTeam(release.runtime_team_name)">
-                      {{ activeTeam === release.runtime_team_name ? '生效中' : '激活' }}
-                    </Button>
-                  </div>
-                </article>
-              </div>
-              <div v-else class="empty-inline">通过校验并发布后，版本会保留为不可变快照。</div>
+            <div class="inline-actions">
+              <UiBadge size="sm">{{ drafts.length }} 个草稿</UiBadge>
+              <Button variant="ghost" size="sm" :disabled="builderLoading" @click="loadBuilderData">刷新</Button>
             </div>
           </div>
+
+          <div v-if="drafts.length" class="draft-list">
+            <article v-for="draft in drafts" :key="draft.id" class="draft-row">
+              <div class="draft-row__content">
+                <div class="draft-row__title">
+                  <strong>{{ draft.blueprint.name }}</strong>
+                  <UiBadge size="sm" :tone="draftStatusTone(draft.status)">{{ draftStatusLabel(draft.status) }}</UiBadge>
+                </div>
+                <p>{{ draft.blueprint.description }}</p>
+                <div class="draft-row__meta">
+                  <span>rev {{ draft.revision }}</span>
+                  <span>{{ draft.blueprint.agents.length }} Agents</span>
+                  <span>{{ draft.validation?.issues?.length || 0 }} Issues</span>
+                </div>
+                <ul v-if="draft.validation?.issues?.length" class="validation-list">
+                  <li v-for="item in draft.validation.issues.slice(0, 3)" :key="`${draft.id}-${item.code}-${item.path}`" :class="`validation-list__${item.level}`">
+                    {{ item.message }}
+                  </li>
+                </ul>
+              </div>
+              <div class="draft-row__actions">
+                <Button variant="action-success" size="action" :disabled="builderWorking || draft.status === 'published'" @click="handlePublishDraft(draft)">发布</Button>
+                <Button variant="action-danger" size="action" :disabled="builderWorking" @click="handleDeleteDraft(draft)">删除</Button>
+              </div>
+            </article>
+          </div>
+          <div v-else class="empty-inline">暂无 Agent 草稿。模型创建草稿后会显示在这里。</div>
         </section>
 
         <section class="glass-card builder-panel builder-panel--split">
@@ -297,7 +263,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { useConfirm } from '../composables/useConfirm.js';
-import { deleteAgentDraft, listAgentDrafts, listAgentReleases, publishAgentDraft, validateAgentDraft } from '../api/agentBuilder.js';
+import { deleteAgentDraft, listAgentDrafts, publishAgentDraft } from '../api/agentBuilder.js';
 import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, resetDefaultTeam } from '../api/agentConfig';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 
@@ -325,7 +291,6 @@ const copySourceTeam = ref('');
 const copyTargetTeam = ref('');
 const selectedCopyAgents = ref([]);
 const drafts = ref([]);
-const releases = ref([]);
 const builderLoading = ref(false);
 const AGENT_BUILDER_TEAM_NAME = 'agent-builder';
 
@@ -351,44 +316,37 @@ function isAgentBuilderTeam(team) {
 }
 
 function draftStatusLabel(status) {
-  return ({ draft: '草稿', validation_failed: '校验失败', ready: '待发布', published: '已发布' })[status] || status;
+  return status === 'published' ? '已发布' : '草稿';
 }
 function draftStatusTone(status) {
-  return ({ validation_failed: 'error', ready: 'warning', published: 'success' })[status] || 'neutral';
+  return status === 'published' ? 'success' : 'neutral';
 }
 
 async function loadBuilderData() {
   builderLoading.value = true;
   try {
-    [drafts.value, releases.value] = await Promise.all([listAgentDrafts(), listAgentReleases()]);
+    drafts.value = await listAgentDrafts();
   } finally {
     builderLoading.value = false;
   }
 }
 
-const { run: runValidateDraft, loading: validatingDraft } = useAsyncAction(
-  async (draft) => {
-    await validateAgentDraft(draft.id);
-    await loadBuilderData();
-  },
-  { successMessage: 'Agent 草稿校验完成', errorPrefix: '校验 Agent 草稿失败' },
-);
-function handleValidateDraft(draft) { runValidateDraft(draft); }
-
 const { run: runPublishDraft, loading: publishingDraft } = useAsyncAction(
   async (draft) => {
     const accepted = await confirm({
-      title: '发布 Agent 版本',
-      message: `发布 ${draft.blueprint.name} rev ${draft.revision}？发布后该版本不可修改。`,
+      title: '发布 Agent 草稿',
+      message: draft.source_team_name
+        ? `将 ${draft.blueprint.name} rev ${draft.revision} 重新发布到 Team ${draft.source_team_name}？`
+        : `将 ${draft.blueprint.name} rev ${draft.revision} 发布为同名 Team？`,
       confirmText: '发布',
       danger: false,
     });
     if (!accepted) return null;
-    const release = await publishAgentDraft(draft.id, draft.revision);
+    const published = await publishAgentDraft(draft.id, draft.revision);
     await Promise.all([loadBuilderData(), runLoadTeams(true)]);
-    return release;
+    return published;
   },
-  { successMessage: (release) => release ? 'Agent 版本已发布' : '', errorPrefix: '发布 Agent 版本失败' },
+  { successMessage: (published) => published ? 'Agent 草稿已发布' : '', errorPrefix: '发布 Agent 草稿失败' },
 );
 function handlePublishDraft(draft) { runPublishDraft(draft); }
 
@@ -535,7 +493,7 @@ const { run: runResetDefault, loading: resetting } = useAsyncAction(
 );
 function handleResetDefaultTeam() { runResetDefault(); }
 
-const builderWorking = computed(() => builderLoading.value || validatingDraft.value || publishingDraft.value || deletingDraft.value);
+const builderWorking = computed(() => builderLoading.value || publishingDraft.value || deletingDraft.value);
 const working = computed(() => creating.value || copying.value || activating.value || deleting.value || resetting.value || publishingDraft.value);
 
 function goToAgentConfig() { router.push('/agent-config'); }
@@ -550,18 +508,13 @@ onMounted(() => { loadTeams(); loadBuilderData(); });
 <style scoped>
 .team-builder-page { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 
-.release-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-lg); }
-.release-column { min-width: 0; }
-.release-column + .release-column { border-left: 1px solid var(--color-border); padding-left: var(--spacing-lg); }
-.release-column__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--spacing-sm); }
-.release-list { display: flex; flex-direction: column; gap: 8px; }
-.release-row { display: flex; justify-content: space-between; gap: var(--spacing-md); padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-primary); }
-.release-row--published { border-left: 3px solid var(--color-success); }
-.release-row__content { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.release-row__title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.release-row__content p { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
-.release-row__meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
-.release-row__actions { display: flex; align-items: flex-start; gap: 6px; flex-shrink: 0; }
+.draft-list { display: flex; flex-direction: column; gap: 8px; }
+.draft-row { display: flex; justify-content: space-between; gap: var(--spacing-md); padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-primary); }
+.draft-row__content { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.draft-row__title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.draft-row__content p { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.draft-row__meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
+.draft-row__actions { display: flex; align-items: flex-start; gap: 6px; flex-shrink: 0; }
 .validation-list { margin: 2px 0 0; padding-left: 18px; font-size: var(--font-size-xs); }
 .validation-list__error { color: var(--color-danger); }
 .validation-list__warning { color: var(--color-warning); }
@@ -667,8 +620,6 @@ onMounted(() => { loadTeams(); loadBuilderData(); });
 .section-actions--compact { justify-content: flex-end; }
 
 @media (max-width: 900px) {
-  .release-grid { grid-template-columns: 1fr; }
-  .release-column + .release-column { border-left: none; border-top: 1px solid var(--color-border); padding-top: var(--spacing-lg); padding-left: 0; }
   .composition-board { grid-template-columns: 1fr; }
   .board-transfer { order: 2; }
   .board-column--target { order: 3; }

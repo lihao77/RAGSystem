@@ -8,9 +8,7 @@ import {
   createAgentDraft,
   deleteAgentDraft,
   listAgentDrafts,
-  listAgentReleases,
   publishAgentDraft,
-  validateAgentDraft,
 } from './agentBuilder.js';
 import { httpClient } from './http.js';
 
@@ -21,41 +19,31 @@ function withMock(setup, run) {
   return Promise.resolve().then(run).finally(() => mock.restore());
 }
 
-test('Agent Builder API unwraps draft and release responses', async () => {
+test('Agent Builder API unwraps draft responses', async () => {
   await withMock((mock) => {
     mock.onGet('/api/agent-builder/drafts').reply(200, { success: true, data: [{ id: 'draft_1' }] });
     mock.onPost('/api/agent-builder/drafts').reply((config) => {
       assert.deepEqual(JSON.parse(config.data), { blueprint: { schema_version: 1 } });
       return [200, { success: true, data: { id: 'draft_2' } }];
     });
-    mock.onGet('/api/agent-builder/releases?package_name=support-team').reply(200, {
-      success: true,
-      data: [{ id: 'release_1' }],
-    });
   }, async () => {
     assert.deepEqual(await listAgentDrafts(), [{ id: 'draft_1' }]);
     assert.deepEqual(await createAgentDraft({ schema_version: 1 }), { id: 'draft_2' });
-    assert.deepEqual(await listAgentReleases('support-team'), [{ id: 'release_1' }]);
   });
 });
 
-test('Agent Builder validation and publish use explicit draft revision', async () => {
+test('Agent Builder publish uses the explicit draft revision and delete has no body', async () => {
   await withMock((mock) => {
-    mock.onPost('/api/agent-builder/drafts/draft_1/validate').reply(200, {
-      success: true,
-      data: { id: 'draft_1', status: 'ready' },
-    });
     mock.onPost('/api/agent-builder/drafts/draft_1/publish').reply((config) => {
       assert.deepEqual(JSON.parse(config.data), { expected_revision: 3 });
-      return [200, { success: true, data: { id: 'release_1', version: 1 } }];
+      return [200, { success: true, data: { id: 'draft_1', status: 'published' } }];
     });
     mock.onDelete('/api/agent-builder/drafts/draft_1').reply((config) => {
       assert.equal(config.data, undefined);
       return [200, { success: true, data: { id: 'draft_1' } }];
     });
   }, async () => {
-    assert.equal((await validateAgentDraft('draft_1')).status, 'ready');
-    assert.equal((await publishAgentDraft('draft_1', 3)).version, 1);
+    assert.equal((await publishAgentDraft('draft_1', 3)).status, 'published');
     assert.equal((await deleteAgentDraft('draft_1')).id, 'draft_1');
   });
 });

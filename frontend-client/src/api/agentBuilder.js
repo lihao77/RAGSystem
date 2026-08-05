@@ -30,25 +30,9 @@ export async function deleteAgentDraft(id) {
   return result.data || result;
 }
 
-export async function validateAgentDraft(id) {
-  const result = await http.post(`${API_BASE}/drafts/${encodeURIComponent(id)}/validate`);
-  return result.data || result;
-}
-
 export async function publishAgentDraft(id, expectedRevision) {
   const result = await http.post(`${API_BASE}/drafts/${encodeURIComponent(id)}/publish`, {
     expected_revision: expectedRevision,
   });
-  return result.data || result;
-}
-
-export async function listAgentReleases(packageName = '') {
-  const query = packageName ? `?package_name=${encodeURIComponent(packageName)}` : '';
-  const result = await http.get(`${API_BASE}/releases${query}`);
-  return result.data || [];
-}
-
-export async function getAgentRelease(id) {
-  const result = await http.get(`${API_BASE}/releases/${encodeURIComponent(id)}`);
   return result.data || result;
 }

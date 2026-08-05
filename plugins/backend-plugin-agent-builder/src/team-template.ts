@@ -75,7 +75,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         CAPABILITY_DISCOVERY_PROMPT,
         "Use list_agent_drafts, with a query when needed, to find a Draft; use get to copy it into the current Session workspace, or create to start a new workspace Draft. Edit blueprint.json with file tools, then call publish; publish performs validation and synchronization automatically.",
         SKILL_AUTHORING_PROMPT,
-        "Do not bypass the publish tool or change runtime files. The platform may auto-publish validated drafts when the tenant automation setting is enabled; report whether the draft remained pending or became a published Release, and never auto-activate a Team.",
+        "Do not bypass the publish tool or change runtime files. The platform may auto-publish validated drafts when tenant automation is enabled; report whether the draft remained pending or was published to its Team, and never auto-activate a Team.",
         "Keep optimization bounded: at most three revisions per build request unless the user explicitly asks to continue.",
       ].join(" "),
     }),

@@ -79,21 +79,9 @@ export const AgentDraftSchema = z.object({
   source_team_name: z.string().trim().min(1).nullable().default(null),
   blueprint: AgentBlueprintSchema,
   validation: AgentBuilderValidationReportSchema.nullable(),
-  published_release_id: z.string().nullable(),
+  published_at: z.string().datetime().nullable(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
-}).strict();
-
-export const AgentReleaseSchema = z.object({
-  id: z.string().min(1),
-  package_name: IdentifierSchema,
-  version: z.number().int().positive(),
-  runtime_team_name: z.string().trim().min(1).max(96),
-  blueprint: AgentBlueprintSchema,
-  validation: AgentBuilderValidationReportSchema,
-  source_draft_id: z.string().min(1),
-  source_draft_revision: z.number().int().positive(),
-  published_at: z.string().datetime(),
 }).strict();
 
 export const CreateAgentDraftRequestSchema = z.object({
@@ -114,7 +102,6 @@ export type AgentBlueprintAgent = z.infer<typeof AgentBlueprintAgentSchema>;
 export type AgentBuilderValidationIssue = z.infer<typeof AgentBuilderValidationIssueSchema>;
 export type AgentBuilderValidationReport = z.infer<typeof AgentBuilderValidationReportSchema>;
 export type AgentDraft = z.infer<typeof AgentDraftSchema>;
-export type AgentRelease = z.infer<typeof AgentReleaseSchema>;
 
 export interface AgentBuilderCapabilityInventory {
   readonly tools?: ReadonlySet<string>;
