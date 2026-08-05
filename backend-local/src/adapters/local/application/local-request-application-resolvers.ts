@@ -1,4 +1,5 @@
 import { LocalExecutionApplication } from "./execution/local-execution-application.js";
+import "@ragsystem/backend-core/fastify-context.js";
 import type { RequestApplicationResolvers } from "@ragsystem/backend-core/app/request-applications.js";
 import { LocalProviderApplication } from "./provider/local-provider-application.js";
 

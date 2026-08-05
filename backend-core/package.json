@@ -4,9 +4,69 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./*.js": {
-      "types": "./dist/*.d.ts",
-      "default": "./dist/*.js"
+    "./contracts/*.js": {
+      "types": "./dist/contracts/*.d.ts",
+      "default": "./dist/contracts/*.js"
+    },
+    "./contracts/*/*.js": {
+      "types": "./dist/contracts/*/*.d.ts",
+      "default": "./dist/contracts/*/*.js"
+    },
+    "./contracts/*/*/*.js": {
+      "types": "./dist/contracts/*/*/*.d.ts",
+      "default": "./dist/contracts/*/*/*.js"
+    },
+    "./contracts/*/*/*/*.js": {
+      "types": "./dist/contracts/*/*/*/*.d.ts",
+      "default": "./dist/contracts/*/*/*/*.js"
+    },
+    "./plugins/*.js": {
+      "types": "./dist/plugins/*.d.ts",
+      "default": "./dist/plugins/*.js"
+    },
+    "./app/*.js": {
+      "types": "./dist/app/*.d.ts",
+      "default": "./dist/app/*.js"
+    },
+    "./config/*.js": {
+      "types": "./dist/config/*.d.ts",
+      "default": "./dist/config/*.js"
+    },
+    "./fastify-context.js": {
+      "types": "./dist/fastify-context.d.ts",
+      "default": "./dist/fastify-context.js"
+    },
+    "./core-app.js": {
+      "types": "./dist/core-app.d.ts",
+      "default": "./dist/core-app.js"
+    },
+    "./identity/*.js": {
+      "types": "./dist/identity/*.d.ts",
+      "default": "./dist/identity/*.js"
+    },
+    "./routes/*.js": {
+      "types": "./dist/routes/*.d.ts",
+      "default": "./dist/routes/*.js"
+    },
+    "./routes/*/*.js": {
+      "types": "./dist/routes/*/*.d.ts",
+      "default": "./dist/routes/*/*.js"
+    },
+    "./services/*.js": {
+      "types": "./dist/services/*.d.ts",
+      "default": "./dist/services/*.js"
+    },
+    "./tools/*.js": {
+      "types": "./dist/tools/*.d.ts",
+      "default": "./dist/tools/*.js"
+    },
+    "./tools/*/*.js": {
+      "types": "./dist/tools/*/*.d.ts",
+      "default": "./dist/tools/*/*.js"
+    },
+    "./utils/*.js": {
+      "types": "./dist/utils/*.d.ts",
+      "default": "./dist/utils/*.js"
     }
   },
   "engines": {
