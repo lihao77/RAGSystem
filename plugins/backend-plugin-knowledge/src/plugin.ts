@@ -5,6 +5,7 @@ import { KNOWLEDGE_RUNTIME_CAPABILITY } from "./capability.js";
 import type { KnowledgePluginDependencies } from "./dependencies.js";
 import { registerEmbeddingModelRoutes } from "./embedding-model-routes.js";
 import { registerKnowledgeBaseRoutes } from "./routes.js";
+import { createKnowledgeSystemConfigExtension } from "./system-config.js";
 import { createKnowledgeTools } from "./tools/KnowledgeTools.js";
 
 export const KNOWLEDGE_PLUGIN_ID = "@ragsystem/backend-plugin-knowledge";
@@ -17,11 +18,28 @@ export function createKnowledgePlugin(dependencies: KnowledgePluginDependencies)
     },
     register(context) {
       context.runtimes.register(async (runtimeContext) => {
-        const runtime = await dependencies.runtimeFactory(runtimeContext);
-        return {
-          capabilities: [provideCapability(KNOWLEDGE_RUNTIME_CAPABILITY, runtime)],
-          ...(runtime.dispose ? { dispose: () => runtime.dispose?.() } : {}),
-        };
+        const unregisterSystemConfig = runtimeContext.systemConfig.registerExtension(
+          KNOWLEDGE_PLUGIN_ID,
+          createKnowledgeSystemConfigExtension(
+            runtimeContext.systemConfig.getSection("document_extraction"),
+          ),
+        );
+        try {
+          const runtime = await dependencies.runtimeFactory(runtimeContext);
+          return {
+            capabilities: [provideCapability(KNOWLEDGE_RUNTIME_CAPABILITY, runtime)],
+            dispose: () => {
+              try {
+                runtime.dispose?.();
+              } finally {
+                unregisterSystemConfig();
+              }
+            },
+          };
+        } catch (error) {
+          unregisterSystemConfig();
+          throw error;
+        }
       });
       context.routes.register("tenant", "/api/knowledge-bases", async (app) => {
         await app.register(registerKnowledgeBaseRoutes);

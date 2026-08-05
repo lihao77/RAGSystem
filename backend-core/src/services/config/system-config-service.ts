@@ -1,7 +1,6 @@
 import { isRecord } from "../../utils/guards.js";
 
 import type {
-  DocumentExtractionConfig,
   SystemLlmConfig,
   SystemConfigData,
   SystemConfigGroup,
@@ -106,12 +105,6 @@ export class SystemConfigService {
     return normalizeSystemGroupConfig(this.config.system);
   }
 
-  /** 类型化读取 document_extraction 组。 */
-  getDocumentExtractionConfig(): DocumentExtractionConfig {
-    this.ensureInitialized();
-    return normalizeDocumentExtractionConfig(this.config.document_extraction);
-  }
-
   async updateConfig(update: SystemConfigUpdate): Promise<SystemConfigData> {
     this.ensureInitialized();
     const sanitized = retainKnownRootGroups(dropRedactedValues(update), this.config) as SystemConfigData;
@@ -152,11 +145,6 @@ function buildDefaultConfig(): SystemConfigData {
       max_context_tokens: 128000,
       extra_params: {},
     },
-    document_extraction: {
-      engine: "builtin",
-      cli: { command: "", timeout: 120, applies_to: [] },
-      http: { endpoint: "", timeout: 120, applies_to: [] },
-    },
     system: {
       max_content_length: 104857600,
     },
@@ -190,32 +178,6 @@ function buildSystemConfigSchema(): SystemConfigSchema {
           numberField("temperature", "Temperature", "生成温度，控制输出随机性", 0.7, { min: 0, max: 2, step: 0.1 }),
           numberField("max_completion_tokens", "Max Completion Tokens", "单次输出的最大 token 数", 4096, { min: 1, step: 1 }),
           numberField("max_context_tokens", "Max Context Tokens", "模型支持的最大上下文窗口", 128000, { min: 1, step: 1 }),
-        ],
-      },
-      {
-        key: "document_extraction",
-        label: "文档解析",
-        description: "知识库文档文本解析配置",
-        fields: [selectField("engine", "Engine", "解析引擎", "builtin", ["builtin", "cli", "http"], false)],
-      },
-      {
-        key: "document_extraction.cli",
-        label: "CLI 文档解析",
-        description: "通过本地命令解析文档",
-        fields: [
-          textField("command", "Command", "命令模板，支持 {input}/{output}；MinerU 示例：mineru -p {input} -o {output}", ""),
-          numberField("timeout", "Timeout", "命令超时（秒）", 120, { min: 1, step: 1 }),
-          stringListField("applies_to", "Applies To", "适用类型，逗号分隔；留空表示全部", []),
-        ],
-      },
-      {
-        key: "document_extraction.http",
-        label: "HTTP 文档解析",
-        description: "通过 HTTP multipart 服务解析文档",
-        fields: [
-          textField("endpoint", "Endpoint", "文档解析服务地址", ""),
-          numberField("timeout", "Timeout", "请求超时（秒）", 120, { min: 1, step: 1 }),
-          stringListField("applies_to", "Applies To", "适用类型，逗号分隔；留空表示全部", []),
         ],
       },
       {
@@ -257,14 +219,6 @@ function textField(key: string, label: string, help: string, defaultValue: strin
   return { key, label, type: "text" as const, default: defaultValue, help };
 }
 
-function stringListField(key: string, label: string, help: string, defaultValue: string[]) {
-  return { key, label, type: "string_list" as const, default: defaultValue, help };
-}
-
-function booleanField(key: string, label: string, help: string, defaultValue: boolean) {
-  return { key, label, type: "boolean" as const, default: defaultValue, help };
-}
-
 function numberField(
   key: string,
   label: string,
@@ -280,32 +234,6 @@ function numberField(
     help,
     ...options,
   };
-}
-
-function selectField(
-  key: string,
-  label: string,
-  help: string,
-  defaultValue: string | null,
-  values: string[],
-  nullable: boolean,
-) {
-  const options = values.map((value) => ({ value, label: value }));
-  if (nullable) {
-    options.unshift({ value: "", label: "未设置" });
-  }
-  const field: SystemConfigSchema["groups"][number]["fields"][number] = {
-    key,
-    label,
-    type: "select" as const,
-    default: defaultValue,
-    help,
-    options,
-  };
-  if (nullable) {
-    field.nullable = true;
-  }
-  return field;
 }
 
 function cloneConfig(config: SystemConfigData): SystemConfigData {
@@ -441,30 +369,4 @@ function normalizeSystemGroupConfig(value: unknown): SystemGroupConfig {
   return {
     max_content_length: positiveIntOrDefault(record.max_content_length, 104857600),
   };
-}
-
-function normalizeDocumentExtractionConfig(value: unknown): DocumentExtractionConfig {
-  const record = isRecord(value) ? value : {};
-  const cli = isRecord(record.cli) ? record.cli : {};
-  const http = isRecord(record.http) ? record.http : {};
-  const engine = record.engine === "cli" || record.engine === "http" ? record.engine : "builtin";
-  return {
-    engine,
-    cli: {
-      command: typeof cli.command === "string" ? cli.command.trim() : "",
-      timeout: positiveIntOrDefault(cli.timeout, 120),
-      applies_to: normalizeStringList(cli.applies_to),
-    },
-    http: {
-      endpoint: typeof http.endpoint === "string" ? http.endpoint.trim() : "",
-      timeout: positiveIntOrDefault(http.timeout, 120),
-      applies_to: normalizeStringList(http.applies_to),
-    },
-  };
-}
-
-function normalizeStringList(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean);
-  if (typeof value === "string") return value.split(",").map((item) => item.trim()).filter(Boolean);
-  return [];
 }

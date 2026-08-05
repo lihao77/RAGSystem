@@ -18,6 +18,12 @@ export type {
 } from "./dependencies.js";
 export { backendPluginModule } from "./module.js";
 export { createKnowledgePlugin, KNOWLEDGE_PLUGIN_ID } from "./plugin.js";
+export {
+  KNOWLEDGE_SYSTEM_CONFIG_EXTENSION,
+  createKnowledgeSystemConfigExtension,
+  resolveDocumentExtractionConfig,
+  type DocumentExtractionConfig,
+} from "./system-config.js";
 export { KnowledgeApplicationService } from "./services/knowledge/knowledge-application-service.js";
 export type { KnowledgeEmbedderFactory } from "./services/knowledge/knowledge-application-service.js";
 export { KnowledgeHttpApplication } from "./services/knowledge/knowledge-http-application.js";

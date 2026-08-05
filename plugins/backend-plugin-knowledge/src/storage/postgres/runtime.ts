@@ -3,7 +3,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { DocumentExtractionConfig } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
 import type { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 
@@ -20,6 +19,7 @@ import { SaaSKnowledgeFileStorage } from "./knowledge-file-storage.js";
 import { PostgresPgVectorRepository } from "./pgvector-repository.js";
 import { KnowledgeAgentConfigService } from "../../agent-config.js";
 import { PostgresKnowledgeAgentConfigStore } from "./agent-config-store.js";
+import { resolveDocumentExtractionConfig, type DocumentExtractionConfig } from "../../system-config.js";
 
 export interface PostgresKnowledgeRuntimeOptions {
   tenantId: string;
@@ -47,7 +47,9 @@ export function createPostgresKnowledgeRuntimeFactory(
         executor: options.executor,
         objects: options.objects,
         modelAdapter: context.modelAdapter,
-        documentExtraction: context.systemConfig.getDocumentExtractionConfig(),
+        documentExtraction: resolveDocumentExtractionConfig(
+          context.systemConfig.getSection("document_extraction"),
+        ),
       }),
       agentConfig: new KnowledgeAgentConfigService(
         new PostgresKnowledgeAgentConfigStore(options.executor, context.tenantId),

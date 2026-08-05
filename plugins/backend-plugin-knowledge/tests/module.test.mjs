@@ -31,11 +31,18 @@ test("Knowledge module owns SaaS runtime wiring and migrations", async () => {
     tenantId: "tenant-a",
     modelAdapter: {},
     systemConfig: {
-      getDocumentExtractionConfig: () => ({
-        engine: "builtin",
-        cli: { command: "", timeout: 30, applies_to: [] },
-        http: { endpoint: "", timeout: 30, applies_to: [] },
-      }),
+      getSection: (key) => key === "document_extraction"
+        ? {
+          engine: "builtin",
+          cli: { command: "", timeout: 30, applies_to: [] },
+          http: { endpoint: "", timeout: 30, applies_to: [] },
+        }
+        : undefined,
+      registerExtension: (id, extension) => {
+        assert.equal(id, "@ragsystem/backend-plugin-knowledge");
+        assert.ok(extension.groups.some((group) => group.key === "document_extraction"));
+        return () => undefined;
+      },
     },
   });
   assert.ok(runtime.capabilities.require(KNOWLEDGE_RUNTIME_CAPABILITY).application);

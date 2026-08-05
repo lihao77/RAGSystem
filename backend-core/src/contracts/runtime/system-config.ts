@@ -70,9 +70,3 @@ export interface SystemLlmConfig {
 export interface SystemGroupConfig {
   max_content_length: number;
 }
-
-export interface DocumentExtractionConfig {
-  engine: "builtin" | "cli" | "http";
-  cli: { command: string; timeout: number; applies_to: string[] };
-  http: { endpoint: string; timeout: number; applies_to: string[] };
-}

@@ -118,7 +118,7 @@ function toggleGroup(key) {
 
 /**
  * 从嵌套对象中获取值。
- * 支持 dotted group key，如 "document_extraction.cli"。
+ * 支持 dotted group key，如 "skills.approval"。
  */
 function getFieldValue(groupKey, fieldKey) {
   const parts = groupKey && groupKey !== '_root' ? groupKey.split('.') : []

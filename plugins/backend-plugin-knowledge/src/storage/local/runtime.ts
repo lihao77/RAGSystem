@@ -2,11 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 
-import type { DocumentExtractionConfig } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 import type { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 
 import type { KnowledgeApplication } from "../../contracts/knowledge-application.js";
 import type { KnowledgePluginRuntimeFactory } from "../../dependencies.js";
+import { resolveDocumentExtractionConfig, type DocumentExtractionConfig } from "../../system-config.js";
 import { DocumentExtractDispatcher } from "../../services/knowledge/document-extract/dispatcher.js";
 import {
   KnowledgeApplicationService,
@@ -52,7 +52,9 @@ export function createLocalKnowledgeRuntimeFactory(
       dataRoot: context.dataRoot,
       inMemory: false,
       modelAdapter: context.modelAdapter,
-      documentExtraction: context.systemConfig.getDocumentExtractionConfig(),
+      documentExtraction: resolveDocumentExtractionConfig(
+        context.systemConfig.getSection("document_extraction"),
+      ),
       ...(options.embedderFactory ? { embedderFactory: options.embedderFactory } : {}),
     });
     return {

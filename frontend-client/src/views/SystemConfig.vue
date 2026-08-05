@@ -1,5 +1,5 @@
 <template>
-  <PageLayout title="系统配置" subtitle="文档解析、记忆与系统运行参数">
+  <PageLayout title="系统配置" subtitle="记忆与系统运行参数">
     <template #header-actions>
       <Button variant="ghost" size="icon-sm" :disabled="loading || saving" aria-label="重新加载" title="重新加载" @click="handleReload">
         <IconRefresh :size="16" />
@@ -23,7 +23,7 @@
     <EntityListLayout
       v-if="loading || error"
       title="系统配置数据"
-      description="加载文档解析、记忆与系统运行参数。"
+      description="加载记忆与系统运行参数。"
       :loading="loading"
       loading-text="加载系统配置..."
       :error="error"
