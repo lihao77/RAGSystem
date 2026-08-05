@@ -1,80 +1,26 @@
 import { z } from "zod";
 
-import { buildTool, type Tool } from "@ragsystem/agent-sdk";
+import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import type { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import { MCP_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-mcp/capability.js";
 import { SKILLS_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-skills/capability.js";
 
-import { AgentBlueprintSchema } from "./contracts.js";
 import type { AgentDraft } from "./contracts.js";
 import type { AgentBuilderService } from "./service.js";
 
-const CreateDraftToolInputSchema = z.object({
-  blueprint: AgentBlueprintSchema,
-}).strict();
-
 const EmptyToolInputSchema = z.object({}).strict();
+const SearchDraftToolInputSchema = z.object({ query: z.string().trim().max(200).optional().default("") }).strict();
+const CreateDraftToolInputSchema = z.object({
+  name: z.string().trim().min(1).max(64).regex(/^[a-z0-9][a-z0-9_-]*$/),
+  description: z.string().trim().min(1).max(1_000),
+}).strict();
 const DraftIdToolInputSchema = z.object({
   draft_id: z.string().trim().min(1),
 }).strict();
-const UpdateDraftToolInputSchema = z.object({
-  draft_id: z.string().trim().min(1),
-  expected_revision: z.number().int().positive(),
-  blueprint: AgentBlueprintSchema,
-}).strict();
-
-const BLUEPRINT_JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["schema_version", "name", "description", "entry_agent", "agents"],
-  properties: {
-    schema_version: { type: "integer", enum: [1] },
-    name: { type: "string", description: "Lower-case package identifier" },
-    description: { type: "string" },
-    entry_agent: { type: "string", description: "Name of the entry Agent" },
-    agents: {
-      type: "array",
-      minItems: 1,
-      maxItems: 20,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["name", "instructions"],
-        properties: {
-          name: { type: "string" },
-          display_name: { type: "string" },
-          description: { type: "string" },
-          instructions: { type: "string" },
-          llm: { type: ["object", "null"], description: "Optional Agent LLM configuration" },
-          tools: { type: "array", items: { type: "string" } },
-          skills: { type: "array", items: { type: "string" } },
-          mcp_servers: { type: "array", items: { type: "string" } },
-          delegates: { type: "array", items: { type: "string" } },
-          goals_enabled: { type: "boolean" },
-          background_tasks: { type: "boolean" },
-        },
-      },
-    },
-    acceptance_tests: {
-      type: "array",
-      maxItems: 50,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["name", "input"],
-        properties: {
-          name: { type: "string" },
-          input: { type: "string" },
-          expected_contains: { type: "array", items: { type: "string" } },
-        },
-      },
-    },
-  },
-} as const;
-
 export interface AgentBuilderToolOptions {
   autoApproveDraft?: (draft: AgentDraft) => Promise<AgentDraft>;
+  bindingsProvider?: () => Promise<import("./service.js").AgentBuilderBindings>;
 }
 
 export function createAgentBuilderTools(
@@ -145,34 +91,34 @@ export function createAgentBuilderTools(
     }),
     buildTool({
       name: "list_agent_drafts",
-      description: "List the Agent Builder drafts available to the current tenant.",
-      inputSchema: EmptyToolInputSchema,
+      description: "List Agent Builder drafts, optionally filtering by id, name, description, or agent name.",
+      inputSchema: SearchDraftToolInputSchema,
       parameters: {
         type: "object",
         additionalProperties: false,
-        properties: {},
+        properties: { query: { type: "string", maxLength: 200 } },
       },
       riskLevel: "low",
       source: "agent_tool",
       category: "agent_builder",
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      async call() {
+      async call(input) {
         try {
-          const drafts = await service.listDrafts();
+          const drafts = await service.searchDrafts(input.query ?? "");
           return toolSuccess(drafts, {
             toolName: "list_agent_drafts",
             summary: `${drafts.length} Agent draft(s) found`,
             outputType: "agent_builder.drafts",
           });
         } catch (error) {
-          return toolError("list_agent_drafts", error instanceof Error ? error.message : String(error));
+          return toolError("list_agent_drafts", errorMessage(error));
         }
       },
     }),
     buildTool({
       name: "get_agent_draft",
-      description: "Read one Agent Builder draft, including its current revision and validation report.",
+      description: "Copy one Agent Builder draft, including blueprint.json, into the current Session workspace for editing.",
       inputSchema: DraftIdToolInputSchema,
       parameters: {
         type: "object",
@@ -183,14 +129,20 @@ export function createAgentBuilderTools(
       riskLevel: "low",
       source: "agent_tool",
       category: "agent_builder",
-      isReadOnly: () => true,
-      isConcurrencySafe: () => true,
-      async call(input) {
+      isReadOnly: () => false,
+      isConcurrencySafe: () => false,
+      async call(input, context: ToolExecContext) {
         try {
           const draft = await service.getDraft(input.draft_id);
-          return toolSuccess(draft, {
+          const workspace = workspaceRoot(context);
+          const materialized = await service.materializeDraftToWorkspace(draft, workspace);
+          return toolSuccess({
+            ...draft,
+            workspace_path: materialized.workspacePath,
+            editable_files: ["manifest.json", "blueprint.json"],
+          }, {
             toolName: "get_agent_draft",
-            summary: `Agent draft '${draft.id}' loaded at revision ${draft.revision}`,
+            summary: `Agent draft '${draft.id}' copied to the current Session workspace`,
             outputType: "agent_builder.draft",
           });
         } catch (error) {
@@ -200,17 +152,15 @@ export function createAgentBuilderTools(
     }),
     buildTool({
       name: "create_agent_draft",
-      description: "Create a non-executable Agent draft from a complete, structured Agent blueprint. Publishing requires an administrator review through the Agent Builder API.",
+      description: "Create an editable Agent draft workspace from a name and description. Complete blueprint.json with file tools, then publish the draft.",
       inputSchema: CreateDraftToolInputSchema,
       parameters: {
         type: "object",
         additionalProperties: false,
-        required: ["blueprint"],
+        required: ["name", "description"],
         properties: {
-          blueprint: {
-            ...BLUEPRINT_JSON_SCHEMA,
-            description: "AgentBlueprint schema version 1, including package name, entry agent, capabilities, and acceptance tests.",
-          },
+          name: { type: "string", minLength: 1, maxLength: 64, pattern: "^[a-z0-9][a-z0-9_-]*$" },
+          description: { type: "string", minLength: 1, maxLength: 1000 },
         },
       },
       riskLevel: "low",
@@ -218,13 +168,16 @@ export function createAgentBuilderTools(
       category: "agent_builder",
       isReadOnly: () => false,
       isConcurrencySafe: () => false,
-      async call(input) {
+      async call(input, context: ToolExecContext) {
         try {
-          const draft = await service.createDraft(input.blueprint);
-          const result = options.autoApproveDraft ? await options.autoApproveDraft(draft) : draft;
-          return toolSuccess(result, {
+          const result = await service.createWorkspaceDraft(input.name, input.description, workspaceRoot(context));
+          return toolSuccess({
+            ...result.draft,
+            workspace_path: result.workspacePath,
+            editable_files: ["manifest.json", "blueprint.json"],
+          }, {
             toolName: "create_agent_draft",
-            summary: `Agent draft '${result.id}' created for '${result.blueprint.name}'`,
+            summary: `Agent draft '${result.draft.id}' created in the current Session workspace`,
             outputType: "agent_builder.draft",
           });
         } catch (error) {
@@ -233,20 +186,15 @@ export function createAgentBuilderTools(
       },
     }),
     buildTool({
-      name: "update_agent_draft",
-      description: "Update an existing, unpublished Agent draft using optimistic revision control.",
-      inputSchema: UpdateDraftToolInputSchema,
+      name: "publish_agent_draft",
+      description: "Read the local Agent draft workspace, validate its blueprint, synchronize it to the system Draft, and publish automatically when enabled. Validation failures return an error and do not change the system Draft.",
+      inputSchema: DraftIdToolInputSchema,
       parameters: {
         type: "object",
         additionalProperties: false,
-        required: ["draft_id", "expected_revision", "blueprint"],
+        required: ["draft_id"],
         properties: {
           draft_id: { type: "string", minLength: 1 },
-          expected_revision: { type: "integer", minimum: 1 },
-          blueprint: {
-            ...BLUEPRINT_JSON_SCHEMA,
-            description: "Replacement AgentBlueprint schema version 1.",
-          },
         },
       },
       riskLevel: "low",
@@ -254,19 +202,43 @@ export function createAgentBuilderTools(
       category: "agent_builder",
       isReadOnly: () => false,
       isConcurrencySafe: () => false,
-      async call(input) {
+      async call(input, context: ToolExecContext) {
         try {
-          const draft = await service.updateDraft(input.draft_id, input.expected_revision, input.blueprint);
-          const result = options.autoApproveDraft ? await options.autoApproveDraft(draft) : draft;
-          return toolSuccess(result, {
-            toolName: "update_agent_draft",
-            summary: `Agent draft '${result.id}' updated to revision ${result.revision}`,
+          const bindings = options.bindingsProvider
+            ? await options.bindingsProvider()
+            : null;
+          if (!bindings) throw new Error("Agent Builder bindings are unavailable");
+          const result = await service.publishWorkspaceDraft(input.draft_id, workspaceRoot(context), bindings);
+          return toolSuccess({
+            ...result.draft,
+            release: result.release,
+            auto_published: result.auto_published,
+            workspace_path: result.workspacePath,
+          }, {
+            toolName: "publish_agent_draft",
+            summary: result.release
+              ? `Agent draft '${result.draft.id}' published as release '${result.release.id}'`
+              : `Agent draft '${result.draft.id}' synchronized and is awaiting administrator publication`,
             outputType: "agent_builder.draft",
           });
         } catch (error) {
-          return toolError("update_agent_draft", error instanceof Error ? error.message : String(error));
+          return toolError("publish_agent_draft", errorMessage(error));
         }
       },
     }),
   ];
+}
+
+function workspaceRoot(context: ToolExecContext): string {
+  const root = context.executionPaths?.workspace ?? context.workspaceRoot;
+  if (!root?.trim()) throw new Error("Current Agent Session has no workspace");
+  return root;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const report = (error as { report?: unknown }).report;
+    return report ? `${error.message}: ${JSON.stringify(report)}` : error.message;
+  }
+  return String(error);
 }

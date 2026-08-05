@@ -13,7 +13,6 @@ import { createArtifactToolAfterHook } from "./artifact-hook.js";
 import { ARTIFACT_STAGING_RESOURCE_KIND } from "./staging/contracts.js";
 import { createFilesystemArtifactStagingProvider } from "./staging/filesystem-staging-provider.js";
 import {
-  CREATE_SKILL_ARTIFACT_TOOL_DESCRIPTOR,
   createSkillArtifactTools,
 } from "./tools/create-skill-artifact.js";
 
@@ -39,8 +38,9 @@ export function createArtifactsPlugin(dependencies: ArtifactsPluginDependencies)
       context.resources.register(ARTIFACT_STAGING_RESOURCE_KIND, staging);
       context.hooks.on("tool.after", createArtifactToolAfterHook({ ...dependencies, staging }));
       context.tools.register(
-        ({ agent }) => createSkillArtifactTools(agent),
-        [CREATE_SKILL_ARTIFACT_TOOL_DESCRIPTOR],
+        ({ agent, teamName }) => teamName === "agent-builder" && agent.default_entry
+          ? createSkillArtifactTools(agent)
+          : [],
       );
       context.routes.register("tenant", "/api/artifacts", async (app) => {
         await app.register(registerArtifactRoutes, dependencies);

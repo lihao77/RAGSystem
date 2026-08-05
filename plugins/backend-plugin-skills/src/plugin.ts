@@ -5,10 +5,7 @@ import { SKILLS_RUNTIME_CAPABILITY } from "./capability.js";
 import type { SkillsPluginDependencies } from "./dependencies.js";
 import { registerSkillRoutes } from "./routes.js";
 import { createSkillTools } from "./tools/SkillTools.js";
-import {
-  createSkillAuthoringTools,
-  SKILL_AUTHORING_TOOL_DESCRIPTORS,
-} from "./tools/SkillAuthoringTools.js";
+import { createSkillAuthoringTools } from "./tools/SkillAuthoringTools.js";
 import { createSkillsSystemConfigExtension } from "./system-config.js";
 
 export const SKILLS_PLUGIN_ID = "@ragsystem/backend-plugin-skills";
@@ -57,14 +54,17 @@ export function createSkillsPlugin(dependencies: SkillsPluginDependencies): Back
         });
         const usageTools = createSkillTools({ skillTools: runtime.tools, agent, config });
         const enabledTools = new Set(agent.tools.enabled_tools);
-        return [
-          ...usageTools,
-          ...createSkillAuthoringTools({
+        const authoringTools = teamName === "agent-builder" && agent.default_entry
+          ? createSkillAuthoringTools({
             authoring: runtime.authoring,
             agentName: agent.agent_name,
-          }).filter((tool) => enabledTools.has(tool.name)),
+          }).filter((tool) => enabledTools.has(tool.name))
+          : [];
+        return [
+          ...usageTools,
+          ...authoringTools,
         ];
-      }, SKILL_AUTHORING_TOOL_DESCRIPTORS);
+      });
     },
     start: () => dependencies.lifecycle?.start?.(),
     stop: () => dependencies.lifecycle?.stop?.(),

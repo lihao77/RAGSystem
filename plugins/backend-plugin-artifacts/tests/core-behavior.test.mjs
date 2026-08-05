@@ -43,7 +43,10 @@ test("Artifact plugin registers its contributions and owns storage lifecycle", a
   assert.match(skillSource, /[\\/]skills$/);
   assert.equal(fs.existsSync(path.join(skillSource, "visualization", "SKILL.md")), true);
   assert.equal(fs.existsSync(path.join(skillSource, "skill-authoring", "SKILL.md")), true);
-  assert.deepEqual(contributions.tools.descriptors.map((tool) => tool.name), ["create_skill_artifact"]);
+  assert.deepEqual(contributions.tools.descriptors ?? [], []);
+  const skillAuthor = { default_entry: true, tools: { enabled_tools: ["create_skill_artifact"] } };
+  assert.deepEqual(contributions.tools.factory({ teamName: "default", agent: skillAuthor }), []);
+  assert.equal(contributions.tools.factory({ teamName: "agent-builder", agent: skillAuthor }).length, 1);
   assert.equal(typeof resources.find((item) => item.kind === "ragsystem.artifact-staging").value.forTenant, "function");
   assert.deepEqual(events, ["start", "stop"]);
 });
@@ -97,7 +100,7 @@ test("Artifact hook persists a V2 manifest with multiple embedded assets", async
   assert.equal(output.modifiedResult.outputType, "map.raster");
 });
 
-test("Skill Artifact result exposes stable identifiers for a later submit call", async () => {
+test("Skill Artifact result exposes stable identifiers and the Builder draft handoff", async () => {
   const hook = createArtifactToolAfterHook({
     storage: {
       applicationForTenant: () => artifactApplication({
@@ -128,9 +131,7 @@ test("Skill Artifact result exposes stable identifiers for a later submit call",
   assert.equal(output.modifiedResult.metadata.artifact_revision, 3);
   assert.equal(output.modifiedResult.metadata.artifact_status, "ready");
   assert.equal(output.modifiedResult.summary, "Skill Artifact 已创建：artifact_id=art_skill_123, revision=3");
-  assert.match(output.modifiedResult.llmHint, /artifact_id=art_skill_123/);
-  assert.match(output.modifiedResult.llmHint, /expected_revision=3/);
-  assert.match(output.modifiedResult.llmHint, /不要在同一并发工具批次中提前提交/);
+  assert.match(output.modifiedResult.llmHint, /publish_skill_draft/);
 });
 
 test("create_skill_artifact builds valid text and binary bundle assets", async () => {

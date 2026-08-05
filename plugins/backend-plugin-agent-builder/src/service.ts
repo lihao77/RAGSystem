@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import type { AgentConfig, AgentLlmConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { BackendToolDescriptor } from "@ragsystem/backend-core/plugins/backend-plugin.js";
@@ -65,21 +67,32 @@ export class AgentBuilderService {
     return this.store.listDrafts();
   }
 
+  async searchDrafts(query: string | null | undefined): Promise<AgentDraft[]> {
+    const normalized = (query ?? "").trim().toLowerCase();
+    if (!normalized) return this.listDrafts();
+    return (await this.listDrafts()).filter((draft) => [
+      draft.id,
+      draft.blueprint.name,
+      draft.blueprint.description,
+      ...draft.blueprint.agents.map((agent) => `${agent.name} ${agent.display_name ?? ""} ${agent.description}`),
+    ].join(" ").toLowerCase().includes(normalized));
+  }
+
   async getDraft(id: string): Promise<AgentDraft> {
     const draft = await this.store.getDraft(id);
     if (!draft) throw new AgentBuilderNotFoundError(`Agent draft '${id}' does not exist`);
     return draft;
   }
 
-  createDraft(blueprintInput: AgentBlueprint): Promise<AgentDraft> {
+  createDraft(blueprintInput: AgentBlueprint, validation: AgentBuilderValidationReport | null = null): Promise<AgentDraft> {
     return this.exclusive(async () => {
       const now = new Date().toISOString();
       const draft = AgentDraftSchema.parse({
         id: `draft_${randomUUID().replaceAll("-", "")}`,
         revision: 1,
-        status: "draft",
+        status: validation ? "ready" : "draft",
         blueprint: AgentBlueprintSchema.parse(blueprintInput),
-        validation: null,
+        validation,
         published_release_id: null,
         created_at: now,
         updated_at: now,
@@ -89,7 +102,98 @@ export class AgentBuilderService {
     });
   }
 
-  updateDraft(id: string, expectedRevision: number, blueprintInput: AgentBlueprint): Promise<AgentDraft> {
+  async createWorkspaceDraft(
+    name: string,
+    description: string,
+    workspaceRoot: string,
+  ): Promise<{ draft: AgentDraft; workspacePath: string }> {
+    const draft = await this.createDraft({
+      schema_version: 1,
+      name,
+      description,
+      entry_agent: "main",
+      agents: [{
+        name: "main",
+        description: "Primary entry agent",
+        instructions: "Define the agent instructions in this blueprint before publishing.",
+        tools: [],
+        skills: [],
+        mcp_servers: [],
+        delegates: [],
+        goals_enabled: false,
+        background_tasks: false,
+      }],
+      acceptance_tests: [],
+    });
+    return this.materializeDraftToWorkspace(draft, workspaceRoot);
+  }
+
+  async materializeDraftToWorkspace(
+    draftOrId: AgentDraft | string,
+    workspaceRoot: string,
+  ): Promise<{ draft: AgentDraft; workspacePath: string }> {
+    const draft = typeof draftOrId === "string" ? await this.getDraft(draftOrId) : draftOrId;
+    const workspacePath = agentDraftWorkspacePath(workspaceRoot, draft.id);
+    await mkdir(workspacePath, { recursive: true });
+    await writeWorkspaceJson(workspacePath, "manifest.json", {
+      kind: "agent",
+      draft_id: draft.id,
+      expected_revision: draft.revision,
+      name: draft.blueprint.name,
+    });
+    await writeWorkspaceJson(workspacePath, "blueprint.json", draft.blueprint);
+    return { draft, workspacePath };
+  }
+
+  async publishWorkspaceDraft(
+    draftId: string,
+    workspaceRoot: string,
+    bindings: AgentBuilderBindings,
+  ): Promise<{ draft: AgentDraft; release: AgentRelease | null; auto_published: boolean; workspacePath: string }> {
+    const current = await this.getDraft(draftId);
+    const workspacePath = agentDraftWorkspacePath(workspaceRoot, draftId);
+    const manifest = parseWorkspaceManifest(await readWorkspaceJson(workspacePath, "manifest.json"));
+    if (manifest.draft_id !== draftId) throw new AgentBuilderConflictError("Workspace manifest draft_id does not match the requested draft");
+    assertRevision(current, manifest.expected_revision);
+    let blueprint: AgentBlueprint;
+    try {
+      blueprint = AgentBlueprintSchema.parse(await readWorkspaceJson(workspacePath, "blueprint.json"));
+    } catch (error) {
+      throw new AgentBuilderValidationError({
+        valid: false,
+        checked_at: new Date().toISOString(),
+        issues: [{ level: "error", code: "invalid_blueprint", path: "blueprint.json", message: error instanceof Error ? error.message : String(error) }],
+      });
+    }
+    const validation = validateBlueprint(blueprint, bindings.inventory);
+    if (!validation.valid) throw new AgentBuilderValidationError(validation);
+
+    const draft = current.status === "published" || current.published_release_id
+      ? await this.createDraft(blueprint, validation)
+      : await this.updateDraft(current.id, current.revision, blueprint, validation);
+    const autoPublished = this.isAutoPublishEnabled();
+    const release = autoPublished ? await this.publishDraft(draft.id, draft.revision, bindings) : null;
+    const result = await this.getDraft(draft.id);
+    await this.materializeDraftToWorkspace(result, workspaceRoot);
+    return { draft: result, release, auto_published: Boolean(release), workspacePath: agentDraftWorkspacePath(workspaceRoot, result.id) };
+  }
+
+  isAutoPublishEnabled(): boolean {
+    const approval = this.systemConfig
+      ? resolveAgentBuilderApprovalConfig(
+        this.systemConfig.getSection("agent_builder"),
+        this.systemConfig.getSection("automation"),
+      )
+      : { auto_publish_releases: false };
+    return approval.auto_publish_releases;
+  }
+
+  updateDraft(
+    id: string,
+    expectedRevision: number,
+    blueprintInput: AgentBlueprint,
+    validation: AgentBuilderValidationReport | null = null,
+  ): Promise<AgentDraft> {
     return this.exclusive(async () => {
       const current = await this.getDraft(id);
       assertRevision(current, expectedRevision);
@@ -99,9 +203,9 @@ export class AgentBuilderService {
       const updated = AgentDraftSchema.parse({
         ...current,
         revision: current.revision + 1,
-        status: "draft",
+        status: validation ? "ready" : "draft",
         blueprint: AgentBlueprintSchema.parse(blueprintInput),
-        validation: null,
+        validation,
         updated_at: new Date().toISOString(),
       });
       await this.store.putDraft(updated);
@@ -159,13 +263,6 @@ export class AgentBuilderService {
 
       const validation = validateBlueprint(current.blueprint, bindings.inventory);
       if (!validation.valid) {
-        const failed = AgentDraftSchema.parse({
-          ...current,
-          status: "validation_failed",
-          validation,
-          updated_at: new Date().toISOString(),
-        });
-        await this.store.putDraft(failed);
         throw new AgentBuilderValidationError(validation);
       }
 
@@ -316,6 +413,46 @@ interface MaterializationSnapshot {
   agents: Record<string, AgentConfig> | null;
   skills: Map<string, string[]>;
   mcpServers: Map<string, string[]>;
+}
+
+function agentDraftWorkspacePath(workspaceRoot: string, draftId: string): string {
+  const root = workspaceRoot.trim();
+  if (!root) throw new AgentBuilderConflictError("Current Agent Session has no workspace");
+  return path.join(path.resolve(root), ".ragsystem", "agent-builder", "drafts", draftId);
+}
+
+async function writeWorkspaceJson(workspacePath: string, fileName: string, value: unknown): Promise<void> {
+  await writeFile(path.join(workspacePath, fileName), `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+async function readWorkspaceJson(workspacePath: string, fileName: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(path.join(workspacePath, fileName), "utf8"));
+  } catch (error) {
+    throw new AgentBuilderValidationError({
+      valid: false,
+      checked_at: new Date().toISOString(),
+      issues: [{ level: "error", code: "workspace_file_unreadable", path: fileName, message: error instanceof Error ? error.message : String(error) }],
+    });
+  }
+}
+
+function parseWorkspaceManifest(value: unknown): { draft_id: string; expected_revision: number } {
+  if (!value || typeof value !== "object") throw new AgentBuilderValidationError({
+    valid: false,
+    checked_at: new Date().toISOString(),
+    issues: [{ level: "error", code: "invalid_manifest", path: "manifest.json", message: "manifest.json must be an object" }],
+  });
+  const record = value as Record<string, unknown>;
+  if (typeof record.draft_id !== "string" || !record.draft_id.trim()
+    || typeof record.expected_revision !== "number" || !Number.isInteger(record.expected_revision) || record.expected_revision < 1) {
+    throw new AgentBuilderValidationError({
+      valid: false,
+      checked_at: new Date().toISOString(),
+      issues: [{ level: "error", code: "invalid_manifest", path: "manifest.json", message: "manifest.json requires draft_id and expected_revision" }],
+    });
+  }
+  return { draft_id: record.draft_id, expected_revision: record.expected_revision };
 }
 
 export function validateBlueprint(

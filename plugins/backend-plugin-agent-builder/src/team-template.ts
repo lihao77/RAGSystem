@@ -4,20 +4,20 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 6;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 7;
 
-const SKILL_ARTIFACT_TOOL = "create_skill_artifact";
 const CAPABILITY_INVENTORY_TOOL = "list_agent_builder_capabilities";
 
 const SKILL_AUTHORING_TOOLS = [
   "list_skill_drafts",
   "get_skill_draft",
-  "submit_skill_artifact",
+  "create_skill_draft",
+  "publish_skill_draft",
 ] as const;
 
-const SKILL_ARTIFACT_HANDOFF_PROMPT = "Wait for the create_skill_artifact result before calling submit_skill_artifact; read the exact content.artifact_id and content.artifact_revision returned by that tool, pass them as artifact_id and expected_revision, and never invent identifiers or submit in the same concurrent tool batch.";
 const CAPABILITY_DISCOVERY_PROMPT = "Before creating or updating a Draft, call list_agent_builder_capabilities and bind only the returned Tool, Skill, and MCP Server names. Never invent capability names.";
-const SKILL_AUTHORING_PROMPT = `When the workflow produces reusable domain instructions that are not covered by an existing Skill, call create_skill_artifact to create a complete kind=skill Artifact in the current Session containing the generated SKILL.md and every script or resource needed to run it. This is an ordinary Artifact authoring tool and does not enable or bind any Skill. ${SKILL_ARTIFACT_HANDOFF_PROMPT} After validating the complete bundle, use submit_skill_artifact to copy it into a reviewable Skill candidate. A candidate is not an enabled Skill: never reference it from an Agent Blueprint until an administrator publishes it in the Skill Library.`;
+const SKILL_AUTHORING_PROMPT = `Use list_skill_drafts, with a query when needed, to find reusable Skill drafts. Use get_skill_draft to copy a draft into the current Session workspace, or create_skill_draft to create one from scratch. Edit SKILL.md and its resources with file tools, then call publish_skill_draft. Publishing validates the local bundle; on failure, fix the files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.`;
+const PREVIOUS_SKILL_AUTHORING_PROMPT = "When the workflow produces reusable domain instructions that are not covered by an existing Skill, call create_skill_artifact to create a complete kind=skill Artifact in the current Session containing the generated SKILL.md and every script or resource needed to run it. This is an ordinary Artifact authoring tool and does not enable or bind any Skill. Wait for the create_skill_artifact result before calling submit_skill_artifact; read the exact content.artifact_id and content.artifact_revision returned by that tool, pass them as artifact_id and expected_revision, and never invent identifiers or submit in the same concurrent tool batch. After validating the complete bundle, use submit_skill_artifact to copy it into a reviewable Skill candidate. A candidate is not an enabled Skill: never reference it from an Agent Blueprint until an administrator publishes it in the Skill Library.";
 const LEGACY_SKILL_AUTHORING_PROMPT = "When the workflow produces reusable domain instructions that are not covered by an existing Skill, use the enabled artifact skill-authoring Skill to create a kind=skill Artifact in the current Session containing SKILL.md and every script or resource needed to run it. The bundle may be assembled as JSON with write_file and passed to create_skill_artifact.py through execute_skill_script. Wait for the execute_skill_script result before calling submit_skill_artifact; read the exact content.artifact_id and content.artifact_revision returned by that tool, pass them as artifact_id and expected_revision, and never invent identifiers or submit in the same concurrent tool batch. After validating the complete bundle, use submit_skill_artifact to copy it into a reviewable Skill candidate. A candidate is not an enabled Skill: never reference it from an Agent Blueprint until an administrator publishes it in the Skill Library.";
 
 /**
@@ -46,17 +46,18 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
       defaultEntry: true,
       tools: [
         "read_file",
+        "write_file",
+        "edit_file",
         "preview_data_structure",
         "glob",
         "grep",
         "web_fetch",
         "todo_write",
         CAPABILITY_INVENTORY_TOOL,
-        SKILL_ARTIFACT_TOOL,
         "list_agent_drafts",
         "get_agent_draft",
         "create_agent_draft",
-        "update_agent_draft",
+        "publish_agent_draft",
         ...SKILL_AUTHORING_TOOLS,
       ],
       delegation: [
@@ -74,9 +75,9 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "First clarify the outcome, users, inputs, outputs, constraints, and acceptance criteria.",
         "Delegate research, architecture, evaluation, and optimization to the specialized Agents in this Team.",
         CAPABILITY_DISCOVERY_PROMPT,
-        "Use the Agent Builder tools to create or update one Draft and keep its revision current.",
+        "Use list_agent_drafts, with a query when needed, to find a Draft; use get to copy it into the current Session workspace, or create to start a new workspace Draft. Edit blueprint.json with file tools, then call publish; publish performs validation and synchronization automatically.",
         SKILL_AUTHORING_PROMPT,
-        "Do not bypass the publish API or change runtime files. The platform may auto-publish validated drafts when the tenant automation setting is enabled; report whether the draft remained pending or became a published Release, and never auto-activate a Team.",
+        "Do not bypass the publish tool or change runtime files. The platform may auto-publish validated drafts when the tenant automation setting is enabled; report whether the draft remained pending or became a published Release, and never auto-activate a Team.",
         "Keep optimization bounded: at most three revisions per build request unless the user explicitly asks to continue.",
       ].join(" "),
     }),
@@ -132,22 +133,27 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   const existingTools = Array.isArray(orchestrator.tools?.enabled_tools)
     ? orchestrator.tools.enabled_tools
     : [];
-  const deprecatedSkillTools = new Set(["create_skill_draft", "update_skill_draft"]);
+  const deprecatedSkillTools = new Set(["update_skill_draft", "update_agent_draft", "submit_skill_artifact", "create_skill_artifact", "search_skill_drafts", "search_agent_drafts"]);
   const enabledTools = existingTools.filter((tool) => !deprecatedSkillTools.has(tool));
   if (!enabledTools.includes(CAPABILITY_INVENTORY_TOOL)) enabledTools.push(CAPABILITY_INVENTORY_TOOL);
-  if (!enabledTools.includes(SKILL_ARTIFACT_TOOL)) enabledTools.push(SKILL_ARTIFACT_TOOL);
-  for (const tool of SKILL_AUTHORING_TOOLS) {
+  for (const tool of ["read_file", "write_file", "edit_file"] as const) {
+    if (!enabledTools.includes(tool)) enabledTools.push(tool);
+  }
+  for (const tool of ["list_skill_drafts", "get_skill_draft", "create_skill_draft", "publish_skill_draft"] as const) {
+    if (!enabledTools.includes(tool)) enabledTools.push(tool);
+  }
+  for (const tool of ["list_agent_drafts", "get_agent_draft", "create_agent_draft", "publish_agent_draft"] as const) {
     if (!enabledTools.includes(tool)) enabledTools.push(tool);
   }
   const prompt = typeof behavior.system_prompt === "string" ? behavior.system_prompt.trim() : "";
-  const withoutLegacyAuthoring = prompt.replace(LEGACY_SKILL_AUTHORING_PROMPT, SKILL_AUTHORING_PROMPT);
+  const withoutLegacyAuthoring = prompt
+    .replace(LEGACY_SKILL_AUTHORING_PROMPT, SKILL_AUTHORING_PROMPT)
+    .replace(PREVIOUS_SKILL_AUTHORING_PROMPT, SKILL_AUTHORING_PROMPT);
   const withCapabilityDiscovery = withoutLegacyAuthoring.includes("list_agent_builder_capabilities")
     ? withoutLegacyAuthoring
     : `${withoutLegacyAuthoring} ${CAPABILITY_DISCOVERY_PROMPT}`.trim();
-  const nextPrompt = withCapabilityDiscovery.includes("submit_skill_artifact")
-    ? (withCapabilityDiscovery.includes("create_skill_artifact") && withCapabilityDiscovery.includes("content.artifact_id")
-      ? withCapabilityDiscovery
-      : `${withCapabilityDiscovery} ${SKILL_ARTIFACT_HANDOFF_PROMPT}`.trim())
+  const nextPrompt = withCapabilityDiscovery.includes("publish_skill_draft")
+    ? withCapabilityDiscovery
     : `${withCapabilityDiscovery} ${SKILL_AUTHORING_PROMPT}`.trim();
   return {
     ...configs,

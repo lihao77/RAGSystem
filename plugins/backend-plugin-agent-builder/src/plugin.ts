@@ -61,11 +61,11 @@ export function createAgentBuilderPlugin(): BackendPlugin {
         const enabledTools = new Set(agent.tools.enabled_tools);
         const builder = capabilities.require(AGENT_BUILDER_RUNTIME_CAPABILITY).service;
         return createAgentBuilderTools(builder, capabilities, {
-          autoApproveDraft: (draft) => builder.autoApproveDraft(draft, () => createAgentBuilderBindings({
+          bindingsProvider: () => createAgentBuilderBindings({
             agentConfig: builder.getAgentConfigService(),
             capabilities,
             pluginTools: builder.listAvailableTools(),
-          })),
+          }),
         })
           .filter((tool) => enabledTools.has(tool.name));
       });

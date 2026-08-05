@@ -10,7 +10,7 @@ import {
   createSkillArtifactTools,
 } from "../dist/index.js";
 
-test("create_skill_artifact is an independently configured ordinary tool", async () => {
+test("create_skill_artifact builds a complete Skill Artifact bundle", async () => {
   assert.deepEqual(createSkillArtifactTools(agent([])), []);
   const [tool] = createSkillArtifactTools(agent(["create_skill_artifact"]));
   assert.equal(tool.name, "create_skill_artifact");

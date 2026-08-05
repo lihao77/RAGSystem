@@ -204,7 +204,58 @@ test("invalid drafts cannot be published", async () => {
       fixture.service.publishDraft(draft.id, draft.revision, bindings),
       AgentBuilderValidationError,
     );
-    assert.equal((await fixture.service.getDraft(draft.id)).status, "validation_failed");
+    const unchanged = await fixture.service.getDraft(draft.id);
+    assert.equal(unchanged.status, "draft");
+    assert.equal(unchanged.revision, draft.revision);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("workspace validation failure does not synchronize the system Agent draft", async () => {
+  const fixture = await createFixture();
+  try {
+    const workspace = path.join(fixture.root, "session-workspace");
+    const created = await fixture.service.createWorkspaceDraft("workspace-team", "Workspace draft", workspace);
+    const localBlueprintPath = path.join(created.workspacePath, "blueprint.json");
+    const localBlueprint = JSON.parse(fs.readFileSync(localBlueprintPath, "utf8"));
+    localBlueprint.agents[0].tools = ["missing"];
+    fs.writeFileSync(localBlueprintPath, `${JSON.stringify(localBlueprint, null, 2)}\n`);
+
+    await assert.rejects(
+      fixture.service.publishWorkspaceDraft(created.draft.id, workspace, new MemoryBindings()),
+      AgentBuilderValidationError,
+    );
+    const unchanged = await fixture.service.getDraft(created.draft.id);
+    assert.equal(unchanged.revision, 1);
+    assert.deepEqual(unchanged.blueprint.agents[0].tools, []);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("workspace publish auto-publishes and forks an edited published Agent draft", async () => {
+  const fixture = await createFixture([], {
+    getSection: (key) => key === "agent_builder"
+      ? { approval: { auto_publish_releases: true } }
+      : undefined,
+  });
+  try {
+    const workspace = path.join(fixture.root, "session-workspace");
+    const created = await fixture.service.createWorkspaceDraft("workspace-team", "Workspace draft", workspace);
+    const first = await fixture.service.publishWorkspaceDraft(created.draft.id, workspace, new MemoryBindings());
+    assert.equal(first.auto_published, true);
+    assert.equal(first.draft.status, "published");
+    assert.equal(first.release.version, 1);
+
+    const localBlueprintPath = path.join(created.workspacePath, "blueprint.json");
+    const localBlueprint = JSON.parse(fs.readFileSync(localBlueprintPath, "utf8"));
+    localBlueprint.description = "Second workspace release";
+    fs.writeFileSync(localBlueprintPath, `${JSON.stringify(localBlueprint, null, 2)}\n`);
+    const second = await fixture.service.publishWorkspaceDraft(created.draft.id, workspace, new MemoryBindings());
+    assert.notEqual(second.draft.id, created.draft.id);
+    assert.equal(second.release.version, 2);
+    assert.equal(second.draft.status, "published");
   } finally {
     fixture.cleanup();
   }
@@ -330,24 +381,28 @@ test("Builder template migration adds Skill authoring tools without replacing us
         "read_file",
         "custom_tool",
         "list_agent_builder_capabilities",
-        "create_skill_artifact",
+        "write_file",
+        "edit_file",
         "list_skill_drafts",
         "get_skill_draft",
-        "submit_skill_artifact",
+        "create_skill_draft",
+        "publish_skill_draft",
+        "list_agent_drafts",
+        "get_agent_draft",
+        "create_agent_draft",
+        "publish_agent_draft",
       ],
     );
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction\./);
-    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /reviewable Skill candidate/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 6);
-    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /content\.artifact_id/);
-    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /content\.artifact_revision/);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 7);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
   }
 });
 
-test("Builder template migration replaces script-based Artifact handoff instructions", async () => {
+test("Builder template migration adds the workspace draft workflow", async () => {
   const fixture = await createFixture();
   try {
     const legacy = buildAgentBuilderTeam();
@@ -358,10 +413,9 @@ test("Builder template migration replaces script-based Artifact handoff instruct
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
     const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Create the Artifact, then call submit_skill_artifact/);
-    assert.match(orchestrator.custom_params.behavior.system_prompt, /content\.artifact_id/);
-    assert.match(orchestrator.custom_params.behavior.system_prompt, /content\.artifact_revision/);
-    assert.match(orchestrator.custom_params.behavior.system_prompt, /create_skill_artifact result/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 6);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 7);
   } finally {
     fixture.cleanup();
   }
@@ -396,31 +450,40 @@ test("Builder-only draft tools are visible only to the Builder entry Agent", asy
         "get_agent_draft",
         "list_agent_builder_capabilities",
         "list_agent_drafts",
-        "update_agent_draft",
+        "publish_agent_draft",
       ]);
       assert.deepEqual(ordinaryTools, []);
 
       const byName = new Map(builderTools.map((tool) => [tool.name, tool]));
-      const created = await byName.get("create_agent_draft").call({ blueprint: blueprint() }, {});
+      const toolContext = { executionPaths: { workspace: fixture.root } };
+      const created = await byName.get("create_agent_draft").call({
+        name: "workspace-team",
+        description: "Built in a Session workspace",
+      }, toolContext);
       assert.equal(created.success, true);
       assert.equal(created.content.revision, 1);
+      assert.equal(fs.existsSync(path.join(created.content.workspace_path, "blueprint.json")), true);
 
-      const loaded = await byName.get("get_agent_draft").call({ draft_id: created.content.id }, {});
+      const loaded = await byName.get("get_agent_draft").call({ draft_id: created.content.id }, toolContext);
       assert.equal(loaded.success, true);
       assert.equal(loaded.content.id, created.content.id);
 
-      const updated = await byName.get("update_agent_draft").call({
-        draft_id: created.content.id,
-        expected_revision: 1,
-        blueprint: blueprint({ description: "Updated by the Builder Team" }),
-      }, {});
-      assert.equal(updated.success, true);
-      assert.equal(updated.content.revision, 2);
+      const localBlueprint = JSON.parse(fs.readFileSync(path.join(created.content.workspace_path, "blueprint.json"), "utf8"));
+      localBlueprint.description = "Updated by the Builder Team";
+      fs.writeFileSync(path.join(created.content.workspace_path, "blueprint.json"), `${JSON.stringify(localBlueprint, null, 2)}\n`);
+      const published = await byName.get("publish_agent_draft").call({ draft_id: created.content.id }, toolContext);
+      assert.equal(published.success, true);
+      assert.equal(published.content.revision, 2);
+      assert.equal(published.content.auto_published, false);
 
       const listed = await byName.get("list_agent_drafts").call({}, {});
       assert.equal(listed.success, true);
       assert.equal(listed.content.length, 1);
       assert.equal(listed.content[0].revision, 2);
+
+      const searched = await byName.get("list_agent_drafts").call({ query: "workspace" }, {});
+      assert.equal(searched.success, true);
+      assert.equal(searched.content.length, 1);
     } finally {
       runtime.dispose();
     }
@@ -499,8 +562,8 @@ test("Builder template opts its orchestrator into Skill authoring tools explicit
   const team = buildAgentBuilderTeam();
   const orchestrator = team.builder_orchestrator;
   assert.deepEqual(
-    orchestrator.tools.enabled_tools.filter((name) => name === "create_skill_artifact" || name.includes("skill_draft") || name === "submit_skill_artifact"),
-    ["create_skill_artifact", "list_skill_drafts", "get_skill_draft", "submit_skill_artifact"],
+    orchestrator.tools.enabled_tools.filter((name) => name.includes("skill_draft")),
+    ["list_skill_drafts", "get_skill_draft", "create_skill_draft", "publish_skill_draft"],
   );
   for (const [name, agent] of Object.entries(team)) {
     if (name === "builder_orchestrator") continue;

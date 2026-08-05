@@ -101,6 +101,39 @@ export class SkillLibraryService {
     return this.getSkillDetail(name);
   }
 
+  async replaceSkillBundle(input: CreateSkillBundleInput): Promise<SkillDetail> {
+    const name = input.name.trim();
+    if (!SKILL_NAME_PATTERN.test(name)) throw new HttpError(400, "invalid_request", "Skill 名称只能包含小写字母、数字和连字符");
+    const existing = await this.packageStore.get(name);
+    if (!existing) return this.createSkillBundle(input);
+    const snapshotFiles = [];
+    for (const file of (await this.packageStore.listFiles(name)).filter((item) => item.type === "file")) {
+      const stored = await this.packageStore.readFile(name, file.path);
+      if (!stored) throw new HttpError(409, "conflict", `Skill '${name}' package changed while preparing replacement`);
+      snapshotFiles.push({ relativePath: file.path, body: stored.body, mediaType: stored.contentType });
+    }
+    const snapshot: CreateSkillBundleInput = {
+      name: existing.name,
+      description: existing.description,
+      content: existing.content,
+      metadata: existing.metadata,
+      files: snapshotFiles,
+    };
+    if (!await this.packageStore.delete(name)) throw new HttpError(409, "conflict", `Skill '${name}' could not be replaced`);
+    try {
+      await this.packageStore.createBundle({ ...input, name });
+    } catch (error) {
+      try {
+        await this.packageStore.createBundle(snapshot);
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], `Skill '${name}' replacement failed and rollback was incomplete`);
+      }
+      throw error;
+    }
+    await this.skillTools.hydrateUserGlobalPackages();
+    return this.getSkillDetail(name);
+  }
+
   async matchesSkillBundle(name: string, files: readonly { relativePath: string; body: Uint8Array }[]): Promise<boolean> {
     await this.skillTools.hydrateUserGlobalPackages();
     const skill = this.findSkill(name);
