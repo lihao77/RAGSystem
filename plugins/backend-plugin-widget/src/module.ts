@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 
 import type { DeploymentApplicationResolvers } from "@ragsystem/backend-core/app/deployment-runtime.js";
 import type { BackendPlugin, BackendPluginModule, BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import type { BackendResourceToken } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import {
   BACKEND_HOST_RESOURCES,
   requireBackendPluginResource,
@@ -25,9 +26,9 @@ export const backendPluginModule: BackendPluginModule = {
 
 function createInstalledWidgetPlugin(keyRing: ReturnType<typeof parseWidgetJwtKeyRing>): BackendPlugin {
   let hostResources: readonly BackendPluginResourceContribution[] | null = null;
-  const requireHost = <Value>(kind: string): Value => {
+  const requireHost = <Value>(token: BackendResourceToken<unknown>): Value => {
     if (!hostResources) throw new Error("Widget host resources are not initialized");
-    return requireBackendPluginResource<Value>(hostResources, kind);
+    return requireBackendPluginResource<Value>(hostResources, token);
   };
   const base = createWidgetPlugin({
     credentials: () => {

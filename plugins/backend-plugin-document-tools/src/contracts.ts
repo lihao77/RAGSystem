@@ -6,7 +6,5 @@ export interface DocumentToolPort {
   getExternalCandidates: (...args: any[]) => string[];
 }
 
-/** Records pre-edit state before a document tool mutates a local file. */
-export interface DocumentEditHistoryPort {
-  trackEdit(sessionId: string | null | undefined, filePath: string): void | Promise<void>;
-}
+/** @deprecated Use the deployment-neutral Core file history port. */
+export type { FileEditHistoryPort as DocumentEditHistoryPort } from "@ragsystem/backend-core/contracts/file-history-store/index.js";

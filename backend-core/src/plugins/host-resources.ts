@@ -1,33 +1,45 @@
-import type { BackendPluginResourceContribution } from "./backend-plugin.js";
+import {
+  createBackendResourceToken,
+  findBackendResource,
+  requireBackendResource,
+  type BackendPluginResourceContribution,
+  type BackendResourceToken,
+} from "./resource-registry.js";
+import type { FileEditHistoryPort } from "../contracts/file-history-store/index.js";
+import type { SandboxLeaseRuntime } from "../contracts/sandbox/sandbox-provider.js";
 
-/** Stable resource names exposed by Local/SaaS without depending on individual plugins. */
+export type BackendDeploymentResource = { kind: "local" | "saas" };
+export interface BackendToolPolicyResource {
+  readonly executionToolsEnabled: boolean;
+}
+
+/** Typed host capabilities exposed by Local/SaaS without depending on individual plugins. */
 export const BACKEND_HOST_RESOURCES = Object.freeze({
-  deployment: "ragsystem.host.deployment",
-  controlPlane: "ragsystem.host.control-plane",
-  applications: "ragsystem.host.applications",
-  wsTickets: "ragsystem.host.ws-tickets",
-  tenantDataRoot: "ragsystem.host.tenant-data-root",
-  controlDatabase: "ragsystem.host.database.control",
-  runtimeDatabase: "ragsystem.host.database.runtime",
-  objectStorage: "ragsystem.host.object-storage",
-  secrets: "ragsystem.host.secrets",
-  leaderElection: "ragsystem.host.leader-election",
+  deployment: createBackendResourceToken<BackendDeploymentResource>("ragsystem.host.deployment", "ragsystem.backend-core"),
+  controlPlane: createBackendResourceToken<unknown>("ragsystem.host.control-plane", "ragsystem.backend-core"),
+  applications: createBackendResourceToken<unknown>("ragsystem.host.applications", "ragsystem.backend-core"),
+  wsTickets: createBackendResourceToken<unknown>("ragsystem.host.ws-tickets", "ragsystem.backend-core"),
+  tenantDataRoot: createBackendResourceToken<(tenantId: string) => string>("ragsystem.host.tenant-data-root", "ragsystem.backend-core"),
+  controlDatabase: createBackendResourceToken<unknown>("ragsystem.host.database.control", "ragsystem.backend-core"),
+  runtimeDatabase: createBackendResourceToken<unknown>("ragsystem.host.database.runtime", "ragsystem.backend-core"),
+  objectStorage: createBackendResourceToken<unknown>("ragsystem.host.object-storage", "ragsystem.backend-core"),
+  secrets: createBackendResourceToken<unknown>("ragsystem.host.secrets", "ragsystem.backend-core"),
+  leaderElection: createBackendResourceToken<unknown>("ragsystem.host.leader-election", "ragsystem.backend-core"),
+  toolPolicy: createBackendResourceToken<BackendToolPolicyResource>("ragsystem.host.tool-policy", "ragsystem.backend-core"),
+  fileEditHistory: createBackendResourceToken<FileEditHistoryPort>("ragsystem.host.file-edit-history", "ragsystem.backend-core"),
+  sandboxLease: createBackendResourceToken<SandboxLeaseRuntime>("ragsystem.host.sandbox-lease", "ragsystem.backend-core"),
 });
 
 export function findBackendPluginResource<Value>(
   resources: readonly BackendPluginResourceContribution[] | undefined,
-  kind: string,
+  token: BackendResourceToken<unknown>,
 ): Value | undefined {
-  const matches = resources?.filter((resource) => resource.kind === kind) ?? [];
-  if (matches.length > 1) throw new Error(`Backend plugin resource '${kind}' has multiple providers`);
-  return matches[0]?.value as Value | undefined;
+  return findBackendResource(resources, token);
 }
 
 export function requireBackendPluginResource<Value>(
   resources: readonly BackendPluginResourceContribution[] | undefined,
-  kind: string,
+  token: BackendResourceToken<unknown>,
 ): Value {
-  const value = findBackendPluginResource<Value>(resources, kind);
-  if (value === undefined) throw new Error(`Required backend plugin resource '${kind}' is not available`);
-  return value;
+  return requireBackendResource(resources, token);
 }

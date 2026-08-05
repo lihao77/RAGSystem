@@ -7,6 +7,8 @@ import test from "node:test";
 
 import { createRuntime } from "@ragsystem/agent-sdk";
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
+import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
+import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/path-approval-service.js";
 import {
   backendPluginModule,
@@ -52,17 +54,20 @@ test("standard plugin module selects the deployment runtime without product wiri
 
   const local = await contributions.createRuntime({
     deploymentKind: "local",
-    resources: [{ kind: "execution-tools.enabled", value: false }],
+    resources: [provideBackendResource(BACKEND_HOST_RESOURCES.toolPolicy, { executionToolsEnabled: false }, "test-host")],
   });
   assert.deepEqual(local.capabilities.require(EXECUTION_TOOLS_RUNTIME_CAPABILITY), emptyRuntime());
   local.dispose();
 
-  const supplied = { bash: null, code: null, search: { marker: true } };
+  const supplied = fakeSandboxLease();
   const saas = await contributions.createRuntime({
     deploymentKind: "saas",
-    resources: [{ kind: "execution-tools.runtime", value: supplied }],
+    resources: [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxLease, supplied, "test-host")],
   });
-  assert.equal(saas.capabilities.require(EXECUTION_TOOLS_RUNTIME_CAPABILITY), supplied);
+  const saasRuntime = saas.capabilities.require(EXECUTION_TOOLS_RUNTIME_CAPABILITY);
+  assert.ok(saasRuntime.bash);
+  assert.ok(saasRuntime.code);
+  assert.ok(saasRuntime.search);
   saas.dispose();
 });
 
@@ -101,7 +106,7 @@ test("local execution runtime can be disabled by a deployment resource", () => {
   const factory = createLocalExecutionToolsRuntimeFactory();
   assert.deepEqual(factory({
     deploymentKind: "local",
-    resources: [{ kind: "execution-tools.enabled", value: false }],
+    resources: [provideBackendResource(BACKEND_HOST_RESOURCES.toolPolicy, { executionToolsEnabled: false }, "test-host")],
   }), emptyRuntime());
 });
 
@@ -361,5 +366,20 @@ function success(toolName) {
     metadata: {},
     artifacts: [],
     llmHint: null,
+  };
+}
+
+function fakeSandboxLease() {
+  return {
+    async withLease(_context, operation) {
+      return operation({ id: "lease", owner: { tenantId: "tenant", userId: "user", sessionId: "session", runId: "run" }, createdAt: "now" }, {
+        async glob() { return { files: [], truncated: false }; },
+        async grep() { return { matches: [], scannedFiles: 0, truncated: false }; },
+        async exec() { return { stdout: "", stderr: "", returnCode: 0, interrupted: false }; },
+        async executeCode() { return { result: null, stdout: "", stderr: "", returnCode: 0, interrupted: false }; },
+      });
+    },
+    async releaseRun() {},
+    async closeAll() {},
   };
 }

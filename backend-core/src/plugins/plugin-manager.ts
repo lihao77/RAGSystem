@@ -27,6 +27,7 @@ import type {
   PluginToolRegistrar,
 } from "./backend-plugin.js";
 import { CapabilityRegistry, provideCapability, type CapabilityProvider } from "./capability-registry.js";
+import type { BackendResourceToken } from "./resource-registry.js";
 
 class BackendRouteRegistry {
   private readonly contributions: BackendRouteContribution[] = [];
@@ -134,10 +135,8 @@ class BackendPluginResourceRegistry {
 
   forPlugin(pluginId: string): PluginResourceRegistrar {
     return {
-      register: (kind, value) => {
-        const normalizedKind = kind.trim();
-        if (!normalizedKind) throw new Error("Plugin resource kind must not be empty");
-        const contribution = { pluginId, kind: normalizedKind, value };
+      register: <Value>(token: BackendResourceToken<Value>, value: Value) => {
+        const contribution = { providerId: pluginId, token, value };
         this.contributions.push(contribution);
         return () => this.remove(contribution);
       },
@@ -149,7 +148,7 @@ class BackendPluginResourceRegistry {
   }
 
   removePlugin(pluginId: string): void {
-    for (const contribution of this.contributions.filter((item) => item.pluginId === pluginId)) {
+    for (const contribution of this.contributions.filter((item) => item.providerId === pluginId)) {
       this.remove(contribution);
     }
   }

@@ -3,7 +3,7 @@ import type {
   DeploymentRuntime,
 } from "@ragsystem/backend-core/app/deployment-runtime.js";
 import path from "node:path";
-import type { BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import { provideBackendResource, type BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import { LocalIdentityProvider, PasswordIdentityProvider, type IdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
@@ -40,16 +40,16 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
     resolveFileChangeApplication: createLocalFileChangeApplicationResolver(),
   };
   const hostResources: readonly BackendPluginResourceContribution[] = [
-    { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.deployment, value: { kind: "local" } },
-    { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.controlPlane, value: controlPlane },
-    { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.applications, value: deploymentApplications },
-    { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.wsTickets, value: wsTickets },
-    {
-      pluginId: "@ragsystem/backend-local",
-      kind: BACKEND_HOST_RESOURCES.tenantDataRoot,
-      value: (tenantId: string) => new TenantPaths(path.join(env.tenantsRoot, tenantId)).dataRoot,
-    },
-    { pluginId: "@ragsystem/backend-local", kind: BACKEND_HOST_RESOURCES.controlDatabase, value: controlStore.db },
+    provideBackendResource(BACKEND_HOST_RESOURCES.deployment, { kind: "local" }, "@ragsystem/backend-local"),
+    provideBackendResource(BACKEND_HOST_RESOURCES.controlPlane, controlPlane, "@ragsystem/backend-local"),
+    provideBackendResource(BACKEND_HOST_RESOURCES.applications, deploymentApplications, "@ragsystem/backend-local"),
+    provideBackendResource(BACKEND_HOST_RESOURCES.wsTickets, wsTickets, "@ragsystem/backend-local"),
+    provideBackendResource(
+      BACKEND_HOST_RESOURCES.tenantDataRoot,
+      (tenantId: string) => new TenantPaths(path.join(env.tenantsRoot, tenantId)).dataRoot,
+      "@ragsystem/backend-local",
+    ),
+    provideBackendResource(BACKEND_HOST_RESOURCES.controlDatabase, controlStore.db, "@ragsystem/backend-local"),
   ];
   let closed = false;
 

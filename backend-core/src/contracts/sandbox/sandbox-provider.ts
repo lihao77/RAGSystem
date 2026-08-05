@@ -1,3 +1,4 @@
+import type { ToolExecContext } from "@ragsystem/agent-sdk";
 import type { TenantId } from "../../identity/types.js";
 
 /** Identity boundary attached to one disposable sandbox. */
@@ -152,4 +153,24 @@ export interface SandboxProvider {
     timeoutSeconds: number;
     signal?: AbortSignal | undefined;
   }): Promise<SandboxCodeResult>;
+}
+
+/** Tenant-scoped lease lifecycle exposed to feature plugins by a deployment host. */
+export interface SandboxLeaseRuntime {
+  withLease<T>(
+    context: ToolExecContext,
+    operation: (lease: SandboxLease, provider: SandboxProvider) => Promise<T>,
+  ): Promise<T>;
+  releaseRun(sessionId: string, runId: string): Promise<void>;
+  closeAll(): Promise<void>;
+}
+
+export interface SandboxLeaseLifecycle {
+  prepare(
+    lease: SandboxLease,
+    owner: SandboxOwner,
+    provider: SandboxProvider,
+    input: { attachmentFileIds: readonly string[] },
+  ): Promise<void>;
+  collectOutputs(lease: SandboxLease, owner: SandboxOwner, provider: SandboxProvider): Promise<void>;
 }

@@ -27,14 +27,10 @@ import { SaaSPermissionPolicyStore } from "../postgres/saas-permission-policy-st
 import { createPostgresExecutionStorage } from "../postgres/postgres-execution-storage.js";
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
 import type { SandboxProvider } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
+import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
+import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import { SaaSSandboxFileBridge } from "../sandbox/sandbox-file-bridge.js";
 import { SandboxLeaseManager } from "../sandbox/sandbox-lease-manager.js";
-import {
-  SaaSSandboxBashToolService,
-  SaaSSandboxCodeExecutionService,
-  SaaSSandboxDocumentToolService,
-  SaaSSandboxSearchToolService,
-} from "../sandbox/sandbox-tool-services.js";
 export interface SaaSRuntimeContainerOptions {
   tenantId: TenantId;
   dataRoot: string;
@@ -98,10 +94,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   const sandboxLeases = options.sandboxProvider
     ? new SandboxLeaseManager(tenantId, options.sandboxProvider, options.sandboxLeaseTimeoutSeconds, sandboxFileBridge ?? undefined)
     : null;
-  const documentTools = sandboxLeases ? new SaaSSandboxDocumentToolService(sandboxLeases) : null;
-  const searchTools = sandboxLeases ? new SaaSSandboxSearchToolService(sandboxLeases) : null;
-  const bashTools = sandboxLeases ? new SaaSSandboxBashToolService(sandboxLeases) : null;
-  const codeExecutionTools = sandboxLeases ? new SaaSSandboxCodeExecutionService(sandboxLeases) : null;
   const pluginRuntime = await options.plugins?.createRuntime({
     deploymentKind: "saas",
     tenantId,
@@ -112,22 +104,9 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     sessions: sessionApplication,
     backgroundTasks,
     clientEvents,
-    resources: [
-      {
-        pluginId: "@ragsystem/backend-saas",
-        kind: "execution-tools.runtime",
-        value: {
-          bash: bashTools,
-          code: codeExecutionTools,
-          search: searchTools,
-        },
-      },
-      {
-        pluginId: "@ragsystem/backend-saas",
-        kind: "document-tools.runtime",
-        value: { document: documentTools },
-      },
-    ],
+    resources: sandboxLeases
+      ? [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxLease, sandboxLeases, "@ragsystem/backend-saas")]
+      : [],
   });
   const pluginCapabilities = pluginRuntime?.capabilities ?? new CapabilityRegistry();
 

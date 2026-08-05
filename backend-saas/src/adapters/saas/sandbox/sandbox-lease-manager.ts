@@ -1,21 +1,11 @@
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
 
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
-import type { SandboxLease, SandboxOwner, SandboxProvider } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
+import type { SandboxLease, SandboxLeaseLifecycle, SandboxOwner, SandboxProvider } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 
 interface LeaseEntry {
   owner: SandboxOwner;
   leasePromise: Promise<SandboxLease>;
-}
-
-export interface SandboxLeaseLifecycle {
-  prepare(
-    lease: SandboxLease,
-    owner: SandboxOwner,
-    provider: SandboxProvider,
-    input: { attachmentFileIds: readonly string[] },
-  ): Promise<void>;
-  collectOutputs(lease: SandboxLease, owner: SandboxOwner, provider: SandboxProvider): Promise<void>;
 }
 
 /** Tenant-bound run lease registry. A lease can only be retrieved through its full owner identity. */

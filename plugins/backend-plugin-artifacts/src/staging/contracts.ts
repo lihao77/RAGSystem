@@ -1,4 +1,10 @@
-export const ARTIFACT_STAGING_RESOURCE_KIND = "ragsystem.artifact-staging";
+import { createBackendResourceToken } from "@ragsystem/backend-core/plugins/resource-registry.js";
+
+export const ARTIFACT_STAGING_RESOURCE = createBackendResourceToken<ArtifactStagingProvider>(
+  "ragsystem.artifact-staging",
+  "@ragsystem/backend-plugin-artifacts",
+);
+export const ARTIFACT_STAGING_RESOURCE_KIND = ARTIFACT_STAGING_RESOURCE;
 
 export interface ArtifactStagingRunContext {
   sessionId: string;

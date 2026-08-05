@@ -9,6 +9,7 @@ import type {
 } from "../src/plugins/backend-plugin.js";
 import { createCapability, provideCapability } from "../src/plugins/capability-registry.js";
 import { BackendPluginManager } from "../src/plugins/plugin-manager.js";
+import { createBackendResourceToken, provideBackendResource } from "../src/plugins/resource-registry.js";
 
 describe("BackendPluginManager", () => {
   it("orders dependencies and stops plugins in reverse", async () => {
@@ -56,11 +57,12 @@ describe("BackendPluginManager", () => {
 
   it("injects opaque plugin resources into generic runtime factories", async () => {
     const skillRoot = path.resolve("plugin-skills");
+    const skillSource = createBackendResourceToken<string>("ragsystem.skill-source", "skills");
     let receivedResources: readonly BackendPluginResourceContribution[] | undefined;
     const manager = new BackendPluginManager([{
       manifest: { id: "source", version: "1.0.0" },
       register(context) {
-        context.resources.register("ragsystem.skill-source", skillRoot);
+        context.resources.register(skillSource, skillRoot);
         context.runtimes.register((runtimeContext) => {
           receivedResources = runtimeContext.resources;
           return {};
@@ -70,11 +72,7 @@ describe("BackendPluginManager", () => {
     await manager.register();
 
     const runtime = await manager.runtimeContributions().createRuntime({} as BackendPluginRuntimeContext);
-    expect(receivedResources).toEqual([{
-      pluginId: "source",
-      kind: "ragsystem.skill-source",
-      value: skillRoot,
-    }]);
+    expect(receivedResources).toEqual([provideBackendResource(skillSource, skillRoot, "source")]);
     runtime.dispose();
   });
 
@@ -108,11 +106,8 @@ describe("BackendPluginManager", () => {
   });
 
   it("merges deployment host resources into application and tenant runtime factories", async () => {
-    const hostResource: BackendPluginResourceContribution = {
-      pluginId: "host",
-      kind: "ragsystem.host.database.runtime",
-      value: { query: vi.fn() },
-    };
+    const hostToken = createBackendResourceToken<{ query: () => void }>("ragsystem.host.database.runtime", "core");
+    const hostResource: BackendPluginResourceContribution = provideBackendResource(hostToken, { query: vi.fn() }, "host");
     let applicationResources: readonly BackendPluginResourceContribution[] | undefined;
     let runtimeResources: readonly BackendPluginResourceContribution[] | undefined;
     const manager = new BackendPluginManager([{

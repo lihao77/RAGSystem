@@ -7,6 +7,7 @@ import test from "node:test";
 import { createHookRegistry } from "@ragsystem/agent-sdk";
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
+import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import { backendPluginModule } from "../dist/index.js";
 
 test("Artifacts module owns Local storage wiring", async () => {
@@ -62,7 +63,7 @@ test("Artifacts module owns SaaS migrations", async () => {
 });
 
 function resource(kind, value) {
-  return { pluginId: "test-host", kind, value };
+  return provideBackendResource(kind, value, "test-host");
 }
 
 function toolResult() {

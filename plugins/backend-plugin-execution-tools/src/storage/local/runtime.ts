@@ -3,7 +3,7 @@ import { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExec
 import { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecution.js";
 import { ManagedPathResolver } from "../../paths/managed-path-resolver.js";
 import type { ExecutionToolsRuntimeFactory } from "../../dependencies.js";
-import { EXECUTION_TOOLS_ENABLED_RESOURCE } from "../../resources.js";
+import { executionToolsEnabled } from "../../resources.js";
 
 export interface LocalExecutionToolsRuntimeFactoryOptions {
   enabled?: boolean;
@@ -16,8 +16,7 @@ export function createLocalExecutionToolsRuntimeFactory(
     if (context.deploymentKind !== "local") {
       throw new Error("Local execution tools runtime requires a Local deployment");
     }
-    const runtimeEnabled = context.resources?.find((resource) => resource.kind === EXECUTION_TOOLS_ENABLED_RESOURCE)?.value;
-    if (options.enabled === false || runtimeEnabled === false) return { bash: null, code: null, search: null };
+    if (options.enabled === false || !executionToolsEnabled(context.resources)) return { bash: null, code: null, search: null };
     const tools = context.systemConfig.getToolsConfig();
     const pathResolver = new ManagedPathResolver(context.dataRoot);
     return {

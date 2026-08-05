@@ -12,7 +12,9 @@ import {
   createSkillAuthoringTools,
   createSkillTools,
   resolveBuiltinSkillSources,
+  SKILL_SOURCE_RESOURCE,
 } from "../dist/index.js";
+import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 
 class MemoryConfigStore {
   rows = new Map();
@@ -445,6 +447,6 @@ test("Authoring tools expose only the workspace draft workflow", () => {
 
 test("Skill source resources require absolute roots", () => {
   assert.throws(() => resolveBuiltinSkillSources([
-    { pluginId: "bad", kind: "ragsystem.skill-source", value: "relative" },
+    provideBackendResource(SKILL_SOURCE_RESOURCE, "relative", "bad"),
   ]), /absolute path/);
 });

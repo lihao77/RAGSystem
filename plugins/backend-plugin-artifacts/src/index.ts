@@ -33,6 +33,7 @@ export type {
 export type { JsonObject, JsonPrimitive, JsonValue } from "./contracts/json.js";
 export {
   ARTIFACT_APPLICATION_RESOURCE_KIND,
+  ARTIFACT_APPLICATION_RESOURCE,
 } from "./dependencies.js";
 export type {
   ArtifactAccessResource,
@@ -41,7 +42,7 @@ export type {
   ArtifactsPluginDependencies,
 } from "./dependencies.js";
 export type { ArtifactStorageProvider } from "./storage/storage-provider.js";
-export { ARTIFACT_STAGING_RESOURCE_KIND } from "./staging/contracts.js";
+export { ARTIFACT_STAGING_RESOURCE_KIND, ARTIFACT_STAGING_RESOURCE } from "./staging/contracts.js";
 export type {
   ArtifactStagedFile,
   ArtifactStagingClaim,

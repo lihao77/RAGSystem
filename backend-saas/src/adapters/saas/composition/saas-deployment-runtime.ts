@@ -4,7 +4,7 @@ import type {
   DeploymentApplicationResolvers,
   DeploymentRuntime,
 } from "@ragsystem/backend-core/app/deployment-runtime.js";
-import type { BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import { provideBackendResource, type BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
@@ -114,15 +114,15 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
     ),
   };
   const hostResources: readonly BackendPluginResourceContribution[] = [
-    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.deployment, value: { kind: "saas" } },
-    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.controlPlane, value: control.controlPlane },
-    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.applications, value: deploymentApplications },
-    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.wsTickets, value: conversation.wsTickets },
-    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.controlDatabase, value: control.database },
-    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.runtimeDatabase, value: conversation.pluginResources.database },
-    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.objectStorage, value: objects },
-    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.secrets, value: control.secretResolver },
-    { pluginId: "@ragsystem/backend-saas", kind: BACKEND_HOST_RESOURCES.leaderElection, value: control.daemonLeaderLease },
+    provideBackendResource(BACKEND_HOST_RESOURCES.deployment, { kind: "saas" }, "@ragsystem/backend-saas"),
+    provideBackendResource(BACKEND_HOST_RESOURCES.controlPlane, control.controlPlane, "@ragsystem/backend-saas"),
+    provideBackendResource(BACKEND_HOST_RESOURCES.applications, deploymentApplications, "@ragsystem/backend-saas"),
+    provideBackendResource(BACKEND_HOST_RESOURCES.wsTickets, conversation.wsTickets, "@ragsystem/backend-saas"),
+    provideBackendResource(BACKEND_HOST_RESOURCES.controlDatabase, control.database, "@ragsystem/backend-saas"),
+    provideBackendResource(BACKEND_HOST_RESOURCES.runtimeDatabase, conversation.pluginResources.database, "@ragsystem/backend-saas"),
+    provideBackendResource(BACKEND_HOST_RESOURCES.objectStorage, objects, "@ragsystem/backend-saas"),
+    provideBackendResource(BACKEND_HOST_RESOURCES.secrets, control.secretResolver, "@ragsystem/backend-saas"),
+    provideBackendResource(BACKEND_HOST_RESOURCES.leaderElection, control.daemonLeaderLease, "@ragsystem/backend-saas"),
   ];
   let closed = false;
 

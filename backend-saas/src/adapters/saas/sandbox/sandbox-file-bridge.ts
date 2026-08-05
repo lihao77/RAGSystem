@@ -1,9 +1,8 @@
 import path from "node:path";
 
 import type { AsyncSessionFileStorage } from "@ragsystem/backend-core/contracts/session/session-file-storage.js";
-import type { SandboxLease, SandboxOwner, SandboxProvider } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
+import type { SandboxLease, SandboxLeaseLifecycle, SandboxOwner, SandboxProvider } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 import type { UploadedFileRecord } from "@ragsystem/backend-core/contracts/storage/files.js";
-import type { SandboxLeaseLifecycle } from "./sandbox-lease-manager.js";
 
 const MiB = 1024 * 1024;
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  ARTIFACT_STAGING_RESOURCE,
   createArtifactToolAfterHook,
   createArtifactsPlugin,
   parseArtifactManifest,
@@ -30,7 +31,7 @@ test("Artifact plugin registers its contributions and owns storage lifecycle", a
     hooks: { on: (event, handler) => { contributions.hook = { event, handler }; } },
     routes: { register: (scope, prefix) => { contributions.route = { scope, prefix }; } },
     runtimes: {},
-    resources: { register: (kind, value) => { resources.push({ kind, value }); } },
+    resources: { register: (token, value) => { resources.push({ token, value }); } },
     tools: { register: (factory, descriptors) => { contributions.tools = { factory, descriptors }; } },
   });
   await plugin.start();
@@ -38,10 +39,10 @@ test("Artifact plugin registers its contributions and owns storage lifecycle", a
 
   assert.deepEqual(contributions.route, { scope: "tenant", prefix: "/api/artifacts" });
   assert.equal(contributions.hook.event, "tool.after");
-  const skillSource = resources.find((item) => item.kind === "ragsystem.skill-source").value;
+  const skillSource = resources.find((item) => item.token.id === "ragsystem.skill-source").value;
   assert.match(skillSource, /[\\/]skills$/);
   assert.equal(fs.existsSync(path.join(skillSource, "visualization", "SKILL.md")), true);
-  assert.equal(typeof resources.find((item) => item.kind === "ragsystem.artifact-staging").value.forTenant, "function");
+  assert.equal(typeof resources.find((item) => item.token.id === ARTIFACT_STAGING_RESOURCE.id).value.forTenant, "function");
   assert.deepEqual(events, ["start", "stop"]);
 });
 

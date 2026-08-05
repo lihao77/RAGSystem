@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
+import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import {
   backendPluginModule,
   SKILLS_RUNTIME_CAPABILITY,
@@ -44,7 +45,7 @@ test("Skills module rejects unsupported install configuration", () => {
 });
 
 function resource(kind, value) {
-  return { pluginId: "test-host", kind, value };
+  return provideBackendResource(kind, value, "test-host");
 }
 
 function fakeExecutor(statements) {

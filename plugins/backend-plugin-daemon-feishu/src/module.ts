@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import type { ControlPlane } from "@ragsystem/backend-core/contracts/control-plane/index.js";
 import type { SecretResolver } from "@ragsystem/backend-core/contracts/integrations/secret-resolver.js";
 import type { BackendPlugin, BackendPluginModule, BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import type { BackendResourceToken } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import {
   BACKEND_HOST_RESOURCES,
   findBackendPluginResource,
@@ -29,9 +30,9 @@ export const backendPluginModule: BackendPluginModule = {
 function createInstalledDaemonFeishuPlugin(): BackendPlugin {
   let hostResources: readonly BackendPluginResourceContribution[] | null = null;
   let botRepository: DaemonBotRepository | null = null;
-  const requireHost = <Value>(kind: string): Value => {
+  const requireHost = <Value>(token: BackendResourceToken<unknown>): Value => {
     if (!hostResources) throw new Error("Daemon/Feishu host resources are not initialized");
-    return requireBackendPluginResource<Value>(hostResources, kind);
+    return requireBackendPluginResource<Value>(hostResources, token);
   };
   const requireRepository = (): DaemonBotRepository => {
     if (!botRepository) throw new Error("Daemon/Feishu Bot repository is not initialized");

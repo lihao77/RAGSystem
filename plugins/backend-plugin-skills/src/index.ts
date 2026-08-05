@@ -22,8 +22,10 @@ export {
 } from "./system-config.js";
 export {
   ARTIFACT_STAGING_RESOURCE_KIND,
+  ARTIFACT_STAGING_RESOURCE,
   resolveArtifactStagingService,
   resolveBuiltinSkillSources,
+  SKILL_SOURCE_RESOURCE,
   SKILL_SOURCE_RESOURCE_KIND,
 } from "./resources.js";
 export type {

@@ -5,6 +5,8 @@ import path from "node:path";
 import test from "node:test";
 
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
+import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
+import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import {
   backendPluginModule,
   createDocumentToolsPlugin,
@@ -37,17 +39,17 @@ test("standard plugin module selects the deployment runtime without product wiri
 
   const local = await contributions.createRuntime({
     deploymentKind: "local",
-    resources: [{ kind: "document-tools.enabled", value: false }],
+    resources: [provideBackendResource(BACKEND_HOST_RESOURCES.toolPolicy, { executionToolsEnabled: false }, "test-host")],
   });
   assert.deepEqual(local.capabilities.require(DOCUMENT_TOOLS_RUNTIME_CAPABILITY), { document: null });
   local.dispose();
 
-  const supplied = { document: fakeDocumentPort() };
+  const supplied = fakeSandboxLease();
   const saas = await contributions.createRuntime({
     deploymentKind: "saas",
-    resources: [{ kind: "document-tools.runtime", value: supplied }],
+    resources: [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxLease, supplied, "test-host")],
   });
-  assert.equal(saas.capabilities.require(DOCUMENT_TOOLS_RUNTIME_CAPABILITY), supplied);
+  assert.ok(saas.capabilities.require(DOCUMENT_TOOLS_RUNTIME_CAPABILITY).document);
   saas.dispose();
 });
 
@@ -80,7 +82,7 @@ test("local document runtime can be disabled by a deployment resource", () => {
   const factory = createLocalDocumentToolsRuntimeFactory();
   assert.deepEqual(factory({
     deploymentKind: "local",
-    resources: [{ kind: "document-tools.enabled", value: false }],
+    resources: [provideBackendResource(BACKEND_HOST_RESOURCES.toolPolicy, { executionToolsEnabled: false }, "test-host")],
   }), { document: null });
 });
 
@@ -91,10 +93,7 @@ test("local document runtime owns file writes and consumes the edit-history reso
     const runtime = createLocalDocumentToolsRuntimeFactory()({
       deploymentKind: "local",
       dataRoot: root,
-      resources: [{
-        kind: "document-tools.edit-history",
-        value: { trackEdit: (sessionId, filePath) => edits.push({ sessionId, filePath }) },
-      }],
+      resources: [provideBackendResource(BACKEND_HOST_RESOURCES.fileEditHistory, { trackEdit: (sessionId, filePath) => edits.push({ sessionId, filePath }) }, "test-host")],
     });
     const result = await runtime.document.writeFile(
       { content: "hello", filePath: "note.txt", filePathSpace: "transient" },
@@ -185,5 +184,20 @@ function success(toolName) {
     metadata: {},
     artifacts: [],
     llmHint: null,
+  };
+}
+
+function fakeSandboxLease() {
+  return {
+    async withLease(_context, operation) {
+      return operation({ id: "lease", owner: { tenantId: "tenant", userId: "user", sessionId: "session", runId: "run" }, createdAt: "now" }, {
+        async readFile() { return { content: "", size: 0 }; },
+        async writeFile() { return { size: 0 }; },
+        async editFile() { return { size: 0, replacements: 0 }; },
+        async previewFile() { return { fileType: "text", fileSize: 0, structure: {} }; },
+      });
+    },
+    async releaseRun() {},
+    async closeAll() {},
   };
 }

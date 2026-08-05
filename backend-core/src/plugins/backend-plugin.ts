@@ -12,6 +12,9 @@ import type { BackgroundTaskService } from "../services/runtime/background-task-
 import type { ClientEventPublisherPort } from "../contracts/runtime/core-runtime-ports.js";
 import type { CapabilityProvider, CapabilityRegistry } from "./capability-registry.js";
 import type { RuntimeContainerRegistry } from "../services/runtime/runtime-container-registry.js";
+import type { BackendResourceToken, BackendPluginResourceContribution } from "./resource-registry.js";
+
+export type { BackendResourceToken, BackendPluginResourceContribution } from "./resource-registry.js";
 
 export type BackendRouteScope = "public" | "tenant" | "management" | "platform";
 
@@ -48,14 +51,8 @@ export interface PluginEventRegistrar {
   on(event: string, handler: BackendApplicationEventHandler): () => void;
 }
 
-export interface BackendPluginResourceContribution {
-  readonly pluginId: string;
-  readonly kind: string;
-  readonly value: unknown;
-}
-
 export interface PluginResourceRegistrar {
-  register(kind: string, value: unknown): () => void;
+  register<Value>(token: BackendResourceToken<Value>, value: Value): () => void;
 }
 
 export interface BackendToolFactoryContext {

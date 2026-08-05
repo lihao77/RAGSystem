@@ -3,8 +3,13 @@ import type { FastifyRequest } from "fastify";
 import type { ArtifactApplication } from "./contracts/artifact-application.js";
 import type { ArtifactStorageProvider } from "./storage/storage-provider.js";
 import type { ArtifactStagingProvider } from "./staging/contracts.js";
+import { createBackendResourceToken } from "@ragsystem/backend-core/plugins/resource-registry.js";
 
-export const ARTIFACT_APPLICATION_RESOURCE_KIND = "ragsystem.artifact-application";
+export const ARTIFACT_APPLICATION_RESOURCE = createBackendResourceToken<ArtifactAccessResource>(
+  "ragsystem.artifact-application",
+  "@ragsystem/backend-plugin-artifacts",
+);
+export const ARTIFACT_APPLICATION_RESOURCE_KIND = ARTIFACT_APPLICATION_RESOURCE;
 
 /** Tenant-scoped read/write application exposed to other plugins through the resource registry. */
 export type ArtifactApplicationResource = (

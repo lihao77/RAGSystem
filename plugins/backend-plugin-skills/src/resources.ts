@@ -1,9 +1,22 @@
 import path from "node:path";
 
-import type { BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import {
+  createBackendResourceToken,
+  findBackendResource,
+  requireBackendResource,
+  type BackendPluginResourceContribution,
+} from "@ragsystem/backend-core/plugins/resource-registry.js";
 
-export const SKILL_SOURCE_RESOURCE_KIND = "ragsystem.skill-source";
-export const ARTIFACT_STAGING_RESOURCE_KIND = "ragsystem.artifact-staging";
+export const SKILL_SOURCE_RESOURCE = createBackendResourceToken<string>(
+  "ragsystem.skill-source",
+  "@ragsystem/backend-plugin-skills",
+);
+export const SKILL_SOURCE_RESOURCE_KIND = SKILL_SOURCE_RESOURCE;
+export const ARTIFACT_STAGING_RESOURCE = createBackendResourceToken<ArtifactStagingProviderResource>(
+  "ragsystem.artifact-staging",
+  "@ragsystem/backend-plugin-artifacts",
+);
+export const ARTIFACT_STAGING_RESOURCE_KIND = ARTIFACT_STAGING_RESOURCE;
 
 export interface ArtifactStagingRunResource {
   stageRunId: string;
@@ -45,14 +58,14 @@ export function resolveBuiltinSkillSources(
   const roots = new Set<string>();
   const sources: Array<{ root: string; sourceLabel: string }> = [];
   for (const resource of resources) {
-    if (resource.kind !== SKILL_SOURCE_RESOURCE_KIND) continue;
+    if (resource.token.id !== SKILL_SOURCE_RESOURCE.id) continue;
     if (typeof resource.value !== "string" || !path.isAbsolute(resource.value)) {
-      throw new Error(`Skill source from '${resource.pluginId}' must be an absolute path`);
+      throw new Error(`Skill source from '${resource.providerId}' must be an absolute path`);
     }
     const root = path.normalize(resource.value);
     if (roots.has(root)) throw new Error(`Skill source is already registered: ${root}`);
     roots.add(root);
-    sources.push({ root, sourceLabel: resource.pluginId });
+    sources.push({ root, sourceLabel: resource.providerId });
   }
   return sources;
 }
@@ -62,14 +75,12 @@ export function resolveArtifactStagingService(
   tenantId: string,
   dataRoot: string,
 ): ArtifactStagingServiceResource | null {
-  const matches = resources.filter((resource) => resource.kind === ARTIFACT_STAGING_RESOURCE_KIND);
-  if (!matches.length) return null;
-  if (matches.length > 1) throw new Error("Artifact staging resource must be registered exactly once");
-  const resource = matches[0]!;
-  if (!isArtifactStagingProvider(resource.value)) {
-    throw new Error(`Artifact staging resource from '${resource.pluginId}' is invalid`);
+  const resource = findBackendResource(resources, ARTIFACT_STAGING_RESOURCE);
+  if (!resource) return null;
+  if (!isArtifactStagingProvider(resource)) {
+    throw new Error("Artifact staging resource is invalid");
   }
-  return resource.value.forTenant(tenantId, dataRoot);
+  return resource.forTenant(tenantId, dataRoot);
 }
 
 function isArtifactStagingProvider(value: unknown): value is ArtifactStagingProviderResource {

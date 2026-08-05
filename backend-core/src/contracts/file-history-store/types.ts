@@ -26,3 +26,8 @@ export interface FileHistoryRewindResult {
   message: string;
   reverted_files: number;
 }
+
+/** Minimal edit-history capability consumed by document tools. */
+export interface FileEditHistoryPort {
+  trackEdit(sessionId: string | null | undefined, filePath: string): void | Promise<void>;
+}

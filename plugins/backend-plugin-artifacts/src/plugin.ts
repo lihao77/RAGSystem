@@ -12,8 +12,12 @@ import {
 import { createArtifactToolAfterHook } from "./artifact-hook.js";
 import { ARTIFACT_STAGING_RESOURCE_KIND } from "./staging/contracts.js";
 import { createFilesystemArtifactStagingProvider } from "./staging/filesystem-staging-provider.js";
+import { createBackendResourceToken } from "@ragsystem/backend-core/plugins/resource-registry.js";
 
-const SKILL_SOURCE_RESOURCE_KIND = "ragsystem.skill-source";
+const SKILL_SOURCE_RESOURCE = createBackendResourceToken<string>(
+  "ragsystem.skill-source",
+  "@ragsystem/backend-plugin-skills",
+);
 export const ARTIFACTS_PLUGIN_ID = "@ragsystem/backend-plugin-artifacts";
 
 export function createArtifactsPlugin(dependencies: ArtifactsPluginDependencies): BackendPlugin {
@@ -31,7 +35,7 @@ export function createArtifactsPlugin(dependencies: ArtifactsPluginDependencies)
           assertReadable: (request: FastifyRequest, sessionId: string) => dependencies.sessionAccess.assertReadable(request, sessionId),
         },
       );
-      context.resources.register(SKILL_SOURCE_RESOURCE_KIND, resolveArtifactSkillsRoot());
+      context.resources.register(SKILL_SOURCE_RESOURCE, resolveArtifactSkillsRoot());
       context.resources.register(ARTIFACT_STAGING_RESOURCE_KIND, staging);
       context.hooks.on("tool.after", createArtifactToolAfterHook({ ...dependencies, staging }));
       context.routes.register("tenant", "/api/artifacts", async (app) => {

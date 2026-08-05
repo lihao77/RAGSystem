@@ -1,6 +1,6 @@
 import type { DocumentToolsRuntimeFactory } from "../../dependencies.js";
 import {
-  DOCUMENT_TOOLS_ENABLED_RESOURCE,
+  documentToolsEnabled,
   findDocumentEditHistoryResource,
 } from "../../resources.js";
 import { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExecution.js";
@@ -16,8 +16,7 @@ export function createLocalDocumentToolsRuntimeFactory(
     if (context.deploymentKind !== "local") {
       throw new Error("Local document tools runtime requires a Local deployment");
     }
-    const runtimeEnabled = context.resources?.find((resource) => resource.kind === DOCUMENT_TOOLS_ENABLED_RESOURCE)?.value;
-    if (options.enabled === false || runtimeEnabled === false) return { document: null };
+    if (options.enabled === false || !documentToolsEnabled(context.resources)) return { document: null };
     return {
       document: new LocalDocumentToolService({
         dataRoot: context.dataRoot,

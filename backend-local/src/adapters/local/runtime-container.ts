@@ -22,6 +22,8 @@ import { HostToolRegistry } from "@ragsystem/backend-core/services/runtime/host-
 import { RealtimeEventHub } from "@ragsystem/backend-core/services/runtime/realtime-event-hub.js";
 import type { LocalRuntimeContainer } from "@ragsystem/backend-core/contracts/runtime/runtime-container.js";
 import type { LocalRuntimeContainerOptions } from "./runtime-options.js";
+import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
+import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import { SessionNotificationQueue } from "@ragsystem/backend-core/services/runtime/session-notification-queue.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";
 import { LocalGoalStore } from "./local-goal-store.js";
@@ -125,21 +127,12 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     backgroundTasks,
     clientEvents,
     resources: [
-      {
-        pluginId: "@ragsystem/backend-local",
-        kind: "execution-tools.enabled",
-        value: hostToolsEnabled,
-      },
-      {
-        pluginId: "@ragsystem/backend-local",
-        kind: "document-tools.enabled",
-        value: hostToolsEnabled,
-      },
-      {
-        pluginId: "@ragsystem/backend-local",
-        kind: "document-tools.edit-history",
-        value: fileHistory,
-      },
+      provideBackendResource(
+        BACKEND_HOST_RESOURCES.toolPolicy,
+        { executionToolsEnabled: hostToolsEnabled },
+        "@ragsystem/backend-local",
+      ),
+      provideBackendResource(BACKEND_HOST_RESOURCES.fileEditHistory, fileHistory, "@ragsystem/backend-local"),
     ],
   });
   const goalStore = new LocalGoalStore(options.tenantId, conversationStore);

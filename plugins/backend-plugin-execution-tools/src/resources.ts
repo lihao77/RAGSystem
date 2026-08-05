@@ -1,12 +1,18 @@
 import type { ExecutionToolsRuntimeCapability } from "./capability.js";
+import { BACKEND_HOST_RESOURCES, findBackendPluginResource, type BackendToolPolicyResource } from "@ragsystem/backend-core/plugins/host-resources.js";
+import type { BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/resource-registry.js";
+import type { SandboxLeaseRuntime } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 
-export const EXECUTION_TOOLS_RUNTIME_RESOURCE = "execution-tools.runtime";
-export const EXECUTION_TOOLS_ENABLED_RESOURCE = "execution-tools.enabled";
-
-export function findExecutionToolsRuntimeResource(
-  resources: readonly { kind: string; value: unknown }[] | undefined,
-): ExecutionToolsRuntimeCapability | null {
-  const value = resources?.find((resource) => resource.kind === EXECUTION_TOOLS_RUNTIME_RESOURCE)?.value;
-  if (!value || typeof value !== "object") return null;
-  return value as ExecutionToolsRuntimeCapability;
+export function findExecutionToolsSandbox(
+  resources: readonly BackendPluginResourceContribution[] | undefined,
+): SandboxLeaseRuntime | null {
+  return findBackendPluginResource<SandboxLeaseRuntime>(resources, BACKEND_HOST_RESOURCES.sandboxLease) ?? null;
 }
+
+export function executionToolsEnabled(
+  resources: readonly BackendPluginResourceContribution[] | undefined,
+): boolean {
+  return findBackendPluginResource<BackendToolPolicyResource>(resources, BACKEND_HOST_RESOURCES.toolPolicy)?.executionToolsEnabled ?? true;
+}
+
+export type { ExecutionToolsRuntimeCapability };
