@@ -56,6 +56,17 @@ export interface ToolsConfig {
   code_max_timeout: number;
 }
 
+/** System-level LLM fallback used when an agent has no LLM tier configuration. */
+export interface SystemLlmConfig {
+  provider: string;
+  provider_type: string;
+  model_name: string;
+  temperature: number;
+  max_completion_tokens: number;
+  max_context_tokens: number;
+  extra_params: Record<string, SystemConfigValue>;
+}
+
 export interface SystemGroupConfig {
   max_content_length: number;
 }

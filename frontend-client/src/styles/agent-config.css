@@ -142,6 +142,11 @@
   justify-self: end;
 }
 
+.extra-param-content > .state-panel--compact {
+  min-height: var(--control-height-md);
+  padding: 0;
+}
+
 
 .checkbox-item--inline {
   display: flex;
@@ -452,6 +457,10 @@
 
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
+  .extra-param-content > .state-panel--compact {
+    min-height: calc(var(--control-height-md) * 2 + var(--spacing-sm));
+  }
+
   .agent-config-page--embedded {
     min-height: 100%;
   }

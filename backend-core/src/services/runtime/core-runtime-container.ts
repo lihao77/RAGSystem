@@ -68,7 +68,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   const selectedPendingInteractions = interactionCoordinator;
   const sessionRuntime = new SessionRuntimeService(dependencies.runtimeStorage);
 
-  const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
+  const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter, systemConfig);
   const agentDelegation = new AgentDelegationService(
     delegationStore,
     runtimeCore,

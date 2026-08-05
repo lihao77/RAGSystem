@@ -150,6 +150,21 @@ textarea.form-control,
   margin-bottom: var(--spacing-sm);
 }
 
+.extra-param-content {
+  display: flex;
+  min-height: var(--control-height-md);
+}
+
+.extra-param-content > .extra-param-list,
+.extra-param-content > .state-panel--compact {
+  flex: 1;
+  min-height: var(--control-height-md);
+}
+
+.extra-param-content > .extra-param-list {
+  justify-content: flex-start;
+}
+
 /* ===== 提示 / 错误 ===== */
 .form-hint {
   margin: 0;
@@ -168,6 +183,12 @@ textarea.form-control,
 
 /* ===== 响应式 ===== */
 @media (max-width: 900px) {
+  .extra-param-content,
+  .extra-param-content > .extra-param-list,
+  .extra-param-content > .state-panel--compact {
+    min-height: calc(var(--control-height-md) * 2 + var(--spacing-sm));
+  }
+
   .form-grid {
     grid-template-columns: 1fr;
   }

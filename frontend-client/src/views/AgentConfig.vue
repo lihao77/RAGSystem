@@ -127,7 +127,7 @@
                   <h2>LLM 分层配置</h2>
                   <span>default 为必配主模型，fast/powerful 为可选层级</span>
                 </div>
-                <Button variant="ghost" size="sm" @click="tiersCollapsed = !tiersCollapsed">
+                <Button type="button" variant="ghost" size="sm" @click="tiersCollapsed = !tiersCollapsed">
                   {{ tiersCollapsed ? '展开配置' : '收起配置' }}
                 </Button>
               </div>
@@ -155,7 +155,7 @@
                         <span class="field-label-text">Provider</span>
                         <CustomSelect
                           :model-value="getTierProviderKey('default')"
-                          :options="[{ value: '', label: '未设置' }, ...providers.map(p => ({ value: p.key || p.name, label: p.name + (p.provider_type ? ` (${p.provider_type})` : '') }))]"
+                          :options="providerOptions"
                           placeholder="选择 Provider"
                           @update:model-value="handleTierProviderChange('default', $event)"
                         />
@@ -189,18 +189,20 @@
                     <div class="extra-param-editor">
                       <div class="field-label-row">
                         <span class="field-label-text">额外参数</span>
-                        <Button size="sm" @click="addExtraParam(configForm.llm_tiers.default)">新增参数</Button>
+                        <Button type="button" size="sm" @click="addExtraParam(configForm.llm_tiers.default)">新增参数</Button>
                       </div>
-                      <div v-if="configForm.llm_tiers.default?.extra_params_entries?.length" class="extra-param-list">
-                        <div v-for="(entry, index) in configForm.llm_tiers.default.extra_params_entries" :key="`default-${index}`" class="extra-param-row">
-                          <Input v-model.trim="entry.key" type="text" placeholder="key" />
-                          <CustomSelect :model-value="entry.type" :options="extraParamTypeOptions" placeholder="type" @update:model-value="entry.type = $event" />
-                          <Input v-model="entry.value" type="text" placeholder="value" />
-                          <Button size="sm" variant="destructive" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers.default, index)">删除</Button>
+                      <div class="extra-param-content">
+                        <div v-if="configForm.llm_tiers.default?.extra_params_entries?.length" class="extra-param-list">
+                          <div v-for="(entry, index) in configForm.llm_tiers.default.extra_params_entries" :key="`default-${index}`" class="extra-param-row">
+                            <Input v-model.trim="entry.key" type="text" placeholder="key" />
+                            <CustomSelect :model-value="entry.type" :options="extraParamTypeOptions" placeholder="type" @update:model-value="entry.type = $event" />
+                            <Input v-model="entry.value" type="text" placeholder="value" />
+                            <Button type="button" size="sm" variant="destructive" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers.default, index)">删除</Button>
+                          </div>
                         </div>
-                      </div>
-                      <div v-else class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
-                        <p>暂无额外参数</p>
+                        <div v-else class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
+                          <p>暂无额外参数</p>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -233,7 +235,7 @@
                           <span class="field-label-text">Provider</span>
                           <CustomSelect
                             :model-value="getTierProviderKey(tier)"
-                            :options="[{ value: '', label: '未设置' }, ...providers.map(p => ({ value: p.key || p.name, label: p.name + (p.provider_type ? ` (${p.provider_type})` : '') }))]"
+                            :options="providerOptions"
                             placeholder="未设置"
                             @update:model-value="handleTierProviderChange(tier, $event)"
                           />
@@ -268,23 +270,25 @@
                       <div class="extra-param-editor">
                         <div class="field-label-row">
                           <span class="field-label-text">额外参数</span>
-                          <Button size="sm" @click="addExtraParam(configForm.llm_tiers[tier])">新增参数</Button>
+                          <Button type="button" size="sm" @click="addExtraParam(configForm.llm_tiers[tier])">新增参数</Button>
                         </div>
-                        <div v-if="configForm.llm_tiers[tier].extra_params_entries.length" class="extra-param-list">
-                          <div v-for="(entry, index) in configForm.llm_tiers[tier].extra_params_entries" :key="`${tier}-${index}`" class="extra-param-row">
-                            <Input v-model.trim="entry.key" type="text" placeholder="key" />
-                            <CustomSelect
-                              :model-value="entry.type"
-                              :options="extraParamTypeOptions"
-                              placeholder="type"
-                              @update:model-value="entry.type = $event"
-                            />
-                            <Input v-model="entry.value" type="text" placeholder="value" />
-                            <Button size="sm" variant="destructive" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers[tier], index)">删除</Button>
+                        <div class="extra-param-content">
+                          <div v-if="configForm.llm_tiers[tier].extra_params_entries.length" class="extra-param-list">
+                            <div v-for="(entry, index) in configForm.llm_tiers[tier].extra_params_entries" :key="`${tier}-${index}`" class="extra-param-row">
+                              <Input v-model.trim="entry.key" type="text" placeholder="key" />
+                              <CustomSelect
+                                :model-value="entry.type"
+                                :options="extraParamTypeOptions"
+                                placeholder="type"
+                                @update:model-value="entry.type = $event"
+                              />
+                              <Input v-model="entry.value" type="text" placeholder="value" />
+                              <Button type="button" size="sm" variant="destructive" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers[tier], index)">删除</Button>
+                            </div>
                           </div>
-                        </div>
-                        <div v-else class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
-                          <p>暂无额外参数</p>
+                          <div v-else class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
+                            <p>暂无额外参数</p>
+                          </div>
                         </div>
                         <small class="field-hint">type 可选 string / number / boolean / json，json 类型的 value 需填写合法 JSON</small>
                       </div>
@@ -712,7 +716,13 @@ import {
   updateKnowledgeAgentConfig
 } from '../api/knowledgeBase.js';
 import { useDictionariesStore } from '../stores/dictionaries.js';
-import { normalizeModelList } from '../utils/modelList.js';
+import {
+  applyProviderToLlm,
+  createExtraParamEntry,
+  getProviderModels,
+  parseExtraParamEntries,
+  parseExtraParamsInput,
+} from '../utils/modelList.js';
 import { showToast as showToastMessage } from '../utils/toast.js';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
@@ -939,6 +949,13 @@ const skillGroups = computed(() => ([
 ]).filter(group => group.items.length > 0));
 const mcpServers = ref([]);
 const providers = ref([]);
+const providerOptions = computed(() => [
+  { value: '', label: '未设置' },
+  ...providers.value.map(provider => ({
+    value: provider.key || provider.name,
+    label: `${provider.name}${provider.provider_type ? ` (${provider.provider_type})` : ''}`,
+  })),
+]);
 const memoryScopeMeta = ref([]);
 const memoryPluginAvailable = ref(false);
 const knowledgePluginAvailable = ref(false);
@@ -947,31 +964,6 @@ const mcpPluginAvailable = ref(false);
 
 const configForm = ref(createEmptyForm());
 const rawConfig = ref(createEmptyForm());
-
-function getProviderModels(provider) {
-  if (!provider) return [];
-
-  const models = [];
-  const seen = new Set();
-  const addModels = value => {
-    for (const model of normalizeModelList(value)) {
-      if (!seen.has(model)) {
-        models.push(model);
-        seen.add(model);
-      }
-    }
-  };
-
-  if (provider.model_map && typeof provider.model_map === 'object') {
-    addModels(provider.model_map.chat);
-    Object.entries(provider.model_map).forEach(([task, value]) => {
-      if (task !== 'chat') addModels(value);
-    });
-  }
-  addModels(provider.models);
-  addModels(provider.model);
-  return models;
-}
 
 const memoryScopeFallbackMeta = [
   { name: 'team', description: '团队级长期记忆，适合跨会话复用的共享偏好、约束与背景事实。' },
@@ -1036,32 +1028,6 @@ function createEmptyLLM() {
     max_context_tokens: 128000,
     extra_params_entries: []
   };
-}
-
-function createExtraParamEntry(key = '', type = 'string', value = '') {
-  return { key, type, value };
-}
-
-function parseExtraParamEntries(extraParams) {
-  if (!extraParams || typeof extraParams !== 'object' || Array.isArray(extraParams)) {
-    return [];
-  }
-  return Object.entries(extraParams).map(([key, value]) => {
-    if (typeof value === 'number') {
-      return createExtraParamEntry(key, 'number', String(value));
-    }
-    if (typeof value === 'boolean') {
-      return createExtraParamEntry(key, 'boolean', value ? 'true' : 'false');
-    }
-    if (value && typeof value === 'object') {
-      try {
-        return createExtraParamEntry(key, 'json', JSON.stringify(value));
-      } catch {
-        return createExtraParamEntry(key, 'json', '{}');
-      }
-    }
-    return createExtraParamEntry(key, 'string', value == null ? '' : String(value));
-  });
 }
 
 function createEmptyForm() {
@@ -1181,53 +1147,6 @@ function removeExtraParam(target, index) {
     return;
   }
   target.extra_params_entries.splice(index, 1);
-}
-
-function parseExtraParamsInput(entries, scopeLabel) {
-  const result = {};
-  for (const entry of entries || []) {
-    const key = (entry?.key || '').trim();
-    if (!key) {
-      continue;
-    }
-    const type = entry?.type || 'string';
-    const rawValue = entry?.value ?? '';
-
-    if (type === 'string') {
-      result[key] = String(rawValue);
-      continue;
-    }
-    if (type === 'number') {
-      const parsedNumber = Number(rawValue);
-      if (rawValue === '' || Number.isNaN(parsedNumber)) {
-        throw new Error(`${scopeLabel}参数 ${key} 的 value 必须是数字`);
-      }
-      result[key] = parsedNumber;
-      continue;
-    }
-    if (type === 'boolean') {
-      const normalized = String(rawValue).trim().toLowerCase();
-      if (normalized === 'true') {
-        result[key] = true;
-        continue;
-      }
-      if (normalized === 'false') {
-        result[key] = false;
-        continue;
-      }
-      throw new Error(`${scopeLabel}参数 ${key} 的 value 必须是 true 或 false`);
-    }
-    if (type === 'json') {
-      try {
-        result[key] = JSON.parse(String(rawValue || '{}'));
-      } catch {
-        throw new Error(`${scopeLabel}参数 ${key} 的 value 必须是合法 JSON`);
-      }
-      continue;
-    }
-    throw new Error(`${scopeLabel}参数 ${key} 的 type 无效`);
-  }
-  return result;
 }
 
 function buildPayload() {
@@ -1491,13 +1410,7 @@ function handleTierProviderChange(tier, key) {
   if (!key) { t.provider = ''; t.provider_type = ''; return; }
   const p = providers.value.find(item => (item?.key || item?.name) === key);
   if (!p) return;
-  t.provider = p.name || '';
-  t.provider_type = p.provider_type || '';
-  const models = getProviderModels(p);
-  t.model_name = models[0] || '';
-  if (p.temperature != null) t.temperature = Number(p.temperature);
-  if (p.max_completion_tokens != null) t.max_completion_tokens = Number(p.max_completion_tokens);
-  if (p.max_context_tokens != null) t.max_context_tokens = Number(p.max_context_tokens);
+  Object.assign(t, applyProviderToLlm(t, p));
 }
 
 function toggleTool(name, checked) {

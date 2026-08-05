@@ -21,7 +21,7 @@ export interface RuntimeCoreLlmInfo {
   provider: string | null;
   provider_type: string | null;
   model_name: string | null;
-  source: "selected_llm" | "agent_config.default" | "missing";
+  source: "selected_llm" | "agent_config.default" | "system_config.llm" | "missing";
 }
 
 export interface RuntimeCoreProviderInfo {

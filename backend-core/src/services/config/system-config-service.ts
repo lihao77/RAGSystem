@@ -2,6 +2,7 @@ import { isRecord } from "../../utils/guards.js";
 
 import type {
   DocumentExtractionConfig,
+  SystemLlmConfig,
   SystemConfigData,
   SystemConfigGroup,
   SystemConfigSchema,
@@ -93,6 +94,12 @@ export class SystemConfigService {
     return normalizeToolsConfig(this.config.tools);
   }
 
+  /** Typed system LLM fallback. Agent-specific tiers remain higher priority. */
+  getLlmConfig(): SystemLlmConfig {
+    this.ensureInitialized();
+    return normalizeLlmConfig(this.config.llm);
+  }
+
   /** 类型化读取 system 组。 */
   getSystemGroupConfig(): SystemGroupConfig {
     this.ensureInitialized();
@@ -108,7 +115,7 @@ export class SystemConfigService {
   async updateConfig(update: SystemConfigUpdate): Promise<SystemConfigData> {
     this.ensureInitialized();
     const sanitized = retainKnownRootGroups(dropRedactedValues(update), this.config) as SystemConfigData;
-    const next = deepMerge(cloneConfig(this.config), sanitized);
+    const next = normalizeLlmSelection(deepMerge(cloneConfig(this.config), sanitized));
     await this.store.save(next);
     this.config = next;
     return this.getConfig();
@@ -117,7 +124,7 @@ export class SystemConfigService {
   async reload(): Promise<void> {
     const defaults = this.buildDefaults();
     const stored = await this.store.load();
-    this.config = stored ? deepMerge(defaults, stored) : defaults;
+    this.config = normalizeLlmSelection(stored ? deepMerge(defaults, stored) : defaults);
     this.initialized = true;
   }
 
@@ -136,6 +143,15 @@ export class SystemConfigService {
 
 function buildDefaultConfig(): SystemConfigData {
   return {
+    llm: {
+      provider: "",
+      provider_type: "",
+      model_name: "",
+      temperature: 0.7,
+      max_completion_tokens: 4096,
+      max_context_tokens: 128000,
+      extra_params: {},
+    },
     document_extraction: {
       engine: "builtin",
       cli: { command: "", timeout: 120, applies_to: [] },
@@ -163,6 +179,19 @@ function buildDefaultConfig(): SystemConfigData {
 function buildSystemConfigSchema(): SystemConfigSchema {
   return {
     groups: [
+      {
+        key: "llm",
+        label: "LLM 配置",
+        description: "当智能体未配置任何 LLM tier 时使用的系统默认模型",
+        fields: [
+          textField("provider", "Provider", "AI 提供商名称；留空表示未配置", ""),
+          textField("provider_type", "Provider Type", "Provider 类型（用于精确查找，避免同名冲突）", ""),
+          textField("model_name", "Model Name", "默认 Chat 模型名称", ""),
+          numberField("temperature", "Temperature", "生成温度，控制输出随机性", 0.7, { min: 0, max: 2, step: 0.1 }),
+          numberField("max_completion_tokens", "Max Completion Tokens", "单次输出的最大 token 数", 4096, { min: 1, step: 1 }),
+          numberField("max_context_tokens", "Max Context Tokens", "模型支持的最大上下文窗口", 128000, { min: 1, step: 1 }),
+        ],
+      },
       {
         key: "document_extraction",
         label: "文档解析",
@@ -368,6 +397,43 @@ function normalizeToolsConfig(value: unknown): ToolsConfig {
     code_default_timeout: positiveIntOrDefault(record.code_default_timeout, 60),
     code_max_timeout: positiveIntOrDefault(record.code_max_timeout, 300),
   };
+}
+
+function normalizeLlmConfig(value: unknown): SystemLlmConfig {
+  const record = isRecord(value) ? value : {};
+  const provider = stringOrDefault(record.provider, "");
+  return {
+    provider,
+    provider_type: provider ? stringOrDefault(record.provider_type, "") : "",
+    model_name: provider ? stringOrDefault(record.model_name, "") : "",
+    temperature: boundedNumberOrDefault(record.temperature, 0.7, 0, 2),
+    max_completion_tokens: positiveIntOrDefault(record.max_completion_tokens, 4096),
+    max_context_tokens: positiveIntOrDefault(record.max_context_tokens, 128000),
+    extra_params: isRecord(record.extra_params) ? structuredClone(record.extra_params) as Record<string, SystemConfigValue> : {},
+  };
+}
+
+function normalizeLlmSelection(config: SystemConfigData): SystemConfigData {
+  if (!isRecord(config.llm)) return config;
+  const provider = stringOrDefault(config.llm.provider, "");
+  return {
+    ...config,
+    llm: {
+      ...config.llm,
+      max_context_tokens: positiveIntOrDefault(config.llm.max_context_tokens, 128000),
+      ...(provider
+        ? { provider }
+        : { provider: "", provider_type: "", model_name: "" }),
+    },
+  };
+}
+
+function stringOrDefault(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value.trim() : fallback;
+}
+
+function boundedNumberOrDefault(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max ? value : fallback;
 }
 
 function normalizeSystemGroupConfig(value: unknown): SystemGroupConfig {

@@ -77,7 +77,7 @@
             <Input
               :type="field.type === 'password' ? 'password' : 'text'"
               :model-value="getFieldInputValue(field, getFieldValue(group.key, field.key))"
-              :disabled="disabled"
+              :disabled="disabled || field.disabled"
               :placeholder="field.placeholder || ''"
               @update:model-value="setFieldValue(group.key, field.key, $event, field)"
             />
@@ -85,6 +85,7 @@
           </label>
         </template>
       </div>
+      <slot v-if="!collapsed[group.key]" name="group-after" :group="group" />
     </section>
   </div>
 </template>

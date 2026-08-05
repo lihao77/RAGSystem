@@ -1,7 +1,8 @@
 import { isRecord, normalizeString } from "../../../utils/guards.js";
-import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
+import type { AgentConfig, AgentLlmConfig } from "../../../contracts/agent/agent-config.js";
 import type { RuntimeCoreReadiness, RuntimeCoreRequirement } from "../../../contracts/runtime/runtime-core.js";
 import type { ModelProviderConfig, ModelMapValue } from "../../../contracts/integrations/model-adapter.js";
+import type { SystemLlmConfig } from "../../../contracts/runtime/system-config.js";
 import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";
 
 export interface RuntimeCoreReadinessInput {
@@ -17,6 +18,10 @@ export interface RuntimeAgentConfigPort {
 
 export interface RuntimeModelProviderPort {
   listProviders(): ModelProviderConfig[];
+}
+
+export interface RuntimeSystemConfigPort {
+  getLlmConfig(): SystemLlmConfig;
 }
 
 export interface RuntimeExecutionConfig {
@@ -35,13 +40,14 @@ interface ResolvedLlm {
   provider: string | null;
   provider_type: string | null;
   model_name: string | null;
-  source: "selected_llm" | "agent_config.default" | "missing";
+  source: "selected_llm" | "agent_config.default" | "system_config.llm" | "missing";
 }
 
 export class RuntimeCoreService {
   constructor(
     private readonly agentConfigs: RuntimeAgentConfigPort,
     private readonly modelProviders: RuntimeModelProviderPort,
+    private readonly systemConfig: RuntimeSystemConfigPort | null = null,
   ) {}
 
   getReadiness(input: RuntimeCoreReadinessInput = {}): RuntimeCoreReadiness {
@@ -93,7 +99,7 @@ export class RuntimeCoreService {
     const provider = this.resolveProviderConfig(llm);
     return {
       readiness: this.getReadiness(input),
-      agent,
+      agent: this.applySystemLlmFallback(agent, llm),
       provider,
       modelName: llm.model_name,
     };
@@ -124,19 +130,63 @@ export class RuntimeCoreService {
     }
 
     const defaultTier = agent?.llm_tiers?.default;
-    if (!defaultTier) {
+    if (defaultTier) {
       return {
-        provider: null,
-        provider_type: null,
-        model_name: null,
-        source: "missing",
+        provider: normalizeString(defaultTier.provider),
+        provider_type: normalizeString(defaultTier.provider_type),
+        model_name: normalizeString(defaultTier.model_name),
+        source: "agent_config.default",
       };
     }
+
+    // Keep the fallback intentionally narrow: a system default is inherited only
+    // when the agent has no LLM tier configuration at all. A partially configured
+    // tier map is an explicit agent choice and must remain unresolved.
+    const systemTier = this.resolveSystemLlmFallback(agent);
+    if (systemTier) {
+      return {
+        provider: normalizeString(systemTier.provider),
+        provider_type: normalizeString(systemTier.provider_type),
+        model_name: normalizeString(systemTier.model_name),
+        source: "system_config.llm",
+      };
+    }
+
     return {
-      provider: normalizeString(defaultTier.provider),
-      provider_type: normalizeString(defaultTier.provider_type),
-      model_name: normalizeString(defaultTier.model_name),
-      source: "agent_config.default",
+      provider: null,
+      provider_type: null,
+      model_name: null,
+      source: "missing",
+    };
+  }
+
+  private applySystemLlmFallback(agent: AgentConfig | null, llm: ResolvedLlm): AgentConfig | null {
+    if (!agent || llm.source !== "system_config.llm") {
+      return agent;
+    }
+    const systemTier = this.resolveSystemLlmFallback(agent);
+    return systemTier
+      ? { ...agent, llm_tiers: { default: systemTier } }
+      : agent;
+  }
+
+  private resolveSystemLlmFallback(agent: AgentConfig | null): AgentLlmConfig | null {
+    if (!agent || !this.systemConfig) {
+      return null;
+    }
+    const tiers = agent.llm_tiers;
+    if (tiers !== null && tiers !== undefined && Object.keys(tiers).length > 0) {
+      return null;
+    }
+    const systemLlm = this.systemConfig.getLlmConfig();
+    return {
+      provider: systemLlm.provider,
+      provider_type: systemLlm.provider_type,
+      model_name: systemLlm.model_name,
+      temperature: systemLlm.temperature,
+      max_completion_tokens: systemLlm.max_completion_tokens,
+      max_context_tokens: systemLlm.max_context_tokens,
+      extra_params: { ...systemLlm.extra_params },
     };
   }
 
