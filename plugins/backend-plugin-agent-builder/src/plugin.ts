@@ -78,7 +78,7 @@ export function createAgentBuilderPlugin(): BackendPlugin {
           await builder.synchronizeTeamDraft(
             payload.teamName,
             await createAgentBuilderBindings({
-              agentConfig: builder.getAgentConfigService(),
+              agentConfig: builder.getAgentConfigPort(),
               capabilities: runtime.pluginCapabilities,
               pluginTools: builder.listAvailableTools(),
             }),
@@ -98,7 +98,7 @@ export function createAgentBuilderPlugin(): BackendPlugin {
         const builder = capabilities.require(AGENT_BUILDER_RUNTIME_CAPABILITY).service;
         return createAgentBuilderTools(builder, capabilities, {
           bindingsProvider: () => createAgentBuilderBindings({
-            agentConfig: builder.getAgentConfigService(),
+            agentConfig: builder.getAgentConfigPort(),
             capabilities,
             pluginTools: builder.listAvailableTools(),
           }),

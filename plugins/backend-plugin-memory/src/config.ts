@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { SystemConfigExtension } from "@ragsystem/backend-core/services/config/system-config-service.js";
+import type { SystemConfigExtension } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 
 const MemoryScopeNameSchema = z.enum(["team", "session", "agent", "workspace", "user"]);
 

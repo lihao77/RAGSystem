@@ -1,4 +1,4 @@
-import type { SystemConfigExtension } from "@ragsystem/backend-core/services/config/system-config-service.js";
+import type { SystemConfigExtension } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 import type { SystemConfigValue } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 
 export interface DocumentExtractionConfig {

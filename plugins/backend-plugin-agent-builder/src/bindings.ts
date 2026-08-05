@@ -1,4 +1,4 @@
-import type { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
+import type { AgentConfigPort } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import type { BackendToolDescriptor } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { MCP_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-mcp/capability.js";
@@ -7,7 +7,7 @@ import { SKILLS_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-skills/capa
 import type { AgentBuilderBindings } from "./service.js";
 
 export async function createAgentBuilderBindings(input: {
-  agentConfig: AgentConfigService;
+  agentConfig: AgentConfigPort;
   capabilities: CapabilityRegistry;
   pluginTools?: readonly BackendToolDescriptor[];
 }): Promise<AgentBuilderBindings> {

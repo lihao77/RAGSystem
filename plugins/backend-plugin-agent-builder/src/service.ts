@@ -2,10 +2,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AgentConfig, AgentLlmConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { AgentConfig, AgentConfigPort, AgentLlmConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { BackendToolDescriptor } from "@ragsystem/backend-core/plugins/backend-plugin.js";
-import type { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
-import type { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
+import type { SystemConfigPort } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 import {
@@ -43,12 +42,12 @@ export class AgentBuilderService {
 
   constructor(
     private readonly store: AgentBuilderStore,
-    private readonly agentConfig: AgentConfigService,
+    private readonly agentConfig: AgentConfigPort,
     private readonly pluginTools: readonly BackendToolDescriptor[] = [],
-    private readonly systemConfig: SystemConfigService | null = null,
+    private readonly systemConfig: SystemConfigPort | null = null,
   ) {}
 
-  getAgentConfigService(): AgentConfigService {
+  getAgentConfigPort(): AgentConfigPort {
     return this.agentConfig;
   }
 

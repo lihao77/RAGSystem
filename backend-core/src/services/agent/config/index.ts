@@ -2,8 +2,10 @@ import YAML from "yaml";
 
 import {
   AgentConfigSchema,
+  type ApplyTeamPayloadResult,
   type AgentConfig,
   type AgentInfo,
+  type AvailableToolInfo,
   type CreateAgentRequest,
   type TeamInfo,
   type TeamSummary,
@@ -25,18 +27,13 @@ import {
   type TeamConfigs,
 } from "./configs.js";
 import type { IAgentConfigTeamStore } from "../../../contracts/agent/team-store.js";
-import { listAvailableTools as listAvailableRuntimeTools, type AvailableToolInfo } from "./tools.js";
+import { listAvailableTools as listAvailableRuntimeTools } from "./tools.js";
 import { toYaml } from "./yaml.js";
 
 type ExportFormat = "json" | "yaml";
 type ImportFormat = "json" | "yaml";
 
-export interface ApplyTeamPayloadResult {
-  team_name: string;
-  agent_count: number;
-  agents: string[];
-  source_team: string | null;
-}
+export type { ApplyTeamPayloadResult, AvailableToolInfo } from "../../../contracts/agent/agent-config.js";
 
 export class AgentConfigService {
   private activeTeam = "default";

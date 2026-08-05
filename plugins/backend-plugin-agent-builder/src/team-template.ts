@@ -1,5 +1,5 @@
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
-import type { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
+import type { AgentConfigPort } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
@@ -22,7 +22,7 @@ const SKILL_AUTHORING_PROMPT = `Use list_skill_drafts, with a query when needed,
  * Seed the managed Team once per tenant. Existing user changes are preserved;
  * template migrations must be explicit instead of overwriting a live Team.
  */
-export async function ensureAgentBuilderTeam(agentConfig: AgentConfigService): Promise<boolean> {
+export async function ensureAgentBuilderTeam(agentConfig: AgentConfigPort): Promise<boolean> {
   const summary = await agentConfig.listTeams();
   if (summary.teams.some((team) => team.team_name === AGENT_BUILDER_TEAM_NAME)) {
     const current = agentConfig.listConfigs({ teamName: AGENT_BUILDER_TEAM_NAME });

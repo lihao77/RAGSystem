@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
-import type { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
+import type { SystemConfigPort } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 
 import {
   isSkillDraftNameConflict,
@@ -27,7 +27,7 @@ export class SkillAuthoringService {
   constructor(
     private readonly store: SkillDraftStore,
     private readonly library: SkillLibraryService,
-    private readonly systemConfig: SystemConfigService | null = null,
+    private readonly systemConfig: SystemConfigPort | null = null,
   ) {}
 
   listDrafts(): Promise<SkillDraft[]> {

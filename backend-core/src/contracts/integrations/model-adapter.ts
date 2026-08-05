@@ -78,3 +78,14 @@ export interface ModelProviderConfig {
   is_available?: boolean;
   [key: string]: unknown;
 }
+
+/**
+ * Runtime provider catalog exposed to plugins.
+ *
+ * Provider administration and request execution remain owned by Core's model
+ * adapter service; plugins only need this read-only lookup surface.
+ */
+export interface ModelProviderCatalogPort {
+  hasProvider(providerKey: string): boolean;
+  getProvider(providerKey: string): ModelProviderConfig | null;
+}

@@ -2,14 +2,14 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { HookEvent, HookHandler, HookRegistry, Tool } from "@ragsystem/agent-sdk";
 
 import type { AgentConfig } from "../contracts/agent/agent-config.js";
+import type { AgentConfigPort } from "../contracts/agent/agent-config.js";
 import type { SessionApplication } from "../contracts/session/session-application.js";
 import type { PathAccessPolicy } from "../contracts/runtime/path-access-policy.js";
+import type { BackgroundTaskPort } from "../contracts/runtime/background-tasks.js";
 import type { TenantId } from "../identity/types.js";
-import type { AgentConfigService } from "../services/agent/config/index.js";
-import type { ModelAdapterService } from "../services/integrations/model-adapter-service.js";
-import type { SystemConfigService } from "../services/config/system-config-service.js";
-import type { BackgroundTaskService } from "../services/runtime/background-task-service.js";
 import type { ClientEventPublisherPort } from "../contracts/runtime/core-runtime-ports.js";
+import type { ModelProviderCatalogPort } from "../contracts/integrations/model-adapter.js";
+import type { SystemConfigPort } from "../contracts/runtime/system-config.js";
 import type { CapabilityProvider, CapabilityRegistry } from "./capability-registry.js";
 import type { RuntimeContainerRegistry } from "../services/runtime/runtime-container-registry.js";
 import type { BackendResourceToken, BackendPluginResourceContribution } from "./resource-registry.js";
@@ -87,11 +87,11 @@ export interface BackendPluginRuntimeContext {
   readonly deploymentKind: "local" | "saas";
   readonly tenantId: TenantId;
   readonly dataRoot: string;
-  readonly modelAdapter: ModelAdapterService;
-  readonly systemConfig: SystemConfigService;
-  readonly agentConfig: AgentConfigService;
+  readonly modelAdapter: ModelProviderCatalogPort;
+  readonly systemConfig: SystemConfigPort;
+  readonly agentConfig: AgentConfigPort;
   readonly sessions: SessionApplication;
-  readonly backgroundTasks: BackgroundTaskService;
+  readonly backgroundTasks: BackgroundTaskPort;
   readonly clientEvents: ClientEventPublisherPort;
   readonly resources?: readonly BackendPluginResourceContribution[];
   /** Tool descriptors registered by all installed plugins, for runtime control-plane consumers. */

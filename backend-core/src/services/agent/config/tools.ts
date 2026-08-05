@@ -1,15 +1,9 @@
 import { CONFIG_MANAGED_TOOL_NAMES } from "../../../contracts/agent/config-normalize.js";
+import type { AvailableToolInfo } from "../../../contracts/agent/agent-config.js";
 
 export { CONFIG_MANAGED_TOOL_NAMES, stripConfigManagedToolNames } from "../../../contracts/agent/config-normalize.js";
 
-type ToolRiskLevel = "low" | "medium" | "high";
-
-export interface AvailableToolInfo {
-  name: string;
-  description: string;
-  category: string;
-  risk_level: ToolRiskLevel;
-}
+export type { AvailableToolInfo } from "../../../contracts/agent/agent-config.js";
 
 export function listAvailableTools(): AvailableToolInfo[] {
   return allRuntimeTools().filter((tool) => !CONFIG_MANAGED_TOOL_NAMES.has(tool.name));
@@ -33,7 +27,7 @@ function availableTool(
   name: string,
   description: string,
   category: string,
-  riskLevel: ToolRiskLevel,
+  riskLevel: AvailableToolInfo["risk_level"],
 ): AvailableToolInfo {
   return {
     name,

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 
-import type { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
+import type { ModelProviderCatalogPort } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
 
 import type { KnowledgeApplication } from "../../contracts/knowledge-application.js";
 import type { KnowledgePluginRuntimeFactory } from "../../dependencies.js";
@@ -25,7 +25,7 @@ export interface LocalKnowledgeRuntimeOptions {
   tenantId: string;
   dataRoot: string;
   inMemory: boolean;
-  modelAdapter: ModelAdapterService;
+  modelAdapter: ModelProviderCatalogPort;
   documentExtraction: DocumentExtractionConfig;
   embedderFactory?: KnowledgeEmbedderFactory;
 }

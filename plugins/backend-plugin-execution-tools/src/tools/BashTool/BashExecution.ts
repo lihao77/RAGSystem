@@ -5,8 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { RiskLevel } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
-import type { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
-import type { ClientEventPublisher } from "@ragsystem/backend-core/services/runtime/event-outbox/client-event-publisher.js";
+import type { BackgroundTaskPort } from "@ragsystem/backend-core/contracts/runtime/background-tasks.js";
+import type { ClientEventPublisherPort } from "@ragsystem/backend-core/contracts/runtime/core-runtime-ports.js";
 import {
   buildApprovalDescription,
   categoryRisk,
@@ -97,8 +97,8 @@ export class LocalBashToolService {
   private readonly maxTimeoutSeconds: number;
   private readonly maxOutputChars: number;
   private readonly bashExecutable: string | null;
-  private readonly backgroundTasks: BackgroundTaskService | null;
-  private readonly clientEvents: ClientEventPublisher | null;
+  private readonly backgroundTasks: BackgroundTaskPort | null;
+  private readonly clientEvents: ClientEventPublisherPort | null;
   private readonly paths: ManagedPathResolver;
 
   constructor(options: {
@@ -108,8 +108,8 @@ export class LocalBashToolService {
     maxOutputChars?: number | undefined;
     bashExecutable?: string | null | undefined;
     pathResolver?: ManagedPathResolver | undefined;
-    backgroundTasks?: BackgroundTaskService | null | undefined;
-    clientEvents?: ClientEventPublisher | null | undefined;
+    backgroundTasks?: BackgroundTaskPort | null | undefined;
+    clientEvents?: ClientEventPublisherPort | null | undefined;
   } = {}) {
     if (!options.dataRoot?.trim()) {
       throw new Error("LocalBashToolService 必须传入已解析的 dataRoot");

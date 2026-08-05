@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
-import type { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
+import type { ModelProviderCatalogPort } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
 
 import type { KnowledgeApplication } from "../../contracts/knowledge-application.js";
 import { TenantKnowledgeMarkdownPipeline } from "../../contracts/knowledge/async-knowledge-markdown-pipeline.js";
@@ -25,7 +25,7 @@ export interface PostgresKnowledgeRuntimeOptions {
   tenantId: string;
   executor: KnowledgePostgresExecutor;
   objects: ObjectStorage;
-  modelAdapter: ModelAdapterService;
+  modelAdapter: ModelProviderCatalogPort;
   documentExtraction: DocumentExtractionConfig;
 }
 

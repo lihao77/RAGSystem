@@ -11,8 +11,8 @@ import {
   executionPathEnvironment,
 } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
-import type { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
-import type { ClientEventPublisher } from "@ragsystem/backend-core/services/runtime/event-outbox/client-event-publisher.js";
+import type { BackgroundTaskPort } from "@ragsystem/backend-core/contracts/runtime/background-tasks.js";
+import type { ClientEventPublisherPort } from "@ragsystem/backend-core/contracts/runtime/core-runtime-ports.js";
 import type { SkillsAgentConfig, SkillsAgentConfigService } from "../config.js";
 import type { ISkillPackageStore, SkillPackageRecord } from "../contracts/skills/skill-package-store.js";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
@@ -99,8 +99,8 @@ export class SkillToolService {
       additionalBuiltinSkillSources?: readonly BuiltinSkillSourceInput[] | undefined;
       userGlobalSkillsRoot?: string | undefined;
       skillsConfig?: SkillsAgentConfigService | null | undefined;
-      backgroundTasks?: BackgroundTaskService | null | undefined;
-      clientEvents?: ClientEventPublisher | null | undefined;
+      backgroundTasks?: BackgroundTaskPort | null | undefined;
+      clientEvents?: ClientEventPublisherPort | null | undefined;
       skillIsolationMode?: SkillIsolationMode | undefined;
       artifactStaging?: ArtifactStagingServiceResource | null | undefined;
       /**
@@ -126,8 +126,8 @@ export class SkillToolService {
   }
 
   private readonly skillsConfig: SkillsAgentConfigService | null;
-  private readonly backgroundTasks: BackgroundTaskService | null;
-  private readonly clientEvents: ClientEventPublisher | null;
+  private readonly backgroundTasks: BackgroundTaskPort | null;
+  private readonly clientEvents: ClientEventPublisherPort | null;
   private readonly skillIsolationMode: SkillIsolationMode;
   private readonly packageStore: ISkillPackageStore | null;
   private readonly artifactStaging: ArtifactStagingServiceResource | null;

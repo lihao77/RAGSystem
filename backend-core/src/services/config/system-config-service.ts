@@ -3,6 +3,7 @@ import { isRecord } from "../../utils/guards.js";
 import type {
   SystemLlmConfig,
   SystemConfigData,
+  SystemConfigExtension,
   SystemConfigGroup,
   SystemConfigSchema,
   SystemConfigUpdate,
@@ -25,10 +26,7 @@ const SENSITIVE_FIELD_NAMES = new Set([
 ]);
 const SENSITIVE_FIELD_SUFFIXES = ["_api_key", "_password", "_secret", "_secret_key", "_token"];
 
-export interface SystemConfigExtension {
-  readonly defaults: SystemConfigData;
-  readonly groups: readonly SystemConfigGroup[];
-}
+export type { SystemConfigExtension } from "../../contracts/runtime/system-config.js";
 
 /**
  * In-process system config projection.

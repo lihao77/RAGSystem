@@ -70,3 +70,16 @@ export interface SystemLlmConfig {
 export interface SystemGroupConfig {
   max_content_length: number;
 }
+
+/** Extension contribution owned by one plugin. */
+export interface SystemConfigExtension {
+  readonly defaults: SystemConfigData;
+  readonly groups: readonly SystemConfigGroup[];
+}
+
+/** Read and extension-registration surface available to plugins. */
+export interface SystemConfigPort {
+  getSection(key: string): SystemConfigValue | undefined;
+  getToolsConfig(): ToolsConfig;
+  registerExtension(id: string, extension: SystemConfigExtension): () => void;
+}

@@ -112,3 +112,35 @@ export interface AgentInfo {
     custom_params: Record<string, unknown>;
   };
 }
+
+export type AgentToolRiskLevel = "low" | "medium" | "high";
+
+export interface AvailableToolInfo {
+  name: string;
+  description: string;
+  category: string;
+  risk_level: AgentToolRiskLevel;
+}
+
+export interface ApplyTeamPayloadResult {
+  team_name: string;
+  agent_count: number;
+  agents: string[];
+  source_team: string | null;
+}
+
+/** Agent configuration operations used by plugin runtimes. */
+export interface AgentConfigPort {
+  listConfigs(options?: { teamName?: string | null }): Record<string, AgentConfig>;
+  listAvailableTools(): AvailableToolInfo[];
+  getConfig(agentName: string, options?: { teamName?: string | null }): AgentConfig | null;
+  listTeams(): Promise<TeamSummary>;
+  createTeam(teamName: string, sourceTeam?: string | null): Promise<TeamSummary>;
+  activateTeam(teamName: string): Promise<TeamSummary>;
+  deleteTeam(teamName: string): Promise<TeamSummary>;
+  applyTeamPayload(
+    teamName: string,
+    agentsPayload: Record<string, unknown>,
+    sourceTeam?: string | null,
+  ): Promise<ApplyTeamPayloadResult>;
+}

@@ -6,7 +6,7 @@ import type { KnowledgeFile } from "../../contracts/vector-store/knowledge-file-
 import type { StoredReranker, StoredVectorizer } from "../../contracts/vector-store/knowledge-config.js";
 import type { IEmbedder } from "../../contracts/vector-store/embedder.js";
 import type { ModelProviderConfig } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
-import type { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
+import type { ModelProviderCatalogPort } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
 import { createEmbedder } from "../integrations/embedder-registry.js";
 import { createReranker, type IReranker } from "../integrations/reranker-registry.js";
 import { lexicalRerank } from "./rerank/lexical-rerank.js";
@@ -28,7 +28,7 @@ export class KnowledgeApplicationService {
 
   constructor(
     private readonly tenantId: string,
-    private readonly modelAdapter: ModelAdapterService,
+    private readonly modelAdapter: ModelProviderCatalogPort,
     private readonly config: AsyncKnowledgeConfigStore,
     private readonly vectors: AsyncKnowledgeVectorStore,
     embedderFactory: KnowledgeEmbedderFactory = createEmbedder,
