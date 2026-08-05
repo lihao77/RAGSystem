@@ -1,77 +1,57 @@
-# Backend TS Migration Boundaries
+# Backend Ownership Boundaries
 
-This document records the current TypeScript backend migration boundary after the Python-backend
-parity pass. The tracked parity slices now run in `backend-ts`; this document should prevent future
-work from reintroducing placeholder behavior or stale `501 not_migrated` assumptions.
+This document is the boundary checklist for the TypeScript backend. It describes ownership, not
+legacy compatibility. New code should follow these rules directly; no compatibility wrapper for
+the old string-resource or concrete-service protocols is maintained.
 
-## Current Status
+## Core Boundary
 
-- `backend-ts` owns the migrated runtime and compatibility routes described in the full migration
-  plan.
-- There are no active route-level `501 not_migrated` placeholders in `backend-ts/src`.
-- Health/status endpoints report the TS runtime as migrated.
+Core owns the Agent kernel, common runtime contracts, deployment-neutral application assembly,
+generic model access, and the plugin host. Core may define a port and an implementation, but a
+domain-specific workflow belongs to the plugin that owns that domain.
 
-## Migrated Scope
+The plugin runtime context exposes only semantic ports:
 
-Foundation and persistence:
+- provider catalog plus embedding/rerank client ports;
+- system configuration read/extension registration;
+- Agent configuration operations needed by runtime plugins;
+- session application;
+- background task execution;
+- durable client-event publishing.
 
-- Fastify application entrypoint and health routes.
-- SQLite-backed sessions, messages, runs, run steps, resources, uploaded files, file
-  history, and durable event outbox.
-- Python-compatible session create/list/get/delete, message listing, message edit, rollback,
-  retry, run-step sidecar reads, and session export.
-- WebSocket replay, monotonic stream sequence handling, approval responses, stop acknowledgements,
-  and durable terminal event replay.
+Concrete Core service classes are internal composition details, not plugin integration APIs.
 
-Execution runtime:
+## Host Boundary
 
-- `/api/agent/stream` for configured single-agent execution.
-- `/api/agent/execute` and `/api/agent/execute/:agentName` synchronous execution.
-- `/api/agent/collaborate` sequential collaboration.
-- XML streaming tool-call loop, native tool-call fallback, approvals, user-input interactions,
-  stop/cancel, run status, context compression, and `/compact`.
-- Attachments and uploaded/session files in runtime context.
+Local and SaaS adapters own deployment state and inject it through typed `BackendResourceToken`
+values. A resource has one declared owner and one provider. Plugins must resolve resources by the
+token contract and must not inspect deployment paths or import host adapter classes.
 
-Runtime tools and integrations:
+## Plugin Boundary
 
-- `request_user_input`.
-- Memory read/write/archive tools.
-- Managed file read/write/edit/preview tools.
-- Local search tools: `glob`, `grep`, `web_fetch`, `todo_write`.
-- Foreground/background `execute_bash`, background task status/output/stop, and task workflow
-  tools.
-- Restricted `execute_code`.
-- Agent delegation tools.
-- Skill discovery, visibility, resource loading, script execution (with per-skill `.venv`
-  isolation and `requirements.txt` provisioning), artifact protocol, team
-  protocol, and background execution.
-- Hook runtime.
-- Plugin-contributed integrations, tool discovery, runtime bridge exposure, execution, and
-  permissions.
-- Vector/RAG indexing, search, rerank, delete, migration, sync, and knowledge-base runtime tools.
+| Domain | Owner |
+| --- | --- |
+| Knowledge/vector indexing/rerank/document ingestion | Knowledge plugin |
+| Memory persistence/retrieval/hooks | Memory plugin |
+| Skill packages/execution/authoring | Skills plugin |
+| Artifact staging and artifact APIs | Artifacts plugin |
+| MCP configuration/client/tools | MCP plugin |
+| Bash/code/search tools | Execution Tools plugin |
+| Document tools | Document Tools plugin |
+| Sandbox execution environment | Sandbox plugin plus deployment host lease |
+| Widget routes/authentication | Widget plugin |
+| Feishu daemon and scheduled tasks | Daemon/Feishu plugin |
+| Agent Builder | Agent Builder plugin |
 
-Management and provider compatibility:
+The Model Adapter is a Core capability used by these plugins. It supplies provider lookup and
+model transport ports; it does not make Knowledge or any other domain a Core service.
 
-- Agent/team config import/export, preset application, team management, agent management, and
-  runtime reload response.
-- Model provider YAML-backed management, provider availability/test routes, Anthropic chat,
-  OpenAI-compatible chat, OpenAI Responses chat, embeddings, and rerank support.
-- System config reads/updates/reload.
-- Daemon status/config, Feishu gateway lifecycle, outbound send, cron task management, and cron
-  trigger are owned by the Daemon/Feishu plugin.
-- File management, artifact management, embedding model management, vector library management,
-  permission policy routes, monitoring routes, context snapshot, and outbox operations.
+## Change Checklist
 
-## Intentional Unsupported Modes
+Before adding a cross-domain dependency:
 
-- Parallel collaboration still returns HTTP 400 with `并行模式尚未实现`. This matches the current
-  Python backend behavior and is not a TypeScript migration gap.
-- Live external behavior still depends on local provider keys and installed plugin configuration.
-  Tests cover local/fake execution paths; optional
-  smoke tests can validate a live environment.
-
-## Rule
-
-Do not silently fake migrated behavior. If a future Python capability is added before its
-TypeScript implementation, keep the public route shape compatible and return an explicit, tested
-error until the behavior is ported.
+1. Identify the owning domain.
+2. Define the smallest semantic contract under `backend-core/src/contracts`.
+3. Inject the contract through a runtime port or typed resource token.
+4. Keep Local/SaaS construction in deployment adapters.
+5. Add a focused contract or lifecycle test and run the backend typecheck/test commands.

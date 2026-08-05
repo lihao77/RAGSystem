@@ -1,37 +1,22 @@
-# Service Domains
+# Core Service Domains
 
-`services` is organized by runtime domain. Keep service entry files inside the
-domain that owns their behavior, and keep same-name implementation folders next
-to their facade file.
+This directory contains implementation details of the Core Agent kernel. Public integration
+surfaces belong in `src/contracts`; plugin runtime factories receive those contracts through
+`BackendPluginRuntimeContext`.
 
 ## Domains
 
-- `agent/`: agent orchestration, execution, sessions, prompts, delegation, and
-  context construction.
-- `runtime/`: process-level runtime composition, runtime protocols, event bus,
-  permissions, pending interactions, and background tasks.
-- `tools/`: local tool implementations and tool-facing service APIs.
-- `stores/`: persistence, file indexing, conversation data, and
-  memory storage.
-- `config/`: system configuration services.
-- `integrations/`: external protocol or provider adapters, including LLM, MCP,
-  and model adapter services.
-- `knowledge/`: vector library and embedding model services.
-- `artifacts/`: artifact storage and management.
-- `daemon/`: daemon runtime services.
+- `agent/`: Agent orchestration, execution, sessions, prompts, delegation, and context
+  construction.
+- `runtime/`: Process-level runtime composition, event delivery, permissions, pending
+  interactions, and generic background-task execution.
+- `config/`: Core system configuration projection and extension lifecycle.
+- `integrations/`: Generic model-provider administration and model transport adapters.
+- `identity/`: Deployment-neutral identity and authentication primitives.
 
-## Local Structure
+Persistence and deployment-specific implementations are outside Core in `backend-local`,
+`backend-saas`, or a domain plugin. Knowledge, Memory, Skills, Artifacts, MCP, Daemon/Feishu,
+Widget, Agent Builder, and tool-domain services are plugin-owned and must not be added here.
 
-Use the existing facade pattern for multi-file services:
-
-```text
-services/<domain>/foo-service.ts
-services/<domain>/foo-service/*.ts
-```
-
-`foo-service.ts` is the public entry point for that service. Files in the
-same-name folder are implementation details and should normally be imported only
-by the facade or other files in the same service package.
-
-Avoid adding new service files directly under `services/`; choose the owning
-domain instead.
+When a plugin needs a Core capability, add or use a semantic port under `src/contracts` and inject
+it through the plugin runtime context. Do not expose a concrete Core service class as a plugin API.
