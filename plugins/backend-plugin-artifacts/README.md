@@ -2,9 +2,7 @@
 
 Artifact V2 将一个 Artifact 定义为有语义的产物 Manifest。Manifest 可以引用多个二进制 Asset，并声明一个或多个受控 Presentation。`kind`、`surface` 和 `renderer` 使用开放的命名空间字符串，新类型不需要修改存储层。
 
-Artifact 插件保留 `create_skill_artifact` 作为 Builder 内部兼容能力，但不再把它注册到通用 Agent 工具配置入口。新的 Skill Builder 工作流直接使用 Skills 插件的本地 Draft 工作区工具：`create_skill_draft`、`get_skill_draft`、`publish_skill_draft`。普通 Agent 不会获得 Skill 创建、提交或发布工具。
-
-历史 Artifact API 和 `submit_skill_artifact` 服务接口暂时保留用于已有数据迁移和管理端兼容，不再加入 Builder Agent 的工具清单。
+Skill Builder 工作流由 Skills 插件的 Draft 工作区工具提供：`create_skill_draft`、`get_skill_draft`、`publish_skill_draft`。Artifact 插件只负责通用 Artifact V2 的创建、修订、展示和 staging，不提供 Skill 创建或提交入口。
 
 ## Skill 输出协议
 

@@ -23,7 +23,7 @@ export interface SkillDetail {
   /** SKILL.md 正文（去 frontmatter）。 */
   content: string;
   files: SkillFileNode[];
-  /** Published bundles are immutable; changes arrive through a new Artifact candidate. */
+  /** Published bundles are immutable; changes arrive through a new Skill Draft revision. */
   writable: boolean;
 }
 
@@ -33,7 +33,7 @@ const SKILL_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 /**
  * Skill 库管理服务。
- * 租户发布包经 ISkillPackageStore（Local 文件 / SaaS PG+对象存储）持久化，正文只能通过新 Artifact 候选变更。
+ * 租户发布包经 ISkillPackageStore（Local 文件 / SaaS PG+对象存储）持久化，正文只能通过 Skill Draft 变更。
  * builtin/workspace 只读，仍由 SkillToolService 解析。
  */
 export class SkillLibraryService {

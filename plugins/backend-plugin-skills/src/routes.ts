@@ -8,7 +8,6 @@ import { SKILLS_RUNTIME_CAPABILITY } from "./capability.js";
 import {
   DeleteSkillDraftSchema,
   PublishSkillDraftSchema,
-  SubmitSkillArtifactSchema,
   toSkillDraftView,
 } from "./contracts/skills/skill-draft.js";
 
@@ -34,14 +33,6 @@ interface AgentParams {
 
 interface TeamQuery {
   team?: string;
-}
-
-interface SubmitArtifactBody {
-  artifact_id: string;
-  expected_revision: number;
-  session_id: string;
-  name?: string;
-  description?: string;
 }
 
 /**
@@ -76,29 +67,11 @@ export const registerSkillRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/drafts", async (request) => {
-    return ok(await resolveSkills(request).authoring.listDraftViews(), "Skill candidates");
+    return ok(await resolveSkills(request).authoring.listDraftViews(), "Skill drafts");
   });
 
   app.get<{ Params: DraftParams }>("/drafts/:id", async (request) => {
-    return ok(await resolveSkills(request).authoring.getDraftView(request.params.id), "Skill candidate");
-  });
-
-  app.post<{ Body: SubmitArtifactBody }>("/drafts/import", async (request) => {
-    requireTenantMember(request);
-    const body = SubmitSkillArtifactSchema.parse(request.body);
-    const sessionId = body.session_id;
-    if (!sessionId) throw new HttpError(400, "invalid_request", "session_id is required");
-    await resolveArtifactResource(request).assertReadable(request, sessionId);
-    const candidate = await resolveSkills(request).authoring.submitArtifact(
-      body.artifact_id,
-      body.expected_revision,
-      {
-        sourceSessionId: sessionId,
-        ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.description !== undefined ? { description: body.description } : {}),
-      },
-    );
-    return ok(toSkillDraftView(candidate, "not_published"), "Skill Artifact 已复制为候选");
+    return ok(await resolveSkills(request).authoring.getDraftView(request.params.id), "Skill draft");
   });
 
   app.post<{ Params: DraftParams }>("/drafts/:id/publish", async (request) => {
@@ -147,12 +120,6 @@ export const registerSkillRoutes: FastifyPluginAsync = async (app) => {
 
 function resolveSkills(request: Parameters<typeof requireTenantMember>[0]) {
   return request.container.pluginCapabilities.require(SKILLS_RUNTIME_CAPABILITY);
-}
-
-function resolveArtifactResource(request: Parameters<typeof requireTenantMember>[0]) {
-  const resource = request.container.pluginCapabilities.require(SKILLS_RUNTIME_CAPABILITY).artifactResource;
-  if (!resource) throw new HttpError(503, "dependency_unavailable", "Artifact 插件未启用，无法提交 Skill Artifact");
-  return resource;
 }
 
 function configKey(params: AgentParams, query: TeamQuery): { teamName: string; agentName: string } {

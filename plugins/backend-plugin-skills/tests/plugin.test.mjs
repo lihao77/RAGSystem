@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,8 +11,6 @@ import {
   SkillToolService,
   createSkillAuthoringTools,
   createSkillTools,
-  resolveArtifactApplication,
-  resolveArtifactResource,
   resolveBuiltinSkillSources,
 } from "../dist/index.js";
 
@@ -47,35 +44,6 @@ class MemoryDraftStore {
 
 function skillMarkdown(name = "review-code") {
   return `---\nname: ${name}\ndescription: Review code\nmetadata:\n  custom_flag: true\n---\nReview the code.\n`;
-}
-
-function artifactApplication() {
-  const files = [
-    ["SKILL.md", Buffer.from(skillMarkdown()), "text/markdown; charset=utf-8"],
-    ["scripts/check.py", Buffer.from("print('ok')\n"), "text/x-python; charset=utf-8"],
-    ["resources/schema.json", Buffer.from('{"ok":true}\n'), "application/json"],
-  ];
-  const assets = files.map(([filename, body, media_type], index) => ({
-    asset_id: `asset-${index}`,
-    filename,
-    media_type,
-    size: body.length,
-    sha256: cryptoHash(body),
-  }));
-  return {
-    async getArtifact() {
-      return { artifact_id: "artifact-1", revision: 1, session_id: "session-1", kind: "skill", title: "Review code", status: "ready", assets, provenance: {} };
-    },
-    async getArtifactAsset(_artifactId, assetId) {
-      const index = assets.findIndex((asset) => asset.asset_id === assetId);
-      const [filename, body, mediaType] = files[index];
-      return { body, filename, mediaType, sha256: assets[index].sha256 };
-    },
-  };
-}
-
-function cryptoHash(body) {
-  return crypto.createHash("sha256").update(body).digest("hex");
 }
 
 function memoryLibrary() {
@@ -157,31 +125,6 @@ test("execute_skill_script runs from the shared workspace", async () => {
   }
 });
 
-test("Artifact submission copies a complete bundle and stays idempotent", async () => {
-  const library = memoryLibrary();
-  const service = new SkillAuthoringService(new MemoryDraftStore(), library, artifactApplication());
-  const candidate = await service.submitArtifact("artifact-1", 1, { sourceSessionId: "session-1" });
-  assert.equal(candidate.bundle_assets.length, 3);
-  assert.equal((await service.submitArtifact("artifact-1", 1, { sourceSessionId: "session-1" })).id, candidate.id);
-  const published = await service.publishDraft(candidate.id, candidate.revision);
-  assert.equal(published.status, "published");
-  assert.equal(library.packages.get("review-code").files.length, 3);
-  await assert.rejects(service.submitArtifact("artifact-1", 1), /当前 Session/);
-});
-
-test("auto approval publishes a valid Skill candidate after Artifact submission", async () => {
-  const library = memoryLibrary();
-  const service = new SkillAuthoringService(
-    new MemoryDraftStore(),
-    library,
-    artifactApplication(),
-    { getSection: (key) => key === "skills" ? { approval: { auto_publish_candidates: true } } : undefined },
-  );
-  const candidate = await service.submitArtifact("artifact-1", 1, { sourceSessionId: "session-1" });
-  assert.equal(candidate.status, "published");
-  assert.equal(library.packages.has("review-code"), true);
-});
-
 test("workspace validation failure does not synchronize the system Skill draft", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "skill-draft-invalid-"));
   try {
@@ -206,7 +149,6 @@ test("workspace publish auto-publishes and updates an existing Skill package", a
     const service = new SkillAuthoringService(
       new MemoryDraftStore(),
       library,
-      null,
       { getSection: (key) => key === "skills" ? { approval: { auto_publish_candidates: true } } : undefined },
     );
     const draft = await service.createDraft("workspace-skill", "Workspace Skill");
@@ -228,18 +170,18 @@ test("workspace publish auto-publishes and updates an existing Skill package", a
 });
 
 test("Skill authoring tools never return copied base64 bundle bodies", async () => {
-  const service = new SkillAuthoringService(new MemoryDraftStore(), memoryLibrary(), artifactApplication());
+  const service = new SkillAuthoringService(new MemoryDraftStore(), memoryLibrary());
   const tools = new Map(createSkillAuthoringTools({ authoring: service, agentName: "builder" }).map((tool) => [tool.name, tool]));
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "skill-draft-workspace-"));
   try {
-    const draft = await service.submitArtifact("artifact-1", 1, { sourceSessionId: "session-1" });
+    const draft = await service.createDraft("review-code", "Review code");
     const loaded = await tools.get("get_skill_draft").call(
       { draft_id: draft.id },
       { executionPaths: { workspace: root } },
     );
     assert.equal(loaded.success, true);
     assert.equal(loaded.content.bundle_assets, undefined);
-    assert.equal(loaded.content.bundle_asset_count, 3);
+    assert.equal(loaded.content.bundle_asset_count, 1);
     assert.equal(fs.existsSync(path.join(loaded.content.workspace_path, "SKILL.md")), true);
 
     const listed = await tools.get("list_skill_drafts").call({ query: "review" }, {});
@@ -251,14 +193,10 @@ test("Skill authoring tools never return copied base64 bundle bodies", async () 
   }
 });
 
-test("publishing with canonical field overrides remains idempotent", async () => {
+test("publishing a Draft remains idempotent", async () => {
   const library = memoryLibrary();
-  const service = new SkillAuthoringService(new MemoryDraftStore(), library, artifactApplication());
-  const candidate = await service.submitArtifact("artifact-1", 1, {
-    sourceSessionId: "session-1",
-    name: "renamed-review",
-    description: "Renamed review skill",
-  });
+  const service = new SkillAuthoringService(new MemoryDraftStore(), library);
+  const candidate = await service.createDraft("renamed-review", "Renamed review skill");
   const published = await service.publishDraft(candidate.id, candidate.revision);
   const repeated = await service.publishDraft(published.id, published.revision);
   assert.equal(repeated.revision, published.revision);
@@ -268,11 +206,11 @@ test("publishing with canonical field overrides remains idempotent", async () =>
   );
 });
 
-test("Deleting a release restores its copied candidate as an editable draft", async () => {
+test("Deleting a release restores its Draft as editable", async () => {
   const store = new MemoryDraftStore();
   const library = memoryLibrary();
-  const service = new SkillAuthoringService(store, library, artifactApplication());
-  const candidate = await service.submitArtifact("artifact-1", 1, { sourceSessionId: "session-1" });
+  const service = new SkillAuthoringService(store, library);
+  const candidate = await service.createDraft("review-code", "Review code");
   const published = await service.publishDraft(candidate.id, candidate.revision);
   library.packages.delete(published.name);
   const restored = await service.restoreCandidateAfterReleaseDelete(published.name);
@@ -288,19 +226,6 @@ test("Authoring tools expose only the workspace draft workflow", () => {
     "create_skill_draft",
     "publish_skill_draft",
   ]);
-});
-
-test("Artifact application resources use the structured tenant and access port", async () => {
-  const calls = [];
-  const value = {
-    applicationForTenant: async (tenantId) => ({ tenantId }),
-    assertReadable: async (_request, sessionId) => { calls.push(sessionId); },
-  };
-  const resources = [{ pluginId: "artifacts", kind: "ragsystem.artifact-application", value }];
-  assert.deepEqual(await resolveArtifactApplication(resources, "tenant-a"), { tenantId: "tenant-a" });
-  assert.equal(resolveArtifactResource(resources), value);
-  await value.assertReadable({}, "session-1");
-  assert.deepEqual(calls, ["session-1"]);
 });
 
 test("Skill source resources require absolute roots", () => {

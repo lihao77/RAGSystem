@@ -406,13 +406,13 @@ test("Builder template migration adds the workspace draft workflow", async () =>
   const fixture = await createFixture();
   try {
     const legacy = buildAgentBuilderTeam();
-    legacy.builder_orchestrator.custom_params.behavior.system_prompt = "Create the Artifact, then call submit_skill_artifact to create a candidate.";
+    legacy.builder_orchestrator.custom_params.behavior.system_prompt = "Keep this custom builder instruction.";
     legacy.builder_orchestrator.custom_params.behavior.builder_template_version = 3;
     await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, legacy);
 
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
     const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
-    assert.match(orchestrator.custom_params.behavior.system_prompt, /^Create the Artifact, then call submit_skill_artifact/);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this custom builder instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
     assert.equal(orchestrator.custom_params.behavior.builder_template_version, 7);

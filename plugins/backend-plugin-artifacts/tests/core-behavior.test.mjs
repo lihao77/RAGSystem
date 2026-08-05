@@ -7,7 +7,6 @@ import test from "node:test";
 import {
   createArtifactToolAfterHook,
   createArtifactsPlugin,
-  createSkillArtifactTools,
   parseArtifactManifest,
 } from "../dist/index.js";
 import { FilesystemArtifactService } from "../dist/storage/filesystem/filesystem-artifact-service.js";
@@ -42,11 +41,6 @@ test("Artifact plugin registers its contributions and owns storage lifecycle", a
   const skillSource = resources.find((item) => item.kind === "ragsystem.skill-source").value;
   assert.match(skillSource, /[\\/]skills$/);
   assert.equal(fs.existsSync(path.join(skillSource, "visualization", "SKILL.md")), true);
-  assert.equal(fs.existsSync(path.join(skillSource, "skill-authoring", "SKILL.md")), true);
-  assert.deepEqual(contributions.tools.descriptors ?? [], []);
-  const skillAuthor = { default_entry: true, tools: { enabled_tools: ["create_skill_artifact"] } };
-  assert.deepEqual(contributions.tools.factory({ teamName: "default", agent: skillAuthor }), []);
-  assert.equal(contributions.tools.factory({ teamName: "agent-builder", agent: skillAuthor }).length, 1);
   assert.equal(typeof resources.find((item) => item.kind === "ragsystem.artifact-staging").value.forTenant, "function");
   assert.deepEqual(events, ["start", "stop"]);
 });
@@ -100,7 +94,7 @@ test("Artifact hook persists a V2 manifest with multiple embedded assets", async
   assert.equal(output.modifiedResult.outputType, "map.raster");
 });
 
-test("Skill Artifact result exposes stable identifiers and the Builder draft handoff", async () => {
+test("Artifact results expose stable identifiers without Skill-specific handling", async () => {
   const hook = createArtifactToolAfterHook({
     storage: {
       applicationForTenant: () => artifactApplication({
@@ -130,30 +124,8 @@ test("Skill Artifact result exposes stable identifiers and the Builder draft han
   assert.equal(output.modifiedResult.metadata.artifact_kind, "skill");
   assert.equal(output.modifiedResult.metadata.artifact_revision, 3);
   assert.equal(output.modifiedResult.metadata.artifact_status, "ready");
-  assert.equal(output.modifiedResult.summary, "Skill Artifact 已创建：artifact_id=art_skill_123, revision=3");
-  assert.match(output.modifiedResult.llmHint, /publish_skill_draft/);
-});
-
-test("create_skill_artifact builds valid text and binary bundle assets", async () => {
-  assert.deepEqual(createSkillArtifactTools({ tools: { enabled_tools: [] } }), []);
-  const [tool] = createSkillArtifactTools({ tools: { enabled_tools: ["create_skill_artifact"] } });
-  const result = await tool.call({
-    name: "hello-world",
-    description: "Say hello",
-    content: "Greet the user.",
-    files: [
-      { path: "scripts/run.py", content: "print('hello')\n" },
-      { path: "assets/icon.bin", data_base64: Buffer.from([1, 2, 3]).toString("base64") },
-    ],
-  }, { tenantId: "tenant-a", sessionId: "session-a" });
-
-  assert.equal(result.success, true);
-  assert.deepEqual(result.content.artifact.assets.map((asset) => asset.media_type), [
-    "text/markdown",
-    "text/x-python",
-    "application/octet-stream",
-  ]);
-  assert.equal(Buffer.from(result.content.artifact.assets[2].data_base64, "base64").toString("hex"), "010203");
+  assert.equal(output.modifiedResult.summary, "done");
+  assert.match(output.modifiedResult.llmHint, /art_skill_123/);
 });
 
 test("Artifact hook rejects the old V1 protocol", async () => {

@@ -18,22 +18,13 @@ import {
 } from "../contracts/skills/skill-draft.js";
 import type { SkillLibraryService } from "./skill-library-service.js";
 import { parseSkillMarkdown, serializeSkillMd, updateSkillMarkdownFrontmatter } from "../contracts/skills/skill-markdown.js";
-import type { SkillArtifactApplication } from "../resources.js";
 import { resolveSkillsApprovalConfig } from "../system-config.js";
 
-export interface SubmitSkillArtifactOptions {
-  name?: string | null;
-  description?: string | null;
-  sourceAgentName?: string | null;
-  sourceSessionId?: string | null;
-}
-
-/** Owns copied Skill Artifact candidates and promotes approved bundles through SkillLibraryService. */
+/** Owns Skill Draft workspaces and promotes validated bundles through SkillLibraryService. */
 export class SkillAuthoringService {
   constructor(
     private readonly store: SkillDraftStore,
     private readonly library: SkillLibraryService,
-    private readonly artifacts: SkillArtifactApplication | null = null,
     private readonly systemConfig: SystemConfigService | null = null,
   ) {}
 
@@ -66,9 +57,6 @@ export class SkillAuthoringService {
       status: "draft",
       source_session_id: null,
       source_agent_name: null,
-      source_artifact_id: null,
-      source_artifact_revision: null,
-      source_run_id: null,
       skill_metadata: {},
       bundle_assets: [SkillDraftAssetSchema.parse({
         relative_path: "SKILL.md",
@@ -171,131 +159,6 @@ export class SkillAuthoringService {
     return view!;
   }
 
-  async submitArtifact(
-    artifactId: string,
-    expectedRevision: number,
-    options: SubmitSkillArtifactOptions = {},
-  ): Promise<SkillDraft> {
-    if (!this.artifacts) throw new HttpError(503, "dependency_unavailable", "Artifact 插件未启用，无法提交 Skill Artifact");
-    if (!options.sourceSessionId?.trim()) {
-      throw new HttpError(400, "invalid_request", "必须从当前 Session 提交 Skill Artifact");
-    }
-    const normalizedArtifactId = artifactId.trim();
-    if (!normalizedArtifactId || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
-      throw new HttpError(400, "invalid_request", "artifact_id 与 expected_revision 必填且有效");
-    }
-    const existing = (await this.store.list()).find(
-      (draft) => draft.source_artifact_id === normalizedArtifactId && draft.source_artifact_revision === expectedRevision,
-    );
-    if (existing) {
-      if (existing.source_session_id !== options.sourceSessionId.trim()) {
-        throw new HttpError(403, "forbidden", "只能从当前 Session 提交 Skill Artifact");
-      }
-      return this.maybeAutoPublish(existing);
-    }
-    const manifest = await this.artifacts.getArtifact(normalizedArtifactId);
-    if (manifest.revision !== expectedRevision) {
-      throw new HttpError(409, "conflict", `Artifact revision conflict: expected ${expectedRevision}, current ${manifest.revision}`);
-    }
-    if (manifest.session_id !== options.sourceSessionId.trim()) {
-      throw new HttpError(403, "forbidden", "只能从当前 Session 提交 Skill Artifact");
-    }
-    if (manifest.status !== "ready") throw new HttpError(409, "conflict", "只有 ready 状态的 Artifact 才能提交为 Skill");
-    if (manifest.kind !== "skill") throw new HttpError(400, "invalid_request", "Artifact kind 必须是 skill");
-    if (manifest.assets.length === 0 || manifest.assets.length > 256) {
-      throw new HttpError(400, "invalid_request", "Skill Artifact 必须包含 1-256 个文件");
-    }
-    const bundleAssets = [];
-    const seenPaths = new Set<string>();
-    const bundlePaths = isRecord(manifest.metadata) && isRecord(manifest.metadata.skill_bundle_paths)
-      ? manifest.metadata.skill_bundle_paths
-      : {};
-    let totalBytes = 0;
-    for (const asset of manifest.assets) {
-      const mappedPath = bundlePaths[asset.asset_id];
-      const declaredPath = typeof mappedPath === "string"
-        ? mappedPath
-        : asset.filename;
-      const relativePath = normalizeBundlePath(declaredPath);
-      if (!relativePath) throw new HttpError(400, "invalid_request", `Artifact 文件路径非法: ${declaredPath}`);
-      const pathKey = relativePath.toLowerCase();
-      if (seenPaths.has(pathKey)) throw new HttpError(400, "invalid_request", `Artifact 文件路径重复: ${relativePath}`);
-      seenPaths.add(pathKey);
-      const content = await this.artifacts.getArtifactAsset(manifest.artifact_id, asset.asset_id);
-      const body = Buffer.from(content.body);
-      const sha256 = createHash("sha256").update(body).digest("hex");
-      if (body.byteLength !== asset.size || sha256 !== asset.sha256 || content.sha256 !== asset.sha256) {
-        throw new HttpError(409, "conflict", `Artifact 文件校验失败: ${relativePath}`);
-      }
-      totalBytes += body.byteLength;
-      if (totalBytes > 50 * 1024 * 1024) throw new HttpError(413, "payload_too_large", "Skill Artifact 总大小不能超过 50MB");
-      bundleAssets.push(SkillDraftAssetSchema.parse({
-        relative_path: relativePath,
-        media_type: asset.media_type,
-        size: body.byteLength,
-        sha256,
-        body_base64: body.toString("base64"),
-      }));
-    }
-    const skillMd = bundleAssets.find((asset) => asset.relative_path.toLowerCase() === "skill.md");
-    if (!skillMd || skillMd.relative_path !== "SKILL.md") {
-      throw new HttpError(400, "invalid_request", "Skill Artifact 必须在根目录包含 SKILL.md");
-    }
-    const parsed = parseSkillMarkdown(Buffer.from(skillMd.body_base64, "base64").toString("utf8"));
-    if (!parsed) throw new HttpError(400, "invalid_request", "SKILL.md frontmatter 无效");
-    const content = SkillDraftContentSchema.parse({
-      name: options.name?.trim() || parsed.name || slugify(manifest.title),
-      description: options.description?.trim() || parsed.description || manifest.title,
-      content: parsed.content,
-    });
-    const now = new Date().toISOString();
-    const draft = SkillDraftSchema.parse({
-      ...content,
-      id: `skill_candidate_${randomUUID().replaceAll("-", "")}`,
-      revision: 1,
-      status: "draft",
-      source_session_id: manifest.session_id,
-      source_agent_name: options.sourceAgentName?.trim() || null,
-      source_artifact_id: manifest.artifact_id,
-      source_artifact_revision: manifest.revision,
-      source_run_id: typeof manifest.provenance.run_id === "string"
-        ? manifest.provenance.run_id
-        : typeof manifest.provenance.runId === "string" ? manifest.provenance.runId : null,
-      skill_metadata: parsed.metadata,
-      bundle_assets: bundleAssets,
-      published_at: null,
-      created_at: now,
-      updated_at: now,
-    });
-    try {
-      await this.store.create(draft);
-    } catch (error) {
-      const duplicateArtifact = (await this.store.list()).find(
-        (candidate) => candidate.source_artifact_id === manifest.artifact_id
-          && candidate.source_artifact_revision === manifest.revision,
-      );
-      if (duplicateArtifact) return duplicateArtifact;
-      if (isSkillDraftNameConflict(error)) {
-        throw new HttpError(409, "conflict", `A Skill candidate already targets '${content.name}'`);
-      }
-      throw error;
-    }
-    return this.maybeAutoPublish(draft);
-  }
-
-  private async maybeAutoPublish(draft: SkillDraft): Promise<SkillDraft> {
-    const approval = this.systemConfig
-      ? resolveSkillsApprovalConfig(
-        this.systemConfig.getSection("skills"),
-        this.systemConfig.getSection("automation"),
-      )
-      : { auto_publish_candidates: false };
-    if (draft.status === "published" || !approval.auto_publish_candidates) {
-      return draft;
-    }
-    return this.publishDraft(draft.id, draft.revision);
-  }
-
   async deleteDraft(id: string, expectedRevision: number): Promise<{ id: string }> {
     const current = await this.getDraft(id);
     assertRevision(current, expectedRevision);
@@ -363,7 +226,7 @@ export class SkillAuthoringService {
 
     try {
       if (promoted.bundle_assets.length === 0) {
-        throw new HttpError(409, "conflict", "该候选没有完整 Skill Artifact bundle，不能发布");
+        throw new HttpError(409, "conflict", "该 Skill Draft 没有完整 bundle，不能发布");
       }
       const files = materializeBundleFiles(promoted);
       const bundle = {
@@ -373,9 +236,6 @@ export class SkillAuthoringService {
         files,
         metadata: {
           ...promoted.skill_metadata,
-          source_artifact_id: promoted.source_artifact_id,
-          source_artifact_revision: promoted.source_artifact_revision,
-          source_run_id: promoted.source_run_id,
         },
       };
       if (replaceExisting) await this.library.replaceSkillBundle(bundle);
@@ -432,7 +292,7 @@ export class SkillAuthoringService {
     return await this.library.matchesSkillBundle(draft.name, files) ? "matching" : "conflict";
   }
 
-  /** Remove a published package while keeping its copied candidate editable. */
+  /** Remove a published package while keeping its Draft editable. */
   async restoreCandidateAfterReleaseDelete(name: string): Promise<SkillDraft | null> {
     const candidate = (await this.store.list()).find((draft) => draft.name === name && draft.status === "published");
     if (!candidate) return null;
@@ -565,15 +425,15 @@ function materializeBundleFiles(draft: SkillDraft): Array<{
     const body = Buffer.from(asset.body_base64, "base64");
     const sha256 = createHash("sha256").update(body).digest("hex");
     if (body.byteLength !== asset.size || sha256 !== asset.sha256 || !normalizeBundlePath(asset.relative_path)) {
-      throw new HttpError(409, "conflict", `Skill candidate 文件校验失败: ${asset.relative_path}`);
+      throw new HttpError(409, "conflict", `Skill Draft 文件校验失败: ${asset.relative_path}`);
     }
     return { relativePath: asset.relative_path, mediaType: asset.media_type, body };
   });
   const skillMdIndex = files.findIndex((file) => file.relativePath === "SKILL.md");
-  if (skillMdIndex < 0) throw new HttpError(409, "conflict", "Skill candidate bundle 缺少 SKILL.md");
+  if (skillMdIndex < 0) throw new HttpError(409, "conflict", "Skill Draft bundle 缺少 SKILL.md");
   const originalSkillMd = files[skillMdIndex]!;
   const parsedOriginal = parseSkillMarkdown(originalSkillMd.body.toString("utf8"));
-  if (!parsedOriginal) throw new HttpError(409, "conflict", "Skill candidate 的 SKILL.md 无法解析");
+  if (!parsedOriginal) throw new HttpError(409, "conflict", "Skill Draft 的 SKILL.md 无法解析");
   if (parsedOriginal.name !== draft.name || parsedOriginal.description !== draft.description) {
     files[skillMdIndex] = {
       relativePath: "SKILL.md",
@@ -596,11 +456,6 @@ function normalizeBundlePath(value: string): string | null {
 function isPathUnder(candidate: string, root: string): boolean {
   const relative = path.relative(path.resolve(root), path.resolve(candidate));
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
-function slugify(value: string): string {
-  const slug = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
-  return slug || "skill";
 }
 
 type PackageState = "absent" | "matching" | "conflict";

@@ -41,11 +41,6 @@ export class SqliteSkillDraftStore implements SkillDraftStore {
       CREATE UNIQUE INDEX IF NOT EXISTS skill_drafts_tenant_name_all_idx
       ON skill_drafts(tenant_id, name)
     `);
-    db.exec(`
-      CREATE UNIQUE INDEX IF NOT EXISTS skill_drafts_tenant_artifact_revision_idx
-      ON skill_drafts(tenant_id, json_extract(draft_json, '$.source_artifact_id'), json_extract(draft_json, '$.source_artifact_revision'))
-      WHERE json_extract(draft_json, '$.source_artifact_id') IS NOT NULL
-    `);
   }
 
   async list(): Promise<SkillDraft[]> {

@@ -12,9 +12,6 @@ import {
 import { createArtifactToolAfterHook } from "./artifact-hook.js";
 import { ARTIFACT_STAGING_RESOURCE_KIND } from "./staging/contracts.js";
 import { createFilesystemArtifactStagingProvider } from "./staging/filesystem-staging-provider.js";
-import {
-  createSkillArtifactTools,
-} from "./tools/create-skill-artifact.js";
 
 const SKILL_SOURCE_RESOURCE_KIND = "ragsystem.skill-source";
 export const ARTIFACTS_PLUGIN_ID = "@ragsystem/backend-plugin-artifacts";
@@ -37,11 +34,6 @@ export function createArtifactsPlugin(dependencies: ArtifactsPluginDependencies)
       context.resources.register(SKILL_SOURCE_RESOURCE_KIND, resolveArtifactSkillsRoot());
       context.resources.register(ARTIFACT_STAGING_RESOURCE_KIND, staging);
       context.hooks.on("tool.after", createArtifactToolAfterHook({ ...dependencies, staging }));
-      context.tools.register(
-        ({ agent, teamName }) => teamName === "agent-builder" && agent.default_entry
-          ? createSkillArtifactTools(agent)
-          : [],
-      );
       context.routes.register("tenant", "/api/artifacts", async (app) => {
         await app.register(registerArtifactRoutes, dependencies);
       });

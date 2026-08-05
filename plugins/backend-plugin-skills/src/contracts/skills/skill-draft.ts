@@ -31,9 +31,6 @@ export const SkillDraftSchema = SkillDraftContentSchema.extend({
   published_at: z.string().datetime().nullable(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
-  source_artifact_id: z.string().min(1).nullable().default(null),
-  source_artifact_revision: z.number().int().positive().nullable().default(null),
-  source_run_id: z.string().min(1).nullable().default(null),
   skill_metadata: z.record(z.unknown()).default({}),
   bundle_assets: z.array(SkillDraftAssetSchema).default([]),
 }).strict();
@@ -43,14 +40,6 @@ export const PublishSkillDraftSchema = z.object({
 }).strict();
 
 export const DeleteSkillDraftSchema = PublishSkillDraftSchema;
-
-export const SubmitSkillArtifactSchema = z.object({
-  artifact_id: z.string().trim().min(1),
-  expected_revision: z.number().int().positive(),
-  session_id: z.string().trim().min(1),
-  name: SkillNameSchema.optional(),
-  description: z.string().trim().min(1).max(1_000).optional(),
-}).strict();
 
 export type SkillDraftContent = z.infer<typeof SkillDraftContentSchema>;
 export type SkillDraft = z.infer<typeof SkillDraftSchema>;

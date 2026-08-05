@@ -39,7 +39,7 @@ export function createSkillAuthoringTools(input: {
       async call(args) {
         try {
           const drafts = await input.authoring.searchDrafts(args.query ?? "");
-          return toolSuccess(drafts.map(candidateSummary), {
+          return toolSuccess(drafts.map(draftSummary), {
             toolName: "list_skill_drafts",
             summary: `${drafts.length} Skill draft(s) found`,
             outputType: "skills.drafts",
@@ -68,7 +68,7 @@ export function createSkillAuthoringTools(input: {
         try {
           const result = await input.authoring.materializeDraftToWorkspace(args.draft_id, workspaceRoot(context));
           return toolSuccess({
-            ...candidateSummary(result.draft),
+            ...draftSummary(result.draft),
             workspace_path: result.workspacePath,
             entry_file: "SKILL.md",
           }, {
@@ -104,7 +104,7 @@ export function createSkillAuthoringTools(input: {
           const draft = await input.authoring.createDraft(args.name, args.description);
           const result = await input.authoring.materializeDraftToWorkspace(draft, workspaceRoot(context));
           return toolSuccess({
-            ...candidateSummary(result.draft),
+            ...draftSummary(result.draft),
             workspace_path: result.workspacePath,
             entry_file: "SKILL.md",
           }, {
@@ -136,7 +136,7 @@ export function createSkillAuthoringTools(input: {
         try {
           const result = await input.authoring.publishWorkspaceDraft(args.draft_id, workspaceRoot(context));
           return toolSuccess({
-            ...candidateSummary(result.draft),
+            ...draftSummary(result.draft),
             published: result.published,
             awaiting_review: !result.published,
             workspace_path: result.workspacePath,
@@ -155,7 +155,7 @@ export function createSkillAuthoringTools(input: {
   ];
 }
 
-function candidateSummary(draft: SkillDraft): Record<string, unknown> {
+function draftSummary(draft: SkillDraft): Record<string, unknown> {
   return {
     draft_id: draft.id,
     name: draft.name,

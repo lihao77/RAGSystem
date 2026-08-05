@@ -1,11 +1,6 @@
 export { backendPluginModule } from "./module.js";
 export { ARTIFACTS_PLUGIN_ID, createArtifactsPlugin } from "./plugin.js";
 export { createArtifactToolAfterHook } from "./artifact-hook.js";
-export {
-  CREATE_SKILL_ARTIFACT_TOOL_DESCRIPTOR,
-  CREATE_SKILL_ARTIFACT_TOOL_NAME,
-  createSkillArtifactTools,
-} from "./tools/create-skill-artifact.js";
 export { ArtifactServiceError } from "./artifact-error.js";
 export {
   assetContentUrl,

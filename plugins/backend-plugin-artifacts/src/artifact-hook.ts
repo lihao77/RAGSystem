@@ -12,7 +12,6 @@ import type {
 import type { ArtifactPresentation, ArtifactRelation, ArtifactStatus } from "./contracts/artifacts.js";
 import type { JsonObject } from "./contracts/json.js";
 import type { ArtifactStagingClaim, ArtifactStagingProvider } from "./staging/contracts.js";
-import { CREATE_SKILL_ARTIFACT_TOOL_NAME } from "./tools/create-skill-artifact.js";
 
 const MAX_EMBEDDED_ASSET_BYTES = 32 * 1024 * 1024;
 const MAX_EMBEDDED_ASSET_TOTAL_BYTES = 128 * 1024 * 1024;
@@ -21,7 +20,7 @@ export function createArtifactToolAfterHook(
   dependencies: Pick<ArtifactsPluginDependencies, "storage" | "staging">,
 ): (input: ToolAfterInput) => Promise<ToolAfterOutput | void> {
   return async ({ toolName, result, ctx }) => {
-    if ((toolName !== "execute_skill_script" && toolName !== CREATE_SKILL_ARTIFACT_TOOL_NAME)
+    if (toolName !== "execute_skill_script"
       || !result.success
       || !isRecord(result.content)
       || !("artifact" in result.content)) return;
@@ -54,13 +53,6 @@ export function createArtifactToolAfterHook(
       );
       if ("error" in persisted) return fail(persisted.error);
       const info = persisted.record;
-      const isSkillArtifact = info.kind === "skill";
-      const summary = isSkillArtifact
-        ? `Skill Artifact 已${normalizeString(rawArtifact.action) === "revise" ? "更新" : "创建"}：artifact_id=${info.artifact_id}, revision=${info.revision}`
-        : result.summary;
-      const llmHint = isSkillArtifact
-        ? "Skill Artifact 已保存。Skill Builder 请使用当前 Session 的 Skill Draft 工作区继续编辑，并通过 publish_skill_draft 发布。"
-        : `在 <final_answer> 中插入 [artifact:${info.artifact_id}] 来展示此产物`;
       return {
         modifiedResult: {
           ...replace(result, {
@@ -80,9 +72,9 @@ export function createArtifactToolAfterHook(
             artifact_status: info.status,
             ...(persisted.cleanupError ? { artifact_staging_cleanup_error: persisted.cleanupError } : {}),
           }),
-          summary,
+          summary: result.summary,
           outputType: info.kind,
-          llmHint,
+          llmHint: `在 <final_answer> 中插入 [artifact:${info.artifact_id}] 来展示此产物`,
         },
       };
     } catch (error) {

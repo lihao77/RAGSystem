@@ -1,6 +1,6 @@
 /**
  * Skill 库管理 API。
- * Artifact 候选提交、审核发布与租户 Skill 包读取/删除；已发布 bundle 不提供直接正文写入。
+ * Draft 审核发布与租户 Skill 包读取/删除；已发布 bundle 不提供直接正文写入。
  */
 
 import { http } from './http.js';
@@ -44,15 +44,6 @@ export async function listSkillDrafts() {
 
 export async function getSkillDraft(id) {
   const result = await http.get(`/api/skills/drafts/${encodeURIComponent(id)}`);
-  return result.data || result;
-}
-
-export async function submitSkillArtifact({ artifactId, expectedRevision, sessionId, name, description }) {
-  const body = { artifact_id: artifactId, expected_revision: expectedRevision };
-  if (sessionId) body.session_id = sessionId;
-  if (name) body.name = name;
-  if (description) body.description = description;
-  const result = await http.post('/api/skills/drafts/import', body);
   return result.data || result;
 }
 

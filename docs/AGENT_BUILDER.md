@@ -13,7 +13,7 @@ Agent Builder 将自然语言中的 Agent 需求转换为可审查、可校验�
 ## 能力分层
 
 - Agent Builder 插件：管理 Draft、校验、Release 和 Team 物化，是控制面。
-- Skills 插件：接收 Session Artifact 候选，独立保存完整 Skill bundle，并负责审核、发布和管理正式 Skill。
+- Skills 插件：管理 Skill Draft 工作区，独立保存完整 Skill bundle，并负责校验、发布和管理正式 Skill。
 - Skill：承载可复用的领域知识、流程和脚本，由 Blueprint 引用；`enabled_skills` 只表示 Agent 可以使用已发布 Skill。
 - MCP：连接外部系统和远程工具服务，由 Blueprint 引用。
 - 原生工具：承载宿主运行时中稳定、受权限约束的操作能力。
@@ -58,7 +58,7 @@ Blueprint v1 包含：
 租户 Owner 可以在 `/system-config` 的 Agent Builder 审批和 Skills 审批配置组中开启：
 
 - `agent_builder.approval.auto_publish_releases`：Agent Draft 通过结构、能力和委派拓扑校验后自动发布为新的不可变 Release。
-- `skills.approval.auto_publish_candidates`：Skill Artifact 候选完成 bundle 和 `SKILL.md` 校验后自动发布到 Skill 库。
+- `skills.approval.auto_publish_candidates`：Skill Draft 完成 bundle 和 `SKILL.md` 校验后自动发布到 Skill 库。
 
 两个开关默认关闭。自动审批不会绕过校验、覆盖已有版本或自动激活 Agent Team；新 Agent Release 仍需单独激活。关闭开关后恢复人工校验和发布流程。每次自动发布仍保留 Draft/Release revision，便于追踪和回滚。
 
@@ -85,7 +85,7 @@ Blueprint v1 包含：
 任一步骤失败都会尝试回滚本次 Team、Skill、MCP 和 Release 变更。
 如果目标版本 Team 名称已被手工占用，发布会返回冲突，不会覆盖既有 Team。
 
-Skill 发布由 Skills 插件单独负责，入口为 Builder 的 `publish_skill_draft` 或 `/api/skills/drafts/:id/publish`。已发布 Skill 的工作区修改会先形成待发布 Draft，自动发布开启时替换现有用户 Skill 包；删除正式 Skill 后，原候选会恢复为可编辑状态。
+Skill 发布由 Skills 插件单独负责，入口为 Builder 的 `publish_skill_draft` 或 `/api/skills/drafts/:id/publish`。已发布 Skill 的工作区修改会先形成待发布 Draft，自动发布开启时替换现有用户 Skill 包；删除正式 Skill 后，原 Draft 会恢复为可编辑状态。
 
 每次发布使用唯一的 `runtime_team_name`：
 

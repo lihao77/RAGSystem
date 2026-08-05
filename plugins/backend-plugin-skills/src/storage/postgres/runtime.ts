@@ -7,7 +7,7 @@ import type { SkillsPluginRuntimeFactory } from "../../dependencies.js";
 import { SkillLibraryService } from "../../services/skill-library-service.js";
 import { SkillAuthoringService } from "../../services/skill-authoring-service.js";
 import { SkillToolService } from "../../tools/SkillExecution.js";
-import { resolveArtifactApplication, resolveArtifactResource, resolveArtifactStagingService, resolveBuiltinSkillSources } from "../../resources.js";
+import { resolveArtifactStagingService, resolveBuiltinSkillSources } from "../../resources.js";
 import { PostgresSkillsAgentConfigStore } from "./agent-config-store.js";
 import type { SkillsPostgresExecutor } from "./executor.js";
 import { PostgresSkillPackageRepository } from "./package-repository.js";
@@ -48,7 +48,6 @@ export function createPostgresSkillsRuntimeFactory(options: {
       ),
     });
     const library = new SkillLibraryService(tools, packageStore);
-    const artifactResource = resolveArtifactResource(context.resources ?? []);
     return {
       tools,
       agentConfig,
@@ -56,10 +55,8 @@ export function createPostgresSkillsRuntimeFactory(options: {
       authoring: new SkillAuthoringService(
         new PostgresSkillDraftStore(options.executor, context.tenantId),
         library,
-        await resolveArtifactApplication(context.resources ?? [], context.tenantId),
         context.systemConfig,
       ),
-      artifactResource,
     };
   };
 }

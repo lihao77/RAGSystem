@@ -1,7 +1,7 @@
 <template>
   <PageLayout
     title="Skill 库"
-    subtitle="由 Session Artifact 导入、审核并发布租户 Skill"
+    subtitle="编辑、审核并发布租户 Skill Draft"
     mobile-content-padding="var(--spacing-sm)"
   >
     <KpiCards :items="kpiItems" />
@@ -9,8 +9,8 @@
     <section class="skill-drafts" aria-labelledby="skill-drafts-title">
       <div class="skill-drafts__header">
         <div>
-          <h2 id="skill-drafts-title" class="skill-drafts__title">Skill 候选审核</h2>
-          <p class="skill-drafts__description">Agent 或用户提交完整 Skill Artifact；发布后才会进入可用 Skill 清单。</p>
+          <h2 id="skill-drafts-title" class="skill-drafts__title">Skill Draft 发布</h2>
+          <p class="skill-drafts__description">Agent 或用户创建 Skill Draft；发布后才会进入可用 Skill 清单。</p>
         </div>
         <div class="skill-drafts__actions">
           <Badge variant="secondary">{{ skillDrafts.length }}</Badge>
@@ -26,8 +26,8 @@
       </div>
       <Empty v-else-if="!skillDrafts.length" class="skill-drafts__empty">
         <EmptyHeader>
-            <EmptyTitle>暂无 Skill 候选</EmptyTitle>
-            <EmptyDescription>Session 中的 Skill Artifact 提交到 Skill 库后会出现在这里。</EmptyDescription>
+            <EmptyTitle>暂无 Skill Draft</EmptyTitle>
+            <EmptyDescription>创建 Skill Draft 后会出现在这里。</EmptyDescription>
         </EmptyHeader>
       </Empty>
       <div v-else class="skill-drafts__list">
@@ -40,8 +40,7 @@
             </div>
             <p class="skill-draft-row__description">{{ draft.description }}</p>
             <p class="skill-draft-row__source">
-              {{ draft.source_agent_name || 'Artifact 提交' }}<span v-if="draft.source_session_id"> · 会话 {{ draft.source_session_id }}</span>
-              <span v-if="draft.source_artifact_id"> · Artifact {{ draft.source_artifact_id }}@{{ draft.source_artifact_revision }}</span>
+              {{ draft.source_agent_name || 'Draft 创建' }}<span v-if="draft.source_session_id"> · 会话 {{ draft.source_session_id }}</span>
               <span> · 更新于 {{ formatDraftDate(draft.updated_at) }}</span>
             </p>
           </div>
@@ -60,7 +59,7 @@
         :loading="loading"
         :error="error"
         empty-title="暂无 Skill"
-        empty-hint="在 Session 中生成 kind=skill Artifact 后提交候选"
+        empty-hint="创建 Skill Draft 后发布"
         :empty="!loading && !error && !skills.length"
         @retry="refresh"
       >
@@ -175,8 +174,8 @@
     <Dialog :open="draftReview.open" @update:open="(v) => { if (!v) closeDraftReview() }">
       <DialogContent class="max-w-[900px]">
         <DialogHeader>
-          <DialogTitle>{{ draftReview.form.name || 'Skill 候选审核' }}</DialogTitle>
-          <DialogDescription>候选已经独立复制到 Skill 库，不会自动绑定到 Agent；管理员发布后才会成为正式 Skill。</DialogDescription>
+          <DialogTitle>{{ draftReview.form.name || 'Skill Draft 发布' }}</DialogTitle>
+          <DialogDescription>Draft 不会自动绑定到 Agent；管理员发布后才会成为正式 Skill。</DialogDescription>
         </DialogHeader>
         <FieldGroup class="skill-draft-form">
           <Field>
@@ -190,7 +189,7 @@
           <Field>
             <FieldLabel for="skill-draft-content">SKILL.md 正文</FieldLabel>
             <Textarea id="skill-draft-content" v-model="draftReview.form.content" rows="12" class="skill-textarea" disabled />
-            <FieldDescription>候选内容来自完整 Skill Artifact，包含 SKILL.md、脚本和资源文件。</FieldDescription>
+            <FieldDescription>Draft 包含 SKILL.md、脚本和资源文件，发布前会自动校验。</FieldDescription>
           </Field>
         </FieldGroup>
         <div class="skill-draft-preview">
@@ -421,8 +420,8 @@ async function confirmPublishDraft() {
   const draft = draftReview.value.draft;
   if (!draft || !canPublishSkillDraft.value) return;
   const accepted = await confirm({
-    title: '发布 Skill 候选',
-    message: `确认发布“${draftReview.value.form.name}”？发布后候选不可再编辑，也不会自动绑定到任何 Agent。`,
+    title: '发布 Skill Draft',
+    message: `确认发布“${draftReview.value.form.name}”？发布后 Draft 不可再编辑，也不会自动绑定到任何 Agent。`,
     confirmText: '发布',
     danger: false,
   });
@@ -569,7 +568,7 @@ async function confirmDelete() {
   const s = selected.value;
   if (!s) return;
   const ok = await confirm({
-    message: `确认删除 Skill “${s.name}”？删除后其候选会恢复为可编辑状态。`,
+    message: `确认删除 Skill “${s.name}”？删除后其 Draft 会恢复为可编辑状态。`,
     confirmText: '删除',
     danger: true,
   });

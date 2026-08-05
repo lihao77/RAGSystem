@@ -1,38 +1,9 @@
 import path from "node:path";
-import type { FastifyRequest } from "fastify";
 
 import type { BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 
 export const SKILL_SOURCE_RESOURCE_KIND = "ragsystem.skill-source";
 export const ARTIFACT_STAGING_RESOURCE_KIND = "ragsystem.artifact-staging";
-export const ARTIFACT_APPLICATION_RESOURCE_KIND = "ragsystem.artifact-application";
-
-/** Structural read-only port; the Skills plugin does not depend on Artifact storage. */
-export interface SkillArtifactApplication {
-  getArtifact(artifactId: string): Promise<{
-    artifact_id: string;
-    revision: number;
-    session_id: string;
-    kind: string;
-    title: string;
-    status: "ready" | "failed";
-    assets: Array<{ asset_id: string; filename: string; media_type: string; size: number; sha256: string }>;
-    metadata: Record<string, unknown>;
-    provenance: Record<string, unknown>;
-  }>;
-  getArtifactAsset(artifactId: string, assetId: string): Promise<{
-    body: Uint8Array;
-    mediaType: string;
-    filename: string;
-    sha256: string;
-  }>;
-}
-
-/** Tenant-scoped Artifact port exposed by the Artifacts plugin. */
-export interface SkillArtifactResource {
-  applicationForTenant(tenantId: string): SkillArtifactApplication | Promise<SkillArtifactApplication>;
-  assertReadable(request: FastifyRequest, sessionId: string): Promise<void>;
-}
 
 export interface ArtifactStagingRunResource {
   stageRunId: string;
@@ -99,43 +70,6 @@ export function resolveArtifactStagingService(
     throw new Error(`Artifact staging resource from '${resource.pluginId}' is invalid`);
   }
   return resource.value.forTenant(tenantId, dataRoot);
-}
-
-export async function resolveArtifactApplication(
-  resources: readonly BackendPluginResourceContribution[],
-  tenantId: string,
-): Promise<SkillArtifactApplication | null> {
-  const matches = resources.filter((resource) => resource.kind === ARTIFACT_APPLICATION_RESOURCE_KIND);
-  if (!matches.length) return null;
-  if (matches.length > 1) throw new Error("Artifact application resource must be registered exactly once");
-  const provider = matches[0]!.value;
-  if (!isSkillArtifactResource(provider)) {
-    throw new Error(`Artifact application resource from '${matches[0]!.pluginId}' is invalid`);
-  }
-  const application = await provider.applicationForTenant(tenantId);
-  return application;
-}
-
-export function resolveArtifactResource(
-  resources: readonly BackendPluginResourceContribution[],
-): SkillArtifactResource | null {
-  const matches = resources.filter((resource) => resource.kind === ARTIFACT_APPLICATION_RESOURCE_KIND);
-  if (!matches.length) return null;
-  if (matches.length > 1) throw new Error("Artifact application resource must be registered exactly once");
-  const provider = matches[0]!.value;
-  if (!isSkillArtifactResource(provider)) {
-    throw new Error(`Artifact application resource from '${matches[0]!.pluginId}' is invalid`);
-  }
-  return provider;
-}
-
-function isSkillArtifactResource(value: unknown): value is SkillArtifactResource {
-  return typeof value === "object"
-    && value !== null
-    && "applicationForTenant" in value
-    && typeof value.applicationForTenant === "function"
-    && "assertReadable" in value
-    && typeof value.assertReadable === "function";
 }
 
 function isArtifactStagingProvider(value: unknown): value is ArtifactStagingProviderResource {

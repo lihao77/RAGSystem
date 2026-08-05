@@ -20,14 +20,14 @@ export const SKILLS_SYSTEM_CONFIG_EXTENSION: SystemConfigExtension = {
     {
       key: "skills.approval",
       label: "Skills 审批",
-      description: "控制 Skill Artifact 候选是否在校验通过后自动发布。",
+      description: "控制 Skill Draft 是否在校验通过后自动发布。",
       fields: [
         {
           key: "auto_publish_candidates",
           label: "自动发布 Skill",
           type: "boolean",
           default: false,
-          help: "自动发布完整且通过校验的 Skill 候选。",
+          help: "自动发布完整且通过校验的 Skill Draft。",
         },
       ],
     },
