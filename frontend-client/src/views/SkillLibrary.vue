@@ -1,269 +1,468 @@
 <template>
   <PageLayout
     title="Skill 库"
-    subtitle="编辑、审核并发布租户 Skill Draft"
-    mobile-content-padding="var(--spacing-sm)"
+    subtitle="管理 Skill Draft、完整 bundle 与租户发布包"
   >
-    <KpiCards :items="kpiItems" />
+    <template #header-actions>
+      <Button variant="outline" size="sm" :disabled="loadingAll" @click="handleRefresh">
+        <RefreshCw data-icon="inline-start" :class="{ 'animate-spin': loadingAll }" />
+        刷新
+      </Button>
+      <Button v-if="canEditSkillDraft" size="sm" @click="openCreateDraft">
+        <Plus data-icon="inline-start" />
+        新建 Draft
+      </Button>
+    </template>
 
-    <section class="skill-drafts" aria-labelledby="skill-drafts-title">
-      <div class="skill-drafts__header">
-        <div>
-          <h2 id="skill-drafts-title" class="skill-drafts__title">Skill Draft 发布</h2>
-          <p class="skill-drafts__description">Agent 或用户创建 Skill Draft；发布后才会进入可用 Skill 清单。</p>
-        </div>
-        <div class="skill-drafts__actions">
-          <Badge variant="secondary">{{ skillDrafts.length }}</Badge>
-          <Button v-if="canEditSkillDraft" variant="outline" size="sm" @click="openCreateDraft">
-            <Plus data-icon="inline-start" />
-            <span>新建草稿</span>
-          </Button>
-          <Button variant="ghost" size="icon-sm" :disabled="draftLoading" aria-label="刷新 Skill 草稿" title="刷新 Skill 草稿" @click="loadDrafts">
-            <RefreshCw data-icon="inline-start" :class="{ 'animate-spin': draftLoading }" />
-          </Button>
-        </div>
-      </div>
-      <div v-if="draftLoading && !skillDrafts.length" class="skill-drafts__state">加载草稿中…</div>
-      <div v-else-if="draftError" class="skill-drafts__state skill-drafts__state--error" role="alert">
-        <span>{{ draftError }}</span>
-        <Button variant="outline" size="sm" @click="loadDrafts">重试</Button>
-      </div>
-      <Empty v-else-if="!skillDrafts.length" class="skill-drafts__empty">
-        <EmptyHeader>
-            <EmptyTitle>暂无 Skill Draft</EmptyTitle>
-            <EmptyDescription>创建 Skill Draft 后会出现在这里。</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-      <div v-else class="skill-drafts__list">
-        <div v-for="draft in skillDrafts" :key="draft.id" class="skill-draft-row">
-          <div class="skill-draft-row__main">
-            <div class="skill-draft-row__title">
-              <span class="skill-draft-row__name">{{ draft.name }}</span>
-              <Badge :variant="draftStatusVariant(draft)">{{ draftStatusLabel(draft) }}</Badge>
-              <span class="skill-draft-row__revision">修订 {{ draft.revision }}</span>
+    <div class="skill-workbench" aria-label="Skill 管理工作区">
+        <Card class="skill-list-card">
+          <CardHeader class="skill-navigator__head">
+            <div class="navigator-heading">
+              <CardTitle>Skill 管理</CardTitle>
+              <CardDescription>选择 Draft 编辑，或查看系统可用 Skill。</CardDescription>
             </div>
-            <p class="skill-draft-row__description">{{ draft.description }}</p>
-            <p class="skill-draft-row__source">
-              {{ draft.source_agent_name || 'Draft 创建' }}<span v-if="draft.source_session_id"> · 会话 {{ draft.source_session_id }}</span>
-              <span> · 更新于 {{ formatDraftDate(draft.updated_at) }}</span>
-            </p>
-          </div>
-          <Button variant="secondary" size="sm" @click="openDraftReview(draft)">
-            <Eye data-icon="inline-start" />
-            <span>{{ canEditSkillDraft ? '编辑' : '查看' }}</span>
-          </Button>
-        </div>
-      </div>
-    </section>
-
-    <div class="skill-lib">
-      <EntityListLayout
-        title="技能清单"
-        description="按来源分组，点击查看详情"
-        :loading="loading"
-        :error="error"
-        empty-title="暂无 Skill"
-        empty-hint="创建 Skill Draft 后发布"
-        :empty="!loading && !error && !skills.length"
-        @retry="refresh"
-      >
-        <div class="skill-search">
-          <IconSearch class="skill-search__icon" :size="14" />
-          <input v-model="searchQuery" class="skill-search__input" placeholder="搜索名称或描述…" />
-          <button v-if="searchQuery" type="button" class="skill-search__clear" aria-label="清除" @click="searchQuery = ''">
-            <IconClose :size="12" />
-          </button>
-        </div>
-        <div class="adm-entity-list">
-          <div v-for="group in groups" :key="group.key" class="skill-list-group">
-            <div class="skill-list-group__head">
-              <span>{{ group.title }}</span>
-              <UiBadge size="sm">{{ group.items.length }}</UiBadge>
-            </div>
-            <button
-              v-for="skill in group.items"
-              :key="skill.name"
-              type="button"
-              class="adm-entity-row skill-row"
-              :class="{
-                'skill-row--active': selected && selected.name === skill.name,
-                'skill-row--readonly': !isWritable(skill),
-              }"
-              @click="selectSkill(skill.name)"
-            >
-              <div class="skill-row__main">
-                <div class="skill-row__name-row">
-                  <span class="skill-row__name">{{ skill.display_name || skill.name }}</span>
-                  <UiBadge size="sm" :tone="sourceMeta(skill.source_type).tone">{{ sourceMeta(skill.source_type).label }}</UiBadge>
-                </div>
-                <div class="skill-row__desc">{{ skill.description }}</div>
-              </div>
-            </button>
-          </div>
-          <EmptyState v-if="searchQuery && !groups.length" compact :title="`未找到匹配「${searchQuery}」的 Skill`" />
-        </div>
-      </EntityListLayout>
-
-      <Card class="skill-detail-panel">
-        <div v-if="detailLoading" class="adm-state">
-          <div class="g-spinner" aria-hidden="true"></div>
-          <p>加载详情中…</p>
-        </div>
-        <div v-else-if="detailError" class="adm-state adm-state--error">
-          <p>{{ detailError }}</p>
-        </div>
-        <div v-else-if="!selected" class="adm-state">
-          <p class="adm-state__title">选择一个 Skill</p>
-          <p class="adm-state__hint">从左侧选择查看正文与脚本</p>
-        </div>
-        <template v-else>
-          <CardHeader class="gap-y-4">
-            <div class="space-y-1 min-w-0">
-              <CardTitle>{{ selected.display_name || selected.name }}</CardTitle>
-              <CardDescription>{{ selected.description }}</CardDescription>
-              <div class="skill-detail__chips">
-                <UiBadge size="sm">{{ selected.source_label }}</UiBadge>
-                <UiBadge size="sm">通过 Draft 更新</UiBadge>
-              </div>
-            </div>
-            <div v-if="selected.source_type === 'user_global'" class="skill-detail__actions">
-              <Button
-                v-if="canEditSkillDraft"
-                variant="outline"
-                size="sm"
-                :disabled="draftRestoreBusy || deleting"
-                @click="openPublishedSkillDraft"
-              >
-                <FilePenLine data-icon="inline-start" /><span>{{ draftRestoreBusy ? '准备中…' : '编辑草稿' }}</span>
-              </Button>
-              <Button variant="destructive" size="sm" :disabled="deleting" @click="confirmDelete">
-                <IconTrash :size="13" /><span>{{ deleting ? '删除中…' : '删除' }}</span>
-              </Button>
-            </div>
+            <Tabs :model-value="navigatorTab" @update:model-value="changeNavigatorTab">
+              <TabsList class="skill-navigator__tabs">
+                <TabsTrigger value="drafts">Draft</TabsTrigger>
+                <TabsTrigger value="library">Skill 库</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Input v-model="searchQuery" class="skill-navigator__search" :placeholder="navigatorTab === 'drafts' ? '搜索 Draft' : '搜索 Skill'" />
           </CardHeader>
-          <CardContent>
 
-          <div v-if="selected.files && selected.files.length" class="skill-section">
-            <div class="skill-section__title">文件</div>
-            <ul class="skill-filetree">
-              <li
-                v-for="f in flatFiles"
-                :key="f.path"
-                :class="['skill-file', `skill-file--${f.type}`, { 'skill-file--collapsed': f.collapsed }]"
+          <CardContent class="skill-navigator__body">
+            <div v-if="navigatorLoading" class="navigator-state">
+              <Spinner />
+              <span>加载中</span>
+            </div>
+            <div v-else-if="navigatorError" class="navigator-state navigator-state--error" role="alert">
+              <strong>加载失败</strong>
+              <span>{{ navigatorError }}</span>
+              <Button variant="outline" size="sm" @click="handleRefresh">重试</Button>
+            </div>
+
+            <template v-else-if="navigatorTab === 'drafts'">
+              <Empty v-if="!filteredDrafts.length" class="navigator-empty">
+                <EmptyHeader>
+                  <EmptyTitle>{{ searchQuery ? '没有匹配的 Draft' : '暂无 Skill Draft' }}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
+              <button
+                v-for="draft in filteredDrafts"
+                v-else
+                :key="draft.id"
+                type="button"
+                :class="['navigator-row', { 'navigator-row--active': activeKind === 'draft' && activeKey === draft.id }]"
+                @click="selectDraft(draft)"
               >
-                <button
-                  v-if="f.type === 'directory'"
-                  type="button"
-                  class="skill-file__row skill-file__row--dir"
-                  :style="{ paddingLeft: `${f.depth * 16 + 8}px` }"
-                  @click="toggleDir(f.path)"
-                >
-                  <span class="skill-file__chevron" :class="{ 'is-open': !f.collapsed }"><IconChevronDown :size="12" /></span>
-                  <span class="skill-file__icon" v-html="FOLDER_ICON"></span>
-                  <span class="skill-file__name">{{ f.name }}</span>
-                </button>
-                <div
-                  v-else
-                  class="skill-file__row"
-                  :style="{ paddingLeft: `${f.depth * 16 + 24}px` }"
-                >
-                  <span class="skill-file__icon" v-html="FILE_ICON"></span>
-                  <a :href="fileUrl(f.path)" target="_blank" rel="noopener" class="skill-file__name">{{ f.name }}</a>
-                  <span v-if="f.size != null" class="skill-file__size">{{ formatSize(f.size) }}</span>
+                <div class="navigator-row__title">
+                  <span class="navigator-row__name">{{ draft.name }}</span>
+                  <Badge :variant="draftStatusVariant(draft)">{{ draftStatusLabel(draft) }}</Badge>
                 </div>
-              </li>
-            </ul>
+                <p>{{ draft.description }}</p>
+                <div class="navigator-row__meta">
+                  <span>修订 {{ draft.revision }}</span>
+                  <span>{{ formatCompactDate(draft.updated_at) }}</span>
+                </div>
+              </button>
+            </template>
+
+            <template v-else>
+              <Empty v-if="!filteredSkillGroups.length" class="navigator-empty">
+                <EmptyHeader>
+                  <EmptyTitle>{{ searchQuery ? '没有匹配的 Skill' : '暂无可用 Skill' }}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
+              <div v-for="group in filteredSkillGroups" v-else :key="group.key" class="navigator-group">
+                <div class="navigator-group__label">
+                  <span>{{ group.label }}</span>
+                  <Badge variant="secondary">{{ group.items.length }}</Badge>
+                </div>
+                <button
+                  v-for="skill in group.items"
+                  :key="skill.name"
+                  type="button"
+                  :class="['navigator-row', { 'navigator-row--active': activeKind === 'skill' && activeKey === skill.name }]"
+                  @click="selectSkill(skill)"
+                >
+                  <div class="navigator-row__title">
+                    <span class="navigator-row__name">{{ skill.display_name || skill.name }}</span>
+                    <Badge variant="outline">{{ sourceLabel(skill.source_type) }}</Badge>
+                  </div>
+                  <p>{{ skill.description }}</p>
+                </button>
+              </div>
+            </template>
+          </CardContent>
+        </Card>
+
+      <Card class="skill-workspace-card">
+        <main class="skill-workspace">
+          <div v-if="workspaceLoading" class="workspace-state">
+            <Spinner />
+            <span>加载工作区</span>
           </div>
 
-          <div class="skill-section">
-            <div class="skill-section__title">SKILL.md 正文</div>
-            <MarkdownContent :content="selected.content" :render-markdown="renderMarkdown" @notify="onMdNotify" />
+          <div v-else-if="workspaceError && !activeDraft && !selectedSkill" class="workspace-state workspace-state--error" role="alert">
+            <strong>无法打开 Skill</strong>
+            <span>{{ workspaceError }}</span>
           </div>
-          </CardContent>
-        </template>
+
+          <Empty v-else-if="!activeDraft && !selectedSkill" class="workspace-state">
+            <EmptyHeader>
+              <EmptyTitle>选择一个 Skill</EmptyTitle>
+            </EmptyHeader>
+          </Empty>
+
+          <template v-else-if="activeKind === 'draft' && activeDraft">
+            <header class="workspace-header">
+              <div class="workspace-header__identity">
+                <div class="workspace-header__title-row">
+                  <h2>{{ activeDraft.name }}</h2>
+                  <Badge :variant="draftStatusVariant(activeDraft)">{{ draftStatusLabel(activeDraft) }}</Badge>
+                  <Badge variant="outline">修订 {{ activeDraft.revision }}</Badge>
+                </div>
+                <p>{{ activeDraft.description }}</p>
+                <span>{{ draftOrigin(activeDraft) }} · 更新于 {{ formatDraftDate(activeDraft.updated_at) }}</span>
+              </div>
+              <div class="workspace-header__actions">
+                <Button
+                  v-if="canEditSkillDraft && workspaceTab === 'overview'"
+                  variant="outline"
+                  size="sm"
+                  :disabled="mutationBusy || !overviewDirty"
+                  @click="saveOverview"
+                >
+                  <Spinner v-if="overviewSaving" data-icon="inline-start" />
+                  <Save v-else data-icon="inline-start" />
+                  保存
+                </Button>
+                <Button
+                  v-if="canEditSkillDraft && (activeDraft.status !== 'published' || activeDraft.package_state === 'missing')"
+                  variant="success"
+                  size="sm"
+                  :disabled="mutationBusy || hasUnsavedChanges || !activeDraft.bundle_assets?.length"
+                  @click="publishDraft"
+                >
+                  <Spinner v-if="publishing" data-icon="inline-start" />
+                  <Send v-else data-icon="inline-start" />
+                  {{ activeDraft.package_state === 'missing' ? '修复发布' : '发布' }}
+                </Button>
+                <Button
+                  v-if="canEditSkillDraft"
+                  variant="ghost"
+                  size="icon-sm"
+                  :disabled="mutationBusy"
+                  aria-label="删除 Draft"
+                  title="删除 Draft，不影响已发布 Skill"
+                  @click="deleteDraft"
+                >
+                  <Trash2 data-icon="inline-start" />
+                </Button>
+              </div>
+            </header>
+
+            <div v-if="workspaceError" class="workspace-message" role="alert">
+              <span>{{ workspaceError }}</span>
+            </div>
+
+            <div class="workspace-tabbar">
+              <Tabs :model-value="workspaceTab" class="workspace-tabs" @update:model-value="changeWorkspaceTab">
+                <TabsList>
+                  <TabsTrigger value="overview">基本信息</TabsTrigger>
+                  <TabsTrigger value="files">Bundle 文件</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <Tabs v-if="workspaceTab === 'overview'" v-model="overviewMode" class="overview-mode-tabs">
+                <TabsList>
+                  <TabsTrigger value="edit">编辑</TabsTrigger>
+                  <TabsTrigger value="preview">预览</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+
+            <div v-if="workspaceTab === 'overview'" class="overview-pane">
+              <div v-if="overviewMode === 'edit'" class="overview-editor">
+                <FieldGroup>
+                  <Field :data-disabled="!canEditSkillDraft || draftNameLocked || mutationBusy">
+                    <FieldLabel for="draft-name">名称</FieldLabel>
+                    <Input id="draft-name" v-model.trim="draftForm.name" :disabled="!canEditSkillDraft || draftNameLocked || mutationBusy" />
+                    <FieldDescription v-if="draftNameLocked">已发布 Skill 的名称保持不变。</FieldDescription>
+                  </Field>
+                  <Field :data-disabled="!canEditSkillDraft || mutationBusy">
+                    <FieldLabel for="draft-description">描述</FieldLabel>
+                    <Input id="draft-description" v-model="draftForm.description" :disabled="!canEditSkillDraft || mutationBusy" />
+                  </Field>
+                  <Field :data-disabled="!canEditSkillDraft || mutationBusy">
+                    <div class="field-heading">
+                      <FieldLabel for="draft-content">SKILL.md 正文</FieldLabel>
+                      <span>{{ draftForm.content.length.toLocaleString() }} / 30,000</span>
+                    </div>
+                    <Textarea id="draft-content" v-model="draftForm.content" class="overview-textarea" :disabled="!canEditSkillDraft || mutationBusy" />
+                    <FieldDescription>结构化编辑会保留 SKILL.md 中的其他 frontmatter；源文件可在 Bundle 文件中直接修改。</FieldDescription>
+                  </Field>
+                </FieldGroup>
+              </div>
+              <section v-else class="overview-preview" aria-label="Markdown 预览">
+                <div class="pane-heading">
+                  <div>
+                    <strong>SKILL.md</strong>
+                    <span>正文渲染结果</span>
+                  </div>
+                  <Eye />
+                </div>
+                <div class="overview-preview__body">
+                  <MarkdownContent :content="draftForm.content" :render-markdown="renderMarkdown" @notify="onMdNotify" />
+                </div>
+              </section>
+            </div>
+
+            <div v-else class="bundle-pane">
+              <aside class="bundle-tree">
+                <div class="pane-heading">
+                  <div>
+                    <strong>文件</strong>
+                    <span>{{ activeDraft.bundle_assets.length }} 个文件 · {{ formatSize(bundleSize) }}</span>
+                  </div>
+                  <div v-if="canEditSkillDraft" class="pane-heading__actions">
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      :disabled="mutationBusy"
+                      aria-label="新建文本文件"
+                      title="新建文本文件"
+                      @click="openCreateFile"
+                    >
+                      <FilePlus2 data-icon="inline-start" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      :disabled="mutationBusy"
+                      aria-label="上传文件"
+                      title="上传或替换文件"
+                      @click="openFilePicker"
+                    >
+                      <Upload data-icon="inline-start" />
+                    </Button>
+                    <input ref="fileInput" class="sr-only" type="file" @change="uploadSelectedFile" />
+                  </div>
+                </div>
+                <div class="file-tree-scroll">
+                  <button
+                    v-for="node in draftFileTree"
+                    :key="node.path"
+                    type="button"
+                    :class="['file-row', { 'file-row--active': node.type === 'file' && selectedFilePath === node.path }]"
+                    :style="{ paddingLeft: `${10 + node.depth * 16}px` }"
+                    @click="node.type === 'directory' ? toggleDirectory(node.path) : selectDraftFile(node.path)"
+                  >
+                    <ChevronDown v-if="node.type === 'directory'" :class="['file-row__chevron', { 'file-row__chevron--closed': node.collapsed }]" />
+                    <FileText v-if="node.type === 'file'" />
+                    <span>{{ node.name }}</span>
+                    <small v-if="node.type === 'file' && node.size != null">{{ formatSize(node.size) }}</small>
+                  </button>
+                </div>
+              </aside>
+
+              <section class="file-editor">
+                <div v-if="fileLoading" class="workspace-state">
+                  <Spinner />
+                  <span>读取文件</span>
+                </div>
+                <Empty v-else-if="!selectedFile" class="workspace-state">
+                  <EmptyHeader>
+                    <EmptyTitle>选择一个文件</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
+                <template v-else>
+                  <div class="file-editor__toolbar">
+                    <div class="file-editor__identity">
+                      <strong>{{ selectedFile.relative_path }}</strong>
+                      <span>{{ selectedFile.media_type }} · {{ formatSize(selectedFile.size) }}</span>
+                    </div>
+                    <div class="file-editor__actions">
+                      <Button variant="outline" size="sm" @click="downloadDraftFile">
+                        <Download data-icon="inline-start" />
+                        下载
+                      </Button>
+                      <Button
+                        v-if="canEditSkillDraft && editableSelectedFile"
+                        size="sm"
+                        :disabled="mutationBusy || !fileDirty"
+                        @click="saveSelectedFile"
+                      >
+                        <Spinner v-if="fileSaving" data-icon="inline-start" />
+                        <Save v-else data-icon="inline-start" />
+                        保存文件
+                      </Button>
+                      <Button
+                        v-if="canEditSkillDraft && selectedFile.relative_path !== 'SKILL.md'"
+                        variant="ghost"
+                        size="icon-sm"
+                        :disabled="mutationBusy"
+                        aria-label="删除文件"
+                        title="从 Draft bundle 删除"
+                        @click="deleteSelectedFile"
+                      >
+                        <Trash2 data-icon="inline-start" />
+                      </Button>
+                    </div>
+                  </div>
+                  <Textarea
+                    v-if="editableSelectedFile"
+                    v-model="fileText"
+                    class="file-source-editor"
+                    :disabled="!canEditSkillDraft || mutationBusy"
+                    spellcheck="false"
+                  />
+                  <div v-else class="binary-file-state">
+                    <FileText />
+                    <strong>此文件不在网页中直接编辑</strong>
+                    <span>可下载检查，或使用“上传文件”选择同名文件替换。</span>
+                  </div>
+                </template>
+              </section>
+            </div>
+          </template>
+
+          <template v-else-if="selectedSkill">
+            <header class="workspace-header">
+              <div class="workspace-header__identity">
+                <div class="workspace-header__title-row">
+                  <h2>{{ selectedSkill.display_name || selectedSkill.name }}</h2>
+                  <Badge variant="outline">{{ sourceLabel(selectedSkill.source_type) }}</Badge>
+                </div>
+                <p>{{ selectedSkill.description }}</p>
+                <span>{{ selectedSkill.name }} · {{ publishedFileCount }} 个文件</span>
+              </div>
+              <div v-if="selectedSkill.source_type === 'user_global' && canEditSkillDraft" class="workspace-header__actions">
+                <Button variant="outline" size="sm" :disabled="mutationBusy" @click="editPublishedSkill">
+                  <Spinner v-if="restoringDraft" data-icon="inline-start" />
+                  <FilePenLine v-else data-icon="inline-start" />
+                  编辑 Draft
+                </Button>
+                <Button variant="destructive" size="sm" :disabled="mutationBusy" @click="deletePublishedSkill">
+                  <Trash2 data-icon="inline-start" />
+                  删除 Skill
+                </Button>
+              </div>
+            </header>
+
+            <div v-if="workspaceError" class="workspace-message" role="alert">
+              <span>{{ workspaceError }}</span>
+            </div>
+
+            <div class="published-pane">
+              <Tabs v-model="publishedTab" class="published-tabs">
+                <TabsList>
+                  <TabsTrigger value="overview">说明</TabsTrigger>
+                  <TabsTrigger value="files">文件 <span class="published-tabs__count">{{ publishedFileCount }}</span></TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <section v-if="publishedTab === 'overview'" class="published-content">
+                <div class="pane-heading">
+                  <div>
+                    <strong>SKILL.md</strong>
+                    <span>已发布正文</span>
+                  </div>
+                </div>
+                <div class="published-content__body">
+                  <MarkdownContent :content="selectedSkill.content" :render-markdown="renderMarkdown" @notify="onMdNotify" />
+                </div>
+              </section>
+              <section v-else class="published-files">
+                <div class="pane-heading">
+                  <div>
+                    <strong>已发布文件</strong>
+                    <span>只读 bundle</span>
+                  </div>
+                </div>
+                <div class="published-file-tree">
+                  <template v-for="node in publishedFileTree" :key="node.path">
+                    <button
+                      v-if="node.type === 'directory'"
+                      type="button"
+                      class="file-row published-file-row"
+                      :style="{ paddingLeft: `${10 + node.depth * 16}px` }"
+                      @click="togglePublishedDirectory(node.path)"
+                    >
+                      <ChevronDown :class="['file-row__chevron', { 'file-row__chevron--closed': node.collapsed }]" />
+                      <span>{{ node.name }}</span>
+                    </button>
+                    <a
+                      v-else
+                      :href="getSkillFileUrl(selectedSkill.name, node.path)"
+                      target="_blank"
+                      rel="noopener"
+                      class="file-row published-file-row"
+                      :style="{ paddingLeft: `${10 + node.depth * 16}px` }"
+                    >
+                      <FileText />
+                      <span>{{ node.name }}</span>
+                      <small>{{ formatSize(node.size) }}</small>
+                    </a>
+                  </template>
+                </div>
+              </section>
+            </div>
+          </template>
+        </main>
       </Card>
     </div>
 
-    <Dialog :open="createDraftDialog.open" @update:open="(v) => { if (!v) closeCreateDraft() }">
+    <Dialog :open="createDraftDialog.open" @update:open="(open) => { if (!open) closeCreateDraft() }">
       <DialogContent class="max-w-[520px]">
         <DialogHeader>
           <DialogTitle>新建 Skill Draft</DialogTitle>
-          <DialogDescription>创建后继续编辑 SKILL.md，再按当前审批配置发布。</DialogDescription>
+          <DialogDescription>创建基础 SKILL.md 后，可继续添加脚本和资源文件。</DialogDescription>
         </DialogHeader>
         <FieldGroup>
-          <Field :data-disabled="createDraftBusy">
+          <Field :data-disabled="creatingDraft">
             <FieldLabel for="new-skill-name">名称</FieldLabel>
-            <Input id="new-skill-name" v-model.trim="createDraftDialog.form.name" :disabled="createDraftBusy" placeholder="example-skill" />
-            <FieldDescription>使用小写字母、数字和连字符。</FieldDescription>
+            <Input id="new-skill-name" v-model.trim="createDraftDialog.name" :disabled="creatingDraft" placeholder="example-skill" />
+            <FieldDescription>使用小写字母、数字和连字符，最长 64 个字符。</FieldDescription>
           </Field>
-          <Field :data-disabled="createDraftBusy">
+          <Field :data-disabled="creatingDraft">
             <FieldLabel for="new-skill-description">描述</FieldLabel>
-            <Input id="new-skill-description" v-model="createDraftDialog.form.description" :disabled="createDraftBusy" />
+            <Input id="new-skill-description" v-model="createDraftDialog.description" :disabled="creatingDraft" />
           </Field>
         </FieldGroup>
-        <p v-if="createDraftDialog.error" class="form-error" role="alert">{{ createDraftDialog.error }}</p>
+        <p v-if="createDraftDialog.error" class="dialog-error" role="alert">{{ createDraftDialog.error }}</p>
         <DialogFooter>
-          <Button variant="ghost" :disabled="createDraftBusy" @click="closeCreateDraft">取消</Button>
-          <Button :disabled="createDraftBusy || !canCreateDraft" @click="runCreateDraft">
-            <Plus data-icon="inline-start" />
-            <span>{{ createDraftBusy ? '创建中…' : '创建草稿' }}</span>
+          <Button variant="ghost" :disabled="creatingDraft" @click="closeCreateDraft">取消</Button>
+          <Button :disabled="creatingDraft || !canCreateDraft" @click="createDraft">
+            <Spinner v-if="creatingDraft" data-icon="inline-start" />
+            <Plus v-else data-icon="inline-start" />
+            创建 Draft
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
 
-    <Dialog :open="draftReview.open" @update:open="(v) => { if (!v) closeDraftReview() }">
-      <DialogContent class="max-w-[900px]">
+    <Dialog :open="createFileDialog.open" @update:open="(open) => { if (!open) closeCreateFile() }">
+      <DialogContent class="max-w-[560px]">
         <DialogHeader>
-          <DialogTitle>{{ draftReview.form.name || 'Skill Draft' }}</DialogTitle>
-          <DialogDescription>编辑并保存 Draft；发布前自动校验，发布成功后才会更新正式 Skill。</DialogDescription>
+          <DialogTitle>新建文本文件</DialogTitle>
+          <DialogDescription>路径相对于 Skill bundle 根目录，例如 scripts/check.py。</DialogDescription>
         </DialogHeader>
-        <FieldGroup class="skill-draft-form">
-          <Field :data-disabled="!canEditSkillDraft || draftNameLocked || draftReviewBusy">
-            <FieldLabel for="skill-draft-name">名称</FieldLabel>
-            <Input id="skill-draft-name" v-model.trim="draftReview.form.name" :disabled="!canEditSkillDraft || draftNameLocked || draftReviewBusy" />
-            <FieldDescription v-if="draftNameLocked">已发布 Skill 的名称不可修改。</FieldDescription>
+        <FieldGroup>
+          <Field :data-disabled="fileSaving">
+            <FieldLabel for="new-file-path">文件路径</FieldLabel>
+            <Input id="new-file-path" v-model.trim="createFileDialog.path" :disabled="fileSaving" placeholder="references/guide.md" />
           </Field>
-          <Field :data-disabled="!canEditSkillDraft || draftReviewBusy">
-            <FieldLabel for="skill-draft-description">描述</FieldLabel>
-            <Input id="skill-draft-description" v-model="draftReview.form.description" :disabled="!canEditSkillDraft || draftReviewBusy" />
-          </Field>
-          <Field :data-disabled="!canEditSkillDraft || draftReviewBusy">
-            <FieldLabel for="skill-draft-content">SKILL.md 正文</FieldLabel>
-            <Textarea id="skill-draft-content" v-model="draftReview.form.content" rows="12" class="skill-textarea" :disabled="!canEditSkillDraft || draftReviewBusy" />
-            <FieldDescription>保存会更新 SKILL.md，并保留 Draft 中的脚本、资源文件和其他元数据。</FieldDescription>
+          <Field :data-disabled="fileSaving">
+            <FieldLabel for="new-file-content">初始内容</FieldLabel>
+            <Textarea id="new-file-content" v-model="createFileDialog.content" class="new-file-textarea" :disabled="fileSaving" />
           </Field>
         </FieldGroup>
-        <div class="skill-draft-preview">
-          <div class="skill-draft-preview__header">
-            <span>Markdown 预览</span>
-            <Badge variant="outline">修订 {{ draftReview.draft?.revision || '-' }}</Badge>
-          </div>
-          <MarkdownContent :content="draftReview.form.content" :render-markdown="renderMarkdown" @notify="onMdNotify" />
-        </div>
-        <p v-if="draftReview.error" class="form-error" role="alert">{{ draftReview.error }}</p>
+        <p v-if="createFileDialog.error" class="dialog-error" role="alert">{{ createFileDialog.error }}</p>
         <DialogFooter>
-          <Button variant="ghost" @click="closeDraftReview">关闭</Button>
-          <Button
-            v-if="canEditSkillDraft"
-            variant="destructive"
-            :disabled="draftReviewBusy"
-            @click="confirmDeleteDraft"
-          >
-            <IconTrash :size="13" /><span>{{ draftDeleteBusy ? '删除中…' : '删除草稿' }}</span>
-          </Button>
-          <Button
-            v-if="canEditSkillDraft"
-            variant="outline"
-            :disabled="draftReviewBusy || !isDraftFormDirty"
-            @click="runSaveDraft"
-          >
-            <Save data-icon="inline-start" />
-            <span>{{ draftSaveBusy ? '保存中…' : '保存草稿' }}</span>
-          </Button>
-          <Button v-if="canRunSkillDraftPublish" variant="success" :disabled="draftReviewBusy" @click="confirmPublishDraft">
-            <Send data-icon="inline-start" />
-            <span>{{ draftPublishBusy ? '发布中…' : (draftReview.draft?.published_at ? '重新发布' : '发布 Skill') }}</span>
+          <Button variant="ghost" :disabled="fileSaving" @click="closeCreateFile">取消</Button>
+          <Button :disabled="fileSaving || !canCreateFile" @click="createTextFile">
+            <Spinner v-if="fileSaving" data-icon="inline-start" />
+            <FilePlus2 v-else data-icon="inline-start" />
+            创建文件
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -273,43 +472,51 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { Eye, FilePenLine, Plus, RefreshCw, Save, Send } from 'lucide-vue-next';
+import {
+  ChevronDown,
+  Download,
+  Eye,
+  FilePenLine,
+  FilePlus2,
+  FileText,
+  Plus,
+  RefreshCw,
+  Save,
+  Send,
+  Trash2,
+  Upload,
+} from 'lucide-vue-next';
 
 import PageLayout from '../components/PageLayout.vue';
-import EntityListLayout from '../components/admin/EntityListLayout.vue';
-import EmptyState from '../components/EmptyState.vue';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '../components/ui/empty';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '../components/ui/field';
-import { Badge } from '../components/ui/badge';
-import KpiCards from '../components/admin/KpiCards.vue';
 import MarkdownContent from '../components/chat/MarkdownContent.vue';
-import { renderMarkdown } from '../utils/markdown';
+import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
-import { UiBadge } from '../components/ui';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Empty, EmptyHeader, EmptyTitle } from '../components/ui/empty';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '../components/ui/field';
 import { Input } from '../components/ui/input';
+import { Spinner } from '../components/ui/spinner';
+import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Textarea } from '../components/ui/textarea';
-import IconSearch from '../components/icons/IconSearch.vue';
-import IconClose from '../components/icons/IconClose.vue';
-import IconTrash from '../components/icons/IconTrash.vue';
-import IconChevronDown from '../components/icons/IconChevronDown.vue';
-import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
-import { useAsyncAction } from '../composables/useAsyncAction.js';
-import { useEntityList } from '../composables/useEntityList.js';
+import { useToast } from '../composables/useToast.js';
 import { useAuthStore } from '../stores/auth.js';
+import { renderMarkdown } from '../utils/markdown';
 import {
   createSkillDraft,
-  deleteSkillDraft,
   deleteSkill,
+  deleteSkillDraft,
+  deleteSkillDraftFile,
   ensureSkillDraft,
   getSkillDetail,
   getSkillDraft,
+  getSkillDraftFile,
   getSkillFileUrl,
   listSkillDrafts,
   listSkills,
   publishSkillDraft,
+  putSkillDraftFile,
   updateSkillDraft,
 } from '../api/skillLibrary.js';
 
@@ -318,112 +525,642 @@ const { confirm } = useConfirm();
 const authStore = useAuthStore();
 const canEditSkillDraft = computed(() => authStore.hasTenantRole('admin'));
 
-const onMdNotify = ({ message, type }) => {
-  if (type === 'success') toast.success(message);
-  else toast.error(message);
-};
-
-const selected = ref(null);
-const detailLoading = ref(false);
-const detailError = ref('');
-
-const { items: skills, loading, error, refresh } = useEntityList(
-  async () => {
-    const res = await listSkills();
-    return res.data || [];
-  },
-  {
-    errorPrefix: '加载 Skill 失败',
-    onSuccess: async (items) => {
-      if (items.length && !selected.value) {
-        await selectSkill(items[0].name);
-      }
-    },
-  },
-);
-
+const skills = ref([]);
 const skillDrafts = ref([]);
-const selectedDraft = computed(() => skillDrafts.value.find((draft) => draft.name === selected.value?.name) ?? null);
-const draftLoading = ref(false);
-const draftError = ref('');
-const draftReview = ref({
-  open: false,
-  error: '',
-  draft: null,
-  form: { name: '', description: '', content: '' },
-});
-const createDraftDialog = ref({
-  open: false,
-  error: '',
-  form: { name: '', description: '' },
-});
-const canCreateDraft = computed(() => /^[a-z0-9][a-z0-9-]{0,63}$/.test(createDraftDialog.value.form.name)
-  && createDraftDialog.value.form.description.trim().length > 0);
+const loadingAll = ref(false);
+const skillsLoading = ref(false);
+const draftsLoading = ref(false);
+const skillsError = ref('');
+const draftsError = ref('');
+const navigatorTab = ref('drafts');
+const searchQuery = ref('');
+const activeKind = ref('');
+const activeKey = ref('');
+const activeDraft = ref(null);
+const selectedSkill = ref(null);
+const workspaceLoading = ref(false);
+const workspaceError = ref('');
+const workspaceTab = ref('overview');
+const overviewMode = ref('edit');
+const draftForm = ref({ name: '', description: '', content: '' });
+const overviewSaving = ref(false);
+const publishing = ref(false);
+const deletingDraft = ref(false);
+const deletingSkill = ref(false);
+const restoringDraft = ref(false);
+const creatingDraft = ref(false);
+const fileLoading = ref(false);
+const fileSaving = ref(false);
+const fileDeleting = ref(false);
+const selectedFilePath = ref('');
+const selectedFile = ref(null);
+const fileText = ref('');
+const originalFileText = ref('');
+const fileInput = ref(null);
+const collapsedDirectories = ref(new Set());
+const publishedCollapsedDirectories = ref(new Set());
+const createDraftDialog = ref({ open: false, name: '', description: '', error: '' });
+const createFileDialog = ref({ open: false, path: '', content: '', error: '' });
+const publishedTab = ref('overview');
 
-const draftNameLocked = computed(() => Boolean(draftReview.value.draft?.published_at));
-const isDraftFormDirty = computed(() => {
-  const draft = draftReview.value.draft;
-  if (!draft) return false;
-  return draftReview.value.form.name !== draft.name
-    || draftReview.value.form.description !== draft.description
-    || draftReview.value.form.content !== draft.content;
-});
-const canRunSkillDraftPublish = computed(() => canEditSkillDraft.value
-  && draftReview.value.draft?.status !== 'published'
-  && !isDraftFormDirty.value
-  && (draftReview.value.draft?.bundle_assets?.length ?? 0) > 0);
+const navigatorLoading = computed(() => navigatorTab.value === 'drafts' ? draftsLoading.value : skillsLoading.value);
+const navigatorError = computed(() => navigatorTab.value === 'drafts' ? draftsError.value : skillsError.value);
+const draftNameLocked = computed(() => Boolean(activeDraft.value?.published_at));
+const overviewDirty = computed(() => Boolean(activeDraft.value) && (
+  draftForm.value.name !== activeDraft.value.name
+  || draftForm.value.description !== activeDraft.value.description
+  || draftForm.value.content !== activeDraft.value.content
+));
+const fileDirty = computed(() => editableSelectedFile.value && fileText.value !== originalFileText.value);
+const hasUnsavedChanges = computed(() => overviewDirty.value || fileDirty.value);
+const mutationBusy = computed(() => overviewSaving.value || publishing.value || deletingDraft.value
+  || deletingSkill.value || restoringDraft.value || fileSaving.value || fileDeleting.value || creatingDraft.value);
+const bundleSize = computed(() => (activeDraft.value?.bundle_assets || []).reduce((total, asset) => total + (asset.size || 0), 0));
+const publishedFileCount = computed(() => (selectedSkill.value?.files || []).filter((file) => file.type === 'file').length);
+const canCreateDraft = computed(() => /^[a-z0-9][a-z0-9-]{0,63}$/.test(createDraftDialog.value.name)
+  && createDraftDialog.value.description.trim().length > 0);
+const canCreateFile = computed(() => isValidRelativePath(createFileDialog.value.path) && createFileDialog.value.content.length > 0);
+const editableSelectedFile = computed(() => isEditableTextFile(selectedFile.value));
 
-async function loadDrafts() {
-  draftLoading.value = true;
-  draftError.value = '';
-  try {
-    skillDrafts.value = await listSkillDrafts();
-  } catch (e) {
-    draftError.value = e?.message || '加载 Skill 草稿失败';
-  } finally {
-    draftLoading.value = false;
+const filteredDrafts = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  if (!query) return skillDrafts.value;
+  return skillDrafts.value.filter((draft) => `${draft.name} ${draft.description}`.toLowerCase().includes(query));
+});
+
+const filteredSkills = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  if (!query) return skills.value;
+  return skills.value.filter((skill) => `${skill.name} ${skill.display_name || ''} ${skill.description || ''}`.toLowerCase().includes(query));
+});
+
+const filteredSkillGroups = computed(() => [
+  { key: 'user_global', label: '租户发布包', items: filteredSkills.value.filter((skill) => skill.source_type === 'user_global') },
+  { key: 'workspace', label: '工作区', items: filteredSkills.value.filter((skill) => skill.source_type === 'workspace') },
+  { key: 'builtin', label: '内置', items: filteredSkills.value.filter((skill) => skill.source_type === 'builtin') },
+].filter((group) => group.items.length));
+
+const draftFileTree = computed(() => flattenFileTree(
+  (activeDraft.value?.bundle_assets || []).map((asset) => ({ path: asset.relative_path, type: 'file', size: asset.size })),
+  collapsedDirectories.value,
+));
+const publishedFileTree = computed(() => flattenFileTree(
+  selectedSkill.value?.files || [],
+  publishedCollapsedDirectories.value,
+));
+
+onMounted(() => refreshAll({ selectDefault: true }));
+
+async function refreshAll({ selectDefault = false } = {}) {
+  loadingAll.value = true;
+  skillsLoading.value = true;
+  draftsLoading.value = true;
+  skillsError.value = '';
+  draftsError.value = '';
+  const [draftResult, skillResult] = await Promise.allSettled([listSkillDrafts(), listSkills()]);
+  if (draftResult.status === 'fulfilled') skillDrafts.value = draftResult.value;
+  else draftsError.value = draftResult.reason?.message || '加载 Skill Draft 失败';
+  if (skillResult.status === 'fulfilled') skills.value = skillResult.value.data || [];
+  else skillsError.value = skillResult.reason?.message || '加载 Skill 库失败';
+  draftsLoading.value = false;
+  skillsLoading.value = false;
+  loadingAll.value = false;
+
+  if (selectDefault && !activeKey.value) {
+    if (skillDrafts.value.length) await selectDraft(skillDrafts.value[0], { skipGuard: true });
+    else if (skills.value.length) {
+      navigatorTab.value = 'library';
+      await selectSkill(skills.value[0], { skipGuard: true });
+    }
+    return;
+  }
+  if (activeKind.value === 'draft') {
+    const latest = skillDrafts.value.find((draft) => draft.id === activeKey.value);
+    if (latest) await selectDraft(latest, { skipGuard: true });
+  } else if (activeKind.value === 'skill') {
+    const latest = skills.value.find((skill) => skill.name === activeKey.value);
+    if (latest) await selectSkill(latest, { skipGuard: true });
   }
 }
 
-onMounted(loadDrafts);
+async function handleRefresh() {
+  if (!await allowDiscardChanges()) return;
+  await refreshAll();
+}
+
+async function changeNavigatorTab(value) {
+  if (value === navigatorTab.value) return;
+  if (!await allowDiscardChanges()) return;
+  navigatorTab.value = value;
+  searchQuery.value = '';
+  if (value === 'drafts' && skillDrafts.value.length) await selectDraft(skillDrafts.value[0], { skipGuard: true });
+  if (value === 'library' && skills.value.length) await selectSkill(skills.value[0], { skipGuard: true });
+}
+
+async function selectDraft(draft, { skipGuard = false } = {}) {
+  if (!skipGuard && activeKind.value === 'draft' && activeKey.value === draft.id) return;
+  if (!skipGuard && !await allowDiscardChanges()) return;
+  navigatorTab.value = 'drafts';
+  activeKind.value = 'draft';
+  activeKey.value = draft.id;
+  selectedSkill.value = null;
+  overviewMode.value = 'edit';
+  workspaceLoading.value = true;
+  workspaceError.value = '';
+  resetFileEditor();
+  try {
+    const loaded = await getSkillDraft(draft.id);
+    applyDraft(loaded);
+    if (workspaceTab.value === 'files') await selectDraftFile('SKILL.md', { skipGuard: true });
+  } catch (error) {
+    activeDraft.value = null;
+    workspaceError.value = error?.message || '加载 Skill Draft 失败';
+  } finally {
+    workspaceLoading.value = false;
+  }
+}
+
+async function selectSkill(skill, { skipGuard = false } = {}) {
+  if (!skipGuard && activeKind.value === 'skill' && activeKey.value === skill.name) return;
+  if (!skipGuard && !await allowDiscardChanges()) return;
+  navigatorTab.value = 'library';
+  activeKind.value = 'skill';
+  activeKey.value = skill.name;
+  activeDraft.value = null;
+  publishedTab.value = 'overview';
+  publishedCollapsedDirectories.value = new Set();
+  workspaceLoading.value = true;
+  workspaceError.value = '';
+  resetFileEditor();
+  try {
+    const response = await getSkillDetail(skill.name);
+    selectedSkill.value = response.data;
+  } catch (error) {
+    selectedSkill.value = null;
+    workspaceError.value = error?.message || '加载 Skill 详情失败';
+  } finally {
+    workspaceLoading.value = false;
+  }
+}
+
+function applyDraft(draft) {
+  activeDraft.value = draft;
+  activeKind.value = 'draft';
+  activeKey.value = draft.id;
+  draftForm.value = { name: draft.name, description: draft.description, content: draft.content };
+  const index = skillDrafts.value.findIndex((item) => item.id === draft.id);
+  if (index >= 0) skillDrafts.value.splice(index, 1, draft);
+  else skillDrafts.value.unshift(draft);
+}
+
+async function changeWorkspaceTab(value) {
+  if (value === workspaceTab.value) return;
+  if (!await allowDiscardChanges()) return;
+  workspaceTab.value = value;
+  workspaceError.value = '';
+  if (value === 'files' && activeDraft.value) await selectDraftFile('SKILL.md', { skipGuard: true });
+}
+
+async function saveOverview() {
+  if (!activeDraft.value || !overviewDirty.value || !canEditSkillDraft.value) return;
+  overviewSaving.value = true;
+  workspaceError.value = '';
+  const current = activeDraft.value;
+  try {
+    const updated = await updateSkillDraft(current.id, current.revision, draftForm.value);
+    applyDraft(updated);
+    await syncPublishedState(updated);
+    toast.success(updated.status === 'published' ? 'Skill 已保存并自动发布' : 'Skill Draft 已保存');
+  } catch (error) {
+    workspaceError.value = error?.message || '保存 Skill Draft 失败';
+    if (error?.status === 409) await recoverDraft(current.id);
+  } finally {
+    overviewSaving.value = false;
+  }
+}
+
+async function publishDraft() {
+  if (!activeDraft.value || hasUnsavedChanges.value || !canEditSkillDraft.value) return;
+  const current = activeDraft.value;
+  const accepted = await confirm({
+    title: '发布 Skill Draft',
+    message: `确认发布“${current.name}”？发布前会自动校验完整 bundle。`,
+    confirmText: current.published_at ? '重新发布' : '发布',
+    danger: false,
+  });
+  if (!accepted) return;
+  publishing.value = true;
+  workspaceError.value = '';
+  try {
+    const updated = await publishSkillDraft(current.id, current.revision);
+    applyDraft(updated);
+    await syncPublishedState(updated);
+    toast.success('Skill 已发布');
+  } catch (error) {
+    workspaceError.value = error?.message || '发布 Skill 失败';
+    if (error?.status === 409) await recoverDraft(current.id);
+  } finally {
+    publishing.value = false;
+  }
+}
+
+async function deleteDraft() {
+  if (!activeDraft.value || !canEditSkillDraft.value) return;
+  const current = activeDraft.value;
+  const accepted = await confirm({
+    title: '删除 Skill Draft',
+    message: current.status === 'published'
+      ? `删除“${current.name}”的 Draft？已发布 Skill 不受影响，之后仍可从发布包恢复。`
+      : `删除“${current.name}”的 Draft？此操作不可恢复。`,
+    confirmText: '删除 Draft',
+    danger: true,
+  });
+  if (!accepted) return;
+  deletingDraft.value = true;
+  workspaceError.value = '';
+  try {
+    await deleteSkillDraft(current.id);
+    skillDrafts.value = skillDrafts.value.filter((draft) => draft.id !== current.id);
+    activeDraft.value = null;
+    activeKey.value = '';
+    resetFileEditor();
+    toast.success('Skill Draft 已删除');
+    if (skillDrafts.value.length) await selectDraft(skillDrafts.value[0], { skipGuard: true });
+    else if (skills.value.length) {
+      navigatorTab.value = 'library';
+      await selectSkill(skills.value[0], { skipGuard: true });
+    }
+  } catch (error) {
+    workspaceError.value = error?.message || '删除 Skill Draft 失败';
+  } finally {
+    deletingDraft.value = false;
+  }
+}
+
+async function editPublishedSkill() {
+  if (!selectedSkill.value || !canEditSkillDraft.value) return;
+  restoringDraft.value = true;
+  workspaceError.value = '';
+  try {
+    const draft = await ensureSkillDraft(selectedSkill.value.name);
+    applyDraft(draft);
+    navigatorTab.value = 'drafts';
+    workspaceTab.value = 'overview';
+    selectedSkill.value = null;
+    toast.success('已打开可编辑 Draft');
+  } catch (error) {
+    workspaceError.value = error?.message || '准备 Skill Draft 失败';
+  } finally {
+    restoringDraft.value = false;
+  }
+}
+
+async function deletePublishedSkill() {
+  if (!selectedSkill.value || !canEditSkillDraft.value) return;
+  const current = selectedSkill.value;
+  const accepted = await confirm({
+    title: '删除已发布 Skill',
+    message: `确认删除“${current.name}”？已有 Draft 会恢复为未发布状态。`,
+    confirmText: '删除 Skill',
+    danger: true,
+  });
+  if (!accepted) return;
+  deletingSkill.value = true;
+  workspaceError.value = '';
+  try {
+    await deleteSkill(current.name);
+    selectedSkill.value = null;
+    activeKey.value = '';
+    await refreshAll();
+    toast.success('已发布 Skill 已删除');
+  } catch (error) {
+    workspaceError.value = error?.message || '删除 Skill 失败';
+  } finally {
+    deletingSkill.value = false;
+  }
+}
+
+async function selectDraftFile(relativePath, { skipGuard = false } = {}) {
+  if (!activeDraft.value) return;
+  if (!skipGuard && selectedFilePath.value === relativePath) return;
+  if (!skipGuard && fileDirty.value && !await allowDiscardChanges()) return;
+  selectedFilePath.value = relativePath;
+  selectedFile.value = null;
+  fileLoading.value = true;
+  workspaceError.value = '';
+  try {
+    const file = await getSkillDraftFile(activeDraft.value.id, relativePath);
+    selectedFile.value = file;
+    if (isEditableTextFile(file)) {
+      fileText.value = decodeBase64Text(file.body_base64);
+      originalFileText.value = fileText.value;
+    } else {
+      fileText.value = '';
+      originalFileText.value = '';
+    }
+  } catch (error) {
+    selectedFilePath.value = '';
+    workspaceError.value = error?.message || '读取 Draft 文件失败';
+  } finally {
+    fileLoading.value = false;
+  }
+}
+
+async function saveSelectedFile() {
+  if (!activeDraft.value || !selectedFile.value || !fileDirty.value || !canEditSkillDraft.value) return;
+  const current = activeDraft.value;
+  fileSaving.value = true;
+  workspaceError.value = '';
+  try {
+    const updated = await putSkillDraftFile(current.id, current.revision, {
+      relative_path: selectedFile.value.relative_path,
+      media_type: selectedFile.value.media_type,
+      body_base64: encodeBase64Text(fileText.value),
+    });
+    applyDraft(updated);
+    originalFileText.value = fileText.value;
+    selectedFile.value = {
+      ...selectedFile.value,
+      ...updated.bundle_assets.find((asset) => asset.relative_path === selectedFilePath.value),
+      body_base64: encodeBase64Text(fileText.value),
+    };
+    await syncPublishedState(updated);
+    toast.success(updated.status === 'published' ? '文件已保存并自动发布' : 'Draft 文件已保存');
+  } catch (error) {
+    workspaceError.value = error?.message || '保存 Draft 文件失败';
+    if (error?.status === 409) await recoverDraft(current.id);
+  } finally {
+    fileSaving.value = false;
+  }
+}
+
+async function deleteSelectedFile() {
+  if (!activeDraft.value || !selectedFile.value || selectedFile.value.relative_path === 'SKILL.md') return;
+  const current = activeDraft.value;
+  const relativePath = selectedFile.value.relative_path;
+  const accepted = await confirm({
+    title: '删除 bundle 文件',
+    message: `确认从 Draft 删除“${relativePath}”？`,
+    confirmText: '删除文件',
+    danger: true,
+  });
+  if (!accepted) return;
+  fileDeleting.value = true;
+  workspaceError.value = '';
+  try {
+    const updated = await deleteSkillDraftFile(current.id, current.revision, relativePath);
+    applyDraft(updated);
+    resetFileEditor();
+    await selectDraftFile('SKILL.md', { skipGuard: true });
+    await syncPublishedState(updated);
+    toast.success(updated.status === 'published' ? '文件已删除并自动发布' : 'Draft 文件已删除');
+  } catch (error) {
+    workspaceError.value = error?.message || '删除 Draft 文件失败';
+    if (error?.status === 409) await recoverDraft(current.id);
+  } finally {
+    fileDeleting.value = false;
+  }
+}
+
+function openFilePicker() {
+  if (!activeDraft.value || mutationBusy.value) return;
+  fileInput.value?.click();
+}
+
+async function uploadSelectedFile(event) {
+  const input = event.target;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file || !activeDraft.value) return;
+  const relativePath = file.webkitRelativePath || file.name;
+  if (!isValidRelativePath(relativePath)) {
+    workspaceError.value = '文件路径无效';
+    return;
+  }
+  const existing = activeDraft.value.bundle_assets.some((asset) => asset.relative_path.toLowerCase() === relativePath.toLowerCase());
+  if (existing) {
+    const accepted = await confirm({
+      title: '替换 bundle 文件',
+      message: `“${relativePath}”已存在，确认使用上传文件替换？`,
+      confirmText: '替换',
+      danger: false,
+    });
+    if (!accepted) return;
+  }
+  const current = activeDraft.value;
+  fileSaving.value = true;
+  workspaceError.value = '';
+  try {
+    const updated = await putSkillDraftFile(current.id, current.revision, {
+      relative_path: relativePath,
+      media_type: file.type || guessMediaType(relativePath),
+      body_base64: await readFileAsBase64(file),
+    });
+    applyDraft(updated);
+    await selectDraftFile(relativePath, { skipGuard: true });
+    await syncPublishedState(updated);
+    toast.success(updated.status === 'published' ? '文件已上传并自动发布' : '文件已加入 Draft');
+  } catch (error) {
+    workspaceError.value = error?.message || '上传 Draft 文件失败';
+    if (error?.status === 409) await recoverDraft(current.id);
+  } finally {
+    fileSaving.value = false;
+  }
+}
+
+function openCreateFile() {
+  createFileDialog.value = { open: true, path: '', content: '', error: '' };
+}
+
+function closeCreateFile() {
+  if (fileSaving.value) return;
+  createFileDialog.value.open = false;
+  createFileDialog.value.error = '';
+}
+
+async function createTextFile() {
+  if (!activeDraft.value || !canCreateFile.value) return;
+  const current = activeDraft.value;
+  const relativePath = createFileDialog.value.path.replaceAll('\\', '/');
+  if (current.bundle_assets.some((asset) => asset.relative_path.toLowerCase() === relativePath.toLowerCase())) {
+    createFileDialog.value.error = '同名文件已存在，请在文件树中打开后编辑。';
+    return;
+  }
+  fileSaving.value = true;
+  createFileDialog.value.error = '';
+  try {
+    const updated = await putSkillDraftFile(current.id, current.revision, {
+      relative_path: relativePath,
+      media_type: guessMediaType(relativePath),
+      body_base64: encodeBase64Text(createFileDialog.value.content),
+    });
+    applyDraft(updated);
+    createFileDialog.value.open = false;
+    await selectDraftFile(relativePath, { skipGuard: true });
+    await syncPublishedState(updated);
+    toast.success(updated.status === 'published' ? '文件已创建并自动发布' : '文本文件已创建');
+  } catch (error) {
+    createFileDialog.value.error = error?.message || '创建 Draft 文件失败';
+    if (error?.status === 409) await recoverDraft(current.id);
+  } finally {
+    fileSaving.value = false;
+  }
+}
+
+function downloadDraftFile() {
+  if (!selectedFile.value?.body_base64) return;
+  const bytes = decodeBase64Bytes(selectedFile.value.body_base64);
+  const blob = new Blob([bytes], { type: selectedFile.value.media_type || 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = selectedFile.value.relative_path.split('/').pop() || 'skill-file';
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 function openCreateDraft() {
-  createDraftDialog.value = { open: true, error: '', form: { name: '', description: '' } };
+  createDraftDialog.value = { open: true, name: '', description: '', error: '' };
 }
 
 function closeCreateDraft() {
-  if (createDraftBusy.value) return;
+  if (creatingDraft.value) return;
   createDraftDialog.value.open = false;
   createDraftDialog.value.error = '';
 }
 
-const { run: runCreateDraft, loading: createDraftBusy } = useAsyncAction(
-  async () => {
-    const draft = await createSkillDraft(
-      createDraftDialog.value.form.name,
-      createDraftDialog.value.form.description,
-    );
-    skillDrafts.value = [draft, ...skillDrafts.value.filter((item) => item.id !== draft.id)];
+async function createDraft() {
+  if (!canCreateDraft.value) return;
+  creatingDraft.value = true;
+  createDraftDialog.value.error = '';
+  try {
+    const draft = await createSkillDraft(createDraftDialog.value.name, createDraftDialog.value.description);
     createDraftDialog.value.open = false;
-    await openDraftReview(draft);
-    return draft;
-  },
-  {
-    successMessage: 'Skill 草稿已创建',
-    showErrorToast: false,
-    onError: (error) => { createDraftDialog.value.error = error?.message || '创建 Skill 草稿失败'; },
-  },
-);
+    applyDraft(draft);
+    navigatorTab.value = 'drafts';
+    workspaceTab.value = 'overview';
+    selectedSkill.value = null;
+    toast.success('Skill Draft 已创建');
+  } catch (error) {
+    createDraftDialog.value.error = error?.message || '创建 Skill Draft 失败';
+  } finally {
+    creatingDraft.value = false;
+  }
+}
+
+async function allowDiscardChanges() {
+  if (!hasUnsavedChanges.value) return true;
+  return confirm({
+    title: '放弃未保存更改',
+    message: '当前编辑内容尚未保存，继续操作会丢失这些更改。',
+    confirmText: '放弃更改',
+    danger: true,
+  });
+}
+
+async function recoverDraft(id) {
+  try {
+    applyDraft(await getSkillDraft(id));
+    resetFileEditor();
+  } catch {
+    // Preserve the original mutation error when recovery is unavailable.
+  }
+}
+
+async function syncPublishedState(draft) {
+  if (draft.status !== 'published') return;
+  try {
+    const response = await listSkills();
+    skills.value = response.data || [];
+  } catch (error) {
+    skillsError.value = error?.message || 'Skill 已更新，但刷新 Skill 库失败';
+    toast.warning(skillsError.value);
+  }
+}
+
+function resetFileEditor() {
+  selectedFilePath.value = '';
+  selectedFile.value = null;
+  fileText.value = '';
+  originalFileText.value = '';
+}
+
+function toggleDirectory(path) {
+  const next = new Set(collapsedDirectories.value);
+  if (next.has(path)) next.delete(path);
+  else next.add(path);
+  collapsedDirectories.value = next;
+}
+
+function togglePublishedDirectory(path) {
+  const next = new Set(publishedCollapsedDirectories.value);
+  if (next.has(path)) next.delete(path);
+  else next.add(path);
+  publishedCollapsedDirectories.value = next;
+}
+
+function flattenFileTree(files, collapsed) {
+  const root = { children: [] };
+  for (const file of files || []) {
+    const path = String(file.path || '').replaceAll('\\', '/');
+    const parts = path.split('/').filter(Boolean);
+    if (!parts.length) continue;
+    let parent = root;
+    parts.forEach((part, index) => {
+      const nodePath = parts.slice(0, index + 1).join('/');
+      const last = index === parts.length - 1;
+      let node = parent.children.find((child) => child.name === part);
+      if (!node) {
+        node = {
+          name: part,
+          path: nodePath,
+          type: last ? (file.type || 'file') : 'directory',
+          size: last ? file.size : undefined,
+          children: [],
+        };
+        parent.children.push(node);
+      }
+      parent = node;
+    });
+  }
+  const sort = (nodes) => {
+    nodes.sort((left, right) => left.type === right.type
+      ? left.name.localeCompare(right.name)
+      : left.type === 'directory' ? -1 : 1);
+    nodes.forEach((node) => sort(node.children));
+  };
+  sort(root.children);
+  const flattened = [];
+  const walk = (nodes, depth) => {
+    for (const node of nodes) {
+      const isCollapsed = node.type === 'directory' && collapsed.has(node.path);
+      flattened.push({ ...node, depth, collapsed: isCollapsed });
+      if (node.type === 'directory' && !isCollapsed) walk(node.children, depth + 1);
+    }
+  };
+  walk(root.children, 0);
+  return flattened;
+}
 
 function draftStatusLabel(draft) {
-  if (draft.status !== 'published' && !draft.bundle_assets?.length) return '需重新提交 Artifact';
+  if (draft.status === 'published' && draft.package_state === 'missing') return '发布包缺失';
   if (draft.status === 'published' && draft.package_state === 'conflict') return '发布冲突';
-  return draft.status === 'published' ? '已发布' : '待审核';
+  return draft.status === 'published' ? '已发布' : '待发布';
 }
 
 function draftStatusVariant(draft) {
-  if (draft.status === 'published' && draft.package_state === 'conflict') return 'destructive';
-  return draft.status === 'published' && draft.package_state !== 'missing' ? 'success' : 'warning';
+  if (draft.status === 'published' && ['conflict', 'missing'].includes(draft.package_state)) return 'destructive';
+  return draft.status === 'published' ? 'success' : 'warning';
+}
+
+function draftOrigin(draft) {
+  if (draft.source_agent_name) return `由 ${draft.source_agent_name} 创建`;
+  if (draft.source_session_id) return `来自会话 ${draft.source_session_id}`;
+  return '管理员 Draft';
+}
+
+function sourceLabel(sourceType) {
+  return { user_global: '租户', workspace: '工作区', builtin: '内置' }[sourceType] || '系统';
 }
 
 function formatDraftDate(value) {
@@ -432,668 +1169,680 @@ function formatDraftDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-async function openDraftReview(draft) {
-  draftReview.value = {
-    open: true,
-    error: '',
-    draft: { ...draft },
-    form: { name: draft.name, description: draft.description, content: draft.content },
-  };
-  try {
-    const loaded = await getSkillDraft(draft.id);
-    draftReview.value.draft = loaded;
-    draftReview.value.form = { name: loaded.name, description: loaded.description, content: loaded.content };
-  } catch (e) {
-    draftReview.value.error = e?.message || '加载草稿详情失败';
+function formatCompactDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date);
+}
+
+function formatSize(value) {
+  const bytes = Number(value) || 0;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function isEditableTextFile(file) {
+  if (!file || file.size > 2 * 1024 * 1024) return false;
+  return file.media_type?.startsWith('text/')
+    || /(?:json|javascript|typescript|yaml|xml|sql)/i.test(file.media_type || '')
+    || /\.(?:md|txt|py|js|ts|tsx|jsx|json|ya?ml|csv|sh|ps1|sql|css|html|vue|toml|ini|cfg)$/i.test(file.relative_path || '');
+}
+
+function isValidRelativePath(value) {
+  const normalized = String(value || '').trim().replaceAll('\\', '/');
+  return Boolean(normalized)
+    && !normalized.startsWith('/')
+    && !/^[A-Za-z]:/.test(normalized)
+    && normalized.split('/').every((part) => part && part !== '.' && part !== '..');
+}
+
+function guessMediaType(path) {
+  const extension = path.split('.').pop()?.toLowerCase();
+  return {
+    md: 'text/markdown; charset=utf-8',
+    txt: 'text/plain; charset=utf-8',
+    py: 'text/x-python; charset=utf-8',
+    js: 'text/javascript; charset=utf-8',
+    ts: 'text/typescript; charset=utf-8',
+    json: 'application/json; charset=utf-8',
+    yaml: 'text/yaml; charset=utf-8',
+    yml: 'text/yaml; charset=utf-8',
+    csv: 'text/csv; charset=utf-8',
+  }[extension] || 'text/plain; charset=utf-8';
+}
+
+function encodeBase64Text(value) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
   }
+  return btoa(binary);
 }
 
-const draftRestoreBusy = ref(false);
-async function openPublishedSkillDraft() {
-  if (!selected.value || !canEditSkillDraft.value) return;
-  draftRestoreBusy.value = true;
-  try {
-    const draft = selectedDraft.value ?? await ensureSkillDraft(selected.value.name);
-    if (!skillDrafts.value.some((item) => item.id === draft.id)) {
-      skillDrafts.value = [draft, ...skillDrafts.value];
-    }
-    await openDraftReview(draft);
-  } catch (error) {
-    toast.error(error?.message || '准备 Skill 草稿失败');
-  } finally {
-    draftRestoreBusy.value = false;
-  }
+function decodeBase64Bytes(value) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
 }
 
-function closeDraftReview() {
-  draftReview.value.open = false;
-  draftReview.value.error = '';
+function decodeBase64Text(value) {
+  return new TextDecoder().decode(decodeBase64Bytes(value));
 }
 
-function applyDraftUpdate(draft) {
-  draftReview.value.draft = draft;
-  draftReview.value.form = { name: draft.name, description: draft.description, content: draft.content };
-  skillDrafts.value = skillDrafts.value.map((item) => item.id === draft.id ? draft : item);
-}
-
-async function recoverLatestDraft(current) {
-  try {
-    const latest = await getSkillDraft(current.id);
-    if (draftReview.value.draft?.id === current.id) applyDraftUpdate(latest);
-    else skillDrafts.value = skillDrafts.value.map((item) => item.id === latest.id ? latest : item);
-  } catch {
-    // Keep the original mutation error when the server is still unavailable.
-  }
-}
-
-const { run: runSaveDraft, loading: draftSaveBusy } = useAsyncAction(
-  async () => {
-    const current = draftReview.value.draft;
-    const updated = await updateSkillDraft(current.id, current.revision, draftReview.value.form);
-    applyDraftUpdate(updated);
-    if (updated.status === 'published') {
-      await refresh();
-      if (selected.value?.name === updated.name) await selectSkill(updated.name);
-    }
-    return updated;
-  },
-  {
-    successMessage: (draft) => draft.status === 'published' ? 'Skill 已保存并自动发布' : 'Skill 草稿已保存',
-    showErrorToast: false,
-    onError: async (e) => {
-      draftReview.value.error = e?.message || '保存 Skill 草稿失败';
-      const current = draftReview.value.draft;
-      if (current) await recoverLatestDraft(current);
-    },
-  },
-);
-
-const { run: runPublishDraft, loading: draftPublishBusy } = useAsyncAction(
-  async () => {
-    const current = draftReview.value.draft;
-    try {
-      const published = await publishSkillDraft(current.id, current.revision);
-      applyDraftUpdate(published);
-      await refresh();
-      if (selected.value?.name === published.name) await selectSkill(published.name);
-      return published;
-    } catch (error) {
-      await recoverLatestDraft(current);
-      throw error;
-    }
-  },
-  {
-    successMessage: 'Skill 发布状态已确认',
-    showErrorToast: false,
-    onError: (e) => { draftReview.value.error = e?.message || '发布 Skill 失败'; },
-  },
-);
-
-const { run: runDeleteDraft, loading: draftDeleteBusy } = useAsyncAction(
-  async () => {
-    const current = draftReview.value.draft;
-    await deleteSkillDraft(current.id);
-    skillDrafts.value = skillDrafts.value.filter((item) => item.id !== current.id);
-    closeDraftReview();
-    return current;
-  },
-  {
-    successMessage: 'Skill 草稿已删除',
-    showErrorToast: false,
-    onError: (e) => { draftReview.value.error = e?.message || '删除 Skill 草稿失败'; },
-  },
-);
-
-const draftReviewBusy = computed(() => draftSaveBusy.value || draftPublishBusy.value || draftDeleteBusy.value);
-
-async function confirmDeleteDraft() {
-  const draft = draftReview.value.draft;
-  if (!draft || !canEditSkillDraft.value) return;
-  const accepted = await confirm({
-    title: '删除 Skill 草稿',
-    message: draft.status === 'published'
-      ? `确认删除“${draft.name}”的草稿记录？已发布 Skill 不受影响。`
-      : `确认删除“${draft.name}”？此操作不可恢复。`,
-    confirmText: '删除',
-    danger: true,
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',', 2)[1] || '');
+    reader.onerror = () => reject(reader.error || new Error('读取文件失败'));
+    reader.readAsDataURL(file);
   });
-  if (!accepted) return;
-  draftReview.value.error = '';
-  runDeleteDraft();
 }
 
-async function confirmPublishDraft() {
-  const draft = draftReview.value.draft;
-  if (!draft || !canEditSkillDraft.value || isDraftFormDirty.value) return;
-  const accepted = await confirm({
-    title: '发布 Skill Draft',
-    message: `确认${draft.published_at ? '重新发布' : '发布'}“${draftReview.value.form.name}”？发布成功后仍可继续编辑 Draft。`,
-    confirmText: draft.published_at ? '重新发布' : '发布',
-    danger: false,
-  });
-  if (!accepted) return;
-  draftReview.value.error = '';
-  runPublishDraft();
-}
-
-const countByType = computed(() => {
-  const acc = { user_global: 0, builtin: 0, workspace: 0 };
-  for (const s of skills.value) acc[s.source_type] = (acc[s.source_type] || 0) + 1;
-  return acc;
-});
-
-const kpiItems = computed(() => [
-  { key: 'total', label: 'Skill 总数', value: skills.value.length },
-  { key: 'user', label: '租户 Skill 包', value: countByType.value.user_global },
-  { key: 'builtin', label: '内置', value: countByType.value.builtin },
-  { key: 'workspace', label: '工作区', value: countByType.value.workspace },
-]);
-
-const searchQuery = ref('');
-const filteredSkills = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase();
-  if (!q) return skills.value;
-  return skills.value.filter(
-    (s) =>
-      (s.display_name || s.name || '').toLowerCase().includes(q) ||
-      (s.description || '').toLowerCase().includes(q) ||
-      (s.name || '').toLowerCase().includes(q),
-  );
-});
-
-const groups = computed(() =>
-  [
-    { key: 'user_global', title: '租户发布包', items: filteredSkills.value.filter((s) => s.source_type === 'user_global') },
-    { key: 'workspace', title: '工作区', items: filteredSkills.value.filter((s) => s.source_type === 'workspace') },
-    { key: 'builtin', title: '内置', items: filteredSkills.value.filter((s) => s.source_type === 'builtin') },
-  ].filter((g) => g.items.length),
-);
-
-function isWritable(skill) {
-  return canEditSkillDraft.value
-    && skill.source_type === 'user_global';
-}
-
-// 来源类型 → 短标签 + 语义色（列表行徽章用）
-const SOURCE_META = {
-  user_global: { label: '用户', tone: 'success' },
-  workspace: { label: '工作区', tone: 'info' },
-  builtin: { label: '内置', tone: 'neutral' },
-};
-function sourceMeta(type) {
-  return SOURCE_META[type] || SOURCE_META.builtin;
-}
-
-function fileUrl(p) {
-  return getSkillFileUrl(selected.value.name, p);
-}
-function formatSize(n) {
-  return n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`;
-}
-const FILE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
-const FOLDER_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
-
-// 文件树：扁平 files[{path,type,size}] → 按 '/' 构建层级；directory 可折叠
-function buildFileTree(files) {
-  const root = { name: '', path: '', type: 'directory', children: [] };
-  for (const f of files || []) {
-    const parts = String(f.path || '').split('/').filter(Boolean);
-    if (!parts.length) continue;
-    let node = root;
-    parts.forEach((part, i) => {
-      const isLast = i === parts.length - 1;
-      const fullPath = parts.slice(0, i + 1).join('/');
-      let child = node.children.find((c) => c.name === part);
-      if (!child) {
-        child = { name: part, path: fullPath, type: isLast ? f.type : 'directory', size: isLast ? f.size : null, children: [] };
-        node.children.push(child);
-      }
-      node = child;
-    });
-  }
-  const sortNodes = (nodes) => {
-    nodes.sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-    nodes.forEach((n) => sortNodes(n.children));
-  };
-  sortNodes(root.children);
-  return root.children;
-}
-
-const collapsedDirs = ref(new Set());
-function toggleDir(path) {
-  const next = new Set(collapsedDirs.value);
-  if (next.has(path)) next.delete(path);
-  else next.add(path);
-  collapsedDirs.value = next;
-}
-const flatFiles = computed(() => {
-  const tree = buildFileTree(selected.value?.files);
-  const out = [];
-  const walk = (nodes, depth) => {
-    for (const n of nodes) {
-      const collapsed = n.type === 'directory' && collapsedDirs.value.has(n.path);
-      out.push({ ...n, depth, collapsed });
-      if (n.type === 'directory' && !collapsed) walk(n.children, depth + 1);
-    }
-  };
-  walk(tree, 0);
-  return out;
-});
-
-async function selectSkill(name) {
-  detailLoading.value = true;
-  detailError.value = '';
-  try {
-    const res = await getSkillDetail(name);
-    selected.value = res.data;
-  } catch (e) {
-    detailError.value = e.message || '加载详情失败';
-  } finally {
-    detailLoading.value = false;
-  }
-}
-
-const { run: runDelete, loading: deleting } = useAsyncAction(
-  async () => {
-    const res = await deleteSkill(selected.value.name);
-    selected.value = null;
-    await Promise.allSettled([refresh(), loadDrafts()]);
-    return res;
-  },
-  {
-    onSuccess: (res) => {
-      const purged = res?.data?.purged_agents?.length ?? 0;
-      toast.success(purged > 0 ? `已删除 Skill，并从 ${purged} 个智能体配置中移除引用` : 'Skill 已删除');
-    },
-  },
-);
-
-async function confirmDelete() {
-  const s = selected.value;
-  if (!s) return;
-  const ok = await confirm({
-    message: `确认删除 Skill “${s.name}”？删除后其 Draft 会恢复为可编辑状态。`,
-    confirmText: '删除',
-    danger: true,
-  });
-  if (!ok) return;
-  runDelete();
+function onMdNotify({ message, type }) {
+  if (type === 'success') toast.success(message);
+  else toast.error(message);
 }
 </script>
 
 <style scoped>
-.skill-lib {
+.skill-workbench {
   display: grid;
-  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
-  gap: var(--spacing-xl);
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   align-items: start;
-  min-width: 0;
-}
-/* grid item 允许收缩：否则详情里的 markdown 正文/代码块会撑破面板，导致横向溢出 */
-.skill-lib > * {
-  min-width: 0;
-}
-@media (max-width: 900px) {
-  .skill-lib {
-    grid-template-columns: 1fr;
-    gap: var(--spacing-md);
-  }
+  gap: var(--spacing-lg);
 }
 
-/* 详情面板保证空状态最小高度（Card 自带 bg/radius/padding，不重复设）*/
-.skill-detail-panel {
-  min-height: 400px;
+.skill-list-card {
+  position: sticky;
+  top: var(--spacing-md);
+  min-width: 0;
+  overflow: hidden;
 }
 
-/* 列表搜索框 */
-.skill-search {
-  position: relative;
-  display: flex;
-  align-items: center;
-  margin-bottom: var(--spacing-sm);
-}
-.skill-search__icon {
-  position: absolute;
-  left: 10px;
-  color: var(--color-text-muted);
-  pointer-events: none;
-}
-.skill-search__input {
-  width: 100%;
-  height: var(--control-height-md);
-  padding: 0 32px 0 30px;
-  border-radius: var(--control-radius);
+.skill-workspace-card {
+  min-width: 0;
+  min-height: 560px;
+  overflow: hidden;
   border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-}
-.skill-search__input::placeholder {
-  color: var(--color-text-muted);
-}
-.skill-search__input:focus {
-  outline: none;
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16);
-}
-.skill-search__clear {
-  position: absolute;
-  right: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-.skill-search__clear:hover {
-  background: var(--color-hover-overlay-md);
-  color: var(--color-text-primary);
 }
 
-.skill-list-group {
+.skill-workspace,
+.bundle-tree,
+.file-editor,
+.published-content {
+  min-width: 0;
+  min-height: 0;
+}
+
+.skill-navigator__head {
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.navigator-heading {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-bottom: var(--spacing-lg);
 }
-.skill-list-group__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-md) var(--spacing-md) var(--spacing-sm);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-.skill-row {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-sm);
+
+.skill-navigator__tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   width: 100%;
-  text-align: left;
-  padding: var(--spacing-md) var(--spacing-md);
-  cursor: pointer;
-  border: none;
-  border-left: 2px solid transparent;
-  background: transparent;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
-.skill-row:hover {
+
+.skill-navigator__tabs :deep([data-state='active']) {
+  background: var(--color-bg-tertiary);
+  box-shadow: none;
+  color: var(--color-text-primary);
+}
+
+.skill-navigator__search {
+  height: 34px;
+}
+
+.skill-navigator__body {
+  max-height: calc(100vh - 212px);
+  overflow-y: auto;
+  padding: var(--spacing-md) !important;
+}
+
+.navigator-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.navigator-row:hover {
   background: var(--color-hover-overlay-md);
 }
-.skill-row--readonly {
-  opacity: 0.65;
-}
-.skill-row--active {
+
+.navigator-row--active {
+  border-color: var(--color-brand-accent);
   background: var(--color-active-bg);
-  border-left-color: var(--color-brand-accent);
 }
-.skill-row__main {
+
+.navigator-row__title,
+.navigator-row__meta,
+.navigator-group__label,
+.workspace-header__title-row,
+.workspace-header__actions,
+.file-editor__toolbar,
+.file-editor__actions,
+.pane-heading,
+.pane-heading__actions,
+.field-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.navigator-row__title,
+.navigator-row__meta,
+.navigator-group__label,
+.file-editor__toolbar,
+.pane-heading,
+.field-heading {
+  justify-content: space-between;
+}
+
+.navigator-row__name {
   min-width: 0;
   flex: 1;
-}
-.skill-row__name-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  min-width: 0;
-}
-.skill-row__name {
+  overflow: hidden;
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   font-weight: 600;
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
-}
-.skill-row__desc {
-  margin-top: 4px;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
-  line-height: 1.5;
-  overflow-wrap: anywhere;
 }
 
-.skill-detail__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-xs);
-  margin-top: var(--spacing-sm);
+.navigator-row p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
-.skill-detail__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-xs);
-  flex-shrink: 0;
+
+.navigator-row__meta {
+  color: var(--color-text-muted);
+  font-size: 11px;
 }
-.skill-section {
-  margin-top: var(--spacing-xl);
-  padding-top: var(--spacing-xl);
-  border-top: 1px solid var(--color-border);
+
+.navigator-group {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
-  min-width: 0;
+  gap: 2px;
+  margin-bottom: var(--spacing-md);
 }
-.skill-section:first-of-type {
-  border-top: none;
-  padding-top: 0;
-}
-.skill-section__title {
+
+.navigator-group__label {
+  padding: 9px 10px 5px;
   color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
-/* 文件树（层级缩进 + 目录可折叠）*/
-.skill-filetree {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-.skill-file {
-  font-size: var(--font-size-sm);
-}
-.skill-file__row {
+.navigator-state,
+.workspace-state,
+.binary-file-state {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  min-height: 28px;
-  padding: 3px 8px;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
-  overflow-wrap: anywhere;
-}
-.skill-file__row--dir {
-  width: 100%;
-  border: none;
-  background: transparent;
-  color: var(--color-text-primary);
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-}
-.skill-file__row--dir:hover {
-  background: var(--color-hover-overlay);
-}
-.skill-file__chevron {
-  display: inline-flex;
-  flex-shrink: 0;
+  justify-content: center;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  min-height: 180px;
   color: var(--color-text-muted);
-  transform: rotate(-90deg);
-  transition: transform var(--transition-fast);
-}
-.skill-file__chevron.is-open {
-  transform: rotate(0deg);
-}
-.skill-file__icon {
-  display: inline-flex;
-  flex-shrink: 0;
-  opacity: 0.6;
-}
-.skill-file__name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.skill-file__size {
-  margin-left: auto;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  flex-shrink: 0;
-}
-.skill-file a {
-  color: var(--color-brand-accent);
-}
-.skill-file a:hover {
-  text-decoration: underline;
-}
-
-.skill-textarea {
-  font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  min-height: 240px !important;
-  resize: vertical;
+  text-align: center;
 }
 
-.skill-drafts {
+.navigator-state--error,
+.workspace-state--error {
+  color: var(--color-error);
+}
+
+.navigator-empty {
+  min-height: 260px;
+}
+
+.skill-workspace {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
-  margin: var(--spacing-xl) 0;
-  padding: var(--spacing-lg) 0;
-  border-top: 1px solid var(--color-border);
+  min-height: 560px;
+}
+
+.workspace-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  min-height: 96px;
+  padding: var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
 }
-.skill-drafts__header,
-.skill-draft-row,
-.skill-drafts__state {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-md);
+
+.workspace-header__identity {
+  min-width: 0;
 }
-.skill-drafts__title {
+
+.workspace-header__title-row {
+  flex-wrap: wrap;
+}
+
+.workspace-header h2 {
   margin: 0;
   color: var(--color-text-primary);
   font-size: var(--font-size-lg);
   font-weight: 650;
 }
-.skill-drafts__description {
-  margin: 4px 0 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-.skill-drafts__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  flex-shrink: 0;
-}
-.skill-drafts__state {
-  justify-content: flex-start;
-  min-height: 56px;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-.skill-drafts__state--error {
-  color: var(--color-error);
-}
-.skill-drafts__empty {
-  min-height: 120px;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-}
-.skill-drafts__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-.skill-draft-row {
-  min-width: 0;
-  padding: var(--spacing-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
-}
-.skill-draft-row__main {
-  min-width: 0;
-  flex: 1;
-}
-.skill-draft-row__title {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--spacing-xs);
-}
-.skill-draft-row__name {
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  font-weight: 650;
-}
-.skill-draft-row__revision,
-.skill-draft-row__source {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-}
-.skill-draft-row__description {
-  margin: 4px 0 0;
+
+.workspace-header p {
+  margin: 5px 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
 }
-.skill-draft-row__source {
-  margin: 4px 0 0;
-  overflow-wrap: anywhere;
+
+.workspace-header__identity > span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
 }
-.skill-draft-form {
-  gap: var(--spacing-md);
+
+.workspace-header__actions {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
-.skill-draft-preview {
+
+.workspace-message {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--spacing-sm);
-  max-height: 260px;
-  overflow: auto;
-  padding: var(--spacing-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
+  padding: 9px var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-error);
+  font-size: var(--font-size-xs);
 }
-.skill-draft-preview__header {
+
+.workspace-message svg {
+  width: 15px;
+  flex-shrink: 0;
+}
+
+.workspace-tabbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-sm);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  padding: var(--spacing-sm) var(--spacing-lg) 0;
 }
-@media (max-width: 640px) {
-  .skill-drafts__header,
-  .skill-draft-row {
-    align-items: flex-start;
+
+.workspace-tabs,
+.overview-mode-tabs {
+  min-width: 0;
+}
+
+.workspace-tabs :deep([data-state='active']),
+.overview-mode-tabs :deep([data-state='active']),
+.published-tabs :deep([data-state='active']) {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  box-shadow: none;
+}
+
+.overview-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.overview-editor,
+.overview-preview {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.overview-editor {
+  width: min(100%, 980px);
+  margin: 0 auto;
+  padding: var(--spacing-xl) var(--spacing-lg);
+}
+
+.overview-preview {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  margin: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+
+.overview-textarea {
+  min-height: 310px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.65;
+}
+
+.field-heading > span {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.pane-heading {
+  min-height: 44px;
+  padding: 0 var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pane-heading > div:first-child,
+.file-editor__identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pane-heading strong,
+.file-editor__identity strong {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.pane-heading span,
+.file-editor__identity span {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.pane-heading > svg {
+  width: 16px;
+  color: var(--color-text-muted);
+}
+
+.overview-preview__body,
+.published-content__body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--spacing-md);
+  overflow-y: auto;
+}
+
+.bundle-pane {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  height: 620px;
+  flex: none;
+  min-height: 480px;
+  overflow: hidden;
+  margin-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.published-pane {
+  display: flex;
+  min-height: 520px;
+  flex: none;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  overflow: hidden;
+  margin-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.published-tabs {
+  padding: var(--spacing-md) var(--spacing-lg) 0;
+}
+
+.published-tabs__count {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.bundle-tree {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--color-border);
+  background: transparent;
+}
+
+.file-tree-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-xs);
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding-top: 4px;
+  padding-right: 8px;
+  padding-bottom: 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  text-align: left;
+}
+
+button.file-row {
+  cursor: pointer;
+}
+
+button.file-row:hover,
+.file-row--active {
+  background: var(--color-hover-overlay-md);
+  color: var(--color-text-primary);
+}
+
+.file-row--active {
+  box-shadow: inset 2px 0 0 var(--color-brand-accent);
+}
+
+.file-row svg {
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.file-row__chevron {
+  transition: transform var(--transition-fast);
+}
+
+.file-row__chevron--closed {
+  transform: rotate(-90deg);
+}
+
+.file-row span,
+.file-row a {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-row a:hover {
+  text-decoration: underline;
+}
+
+.file-row small {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.file-editor {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.file-editor__toolbar {
+  min-height: 58px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.file-editor__identity strong,
+.file-editor__identity span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-source-editor {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  padding: var(--spacing-lg);
+  resize: none;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.file-source-editor:focus {
+  box-shadow: none;
+}
+
+.binary-file-state {
+  flex: 1;
+}
+
+.binary-file-state svg {
+  width: 34px;
+}
+
+.published-content {
+  display: flex;
+  min-height: 520px;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.published-files {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  margin: 0 var(--spacing-lg) var(--spacing-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.published-file-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-xs);
+}
+
+.published-file-row:hover {
+  background: var(--color-hover-overlay-md);
+  color: var(--color-text-primary);
+}
+
+.published-file-row:focus-visible {
+  outline: 2px solid var(--color-brand-accent);
+  outline-offset: -2px;
+}
+
+.new-file-textarea {
+  min-height: 180px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.dialog-error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: var(--font-size-xs);
+}
+
+@media (max-width: 960px) {
+  .skill-workbench {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
   }
-  .skill-draft-row {
+
+  .skill-list-card {
+    position: static;
+    max-height: 340px;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .skill-workspace {
+    min-height: 620px;
+  }
+
+  .workspace-header {
     flex-direction: column;
   }
+
+  .workspace-header__actions {
+    justify-content: flex-start;
+  }
+
+  .workspace-tabbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .bundle-pane {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .bundle-tree {
+    max-height: 280px;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .file-editor,
+  .published-content,
+  .published-files {
+    min-height: 420px;
+  }
+
 }
 </style>

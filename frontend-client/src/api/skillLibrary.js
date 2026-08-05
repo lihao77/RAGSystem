@@ -62,6 +62,33 @@ export async function updateSkillDraft(id, expectedRevision, content) {
   return result.data || result;
 }
 
+export async function getSkillDraftFile(id, relativePath) {
+  const result = await http.get(`/api/skills/drafts/${encodeURIComponent(id)}/files`, {
+    params: { path: relativePath },
+  });
+  return result.data || result;
+}
+
+export async function putSkillDraftFile(id, expectedRevision, file) {
+  const result = await http.put(`/api/skills/drafts/${encodeURIComponent(id)}/files`, {
+    expected_revision: expectedRevision,
+    relative_path: file.relative_path,
+    media_type: file.media_type,
+    body_base64: file.body_base64,
+  });
+  return result.data || result;
+}
+
+export async function deleteSkillDraftFile(id, expectedRevision, relativePath) {
+  const result = await http.del(`/api/skills/drafts/${encodeURIComponent(id)}/files`, {
+    params: {
+      path: relativePath,
+      expected_revision: expectedRevision,
+    },
+  });
+  return result.data || result;
+}
+
 export async function ensureSkillDraft(name) {
   const result = await http.post(`/api/skills/${encodeURIComponent(name)}/draft`, {});
   return result.data || result;

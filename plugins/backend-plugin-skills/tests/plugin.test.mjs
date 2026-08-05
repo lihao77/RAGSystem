@@ -298,6 +298,67 @@ test("administrator edits auto-publish with one Skill Draft revision", async () 
   assert.match(library.packages.get("review-code").content, /Automatically published instructions/);
 });
 
+test("administrator can edit complete Skill Draft bundle files", async () => {
+  const service = new SkillAuthoringService(new MemoryDraftStore(), memoryLibrary());
+  const created = await service.createDraft("review-code", "Review code");
+
+  const withScript = await service.putDraftFile(created.id, created.revision, {
+    relative_path: "scripts/check.py",
+    media_type: "text/x-python; charset=utf-8",
+    body_base64: Buffer.from("print('ok')\n").toString("base64"),
+  });
+  assert.equal(withScript.revision, created.revision + 1);
+  assert.equal((await service.getDraftFile(withScript.id, "scripts/check.py")).size, 12);
+
+  const updatedMarkdown = [
+    "---",
+    "name: review-code",
+    "description: Review code carefully",
+    "metadata:",
+    "  custom_flag: true",
+    "---",
+    "Use the browser editor.",
+    "",
+  ].join("\n");
+  const withMarkdown = await service.putDraftFile(withScript.id, withScript.revision, {
+    relative_path: "SKILL.md",
+    media_type: "text/markdown; charset=utf-8",
+    body_base64: Buffer.from(updatedMarkdown).toString("base64"),
+  });
+  assert.equal(withMarkdown.description, "Review code carefully");
+  assert.equal(withMarkdown.content, "Use the browser editor.");
+  assert.equal(withMarkdown.skill_metadata.custom_flag, true);
+
+  const withoutScript = await service.deleteDraftFile(withMarkdown.id, withMarkdown.revision, "scripts/check.py");
+  assert.equal(withoutScript.bundle_assets.some((asset) => asset.relative_path === "scripts/check.py"), false);
+  await assert.rejects(
+    service.deleteDraftFile(withoutScript.id, withoutScript.revision, "SKILL.md"),
+    /must contain root-level SKILL.md/,
+  );
+});
+
+test("invalid Skill Draft file mutations never synchronize the Draft", async () => {
+  const service = new SkillAuthoringService(new MemoryDraftStore(), memoryLibrary());
+  const created = await service.createDraft("review-code", "Review code");
+
+  await assert.rejects(
+    service.putDraftFile(created.id, created.revision, {
+      relative_path: "../escape.py",
+      body_base64: Buffer.from("bad").toString("base64"),
+    }),
+    /Invalid Skill file path/,
+  );
+  await assert.rejects(
+    service.putDraftFile(created.id, created.revision, {
+      relative_path: "SKILL.md",
+      body_base64: Buffer.from("---\nname: INVALID\ndescription: Broken\n---\nBody\n").toString("base64"),
+    }),
+  );
+  const unchanged = await service.getDraft(created.id);
+  assert.equal(unchanged.revision, created.revision);
+  assert.equal(unchanged.bundle_assets.length, 1);
+});
+
 test("Deleting a published Skill restores its Draft as editable", async () => {
   const store = new MemoryDraftStore();
   const library = memoryLibrary();

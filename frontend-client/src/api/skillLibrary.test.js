@@ -6,11 +6,14 @@ import { createPinia, setActivePinia } from 'pinia';
 
 import {
   createSkillDraft,
+  deleteSkillDraftFile,
   deleteSkillDraft,
   ensureSkillDraft,
+  getSkillDraftFile,
   getSkillDraft,
   listSkillDrafts,
   publishSkillDraft,
+  putSkillDraftFile,
   updateSkillDraft,
 } from './skillLibrary.js';
 import { httpClient } from './http.js';
@@ -34,6 +37,36 @@ test('Skill draft API unwraps list and item responses', async () => {
     assert.equal((await createSkillDraft('new-skill', 'New Skill')).id, 'draft_new');
     assert.deepEqual(await listSkillDrafts(), [{ id: 'draft_1' }]);
     assert.deepEqual(await getSkillDraft('draft_1'), { id: 'draft_1', revision: 2 });
+  });
+});
+
+test('Skill draft file API reads, writes, and deletes bundle files by revision', async () => {
+  await withMock((mock) => {
+    mock.onGet('/api/skills/drafts/draft_1/files').reply((config) => {
+      assert.deepEqual(config.params, { path: 'scripts/check.py' });
+      return [200, { success: true, data: { relative_path: 'scripts/check.py', body_base64: 'cHJpbnQoJ29rJykK' } }];
+    });
+    mock.onPut('/api/skills/drafts/draft_1/files').reply((config) => {
+      assert.deepEqual(JSON.parse(config.data), {
+        expected_revision: 2,
+        relative_path: 'scripts/check.py',
+        media_type: 'text/x-python; charset=utf-8',
+        body_base64: 'cHJpbnQoJ29rJykK',
+      });
+      return [200, { success: true, data: { id: 'draft_1', revision: 3 } }];
+    });
+    mock.onDelete('/api/skills/drafts/draft_1/files').reply((config) => {
+      assert.deepEqual(config.params, { path: 'scripts/check.py', expected_revision: 3 });
+      return [200, { success: true, data: { id: 'draft_1', revision: 4 } }];
+    });
+  }, async () => {
+    assert.equal((await getSkillDraftFile('draft_1', 'scripts/check.py')).relative_path, 'scripts/check.py');
+    assert.equal((await putSkillDraftFile('draft_1', 2, {
+      relative_path: 'scripts/check.py',
+      media_type: 'text/x-python; charset=utf-8',
+      body_base64: 'cHJpbnQoJ29rJykK',
+    })).revision, 3);
+    assert.equal((await deleteSkillDraftFile('draft_1', 3, 'scripts/check.py')).revision, 4);
   });
 });
 

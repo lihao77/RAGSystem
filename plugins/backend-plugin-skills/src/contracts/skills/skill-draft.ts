@@ -48,9 +48,22 @@ export const UpdateSkillDraftSchema = SkillDraftContentSchema.extend({
   expected_revision: z.number().int().positive(),
 }).strict();
 
+export const PutSkillDraftFileSchema = z.object({
+  expected_revision: z.number().int().positive(),
+  relative_path: z.string().trim().min(1).max(512),
+  media_type: z.string().trim().min(1).max(200).optional(),
+  body_base64: z.string().min(1).max(70 * 1024 * 1024),
+}).strict();
+
+export const DeleteSkillDraftFileQuerySchema = z.object({
+  path: z.string().trim().min(1).max(512),
+  expected_revision: z.coerce.number().int().positive(),
+}).strict();
+
 export type SkillDraftContent = z.infer<typeof SkillDraftContentSchema>;
 export type CreateSkillDraft = z.infer<typeof CreateSkillDraftSchema>;
 export type UpdateSkillDraft = z.infer<typeof UpdateSkillDraftSchema>;
+export type PutSkillDraftFile = z.infer<typeof PutSkillDraftFileSchema>;
 export type SkillDraft = z.infer<typeof SkillDraftSchema>;
 export type SkillDraftPackageState = "not_published" | "available" | "missing" | "conflict" | "unknown";
 export type SkillDraftAssetView = z.infer<typeof SkillDraftAssetViewSchema>;

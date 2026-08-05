@@ -9,7 +9,9 @@ import type {} from "@ragsystem/backend-core/fastify-context.js";
 import { SKILLS_RUNTIME_CAPABILITY } from "./capability.js";
 import {
   CreateSkillDraftSchema,
+  DeleteSkillDraftFileQuerySchema,
   PublishSkillDraftSchema,
+  PutSkillDraftFileSchema,
   toSkillDraftView,
   UpdateSkillDraftSchema,
 } from "./contracts/skills/skill-draft.js";
@@ -24,6 +26,11 @@ interface DraftParams {
 
 interface FileQuery {
   path?: string;
+}
+
+interface DraftFileQuery {
+  path?: string;
+  expected_revision?: string;
 }
 
 interface AvailableQuery {
@@ -110,6 +117,37 @@ export const registerSkillRoutes: FastifyPluginAsync<SkillRouteOptions> = async 
     const { expected_revision: expectedRevision, ...content } = input;
     const updated = await authoring.updateDraft(request.params.id, expectedRevision, content);
     return ok(await authoring.getDraftView(updated.id), "Skill draft updated");
+  });
+
+  app.get<{ Params: DraftParams; Querystring: FileQuery }>("/drafts/:id/files", async (request) => {
+    const relativePath = request.query.path?.trim();
+    if (!relativePath) throw new HttpError(400, "invalid_request", "Missing path query parameter");
+    return ok(
+      await resolveSkills(request).authoring.getDraftFile(request.params.id, relativePath),
+      "Skill draft file",
+    );
+  });
+
+  app.put<{ Params: DraftParams }>("/drafts/:id/files", { bodyLimit: 70 * 1024 * 1024 }, async (request) => {
+    requireTenantAdmin(request);
+    const input = PutSkillDraftFileSchema.parse(request.body);
+    const updated = await resolveSkills(request).authoring.putDraftFile(
+      request.params.id,
+      input.expected_revision,
+      input,
+    );
+    return ok(await resolveSkills(request).authoring.getDraftView(updated.id), "Skill draft file saved");
+  });
+
+  app.delete<{ Params: DraftParams; Querystring: DraftFileQuery }>("/drafts/:id/files", async (request) => {
+    requireTenantAdmin(request);
+    const input = DeleteSkillDraftFileQuerySchema.parse(request.query);
+    const updated = await resolveSkills(request).authoring.deleteDraftFile(
+      request.params.id,
+      input.expected_revision,
+      input.path,
+    );
+    return ok(await resolveSkills(request).authoring.getDraftView(updated.id), "Skill draft file deleted");
   });
 
   app.post<{ Params: DraftParams }>("/drafts/:id/publish", async (request) => {

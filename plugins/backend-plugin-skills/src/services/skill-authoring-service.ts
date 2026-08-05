@@ -230,6 +230,92 @@ export class SkillAuthoringService {
     return view!;
   }
 
+  async getDraftFile(id: string, relativePath: string): Promise<SkillDraft["bundle_assets"][number]> {
+    const normalized = requireBundlePath(relativePath);
+    const draft = await this.getDraft(id);
+    const asset = draft.bundle_assets.find((candidate) => candidate.relative_path === normalized);
+    if (!asset) throw new HttpError(404, "not_found", `Skill draft file '${normalized}' does not exist`);
+    return asset;
+  }
+
+  async putDraftFile(
+    id: string,
+    expectedRevision: number,
+    input: { relative_path: string; media_type?: string | undefined; body_base64: string },
+  ): Promise<SkillDraft> {
+    const current = await this.getDraft(id);
+    assertRevision(current, expectedRevision);
+    const relativePath = requireBundlePath(input.relative_path);
+    const body = decodeBase64Body(input.body_base64, relativePath);
+    const existingIndex = current.bundle_assets.findIndex(
+      (asset) => asset.relative_path.toLowerCase() === relativePath.toLowerCase(),
+    );
+    const asset = SkillDraftAssetSchema.parse({
+      relative_path: relativePath,
+      media_type: input.media_type?.trim() || workspaceMediaType(relativePath),
+      size: body.byteLength,
+      sha256: createHash("sha256").update(body).digest("hex"),
+      body_base64: body.toString("base64"),
+    });
+    const bundleAssets = [...current.bundle_assets];
+    if (existingIndex >= 0) bundleAssets[existingIndex] = asset;
+    else bundleAssets.push(asset);
+    assertDraftBundle(bundleAssets);
+
+    let content: SkillDraftContent = {
+      name: current.name,
+      description: current.description,
+      content: current.content,
+    };
+    let skillMetadata = current.skill_metadata;
+    if (relativePath === "SKILL.md") {
+      const parsed = parseSkillMarkdown(body.toString("utf8"));
+      if (!parsed) throw new HttpError(422, "validation_failed", "SKILL.md frontmatter is invalid");
+      content = SkillDraftContentSchema.parse({
+        name: parsed.name,
+        description: parsed.description,
+        content: parsed.content,
+      });
+      skillMetadata = parsed.metadata;
+      if (current.published_at !== null && content.name !== current.name) {
+        throw new HttpError(409, "conflict", "Published Skill names are immutable; create a separate Draft for a rename");
+      }
+    }
+
+    const candidate = SkillDraftSchema.parse({
+      ...current,
+      ...content,
+      revision: current.revision,
+      status: "draft",
+      skill_metadata: skillMetadata,
+      bundle_assets: bundleAssets,
+      updated_at: new Date().toISOString(),
+    });
+    return this.saveDraftCandidate(current, candidate);
+  }
+
+  async deleteDraftFile(id: string, expectedRevision: number, relativePath: string): Promise<SkillDraft> {
+    const current = await this.getDraft(id);
+    assertRevision(current, expectedRevision);
+    const normalized = requireBundlePath(relativePath);
+    if (normalized === "SKILL.md") {
+      throw new HttpError(422, "validation_failed", "Skill draft must contain root-level SKILL.md");
+    }
+    const bundleAssets = current.bundle_assets.filter((asset) => asset.relative_path !== normalized);
+    if (bundleAssets.length === current.bundle_assets.length) {
+      throw new HttpError(404, "not_found", `Skill draft file '${normalized}' does not exist`);
+    }
+    assertDraftBundle(bundleAssets);
+    const candidate = SkillDraftSchema.parse({
+      ...current,
+      revision: current.revision,
+      status: "draft",
+      bundle_assets: bundleAssets,
+      updated_at: new Date().toISOString(),
+    });
+    return this.saveDraftCandidate(current, candidate);
+  }
+
   async deleteDraft(id: string): Promise<{ id: string }> {
     await this.getDraft(id);
     if (!await this.store.delete(id)) throw new HttpError(404, "not_found", `Skill draft '${id}' does not exist`);
@@ -270,14 +356,18 @@ export class SkillAuthoringService {
       updated_at: new Date().toISOString(),
     });
 
+    return this.saveDraftCandidate(current, candidate);
+  }
+
+  private async saveDraftCandidate(current: SkillDraft, candidate: SkillDraft): Promise<SkillDraft> {
     if (this.isAutoPublishEnabled()) return this.publishWorkspaceCandidate(current, candidate);
     const updated = SkillDraftSchema.parse({ ...candidate, revision: current.revision + 1 });
     try {
       if (!await this.store.update(current.revision, updated)) {
-        throw revisionConflict(current.revision, await this.getDraft(id));
+        throw revisionConflict(current.revision, await this.getDraft(current.id));
       }
     } catch (error) {
-      if (isSkillDraftNameConflict(error)) throw new HttpError(409, "conflict", `A Skill draft already targets '${content.name}'`);
+      if (isSkillDraftNameConflict(error)) throw new HttpError(409, "conflict", `A Skill draft already targets '${candidate.name}'`);
       throw error;
     }
     return updated;
@@ -599,6 +689,48 @@ function normalizeBundlePath(value: string): string | null {
   const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "").trim();
   if (!normalized || /^[A-Za-z]:/.test(normalized) || normalized.includes("\0") || normalized.split("/").some((part) => part === ".." || part === "." || part === "")) return null;
   return normalized;
+}
+
+function requireBundlePath(value: string): string {
+  const normalized = normalizeBundlePath(value);
+  if (!normalized) throw new HttpError(422, "validation_failed", `Invalid Skill file path: ${value}`);
+  return normalized;
+}
+
+function decodeBase64Body(value: string, relativePath: string): Buffer {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new HttpError(422, "validation_failed", `Skill file '${relativePath}' body_base64 is invalid`);
+  }
+  const body = Buffer.from(value, "base64");
+  if (body.byteLength === 0 || body.byteLength > 50 * 1024 * 1024) {
+    throw new HttpError(413, "payload_too_large", `Skill file '${relativePath}' must be between 1 byte and 50MB`);
+  }
+  return body;
+}
+
+function assertDraftBundle(assets: SkillDraft["bundle_assets"]): void {
+  if (assets.length > 256) throw new HttpError(422, "validation_failed", "A Skill draft cannot contain more than 256 files");
+  let totalBytes = 0;
+  const seen = new Set<string>();
+  for (const asset of assets) {
+    const relativePath = requireBundlePath(asset.relative_path);
+    if (relativePath !== asset.relative_path) {
+      throw new HttpError(422, "validation_failed", `Skill file path must be normalized: ${asset.relative_path}`);
+    }
+    const key = relativePath.toLowerCase();
+    if (seen.has(key)) throw new HttpError(422, "validation_failed", `Duplicate Skill file path: ${relativePath}`);
+    seen.add(key);
+    const body = decodeBase64Body(asset.body_base64, relativePath);
+    const sha256 = createHash("sha256").update(body).digest("hex");
+    if (asset.size !== body.byteLength || asset.sha256 !== sha256) {
+      throw new HttpError(422, "validation_failed", `Skill file checksum is invalid: ${relativePath}`);
+    }
+    totalBytes += body.byteLength;
+  }
+  if (!assets.some((asset) => asset.relative_path === "SKILL.md")) {
+    throw new HttpError(422, "validation_failed", "Skill draft must contain root-level SKILL.md");
+  }
+  if (totalBytes > 50 * 1024 * 1024) throw new HttpError(413, "payload_too_large", "Skill draft total size cannot exceed 50MB");
 }
 
 function isPathUnder(candidate: string, root: string): boolean {
