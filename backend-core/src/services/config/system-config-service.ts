@@ -35,6 +35,7 @@ export type { SystemConfigExtension } from "../../contracts/runtime/system-confi
  */
 export class SystemConfigService {
   private config: SystemConfigData = buildDefaultConfig();
+  private persistedConfig: SystemConfigData = {};
   private initialized = false;
   private readonly extensions = new Map<string, SystemConfigExtension>();
 
@@ -79,9 +80,10 @@ export class SystemConfigService {
       groups: extension.groups.map((group) => structuredClone(group)),
     };
     this.extensions.set(normalizedId, stored);
-    if (this.initialized) this.config = deepMerge(cloneConfig(stored.defaults), this.config);
+    if (this.initialized) this.rebuildProjection();
     return () => {
-      this.extensions.delete(normalizedId);
+      if (!this.extensions.delete(normalizedId)) return;
+      if (this.initialized) this.rebuildProjection();
     };
   }
 
@@ -108,6 +110,7 @@ export class SystemConfigService {
     const sanitized = retainKnownRootGroups(dropRedactedValues(update), this.config) as SystemConfigData;
     const next = normalizeLlmSelection(deepMerge(cloneConfig(this.config), sanitized));
     await this.store.save(next);
+    this.persistedConfig = cloneConfig(next);
     this.config = next;
     return this.getConfig();
   }
@@ -115,7 +118,8 @@ export class SystemConfigService {
   async reload(): Promise<void> {
     const defaults = this.buildDefaults();
     const stored = await this.store.load();
-    this.config = normalizeLlmSelection(stored ? deepMerge(defaults, stored) : defaults);
+    this.persistedConfig = stored ? cloneConfig(stored) : {};
+    this.config = normalizeLlmSelection(this.project(defaults, this.persistedConfig));
     this.initialized = true;
   }
 
@@ -129,6 +133,18 @@ export class SystemConfigService {
     let defaults = buildDefaultConfig();
     for (const extension of this.extensions.values()) defaults = deepMerge(defaults, extension.defaults);
     return defaults;
+  }
+
+  private rebuildProjection(): void {
+    this.config = normalizeLlmSelection(this.project(this.buildDefaults(), this.persistedConfig));
+  }
+
+  private project(defaults: SystemConfigData, persisted: SystemConfigData): SystemConfigData {
+    const roots = new Set(Object.keys(defaults));
+    return deepMerge(
+      defaults,
+      Object.fromEntries(Object.entries(persisted).filter(([key]) => roots.has(key))) as SystemConfigData,
+    );
   }
 }
 
