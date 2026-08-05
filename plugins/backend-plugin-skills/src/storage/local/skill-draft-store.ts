@@ -102,11 +102,11 @@ export class SqliteSkillDraftStore implements SkillDraftStore {
     }
   }
 
-  async delete(id: string, expectedRevision: number): Promise<boolean> {
+  async delete(id: string): Promise<boolean> {
     const result = this.db.prepare(`
       DELETE FROM skill_drafts
-      WHERE tenant_id = ? AND id = ? AND revision = ? AND status = 'draft'
-    `).run(this.tenantId, id, expectedRevision);
+      WHERE tenant_id = ? AND id = ?
+    `).run(this.tenantId, id);
     return Number(result.changes) > 0;
   }
 }

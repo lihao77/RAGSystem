@@ -29,18 +29,18 @@ test('Skill draft API unwraps list and item responses', async () => {
   });
 });
 
-test('Skill draft API sends explicit revisions for publish and delete', async () => {
+test('Skill draft API sends a revision for publish and deletes directly', async () => {
   await withMock((mock) => {
     mock.onPost('/api/skills/drafts/draft_1/publish').reply((config) => {
       assert.deepEqual(JSON.parse(config.data), { expected_revision: 1 });
       return [200, { success: true, data: { id: 'draft_1', status: 'published' } }];
     });
     mock.onDelete('/api/skills/drafts/draft_1').reply((config) => {
-      assert.deepEqual(JSON.parse(config.data), { expected_revision: 1 });
+      assert.equal(config.data, undefined);
       return [200, { success: true, data: { id: 'draft_1' } }];
     });
   }, async () => {
     assert.equal((await publishSkillDraft('draft_1', 1)).status, 'published');
-    assert.equal((await deleteSkillDraft('draft_1', 1)).id, 'draft_1');
+    assert.equal((await deleteSkillDraft('draft_1')).id, 'draft_1');
   });
 });

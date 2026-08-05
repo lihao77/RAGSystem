@@ -6,9 +6,11 @@ import type { AgentConfig, AgentLlmConfig } from "@ragsystem/backend-core/contra
 import type { BackendToolDescriptor } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import type { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
 import type { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
+import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 import {
   AgentBlueprintSchema,
+  AgentBlueprintAgentSchema,
   AgentDraftSchema,
   AgentReleaseSchema,
   type AgentBlueprint,
@@ -84,21 +86,136 @@ export class AgentBuilderService {
     return draft;
   }
 
-  createDraft(blueprintInput: AgentBlueprint, validation: AgentBuilderValidationReport | null = null): Promise<AgentDraft> {
+  createDraft(
+    blueprintInput: AgentBlueprint,
+    validation: AgentBuilderValidationReport | null = null,
+    options: { sourceTeamName?: string | null; status?: "draft" | "published" } = {},
+  ): Promise<AgentDraft> {
+    return this.exclusive(() => this.createDraftUnlocked(blueprintInput, validation, options));
+  }
+
+  private async createDraftUnlocked(
+    blueprintInput: AgentBlueprint,
+    validation: AgentBuilderValidationReport | null,
+    options: { sourceTeamName?: string | null; status?: "draft" | "published" },
+  ): Promise<AgentDraft> {
+    const now = new Date().toISOString();
+    const draft = AgentDraftSchema.parse({
+      id: `draft_${randomUUID().replaceAll("-", "")}`,
+      revision: 1,
+      status: options.status ?? (validation ? "ready" : "draft"),
+      source_team_name: options.sourceTeamName?.trim() || null,
+      blueprint: AgentBlueprintSchema.parse(blueprintInput),
+      validation,
+      published_release_id: null,
+      created_at: now,
+      updated_at: now,
+    });
+    await this.store.putDraft(draft);
+    return draft;
+  }
+
+  synchronizeTeamDraft(
+    teamName: string,
+    bindings: AgentBuilderBindings,
+    options: { previousTeamName?: string | null } = {},
+  ): Promise<AgentDraft | null> {
     return this.exclusive(async () => {
-      const now = new Date().toISOString();
-      const draft = AgentDraftSchema.parse({
-        id: `draft_${randomUUID().replaceAll("-", "")}`,
-        revision: 1,
-        status: validation ? "ready" : "draft",
-        blueprint: AgentBlueprintSchema.parse(blueprintInput),
-        validation,
-        published_release_id: null,
-        created_at: now,
-        updated_at: now,
+      const normalizedTeamName = teamName.trim();
+      if (!normalizedTeamName) throw new AgentBuilderConflictError("Team name is required for Draft synchronization");
+      const configs = this.agentConfig.listConfigs({ teamName: normalizedTeamName });
+      if (Object.keys(configs).length === 0) return null;
+
+      const drafts = await this.store.listDrafts();
+      const releases = await this.store.listReleases();
+      const linked = drafts.find((draft) => draft.source_team_name === normalizedTeamName) ?? null;
+      const renamedDraft = options.previousTeamName?.trim()
+        ? drafts.find((draft) => draft.source_team_name === options.previousTeamName?.trim()) ?? null
+        : null;
+      const linkedReleaseId = linked?.published_release_id ?? renamedDraft?.published_release_id;
+      const release = releases.find((item) => item.runtime_team_name === normalizedTeamName)
+        ?? (linkedReleaseId ? releases.find((item) => item.id === linkedReleaseId) : null)
+        ?? null;
+      const releaseSource = release
+        ? drafts.find((draft) => draft.id === release.source_draft_id) ?? null
+        : null;
+      const blueprintName = release?.package_name ?? blueprintNameFromTeam(normalizedTeamName);
+      const editableByName = linked || renamedDraft || releaseSource
+        ? null
+        : !release ? drafts.find((draft) => draft.source_team_name === null
+          && draft.blueprint.name === blueprintName
+          && draft.status !== "published") ?? null : null;
+      const current = linked ?? renamedDraft ?? releaseSource ?? editableByName;
+      const blueprint = await teamConfigToBlueprint(
+        normalizedTeamName,
+        blueprintName,
+        configs,
+        current?.blueprint ?? null,
+        bindings,
+      );
+
+      if (current) {
+        if (current.status === "published"
+          && current.source_team_name === normalizedTeamName
+          && sameBlueprint(current.blueprint, blueprint)) {
+          return current;
+        }
+        const updated = AgentDraftSchema.parse({
+          ...current,
+          revision: current.revision + 1,
+          status: "published",
+          source_team_name: normalizedTeamName,
+          blueprint,
+          validation: null,
+          updated_at: new Date().toISOString(),
+        });
+        await this.store.putDraft(updated);
+        return updated;
+      }
+
+      return this.createDraftUnlocked(blueprint, null, {
+        sourceTeamName: normalizedTeamName,
+        status: "published",
       });
-      await this.store.putDraft(draft);
-      return draft;
+    });
+  }
+
+  restoreDraftAfterTeamDelete(teamName: string): Promise<AgentDraft | null> {
+    return this.exclusive(async () => {
+      const normalizedTeamName = teamName.trim();
+      if (!normalizedTeamName) throw new AgentBuilderConflictError("Team name is required for Draft restoration");
+      const drafts = await this.store.listDrafts();
+      const releases = await this.store.listReleases();
+      const linked = drafts.find((draft) => draft.source_team_name === normalizedTeamName) ?? null;
+      const release = releases.find((item) => item.runtime_team_name === normalizedTeamName)
+        ?? (linked?.published_release_id
+          ? releases.find((item) => item.id === linked.published_release_id)
+          : null)
+        ?? null;
+      const releaseSource = release
+        ? drafts.find((draft) => draft.id === release.source_draft_id) ?? null
+        : null;
+      const current = linked ?? releaseSource;
+      if (!current) {
+        if (release) await this.store.deleteRelease(release.id);
+        return null;
+      }
+
+      const restored = AgentDraftSchema.parse({
+        ...current,
+        revision: current.revision + 1,
+        status: "draft",
+        source_team_name: null,
+        validation: null,
+        published_release_id: null,
+        updated_at: new Date().toISOString(),
+      });
+      await this.store.putDraft(restored);
+      if (release) await this.store.deleteRelease(release.id);
+      if (releaseSource && releaseSource.id !== restored.id) {
+        await this.store.deleteDraft(releaseSource.id);
+      }
+      return restored;
     });
   }
 
@@ -116,12 +233,14 @@ export class AgentBuilderService {
         name: "main",
         description: "Primary entry agent",
         instructions: "Define the agent instructions in this blueprint before publishing.",
+        enabled: true,
         tools: [],
         skills: [],
         mcp_servers: [],
         delegates: [],
         goals_enabled: false,
         background_tasks: false,
+        custom_params: {},
       }],
       acceptance_tests: [],
     });
@@ -213,6 +332,14 @@ export class AgentBuilderService {
     });
   }
 
+  deleteDraft(id: string): Promise<{ id: string }> {
+    return this.exclusive(async () => {
+      await this.getDraft(id);
+      await this.store.deleteDraft(id);
+      return { id };
+    });
+  }
+
   async autoApproveDraft(
     draft: AgentDraft,
     bindingsProvider: () => Promise<AgentBuilderBindings>,
@@ -260,6 +387,9 @@ export class AgentBuilderService {
       const current = await this.getDraft(id);
       assertRevision(current, expectedRevision);
       if (current.published_release_id) return this.getRelease(current.published_release_id);
+      if (current.status === "published") {
+        throw new AgentBuilderConflictError("The Agent Draft already represents a published Team");
+      }
 
       const validation = validateBlueprint(current.blueprint, bindings.inventory);
       if (!validation.valid) {
@@ -297,6 +427,7 @@ export class AgentBuilderService {
         await this.store.putDraft(AgentDraftSchema.parse({
           ...current,
           status: "published",
+          source_team_name: runtimeTeamName,
           validation,
           published_release_id: release.id,
           updated_at: publishedAt,
@@ -492,13 +623,75 @@ export function validateBlueprint(
   };
 }
 
+async function teamConfigToBlueprint(
+  teamName: string,
+  blueprintName: string,
+  configs: Record<string, AgentConfig>,
+  basis: AgentBlueprint | null,
+  bindings: AgentBuilderBindings,
+): Promise<AgentBlueprint> {
+  const entries = Object.entries(configs);
+  const entryAgent = entries.find(([, config]) => config.default_entry)?.[0] ?? entries[0]![0];
+  const agents = await Promise.all(entries.map(async ([name, config]) => {
+    return AgentBlueprintAgentSchema.parse({
+      name,
+      display_name: config.display_name,
+      description: config.description?.trim() ?? null,
+      instructions: agentInstructions(config),
+      enabled: config.enabled,
+      llm_tiers: config.llm_tiers,
+      tools: config.tools.enabled_tools,
+      skills: await bindings.getSkillConfig(teamName, name),
+      mcp_servers: await bindings.getMcpConfig(teamName, name),
+      delegates: config.delegation.enabled_agents,
+      goals_enabled: config.goals.enabled,
+      background_tasks: config.tasks.background,
+      custom_params: config.custom_params,
+    });
+  }));
+  return AgentBlueprintSchema.parse({
+    schema_version: 1,
+    name: blueprintName,
+    description: basis?.description ?? `Configuration synchronized from Team '${teamName}'.`,
+    entry_agent: entryAgent,
+    agents,
+    acceptance_tests: basis?.acceptance_tests ?? [],
+  });
+}
+
+function agentInstructions(config: AgentConfig): string {
+  const behavior = isRecord(config.custom_params.behavior)
+    ? config.custom_params.behavior
+    : null;
+  const prompt = typeof behavior?.system_prompt === "string"
+    ? behavior.system_prompt.trim()
+    : "";
+  return prompt || config.description?.trim() || `Act as ${config.display_name?.trim() || config.agent_name}.`;
+}
+
+function blueprintNameFromTeam(teamName: string): string {
+  const normalized = teamName.toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^[^a-z0-9]+/, "")
+    .replace(/-+$/g, "")
+    .slice(0, 64);
+  return normalized || "team-draft";
+}
+
+function sameBlueprint(left: AgentBlueprint, right: AgentBlueprint): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function toRuntimeAgent(agent: AgentBlueprintAgent, isEntry: boolean): AgentConfig {
-  const llmTiers: Record<string, AgentLlmConfig> | null = agent.llm ? { default: agent.llm } : null;
+  const llmTiers: Record<string, AgentLlmConfig> | null = agent.llm_tiers !== undefined
+    ? agent.llm_tiers
+    : agent.llm ? { default: agent.llm } : null;
+  const behavior = isRecord(agent.custom_params.behavior) ? agent.custom_params.behavior : {};
   return {
     agent_name: agent.name,
-    display_name: agent.display_name ?? agent.name,
+    display_name: agent.display_name === undefined ? agent.name : agent.display_name,
     description: agent.description,
-    enabled: true,
+    enabled: agent.enabled,
     default_entry: isEntry,
     llm_tiers: llmTiers,
     tools: { enabled_tools: agent.tools },
@@ -506,12 +699,14 @@ function toRuntimeAgent(agent: AgentBlueprintAgent, isEntry: boolean): AgentConf
     tasks: { background: agent.background_tasks },
     delegation: { enabled_agents: agent.delegates },
     custom_params: {
-      type: isEntry && agent.delegates.length > 0 ? "orchestrator" : "general",
+      ...agent.custom_params,
+      type: agent.custom_params.type ?? (isEntry && agent.delegates.length > 0 ? "orchestrator" : "general"),
       behavior: {
+        ...behavior,
         system_prompt: agent.instructions,
-        compression_trigger_ratio: 0.85,
-        summarize_max_tokens: 300,
-        preserve_recent_turns: 3,
+        compression_trigger_ratio: behavior.compression_trigger_ratio ?? 0.85,
+        summarize_max_tokens: behavior.summarize_max_tokens ?? 300,
+        preserve_recent_turns: behavior.preserve_recent_turns ?? 3,
       },
     },
   };

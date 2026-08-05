@@ -1,12 +1,13 @@
 import type { FastifyPluginAsync } from "fastify";
 
 import { ok } from "@ragsystem/backend-core/contracts/common.js";
+import { AGENT_CONFIG_CHANGED_EVENT } from "@ragsystem/backend-core/contracts/agent/agent-config-events.js";
+import type { BackendPluginEventPublisher } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
 import { requireTenantAdmin, requireTenantMember } from "@ragsystem/backend-core/routes/tenant-role.js";
 import type {} from "@ragsystem/backend-core/fastify-context.js";
 import { SKILLS_RUNTIME_CAPABILITY } from "./capability.js";
 import {
-  DeleteSkillDraftSchema,
   PublishSkillDraftSchema,
   toSkillDraftView,
 } from "./contracts/skills/skill-draft.js";
@@ -35,11 +36,15 @@ interface TeamQuery {
   team?: string;
 }
 
+interface SkillRouteOptions {
+  emitPluginEvent?: BackendPluginEventPublisher;
+}
+
 /**
  * Skill 库管理 HTTP 端点。
  * user_global 经 ISkillPackageStore（Local 文件 / SaaS PG+对象存储）；builtin/workspace 只读。
  */
-export const registerSkillRoutes: FastifyPluginAsync = async (app) => {
+export const registerSkillRoutes: FastifyPluginAsync<SkillRouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => { requireTenantMember(request); });
 
   app.get("/", async (request) => {
@@ -58,12 +63,26 @@ export const registerSkillRoutes: FastifyPluginAsync = async (app) => {
 
   app.put<{ Params: AgentParams; Querystring: TeamQuery }>("/agents/:agentName/config", async (request) => {
     requireTenantAdmin(request);
-    return ok(await resolveSkills(request).agentConfig.put(configKey(request.params, request.query), request.body), "Skills Agent 配置已更新");
+    const key = configKey(request.params, request.query);
+    const result = await resolveSkills(request).agentConfig.put(key, request.body);
+    await options.emitPluginEvent?.(AGENT_CONFIG_CHANGED_EVENT, {
+      tenantId: request.tenantId,
+      teamName: key.teamName,
+      change: "updated",
+    });
+    return ok(result, "Skills Agent 配置已更新");
   });
 
   app.delete<{ Params: AgentParams; Querystring: TeamQuery }>("/agents/:agentName/config", async (request) => {
     requireTenantAdmin(request);
-    return ok(await resolveSkills(request).agentConfig.delete(configKey(request.params, request.query)), "Skills Agent 配置已重置");
+    const key = configKey(request.params, request.query);
+    const result = await resolveSkills(request).agentConfig.delete(key);
+    await options.emitPluginEvent?.(AGENT_CONFIG_CHANGED_EVENT, {
+      tenantId: request.tenantId,
+      teamName: key.teamName,
+      change: "updated",
+    });
+    return ok(result, "Skills Agent 配置已重置");
   });
 
   app.get("/drafts", async (request) => {
@@ -83,9 +102,8 @@ export const registerSkillRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete<{ Params: DraftParams }>("/drafts/:id", async (request) => {
     requireTenantAdmin(request);
-    const input = DeleteSkillDraftSchema.parse(request.body);
     return ok(
-      await resolveSkills(request).authoring.deleteDraft(request.params.id, input.expected_revision),
+      await resolveSkills(request).authoring.deleteDraft(request.params.id),
       "Skill draft deleted",
     );
   });

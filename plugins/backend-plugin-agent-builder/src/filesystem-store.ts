@@ -32,6 +32,10 @@ export class FilesystemAgentBuilderStore implements AgentBuilderStore {
     await writeJson(this.draftPath(draft.id), AgentDraftSchema.parse(draft));
   }
 
+  async deleteDraft(id: string): Promise<void> {
+    await rm(this.draftPath(id), { force: true });
+  }
+
   async listReleases(packageName?: string): Promise<AgentRelease[]> {
     const directories = packageName
       ? [safeSegment(packageName)]

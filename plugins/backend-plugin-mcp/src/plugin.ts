@@ -19,8 +19,11 @@ export function createMcpPlugin(dependencies: McpPluginDependencies): BackendPlu
           ...(runtime.dispose ? { dispose: () => runtime.dispose?.() } : {}),
         };
       });
-      context.routes.register("tenant", "/api/mcp", async (app) => {
-        await app.register(registerMcpRoutes);
+      context.routes.register("tenant", "/api/mcp", async (app, routeContext) => {
+        await app.register(
+          registerMcpRoutes,
+          routeContext.emitPluginEvent ? { emitPluginEvent: routeContext.emitPluginEvent } : {},
+        );
       });
       context.routes.register("tenant", "/api/agent-config", async (app) => {
         await app.register(registerMcpAgentConfigRoutes);

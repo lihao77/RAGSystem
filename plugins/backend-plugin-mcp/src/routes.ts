@@ -6,7 +6,9 @@ import {
   McpServerCreateSchema,
   McpServerPayloadSchema,
 } from "./contracts/mcp.js";
+import { AGENT_CONFIG_CHANGED_EVENT } from "@ragsystem/backend-core/contracts/agent/agent-config-events.js";
 import { ok } from "@ragsystem/backend-core/contracts/common.js";
+import type { BackendPluginEventPublisher } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { McpServiceError } from "./mcp-service.js";
 import { HttpError, httpErrorFrom } from "@ragsystem/backend-core/utils/errors.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
@@ -26,8 +28,9 @@ interface RegistryQuery {
 
 interface AgentParams { agentName: string; }
 interface TeamQuery { team?: string; }
+interface McpRouteOptions { emitPluginEvent?: BackendPluginEventPublisher; }
 
-export const registerMcpRoutes: FastifyPluginAsync = async (app) => {
+export const registerMcpRoutes: FastifyPluginAsync<McpRouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     const pathname = request.url.split("?", 1)[0] ?? request.url;
@@ -229,12 +232,24 @@ export const registerMcpRoutes: FastifyPluginAsync = async (app) => {
 
   app.put<{ Params: AgentParams; Querystring: TeamQuery }>("/agents/:agentName/config", async (request) => {
     const key = await resolveAgentConfigKey(request, request.params.agentName, request.query.team);
-    return ok(await resolveRuntime(request).agentConfig.put(key, request.body));
+    const result = await resolveRuntime(request).agentConfig.put(key, request.body);
+    await options.emitPluginEvent?.(AGENT_CONFIG_CHANGED_EVENT, {
+      tenantId: request.tenantId,
+      teamName: key.teamName,
+      change: "updated",
+    });
+    return ok(result);
   });
 
   app.delete<{ Params: AgentParams; Querystring: TeamQuery }>("/agents/:agentName/config", async (request) => {
     const key = await resolveAgentConfigKey(request, request.params.agentName, request.query.team);
-    return ok(await resolveRuntime(request).agentConfig.delete(key));
+    const result = await resolveRuntime(request).agentConfig.delete(key);
+    await options.emitPluginEvent?.(AGENT_CONFIG_CHANGED_EVENT, {
+      tenantId: request.tenantId,
+      teamName: key.teamName,
+      change: "updated",
+    });
+    return ok(result);
   });
 };
 

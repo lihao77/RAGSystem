@@ -1,12 +1,39 @@
 import { describe, expect, it } from "vitest";
 
 import { AgentConfigSchema } from "../src/contracts/agent/agent-config.js";
+import { isAgentConfigChangedEvent } from "../src/contracts/agent/agent-config-events.js";
 import {
   normalizeConfig,
   stripConfigManagedToolNames,
 } from "../src/contracts/agent/config-normalize.js";
 
 describe("core Agent config contract", () => {
+  it("recognizes generic Agent configuration change events", () => {
+    expect(isAgentConfigChangedEvent({
+      tenantId: "tenant-a",
+      teamName: "default",
+      change: "updated",
+    })).toBe(true);
+    expect(isAgentConfigChangedEvent({
+      tenantId: "tenant-a",
+      teamName: "renamed",
+      change: "updated",
+      previousTeamName: "original",
+    })).toBe(true);
+    expect(isAgentConfigChangedEvent({
+      tenantId: "tenant-a",
+      teamName: "obsolete",
+      change: "deleted",
+    })).toBe(true);
+    expect(isAgentConfigChangedEvent({ tenantId: "", teamName: "default", change: "updated" })).toBe(false);
+    expect(isAgentConfigChangedEvent({
+      tenantId: "tenant-a",
+      teamName: "renamed",
+      change: "updated",
+      previousTeamName: " ",
+    })).toBe(false);
+  });
+
   it("strips plugin-owned root configuration", () => {
     const config = AgentConfigSchema.parse({
       agent_name: "writer",

@@ -6,6 +6,7 @@ import { createPinia, setActivePinia } from 'pinia';
 
 import {
   createAgentDraft,
+  deleteAgentDraft,
   listAgentDrafts,
   listAgentReleases,
   publishAgentDraft,
@@ -48,8 +49,13 @@ test('Agent Builder validation and publish use explicit draft revision', async (
       assert.deepEqual(JSON.parse(config.data), { expected_revision: 3 });
       return [200, { success: true, data: { id: 'release_1', version: 1 } }];
     });
+    mock.onDelete('/api/agent-builder/drafts/draft_1').reply((config) => {
+      assert.equal(config.data, undefined);
+      return [200, { success: true, data: { id: 'draft_1' } }];
+    });
   }, async () => {
     assert.equal((await validateAgentDraft('draft_1')).status, 'ready');
     assert.equal((await publishAgentDraft('draft_1', 3)).version, 1);
+    assert.equal((await deleteAgentDraft('draft_1')).id, 'draft_1');
   });
 });

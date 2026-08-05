@@ -74,11 +74,11 @@ export class PostgresSkillDraftStore implements SkillDraftStore {
     return Number(result.rowCount ?? 0) > 0;
   }
 
-  async delete(id: string, expectedRevision: number): Promise<boolean> {
+  async delete(id: string): Promise<boolean> {
     const result = await this.executor.query(
       `DELETE FROM saas_skill_drafts
-       WHERE tenant_id=$1 AND id=$2 AND revision=$3 AND status='draft'`,
-      [this.tenantId, id, expectedRevision],
+       WHERE tenant_id=$1 AND id=$2`,
+      [this.tenantId, id],
     );
     return Number(result.rowCount ?? 0) > 0;
   }

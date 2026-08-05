@@ -41,8 +41,11 @@ export function createSkillsPlugin(dependencies: SkillsPluginDependencies): Back
           throw error;
         }
       });
-      context.routes.register("tenant", "/api/skills", async (app) => {
-        await app.register(registerSkillRoutes);
+      context.routes.register("tenant", "/api/skills", async (app, routeContext) => {
+        await app.register(
+          registerSkillRoutes,
+          routeContext.emitPluginEvent ? { emitPluginEvent: routeContext.emitPluginEvent } : {},
+        );
       });
       context.tools.register(async ({ agent, teamName, capabilities }) => {
         if (!capabilities) throw new Error("Skills plugin requires runtime capabilities");

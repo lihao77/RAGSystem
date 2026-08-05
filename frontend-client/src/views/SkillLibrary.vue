@@ -203,7 +203,7 @@
         <DialogFooter>
           <Button variant="ghost" @click="closeDraftReview">关闭</Button>
           <Button
-            v-if="draftReview.draft?.status !== 'published' && canPublishSkillDraft"
+            v-if="canPublishSkillDraft"
             variant="destructive"
             :disabled="draftReviewBusy"
             @click="confirmDeleteDraft"
@@ -388,7 +388,7 @@ const { run: runPublishDraft, loading: draftPublishBusy } = useAsyncAction(
 const { run: runDeleteDraft, loading: draftDeleteBusy } = useAsyncAction(
   async () => {
     const current = draftReview.value.draft;
-    await deleteSkillDraft(current.id, current.revision);
+    await deleteSkillDraft(current.id);
     skillDrafts.value = skillDrafts.value.filter((item) => item.id !== current.id);
     closeDraftReview();
     return current;
@@ -404,10 +404,12 @@ const draftReviewBusy = computed(() => draftPublishBusy.value || draftDeleteBusy
 
 async function confirmDeleteDraft() {
   const draft = draftReview.value.draft;
-  if (!draft || draft.status === 'published' || !canPublishSkillDraft.value) return;
+  if (!draft || !canPublishSkillDraft.value) return;
   const accepted = await confirm({
     title: '删除 Skill 草稿',
-    message: `确认删除“${draft.name}”？此操作不可恢复。`,
+    message: draft.status === 'published'
+      ? `确认删除“${draft.name}”的草稿记录？已发布 Skill 不受影响。`
+      : `确认删除“${draft.name}”？此操作不可恢复。`,
     confirmText: '删除',
     danger: true,
   });

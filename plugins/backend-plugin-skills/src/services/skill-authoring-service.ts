@@ -159,16 +159,9 @@ export class SkillAuthoringService {
     return view!;
   }
 
-  async deleteDraft(id: string, expectedRevision: number): Promise<{ id: string }> {
-    const current = await this.getDraft(id);
-    assertRevision(current, expectedRevision);
-    if (current.status === "published") {
-      throw new HttpError(409, "conflict", "Published Skill draft history cannot be deleted");
-    }
-    if (!await this.store.delete(id, current.revision)) {
-      const latest = await this.getDraft(id);
-      throw revisionConflict(expectedRevision, latest);
-    }
+  async deleteDraft(id: string): Promise<{ id: string }> {
+    await this.getDraft(id);
+    if (!await this.store.delete(id)) throw new HttpError(404, "not_found", `Skill draft '${id}' does not exist`);
     return { id };
   }
 

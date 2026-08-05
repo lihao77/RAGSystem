@@ -54,10 +54,8 @@ export async function publishSkillDraft(id, expectedRevision) {
   return result.data || result;
 }
 
-export async function deleteSkillDraft(id, expectedRevision) {
-  const result = await http.del(`/api/skills/drafts/${encodeURIComponent(id)}`, {
-    body: { expected_revision: expectedRevision },
-  });
+export async function deleteSkillDraft(id) {
+  const result = await http.del(`/api/skills/drafts/${encodeURIComponent(id)}`);
   return result.data || result;
 }
 

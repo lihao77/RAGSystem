@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 
 import { ok } from "../contracts/common.js";
 import {
@@ -12,6 +12,10 @@ import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
 import { isRecord } from "../utils/guards.js";
+import {
+  AGENT_CONFIG_CHANGED_EVENT,
+  type AgentConfigChangedEvent,
+} from "../contracts/agent/agent-config-events.js";
 
 interface AgentParams {
   agentName: string;
@@ -65,6 +69,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
       agent_name: request.params.agentName,
     });
     const config = await request.container.agentConfig.replaceConfig(request.params.agentName, payload);
+    await emitActiveTeamChange(options, request);
     return ok(config, `智能体 "${request.params.agentName}" 配置已更新`);
   });
 
@@ -76,6 +81,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     if (!config) {
       throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
     }
+    await emitActiveTeamChange(options, request);
     return ok(config, `智能体 "${request.params.agentName}" 配置已更新`);
   });
 
@@ -84,6 +90,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     if (!deleted) {
       throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
     }
+    await emitActiveTeamChange(options, request);
     return ok(undefined, `智能体 "${request.params.agentName}" 配置已删除`);
   });
 
@@ -109,6 +116,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
       if (!config) {
         throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
       }
+      await emitActiveTeamChange(options, request);
       return ok(config, `智能体 "${request.params.agentName}" 已应用预设 "${payload.preset}"`);
     } catch (error) {
       if (error instanceof HttpError) {
@@ -130,6 +138,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
       const config = await request.container.agentConfig.importConfig(request.body, {
         ...importOptions,
       });
+      await emitActiveTeamChange(options, request);
       return ok(config, `智能体 "${config.agent_name}" 配置已导入`);
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
@@ -146,16 +155,20 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     ),
   );
 
-  app.post("/teams/default/reset", async (request) =>
-    ok(await request.container.agentConfig.resetDefaultTeam(), "default team 已重置为系统默认配置"),
-  );
+  app.post("/teams/default/reset", async (request) => {
+    const result = await request.container.agentConfig.resetDefaultTeam();
+    await emitAgentConfigChanged(options, request, { teamName: "default" });
+    return ok(result, "default team 已重置为系统默认配置");
+  });
 
   app.get("/teams", async (request) => ok(await request.container.agentConfig.listTeams(), "team 列表"));
 
   app.post("/teams", async (request) => {
     const payload = CreateTeamRequestSchema.parse(request.body);
     try {
-      return ok(await request.container.agentConfig.createTeam(payload.team_name, payload.source_team), "team 已创建");
+      const result = await request.container.agentConfig.createTeam(payload.team_name, payload.source_team);
+      await emitAgentConfigChanged(options, request, { teamName: payload.team_name });
+      return ok(result, "team 已创建");
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
     }
@@ -171,7 +184,13 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
 
   app.delete<{ Params: TeamParams }>("/teams/:teamName", async (request) => {
     try {
-      return ok(await request.container.agentConfig.deleteTeam(request.params.teamName), `team "${request.params.teamName}" 已删除`);
+      const result = await request.container.agentConfig.deleteTeam(request.params.teamName);
+      await options.emitPluginEvent?.(AGENT_CONFIG_CHANGED_EVENT, {
+        tenantId: request.tenantId,
+        teamName: request.params.teamName,
+        change: "deleted",
+      } satisfies AgentConfigChangedEvent);
+      return ok(result, `team "${request.params.teamName}" 已删除`);
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
     }
@@ -180,7 +199,12 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   app.patch<{ Params: TeamParams }>("/teams/:teamName/rename", async (request) => {
     const payload = RenameTeamRequestSchema.parse(request.body);
     try {
-      return ok(await request.container.agentConfig.renameTeam(request.params.teamName, payload.new_team_name), `team "${request.params.teamName}" 已重命名`);
+      const result = await request.container.agentConfig.renameTeam(request.params.teamName, payload.new_team_name);
+      await emitAgentConfigChanged(options, request, {
+        teamName: payload.new_team_name,
+        previousTeamName: request.params.teamName,
+      });
+      return ok(result, `team "${request.params.teamName}" 已重命名`);
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
     }
@@ -189,10 +213,13 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   app.post<{ Params: TeamParams }>("/teams/:teamName/copy-agents", async (request) => {
     const payload = CopyAgentsRequestSchema.parse(request.body);
     try {
-      return ok(
-        await request.container.agentConfig.copyAgentsToTeam(request.params.teamName, payload.source_team, payload.agent_names),
-        "agents 已复制到目标 team",
+      const result = await request.container.agentConfig.copyAgentsToTeam(
+        request.params.teamName,
+        payload.source_team,
+        payload.agent_names,
       );
+      await emitAgentConfigChanged(options, request, { teamName: request.params.teamName });
+      return ok(result, "agents 已复制到目标 team");
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
     }
@@ -214,6 +241,23 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
 };
+
+async function emitActiveTeamChange(options: RouteOptions, request: FastifyRequest): Promise<void> {
+  const { active_team: activeTeam } = await request.container.agentConfig.listTeams();
+  await emitAgentConfigChanged(options, request, { teamName: activeTeam });
+}
+
+async function emitAgentConfigChanged(
+  options: RouteOptions,
+  request: FastifyRequest,
+  change: Omit<AgentConfigChangedEvent, "tenantId" | "change">,
+): Promise<void> {
+  await options.emitPluginEvent?.(AGENT_CONFIG_CHANGED_EVENT, {
+    tenantId: request.tenantId,
+    change: "updated",
+    ...change,
+  } satisfies AgentConfigChangedEvent);
+}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

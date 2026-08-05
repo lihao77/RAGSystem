@@ -10,16 +10,19 @@ const IdentifierSchema = z.string()
 
 export const AgentBlueprintAgentSchema = z.object({
   name: IdentifierSchema,
-  display_name: z.string().trim().min(1).max(120).optional(),
-  description: z.string().trim().max(500).optional().default(""),
+  display_name: z.string().trim().min(1).max(120).nullable().optional(),
+  description: z.string().trim().max(500).nullable().optional().default(""),
   instructions: z.string().trim().min(1).max(30_000),
+  enabled: z.boolean().optional().default(true),
   llm: AgentLlmConfigSchema.nullable().optional(),
+  llm_tiers: z.record(AgentLlmConfigSchema).nullable().optional(),
   tools: z.array(z.string().trim().min(1)).max(100).optional().default([]),
   skills: z.array(z.string().trim().min(1)).max(100).optional().default([]),
   mcp_servers: z.array(z.string().trim().min(1)).max(100).optional().default([]),
   delegates: z.array(IdentifierSchema).max(20).optional().default([]),
   goals_enabled: z.boolean().optional().default(false),
   background_tasks: z.boolean().optional().default(false),
+  custom_params: z.record(z.unknown()).optional().default({}),
 }).strict();
 
 export const AgentEvalCaseSchema = z.object({
@@ -73,6 +76,7 @@ export const AgentDraftSchema = z.object({
   id: z.string().min(1),
   revision: z.number().int().positive(),
   status: AgentDraftStatusSchema,
+  source_team_name: z.string().trim().min(1).nullable().default(null),
   blueprint: AgentBlueprintSchema,
   validation: AgentBuilderValidationReportSchema.nullable(),
   published_release_id: z.string().nullable(),

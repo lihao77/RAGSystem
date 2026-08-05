@@ -187,6 +187,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     runtime,
     refreshProfile,
     validateProfileSettings,
+    emitPluginEvent: (event, payload) => pluginManager.emit(event, payload),
     pluginRoutes: pluginManager.routes("public"),
   });
   await registerSharedBusinessRoutes(app, {

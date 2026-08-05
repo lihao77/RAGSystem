@@ -25,6 +25,11 @@ export async function updateAgentDraft(id, expectedRevision, blueprint) {
   return result.data || result;
 }
 
+export async function deleteAgentDraft(id) {
+  const result = await http.del(`${API_BASE}/drafts/${encodeURIComponent(id)}`);
+  return result.data || result;
+}
+
 export async function validateAgentDraft(id) {
   const result = await http.post(`${API_BASE}/drafts/${encodeURIComponent(id)}/validate`);
   return result.data || result;

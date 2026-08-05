@@ -34,12 +34,7 @@ class MemoryDraftStore {
     this.rows.set(value.id, structuredClone(value));
     return true;
   }
-  async delete(id, expected) {
-    const current = this.rows.get(id);
-    if (!current || current.revision !== expected) return false;
-    this.rows.delete(id);
-    return true;
-  }
+  async delete(id) { return this.rows.delete(id); }
 }
 
 function skillMarkdown(name = "review-code") {
@@ -217,6 +212,21 @@ test("Deleting a release restores its Draft as editable", async () => {
   assert.equal(restored.status, "draft");
   assert.equal(restored.revision, published.revision + 1);
   assert.equal(restored.published_at, null);
+});
+
+test("Published Skill Drafts delete without removing the released Skill", async () => {
+  const store = new MemoryDraftStore();
+  const library = memoryLibrary();
+  const service = new SkillAuthoringService(store, library);
+  const candidate = await service.createDraft("review-code", "Review code");
+  const published = await service.publishDraft(candidate.id, candidate.revision);
+
+  assert.deepEqual(await service.deleteDraft(published.id), { id: published.id });
+  await assert.rejects(service.getDraft(published.id), /does not exist/);
+  assert.equal(library.packages.has(published.name), true);
+
+  library.packages.delete(published.name);
+  assert.equal(await service.restoreCandidateAfterReleaseDelete(published.name), null);
 });
 
 test("Authoring tools expose only the workspace draft workflow", () => {

@@ -48,6 +48,14 @@ export const registerAgentBuilderRoutes: FastifyPluginAsync = async (app) => {
     return ok(await builder.autoApproveDraft(draft, () => bindingsFor(request.container)), "Agent draft updated");
   }));
 
+  app.delete<{ Params: IdParams }>("/drafts/:id", async (request) => handle(async () => {
+    requireTenantAdmin(request);
+    return ok(
+      await service(request).deleteDraft(request.params.id),
+      "Agent draft deleted",
+    );
+  }));
+
   app.post<{ Params: IdParams }>("/drafts/:id/validate", async (request) => handle(async () => {
     const bindings = await bindingsFor(request.container);
     const builder = service(request);
@@ -58,7 +66,6 @@ export const registerAgentBuilderRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: IdParams }>("/drafts/:id/publish", async (request) => handle(async () => {
     requireTenantAdmin(request);
     const body = PublishAgentDraftRequestSchema.parse(request.body);
-    const draft = await service(request).getDraft(request.params.id);
     return ok(
       await service(request).publishDraft(
         request.params.id,

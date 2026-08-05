@@ -7,6 +7,7 @@ import { HttpError } from "../../utils/errors.js";
 import { ZodError } from "zod";
 import { isRecord } from "../../utils/guards.js";
 import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
+import { AGENT_CONFIG_CHANGED_EVENT } from "../../contracts/agent/agent-config-events.js";
 
 interface AgentParams {
   agentName: string;
@@ -25,6 +26,12 @@ export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = a
     const payload = parseCreateAgentRequest(request.body);
     try {
       const config = await request.container.agentConfig.createAgent(payload);
+      const { active_team: activeTeam } = await request.container.agentConfig.listTeams();
+      await options.emitPluginEvent?.(AGENT_CONFIG_CHANGED_EVENT, {
+        tenantId: request.tenantId,
+        teamName: activeTeam,
+        change: "updated",
+      });
       return ok(config, `智能体 ${config.agent_name} 创建成功`);
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
@@ -38,6 +45,12 @@ export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = a
       if (!deleted) {
         throw new HttpError(404, "not_found", `智能体 ${request.params.agentName} 不存在`);
       }
+      const { active_team: activeTeam } = await request.container.agentConfig.listTeams();
+      await options.emitPluginEvent?.(AGENT_CONFIG_CHANGED_EVENT, {
+        tenantId: request.tenantId,
+        teamName: activeTeam,
+        change: "updated",
+      });
       return ok(undefined, `智能体 ${request.params.agentName} 已删除`);
     } catch (error) {
       if (error instanceof HttpError) {

@@ -36,6 +36,7 @@ interface PublicRouteAssemblyOptions {
   refreshProfile: () => Promise<DeploymentProfile>;
   validateProfileSettings: (settings: Readonly<Record<string, string>>) => void;
   pluginRoutes?: readonly BackendRouteContribution[];
+  emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
 }
 
 export async function registerPublicAndAuthRoutes(
@@ -61,7 +62,7 @@ export async function registerPublicAndAuthRoutes(
     controlPlane: options.controlPlane,
     runtime: options.runtime,
   });
-  await registerPluginRoutes(app, options.pluginRoutes, "public");
+  await registerPluginRoutes(app, options.pluginRoutes, "public", options.emitPluginEvent);
 }
 
 export interface SharedBusinessRouteAssemblyOptions {
@@ -119,7 +120,7 @@ export async function registerSharedBusinessRoutes(
         ...routeOptions,
       });
     }
-    await registerPluginRoutes(scope, options.pluginRoutes, "tenant");
+    await registerPluginRoutes(scope, options.pluginRoutes, "tenant", options.emitPluginEvent);
   });
 }
 
@@ -138,7 +139,7 @@ export async function registerManagementAndPlatformRoutes(
   await app.register(async (scope) => {
     installIdentityScope(scope, { identityProvider: options.identityProvider });
     await scope.register(registerAdminRoutes, { prefix: "/api/admin", controlPlane: options.controlPlane });
-    await registerPluginRoutes(scope, options.pluginRoutes, "management");
+    await registerPluginRoutes(scope, options.pluginRoutes, "management", options.emitPluginEvent);
   });
   await app.register(async (scope) => {
     installIdentityScope(scope, { identityProvider: options.identityProvider, identityScope: "platform" });
@@ -148,7 +149,7 @@ export async function registerManagementAndPlatformRoutes(
       registry: options.registry,
       ...(options.emitPluginEvent ? { emitPluginEvent: options.emitPluginEvent } : {}),
     });
-    await registerPluginRoutes(scope, options.pluginRoutes, "platform");
+    await registerPluginRoutes(scope, options.pluginRoutes, "platform", options.emitPluginEvent);
   });
 }
 
@@ -189,10 +190,14 @@ async function registerPluginRoutes(
   app: FastifyInstance,
   contributions: readonly BackendRouteContribution[] | undefined,
   scope: BackendRouteScope,
+  emitPluginEvent?: (event: string, payload: unknown) => Promise<void>,
 ): Promise<void> {
   for (const contribution of contributions ?? []) {
     if (contribution.scope !== scope) continue;
-    await app.register(async (pluginScope) => contribution.install(pluginScope), {
+    await app.register(async (pluginScope) => contribution.install(
+      pluginScope,
+      emitPluginEvent ? { emitPluginEvent } : {},
+    ), {
       prefix: contribution.prefix,
     });
   }
@@ -231,4 +236,3 @@ function isExplicitPublicRoute(request: FastifyRequest): boolean {
   const config = request.routeOptions.config as { auth?: unknown };
   return config.auth === "public";
 }
-

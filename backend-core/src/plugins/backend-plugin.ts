@@ -15,7 +15,16 @@ import type { RuntimeContainerRegistry } from "../services/runtime/runtime-conta
 
 export type BackendRouteScope = "public" | "tenant" | "management" | "platform";
 
-export type BackendRouteInstaller = (app: FastifyInstance) => Promise<void>;
+export type BackendPluginEventPublisher = (event: string, payload: unknown) => Promise<void>;
+
+export interface BackendRouteInstallContext {
+  readonly emitPluginEvent?: BackendPluginEventPublisher;
+}
+
+export type BackendRouteInstaller = (
+  app: FastifyInstance,
+  context: BackendRouteInstallContext,
+) => Promise<void>;
 
 export interface BackendRouteContribution {
   readonly pluginId: string;

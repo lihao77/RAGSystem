@@ -58,6 +58,7 @@
                   <div class="release-row__actions">
                     <Button variant="action-neutral" size="action" :disabled="builderWorking || draft.status === 'published'" @click="handleValidateDraft(draft)">校验</Button>
                     <Button variant="action-success" size="action" :disabled="builderWorking || draft.status !== 'ready'" @click="handlePublishDraft(draft)">发布</Button>
+                    <Button variant="action-danger" size="action" :disabled="builderWorking" @click="handleDeleteDraft(draft)">删除</Button>
                   </div>
                 </article>
               </div>
@@ -296,7 +297,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { useConfirm } from '../composables/useConfirm.js';
-import { listAgentDrafts, listAgentReleases, publishAgentDraft, validateAgentDraft } from '../api/agentBuilder.js';
+import { deleteAgentDraft, listAgentDrafts, listAgentReleases, publishAgentDraft, validateAgentDraft } from '../api/agentBuilder.js';
 import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, resetDefaultTeam } from '../api/agentConfig';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 
@@ -391,6 +392,25 @@ const { run: runPublishDraft, loading: publishingDraft } = useAsyncAction(
 );
 function handlePublishDraft(draft) { runPublishDraft(draft); }
 
+const { run: runDeleteDraft, loading: deletingDraft } = useAsyncAction(
+  async (draft) => {
+    const accepted = await confirm({
+      title: '删除 Agent 草稿',
+      message: draft.status === 'published'
+        ? `删除 ${draft.blueprint.name} rev ${draft.revision} 的草稿记录？已发布 Team 不受影响。`
+        : `删除 ${draft.blueprint.name} rev ${draft.revision}？此操作不可撤销。`,
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!accepted) return null;
+    const deleted = await deleteAgentDraft(draft.id);
+    await loadBuilderData();
+    return deleted;
+  },
+  { successMessage: (deleted) => deleted ? 'Agent 草稿已删除' : '', errorPrefix: '删除 Agent 草稿失败' },
+);
+function handleDeleteDraft(draft) { runDeleteDraft(draft); }
+
 function normalizeSelections() {
   selectedCopyAgents.value = selectedCopyAgents.value.filter((agent) => copySourceAgents.value.includes(agent));
 }
@@ -426,7 +446,7 @@ const { run: runCreateTeam, loading: creating } = useAsyncAction(
     teams.value = Array.isArray(result.teams) ? result.teams : teams.value;
     copyTargetTeam.value = newTeamName.value;
     newTeamName.value = '';
-    await runLoadTeams(true);
+    await Promise.all([runLoadTeams(true), loadBuilderData()]);
   },
   { successMessage: 'Team 创建成功', errorPrefix: '创建 Team 失败' },
 );
@@ -482,7 +502,7 @@ const { run: runCopyAgents, loading: copying } = useAsyncAction(
     if (selectedCopyAgents.value.length === 0) throw new Error('请选择至少一个 Agent');
     await copyAgentsToTeam(copyTargetTeam.value, copySourceTeam.value, selectedCopyAgents.value);
     selectedCopyAgents.value = [];
-    await runLoadTeams(true);
+    await Promise.all([runLoadTeams(true), loadBuilderData()]);
   },
   {
     successMessage: () => {
@@ -503,19 +523,19 @@ const { run: runDeleteTeam, loading: deleting } = useAsyncAction(
       copySourceTeam.value = teams.value[0]?.team_name || '';
       selectedCopyAgents.value = [];
     }
-    await runLoadTeams(true);
+    await Promise.all([runLoadTeams(true), loadBuilderData()]);
   },
   { successMessage: 'Team 删除成功', errorPrefix: '删除 Team 失败' },
 );
 function handleDeleteTeam(teamName) { runDeleteTeam(teamName); }
 
 const { run: runResetDefault, loading: resetting } = useAsyncAction(
-  async () => { await resetDefaultTeam(); await runLoadTeams(true); },
+  async () => { await resetDefaultTeam(); await Promise.all([runLoadTeams(true), loadBuilderData()]); },
   { successMessage: 'default team 已重置为系统默认配置', errorPrefix: '重置 default team 失败' },
 );
 function handleResetDefaultTeam() { runResetDefault(); }
 
-const builderWorking = computed(() => builderLoading.value || validatingDraft.value || publishingDraft.value);
+const builderWorking = computed(() => builderLoading.value || validatingDraft.value || publishingDraft.value || deletingDraft.value);
 const working = computed(() => creating.value || copying.value || activating.value || deleting.value || resetting.value || publishingDraft.value);
 
 function goToAgentConfig() { router.push('/agent-config'); }

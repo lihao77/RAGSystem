@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { AGENT_CONFIG_CHANGED_EVENT } from "@ragsystem/backend-core/contracts/agent/agent-config-events.js";
 import { CapabilityRegistry, provideCapability } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import { MCP_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-mcp/capability.js";
 import { SKILLS_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-skills/capability.js";
@@ -13,6 +14,7 @@ import {
   AgentBuilderConflictError,
   AgentBuilderService,
   AgentBuilderValidationError,
+  AGENT_BUILDER_RUNTIME_CAPABILITY,
   FilesystemAgentBuilderStore,
   AGENT_BUILDER_TEAM_NAME,
   buildAgentBuilderTeam,
@@ -212,6 +214,160 @@ test("invalid drafts cannot be published", async () => {
   }
 });
 
+test("manual Team snapshots create one linked Draft and update it idempotently", async () => {
+  const fixture = await createFixture();
+  try {
+    const bindings = new MemoryBindings();
+    await fixture.agentConfig.createTeam("copied-team");
+    await fixture.agentConfig.copyAgentsToTeam("copied-team", "default", ["general_agent"]);
+    await bindings.putSkillConfig("copied-team", "general_agent", ["review-code"]);
+    await bindings.putMcpConfig("copied-team", "general_agent", ["github"]);
+
+    const created = await fixture.service.synchronizeTeamDraft("copied-team", bindings);
+    assert.ok(created);
+    assert.equal(created.status, "published");
+    assert.equal(created.source_team_name, "copied-team");
+    assert.equal(created.blueprint.entry_agent, "general_agent");
+    assert.deepEqual(created.blueprint.agents[0].skills, ["review-code"]);
+    assert.deepEqual(created.blueprint.agents[0].mcp_servers, ["github"]);
+
+    await fixture.agentConfig.activateTeam("copied-team");
+    await fixture.agentConfig.patchConfig("general_agent", { description: "Edited manually" });
+    const updated = await fixture.service.synchronizeTeamDraft("copied-team", bindings);
+    assert.equal(updated.id, created.id);
+    assert.equal(updated.status, "published");
+    assert.equal(updated.revision, created.revision + 1);
+    assert.equal(updated.blueprint.agents[0].description, "Edited manually");
+    assert.equal(updated.validation, null);
+
+    const unchanged = await fixture.service.synchronizeTeamDraft("copied-team", bindings);
+    assert.equal(unchanged.id, updated.id);
+    assert.equal(unchanged.revision, updated.revision);
+    assert.equal((await fixture.service.listDrafts()).length, 1);
+
+    await fixture.agentConfig.renameTeam("copied-team", "renamed-team");
+    const renamed = await fixture.service.synchronizeTeamDraft(
+      "renamed-team",
+      bindings,
+      { previousTeamName: "copied-team" },
+    );
+    assert.equal(renamed.id, created.id);
+    assert.equal(renamed.status, "published");
+    assert.equal(renamed.source_team_name, "renamed-team");
+    assert.equal(renamed.blueprint.name, "renamed-team");
+    assert.equal((await fixture.service.listDrafts()).length, 1);
+    await assert.rejects(
+      fixture.service.publishDraft(renamed.id, renamed.revision, bindings),
+      /already represents a published Team/,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("editing a published Team updates the same published Draft without losing config", async () => {
+  const fixture = await createFixture();
+  try {
+    const bindings = new MemoryBindings();
+    bindings.inventory = {};
+    const first = await fixture.service.createDraft(blueprint({
+      entry_agent: "lead",
+      agents: [agent("lead", {
+        instructions: "Keep this prompt.",
+        enabled: false,
+        display_name: null,
+        llm_tiers: {
+          default: { model_name: "default-model" },
+          fast: { model_name: "fast-model", temperature: 0.2 },
+        },
+        custom_params: {
+          behavior: { system_prompt: "Keep this prompt.", preserve_recent_turns: 9 },
+          extension_setting: "preserved",
+        },
+      })],
+    }));
+    const release = await fixture.service.publishDraft(first.id, first.revision, bindings);
+    const published = await fixture.service.getDraft(first.id);
+    assert.equal(published.status, "published");
+    assert.equal(published.source_team_name, release.runtime_team_name);
+    const releasedConfig = fixture.agentConfig.getConfig("lead", { teamName: release.runtime_team_name });
+    assert.equal(releasedConfig.enabled, false);
+    assert.equal(releasedConfig.display_name, null);
+    assert.equal(releasedConfig.llm_tiers.fast.model_name, "fast-model");
+    assert.equal(releasedConfig.custom_params.extension_setting, "preserved");
+    assert.equal(releasedConfig.custom_params.behavior.preserve_recent_turns, 9);
+    assert.equal(releasedConfig.custom_params.behavior.system_prompt, "Keep this prompt.");
+
+    await fixture.agentConfig.activateTeam(release.runtime_team_name);
+    await fixture.agentConfig.patchConfig("lead", { description: "Edited while live" });
+    const next = await fixture.service.synchronizeTeamDraft(release.runtime_team_name, bindings);
+    assert.equal(next.id, first.id);
+    assert.equal(next.status, "published");
+    assert.equal(next.source_team_name, release.runtime_team_name);
+    assert.equal(next.blueprint.name, release.package_name);
+    assert.equal(next.blueprint.agents[0].description, "Edited while live");
+    assert.equal(next.blueprint.agents[0].llm_tiers.fast.model_name, "fast-model");
+    assert.equal(next.blueprint.agents[0].custom_params.extension_setting, "preserved");
+
+    const unchanged = await fixture.service.synchronizeTeamDraft(release.runtime_team_name, bindings);
+    assert.equal(unchanged.id, next.id);
+    assert.equal(unchanged.revision, next.revision);
+    assert.equal((await fixture.service.listDrafts()).length, 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Agent Drafts delete independently and Team deletion restores Drafts that still exist", async () => {
+  const fixture = await createFixture();
+  try {
+    const bindings = new MemoryBindings();
+    const removable = await fixture.service.createDraft(blueprint());
+    assert.deepEqual(await fixture.service.deleteDraft(removable.id), { id: removable.id });
+    await assert.rejects(fixture.service.getDraft(removable.id), /does not exist/);
+
+    const published = await fixture.service.createDraft(blueprint());
+    const publishedRelease = await fixture.service.publishDraft(published.id, published.revision, bindings);
+    assert.deepEqual(await fixture.service.deleteDraft(published.id), { id: published.id });
+    await assert.rejects(fixture.service.getDraft(published.id), /does not exist/);
+    assert.ok((await fixture.agentConfig.listTeams()).teams.some((team) => team.team_name === publishedRelease.runtime_team_name));
+    await fixture.agentConfig.activateTeam(publishedRelease.runtime_team_name);
+    await fixture.agentConfig.patchConfig("lead", { description: "Edited after its Draft was deleted" });
+    const recreated = await fixture.service.synchronizeTeamDraft(publishedRelease.runtime_team_name, bindings);
+    assert.notEqual(recreated.id, published.id);
+    assert.equal(recreated.status, "published");
+    assert.equal(recreated.source_team_name, publishedRelease.runtime_team_name);
+    assert.equal(recreated.blueprint.agents[0].description, "Edited after its Draft was deleted");
+    await fixture.service.deleteDraft(recreated.id);
+    await fixture.agentConfig.deleteTeam(publishedRelease.runtime_team_name);
+    assert.equal(await fixture.service.restoreDraftAfterTeamDelete(publishedRelease.runtime_team_name), null);
+    assert.equal((await fixture.service.listReleases()).length, 0);
+
+    const restorable = await fixture.service.createDraft(blueprint());
+    await fixture.service.publishDraft(restorable.id, restorable.revision, bindings);
+    const release = (await fixture.service.listReleases())[0];
+    const renamedTeam = `${release.runtime_team_name}-renamed`;
+    await fixture.agentConfig.renameTeam(release.runtime_team_name, renamedTeam);
+    const renamed = await fixture.service.synchronizeTeamDraft(
+      renamedTeam,
+      bindings,
+      { previousTeamName: release.runtime_team_name },
+    );
+    assert.equal(renamed.status, "published");
+    assert.equal(renamed.source_team_name, renamedTeam);
+    await fixture.agentConfig.deleteTeam(renamedTeam);
+    const restored = await fixture.service.restoreDraftAfterTeamDelete(renamedTeam);
+    assert.equal(restored.id, restorable.id);
+    assert.equal(restored.status, "draft");
+    assert.equal(restored.source_team_name, null);
+    assert.equal(restored.published_release_id, null);
+    assert.equal((await fixture.service.listReleases()).length, 0);
+    assert.deepEqual(await fixture.service.deleteDraft(restored.id), { id: restored.id });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("workspace validation failure does not synchronize the system Agent draft", async () => {
   const fixture = await createFixture();
   try {
@@ -272,6 +428,71 @@ test("plugin contributes the Builder route only when installed", async () => {
   const installed = new BackendPluginManager([artifacts, mcp, skills, createAgentBuilderPlugin()]);
   await installed.register();
   assert.equal(installed.routes("tenant").some((route) => route.prefix === "/api/agent-builder"), true);
+});
+
+test("plugin subscribes to generic Agent configuration events", async () => {
+  const fixture = await createFixture();
+  const manager = installedAgentBuilderManager();
+  let runtime = null;
+  let released = 0;
+  try {
+    await manager.register();
+    await manager.initializeApplication({
+      registry: {
+        async acquire(tenantId) {
+          assert.equal(tenantId, "tenant-test");
+          assert.ok(runtime);
+          return {
+            tenantId,
+            runtime: { pluginCapabilities: runtime.capabilities },
+            release() { released += 1; },
+          };
+        },
+      },
+    });
+    runtime = await manager.runtimeContributions().createRuntime(runtimeContext(fixture));
+
+    await fixture.agentConfig.createTeam("event-team");
+    await fixture.agentConfig.copyAgentsToTeam("event-team", "default", ["general_agent"]);
+    await manager.emit(AGENT_CONFIG_CHANGED_EVENT, {
+      tenantId: "tenant-test",
+      teamName: "event-team",
+      change: "updated",
+    });
+
+    const builder = runtime.capabilities.require(AGENT_BUILDER_RUNTIME_CAPABILITY).service;
+    const [created] = await builder.listDrafts();
+    assert.equal(created.status, "published");
+    assert.equal(created.source_team_name, "event-team");
+
+    await fixture.agentConfig.renameTeam("event-team", "renamed-event-team");
+    await manager.emit(AGENT_CONFIG_CHANGED_EVENT, {
+      tenantId: "tenant-test",
+      teamName: "renamed-event-team",
+      change: "updated",
+      previousTeamName: "event-team",
+    });
+    const [renamed] = await builder.listDrafts();
+    assert.equal(renamed.id, created.id);
+    assert.equal(renamed.status, "published");
+    assert.equal(renamed.source_team_name, "renamed-event-team");
+
+    await fixture.agentConfig.deleteTeam("renamed-event-team");
+    await manager.emit(AGENT_CONFIG_CHANGED_EVENT, {
+      tenantId: "tenant-test",
+      teamName: "renamed-event-team",
+      change: "deleted",
+    });
+    const [restored] = await builder.listDrafts();
+    assert.equal(restored.id, created.id);
+    assert.equal(restored.status, "draft");
+    assert.equal(restored.source_team_name, null);
+    assert.equal(released, 3);
+  } finally {
+    await manager.stop();
+    runtime?.dispose();
+    fixture.cleanup();
+  }
 });
 
 test("plugin seeds an activatable Builder Team without changing the active Team", async () => {

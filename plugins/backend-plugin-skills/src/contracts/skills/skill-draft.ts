@@ -39,8 +39,6 @@ export const PublishSkillDraftSchema = z.object({
   expected_revision: z.number().int().positive(),
 }).strict();
 
-export const DeleteSkillDraftSchema = PublishSkillDraftSchema;
-
 export type SkillDraftContent = z.infer<typeof SkillDraftContentSchema>;
 export type SkillDraft = z.infer<typeof SkillDraftSchema>;
 export type SkillDraftPackageState = "not_published" | "available" | "missing" | "conflict" | "unknown";
@@ -85,5 +83,5 @@ export interface SkillDraftStore {
   get(id: string): Promise<SkillDraft | null>;
   create(draft: SkillDraft): Promise<void>;
   update(expectedRevision: number, draft: SkillDraft): Promise<boolean>;
-  delete(id: string, expectedRevision: number): Promise<boolean>;
+  delete(id: string): Promise<boolean>;
 }
