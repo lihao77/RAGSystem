@@ -25,19 +25,12 @@ export const AgentBlueprintAgentSchema = z.object({
   custom_params: z.record(z.unknown()).optional().default({}),
 }).strict();
 
-export const AgentEvalCaseSchema = z.object({
-  name: z.string().trim().min(1).max(120),
-  input: z.string().trim().min(1).max(10_000),
-  expected_contains: z.array(z.string().trim().min(1)).max(20).optional().default([]),
-}).strict();
-
 export const AgentBlueprintSchema = z.object({
   schema_version: z.literal(1),
   name: IdentifierSchema,
   description: z.string().trim().min(1).max(1_000),
   entry_agent: IdentifierSchema,
   agents: z.array(AgentBlueprintAgentSchema).min(1).max(20),
-  acceptance_tests: z.array(AgentEvalCaseSchema).max(50).optional().default([]),
 }).strict().superRefine((blueprint, context) => {
   const seen = new Set<string>();
   for (const [index, agent] of blueprint.agents.entries()) {

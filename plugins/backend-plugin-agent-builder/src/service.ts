@@ -235,7 +235,6 @@ export class AgentBuilderService {
         background_tasks: false,
         custom_params: {},
       }],
-      acceptance_tests: [],
     });
     const draft = bindings
       ? await this.createDraftForEditing(blueprint, bindings)
@@ -581,9 +580,6 @@ export function validateBlueprint(
   if (cycle) {
     issues.push(issue("error", "delegation_cycle", "agents", `Delegation cycle detected: ${cycle.join(" -> ")}`));
   }
-  if (blueprint.acceptance_tests.length === 0) {
-    issues.push(issue("warning", "missing_acceptance_tests", "acceptance_tests", "No acceptance tests are defined"));
-  }
   return {
     valid: !issues.some((item) => item.level === "error"),
     checked_at: new Date().toISOString(),
@@ -623,7 +619,6 @@ async function teamConfigToBlueprint(
     description: basis?.description ?? `Configuration synchronized from Team '${teamName}'.`,
     entry_agent: entryAgent,
     agents,
-    acceptance_tests: basis?.acceptance_tests ?? [],
   });
 }
 

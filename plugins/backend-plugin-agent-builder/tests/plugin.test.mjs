@@ -879,7 +879,6 @@ function blueprint(overrides = {}) {
       }),
       agent("worker", { tools: ["write_file"] }),
     ],
-    acceptance_tests: [{ name: "basic", input: "Resolve ticket 42", expected_contains: ["42"] }],
     ...overrides,
   };
 }

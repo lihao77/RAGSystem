@@ -98,7 +98,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
       displayName: "Agent Architect",
       description: "Designs the Agent roster, entry point, delegation graph, prompts, and capability bindings.",
       tools: ["read_file", "preview_data_structure", "glob", "grep"],
-      prompt: "Design a complete Agent Blueprint from the research briefs. Keep the delegation graph acyclic, assign one clear entry Agent, bind only known capabilities, and include acceptance tests. Return structured recommendations to the Orchestrator.",
+      prompt: "Design a complete Agent Blueprint from the research briefs. Keep the delegation graph acyclic, assign one clear entry Agent, and bind only known capabilities. Return structured recommendations to the Orchestrator.",
     }),
     agent_evaluator: builderAgent({
       name: "agent_evaluator",
@@ -112,7 +112,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
       displayName: "Agent Optimizer",
       description: "Suggests bounded prompt, delegation, and capability changes based on evaluation findings.",
       tools: ["read_file", "preview_data_structure", "glob", "grep"],
-      prompt: "Use evaluation findings to propose the smallest high-impact Blueprint revision. Preserve working behavior, avoid speculative new Tools, and state the expected acceptance-test improvement. Return a patch plan to the Orchestrator.",
+      prompt: "Use evaluation findings to propose the smallest high-impact Blueprint revision. Preserve working behavior and avoid speculative new Tools. Return a patch plan to the Orchestrator.",
     }),
   };
 }
