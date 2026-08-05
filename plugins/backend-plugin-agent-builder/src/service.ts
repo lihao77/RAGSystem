@@ -98,12 +98,15 @@ export class AgentBuilderService {
     options: { sourceTeamName?: string | null; status?: "draft" | "published" },
   ): Promise<AgentDraft> {
     const now = new Date().toISOString();
+    const blueprint = AgentBlueprintSchema.parse(blueprintInput);
+    const existing = (await this.store.listDrafts()).find((draft) => draft.blueprint.name === blueprint.name) ?? null;
+    if (existing) throw new AgentBuilderConflictError(`An Agent draft already targets '${blueprint.name}'`);
     const draft = AgentDraftSchema.parse({
       id: `draft_${randomUUID().replaceAll("-", "")}`,
       revision: 1,
       status: options.status ?? "draft",
       source_team_name: options.sourceTeamName?.trim() || null,
-      blueprint: AgentBlueprintSchema.parse(blueprintInput),
+      blueprint,
       validation,
       published_at: options.status === "published" ? now : null,
       created_at: now,
@@ -111,6 +114,21 @@ export class AgentBuilderService {
     });
     await this.store.putDraft(draft);
     return draft;
+  }
+
+  async createDraftForEditing(
+    blueprintInput: AgentBlueprint,
+    bindings: AgentBuilderBindings,
+  ): Promise<AgentDraft> {
+    const blueprint = AgentBlueprintSchema.parse(blueprintInput);
+    const existing = (await this.store.listDrafts()).find((draft) => draft.blueprint.name === blueprint.name) ?? null;
+    if (existing) throw new AgentBuilderConflictError(`An Agent draft already targets '${blueprint.name}'`);
+    const teams = await this.agentConfig.listTeams();
+    if (teams.teams.some((team) => team.team_name === blueprint.name)) {
+      const synchronized = await this.synchronizeTeamDraft(blueprint.name, bindings);
+      if (synchronized) return synchronized;
+    }
+    return this.createDraft(blueprint);
   }
 
   synchronizeTeamDraft(
@@ -197,8 +215,9 @@ export class AgentBuilderService {
     name: string,
     description: string,
     workspaceRoot: string,
+    bindings?: AgentBuilderBindings,
   ): Promise<{ draft: AgentDraft; workspacePath: string }> {
-    const draft = await this.createDraft({
+    const blueprint = AgentBlueprintSchema.parse({
       schema_version: 1,
       name,
       description,
@@ -218,6 +237,9 @@ export class AgentBuilderService {
       }],
       acceptance_tests: [],
     });
+    const draft = bindings
+      ? await this.createDraftForEditing(blueprint, bindings)
+      : await this.createDraft(blueprint);
     return this.materializeDraftToWorkspace(draft, workspaceRoot);
   }
 

@@ -7,6 +7,7 @@ const source = readFileSync(new URL('../views/SkillLibrary.vue', import.meta.url
 test('published Skill bundles update through editable Drafts and deleting one refreshes drafts', () => {
   assert.match(source, /通过 Draft 更新/);
   assert.match(source, /编辑草稿/);
+  assert.match(source, /ensureSkillDraft/);
   assert.match(source, /updateSkillDraft/);
   assert.match(source, /重新发布/);
   assert.match(source, /await Promise\.allSettled\(\[refresh\(\), loadDrafts\(\)\]\)/);

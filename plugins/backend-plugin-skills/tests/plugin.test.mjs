@@ -53,6 +53,7 @@ function memoryLibrary() {
     },
     async createSkillBundle(input) { packages.set(input.name, structuredClone(input)); return input; },
     async replaceSkillBundle(input) { packages.set(input.name, structuredClone(input)); return input; },
+    async getPublishedSkillBundle(name) { return structuredClone(packages.get(name) ?? null); },
     async matchesSkillBundle(name, files) {
       const value = packages.get(name);
       if (!value || value.files.length !== files.length) return false;
@@ -304,13 +305,13 @@ test("Deleting a published Skill restores its Draft as editable", async () => {
   const candidate = await service.createDraft("review-code", "Review code");
   const published = await service.publishDraft(candidate.id, candidate.revision);
   library.packages.delete(published.name);
-  const restored = await service.restoreCandidateAfterReleaseDelete(published.name);
+  const restored = await service.restoreDraftAfterSkillDelete(published.name);
   assert.equal(restored.status, "draft");
   assert.equal(restored.revision, published.revision + 1);
   assert.equal(restored.published_at, null);
 });
 
-test("Published Skill Drafts delete without removing the released Skill", async () => {
+test("Published Skill Drafts delete without removing the published Skill", async () => {
   const store = new MemoryDraftStore();
   const library = memoryLibrary();
   const service = new SkillAuthoringService(store, library);
@@ -322,7 +323,54 @@ test("Published Skill Drafts delete without removing the released Skill", async 
   assert.equal(library.packages.has(published.name), true);
 
   library.packages.delete(published.name);
-  assert.equal(await service.restoreCandidateAfterReleaseDelete(published.name), null);
+  assert.equal(await service.restoreDraftAfterSkillDelete(published.name), null);
+});
+
+test("a deleted published Skill Draft is rebuilt from its complete package", async () => {
+  const store = new MemoryDraftStore();
+  const library = memoryLibrary();
+  const service = new SkillAuthoringService(store, library);
+  const created = await service.createDraft("review-code", "Review code");
+  const published = await service.publishDraft(created.id, created.revision);
+  library.packages.get("review-code").files.push({
+    relativePath: "scripts/check.py",
+    mediaType: "text/x-python; charset=utf-8",
+    body: Buffer.from("print('ok')\n"),
+  });
+  await service.deleteDraft(published.id);
+
+  const restored = await service.ensureDraftForPublishedSkill("review-code");
+  assert.notEqual(restored.id, published.id);
+  assert.equal(restored.status, "published");
+  assert.equal(restored.revision, 1);
+  assert.ok(restored.published_at);
+  assert.ok(restored.bundle_assets.some((asset) => asset.relative_path === "SKILL.md"));
+  assert.ok(restored.bundle_assets.some((asset) => asset.relative_path === "scripts/check.py"));
+  assert.equal((await service.ensureDraftForPublishedSkill("review-code")).id, restored.id);
+
+  const updated = await service.updateDraft(restored.id, restored.revision, {
+    name: restored.name,
+    description: restored.description,
+    content: "Continue updating after Draft reconstruction.",
+  });
+  const republished = await service.publishDraft(updated.id, updated.revision);
+  assert.equal(republished.status, "published");
+  assert.match(library.packages.get("review-code").content, /Continue updating/);
+  assert.ok(library.packages.get("review-code").files.some((file) => file.relativePath === "scripts/check.py"));
+});
+
+test("createDraftForEditing restores a same-name published Skill without a Draft", async () => {
+  const store = new MemoryDraftStore();
+  const library = memoryLibrary();
+  const service = new SkillAuthoringService(store, library);
+  const created = await service.createDraft("review-code", "Review code");
+  const published = await service.publishDraft(created.id, created.revision);
+  await service.deleteDraft(published.id);
+
+  const restored = await service.createDraftForEditing("review-code", "Ignored scaffold description");
+  assert.equal(restored.status, "published");
+  assert.equal(restored.description, published.description);
+  assert.equal(restored.content, published.content);
 });
 
 test("Authoring tools expose only the workspace draft workflow", () => {

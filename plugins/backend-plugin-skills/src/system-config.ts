@@ -36,9 +36,8 @@ export const SKILLS_SYSTEM_CONFIG_EXTENSION: SystemConfigExtension = {
 
 export function createSkillsSystemConfigExtension(
   currentValue: unknown,
-  legacyValue?: unknown,
 ): SystemConfigExtension {
-  const approval = resolveSkillsApprovalConfig(currentValue, legacyValue);
+  const approval = resolveSkillsApprovalConfig(currentValue);
   return {
     ...SKILLS_SYSTEM_CONFIG_EXTENSION,
     defaults: {
@@ -49,15 +48,10 @@ export function createSkillsSystemConfigExtension(
   };
 }
 
-export function resolveSkillsApprovalConfig(value: unknown, legacyValue?: unknown): SkillsApprovalConfig {
+export function resolveSkillsApprovalConfig(value: unknown): SkillsApprovalConfig {
   const current = readApproval(value);
   const parsed = SkillsApprovalSchema.safeParse(current);
-  if (parsed.success) return parsed.data;
-
-  const legacy = legacyValue && typeof legacyValue === "object" ? legacyValue as Record<string, unknown> : {};
-  return {
-    auto_publish_candidates: legacy.auto_approve_skill_drafts === true,
-  };
+  return parsed.success ? parsed.data : { auto_publish_candidates: false };
 }
 
 function readApproval(value: unknown): unknown {

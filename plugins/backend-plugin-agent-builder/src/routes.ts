@@ -36,8 +36,9 @@ export const registerAgentBuilderRoutes: FastifyPluginAsync = async (app) => {
   app.post("/drafts", async (request) => handle(async () => {
     const body = CreateAgentDraftRequestSchema.parse(request.body);
     const builder = service(request);
-    const draft = await builder.createDraft(body.blueprint);
-    return ok(await builder.autoApproveDraft(draft, () => bindingsFor(request.container)), "Agent draft created");
+    const bindings = await bindingsFor(request.container);
+    const draft = await builder.createDraftForEditing(body.blueprint, bindings);
+    return ok(await builder.autoApproveDraft(draft, () => Promise.resolve(bindings)), "Agent draft created");
   }));
 
   app.put<{ Params: IdParams }>("/drafts/:id", async (request) => handle(async () => {

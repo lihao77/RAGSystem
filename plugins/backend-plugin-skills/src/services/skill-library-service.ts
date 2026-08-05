@@ -86,6 +86,25 @@ export class SkillLibraryService {
     return { buffer: fs.readFileSync(filePath), mime: guessMime(filePath) };
   }
 
+  async getPublishedSkillBundle(name: string): Promise<CreateSkillBundleInput | null> {
+    const normalized = name.trim();
+    const existing = await this.packageStore.get(normalized);
+    if (!existing) return null;
+    const files = [];
+    for (const file of (await this.packageStore.listFiles(normalized)).filter((item) => item.type === "file")) {
+      const stored = await this.packageStore.readFile(normalized, file.path);
+      if (!stored) throw new HttpError(409, "conflict", `Skill '${normalized}' package changed while rebuilding its Draft`);
+      files.push({ relativePath: file.path, body: stored.body, mediaType: stored.contentType });
+    }
+    return {
+      name: existing.name,
+      description: existing.description,
+      content: existing.content,
+      metadata: existing.metadata,
+      files,
+    };
+  }
+
   async createSkillBundle(input: CreateSkillBundleInput): Promise<SkillDetail> {
     const name = input.name.trim();
     if (!SKILL_NAME_PATTERN.test(name)) throw new HttpError(400, "invalid_request", "Skill 名称只能包含小写字母、数字和连字符");

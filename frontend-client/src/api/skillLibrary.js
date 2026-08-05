@@ -42,6 +42,11 @@ export async function listSkillDrafts() {
   return result.data || [];
 }
 
+export async function createSkillDraft(name, description) {
+  const result = await http.post('/api/skills/drafts', { name, description });
+  return result.data || result;
+}
+
 export async function getSkillDraft(id) {
   const result = await http.get(`/api/skills/drafts/${encodeURIComponent(id)}`);
   return result.data || result;
@@ -54,6 +59,11 @@ export async function updateSkillDraft(id, expectedRevision, content) {
     description: content.description,
     content: content.content,
   });
+  return result.data || result;
+}
+
+export async function ensureSkillDraft(name) {
+  const result = await http.post(`/api/skills/${encodeURIComponent(name)}/draft`, {});
   return result.data || result;
 }
 

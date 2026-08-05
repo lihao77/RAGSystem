@@ -83,7 +83,7 @@ Blueprint v1 包含：
 任一步骤失败都会尝试回滚本次 Team、Skill 和 MCP 变更。
 新 Draft 首次发布使用 Blueprint 名称作为 Team 名称。如果同名 Team 已经存在，发布会返回冲突；只有草稿已通过 `source_team_name` 关联该 Team 时，重新发布才会更新它。
 
-Skill 发布由 Skills 插件单独负责，入口为 Builder 的 `publish_skill_draft` 或 `/api/skills/drafts/:id/publish`。已发布 Skill 的工作区修改会先形成待发布 Draft，自动发布开启时替换现有用户 Skill 包；删除正式 Skill 后，原 Draft 会恢复为可编辑状态。
+Skill 发布由 Skills 插件单独负责，入口为 Builder 的 `publish_skill_draft` 或 `/api/skills/drafts/:id/publish`。已发布 Skill 的工作区修改会先形成待发布 Draft，自动发布开启时替换现有用户 Skill 包；删除正式 Skill 后，原 Draft 会恢复为可编辑状态。Draft 可以单独删除而不影响正式 Skill；管理员再次编辑，或 Builder 用同名 `create_skill_draft` 继续开发时，系统会从正式 bundle 重建完整 Draft。
 
 管理员直接修改 Team 配置时，插件会把线上配置同步回同一个 `published` Draft。删除 Team 后，如果关联 Draft 仍存在，它会清空 `source_team_name` 并恢复为可编辑的 `draft`；草稿也可以单独删除，不影响线上 Team。线上 Team 后续再次被修改时，系统会重新创建一份 `published` Draft。
 

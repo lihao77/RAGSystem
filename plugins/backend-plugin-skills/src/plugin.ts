@@ -20,7 +20,6 @@ export function createSkillsPlugin(dependencies: SkillsPluginDependencies): Back
             SKILLS_PLUGIN_ID,
             createSkillsSystemConfigExtension(
               runtimeContext.systemConfig.getSection("skills"),
-              runtimeContext.systemConfig.getSection("automation"),
             ),
           )
           : () => undefined;

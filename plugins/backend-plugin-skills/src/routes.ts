@@ -8,6 +8,7 @@ import { requireTenantAdmin, requireTenantMember } from "@ragsystem/backend-core
 import type {} from "@ragsystem/backend-core/fastify-context.js";
 import { SKILLS_RUNTIME_CAPABILITY } from "./capability.js";
 import {
+  CreateSkillDraftSchema,
   PublishSkillDraftSchema,
   toSkillDraftView,
   UpdateSkillDraftSchema,
@@ -90,6 +91,14 @@ export const registerSkillRoutes: FastifyPluginAsync<SkillRouteOptions> = async 
     return ok(await resolveSkills(request).authoring.listDraftViews(), "Skill drafts");
   });
 
+  app.post("/drafts", async (request) => {
+    requireTenantAdmin(request);
+    const input = CreateSkillDraftSchema.parse(request.body);
+    const authoring = resolveSkills(request).authoring;
+    const draft = await authoring.createDraftForEditing(input.name, input.description);
+    return ok(await authoring.getDraftView(draft.id), "Skill draft created");
+  });
+
   app.get<{ Params: DraftParams }>("/drafts/:id", async (request) => {
     return ok(await resolveSkills(request).authoring.getDraftView(request.params.id), "Skill draft");
   });
@@ -118,6 +127,13 @@ export const registerSkillRoutes: FastifyPluginAsync<SkillRouteOptions> = async 
     );
   });
 
+  app.post<{ Params: SkillParams }>("/:name/draft", async (request) => {
+    requireTenantAdmin(request);
+    const authoring = resolveSkills(request).authoring;
+    const draft = await authoring.ensureDraftForPublishedSkill(request.params.name);
+    return ok(await authoring.getDraftView(draft.id), "Skill draft ready for editing");
+  });
+
   app.get<{ Params: SkillParams }>("/:name", async (request) => {
     return ok(await resolveSkills(request).library.getSkillDetail(request.params.name), "Skill 详情");
   });
@@ -136,7 +152,7 @@ export const registerSkillRoutes: FastifyPluginAsync<SkillRouteOptions> = async 
     requireTenantAdmin(request);
     const skills = resolveSkills(request);
     const deleted = await skills.library.deleteSkill(request.params.name);
-    const restoredCandidate = await skills.authoring.restoreCandidateAfterReleaseDelete(deleted.name);
+    const restoredCandidate = await skills.authoring.restoreDraftAfterSkillDelete(deleted.name);
     return ok({
       ...deleted,
       restored_candidate: restoredCandidate

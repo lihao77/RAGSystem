@@ -152,7 +152,7 @@ export function createAgentBuilderTools(
     }),
     buildTool({
       name: "create_agent_draft",
-      description: "Create an editable Agent draft workspace from a name and description. Complete blueprint.json with file tools, then publish the draft.",
+      description: "Create an editable Agent draft workspace from a name and description. If a same-name Team has no Draft, restore its current configuration for continued editing. Complete blueprint.json with file tools, then publish the draft.",
       inputSchema: CreateDraftToolInputSchema,
       parameters: {
         type: "object",
@@ -170,7 +170,8 @@ export function createAgentBuilderTools(
       isConcurrencySafe: () => false,
       async call(input, context: ToolExecContext) {
         try {
-          const result = await service.createWorkspaceDraft(input.name, input.description, workspaceRoot(context));
+          const bindings = options.bindingsProvider ? await options.bindingsProvider() : undefined;
+          const result = await service.createWorkspaceDraft(input.name, input.description, workspaceRoot(context), bindings);
           return toolSuccess({
             ...result.draft,
             workspace_path: result.workspacePath,

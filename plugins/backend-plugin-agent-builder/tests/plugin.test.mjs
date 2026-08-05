@@ -401,6 +401,31 @@ test("Agent Drafts delete independently and Team deletion restores Drafts that s
   }
 });
 
+test("a deleted published Agent Draft is rebuilt from its Team configuration", async () => {
+  const fixture = await createFixture();
+  try {
+    const bindings = new MemoryBindings();
+    const created = await fixture.service.createDraft(blueprint());
+    const published = await fixture.service.publishDraft(created.id, created.revision, bindings);
+    await fixture.service.deleteDraft(published.id);
+    await fixture.agentConfig.activateTeam("support-team");
+    await fixture.agentConfig.patchConfig("lead", { description: "Recovered live Agent" });
+
+    const restored = await fixture.service.createDraftForEditing(blueprint(), bindings);
+    assert.notEqual(restored.id, published.id);
+    assert.equal(restored.status, "published");
+    assert.equal(restored.source_team_name, "support-team");
+    assert.equal(restored.blueprint.agents.find((agent) => agent.name === "lead").description, "Recovered live Agent");
+    assert.equal((await fixture.service.listDrafts()).length, 1);
+    await assert.rejects(
+      fixture.service.createDraftForEditing(blueprint(), bindings),
+      /already targets 'support-team'/,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("workspace validation failure does not synchronize the system Agent draft", async () => {
   const fixture = await createFixture();
   try {

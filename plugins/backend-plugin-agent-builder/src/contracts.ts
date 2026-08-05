@@ -67,8 +67,6 @@ export const AgentBuilderValidationReportSchema = z.object({
 
 export const AgentDraftStatusSchema = z.enum([
   "draft",
-  "validation_failed",
-  "ready",
   "published",
 ]);
 

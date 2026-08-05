@@ -83,7 +83,7 @@ export function createSkillAuthoringTools(input: {
     }),
     buildTool({
       name: "create_skill_draft",
-      description: "Create a new editable Skill draft workspace with a scaffold SKILL.md. Edit files with Session file tools before publishing.",
+      description: "Create a new editable Skill draft workspace. If a same-name published Skill has no Draft, restore its complete bundle for continued editing. Edit files with Session file tools before publishing.",
       inputSchema: CreateSchema,
       parameters: {
         type: "object",
@@ -101,7 +101,7 @@ export function createSkillAuthoringTools(input: {
       isConcurrencySafe: () => false,
       async call(args, context: ToolExecContext) {
         try {
-          const draft = await input.authoring.createDraft(args.name, args.description);
+          const draft = await input.authoring.createDraftForEditing(args.name, args.description);
           const result = await input.authoring.materializeDraftToWorkspace(draft, workspaceRoot(context));
           return toolSuccess({
             ...draftSummary(result.draft),

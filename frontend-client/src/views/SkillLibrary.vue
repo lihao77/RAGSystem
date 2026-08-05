@@ -14,6 +14,10 @@
         </div>
         <div class="skill-drafts__actions">
           <Badge variant="secondary">{{ skillDrafts.length }}</Badge>
+          <Button v-if="canEditSkillDraft" variant="outline" size="sm" @click="openCreateDraft">
+            <Plus data-icon="inline-start" />
+            <span>新建草稿</span>
+          </Button>
           <Button variant="ghost" size="icon-sm" :disabled="draftLoading" aria-label="刷新 Skill 草稿" title="刷新 Skill 草稿" @click="loadDrafts">
             <RefreshCw data-icon="inline-start" :class="{ 'animate-spin': draftLoading }" />
           </Button>
@@ -123,8 +127,14 @@
               </div>
             </div>
             <div v-if="selected.source_type === 'user_global'" class="skill-detail__actions">
-              <Button v-if="selectedDraft" variant="outline" size="sm" @click="openDraftReview(selectedDraft)">
-                <FilePenLine data-icon="inline-start" /><span>编辑草稿</span>
+              <Button
+                v-if="canEditSkillDraft"
+                variant="outline"
+                size="sm"
+                :disabled="draftRestoreBusy || deleting"
+                @click="openPublishedSkillDraft"
+              >
+                <FilePenLine data-icon="inline-start" /><span>{{ draftRestoreBusy ? '准备中…' : '编辑草稿' }}</span>
               </Button>
               <Button variant="destructive" size="sm" :disabled="deleting" @click="confirmDelete">
                 <IconTrash :size="13" /><span>{{ deleting ? '删除中…' : '删除' }}</span>
@@ -173,6 +183,34 @@
         </template>
       </Card>
     </div>
+
+    <Dialog :open="createDraftDialog.open" @update:open="(v) => { if (!v) closeCreateDraft() }">
+      <DialogContent class="max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>新建 Skill Draft</DialogTitle>
+          <DialogDescription>创建后继续编辑 SKILL.md，再按当前审批配置发布。</DialogDescription>
+        </DialogHeader>
+        <FieldGroup>
+          <Field :data-disabled="createDraftBusy">
+            <FieldLabel for="new-skill-name">名称</FieldLabel>
+            <Input id="new-skill-name" v-model.trim="createDraftDialog.form.name" :disabled="createDraftBusy" placeholder="example-skill" />
+            <FieldDescription>使用小写字母、数字和连字符。</FieldDescription>
+          </Field>
+          <Field :data-disabled="createDraftBusy">
+            <FieldLabel for="new-skill-description">描述</FieldLabel>
+            <Input id="new-skill-description" v-model="createDraftDialog.form.description" :disabled="createDraftBusy" />
+          </Field>
+        </FieldGroup>
+        <p v-if="createDraftDialog.error" class="form-error" role="alert">{{ createDraftDialog.error }}</p>
+        <DialogFooter>
+          <Button variant="ghost" :disabled="createDraftBusy" @click="closeCreateDraft">取消</Button>
+          <Button :disabled="createDraftBusy || !canCreateDraft" @click="runCreateDraft">
+            <Plus data-icon="inline-start" />
+            <span>{{ createDraftBusy ? '创建中…' : '创建草稿' }}</span>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Dialog :open="draftReview.open" @update:open="(v) => { if (!v) closeDraftReview() }">
       <DialogContent class="max-w-[900px]">
@@ -235,7 +273,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { Eye, FilePenLine, RefreshCw, Save, Send } from 'lucide-vue-next';
+import { Eye, FilePenLine, Plus, RefreshCw, Save, Send } from 'lucide-vue-next';
 
 import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
@@ -262,8 +300,10 @@ import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { useEntityList } from '../composables/useEntityList.js';
 import { useAuthStore } from '../stores/auth.js';
 import {
+  createSkillDraft,
   deleteSkillDraft,
   deleteSkill,
+  ensureSkillDraft,
   getSkillDetail,
   getSkillDraft,
   getSkillFileUrl,
@@ -312,6 +352,13 @@ const draftReview = ref({
   draft: null,
   form: { name: '', description: '', content: '' },
 });
+const createDraftDialog = ref({
+  open: false,
+  error: '',
+  form: { name: '', description: '' },
+});
+const canCreateDraft = computed(() => /^[a-z0-9][a-z0-9-]{0,63}$/.test(createDraftDialog.value.form.name)
+  && createDraftDialog.value.form.description.trim().length > 0);
 
 const draftNameLocked = computed(() => Boolean(draftReview.value.draft?.published_at));
 const isDraftFormDirty = computed(() => {
@@ -339,6 +386,34 @@ async function loadDrafts() {
 }
 
 onMounted(loadDrafts);
+
+function openCreateDraft() {
+  createDraftDialog.value = { open: true, error: '', form: { name: '', description: '' } };
+}
+
+function closeCreateDraft() {
+  if (createDraftBusy.value) return;
+  createDraftDialog.value.open = false;
+  createDraftDialog.value.error = '';
+}
+
+const { run: runCreateDraft, loading: createDraftBusy } = useAsyncAction(
+  async () => {
+    const draft = await createSkillDraft(
+      createDraftDialog.value.form.name,
+      createDraftDialog.value.form.description,
+    );
+    skillDrafts.value = [draft, ...skillDrafts.value.filter((item) => item.id !== draft.id)];
+    createDraftDialog.value.open = false;
+    await openDraftReview(draft);
+    return draft;
+  },
+  {
+    successMessage: 'Skill 草稿已创建',
+    showErrorToast: false,
+    onError: (error) => { createDraftDialog.value.error = error?.message || '创建 Skill 草稿失败'; },
+  },
+);
 
 function draftStatusLabel(draft) {
   if (draft.status !== 'published' && !draft.bundle_assets?.length) return '需重新提交 Artifact';
@@ -370,6 +445,23 @@ async function openDraftReview(draft) {
     draftReview.value.form = { name: loaded.name, description: loaded.description, content: loaded.content };
   } catch (e) {
     draftReview.value.error = e?.message || '加载草稿详情失败';
+  }
+}
+
+const draftRestoreBusy = ref(false);
+async function openPublishedSkillDraft() {
+  if (!selected.value || !canEditSkillDraft.value) return;
+  draftRestoreBusy.value = true;
+  try {
+    const draft = selectedDraft.value ?? await ensureSkillDraft(selected.value.name);
+    if (!skillDrafts.value.some((item) => item.id === draft.id)) {
+      skillDrafts.value = [draft, ...skillDrafts.value];
+    }
+    await openDraftReview(draft);
+  } catch (error) {
+    toast.error(error?.message || '准备 Skill 草稿失败');
+  } finally {
+    draftRestoreBusy.value = false;
   }
 }
 
@@ -519,8 +611,7 @@ const groups = computed(() =>
 
 function isWritable(skill) {
   return canEditSkillDraft.value
-    && skill.source_type === 'user_global'
-    && skillDrafts.value.some((draft) => draft.name === skill.name);
+    && skill.source_type === 'user_global';
 }
 
 // 来源类型 → 短标签 + 语义色（列表行徽章用）

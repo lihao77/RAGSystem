@@ -80,6 +80,68 @@ export class SkillAuthoringService {
     return draft;
   }
 
+  async createDraftForEditing(name: string, description: string): Promise<SkillDraft> {
+    const existing = (await this.store.list()).find((draft) => draft.name === name) ?? null;
+    if (existing) throw new HttpError(409, "conflict", `A Skill draft already targets '${name}'`);
+    const bundle = await this.library.getPublishedSkillBundle(name);
+    return bundle ? this.createDraftFromPublishedBundle(bundle) : this.createDraft(name, description);
+  }
+
+  async ensureDraftForPublishedSkill(name: string): Promise<SkillDraft> {
+    const normalized = name.trim();
+    const existing = (await this.store.list()).find((draft) => draft.name === normalized) ?? null;
+    if (existing) return existing;
+    const bundle = await this.library.getPublishedSkillBundle(normalized);
+    if (!bundle) throw new HttpError(404, "not_found", `Published Skill '${normalized}' does not exist`);
+    return this.createDraftFromPublishedBundle(bundle);
+  }
+
+  private async createDraftFromPublishedBundle(
+    bundle: NonNullable<Awaited<ReturnType<SkillLibraryService["getPublishedSkillBundle"]>>>,
+  ): Promise<SkillDraft> {
+    const skillMarkdown = bundle.files.find((file) => file.relativePath === "SKILL.md");
+    if (!skillMarkdown) throw new HttpError(409, "conflict", `Published Skill '${bundle.name}' bundle has no SKILL.md`);
+    const parsed = parseSkillMarkdown(Buffer.from(skillMarkdown.body).toString("utf8"));
+    if (!parsed) throw new HttpError(409, "conflict", `Published Skill '${bundle.name}' SKILL.md is invalid`);
+    const content = SkillDraftContentSchema.parse({
+      name: bundle.name,
+      description: bundle.description,
+      content: bundle.content,
+    });
+    const now = new Date().toISOString();
+    const draft = SkillDraftSchema.parse({
+      id: `skill_draft_${randomUUID().replaceAll("-", "")}`,
+      ...content,
+      revision: 1,
+      status: "published",
+      source_session_id: null,
+      source_agent_name: null,
+      skill_metadata: bundle.metadata ?? parsed.metadata,
+      bundle_assets: bundle.files.map((file) => {
+        const body = Buffer.from(file.body);
+        return SkillDraftAssetSchema.parse({
+          relative_path: file.relativePath,
+          media_type: file.mediaType || workspaceMediaType(file.relativePath),
+          size: body.byteLength,
+          sha256: createHash("sha256").update(body).digest("hex"),
+          body_base64: body.toString("base64"),
+        });
+      }),
+      published_at: now,
+      created_at: now,
+      updated_at: now,
+    });
+    try {
+      await this.store.create(draft);
+      return draft;
+    } catch (error) {
+      if (!isSkillDraftNameConflict(error)) throw error;
+      const concurrent = (await this.store.list()).find((item) => item.name === bundle.name) ?? null;
+      if (concurrent) return concurrent;
+      throw new HttpError(409, "conflict", `A Skill draft already targets '${bundle.name}'`);
+    }
+  }
+
   async materializeDraftToWorkspace(
     draftOrId: SkillDraft | string,
     workspaceRoot: string,
@@ -140,7 +202,7 @@ export class SkillAuthoringService {
       updated_at: new Date().toISOString(),
     });
     const approval = this.systemConfig
-      ? resolveSkillsApprovalConfig(this.systemConfig.getSection("skills"), this.systemConfig.getSection("automation"))
+      ? resolveSkillsApprovalConfig(this.systemConfig.getSection("skills"))
       : { auto_publish_candidates: false };
     let published: SkillDraft;
     if (approval.auto_publish_candidates) {
@@ -289,7 +351,6 @@ export class SkillAuthoringService {
     if (!this.systemConfig) return false;
     return resolveSkillsApprovalConfig(
       this.systemConfig.getSection("skills"),
-      this.systemConfig.getSection("automation"),
     ).auto_publish_candidates;
   }
 
@@ -380,7 +441,7 @@ export class SkillAuthoringService {
   }
 
   /** Remove a published package while keeping its Draft editable. */
-  async restoreCandidateAfterReleaseDelete(name: string): Promise<SkillDraft | null> {
+  async restoreDraftAfterSkillDelete(name: string): Promise<SkillDraft | null> {
     const candidate = (await this.store.list()).find((draft) => draft.name === name && draft.status === "published");
     if (!candidate) return null;
     const restored = SkillDraftSchema.parse({
