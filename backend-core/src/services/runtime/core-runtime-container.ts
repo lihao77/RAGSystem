@@ -18,7 +18,6 @@ import { CapabilityRegistry } from "../../plugins/capability-registry.js";
 import { SessionRuntimeService } from "./session-runtime-service.js";
 import {
   EXECUTION_ENVIRONMENT_CAPABILITY,
-  createLocalExecutionEnvironment,
   type ExecutionEnvironmentCapability,
 } from "../../contracts/execution/execution-environment.js";
 
@@ -51,11 +50,9 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     clientEvents,
   } = dependencies;
   const pluginCapabilities = dependencies.pluginCapabilities ?? new CapabilityRegistry();
-  const configuredExecutionEnvironment = pluginCapabilities.get(EXECUTION_ENVIRONMENT_CAPABILITY);
-  const executionEnvironment = configuredExecutionEnvironment
-    ?? (deploymentKind === "local" ? createLocalExecutionEnvironment(dataRoot) : null);
-  if (!configuredExecutionEnvironment && executionEnvironment) {
-    pluginCapabilities.provide(EXECUTION_ENVIRONMENT_CAPABILITY, executionEnvironment, "backend-core/local-fallback");
+  const executionEnvironment = pluginCapabilities.get(EXECUTION_ENVIRONMENT_CAPABILITY);
+  if (!executionEnvironment) {
+    throw new Error(`${deploymentKind} deployment must provide an execution environment capability`);
   }
   const createPluginTools = (context: import("../../plugins/backend-plugin.js").BackendToolFactoryContext) =>
     dependencies.plugins?.createTools({ ...context, capabilities: pluginCapabilities }) ?? Promise.resolve([]);
@@ -130,11 +127,11 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   agentDelegation.setRunEngine(() => agentExecution.runEngine);
   backgroundTasks.setOnTaskCompleted((sessionId) => agentExecution.triggerBgNotificationRun(sessionId));
 
-  let closed = false;
-  const close = (): void => {
-    if (closed) return;
-    closed = true;
-    dependencies.closeInfrastructure();
+  let closePromise: Promise<void> | null = null;
+  const close = (): Promise<void> => {
+    if (closePromise) return closePromise;
+    closePromise = Promise.resolve().then(() => dependencies.closeInfrastructure());
+    return closePromise;
   };
 
   const common = {

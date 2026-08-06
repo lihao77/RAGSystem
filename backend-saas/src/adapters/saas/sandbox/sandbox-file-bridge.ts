@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import type { AsyncSessionFileStorage } from "@ragsystem/backend-core/contracts/session/session-file-storage.js";
-import type { SandboxLease, SandboxLeaseLifecycle, SandboxOwner, SandboxProvider } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
+import type { SandboxDriver, SandboxLease, SandboxLeaseLifecycle, SandboxOwner } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 import type { UploadedFileRecord } from "@ragsystem/backend-core/contracts/storage/files.js";
 
 const MiB = 1024 * 1024;
@@ -38,7 +38,7 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
   async prepare(
     lease: SandboxLease,
     owner: SandboxOwner,
-    provider: SandboxProvider,
+    driver: SandboxDriver,
     input: { attachmentFileIds: readonly string[] },
   ): Promise<void> {
     const requestedIds = new Set(input.attachmentFileIds);
@@ -71,7 +71,7 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
 
       const sandboxName = requireStoredName(record, usedNames);
       const internalPath = `/input/uploads/${sandboxName}`;
-      const staged = await provider.stageInputFile(lease, {
+      const staged = await driver.stageInputFile(lease, {
         path: internalPath,
         content: Buffer.from(file.body).toString("base64"),
         encoding: "base64",
@@ -89,7 +89,7 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
     }
 
     const manifestBytes = Buffer.from(JSON.stringify({ files: manifest }, null, 2), "utf8");
-    const stagedManifest = await provider.stageInputFile(lease, {
+    const stagedManifest = await driver.stageInputFile(lease, {
       path: "/input/uploads/.ragsystem-manifest.json",
       content: manifestBytes.toString("base64"),
       encoding: "base64",
@@ -98,8 +98,8 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
     if (stagedManifest.size !== manifestBytes.byteLength) throw new Error("Sandbox input manifest size mismatch");
   }
 
-  async collectOutputs(lease: SandboxLease, owner: SandboxOwner, provider: SandboxProvider): Promise<void> {
-    const listed = await provider.glob(lease, {
+  async collectOutputs(lease: SandboxLease, owner: SandboxOwner, driver: SandboxDriver): Promise<void> {
+    const listed = await driver.glob(lease, {
       root: "/work",
       pattern: "**/*",
       recursive: true,
@@ -113,10 +113,10 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
     const seen = new Set<string>();
     let totalBytes = 0;
     for (const rawPath of outputFiles) {
-      const relativePath = validateProviderRelativePath(rawPath);
-      if (seen.has(relativePath)) throw new Error(`Sandbox provider returned duplicate output path: ${relativePath}`);
+      const relativePath = validateDriverRelativePath(rawPath);
+      if (seen.has(relativePath)) throw new Error(`Sandbox driver returned duplicate output path: ${relativePath}`);
       seen.add(relativePath);
-      const result = await provider.readFile(lease, {
+      const result = await driver.readFile(lease, {
         path: `/work/${relativePath}`,
         encoding: "base64",
         maxBytes: this.limits.maxOutputFileBytes,
@@ -172,14 +172,14 @@ function requireStoredName(record: UploadedFileRecord, usedNames: Set<string>): 
   return storedName;
 }
 
-function validateProviderRelativePath(value: string): string {
+function validateDriverRelativePath(value: string): string {
   const normalized = value.trim().replace(/\\/g, "/");
   if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:($|\/)/.test(normalized) || normalized.includes("\0")) {
-    throw new Error("Sandbox provider returned an invalid output path");
+    throw new Error("Sandbox driver returned an invalid output path");
   }
   const parts = normalized.split("/").filter((part) => part && part !== ".");
   if (!parts.length || parts.some((part) => part === "..")) {
-    throw new Error("Sandbox provider returned an unsafe output path");
+    throw new Error("Sandbox driver returned an unsafe output path");
   }
   return parts.join("/");
 }
@@ -187,11 +187,11 @@ function validateProviderRelativePath(value: string): string {
 function decodeBase64(value: string): Uint8Array {
   const normalized = value.trim();
   if (normalized && (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) || normalized.length % 4 === 1)) {
-    throw new Error("Sandbox provider returned invalid base64 output");
+    throw new Error("Sandbox driver returned invalid base64 output");
   }
   const body = Buffer.from(normalized, "base64");
   if (body.toString("base64").replace(/=+$/, "") !== normalized.replace(/=+$/, "")) {
-    throw new Error("Sandbox provider returned invalid base64 output");
+    throw new Error("Sandbox driver returned invalid base64 output");
   }
   return body;
 }

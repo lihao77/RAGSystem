@@ -164,8 +164,8 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     sandboxAllowInsecureHttp: parseBooleanFlag(env.SANDBOX_ALLOW_INSECURE_HTTP),
   };
   if (appEnv.executionMode === "remote"
-    && Boolean(appEnv.sandboxRemoteUrl) !== Boolean(appEnv.sandboxRemoteToken)) {
-    throw new Error("SANDBOX_REMOTE_URL and SANDBOX_REMOTE_TOKEN must be configured together");
+    && (!appEnv.sandboxRemoteUrl || !appEnv.sandboxRemoteToken)) {
+    throw new Error("EXECUTION_MODE=remote requires SANDBOX_REMOTE_URL and SANDBOX_REMOTE_TOKEN");
   }
   if (isSaaS && appEnv.storageMode !== "postgres") {
     throw new Error("DEPLOYMENT_MODE=saas requires STORAGE_MODE=postgres; SQLite runtime storage is not allowed");

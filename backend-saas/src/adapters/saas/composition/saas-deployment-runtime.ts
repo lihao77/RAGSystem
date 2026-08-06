@@ -23,6 +23,7 @@ import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } fro
 import { createSaaSObjectStorage } from "./saas-object-storage.js";
 import { SaaSTenantRuntimeRegistry } from "./saas-tenant-runtime-registry.js";
 import type { PostgresExecutor } from "../postgres/postgres-executor.js";
+import type { DeploymentProfile } from "@ragsystem/backend-core/identity/types.js";
 
 export interface SaaSDeploymentRuntime extends DeploymentRuntime {
   readonly pluginResources: {
@@ -137,6 +138,7 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
       secrets: control.secretResolver,
     },
     applications: deploymentApplications,
+    validateProfile: validateSaaSProfile,
     createRegistry: (logger, plugins) => new SaaSTenantRuntimeRegistry(
       env,
       control.controlPlane.tenants,
@@ -161,8 +163,17 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
   };
 }
 
+function validateSaaSProfile(profile: DeploymentProfile): void {
+  if (profile.deployment !== "saas" || profile.execution !== "remote") {
+    throw new Error("SaaS backend requires deployment=saas and execution=remote");
+  }
+}
+
 function validateSaaSEnv(env: AppEnv): void {
   if (env.deploymentMode !== "saas") throw new Error("SaaS backend requires DEPLOYMENT_MODE=saas");
+  if (env.executionMode !== "remote" || !env.sandboxRemoteUrl || !env.sandboxRemoteToken) {
+    throw new Error("SaaS backend requires remote sandbox execution configuration");
+  }
   if (env.storageMode !== "postgres" || env.controlStorageMode !== "postgres") {
     throw new Error("SaaS backend requires PostgreSQL runtime and control storage");
   }

@@ -60,10 +60,10 @@ test("standard plugin module selects the deployment runtime without product wiri
   assert.deepEqual(local.capabilities.require(EXECUTION_TOOLS_RUNTIME_CAPABILITY), emptyRuntime());
   local.dispose();
 
-  const supplied = fakeSandboxLease();
+  const supplied = fakeSandboxRuntime();
   const saas = await contributions.createRuntime({
     deploymentKind: "saas",
-    resources: [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxLease, supplied, "test-host")],
+    resources: [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxRuntime, supplied, "test-host")],
   });
   const saasRuntime = saas.capabilities.require(EXECUTION_TOOLS_RUNTIME_CAPABILITY);
   assert.ok(saasRuntime.bash);
@@ -285,7 +285,7 @@ test("local and SaaS search adapters share todo validation and result shape", ()
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-search-policy-"));
   try {
     const local = new LocalSearchToolService({ dataRoot });
-    const saas = new SaaSSearchToolService(fakeSandboxLease());
+    const saas = new SaaSSearchToolService(fakeSandboxRuntime());
     const context = { userId: "user-a", sessionId: "session-search" };
     const input = {
       todos: [
@@ -311,13 +311,9 @@ test("local and SaaS search adapters share todo validation and result shape", ()
 test("SaaS code adapter applies the shared timeout and risk policy", async () => {
   let request = null;
   const service = new SaaSCodeExecutionService({
-    async withLease(_context, operation) {
-      return operation({ id: "lease", owner: {}, createdAt: "now" }, {
-        async executeCode(_lease, input) {
-          request = input;
-          return { result: 1, stdout: "", stderr: "", returnCode: 0, interrupted: false };
-        },
-      });
+    async executeCode(_context, input) {
+      request = input;
+      return { result: 1, stdout: "", stderr: "", returnCode: 0, interrupted: false };
     },
     async releaseRun() {},
     async closeAll() {},
@@ -419,16 +415,12 @@ function success(toolName) {
   };
 }
 
-function fakeSandboxLease() {
+function fakeSandboxRuntime() {
   return {
-    async withLease(_context, operation) {
-      return operation({ id: "lease", owner: { tenantId: "tenant", userId: "user", sessionId: "session", runId: "run" }, createdAt: "now" }, {
-        async glob() { return { files: [], truncated: false }; },
-        async grep() { return { matches: [], scannedFiles: 0, truncated: false }; },
-        async exec() { return { stdout: "", stderr: "", returnCode: 0, interrupted: false }; },
-        async executeCode() { return { result: null, stdout: "", stderr: "", returnCode: 0, interrupted: false }; },
-      });
-    },
+    async glob() { return { files: [], truncated: false }; },
+    async grep() { return { matches: [], scannedFiles: 0, truncated: false }; },
+    async exec() { return { stdout: "", stderr: "", returnCode: 0, interrupted: false }; },
+    async executeCode() { return { result: null, stdout: "", stderr: "", returnCode: 0, interrupted: false }; },
     async releaseRun() {},
     async closeAll() {},
   };

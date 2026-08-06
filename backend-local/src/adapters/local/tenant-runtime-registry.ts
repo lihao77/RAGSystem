@@ -61,7 +61,7 @@ export class LocalTenantRuntimeRegistry extends TenantRuntimeRegistryCore<Runtim
           await container.backgroundTasks.initialize();
           return container;
         } catch (error) {
-          container.close();
+          await container.close();
           throw error;
         }
       },

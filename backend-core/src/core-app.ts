@@ -43,6 +43,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   const controlPlane = deployment.controlPlane;
   const applications = deployment.applications;
   const initialProfile = resolveProfileFromSettings(await controlPlane.settings.getAll(), options.env);
+  deployment.validateProfile?.(initialProfile);
   const initialSessionTokens = deployment.initialSessionTokens
     ?? createSessionTokens(initialProfile.auth, options.env, controlPlane);
   const runtime: AuthRuntime = {
@@ -52,6 +53,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   };
   const refreshProfile = async (): Promise<DeploymentProfile> => {
     const profile = resolveProfileFromSettings(await controlPlane.settings.getAll(), options.env);
+    deployment.validateProfile?.(profile);
     const sessionTokens = createSessionTokens(profile.auth, options.env, controlPlane);
     const identityProvider = await deployment.createIdentityProvider(profile.auth, sessionTokens);
     Object.assign(runtime, { profile, sessionTokens, identityProvider });
@@ -60,6 +62,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   const validateProfileSettings = (settings: Readonly<Record<string, string>>): void => {
     const profile = resolveProfileFromSettings(settings, options.env);
     try {
+      deployment.validateProfile?.(profile);
       createSessionTokens(profile.auth, options.env, controlPlane);
     } catch (error) {
       throw new HttpError(400, "invalid_configuration", error instanceof Error ? error.message : "目标 profile 配置无效");

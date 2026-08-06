@@ -157,7 +157,10 @@ export class TenantRuntimeRegistryCore<TRuntime> implements TenantRuntimeRegistr
     this.closingAll = true;
     clearInterval(this.sweepTimer);
     this.closePromise = Promise.allSettled([...this.entries.values()].map((entry) => this.closeEntry(entry)))
-      .then(() => undefined);
+      .then((results) => {
+        const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+        if (failures.length) throw new AggregateError(failures, "Tenant runtime shutdown failed");
+      });
     return this.closePromise;
   }
 

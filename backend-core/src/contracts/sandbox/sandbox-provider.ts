@@ -10,7 +10,7 @@ export interface SandboxOwner {
 }
 
 export interface SandboxLease {
-  /** Provider-private identifier. It must never be returned in a tool result. */
+  /** Driver-private identifier. It must never be returned in a tool result. */
   id: string;
   owner: SandboxOwner;
   createdAt: string;
@@ -70,13 +70,13 @@ export interface SandboxPreviewResult {
 /**
  * Vendor-neutral data-plane contract.
  *
- * Security invariants are enforced by the provider, not merely requested by this client:
+ * Security invariants are enforced by the driver, not merely requested by this client:
  * - each create call returns a fresh owner-bound sandbox and never reuses an active sandbox across owners;
  * - network="none" and the filesystem access modes are mandatory runtime restrictions;
  * - every file operation canonicalizes paths after symlink resolution and rejects mount/root escapes;
  * - exec/code processes cannot observe the host or another lease's processes, files, credentials, or metadata.
  */
-export interface SandboxProvider {
+export interface SandboxDriver {
   create(input: {
     owner: SandboxOwner;
     network: "none";
@@ -94,36 +94,51 @@ export interface SandboxProvider {
     encoding: "base64";
     contentType: string;
   }): Promise<SandboxFileWriteResult>;
-  readFile(lease: SandboxLease, input: {
+  readFile(lease: SandboxLease, input: SandboxReadFileInput): Promise<SandboxFileReadResult>;
+  writeFile(lease: SandboxLease, input: SandboxWriteFileInput): Promise<SandboxFileWriteResult>;
+  editFile(lease: SandboxLease, input: SandboxEditFileInput): Promise<SandboxFileEditResult>;
+  glob(lease: SandboxLease, input: SandboxGlobInput): Promise<SandboxGlobResult>;
+  grep(lease: SandboxLease, input: SandboxGrepInput): Promise<SandboxGrepResult>;
+  previewFile(lease: SandboxLease, input: SandboxPreviewFileInput): Promise<SandboxPreviewResult>;
+  exec(lease: SandboxLease, input: SandboxExecInput): Promise<SandboxExecResult>;
+  executeCode(lease: SandboxLease, input: SandboxCodeInput): Promise<SandboxCodeResult>;
+}
+
+/** Input accepted by a low-level sandbox driver for reading a file. */
+export interface SandboxReadFileInput {
     path: string;
     encoding: string;
-    /** Provider-enforced response limit. The provider must reject larger files before returning content. */
+    /** Driver-enforced response limit. The driver must reject larger files before returning content. */
     maxBytes?: number | undefined;
     signal?: AbortSignal | undefined;
-  }): Promise<SandboxFileReadResult>;
-  writeFile(lease: SandboxLease, input: {
+}
+
+export interface SandboxWriteFileInput {
     path: string;
     content: string;
     encoding: string;
     signal?: AbortSignal | undefined;
-  }): Promise<SandboxFileWriteResult>;
-  editFile(lease: SandboxLease, input: {
+}
+
+export interface SandboxEditFileInput {
     path: string;
     oldString: string;
     newString: string;
     replaceAll: boolean;
     encoding: string;
     signal?: AbortSignal | undefined;
-  }): Promise<SandboxFileEditResult>;
-  glob(lease: SandboxLease, input: {
+}
+
+export interface SandboxGlobInput {
     /** Results must be file paths relative to this root, never absolute paths. */
     root: string;
     pattern: string;
     recursive: boolean;
     maxResults: number;
     signal?: AbortSignal | undefined;
-  }): Promise<SandboxGlobResult>;
-  grep(lease: SandboxLease, input: {
+}
+
+export interface SandboxGrepInput {
     root: string;
     pattern: string;
     glob: string;
@@ -131,8 +146,9 @@ export interface SandboxProvider {
     maxResults: number;
     contextLines: number;
     signal?: AbortSignal | undefined;
-  }): Promise<SandboxGrepResult>;
-  previewFile(lease: SandboxLease, input: {
+}
+
+export interface SandboxPreviewFileInput {
     path: string;
     encoding: string;
     maxBytes: number;
@@ -140,28 +156,33 @@ export interface SandboxProvider {
     maxDepth: number;
     maxFields: number;
     signal?: AbortSignal | undefined;
-  }): Promise<SandboxPreviewResult>;
-  exec(lease: SandboxLease, input: {
+}
+
+export interface SandboxExecInput {
     command: string;
     cwd: string;
     timeoutSeconds: number;
     signal?: AbortSignal | undefined;
-  }): Promise<SandboxExecResult>;
-  executeCode(lease: SandboxLease, input: {
+}
+
+export interface SandboxCodeInput {
     code: string;
     cwd: string;
     timeoutSeconds: number;
     signal?: AbortSignal | undefined;
-  }): Promise<SandboxCodeResult>;
 }
 
-/** Tenant-scoped lease lifecycle exposed to feature plugins by a deployment host. */
-export interface SandboxLeaseRuntime {
-  withLease<T>(
-    context: ToolExecContext,
-    operation: (lease: SandboxLease, provider: SandboxProvider) => Promise<T>,
-  ): Promise<T>;
-  releaseRun(sessionId: string, runId: string): Promise<void>;
+/** Tenant/run-scoped sandbox operations exposed to feature plugins. */
+export interface RunSandboxRuntime {
+  readFile(context: ToolExecContext, input: Omit<SandboxReadFileInput, "signal">): Promise<SandboxFileReadResult>;
+  writeFile(context: ToolExecContext, input: Omit<SandboxWriteFileInput, "signal">): Promise<SandboxFileWriteResult>;
+  editFile(context: ToolExecContext, input: Omit<SandboxEditFileInput, "signal">): Promise<SandboxFileEditResult>;
+  glob(context: ToolExecContext, input: Omit<SandboxGlobInput, "signal">): Promise<SandboxGlobResult>;
+  grep(context: ToolExecContext, input: Omit<SandboxGrepInput, "signal">): Promise<SandboxGrepResult>;
+  previewFile(context: ToolExecContext, input: Omit<SandboxPreviewFileInput, "signal">): Promise<SandboxPreviewResult>;
+  exec(context: ToolExecContext, input: Omit<SandboxExecInput, "signal">): Promise<SandboxExecResult>;
+  executeCode(context: ToolExecContext, input: Omit<SandboxCodeInput, "signal">): Promise<SandboxCodeResult>;
+  releaseRun(sessionId: string, runId: string, options?: { collectOutputs?: boolean }): Promise<void>;
   closeAll(): Promise<void>;
 }
 
@@ -169,8 +190,8 @@ export interface SandboxLeaseLifecycle {
   prepare(
     lease: SandboxLease,
     owner: SandboxOwner,
-    provider: SandboxProvider,
+    driver: SandboxDriver,
     input: { attachmentFileIds: readonly string[] },
   ): Promise<void>;
-  collectOutputs(lease: SandboxLease, owner: SandboxOwner, provider: SandboxProvider): Promise<void>;
+  collectOutputs(lease: SandboxLease, owner: SandboxOwner, driver: SandboxDriver): Promise<void>;
 }

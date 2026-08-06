@@ -6,6 +6,7 @@ import path from "node:path";
 import { provideBackendResource, type BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
+import type { DeploymentProfile } from "@ragsystem/backend-core/identity/types.js";
 import { LocalIdentityProvider, PasswordIdentityProvider, type IdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
 import type { SessionTokenService } from "@ragsystem/backend-core/services/runtime/session-token-service.js";
 import { createWsTicketService } from "@ragsystem/backend-core/services/runtime/ws-ticket-service.js";
@@ -58,6 +59,7 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
     pluginResources: { controlDatabase: controlStore.db },
     applications: deploymentApplications,
     hostResources,
+    validateProfile: validateLocalProfile,
     wsTickets,
     createRegistry: (logger, plugins) => new LocalTenantRuntimeRegistry(
       env,
@@ -77,6 +79,12 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
       await controlPlane.close();
     },
   };
+}
+
+function validateLocalProfile(profile: DeploymentProfile): void {
+  if (profile.deployment !== "local" || profile.execution !== "local") {
+    throw new Error("Local backend currently requires deployment=local and execution=local");
+  }
 }
 
 function createLocalIdentityProvider(

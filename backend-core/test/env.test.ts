@@ -39,6 +39,12 @@ describe("environment loading", () => {
     expect(() => loadEnv({
       EXECUTION_MODE: "remote",
       SANDBOX_REMOTE_TOKEN: "missing-url",
-    })).toThrow("SANDBOX_REMOTE_URL and SANDBOX_REMOTE_TOKEN must be configured together");
+    })).toThrow("EXECUTION_MODE=remote requires SANDBOX_REMOTE_URL and SANDBOX_REMOTE_TOKEN");
+  });
+
+  it("rejects remote execution without a sandbox endpoint", () => {
+    expect(() => loadEnv({
+      EXECUTION_MODE: "remote",
+    })).toThrow("EXECUTION_MODE=remote requires SANDBOX_REMOTE_URL and SANDBOX_REMOTE_TOKEN");
   });
 });

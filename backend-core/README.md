@@ -18,9 +18,10 @@ own Local filesystem, SQLite, SaaS PostgreSQL, sandbox, or object-storage adapte
 
 ## Deployment Adapters Own
 
-- `backend-local`: filesystem, SQLite, local sessions, local runtime storage, and local host
-  resource injection.
-- `backend-saas`: PostgreSQL, object storage, sandbox leases, and SaaS session/runtime adapters.
+- `backend-local`: filesystem, SQLite, local sessions, local runtime storage, host execution
+  environment, and local resource injection.
+- `backend-saas`: PostgreSQL, object storage, run-scoped sandbox runtime, and SaaS session/runtime
+  adapters.
 
 Deployments inject host capabilities through typed resource tokens. Core and plugins must not
 discover deployment implementations through repository paths or concrete service imports.
@@ -32,8 +33,11 @@ discover deployment implementations through repository paths or concrete service
 - Skills: Skill packages, built-in Skill sources, execution, authoring, and Skill tools.
 - Artifacts: artifact storage, staging, and artifact tools.
 - MCP: server configuration, client lifecycle, and MCP tools.
-- Execution Tools, Document Tools, Sandbox, Widget, Daemon/Feishu, and Agent Builder: their
+- Execution Tools, Document Tools, Widget, Daemon/Feishu, and Agent Builder: their
   respective tools, routes, persistence, and runtime capabilities.
+
+Sandboxing is deployment infrastructure rather than a feature plugin. Deployments expose the
+high-level run sandbox runtime to tool plugins while the low-level sandbox driver remains private.
 
 Plugins consume Core contracts and runtime ports. A plugin may depend on another plugin's
 capability or typed resource token, but it must not import a Core concrete service as its runtime

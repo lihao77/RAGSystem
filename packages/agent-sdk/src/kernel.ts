@@ -31,7 +31,7 @@ import type {
   RuntimeSession,
   ToolProvider,
 } from "./contracts.js";
-import type { HookRegistry } from "./hooks/types.js";
+import type { HookRegistry, RunFinallyInput } from "./hooks/types.js";
 import type { AgentProfile } from "./types.js";
 import { KernelContext } from "./kernel-context.js";
 import type { ContextUsageSnapshot } from "./kernel-events.js";
@@ -83,8 +83,9 @@ export class AgentKernel {
   async run(session: RuntimeSession): Promise<KernelResult> {
     const ctx = KernelContext.create(session);
     const agentName = session.profile.agentName;
-    await this.hooks.emit("run.before", { session });
+    let terminal: RunFinallyInput | null = null;
     try {
+      await this.hooks.emit("run.before", { session });
       let tokenUsage: TokenUsage | null = null;
       const startRound = session.startRound;
       const resumeRound = collectUnansweredToolRound(ctx.messages, session.resumeToolResults);
@@ -190,12 +191,15 @@ export class AgentKernel {
         result.usage = tokenUsage;
       }
       await this.hooks.emit("run.after", { session, result });
+      terminal = { session, status: "completed", result };
       return result;
     } catch (error) {
       if (isAbortError(error)) {
+        terminal = { session, status: "aborted", error };
         throw error;
       }
       if (error instanceof RecoverableInterrupt) {
+        terminal = { session, status: "suspended", error };
         throw error;
       }
       this.events.emit({
@@ -203,7 +207,10 @@ export class AgentKernel {
         agentName,
         message: error instanceof Error ? error.message : String(error),
       });
+      terminal = { session, status: "failed", error };
       throw error;
+    } finally {
+      if (terminal) await this.hooks.emit("run.finally", terminal);
     }
   }
 }

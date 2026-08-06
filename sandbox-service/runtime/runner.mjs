@@ -26,7 +26,20 @@ async function execute(executionKind, input) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, {
       cwd,
-      env: { PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin", HOME: "/work", TMPDIR: "/tmp", LANG: "C.UTF-8" },
+      env: {
+        PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+        HOME: "/work",
+        TMPDIR: "/tmp",
+        LANG: "C.UTF-8",
+        SESSION_WORKSPACE_DIR: "/work",
+        SESSION_UPLOADS_DIR: "/input/uploads",
+        SESSION_ARTIFACTS_DIR: "/input/artifacts",
+        SESSION_TRANSIENT_DIR: "/work/transient",
+        RAGSYSTEM_WORKSPACE_DIR: "/work",
+        RAGSYSTEM_UPLOADS_DIR: "/input/uploads",
+        RAGSYSTEM_ARTIFACTS_DIR: "/input/artifacts",
+        RAGSYSTEM_TRANSIENT_DIR: "/work/transient",
+      },
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });

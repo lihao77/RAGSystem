@@ -11,13 +11,13 @@ import { TenantRuntimeRegistryCore } from "@ragsystem/backend-core/services/runt
 import type { RuntimeContainerRegistry } from "@ragsystem/backend-core/services/runtime/runtime-container-registry.js";
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
 import { createSaaSRuntimeContainer, prepareSaaSRuntimeContainer } from "./saas-runtime-container.js";
-import type { SandboxProvider } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
-import { RemoteHttpSandboxProvider } from "../sandbox/http-sandbox-provider.js";
+import type { SandboxDriver } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
+import { RemoteHttpSandboxDriver } from "../sandbox/http-sandbox-provider.js";
 
 export interface SaaSTenantRuntimeRegistryOptions {
   idleTimeoutMs?: number;
   sweepIntervalMs?: number;
-  sandboxProvider?: SandboxProvider;
+  sandboxDriver?: SandboxDriver;
   hooks?: (registry: HookRegistry) => void;
   plugins?: BackendRuntimeContributions;
 }
@@ -33,14 +33,17 @@ export class SaaSTenantRuntimeRegistry
     logger?: AgentExecutionLogger,
     options: SaaSTenantRuntimeRegistryOptions = {},
   ) {
-    const sandboxProvider = options.sandboxProvider ?? (env.sandboxRemoteUrl && env.sandboxRemoteToken
-      ? new RemoteHttpSandboxProvider({
+    const sandboxDriver = options.sandboxDriver ?? (env.sandboxRemoteUrl && env.sandboxRemoteToken
+      ? new RemoteHttpSandboxDriver({
           baseUrl: env.sandboxRemoteUrl,
           token: env.sandboxRemoteToken,
           requestTimeoutMs: env.sandboxRequestTimeoutMs ?? 30_000,
           allowInsecureHttp: env.sandboxAllowInsecureHttp,
         })
       : undefined);
+    if (!sandboxDriver) {
+      throw new Error("SaaS tenant runtime requires a remote sandbox driver");
+    }
     const tenantRoot = (tenantId: TenantId) => path.join(env.tenantsRoot, tenantId);
     super(tenantDirectory, {
       ...(options.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.idleTimeoutMs }),
@@ -51,7 +54,8 @@ export class SaaSTenantRuntimeRegistry
           tenantId,
           dataRoot,
           conversationRuntime,
-          ...(sandboxProvider ? { sandboxProvider, sandboxLeaseTimeoutSeconds: env.sandboxLeaseTimeoutSeconds ?? 900 } : {}),
+          sandboxDriver,
+          sandboxLeaseTimeoutSeconds: env.sandboxLeaseTimeoutSeconds ?? 900,
           ...(logger ? { logger } : {}),
           ...(options.hooks ? { hooks: options.hooks } : {}),
           ...(options.plugins ? { plugins: options.plugins } : {}),
@@ -60,7 +64,7 @@ export class SaaSTenantRuntimeRegistry
           await runtime.backgroundTasks.initialize();
           return runtime;
         } catch (error) {
-          runtime.close();
+          await runtime.close();
           throw error;
         }
       },

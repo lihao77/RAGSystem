@@ -3,6 +3,9 @@
 Local deployment composition for RAGSystem. It owns SQLite, sqlite-vec, filesystem storage,
 local identity, host execution, and the desktop/server entrypoint.
 
+Local supplies the host execution environment directly; it does not install a sandbox feature
+plugin. Isolated execution must be provided by a deployment-level sandbox runtime.
+
 ```bash
 cp .env.example .env
 npm run dev

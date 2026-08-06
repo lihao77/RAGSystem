@@ -3,7 +3,7 @@ export { createRuntime } from "./runtime.js";
 export type { CreateRuntimeOptions, PreviewInput, PreviewResult, RunInput, RunHandle } from "./runtime.js";
 // 事件 Hook 系统
 export { createHookRegistry, EMPTY_HOOK_OUTPUT } from "./hooks/index.js";
-export type { HookEvent, HookHandler, HookInputMap, HookOutputMap, HookRegistry, HookDecision, ToolBeforeOutput, ToolAfterOutput, RoundBeforeOutput, BaseHookOutput, RunBeforeInput, RunAfterInput, RoundBeforeInput, RoundAfterInput, ToolBeforeInput, ToolAfterInput, ToolErrorInput } from "./hooks/index.js";
+export type { HookEvent, HookHandler, HookInputMap, HookOutputMap, HookRegistry, HookDecision, ToolBeforeOutput, ToolAfterOutput, RoundBeforeOutput, BaseHookOutput, RunBeforeInput, RunAfterInput, RunFinallyInput, RoundBeforeInput, RoundAfterInput, ToolBeforeInput, ToolAfterInput, ToolErrorInput } from "./hooks/index.js";
 export type { AgentProfile, ResolvedTier, TierMap, CompressionBudgetConfig, AgentBehavior, MessageInfo, RunStepRecord, RunRecord, RunStatus, MessageRole, ToolCallRef } from "./types.js";
 export { DEFAULT_COMPRESSION_BUDGET } from "./types.js";
 export type { KernelEvent, ModelRequestEvent, ModelAttemptStartedEvent, ModelAttemptFailedEvent, ModelAttemptCompletedEvent, FirstTokenEvent, OutputDeltaEvent, IntentDeltaEvent, IntentCompleteEvent, AssistantIntermediateEvent, ToolCallEvent, ToolResultEvent, RuntimeErrorEvent, ContextUsageSnapshot, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, ToolInstructionMode, RuntimeSession, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult, ToolResultMedia } from "./contracts.js";

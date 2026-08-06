@@ -1,7 +1,21 @@
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
 
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
-import type { SandboxLease, SandboxLeaseLifecycle, SandboxOwner, SandboxProvider } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
+import type {
+  RunSandboxRuntime,
+  SandboxCodeInput,
+  SandboxDriver,
+  SandboxEditFileInput,
+  SandboxExecInput,
+  SandboxGlobInput,
+  SandboxGrepInput,
+  SandboxLease,
+  SandboxLeaseLifecycle,
+  SandboxOwner,
+  SandboxPreviewFileInput,
+  SandboxReadFileInput,
+  SandboxWriteFileInput,
+} from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 
 interface LeaseEntry {
   owner: SandboxOwner;
@@ -9,30 +23,28 @@ interface LeaseEntry {
 }
 
 /** Tenant-bound run lease registry. A lease can only be retrieved through its full owner identity. */
-export class SandboxLeaseManager {
+export class RunSandboxManager implements RunSandboxRuntime {
   private readonly entries = new Map<string, LeaseEntry>();
-  private readonly observedSignals = new WeakMap<AbortSignal, Set<string>>();
   private closed = false;
 
   constructor(
     private readonly tenantId: TenantId,
-    private readonly provider: SandboxProvider,
+    private readonly driver: SandboxDriver,
     private readonly timeoutSeconds = 900,
     private readonly lifecycle?: SandboxLeaseLifecycle,
   ) {}
 
-  async getOrCreate(context: ToolExecContext): Promise<SandboxLease> {
+  private async getOrCreate(context: ToolExecContext): Promise<SandboxLease> {
     if (this.closed) throw new Error("Sandbox lease manager is closed");
     const owner = this.resolveOwner(context);
     const key = ownerKey(owner);
     const existing = this.entries.get(key);
     if (existing) {
       assertSameOwner(existing.owner, owner);
-      this.observeAbort(context.signal, owner);
       return existing.leasePromise;
     }
 
-    const leasePromise = this.provider.create({
+    const leasePromise = this.driver.create({
       owner,
       network: "none",
       timeoutSeconds: this.timeoutSeconds,
@@ -41,11 +53,15 @@ export class SandboxLeaseManager {
       .then(async (lease) => {
         assertSameOwner(lease.owner, owner);
         try {
-          await this.lifecycle?.prepare(lease, owner, this.provider, {
+          await this.lifecycle?.prepare(lease, owner, this.driver, {
             attachmentFileIds: context.attachmentFileIds ?? [],
           });
         } catch (error) {
-          await this.provider.destroy(lease).catch(() => undefined);
+          try {
+            await this.driver.destroy(lease);
+          } catch (cleanupError) {
+            throw new AggregateError([error, cleanupError], "Sandbox preparation and cleanup failed");
+          }
           throw error;
         }
         return lease;
@@ -53,24 +69,51 @@ export class SandboxLeaseManager {
       .catch((error) => {
         if (this.entries.get(key)?.leasePromise === leasePromise) this.entries.delete(key);
         throw error;
-      });
+    });
     this.entries.set(key, { owner, leasePromise });
-    this.observeAbort(context.signal, owner);
     return leasePromise;
   }
 
-  async withLease<T>(
+  private async withLease<T>(
     context: ToolExecContext,
-    operation: (lease: SandboxLease, provider: SandboxProvider) => Promise<T>,
+    operation: (lease: SandboxLease, driver: SandboxDriver) => Promise<T>,
   ): Promise<T> {
-    return operation(await this.getOrCreate(context), this.provider);
+    return operation(await this.getOrCreate(context), this.driver);
   }
 
-  async release(context: ToolExecContext): Promise<void> {
-    await this.releaseOwner(this.resolveOwner(context));
+  async readFile(context: ToolExecContext, input: Omit<SandboxReadFileInput, "signal">) {
+    return this.withLease(context, (lease, driver) => driver.readFile(lease, withSignal(input, context.signal)));
   }
 
-  async releaseOwner(owner: SandboxOwner, options: { collectOutputs?: boolean } = {}): Promise<void> {
+  async writeFile(context: ToolExecContext, input: Omit<SandboxWriteFileInput, "signal">) {
+    return this.withLease(context, (lease, driver) => driver.writeFile(lease, withSignal(input, context.signal)));
+  }
+
+  async editFile(context: ToolExecContext, input: Omit<SandboxEditFileInput, "signal">) {
+    return this.withLease(context, (lease, driver) => driver.editFile(lease, withSignal(input, context.signal)));
+  }
+
+  async glob(context: ToolExecContext, input: Omit<SandboxGlobInput, "signal">) {
+    return this.withLease(context, (lease, driver) => driver.glob(lease, withSignal(input, context.signal)));
+  }
+
+  async grep(context: ToolExecContext, input: Omit<SandboxGrepInput, "signal">) {
+    return this.withLease(context, (lease, driver) => driver.grep(lease, withSignal(input, context.signal)));
+  }
+
+  async previewFile(context: ToolExecContext, input: Omit<SandboxPreviewFileInput, "signal">) {
+    return this.withLease(context, (lease, driver) => driver.previewFile(lease, withSignal(input, context.signal)));
+  }
+
+  async exec(context: ToolExecContext, input: Omit<SandboxExecInput, "signal">) {
+    return this.withLease(context, (lease, driver) => driver.exec(lease, withSignal(input, context.signal)));
+  }
+
+  async executeCode(context: ToolExecContext, input: Omit<SandboxCodeInput, "signal">) {
+    return this.withLease(context, (lease, driver) => driver.executeCode(lease, withSignal(input, context.signal)));
+  }
+
+  private async releaseOwner(owner: SandboxOwner, options: { collectOutputs?: boolean } = {}): Promise<void> {
     if (owner.tenantId !== this.tenantId) throw new Error("Cannot release a sandbox owned by another tenant");
     const key = ownerKey(owner);
     const entry = this.entries.get(key);
@@ -78,18 +121,35 @@ export class SandboxLeaseManager {
     assertSameOwner(entry.owner, owner);
     this.entries.delete(key);
     const lease = await entry.leasePromise;
+    let collectError: unknown;
     try {
-      if (options.collectOutputs) await this.lifecycle?.collectOutputs(lease, owner, this.provider);
-    } finally {
-      await this.provider.destroy(lease);
+      if (options.collectOutputs) await this.lifecycle?.collectOutputs(lease, owner, this.driver);
+    } catch (error) {
+      collectError = error;
+    }
+    try {
+      await this.driver.destroy(lease);
+    } catch (destroyError) {
+      if (collectError !== undefined) {
+        throw new AggregateError([collectError, destroyError], "Sandbox output collection and cleanup failed");
+      }
+      throw destroyError;
+    }
+    if (collectError !== undefined) {
+      throw collectError;
     }
   }
 
-  async releaseRun(sessionId: string, runId: string): Promise<void> {
+  async releaseRun(
+    sessionId: string,
+    runId: string,
+    options: { collectOutputs?: boolean } = {},
+  ): Promise<void> {
     const matching = [...this.entries.values()].filter((entry) =>
       entry.owner.sessionId === sessionId && entry.owner.runId === runId,
     );
-    const results = await Promise.allSettled(matching.map((entry) => this.releaseOwner(entry.owner, { collectOutputs: true })));
+    const releaseOptions = { collectOutputs: options.collectOutputs ?? true };
+    const results = await Promise.allSettled(matching.map((entry) => this.releaseOwner(entry.owner, releaseOptions)));
     const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
     if (failures.length) throw new AggregateError(failures, "Sandbox output collection or cleanup failed");
   }
@@ -99,7 +159,17 @@ export class SandboxLeaseManager {
     this.closed = true;
     const entries = [...this.entries.values()];
     this.entries.clear();
-    await Promise.allSettled(entries.map(async (entry) => this.provider.destroy(await entry.leasePromise)));
+    const results = await Promise.allSettled(entries.map(async (entry) => {
+      let lease: SandboxLease;
+      try {
+        lease = await entry.leasePromise;
+      } catch {
+        return;
+      }
+      await this.driver.destroy(lease);
+    }));
+    const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (failures.length) throw new AggregateError(failures, "Sandbox cleanup failed");
   }
 
   private resolveOwner(context: ToolExecContext): SandboxOwner {
@@ -109,19 +179,13 @@ export class SandboxLeaseManager {
     return { tenantId: this.tenantId, userId, sessionId, runId };
   }
 
-  private observeAbort(signal: AbortSignal | undefined, owner: SandboxOwner): void {
-    if (!signal) return;
-    const key = ownerKey(owner);
-    const owners = this.observedSignals.get(signal) ?? new Set<string>();
-    if (owners.has(key)) return;
-    owners.add(key);
-    this.observedSignals.set(signal, owners);
-    if (signal.aborted) {
-      void this.releaseOwner(owner).catch(() => undefined);
-      return;
-    }
-    signal.addEventListener("abort", () => { void this.releaseOwner(owner).catch(() => undefined); }, { once: true });
-  }
+}
+
+function withSignal<Input extends object>(
+  input: Input,
+  signal: AbortSignal | undefined,
+): Input & { signal?: AbortSignal | undefined } {
+  return signal ? { ...input, signal } : input;
 }
 
 function requiredIdentity(value: string | null | undefined, label: string): string {

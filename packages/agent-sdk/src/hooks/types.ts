@@ -23,6 +23,7 @@ export type HookEvent =
   // run 级
   | "run.before"
   | "run.after"
+  | "run.finally"
   // round 级（LLM 调用轮次）
   | "round.before"
   | "round.after"
@@ -42,6 +43,11 @@ export interface RunAfterInput {
   session: RuntimeSession;
   result: KernelResult;
 }
+
+/** run 终态。无论成功、失败、取消或可恢复挂起都会触发。 */
+export type RunFinallyInput =
+  | { session: RuntimeSession; status: "completed"; result: KernelResult }
+  | { session: RuntimeSession; status: "failed" | "aborted" | "suspended"; error: unknown };
 
 /** 每轮问模型前（compaction 挂这里；可注入 additionalContext）。 */
 export interface RoundBeforeInput {
@@ -97,6 +103,7 @@ export interface ToolErrorInput {
 export interface HookInputMap {
   "run.before": RunBeforeInput;
   "run.after": RunAfterInput;
+  "run.finally": RunFinallyInput;
   "round.before": RoundBeforeInput;
   "round.after": RoundAfterInput;
   "tool.before": ToolBeforeInput;
@@ -147,6 +154,7 @@ export interface RoundBeforeOutput extends BaseHookOutput {
 export interface HookOutputMap {
   "run.before": BaseHookOutput;
   "run.after": BaseHookOutput;
+  "run.finally": BaseHookOutput;
   "round.before": RoundBeforeOutput;
   "round.after": BaseHookOutput;
   "tool.before": ToolBeforeOutput;

@@ -31,14 +31,29 @@ export const EXECUTION_ENVIRONMENT_CAPABILITY = createCapability<ExecutionEnviro
 );
 
 /**
- * Local's host execution environment. This is the deliberate no-sandbox
- * fallback used when the optional sandbox plugin is not installed.
+ * Local's host execution environment. The Local deployment provides this
+ * explicitly when it selects direct host execution.
  */
 export function createLocalExecutionEnvironment(dataRoot: string): ExecutionEnvironmentCapability {
   return {
     deploymentKind: "local",
     paths: (context) => createLocalExecutionPaths(dataRoot, context),
     environment: (context) => executionPathEnvironment(createLocalExecutionPaths(dataRoot, context)),
+  };
+}
+
+/** Remote sandbox directory layout owned by SaaS deployment composition. */
+export function createSaaSExecutionEnvironment(): ExecutionEnvironmentCapability {
+  const paths: ExecutionPaths = {
+    workspace: "/work",
+    uploads: "/input/uploads",
+    artifacts: "/input/artifacts",
+    transient: "/work/transient",
+  };
+  return {
+    deploymentKind: "saas",
+    paths: () => paths,
+    environment: () => executionPathEnvironment(paths),
   };
 }
 

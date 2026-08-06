@@ -11,6 +11,7 @@ export type {
   RoundBeforeOutput,
   RunAfterInput,
   RunBeforeInput,
+  RunFinallyInput,
   RoundAfterInput,
   RoundBeforeInput,
   ToolAfterInput,

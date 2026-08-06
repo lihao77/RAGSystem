@@ -45,10 +45,10 @@ test("standard plugin module selects the deployment runtime without product wiri
   assert.deepEqual(local.capabilities.require(DOCUMENT_TOOLS_RUNTIME_CAPABILITY), { document: null });
   local.dispose();
 
-  const supplied = fakeSandboxLease();
+  const supplied = fakeSandboxRuntime();
   const saas = await contributions.createRuntime({
     deploymentKind: "saas",
-    resources: [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxLease, supplied, "test-host")],
+    resources: [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxRuntime, supplied, "test-host")],
   });
   assert.ok(saas.capabilities.require(DOCUMENT_TOOLS_RUNTIME_CAPABILITY).document);
   saas.dispose();
@@ -162,14 +162,10 @@ test("local and SaaS document adapters share encoding and line-range policy", as
     await local.writeFile({ content: "a\nb\nc\n", filePath: "lines.txt" }, context, { custom_params: {} }, pathPolicy);
 
     const saas = new SaaSDocumentToolService({
-      async withLease(_context, operation) {
-        return operation({ id: "lease", owner: {}, createdAt: "now" }, {
-          async readFile() { return { content: "a\nb\nc\n", size: 6 }; },
-          async writeFile() { return { size: 0 }; },
-          async editFile() { return { size: 0, replacements: 0 }; },
-          async previewFile() { return { fileType: "text", fileSize: 6, structure: {} }; },
-        });
-      },
+      async readFile() { return { content: "a\nb\nc\n", size: 6 }; },
+      async writeFile() { return { size: 0 }; },
+      async editFile() { return { size: 0, replacements: 0 }; },
+      async previewFile() { return { fileType: "text", fileSize: 6, structure: {} }; },
       async releaseRun() {},
       async closeAll() {},
     });
@@ -223,16 +219,12 @@ function success(toolName) {
   };
 }
 
-function fakeSandboxLease() {
+function fakeSandboxRuntime() {
   return {
-    async withLease(_context, operation) {
-      return operation({ id: "lease", owner: { tenantId: "tenant", userId: "user", sessionId: "session", runId: "run" }, createdAt: "now" }, {
-        async readFile() { return { content: "", size: 0 }; },
-        async writeFile() { return { size: 0 }; },
-        async editFile() { return { size: 0, replacements: 0 }; },
-        async previewFile() { return { fileType: "text", fileSize: 0, structure: {} }; },
-      });
-    },
+    async readFile() { return { content: "", size: 0 }; },
+    async writeFile() { return { size: 0 }; },
+    async editFile() { return { size: 0, replacements: 0 }; },
+    async previewFile() { return { fileType: "text", fileSize: 0, structure: {} }; },
     async releaseRun() {},
     async closeAll() {},
   };

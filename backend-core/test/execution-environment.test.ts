@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EXECUTION_ENVIRONMENT_CAPABILITY,
   createLocalExecutionEnvironment,
+  createSaaSExecutionEnvironment,
 } from "../src/contracts/execution/execution-environment.js";
 import type { LocalCoreRuntimeDependencies } from "../src/contracts/runtime/runtime-container.js";
 import { CapabilityRegistry } from "../src/plugins/capability-registry.js";
@@ -37,8 +38,13 @@ describe("Local execution environment", () => {
     });
   });
 
-  it("registers the host environment when Local has no sandbox plugin", () => {
+  it("consumes the execution environment supplied by the deployment", async () => {
     const pluginCapabilities = new CapabilityRegistry();
+    pluginCapabilities.provide(
+      EXECUTION_ENVIRONMENT_CAPABILITY,
+      createLocalExecutionEnvironment(path.resolve("test-data-root")),
+      "test-deployment",
+    );
     const closeInfrastructure = vi.fn();
     const backgroundTasks = { setOnTaskCompleted: vi.fn() };
     const dependencies = {
@@ -61,7 +67,45 @@ describe("Local execution environment", () => {
       path.resolve("test-data-root", "sessions", "session-1", "workspace"),
     );
 
-    runtime.close();
+    await runtime.close();
     expect(closeInfrastructure).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a deployment that omits its execution environment", () => {
+    const dependencies = {
+      deploymentKind: "local",
+      tenantId: createTenantId("tnt_test"),
+      dataRoot: path.resolve("test-data-root"),
+      pluginCapabilities: new CapabilityRegistry(),
+    } as unknown as LocalCoreRuntimeDependencies;
+
+    expect(() => createCoreRuntimeContainer(dependencies)).toThrow(
+      "local deployment must provide an execution environment capability",
+    );
+  });
+});
+
+describe("SaaS execution environment", () => {
+  it("uses the remote sandbox directory contract", () => {
+    const environment = createSaaSExecutionEnvironment();
+    const paths = environment.paths({ sessionId: "ignored", runId: "ignored" });
+
+    expect(environment.deploymentKind).toBe("saas");
+    expect(paths).toEqual({
+      workspace: "/work",
+      uploads: "/input/uploads",
+      artifacts: "/input/artifacts",
+      transient: "/work/transient",
+    });
+    expect(environment.environment({})).toEqual({
+      SESSION_WORKSPACE_DIR: "/work",
+      SESSION_UPLOADS_DIR: "/input/uploads",
+      SESSION_ARTIFACTS_DIR: "/input/artifacts",
+      SESSION_TRANSIENT_DIR: "/work/transient",
+      RAGSYSTEM_WORKSPACE_DIR: "/work",
+      RAGSYSTEM_UPLOADS_DIR: "/input/uploads",
+      RAGSYSTEM_ARTIFACTS_DIR: "/input/artifacts",
+      RAGSYSTEM_TRANSIENT_DIR: "/work/transient",
+    });
   });
 });

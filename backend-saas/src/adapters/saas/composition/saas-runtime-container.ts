@@ -3,6 +3,7 @@ import path from "node:path";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { BackendRuntimeContributions } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
+import { EXECUTION_ENVIRONMENT_CAPABILITY, createSaaSExecutionEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 
 import type { RuntimeContainer, SaaSRuntimeContainer } from "@ragsystem/backend-core/contracts/runtime/runtime-container.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
@@ -26,11 +27,11 @@ import { SaaSAgentMetricsStore } from "../postgres/saas-agent-metrics-store.js";
 import { SaaSPermissionPolicyStore } from "../postgres/saas-permission-policy-store.js";
 import { createPostgresExecutionStorage } from "../postgres/postgres-execution-storage.js";
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
-import type { SandboxProvider } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
+import type { SandboxDriver } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import { SaaSSandboxFileBridge } from "../sandbox/sandbox-file-bridge.js";
-import { SandboxLeaseManager } from "../sandbox/sandbox-lease-manager.js";
+import { RunSandboxManager } from "../sandbox/sandbox-lease-manager.js";
 export interface SaaSRuntimeContainerOptions {
   tenantId: TenantId;
   dataRoot: string;
@@ -39,12 +40,15 @@ export interface SaaSRuntimeContainerOptions {
   hooks?: (registry: HookRegistry) => void;
   plugins?: BackendRuntimeContributions;
   modelAdapterProvidersConfigPath?: string;
-  sandboxProvider?: SandboxProvider;
+  sandboxDriver: SandboxDriver;
   sandboxLeaseTimeoutSeconds?: number;
 }
 
 /** Assemble a tenant runtime without constructing any Local or SQLite adapter. */
 export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOptions): Promise<SaaSRuntimeContainer> {
+  if (!options.sandboxDriver) {
+    throw new Error("SaaS runtime container requires a sandbox driver");
+  }
   const { tenantId, conversationRuntime } = options;
   const dataRoot = path.resolve(options.dataRoot);
   const runtimeStorage = conversationRuntime.createRuntimeStorage(tenantId);
@@ -90,10 +94,13 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     goalStore,
   );
   const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
-  const sandboxFileBridge = options.sandboxProvider ? new SaaSSandboxFileBridge(sessionFiles) : null;
-  const sandboxLeases = options.sandboxProvider
-    ? new SandboxLeaseManager(tenantId, options.sandboxProvider, options.sandboxLeaseTimeoutSeconds, sandboxFileBridge ?? undefined)
-    : null;
+  const sandboxFileBridge = new SaaSSandboxFileBridge(sessionFiles);
+  const sandboxRuntime = new RunSandboxManager(
+    tenantId,
+    options.sandboxDriver,
+    options.sandboxLeaseTimeoutSeconds,
+    sandboxFileBridge,
+  );
   const pluginRuntime = await options.plugins?.createRuntime({
     deploymentKind: "saas",
     tenantId,
@@ -104,11 +111,14 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     sessions: sessionApplication,
     backgroundTasks,
     clientEvents,
-    resources: sandboxLeases
-      ? [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxLease, sandboxLeases, "@ragsystem/backend-saas")]
-      : [],
+    resources: [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxRuntime, sandboxRuntime, "@ragsystem/backend-saas")],
   });
   const pluginCapabilities = pluginRuntime?.capabilities ?? new CapabilityRegistry();
+  pluginCapabilities.provide(
+    EXECUTION_ENVIRONMENT_CAPABILITY,
+    createSaaSExecutionEnvironment(),
+    "@ragsystem/backend-saas",
+  );
 
   return createCoreRuntimeContainer({
     deploymentKind: "saas",
@@ -116,24 +126,27 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     pluginCapabilities,
     dataRoot,
     ...(options.logger ? { logger: options.logger } : {}),
-    ...((options.hooks || sandboxLeases) ? { hooks: (registry: HookRegistry) => {
+    hooks: (registry: HookRegistry) => {
       options.hooks?.(registry);
-      if (sandboxLeases) {
-        registry.on("run.after", async ({ session }) => {
-          try {
-            await sandboxLeases.releaseRun(session.sessionId, session.runId);
-          } catch (error) {
-            options.logger?.error({
-              tenantId,
-              sessionId: session.sessionId,
-              runId: session.runId,
-              error: error instanceof Error ? error.message : String(error),
-            }, "Sandbox output collection or cleanup failed");
-            throw error;
-          }
-        });
-      }
-    } } : {}),
+      registry.on("run.finally", async ({ session, status }) => {
+        // A recoverable interrupt resumes the same run and therefore retains its lease.
+        if (status === "suspended") return;
+        try {
+          await sandboxRuntime.releaseRun(session.sessionId, session.runId, {
+            collectOutputs: status === "completed" || status === "failed",
+          });
+        } catch (error) {
+          options.logger?.error({
+            tenantId,
+            sessionId: session.sessionId,
+            runId: session.runId,
+            status,
+            error: error instanceof Error ? error.message : String(error),
+          }, "Sandbox output collection or cleanup failed");
+          throw error;
+        }
+      });
+    },
     ...(options.plugins ? { plugins: options.plugins } : {}),
     ...(pluginRuntime ? { pluginRuntime } : {}),
     clientEvents,
@@ -181,12 +194,15 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
       fileHistory,
       sessionFiles,
     },
-    closeInfrastructure: () => {
+    closeInfrastructure: async () => {
       backgroundTasks.dispose();
       // Shared process-level outbox dispatcher is owned by conversationRuntime.
       realtimeEvents.close();
-      void sandboxLeases?.closeAll();
-      pluginRuntime?.dispose();
+      try {
+        await sandboxRuntime.closeAll();
+      } finally {
+        pluginRuntime?.dispose();
+      }
     },
   });
 }

@@ -6,7 +6,7 @@ import {
   type BackendResourceToken,
 } from "./resource-registry.js";
 import type { FileEditHistoryPort } from "../contracts/file-history-store/index.js";
-import type { SandboxLeaseRuntime } from "../contracts/sandbox/sandbox-provider.js";
+import type { RunSandboxRuntime } from "../contracts/sandbox/sandbox-provider.js";
 
 export type BackendDeploymentResource = { kind: "local" | "saas" };
 export interface BackendToolPolicyResource {
@@ -27,7 +27,7 @@ export const BACKEND_HOST_RESOURCES = Object.freeze({
   leaderElection: createBackendResourceToken<unknown>("ragsystem.host.leader-election", "ragsystem.backend-core"),
   toolPolicy: createBackendResourceToken<BackendToolPolicyResource>("ragsystem.host.tool-policy", "ragsystem.backend-core"),
   fileEditHistory: createBackendResourceToken<FileEditHistoryPort>("ragsystem.host.file-edit-history", "ragsystem.backend-core"),
-  sandboxLease: createBackendResourceToken<SandboxLeaseRuntime>("ragsystem.host.sandbox-lease", "ragsystem.backend-core"),
+  sandboxRuntime: createBackendResourceToken<RunSandboxRuntime>("ragsystem.host.sandbox-runtime", "ragsystem.backend-core"),
 });
 
 export function findBackendPluginResource<Value>(

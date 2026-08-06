@@ -8,6 +8,7 @@ import { FileSystemConfigStore } from "../filesystem/config/file-system-config-s
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
 import { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
+import { EXECUTION_ENVIRONMENT_CAPABILITY, createLocalExecutionEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
 import { createConversationStore } from "./sqlite/conversation-store/index.js";
 import { FileHistoryService } from "./files/file-history-service.js";
@@ -145,6 +146,11 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const delegationPending = new DelegationPendingService();
 
   const pluginCapabilities = pluginRuntime?.capabilities ?? new CapabilityRegistry();
+  pluginCapabilities.provide(
+    EXECUTION_ENVIRONMENT_CAPABILITY,
+    createLocalExecutionEnvironment(dataRoot),
+    "@ragsystem/backend-local",
+  );
   const localAnalytics = new LocalAnalyticsApplication(conversationStore);
   const localMonitoring = new LocalMonitoringApplication(conversationStore);
   const localSessionFiles = new LocalSessionFileApplication(fileIndex);

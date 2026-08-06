@@ -4,7 +4,7 @@ import {
   type ToolExecutionResult,
 } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
-import type { SandboxLeaseRuntime } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
+import type { RunSandboxRuntime } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 import { resolveSandboxPath, validateSandboxGlob } from "@ragsystem/backend-core/contracts/sandbox/sandbox-paths.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
@@ -35,7 +35,7 @@ import {
 export class SaaSSearchToolService {
   private readonly todos = new Map<string, TodoItem[]>();
 
-  constructor(private readonly leases: SandboxLeaseRuntime) {}
+  constructor(private readonly sandbox: RunSandboxRuntime) {}
 
   async glob(input: GlobInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "glob";
@@ -44,13 +44,12 @@ export class SaaSSearchToolService {
       if ("error" in normalized) return toolError(toolName, normalized.error);
       const root = resolveSandboxPath(normalized.path, { operation: "search" });
       const pattern = validateSandboxGlob(normalized.pattern);
-      const result = await this.leases.withLease(context, (lease, provider) => provider.glob(lease, {
+      const result = await this.sandbox.glob(context, {
         root: root.internalPath,
         pattern,
         recursive: normalized.recursive,
         maxResults: normalized.maxResults,
-        signal: context.signal,
-      }));
+      });
       return formatGlobResult(root.displayPath, { pattern }, result.files, result.truncated);
     } catch (error) { return toolError(toolName, `glob 执行失败: ${messageOf(error)}`); }
   }
@@ -62,15 +61,14 @@ export class SaaSSearchToolService {
       if ("error" in normalized) return toolError(toolName, normalized.error);
       const root = resolveSandboxPath(normalized.path, { operation: "search" });
       const glob = validateSandboxGlob(normalized.glob);
-      const result = await this.leases.withLease(context, (lease, provider) => provider.grep(lease, {
+      const result = await this.sandbox.grep(context, {
         root: root.internalPath,
         pattern: normalized.pattern,
         glob,
         caseSensitive: normalized.caseSensitive,
         maxResults: normalized.maxResults,
         contextLines: normalized.contextLines,
-        signal: context.signal,
-      }));
+      });
       const matches = result.matches.map((match) => ({ file: match.file, line_number: match.lineNumber, line: match.line, before: match.before, after: match.after }));
       return formatGrepResult(root.displayPath, normalized, matches, result.scannedFiles, result.truncated);
     } catch (error) { return toolError(toolName, `grep 执行失败: ${messageOf(error)}`); }
@@ -91,7 +89,7 @@ export class SaaSSearchToolService {
 }
 
 export class SaaSBashToolService {
-  constructor(private readonly leases: SandboxLeaseRuntime) {}
+  constructor(private readonly sandbox: RunSandboxRuntime) {}
 
   buildCommandClassification(input: BashExecutionInput, agent: AgentConfig | null): BashClassificationResult {
     return classifyBashCommand(input, agent, {
@@ -116,12 +114,11 @@ export class SaaSBashToolService {
 
   async executePlan(plan: BashExecutionPlan, context: ToolExecContext): Promise<ToolExecutionResult> {
     try {
-      const result = await this.leases.withLease(context, (lease, provider) => provider.exec(lease, {
+      const result = await this.sandbox.exec(context, {
         command: plan.command,
         cwd: plan.cwd,
         timeoutSeconds: plan.timeoutSeconds,
-        signal: context.signal,
-      }));
+      });
       return toolSuccess({ stdout: result.stdout, stderr: result.stderr, return_code: result.returnCode, interrupted: result.interrupted, background_task_id: null, background_started: false, classification: plan.category }, {
         toolName: "execute_bash",
         summary: result.interrupted ? `命令执行超时（${plan.timeoutSeconds} 秒）` : `命令执行完成，返回码 ${result.returnCode}`,
@@ -133,7 +130,7 @@ export class SaaSBashToolService {
 }
 
 export class SaaSCodeExecutionService {
-  constructor(private readonly leases: SandboxLeaseRuntime) {}
+  constructor(private readonly sandbox: RunSandboxRuntime) {}
 
   async executeCode(input: CodeExecutionInput, context: ToolExecContext, _toolCaller: ToolCaller | null = null): Promise<ToolExecutionResult> {
     const toolName = "execute_code";
@@ -141,12 +138,11 @@ export class SaaSCodeExecutionService {
     if (!prepared.ok) return prepared.result;
     const plan = prepared.plan;
     try {
-      const result = await this.leases.withLease(context, (lease, provider) => provider.executeCode(lease, {
+      const result = await this.sandbox.executeCode(context, {
         code: plan.code,
         cwd: "/work",
         timeoutSeconds: plan.timeoutSeconds,
-        signal: context.signal,
-      }));
+      });
       return toolSuccess(result.result, {
         toolName,
         summary: "代码执行成功",

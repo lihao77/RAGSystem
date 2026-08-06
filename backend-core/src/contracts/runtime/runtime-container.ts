@@ -87,7 +87,7 @@ export interface RuntimeContainerBase {
   readonly clientEvents: ClientEventPublisherPort;
   readonly sessionRuntime: SessionRuntimeService;
   readonly dataRoot: string;
-  close(): void;
+  close(): Promise<void>;
 }
 
 export interface LocalRuntimeContainer extends RuntimeContainerBase {
@@ -134,7 +134,7 @@ interface CoreRuntimeDependenciesBase {
   hostToolRegistry: HostToolRegistry;
   delegationPending: DelegationPendingService;
   eventDispatcher: RuntimeEventDispatcherPort;
-  closeInfrastructure(): void;
+  closeInfrastructure(): void | Promise<void>;
 }
 
 export interface LocalCoreRuntimeDependencies extends CoreRuntimeDependenciesBase {

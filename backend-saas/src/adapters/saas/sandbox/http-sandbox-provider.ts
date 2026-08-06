@@ -9,22 +9,22 @@ import type {
   SandboxLease,
   SandboxOwner,
   SandboxPreviewResult,
-  SandboxProvider,
+  SandboxDriver,
 } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 
-export class SandboxProviderHttpError extends Error {
+export class SandboxDriverHttpError extends Error {
   constructor(
     message: string,
     readonly status: number,
     readonly code: string | null,
   ) {
     super(message);
-    this.name = "SandboxProviderHttpError";
+    this.name = "SandboxDriverHttpError";
   }
 }
 
 /** Thin HTTP adapter. The bearer token remains private to this process and is never added to tool metadata. */
-export class RemoteHttpSandboxProvider implements SandboxProvider {
+export class RemoteHttpSandboxDriver implements SandboxDriver {
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly requestTimeoutMs: number;
@@ -51,7 +51,7 @@ export class RemoteHttpSandboxProvider implements SandboxProvider {
     this.requestTimeoutMs = requestTimeoutMs;
   }
 
-  async create(input: Parameters<SandboxProvider["create"]>[0]): Promise<SandboxLease> {
+  async create(input: Parameters<SandboxDriver["create"]>[0]): Promise<SandboxLease> {
     const result = await this.request("POST", "/v1/sandboxes", input);
     const body = requireRecord(result, "create sandbox response");
     const id = requireString(body.id, "id");
@@ -68,32 +68,32 @@ export class RemoteHttpSandboxProvider implements SandboxProvider {
     await this.request("DELETE", this.sandboxPath(lease));
   }
 
-  async stageInputFile(lease: SandboxLease, input: Parameters<SandboxProvider["stageInputFile"]>[1]): Promise<SandboxFileWriteResult> {
+  async stageInputFile(lease: SandboxLease, input: Parameters<SandboxDriver["stageInputFile"]>[1]): Promise<SandboxFileWriteResult> {
     const body = requireRecord(await this.request("POST", `${this.sandboxPath(lease)}/files/stage-input`, input), "stage input response");
     return { size: requireNumber(body.size, "size") };
   }
 
-  async readFile(lease: SandboxLease, input: Parameters<SandboxProvider["readFile"]>[1]): Promise<SandboxFileReadResult> {
+  async readFile(lease: SandboxLease, input: Parameters<SandboxDriver["readFile"]>[1]): Promise<SandboxFileReadResult> {
     return requireReadResult(await this.request("POST", `${this.sandboxPath(lease)}/files/read`, withoutSignal(input), input.signal));
   }
 
-  async writeFile(lease: SandboxLease, input: Parameters<SandboxProvider["writeFile"]>[1]): Promise<SandboxFileWriteResult> {
+  async writeFile(lease: SandboxLease, input: Parameters<SandboxDriver["writeFile"]>[1]): Promise<SandboxFileWriteResult> {
     const body = requireRecord(await this.request("POST", `${this.sandboxPath(lease)}/files/write`, withoutSignal(input), input.signal), "write response");
     return { size: requireNumber(body.size, "size") };
   }
 
-  async editFile(lease: SandboxLease, input: Parameters<SandboxProvider["editFile"]>[1]): Promise<SandboxFileEditResult> {
+  async editFile(lease: SandboxLease, input: Parameters<SandboxDriver["editFile"]>[1]): Promise<SandboxFileEditResult> {
     const body = requireRecord(await this.request("POST", `${this.sandboxPath(lease)}/files/edit`, withoutSignal(input), input.signal), "edit response");
     return { size: requireNumber(body.size, "size"), replacements: requireNumber(body.replacements, "replacements") };
   }
 
-  async glob(lease: SandboxLease, input: Parameters<SandboxProvider["glob"]>[1]): Promise<SandboxGlobResult> {
+  async glob(lease: SandboxLease, input: Parameters<SandboxDriver["glob"]>[1]): Promise<SandboxGlobResult> {
     const body = requireRecord(await this.request("POST", `${this.sandboxPath(lease)}/files/glob`, withoutSignal(input), input.signal), "glob response");
     if (!Array.isArray(body.files) || !body.files.every((item) => typeof item === "string")) throw new Error("Invalid sandbox glob files");
     return { files: body.files, truncated: body.truncated === true };
   }
 
-  async grep(lease: SandboxLease, input: Parameters<SandboxProvider["grep"]>[1]): Promise<SandboxGrepResult> {
+  async grep(lease: SandboxLease, input: Parameters<SandboxDriver["grep"]>[1]): Promise<SandboxGrepResult> {
     const body = requireRecord(await this.request("POST", `${this.sandboxPath(lease)}/files/grep`, withoutSignal(input), input.signal), "grep response");
     if (!Array.isArray(body.matches)) throw new Error("Invalid sandbox grep matches");
     return {
@@ -112,7 +112,7 @@ export class RemoteHttpSandboxProvider implements SandboxProvider {
     };
   }
 
-  async previewFile(lease: SandboxLease, input: Parameters<SandboxProvider["previewFile"]>[1]): Promise<SandboxPreviewResult> {
+  async previewFile(lease: SandboxLease, input: Parameters<SandboxDriver["previewFile"]>[1]): Promise<SandboxPreviewResult> {
     const body = requireRecord(await this.request("POST", `${this.sandboxPath(lease)}/files/preview`, withoutSignal(input), input.signal), "preview response");
     return {
       fileType: requireString(body.fileType, "fileType"),
@@ -121,7 +121,7 @@ export class RemoteHttpSandboxProvider implements SandboxProvider {
     };
   }
 
-  async exec(lease: SandboxLease, input: Parameters<SandboxProvider["exec"]>[1]): Promise<SandboxExecResult> {
+  async exec(lease: SandboxLease, input: Parameters<SandboxDriver["exec"]>[1]): Promise<SandboxExecResult> {
     return requireExecResult(await this.request(
       "POST",
       `${this.sandboxPath(lease)}/exec`,
@@ -131,7 +131,7 @@ export class RemoteHttpSandboxProvider implements SandboxProvider {
     ));
   }
 
-  async executeCode(lease: SandboxLease, input: Parameters<SandboxProvider["executeCode"]>[1]): Promise<SandboxCodeResult> {
+  async executeCode(lease: SandboxLease, input: Parameters<SandboxDriver["executeCode"]>[1]): Promise<SandboxCodeResult> {
     const body = requireRecord(await this.request(
       "POST",
       `${this.sandboxPath(lease)}/code`,
@@ -169,7 +169,7 @@ export class RemoteHttpSandboxProvider implements SandboxProvider {
       }
       if (!response.ok) {
         const error = isRecord(parsed) ? parsed : {};
-        throw new SandboxProviderHttpError(
+        throw new SandboxDriverHttpError(
           this.redact(optionalString(error.message) ?? `Sandbox request failed with HTTP ${response.status}`),
           response.status,
           optionalString(error.code),

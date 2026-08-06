@@ -29,6 +29,10 @@ process.env（最高）
 | `AUTH_MODE` | `local` | local/password/oidc | 身份认证方式 |
 | `TENANCY_MODE` | `single` | single/multi | 单租户/多租户 |
 | `EXECUTION_MODE` | `local` | local/docker/remote | 工具/代码执行位置 |
+| `SANDBOX_REMOTE_URL` | 无 | HTTP(S) URL | `EXECUTION_MODE=remote` 的沙箱服务地址 |
+| `SANDBOX_REMOTE_TOKEN` | 无 | bearer token | 后端访问远程沙箱的凭据 |
+| `SANDBOX_REQUEST_TIMEOUT_MS` | `30000` | 正整数 | 沙箱 HTTP 请求基础超时 |
+| `SANDBOX_LEASE_TIMEOUT_SECONDS` | `900` | 正整数 | 单个 run 沙箱 lease 超时 |
 | `STORAGE_MODE` | `sqlite` | sqlite/sqlite-per-tenant/postgres | 存储 profile |
 | `CONTROL_STORAGE_MODE` | `sqlite`（Local）/`postgres`（SaaS compose） | sqlite/postgres | Control Plane 存储选择 |
 | `CONTROL_DATABASE_URL` | 无 | PostgreSQL connection URL | `CONTROL_STORAGE_MODE=postgres` 的独立连接串，不复用 Memory 配置 |
@@ -41,7 +45,7 @@ process.env（最高）
 
 ### Profile 约束
 
-`DEPLOYMENT_MODE=saas` 且 `EXECUTION_MODE=local` 时，如果没有显式设置 `ALLOW_UNSAFE_LOCAL_EXECUTION=true`，启动会失败。这是安全门禁，不是建议项。
+标准 Local 后端只接受 `DEPLOYMENT_MODE=local` + `EXECUTION_MODE=local`；标准 SaaS 后端只接受 `DEPLOYMENT_MODE=saas` + `EXECUTION_MODE=remote`。SaaS 还必须配置 PostgreSQL、S3 对象存储和远程沙箱，缺少任一依赖时启动直接失败。
 
 `CONTROL_STORAGE_MODE` 与 `STORAGE_MODE` 是两个独立选择轴。前者只控制 tenant/user/membership/settings/auth session/audit 等 Control Plane 数据，后者当前控制 Memory。Local 未设置 `CONTROL_STORAGE_MODE` 时始终使用 SQLite。
 
@@ -70,11 +74,19 @@ CONTROL_STORAGE_MODE=sqlite
 DEPLOYMENT_MODE=saas
 AUTH_MODE=password
 TENANCY_MODE=multi
-EXECUTION_MODE=docker
-STORAGE_MODE=sqlite-per-tenant
+EXECUTION_MODE=remote
+STORAGE_MODE=postgres
 CONTROL_STORAGE_MODE=postgres
+DATABASE_URL=postgres://ragsystem:ragsystem@localhost:5432/ragsystem
 CONTROL_DATABASE_URL=postgres://ragsystem:ragsystem@localhost:5432/ragsystem
 CONTROL_SECRET_MASTER_KEY=replace-with-base64-32-byte-key
+OBJECT_STORAGE_MODE=s3
+OBJECT_STORAGE_BUCKET=ragsystem
+OBJECT_STORAGE_ENDPOINT=https://s3.example.com
+OBJECT_STORAGE_ACCESS_KEY_ID=replace-with-access-key
+OBJECT_STORAGE_SECRET_ACCESS_KEY=replace-with-secret-key
+SANDBOX_REMOTE_URL=https://sandbox.example.com
+SANDBOX_REMOTE_TOKEN=replace-with-random-token
 SESSION_JWT_SECRET=replace-with-random-secret
 WIDGET_JWT_KEY_RING={"active":{"kid":"v1","secret":"replace-with-a-32-byte-secret"},"previous":[]}
 CORS_ORIGINS=https://console.example.com
