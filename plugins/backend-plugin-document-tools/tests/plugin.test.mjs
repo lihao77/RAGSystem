@@ -13,6 +13,7 @@ import {
   createLocalDocumentToolsRuntimeFactory,
   DOCUMENT_TOOLS_RUNTIME_CAPABILITY,
 } from "../dist/index.js";
+import { SaaSDocumentToolService } from "../dist/storage/saas/sandbox-document-tools.js";
 
 const descriptorNames = ["read_file", "write_file", "edit_file", "preview_data_structure"];
 
@@ -144,6 +145,41 @@ test("document relative writes and reads use the same workspace", async () => {
     assert.equal(read.metadata.file_path, written.metadata.file_path);
     assert.equal(read.metadata.execution_paths.workspace, path.join(root, "sessions", "session-workspace", "workspace"));
     assert.deepEqual(Object.keys(read.metadata.execution_paths).sort(), ["artifacts", "transient", "uploads", "workspace"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("local and SaaS document adapters share encoding and line-range policy", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-document-policy-"));
+  try {
+    const local = createLocalDocumentToolsRuntimeFactory()({
+      deploymentKind: "local",
+      dataRoot: root,
+    }).document;
+    const context = { sessionId: "session-policy", runId: "run-policy" };
+    const pathPolicy = { isApproved: () => false, assertWithin: (candidatePath) => candidatePath };
+    await local.writeFile({ content: "a\nb\nc\n", filePath: "lines.txt" }, context, { custom_params: {} }, pathPolicy);
+
+    const saas = new SaaSDocumentToolService({
+      async withLease(_context, operation) {
+        return operation({ id: "lease", owner: {}, createdAt: "now" }, {
+          async readFile() { return { content: "a\nb\nc\n", size: 6 }; },
+          async writeFile() { return { size: 0 }; },
+          async editFile() { return { size: 0, replacements: 0 }; },
+          async previewFile() { return { fileType: "text", fileSize: 6, structure: {} }; },
+        });
+      },
+      async releaseRun() {},
+      async closeAll() {},
+    });
+
+    const localRead = local.readFile({ filePath: "lines.txt", offset: 2, limit: 1 }, context, { custom_params: {} }, pathPolicy);
+    const saasRead = await saas.readFile({ filePath: "lines.txt", offset: 2, limit: 1 }, context);
+    assert.equal(localRead.content, saasRead.content);
+    for (const key of ["total_lines", "start_line", "end_line", "has_more", "next_offset"]) {
+      assert.equal(localRead.metadata[key], saasRead.metadata[key], key);
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -3,42 +3,51 @@ import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk"
 import type { SandboxLeaseRuntime } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import { resolveSandboxPath } from "@ragsystem/backend-core/contracts/sandbox/sandbox-paths.js";
+import {
+  normalizeEncoding,
+  normalizePreviewLimit,
+  normalizeReadRange,
+  normalizeWriteMode,
+  renderWritableContent,
+  selectLineRange,
+  type EditFileInput,
+  type PreviewDataStructureInput,
+  type ReadFileInput,
+  type WriteFileInput,
+} from "../../tools/shared/document-policy.js";
 
-const DEFAULT_READ_LINES = 2_000;
 const MAX_TOOL_FILE_BYTES = 16 * 1024 * 1024;
 
 export class SaaSDocumentToolService {
   constructor(private readonly leases: SandboxLeaseRuntime) {}
 
-  async readFile(input: ReadInput, context: ToolExecContext): Promise<ToolExecutionResult> {
+  async readFile(input: ReadFileInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "read_file";
     try {
       const file = resolveSandboxPath(input.filePath, { explicitSpace: input.filePathSpace, operation: "read" });
-      const offset = positiveInteger(input.offset, 1, 1, Number.MAX_SAFE_INTEGER, "offset");
-      const limit = positiveInteger(input.limit, DEFAULT_READ_LINES, 1, 10_000, "limit");
+      const range = normalizeReadRange(input.offset, input.limit);
       const result = await this.leases.withLease(context, (lease, provider) => provider.readFile(lease, {
         path: file.internalPath,
         encoding: normalizeEncoding(input.encoding),
         maxBytes: MAX_TOOL_FILE_BYTES,
         signal: context.signal,
       }));
-      const lines = result.content.split(/\r?\n/);
-      const selected = lines.slice(offset - 1, offset - 1 + limit);
-      const endLine = selected.length ? offset + selected.length - 1 : offset;
-      const hasMore = offset - 1 + selected.length < lines.length;
-      return toolSuccess(selected.join("\n"), {
+      const selection = selectLineRange(result.content, range.offset, range.limit);
+      return toolSuccess(selection.content, {
         toolName,
-        summary: `文件读取成功: ${file.displayPath}`,
+        summary: selection.hasMore
+          ? `文件读取成功: ${file.displayPath}；还有后续内容，可继续调用 read_file(offset=${selection.nextOffset})`
+          : `文件读取成功: ${file.displayPath}`,
         outputType: "text",
         metadata: {
           file_path: file.displayPath,
           display_path: file.displayPath,
           file_size: result.size,
-          total_lines: lines.length,
-          start_line: offset,
-          end_line: endLine,
-          has_more: hasMore,
-          next_offset: hasMore ? endLine + 1 : null,
+          total_lines: selection.totalLines,
+          start_line: selection.startLine,
+          end_line: selection.endLine,
+          has_more: selection.hasMore,
+          next_offset: selection.nextOffset,
         },
       });
     } catch (error) {
@@ -46,15 +55,13 @@ export class SaaSDocumentToolService {
     }
   }
 
-  async writeFile(input: WriteInput, context: ToolExecContext): Promise<ToolExecutionResult> {
+  async writeFile(input: WriteFileInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "write_file";
     try {
-      const mode = input.mode?.trim().toLowerCase() === "json" ? "json" : "text";
+      const mode = normalizeWriteMode(input.mode);
       const defaultName = `generated-${randomUUID()}${mode === "json" ? ".json" : ".txt"}`;
       const file = resolveSandboxPath(input.filePath, { explicitSpace: input.filePathSpace, operation: "write", defaultName });
-      const content = mode === "json" && typeof input.content !== "string"
-        ? JSON.stringify(input.content, null, 2)
-        : String(input.content ?? "");
+      const content = renderWritableContent(input.content, mode);
       const result = await this.leases.withLease(context, (lease, provider) => provider.writeFile(lease, {
         path: file.internalPath,
         content,
@@ -72,7 +79,7 @@ export class SaaSDocumentToolService {
     }
   }
 
-  async editFile(input: EditInput, context: ToolExecContext): Promise<ToolExecutionResult> {
+  async editFile(input: EditFileInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "edit_file";
     try {
       const file = resolveSandboxPath(input.filePath, { explicitSpace: input.filePathSpace, operation: "write" });
@@ -96,13 +103,13 @@ export class SaaSDocumentToolService {
     }
   }
 
-  async previewDataStructure(input: PreviewInput, context: ToolExecContext): Promise<ToolExecutionResult> {
+  async previewDataStructure(input: PreviewDataStructureInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "preview_data_structure";
     try {
       const file = resolveSandboxPath(input.filePath, { explicitSpace: input.filePathSpace, operation: "read" });
-      const maxPreviewRows = positiveInteger(input.maxPreviewRows, 5, 1, 1_000, "max_preview_rows");
-      const maxDepth = positiveInteger(input.maxDepth, 3, 1, 50, "max_depth");
-      const maxFields = positiveInteger(input.maxFields, 20, 1, 10_000, "max_fields");
+      const maxPreviewRows = normalizePreviewLimit(input.maxPreviewRows, 5, "max_preview_rows");
+      const maxDepth = normalizePreviewLimit(input.maxDepth, 3, "max_depth");
+      const maxFields = normalizePreviewLimit(input.maxFields, 20, "max_fields");
       const result = await this.leases.withLease(context, (lease, provider) => provider.previewFile(lease, {
         path: file.internalPath,
         encoding: normalizeEncoding(input.encoding),
@@ -127,21 +134,4 @@ export class SaaSDocumentToolService {
   getExternalCandidates(): string[] { return []; }
 }
 
-function positiveInteger(value: number | null | undefined, fallback: number, min: number, max: number, label: string): number {
-  if (value === null || value === undefined) return fallback;
-  if (!Number.isInteger(value) || value < min || value > max) throw new Error(`${label} 必须在 ${min}-${max} 之间`);
-  return value;
-}
-
-function normalizeEncoding(value: string | null | undefined): string {
-  const encoding = value?.trim().toLowerCase() || "utf-8";
-  if (!["utf-8", "utf8", "ascii", "latin1", "base64", "hex"].includes(encoding)) throw new Error(`不支持的编码: ${encoding}`);
-  return encoding;
-}
-
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-
-interface ReadInput { filePath: string; encoding?: string | null; offset?: number | null; limit?: number | null; filePathSpace?: string | null }
-interface WriteInput { content: unknown; filePath?: string | null; encoding?: string | null; mode?: string | null; filePathSpace?: string | null }
-interface EditInput { filePath: string; oldString: string; newString: string; encoding?: string | null; replaceAll?: boolean | null; filePathSpace?: string | null }
-interface PreviewInput { filePath: string; encoding?: string | null; maxPreviewRows?: number | null; maxDepth?: number | null; maxFields?: number | null; filePathSpace?: string | null }

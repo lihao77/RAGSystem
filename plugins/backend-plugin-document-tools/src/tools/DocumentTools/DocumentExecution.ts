@@ -10,12 +10,23 @@ import {
   DEFAULT_STRUCTURE_PREVIEW_DEPTH,
   DEFAULT_STRUCTURE_PREVIEW_FIELDS,
   DEFAULT_STRUCTURE_PREVIEW_ROWS,
-  readPreviewLimit,
 } from "./preview.js";
-import { LocalDocumentPathManager, normalizeString } from "./path-manager.js";
+import { LocalDocumentPathManager } from "./path-manager.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
-
-const DEFAULT_READ_MAX_LINES = 2000;
+import {
+  buildDiffPreview,
+  countOccurrences,
+  normalizeEncoding,
+  normalizePreviewLimit,
+  normalizeReadRange,
+  normalizeWriteMode,
+  renderWritableContent,
+  selectLineRange,
+  type EditFileInput,
+  type PreviewDataStructureInput,
+  type ReadFileInput,
+  type WriteFileInput,
+} from "../shared/document-policy.js";
 
 export class LocalDocumentToolService {
   private readonly pathManager: LocalDocumentPathManager;
@@ -31,13 +42,7 @@ export class LocalDocumentToolService {
   }
 
   readFile(
-    input: {
-      filePath: string;
-      encoding?: string | null;
-      offset?: number | null;
-      limit?: number | null;
-      filePathSpace?: string | null;
-    },
+    input: ReadFileInput,
     context: ToolExecContext,
     agent: AgentConfig,
     pathService: PathAccessPolicy,
@@ -58,32 +63,29 @@ export class LocalDocumentToolService {
         return errorResult(`路径不是文件: ${input.filePath}`, toolName);
       }
 
-      const offset = input.offset ?? 1;
-      const limit = input.limit ?? DEFAULT_READ_MAX_LINES;
-      if (!Number.isInteger(offset) || offset < 1) {
-        return errorResult("offset 必须 >= 1", toolName);
+      let range: { offset: number; limit: number };
+      try {
+        range = normalizeReadRange(input.offset, input.limit);
+      } catch (error) {
+        return errorResult(error instanceof Error ? error.message : String(error), toolName);
       }
-      if (!Number.isInteger(limit) || limit < 1) {
-        return errorResult("limit 必须 >= 1", toolName);
-      }
+      const offset = range.offset;
+      const limit = range.limit;
       const encoding = normalizeEncoding(input.encoding);
       const rawContent = fs.readFileSync(resolvedPath).toString(encoding);
-      const allLines = splitPreservingLineEndings(rawContent);
-      const totalLines = allLines.length;
-      const startIndex = offset - 1;
-      const endIndex = Math.min(startIndex + limit, totalLines);
-      if (startIndex >= totalLines) {
+      const selection = selectLineRange(rawContent, offset, limit);
+      if (!selection.hasMore && selection.content === "" && offset > selection.totalLines) {
         return successResult("", {
-          summary: `offset ${offset} 超出文件总行数 ${totalLines}`,
+          summary: `offset ${offset} 超出文件总行数 ${selection.totalLines}`,
           outputType: "text",
           metadata: {
             execution_paths: this.pathManager.executionPaths(context, agent.custom_params),
             file_path: resolvedPath,
             display_path: this.pathManager.toDisplayPath(resolvedPath),
             file_size: stat.size,
-            total_lines: totalLines,
-            start_line: offset,
-            end_line: offset,
+            total_lines: selection.totalLines,
+            start_line: selection.startLine,
+            end_line: selection.endLine,
             has_more: false,
             next_offset: null,
           },
@@ -91,19 +93,14 @@ export class LocalDocumentToolService {
         });
       }
 
-      const selectedLines = allLines.slice(startIndex, endIndex);
-      const content = selectedLines.join("").replace(/\n+$/, "");
-      const actualEndLine = startIndex + selectedLines.length;
-      const hasMore = endIndex < totalLines;
-      const nextOffset = hasMore ? actualEndLine + 1 : null;
-      let summary = `文件读取成功: ${input.filePath}（行 ${offset}-${actualEndLine}，共 ${totalLines} 行，${stat.size} 字节）`;
-      if (hasMore) {
-        summary += `；还有后续内容，可继续调用 read_file(offset=${nextOffset})`;
+      let summary = `文件读取成功: ${input.filePath}（行 ${selection.startLine}-${selection.endLine}，共 ${selection.totalLines} 行，${stat.size} 字节）`;
+      if (selection.hasMore) {
+        summary += `；还有后续内容，可继续调用 read_file(offset=${selection.nextOffset})`;
       } else {
         summary += "；已到文件末尾";
       }
 
-      return successResult(content, {
+      return successResult(selection.content, {
         summary,
         outputType: "text",
         metadata: {
@@ -111,11 +108,11 @@ export class LocalDocumentToolService {
           file_path: resolvedPath,
           display_path: this.pathManager.toDisplayPath(resolvedPath),
           file_size: stat.size,
-          total_lines: totalLines,
-          start_line: offset,
-          end_line: actualEndLine,
-          has_more: hasMore,
-          next_offset: nextOffset,
+          total_lines: selection.totalLines,
+          start_line: selection.startLine,
+          end_line: selection.endLine,
+          has_more: selection.hasMore,
+          next_offset: selection.nextOffset,
           user_approved_full_read: false,
         },
         toolName,
@@ -126,20 +123,14 @@ export class LocalDocumentToolService {
   }
 
   async writeFile(
-    input: {
-      content: unknown;
-      filePath?: string | null;
-      encoding?: string | null;
-      mode?: string | null;
-      filePathSpace?: string | null;
-    },
+    input: WriteFileInput,
     context: ToolExecContext,
     agent: AgentConfig,
     pathService: PathAccessPolicy,
   ): Promise<ToolExecutionResult> {
     const toolName = "write_file";
     try {
-      const mode = normalizeString(input.mode)?.toLowerCase() === "json" ? "json" : "text";
+      const mode = normalizeWriteMode(input.mode);
       const resolvedPath = this.pathManager.resolveManagedPath(input.filePath ?? null, {
         context,
         operation: "write",
@@ -177,14 +168,7 @@ export class LocalDocumentToolService {
   }
 
   async editFile(
-    input: {
-      filePath: string;
-      oldString: string;
-      newString: string;
-      encoding?: string | null;
-      replaceAll?: boolean | null;
-      filePathSpace?: string | null;
-    },
+    input: EditFileInput,
     context: ToolExecContext,
     agent: AgentConfig,
     pathService: PathAccessPolicy,
@@ -257,14 +241,7 @@ export class LocalDocumentToolService {
   }
 
   previewDataStructure(
-    input: {
-      filePath: string;
-      encoding?: string | null;
-      maxPreviewRows?: number | null;
-      maxDepth?: number | null;
-      maxFields?: number | null;
-      filePathSpace?: string | null;
-    },
+    input: PreviewDataStructureInput,
     context: ToolExecContext,
     agent: AgentConfig,
     pathService: PathAccessPolicy,
@@ -285,24 +262,22 @@ export class LocalDocumentToolService {
         return errorResult(`路径不是文件: ${input.filePath}`, toolName);
       }
 
-      const maxPreviewRows = readPreviewLimit(input.maxPreviewRows, DEFAULT_STRUCTURE_PREVIEW_ROWS, "max_preview_rows");
-      if ("error" in maxPreviewRows) {
-        return errorResult(maxPreviewRows.error, toolName);
-      }
-      const maxDepth = readPreviewLimit(input.maxDepth, DEFAULT_STRUCTURE_PREVIEW_DEPTH, "max_depth");
-      if ("error" in maxDepth) {
-        return errorResult(maxDepth.error, toolName);
-      }
-      const maxFields = readPreviewLimit(input.maxFields, DEFAULT_STRUCTURE_PREVIEW_FIELDS, "max_fields");
-      if ("error" in maxFields) {
-        return errorResult(maxFields.error, toolName);
+      let maxPreviewRows: number;
+      let maxDepth: number;
+      let maxFields: number;
+      try {
+        maxPreviewRows = normalizePreviewLimit(input.maxPreviewRows, DEFAULT_STRUCTURE_PREVIEW_ROWS, "max_preview_rows");
+        maxDepth = normalizePreviewLimit(input.maxDepth, DEFAULT_STRUCTURE_PREVIEW_DEPTH, "max_depth");
+        maxFields = normalizePreviewLimit(input.maxFields, DEFAULT_STRUCTURE_PREVIEW_FIELDS, "max_fields");
+      } catch (error) {
+        return errorResult(error instanceof Error ? error.message : String(error), toolName);
       }
 
       const { fileType, structure } = buildDataStructurePreview(resolvedPath, {
         encoding: normalizeEncoding(input.encoding),
-        maxPreviewRows: maxPreviewRows.value,
-        maxDepth: maxDepth.value,
-        maxFields: maxFields.value,
+        maxPreviewRows,
+        maxDepth,
+        maxFields,
       });
 
       const content = {
@@ -320,9 +295,9 @@ export class LocalDocumentToolService {
           file_path: resolvedPath,
           file_type: fileType,
           file_size: stat.size,
-          max_preview_rows: maxPreviewRows.value,
-          max_depth: maxDepth.value,
-          max_fields: maxFields.value,
+          max_preview_rows: maxPreviewRows,
+          max_depth: maxDepth,
+          max_fields: maxFields,
         },
         toolName,
       });
@@ -355,94 +330,4 @@ function successResult<T>(
 
 function errorResult(message: string, toolName: string): ToolExecutionResult {
   return toolError(toolName, message);
-}
-
-function splitPreservingLineEndings(content: string): string[] {
-  if (!content) {
-    return [];
-  }
-  return content.match(/[^\n]*\n|[^\n]+$/g) ?? [];
-}
-
-function normalizeEncoding(value: string | null | undefined): BufferEncoding {
-  const normalized = normalizeString(value)?.toLowerCase();
-  if (normalized === "utf8" || normalized === "utf-8") {
-    return "utf8";
-  }
-  if (normalized === "utf16le" || normalized === "utf-16le") {
-    return "utf16le";
-  }
-  if (normalized === "latin1" || normalized === "binary") {
-    return "latin1";
-  }
-  if (normalized === "ascii") {
-    return "ascii";
-  }
-  return "utf8";
-}
-
-function renderWritableContent(content: unknown, mode: "text" | "json"): string {
-  if (mode === "json") {
-    if (typeof content === "string") {
-      try {
-        return `${JSON.stringify(JSON.parse(content), null, 2)}\n`;
-      } catch {
-        return content;
-      }
-    }
-    return `${JSON.stringify(content, null, 2)}\n`;
-  }
-  if (typeof content === "string") {
-    return content;
-  }
-  if (content === null || content === undefined) {
-    return "";
-  }
-  return String(content);
-}
-
-function countOccurrences(content: string, search: string): number {
-  if (!search) {
-    return 0;
-  }
-  let count = 0;
-  let index = 0;
-  while (index <= content.length) {
-    const found = content.indexOf(search, index);
-    if (found === -1) {
-      break;
-    }
-    count += 1;
-    index = found + search.length;
-  }
-  return count;
-}
-
-function buildDiffPreview(before: string, after: string, fileName: string): string {
-  if (before === after) {
-    return "";
-  }
-  const beforeLines = before.split(/\r?\n/);
-  const afterLines = after.split(/\r?\n/);
-  const output = [`--- a/${fileName}`, `+++ b/${fileName}`];
-  const maxLines = Math.max(beforeLines.length, afterLines.length);
-  for (let index = 0; index < maxLines; index += 1) {
-    const beforeLine = beforeLines[index];
-    const afterLine = afterLines[index];
-    if (beforeLine === afterLine) {
-      continue;
-    }
-    output.push(`@@ line ${index + 1} @@`);
-    if (beforeLine !== undefined) {
-      output.push(`-${beforeLine}`);
-    }
-    if (afterLine !== undefined) {
-      output.push(`+${afterLine}`);
-    }
-    if (output.join("\n").length > 2000) {
-      output.push("... [DIFF TRUNCATED]");
-      break;
-    }
-  }
-  return output.join("\n");
 }
