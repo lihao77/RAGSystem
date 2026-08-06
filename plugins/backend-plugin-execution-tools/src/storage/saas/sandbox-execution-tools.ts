@@ -16,58 +16,59 @@ import {
   type BashExecutionPlan,
   type BashExecutionPlanResult,
 } from "../../tools/BashTool/bash-policy.js";
+import {
+  formatGlobResult,
+  formatGrepResult,
+  formatTodoWriteResult,
+  normalizeGlobInput,
+  normalizeGrepInput,
+  parseTodos,
+  type GlobInput,
+  type GrepInput,
+  type TodoItem,
+} from "../../tools/shared/search-policy.js";
 
 export class SaaSSearchToolService {
-  private readonly todos = new Map<string, unknown>();
+  private readonly todos = new Map<string, TodoItem[]>();
 
   constructor(private readonly leases: SandboxLeaseRuntime) {}
 
   async glob(input: GlobInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "glob";
     try {
-      const root = resolveSandboxPath(input.path, { operation: "search" });
-      const pattern = validateSandboxGlob(input.pattern);
-      const maxResults = positiveInteger(input.maxResults, 200, 1, 5_000, "max_results");
+      const normalized = normalizeGlobInput(input);
+      if ("error" in normalized) return toolError(toolName, normalized.error);
+      const root = resolveSandboxPath(normalized.path, { operation: "search" });
+      const pattern = validateSandboxGlob(normalized.pattern);
       const result = await this.leases.withLease(context, (lease, provider) => provider.glob(lease, {
         root: root.internalPath,
         pattern,
-        recursive: input.recursive ?? pattern.includes("**"),
-        maxResults,
+        recursive: normalized.recursive,
+        maxResults: normalized.maxResults,
         signal: context.signal,
       }));
-      return toolSuccess({ base_path: root.displayPath, pattern, files: result.files, count: result.files.length, truncated: result.truncated }, {
-        toolName,
-        summary: `glob 匹配 ${result.files.length} 个文件${result.truncated ? "（已截断）" : ""}`,
-        outputType: "json",
-        metadata: { base_path: root.displayPath, pattern, count: result.files.length, truncated: result.truncated },
-      });
+      return formatGlobResult(root.displayPath, { pattern }, result.files, result.truncated);
     } catch (error) { return toolError(toolName, `glob 执行失败: ${messageOf(error)}`); }
   }
 
   async grep(input: GrepInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "grep";
     try {
-      if (!input.pattern.trim()) return toolError(toolName, "pattern 不能为空");
-      const root = resolveSandboxPath(input.path, { operation: "search" });
-      const glob = validateSandboxGlob(input.glob?.trim() || "**/*");
-      const maxResults = positiveInteger(input.maxResults, 200, 1, 5_000, "max_results");
-      const contextLines = positiveInteger(input.contextLines, 0, 0, 20, "context_lines");
+      const normalized = normalizeGrepInput(input);
+      if ("error" in normalized) return toolError(toolName, normalized.error);
+      const root = resolveSandboxPath(normalized.path, { operation: "search" });
+      const glob = validateSandboxGlob(normalized.glob);
       const result = await this.leases.withLease(context, (lease, provider) => provider.grep(lease, {
         root: root.internalPath,
-        pattern: input.pattern,
+        pattern: normalized.pattern,
         glob,
-        caseSensitive: input.caseSensitive === true,
-        maxResults,
-        contextLines,
+        caseSensitive: normalized.caseSensitive,
+        maxResults: normalized.maxResults,
+        contextLines: normalized.contextLines,
         signal: context.signal,
       }));
       const matches = result.matches.map((match) => ({ file: match.file, line_number: match.lineNumber, line: match.line, before: match.before, after: match.after }));
-      return toolSuccess({ base_path: root.displayPath, pattern: input.pattern, matches, count: matches.length, scanned_files: result.scannedFiles, truncated: result.truncated }, {
-        toolName,
-        summary: `grep 找到 ${matches.length} 个匹配${result.truncated ? "（已截断）" : ""}`,
-        outputType: "json",
-        metadata: { base_path: root.displayPath, pattern: input.pattern, count: matches.length, scanned_files: result.scannedFiles, truncated: result.truncated },
-      });
+      return formatGrepResult(root.displayPath, normalized, matches, result.scannedFiles, result.truncated);
     } catch (error) { return toolError(toolName, `grep 执行失败: ${messageOf(error)}`); }
   }
 
@@ -78,8 +79,10 @@ export class SaaSSearchToolService {
   todoWrite(input: { todos: unknown }, context: ToolExecContext): ToolExecutionResult {
     const key = `${context.userId ?? ""}:${context.sessionId ?? ""}`;
     const previous = this.todos.get(key) ?? [];
-    this.todos.set(key, input.todos);
-    return toolSuccess({ old_todos: previous, new_todos: input.todos }, { toolName: "todo_write", summary: "todo 列表已更新", outputType: "json" });
+    const parsed = parseTodos(input.todos);
+    if ("error" in parsed) return toolError("todo_write", parsed.error);
+    this.todos.set(key, parsed.todos);
+    return formatTodoWriteResult(previous, parsed.todos, context.sessionId?.trim() || "anonymous");
   }
 }
 
@@ -157,6 +160,4 @@ function positiveInteger(value: number | null | undefined, fallback: number, min
 
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
-interface GlobInput { pattern: string; path?: string | null; recursive?: boolean | null; maxResults?: number | null }
-interface GrepInput { pattern: string; path?: string | null; glob?: string | null; caseSensitive?: boolean | null; maxResults?: number | null; contextLines?: number | null }
 interface CodeExecutionInput { code: string; description?: string | null; timeout?: number | null }

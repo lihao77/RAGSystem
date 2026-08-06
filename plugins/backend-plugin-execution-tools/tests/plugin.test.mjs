@@ -20,6 +20,7 @@ import {
 } from "../dist/index.js";
 import { LocalBashToolService } from "../dist/tools/BashTool/BashExecution.js";
 import { LocalSearchToolService } from "../dist/tools/LocalSearchTools/SearchExecution.js";
+import { SaaSSearchToolService } from "../dist/storage/saas/sandbox-execution-tools.js";
 
 const descriptors = [
   "glob",
@@ -275,6 +276,33 @@ test("execute_bash writes into the same workspace seen by glob", async () => {
     const globResult = search.glob({ pattern: "bash-output.txt" }, context);
     assert.deepEqual(globResult.content.files, ["bash-output.txt"]);
     assert.equal(fs.readFileSync(path.join(resolver.roots(context).workspace, "bash-output.txt"), "utf8"), "bash");
+  } finally {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("local and SaaS search adapters share todo validation and result shape", () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-search-policy-"));
+  try {
+    const local = new LocalSearchToolService({ dataRoot });
+    const saas = new SaaSSearchToolService(fakeSandboxLease());
+    const context = { userId: "user-a", sessionId: "session-search" };
+    const input = {
+      todos: [
+        { content: "inspect boundary", status: "in_progress", active_form: "inspecting boundary" },
+        { content: "commit refactor", status: "pending" },
+      ],
+    };
+
+    const localResult = local.todoWrite(input, context);
+    const saasResult = saas.todoWrite(input, context);
+    assert.deepEqual(saasResult.content, localResult.content);
+    assert.equal(saasResult.summary, localResult.summary);
+    assert.deepEqual(saasResult.metadata, localResult.metadata);
+
+    const invalid = { todos: [{ content: "invalid", status: "unknown" }] };
+    assert.equal(local.todoWrite(invalid, context).success, false);
+    assert.equal(saas.todoWrite(invalid, context).success, false);
   } finally {
     fs.rmSync(dataRoot, { recursive: true, force: true });
   }

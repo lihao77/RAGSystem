@@ -1,4 +1,3 @@
-import { isRecord, normalizeString } from "@ragsystem/backend-core/utils/guards.js";
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
@@ -8,11 +7,21 @@ import { URL } from "node:url";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import { ManagedPathResolver } from "../../paths/managed-path-resolver.js";
+import {
+  formatGlobResult,
+  formatGrepResult,
+  formatTodoWriteResult,
+  normalizeGlobInput,
+  normalizeGrepInput,
+  parseTodos,
+  type GlobInput,
+  type GrepInput,
+  type GrepMatch,
+  type TodoItem,
+} from "../shared/search-policy.js";
 
-const DEFAULT_MAX_RESULTS = 200;
 const DEFAULT_MAX_CHARS = 20_000;
 const DEFAULT_WEB_TIMEOUT_MS = 15_000;
-const TODO_STATUS_VALUES = new Set(["pending", "in_progress", "completed"]);
 
 export class LocalSearchToolService {
   private readonly dataRoot: string;
@@ -28,83 +37,45 @@ export class LocalSearchToolService {
   }
 
   glob(
-    input: {
-      pattern: string;
-      path?: string | null;
-      recursive?: boolean | null;
-      maxResults?: number | null;
-    },
+    input: GlobInput,
     context: ToolExecContext,
   ): ToolExecutionResult {
     const toolName = "glob";
     try {
-      const pattern = input.pattern.trim();
-      if (!pattern) {
-        return toolError(toolName, "pattern 不能为空");
-      }
-      const maxResults = clampPositiveInt(input.maxResults, DEFAULT_MAX_RESULTS, 1, 5000);
-      const baseRoot = this.paths.resolveSearchRoot(input.path ?? null, context);
-      const matches = globSearch(baseRoot, pattern, {
-        recursive: input.recursive ?? pattern.includes("**"),
-        maxResults,
+      const normalized = normalizeGlobInput(input);
+      if ("error" in normalized) return toolError(toolName, normalized.error);
+      const baseRoot = this.paths.resolveSearchRoot(normalized.path, context);
+      const matches = globSearch(baseRoot, normalized.pattern, {
+        recursive: normalized.recursive,
+        maxResults: normalized.maxResults,
       });
       const displayMatches = matches.items.map((item) => toPortableRelative(baseRoot, item));
-      return toolSuccess(
-        {
-          base_path: baseRoot,
-          pattern,
-          files: displayMatches,
-          count: displayMatches.length,
-          truncated: matches.truncated,
-        },
-        {
-          toolName,
-          summary: `glob 匹配 ${displayMatches.length} 个文件${matches.truncated ? "（已截断）" : ""}`,
-          outputType: "json",
-          metadata: {
-            execution_paths: this.paths.roots(context),
-            base_path: baseRoot,
-            pattern,
-            count: displayMatches.length,
-            truncated: matches.truncated,
-          },
-        },
-      );
+      return formatGlobResult(baseRoot, normalized, displayMatches, matches.truncated, {
+        execution_paths: this.paths.roots(context),
+      });
     } catch (error) {
       return toolError(toolName, `glob 执行失败: ${formatError(error)}`);
     }
   }
 
   grep(
-    input: {
-      pattern: string;
-      path?: string | null;
-      glob?: string | null;
-      caseSensitive?: boolean | null;
-      maxResults?: number | null;
-      contextLines?: number | null;
-    },
+    input: GrepInput,
     context: ToolExecContext,
   ): ToolExecutionResult {
     const toolName = "grep";
     try {
-      const pattern = input.pattern;
-      if (!pattern.trim()) {
-        return toolError(toolName, "pattern 不能为空");
-      }
-      const maxResults = clampPositiveInt(input.maxResults, DEFAULT_MAX_RESULTS, 1, 5000);
-      const contextLines = clampPositiveInt(input.contextLines, 0, 0, 20);
-      const baseRoot = this.paths.resolveSearchRoot(input.path ?? null, context);
-      const filePattern = input.glob?.trim() || "**/*";
-      const files = globSearch(baseRoot, filePattern, {
-        recursive: filePattern.includes("**") || !input.glob,
+      const normalized = normalizeGrepInput(input);
+      if ("error" in normalized) return toolError(toolName, normalized.error);
+      const baseRoot = this.paths.resolveSearchRoot(normalized.path, context);
+      const files = globSearch(baseRoot, normalized.glob, {
+        recursive: normalized.glob.includes("**") || !input.glob,
         maxResults: 20_000,
       }).items;
-      const regexp = new RegExp(escapeRegExp(pattern), input.caseSensitive ? "" : "i");
+      const regexp = new RegExp(escapeRegExp(normalized.pattern), normalized.caseSensitive ? "" : "i");
       const matches: GrepMatch[] = [];
       let scannedFiles = 0;
       for (const filePath of files) {
-        if (matches.length >= maxResults) {
+        if (matches.length >= normalized.maxResults) {
           break;
         }
         if (!isLikelyTextFile(filePath)) {
@@ -122,38 +93,18 @@ export class LocalSearchToolService {
             file: toPortableRelative(baseRoot, filePath),
             line_number: index + 1,
             line,
-            before: contextLines > 0 ? lines.slice(Math.max(0, index - contextLines), index) : [],
-            after: contextLines > 0 ? lines.slice(index + 1, Math.min(lines.length, index + 1 + contextLines)) : [],
+            before: normalized.contextLines > 0 ? lines.slice(Math.max(0, index - normalized.contextLines), index) : [],
+            after: normalized.contextLines > 0 ? lines.slice(index + 1, Math.min(lines.length, index + 1 + normalized.contextLines)) : [],
           });
-          if (matches.length >= maxResults) {
+          if (matches.length >= normalized.maxResults) {
             break;
           }
         }
       }
-      const truncated = matches.length >= maxResults;
-      return toolSuccess(
-        {
-          base_path: baseRoot,
-          pattern,
-          matches,
-          count: matches.length,
-          scanned_files: scannedFiles,
-          truncated,
-        },
-        {
-          toolName,
-          summary: `grep 找到 ${matches.length} 个匹配${truncated ? "（已截断）" : ""}`,
-          outputType: "json",
-          metadata: {
-            execution_paths: this.paths.roots(context),
-            base_path: baseRoot,
-            pattern,
-            count: matches.length,
-            scanned_files: scannedFiles,
-            truncated,
-          },
-        },
-      );
+      const truncated = matches.length >= normalized.maxResults;
+      return formatGrepResult(baseRoot, normalized, matches, scannedFiles, truncated, {
+        execution_paths: this.paths.roots(context),
+      });
     } catch (error) {
       return toolError(toolName, `grep 执行失败: ${formatError(error)}`);
     }
@@ -198,49 +149,9 @@ export class LocalSearchToolService {
       return toolError(toolName, parsed.error);
     }
     this.todosBySession.set(sessionId, parsed.todos);
-    const counts = countTodos(parsed.todos);
-    return toolSuccess(
-      {
-        old_todos: previous,
-        new_todos: parsed.todos,
-        count: parsed.todos.length,
-        pending_count: counts.pending,
-        in_progress_count: counts.in_progress,
-        completed_count: counts.completed,
-      },
-      {
-        toolName,
-        summary: parsed.todos.length
-          ? `todo 列表已更新：${parsed.todos.length} 项`
-          : previous.length
-            ? "所有 todo 均已完成，列表已清空"
-            : "todo 列表为空",
-        outputType: "json",
-        metadata: {
-          session_id: sessionId,
-          count: parsed.todos.length,
-          pending_count: counts.pending,
-          in_progress_count: counts.in_progress,
-          completed_count: counts.completed,
-        },
-      },
-    );
+    return formatTodoWriteResult(previous, parsed.todos, sessionId);
   }
 
-}
-
-interface TodoItem {
-  content: string;
-  status: "pending" | "in_progress" | "completed";
-  activeForm?: string | undefined;
-}
-
-interface GrepMatch {
-  file: string;
-  line_number: number;
-  line: string;
-  before: string[];
-  after: string[];
 }
 
 function globSearch(
@@ -331,44 +242,6 @@ function isLikelyTextFile(filePath: string): boolean {
   } catch {
     return false;
   }
-}
-
-function parseTodos(value: unknown): { todos: TodoItem[] } | { error: string } {
-  if (!Array.isArray(value)) {
-    return { error: "todos 必须是数组" };
-  }
-  const todos: TodoItem[] = [];
-  for (const [index, item] of value.entries()) {
-    if (!isRecord(item)) {
-      return { error: `todos[${index}] 必须是对象` };
-    }
-    const content = normalizeString(item.content);
-    if (!content) {
-      return { error: `todos[${index}].content 不能为空` };
-    }
-    const status = normalizeString(item.status) ?? "pending";
-    if (!TODO_STATUS_VALUES.has(status)) {
-      return { error: `todos[${index}].status 非法值 '${status}'` };
-    }
-    const todo: TodoItem = {
-      content,
-      status: status as TodoItem["status"],
-    };
-    const activeForm = normalizeString(item.active_form) ?? normalizeString(item.activeForm);
-    if (activeForm) {
-      todo.activeForm = activeForm;
-    }
-    todos.push(todo);
-  }
-  return { todos };
-}
-
-function countTodos(todos: TodoItem[]): Record<TodoItem["status"], number> {
-  const counts = { pending: 0, in_progress: 0, completed: 0 };
-  for (const todo of todos) {
-    counts[todo.status] += 1;
-  }
-  return counts;
 }
 
 async function fetchText(
