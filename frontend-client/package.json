@@ -4,7 +4,6 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "predev": "npm --prefix .. run build:chat-sdk",
     "dev": "vite",
     "build": "vite build",
     "check:bundle-size": "node scripts/check-bundle-size.mjs",

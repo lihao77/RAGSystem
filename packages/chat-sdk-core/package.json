@@ -7,10 +7,12 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./session": {
+      "development": "./src/session-client.ts",
       "types": "./dist/session-client.d.ts",
       "import": "./dist/session-client.js"
     }

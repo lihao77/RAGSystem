@@ -2,7 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const devPort = Number(env.VITE_DEV_PORT || 5174)
   const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:5002'
@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [vue()],
     resolve: {
+      ...(command === 'serve'
+        ? { conditions: ['development', 'import', 'module', 'browser', 'default'] }
+        : {}),
       alias: {
         '@': path.resolve(__dirname, 'src'),
       },
