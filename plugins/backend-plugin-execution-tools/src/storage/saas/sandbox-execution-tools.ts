@@ -1,10 +1,4 @@
 import {
-  buildApprovalDescription,
-  categoryRisk,
-  classifyCommand,
-  validateCommand,
-  type CommandCategory,
-  type RiskLevel,
   type ToolCaller,
   type ToolExecContext,
   type ToolExecutionResult,
@@ -14,6 +8,14 @@ import type { SandboxLeaseRuntime } from "@ragsystem/backend-core/contracts/sand
 import { resolveSandboxPath, validateSandboxGlob } from "@ragsystem/backend-core/contracts/sandbox/sandbox-paths.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
+import {
+  buildBashExecutionPlan,
+  classifyBashCommand,
+  type BashClassificationResult,
+  type BashExecutionInput,
+  type BashExecutionPlan,
+  type BashExecutionPlanResult,
+} from "../../tools/BashTool/bash-policy.js";
 
 export class SaaSSearchToolService {
   private readonly todos = new Map<string, unknown>();
@@ -84,29 +86,13 @@ export class SaaSSearchToolService {
 export class SaaSBashToolService {
   constructor(private readonly leases: SandboxLeaseRuntime) {}
 
-  buildCommandClassification(input: BashExecutionInput, _agent: AgentConfig | null): BashClassificationResult {
-    const command = input.command?.trim();
-    if (!command) return { ok: false, result: toolError("execute_bash", "execute_bash 缺少 command") };
-    if (input.runInBackground) return { ok: false, result: toolError("execute_bash", "SaaS 沙箱第一版不支持后台 Bash") };
-    const validation = validateCommand(command);
-    if (validation.status === "blocked") return { ok: false, result: toolError("execute_bash", `命令安全检查失败: ${validation.error}`) };
-    const timeoutSeconds = positiveInteger(input.timeout, 120, 1, 600, "timeout");
-    const riskLevel = categoryRisk(validation.category);
-    const dangerousCommands = validation.approvalCommands.filter((name) => ["destructive", "network", "interpreter"].includes(classifyCommand(name)));
-    return { ok: true, classification: {
-      command,
-      description: input.description?.trim() ?? "",
-      category: validation.category,
-      riskLevel,
-      approvalRequired: validation.status === "approval_required",
-      approvalCommands: validation.approvalCommands,
-      dangerousCommands,
-      approvalDescription: buildApprovalDescription({ command, description: input.description?.trim() ?? "", category: validation.category, dangerousCommands }),
-      timeoutSeconds,
-      runInBackground: false,
-      workingDir: input.workingDir ?? null,
-      workingDirSpace: input.workingDirSpace ?? null,
-    } };
+  buildCommandClassification(input: BashExecutionInput, agent: AgentConfig | null): BashClassificationResult {
+    return classifyBashCommand(input, agent, {
+      defaultTimeoutSeconds: 120,
+      maxTimeoutSeconds: 600,
+      backgroundSupported: false,
+      backgroundUnsupportedMessage: "SaaS 沙箱第一版不支持后台 Bash",
+    });
   }
 
   prepareExecution(input: BashExecutionInput, _context: ToolExecContext, agent: AgentConfig | null, _pathService: PathAccessPolicy): BashExecutionPlanResult {
@@ -115,21 +101,7 @@ export class SaaSBashToolService {
     try {
       const c = classified.classification;
       const cwd = resolveSandboxPath(c.workingDir, { explicitSpace: c.workingDirSpace, operation: "search" });
-      return { ok: true, plan: {
-        command: c.command,
-        cwd: cwd.internalPath,
-        timeoutSeconds: c.timeoutSeconds,
-        description: c.description,
-        category: c.category,
-        riskLevel: c.riskLevel,
-        approvalRequired: c.approvalRequired,
-        approvalCommands: c.approvalCommands,
-        dangerousCommands: c.dangerousCommands,
-        approvalDescription: c.approvalDescription,
-        approvalArguments: { command: c.command, working_dir: cwd.displayPath, description: c.description, classification: c.category },
-        metadata: { command: c.command, working_dir: cwd.displayPath, classification: c.category, risk_level: c.riskLevel, timeout_seconds: c.timeoutSeconds },
-        runInBackground: false,
-      } };
+      return { ok: true, plan: buildBashExecutionPlan(c, cwd.internalPath, cwd.displayPath) };
     } catch (error) { return { ok: false, result: toolError("execute_bash", messageOf(error)) }; }
   }
 
@@ -187,37 +159,4 @@ function messageOf(error: unknown): string { return error instanceof Error ? err
 
 interface GlobInput { pattern: string; path?: string | null; recursive?: boolean | null; maxResults?: number | null }
 interface GrepInput { pattern: string; path?: string | null; glob?: string | null; caseSensitive?: boolean | null; maxResults?: number | null; contextLines?: number | null }
-interface BashExecutionInput {
-  command: string;
-  workingDir?: string | null;
-  workingDirSpace?: string | null;
-  timeout?: number | null;
-  runInBackground?: boolean | null;
-  description?: string | null;
-}
-interface BashExecutionPlan {
-  command: string;
-  cwd: string;
-  timeoutSeconds: number;
-  description: string;
-  category: CommandCategory;
-  riskLevel: RiskLevel;
-  approvalRequired: boolean;
-  approvalCommands: string[];
-  dangerousCommands: string[];
-  approvalDescription: string;
-  approvalArguments: Record<string, unknown>;
-  metadata: Record<string, unknown>;
-  runInBackground: boolean;
-}
-interface BashCommandClassification extends Omit<BashExecutionPlan, "cwd" | "approvalArguments" | "metadata"> {
-  workingDir: string | null;
-  workingDirSpace: string | null;
-}
-type BashExecutionPlanResult =
-  | { ok: true; plan: BashExecutionPlan }
-  | { ok: false; result: ToolExecutionResult };
-type BashClassificationResult =
-  | { ok: true; classification: BashCommandClassification }
-  | { ok: false; result: ToolExecutionResult };
 interface CodeExecutionInput { code: string; description?: string | null; timeout?: number | null }

@@ -4,16 +4,8 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { RiskLevel } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
 import type { BackgroundTaskPort } from "@ragsystem/backend-core/contracts/runtime/background-tasks.js";
 import type { ClientEventPublisherPort } from "@ragsystem/backend-core/contracts/runtime/core-runtime-ports.js";
-import {
-  buildApprovalDescription,
-  categoryRisk,
-  classifyCommand,
-  validateCommand,
-  type CommandCategory,
-} from "@ragsystem/agent-sdk";
 import { ManagedPathResolver } from "../../paths/managed-path-resolver.js";
 import { RuntimeAbortError, throwIfAborted, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
@@ -21,6 +13,22 @@ import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import { terminateProcessTree } from "@ragsystem/backend-core/services/runtime/process-tree.js";
 import { executionPathEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
+import {
+  buildBashExecutionPlan,
+  classifyBashCommand,
+  type BashClassificationResult,
+  type BashExecutionInput,
+  type BashExecutionPlan,
+  type BashExecutionPlanResult,
+} from "./bash-policy.js";
+
+export type {
+  BashClassificationResult,
+  BashCommandClassification,
+  BashExecutionInput,
+  BashExecutionPlan,
+  BashExecutionPlanResult,
+} from "./bash-policy.js";
 
 const TOOL_NAME = "execute_bash";
 const DEFAULT_TIMEOUT_SECONDS = 120;
@@ -30,60 +38,12 @@ const MAX_STDERR_CHARS = 2000;
 const PROCESS_TERMINATION_WAIT_MS = 5_000;
 const GROUP_KILLER_TIMEOUT_MS = 1_000;
 
-export interface BashExecutionInput {
-  command: string;
-  workingDir?: string | null;
-  workingDirSpace?: string | null;
-  timeout?: number | null;
-  runInBackground?: boolean | null;
-  description?: string | null;
-}
-
-export interface BashExecutionPlan {
-  command: string;
-  cwd: string;
-  timeoutSeconds: number;
-  description: string;
-  category: CommandCategory;
-  riskLevel: RiskLevel;
-  approvalRequired: boolean;
-  approvalCommands: string[];
-  dangerousCommands: string[];
-  approvalDescription: string;
-  approvalArguments: Record<string, unknown>;
-  metadata: Record<string, unknown>;
-  runInBackground: boolean;
-}
-
-export type BashExecutionPlanResult =
-  | { ok: true; plan: BashExecutionPlan }
-  | { ok: false; result: ToolExecutionResult };
-
 /**
  * 命令分类（不 resolve workingDir）—— checkAccess 用。
  * prepareExecution 据此 + resolveWorkingDirectory 建 plan（含 resolved cwd）。
  * 拆分目的：checkAccess 阶段 workingDir 越界时 pathService.approved 还空（approve 在 gate 后），
  * 若此时 resolve 会抛错被吞成 deny；故 checkAccess 只分类（不 resolve），call 阶段才 resolve。
  */
-export interface BashCommandClassification {
-  command: string;
-  description: string;
-  category: CommandCategory;
-  riskLevel: RiskLevel;
-  approvalRequired: boolean;
-  approvalCommands: string[];
-  dangerousCommands: string[];
-  approvalDescription: string;
-  timeoutSeconds: number;
-  runInBackground: boolean;
-  workingDir: string | null;
-  workingDirSpace: string | null;
-}
-
-export type BashClassificationResult =
-  | { ok: true; classification: BashCommandClassification }
-  | { ok: false; result: ToolExecutionResult };
-
 interface ForegroundResult {
   stdout: string;
   stderr: string;
@@ -124,63 +84,12 @@ export class LocalBashToolService {
     this.paths = options.pathResolver ?? new ManagedPathResolver(this.dataRoot);
   }
 
-  /**
-   * 命令分类（checkAccess 用）：command 校验 + validateCommand + 风险/审批判定。
-   * 不 resolve workingDir——checkAccess 阶段 workingDir 越界尚不能 resolve（pathService 未 approve）。
-   */
   buildCommandClassification(input: BashExecutionInput, agent: AgentConfig | null): BashClassificationResult {
-    const command = normalizeString(input.command);
-    if (!command) {
-      return { ok: false, result: errorResult("execute_bash 缺少 command", { command: "" }) };
-    }
-    if (input.runInBackground && !agent?.tasks?.background) {
-      return {
-        ok: false,
-        result: errorResult("当前 Agent 未启用 tasks.background，不能使用 run_in_background 后台执行", {
-          command,
-          background_started: false,
-        }),
-      };
-    }
-    const validation = validateCommand(command);
-    if (validation.status === "blocked") {
-      return {
-        ok: false,
-        result: errorResult(`命令安全检查失败: ${validation.error}`, {
-          command,
-          classification: "unknown",
-        }),
-      };
-    }
-    const timeoutSeconds = clampPositiveInt(input.timeout, this.defaultTimeoutSeconds, 1, this.maxTimeoutSeconds);
-    const description = normalizeString(input.description) ?? "";
-    const riskLevel = categoryRisk(validation.category);
-    const dangerousCommands = validation.approvalCommands.filter((commandName) =>
-      ["destructive", "network", "interpreter"].includes(classifyCommand(commandName)),
-    );
-    const approvalDescription = buildApprovalDescription({
-      command,
-      description,
-      category: validation.category,
-      dangerousCommands,
+    return classifyBashCommand(input, agent, {
+      defaultTimeoutSeconds: this.defaultTimeoutSeconds,
+      maxTimeoutSeconds: this.maxTimeoutSeconds,
+      backgroundSupported: true,
     });
-    return {
-      ok: true,
-      classification: {
-        command,
-        description,
-        category: validation.category,
-        riskLevel,
-        approvalRequired: validation.status === "approval_required",
-        approvalCommands: validation.approvalCommands,
-        dangerousCommands,
-        approvalDescription,
-        timeoutSeconds,
-        runInBackground: Boolean(input.runInBackground),
-        workingDir: input.workingDir ?? null,
-        workingDirSpace: input.workingDirSpace ?? null,
-      },
-    };
   }
 
   prepareExecution(input: BashExecutionInput, context: ToolExecContext, agent: AgentConfig | null, pathService: PathAccessPolicy): BashExecutionPlanResult {
@@ -202,41 +111,7 @@ export class LocalBashToolService {
         }),
       };
     }
-    return {
-      ok: true,
-      plan: {
-        command: c.command,
-        cwd,
-        timeoutSeconds: c.timeoutSeconds,
-        description: c.description,
-        category: c.category,
-        riskLevel: c.riskLevel,
-        approvalRequired: c.approvalRequired,
-        approvalCommands: c.approvalCommands,
-        dangerousCommands: c.dangerousCommands,
-        approvalDescription: c.approvalDescription,
-        approvalArguments: {
-          command: c.command,
-          working_dir: c.workingDir ?? ".",
-          working_dir_space: c.workingDirSpace ?? "workspace",
-          resolved_working_dir: cwd,
-          description: c.description,
-          classification: c.category,
-          command_segments: c.approvalCommands,
-          dangerous_command_segments: c.dangerousCommands,
-        },
-        metadata: {
-          command: c.command,
-          working_dir: cwd,
-          working_dir_space: c.workingDirSpace ?? "workspace",
-          classification: c.category,
-          risk_level: c.riskLevel,
-          timeout_seconds: c.timeoutSeconds,
-          ...(c.approvalCommands.length ? { approval_required_commands: c.approvalCommands } : {}),
-        },
-        runInBackground: c.runInBackground,
-      },
-    };
+    return { ok: true, plan: buildBashExecutionPlan(c, cwd, cwd) };
   }
 
   getExternalCandidates(input: BashExecutionInput, context: ToolExecContext, pathService: PathAccessPolicy): string[] {
@@ -568,8 +443,4 @@ function findBashExecutable(): string | null {
 
 function positiveInt(value: unknown, fallback: number): number {
   return Number.isInteger(value) && Number(value) >= 1 ? Number(value) : fallback;
-}
-
-function clampPositiveInt(value: unknown, fallback: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, positiveInt(value, fallback)));
 }
