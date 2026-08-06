@@ -12,7 +12,7 @@ import type { RuntimeContainerRegistry } from "@ragsystem/backend-core/services/
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
 import { createSaaSRuntimeContainer, prepareSaaSRuntimeContainer } from "./saas-runtime-container.js";
 import type { SandboxDriver } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
-import { RemoteHttpSandboxDriver } from "../sandbox/http-sandbox-provider.js";
+import { RemoteHttpSandboxDriver } from "@ragsystem/sandbox-runtime";
 
 export interface SaaSTenantRuntimeRegistryOptions {
   idleTimeoutMs?: number;

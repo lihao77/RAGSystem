@@ -16,7 +16,7 @@
   "scripts": {
     "dev": "tsx watch --conditions=development src/main.ts",
     "start": "node dist/main.js",
-    "prebuild": "npm -w @ragsystem/backend-core run build",
+    "prebuild": "npm -w @ragsystem/agent-sdk run build && npm -w @ragsystem/backend-core run build && npm -w @ragsystem/sandbox-runtime run build",
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test test/*.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -26,6 +26,7 @@
     "@ragsystem/agent-protocol": "*",
     "@ragsystem/agent-sdk": "*",
     "@ragsystem/backend-core": "*",
+    "@ragsystem/sandbox-runtime": "*",
     "fastify": "^5.0.0",
     "pg": "^8.22.0"
   },

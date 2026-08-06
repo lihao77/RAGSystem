@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { HookRegistry } from "@ragsystem/agent-sdk";
+import { RunSandboxManager } from "@ragsystem/sandbox-runtime";
 import type { BackendRuntimeContributions } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import { EXECUTION_ENVIRONMENT_CAPABILITY, createSaaSExecutionEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
@@ -31,7 +32,6 @@ import type { SandboxDriver } from "@ragsystem/backend-core/contracts/sandbox/sa
 import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import { SaaSSandboxFileBridge } from "../sandbox/sandbox-file-bridge.js";
-import { RunSandboxManager } from "../sandbox/sandbox-lease-manager.js";
 export interface SaaSRuntimeContainerOptions {
   tenantId: TenantId;
   dataRoot: string;
