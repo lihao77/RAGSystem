@@ -5,66 +5,82 @@
   "type": "module",
   "exports": {
     "./contracts/*.js": {
+      "development": "./src/contracts/*.ts",
       "types": "./dist/contracts/*.d.ts",
       "default": "./dist/contracts/*.js"
     },
     "./contracts/*/*.js": {
+      "development": "./src/contracts/*/*.ts",
       "types": "./dist/contracts/*/*.d.ts",
       "default": "./dist/contracts/*/*.js"
     },
     "./contracts/*/*/*.js": {
+      "development": "./src/contracts/*/*/*.ts",
       "types": "./dist/contracts/*/*/*.d.ts",
       "default": "./dist/contracts/*/*/*.js"
     },
     "./contracts/*/*/*/*.js": {
+      "development": "./src/contracts/*/*/*/*.ts",
       "types": "./dist/contracts/*/*/*/*.d.ts",
       "default": "./dist/contracts/*/*/*/*.js"
     },
     "./plugins/*.js": {
+      "development": "./src/plugins/*.ts",
       "types": "./dist/plugins/*.d.ts",
       "default": "./dist/plugins/*.js"
     },
     "./app/*.js": {
+      "development": "./src/app/*.ts",
       "types": "./dist/app/*.d.ts",
       "default": "./dist/app/*.js"
     },
     "./config/*.js": {
+      "development": "./src/config/*.ts",
       "types": "./dist/config/*.d.ts",
       "default": "./dist/config/*.js"
     },
     "./fastify-context.js": {
+      "development": "./src/fastify-context.ts",
       "types": "./dist/fastify-context.d.ts",
       "default": "./dist/fastify-context.js"
     },
     "./core-app.js": {
+      "development": "./src/core-app.ts",
       "types": "./dist/core-app.d.ts",
       "default": "./dist/core-app.js"
     },
     "./identity/*.js": {
+      "development": "./src/identity/*.ts",
       "types": "./dist/identity/*.d.ts",
       "default": "./dist/identity/*.js"
     },
     "./routes/*.js": {
+      "development": "./src/routes/*.ts",
       "types": "./dist/routes/*.d.ts",
       "default": "./dist/routes/*.js"
     },
     "./routes/*/*.js": {
+      "development": "./src/routes/*/*.ts",
       "types": "./dist/routes/*/*.d.ts",
       "default": "./dist/routes/*/*.js"
     },
     "./services/*.js": {
+      "development": "./src/services/*.ts",
       "types": "./dist/services/*.d.ts",
       "default": "./dist/services/*.js"
     },
     "./tools/*.js": {
+      "development": "./src/tools/*.ts",
       "types": "./dist/tools/*.d.ts",
       "default": "./dist/tools/*.js"
     },
     "./tools/*/*.js": {
+      "development": "./src/tools/*/*.ts",
       "types": "./dist/tools/*/*.d.ts",
       "default": "./dist/tools/*/*.js"
     },
     "./utils/*.js": {
+      "development": "./src/utils/*.ts",
       "types": "./dist/utils/*.d.ts",
       "default": "./dist/utils/*.js"
     }

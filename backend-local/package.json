@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./*.js": {
+      "development": "./src/*.ts",
       "types": "./dist/*.d.ts",
       "default": "./dist/*.js"
     }
@@ -13,8 +14,7 @@
     "node": ">=22.5.0"
   },
   "scripts": {
-    "predev": "npm --prefix .. run build:backend-local-deps",
-    "dev": "tsx watch src/main.ts",
+    "dev": "tsx watch --conditions=development src/main.ts",
     "start": "node dist/main.js",
     "prebuild": "npm -w @ragsystem/backend-core run build",
     "build": "tsc -p tsconfig.json",

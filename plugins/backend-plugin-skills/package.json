@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./*.js": {
+      "development": "./src/*.ts",
       "types": "./dist/*.d.ts",
       "default": "./dist/*.js"
     }
