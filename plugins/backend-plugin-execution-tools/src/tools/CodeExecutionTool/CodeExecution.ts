@@ -5,6 +5,13 @@ import fs from "node:fs";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { ManagedPathResolver, type ManagedRoots } from "../../paths/managed-path-resolver.js";
 import { executionPathEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
+import {
+  normalizeCodeTimeout,
+  prepareCodeExecution,
+  type CodeExecutionInput,
+} from "./code-policy.js";
+
+export type { CodeExecutionInput, CodeExecutionPlan, CodeExecutionPlanResult } from "./code-policy.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 60;
 const MAX_TIMEOUT_SECONDS = 300;
@@ -14,12 +21,6 @@ export type ToolCaller = (
   args: Record<string, unknown>,
   ctx: ToolExecContext,
 ) => Promise<ToolExecutionResult>;
-
-export interface CodeExecutionInput {
-  code: string;
-  description?: string | null;
-  timeout?: number | null;
-}
 
 export class CodeExecutionToolService {
   private readonly dataRoot: string;
@@ -43,10 +44,7 @@ export class CodeExecutionToolService {
   }
 
   clampTimeout(value: number | null | undefined): number {
-    if (value === null || value === undefined || !Number.isInteger(value)) {
-      return this.defaultTimeoutSeconds;
-    }
-    return Math.max(1, Math.min(this.maxTimeoutSeconds, value));
+    return normalizeCodeTimeout(value, this.defaultTimeoutSeconds, this.maxTimeoutSeconds);
   }
 
   getManagedRoots(context: ToolExecContext): ManagedRoots {
@@ -59,11 +57,14 @@ export class CodeExecutionToolService {
     toolCaller: ToolCaller | null = null,
   ): Promise<ToolExecutionResult> {
     const toolName = "execute_code";
-    const code = input.code;
-    if (!code.trim()) {
-      return errorResult("代码不能为空", toolName);
-    }
-    const timeoutSeconds = this.clampTimeout(input.timeout);
+    const prepared = prepareCodeExecution(input, {
+      defaultTimeoutSeconds: this.defaultTimeoutSeconds,
+      maxTimeoutSeconds: this.maxTimeoutSeconds,
+    });
+    if (!prepared.ok) return prepared.result;
+    const plan = prepared.plan;
+    const code = plan.code;
+    const timeoutSeconds = plan.timeoutSeconds;
     const roots = this.getManagedRoots(context);
     for (const root of Object.values(roots)) {
       fs.mkdirSync(root, { recursive: true });
@@ -154,7 +155,7 @@ export class CodeExecutionToolService {
           stderr,
           tool_calls_count: parsed.tool_calls_count ?? 0,
           execution_time: executionTime,
-          classification: classifyCodeRisk(code),
+          classification: plan.riskLevel,
           execution_paths: roots,
         },
         artifacts: [],
@@ -217,11 +218,6 @@ export class CodeExecutionToolService {
 
 function resolvePythonExecutable(): string {
   return process.env.RAGSYSTEM_PYTHON ?? process.env.PYTHON ?? "python";
-}
-
-function classifyCodeRisk(code: string): "read_only" | "write" {
-  const lowered = code.toLowerCase();
-  return lowered.includes("call_tool(") || lowered.includes("open(") || lowered.includes("save_file(") ? "write" : "read_only";
 }
 
 interface ChildExit {

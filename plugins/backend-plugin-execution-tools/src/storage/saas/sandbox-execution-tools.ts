@@ -27,6 +27,10 @@ import {
   type GrepInput,
   type TodoItem,
 } from "../../tools/shared/search-policy.js";
+import {
+  prepareCodeExecution,
+  type CodeExecutionInput,
+} from "../../tools/CodeExecutionTool/code-policy.js";
 
 export class SaaSSearchToolService {
   private readonly todos = new Map<string, TodoItem[]>();
@@ -133,31 +137,31 @@ export class SaaSCodeExecutionService {
 
   async executeCode(input: CodeExecutionInput, context: ToolExecContext, _toolCaller: ToolCaller | null = null): Promise<ToolExecutionResult> {
     const toolName = "execute_code";
-    if (!input.code.trim()) return toolError(toolName, "代码不能为空");
-    const timeoutSeconds = positiveInteger(input.timeout, 60, 1, 300, "timeout");
+    const prepared = prepareCodeExecution(input, { defaultTimeoutSeconds: 60, maxTimeoutSeconds: 300 });
+    if (!prepared.ok) return prepared.result;
+    const plan = prepared.plan;
     try {
       const result = await this.leases.withLease(context, (lease, provider) => provider.executeCode(lease, {
-        code: input.code,
+        code: plan.code,
         cwd: "/work",
-        timeoutSeconds,
+        timeoutSeconds: plan.timeoutSeconds,
         signal: context.signal,
       }));
       return toolSuccess(result.result, {
         toolName,
         summary: "代码执行成功",
         outputType: typeof result.result === "string" ? "text" : "json",
-        metadata: { stdout: result.stdout, stderr: result.stderr, return_code: result.returnCode, interrupted: result.interrupted, tool_calls_supported: false },
+        metadata: {
+          stdout: result.stdout,
+          stderr: result.stderr,
+          return_code: result.returnCode,
+          interrupted: result.interrupted,
+          tool_calls_supported: false,
+          classification: plan.riskLevel,
+        },
       });
     } catch (error) { return toolError(toolName, `代码执行失败: ${messageOf(error)}`); }
   }
 }
 
-function positiveInteger(value: number | null | undefined, fallback: number, min: number, max: number, label: string): number {
-  if (value === null || value === undefined) return fallback;
-  if (!Number.isInteger(value) || value < min || value > max) throw new Error(`${label} 必须在 ${min}-${max} 之间`);
-  return value;
-}
-
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-
-interface CodeExecutionInput { code: string; description?: string | null; timeout?: number | null }

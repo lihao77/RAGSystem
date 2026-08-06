@@ -20,7 +20,7 @@ import {
 } from "../dist/index.js";
 import { LocalBashToolService } from "../dist/tools/BashTool/BashExecution.js";
 import { LocalSearchToolService } from "../dist/tools/LocalSearchTools/SearchExecution.js";
-import { SaaSSearchToolService } from "../dist/storage/saas/sandbox-execution-tools.js";
+import { SaaSCodeExecutionService, SaaSSearchToolService } from "../dist/storage/saas/sandbox-execution-tools.js";
 
 const descriptors = [
   "glob",
@@ -306,6 +306,28 @@ test("local and SaaS search adapters share todo validation and result shape", ()
   } finally {
     fs.rmSync(dataRoot, { recursive: true, force: true });
   }
+});
+
+test("SaaS code adapter applies the shared timeout and risk policy", async () => {
+  let request = null;
+  const service = new SaaSCodeExecutionService({
+    async withLease(_context, operation) {
+      return operation({ id: "lease", owner: {}, createdAt: "now" }, {
+        async executeCode(_lease, input) {
+          request = input;
+          return { result: 1, stdout: "", stderr: "", returnCode: 0, interrupted: false };
+        },
+      });
+    },
+    async releaseRun() {},
+    async closeAll() {},
+  });
+
+  const result = await service.executeCode({ code: "result = 1", timeout: 999 }, {});
+  assert.equal(result.success, true);
+  assert.equal(request.timeoutSeconds, 300);
+  assert.equal(result.metadata.classification, "read_only");
+  assert.equal((await service.executeCode({ code: "  " }, {})).success, false);
 });
 
 test("foreground bash abort terminates the shell and its child process tree", async () => {
