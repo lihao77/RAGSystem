@@ -15,7 +15,14 @@ export function useSessionRuntimeStatus({ clearLlmRetryState, chatSdkClient }) {
       const tokenStats = json.data?.token_stats;
       if (tokenStats && typeof tokenStats.total_tokens === 'number'
         && typeof tokenStats.budget_tokens === 'number') {
-        contextUsage.value = { used: tokenStats.total_tokens, max: tokenStats.budget_tokens };
+        contextUsage.value = {
+          used: tokenStats.token_source === 'provider' ? tokenStats.total_tokens : 0,
+          max: tokenStats.token_source === 'provider' ? tokenStats.budget_tokens : 0,
+          source: tokenStats.token_source === 'provider' ? 'provider' : 'unavailable',
+          ...(tokenStats.token_source === 'provider'
+            ? { providerUsed: tokenStats.total_tokens }
+            : {}),
+        };
       }
     } catch (error) {
       console.warn('loadContextSnapshot 失败:', error instanceof Error ? error.message : String(error));
@@ -25,7 +32,7 @@ export function useSessionRuntimeStatus({ clearLlmRetryState, chatSdkClient }) {
   const clearExecutionState = ({ resetContextUsage = false } = {}) => {
     clearLlmRetryState();
     store.clearSessionRuntime();
-    if (resetContextUsage) contextUsage.value = { used: 0, max: 0 };
+    if (resetContextUsage) contextUsage.value = { used: 0, max: 0, source: 'none' };
   };
 
   return { loadContextSnapshot, clearExecutionState };

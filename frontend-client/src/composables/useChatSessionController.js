@@ -223,7 +223,7 @@ export function useChatSessionController(deps) {
     if (sessionId && sessionId !== currentSessionId.value) {
       deps.disconnectSessionWS();
       deps.invalidateActiveStream();
-      deps.clearExecutionState();
+      deps.clearExecutionState({ resetContextUsage: true });
       currentSessionId.value = sessionId;
       // 不先清空上下文：列表无 team，清空会先闪「未选择」；
       // workspace 能从列表立刻 seed，team 等 hydrate 覆盖（短暂保留上一会话 team 优于假空）。

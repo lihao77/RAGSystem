@@ -67,4 +67,33 @@ describe("kernel event wire translation", () => {
       },
     }]);
   });
+
+  it("marks provider-reported context usage separately from estimates", () => {
+    const events = translateKernelEvent({
+      type: "context_usage",
+      agentName: "agent",
+      round: 2,
+      source: "provider",
+      systemPromptTokens: 200,
+      historyTokens: 800,
+      totalTokens: 1000,
+      budgetTokens: 4000,
+      compressing: false,
+    }, {
+      sessionId: "session-1",
+      runId: "run-1",
+      rootCallId: "root-call",
+      requestId: "request-1",
+      agentId: "agent",
+    });
+
+    expect(events[0]?.payload).toMatchObject({
+      category: "context_usage",
+      detail: {
+        used_tokens: 1000,
+        budget_tokens: 4000,
+        token_source: "provider",
+      },
+    });
+  });
 });

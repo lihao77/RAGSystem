@@ -161,7 +161,6 @@ export function createSessionCommandController({
       resetActiveRunForSend(activeRun, assistantMsgIndex);
       activeRun.phase = 'creating_session';
       beginOptimisticCommand('send');
-      contextUsage.value = { used: 0, max: 0 };
     }
 
     try {
@@ -235,9 +234,6 @@ export function createSessionCommandController({
       resetActiveRunForSend(activeRun, assistantMsgIndex);
     }
     if (!isRunningFollowup && !startsDraftSession) beginOptimisticCommand('send');
-    if (!startsDraftSession && !isRunningFollowup) {
-      contextUsage.value = { used: 0, max: 0 };
-    }
 
     try {
       /** @type {AnyRecord} */

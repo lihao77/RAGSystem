@@ -55,7 +55,9 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const isCompressing = ref(false);
   const sessionRuntime = ref(null);
   const optimisticCommand = ref(null);
-  const contextUsage = ref({ used: 0, max: 0 });
+  // The source is intentionally kept with the value so the UI can distinguish
+  // a snapshot/estimate from a provider measurement or a prediction.
+  const contextUsage = ref({ used: 0, max: 0, source: 'none' });
   const activeRun = reactive(createActiveRunState());
   const llmRetryState = ref(null);
   // 正在等待服务端 message_saved 确认的运行中补充消息。它们不属于主消息列表。
@@ -80,7 +82,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
   });
 
   const resetContextUsage = () => {
-    contextUsage.value = { used: 0, max: 0 };
+    contextUsage.value = { used: 0, max: 0, source: 'none' };
   };
 
   const resetActiveRun = () => resetActiveRunState(activeRun);

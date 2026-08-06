@@ -103,15 +103,19 @@ export interface RuntimeErrorEvent {
   message: string;
 }
 
-export interface ContextUsageEvent {
-  type: "context_usage";
-  agentName: string;
-  round: number;
+export interface ContextUsageSnapshot {
   systemPromptTokens: number;
   historyTokens: number;
   totalTokens: number;
   budgetTokens: number;
   compressing: boolean;
+}
+
+export interface ContextUsageEvent extends ContextUsageSnapshot {
+  type: "context_usage";
+  agentName: string;
+  round: number;
+  source?: "estimate" | "provider";
 }
 
 /** Complete event union exposed through RunHandle.events. */

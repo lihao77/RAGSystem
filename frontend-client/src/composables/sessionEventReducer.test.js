@@ -9,6 +9,7 @@ function buildReducer() {
   const messages = reference([]);
   const activeRun = { assistantMsgIndex: 0, phase: 'processing', runningToolCalls: {}, runningModelCalls: {} };
   const calls = { chunks: [], cached: 0, situation: 0 };
+  const contextUsage = reference({ used: 0, max: 0 });
   const deps = {
     isMasterEvent: () => true,
     isRootEvent: () => true,
@@ -37,12 +38,12 @@ function buildReducer() {
     activeRun,
     messages,
     isCompressing: reference(false),
-    contextUsage: reference({ used: 0, max: 0 }),
+    contextUsage,
     llmRetryState: reference(null),
     handleApprovalRequired: () => {},
     handleUserInputRequired: () => {},
   });
-  return { reducer, messages, activeRun, calls };
+  return { reducer, messages, activeRun, calls, contextUsage };
 }
 
 test('SessionEventReducer routes child stream output through execution projection', () => {
@@ -129,4 +130,49 @@ test('SessionEventReducer only inserts visible root compression summaries', () =
   assert.equal(messages.value.length, 2);
   assert.equal(messages.value[0].content, 'root summary');
   assert.equal(activeRun.assistantMsgIndex, 1);
+});
+
+test('SessionEventReducer ignores estimates and only displays provider usage', () => {
+  const { reducer, contextUsage } = buildReducer();
+  const currentMessage = { content: '', metadata: {}, status: [], finished: false };
+
+  reducer({
+    type: 'state_sync',
+    session_id: 'session-1',
+    run_id: 'run-1',
+    payload: { category: 'context_usage', detail: {
+      used_tokens: 2000, budget_tokens: 8000, token_source: 'estimate',
+    } },
+  }, currentMessage, 'session-1');
+  assert.deepEqual(contextUsage.value, { used: 0, max: 0 });
+
+  reducer({
+    type: 'state_sync',
+    session_id: 'session-1',
+    run_id: 'run-1',
+    payload: { category: 'context_usage', detail: {
+      used_tokens: 1000, budget_tokens: 8000, token_source: 'provider',
+    } },
+  }, currentMessage, 'session-1');
+  assert.deepEqual(contextUsage.value, {
+    used: 1000,
+    max: 8000,
+    source: 'provider',
+    providerUsed: 1000,
+  });
+
+  reducer({
+    type: 'state_sync',
+    session_id: 'session-1',
+    run_id: 'run-2',
+    payload: { category: 'context_usage', detail: {
+      used_tokens: 2020, budget_tokens: 8000, token_source: 'estimate',
+    } },
+  }, currentMessage, 'session-1');
+  assert.deepEqual(contextUsage.value, {
+    used: 1000,
+    max: 8000,
+    source: 'provider',
+    providerUsed: 1000,
+  });
 });

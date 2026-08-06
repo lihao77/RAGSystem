@@ -1,4 +1,5 @@
 // @ts-check
+
 /** @typedef {Record<string, any>} AnyRecord */
 
 /** @param {AnyRecord} eventData */
@@ -67,8 +68,18 @@ export function createSessionEventReducer({
       if (category === 'context_usage') {
         const detail = payload.detail || {};
         if (detail.compressing) isCompressing.value = true;
-        const ctx = { used: detail.used_tokens, max: detail.budget_tokens };
-        if (deps.isRootEvent(event)) {
+        const isRoot = deps.isRootEvent(event);
+        // Estimates are internal compression telemetry. The user-facing value only
+        // changes after a provider has reported this round's real input and output.
+        if (detail.token_source !== 'provider') return;
+        if (!Number.isFinite(detail.used_tokens) || !Number.isFinite(detail.budget_tokens)) return;
+        const ctx = {
+          used: detail.used_tokens,
+          max: detail.budget_tokens,
+          source: 'provider',
+          providerUsed: detail.used_tokens,
+        };
+        if (isRoot) {
           contextUsage.value = ctx;
         } else {
           const agent = deps.findRunningExecutionAgentByAgentId(currentMsg.executionTree, event.agent_id);

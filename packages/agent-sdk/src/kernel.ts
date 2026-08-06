@@ -20,7 +20,7 @@
  */
 import { isAbortError } from "./abort.js";
 import { RecoverableInterrupt } from "./recoverable-interrupt.js";
-import type { ChatMessage, TokenUsage } from "@ragsystem/agent-llm";
+import type { ChatMessage, LlmRequest, TokenUsage } from "@ragsystem/agent-llm";
 import type {
   Context,
   EventSink,
@@ -34,20 +34,20 @@ import type {
 import type { HookRegistry } from "./hooks/types.js";
 import type { AgentProfile } from "./types.js";
 import { KernelContext } from "./kernel-context.js";
+import type { ContextUsageSnapshot } from "./kernel-events.js";
 
 /**
- * 上下文用量计算端口：从当前轮请求消息 + profile 算 token 分桶与预算。
+ * 上下文用量计算端口：从当前轮最终 provider request + profile 算 token 分桶与预算。
  * 内核本身不做 token 估算/预算解析（零兜底），由 createRuntime 注入实现。
- * 返回 ContextUsageEvent 除 type/agentName/round 外的字段。
+ * 返回 ContextUsageEvent 除 type/agentName/round/source 外的字段。
  */
 export interface ContextUsageProvider {
-  (requestMessages: import("@ragsystem/agent-llm").ChatMessage[], profile: AgentProfile): {
-    systemPromptTokens: number;
-    historyTokens: number;
-    totalTokens: number;
-    budgetTokens: number;
-    compressing: boolean;
-  };
+  (
+    requestMessages: ChatMessage[],
+    profile: AgentProfile,
+    /** Final provider request; omitted by older/custom callers. */
+    request?: LlmRequest,
+  ): ContextUsageSnapshot;
 }
 
 export interface AgentKernelOptions {
@@ -113,10 +113,13 @@ export class AgentKernel {
             content: `<additional_context>\n${roundBeforeOut.additionalContext}\n</additional_context>`,
           });
         }
-        // 请求消息组好后报上下文用量（消费端推 context_usage 遥测）。无 provider 时不报。
+        // Protocol buildRequest adds protocol instructions and native tool schemas. Estimate the
+        // final provider request rather than the pre-protocol message list.
+        let requestContextUsage: ContextUsageSnapshot | null = null;
         if (this.contextUsage) {
-          const usage = this.contextUsage(ctx.requestMessages, session.profile);
-          this.events.emit({ type: "context_usage", agentName, round, ...usage });
+          const providerRequest = this.protocol.buildRequest(ctx);
+          requestContextUsage = this.contextUsage(providerRequest.messages, session.profile, providerRequest);
+          this.events.emit({ type: "context_usage", agentName, round, source: "estimate", ...requestContextUsage });
         }
         this.events.emit({ type: "model_request", agentName, round });
         const outcome = await this.protocol.invoke(ctx, round);
@@ -130,7 +133,33 @@ export class AgentKernel {
               }
             : { ...outcome.usage };
         }
-        await this.hooks.emit("round.after", { ctx, round, outcome });
+        await this.hooks.emit("round.after", {
+          ctx,
+          round,
+          outcome,
+          ...(requestContextUsage ? { contextUsage: requestContextUsage } : {}),
+        });
+        if (requestContextUsage && outcome.usage && outcome.usage.inputTokens > 0) {
+          const actualInputTokens = Math.floor(outcome.usage.inputTokens);
+          // After the response, the assistant output becomes part of the next request's
+          // context. Report the post-round context baseline rather than the just-finished
+          // request input alone. Both values come directly from provider usage, and emit
+          // only after round.after has persisted the same baseline for the session.
+          const actualOutputTokens = Math.max(0, Math.floor(outcome.usage.outputTokens));
+          const postRoundContextTokens = actualInputTokens + actualOutputTokens;
+          const actualSystemTokens = Math.min(requestContextUsage.systemPromptTokens, postRoundContextTokens);
+          this.events.emit({
+            type: "context_usage",
+            agentName,
+            round,
+            source: "provider",
+            systemPromptTokens: actualSystemTokens,
+            historyTokens: Math.max(0, postRoundContextTokens - actualSystemTokens),
+            totalTokens: postRoundContextTokens,
+            budgetTokens: requestContextUsage.budgetTokens,
+            compressing: false,
+          });
+        }
 
         if (outcome.kind === "tool_calls" && outcome.calls.length > 0) {
           // executeRound 前先 emit assistant_intermediate，把工具调用态 assistant 消息透传。

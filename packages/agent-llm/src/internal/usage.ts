@@ -8,10 +8,17 @@ export function extractOpenAiUsage(body: unknown): TokenUsage | null {
   if (input === null && output === null) return null;
   const inputTokens = input ?? 0;
   const outputTokens = output ?? 0;
+  const promptDetails = isRecord(body.usage.prompt_tokens_details)
+    ? body.usage.prompt_tokens_details
+    : isRecord(body.usage.input_tokens_details)
+      ? body.usage.input_tokens_details
+      : null;
+  const cachedInputTokens = promptDetails ? nonNegativeNumber(promptDetails.cached_tokens) : null;
   return {
     inputTokens,
     outputTokens,
     totalTokens: finiteNumber(body.usage.total_tokens) ?? inputTokens + outputTokens,
+    ...(cachedInputTokens !== null ? { cachedInputTokens } : {}),
   };
 }
 
@@ -19,8 +26,25 @@ export function extractAnthropicUsage(body: unknown): TokenUsage | null {
   if (!isRecord(body) || !isRecord(body.usage)) return null;
   const input = finiteNumber(body.usage.input_tokens);
   const output = finiteNumber(body.usage.output_tokens);
-  if (input === null && output === null) return null;
-  const inputTokens = input ?? 0;
+  const cacheCreationInputTokens = nonNegativeNumber(body.usage.cache_creation_input_tokens);
+  const cachedInputTokens = nonNegativeNumber(body.usage.cache_read_input_tokens);
+  if (input === null && output === null && cacheCreationInputTokens === null && cachedInputTokens === null) return null;
+  // Anthropic reports uncached, cache-write, and cache-read input separately. All three
+  // occupy the logical context window even though their billing rates differ.
+  const inputTokens = Math.max(0, input ?? 0)
+    + (cacheCreationInputTokens ?? 0)
+    + (cachedInputTokens ?? 0);
   const outputTokens = output ?? 0;
-  return { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    ...(cachedInputTokens !== null ? { cachedInputTokens } : {}),
+    ...(cacheCreationInputTokens !== null ? { cacheCreationInputTokens } : {}),
+  };
+}
+
+function nonNegativeNumber(value: unknown): number | null {
+  const number = finiteNumber(value);
+  return number !== null && number >= 0 ? number : null;
 }

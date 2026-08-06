@@ -161,9 +161,14 @@ export interface LlmRequest {
 
 /** 一次 LLM 调用的 token 用量（厂商返回的 usage 解析归一化）。 */
 export interface TokenUsage {
+  /** Logical input occupying the model context window, including cached prompt tokens. */
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /** Input tokens served from a provider prompt cache, when reported separately. */
+  cachedInputTokens?: number;
+  /** Input tokens written to a provider prompt cache, when reported separately. */
+  cacheCreationInputTokens?: number;
 }
 
 /** 一次 LLM 调用的结果。 */

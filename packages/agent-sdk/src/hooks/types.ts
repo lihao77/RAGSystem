@@ -16,6 +16,7 @@ import type {
   ToolExecutionResult,
   ToolExecContext,
 } from "../contracts.js";
+import type { ContextUsageSnapshot } from "../kernel-events.js";
 
 /** Hook 事件名，按 run / round / tool 三层分组。 */
 export type HookEvent =
@@ -53,6 +54,8 @@ export interface RoundAfterInput {
   ctx: KernelContext;
   round: number;
   outcome: KernelOutcome;
+  /** Estimate for the exact provider request built for this round. */
+  contextUsage?: ContextUsageSnapshot;
 }
 
 /** 单次工具执行前。 */

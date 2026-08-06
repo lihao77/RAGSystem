@@ -25,6 +25,7 @@ import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js"
 import { projectAgentProfile } from "./projection.js";
 import { buildBackendAgentContext, filterHistoryMessages, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
+import { RuntimeInputTokenTracker, type InputTokenTrackerIdentity } from "../context-compression/input-token-tracker.js";
 import { registerGateHook } from "./gate-hook.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
@@ -349,6 +350,17 @@ export async function executeRunWithSdk(
   };
   // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。
   const tokenUsage = { inputTokens: 0, outputTokens: 0 };
+  const inputTokenTracker = new RuntimeInputTokenTracker();
+  const inputTokenIdentity: InputTokenTrackerIdentity = {
+    threadKey: input.threadKey,
+    agentName: input.agent.agent_name,
+    providerKey: input.provider.key ?? input.provider.name ?? input.provider.provider_type,
+    modelName: input.modelName,
+  };
+  inputTokenTracker.restore(
+    sessionMetadata.getSession(input.sessionId)?.metadata ?? {},
+    inputTokenIdentity,
+  );
   const toolCalls: Record<string, number> = {};
   const runtimeOpts: CreateRuntimeOptions = {
     profile,
@@ -371,7 +383,11 @@ export async function executeRunWithSdk(
             tools: registry.listDefinitions(),
             ...(baseExecCtx.executionPaths ? { executionPaths: baseExecCtx.executionPaths } : {}),
           }, mode);
-          const systemPromptTokens = estimateTokens(systemPromptBase);
+          const prediction = inputTokenTracker.predict(hookInput.ctx.messages);
+          const systemPromptTokens = Math.max(
+            estimateTokens(systemPromptBase),
+            prediction?.systemPromptTokens ?? 0,
+          );
           const result = await deps.compressionService!.compressIfNeeded({
             agent: input.agent,
             sessionId: input.sessionId,
@@ -380,6 +396,7 @@ export async function executeRunWithSdk(
             taskId: input.taskId,
             requestId: input.requestId,
             systemPromptTokens,
+            ...(prediction ? { providerAdjustedInputTokens: prediction.inputTokens } : {}),
             ...(input.signal ? { signal: input.signal } : {}),
           });
           if (result.status === "success") {
@@ -399,11 +416,29 @@ export async function executeRunWithSdk(
         });
       }
       // 累计每轮 LLM 返回的 token 用量(provider 返回 usage 时累加,用于性能监控)。
-      hookRegistry.on("round.after", (hookInput) => {
+      hookRegistry.on("round.after", async (hookInput) => {
         const usage = hookInput.outcome.usage;
         if (usage) {
+          // Provider input + output is the exact post-round context baseline. Include the
+          // assistant message in the corresponding message-count anchor so the next round
+          // does not estimate and add the same output again.
+          const observed = inputTokenTracker.observe(
+            usage,
+            hookInput.contextUsage,
+            [...hookInput.ctx.messages, hookInput.outcome.assistantMessage],
+          );
           tokenUsage.inputTokens += usage.inputTokens;
           tokenUsage.outputTokens += usage.outputTokens;
+          if (observed) {
+            const patch = inputTokenTracker.metadataPatch(inputTokenIdentity);
+            if (patch) {
+              try {
+                await deps.storage.conversation.updateSessionMetadata(input.sessionId, patch);
+              } catch {
+                // Token feedback is advisory; a metadata write failure must not fail the run.
+              }
+            }
+          }
         }
       });
       deps.hooks?.(hookRegistry);

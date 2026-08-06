@@ -5,7 +5,7 @@ import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { MSG_TYPE } from "../../contracts/message-kinds.js";
 import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
-import { createToolRegistry, resolveContextBudget } from "@ragsystem/agent-sdk";
+import { createToolRegistry } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
 import { HISTORY_SCAN_LIMIT, previewBackendAgentContext, type ConversationHistoryPort, type SessionMetadataPort } from "../../services/agent/context/index.js";
 import { resolveSessionMetadataPort } from "../../services/agent/context/async-session-metadata-resolver.js";
@@ -21,6 +21,7 @@ import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
 import { assertSessionReadable } from "../session-owner.js";
 import { isRecord, normalizeString } from "../../utils/guards.js";
 import { EXECUTION_ENVIRONMENT_CAPABILITY } from "../../contracts/execution/execution-environment.js";
+import { readPersistedSessionContextTokenUsage } from "../../services/agent/context-compression/input-token-tracker.js";
 
 interface ContextSnapshotQuery {
   session_id?: string;
@@ -222,9 +223,9 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       const rm = rawOriginals[i] ?? null;
       return toContextHistoryItem(msg, rm ? { seq: rm.seq, metadata: rm.metadata } : undefined);
     });
-    const systemPromptTokens = preview?.tokenStats.systemPromptTokens ?? 0;
-    const historyTokens = preview?.tokenStats.historyTokens ?? 0;
-    const budgetTokens = resolveContextBudget(profile.llmTiers, preview?.tokenStats.systemPromptTokens ?? 0, profile.behavior.budget);
+    const persistedTokenUsage = sessionId
+      ? readPersistedSessionContextTokenUsage(sessionMetadata, threadKey || "root")
+      : null;
 
     const data = {
       // preview.systemPrompt 仅是基础 prompt；XML 协议会在首条 system message 追加
@@ -233,10 +234,11 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       available_agent_tools: buildAvailableAgentTools(agent, teamName, request.container),
       conversation_history: history,
       token_stats: {
-        system_prompt_tokens: systemPromptTokens,
-        history_tokens: historyTokens,
-        total_tokens: systemPromptTokens + historyTokens,
-        budget_tokens: budgetTokens,
+        total_tokens: persistedTokenUsage?.contextTokens ?? 0,
+        budget_tokens: persistedTokenUsage?.budgetTokens ?? 0,
+        token_source: persistedTokenUsage ? "provider" : "unavailable",
+        provider_input_tokens: persistedTokenUsage?.providerInputTokens ?? 0,
+        provider_output_tokens: persistedTokenUsage?.providerOutputTokens ?? 0,
       },
       config: {
         agent_name: agent.agent_name,
@@ -264,7 +266,6 @@ function toContextHistoryItem(
   role: string;
   content_preview: string;
   content_length: number;
-  tokens: number;
   is_compression_summary: boolean;
   react_intermediate: boolean;
   msg_type: string | null;
@@ -279,7 +280,6 @@ function toContextHistoryItem(
     role: message.role,
     content_preview: text,
     content_length: text.length,
-    tokens: estimateTokens(text),
     is_compression_summary: original?.metadata.msg_type === MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY,
     react_intermediate: Boolean(original?.metadata.react_intermediate),
     msg_type: normalizeString(original?.metadata.msg_type),
@@ -364,15 +364,6 @@ function applySessionWorkspace(agent: AgentConfig, workspaceRoot: string | null)
       workspace_root: workspaceRoot,
     },
   };
-}
-
-function estimateTokens(content: string): number {
-  if (!content) {
-    return 0;
-  }
-  const cjkChars = content.match(/[\u3400-\u9fff]/g)?.length ?? 0;
-  const nonCjk = content.length - cjkChars;
-  return Math.max(1, cjkChars + Math.ceil(nonCjk / 4));
 }
 
 function getRecord(value: unknown): Record<string, unknown> {

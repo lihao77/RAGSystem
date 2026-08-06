@@ -56,6 +56,8 @@ export interface CompressInput {
   signal?: AbortSignal;
   /** 当前 system prompt token 数（含注入上下文、base 和 tools）。budget = window×0.9 − 此值。调用方算好传入。 */
   systemPromptTokens: number;
+  /** 上一轮 provider 实测输入 token + 当前新增消息的校准估算；有值时优先用于阈值判断。 */
+  providerAdjustedInputTokens?: number;
 }
 
 interface LoadedHistory {
@@ -64,6 +66,7 @@ interface LoadedHistory {
   budgetTokens: number;
   historyResolved: MessageInfo[];
   historyTokens: number;
+  estimatedHistoryTokens: number;
   threadKey: string;
 }
 
@@ -122,7 +125,15 @@ export class AgentCompressionService {
       replacesUpToSeq: selected.replacesUpToSeq,
       threadKey: loaded.threadKey,
       ...(input.childAgentId !== undefined && input.childAgentId !== null ? { childAgentId: input.childAgentId } : {}),
-      metadata: compressionMetadata(input, selected.segment.length, loaded.historyTokens, thresholdTokens, loaded.budgetTokens, forced),
+      metadata: compressionMetadata(
+        input,
+        selected.segment.length,
+        loaded.historyTokens,
+        loaded.estimatedHistoryTokens,
+        thresholdTokens,
+        loaded.budgetTokens,
+        forced,
+      ),
     };
     const summaryMessage = await this.history.insertCompressionMessage(compressionInput);
     return {
@@ -145,8 +156,13 @@ export class AgentCompressionService {
     const persistedMessages = await this.history.getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey);
     const rawMessages = persistedMessages.filter(isCompressibleHistoryMessage);
     const historyResolved = resolveCompressionView(rawMessages);
-    const historyTokens = countMessagesTokens(historyResolved);
-    return { profile, settings, budgetTokens, historyResolved, historyTokens, threadKey };
+    const estimatedHistoryTokens = countMessagesTokens(historyResolved);
+    const historyTokens = resolveEffectiveHistoryTokens(
+      estimatedHistoryTokens,
+      input.systemPromptTokens,
+      input.providerAdjustedInputTokens,
+    );
+    return { profile, settings, budgetTokens, historyResolved, historyTokens, estimatedHistoryTokens, threadKey };
   }
 
   /**
@@ -257,6 +273,7 @@ function compressionMetadata(
   input: CompressInput,
   replacedCount: number,
   historyTokens: number,
+  estimatedHistoryTokens: number,
   thresholdTokens: number,
   budgetTokens: number,
   forced: boolean,
@@ -270,10 +287,26 @@ function compressionMetadata(
     compression_strategy: "llm_summarize",
     replaced_message_count: replacedCount,
     history_tokens_before: historyTokens,
+    estimated_history_tokens_before: estimatedHistoryTokens,
+    token_count_source: input.providerAdjustedInputTokens !== undefined ? "provider_adjusted" : "estimate",
+    ...(input.providerAdjustedInputTokens !== undefined
+      ? { provider_adjusted_input_tokens: Math.floor(input.providerAdjustedInputTokens) }
+      : {}),
     threshold_tokens: thresholdTokens,
     budget_tokens: budgetTokens,
     ...(forced ? { forced: true } : {}),
   };
+}
+
+export function resolveEffectiveHistoryTokens(
+  estimatedHistoryTokens: number,
+  systemPromptTokens: number,
+  providerAdjustedInputTokens?: number,
+): number {
+  if (providerAdjustedInputTokens === undefined || !Number.isFinite(providerAdjustedInputTokens)) {
+    return estimatedHistoryTokens;
+  }
+  return Math.max(0, Math.floor(providerAdjustedInputTokens) - Math.max(0, Math.floor(systemPromptTokens)));
 }
 
 function buildSummaryMessages(segment: ReadonlyArray<MessageInfo>, existingSummary: string): ChatMessage[] {

@@ -246,6 +246,7 @@ function onContextUsage(event: ContextUsageEvent, ctx: WireTranslationContext): 
       total_tokens: event.totalTokens,
       budget_tokens: event.budgetTokens,
       compressing: event.compressing,
+      token_source: event.source ?? "estimate",
       request_id: ctx.requestId,
     },
   };

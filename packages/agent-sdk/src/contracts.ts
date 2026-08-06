@@ -26,6 +26,7 @@ export type {
   ToolCallEvent,
   ToolResultEvent,
   RuntimeErrorEvent,
+  ContextUsageSnapshot,
   ContextUsageEvent,
 } from "./kernel-events.js";
 import type {

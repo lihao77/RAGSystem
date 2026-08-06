@@ -19,10 +19,6 @@
             </div>
             <span class="ctx-token-text">{{ data.token_stats.total_tokens.toLocaleString() }} / {{ data.token_stats.budget_tokens.toLocaleString() }} tokens</span>
           </div>
-          <div class="ctx-token-detail">
-            <span>System Prompt: {{ data.token_stats.system_prompt_tokens.toLocaleString() }}</span>
-            <span>对话历史: {{ data.token_stats.history_tokens.toLocaleString() }}</span>
-          </div>
         </section>
 
         <!-- 配置 -->
@@ -123,7 +119,6 @@
               :class="msgClass(msg)">
               <span class="ctx-role">{{ msgLabel(msg) }}</span>
               <span v-if="msg.react_intermediate" class="ctx-msg-type">R{{ msg.round || '' }}</span>
-              <span class="ctx-tokens">{{ msg.tokens }} tokens</span>
               <div class="ctx-content-preview">
                 {{ msg.content_preview || '' }}
               </div>
@@ -220,7 +215,6 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-token-fill.warning { background: var(--color-warning); }
 .ctx-token-fill.danger { background: var(--color-error); }
 .ctx-token-text { font-size: var(--font-size-xs); white-space: nowrap; color: var(--color-text-secondary); }
-.ctx-token-detail { display: flex; gap: 16px; margin-top: 6px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .ctx-kv-list { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .ctx-kv { font-size: var(--font-size-xs); }
 .ctx-kv-group { width: 100%; }
@@ -240,7 +234,6 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-history-item.react-observation { border-left: 2px dashed var(--color-agent-blue); opacity: 0.75; }
 .ctx-msg-type { font-size: var(--font-size-xs); padding: 1px 5px; border-radius: 3px; background: var(--color-bg-tertiary); color: var(--color-text-secondary); margin-right: 6px; }
 .ctx-role { font-weight: 600; text-transform: uppercase; margin-right: 8px; }
-.ctx-tokens { color: var(--color-text-muted); float: right; }
 .ctx-content-preview { margin-top: 4px; color: var(--color-text-secondary); word-break: break-all; white-space: pre-wrap; }
 .ctx-tool-calls { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
 .ctx-tool-call { display: flex; flex-direction: column; gap: 1px; padding: 2px 4px; background: var(--color-bg-tertiary, #f0f0f0); border-radius: 3px; }

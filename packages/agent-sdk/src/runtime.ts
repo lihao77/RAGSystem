@@ -13,7 +13,6 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmRequest } from "@ragsystem/agent-llm";
-import { extractText } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "./abort.js";
 import type { Context, EventSink, KernelResult, MessageRefresher, RuntimeSession, ToolExecContext, ToolExecutionResult, ToolWaitRequest, ToolWaitResult } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
@@ -33,7 +32,7 @@ import { createHookRegistry, type HookRegistry } from "./hooks/index.js";
 import { createProtocol } from "./llm-protocol/index.js";
 import { RuntimeToolProvider } from "./tools/index.js";
 import { createToolRegistry } from "./tools/registry.js";
-import { estimateTokens } from "./compression/token-estimate.js";
+import { estimateRequestTokenUsage } from "./compression/token-estimate.js";
 import type { ContextUsageProvider } from "./kernel.js";
 
 export interface CreateRuntimeOptions {
@@ -106,17 +105,12 @@ export interface PreviewInput {
   conversation: ChatMessage[];
 }
 
-/** preview 结果：模型真实收到的请求 + system prompt + token 用量 + 可见工具。 */
+/** preview 结果：模型真实收到的请求 + system prompt + 可见工具。 */
 export interface PreviewResult {
   /** 模型真实收到的 LLM 请求（messages 协议渲染 + tools + model/provider/参数），与 run 第一轮同源。 */
   request: LlmRequest;
   /** 完整 system prompt（请求首条 system message 内容）。 */
   systemPrompt: string;
-  tokenStats: {
-    systemPromptTokens: number;
-    historyTokens: number;
-    totalTokens: number;
-  };
   /** 本 runtime 可见的工具定义。 */
   toolDefinitions: RuntimeToolDefinition[];
 }
@@ -222,24 +216,18 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         ...(options.waitForToolResult ? { waitForToolResult: options.waitForToolResult } : {}),
       });
       // 上下文用量遥测：system（含稳定 system context）与 history 分桶估算 + 预算（零兜底，纯读 profile）。
-      const contextUsage: ContextUsageProvider = (requestMessages) => {
-        let systemPromptTokens = 0;
-        let historyTokens = 0;
-        for (const message of requestMessages) {
-          const tokens = estimateTokens(message.content);
-          if (message.role === "system") {
-            systemPromptTokens += tokens;
-          } else {
-            historyTokens += tokens;
-          }
-        }
-        // budget = window×0.9 − 实际 systemPromptTokens（动态,本轮 system prompt 含 memory prefix）。
-        const budgetTokens = resolveContextBudget(profile.llmTiers, systemPromptTokens, profile.behavior.budget);
+      const contextUsage: ContextUsageProvider = (requestMessages, _profile, request) => {
+        const estimate = estimateRequestTokenUsage(request ?? { messages: requestMessages });
+        // resolveContextBudget returns the history allowance. Telemetry exposes the matching
+        // total input allowance so clients compare total usage with a total budget.
+        const historyBudgetTokens = resolveContextBudget(
+          profile.llmTiers,
+          estimate.systemPromptTokens,
+          profile.behavior.budget,
+        );
         return {
-          systemPromptTokens,
-          historyTokens,
-          totalTokens: systemPromptTokens + historyTokens,
-          budgetTokens,
+          ...estimate,
+          budgetTokens: historyBudgetTokens + estimate.systemPromptTokens,
           compressing: false,
         };
       };
@@ -269,20 +257,9 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       } as RuntimeSession;
       const ctx = { session, requestMessages } as unknown as KernelContextType;
       const request = previewProtocol.buildRequest(ctx);
-      let systemPromptTokens = 0;
-      let historyTokens = 0;
-      for (const message of request.messages) {
-        const tokens = estimateTokens(extractText(message.content));
-        if (message.role === "system") {
-          systemPromptTokens += tokens;
-        } else {
-          historyTokens += tokens;
-        }
-      }
       return {
         request,
         systemPrompt,
-        tokenStats: { systemPromptTokens, historyTokens, totalTokens: systemPromptTokens + historyTokens },
         toolDefinitions: registry.listDefinitions(),
       };
     },
