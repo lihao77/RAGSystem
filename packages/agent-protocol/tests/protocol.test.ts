@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   AttachmentRefSchema,
-  AttachmentsExtensionSchema,
   ClientToServerEnvelopeSchema,
+  MessageContentPartSchema,
   ServerToClientEnvelopeSchema,
   SessionRuntimePayloadSchema,
   sessionLoadStrategyRestoresActiveRun,
@@ -22,42 +22,19 @@ describe("agent-protocol envelope compatibility", () => {
     })).toThrow();
   });
 
-  it("校验唯一的 attachments@v1 消息扩展", () => {
-    expect(AttachmentsExtensionSchema.parse({
-      kind: "attachments",
-      version: 1,
-      data: {
-        items: [{
-          file_id: "file-1",
-          original_name: "hostMCP.png",
-          stored_name: "file-1_hostMCP.png",
-          mime: "image/png",
-          size: 3,
-          kind: "image",
-        }],
-      },
-    })).toMatchObject({ kind: "attachments", version: 1 });
-  });
-
-  it("允许服务端权威附件快照声明受控绝对路径", () => {
-    expect(AttachmentsExtensionSchema.parse({
-      kind: "attachments",
-      version: 1,
-      data: {
-        items: [{
-          file_id: "file-nc",
-          original_name: "ocean.nc",
-          stored_name: "ocean.nc",
-          mime: "application/x-netcdf",
-          size: 1024,
-          kind: "file",
-          file_path: "D:\\data\\ocean.nc",
-          file_path_space: "absolute",
-        }],
-      },
-    })).toMatchObject({
-      data: { items: [{ file_path_space: "absolute" }] },
-    });
+  it("校验 content_parts 中的服务端权威附件快照", () => {
+    expect(MessageContentPartSchema.parse({
+      type: "attachment_ref",
+      file_id: "file-nc",
+      original_name: "ocean.nc",
+      stored_name: "ocean.nc",
+      mime: "application/x-netcdf",
+      size: 1024,
+      kind: "file",
+      presentation: "attachment",
+      file_path: "D:\\data\\ocean.nc",
+      file_path_space: "absolute",
+    })).toMatchObject({ file_path_space: "absolute" });
   });
 
   it("保留 typed envelope 的公共游标和路由字段", () => {

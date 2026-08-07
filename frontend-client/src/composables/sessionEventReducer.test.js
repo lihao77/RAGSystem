@@ -98,7 +98,7 @@ test('SessionEventReducer routes child stream output through execution projectio
 
 test('SessionEventReducer deterministically applies stream delta and final compensation', () => {
   const { reducer, messages, calls } = buildReducer();
-  const currentMessage = { content: '', metadata: {}, status: [], finished: false };
+  const currentMessage = { content: '', content_parts: [], metadata: {}, status: [], finished: false };
   messages.value.push(currentMessage);
 
   reducer({ type: 'stream_output', payload: { phase: 'delta', content: 'hel' } }, currentMessage, 'session-1');
@@ -139,8 +139,7 @@ test('SessionEventReducer incrementally inserts file parts and reconciles the fi
     },
   }, currentMessage, 'session-1');
 
-  const rich = currentMessage.metadata.extensions.find(extension => extension.kind === 'rich_content');
-  assert.deepEqual(rich.data.parts[1], {
+  assert.deepEqual(currentMessage.content_parts[1], {
     type: 'file_ref',
     file_path: 'results/map.png',
     presentation: 'inline',

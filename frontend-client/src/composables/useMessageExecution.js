@@ -8,6 +8,7 @@ import {
 export const createAssistantMessage = (overrides = {}) => ({
   role: 'assistant',
   content: '',
+  content_parts: [],
   executionTree: { root: null, steps: [] },
   status: [],
   finished: false,
@@ -92,6 +93,7 @@ export function useMessageExecution(deps) {
       id: item.id,
       seq: item.seq,
       content: interrupted ? '' : (item.content || ''),
+      content_parts: interrupted ? [] : (Array.isArray(item.content_parts) ? item.content_parts : []),
       executionTree: { root: null, steps: [] },
       status: interrupted ? [{ type: 'error', content: '已中断' }] : (item.status || []),
       finished: true,

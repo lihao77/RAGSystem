@@ -17,6 +17,7 @@ import type { PaginatedResult } from "../common.js";
 import { PermissionModeSchema, type PermissionMode } from "../runtime/permissions.js";
 import { OptionalSessionIdSchema } from "./session-id.js";
 import type { TenantId } from "../../identity/types.js";
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 
 export const SessionMetadataSchema = z.unknown().optional().transform((value, context) => {
   try {
@@ -189,6 +190,7 @@ export interface MessageInfo {
   session_id: string;
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  content_parts: MessageContentPart[];
   metadata: Record<string, unknown>;
   created_at: string;
   thread_key: string;

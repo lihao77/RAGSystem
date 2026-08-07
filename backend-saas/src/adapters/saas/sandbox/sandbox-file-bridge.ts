@@ -116,6 +116,7 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
     let totalBytes = 0;
     for (const rawPath of outputFiles) {
       const relativePath = validateDriverRelativePath(rawPath);
+      if (relativePath === "transient" || relativePath.startsWith("transient/")) continue;
       if (seen.has(relativePath)) throw new Error(`Sandbox driver returned duplicate output path: ${relativePath}`);
       seen.add(relativePath);
       const result = await driver.readFile(lease, {

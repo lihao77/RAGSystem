@@ -11,7 +11,7 @@ export function parseJsonObject(rawValue: string | null | undefined): Record<str
   return {};
 }
 
-export function stringifyJson(value: Record<string, unknown>): string {
+export function stringifyJson(value: unknown): string {
   return JSON.stringify(value);
 }
 

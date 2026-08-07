@@ -26,6 +26,7 @@ describe("buildTerminalToolMessages", () => {
         session_id: "session-1",
         role: "assistant",
         content: "searching",
+        content_parts: [{ type: "text", text: "searching" }],
         metadata: { run_id: "current-run", round: 1 },
         created_at: "2026-01-01T00:00:00.000Z",
         thread_key: "root",
@@ -69,6 +70,7 @@ describe("buildTerminalToolMessages", () => {
       session_id: "session-1",
       role: "assistant",
       content: "waiting for approval",
+      content_parts: [{ type: "text", text: "waiting for approval" }],
       metadata: { run_id: "active-run", round: 1 },
       created_at: "2026-01-01T00:00:00.000Z",
       thread_key: "root",
@@ -97,6 +99,7 @@ describe("buildTerminalToolMessages", () => {
       session_id: "session-1",
       role: "assistant",
       content: "calling tool",
+      content_parts: [{ type: "text", text: "calling tool" }],
       metadata: { run_id: "run-1", round: 1 },
       created_at: "2026-01-01T00:00:00.000Z",
       thread_key: "root",
@@ -121,7 +124,7 @@ describe("buildTerminalToolMessages", () => {
 });
 
 describe("AsyncKernelEventPersister terminal cleanup", () => {
-  it("persists rich_content@v1 and publishes the same final content parts", async () => {
+  it("persists canonical content_parts and publishes the same final content parts", async () => {
     const tenantId = createTenantId("tnt_test");
     let finalizeInput: RuntimeFinalizeRunInput | null = null;
     let terminalEvents: unknown[] = [];
@@ -136,6 +139,7 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
             session_id: input.sessionId,
             role: "assistant",
             content: input.finalMessage!.content,
+            content_parts: input.finalMessage!.contentParts ?? [],
             metadata: input.finalMessage!.metadata ?? {},
             created_at: "2026-01-01T00:00:00.000Z",
             thread_key: "root",
@@ -181,14 +185,10 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
 
     expect(finalizeInput).not.toBeNull();
     const completedFinalizeInput = finalizeInput as unknown as RuntimeFinalizeRunInput;
-    expect(completedFinalizeInput.finalMessage?.metadata).toMatchObject({
-      extensions: [{
-        kind: "rich_content",
-        version: 1,
-        slot: "replace",
-        data: { parts: [{ type: "text", text: "Map: " }, { type: "file_ref", file_path: "results/map.png" }] },
-      }],
-    });
+    expect(completedFinalizeInput.finalMessage?.contentParts).toEqual([
+      { type: "text", text: "Map: " },
+      { type: "file_ref", file_path: "results/map.png", presentation: "inline" },
+    ]);
     expect(terminalEvents[0]).toMatchObject({
       type: "stream_output",
       payload: { phase: "final", content_parts: [{ type: "text" }, { type: "file_ref", file_path: "results/map.png" }] },

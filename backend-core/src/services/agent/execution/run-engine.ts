@@ -38,6 +38,7 @@ import { AgentExecutionStatusTracker } from "./status-tracker.js";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../runtime/event-outbox/execution-envelope-archive.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 
 export interface AgentExecutionLogger {
   error(bindings: Record<string, unknown>, message: string): void;
@@ -106,6 +107,7 @@ export class AgentRunEngine {
     selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
     persistUserMessage?: {
       metadata?: Record<string, unknown> | undefined;
+      contentParts?: MessageContentPart[] | undefined;
     } | undefined;
     /** Durable follow-up already visible in history; claimed atomically with this continuation root. */
     pendingUserMessageId?: string | undefined;
@@ -242,6 +244,7 @@ export class AgentRunEngine {
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
       userMessageId,
       initialUserMessageContent: input.task,
+      ...(input.persistUserMessage?.contentParts ? { initialUserMessageContentParts: input.persistUserMessage.contentParts } : {}),
       ...(initialUserMessageMetadata ? { initialUserMessageMetadata } : {}),
       ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
       ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
@@ -433,6 +436,7 @@ export class AgentRunEngine {
     userId?: string | null;
     userMessageId?: string | undefined;
     initialUserMessageContent?: string | undefined;
+    initialUserMessageContentParts?: MessageContentPart[] | undefined;
     initialUserMessageMetadata?: Record<string, unknown> | undefined;
     pendingUserMessageId?: string | undefined;
     sessionMaintenanceToken?: string | undefined;
@@ -540,6 +544,7 @@ export class AgentRunEngine {
           ...(input.userId !== undefined ? { userId: input.userId } : {}),
           ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
           ...(input.initialUserMessageContent ? { initialUserMessageContent: input.initialUserMessageContent } : {}),
+          ...(input.initialUserMessageContentParts ? { initialUserMessageContentParts: input.initialUserMessageContentParts } : {}),
           ...(input.initialUserMessageMetadata ? { initialUserMessageMetadata: input.initialUserMessageMetadata } : {}),
           ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
           ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),

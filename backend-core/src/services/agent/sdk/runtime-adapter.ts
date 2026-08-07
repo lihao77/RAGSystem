@@ -11,6 +11,7 @@ import type { ChatMessage } from "@ragsystem/agent-llm";
 import { translateKernelEvent, type WireTranslationContext } from "./event-translation.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { MessageInfo, SessionIdentity } from "../../../contracts/session/session.js";
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { ExecutionEventPersister, ExecutionStartDisposition, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
@@ -32,7 +33,6 @@ import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 import { resolveSessionMetadataPort } from "../context/async-session-metadata-resolver.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
-import { AttachmentsExtensionSchema } from "@ragsystem/agent-protocol";
 import { resolveResumeToolResults, resolveRunStartRound } from "./run-round.js";
 import { terminalReason } from "./terminal-reason.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
@@ -101,6 +101,7 @@ export interface SdkExecuteRunInput {
   messageMetadata?: Record<string, unknown> | null;
   userMessageId?: string;
   initialUserMessageContent?: string;
+  initialUserMessageContentParts?: MessageContentPart[];
   initialUserMessageMetadata?: Record<string, unknown>;
   pendingUserMessageId?: string;
   sessionMaintenanceToken?: string;
@@ -487,6 +488,9 @@ export async function executeRunWithSdk(
       initialUserMessage: {
         id: input.userMessageId,
         content: input.initialUserMessageContent ?? input.task,
+        contentParts: input.initialUserMessageContentParts ?? (input.initialUserMessageContent
+          ? [{ type: "text", text: input.initialUserMessageContent }]
+          : [{ type: "text", text: input.task }]),
         metadata: {
           ...(input.initialUserMessageMetadata ?? {}),
           agent: input.agent.agent_name,
@@ -651,11 +655,8 @@ export async function executeRunWithSdk(
 function collectAttachmentFileIds(messages: readonly (MessageInfo | null)[]): string[] {
   const ids = new Set<string>();
   for (const message of messages) {
-    const extensions = Array.isArray(message?.metadata.extensions) ? message.metadata.extensions : [];
-    for (const extension of extensions) {
-      const parsed = AttachmentsExtensionSchema.safeParse(extension);
-      if (!parsed.success) continue;
-      for (const attachment of parsed.data.data.items) ids.add(attachment.file_id);
+    for (const part of message?.content_parts ?? []) {
+      if (part.type === "attachment_ref") ids.add(part.file_id);
     }
   }
   return [...ids];

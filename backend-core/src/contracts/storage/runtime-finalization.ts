@@ -35,11 +35,13 @@ export function buildTerminalToolMessages(
     for (const toolCall of message.tool_calls ?? []) {
       if (answered.has(toolCall.id)) continue;
       answered.add(toolCall.id);
+      const content = `${summary}：${reason}`;
       result.push({
         messageId: `${input.runId}:tool:${toolCall.id}`,
         sessionId: input.sessionId,
         role: "tool",
-        content: `${summary}：${reason}`,
+        content,
+        contentParts: [{ type: "text", text: content }],
         toolCallId: toolCall.id,
         name: toolCall.function.name,
         threadKey: input.threadKey,

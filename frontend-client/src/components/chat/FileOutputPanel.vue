@@ -81,7 +81,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { getLatestFileChanges } from '../../api/fileChanges.js';
-import { getMessageFileRefs } from '../../utils/messageExtensions.js';
+import { getMessageFileRefs } from '../../utils/messageContentParts.js';
 
 const props = defineProps({
   message: { type: Object, default: null },

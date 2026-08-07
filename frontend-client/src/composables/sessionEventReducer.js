@@ -1,10 +1,10 @@
 // @ts-check
 
 import {
-  applyRichContentPart,
-  applyRichContentTextDelta,
-  reconcileRichContent,
-} from '../utils/messageExtensions.js';
+  applyMessageContentPart,
+  applyMessageContentTextDelta,
+  reconcileMessageContentParts,
+} from '../utils/messageContentParts.js';
 
 /** @typedef {Record<string, any>} AnyRecord */
 
@@ -109,6 +109,7 @@ export function createSessionEventReducer({
               messages.value.splice(activeRun.assistantMsgIndex, 0, {
                 role: 'system',
                 content: summaryContent,
+                content_parts: [{ type: 'text', text: summaryContent }],
                 metadata: {
                   msg_type: 'context_compression_summary',
                   ...(detail.thread_key != null ? { thread_key: detail.thread_key } : {}),
@@ -145,7 +146,7 @@ export function createSessionEventReducer({
         syncLlmRetryState();
         if (deps.isMasterEvent(event)) {
           currentMsg.content += payload.content;
-          applyRichContentTextDelta(currentMsg, payload.part_index, payload.content || '');
+          applyMessageContentTextDelta(currentMsg, payload.part_index, payload.content || '');
         } else {
           deps.applyEnvelopeToMessage(currentMsg, event);
         }
@@ -153,7 +154,7 @@ export function createSessionEventReducer({
         runtime.markOutputChunk(event, '');
         syncLlmRetryState();
         if (deps.isMasterEvent(event)) {
-          applyRichContentPart(currentMsg, payload.part_index, payload.part);
+          applyMessageContentPart(currentMsg, payload.part_index, payload.part);
         } else {
           deps.applyEnvelopeToMessage(currentMsg, event);
         }
@@ -162,7 +163,7 @@ export function createSessionEventReducer({
         syncLlmRetryState();
         if (deps.isMasterEvent(event)) {
           if (typeof payload.content === 'string') currentMsg.content = payload.content;
-          reconcileRichContent(currentMsg, payload.content_parts);
+          reconcileMessageContentParts(currentMsg, payload.content_parts);
           currentMsg.finished = true;
           runtime.markRecentSessionUpdated(sessionId, currentMsg);
           deps.cacheMessages(sessionId, messages.value);

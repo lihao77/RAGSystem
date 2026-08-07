@@ -84,9 +84,8 @@ export type DelegatedToolDeclaration = z.infer<
 
 /** 客户端选择的会话附件。服务端只信任 file_id，其余元数据必须重新解析。 */
 export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
-/** 持久化到用户消息 attachments extension 的服务端权威快照。 */
+/** 服务端解析后的会话附件快照。 */
 export type MessageAttachment = z.infer<typeof MessageAttachmentSchema>;
-export type AttachmentsExtension = z.infer<typeof AttachmentsExtensionSchema>;
 
 /* ============================================================
  * 四、各 type 的 payload
@@ -117,6 +116,7 @@ export type ModelAttemptFailedPayload = z.infer<typeof ModelAttemptFailedPayload
 export type ModelAttemptCompletedPayload = z.infer<typeof ModelAttemptCompletedPayloadSchema>;
 export type StreamOutputPayload = z.infer<typeof StreamOutputPayloadSchema>;
 export type AssistantContentPart = z.infer<typeof AssistantContentPartSchema>;
+export type MessageContentPart = z.infer<typeof MessageContentPartSchema>;
 
 /**
  * 状态同步：外部状态已变更，请对齐本地视图。
@@ -196,14 +196,6 @@ export const MessageAttachmentSchema = z.object({
   kind: z.enum(["image", "file"]),
   file_path: z.string().min(1).optional(),
   file_path_space: z.enum(["uploads", "absolute"]).optional(),
-}).strict();
-
-export const AttachmentsExtensionSchema = z.object({
-  kind: z.literal("attachments"),
-  version: z.literal(1),
-  data: z.object({
-    items: z.array(MessageAttachmentSchema),
-  }).strict(),
 }).strict();
 
 export const HelloPayloadSchema = z.object({
@@ -294,6 +286,34 @@ export const AssistantContentPartSchema = z.discriminatedUnion("type", [
     file_path: z.string().min(1),
     presentation: z.enum(["inline", "attachment", "preview"]),
     caption: z.string().min(1).optional(),
+  }).strict(),
+]);
+
+/** Canonical message content shared by history APIs, clients, and agent context. */
+export const MessageContentPartSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text"),
+    text: z.string(),
+  }).strict(),
+  z.object({
+    type: z.literal("file_ref"),
+    file_path: z.string().min(1),
+    presentation: z.enum(["inline", "attachment", "preview"]),
+    caption: z.string().min(1).optional(),
+    media_type: z.string().min(1).optional(),
+    size: z.number().int().nonnegative().optional(),
+  }).strict(),
+  z.object({
+    type: z.literal("attachment_ref"),
+    file_id: z.string().min(1),
+    original_name: z.string().min(1),
+    stored_name: z.string().min(1),
+    mime: z.string(),
+    size: z.number().int().nonnegative(),
+    kind: z.enum(["image", "file"]),
+    presentation: z.enum(["inline", "attachment", "preview"]),
+    file_path: z.string().min(1).optional(),
+    file_path_space: z.enum(["uploads", "absolute"]).optional(),
   }).strict(),
 ]);
 

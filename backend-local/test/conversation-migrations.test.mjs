@@ -5,12 +5,14 @@ import test from "node:test";
 import { runMigrations } from "../dist/adapters/local/sqlite/conversation-store/migrations.js";
 import { BASELINE_SCHEMA_SQL } from "../dist/adapters/local/sqlite/conversation-store/schema.js";
 
-test("conversation schema v1 upgrades to v4 without replacing run data", () => {
+const withoutContentParts = sql => sql.replace("      content_parts TEXT NOT NULL DEFAULT '[]',\n", "");
+
+test("conversation schema v1 upgrades to v5 without replacing run data", () => {
   const db = new DatabaseSync(":memory:");
   try {
-    db.exec(BASELINE_SCHEMA_SQL
+    db.exec(withoutContentParts(BASELINE_SCHEMA_SQL
       .replace("      terminal_reason TEXT,\n", "")
-      .replace("      removed_at TIMESTAMP,\n", ""));
+      .replace("      removed_at TIMESTAMP,\n", "")));
     db.exec("PRAGMA user_version = 1");
     db.prepare(`
       INSERT INTO sessions (
@@ -28,7 +30,7 @@ test("conversation schema v1 upgrades to v4 without replacing run data", () => {
     const columns = db.prepare("PRAGMA table_info(runs)").all();
     const run = db.prepare("SELECT task_summary, terminal_reason FROM runs WHERE run_id=?").get("run-1");
     const workspaceColumns = db.prepare("PRAGMA table_info(workspaces)").all();
-    assert.equal(version.user_version, 4);
+    assert.equal(version.user_version, 5);
     assert.equal(columns.some((column) => column.name === "terminal_reason"), true);
     assert.equal(workspaceColumns.some((column) => column.name === "removed_at"), true);
     assert.equal(run.task_summary, "preserved task");
@@ -38,10 +40,10 @@ test("conversation schema v1 upgrades to v4 without replacing run data", () => {
   }
 });
 
-test("conversation schema v2 upgrades to v4 without replacing sessions", () => {
+test("conversation schema v2 upgrades to v5 without replacing sessions", () => {
   const db = new DatabaseSync(":memory:");
   try {
-    db.exec(BASELINE_SCHEMA_SQL.replace("      removed_at TIMESTAMP,\n", ""));
+    db.exec(withoutContentParts(BASELINE_SCHEMA_SQL.replace("      removed_at TIMESTAMP,\n", "")));
     db.exec("PRAGMA user_version = 2");
     db.prepare(`
       INSERT INTO workspaces (workspace_id, tenant_id, kind, display_name, root_path, canonical_key)
@@ -57,17 +59,17 @@ test("conversation schema v2 upgrades to v4 without replacing sessions", () => {
 
     const version = db.prepare("PRAGMA user_version").get();
     const session = db.prepare("SELECT workspace_id FROM sessions WHERE session_id=?").get("session-1");
-    assert.equal(version.user_version, 4);
+    assert.equal(version.user_version, 5);
     assert.equal(session.workspace_id, "workspace-1");
   } finally {
     db.close();
   }
 });
 
-test("conversation schema v3 purges only removed workspaces without sessions", () => {
+test("conversation schema v3 upgrades to v5 and purges only removed workspaces without sessions", () => {
   const db = new DatabaseSync(":memory:");
   try {
-    db.exec(BASELINE_SCHEMA_SQL);
+    db.exec(withoutContentParts(BASELINE_SCHEMA_SQL));
     db.exec("PRAGMA user_version = 3");
     const insertWorkspace = db.prepare(`
       INSERT INTO workspaces (
@@ -87,9 +89,76 @@ test("conversation schema v3 purges only removed workspaces without sessions", (
     const version = db.prepare("PRAGMA user_version").get();
     const emptyWorkspace = db.prepare("SELECT workspace_id FROM workspaces WHERE workspace_id=?").get("workspace-empty");
     const usedWorkspace = db.prepare("SELECT removed_at FROM workspaces WHERE workspace_id=?").get("workspace-used");
-    assert.equal(version.user_version, 4);
+    assert.equal(version.user_version, 5);
     assert.equal(emptyWorkspace, undefined);
     assert.notEqual(usedWorkspace.removed_at, null);
+  } finally {
+    db.close();
+  }
+});
+
+test("conversation schema v4 migrates structured files and attachments into content_parts", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(withoutContentParts(BASELINE_SCHEMA_SQL));
+    db.exec("PRAGMA user_version = 4");
+    db.prepare(`
+      INSERT INTO sessions (
+        session_id, tenant_id, owner_user_id, visibility, origin_type, origin_channel
+      ) VALUES (?, ?, ?, 'private', 'direct', 'web')
+    `).run("session-1", "tnt_test", "usr_test");
+    const insert = db.prepare("INSERT INTO messages(id,session_id,role,content,metadata) VALUES(?,?,?,?,?)");
+    insert.run("assistant-1", "session-1", "assistant", "text fallback", JSON.stringify({
+      extensions: [{
+        kind: "rich_content",
+        version: 1,
+        data: { parts: [
+          { type: "text", text: "Map: " },
+          { type: "file_ref", file_path: "results/map.png", presentation: "inline" },
+        ] },
+      }],
+    }));
+    insert.run("user-1", "session-1", "user", "input", JSON.stringify({
+      extensions: [{
+        kind: "attachments",
+        version: 1,
+        data: { items: [{
+          file_id: "file-1",
+          original_name: "input.nc",
+          stored_name: "file-1_input.nc",
+          mime: "application/x-netcdf",
+          size: 12,
+          kind: "file",
+          file_path: "D:/data/input.nc",
+          file_path_space: "absolute",
+        }] },
+      }],
+    }));
+
+    runMigrations(db);
+
+    const rows = db.prepare("SELECT id,content_parts,metadata FROM messages ORDER BY seq").all();
+    assert.deepEqual(JSON.parse(rows[0].content_parts), [
+      { type: "text", text: "Map: " },
+      { type: "file_ref", file_path: "results/map.png", presentation: "inline" },
+    ]);
+    assert.deepEqual(JSON.parse(rows[1].content_parts), [
+      { type: "text", text: "input" },
+      {
+        type: "attachment_ref",
+        file_id: "file-1",
+        original_name: "input.nc",
+        stored_name: "file-1_input.nc",
+        mime: "application/x-netcdf",
+        size: 12,
+        kind: "file",
+        presentation: "attachment",
+        file_path: "D:/data/input.nc",
+        file_path_space: "absolute",
+      },
+    ]);
+    assert.equal(Object.hasOwn(JSON.parse(rows[0].metadata), "extensions"), false);
+    assert.equal(Object.hasOwn(JSON.parse(rows[1].metadata), "extensions"), false);
   } finally {
     db.close();
   }

@@ -18,6 +18,7 @@ export interface RefLike<T> {
 export interface SessionMessage extends Omit<Partial<ContractSessionMessage>, 'role' | 'content' | 'metadata'>, OpenRecord {
   role: string;
   content: string;
+  content_parts: OpenRecord[];
   metadata: OpenRecord;
   attachments?: OpenRecord[];
   status?: OpenRecord[];

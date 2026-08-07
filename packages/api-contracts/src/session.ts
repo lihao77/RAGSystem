@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ServerToClientEnvelopeSchema } from "@ragsystem/agent-protocol/wire";
+import { MessageContentPartSchema } from "@ragsystem/agent-protocol";
 
 export const PermissionModeSchema = z.enum(["strict", "standard", "relaxed", "dangerously_skip_permissions"]);
 export const SessionOriginTypeSchema = z.enum(["direct", "bot", "widget"]);
@@ -124,6 +125,7 @@ export const SessionMessageSchema = z.object({
   session_id: z.string().min(1),
   role: z.enum(["system", "user", "assistant", "tool"]),
   content: z.string(),
+  content_parts: z.array(MessageContentPartSchema),
   metadata: z.record(z.string(), z.unknown()),
   created_at: z.string(),
   thread_key: z.string(),

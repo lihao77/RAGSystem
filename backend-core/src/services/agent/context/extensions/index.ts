@@ -12,6 +12,5 @@ export type { ExtensionProjector, ProjectContext } from "./types.js";
 export { ProjectionRegistry } from "./registry.js";
 export { projectConversationExtensions } from "./project.js";
 export { normalizeExtensions } from "./normalize.js";
-export { attachmentsProjector, renderAttachmentsContext } from "./attachments-projector.js";
 export { uiContextProjector, renderUiContextText } from "./ui-context-projector.js";
 export { createDefaultProjectionRegistry } from "./default-registry.js";

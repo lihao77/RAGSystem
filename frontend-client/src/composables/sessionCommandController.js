@@ -2,7 +2,7 @@
 import { nextTick, ref } from 'vue';
 
 import { createAssistantMessage } from './useMessageExecution.js';
-import { createAttachmentsExtension } from '../utils/messageExtensions.js';
+import { createUserContentParts } from '../utils/messageContentParts.js';
 
 /** @typedef {Record<string, any>} AnyRecord */
 /** @param {unknown} error */
@@ -50,25 +50,13 @@ export const serializeAttachmentForSend = ({ file_id }) => ({ file_id });
 const createRequestId = () => globalThis.crypto?.randomUUID?.()
   || `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-/** @param {AnyRecord[]} attachments @param {AnyRecord} [metadata] */
-const buildUserMetadata = (attachments, metadata = {}) => {
-  const result = { ...metadata };
-  const existingExtensions = Array.isArray(result.extensions)
-    ? result.extensions.filter(extension => extension?.kind !== 'attachments')
-    : [];
-  const attachmentExtension = createAttachmentsExtension(attachments);
-  const extensions = attachmentExtension ? [...existingExtensions, attachmentExtension] : existingExtensions;
-  if (extensions.length) result.extensions = extensions;
-  else delete result.extensions;
-  return result;
-};
-
 /** @param {string} content @param {AnyRecord[]} attachments @param {AnyRecord} [metadata] */
 export const createUserMessage = (content, attachments, metadata = {}) => ({
   role: 'user',
   content,
+  content_parts: createUserContentParts(content, attachments),
   attachments,
-  metadata: buildUserMetadata(attachments, metadata),
+  metadata: { ...metadata },
 });
 
 /** @param {string} requestId */
@@ -207,7 +195,8 @@ export function createSessionCommandController({
       const userMessage = messages.value[userMsgIndex];
       if (userMessage) {
         userMessage.attachments = attachments;
-        userMessage.metadata = buildUserMetadata(attachments, userMetadata);
+        userMessage.content_parts = createUserContentParts(content, attachments);
+        userMessage.metadata = { ...userMetadata };
       }
       deps.cacheMessages(sessionId, messages.value);
     } else if (isRunningFollowup) {

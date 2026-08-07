@@ -10,6 +10,7 @@ import type { AddMessageInput } from "@ragsystem/backend-core/contracts/conversa
 import { AddMessageInputSchema } from "@ragsystem/backend-core/contracts/conversation-store/types.js";
 import type { MessageRow, SqlInputValue } from "./types.js";
 import { SessionListProjector } from "./session-list-projector.js";
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 
 /**
  * listMessages / getRecentMessages 的默认查询条数上限（SQL LIMIT 防野）。
@@ -46,20 +47,23 @@ export class MessageOps {
       tool_call_id: input.toolCallId,
       name: input.name,
     });
+    const contentParts: MessageContentPart[] = (input.contentParts ?? []).length > 0
+      ? input.contentParts!
+      : input.content ? [{ type: "text", text: input.content }] : [];
 
     const session = this.db.prepare("SELECT 1 FROM sessions WHERE session_id=?").get(input.sessionId);
     if (!session) throw new Error(`Cannot add message to missing session: ${input.sessionId}`);
     this.db
       .prepare(`
-        INSERT INTO messages (id, session_id, role, content, metadata, thread_key, child_agent_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      .run(messageId, input.sessionId, input.role, input.content, stringifyJson(persistedMetadata), threadKey, childAgentId);
+      .run(messageId, input.sessionId, input.role, input.content, stringifyJson(contentParts), stringifyJson(persistedMetadata), threadKey, childAgentId);
     this.db.prepare("UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?").run(input.sessionId);
 
     const row = this.db
       .prepare(`
-        SELECT seq, id, role, content, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
         FROM messages
         WHERE id=?
       `)
@@ -74,6 +78,7 @@ export class MessageOps {
       session_id: input.sessionId,
       role: row.role,
       content: row.content,
+      content_parts: contentParts,
       metadata: persistedMetadata,
       thread_key: row.thread_key ?? "root",
       child_agent_id: row.child_agent_id,
@@ -125,7 +130,7 @@ export class MessageOps {
       .get(sessionId, resolvedThreadKey, resolvedThreadKey) as { cnt: number };
     const rows = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
         FROM messages
         WHERE session_id=? AND (? IS NULL OR thread_key=?)
         ORDER BY seq DESC
@@ -146,7 +151,7 @@ export class MessageOps {
   getMessageBySeq(sessionId: string, seq: number): MessageInfo | null {
     const row = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
         FROM messages
         WHERE session_id=? AND seq=?
       `)
@@ -157,7 +162,7 @@ export class MessageOps {
   getMessageById(sessionId: string, messageId: string): MessageInfo | null {
     const row = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
         FROM messages
         WHERE session_id=? AND id=?
       `)
@@ -168,7 +173,7 @@ export class MessageOps {
   getFirstMessageAfterSeq(sessionId: string, seq: number): MessageInfo | null {
     const row = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
         FROM messages
         WHERE session_id=? AND seq>?
         ORDER BY seq ASC
@@ -181,7 +186,7 @@ export class MessageOps {
   listMessagesAfterSeq(sessionId: string, seq: number, limit = 20): MessageInfo[] {
     const rows = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
         FROM messages
         WHERE session_id=? AND seq>?
         ORDER BY seq ASC
@@ -194,7 +199,7 @@ export class MessageOps {
   listMessagesBeforeOrAtSeq(sessionId: string, seq: number, limit = 20): MessageInfo[] {
     const rows = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
         FROM messages
         WHERE session_id=? AND seq<=?
         ORDER BY seq DESC

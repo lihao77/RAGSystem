@@ -98,6 +98,7 @@ describe("Session REST contracts", () => {
       session_id: detail.session_id,
       role: "assistant",
       content: "done",
+      content_parts: [{ type: "text", text: "done" }],
       metadata: { run_id: "run-1" },
       created_at: detail.created_at,
       thread_key: "root",

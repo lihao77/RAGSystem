@@ -1,4 +1,5 @@
 import type { ProviderContinuationState } from "@ragsystem/agent-llm";
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import type { AssistantContentPart, KernelEvent } from "@ragsystem/agent-sdk";
 
 import type { RunInfo } from "../conversation-store/index.js";
@@ -37,7 +38,7 @@ export interface ExecutionRunPersistenceContext {
   parentCallId?: string | null;
   childAgentId?: string | null;
   messageMetadata?: Record<string, unknown> | null;
-  initialUserMessage?: { id: string; content: string; metadata?: Record<string, unknown> | null };
+  initialUserMessage?: { id: string; content: string; contentParts: MessageContentPart[]; metadata?: Record<string, unknown> | null };
   pendingUserMessageId?: string | null;
   sessionMaintenanceToken?: string | null;
   initialEnvelopes?: readonly Envelope[];

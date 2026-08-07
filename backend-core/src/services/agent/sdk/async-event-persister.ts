@@ -18,16 +18,13 @@ import type { ExecutionStartDisposition } from "../../../contracts/execution/exe
 import type { ClientEventPublisherPort } from "../../../contracts/runtime/core-runtime-ports.js";
 import type { SessionHistoryPort } from "../../../contracts/session/session-history.js";
 import type { SessionIdentity } from "../../../contracts/session/session.js";
+import type { MessageInfo } from "../../../contracts/session/session.js";
+import type { AssistantContentPart as WireAssistantContentPart, MessageContentPart } from "@ragsystem/agent-protocol";
 import {
   buildExecutionEnvelopeRunStep,
   buildExpiredRunLeaseRecord,
 } from "../../runtime/event-outbox/execution-envelope-archive.js";
 import { terminalReason } from "./terminal-reason.js";
-import {
-  createRichContentExtension,
-  mergeRichContentExtension,
-  readRichContentParts,
-} from "./rich-content.js";
 
 export interface AsyncPersisterRunContext {
   tenantId: TenantId;
@@ -52,7 +49,7 @@ export interface AsyncPersisterRunContext {
   /** Background child runs retain lineage but own their write lease. */
   ownsRunLease?: boolean;
   messageMetadata?: Record<string, unknown> | null;
-  initialUserMessage?: { id: string; content: string; metadata?: Record<string, unknown> | null };
+  initialUserMessage?: { id: string; content: string; contentParts: MessageContentPart[]; metadata?: Record<string, unknown> | null };
   pendingUserMessageId?: string | null;
   sessionMaintenanceToken?: string | null;
   initialEnvelopes?: readonly Envelope[];
@@ -121,6 +118,7 @@ export class AsyncKernelEventPersister {
           sessionId: this.ctx.sessionId,
           role: "user",
           content: this.ctx.initialUserMessage.content,
+          contentParts: this.ctx.initialUserMessage.contentParts,
           threadKey: this.ctx.threadKey,
           metadata: this.ctx.initialUserMessage.metadata ?? {},
         },
@@ -136,6 +134,7 @@ export class AsyncKernelEventPersister {
               sessionId: this.ctx.sessionId,
               role: "user",
               content: this.ctx.initialUserMessage!.content,
+              contentParts: this.ctx.initialUserMessage!.contentParts,
               threadKey: this.ctx.threadKey,
               metadata: {
                 ...(this.ctx.initialUserMessage!.metadata ?? {}),
@@ -210,6 +209,7 @@ export class AsyncKernelEventPersister {
           sessionId: this.ctx.sessionId,
           role: "tool",
           content: event.observation,
+          contentParts: [{ type: "text", text: event.observation }],
           threadKey: this.ctx.threadKey,
           toolCallId: event.toolCallId,
           name: event.toolName,
@@ -344,6 +344,7 @@ export class AsyncKernelEventPersister {
       sessionId: this.ctx.sessionId,
       role: "assistant",
       content: extractText(message.content),
+      contentParts: [{ type: "text", text: extractText(message.content) }],
       threadKey: this.ctx.threadKey,
       metadata: { ...this.messageMeta(round), msg_type: MSG_TYPE.INTENT },
     };
@@ -397,11 +398,18 @@ export class AsyncKernelEventPersister {
         sessionId: this.ctx.sessionId,
         role: "assistant",
         content: finalMessage.content,
+        contentParts: finalMessage.contentParts
+          ? finalMessage.contentParts.flatMap((part): MessageContentPart[] => part.type === "text"
+            ? [{ type: "text", text: part.text }]
+            : [{
+                type: "file_ref",
+                file_path: part.filePath,
+                presentation: part.presentation,
+                ...(part.caption ? { caption: part.caption } : {}),
+              }])
+          : (finalMessage.content ? [{ type: "text", text: finalMessage.content }] : []),
         threadKey: this.ctx.threadKey,
-        metadata: mergeRichContentExtension(
-          metadata,
-          createRichContentExtension(finalMessage.contentParts),
-        ),
+        metadata,
       };
     }
     if (status === "interrupted") {
@@ -410,6 +418,7 @@ export class AsyncKernelEventPersister {
         sessionId: this.ctx.sessionId,
         role: "assistant",
         content: "",
+        contentParts: [],
         threadKey: this.ctx.threadKey,
         metadata: {
           ...this.finalMessageMeta(),
@@ -423,12 +432,8 @@ export class AsyncKernelEventPersister {
 
   private buildTerminalRecords(
     status: RuntimeFinalizeStatus,
-    finalMessage: { id: string; seq: number; content: string; metadata?: Record<string, unknown> } | null,
-    closedToolMessages: readonly {
-      tool_call_id?: string | undefined;
-      name?: string | undefined;
-      content: string;
-    }[] | undefined,
+    finalMessage: MessageInfo | null,
+    closedToolMessages: readonly MessageInfo[] | undefined,
     error: unknown,
   ): RuntimeRecordEnvelopeInput[] {
     if (status === "suspended" || (this.ctx.childAgentId && !this.ctx.ownsRunLease)) return [];
@@ -488,7 +493,7 @@ export class AsyncKernelEventPersister {
 function buildTerminalEnvelopes(
   ctx: AsyncPersisterRunContext,
   status: RuntimeFinalizeStatus,
-  finalMessage: { id: string; seq: number; content: string; metadata?: Record<string, unknown> } | null,
+  finalMessage: MessageInfo | null,
   closedToolMessages: readonly {
     tool_call_id?: string | undefined;
     name?: string | undefined;
@@ -498,7 +503,16 @@ function buildTerminalEnvelopes(
 ): Envelope[] {
   if (status === "completed") {
     if (!finalMessage) return [];
-    const contentParts = readRichContentParts(finalMessage.metadata);
+    const contentParts: WireAssistantContentPart[] = finalMessage.content_parts.flatMap((part): WireAssistantContentPart[] => {
+      if (part.type === "text") return [{ type: "text", text: part.text }];
+      if (part.type === "attachment_ref") return [];
+      return [{
+        type: "file_ref" as const,
+        file_path: part.file_path,
+        presentation: part.presentation,
+        ...(part.caption ? { caption: part.caption } : {}),
+      }];
+    });
     return [
       {
         type: "stream_output",
@@ -509,7 +523,7 @@ function buildTerminalEnvelopes(
         payload: {
           phase: "final",
           content: finalMessage.content,
-          ...(contentParts ? { content_parts: contentParts } : {}),
+          content_parts: contentParts,
           ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
         },
       },

@@ -19,6 +19,7 @@ import { normalizeSessionMetadata } from "@ragsystem/backend-core/contracts/sess
 import type { AsyncConversationRepository } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { PostgresExecutor } from "./postgres-executor.js";
+import { MessageContentPartSchema, type MessageContentPart } from "@ragsystem/agent-protocol";
 
 export type { AsyncConversationRepository } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 
@@ -61,12 +62,15 @@ function projection(row: Record<string, unknown>): SessionListProjection {
 
 function message(row: Record<string, unknown>): MessageInfo {
   const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+  const parsedContentParts = MessageContentPartSchema.array().safeParse(row.content_parts ?? []);
+  if (!parsedContentParts.success) throw new Error(`Invalid content_parts for message ${String(row.id)}`);
   return {
     seq: Number(row.seq),
     id: String(row.id),
     session_id: String(row.session_id),
     role: row.role as MessageInfo["role"],
     content: String(row.content),
+    content_parts: parsedContentParts.data,
     metadata,
     thread_key: String(row.thread_key ?? "root"),
     child_agent_id: row.child_agent_id == null ? null : String(row.child_agent_id),
@@ -228,10 +232,13 @@ export class PostgresConversationRepository implements AsyncConversationReposito
       tool_call_id: normalized.toolCallId,
       name: normalized.name,
     });
+    const contentParts: MessageContentPart[] = (normalized.contentParts ?? []).length > 0
+      ? normalized.contentParts!
+      : normalized.content ? [{ type: "text", text: normalized.content }] : [];
     return this.executor.transaction(async (executor) => {
       const result = await executor.query(
-        "INSERT INTO conversation_messages(id,session_id,role,content,metadata,thread_key,child_agent_id) VALUES($1,$2,$3,$4,$5::jsonb,$6,$7) RETURNING *",
-        [id, normalized.sessionId, normalized.role, normalized.content, JSON.stringify(metadata), metadata.thread_key, normalized.childAgentId ?? null],
+        "INSERT INTO conversation_messages(id,session_id,role,content,content_parts,metadata,thread_key,child_agent_id) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8) RETURNING *",
+        [id, normalized.sessionId, normalized.role, normalized.content, JSON.stringify(contentParts), JSON.stringify(metadata), metadata.thread_key, normalized.childAgentId ?? null],
       );
       await executor.query("UPDATE conversation_sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=$1", [normalized.sessionId]);
       if (!result.rows[0]) throw new Error("message insert returned no row");

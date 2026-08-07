@@ -1,4 +1,4 @@
-/** Clean-break development baseline. Existing databases are intentionally unsupported. */
+/** Current clean baseline. Explicit migrations upgrade supported historical schema versions. */
 export const BASELINE_SCHEMA_SQL = `
     CREATE TABLE workspaces (
       workspace_id TEXT PRIMARY KEY,
@@ -47,6 +47,7 @@ export const BASELINE_SCHEMA_SQL = `
       session_id TEXT NOT NULL,
       role TEXT NOT NULL,
       content TEXT NOT NULL,
+      content_parts TEXT NOT NULL DEFAULT '[]',
       metadata TEXT,
       thread_key TEXT NOT NULL DEFAULT 'root',
       child_agent_id TEXT,

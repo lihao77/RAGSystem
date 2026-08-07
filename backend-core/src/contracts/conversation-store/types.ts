@@ -13,6 +13,7 @@
  */
 import { z } from "zod";
 import type { ProviderContinuationState } from "@ragsystem/agent-llm";
+import { MessageContentPartSchema } from "@ragsystem/agent-protocol";
 
 
 // ────────────────────────────── 共享枚举 ──────────────────────────────
@@ -97,6 +98,7 @@ export const AddMessageInputSchema = z.object({
   sessionId: z.string(),
   role: z.enum(["system", "user", "assistant", "tool"]),
   content: z.string(),
+  contentParts: z.array(MessageContentPartSchema).optional(),
   metadata: z.record(z.unknown()).optional(),
   toolCalls: z.array(MessageToolCallSchema).optional(),
   toolCallId: z.string().optional(),

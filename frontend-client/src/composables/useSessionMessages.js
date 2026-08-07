@@ -1,7 +1,7 @@
 import { ref, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
-import { getMessageAttachments } from '../utils/messageExtensions.js';
+import { getMessageAttachments, normalizeMessageContentParts } from '../utils/messageContentParts.js';
 
 /**
  * 会话消息加载、缓存、合并。
@@ -119,11 +119,20 @@ export function useSessionMessages(deps) {
               id: item.id,
               seq: item.seq,
               content: item.content || '',
+              content_parts: normalizeMessageContentParts(item.content_parts),
               metadata: item.metadata || {},
             };
           }
-          const attachments = getMessageAttachments(item.metadata);
-          return { role: 'user', id: item.id, seq: item.seq, content: item.content || '', metadata: item.metadata || {}, attachments };
+          const contentParts = normalizeMessageContentParts(item.content_parts);
+          const message = {
+            role: 'user',
+            id: item.id,
+            seq: item.seq,
+            content: item.content || '',
+            content_parts: contentParts,
+            metadata: item.metadata || {},
+          };
+          return { ...message, attachments: getMessageAttachments(message) };
         });
       if (!isCurrent()) return;
       messages.value = mapped;

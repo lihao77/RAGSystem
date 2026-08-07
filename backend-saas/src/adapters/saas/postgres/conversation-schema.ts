@@ -1,10 +1,6 @@
 export interface PostgresConversationMigration { version: number; name: string; sql: string; }
 
-/**
- * Development-only clean-break schema. Existing development databases must be
- * dropped before booting this version; no legacy conversation rows are read or
- * migrated.
- */
+/** Ordered conversation schema migrations shared by fresh and existing deployments. */
 export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] = [{
   version: 1,
   name: "conversation_sessions_messages_projection",
@@ -61,6 +57,7 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
       session_id TEXT NOT NULL REFERENCES conversation_sessions(session_id) ON DELETE CASCADE,
       role TEXT NOT NULL CHECK (role IN ('system','user','assistant','tool')),
       content TEXT NOT NULL,
+      content_parts JSONB NOT NULL DEFAULT '[]'::jsonb,
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
       thread_key TEXT NOT NULL DEFAULT 'root',
       child_agent_id TEXT,
@@ -302,5 +299,81 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
         SELECT 1 FROM conversation_sessions s
         WHERE s.tenant_id=w.tenant_id AND s.workspace_id=w.workspace_id
       );
+  `,
+}, {
+  version: 5,
+  name: "conversation_message_content_parts",
+  sql: `
+    ALTER TABLE conversation_messages
+      ADD COLUMN IF NOT EXISTS content_parts JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+    UPDATE conversation_messages AS message
+    SET content_parts = COALESCE(
+      (
+        SELECT extension #> '{data,parts}'
+        FROM jsonb_array_elements(
+          CASE WHEN jsonb_typeof(message.metadata->'extensions') = 'array'
+            THEN message.metadata->'extensions' ELSE '[]'::jsonb END
+        ) AS extensions(extension)
+        WHERE extension->>'kind' = 'rich_content'
+          AND jsonb_typeof(extension #> '{data,parts}') = 'array'
+        LIMIT 1
+      ),
+      CASE WHEN message.content <> ''
+        THEN jsonb_build_array(jsonb_build_object('type', 'text', 'text', message.content))
+        ELSE '[]'::jsonb END
+    )
+    WHERE message.content_parts = '[]'::jsonb;
+
+    UPDATE conversation_messages AS message
+    SET content_parts = message.content_parts || COALESCE((
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'type', 'attachment_ref',
+          'file_id', item->>'file_id',
+          'original_name', item->>'original_name',
+          'stored_name', item->>'stored_name',
+          'mime', COALESCE(item->>'mime', ''),
+          'size', item->'size',
+          'kind', CASE WHEN item->>'kind' = 'image' THEN 'image' ELSE 'file' END,
+          'presentation', CASE WHEN item->>'kind' = 'image' THEN 'inline' ELSE 'attachment' END
+        )
+        || CASE WHEN NULLIF(item->>'file_path', '') IS NOT NULL
+          THEN jsonb_build_object('file_path', item->>'file_path') ELSE '{}'::jsonb END
+        || CASE WHEN item->>'file_path_space' IN ('uploads', 'absolute')
+          THEN jsonb_build_object('file_path_space', item->>'file_path_space') ELSE '{}'::jsonb END
+      )
+      FROM jsonb_array_elements(
+        CASE WHEN jsonb_typeof(message.metadata->'extensions') = 'array'
+          THEN message.metadata->'extensions' ELSE '[]'::jsonb END
+      ) AS extensions(extension)
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN extension->>'kind' = 'attachments'
+          AND jsonb_typeof(extension #> '{data,items}') = 'array'
+          THEN extension #> '{data,items}' ELSE '[]'::jsonb END
+      ) AS items(item)
+      WHERE NULLIF(item->>'file_id', '') IS NOT NULL
+        AND NULLIF(item->>'original_name', '') IS NOT NULL
+        AND NULLIF(item->>'stored_name', '') IS NOT NULL
+        AND jsonb_typeof(item->'size') = 'number'
+    ), '[]'::jsonb)
+    WHERE jsonb_typeof(message.metadata->'extensions') = 'array';
+
+    WITH cleaned AS (
+      SELECT message.id, COALESCE((
+        SELECT jsonb_agg(extension)
+        FROM jsonb_array_elements(message.metadata->'extensions') AS extensions(extension)
+        WHERE extension->>'kind' NOT IN ('rich_content', 'attachments')
+      ), '[]'::jsonb) AS extensions
+      FROM conversation_messages AS message
+      WHERE jsonb_typeof(message.metadata->'extensions') = 'array'
+    )
+    UPDATE conversation_messages AS message
+    SET metadata = CASE WHEN cleaned.extensions = '[]'::jsonb
+      THEN message.metadata - 'extensions'
+      ELSE jsonb_set(message.metadata, '{extensions}', cleaned.extensions, true)
+    END
+    FROM cleaned
+    WHERE message.id = cleaned.id;
   `,
 }];

@@ -1,12 +1,13 @@
 import { runInTransaction } from "./shared/transaction.js";
 import { BASELINE_SCHEMA_SQL } from "./schema.js";
+import { MessageContentPartSchema, type MessageContentPart } from "@ragsystem/agent-protocol";
 
 export interface MigrationDatabase {
   exec: import("node:sqlite").DatabaseSync["exec"];
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 4;
+export const LATEST_SCHEMA_VERSION = 5;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -32,11 +33,13 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current === 1 || current === 2 || current === 3) {
+  if (current === 1 || current === 2 || current === 3 || current === 4) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
       if (current <= 2) db.exec("ALTER TABLE workspaces ADD COLUMN removed_at TIMESTAMP");
+      db.exec("ALTER TABLE messages ADD COLUMN content_parts TEXT NOT NULL DEFAULT '[]'");
+      migrateCanonicalMessageContent(db);
       db.exec(`
         DELETE FROM workspaces
         WHERE removed_at IS NOT NULL
@@ -87,4 +90,70 @@ function assertCurrentSchema(db: MigrationDatabase): void {
   if (!workspaceColumns.some((column) => column.name === "removed_at")) {
     throw new Error("Conversation database schema is obsolete; delete the development database and restart");
   }
+  const messageColumns = db.prepare("PRAGMA table_info(messages)").all() as unknown as Array<{ name: string }>;
+  if (!messageColumns.some((column) => column.name === "content_parts")) {
+    throw new Error("Conversation database is missing canonical message content_parts");
+  }
+}
+
+function migrateCanonicalMessageContent(db: MigrationDatabase): void {
+  const rows = db.prepare("SELECT seq, content, metadata FROM messages ORDER BY seq").all() as unknown as Array<{
+    seq: number;
+    content: string;
+    metadata: string | null;
+  }>;
+  const update = db.prepare("UPDATE messages SET content_parts=?, metadata=? WHERE seq=?");
+  for (const row of rows) {
+    const metadata = parseObject(row.metadata);
+    const extensions = Array.isArray(metadata.extensions) ? metadata.extensions : [];
+    const rich = extensions.find((extension) => isRecord(extension) && extension.kind === "rich_content");
+    let parts: MessageContentPart[] | null = null;
+    if (isRecord(rich) && isRecord(rich.data)) {
+      const parsed = MessageContentPartSchema.array().safeParse(rich.data.parts);
+      if (parsed.success) parts = parsed.data;
+    }
+    if (!parts) {
+      parts = row.content ? [{ type: "text", text: row.content }] : [];
+      const attachmentExtension = extensions.find((extension) => isRecord(extension) && extension.kind === "attachments");
+      if (isRecord(attachmentExtension) && isRecord(attachmentExtension.data) && Array.isArray(attachmentExtension.data.items)) {
+        for (const item of attachmentExtension.data.items) {
+          if (!isRecord(item)) continue;
+          const parsed = MessageContentPartSchema.safeParse({
+            type: "attachment_ref",
+            file_id: item.file_id,
+            original_name: item.original_name,
+            stored_name: item.stored_name,
+            mime: item.mime,
+            size: item.size,
+            kind: item.kind,
+            presentation: item.kind === "image" ? "inline" : "attachment",
+            ...(typeof item.file_path === "string" && item.file_path ? { file_path: item.file_path } : {}),
+            ...(item.file_path_space === "uploads" || item.file_path_space === "absolute"
+              ? { file_path_space: item.file_path_space }
+              : {}),
+          });
+          if (parsed.success) parts.push(parsed.data);
+        }
+      }
+    }
+    const retained = extensions.filter((extension) => !isRecord(extension)
+      || (extension.kind !== "rich_content" && extension.kind !== "attachments"));
+    if (retained.length > 0) metadata.extensions = retained;
+    else delete metadata.extensions;
+    update.run(JSON.stringify(parts), JSON.stringify(metadata), row.seq);
+  }
+}
+
+function parseObject(value: string | null): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

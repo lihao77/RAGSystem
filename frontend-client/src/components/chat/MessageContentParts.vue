@@ -1,6 +1,6 @@
 <template>
-  <div class="rich-content">
-    <template v-for="(part, index) in parts" :key="index">
+  <div class="message-content-parts">
+    <template v-for="(part, index) in normalizedParts" :key="index">
       <div v-if="part.type === 'text' && part.text?.trim()" class="final-answer">
         <MarkdownContent
           :content="part.text"
@@ -31,18 +31,19 @@
 
 <script setup>
 import { computed, inject } from 'vue';
-import MarkdownContent from '../MarkdownContent.vue';
-import VisualizationLoader from '../../VisualizationLoader.vue';
+import MarkdownContent from './MarkdownContent.vue';
+import VisualizationLoader from '../VisualizationLoader.vue';
+import { normalizeMessageContentParts } from '../../utils/messageContentParts.js';
 
 const props = defineProps({
-  data: { type: Object, required: true },
+  parts: { type: Array, required: true },
   msg: { type: Object, required: true },
   sessionId: { type: String, default: '' },
 });
 
 const emit = defineEmits(['notify', 'citation-click']);
 const messageContext = inject('messageContext');
-const parts = computed(() => Array.isArray(props.data?.parts) ? props.data.parts : []);
+const normalizedParts = computed(() => normalizeMessageContentParts(props.parts));
 const currentSessionId = computed(() => props.sessionId || messageContext?.currentSessionId?.value || messageContext?.currentSessionId || '');
 const messageKey = computed(() => (
   messageContext?.getWorkPanelMessageKey?.(props.msg)
@@ -53,14 +54,14 @@ const messageSeq = computed(() => props.msg?.seq ?? null);
 const runId = computed(() => props.msg?.run_id || props.msg?.metadata?.run_id || '');
 const isStreaming = computed(() => !props.msg.finished && !props.msg.stopped);
 const lastTextIndex = computed(() => {
-  for (let index = parts.value.length - 1; index >= 0; index -= 1) {
-    if (parts.value[index]?.type === 'text' && parts.value[index]?.text?.trim()) return index;
+  for (let index = normalizedParts.value.length - 1; index >= 0; index -= 1) {
+    if (normalizedParts.value[index]?.type === 'text' && normalizedParts.value[index]?.text?.trim()) return index;
   }
   return -1;
 });
 </script>
 
 <style scoped>
-.rich-content { min-width: 0; width: 100%; }
+.message-content-parts { min-width: 0; width: 100%; }
 .inline-file-wrapper { width: 100%; }
 </style>

@@ -2,6 +2,7 @@ import type { RunStepInfo } from "@ragsystem/backend-core/contracts/common.js";
 import type { MessageInfo, SessionInfo, SessionListProjection } from "@ragsystem/backend-core/contracts/session/session.js";
 import { parseJsonObject, sqliteTimestampToIso } from "./helpers.js";
 import { decodeChatFields } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
+import { MessageContentPartSchema } from "@ragsystem/agent-protocol";
 import type { ChildAgentInfo, ResourceInfo, RunInfo } from "@ragsystem/backend-core/contracts/conversation-store/types.js";
 import type {
   ChildAgentRow,
@@ -36,12 +37,17 @@ export function rowToSessionListProjection(row: SessionListProjectionRow): Sessi
 
 export function rowToMessage(row: MessageRow): MessageInfo {
   const metadata = parseJsonObject(row.metadata);
+  const parsedContentParts = MessageContentPartSchema.array().safeParse(JSON.parse(row.content_parts));
+  if (!parsedContentParts.success) {
+    throw new Error(`Invalid content_parts for message ${row.id}`);
+  }
   return {
     seq: row.seq,
     id: row.id,
     session_id: row.session_id,
     role: row.role,
     content: row.content,
+    content_parts: parsedContentParts.data,
     metadata,
     thread_key: row.thread_key ?? "root",
     child_agent_id: row.child_agent_id,

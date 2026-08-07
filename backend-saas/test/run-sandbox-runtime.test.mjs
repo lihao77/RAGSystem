@@ -21,7 +21,7 @@ test("SaaS runtime container fails closed without a sandbox driver", async () =>
 
 test("SaaS file bridge stages session attachments and persists non-transient outputs", async () => {
   const staged = [];
-  const added = [];
+  const stored = [];
   const files = {
     async list(sessionId) {
       assert.equal(sessionId, "session-1");
@@ -40,9 +40,19 @@ test("SaaS file bridge stages session attachments and persists non-transient out
       assert.equal(fileId, "attachment-1");
       return { body: Buffer.from("abc"), contentType: "text/plain" };
     },
-    async add(sessionId, input) {
-      added.push({ sessionId, input });
-      return { id: "output-1" };
+  };
+  const workspace = {
+    async put(input) {
+      stored.push(input);
+      return {
+        key: `sessions/${input.sessionId}/workspace/${input.relativePath}`,
+        session_id: input.sessionId,
+        run_id: input.runId ?? null,
+        space: input.space,
+        relative_path: input.relativePath,
+        content_type: input.contentType ?? null,
+        size: input.body.byteLength,
+      };
     },
   };
   const driver = {
@@ -58,7 +68,7 @@ test("SaaS file bridge stages session attachments and persists non-transient out
       return { content: Buffer.from("done").toString("base64"), size: 4 };
     },
   };
-  const bridge = new SaaSSandboxFileBridge(files);
+  const bridge = new SaaSSandboxFileBridge(files, workspace);
   const lease = { id: "lease-1", owner: {}, createdAt: "now" };
   const owner = { tenantId: "tenant-1", userId: "user-1", sessionId: "session-1", runId: "run-1" };
 
@@ -69,8 +79,9 @@ test("SaaS file bridge stages session attachments and persists non-transient out
   ]);
 
   await bridge.collectOutputs(lease, owner, driver);
-  assert.equal(added.length, 1);
-  assert.equal(added[0].sessionId, "session-1");
-  assert.equal(added[0].input.originalName, "result.txt");
-  assert.equal(Buffer.from(added[0].input.buffer).toString("utf8"), "done");
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].sessionId, "session-1");
+  assert.equal(stored[0].space, "workspace");
+  assert.equal(stored[0].relativePath, "result.txt");
+  assert.equal(Buffer.from(stored[0].body).toString("utf8"), "done");
 });

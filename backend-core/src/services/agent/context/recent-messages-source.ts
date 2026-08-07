@@ -23,6 +23,7 @@ import { projectConversationExtensions, type ProjectionRegistry } from "./extens
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
+import { projectCanonicalMessageContent } from "./message-content-projector.js";
 
 export class RecentMessagesContextSource implements AgentContextSource {
   readonly name = "recent_messages";
@@ -64,9 +65,14 @@ export class RecentMessagesContextSource implements AgentContextSource {
     }
     const { conversation, originals } = messagesToConversation(microcompact.messages);
     await restoreActiveProviderContinuation(request.sessionId, conversation, originals, this.history);
-    // extensions 投影(组装层,压缩视图之后):user 附件/UI 上下文 + tool 结果媒体。
+    // Canonical message content first, then metadata-only context extensions.
     // 附件图片可缓存；tool 图片每次读盘以遵守 transient TTL。两者都不把图片字节写入 SQLite。
     const attachmentCache = new Map<string, Promise<{ body: Uint8Array; contentType: string | null } | null>>();
+    await projectCanonicalMessageContent(conversation, originals, {
+      sessionId: request.sessionId,
+      supportsVision: this.supportsVision,
+      readAttachment: (sessionId, fileId) => this.readAttachment(sessionId, fileId, attachmentCache),
+    });
     await projectConversationExtensions(conversation, originals, this.extensionRegistry, {
       sessionId: request.sessionId,
       supportsVision: this.supportsVision,

@@ -17,9 +17,9 @@
           <div v-for="(msg, idx) in messages" :key="idx" class="chat-msg" :class="msg.role">
             <div class="msg-bubble">
               <div v-if="msg.role === 'user'" class="msg-content">{{ msg.content }}</div>
-              <RichContentExt
-                v-else-if="getRichContentExtension(msg)"
-                :data="getRichContentExtension(msg).data"
+              <MessageContentParts
+                v-else-if="msg.content_parts?.length"
+                :parts="msg.content_parts"
                 :msg="msg"
                 :session-id="sessionId"
               />
@@ -53,10 +53,9 @@
 <script setup>
 import { computed, ref, watch, nextTick } from 'vue';
 import MarkdownContent from './chat/MarkdownContent.vue';
-import RichContentExt from './chat/extensions/RichContentExt.vue';
+import MessageContentParts from './chat/MessageContentParts.vue';
 import IconSend from './icons/IconSend.vue';
 import { Button } from './ui/button';
-import { getRichContentExtension } from '../utils/messageExtensions.js';
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },

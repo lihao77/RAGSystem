@@ -1,7 +1,7 @@
 /**
  * normalizeExtensions——读侧归一:取出 metadata.extensions[](投影/渲染入口共用)。
  *
- * 写入侧(launchers)已把所有内容扩展(attachments/ui_context)统一落 extensions[],
+ * 写入侧只把消息正文之外的上下文扩展(ui_context/tool_result_media)落 extensions[],
  * 本函数纯透传:extensions 存在且非空则原样返回,否则空数组(防御缺字段/非数组)。
  *
  * 注:command_result / command 是消息类型(metadata.msg_type),background_notification 走

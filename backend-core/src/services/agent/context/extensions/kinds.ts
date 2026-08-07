@@ -1,8 +1,7 @@
 /**
  * Message Extension 契约——挂在消息 metadata.extensions 上的结构化内容扩展。
  *
- * 三视图同源:持久化(metadata.extensions[])→ 投影(backend projector 注入 LLM content)
- * → 渲染(frontend renderer 按 slot 展示),都从同一份 extensions 派生,不双写。
+ * 消息正文、附件和文件引用由 Message.content_parts 承载；这里仅定义正文之外的上下文扩展。
  *
  * 边界:只有"内容扩展"进 extensions[];"执行追溯字段"(agent/run_id/task_id/
  * request_id/execution_kind/source)留 metadata 顶层,不投影不渲染。event-persister
@@ -18,9 +17,7 @@
  */
 export type ExtensionKind =
   | "ui_context"
-  | "attachments"
-  | "tool_result_media"
-  | "rich_content";
+  | "tool_result_media";
 
 /** 渲染插槽:扩展相对 message content 的渲染位置(前端 renderer 用;投影不读)。 */
 export type RenderSlot = "above" | "below" | "replace";

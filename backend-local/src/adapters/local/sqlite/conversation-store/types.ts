@@ -19,6 +19,7 @@ export interface MessageRow {
   session_id: string;
   role: MessageInfo["role"];
   content: string;
+  content_parts: string;
   metadata: string | null;
   thread_key: string | null;
   child_agent_id: string | null;

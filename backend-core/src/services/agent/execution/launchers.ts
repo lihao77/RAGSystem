@@ -37,7 +37,7 @@ import type { Goal, GoalContinuationReason, GoalStore } from "../../../contracts
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
-import { AttachmentsExtensionSchema } from "@ragsystem/agent-protocol";
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 
 type StartedRunHandle = ReturnType<AgentRunEngine["startRun"]>;
 
@@ -53,6 +53,7 @@ interface UnifiedRunStartInput {
   modelTask?: string;
   entrypoint?: string;
   persistMetadata: Record<string, unknown>;
+  persistContentParts?: MessageContentPart[];
   traceMetadata?: Record<string, unknown>;
   sessionMaintenanceToken?: string;
   awaitFollowupCompletion?: boolean;
@@ -181,7 +182,10 @@ class AgentLaunchers {
       ...(input.selectedLlm
         ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } }
         : {}),
-      persistUserMessage: { metadata: input.persistMetadata },
+      persistUserMessage: {
+        metadata: input.persistMetadata,
+        contentParts: input.persistContentParts ?? (input.task ? [{ type: "text", text: input.task }] : []),
+      },
       ...(input.traceMetadata
         ? {
             startStepExtra: input.traceMetadata,
@@ -287,9 +291,21 @@ class AgentLaunchers {
 
     const extensions: MessageExtension[] = [];
     if (input.uiContext) extensions.push({ kind: "ui_context", data: input.uiContext });
-    if (attachmentResolution.attachments.length) {
-      extensions.push({ kind: "attachments", version: 1, data: { items: attachmentResolution.attachments } });
-    }
+    const contentParts: MessageContentPart[] = [
+      ...(task ? [{ type: "text" as const, text: task }] : []),
+      ...attachmentResolution.attachments.map((attachment): MessageContentPart => ({
+        type: "attachment_ref",
+        file_id: attachment.file_id,
+        original_name: attachment.original_name,
+        stored_name: attachment.stored_name,
+        mime: attachment.mime,
+        size: attachment.size,
+        kind: attachment.kind,
+        presentation: attachment.kind === "image" ? "inline" : "attachment",
+        ...(attachment.file_path ? { file_path: attachment.file_path } : {}),
+        ...(attachment.file_path_space ? { file_path_space: attachment.file_path_space } : {}),
+      })),
+    ];
 
     const started = this.launchRun({
       sessionId,
@@ -314,6 +330,7 @@ class AgentLaunchers {
           : {}),
         ...(extensions.length ? { extensions } : {}),
       },
+      persistContentParts: contentParts,
       ...(input.traceMetadata ? { traceMetadata: input.traceMetadata } : {}),
       ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
       ...(input.awaitFollowupCompletion ? { awaitFollowupCompletion: true } : {}),
@@ -862,13 +879,9 @@ progress: ${JSON.stringify(goal.progress)}
 }
 
 function extractMessageAttachments(message: MessageInfo): AttachmentRef[] {
-  const extensions = Array.isArray(message.metadata.extensions) ? message.metadata.extensions : [];
-  for (const extension of extensions) {
-    const parsed = AttachmentsExtensionSchema.safeParse(extension);
-    if (!parsed.success) continue;
-    return parsed.data.data.items.map((attachment) => ({ file_id: attachment.file_id }));
-  }
-  return [];
+  return message.content_parts
+    .filter((part) => part.type === "attachment_ref")
+    .map((part) => ({ file_id: part.file_id }));
 }
 
 function extractMessageUiContext(message: MessageInfo): Record<string, unknown> | null {
