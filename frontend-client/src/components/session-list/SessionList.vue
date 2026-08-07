@@ -85,16 +85,44 @@
           <div v-else key="list" class="flex flex-col gap-0.5">
             <template v-if="viewMode === 'project'">
               <section v-for="group in projectGroups" :key="group.id" class="project-session-group">
-                <button
-                  type="button"
+                <div
                   class="project-session-group__header"
                   :class="{ 'is-selected': group.id === currentWorkspaceId }"
-                  @click="$emit('select-workspace', group.workspace)"
                 >
-                  <FolderOpen class="project-session-group__icon" aria-hidden="true" />
-                  <span class="min-w-0 flex-1 truncate">{{ group.name }}</span>
-                  <span class="project-session-group__count">{{ group.items.length || '' }}</span>
-                </button>
+                  <button
+                    type="button"
+                    class="project-session-group__select"
+                    @click="$emit('select-workspace', group.workspace)"
+                  >
+                    <FolderOpen class="project-session-group__icon" aria-hidden="true" />
+                    <span class="min-w-0 flex-1 truncate">{{ group.name }}</span>
+                    <span class="project-session-group__count">{{ group.items.length || '' }}</span>
+                  </button>
+                  <DropdownMenu v-if="group.workspace">
+                    <DropdownMenuTrigger as-child>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        :disabled="removingWorkspaceId === group.id"
+                        :aria-label="`管理项目 ${group.name}`"
+                        :title="`管理项目 ${group.name}`"
+                      >
+                        <Ellipsis />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem
+                          :disabled="removingWorkspaceId === group.id"
+                          @select="$emit('remove-workspace', group.workspace)"
+                        >
+                          <FolderMinus />
+                          移除项目
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
                 <div v-if="group.items.length" class="project-session-group__items">
                   <SessionListItem
                     v-for="item in group.items"
@@ -118,7 +146,6 @@
                 :item="item"
                 :active="item.session_id === activeSessionId"
                 :now="now"
-                compact
                 @select="$emit('select', item)"
                 @delete="$emit('delete', item)"
               />
@@ -143,8 +170,15 @@
 import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { SessionListItem as SessionListItemData } from '@ragsystem/api-contracts';
-import { FolderOpen } from 'lucide-vue-next';
+import { Ellipsis, FolderMinus, FolderOpen } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Empty,
   EmptyContent,
@@ -172,6 +206,7 @@ defineEmits<{
   delete: [item: SessionListItemData];
   'update:view-mode': [view: string];
   'select-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null } | null];
+  'remove-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null }];
 }>();
 
 const store = useSessionListStore();
@@ -186,7 +221,7 @@ const {
   error,
   hasMore,
 } = storeToRefs(store);
-const { items: workspaceItems, currentWorkspaceId } = storeToRefs(workspaceStore);
+const { items: workspaceItems, currentWorkspaceId, removingWorkspaceId } = storeToRefs(workspaceStore);
 const now = useSessionListTime();
 const scrollContainer = ref<HTMLElement | null>(null);
 const hasFilters = computed(() => Boolean(filters.value.originType || filters.value.workspaceId));
@@ -208,14 +243,15 @@ const projectGroups = computed(() => {
   }
   for (const item of items.value) {
     const id = item.workspace?.workspace_id || '__unassigned__';
-    if (!groups.has(id)) {
+    if (!groups.has(id) && id === '__unassigned__') {
       groups.set(id, {
         id,
-        name: item.workspace?.display_name || '未归属项目',
-        workspace: item.workspace || null,
+        name: '未归属项目',
+        workspace: null,
         items: [],
       });
     }
+    if (!groups.has(id)) continue;
     groups.get(id).items.push(item);
   }
   return Array.from(groups.values());
@@ -290,16 +326,13 @@ onMounted(() => {
   width: 100%;
   align-items: center;
   gap: 8px;
-  min-height: 28px;
-  padding: 3px 7px;
-  border: 0;
+  min-height: 32px;
+  padding: 2px 3px 2px 0;
   border-radius: 6px;
   background: transparent;
   color: var(--color-text-secondary);
   font-size: 12px;
   font-weight: 500;
-  text-align: left;
-  cursor: pointer;
 }
 
 .project-session-group__header:hover {
@@ -310,6 +343,22 @@ onMounted(() => {
 .project-session-group__header.is-selected {
   color: var(--color-text-primary);
   font-weight: 600;
+}
+
+.project-session-group__select {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 3px 4px 3px 7px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .project-session-group__icon {

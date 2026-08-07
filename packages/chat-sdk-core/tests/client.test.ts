@@ -443,4 +443,16 @@ describe("RagChatClient", () => {
       body: JSON.stringify({ after_seq: 3 }),
     }));
   });
+
+  it("removes a workspace through its encoded endpoint", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: true, message: "ok" }), { status: 200 }));
+    const client = createRagChatClient({ baseUrl: "https://rag.example.test", fetch: fetchMock });
+
+    await client.removeWorkspace("workspace/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://rag.example.test/api/agent/workspaces/workspace%2F1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
 });

@@ -283,4 +283,24 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
     CREATE INDEX provider_continuations_tenant_session_thread_idx
       ON provider_continuations(tenant_id, session_id, thread_key, created_at);
   `,
+}, {
+  version: 3,
+  name: "removable_workspaces",
+  sql: `
+    ALTER TABLE conversation_workspaces ADD COLUMN removed_at TIMESTAMPTZ;
+    CREATE INDEX conversation_workspaces_active_idx
+      ON conversation_workspaces(tenant_id, display_name, workspace_id)
+      WHERE removed_at IS NULL;
+  `,
+}, {
+  version: 4,
+  name: "purge_unused_removed_workspaces",
+  sql: `
+    DELETE FROM conversation_workspaces w
+    WHERE w.removed_at IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM conversation_sessions s
+        WHERE s.tenant_id=w.tenant_id AND s.workspace_id=w.workspace_id
+      );
+  `,
 }];

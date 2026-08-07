@@ -43,11 +43,14 @@ export class LocalSessionApplication implements SessionApplication {
   async listWorkspaces() {
     return this.conversations.listAllWorkspaces(this.tenantId);
   }
+  async removeWorkspace(workspaceId: string) {
+    return this.conversations.removeWorkspace(this.tenantId, workspaceId);
+  }
   async resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null> {
     if (!input) return null;
     if (input.kind === "existing") {
       const existing = this.conversations.getWorkspaceById(this.tenantId, input.workspace_id);
-      if (!existing) throw new Error("Workspace 不存在或不属于当前租户");
+      if (!existing || existing.removed_at) throw new Error("Workspace 不存在或已移除");
       return existing.workspace_id;
     }
     const rootPath = await normalizeLocalWorkspacePath(input.root_path);

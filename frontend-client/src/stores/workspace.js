@@ -12,6 +12,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const browserView = ref(SESSION_BROWSER_VIEWS.PROJECT);
   const loading = ref(false);
   const creating = ref(false);
+  const removingWorkspaceId = ref(null);
   const error = ref('');
   let client = null;
 
@@ -89,6 +90,27 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       creating.value = false;
     }
   }
+  async function remove(workspaceId) {
+    const id = String(workspaceId || '').trim();
+    if (!id) throw new Error('项目 ID 不能为空');
+    if (!client) throw new Error('Chat SDK 未初始化');
+    removingWorkspaceId.value = id;
+    error.value = '';
+    try {
+      await client.removeWorkspace(id);
+      const index = items.value.findIndex(item => item.workspace_id === id);
+      if (index >= 0) items.value.splice(index, 1);
+      if (currentWorkspaceId.value === id) {
+        select(items.value[0]?.workspace_id || UNASSIGNED_WORKSPACE_ID);
+      }
+      return true;
+    } catch (cause) {
+      error.value = cause?.message || '项目移除失败';
+      throw cause;
+    } finally {
+      removingWorkspaceId.value = null;
+    }
+  }
   function clear() {
     items.value = [];
     // 清理运行时引用时保留已持久化的项目选择，下一次布局挂载后
@@ -98,7 +120,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
   initializeView();
   return {
-    items, currentWorkspaceId, currentWorkspace, browserView, loading, creating, error,
-    setClient, load, create, select, selectView, clear,
+    items, currentWorkspaceId, currentWorkspace, browserView, loading, creating, removingWorkspaceId, error,
+    setClient, load, create, remove, select, selectView, clear,
   };
 });

@@ -32,6 +32,7 @@
         @select="selectSession"
         @delete="confirmDeleteSession"
         @select-workspace="handleWorkspaceChange"
+        @remove-workspace="confirmRemoveWorkspace"
       />
         </div>
 
@@ -270,6 +271,23 @@ const handleWorkspaceChange = async (workspace) => {
 const handleBrowserViewChange = async (view) => {
   workspaceStore.selectView(view);
   await sessionListStore.setFilters({ originType: null, originId: null, workspaceId: null });
+};
+
+const confirmRemoveWorkspace = async (workspace) => {
+  if (!workspace?.workspace_id) return;
+  const accepted = await confirm({
+    title: '移除项目',
+    message: `确定要移除项目“${workspace.display_name}”吗？`,
+    confirmText: '移除',
+    danger: true,
+  });
+  if (!accepted) return;
+  try {
+    await workspaceStore.remove(workspace.workspace_id);
+    void sessionListStore.loadFacets().catch(() => undefined);
+  } catch (error) {
+    showToast(error.message || '项目移除失败');
+  }
 };
 
 const selectSession = async (item) => {

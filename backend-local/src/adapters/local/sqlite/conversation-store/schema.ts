@@ -7,6 +7,7 @@ export const BASELINE_SCHEMA_SQL = `
       display_name TEXT NOT NULL,
       root_path TEXT NOT NULL,
       canonical_key TEXT NOT NULL,
+      removed_at TIMESTAMP,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(tenant_id, canonical_key),

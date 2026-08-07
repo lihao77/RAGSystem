@@ -13,6 +13,7 @@ function workspace(row: Record<string, unknown>): WorkspaceRecord {
     display_name: String(row.display_name),
     root_path: String(row.root_path),
     canonical_key: String(row.canonical_key),
+    removed_at: row.removed_at == null ? null : iso(row.removed_at),
     created_at: iso(row.created_at),
     updated_at: iso(row.updated_at),
   };
@@ -27,7 +28,9 @@ export class PostgresWorkspaceRepository implements WorkspaceRepositoryPort {
         workspace_id,tenant_id,kind,display_name,root_path,canonical_key
       ) VALUES($1,$2,$3,$4,$5,$6)
       ON CONFLICT(tenant_id,canonical_key) DO UPDATE SET
+        display_name=EXCLUDED.display_name,
         root_path=EXCLUDED.root_path,
+        removed_at=NULL,
         updated_at=CURRENT_TIMESTAMP
       RETURNING *`,
       [input.workspaceId, input.tenantId, input.kind, input.displayName, input.rootPath, input.canonicalKey],
@@ -63,10 +66,38 @@ export class PostgresWorkspaceRepository implements WorkspaceRepositoryPort {
 
   async listAll(tenantId: TenantId): Promise<WorkspaceRecord[]> {
     const result = await this.executor.query(
-      "SELECT * FROM conversation_workspaces WHERE tenant_id=$1 ORDER BY display_name,workspace_id",
+      "SELECT * FROM conversation_workspaces WHERE tenant_id=$1 AND removed_at IS NULL ORDER BY display_name,workspace_id",
       [tenantId],
     );
     return result.rows.map(workspace);
+  }
+
+  async remove(tenantId: TenantId, workspaceId: string): Promise<boolean> {
+    return this.executor.transaction(async (transaction) => {
+      const target = await transaction.query<{ has_sessions: boolean }>(
+        `SELECT EXISTS(
+           SELECT 1 FROM conversation_sessions s
+           WHERE s.tenant_id=w.tenant_id AND s.workspace_id=w.workspace_id
+         ) AS has_sessions
+         FROM conversation_workspaces w
+         WHERE w.tenant_id=$1 AND w.workspace_id=$2 AND w.removed_at IS NULL
+         FOR UPDATE`,
+        [tenantId, workspaceId],
+      );
+      const row = target.rows[0];
+      if (!row) return false;
+      const result = row.has_sessions
+        ? await transaction.query(
+          `UPDATE conversation_workspaces SET removed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+           WHERE tenant_id=$1 AND workspace_id=$2`,
+          [tenantId, workspaceId],
+        )
+        : await transaction.query(
+          "DELETE FROM conversation_workspaces WHERE tenant_id=$1 AND workspace_id=$2",
+          [tenantId, workspaceId],
+        );
+      return (result.rowCount ?? 0) > 0;
+    });
   }
 
   async updateLocalPath(input: {

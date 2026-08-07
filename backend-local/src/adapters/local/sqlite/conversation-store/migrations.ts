@@ -6,7 +6,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 2;
+export const LATEST_SCHEMA_VERSION = 4;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -32,10 +32,20 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current === 1) {
+  if (current === 1 || current === 2 || current === 3) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
-      db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
+      if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
+      if (current <= 2) db.exec("ALTER TABLE workspaces ADD COLUMN removed_at TIMESTAMP");
+      db.exec(`
+        DELETE FROM workspaces
+        WHERE removed_at IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM sessions
+            WHERE sessions.tenant_id=workspaces.tenant_id
+              AND sessions.workspace_id=workspaces.workspace_id
+          )
+      `);
       db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
     });
     assertCurrentSchema(db);
@@ -71,6 +81,10 @@ function assertCurrentSchema(db: MigrationDatabase): void {
   assertVersionOneSchema(db);
   const runColumns = db.prepare("PRAGMA table_info(runs)").all() as unknown as Array<{ name: string }>;
   if (!runColumns.some((column) => column.name === "terminal_reason")) {
+    throw new Error("Conversation database schema is obsolete; delete the development database and restart");
+  }
+  const workspaceColumns = db.prepare("PRAGMA table_info(workspaces)").all() as unknown as Array<{ name: string }>;
+  if (!workspaceColumns.some((column) => column.name === "removed_at")) {
     throw new Error("Conversation database schema is obsolete; delete the development database and restart");
   }
 }

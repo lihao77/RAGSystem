@@ -71,3 +71,18 @@ test('filter refresh keeps list content with soft transition instead of hard ske
   assert.match(listSource, /session-stage/);
   assert.match(listSource, /is-soft-refreshing/);
 });
+
+test('project view only groups sessions from active workspaces', () => {
+  assert.match(listSource, /if \(!groups\.has\(id\)\) continue/);
+  assert.match(listSource, /id === '__unassigned__'/);
+  assert.match(listSource, /remove-workspace/);
+  assert.match(listSource, /移除项目/);
+});
+
+test('timeline items show workspace context while project items stay compact', () => {
+  const timelineStart = listSource.indexOf('<TransitionGroup v-else');
+  const timelineEnd = listSource.indexOf('</TransitionGroup>', timelineStart);
+  const timelineSource = listSource.slice(timelineStart, timelineEnd);
+  assert.doesNotMatch(timelineSource, /\bcompact\b/);
+  assert.match(listSource, /v-for="item in group\.items"[\s\S]*?\bcompact\b/);
+});

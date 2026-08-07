@@ -7,6 +7,7 @@ export interface WorkspaceRepositoryPort {
   getByCanonicalKey(tenantId: TenantId, canonicalKey: string): Promise<WorkspaceRecord | null>;
   listByIds(tenantId: TenantId, workspaceIds: readonly string[]): Promise<WorkspaceRecord[]>;
   listAll(tenantId: TenantId): Promise<WorkspaceRecord[]>;
+  remove(tenantId: TenantId, workspaceId: string): Promise<boolean>;
   updateLocalPath(input: {
     tenantId: TenantId;
     workspaceId: string;

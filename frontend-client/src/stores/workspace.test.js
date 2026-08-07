@@ -44,3 +44,27 @@ test('workspace clear preserves the persisted project selection', async () => {
   assert.equal(store.currentWorkspaceId, null);
   assert.equal(localStorage.getItem('ragsystem:current-workspace'), workspace.workspace_id);
 });
+
+test('workspace removal hides the project and keeps a valid selection', async () => {
+  localStorage.clear();
+  setActivePinia(createPinia());
+  const removed = [];
+  const store = useWorkspaceStore();
+  store.setClient({
+    async listWorkspaces() {
+      return { data: { items: [workspace, { ...workspace, workspace_id: 'workspace-2', display_name: 'second' }] } };
+    },
+    async removeWorkspace(workspaceId) {
+      removed.push(workspaceId);
+      return { success: true };
+    },
+  });
+  await store.load();
+
+  await store.remove(workspace.workspace_id);
+
+  assert.deepEqual(removed, [workspace.workspace_id]);
+  assert.deepEqual(store.items.map(item => item.workspace_id), ['workspace-2']);
+  assert.equal(store.currentWorkspaceId, 'workspace-2');
+  assert.equal(localStorage.getItem('ragsystem:current-workspace'), 'workspace-2');
+});

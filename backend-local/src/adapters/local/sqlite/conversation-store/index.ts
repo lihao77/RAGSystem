@@ -97,6 +97,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     getWorkspaceByCanonicalKey: workspaces.getByCanonicalKey.bind(workspaces),
     listWorkspacesByIds: workspaces.listByIds.bind(workspaces),
     listAllWorkspaces: workspaces.listAll.bind(workspaces),
+    removeWorkspace: workspaces.remove.bind(workspaces),
     updateLocalWorkspacePath: workspaces.updateLocalPath.bind(workspaces),
 
     // message

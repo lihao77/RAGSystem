@@ -128,8 +128,9 @@ const timeLabel = computed(() => formatSessionTime(props.item.activity_at, props
 }
 
 .session-item--compact {
-  padding-top: 0;
-  padding-bottom: 0;
+  min-height: 32px;
+  padding-top: 2px;
+  padding-bottom: 2px;
 }
 
 .session-item--compact > button {

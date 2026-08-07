@@ -7,6 +7,7 @@ export interface WorkspaceRecord {
   display_name: string;
   root_path: string;
   canonical_key: string;
+  removed_at: string | null;
   created_at: string;
   updated_at: string;
 }

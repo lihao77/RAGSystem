@@ -50,6 +50,10 @@ interface MessageParams extends SessionParams {
   messageId: string;
 }
 
+interface WorkspaceParams {
+  workspaceId: string;
+}
+
 interface BackgroundTaskParams extends SessionParams {
   taskId: string;
 }
@@ -162,6 +166,13 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       }
       throw error;
     }
+  });
+
+  app.delete<{ Params: WorkspaceParams }>("/workspaces/:workspaceId", async (request) => {
+    const application = await resolveSessionApplication(options, request);
+    const removed = await application.removeWorkspace(request.params.workspaceId);
+    if (!removed) throw new HttpError(404, "not_found", "项目不存在");
+    return ok(undefined, "项目移除成功");
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {

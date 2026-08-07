@@ -20,6 +20,7 @@ export type RagChatEndpointName =
   | "listSessionsFacets"
   | "listWorkspaces"
   | "createWorkspace"
+  | "removeWorkspace"
   | "getSessionPermissions"
   | "updateSessionPermissions"
   | "getSessionRuntime"
@@ -42,6 +43,7 @@ export interface RagChatRequestContext {
   sessionId?: string;
   fileId?: string;
   messageId?: string;
+  workspaceId?: string;
   body?: unknown;
 }
 

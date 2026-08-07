@@ -8,5 +8,6 @@ export class LocalWorkspaceRepository implements WorkspaceRepositoryPort {
   async getByCanonicalKey(tenantId: Parameters<WorkspaceRepositoryPort["getByCanonicalKey"]>[0], canonicalKey: string) { return this.store.getWorkspaceByCanonicalKey(tenantId, canonicalKey); }
   async listByIds(tenantId: Parameters<WorkspaceRepositoryPort["listByIds"]>[0], workspaceIds: readonly string[]) { return this.store.listWorkspacesByIds(tenantId, workspaceIds); }
   async listAll(tenantId: Parameters<WorkspaceRepositoryPort["listAll"]>[0]) { return this.store.listAllWorkspaces(tenantId); }
+  async remove(tenantId: Parameters<WorkspaceRepositoryPort["remove"]>[0], workspaceId: string) { return this.store.removeWorkspace(tenantId, workspaceId); }
   async updateLocalPath(input: Parameters<WorkspaceRepositoryPort["updateLocalPath"]>[0]) { return this.store.updateLocalWorkspacePath(input); }
 }

@@ -70,11 +70,14 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   listWorkspaces() {
     return this.workspaces?.listAll(this.tenantId) ?? Promise.resolve([]);
   }
+  removeWorkspace(workspaceId: string) {
+    return this.workspaces?.remove(this.tenantId, workspaceId) ?? Promise.resolve(false);
+  }
   async resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null> {
     if (!input) return null;
     if (input.kind === "local_path") throw new Error("SaaS 不支持服务器本地路径 Workspace");
     const workspace = await this.workspaces?.getById(this.tenantId, input.workspace_id);
-    if (!workspace) throw new Error("Workspace 不存在或不属于当前租户");
+    if (!workspace || workspace.removed_at) throw new Error("Workspace 不存在或已移除");
     return workspace.workspace_id;
   }
   async getSession(sessionId: string): Promise<SessionInfo | null> { const row = await this.repository.getSession(sessionId); return row?.tenant_id === this.tenantId ? row : null; }

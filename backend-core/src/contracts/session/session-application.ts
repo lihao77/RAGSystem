@@ -58,6 +58,7 @@ export interface SessionApplication {
   listSessionFacets(input: Pick<SessionListQuery, "access">): Promise<SessionFacetCounts>;
   listWorkspacesByIds(workspaceIds: readonly string[]): Promise<WorkspaceRecord[]>;
   listWorkspaces(): Promise<WorkspaceRecord[]>;
+  removeWorkspace(workspaceId: string): Promise<boolean>;
   resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   getSessionForExecutionValidation(sessionId: string): Promise<SessionInfo | null>;

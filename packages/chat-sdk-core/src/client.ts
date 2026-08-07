@@ -230,6 +230,10 @@ export class RagChatClient {
     return this.request<WorkspaceResponse>("createWorkspace", { method: "POST", body: { root_path: rootPath } });
   }
 
+  async removeWorkspace(workspaceId: string): Promise<unknown> {
+    return this.request("removeWorkspace", { method: "DELETE", context: { workspaceId } });
+  }
+
   async getSessionPermissions(sessionId: string): Promise<SessionPermissionResponse> {
     return this.request<SessionPermissionResponse>("getSessionPermissions", { context: { sessionId } });
   }
@@ -591,6 +595,7 @@ export class RagChatClient {
       ...(typeof options.context?.sessionId === "string" ? { sessionId: options.context.sessionId } : {}),
       ...(typeof options.context?.fileId === "string" ? { fileId: options.context.fileId } : {}),
       ...(typeof options.context?.messageId === "string" ? { messageId: options.context.messageId } : {}),
+      ...(typeof options.context?.workspaceId === "string" ? { workspaceId: options.context.workspaceId } : {}),
       ...(options.body !== undefined ? { body: options.body } : {}),
     };
     const url = this.resolveEndpoint(name, options.context ?? {}, options.query);
@@ -659,6 +664,7 @@ export function createRagChatClient(options: RagChatClientOptions = {}): RagChat
 function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unknown>): string {
   const sessionId = encodeURIComponent(String(context.sessionId ?? ""));
   const fileId = encodeURIComponent(String(context.fileId ?? ""));
+  const workspaceId = encodeURIComponent(String(context.workspaceId ?? ""));
   switch (name) {
     case "identity": return "/api/auth/me";
     case "logout": return "/api/auth/logout";
@@ -671,6 +677,7 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "listSessionsFacets": return "/api/agent/sessions/facets";
     case "listWorkspaces": return "/api/agent/workspaces";
     case "createWorkspace": return "/api/agent/workspaces";
+    case "removeWorkspace": return `/api/agent/workspaces/${workspaceId}`;
     case "getSessionPermissions": return `/api/agent/sessions/${sessionId}/permissions`;
     case "updateSessionPermissions": return `/api/agent/sessions/${sessionId}/permissions`;
     case "getSessionRuntime": return `/api/agent/sessions/${sessionId}/runtime`;
