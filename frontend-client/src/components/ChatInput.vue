@@ -339,8 +339,8 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 .input-container {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-sm);
+  border-radius: 18px;
+  padding: 6px 8px;
   transition: all var(--transition-normal);
   box-shadow: none;
 }
@@ -362,7 +362,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 .composer-shell {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .resume-banner {
@@ -440,7 +440,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 .input-wrapper {
   display: flex;
   align-items: stretch;
-  min-height: 60px;
+  min-height: 48px;
   background-color: transparent;
 }
 
@@ -456,7 +456,7 @@ textarea {
   overflow-y: auto;
   line-height: 1.55;
   color: var(--color-text-primary);
-  min-height: 52px;
+  min-height: 44px;
 }
 
 textarea:focus {
@@ -472,7 +472,7 @@ textarea::placeholder {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 4px 2px;
+  padding: 8px 4px 2px;
   border-top: 1px solid var(--color-border);
   flex-wrap: nowrap;
 }

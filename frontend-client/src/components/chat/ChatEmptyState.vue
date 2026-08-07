@@ -1,6 +1,6 @@
 <template>
   <section class="new-chat-start" aria-label="新聊天起始页">
-    <h1>{{ greeting }}，有什么想让我帮忙的吗</h1>
+    <h1>{{ greeting }}，要不要先休息一下</h1>
   </section>
 </template>
 
@@ -20,7 +20,7 @@ const greeting = computed(() => {
 
 <style scoped>
 .new-chat-start {
-  width: min(760px, 100%);
+  width: min(850px, 100%);
   margin: 0 auto;
   text-align: center;
   transition:
@@ -52,12 +52,13 @@ const greeting = computed(() => {
 
 @media (max-width: 767px) {
   .new-chat-start {
-    align-self: center;
+    align-self: flex-start;
   }
 
   .new-chat-start h1 {
     font-size: 24px;
   }
+
 }
 
 @media (prefers-reduced-motion: reduce) {

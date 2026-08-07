@@ -22,7 +22,7 @@ const shots = [
     height: 900,
     actions: [
       { type: 'mockSessionSidebarApi' },
-      { type: 'expectText', selector: '.new-chat-start', text: '有什么想让我帮忙的吗' },
+      { type: 'expectText', selector: '.new-chat-start', text: '要不要先休息一下' },
       { type: 'expectText', selector: '.session-setup-panel', text: 'ragsystem' },
       { type: 'expectVisible', selector: '.input-area-wrapper--new-chat' },
     ],
@@ -34,7 +34,7 @@ const shots = [
     height: 844,
     actions: [
       { type: 'mockSessionSidebarApi' },
-      { type: 'expectText', selector: '.new-chat-start', text: '有什么想让我帮忙的吗' },
+      { type: 'expectText', selector: '.new-chat-start', text: '要不要先休息一下' },
       { type: 'expectText', selector: '.session-setup-panel', text: 'ragsystem' },
       { type: 'expectVisible', selector: '.input-area-wrapper--new-chat' },
     ],
@@ -151,7 +151,7 @@ const shots = [
     width: 390,
     height: 844,
     actions: [
-      { type: 'expectText', selector: 'body', text: '有什么想让我帮忙的吗' },
+      { type: 'expectText', selector: 'body', text: '要不要先休息一下' },
       { type: 'expectVisible', selector: '.new-chat-start h1' },
       { type: 'expectVisible', selector: '.session-setup-panel' },
       { type: 'expectVisible', selector: '[aria-label="更多会话操作"]' },

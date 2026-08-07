@@ -4,7 +4,7 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 8;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 9;
 
 const CAPABILITY_INVENTORY_TOOL = "list_agent_builder_capabilities";
 

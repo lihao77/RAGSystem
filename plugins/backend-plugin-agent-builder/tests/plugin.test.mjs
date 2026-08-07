@@ -678,7 +678,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 8);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 9);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -699,7 +699,7 @@ test("Builder template migration adds the workspace draft workflow", async () =>
     assert.match(orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a published, visible Skill/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 8);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 9);
   } finally {
     fixture.cleanup();
   }
@@ -719,7 +719,7 @@ test("Builder template migration upgrades a version 7 Skill authoring prompt", a
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this version 7 instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 8);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 9);
   } finally {
     fixture.cleanup();
   }

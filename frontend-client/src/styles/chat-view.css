@@ -225,7 +225,8 @@
 }
 
 .chat-main:not(.has-messages) .chat-messages-wrapper {
-  flex: 0 0 clamp(220px, 33vh, 280px);
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .chat-messages {
@@ -239,12 +240,13 @@
 /* ===== Welcome Screen ===== */
 .welcome-screen {
   height: 100%;
+  box-sizing: border-box;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   text-align: center;
-  /* Push welcome content up slightly to make room for centered input */
-  /* padding-bottom: 140px; */
+  overflow-y: auto;
+  padding: clamp(136px, 22.5vh, 180px) var(--chat-padding-x) var(--spacing-xl);
 }
 
 .chat-main.is-launching-chat.has-messages .message-stream {
@@ -851,8 +853,11 @@
 }
 
 .bottom-dock--new-chat {
-  position: relative;
+  position: absolute;
+  top: 50%;
+  left: 0;
   bottom: auto;
+  transform: translateY(-100px);
 }
 
 .bottom-dock > * {
@@ -881,8 +886,16 @@
 }
 
 .input-area-wrapper--new-chat > * {
-  max-width: 720px;
+  max-width: 672px;
   margin-inline: auto;
+}
+
+.chat-main:not(.has-messages) .input-area-wrapper--new-chat > .chat-input-area {
+  max-width: 672px;
+}
+
+.chat-main:not(.has-messages) .input-area-wrapper--new-chat {
+  padding-bottom: 0;
 }
 
 .input-area-wrapper.centered {
@@ -1007,15 +1020,20 @@
 
   /* 移动端欢迎屏幕调整 */
   .welcome-screen {
-    padding: var(--spacing-md);
+    padding: 96px var(--spacing-md) var(--spacing-xl);
   }
 
   .chat-main:not(.has-messages) .chat-messages-wrapper {
-    flex-basis: 220px;
+    flex: 1 1 auto;
   }
 
   .input-area-wrapper--new-chat {
     padding-inline: 12px;
+  }
+
+  .chat-main:not(.has-messages) .bottom-dock--new-chat {
+    top: 47%;
+    transform: translateY(-92px);
   }
 
   .logo-placeholder svg {
