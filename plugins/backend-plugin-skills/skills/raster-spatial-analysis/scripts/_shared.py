@@ -42,13 +42,12 @@ def describe_raster(dataset: Any) -> dict[str, Any]:
     }
 
 
-def _file(kind: str, subtype: str, title: str, metadata: dict[str, Any], filename: str, media_type: str) -> dict[str, Any]:
+def _file(subtype: str, title: str, metadata: dict[str, Any], filename: str, media_type: str) -> dict[str, Any]:
     return {
-        "file": {"path": filename, "media_type": media_type, "size": (output_dir() / filename).stat().st_size,
-                 "metadata": metadata},
-        "kind": kind,
-        "subtype": subtype,
-        "title": title,
+        "path": filename,
+        "media_type": media_type,
+        "size": (output_dir() / filename).stat().st_size,
+        "metadata": {**metadata, "subtype": subtype, "title": title},
     }
 
 
@@ -64,11 +63,11 @@ def write_raster_file(dataset: Any, output_name: str | None, subtype: str, title
             "crs": target.crs.to_string() if target.crs else None,
             "bounds": [float(value) for value in target.bounds],
         }
-    return _file("geospatial.raster", subtype, title, {"spatial": spatial, **(metadata or {})}, filename, "image/tiff")
+    return _file(subtype, title, {"spatial": spatial, **(metadata or {})}, filename, "image/tiff")
 
 
 def write_raster_array(array: Any, profile: dict[str, Any], output_name: str | None, subtype: str, title: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Stage a 2D or 3D array as a GeoTIFF File V2."""
+    """Write a 2D or 3D array as a generic GeoTIFF file result."""
     values = array
     ndim = getattr(values, "ndim", 0)
     if ndim not in (2, 3):
@@ -89,14 +88,14 @@ def write_raster_array(array: Any, profile: dict[str, Any], output_name: str | N
             "crs": target.crs.to_string() if target.crs else None,
             "bounds": [float(value) for value in target.bounds],
         }
-    return _file("geospatial.raster", subtype, title, {"spatial": spatial, **(metadata or {})}, filename, "image/tiff")
+    return _file(subtype, title, {"spatial": spatial, **(metadata or {})}, filename, "image/tiff")
 
 
 def write_json_file(value: Any, output_name: str | None, subtype: str, title: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Stage structured tabular/statistical output as JSON File V2."""
+    """Write structured tabular/statistical output as a generic JSON file result."""
     output_root = output_dir()
     filename = f"{safe_name(output_name or subtype, 'table-result')}.json"
     (output_root / filename).write_text(json.dumps(value, ensure_ascii=False, allow_nan=False, default=str), encoding="utf-8")
-    return _file("table.dataset", subtype, title, metadata or {}, filename, "application/json")
+    return _file(subtype, title, metadata or {}, filename, "application/json")
 
 

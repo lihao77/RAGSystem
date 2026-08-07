@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare a raster band as a WGS84 PNG layer File V2."""
+"""Prepare a raster band as a WGS84 PNG file result."""
 
 from __future__ import annotations
 

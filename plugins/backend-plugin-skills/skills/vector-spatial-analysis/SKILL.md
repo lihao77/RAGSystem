@@ -1,6 +1,6 @@
 ---
 name: vector-spatial-analysis
-description: 矢量空间分析与地理处理。处理 GeoJSON、GeoPackage、Shapefile 等数据的投影、缓冲、叠加、融合、连接、选择、几何修复、字段计算和统计。用户要求矢量空间运算或生成矢量 File 时使用。
+description: 矢量空间分析与地理处理。处理 GeoJSON、GeoPackage、Shapefile 等数据的投影、缓冲、叠加、融合、连接、选择、几何修复、字段计算和统计。用户要求矢量空间运算或生成矢量文件时使用。
 ---
 
 # 矢量空间分析
@@ -13,7 +13,7 @@ description: 矢量空间分析与地理处理。处理 GeoJSON、GeoPackage、S
 {"skill_name":"vector-spatial-analysis","script_name":"buffer.py","arguments":["--input","roads.gpkg","--distance","500","--output-name","roads-buffer"]}
 ```
 
-每个参数都是 `arguments` 数组中的独立 argv token。直接选择对应的同名脚本，不要把多个工具合并到一个脚本调用。成功后使用返回的真实文件路径调用 `map_add_file_layer` 展示 GeoJSON；脚本不生成地图配置。
+每个参数都是 `arguments` 数组中的独立 argv token。直接选择对应的同名脚本，不要把多个工具合并到一个脚本调用。脚本不生成地图配置；用户要求交互地图且当前工具 schema 明确提供 `map_add_file_layer` 时，可以传入真实结果路径。需要最终交付时，确保文件位于 workspace 并使用规范 `<file_ref>`。
 
 ## 入口
 

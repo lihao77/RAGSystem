@@ -1,4 +1,4 @@
-"""Shared File V2 helpers for geospatial visualization."""
+"""Shared file-result helpers for geospatial visualization."""
 
 from __future__ import annotations
 

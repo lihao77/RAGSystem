@@ -117,9 +117,10 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
       "Execute a Skill utility script in an Agent-selected working directory. Relative cwd values resolve from the current workspace; external directories require path approval.",
     usage_contract: [
       "arguments 是 argv token 数组，每个 token 一个数组项，不要合并成单个字符串或 JSON 对象。",
-      "用 cwd 决定脚本最终产物目录；相对 cwd 从 workspace 解析，未传时使用 workspace 根目录。",
+      "用 cwd 决定脚本执行和输出目录；相对 cwd 从 workspace 解析，未传时使用 workspace 根目录。",
       "workspace 外的 cwd 会进入路径审批，批准后脚本才会执行。",
-      "脚本可通过 SESSION_WORKSPACE_DIR、SESSION_UPLOADS_DIR 访问受管路径；最终文件应使用 cwd 下的相对路径。",
+      "脚本可通过 SESSION_WORKSPACE_DIR、SESSION_UPLOADS_DIR 访问受管路径；返回 cwd 下的相对路径供后续工具使用。",
+      "transient 或 workspace 外的脚本输出不能直接作为最终 file_ref；需要交付时先写入 workspace，再引用真实 workspace 相对路径。",
     ],
     parameters: {
       type: "object",
@@ -155,13 +156,11 @@ export function createSkillTools(deps: SkillToolDeps): Tool[] {
   if (!skillTools || !visibleSkills.length) {
     return [];
   }
-  // 把可见 Skill 清单作为 skill 工具的自描述：skill_name 参数 enum + extended_usage 渲染清单。
+  // 候选 Skill 名称与用途直接进入 function schema，避免在 system prompt 重复整份清单。
   const skillNames = visibleSkills.map((skill) => skill.name);
-  const skillListDescription = formatSkillsSelfDescription(visibleSkills);
   const withSkillList = (definition: RuntimeToolDefinition): RuntimeToolDefinition => ({
     ...definition,
-    parameters: injectSkillNameEnum(definition.parameters, skillNames),
-    extended_usage: skillListDescription,
+    parameters: injectSkillNameEnum(definition.parameters, skillNames, visibleSkills),
   });
   const definitionByName = new Map(SKILL_TOOLS.map((definition) => [definition.name, definition]));
   return [
@@ -201,15 +200,20 @@ export function createSkillTools(deps: SkillToolDeps): Tool[] {
   ];
 }
 
-/** 给 skill_name 参数补 enum（限定为当前可见 Skill 名），让模型直接看到合法取值。 */
-function injectSkillNameEnum(parameters: Record<string, unknown>, skillNames: string[]): Record<string, unknown> {
+/** 给 skill_name 参数补 enum 和候选用途，让 function schema 自包含。 */
+function injectSkillNameEnum(
+  parameters: Record<string, unknown>,
+  skillNames: string[],
+  skills: { name: string; description: string; requires?: { mcp_servers?: string[] } }[],
+): Record<string, unknown> {
   const properties = isRecord(parameters.properties) ? { ...parameters.properties } : {};
   const rawSkillName = isRecord(properties.skill_name) ? properties.skill_name : {};
   const baseDescription = typeof rawSkillName.description === "string" ? rawSkillName.description : "Skill name.";
+  const candidates = skills.map(formatSkillCandidate).join("; ");
   properties.skill_name = {
     ...rawSkillName,
     enum: skillNames,
-    description: `${baseDescription} 当前可见 Skill 见下方 extended_usage。`,
+    description: candidates ? `${baseDescription} Allowed candidates: ${candidates}` : baseDescription,
   };
   return { ...parameters, properties };
 }
@@ -228,21 +232,11 @@ function omitBackgroundParam(definition: RuntimeToolDefinition, allowBackground:
   return { ...definition, parameters: { ...parameters, properties } };
 }
 
-/**
- * 渲染可见 Skill 清单（activate_skill 的 extended_usage）。
- * 原本由 SDK 内核 formatSkillsDescription 产出，现下沉为 skill 工具自描述。
- */
-function formatSkillsSelfDescription(skills: { name: string; description: string; requires?: { mcp_servers?: string[] } }[]): string {
-  const lines = ["可用 Skills：", ""];
-  for (const skill of skills) {
-    lines.push(`### Skill: ${skill.name}`);
-    lines.push(`**适用场景**: ${skill.description}`);
-    if (skill.requires?.mcp_servers?.length) {
-      lines.push(`**需要 MCP**: ${skill.requires.mcp_servers.join(", ")}`);
-    }
-    lines.push("");
-  }
-  return lines.join("\n").trimEnd();
+function formatSkillCandidate(skill: { name: string; description: string; requires?: { mcp_servers?: string[] } }): string {
+  const requirements = skill.requires?.mcp_servers?.length
+    ? `; requires MCP: ${skill.requires.mcp_servers.join(", ")}`
+    : "";
+  return skill.description ? `${skill.name}: ${skill.description}${requirements}` : `${skill.name}${requirements}`;
 }
 
 function agentWorkspaceRoot(agent: AgentConfig | null): string | null {

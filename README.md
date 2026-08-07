@@ -19,7 +19,7 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 ## 界面预览
 
 <p align="center">
-  <img src="docs/assets/screenshots/desktop-workbench-artifact.png" alt="Agent 工作台、执行过程与可视化产物" width="920">
+  <img src="docs/assets/screenshots/desktop-workbench-files.png" alt="Agent 工作台、执行过程与可视化产物" width="920">
 </p>
 
 <p align="center">

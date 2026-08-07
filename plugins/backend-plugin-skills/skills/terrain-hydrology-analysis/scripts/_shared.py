@@ -36,7 +36,9 @@ def write_raster(array: Any, source: Any, output_name: str, subtype: str, title:
         target.write(array, 1)
         bounds = [float(target.bounds.left), float(target.bounds.bottom), float(target.bounds.right), float(target.bounds.top)]
         crs = crs_text(target.crs)
-    return {"file": {"path": filename, "media_type": "image/tiff", "size": target_path.stat().st_size, "metadata": {"spatial": {"crs": crs, "bounds": bounds}, "processing": processing}}, "subtype": subtype, "title": title}
+    return {"path": filename, "media_type": "image/tiff", "size": target_path.stat().st_size,
+            "metadata": {"spatial": {"crs": crs, "bounds": bounds}, "processing": processing,
+                         "subtype": subtype, "title": title}}
 
 
 def write_vector(frame: Any, output_name: str, subtype: str, title: str, processing: dict[str, Any]) -> dict[str, Any]:
@@ -45,7 +47,9 @@ def write_vector(frame: Any, output_name: str, subtype: str, title: str, process
     target_path = output_dir().joinpath(filename)
     target_path.write_text(export.to_json(drop_id=True), encoding="utf-8")
     bounds = [float(value) for value in export.total_bounds] if len(export) else []
-    return {"file": {"path": filename, "media_type": "application/geo+json", "size": target_path.stat().st_size, "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": bounds}, "processing": processing}}, "subtype": subtype, "title": title}
+    return {"path": filename, "media_type": "application/geo+json", "size": target_path.stat().st_size,
+            "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": bounds}, "processing": processing,
+                         "subtype": subtype, "title": title}}
 
 
 def print_json(value: Any) -> None:

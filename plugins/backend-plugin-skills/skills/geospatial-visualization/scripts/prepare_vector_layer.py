@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare a vector dataset as a data-first GeoJSON File V2."""
+"""Prepare a vector dataset as a generic GeoJSON file result."""
 
 from __future__ import annotations
 

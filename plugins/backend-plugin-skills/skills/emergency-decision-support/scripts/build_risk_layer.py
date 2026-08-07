@@ -4,7 +4,7 @@
 build_risk_layer.py - 批量风险评估 + GeoJSON 风险图层
 
 对多个地点批量调用风险评估，生成带风险等级属性的 GeoJSON File。
-地图展示由模型在拿到 file.path 后调用 map_add_file_layer 完成。
+地图展示由 Agent 在用户需要且当前工具 schema 提供地图工具时处理。
 
 用法:
   python build_risk_layer.py --data '[{"location":"南宁市","geometry":"POINT (108.32 22.82)","rainfall_24h":150}]'

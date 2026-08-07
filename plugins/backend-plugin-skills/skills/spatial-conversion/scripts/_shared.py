@@ -40,10 +40,11 @@ def vector_file(frame: Any, output_name: str | None, subtype: str, title: str, p
     target = output_dir().joinpath(filename)
     target.write_text(export.to_json(drop_id=True), encoding="utf-8")
     return {
-        "file": {"path": filename, "media_type": "application/geo+json", "size": target.stat().st_size,
-                 "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": bounds_wgs84(frame)}, "processing": processing}},
-        "subtype": subtype,
-        "title": title,
+        "path": filename,
+        "media_type": "application/geo+json",
+        "size": target.stat().st_size,
+        "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": bounds_wgs84(frame)}, "processing": processing,
+                     "subtype": subtype, "title": title},
     }
 
 
@@ -59,10 +60,11 @@ def raster_file(array: Any, profile: dict[str, Any], output_name: str | None, su
         bounds = [float(dst.bounds.left), float(dst.bounds.bottom), float(dst.bounds.right), float(dst.bounds.top)]
         crs = crs_text(dst.crs)
     return {
-        "file": {"path": filename, "media_type": "image/tiff", "size": target.stat().st_size,
-                 "metadata": {"spatial": {"crs": crs, "bounds": bounds}, "processing": processing}},
-        "subtype": subtype,
-        "title": title,
+        "path": filename,
+        "media_type": "image/tiff",
+        "size": target.stat().st_size,
+        "metadata": {"spatial": {"crs": crs, "bounds": bounds}, "processing": processing,
+                     "subtype": subtype, "title": title},
     }
 
 

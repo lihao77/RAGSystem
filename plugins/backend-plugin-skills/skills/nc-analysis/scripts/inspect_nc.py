@@ -305,13 +305,15 @@ def build_footprint_file(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(geojson, ensure_ascii=False, allow_nan=False), encoding="utf-8")
     return {
-        "file": {"path": pathname, "media_type": "application/geo+json", "size": output_path.stat().st_size,
-                 "metadata": {
+        "path": pathname,
+        "media_type": "application/geo+json",
+        "size": output_path.stat().st_size,
+        "metadata": {
             "spatial": {"crs": "EPSG:4326", "bounds": [west, south, east, north]},
             "feature_count": 1,
-        }},
-        "subtype": "dataset-footprint",
-        "title": f"{filename} 数据覆盖范围",
+            "subtype": "dataset-footprint",
+            "title": f"{filename} 数据覆盖范围",
+        },
     }
 
 

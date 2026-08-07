@@ -242,13 +242,13 @@ def colorize_raster(raster_values: Any, minimum: float, maximum: float, np: Any)
     return rgba
 
 
-def safe_asset_name(variable_name: str) -> str:
+def safe_output_name(variable_name: str) -> str:
     stem = re.sub(r"[^A-Za-z0-9._-]+", "-", variable_name).strip("-._") or "variable"
     return f"{stem[:80]}-raster.png"
 
 
 def stage_png(png_bytes: bytes, variable_name: str) -> str:
-    output_path = Path.cwd() / safe_asset_name(variable_name)
+    output_path = Path.cwd() / safe_output_name(variable_name)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(png_bytes)
     return output_path.name

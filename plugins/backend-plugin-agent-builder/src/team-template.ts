@@ -4,7 +4,7 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 9;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 10;
 
 const CAPABILITY_INVENTORY_TOOL = "list_agent_builder_capabilities";
 
@@ -24,7 +24,7 @@ const SKILL_AUTHORING_PROMPT = [
   "Create a root SKILL.md whose YAML frontmatter contains name and description. Use a lower-case hyphenated name no longer than 64 characters. Do not invent frontmatter fields such as version, invocation, entrypoint, compatibility, or script manifests. Use nested metadata only when declaring actual ragsystem_requires_tools or ragsystem_requires_mcp_servers dependencies returned by list_agent_builder_capabilities.",
   "Keep SKILL.md concise and imperative. Put detailed documentation in references/, output templates or static files in assets/, and executable utilities in scripts/ only when they provide repeated deterministic behavior. Scripts are optional; do not create one for a workflow that can be expressed reliably as instructions or existing Tools.",
   "The current Skill runtime executes Python only. Put executable scripts under scripts/ with a .py extension, and declare third-party Python packages in a root requirements.txt. Do not generate Bash, PowerShell, batch, Node.js, TypeScript, notebook, executable binaries, or shell-wrapper scripts.",
-  "Design each Python script as a non-interactive argv CLI. Use separate argv tokens, resolve user inputs from arguments or the current cwd, never hard-code machine-specific absolute paths, write normal results as UTF-8 JSON to stdout, write diagnostics to stderr, and return a nonzero exit code on failure. Write final files under the cwd selected by execute_skill_script and return their relative paths in a generic file field.",
+  "Design each Python script as a non-interactive argv CLI. Use separate argv tokens, resolve user inputs from arguments or the current cwd, never hard-code machine-specific absolute paths, write normal results as UTF-8 JSON to stdout, write diagnostics to stderr, and return a nonzero exit code on failure. Write files under the cwd selected by execute_skill_script and return their relative paths in a generic file field; choose workspace cwd or copy the deliverable into workspace when it must be referenced in the final answer.",
   "In SKILL.md, tell consuming Agents to activate the Skill and call execute_skill_script with the published skill_name, the file name under scripts/, and an arguments array containing one argv token per item. Never instruct an Agent to run python, python3, a shell, execute_code, or a repository path directly.",
   "execute_skill_script can run only a published, visible Skill; do not call it against a Draft. The current publish action validates and synchronizes bundle structure but does not execute scripts, so never claim a script was tested unless actual execution evidence exists.",
   "Edit SKILL.md and its resources with file tools, then call publish_skill_draft. On failure, fix the local files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.",
@@ -138,12 +138,27 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   const version = typeof behavior.builder_template_version === "number"
     ? behavior.builder_template_version
     : null;
-  if (version === null || version >= AGENT_BUILDER_TEAM_TEMPLATE_VERSION) return null;
+  const prompt = typeof behavior.system_prompt === "string" ? behavior.system_prompt.trim() : "";
+  const hasLegacyArtifactPrompt = [
+    "kind=skill Artifact",
+    "submit_skill_artifact",
+    "create_skill_artifact",
+    "RAGSYSTEM_ARTIFACT_OUTPUT_DIR",
+    "[artifact:artifact_id]",
+  ].some((marker) => prompt.includes(marker));
+  if (version === null || (version >= AGENT_BUILDER_TEAM_TEMPLATE_VERSION && !hasLegacyArtifactPrompt)) return null;
 
   const existingTools = Array.isArray(orchestrator.tools?.enabled_tools)
     ? orchestrator.tools.enabled_tools
     : [];
-  const deprecatedSkillTools = new Set(["update_skill_draft", "update_agent_draft", "search_skill_drafts", "search_agent_drafts"]);
+  const deprecatedSkillTools = new Set([
+    "update_skill_draft",
+    "update_agent_draft",
+    "search_skill_drafts",
+    "search_agent_drafts",
+    "submit_skill_artifact",
+    "create_skill_artifact",
+  ]);
   const enabledTools = existingTools.filter((tool) => !deprecatedSkillTools.has(tool));
   if (!enabledTools.includes(CAPABILITY_INVENTORY_TOOL)) enabledTools.push(CAPABILITY_INVENTORY_TOOL);
   for (const tool of ["read_file", "write_file", "edit_file"] as const) {
@@ -155,15 +170,17 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   for (const tool of ["list_agent_drafts", "get_agent_draft", "create_agent_draft", "publish_agent_draft"] as const) {
     if (!enabledTools.includes(tool)) enabledTools.push(tool);
   }
-  const prompt = typeof behavior.system_prompt === "string" ? behavior.system_prompt.trim() : "";
-  const withCapabilityDiscovery = prompt.includes("list_agent_builder_capabilities")
-    ? prompt
-    : `${prompt} ${CAPABILITY_DISCOVERY_PROMPT}`.trim();
-  const nextPrompt = withCapabilityDiscovery.includes(SKILL_AUTHORING_PROMPT_MARKER)
-    ? withCapabilityDiscovery
-    : withCapabilityDiscovery.includes(LEGACY_SKILL_AUTHORING_PROMPT)
-      ? withCapabilityDiscovery.replace(LEGACY_SKILL_AUTHORING_PROMPT, SKILL_AUTHORING_PROMPT)
-      : `${withCapabilityDiscovery} ${SKILL_AUTHORING_PROMPT}`.trim();
+  const promptBase = hasLegacyArtifactPrompt ? stripLegacySkillAuthoringPrompt(prompt) : prompt;
+  const withCapabilityDiscovery = promptBase.includes("list_agent_builder_capabilities")
+    ? promptBase
+    : `${promptBase} ${CAPABILITY_DISCOVERY_PROMPT}`.trim();
+  const nextPrompt = hasLegacyArtifactPrompt
+    ? `${withCapabilityDiscovery} ${SKILL_AUTHORING_PROMPT}`.trim()
+    : withCapabilityDiscovery.includes(SKILL_AUTHORING_PROMPT_MARKER)
+      ? withCapabilityDiscovery
+      : withCapabilityDiscovery.includes(LEGACY_SKILL_AUTHORING_PROMPT)
+        ? withCapabilityDiscovery.replace(LEGACY_SKILL_AUTHORING_PROMPT, SKILL_AUTHORING_PROMPT)
+        : `${withCapabilityDiscovery} ${SKILL_AUTHORING_PROMPT}`.trim();
   return {
     ...configs,
     builder_orchestrator: {
@@ -179,6 +196,19 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
       },
     },
   };
+}
+
+function stripLegacySkillAuthoringPrompt(prompt: string): string {
+  const markers = [
+    "When the workflow contains reusable domain instructions",
+    "Use list_skill_drafts or search_skill_drafts",
+    "Use list_skill_drafts, with a query when needed",
+  ];
+  const start = markers
+    .map((marker) => prompt.indexOf(marker))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)[0];
+  return start === undefined ? prompt : prompt.slice(0, start).trim();
 }
 
 interface BuilderAgentInput {

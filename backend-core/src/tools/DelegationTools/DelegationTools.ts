@@ -162,10 +162,9 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
   if (getAgentDelegation() === null || !(agent.delegation.enabled_agents?.length)) {
     return [];
   }
-  // 可委派 agent 名单 + 展示信息——作为 call_agent 等工具的自描述（agent_name enum + extended_usage 清单）。
+  // 可委派 agent 名单 + 展示信息直接进入 function schema，避免在 system prompt 重复整份工具手册。
   const delegatedAgents = resolveDelegatedAgents(agent, deps.agentConfig ?? null, teamName);
   const agentNames = delegatedAgents.map((item) => item.agent_name);
-  const exampleAgent = delegatedAgents[0]?.agent_name ?? agentNames[0] ?? "agent_name";
   const allowBackground = !!agent.tasks?.background;
 
   const definitionByName = new Map(AGENT_DELEGATION_TOOLS.map((definition) => [definition.name, definition]));
@@ -173,14 +172,9 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
     omitBackgroundParam(definitionByName.get(CALL_AGENT_TOOL_NAME)!, allowBackground),
     agentNames,
     delegatedAgents,
-    exampleAgent,
-    /* includeExample */ true,
   );
   const listChildAgentsDef = withAgentNameEnum(definitionByName.get(LIST_CHILD_AGENTS_TOOL_NAME)!, agentNames);
-  const sendMessageDef = withSendMessageSelfDescription(
-    omitBackgroundParam(definitionByName.get(SEND_MESSAGE_TOOL_NAME)!, allowBackground),
-    exampleAgent,
-  );
+  const sendMessageDef = omitBackgroundParam(definitionByName.get(SEND_MESSAGE_TOOL_NAME)!, allowBackground);
 
   return [
     buildTool({
@@ -284,65 +278,35 @@ function omitBackgroundParam(definition: RuntimeToolDefinition, allowBackground:
   return { ...definition, parameters: { ...parameters, properties } };
 }
 
-/** call_agent 自描述：agent_name enum + extended_usage（委派语义 + 可委派清单）+ 创建示例。 */
+/** call_agent 自描述：候选名单及职责进入 agent_name schema，system prompt 只保留最小委派策略。 */
 function withDelegationSelfDescription(
   definition: RuntimeToolDefinition,
   agentNames: string[],
   delegatedAgents: DelegatedAgentInfo[],
-  exampleAgent: string,
-  includeExample: boolean,
 ): RuntimeToolDefinition {
   const withEnum = withAgentNameEnum(definition, agentNames);
-  const lines = [
-    "委派子 Agent 仅在直接回答或直接工具不足以完成任务时使用。优先顺序：直答 > direct tool > 单子 Agent > 多 Agent。",
-    "",
-    "- agent_name 必须从下方\"可委派子 Agent\"清单中选择",
-    "- 首次创建子 Agent 用 call_agent；已有 child_agent_id 时优先用 send_message 续接",
-    "- task 需写完整上下文、目标与输出要求；只有确实需要目标 Agent 专长或独立上下文时才委派",
-    "- 若一个子 Agent 足以完成任务，就不要拆成多个；子 Agent 已返回足够结果时直接收束",
-    "- 子 Agent 失败后，下一次委派必须改变任务描述/范围/输入/目标，不要原样重发",
-    "- 长耗时且可独立完成的任务可设 run_in_background=true；结果中的 task_id（兼容别名 background_task_id）可交给 task_output/task_stop 查询或停止",
-    "",
-    "可委派子 Agent：",
-  ];
-  for (const item of delegatedAgents) {
-    lines.push(`- \`${item.agent_name}\` (${item.display_name || item.agent_name}): ${item.description}`);
-    if (item.use_cases) {
-      lines.push(`  - use_cases: ${item.use_cases}`);
-    }
-  }
-  const result: RuntimeToolDefinition = {
-    ...withEnum,
-    extended_usage: lines.join("\n"),
+  const parameters: Record<string, unknown> = isRecord(withEnum.parameters) ? { ...withEnum.parameters } : { type: "object" };
+  const properties: Record<string, unknown> = isRecord(parameters.properties) ? { ...parameters.properties } : {};
+  const agentNameProperty = isRecord(properties.agent_name) ? { ...properties.agent_name } : { type: "string" };
+  const candidates = delegatedAgents.map(formatDelegatedAgent).join("; ");
+  properties.agent_name = {
+    ...agentNameProperty,
+    description: candidates
+      ? `Target child Agent. Allowed candidates: ${candidates}`
+      : "Target child Agent name from the current delegation allowlist.",
   };
-  if (includeExample) {
-    result.examples = [
-      {
-        input: {
-          agent_name: exampleAgent,
-          task: "查询2023年广西洪涝灾害受灾人口，需要分市统计",
-          context_hint: "返回 Markdown 表格，并保留统计口径说明",
-          run_in_background: true,
-        },
-      },
-    ];
-  }
-  return result;
+  parameters.properties = properties;
+  return {
+    ...withEnum,
+    parameters,
+    extended_usage: "仅在直接回答或直接工具不足时委派；优先复用已有 child_agent_id，单个子 Agent 足够时不要拆成多个。",
+  };
 }
 
-/** send_message 自描述：续接语义 + 示例。 */
-function withSendMessageSelfDescription(definition: RuntimeToolDefinition, exampleAgent: string): RuntimeToolDefinition {
-  return {
-    ...definition,
-    extended_usage:
-      "续接已有子 Agent：向既有 child_agent_id 发后续消息。child_agent_id 由 call_agent 返回（取 content.items.0.child_agent_id），或用 list_child_agents 找回。",
-    examples: [
-      {
-        input: {
-          child_agent_id: "{result_1.content.items.0.child_agent_id}",
-          message: "继续基于上一轮结果补充结论，并输出最终摘要",
-        },
-      },
-    ],
-  };
+function formatDelegatedAgent(item: DelegatedAgentInfo): string {
+  const label = item.display_name && item.display_name !== item.agent_name
+    ? `${item.agent_name} (${item.display_name})`
+    : item.agent_name;
+  const details = [item.description, item.use_cases ? `use cases: ${item.use_cases}` : ""].filter(Boolean).join(", ");
+  return details ? `${label}: ${details}` : label;
 }

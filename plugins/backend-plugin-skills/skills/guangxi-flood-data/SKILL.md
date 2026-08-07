@@ -145,7 +145,7 @@ description: 获取广西洪涝相关实时联网数据，包含城市降雨天�
 2. 缺水位或警戒水位时，再用 `fetch_hydrology.py`。
 3. 需要气象预警信息时，用 `fetch_warning.py`。
 4. 需要空间字段时，继续调用 `guangxi-geodata/geocode.py`。
-5. 数据齐备后，再调用 `assess_flood_risk.py` 或 `build_risk_layer.py`；风险图层 File 返回后调用 `map_add_file_layer`。
+5. 数据齐备后，再调用 `assess_flood_risk.py` 或 `build_risk_layer.py`；用户要求交互地图且当前工具 schema 明确提供 `map_add_file_layer` 时，可以传入风险图层的真实路径，否则按通用文件规则交付。
 
 ## References
 

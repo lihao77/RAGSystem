@@ -17,7 +17,7 @@ Use one independent script for one operation. Activate this skill, then call `ex
 }
 ```
 
-Inspection scripts (`describe_vector.py`, `describe_raster.py`, `list_layers.py`, `validate_crs.py`) return JSON only. Data-producing scripts write to the Agent-selected cwd and return a generic file reference. Never invent a path. For map display, pass that returned path to `map_add_file_layer`.
+Inspection scripts (`describe_vector.py`, `describe_raster.py`, `list_layers.py`, `validate_crs.py`) return JSON only. Data-producing scripts write to the Agent-selected cwd and return a generic file reference. Never invent a path. Use `map_add_file_layer` only when the user requests an interactive map and the current tool schema explicitly provides it; final file references must point to workspace files.
 
 ## Operations
 

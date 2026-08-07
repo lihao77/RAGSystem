@@ -1,4 +1,4 @@
-"""Shared IO and File V2 helpers for spatial data management."""
+"""Shared IO and generic file-result helpers for spatial data management."""
 
 from __future__ import annotations
 
@@ -126,13 +126,15 @@ def write_vector_file(
     # JSON serialization remains valid for an empty selection and avoids driver-specific errors.
     path.write_text(export.to_json(drop_id=True), encoding="utf-8")
     return {
-        "file": {"path": filename, "media_type": "application/geo+json", "size": path.stat().st_size,
-                 "metadata": {
+        "path": filename,
+        "media_type": "application/geo+json",
+        "size": path.stat().st_size,
+        "metadata": {
             "spatial": {"crs": "EPSG:4326" if frame.crs is not None else None, "bounds": wgs84_bounds(frame)},
             "processing": processing or {},
-        }},
-        "subtype": subtype,
-        "title": title,
+            "subtype": subtype,
+            "title": title,
+        },
     }
 
 
@@ -149,13 +151,15 @@ def write_table_file(
     path = output_root / filename
     path.write_text(json.dumps(rows, ensure_ascii=False, allow_nan=False, default=str), encoding="utf-8")
     return {
-        "file": {"path": filename, "media_type": "application/json", "size": path.stat().st_size,
-                 "metadata": {
+        "path": filename,
+        "media_type": "application/json",
+        "size": path.stat().st_size,
+        "metadata": {
             "spatial": {"crs": "EPSG:4326", "bounds": source_bounds or []},
             "processing": processing or {},
-        }},
-        "subtype": subtype,
-        "title": title,
+            "subtype": subtype,
+            "title": title,
+        },
     }
 
 

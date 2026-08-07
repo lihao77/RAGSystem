@@ -83,7 +83,12 @@ test("Skill tools expose execution only for explicitly enabled Skills", () => {
     const service = new SkillToolService({ dataRoot: root, builtinSkillsRoot: path.join(root, "builtin") });
     const agent = { agent_name: "writer", default_entry: false, tasks: { background: false }, custom_params: {} };
     assert.equal(createSkillTools({ skillTools: service, agent, config: { enabled_skills: [] } }).length, 0);
-    assert.deepEqual(createSkillTools({ skillTools: service, agent, config: { enabled_skills: ["review-code"] } }).map((tool) => tool.name), ["activate_skill", "load_skill_resource", "execute_skill_script"]);
+    const tools = createSkillTools({ skillTools: service, agent, config: { enabled_skills: ["review-code"] } });
+    assert.deepEqual(tools.map((tool) => tool.name), ["activate_skill", "load_skill_resource", "execute_skill_script"]);
+    const activate = tools.find((tool) => tool.name === "activate_skill");
+    assert.deepEqual(activate.parameters.properties.skill_name.enum, ["review-code"]);
+    assert.match(activate.parameters.properties.skill_name.description, /review-code: Review code/);
+    assert.equal(activate.extendedUsage, undefined);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

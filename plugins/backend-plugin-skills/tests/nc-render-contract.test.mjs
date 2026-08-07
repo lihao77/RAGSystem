@@ -25,7 +25,7 @@ function findPython() {
 
 const python = findPython();
 
-test("render_nc writes the selected output files without raster data in JSON", {
+test("NC scripts return generic file results without embedding raster data", {
   skip: python ? false : "当前 Python 环境缺少 netCDF4、NumPy 或 Pillow",
 }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "render-nc-contract-"));
@@ -66,19 +66,20 @@ test("render_nc writes the selected output files without raster data in JSON", {
     );
     assert.equal(renderResult.status, 0, renderResult.stderr);
     const payload = JSON.parse(renderResult.stdout);
-    const artifact = payload.file;
-    assert.equal(artifact.schema_version, 2);
-    assert.equal(artifact.kind, "raster.preview");
-    assert.ok(Array.isArray(artifact.assets));
-    assert.ok(Array.isArray(artifact.presentations));
-    assert.deepEqual(artifact.presentations, []);
-    assert.equal(artifact.metadata.spatial.crs, "EPSG:4326");
-    assert.deepEqual(artifact.metadata.spatial.bounds, [95, 5, 135, 35]);
-    assert.equal(artifact.assets[0].filename, "temperature-raster.png");
-    assert.equal(Object.hasOwn(artifact.assets[0], "data_base64"), false);
+    const outputFile = payload.file;
+    assert.equal(outputFile.path, "temperature-raster.png");
+    assert.equal(outputFile.media_type, "image/png");
+    assert.ok(outputFile.size > 0);
+    assert.equal(outputFile.metadata.spatial.crs, "EPSG:4326");
+    assert.deepEqual(outputFile.metadata.spatial.bounds, [95, 5, 135, 35]);
+    assert.equal(Object.hasOwn(outputFile, "schema_version"), false);
+    assert.equal(Object.hasOwn(outputFile, "kind"), false);
+    assert.equal(Object.hasOwn(outputFile, "assets"), false);
+    assert.equal(Object.hasOwn(outputFile, "presentations"), false);
+    assert.equal(Object.hasOwn(outputFile, "data_base64"), false);
     assert.equal(Object.hasOwn(payload.data.raster, "values"), false);
     assert.equal(Object.hasOwn(payload.data.raster, "valid_counts"), false);
-    const png = fs.readFileSync(path.join(outputDirectory, artifact.assets[0].filename));
+    const png = fs.readFileSync(path.join(outputDirectory, outputFile.path));
     assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 
     const inspectResult = spawnSync(
@@ -88,13 +89,15 @@ test("render_nc writes the selected output files without raster data in JSON", {
     );
     assert.equal(inspectResult.status, 0, inspectResult.stderr);
     const inspection = JSON.parse(inspectResult.stdout);
-    assert.equal(inspection.file.schema_version, 2);
-    assert.equal(inspection.file.kind, "vector.dataset");
-    assert.ok(Array.isArray(inspection.file.presentations));
-    assert.deepEqual(inspection.file.presentations, []);
-    assert.equal(inspection.file.assets[0].media_type, "application/geo+json");
+    assert.equal(inspection.file.path, "netcdf-footprint.geojson");
+    assert.equal(inspection.file.media_type, "application/geo+json");
+    assert.ok(inspection.file.size > 0);
     assert.equal(inspection.file.metadata.spatial.crs, "EPSG:4326");
     assert.deepEqual(inspection.file.metadata.spatial.bounds, [95, 5, 135, 35]);
+    assert.equal(Object.hasOwn(inspection.file, "schema_version"), false);
+    assert.equal(Object.hasOwn(inspection.file, "kind"), false);
+    assert.equal(Object.hasOwn(inspection.file, "assets"), false);
+    assert.equal(Object.hasOwn(inspection.file, "presentations"), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

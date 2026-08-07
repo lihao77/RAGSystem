@@ -13,7 +13,7 @@ description: 对 GeoTIFF、Cloud Optimized GeoTIFF 及其他 Rasterio 可读栅�
 2. 先用 `describe_raster.py` 检查 CRS、范围、尺寸、波段和 NoData。
 3. 调用对应的独立脚本。`execute_skill_script` 的 `arguments` 必须是 argv token 数组，每个参数和值分别占一个元素。
 4. 数据脚本把结果写入 Agent 选择的 cwd，stdout 只输出一份 JSON。脚本返回的 `file` 包含真实相对路径、媒体类型和大小。
-5. 需要地图时，先将 GeoTIFF 交给 `geospatial-visualization/prepare_raster_layer.py` 生成 WGS84 PNG，再用真实文件路径调用 `map_add_file_layer`。分析脚本不生成地图配置。
+5. 需要预览时，可将 GeoTIFF 交给 `geospatial-visualization/prepare_raster_layer.py` 生成 WGS84 PNG。用户要求交互地图且当前工具 schema 明确提供 `map_add_file_layer` 时，可以传入真实结果路径；否则将需交付的文件写入 workspace 后使用规范 `<file_ref>`。分析脚本不生成地图配置。
 
 调用示例：
 

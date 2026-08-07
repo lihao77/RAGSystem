@@ -149,7 +149,7 @@ def _safe_name(value, fallback):
 
 
 def build_point_file(groups, title, subtype, metadata=None):
-    """Write grouped point records as one data-first GeoJSON File V2."""
+    """Write grouped point records as one generic GeoJSON file result."""
     features = []
     lngs = []
     lats = []
@@ -191,12 +191,14 @@ def build_point_file(groups, title, subtype, metadata=None):
         north += 0.00001
     bounds = [west, south, east, north]
     return {
-        "file": {"path": filename, "media_type": "application/geo+json", "size": output_path.stat().st_size,
-                 "metadata": {
+        "path": filename,
+        "media_type": "application/geo+json",
+        "size": output_path.stat().st_size,
+        "metadata": {
             "spatial": {"crs": "EPSG:4326", "bounds": bounds},
             "feature_count": len(features), "groups": group_counts, **(metadata or {}),
-        }},
-        "subtype": subtype,
-        "title": title,
+            "subtype": subtype,
+            "title": title,
+        },
     }
 

@@ -199,10 +199,11 @@ def _write_file(features, title, subtype):
     collection = {"type": "FeatureCollection", "features": features}
     output_path.write_text(json.dumps(collection, ensure_ascii=False, allow_nan=False), encoding="utf-8")
     return {
-        "file": {"path": filename, "media_type": "application/geo+json", "size": output_path.stat().st_size,
-                 "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": _feature_bounds(features)}, "feature_count": len(features)}},
-        "subtype": subtype,
-        "title": title,
+        "path": filename,
+        "media_type": "application/geo+json",
+        "size": output_path.stat().st_size,
+        "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": _feature_bounds(features)},
+                     "feature_count": len(features), "subtype": subtype, "title": title},
     }
 
 

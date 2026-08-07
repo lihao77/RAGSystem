@@ -677,7 +677,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 9);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 10);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -698,7 +698,7 @@ test("Builder template migration adds the workspace draft workflow", async () =>
     assert.match(orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a published, visible Skill/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 9);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 10);
   } finally {
     fixture.cleanup();
   }
@@ -718,7 +718,35 @@ test("Builder template migration upgrades a version 7 Skill authoring prompt", a
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this version 7 instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 9);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 10);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Builder template migration removes stale Artifact authoring instructions at the current version", async () => {
+  const fixture = await createFixture();
+  try {
+    const legacy = buildAgentBuilderTeam();
+    legacy.builder_orchestrator.tools.enabled_tools.push("submit_skill_artifact", "create_skill_artifact");
+    legacy.builder_orchestrator.custom_params.behavior.system_prompt = [
+      "Keep this builder instruction.",
+      "When the workflow contains reusable domain instructions, create a kind=skill Artifact.",
+      "Use submit_skill_artifact and RAGSYSTEM_ARTIFACT_OUTPUT_DIR.",
+      "Use list_skill_drafts or search_skill_drafts.",
+    ].join(" ");
+    legacy.builder_orchestrator.custom_params.behavior.builder_template_version = 10;
+    await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, legacy);
+
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
+    const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
+    const prompt = orchestrator.custom_params.behavior.system_prompt;
+    assert.match(prompt, /^Keep this builder instruction\./);
+    assert.match(prompt, /Skill authoring runtime contract:/);
+    assert.doesNotMatch(prompt, /Artifact|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact|search_skill_drafts/i);
+    assert.equal(orchestrator.tools.enabled_tools.includes("submit_skill_artifact"), false);
+    assert.equal(orchestrator.tools.enabled_tools.includes("create_skill_artifact"), false);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 10);
   } finally {
     fixture.cleanup();
   }
@@ -878,6 +906,8 @@ test("Builder template opts its orchestrator into Skill authoring tools explicit
   assert.match(prompt, /root requirements\.txt/);
   assert.match(prompt, /Never instruct an Agent to run python, python3, a shell, execute_code/);
   assert.match(prompt, /publish action validates and synchronizes bundle structure but does not execute scripts/);
+  assert.match(prompt, /choose workspace cwd or copy the deliverable into workspace/);
+  assert.doesNotMatch(prompt, /Artifact|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact/i);
 });
 
 async function createFixture(pluginTools = [], systemConfig = null) {

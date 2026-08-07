@@ -3,69 +3,46 @@ name: geojson-analysis
 description: 对 GeoJSON 数据进行属性过滤、几何类型过滤、范围查询、缓冲查询和统计分析。用户提供 GeoJSON 文件或数据并要求筛选、空间查询或统计时使用。
 ---
 
-# GeoJSON 空间分析 Skill（geojson-analysis）
+# GeoJSON 空间分析
 
-对 GeoJSON 数据进行过滤、空间查询和统计分析。所有脚本接受文件路径输入，输出 JSON 结果。
-过滤和空间查询脚本返回结果摘要以及 File V2 GeoJSON Asset；统计脚本只返回 JSON 统计。
+激活 `geojson-analysis` 后，只通过 `execute_skill_script` 调用下列脚本。`arguments` 是 argv token 数组；输入路径使用附件或工具返回的真实路径，不拼接命令字符串。脚本零第三方依赖。
 
-## 依赖
-- 零第三方依赖，纯 Python 标准库
+## 脚本
 
-## 脚本列表
+### `geojson_filter.py`
 
-### 1. geojson_filter.py — 按属性/几何类型过滤
+按属性条件和/或几何类型筛选 FeatureCollection。
 
-从 GeoJSON FeatureCollection 中按属性条件和/或几何类型筛选 Feature。
+- 必填：`--data PATH_OR_JSON`
+- 可选：`--where "field op value"`，可重复；操作符为 `eq`、`ne`、`gt`、`gte`、`lt`、`lte`、`in`、`contains`、`not_null`
+- 可选：`--geometry-types Point,MultiPoint`
 
-```bash
-# 按属性过滤：人口大于 100 万
-python scripts/geojson_filter.py --data path/to/data.geojson --where "population gt 1000000"
-
-# 多条件（AND）
-python scripts/geojson_filter.py --data path/to/data.geojson --where "level eq 红色" "rainfall_24h gte 200"
-
-# 按几何类型过滤
-python scripts/geojson_filter.py --data path/to/data.geojson --geometry-types Point,MultiPoint
-
-# 组合
-python scripts/geojson_filter.py --data path/to/data.geojson --where "risk_level eq 高" --geometry-types Polygon
+```json
+{"skill_name":"geojson-analysis","script_name":"geojson_filter.py","arguments":["--data","data.geojson","--where","population gt 1000000","--geometry-types","Polygon"]}
 ```
 
-成功后如需地图展示，读取工具真实返回的 `file.path` 并调用 `map_add_file_layer`。
+### `geojson_spatial.py`
 
-**--where 语法**: `"字段名 操作符 值"`
-- 操作符: eq, ne, gt, gte, lt, lte, in, contains, not_null
-- in 操作符值用逗号分隔: `"city in 南宁市,桂林市,柳州市"`
+按中心点缓冲范围或矩形范围筛选要素。
 
-### 2. geojson_spatial.py — 空间查询
+- 缓冲：`--data PATH --query-type buffer --center-lat LAT --center-lng LNG --radius-km KM`
+- 矩形：`--data PATH --query-type bbox --bbox west,south,east,north`
 
-对 GeoJSON 数据进行空间范围筛选。
-
-```bash
-# 缓冲区查询：中心点 50km 范围内的 Feature
-python scripts/geojson_spatial.py --data path/to/data.geojson --query-type buffer --center-lat 22.82 --center-lng 108.37 --radius-km 50
-
-# BBox 查询：矩形范围内的 Feature
-python scripts/geojson_spatial.py --data path/to/data.geojson --query-type bbox --bbox "107.0,22.0,109.0,24.0"
+```json
+{"skill_name":"geojson-analysis","script_name":"geojson_spatial.py","arguments":["--data","data.geojson","--query-type","bbox","--bbox","107.0,22.0,109.0,24.0"]}
 ```
 
-成功后如需地图展示，读取工具真实返回的 `file.path` 并调用 `map_add_file_layer`。不要构造地图配置或使用 `[file:...]` 触发地图渲染。
+### `geojson_stats.py`
 
-### 3. geojson_stats.py — 统计分析
+统计数值字段、分组结果、近似面积或线长。
 
-对 GeoJSON Feature 的属性进行统计。
+- `--data PATH`
+- `--stats-fields field1,field2 [--group-by FIELD]`
+- `--compute-area` 或 `--compute-length`
 
-```bash
-# 数值字段统计（min/max/mean/sum/count）
-python scripts/geojson_stats.py --data path/to/data.geojson --stats-fields rainfall_24h,population
+## 输出
 
-# 分组统计
-python scripts/geojson_stats.py --data path/to/data.geojson --stats-fields rainfall_24h --group-by city
-
-# 计算面积（Polygon/MultiPolygon，近似平方公里）
-python scripts/geojson_stats.py --data path/to/data.geojson --compute-area
-
-# 计算线长（LineString/MultiLineString，近似公里）
-python scripts/geojson_stats.py --data path/to/data.geojson --compute-length
-```
-
+- 过滤和空间查询把 GeoJSON 写入 Agent 选择的 cwd，并返回直接的 `file` 对象：`path`、`media_type`、`size`、`metadata`。
+- 统计脚本只返回结构化 JSON，不生成文件。
+- 用户要求交互地图且当前工具 schema 明确提供 `map_add_file_layer` 时，可以传入真实 `file.path`；不要假设该工具存在。
+- 需要在最终回答中交付文件时，选择 workspace cwd 或先复制到 workspace，再使用规范的 `<file_ref path="workspace-relative-path" presentation="inline|attachment|preview" caption="optional"/>`。

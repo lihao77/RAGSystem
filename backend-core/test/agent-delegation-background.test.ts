@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildFullSystemPrompt } from "@ragsystem/agent-sdk";
 
 import { AgentConfigSchema, type AgentConfig } from "../src/contracts/agent/agent-config.js";
 import type { ChildAgentInfo } from "../src/contracts/conversation-store/index.js";
@@ -134,6 +135,39 @@ describe("background child-agent delegation", () => {
     expect(enabledCall?.parameters.properties).toHaveProperty("run_in_background");
     expect(disabledCall?.parameters.properties).not.toHaveProperty("run_in_background");
     expect(disabledCall?.parameters.properties).not.toHaveProperty("runInBackground");
+  });
+
+  it("keeps delegation policy concise and puts candidate details in the function schema", () => {
+    const delegation = {} as DelegationPort;
+    const tools = createDelegationTools({
+      agent: parentAgent(false),
+      teamName: null,
+      getAgentDelegation: () => delegation,
+      agentConfig: { getConfig: () => ({ ...workerAgent(), description: "Processes focused research tasks." }) },
+    });
+    const callAgent = tools.find((tool) => tool.name === "call_agent");
+    const properties = callAgent?.parameters.properties as Record<string, Record<string, unknown>> | undefined;
+    const agentName = properties?.agent_name;
+    const prompt = buildFullSystemPrompt(
+      { behavior: { systemPrompt: "" } } as Parameters<typeof buildFullSystemPrompt>[0],
+      { tools: tools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        allowed_callers: tool.allowedCallers,
+        ...(tool.extendedUsage ? { extended_usage: tool.extendedUsage } : {}),
+      })) },
+      "native",
+    );
+
+    expect(agentName?.enum).toEqual(["worker"]);
+    expect(agentName?.description).toContain("worker (Worker): Processes focused research tasks.");
+    expect(callAgent?.extendedUsage).toBe("仅在直接回答或直接工具不足时委派；优先复用已有 child_agent_id，单个子 Agent 足够时不要拆成多个。");
+    expect(callAgent?.examples).toBeUndefined();
+    expect(prompt).not.toContain("优先顺序：直答 > direct tool > 单子 Agent > 多 Agent");
+    expect(prompt).not.toContain("background_task_id");
+    expect(prompt).not.toContain("可委派子 Agent：");
+    expect(prompt).not.toContain("**调用能力**");
   });
 
   it("returns separate background/task/run ids and does not inherit the parent abort signal", async () => {

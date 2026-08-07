@@ -8,9 +8,6 @@ from pathlib import Path
 from typing import Any
 
 
-def output_dir() -> Path:
-    return Path.cwd()
-
 def safe_name(value: str, fallback: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())[:80].strip(".-")
     return cleaned or fallback
@@ -43,16 +40,24 @@ def bounds(feature_collection: dict[str, Any]) -> list[float]:
     return [west, south, east, north]
 
 
-def write_file(data: dict[str, Any], output_name: str, subtype: str, title: str, metadata: dict[str, Any]) -> dict[str, Any]:
-    output = output_dir()
+def write_file(
+    data: dict[str, Any],
+    output_name: str,
+    subtype: str,
+    title: str,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
     filename = f"{safe_name(output_name, 'geojson-result')}.geojson"
-    target = output / filename
+    target = Path.cwd() / filename
     target.write_text(json.dumps(data, ensure_ascii=False, allow_nan=False), encoding="utf-8")
     return {
-        "file": {"path": filename, "media_type": "application/geo+json", "size": target.stat().st_size,
-                 "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": bounds(data)}, **metadata}},
-        "subtype": subtype,
-        "title": title,
+        "path": filename,
+        "media_type": "application/geo+json",
+        "size": target.stat().st_size,
+        "metadata": {
+            "spatial": {"crs": "EPSG:4326", "bounds": bounds(data)},
+            "subtype": subtype,
+            "title": title,
+            **metadata,
+        },
     }
-
-
