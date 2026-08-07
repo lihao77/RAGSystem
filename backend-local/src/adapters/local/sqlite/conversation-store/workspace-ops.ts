@@ -41,6 +41,13 @@ export class WorkspaceOps {
     `).all(tenantId, ...ids) as unknown as WorkspaceRecord[];
   }
 
+  listAll(tenantId: TenantId): WorkspaceRecord[] {
+    return this.db.prepare(`
+      SELECT workspace_id, tenant_id, kind, display_name, root_path, canonical_key, created_at, updated_at
+      FROM workspaces WHERE tenant_id=? ORDER BY display_name COLLATE NOCASE, workspace_id
+    `).all(tenantId) as unknown as WorkspaceRecord[];
+  }
+
   updateLocalPath(input: {
     tenantId: TenantId; workspaceId: string; displayName: string; rootPath: string; canonicalKey: string;
   }): WorkspaceRecord | null {

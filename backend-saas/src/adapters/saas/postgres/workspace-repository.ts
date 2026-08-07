@@ -61,6 +61,14 @@ export class PostgresWorkspaceRepository implements WorkspaceRepositoryPort {
     return result.rows.map(workspace);
   }
 
+  async listAll(tenantId: TenantId): Promise<WorkspaceRecord[]> {
+    const result = await this.executor.query(
+      "SELECT * FROM conversation_workspaces WHERE tenant_id=$1 ORDER BY display_name,workspace_id",
+      [tenantId],
+    );
+    return result.rows.map(workspace);
+  }
+
   async updateLocalPath(input: {
     tenantId: TenantId;
     workspaceId: string;

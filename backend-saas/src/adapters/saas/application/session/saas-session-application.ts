@@ -67,6 +67,9 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   listWorkspacesByIds(workspaceIds: readonly string[]) {
     return this.workspaces?.listByIds(this.tenantId, workspaceIds) ?? Promise.resolve([]);
   }
+  listWorkspaces() {
+    return this.workspaces?.listAll(this.tenantId) ?? Promise.resolve([]);
+  }
   async resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null> {
     if (!input) return null;
     if (input.kind === "local_path") throw new Error("SaaS 不支持服务器本地路径 Workspace");

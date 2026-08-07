@@ -3,6 +3,7 @@
     :class="cn(
       'group/session flex min-w-0 items-center gap-1 rounded-md p-1 transition-colors hover:bg-accent',
       active && 'bg-accent text-accent-foreground',
+      compact && 'session-item--compact',
     )"
   >
     <button
@@ -16,7 +17,7 @@
       <span class="flex min-w-0 flex-1 flex-col gap-0.5">
         <span class="truncate text-sm font-medium leading-5">{{ displayTitle }}</span>
         <span
-          v-if="secondaryLabel"
+          v-if="secondaryLabel && !compact"
           class="session-secondary truncate text-xs leading-4"
         >
           {{ secondaryLabel }}
@@ -60,6 +61,7 @@ import { formatSessionTime } from '@/composables/useSessionListTime.js';
 const props = defineProps<{
   item: SessionListItem;
   active?: boolean;
+  compact?: boolean;
   now: Date;
 }>();
 
@@ -123,6 +125,21 @@ const timeLabel = computed(() => formatSessionTime(props.item.activity_at, props
 /* 次行辅助信息：比 muted 再淡一档；不用 text-muted/xx（token 是实色 hex，opacity 修饰不生效） */
 .session-secondary {
   color: color-mix(in srgb, var(--color-text-muted) 58%, transparent);
+}
+
+.session-item--compact {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.session-item--compact > button {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.session-item--compact > button > span:first-child > span:first-child {
+  font-size: 13px;
+  font-weight: 400;
 }
 
 /* icon-xs = size-7 = 1.75rem；默认槽宽 0，hover 展开把时间挤向左 */

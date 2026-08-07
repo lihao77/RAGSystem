@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { useSessionRunStore } from '../stores/session-run.js';
+import { UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '../stores/workspace.js';
 
 const stripWrappedQuotes = (value) => {
   const text = (value || '').trim();
@@ -43,6 +44,7 @@ export function useChatSessionController(deps) {
   const dictStore = useDictionariesStore();
   const sessionListStore = useSessionListStore();
   const sessionRunStore = useSessionRunStore();
+  const workspaceStore = useWorkspaceStore();
   const {
     currentSessionId,
     messages,
@@ -280,9 +282,12 @@ export function useChatSessionController(deps) {
       ...(team ? { team } : {}),
       ...(entryAgent ? { entry_agent: entryAgent } : {}),
     };
-    const body = workspaceRoot
-      ? { workspace: { kind: 'local_path', root_path: workspaceRoot } }
-      : {};
+    const selectedWorkspaceId = workspaceStore.currentWorkspaceId || UNASSIGNED_WORKSPACE_ID;
+    const body = selectedWorkspaceId && selectedWorkspaceId !== UNASSIGNED_WORKSPACE_ID
+      ? { workspace: { kind: 'existing', workspace_id: selectedWorkspaceId } }
+      : workspaceRoot
+        ? { workspace: { kind: 'local_path', root_path: workspaceRoot } }
+        : {};
     if (Object.keys(metadata).length > 0) {
       body.metadata = metadata;
     }

@@ -14,6 +14,7 @@ import {
   type SessionListFacets,
   type SessionListItem,
 } from "@ragsystem/api-contracts";
+import { WorkspaceListResponseSchema } from "@ragsystem/api-contracts";
 
 import { ok, validateResponse } from "../../contracts/common.js";
 import type { AttachmentRef } from "../../contracts/execution/execution.js";
@@ -24,6 +25,7 @@ import {
   UpdateMessageRequestSchema,
   SessionOriginTypeSchema,
 } from "../../contracts/session/session.js";
+import { CreateWorkspaceRequestSchema, WorkspaceResponseSchema } from "@ragsystem/api-contracts";
 import { HttpError } from "../../utils/errors.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
 import type { AgentRouteOptions } from "../route-options.js";
@@ -113,18 +115,53 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     const application = await resolveSessionApplication(options, request);
     const raw = await application.listSessionFacets({ access: sessionListAccess(request) });
     const sourceNames = await loadSourceNames(options, request.identity.tenantId);
-    const workspaces = await application.listWorkspacesByIds(raw.workspaces.map((item) => item.workspaceId));
-    const workspaceMap = new Map(workspaces.map((workspace) => [workspace.workspace_id, workspace]));
+    const workspaces = await application.listWorkspaces();
     const data: SessionListFacets = {
       type_counts: { direct: raw.typeCounts.direct, bot: raw.typeCounts.bot, widget: raw.typeCounts.widget },
       origins: raw.origins.map((origin) => ({ type: origin.type, id: origin.id, display_name: requireSourceName(sourceNames, origin.type, origin.id), count: origin.count })),
-      workspaces: raw.workspaces.map((item) => {
-        const workspace = workspaceMap.get(item.workspaceId);
-        if (!workspace) throw new Error(`session facet references missing workspace: ${item.workspaceId}`);
-        return { workspace_id: workspace.workspace_id, display_name: workspace.display_name, root_path: request.container.deploymentKind === "local" ? workspace.root_path : null, count: item.count };
+      workspaces: workspaces.map((workspace) => {
+        const count = raw.workspaces.find((item) => item.workspaceId === workspace.workspace_id)?.count ?? 0;
+        return { workspace_id: workspace.workspace_id, display_name: workspace.display_name, root_path: request.container.deploymentKind === "local" ? workspace.root_path : null, count };
       }),
     };
     return validateResponse(SessionListFacetsResponseSchema, ok(data, "获取会话筛选项成功"));
+  });
+
+  app.get("/workspaces", async (request) => {
+    const application = await resolveSessionApplication(options, request);
+    const workspaces = await application.listWorkspaces();
+    const facetCounts = await application.listSessionFacets({ access: sessionListAccess(request) });
+    const counts = new Map(facetCounts.workspaces.map((item) => [item.workspaceId, item.count]));
+    const data = {
+      items: workspaces.map((workspace) => ({
+        workspace_id: workspace.workspace_id,
+        display_name: workspace.display_name,
+        root_path: request.container.deploymentKind === "local" ? workspace.root_path : null,
+        session_count: counts.get(workspace.workspace_id) ?? 0,
+      })),
+    };
+    return validateResponse(WorkspaceListResponseSchema, ok(data, "获取项目列表成功"));
+  });
+
+  app.post("/workspaces", async (request) => {
+    const payload = CreateWorkspaceRequestSchema.parse(request.body);
+    const application = await resolveSessionApplication(options, request);
+    try {
+      const workspaceId = await application.resolveWorkspace({ kind: "local_path", root_path: payload.root_path });
+      const workspace = (await application.listWorkspacesByIds(workspaceId ? [workspaceId] : []))[0];
+      if (!workspace) throw new Error("项目创建失败");
+      const data = {
+        workspace_id: workspace.workspace_id,
+        display_name: workspace.display_name,
+        root_path: request.container.deploymentKind === "local" ? workspace.root_path : null,
+      };
+      return validateResponse(WorkspaceResponseSchema, ok(data, "项目创建成功"));
+    } catch (error) {
+      if (error instanceof Error && /Workspace|项目/.test(error.message)) {
+        throw new HttpError(400, "invalid_request", error.message);
+      }
+      throw error;
+    }
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {

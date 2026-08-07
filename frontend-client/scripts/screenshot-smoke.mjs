@@ -16,12 +16,113 @@ const maxHorizontalOverflowPx = 2;
 
 const shots = [
   {
+    name: 'start-page-desktop',
+    path: '/?__smoke=empty',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectText', selector: '.new-chat-start', text: '有什么想让我帮忙的吗' },
+      { type: 'expectText', selector: '.session-setup-panel', text: 'ragsystem' },
+      { type: 'expectVisible', selector: '.input-area-wrapper--new-chat' },
+    ],
+  },
+  {
+    name: 'start-page-mobile',
+    path: '/?__smoke=empty',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectText', selector: '.new-chat-start', text: '有什么想让我帮忙的吗' },
+      { type: 'expectText', selector: '.session-setup-panel', text: 'ragsystem' },
+      { type: 'expectVisible', selector: '.input-area-wrapper--new-chat' },
+    ],
+  },
+  {
+    name: 'start-page-project-switch',
+    path: '/?__smoke=empty',
+    width: 960,
+    height: 760,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectText', selector: '.session-setup-panel', text: 'ragsystem' },
+      { type: 'click', selector: '.project-trigger' },
+      { type: 'expectText', selector: '[role="dialog"]', text: 'ZCodeProject' },
+      { type: 'expectCentered', selector: '[role="dialog"]' },
+      { type: 'click', selector: '.project-list > li:last-child .project-option' },
+      { type: 'expectText', selector: '.session-setup-panel', text: 'ZCodeProject' },
+    ],
+  },
+  {
+    name: 'start-page-project-dialog-desktop',
+    path: '/?__smoke=empty',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'click', selector: '.project-trigger' },
+      { type: 'expectText', selector: '[role="dialog"]', text: '选择项目' },
+      { type: 'expectCentered', selector: '[role="dialog"]' },
+    ],
+  },
+  {
+    name: 'start-page-project-dialog-mobile',
+    path: '/?__smoke=empty',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'click', selector: '.project-trigger' },
+      { type: 'expectText', selector: '[role="dialog"]', text: '选择项目' },
+      { type: 'expectCentered', selector: '[role="dialog"]' },
+    ],
+  },
+  {
+    name: 'project-sidebar-desktop',
+    path: '/?__smoke=empty',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectText', selector: '.sidebar', text: 'ragsystem' },
+      { type: 'expectText', selector: '.sidebar', text: 'ZCodeProject' },
+      { type: 'expectVisible', selector: '[aria-label="添加本地项目"]' },
+    ],
+  },
+  {
+    name: 'project-sidebar-mobile',
+    path: '/?__smoke=empty',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'click', selector: '[aria-label="打开菜单"]', waitMs: 300 },
+      { type: 'expectText', selector: '.sidebar', text: 'ragsystem' },
+      { type: 'expectText', selector: '.sidebar', text: 'ZCodeProject' },
+      { type: 'expectVisible', selector: '.sidebar.mobile-open' },
+    ],
+  },
+  {
+    name: 'timeline-sidebar-mobile',
+    path: '/?__smoke=empty',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'click', selector: '[aria-label="打开菜单"]', waitMs: 300 },
+      { type: 'click', selector: '[aria-label="时间轴视图"]', waitMs: 300 },
+      { type: 'expectText', selector: '.sidebar', text: '智能体系统接入 Host MCP' },
+      { type: 'expectVisible', selector: '.sidebar.mobile-open' },
+    ],
+  },
+  {
     name: 'chat-mobile',
     path: '/?__smoke=empty',
     width: 390,
     height: 844,
     actions: [
-      { type: 'expectText', selector: 'body', text: '想让 Agent 做什么？' },
+      { type: 'expectText', selector: 'body', text: '有什么想让我帮忙的吗' },
       { type: 'expectVisible', selector: '.new-chat-start h1' },
       { type: 'expectVisible', selector: '.session-setup-panel' },
       { type: 'expectVisible', selector: '[aria-label="更多会话操作"]' },
@@ -629,7 +730,8 @@ async function setupShotMocks(client, shot) {
   const mockArtifactApi = (shot.actions || []).some(action => action.type === 'mockArtifactApi');
   const mockMapArtifactApi = (shot.actions || []).some(action => action.type === 'mockMapArtifactApi');
   const mockKnowledgeSearchApi = (shot.actions || []).some(action => action.type === 'mockKnowledgeSearchApi');
-  if (!mockArtifactApi && !mockMapArtifactApi && !mockKnowledgeSearchApi) return;
+  const mockSessionSidebarApi = (shot.actions || []).some(action => action.type === 'mockSessionSidebarApi');
+  if (!mockArtifactApi && !mockMapArtifactApi && !mockKnowledgeSearchApi && !mockSessionSidebarApi) return;
 
   await client.send('Fetch.enable', {
     patterns: [
@@ -651,10 +753,103 @@ async function setupShotMocks(client, shot) {
         urlPattern: '*://*/api/knowledge-bases/search*',
         requestStage: 'Request',
       }] : []),
+      ...(mockSessionSidebarApi ? [
+        {
+          urlPattern: '*://*/api/agent/workspaces*',
+          requestStage: 'Request',
+        },
+        {
+          urlPattern: '*://*/api/agent/sessions*',
+          requestStage: 'Request',
+        },
+      ] : []),
     ],
   });
 
   client.on('Fetch.requestPaused', async (event) => {
+    if (mockSessionSidebarApi) {
+      const requestUrl = new URL(event.request.url);
+      const workspaceRagsystem = {
+        workspace_id: 'ws-ragsystem',
+        display_name: 'ragsystem',
+        root_path: 'D:/python/ragsystem',
+      };
+      const workspaceZcode = {
+        workspace_id: 'ws-zcode',
+        display_name: 'ZCodeProject',
+        root_path: 'D:/projects/ZCodeProject',
+      };
+      let responseData = null;
+      if (requestUrl.pathname === '/api/agent/workspaces') {
+        responseData = {
+          items: [
+            { ...workspaceRagsystem, session_count: 3 },
+            { ...workspaceZcode, session_count: 0 },
+          ],
+        };
+      } else if (requestUrl.pathname === '/api/agent/sessions/facets') {
+        responseData = {
+          type_counts: { direct: 3, bot: 0, widget: 0 },
+          origins: [],
+          workspaces: [
+            { ...workspaceRagsystem, count: 3 },
+            { ...workspaceZcode, count: 0 },
+          ],
+        };
+      } else if (requestUrl.pathname === '/api/agent/sessions') {
+        const origin = { type: 'direct', id: null, display_name: '直接对话', channel: 'web' };
+        responseData = {
+          items: [
+            {
+              session_id: 'session-host-mcp',
+              title: '智能体系统接入 Host MCP',
+              first_message: '智能体系统接入 Host MCP',
+              last_message: '',
+              activity_at: '2026-08-06T10:00:00.000Z',
+              unread_count: 0,
+              origin,
+              workspace: workspaceRagsystem,
+            },
+            {
+              session_id: 'session-glm',
+              title: 'agent-llm 智谱 GLM4-7B',
+              first_message: 'agent-llm 智谱 GLM4-7B',
+              last_message: '',
+              activity_at: '2026-08-05T10:00:00.000Z',
+              unread_count: 0,
+              origin,
+              workspace: workspaceRagsystem,
+            },
+            {
+              session_id: 'session-permissions',
+              title: 'frontend-client 控制台权限',
+              first_message: 'frontend-client 控制台权限',
+              last_message: '',
+              activity_at: '2026-08-04T10:00:00.000Z',
+              unread_count: 0,
+              origin,
+              workspace: workspaceRagsystem,
+            },
+          ],
+          next_cursor: null,
+        };
+      }
+
+      if (responseData) {
+        const body = JSON.stringify({ success: true, message: 'ok', data: responseData });
+        await client.send('Fetch.fulfillRequest', {
+          requestId: event.requestId,
+          responseCode: 200,
+          responseHeaders: [
+            { name: 'Content-Type', value: 'application/json; charset=utf-8' },
+            { name: 'Cache-Control', value: 'no-store' },
+          ],
+          body: Buffer.from(body, 'utf8').toString('base64'),
+        });
+        return;
+      }
+    }
+
     if (event.request?.url?.includes('/api/artifacts/art_smoke_map/assets/geojson/content')) {
       const body = JSON.stringify({
         type: 'FeatureCollection',
@@ -1009,7 +1204,7 @@ function jsString(value) {
 
 async function runShotActions(client, shot) {
   for (const action of shot.actions || []) {
-    if (action.type === 'mockArtifactApi' || action.type === 'mockMapArtifactApi' || action.type === 'mockKnowledgeSearchApi') {
+    if (action.type === 'mockArtifactApi' || action.type === 'mockMapArtifactApi' || action.type === 'mockKnowledgeSearchApi' || action.type === 'mockSessionSidebarApi') {
       continue;
     }
 
@@ -1161,6 +1356,25 @@ async function runShotActions(client, shot) {
           `${shot.name} selector starts too low: ${action.selector}; ` +
           `top=${top}, expected <= ${Number(action.maxTop)}`,
         );
+      }
+      continue;
+    }
+
+    if (action.type === 'expectCentered') {
+      const centered = await waitForEvaluation(client, `(() => {
+        const element = document.querySelector(${jsString(action.selector)});
+        if (!element) return false;
+        const rect = element.getBoundingClientRect();
+        const deltaX = Math.abs((rect.left + rect.width / 2) - window.innerWidth / 2);
+        const deltaY = Math.abs((rect.top + rect.height / 2) - window.innerHeight / 2);
+        return deltaX <= 2 && deltaY <= 2;
+      })()`, action.timeoutMs ?? 30000);
+      if (!centered) {
+        const geometry = await evaluate(client, `(() => {
+          const rect = document.querySelector(${jsString(action.selector)})?.getBoundingClientRect();
+          return rect ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height, viewportWidth: innerWidth, viewportHeight: innerHeight } : null;
+        })()`);
+        throw new Error(`${shot.name} selector is not centered: ${action.selector}; geometry=${JSON.stringify(geometry)}`);
       }
       continue;
     }

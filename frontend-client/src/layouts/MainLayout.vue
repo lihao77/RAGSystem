@@ -26,8 +26,12 @@
       <SessionList
         v-show="!sidebarCollapsed || isMobile"
         :active-session-id="activeSessionId"
+        :chat-sdk-client="chatSdkClient"
+        :view-mode="browserView"
+        @update:view-mode="handleBrowserViewChange"
         @select="selectSession"
         @delete="confirmDeleteSession"
+        @select-workspace="handleWorkspaceChange"
       />
         </div>
 
@@ -130,6 +134,7 @@ import { IconLogo, IconChevronLeft, IconChevronRight, IconNewConversation } from
 import { Button } from '../components/ui/button';
 import UserMenu from '../components/UserMenu.vue';
 import SessionList from '../components/session-list/SessionList.vue';
+import { SESSION_BROWSER_VIEWS, UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '../stores/workspace.js';
 import { sidebarAdminNavItem, filterManagementNavItems, adminNavGroups } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';
@@ -148,11 +153,14 @@ const { confirm } = useConfirm();
 const sessionListStore = useSessionListStore();
 const chatSdkClient = getFrontendChatSdk();
 sessionListStore.setChatSdkClient(chatSdkClient);
+const workspaceStore = useWorkspaceStore();
+workspaceStore.setClient(chatSdkClient);
 provide('chatSdkClient', chatSdkClient);
 const bootstrapStore = useBootstrapStore();
 const authStore = useAuthStore();
 const { isPlatformAdmin, hasTenantRole } = usePermission();
 const { items: history } = storeToRefs(sessionListStore);
+const { browserView } = storeToRefs(workspaceStore);
 const sidebarCollapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true');
 const mobileOpen = ref(false);
 const isMobile = ref(false);
@@ -254,8 +262,21 @@ const startNewChat = async () => {
   closeMobileSidebar();
 };
 
+const handleWorkspaceChange = async (workspace) => {
+  workspaceStore.select(workspace?.workspace_id || UNASSIGNED_WORKSPACE_ID);
+  if (activeSessionId.value) await startNewChat();
+};
+
+const handleBrowserViewChange = async (view) => {
+  workspaceStore.selectView(view);
+  await sessionListStore.setFilters({ originType: null, originId: null, workspaceId: null });
+};
+
 const selectSession = async (item) => {
   if (!item?.session_id) return;
+  if (workspaceStore.browserView === SESSION_BROWSER_VIEWS.PROJECT) {
+    workspaceStore.select(item.workspace?.workspace_id || UNASSIGNED_WORKSPACE_ID);
+  }
   lastChatSessionId.value = item.session_id;
   item.unread_count = 0;
   await router.push(`/chat/${encodeURIComponent(item.session_id)}`);
@@ -438,6 +459,9 @@ onMounted(() => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
   mcpStore.reloadPrompts();
+  workspaceStore.load().then(() => {
+    void sessionListStore.setFilters({ originType: null, originId: null, workspaceId: null });
+  }).catch(() => undefined);
   installCommandPaletteHotkey();
   installGlobalHotkeys();
 });
@@ -446,6 +470,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', checkMobile);
   document.body.style.overflow = '';
   sessionListStore.setChatSdkClient(null);
+  workspaceStore.clear();
   destroyFrontendChatSdk();
 });
 </script>
@@ -508,8 +533,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--spacing-md) calc(var(--icon-center-line) - 16px);
-  padding-bottom: var(--spacing-md);
+  padding: 6px 8px 6px 9px;
   transition: all var(--transition-normal);
 }
 
@@ -612,14 +636,15 @@ onUnmounted(() => {
 }
 
 .sidebar-header {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: 8px;
   padding: 0 var(--spacing-sm);
 }
 .sidebar.collapsed .sidebar-header { margin-bottom: 0; }
 
 .sidebar-btn {
   margin: 0;
-  padding: var(--spacing-sm) var(--spacing-sm);
+  min-height: 34px;
+  padding: 6px 8px;
   background: none;
   color: var(--color-text-primary);
   border: none;

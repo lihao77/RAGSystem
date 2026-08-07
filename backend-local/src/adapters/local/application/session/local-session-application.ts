@@ -40,6 +40,9 @@ export class LocalSessionApplication implements SessionApplication {
   async listWorkspacesByIds(workspaceIds: readonly string[]) {
     return this.conversations.listWorkspacesByIds(this.tenantId, workspaceIds);
   }
+  async listWorkspaces() {
+    return this.conversations.listAllWorkspaces(this.tenantId);
+  }
   async resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null> {
     if (!input) return null;
     if (input.kind === "existing") {

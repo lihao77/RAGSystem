@@ -113,8 +113,10 @@ const elapsedText = computed(() => {
 })
 
 const ctxPercent = computed(() => {
-  if (!props.contextUsage.max) return 0
-  return Math.min(100, Math.round(props.contextUsage.used / props.contextUsage.max * 100))
+  const max = Number(props.contextUsage?.max || 0)
+  const used = Number(props.contextUsage?.used || 0)
+  if (!max) return 0
+  return Math.min(100, Math.round(used / max * 100))
 })
 const hasContextUsage = computed(() => Number(props.contextUsage?.max || 0) > 0)
 const ctxPercentText = computed(() => hasContextUsage.value ? `${ctxPercent.value}%` : '待计算')

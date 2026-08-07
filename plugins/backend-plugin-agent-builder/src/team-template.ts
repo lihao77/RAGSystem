@@ -4,7 +4,7 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 7;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 8;
 
 const CAPABILITY_INVENTORY_TOOL = "list_agent_builder_capabilities";
 
@@ -16,7 +16,19 @@ const SKILL_AUTHORING_TOOLS = [
 ] as const;
 
 const CAPABILITY_DISCOVERY_PROMPT = "Before creating or updating a Draft, call list_agent_builder_capabilities and bind only the returned Tool, Skill, and MCP Server names. Never invent capability names.";
-const SKILL_AUTHORING_PROMPT = `Use list_skill_drafts, with a query when needed, to find reusable Skill drafts. Use get_skill_draft to copy a draft into the current Session workspace, or create_skill_draft to create one from scratch. Edit SKILL.md and its resources with file tools, then call publish_skill_draft. Publishing validates the local bundle; on failure, fix the files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.`;
+const LEGACY_SKILL_AUTHORING_PROMPT = `Use list_skill_drafts, with a query when needed, to find reusable Skill drafts. Use get_skill_draft to copy a draft into the current Session workspace, or create_skill_draft to create one from scratch. Edit SKILL.md and its resources with file tools, then call publish_skill_draft. Publishing validates the local bundle; on failure, fix the files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.`;
+const SKILL_AUTHORING_PROMPT_MARKER = "Skill authoring runtime contract:";
+const SKILL_AUTHORING_PROMPT = [
+  "Use list_skill_drafts, with a query when needed, to find reusable Skill drafts. Use get_skill_draft to copy a draft into the current Session workspace, or create_skill_draft to create one from scratch.",
+  SKILL_AUTHORING_PROMPT_MARKER,
+  "Create a root SKILL.md whose YAML frontmatter contains name and description. Use a lower-case hyphenated name no longer than 64 characters. Do not invent frontmatter fields such as version, invocation, entrypoint, compatibility, or script manifests. Use nested metadata only when declaring actual ragsystem_requires_tools or ragsystem_requires_mcp_servers dependencies returned by list_agent_builder_capabilities.",
+  "Keep SKILL.md concise and imperative. Put detailed documentation in references/, output templates or static files in assets/, and executable utilities in scripts/ only when they provide repeated deterministic behavior. Scripts are optional; do not create one for a workflow that can be expressed reliably as instructions or existing Tools.",
+  "The current Skill runtime executes Python only. Put executable scripts under scripts/ with a .py extension, and declare third-party Python packages in a root requirements.txt. Do not generate Bash, PowerShell, batch, Node.js, TypeScript, notebook, executable binaries, or shell-wrapper scripts.",
+  "Design each Python script as a non-interactive argv CLI. Use separate argv tokens, resolve user inputs from arguments or the Session workspace, never hard-code machine-specific absolute paths, write normal results as UTF-8 JSON to stdout, write diagnostics to stderr, and return a nonzero exit code on failure. Use RAGSYSTEM_ARTIFACT_OUTPUT_DIR only when the script intentionally returns staged Artifact assets.",
+  "In SKILL.md, tell consuming Agents to activate the Skill and call execute_skill_script with the published skill_name, the file name under scripts/, and an arguments array containing one argv token per item. Never instruct an Agent to run python, python3, a shell, execute_code, or a repository path directly.",
+  "execute_skill_script can run only a published, visible Skill; do not call it against a Draft. The current publish action validates and synchronizes bundle structure but does not execute scripts, so never claim a script was tested unless actual execution evidence exists.",
+  "Edit SKILL.md and its resources with file tools, then call publish_skill_draft. On failure, fix the local files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.",
+].join(" ");
 
 /**
  * Seed the managed Team once per tenant. Existing user changes are preserved;
@@ -147,9 +159,11 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   const withCapabilityDiscovery = prompt.includes("list_agent_builder_capabilities")
     ? prompt
     : `${prompt} ${CAPABILITY_DISCOVERY_PROMPT}`.trim();
-  const nextPrompt = withCapabilityDiscovery.includes("publish_skill_draft")
+  const nextPrompt = withCapabilityDiscovery.includes(SKILL_AUTHORING_PROMPT_MARKER)
     ? withCapabilityDiscovery
-    : `${withCapabilityDiscovery} ${SKILL_AUTHORING_PROMPT}`.trim();
+    : withCapabilityDiscovery.includes(LEGACY_SKILL_AUTHORING_PROMPT)
+      ? withCapabilityDiscovery.replace(LEGACY_SKILL_AUTHORING_PROMPT, SKILL_AUTHORING_PROMPT)
+      : `${withCapabilityDiscovery} ${SKILL_AUTHORING_PROMPT}`.trim();
   return {
     ...configs,
     builder_orchestrator: {

@@ -7,6 +7,9 @@
   </Teleport>
   <div class="chat-input-area">
     <div class="input-container" :class="{ 'is-drag-over': isDragOver }">
+      <div v-if="$slots.context" class="composer-context">
+        <slot name="context" />
+      </div>
       <div v-if="attachments.length" class="attachment-preview-list">
         <div v-for="attachment in attachments" :key="attachment.local_id || attachment.file_id || attachment.id || attachment.stored_name" class="attachment-preview-chip">
           <span class="attachment-preview-name">{{ attachment.original_name || attachment.stored_name }}</span>
@@ -345,6 +348,10 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 .input-container.is-drag-over {
   border-color: rgba(var(--color-brand-accent-rgb), 0.55);
   box-shadow: 0 10px 28px rgba(var(--color-brand-accent-rgb), 0.18), 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.1);
+}
+
+.composer-context {
+  min-width: 0;
 }
 
 .input-container:focus-within {

@@ -168,7 +168,9 @@ export class PostgresConversationRepository implements AsyncConversationReposito
       params.push(input.originId);
       where.push(`origin_id=$${params.length}`);
     }
-    if (input.workspaceId) {
+    if (input.workspaceId === "__unassigned__") {
+      where.push("workspace_id IS NULL");
+    } else if (input.workspaceId) {
       params.push(input.workspaceId);
       where.push(`workspace_id=$${params.length}`);
     }

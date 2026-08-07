@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
+import { UNASSIGNED_WORKSPACE_ID } from './workspace.js';
 
 const PAGE_SIZE = 20;
 const EMPTY_FACETS = Object.freeze({
@@ -167,7 +168,11 @@ export const useSessionListStore = defineStore('session-list', () => {
     ))) {
       next.originId = null;
     }
-    if (next.workspaceId && !nextFacets.workspaces.some(workspace => workspace.workspace_id === next.workspaceId)) {
+    if (
+      next.workspaceId
+      && next.workspaceId !== UNASSIGNED_WORKSPACE_ID
+      && !nextFacets.workspaces.some(workspace => workspace.workspace_id === next.workspaceId)
+    ) {
       next.workspaceId = null;
     }
     if (sameFilters(filters.value, next)) return false;

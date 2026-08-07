@@ -5,6 +5,7 @@
         type="button"
         class="session-filter-btn"
         :class="{
+          'is-compact': compact,
           'is-active': hasFilters,
           'is-open': open,
           'is-disabled': disabled,
@@ -14,11 +15,12 @@
         :title="ariaLabel"
       >
         <ListFilter class="session-filter-btn__icon" aria-hidden="true" />
-        <span class="session-filter-btn__label">{{ triggerLabel }}</span>
+        <span v-if="!compact" class="session-filter-btn__label">{{ triggerLabel }}</span>
         <span v-if="activeFilterCount > 0" class="session-filter-btn__badge">
           {{ activeFilterCount }}
         </span>
         <ChevronDown
+          v-if="!compact"
           class="session-filter-btn__chevron"
           :class="open && 'is-open'"
           aria-hidden="true"
@@ -231,6 +233,7 @@ const props = defineProps<{
   facets: SessionListFacets;
   filters: SessionListFilters;
   disabled?: boolean;
+  compact?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -447,6 +450,26 @@ function clearAll() {
 .session-filter-btn.is-disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.session-filter-btn.is-compact {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  border-radius: var(--radius-md);
+}
+
+.session-filter-btn.is-compact .session-filter-btn__badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  font-size: 8px;
 }
 
 .session-filter-btn__icon {

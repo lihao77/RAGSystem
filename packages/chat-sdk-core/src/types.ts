@@ -18,6 +18,8 @@ export type RagChatEndpointName =
   | "deleteSession"
   | "exportSession"
   | "listSessionsFacets"
+  | "listWorkspaces"
+  | "createWorkspace"
   | "getSessionPermissions"
   | "updateSessionPermissions"
   | "getSessionRuntime"

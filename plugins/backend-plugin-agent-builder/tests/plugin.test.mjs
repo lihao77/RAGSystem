@@ -676,7 +676,9 @@ test("Builder template migration adds Skill authoring tools without replacing us
     );
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction\./);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 7);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 8);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -696,7 +698,28 @@ test("Builder template migration adds the workspace draft workflow", async () =>
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this custom builder instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 7);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a published, visible Skill/);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 8);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Builder template migration upgrades a version 7 Skill authoring prompt", async () => {
+  const fixture = await createFixture();
+  try {
+    const legacy = buildAgentBuilderTeam();
+    legacy.builder_orchestrator.custom_params.behavior.system_prompt =
+      "Keep this version 7 instruction. Existing workflow already calls publish_skill_draft.";
+    legacy.builder_orchestrator.custom_params.behavior.builder_template_version = 7;
+    await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, legacy);
+
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
+    const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this version 7 instruction\./);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 8);
   } finally {
     fixture.cleanup();
   }
@@ -850,6 +873,12 @@ test("Builder template opts its orchestrator into Skill authoring tools explicit
     if (name === "builder_orchestrator") continue;
     assert.equal(agent.tools.enabled_tools.some((tool) => tool.endsWith("_skill_draft")), false);
   }
+  const prompt = orchestrator.custom_params.behavior.system_prompt;
+  assert.match(prompt, /root SKILL\.md/);
+  assert.match(prompt, /scripts\/ with a \.py extension/);
+  assert.match(prompt, /root requirements\.txt/);
+  assert.match(prompt, /Never instruct an Agent to run python, python3, a shell, execute_code/);
+  assert.match(prompt, /publish action validates and synchronizes bundle structure but does not execute scripts/);
 });
 
 async function createFixture(pluginTools = [], systemConfig = null) {

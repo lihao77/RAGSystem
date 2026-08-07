@@ -1,24 +1,25 @@
 <template>
   <section class="flex min-h-0 flex-1 flex-col gap-2" aria-label="最近会话">
-    <div class="flex h-7 shrink-0 items-center justify-between gap-2 px-2">
-      <div class="flex min-w-0 items-center gap-2 px-1">
-        <h2 class="text-xs font-semibold uppercase leading-none tracking-wider text-muted-foreground">
-          最近会话
-        </h2>
-        <span
-          v-if="hasFilters && !loadingInitial"
-          class="truncate text-[11px] leading-none text-muted-foreground"
-        >
-          {{ items.length ? `${items.length}${hasMore ? '+' : ''}` : '无结果' }}
-        </span>
-      </div>
-      <SessionListToolbar
-        :facets="facets"
-        :filters="filters"
-        :disabled="loadingInitial || (loadingFacets && !hasFacetData)"
-        @filter="applyFilters"
-        @clear="clearFilters"
+    <div class="workspace-sidebar-toolbar">
+      <SessionBrowserViewToggle
+        :model-value="viewMode || 'project'"
+        @update:model-value="$emit('update:view-mode', $event)"
       />
+      <div class="workspace-sidebar-actions">
+        <SessionListToolbar
+          compact
+          :facets="facets"
+          :filters="filters"
+          :disabled="loadingInitial || (loadingFacets && !hasFacetData)"
+          @filter="applyFilters"
+          @clear="clearFilters"
+        />
+        <WorkspacePicker
+          v-if="viewMode === 'project'"
+          :chat-sdk-client="chatSdkClient"
+          @change="$emit('select-workspace', $event)"
+        />
+      </div>
     </div>
 
     <div class="session-list-body relative min-h-0 flex-1">
@@ -57,7 +58,7 @@
             </EmptyContent>
           </Empty>
 
-          <Empty v-else-if="!items.length && hasFilters" key="filtered-empty" class="py-8">
+          <Empty v-else-if="viewMode !== 'project' && !items.length && hasFilters" key="filtered-empty" class="py-8">
             <EmptyHeader>
               <EmptyTitle>没有符合条件的会话</EmptyTitle>
               <EmptyDescription>当前来源或工作区筛选下没有结果。</EmptyDescription>
@@ -67,21 +68,57 @@
             </EmptyContent>
           </Empty>
 
-          <Empty v-else-if="!items.length" key="empty" class="py-8">
+          <Empty v-else-if="!items.length && viewMode !== 'project'" key="empty" class="py-8">
             <EmptyHeader>
               <EmptyTitle>还没有会话</EmptyTitle>
               <EmptyDescription>点上方「新聊天」开始第一段对话。</EmptyDescription>
             </EmptyHeader>
           </Empty>
 
+          <Empty v-else-if="viewMode === 'project' && !projectGroups.length" key="project-empty" class="py-8">
+            <EmptyHeader>
+              <EmptyTitle>还没有项目对话</EmptyTitle>
+              <EmptyDescription>选择一个项目后，从上方新聊天开始。</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+
           <div v-else key="list" class="flex flex-col gap-0.5">
-            <TransitionGroup name="session-list" tag="div" class="session-list-items flex flex-col gap-0.5">
+            <template v-if="viewMode === 'project'">
+              <section v-for="group in projectGroups" :key="group.id" class="project-session-group">
+                <button
+                  type="button"
+                  class="project-session-group__header"
+                  :class="{ 'is-selected': group.id === currentWorkspaceId }"
+                  @click="$emit('select-workspace', group.workspace)"
+                >
+                  <FolderOpen class="project-session-group__icon" aria-hidden="true" />
+                  <span class="min-w-0 flex-1 truncate">{{ group.name }}</span>
+                  <span class="project-session-group__count">{{ group.items.length || '' }}</span>
+                </button>
+                <div v-if="group.items.length" class="project-session-group__items">
+                  <SessionListItem
+                    v-for="item in group.items"
+                    :key="item.session_id"
+                    :item="item"
+                    :active="item.session_id === activeSessionId"
+                    :now="now"
+                    compact
+                    @select="$emit('select', item)"
+                    @delete="$emit('delete', item)"
+                  />
+                </div>
+                <div v-else class="project-session-group__empty">暂无对话</div>
+              </section>
+            </template>
+
+            <TransitionGroup v-else name="session-list" tag="div" class="session-list-items flex flex-col gap-0.5">
               <SessionListItem
                 v-for="item in items"
                 :key="item.session_id"
                 :item="item"
                 :active="item.session_id === activeSessionId"
                 :now="now"
+                compact
                 @select="$emit('select', item)"
                 @delete="$emit('delete', item)"
               />
@@ -106,6 +143,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { SessionListItem as SessionListItemData } from '@ragsystem/api-contracts';
+import { FolderOpen } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import {
   Empty,
@@ -116,20 +154,28 @@ import {
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSessionListStore } from '@/stores/session-list.js';
+import { useWorkspaceStore } from '@/stores/workspace.js';
 import { useSessionListTime } from '@/composables/useSessionListTime.js';
 import SessionListItem from './SessionListItem.vue';
 import SessionListToolbar from './SessionListToolbar.vue';
+import SessionBrowserViewToggle from '@/components/workspace/SessionBrowserViewToggle.vue';
+import WorkspacePicker from '@/components/workspace/WorkspacePicker.vue';
 
-defineProps<{
+const props = defineProps<{
   activeSessionId?: string | null;
+  chatSdkClient: object;
+  viewMode?: string;
 }>();
 
 defineEmits<{
   select: [item: SessionListItemData];
   delete: [item: SessionListItemData];
+  'update:view-mode': [view: string];
+  'select-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null } | null];
 }>();
 
 const store = useSessionListStore();
+const workspaceStore = useWorkspaceStore();
 const {
   items,
   filters,
@@ -140,6 +186,7 @@ const {
   error,
   hasMore,
 } = storeToRefs(store);
+const { items: workspaceItems, currentWorkspaceId } = storeToRefs(workspaceStore);
 const now = useSessionListTime();
 const scrollContainer = ref<HTMLElement | null>(null);
 const hasFilters = computed(() => Boolean(filters.value.originType || filters.value.workspaceId));
@@ -153,6 +200,26 @@ const hasFacetData = computed(() => (
 const isSoftRefreshing = computed(() => loadingInitial.value && items.value.length > 0);
 /** 仅冷启动或筛空后的加载才用骨架 */
 const showSkeleton = computed(() => loadingInitial.value && items.value.length === 0);
+const projectGroups = computed(() => {
+  if (props.viewMode !== 'project') return [];
+  const groups = new Map();
+  for (const workspace of workspaceItems.value) {
+    groups.set(workspace.workspace_id, { id: workspace.workspace_id, name: workspace.display_name, workspace, items: [] });
+  }
+  for (const item of items.value) {
+    const id = item.workspace?.workspace_id || '__unassigned__';
+    if (!groups.has(id)) {
+      groups.set(id, {
+        id,
+        name: item.workspace?.display_name || '未归属项目',
+        workspace: item.workspace || null,
+        items: [],
+      });
+    }
+    groups.get(id).items.push(item);
+  }
+  return Array.from(groups.values());
+});
 
 function applyFilters(next: Partial<typeof filters.value>) {
   void store.setFilters(next).catch(() => undefined);
@@ -183,8 +250,95 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.workspace-sidebar-toolbar {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
+.workspace-sidebar-toolbar > :first-child {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.workspace-sidebar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
 .session-list-scroll {
   transition: opacity 180ms ease;
+}
+
+.project-session-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.project-session-group__header {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-session-group__header:hover {
+  background: var(--color-active-bg);
+  color: var(--color-text-primary);
+}
+
+.project-session-group__header.is-selected {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.project-session-group__icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+
+.project-session-group__count {
+  min-width: 16px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.project-session-group__items {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 21px;
+}
+
+.project-session-group__empty {
+  padding: 5px 8px 7px 31px;
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 
 .session-list-scroll.is-soft-refreshing {

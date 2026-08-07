@@ -9,6 +9,8 @@ import type {
   SessionMessageListResponse,
   SessionMessageRunStepsResponse,
   SessionPermissionResponse,
+  WorkspaceListResponse,
+  WorkspaceResponse,
   UpdateSessionPermissionModeRequest,
 } from "@ragsystem/api-contracts";
 import type {
@@ -218,6 +220,14 @@ export class RagChatClient {
     return this.request<SessionListFacetsResponse>("listSessionsFacets", {
       ...(options.signal ? { signal: options.signal } : {}),
     });
+  }
+
+  async listWorkspaces(options: { signal?: AbortSignal } = {}): Promise<WorkspaceListResponse> {
+    return this.request<WorkspaceListResponse>("listWorkspaces", { ...(options.signal ? { signal: options.signal } : {}) });
+  }
+
+  async createWorkspace(rootPath: string): Promise<WorkspaceResponse> {
+    return this.request<WorkspaceResponse>("createWorkspace", { method: "POST", body: { root_path: rootPath } });
   }
 
   async getSessionPermissions(sessionId: string): Promise<SessionPermissionResponse> {
@@ -659,6 +669,8 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "deleteSession": return `/api/agent/sessions/${sessionId}`;
     case "exportSession": return `/api/agent/sessions/${sessionId}/export`;
     case "listSessionsFacets": return "/api/agent/sessions/facets";
+    case "listWorkspaces": return "/api/agent/workspaces";
+    case "createWorkspace": return "/api/agent/workspaces";
     case "getSessionPermissions": return `/api/agent/sessions/${sessionId}/permissions`;
     case "updateSessionPermissions": return `/api/agent/sessions/${sessionId}/permissions`;
     case "getSessionRuntime": return `/api/agent/sessions/${sessionId}/runtime`;

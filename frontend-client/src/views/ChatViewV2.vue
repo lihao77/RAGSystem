@@ -31,21 +31,7 @@
           @citation-click="openCitation"
         >
           <template #empty>
-            <ChatEmptyState>
-              <template #setup>
-                <TaskLauncher
-                  :team="currentSessionTeam"
-                  :team-options="teamOptions"
-                  :team-loading="teamLoading"
-                  v-model:entry-agent="pendingEntryAgent"
-                  v-model:workspace-root="pendingWorkspaceRoot"
-                  :entry-agent-options="entryAgentOptions"
-                  :entry-agent-loading="entryAgentLoading"
-                  :normalize-workspace-root-input="normalizeWorkspaceRootInput"
-                  @update:team="setPendingTeam"
-                />
-              </template>
-            </ChatEmptyState>
+            <ChatEmptyState />
           </template>
         </ChatMessageList>
       </div>
@@ -60,7 +46,7 @@
               <span v-if="unreadCount > 0" class="scroll-unread-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
             </LiquidGlass>
           </transition>
-          <div class="input-area-wrapper">
+          <div class="input-area-wrapper" :class="{ 'input-area-wrapper--new-chat': !hasMessages }">
           <TransitionGroup
             v-if="pendingFollowupCandidates.length"
             name="followup-candidate"
@@ -95,6 +81,18 @@
             @removeAttachment="removePendingAttachment"
             @pasteFiles="handleSessionFileSelect"
           >
+            <template v-if="!hasMessages" #context>
+              <TaskLauncher
+                :team="currentSessionTeam"
+                :team-options="teamOptions"
+                :team-loading="teamLoading"
+                v-model:entry-agent="pendingEntryAgent"
+                v-model:workspace-root="pendingWorkspaceRoot"
+                :entry-agent-options="entryAgentOptions"
+                :entry-agent-loading="entryAgentLoading"
+                @update:team="setPendingTeam"
+              />
+            </template>
             <template #footerMeta>
               <div class="composer-run-controls" role="group" aria-label="本次发送设置">
                 <LLMSelector presentation="composer" />
@@ -193,22 +191,11 @@
     <!-- 文件预览确认对话框 -->
     <FilePreviewConfirmDialog ref="filePreviewDialogRef" />
 
-    <ArtifactMapScreen
-      v-if="mapWorkspaceActive"
-      ref="mapWorkspaceRef"
-      :layers="mapWorkspaceLayers"
-      :messages="messages"
-      :is-streaming="isStreaming"
-      @ready="handleMapReady"
-      @update:layers="replaceMapWorkspaceLayers"
-      @close="closeMapWorkspace"
-      @send-message="handleMapSendMessage"
-    />
 </div>
 </template>
 
 <script setup>
-import { ref, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, watch, inject, provide, reactive } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch, inject, provide, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { useChatSessionController } from '../composables/useChatSessionController';
 import { getFrontendChatSdk } from '../composables/chatSdkClient';
@@ -220,7 +207,6 @@ import { useSessionFilesAttachments } from '../composables/useSessionFilesAttach
 import { useApprovalQueue } from '../composables/useApprovalQueue';
 import { useChatScrolling } from '../composables/useChatScrolling';
 import { useMessageArtifacts } from '../composables/useMessageArtifacts';
-import { useArtifactMapWorkspace } from '../composables/useArtifactMapWorkspace.js';
 import { useLlmRetryState } from '../composables/useLlmRetryState';
 import { useChatMessageRuntime } from '../composables/useChatMessageRuntime';
 import { useMessageListView } from '../composables/useMessageListView';
@@ -254,8 +240,6 @@ import { useSessionRunStore } from '../stores/session-run.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { useLlmStore } from '../stores/llm.js';
 import { sessionLoadStrategyRestoresActiveRun } from '@ragsystem/agent-protocol';
-
-const ArtifactMapScreen = defineAsyncComponent(() => import('../components/map-workspace/ArtifactMapScreen.vue'));
 
 // Emits
 const route = useRoute();
@@ -471,8 +455,8 @@ const {
   open: openRuntimeCenter,
   closeMobile: closeRuntimeCenterMobile,
 } = useSessionRuntimeCenter(isWideScreen);
-const desktopWorkPanelVisible = computed(() => isWideScreen.value && showWorkPanel.value);
-const visibleWorkPanel = computed(() => desktopWorkPanelVisible.value || runtimeMobileOpen.value);
+const desktopWorkPanelVisible = computed(() => Boolean(currentSessionId.value) && isWideScreen.value && showWorkPanel.value);
+const visibleWorkPanel = computed(() => Boolean(currentSessionId.value) && (desktopWorkPanelVisible.value || runtimeMobileOpen.value));
 
 const {
   approvalQueue,
@@ -506,8 +490,6 @@ const canStopRun = computed(() => runtimeActions.value.has('stop_run'));
 const canResumeRun = computed(() => runtimeActions.value.has('resume_run'));
 const canRespondInteraction = computed(() => runtimeActions.value.has('respond_interaction'));
 const canAttachFiles = computed(() => !currentSessionId.value || runtimeActions.value.has('send_message'));
-const isStreaming = computed(() => sessionRuntime.value?.state === 'running'
-  || sessionRuntime.value?.state === 'resuming');
 // Layout phase (has-messages/workbench) + transient motion flags on .chat-main,
 // consolidated to a single source of truth. is-new-chat dropped (== !has-messages).
 const chatMainClasses = computed(() => ({
@@ -614,16 +596,8 @@ const {
   chatSdkClient,
 });
 
-// ── Artifact 导航与工具驱动地图工作台 ──────────────────────────
+// ── Artifact 导航 ──────────────────────────────────────────────
 const { handleArtifactSelect } = useMessageArtifacts({ messagesRef });
-const {
-  active: mapWorkspaceActive,
-  layers: mapWorkspaceLayers,
-  mapRef: mapWorkspaceRef,
-  close: closeMapWorkspace,
-  handleMapReady,
-  replaceLayersFromMap: replaceMapWorkspaceLayers,
-} = useArtifactMapWorkspace();
 
 // clearExecutionState 需要额外清理 view 级状态
 const clearExecutionState = (opts) => {
@@ -644,7 +618,6 @@ const {
   entryAgentOptions,
   entryAgentLoading,
   isExportingSession,
-  normalizeWorkspaceRootInput,
   loadEntryAgentOptions,
   loadActiveTeam,
   setPendingTeam,
@@ -744,12 +717,6 @@ const handleSend = async (payload = null) => {
       finishNewChatLaunchSoon(messages.value.length > 0 ? 620 : 220);
     }
   }
-};
-
-const handleMapSendMessage = (text) => {
-  // 在地图工作台中发送消息：复用主聊天的发送逻辑
-  inputMessage.value = text;
-  nextTick(() => handleSend());
 };
 
 watch(

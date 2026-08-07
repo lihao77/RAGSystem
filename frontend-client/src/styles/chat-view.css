@@ -224,6 +224,10 @@
   min-height: 0;
 }
 
+.chat-main:not(.has-messages) .chat-messages-wrapper {
+  flex: 0 0 clamp(220px, 33vh, 280px);
+}
+
 .chat-messages {
   flex: 1;
   padding: var(--chat-padding-y) var(--chat-padding-x);
@@ -872,6 +876,15 @@
   width: 100%;
 }
 
+.input-area-wrapper--new-chat {
+  padding-inline: max(var(--input-area-padding-x), 24px);
+}
+
+.input-area-wrapper--new-chat > * {
+  max-width: 720px;
+  margin-inline: auto;
+}
+
 .input-area-wrapper.centered {
   /* top: 50%; */
   /* bottom: auto; */
@@ -995,6 +1008,14 @@
   /* 移动端欢迎屏幕调整 */
   .welcome-screen {
     padding: var(--spacing-md);
+  }
+
+  .chat-main:not(.has-messages) .chat-messages-wrapper {
+    flex-basis: 220px;
+  }
+
+  .input-area-wrapper--new-chat {
+    padding-inline: 12px;
   }
 
   .logo-placeholder svg {

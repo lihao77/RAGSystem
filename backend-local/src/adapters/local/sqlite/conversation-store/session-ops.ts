@@ -104,7 +104,8 @@ export class SessionOps {
     const params: Array<string | number | null> = [input.tenantId, ...(input.access.includeAll ? [] : [input.access.userId])];
     if (input.originType) { clauses.push("origin_type=?"); params.push(input.originType); }
     if (input.originId) { clauses.push("origin_id=?"); params.push(input.originId); }
-    if (input.workspaceId) { clauses.push("workspace_id=?"); params.push(input.workspaceId); }
+    if (input.workspaceId === "__unassigned__") clauses.push("workspace_id IS NULL");
+    else if (input.workspaceId) { clauses.push("workspace_id=?"); params.push(input.workspaceId); }
     if (input.cursor) {
       clauses.push("(activity_at < ? OR (activity_at = ? AND session_id < ?))");
       const cursorActivityAt = isoTimestampToSqlite(input.cursor.activityAt);
