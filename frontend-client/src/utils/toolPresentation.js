@@ -13,7 +13,7 @@ const SKILL_TOOL_TEMPLATES = {
   get_skill_info: (args) => `查询 ${args?.skill_name || 'Skill'} 信息`,
 }
 
-const VISUALIZATION_TOOLS = ['create_chart', 'create_map', 'create_bindmap', 'create_risk_map', 'revise_visualization']
+const CHART_TOOLS = ['create_chart']
 const FILE_TOOLS = ['read_file', 'write_file', 'edit_file', 'preview_data_structure']
 
 export function parseToolPayload(node) {
@@ -117,9 +117,9 @@ export function getToolSubtitle(node, options = {}) {
   if (name === 'todo_write' || name.startsWith('task_') || name.startsWith('goal_')) return previewTaskTool(name, args, content, metadata, running)
   if (name.includes('memory')) return previewMemoryTool(name, args, content, metadata, running)
 
-  if (VISUALIZATION_TOOLS.includes(name)) {
+  if (CHART_TOOLS.includes(name)) {
     const title = pickString(content?.title, content?.preview?.title, payload?.title, payload?.preview?.title)
-    return title ? `已生成: ${truncateText(title, 36)}` : '已生成可视化'
+    return title ? `已生成: ${truncateText(title, 36)}` : '已生成图表'
   }
   if (name === 'query_emergency_plan') {
     const count = countFrom(content?.results) ?? content?.total ?? payload?.total

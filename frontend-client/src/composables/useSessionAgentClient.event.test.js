@@ -169,7 +169,6 @@ function createDeps(overrides = {}) {
     showToast: (...args) => { calls.showToast.push(args); },
     setLlmRetryState: () => {},
     updateRecentSession: (...args) => { calls.updateRecentSession.push(args); },
-    checkSituationScreenTrigger: () => {},
     findRunningExecutionAgentByAgentId: () => null,
     enqueueApproval: () => {},
     handleApprovalResolved: (...args) => { calls.handleApprovalResolved.push(args); },

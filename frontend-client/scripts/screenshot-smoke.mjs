@@ -79,6 +79,39 @@ const shots = [
     ],
   },
   {
+    name: 'map-workspace-desktop',
+    path: '/?__smoke=artifact',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'mockMapArtifactApi' },
+      { type: 'expectText', selector: '.conversation-title', text: '生成一张水位趋势图' },
+      { type: 'invokeMapArtifactTool' },
+      { type: 'expectText', selector: '.artifact-map-screen', text: '空间数据工作台' },
+      { type: 'expectText', selector: '.artifact-map-screen aside', text: '洪水风险专题图' },
+      { type: 'expectText', selector: '.artifact-map-screen aside', text: '高风险' },
+      { type: 'expectMapCanvas' },
+    ],
+  },
+  {
+    name: 'map-workspace-mobile',
+    path: '/?__smoke=artifact',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'mockMapArtifactApi' },
+      { type: 'expectText', selector: '.conversation-title', text: '生成一张水位趋势图' },
+      { type: 'invokeMapArtifactTool' },
+      { type: 'expectText', selector: '.artifact-map-screen', text: '空间数据工作台' },
+      { type: 'expectText', selector: '.artifact-map-screen aside', text: '洪水风险专题图' },
+      { type: 'expectVisible', selector: '.artifact-map-screen aside' },
+      { type: 'expectVisible', selector: '.floating-chat-panel.collapsed' },
+      { type: 'expectMapCanvas' },
+    ],
+  },
+  {
     name: 'desktop-runtime-background',
     path: '/?__smoke=artifact',
     width: 1440,
@@ -594,8 +627,9 @@ class CdpClient {
 
 async function setupShotMocks(client, shot) {
   const mockArtifactApi = (shot.actions || []).some(action => action.type === 'mockArtifactApi');
+  const mockMapArtifactApi = (shot.actions || []).some(action => action.type === 'mockMapArtifactApi');
   const mockKnowledgeSearchApi = (shot.actions || []).some(action => action.type === 'mockKnowledgeSearchApi');
-  if (!mockArtifactApi && !mockKnowledgeSearchApi) return;
+  if (!mockArtifactApi && !mockMapArtifactApi && !mockKnowledgeSearchApi) return;
 
   await client.send('Fetch.enable', {
     patterns: [
@@ -609,6 +643,10 @@ async function setupShotMocks(client, shot) {
           requestStage: 'Request',
         },
       ] : []),
+      ...(mockMapArtifactApi ? [{
+        urlPattern: '*://*/api/artifacts/art_smoke_map*',
+        requestStage: 'Request',
+      }] : []),
       ...(mockKnowledgeSearchApi ? [{
         urlPattern: '*://*/api/knowledge-bases/search*',
         requestStage: 'Request',
@@ -617,6 +655,76 @@ async function setupShotMocks(client, shot) {
   });
 
   client.on('Fetch.requestPaused', async (event) => {
+    if (event.request?.url?.includes('/api/artifacts/art_smoke_map/assets/geojson/content')) {
+      const body = JSON.stringify({
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            properties: { name: '西部片区', risk: 'low' },
+            geometry: { type: 'Polygon', coordinates: [[[107.6, 22.4], [108.2, 22.4], [108.2, 23.3], [107.6, 23.3], [107.6, 22.4]]] },
+          },
+          {
+            type: 'Feature',
+            properties: { name: '中心片区', risk: 'medium' },
+            geometry: { type: 'Polygon', coordinates: [[[108.2, 22.4], [108.7, 22.4], [108.7, 23.3], [108.2, 23.3], [108.2, 22.4]]] },
+          },
+          {
+            type: 'Feature',
+            properties: { name: '东部片区', risk: 'high' },
+            geometry: { type: 'Polygon', coordinates: [[[108.7, 22.4], [109.1, 22.4], [109.1, 23.3], [108.7, 23.3], [108.7, 22.4]]] },
+          },
+        ],
+      });
+      await client.send('Fetch.fulfillRequest', {
+        requestId: event.requestId,
+        responseCode: 200,
+        responseHeaders: [
+          { name: 'Content-Type', value: 'application/geo+json; charset=utf-8' },
+          { name: 'Cache-Control', value: 'no-store' },
+        ],
+        body: Buffer.from(body, 'utf8').toString('base64'),
+      });
+      return;
+    }
+
+    if (event.request?.url?.endsWith('/api/artifacts/art_smoke_map')) {
+      const body = JSON.stringify({
+        schema_version: 2,
+        artifact_id: 'art_smoke_map',
+        revision: 1,
+        session_id: 'smoke-artifact-session',
+        kind: 'geospatial.vector',
+        subtype: 'flood-risk',
+        title: '洪水风险专题图',
+        status: 'ready',
+        assets: [{
+          asset_id: 'geojson',
+          role: 'data',
+          filename: 'flood-risk.geojson',
+          media_type: 'application/geo+json',
+          size: 1024,
+          sha256: 'smoke',
+        }],
+        presentations: [],
+        metadata: { spatial: { crs: 'EPSG:4326', bounds: [107.5, 22.3, 109.2, 23.5] } },
+        provenance: {},
+        relations: [],
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      });
+      await client.send('Fetch.fulfillRequest', {
+        requestId: event.requestId,
+        responseCode: 200,
+        responseHeaders: [
+          { name: 'Content-Type', value: 'application/json; charset=utf-8' },
+          { name: 'Cache-Control', value: 'no-store' },
+        ],
+        body: Buffer.from(body, 'utf8').toString('base64'),
+      });
+      return;
+    }
+
     if (event.request?.url?.includes('/api/knowledge-bases/search')) {
       const body = JSON.stringify({
         success: true,
@@ -878,6 +986,7 @@ async function evaluate(client, expression) {
   const result = await client.send('Runtime.evaluate', {
     expression,
     returnByValue: true,
+    awaitPromise: true,
   });
   if (result.exceptionDetails) {
     throw new Error(result.exceptionDetails.text || 'Runtime evaluation failed');
@@ -900,7 +1009,50 @@ function jsString(value) {
 
 async function runShotActions(client, shot) {
   for (const action of shot.actions || []) {
-    if (action.type === 'mockArtifactApi' || action.type === 'mockKnowledgeSearchApi') {
+    if (action.type === 'mockArtifactApi' || action.type === 'mockMapArtifactApi' || action.type === 'mockKnowledgeSearchApi') {
+      continue;
+    }
+
+    if (action.type === 'invokeMapArtifactTool') {
+      const result = await evaluate(client, `(async () => {
+        const { getHostTool } = await import('/src/utils/hostTools.js');
+        return getHostTool('map_add_artifact_layer').execute({
+          artifact_id: 'art_smoke_map',
+          title: '洪水风险专题图',
+          style: {
+            fillOpacity: 0.72,
+            lineColor: '#202124',
+            lineWidth: 1.5,
+            thematic: {
+              field: 'risk',
+              method: 'categorical',
+              defaultColor: '#a1a1aa',
+              stops: [
+                { value: 'low', color: '#2f855a', label: '低风险' },
+                { value: 'medium', color: '#eab308', label: '中风险' },
+                { value: 'high', color: '#dc2626', label: '高风险' },
+              ],
+            },
+          },
+        }, {});
+      })()`);
+      if (!result?.ok) {
+        throw new Error(`${shot.name} failed to add map Artifact: ${result?.error || result?.observation || 'unknown error'}`);
+      }
+      await wait(action.waitMs ?? 3000);
+      continue;
+    }
+
+    if (action.type === 'expectMapCanvas') {
+      const rendered = await waitForEvaluation(client, `(() => {
+        const section = document.querySelector('.artifact-map-screen section[aria-label="地理空间地图工作台"]');
+        const canvas = section?.querySelector('.maplibregl-canvas');
+        if (!section || !canvas || document.body?.innerText?.includes('地图加载中')) return false;
+        const sectionRect = section.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        return canvasRect.width >= sectionRect.width * 0.95 && canvasRect.height >= sectionRect.height * 0.95;
+      })()`, action.timeoutMs ?? 30000);
+      if (!rendered) throw new Error(`${shot.name} MapLibre canvas did not fill the map workspace`);
       continue;
     }
 

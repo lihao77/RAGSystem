@@ -24,7 +24,7 @@ export function normalizeArtifactManifest(value) {
   const presentation = selectPresentation(presentations);
   const primaryAsset = selectPrimaryAsset(assets, presentation);
   const displayKind = inferDisplayKind(presentation, primaryAsset);
-  if ((displayKind === 'chart' || displayKind === 'map') && !presentation) {
+  if (displayKind === 'chart' && !presentation) {
     throw new Error(`产物结构异常：${displayKind} 类型缺少 presentation`);
   }
   if (displayKind === 'unsupported' && !primaryAsset) {
@@ -83,7 +83,7 @@ function selectPresentation(presentations) {
   return presentations.find((item) => {
     const renderer = String(item.renderer).toLowerCase();
     const surface = String(item.surface).toLowerCase();
-    return surface === 'chart' || surface === 'map' || renderer.startsWith('chart.') || renderer.startsWith('map.');
+    return surface === 'chart' || renderer.startsWith('chart.');
   }) ?? presentations[0] ?? null;
 }
 
@@ -102,9 +102,6 @@ function inferDisplayKind(presentation, primaryAsset) {
   const surface = String(presentation?.surface || '').toLowerCase();
   const renderer = String(presentation?.renderer || '').toLowerCase();
   if (surface === 'chart' || renderer.startsWith('chart.')) return 'chart';
-  if (surface === 'map' && !renderer.startsWith('map.raster')) return 'map';
-  if (renderer.startsWith('map.raster') && MEDIA_IMAGE_PATTERN.test(primaryAsset?.media_type || '')) return 'image';
   if (MEDIA_IMAGE_PATTERN.test(primaryAsset?.media_type || '')) return 'image';
-  if (presentation) return 'unsupported';
   return primaryAsset ? 'file' : 'unsupported';
 }

@@ -153,7 +153,6 @@ export function createSessionEventReducer({
           currentMsg.finished = true;
           runtime.markRecentSessionUpdated(sessionId, currentMsg);
           deps.cacheMessages(sessionId, messages.value);
-          deps.checkSituationScreenTrigger(currentMsg.content);
         } else {
           deps.applyEnvelopeToMessage(currentMsg, event);
         }
@@ -180,7 +179,6 @@ export function createSessionEventReducer({
       if (deps.isMasterEvent(event) && !currentMsg.finished) {
         currentMsg.finished = true;
         runtime.markRecentSessionUpdated(sessionId, currentMsg);
-        deps.checkSituationScreenTrigger(currentMsg.content);
       }
     } else if (eventType === 'error') {
       runtime.markModelAttemptCompleted(event);

@@ -24,7 +24,7 @@
       class="inline-chart-wrapper"
       :data-artifact-id="part.artifactId"
     >
-      <VisualizationLoader :artifactId="part.artifactId" @enter-situation="messageContext.handleEnterSituation" />
+      <VisualizationLoader :artifactId="part.artifactId" />
     </div>
   </template>
 

@@ -38,7 +38,6 @@ function createConnectionDeps(chatSdkClient) {
     resetApprovalState: noop,
     clearLlmRetryState: noop,
     setLlmRetryState: noop,
-    checkSituationScreenTrigger: noop,
     handleStop: noop,
     scrollToBottom: noop,
     showToast: noop,

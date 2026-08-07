@@ -12,7 +12,7 @@ description: 广西洪涝灾害应急决策支持技能，提供完整的"态势
 
 ### 步骤 2a：快速风险评估（assess_flood_risk.py）⭐
 直接按广西防汛四级响应阈值评估风险等级，同时返回完整应急响应措施。
-支持 --batch 批量评估多地点，输出可直接用于构造 create_risk_map 数据。
+支持 --batch 批量评估多地点，输出可直接用于构造风险图层数据。
 
 ### 步骤 2b：风险矩阵计算（risk_matrix.py）
 基于态势数据和广西防汛四级响应标准，计算综合风险等级（多维度加权）。
@@ -48,7 +48,7 @@ description: 广西洪涝灾害应急决策支持技能，提供完整的"态势
 
 **特点**：
 - 纯本地计算，无需联网，响应极快
-- `--batch` 支持多城市批量评估，输出可直接用于 `create_risk_map`
+- `--batch` 支持多城市批量评估，输出可直接用于 `build_risk_layer.py`
 - 返回结果包含 `risk_level`、`risk_color`、`risk_factors`、完整 `response` 措施
 
 **参数**：
@@ -111,12 +111,13 @@ description: 广西洪涝灾害应急决策支持技能，提供完整的"态势
 }
 ```
 
-**与 create_risk_map.py 配合的完整推理链**：
+**与 build_risk_layer.py 配合的完整推理链**：
 ```
 1. guangxi-flood-data/fetch_weather.py --batch "14市" → 获取 rainfall_24h_mm
 2. guangxi-geodata/geocode.py --batch "14市" → 获取 wkt 坐标
 3. 组装 [{location, geometry, rainfall_24h, ...}] JSON
-4. create_risk_map.py --data "[...]" → 自动评估+生成风险地图 artifact
+4. `build_risk_layer.py --data "[...]"` → 自动评估并生成 GeoJSON Artifact
+5. 读取工具真实返回的 `artifact_id`，调用 `map_add_artifact_layer` 添加风险图层
 ```
 
 ---
@@ -143,8 +144,8 @@ description: 广西洪涝灾害应急决策支持技能，提供完整的"态势
 
 ---
 
-### create_risk_map.py
-**功能**：批量风险评估 + 自动生成风险地图（输出 artifact 协议，系统自动持久化）
+### `build_risk_layer.py`
+**功能**：批量风险评估并生成带风险属性的 GeoJSON Artifact。脚本不生成地图配置；取得 `artifact_id` 后必须调用 `map_add_artifact_layer`。
 
 **参数**：
 - `--data`（必填）：JSON 数组，每项含 location/geometry + 气象水文字段
@@ -157,7 +158,7 @@ description: 广西洪涝灾害应急决策支持技能，提供完整的"态势
   "tool": "execute_skill_script",
   "arguments": {
     "skill_name": "emergency-decision-support",
-    "script_name": "create_risk_map.py",
+    "script_name": "build_risk_layer.py",
     "arguments": ["--data", "[{\"location\":\"南宁市\",\"geometry\":\"POINT (108.32 22.82)\",\"rainfall_24h\":150},{\"location\":\"桂林市\",\"geometry\":\"POINT (110.29 25.27)\",\"rainfall_24h\":80}]", "--title", "广西防汛风险评估"]
   }
 }

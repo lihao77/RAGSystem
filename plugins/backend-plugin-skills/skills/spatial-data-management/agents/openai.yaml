@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spatial Data Management"
+  short_description: "Inspect and manage spatial datasets"
+  default_prompt: "Use $spatial-data-management to inspect and manage spatial datasets."

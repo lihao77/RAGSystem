@@ -7,6 +7,8 @@ import json
 import sys
 from pathlib import Path
 
+from _artifact import write_artifact
+
 
 def _load_data(raw: str) -> dict:
     """从文件路径或 JSON 字符串加载 GeoJSON。"""
@@ -114,7 +116,14 @@ def main():
     geom_types = [t.strip() for t in args.geometry_types.split(",")] if args.geometry_types else None
 
     result = _filter_features(data, conditions, geom_types)
-    json.dump(result, sys.stdout, ensure_ascii=False)
+    artifact = write_artifact(
+        result,
+        "geojson-filter",
+        "filtered",
+        "GeoJSON 过滤结果",
+        result.get("metadata", {}),
+    )
+    json.dump({"success": True, "data": {"operation": "filter", **result.get("metadata", {})}, "artifact": artifact}, sys.stdout, ensure_ascii=False)
 
 
 if __name__ == "__main__":

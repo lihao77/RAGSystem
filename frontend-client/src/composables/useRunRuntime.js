@@ -394,7 +394,6 @@ export function useRunRuntime(deps) {
       if (currentMsg && !currentMsg.finished) {
         currentMsg.finished = true;
         markRecentSessionUpdated(sessionId, currentMsg);
-        deps.checkSituationScreenTrigger(currentMsg.content);
       }
       deps.cacheMessages(sessionId, messages.value);
       rememberFinalizedRun(sessionId, currentMsg);

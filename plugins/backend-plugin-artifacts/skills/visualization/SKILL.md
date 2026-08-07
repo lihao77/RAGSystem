@@ -1,12 +1,12 @@
 ---
 name: visualization
-description: 数据可视化技能，支持 ECharts 图表和 Leaflet 地图的创建、修改和多图层叠加。
+description: 创建和修改 ECharts 折线图、柱状图、饼图和散点图。用户要求把结构化数据制作成统计图表或调整已有 ECharts Artifact 时使用。
 ---
 
 ## 可视化工具
 
-本 Skill 提供完整的数据可视化能力，所有脚本输出 artifact 协议格式，系统自动完成持久化。
-在 `<final_answer>` 中使用 `[artifact:artifact_id]` 展示产物。Artifact 是通用产物，使用 V2 Manifest，支持多个 Asset 和多个 Presentation；`kind` 描述产物语义，`renderer` 描述展示方式。
+本 Skill 只负责 ECharts 图表。所有脚本输出 Artifact V2，系统自动完成持久化。
+在 `<final_answer>` 中使用 `[artifact:artifact_id]` 展示图表产物。
 
 脚本生成 PNG、GeoTIFF、CSV、JSON、PDF 等文件时，必须写入环境变量 `RAGSYSTEM_ARTIFACT_OUTPUT_DIR` 指向的目录，并在 Asset 中使用相对 `staged_file`。不要读取文件并生成 `data_base64`；系统会登记文件、替换为不透明 ID 并在 Artifact 创建成功后接管。
 
@@ -35,55 +35,6 @@ description: 数据可视化技能，支持 ECharts 图表和 Leaflet 地图的�
 }
 ```
 
----
-
-### create_map.py - Leaflet 地图生成
-**功能**：从含地理坐标的数据生成地图，自动持久化为 artifact。
-
-**参数**：
-- `--data`（必填）：数据源，JSON 字符串或文件路径
-- `--map-type`（可选）：heatmap/marker/circle/choropleth/geojson，默认 heatmap
-- `--value-field`（必填）：数值字段名
-- `--name-field`（可选）：名称字段
-- `--geometry-field`（可选）：几何字段名，默认 geometry（支持 WKT 和 GeoJSON）
-- `--title`（可选）：地图标题
-- `--marker-style`（可选）：点样式 JSON，如 `{"icon":"star","color":"#ef4444"}`
-
-**调用示例**：
-```json
-{
-  "tool": "execute_skill_script",
-  "arguments": {
-    "skill_name": "visualization",
-    "script_name": "create_map.py",
-    "arguments": ["--data", "[{\"name\":\"南宁\",\"value\":12,\"geometry\":\"POINT (108.32 22.82)\"}]", "--map-type", "marker", "--value-field", "value", "--name-field", "name"]
-  }
-}
-```
-
----
-
-### create_bindmap.py - 多图层叠加地图
-**功能**：将多个数据源/类型叠加在一张地图上，支持图层切换控件。
-
-**参数**：
-- `--layers`（必填）：图层列表 JSON，每项含 data/map_type/value_field/label 等
-- `--title`（可选）：地图标题
-
-**调用示例**：
-```json
-{
-  "tool": "execute_skill_script",
-  "arguments": {
-    "skill_name": "visualization",
-    "script_name": "create_bindmap.py",
-    "arguments": ["--layers", "[{\"data\":\"[{\\\"name\\\":\\\"南宁\\\",\\\"value\\\":120,\\\"geometry\\\":\\\"POINT (108.32 22.82)\\\"}]\",\"map_type\":\"heatmap\",\"label\":\"降雨量\",\"value_field\":\"value\"}]", "--title", "防汛态势图"]
-  }
-}
-```
-
----
-
 ### revise.py - 修改已有 artifact
 **功能**：修改已有可视化 Artifact 的 primary Presentation 配置，默认深度合并，可选完全替换。
 
@@ -103,14 +54,3 @@ description: 数据可视化技能，支持 ECharts 图表和 Leaflet 地图的�
   }
 }
 ```
-
-## 支持的地图类型
-- heatmap：热力图
-- marker：标记点地图（支持自定义图标）
-- circle：圆圈标记地图（半径按数值缩放）
-- choropleth：区域填色图（需要面数据）
-- geojson：GeoJSON 通用渲染
-- bindmap：多图层叠加（通过 create_bindmap.py）
-
-## 支持的图标
-pin, dot, ring, square, diamond, triangle, star, flag, badge, hospital, shelter, station, warning, rescue, supply, school, bridge, dam, reservoir, pump, cross, hexagon, arrow, shield, drop

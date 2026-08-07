@@ -92,7 +92,6 @@ export function createSessionCommandController({
   currentSessionId,
   messages,
   isLoading,
-  contextUsage,
   activeRun,
   allowsRuntimeAction,
   getSessionRuntime,

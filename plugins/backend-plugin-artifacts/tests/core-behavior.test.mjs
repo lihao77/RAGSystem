@@ -46,7 +46,7 @@ test("Artifact plugin registers its contributions and owns storage lifecycle", a
   assert.deepEqual(events, ["start", "stop"]);
 });
 
-test("Artifact hook persists a V2 manifest with multiple embedded assets", async () => {
+test("Artifact hook persists a V2 spatial manifest with multiple embedded assets", async () => {
   const calls = [];
   const hook = createArtifactToolAfterHook({
     storage: {
@@ -54,7 +54,7 @@ test("Artifact hook persists a V2 manifest with multiple embedded assets", async
         return artifactApplication({
           createArtifact: async (input) => {
             calls.push(input);
-            return artifactRecord({ kind: "map.raster", asset_count: 2, presentation_count: 1 });
+            return artifactRecord({ kind: "map.raster", asset_count: 2, presentation_count: 0 });
           },
         });
       },
@@ -74,7 +74,8 @@ test("Artifact hook persists a V2 manifest with multiple embedded assets", async
           { asset_id: "data", role: "data", filename: "temperature.tif", media_type: "image/tiff", data_base64: Buffer.from([1, 2, 3]).toString("base64") },
           { asset_id: "preview", role: "preview", filename: "temperature.png", media_type: "image/png", data_base64: Buffer.from([137, 80, 78, 71]).toString("base64") },
         ],
-        presentations: [{ presentation_id: "map", surface: "map", renderer: "map.raster-tile", assets: { source: "data", preview: "preview" }, config: { bounds: [[0, 100], [10, 110]] } }],
+        presentations: [],
+        metadata: { spatial: { crs: "EPSG:4326", bounds: [100, 0, 110, 10] } },
       },
     }),
     ctx: { tenantId: "tenant-a", sessionId: "session-a", runId: "run-a" },
@@ -89,7 +90,7 @@ test("Artifact hook persists a V2 manifest with multiple embedded assets", async
     artifact_revision: 1,
     artifact_status: "ready",
     asset_count: 2,
-    presentation_count: 1,
+    presentation_count: 0,
   });
   assert.equal(output.modifiedResult.metadata.artifact_persisted, true);
   assert.equal(output.modifiedResult.outputType, "map.raster");
@@ -155,7 +156,8 @@ test("Filesystem Artifact V2 stores multiple binary assets with checksums and re
         { assetId: "data", role: "data", source: { type: "memory", body: Buffer.from([1, 2, 3]) }, mediaType: "image/tiff", filename: "temperature.tif" },
         { assetId: "preview", role: "preview", source: { type: "memory", body: Buffer.from([137, 80, 78, 71]) }, mediaType: "image/png", filename: "temperature.png" },
       ],
-      presentations: [{ presentation_id: "map", surface: "map", renderer: "map.raster-image", assets: { image: "preview" }, config: { bounds: [[0, 100], [10, 110]] } }],
+      presentations: [],
+      metadata: { spatial: { crs: "EPSG:4326", bounds: [100, 0, 110, 10] } },
     });
 
     const manifest = service.getArtifact(created.artifact_id);
@@ -170,10 +172,13 @@ test("Filesystem Artifact V2 stores multiple binary assets with checksums and re
 
     const revised = service.reviseArtifact({
       artifactId: created.artifact_id,
-      presentationPatches: [{ presentationId: "map", configPatch: { opacity: 0.6 } }],
+      metadata: { analysis: { revised: true } },
     });
     assert.equal(revised.revision, 2);
-    assert.deepEqual(service.getArtifact(created.artifact_id).presentations[0].config, { bounds: [[0, 100], [10, 110]], opacity: 0.6 });
+    assert.deepEqual(service.getArtifact(created.artifact_id).metadata, {
+      spatial: { crs: "EPSG:4326", bounds: [100, 0, 110, 10] },
+      analysis: { revised: true },
+    });
     assert.equal(service.deleteArtifact(created.artifact_id), true);
     assert.equal(fs.existsSync(artifactRoot), false);
   } finally {

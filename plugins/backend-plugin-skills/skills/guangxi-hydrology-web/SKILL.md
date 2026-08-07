@@ -13,7 +13,7 @@ description: 调用广西水利厅实时 API 获取雨情和水情数据（JSON 
 - 需要实时雨量站降雨数据（按时段、按区域）。
 - 需要实时江河水位、流量、超警信息。
 - 需要单站水位过程线（历史趋势）。
-- 为 `assess_flood_risk` 或 `create_risk_map` 提供实时水文数据。
+- 为 `assess_flood_risk.py` 或 `build_risk_layer.py` 提供实时水文数据。
 
 与 `guangxi-flood-data` 的区别：本 Skill 直接调用水利厅 JSON API，数据更精确、字段更丰富；`guangxi-flood-data` 通过 HTML 解析获取水情。
 

@@ -7,7 +7,9 @@ _shared.py - gis-bindmap Skill 共享工具函数
 import math
 import json
 import os
+import re
 import sys
+from pathlib import Path
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SKILL_DIR = os.path.join(_HERE, "..")
@@ -24,13 +26,6 @@ FEATURE_LABELS = {
     "hospital": "医院",
     "shelter": "避难所",
 }
-
-FEATURE_MARKER_COLORS = {
-    "hydrological_station": "blue",
-    "hospital": "red",
-    "shelter": "green",
-}
-
 
 def haversine_km(lat1, lng1, lat2, lng2):
     """Haversine 距离计算（单位: km）"""
@@ -148,30 +143,73 @@ def nearest_features(features, center_lat, center_lng, top_k=5):
     return scored[:top_k]
 
 
-def make_wkt_point(lng, lat):
-    """生成 WKT POINT 字符串"""
-    return f"POINT ({lng} {lat})"
+def _safe_name(value, fallback):
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value).strip())[:80].strip(".-")
+    return cleaned or fallback
 
 
-def build_marker_layer(items, label, name_field="name", value_field="value"):
-    """构建 bindmap 图层"""
-    data = []
-    for item in items:
-        entry = {
-            "name": item.get(name_field, item.get("name", "")),
-            "value": item.get(value_field, 1),
-            "geometry": make_wkt_point(item["lng"], item["lat"]),
-        }
-        # 保留额外字段
-        for k in ("city", "level", "capacity", "type", "river",
-                   "warning_level", "distance_km", "grade"):
-            if k in item:
-                entry[k] = item[k]
-        data.append(entry)
+def build_point_artifact(groups, title, subtype, metadata=None):
+    """Write grouped point records as one data-first GeoJSON Artifact V2."""
+    features = []
+    lngs = []
+    lats = []
+    group_counts = {}
+    for group in groups:
+        layer_name = str(group["name"])
+        category = str(group.get("category", layer_name))
+        count = 0
+        for item in group.get("items", []):
+            lat, lng = item.get("lat"), item.get("lng")
+            if lat is None or lng is None:
+                continue
+            properties = {key: value for key, value in item.items() if key not in {"lat", "lng"}}
+            properties["layer"] = layer_name
+            properties["category"] = category
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [float(lng), float(lat)]},
+                "properties": properties,
+            })
+            lngs.append(float(lng))
+            lats.append(float(lat))
+            count += 1
+        group_counts[layer_name] = count
+    if not features:
+        raise ValueError("分析结果没有可导出的空间要素")
+
+    output_directory = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
+    if not output_directory:
+        raise ValueError("空间分析需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
+    filename = f"{_safe_name(subtype, 'spatial-result')}.geojson"
+    output_path = Path(output_directory).resolve() / filename
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    collection = {"type": "FeatureCollection", "features": features}
+    output_path.write_text(json.dumps(collection, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+    west, south, east, north = min(lngs), min(lats), max(lngs), max(lats)
+    if west == east:
+        west -= 0.00001
+        east += 0.00001
+    if south == north:
+        south -= 0.00001
+        north += 0.00001
+    bounds = [west, south, east, north]
     return {
-        "data": json.dumps(data, ensure_ascii=False),
-        "map_type": "marker",
-        "label": label,
-        "name_field": "name",
-        "value_field": "value",
+        "schema_version": 2,
+        "kind": "vector.dataset",
+        "subtype": subtype,
+        "title": title,
+        "assets": [{
+            "asset_id": "data",
+            "role": "data",
+            "filename": filename,
+            "media_type": "application/geo+json",
+            "staged_file": filename,
+        }],
+        "presentations": [],
+        "metadata": {
+            "spatial": {"crs": "EPSG:4326", "bounds": bounds},
+            "feature_count": len(features),
+            "groups": group_counts,
+            **(metadata or {}),
+        },
     }

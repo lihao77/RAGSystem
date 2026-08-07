@@ -1,0 +1,4 @@
+interface:
+  display_name: "Raster Spatial Analysis"
+  short_description: "Raster processing and cell-based spatial statistics"
+  default_prompt: "Use $raster-spatial-analysis to analyze, transform, and summarize raster data."

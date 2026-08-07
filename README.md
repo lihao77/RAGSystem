@@ -53,7 +53,7 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 ## 技术栈
 
 - 后端：Fastify, TypeScript, WebSocket, SQLite, MCP
-- 前端：Vue 3, Vite, Axios, ECharts, Leaflet
+- 前端：Vue 3, Vite, Axios, ECharts, MapLibre GL
 - 运行模式：Agent-first 编排、ReAct 风格执行、Skills、Memory、Hooks 与运行时目录配置
 
 ## 快速开始

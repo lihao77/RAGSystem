@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spatial Conversion"
+  short_description: "Convert vector and raster spatial formats"
+  default_prompt: "Use $spatial-conversion for vector-raster format conversion and staged spatial Artifacts."

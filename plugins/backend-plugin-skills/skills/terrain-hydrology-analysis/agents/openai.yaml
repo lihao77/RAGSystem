@@ -1,0 +1,4 @@
+interface:
+  display_name: "Terrain and Hydrology Analysis"
+  short_description: "DEM terrain derivatives and D8 hydrology"
+  default_prompt: "Use $terrain-hydrology-analysis for DEM terrain or hydrology analysis."

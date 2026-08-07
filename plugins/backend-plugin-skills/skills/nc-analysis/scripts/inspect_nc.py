@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -277,50 +278,52 @@ def build_footprint_artifact(
         [west, north],
         [west, south],
     ]
+    geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Polygon", "coordinates": [ring]},
+                "properties": {
+                    "name": filename,
+                    "longitude_coordinate": longitude_name,
+                    "latitude_coordinate": latitude_name,
+                    "west": west,
+                    "east": east,
+                    "south": south,
+                    "north": north,
+                    "coordinate_west": coordinate_west,
+                    "coordinate_east": coordinate_east,
+                    "coordinate_south": coordinate_south,
+                    "coordinate_north": coordinate_north,
+                },
+            }
+        ],
+    }
+    output_directory = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
+    if not output_directory:
+        raise ValueError("inspect_nc.py 需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
+    staged_filename = "netcdf-footprint.geojson"
+    output_path = Path(output_directory).resolve() / staged_filename
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(geojson, ensure_ascii=False, allow_nan=False), encoding="utf-8")
     return {
         "schema_version": 2,
-        "kind": "map.geojson",
+        "kind": "vector.dataset",
         "subtype": "dataset-footprint",
         "title": f"{filename} 数据覆盖范围",
-        "assets": [],
-        "presentations": [{
-            "presentation_id": "map",
-            "surface": "map",
-            "renderer": "map.geojson",
-            "assets": {},
-            "config": {
-                "map_type": "geojson",
-                "bounds": [[south, west], [north, east]],
-                "geojson": {
-                    "type": "FeatureCollection",
-                    "features": [
-                        {
-                            "type": "Feature",
-                            "geometry": {"type": "Polygon", "coordinates": [ring]},
-                            "properties": {
-                                "name": filename,
-                                "longitude_coordinate": longitude_name,
-                                "latitude_coordinate": latitude_name,
-                                "west": west,
-                                "east": east,
-                                "south": south,
-                                "north": north,
-                                "coordinate_west": coordinate_west,
-                                "coordinate_east": coordinate_east,
-                                "coordinate_south": coordinate_south,
-                                "coordinate_north": coordinate_north,
-                            },
-                        }
-                    ],
-                },
-                "style": {
-                    "fill_color": "#0891b2",
-                    "fill_opacity": 0.18,
-                    "line_color": "#0e7490",
-                    "line_width": 2,
-                },
-            },
+        "assets": [{
+            "asset_id": "data",
+            "role": "data",
+            "filename": staged_filename,
+            "media_type": "application/geo+json",
+            "staged_file": staged_filename,
         }],
+        "presentations": [],
+        "metadata": {
+            "spatial": {"crs": "EPSG:4326", "bounds": [west, south, east, north]},
+            "feature_count": 1,
+        },
     }
 
 

@@ -101,7 +101,7 @@ description: 知识图谱高级查询技能，通过执行自定义 Cypher 语�
 
 - 该 Skill 不仅能回答事实性和关系性问题，还可以从知识图谱中获得空间数据。
 - 需要查询区域内事件、设施、下级区域及其空间影响时，优先使用 `spatial_impact.py`。
-- 需要导出行政区边界、河流线、或可直接用于地图渲染的 GeoJSON / `bindmap_ready` 图层时，使用 `geo_export.py`。
+- 需要导出行政区边界、河流线或多类别 GeoJSON 图层时，使用 `geo_export.py`。
 - 如果用户目标是“拿到空间数据用于后续制图、叠加分析或地图展示”，应优先想到这两个脚本，而不是只返回文本答案。
 
 ### entity_detail.py
@@ -589,19 +589,19 @@ description: 知识图谱高级查询技能，通过执行自定义 Cypher 语�
 ---
 
 ### geo_export.py
-**功能**：从知识图谱导出地点/河流的几何数据（WKT → GeoJSON），输出 `bindmap_ready` 格式可直接传 `create_bindmap`。
+**功能**：从知识图谱导出地点或河流几何数据（WKT → GeoJSON），并保存为 Artifact V2 GeoJSON Asset。
 
 **三种模式**：
 - `boundary`：查询行政区划边界（POLYGON/POINT），可选包含子区域
 - `river`：查询河流线型（LINESTRING），支持单条或全部
-- `bindmap-layers`：组合查询，输出多图层底图
+- `layers`：组合查询，将多个类别写入同一个 GeoJSON，Feature 属性包含 `layer` 和 `category`
 
 **参数**：
-- `--type`（必填）：`boundary` / `river` / `bindmap-layers`
-- `--name`（boundary/bindmap-layers 必填）：地点或河流名称
+- `--type`（必填）：`boundary` / `river` / `layers`
+- `--name`（boundary/layers 必填）：地点或河流名称
 - `--include-children`（可选）：包含子区域（boundary 模式）
 - `--all`（可选）：查询所有河流（river 模式）
-- `--include`（可选）：逗号分隔的图层类型 `boundary,rivers,children`（bindmap-layers 模式，默认 `boundary,rivers`）
+- `--include`（可选）：逗号分隔的类别 `boundary,rivers,children`（layers 模式，默认 `boundary,rivers`）
 
 **调用示例 1 - 查询行政区划边界**：
 ```json
@@ -658,15 +658,15 @@ description: 知识图谱高级查询技能，通过执行自定义 Cypher 语�
   "arguments": {
     "skill_name": "kg-advanced-query",
     "script_name": "geo_export.py",
-    "arguments": ["--type", "bindmap-layers", "--name", "南宁市", "--include", "boundary,rivers"]
+    "arguments": ["--type", "layers", "--name", "南宁市", "--include", "boundary,rivers"]
   }
 }
 ```
 
 **输出说明**：
-- `data.features`：GeoJSON Feature 数组
-- `data.bindmap_ready.layers`：可直接传 `create_bindmap` 的图层数组
-- POLYGON/MULTIPOLYGON → `map_type: "choropleth"`
-- LINESTRING/MULTILINESTRING → `map_type: "geojson"`
-- POINT → `map_type: "marker"`
-- 输出数据量可能较大（POLYGON 坐标），系统会自动落盘为 artifact
+- `data.feature_count`：导出要素数量
+- `artifact.assets[0]`：完整 GeoJSON 数据
+- `artifact.metadata.spatial.crs`：固定为 `EPSG:4326`
+- `artifact.metadata.spatial.bounds`：`[west, south, east, north]`
+- 工具返回真实 `artifact_id` 后调用 `map_add_artifact_layer`；样式和专题字段作为地图工具参数传递
+- 不把完整 POLYGON 坐标放入模型上下文，不构造地图配置，也不使用 `[artifact:...]` 触发地图渲染

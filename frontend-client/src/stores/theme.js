@@ -5,7 +5,7 @@ const STORAGE_KEY = 'theme';
 
 /**
  * 主题单源：isDark 唯一持有者，替代原 App.vue 本地 ref + setAttribute + localStorage，
- * 以及 ChartRenderer/MapRenderer 各自的 MutationObserver(data-theme) 监听。
+ * 以及历史展示组件各自的 MutationObserver(data-theme) 监听。
  * 组件改用 storeToRefs(useThemeStore()) 订阅 isDark，主题变化时响应式重渲染。
  */
 export const useThemeStore = defineStore('theme', () => {

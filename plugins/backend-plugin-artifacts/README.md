@@ -1,6 +1,6 @@
 # Artifact Plugin
 
-Artifact V2 将一个 Artifact 定义为有语义的产物 Manifest。Manifest 可以引用多个二进制 Asset，并声明一个或多个受控 Presentation。`kind`、`surface` 和 `renderer` 使用开放的命名空间字符串，新类型不需要修改存储层。
+Artifact V2 将一个 Artifact 定义为有语义的产物 Manifest。Manifest 可以引用多个二进制 Asset，并为图表等非空间产物声明受控 Presentation。空间产物只声明 `assets` 和 `metadata.spatial`，地图由前端 MapLibre 工作台和 `map_add_artifact_layer` 宿主工具驱动，不在 Artifact 中保存地图 renderer 配置。`kind`、`surface` 和 `renderer` 使用开放的命名空间字符串，新类型不需要修改存储层。
 
 Skill Builder 工作流由 Skills 插件的 Draft 工作区工具提供：`create_skill_draft`、`get_skill_draft`、`publish_skill_draft`。Artifact 插件只负责通用 Artifact V2 的创建、修订、展示和 staging，不提供 Skill 创建或提交入口。
 
@@ -11,7 +11,7 @@ Skill Builder 工作流由 Skills 插件的 Draft 工作区工具提供：`creat
 ```json
 {
   "schema_version": 2,
-  "kind": "map.raster",
+  "kind": "geospatial.raster",
   "subtype": "nc.aggregate",
   "title": "Sea temperature",
   "assets": [
@@ -30,16 +30,13 @@ Skill Builder 工作流由 Skills 插件的 Draft 工作区工具提供：`creat
       "staged_file": "temperature.png"
     }
   ],
-  "presentations": [
-    {
-      "presentation_id": "map",
-      "surface": "map",
-      "renderer": "map.raster-tile",
-      "assets": { "source": "data", "preview": "preview" },
-      "config": {}
+  "presentations": [],
+  "metadata": {
+    "spatial": {
+      "crs": "EPSG:4326",
+      "bounds": [105.1, 18.2, 124.6, 53.6]
     }
-  ],
-  "metadata": {},
+  },
   "provenance": {},
   "relations": []
 }
@@ -72,7 +69,7 @@ print(json.dumps({
     "data": {"title": "Sea temperature"},
     "artifact": {
         "schema_version": 2,
-        "kind": "map.raster",
+        "kind": "geospatial.raster",
         "assets": [{
             "asset_id": "data",
             "role": "data",
@@ -80,13 +77,13 @@ print(json.dumps({
             "media_type": "image/tiff",
             "staged_file": "temperature.tif"
         }],
-        "presentations": [{
-            "presentation_id": "map",
-            "surface": "map",
-            "renderer": "map.raster",
-            "assets": {"source": "data"},
-            "config": {}
-        }]
+        "presentations": [],
+        "metadata": {
+            "spatial": {
+                "crs": "EPSG:4326",
+                "bounds": [105.1, 18.2, 124.6, 53.6]
+            }
+        }
     }
 }))
 ```
@@ -118,8 +115,8 @@ Asset 内容不可变。修订只更新标题、状态、元数据、关系和 P
   "artifact_id": "art_example",
   "presentation_patches": [
     {
-      "presentation_id": "map",
-      "config": { "opacity": 0.6 },
+      "presentation_id": "chart",
+      "config": { "legend": { "show": false } },
       "replace": false
     }
   ]

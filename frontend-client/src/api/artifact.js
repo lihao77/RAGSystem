@@ -4,7 +4,7 @@ import { http } from './http.js';
 
 const BASE = '/api/artifacts';
 
-/** 获取 V2 Artifact Manifest；展示器由 presentations[].renderer 决定。 */
+/** 获取 V2 Artifact Manifest；图表读取 presentation，空间数据由地图宿主工具读取 Asset。 */
 export async function getArtifact(artifactId) {
   return http.get(`${BASE}/${encodeURIComponent(artifactId)}`);
 }

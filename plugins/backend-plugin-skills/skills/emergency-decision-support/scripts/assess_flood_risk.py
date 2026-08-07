@@ -312,7 +312,7 @@ def main():
             "results": results,
             "usage_hint": (
                 "results 中每项含 risk_level/risk_color/risk_factors，"
-                "可配合 geocode.py 输出的 wkt 字段构造 create_risk_map 所需数据"
+                "可配合 geocode.py 输出的 wkt 字段构造 build_risk_layer.py 所需数据"
             ),
         }
         print(json.dumps(output, ensure_ascii=False, indent=2))

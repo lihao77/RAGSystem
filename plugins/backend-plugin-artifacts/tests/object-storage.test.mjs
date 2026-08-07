@@ -40,7 +40,8 @@ test("Object Artifact V2 owns multi-asset lifecycle", async () => {
       { assetId: "data", role: "data", source: { type: "memory", body: Buffer.from([1, 2]) }, mediaType: "image/tiff", filename: "data.tif" },
       { assetId: "preview", role: "preview", source: { type: "memory", body: Buffer.from([3, 4]) }, mediaType: "image/png", filename: "preview.png" },
     ],
-    presentations: [{ presentation_id: "map", surface: "map", renderer: "map.raster-tile", assets: { source: "data" }, config: {} }],
+    presentations: [],
+    metadata: { spatial: { crs: "EPSG:4326", bounds: [100, 20, 110, 30] } },
   });
 
   assert.equal(created.asset_count, 2);

@@ -16,7 +16,7 @@ description: 获取广西洪涝相关实时联网数据，包含城市降雨天�
 优先在这些场景使用：
 - 需要自动获取某市实时降雨量。
 - 需要从广西水情网页提取水位、警戒水位、时间。
-- 需要把外部实时数据继续传给 `assess_flood_risk` 或 `create_risk_map`。
+- 需要把外部实时数据继续传给 `assess_flood_risk.py` 或 `build_risk_layer.py`。
 
 ## Quick Start
 
@@ -145,7 +145,7 @@ description: 获取广西洪涝相关实时联网数据，包含城市降雨天�
 2. 缺水位或警戒水位时，再用 `fetch_hydrology.py`。
 3. 需要气象预警信息时，用 `fetch_warning.py`。
 4. 需要空间字段时，继续调用 `guangxi-geodata/geocode.py`。
-5. 数据齐备后，再调用 `assess_flood_risk` 或 `create_risk_map`。
+5. 数据齐备后，再调用 `assess_flood_risk.py` 或 `build_risk_layer.py`；风险图层 Artifact 返回后调用 `map_add_artifact_layer`。
 
 ## References
 

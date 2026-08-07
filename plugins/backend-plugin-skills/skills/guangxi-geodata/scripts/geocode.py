@@ -4,7 +4,7 @@
 geocode.py - 广西地名坐标解析
 
 将广西地名转换为 WGS84 坐标，支持精确/别名/模糊匹配。
-输出 wkt 字段可直接用于 create_map/create_risk_map 的 geometry 参数。
+输出 wkt 字段可用于空间分析和 build_risk_layer.py 的 geometry 参数。
 
 用法:
   python scripts/geocode.py --location "桂林市"

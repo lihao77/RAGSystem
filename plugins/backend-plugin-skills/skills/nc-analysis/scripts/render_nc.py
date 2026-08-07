@@ -323,17 +323,14 @@ def render(file_path: Path, args: argparse.Namespace, Dataset: Any, Image: Any, 
         long_name = attribute_text(variable, "long_name") or args.variable
         title = f"{long_name} 分布"
         bounds = [[float(min(lat_edges)), float(min(lon_edges))], [float(max(lat_edges)), float(max(lon_edges))]]
-        config = {
-            "map_type": "raster",
-            "bounds": bounds,
-            "projection": "EPSG:3857",
-            "source_crs": "EPSG:4326",
+        spatial_metadata = {
+            "spatial": {"crs": "EPSG:4326", "bounds": [float(min(lon_edges)), float(min(lat_edges)), float(max(lon_edges)), float(max(lat_edges))]},
+            "pixel_projection": "EPSG:3857",
             "width": longitude_blocks,
             "height": latitude_blocks,
             "value_range": {"min": minimum, "max": maximum},
             "units": units,
-            "color_scale": {"colors": COLOR_SCALE},
-            "style": {"fill_opacity": 0.82},
+            "color_scale": COLOR_SCALE,
             "selection": {"variable": args.variable, "indices": selected_indices},
             "grid": {
                 "latitude_count": int(lat_values.size),
@@ -382,23 +379,18 @@ def render(file_path: Path, args: argparse.Namespace, Dataset: Any, Image: Any, 
             },
             "artifact": {
                 "schema_version": 2,
-                "kind": "map.raster",
-                "subtype": "nc.raster",
+                "kind": "raster.preview",
+                "subtype": "netcdf",
                 "title": title,
                 "assets": [{
-                    "asset_id": "preview",
-                    "role": "preview",
+                    "asset_id": "image",
+                    "role": "data",
                     "filename": staged_filename,
                     "media_type": "image/png",
                     "staged_file": staged_filename,
                 }],
-                "presentations": [{
-                    "presentation_id": "map",
-                    "surface": "map",
-                    "renderer": "map.raster-image",
-                    "assets": {"image": "preview"},
-                    "config": config,
-                }],
+                "presentations": [],
+                "metadata": spatial_metadata,
             },
         }
 

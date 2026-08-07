@@ -1,9 +1,5 @@
 import { nextTick, onUnmounted, ref } from 'vue';
-import { getArtifact } from '../api/artifact.js';
 import { parseMessageParts } from '../utils/message-render.js';
-import { normalizeArtifactManifest } from '../utils/artifact.js';
-
-const ARTIFACT_PLACEHOLDER_RE = /\[artifact:(art_[A-Za-z0-9_]+)\]/g;
 
 export function useMessageArtifacts(deps) {
   const artifactFocusTimer = ref(null);
@@ -39,55 +35,10 @@ export function useMessageArtifacts(deps) {
     }, 1600);
   };
 
-  const checkSituationScreenTrigger = async (content) => {
-    if (!content || deps.situationScreenActive.value) return;
-
-    const matches = [...content.matchAll(ARTIFACT_PLACEHOLDER_RE)];
-    ARTIFACT_PLACEHOLDER_RE.lastIndex = 0;
-    if (!matches.length) return;
-
-    for (let i = matches.length - 1; i >= 0; i -= 1) {
-      const artifactId = matches[i][1];
-      let vizData;
-      try {
-        vizData = await getArtifact(artifactId);
-      } catch (error) {
-        console.warn('加载可视化失败:', error.message);
-        continue;
-      }
-      try {
-        const normalized = normalizeArtifactManifest(vizData);
-        if (normalized.displayKind !== 'map') continue;
-
-        const mapData = normalized.config;
-        const mapType = mapData?.map_type;
-        if (mapType === 'risk' || mapType === 'bindmap') {
-          deps.situationArtifactId.value = artifactId;
-          deps.situationMapData.value = mapData;
-          deps.situationInfo.value = mapData.assessment_summary || null;
-          deps.situationScreenActive.value = true;
-          return;
-        }
-      } catch (error) {
-        console.warn('检查态势大屏触发失败:', error);
-      }
-    }
-  };
-
-  const handleEnterSituation = ({ artifactId, mapData } = {}) => {
-    if (!mapData) return;
-    deps.situationArtifactId.value = artifactId || null;
-    deps.situationMapData.value = mapData;
-    deps.situationInfo.value = mapData?.assessment_summary || null;
-    deps.situationScreenActive.value = true;
-  };
-
   onUnmounted(clearArtifactFocus);
 
   return {
     parseMessageParts,
     handleArtifactSelect,
-    checkSituationScreenTrigger,
-    handleEnterSituation,
   };
 }

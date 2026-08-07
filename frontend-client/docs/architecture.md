@@ -1,437 +1,63 @@
-# 前端架构总览
+# Frontend Architecture
 
-> 变更前端代码后请同步更新本文档。
->
-> 相关规划：
-> - [`../../docs/refactor/CLAUDE_CODE_ALIGNMENT_PLAN.md`](../../docs/refactor/CLAUDE_CODE_ALIGNMENT_PLAN.md) — Claude Code 对标演进路线图
-> - [`../../docs/refactor/TOOLING_GAP_ANALYSIS_VS_CLAUDE_CODE.md`](../../docs/refactor/TOOLING_GAP_ANALYSIS_VS_CLAUDE_CODE.md) — 工具体系差异分析
+## Runtime
 
-## 技术栈
+The frontend is a Vue 3 + Vite application. Chat execution is driven by the session WebSocket and Pinia stores. ECharts renders chart presentations. MapLibre GL renders spatial data in the map workspace.
 
-Vue 3 + Vue Router 4 + Axios + ECharts 6 + Leaflet 1.9 + Markdown-it + Highlight.js
+## Artifact Contract
 
-## 目录结构
+All persisted artifacts use Artifact V2 manifests:
 
-> 下方目录树只列当前主线关键组件与模块，不是完整文件清单。
-
-```
-frontend-client/src/
-├── views/                     # 页面视图
-│   ├── ChatViewV2.vue         # 主聊天界面，承载 SSE、消息流与执行树投影
-│   ├── AgentMonitor.vue       # 监控页
-│   ├── TeamBuilder.vue        # Team 编排页
-│   ├── AgentConfig.vue        # Agent 配置页
-│   ├── MCPManager.vue         # MCP 管理页
-│   ├── KnowledgeBaseManager.vue # 知识库页
-│   └── ModelProviderManager.vue # 模型 Provider 页
-├── layouts/                   # 页面壳层
-│   └── MainLayout.vue         # sidebar + 右侧主卡片壳层
-├── components/                # 可复用组件
-│   ├── MapRenderer.vue        # Leaflet 地图渲染
-│   ├── ChartRenderer.vue      # ECharts 图表渲染
-│   ├── VisualizationLoader.vue # 异步加载可视化 artifact
-│   ├── SituationScreen.vue    # 态势大屏（Teleport to body）
-│   ├── FloatingChatPanel.vue  # 浮动对话面板
-│   ├── SubtaskStatusTicker.vue # 任务状态滚动条
-│   ├── HierarchicalExecutionTree.vue # 执行树容器，复用工作面板递归节点
-│   ├── workpanel/ExecutionTimelineNode.vue # 内联/工作面板共用的递归节点
-│   ├── MessageEditBox.vue     # 消息原地编辑组件
-│   ├── ChatInput.vue          # 消息输入框
-│   ├── ApprovalDialog.vue     # 工具审批确认
-│   ├── PermissionModeSelector.vue # 当前会话权限模式切换
-│   ├── SessionFilesDrawer.vue # 输入区/编辑态附件抽屉
-│   ├── ContextSnapshotDrawer.vue # 上下文快照抽屉
-│   └── ...
-├── api/                       # API 调用模块
-│   ├── monitoring.js          # 监控、审批、执行状态 API
-│   ├── agentConfig.js         # Agent 配置
-│   ├── permissions.js         # 全局权限策略
-│   ├── mcpService.js          # MCP 服务
-│   ├── modelAdapter.js        # 模型适配器
-│   └── knowledgeBase.js       # 知识库
-├── composables/chatSdkClient.js # Session HTTP、WS 与 AG-UI 的唯一客户端入口
-├── router/index.js            # 路由配置
-├── utils/                     # executionTreeBuilder、展示辅助、markdown 等工具函数
-└── main.js                    # 应用入口
-```
-
-
-普通管理 API 请求统一使用相对路径 `/api/*`。Session CRUD、消息、文件、权限、上下文、WS 与 AG-UI fallback 统一由 `@ragsystem/chat-sdk-core` 提供，前端不再维护第二套 Session 请求或 socket transport。开发环境通过 `vite.config.js` 中的 dev server proxy 转发到 `VITE_API_PROXY_TARGET`；生产环境由同源网关或 `backend-ts` 的静态文件托管处理。
-
-## 路由
-
-| 路径 | 组件 | 说明 |
-|------|------|------|
-| `/` `/chat/:id?` | MainLayout → ChatViewV2 | 通过公共壳层进入聊天页；`/chat/:id?` 中的 `id` 为 `session_id` |
-| `/monitor` | MainLayout → AgentMonitor | 通过公共壳层在右侧主区渲染监控页 |
-| `/agent-monitor` | 重定向到 `/monitor` | 兼容旧监控入口 |
-| `/team-builder` | MainLayout → TeamBuilder | 通过公共壳层在右侧主区渲染 Team 方案编排页 |
-| `/agent-config` | MainLayout → AgentConfig | 通过公共壳层在右侧主区渲染 Agent 配置页 |
-| `/mcp` | MainLayout → MCPManager | 通过公共壳层在右侧主区渲染 MCP 管理页 |
-| `/knowledge-base` | MainLayout → KnowledgeBaseManager | 通过公共壳层在右侧主区渲染知识库页 |
-| `/model-providers` | MainLayout → ModelProviderManager | 通过公共壳层在右侧主区渲染模型 Provider 页 |
-| `/daemon` | MainLayout → DaemonManager | 守护 Agent 系统页，统一管理基础配置、平台凭证、Cron 任务与主动推送 |
-
-## Chat SDK 实时通信
-
-### 核心流程
-
-```text
-handleSend({ content, attachments })
-  → ensureSession()                    # 获取/创建会话
-      ├─ 读取新会话初始化参数：workspace_root / entry_agent
-      └─ chatSdkClient.createSession() # 持久化 session metadata
-  → 附件面板（SessionFilesDrawer 已改造成输入区附件对话框）
-      ├─ chatSdkClient.uploadFiles() 上传到 session 文件池
-      └─ 把返回文件记录收敛到 pendingAttachments（消息级附件）
-  → chatSdkClient.connect(sessionId)   # 会话激活时建立 SDK 管理的持久 WS 连接
-  → chatSdkClient.send()               # 优先 WS；连接不可用时由 SDK 使用 AG-UI SSE fallback
-      ├─ 返回 { started, runId, taskId, requestId, kind }
-      └─ 后端按附件类型分流：图片继续自动进入多模态模型；普通文件只作为引用保留，由 agent 按需读取
-  → SDK event → SessionEnvelopeDispatcher
-      ├─ reconnect_start / reconnect_end：run 回放边界
-      ├─ 消息流：llm.first_token / output.chunk / output.final_answer / output.message_saved
-      ├─ 运行态：execution.waiting_start / execution.waiting_end / execution.waiting_timeout
-      ├─ 执行树流：协议 Envelope → agent-protocol applyEnvelope()
-      ├─ 审批/输入：user.approval_required / user.input_required
-      ├─ 命令结果：command.result
-      └─ scrollToBottom()
-  → run 结束 → _finalizeActiveRun() + refreshSessionExecutionState()
-  → checkSituationScreenTrigger()
-  → cacheMessages()
-
-loadSessionMessages(sessionId)
-  → chatSdkClient.listMessages(sessionId)
-      └─ 历史消息默认只返回 message 主载荷；assistant message 通过 has_execution 标记是否可懒加载执行 Envelope
-  → createAssistantMessageFromHistory(item)
-      └─ 若 has_execution=true，则按需调用 chatSdkClient.getMessageRunSteps()
-          并将返回 Envelope 逐条交给同一个 ExecutionTreeState
-```
-
-### 执行树构建
-
-执行树只有一个有状态 projector：`@ragsystem/agent-protocol` 的 `ExecutionTreeState`。实时、reconnect 和历史回放都消费协议 `Envelope`，通过 `applyEnvelope()` 增量写入状态，再由 `getExecutionTree()` 得到 `ExecutionTree`。
-
-- `lineage.parent_call_id` 表示协议父子关系，负责 Agent 和工具的基础归属。
-- `AgentLifecyclePayload.invocation_call_id` 表示触发子 Agent 的 `call_agent` / `send_message` 工具调用。展示层只按 call ID 精确合并，不再按 `agent_name` 猜测。
-- 协议状态机负责乱序容错、Agent 嵌套、ReAct round 和 tool call/result 配对。
-- `src/utils/executionTreeBuilder.js` 是无状态展示映射，只把 `ExecutionTree` 转成 `TreeNode[]` 并加入 injection 节点，不建立第二套树。
-- `src/utils/executionTreePresentation.js` 统一状态、节点 key、扁平化和耗时格式。
-- `HierarchicalExecutionTree.vue` 与工作面板都递归渲染 `workpanel/ExecutionTimelineNode.vue`，不再维护两套节点布局。
-- 没有 intent 的 round 不生成空 thought 包装；工具直接与相邻节点同层显示。
-
-影响执行树的实时 Envelope 会在发布时同步归档为 `run_steps.step_type=protocol.envelope.v1`；该归档与 outbox 写入处于同一事务，但生命周期独立于可清理的投递队列。历史 `/messages/{message_id}/run-steps` 只聚合 root/child run 的归档 Envelope。数据库 v5 迁移会一次性删除旧 `execution.step`，并给受影响消息标记 `execution_history_discarded` 以隐藏空树入口；运行时没有旧格式读取或写入分支。消息列表不接受 `expand`，也不内联旧 `execution_steps`；会话导出 `version=2` 使用 `execution_events` 保存同一协议数据。
-
-`ChatViewV2.vue` 的消息滚动统一由 `chat-messages-wrapper` 承担；桌面端与移动端都复用同一个滚动容器，避免移动端再让内层 `chat-messages` 自己滚动，导致 `scrollToBottom()`、底部检测和按钮点击命中错误元素。
-
-当前前端已改为“两层结构”：
-- `MainLayout.vue` 负责左侧 sidebar、顶层路由承载，以及右侧统一的玻璃卡片主区（视觉上等价于原先的 `chat-main` 外壳）；它只负责卡片边框/背景与页面级滚动承载，不再给页面内容强加统一 padding
-- `ChatViewV2.vue` 只负责聊天页本身，不再承担整个应用壳层职责；Chat 顶部保留专属的控制台式工具栏，并仅维护会话级执行状态摘要（execution pill / task_id / run_id / execution_kind），不再展示执行诊断详情抽屉
-- `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`KnowledgeBaseManager.vue`、`AgentConfig.vue`、`TeamBuilder.vue`、`DaemonManager.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内；其中任务级 execution diagnostics 统一归属 `AgentMonitor.vue`
-- 所有非 Chat 页面统一通过 `components/PageLayout.vue` 承载页头，页头视觉参考 Chat 顶部控制栏：采用左右分组、玻璃胶囊操作区与移动端统一工具条风格，但不复用 Chat 专属控件结构
-- `ModelProviderManager.vue` 使用 `PageLayout + glass-card + builder-panel` 管理模型 Provider：通过 `src/api/modelAdapter.js` 读取 provider 类型、Provider 列表并执行创建/更新/删除/连通性测试；模型映射编辑支持同一任务多模型，多行编辑后提交为 `model_map` 的字符串或数组值。Provider 列表顺序直接消费后端 `providers.yaml` 顶层 key 顺序，新建 Provider 刷新后自然出现在末尾；页面采用一行一条的紧凑列表展示，左侧原生 HTML5 拖拽把手用于排序，拖拽过程中本地实时重排并由 `TransitionGroup` 提供移动动画，释放后调用 `PUT /api/model-adapter/providers/order` 持久化，失败时回滚并 toast 提示。列表行内只保留 Provider 类型、名称、Endpoint URL 和测试/编辑/删除操作，Provider key 仅作为悬停 title 保留，避免主列表信息过载。
-- `AgentConfig.vue` 已收敛进 `PageLayout` 体系，不再维护独立的桌面/移动端头部实现。
-- `DaemonManager.vue` 采用与其他管理页一致的 `PageLayout + glass card + badge/act-btn/form-control/modal-shell` 体系，并通过 `/api/daemon/config` 读写 daemon YAML：页面内含基础配置（enabled/default_session_ttl/agent_name/heartbeat_interval）、平台凭证编辑（微信/钉钉/飞书）、适配器状态、Cron 管理与主动推送；其中飞书平台额外支持 `receive_mode` 选择，可在“长连接（推荐，无需公网）”与“Webhook（需要公网 HTTPS）”之间切换。Cron 列表与 CRUD 操作统一落到后端 `daemon.yaml` 的 `agents[].cron_tasks[]`，并遵守“同一平台只能被一个 enabled team 占用”的后端约束
-- `MainLayout.vue` 的左侧 sidebar 采用“按页面主视图唯一激活”规则：聊天入口与历史会话只在 `mainView=chat` 时参与高亮；模型管理 / Agent 配置 / MCP / 知识库 / 监控按钮按各自 `route.meta.mainView` 独立激活，避免管理页打开后历史会话残留 active。
-- `AgentConfig.vue` 的 section-nav（右侧/底部浮动分节导航）点击跳转、高亮观察与“滚动到底部”统一绑定 `PageLayout.vue` 的 `.page-content-scroll` 作为真实滚动容器；不要再绑定到内部 `.page-content`，否则分节导航会出现失效或高亮不同步。
-- 管理页的纵向滚动由 `MainLayout.vue` 的 `layout-main-host--page` 统一承载，内部 `route-card--page` 保持 `min-height: 100%` 且不裁剪 overflow，避免公共壳层把非 Chat 页面内容截断导致无法滚动
-- 管理页的内容留白下沉到各页面自身：通用页面走 `components/PageLayout.vue` 的 embedded 模式，自定义页面自行定义边距，因此不同页面可以使用不同留白策略
-
-- 全局交互样式在 `src/styles/main.css` 中按桌面软件语义收敛：`#app` 默认 `cursor: default`、禁用误选中并隐藏非输入区 caret；只有真实文本输入控件、Markdown 消息正文、用户消息、命令结果与执行详情代码/结果等内容区恢复文本选择和文本光标。新增可复制文本区域时应复用现有内容类或显式加 `data-selectable="true"`，不要在导航、按钮、卡片标题等 UI 外壳上开启文本选择。`ChatViewV2.vue` 的 scoped 样式如果对内容区设置了更高优先级光标规则，需要同步恢复 `cursor: text` 与 `user-select: text`。
-
-`ChatViewV2.vue` 在消息区底部使用单一 `chat-messages-wrapper` 作为滚动容器，并在其底部放置一个 `bottom-dock` sticky 容器，内部同时承载输入区和“滚动到底部”按钮。按钮只用 JS 判断是否显示；位置完全由 CSS 控制，始终相对输入区使用 `bottom: calc(100% + 12px)` 悬浮，因此 textarea 自增高、附件预览展开、移动端输入区高度变化时都会自动跟随上移，不再依赖 `getBoundingClientRect()` 或 viewport/safe-area 的手工 bottom 计算。点击按钮时仍对消息容器执行平滑滚动，并在真正回到底部前保持按钮可见，避免闪烁。
-
-`ChatViewV2.vue` 现在把消息流与执行树流彻底拆开：
-
-- 根最终答案、`message_saved`、`[artifact:artifact_id]` 仍属于 message-first 链路
-- 执行树只消费协议 Envelope
-- 历史消息列表不内联执行步骤；会先取 `/sessions/{session_id}/messages`，再按 `has_execution` 懒加载对应 message 的 run steps Envelope sidecar
-- reconnect 回放与历史 run steps 懒加载都复用 agent-protocol 的 `ExecutionTreeState`
-- 会话激活统一由路由驱动：`selectSession()`、`ensureSession()`、`startNewChat()` 只负责导航或创建会话，`syncSessionFromRoute()` 才负责设置 `currentSessionId`、拉取消息/文件并建立对应 session 的 WebSocket，避免本地状态提前变更后跳过建连
-- session WebSocket 的连接复用、ticket、durable cursor、重连和 AG-UI fallback 全部由 `chat-sdk` 管理；切换 session 或回到新聊天页时，前端只调用 SDK 的 `disconnect()` / `connect()`
-- 切回历史会话时先加载消息与文件，再建立 WebSocket 并等待首个无序号 `session.runtime` 快照；快照的 `load_strategy` 唯一决定仅展示历史、挂接 active run、恢复交互、挂接恢复流程或观察维护操作
-- `session.runtime.allowed_actions` 是发送、补充、停止、响应交互、恢复和维护操作的唯一权限来源；`run_started`、`run_ended`、`session.reconnect` 与原始 `interaction(required)` 只更新展示投影，不能覆盖 Session 生命周期
-
-### WebSocket 事件类型处理
-
-前端执行树以协议 Envelope 为唯一输入，历史 / 实时 / reconnect 三条路径都走同一个 agent-protocol 状态机。
-
-| 事件类型 | 处理逻辑 |
-|---------|--------|
-| 执行类 Envelope | 交给 `applyEnvelope()` 增量更新执行树 |
-| `llm.first_token` | 记录后端 provider stream 首个非空 content 的到达时间，切换 activeRun 为“模型输出中”；不在输出过程中展示首 token 耗时，避免运行态提示过载 |
-| `execution.waiting_start` | 切换 activeRun 为“等待后台任务”，保存 wait_id / background_task_ids / pending_task_count |
-| `execution.waiting_end` / `execution.waiting_timeout` | 清理后台等待状态，若 run 未结束则回到“等待模型响应” |
-| `output.chunk` | 流式追加根最终答案；仅作为缺失 `llm.first_token` 时的前端兜底 timing，不作为主口径 |
-| `output.final_answer` | 标记根 assistant 消息完成，并合并 `data.metadata` 到当前 assistant message metadata；其中 `metadata.execution_time` 用于消息级响应时间展示，`metadata.first_token_time` 表示 provider stream 首个非空 content 到达的时间 |
-| `output.message_saved` | 补全消息 id/seq |
-| `user.approval_required` | 进入本地审批队列，按 `approval_id` 去重后由队首驱动弹出审批对话框，并切换 activeRun 为“等待权限审批” |
-| `user.approval_granted` / `user.approval_denied` | 作为审批 ack 事件：移除当前审批、清空提交锁，并自动切换到下一条待审批；若当前处于审批等待态，同意后进入“工具执行中”，拒绝后回到“等待模型响应” |
-| `user.input_required` | 弹出用户输入对话框 |
-| `context.usage` | 更新上下文用量 |
-| `context.compression_start` / `context.compression_summary` | 更新压缩状态与摘要占位 |
-| `reconnect_start` / `reconnect_end` | 标记重连回放开始与结束 |
-| `session.run_started` | 后台任务自动拉起系统 run 时，前端先插入 Background Task Notification 用户消息，再创建 assistant 占位并进入 running 状态 |
-| `heartbeat` | 保持连接活性 |
-| `agent.retry_scheduled` / `agent.end` | 更新 agent 生命周期提示 |
-| `agent.error` | 添加错误状态 |
-| `command.result` | 斜杠命令执行结果：原地修改占位 assistant 消息为 `role=system`，由 `CommandResultMessage.vue` 渲染 |
-| `run.end` / `done` | 标记 run 结束并收尾当前 assistant 消息；`run.end.data.metadata.execution_time` / `first_token_time` 可作为当前消息响应时间的实时兜底来源 |
-
-- `_activeRun` 维护运行态状态机：`llm_waiting_first_token`（等待模型响应）、`llm_streaming`（模型输出中）、`tool_running`（工具执行中）、`approval_waiting`（等待权限审批）、`background_waiting`（等待后台任务）、`retrying`（模型重试中）与 `idle`。这些字段只服务实时 UI，不写入 message metadata，也不进入后端持久化。
-- `llm.first_token.data.elapsed_ms` 表示后端从本轮 provider stream 调用开始到首个非空 content 到达的耗时；前端仅记录该指标用于最终消息 hover，不在输出过程中展示。`output.chunk` 仍是最终答案语义 chunk，不能代表 provider 首 token。
-- 前端不使用 `heartbeat` 判断 LLM 是否仍在输出；输出/等待状态完全由 `llm.first_token`、`output.chunk`、tool 事件与 `execution.waiting_*` 边界事件驱动。
-- 不再处理 `react.intermediate`。
-- 不再依赖 `toolCallRegistry`、`executionStepsToExecutionState()`、`isSubtaskStartEvent()`、`isSubtaskEndEvent()` 这类兼容逻辑。
-- 会话 URL 与页面切换统一由 Vue Router 驱动：聊天态使用 `/` 与 `/chat/:id?`，其中 `id` 为 `session_id`；管理页继续使用 `/agent-config`、`/mcp` 等独立路径，但这些路径共享同一个 `MainLayout` 壳层。
-
-### 权限审批展示
-
-- `PermissionModeSelector.vue` 读取当前会话持久化的 permission mode；会话 owner 可修改，其他身份只读。
-- `dangerously_skip_permissions` 的前端中文语义统一为“跳过审批”，表示跳过常规风险 ask；路径越界等 ask 仍可能触发。
-- `chat-sdk` 统一调用 Session permission endpoints，权限配置始终绑定 session。
-- `ChatViewV2.vue` 在收到 `user.approval_required` 时会先把事件 data 收敛进本地审批队列，按 `approval_id` 去重，并始终只展示队首审批；收到 `user.approval_granted` / `user.approval_denied` 后再出队并自动切换下一条，避免多个待审批时只能处理第一条。
-- `ApprovalDialog.vue` 支持折叠 / 展开：用户可先将审批窗口折叠为右下角悬浮条，继续观察聊天流和执行树的实时进展，再随时展开完成审批；折叠只改变展示形态，不会丢失当前审批上下文。
-- `ApprovalDialog.vue` 对 `permission_mode` 与 `approval_reason` 做可选渲染，兼容旧审批事件；当前会额外读取 `approval_reason_codes`、`approval_secondary_reasons` 与 `approved_external_paths`，用于区分“风险审批”“路径越界审批”以及双重原因场景，并展示本次调用被授权的越界路径列表。
-- `dangerously_skip_permissions` 的前端中文语义统一为“跳过审批”。
-
-## 消息数据结构
-
-### 用户消息
-
-```javascript
+```json
 {
-  role: 'user',
-  id: string, seq: number,
-  content: string,
-  attachments: [
+  "schema_version": 2,
+  "artifact_id": "art_example",
+  "kind": "vector.geojson",
+  "assets": [
     {
-      file_id, original_name, stored_name, mime, size, kind
+      "asset_id": "data",
+      "role": "data",
+      "filename": "result.geojson",
+      "media_type": "application/geo+json"
     }
   ],
-  metadata: {
-    attachments: []
+  "presentations": [],
+  "metadata": {
+    "spatial": {
+      "crs": "EPSG:4326",
+      "bounds": [100, 20, 110, 30]
+    }
   }
 }
 ```
 
-### 助手消息（UI 投影视图）
+Spatial artifacts do not contain map renderer configuration. Their assets and `metadata.spatial` are the complete map input. Chart artifacts may use a chart presentation.
 
-```javascript
-{
-  role: 'assistant',
-  id: string, seq: number,
-  content: string,               // 最终答案（流式拼接）
-  has_execution: boolean,        // 是否存在可懒加载的执行 Envelope sidecar
-  executionTree: {               // agent-protocol 的统一树投影
-    root: object | null,
-    steps: []
-  },
-  status: [],                    // 错误状态
-  finished: boolean,
-  stopped: boolean,              // 已停止/中断
-  metadata: {
-    execution_time?: number,              // 本次 run 执行时间（秒），ChatViewV2 在 message-actions 后显示为“响应时间”
-    first_token_time?: number,            // provider stream 首个非空 content 到达时间（秒），用于 hover 精确信息
-  },
-  _execState: object             // ExecutionTreeState，仅运行时内存态
-}
-```
+## Map Workspace
 
-### 斜杠命令结果消息
+`src/components/map-workspace/MapWorkspace.vue` owns the MapLibre instance and the visible layer list. `ArtifactMapScreen.vue` provides the full-screen workspace shell. `layerDescriptors.js` is the only conversion boundary between application layer descriptors and MapLibre sources/layers.
 
-`command.result` SSE 事件到达后，占位 assistant 消息原地变形为：
+The workspace supports:
 
-```javascript
-{
-  role: 'system',
-  content: string,               // 命令输出文本
-  metadata: {
-    type: 'command_result',
-    command: string,             // 命令名（不含 /）
-    success: boolean,
-    error: string | null,
-    data: object | null,         // 命令附带的结构化数据
-  },
-  finished: true,
-}
-```
+- GeoJSON vector layers with default or explicit thematic styles.
+- Georeferenced PNG, JPEG, WebP, or GIF image layers using WGS84 bounds.
+- Raster tile templates with WGS84 bounds and zoom metadata.
+- Visibility, opacity, ordering, removal, fit-to-layer, and viewport controls.
+- Categorical, stepped, and continuous thematic color expressions for GeoJSON properties, with an inline legend.
 
-由 `CommandResultMessage.vue` 渲染，显示命令名、状态图标和输出文本。
+`useArtifactMapWorkspace.js` resolves an Artifact manifest and binds the workspace controller to the host tool runtime. The registry accepts WGS84 spatial metadata only. Coordinate transformation belongs in the spatial Skill before persistence.
 
-### 历史消息加载过滤规则
+## Host Tools
 
-`loadSessionMessages()` 从 `/api/agent/sessions/{id}/messages` 取回全量消息后，按以下规则过滤：
+The browser declares and executes these tools:
 
-| 条件 | 过滤原因 |
-|------|--------|
-| `metadata.visible_to_user === false && !metadata.display_only` | agent 专用消息（如展开后的完整 prompt），用户不可见 |
-| `metadata.hidden === true` | 系统内部记录（中断标记等），前端不展示 |
-```
+`map_add_artifact_layer`, `map_set_layer_style`, `map_remove_layer`, `map_list_layers`, `map_set_layer_visibility`, `map_set_layer_opacity`, `map_reorder_layer`, `map_fit_layer`, `map_clear_layers`, `map_get_viewport`, and `map_set_viewport`.
 
-### 子任务结构
+The model passes an Artifact ID to add a layer. The browser fetches the Manifest and Asset, validates the spatial contract, and adds a MapLibre layer. Tool observations contain identifiers and state only; they never contain the full spatial payload.
 
-```javascript
-{
-  task_id, agent_name, agent_display_name, description,
-  react_steps: [],               // 执行步骤
-  tool_calls: [],                // 工具调用
-  result_summary: string,
-  status: 'running' | 'success' | 'error',
-  currentStep: object,
-  ctx: { used, max }
-}
-```
+## Rendering Boundaries
 
-### 执行步骤结构
-
-```javascript
-{
-  round: number,
-  intent: string,                // 意图/思考
-  toolCalls: [],
-  status: 'running' | 'success' | 'error',
-  run_status: 'running' | 'success' | 'error' | null,
-  agent_name: string,
-  agent_display_name: string,
-  _intentComplete: boolean       // 仅用于旧数据兼容去重
-}
-```
-
-## Artifact 渲染
-
-```
-AI final_answer 含 [artifact:art_abc123]
-  → parseMessageParts() 解析占位符
-  → VisualizationLoader 组件
-  → GET /api/artifacts/{artifact_id}
-  → 返回 descriptor { viz_type, config, title, sub_type, content_url? }
-  → viz_type == 'chart' → ChartRenderer
-  → viz_type == 'map'   → MapRenderer
-  → 图片 MIME 类型      → 鉴权图片预览
-  → 其他 binary         → 通用文件卡片与鉴权下载
-```
-
-Artifact descriptor 和可选二进制内容持久化在 `data/sessions/<session_id>/artifacts/` 下；只有显式删除 Artifact 或 session 时才清理。
-
-### MapRenderer 支持的地图类型
-
-heatmap / marker / circle / choropleth / geojson / bindmap / risk
-
-### 态势大屏
-
-自动触发条件：消息完成后，最新 artifact 的 map_type 为 `risk` 或 `bindmap`
-
-```
-SituationScreen (Teleport to body, z-index: 10000)
-  ├─ SituationBar          # 顶部信息条（风险等级统计）
-  ├─ MapRenderer            # 全屏地图（situationMode=true）
-  └─ FloatingChatPanel      # 右侧浮动对话面板（可收起）
-```
-
-手动触发：MapRenderer 标题栏"进入态势大屏"按钮 → `emit('enter-situation')`
-
-## Team 编排页
-
-`TeamBuilder.vue` 负责“方案级”操作，而不是细粒度 agent 参数编辑：
-
-- 展示当前 `active_team`
-- 创建新的 team（可从 source team 复制整份配置）
-- 删除、激活 team
-- 从 source team 复制指定 agents 到目标 team
-- 通过左右双栏的可视化装配区展示“来源 Team / 目标 Team / 待复制清单”，让复制操作从表单式选择升级为即时预览式组合
-- 装配区会区分“预计新增”和“目标 Team 已存在”的 Agent，并提供全选可新增项 / 全选来源项等快捷操作
-- 支持从 Team 卡片直接进入 `AgentConfig.vue`，继续编辑当前 team 对应配置文件里的 agent 细节
-
-team 在前端中的语义是“命名的 agent 配置文件方案”，不是运行时 team 实体。
-
-## Agent 配置页
-
-`AgentConfig.vue` 负责展示和编辑当前 active_team 下 Agent 的基础配置、工具、Skills、MCP、委派与 Memory 能力。
-
-### Skills 区块
-
-Skills 列表不再按单一平铺数组展示，而是通过 `GET /api/agent-config/skills?workspace_root=...` 获取带来源语义的 Skill 元数据后分组渲染。当前接口会返回：
-
-- `name`
-- `display_name`
-- `description`
-- `source_type`
-- `source_label`
-- `is_auto_inject_candidate`
-
-前端按来源分成三组：
-- 工作区技能：来自 `<workspace_root>/.ragsystem/skills`，入口 Agent 默认可见，其他 Agent 需显式勾选。
-- 全局技能：来自 `~/.ragsystem/skills`，只有显式勾选后才生效。
-- 内置技能：来自后端内置 `agents/skills`。
-
-每个 Skill 卡片展示来源 badge（`source_label`）；“自动注入”开关文案也已收敛为“自动注入内置/工作区技能”，避免误导用户以为全局 Skill 会被自动带入。
-
-### workspace_root 透传
-
-Agent 配置页会先加载当前 Agent 配置，再读取 `config.custom_params.workspace_root` 重新请求 `/api/agent-config/skills`，保证工作区 Skill 列表与当前 Agent 的工作区上下文一致。也就是说：
-
-1. 选中 Agent。
-2. 前端调用 `getAgentConfig(agentName)`。
-3. 读取该 Agent 的 `custom_params.workspace_root`。
-4. 调用 `getAvailableSkills(workspaceRoot)` 重新拉取 Skills。
-
-保存时前端仍保持最小 schema：只写回 `skills.enabled_skills`，不会额外保存 `source_type` 等派生字段。
-
-其中 Memory 区块采用独立元数据接口而不是前端硬编码：
-- 前端通过 `GET /api/agent-config/memory-metadata` 获取 memory 工具描述与 scope 说明
-- Memory 工具卡片展示 `name + description`
-- scope 权限按单个 scope 聚合展示，在同一张卡片中勾选“读取 / 写入 / 归档”三类权限，避免把同一组 scope 重复渲染三遍
-- 保存时仍写回后端配置字段：
-  - `memory.enabled`
-  - `memory.auto_inject`
-  - `memory.enabled_tools`
-  - `memory.allowed_scopes`
-  - `memory.write_scopes`
-  - `memory.archive_scopes`
-
-
-`ChatViewV2.vue` 将新会话初始化参数保存在页面本地状态中：
-- 顶部右侧控制区使用 `PermissionModeSelector` 展示并切换当前 session 的审批模式
-- 权限模式文案与后端语义保持一致：`strict` 为严格档（全部风险工具需审批），`standard` 为默认档（中/高风险工具需审批），`relaxed` 为宽松档（仅高风险工具需审批），`dangerously_skip_permissions` 表示“跳过审批”（仅跳过常规风险 ask，路径越界等 ask 仍可能触发）
-- `pendingWorkspaceRoot`：创建 session 时写入 `metadata.workspace_root`；前端会先去掉首尾包裹引号（如 `"C:/test" -> C:/test`）后再提交，并在本地回填/展示时沿用同一规范化结果
-- `pendingEntryAgent`：创建 session 时写入 `metadata.entry_agent`（值必须是后端返回的真实 `agent_name`；空值仅表示“使用配置默认入口 Agent”，前端不应提交 `default` 这类 UI alias）
-- `sessionFiles`：当前会话私有文件列表，通过 `/api/agent/sessions/{session_id}/files*` 维护；与知识库页使用的知识库文件池（`/api/knowledge-bases/files*`，sqlite-vec driver 的 `kb_files`）严格分离
-- `pendingAttachments`：仅底部输入框中新消息的待发送附件
-- `editingDraft` / `editingAttachmentsDraft`：当前正在原地编辑的消息文本与附件草稿
-- `sessionFilesDrawerTarget`：附件抽屉当前服务对象（底部输入框 composer 或消息原地编辑）
-
-当前多模态输入约定：
-- `ChatViewV2.vue` 在新建会话态会渲染 `workspace-root-input-row`，其中入口 Agent 选择器复用 `CustomSelect.vue`。
-- `CustomSelect.vue` 通过 Teleport 到 `body` 渲染下拉层，现支持 `dropdownMaxHeight` 控制下拉最大高度，以及 `dropdownPlacement`（`up` / `down` / `auto`）控制展开方向；`auto` 会基于触发器上下可用视口空间自动决策。
-- 顶部“会话文件”主入口已收敛，附件入口下沉到 `ChatInput.vue` 左侧按钮
-- `ChatInput.vue` 现为双层输入结构：上层仅承载文本输入区，下层承载附件按钮、发送按钮、上下文预算与 execution pill 等状态操作区
-- `ChatViewV2.vue` 通过 `ChatInput` 的 `footerMeta` slot 将上下文预算与执行状态注入输入框底部，而不是在输入框外单独渲染状态条
-- `SessionFilesDrawer.vue` 同时服务底部输入区新消息附件和“消息气泡原地编辑”两种场景，通过本地 `target/mode` 区分操作目标
-- 用户可以发送“纯文本”、“文本+附件”或“纯附件”消息
-- 用户消息历史回放时，附件只通过 `message.metadata.extensions[]` 中的 `attachments@v1` 重建，并在消息气泡下方回显
-- 编辑用户消息时，文本与附件草稿统一由 `MessageEditBox.vue` 管理；确认后仍走 rollback + resend
-
-| 操作 | 流程 |
-|------|------|
-| 加载会话 | 检查 messageCache → 未命中则调用 `chatSdkClient.listMessages()` → 按需调用 `getMessageRunSteps()` 并投影 executionTree |
-| 重连 | 订阅实时事件 → 接收 `session.runtime` → 按 `load_strategy` 回放 active run 或仅恢复历史；游标只过滤 durable Envelope，不过滤 runtime 快照 |
-| 流结束状态同步 | `run_ended` 收尾当前回答展示；后续 `session.runtime` 将权威状态切回 `idle`，终态记录在 `last_run` |
-| 编辑重发 | startEditMessage() 在消息气泡内初始化文本草稿与附件草稿 → 用户在气泡内原地修改文本与附件 → `chatSdkClient.rollbackAndRetrySession()` 以编辑后的内容和 `attachments[]` 重新执行 |
-| 重试 | rollbackAndRetry() → `chatSdkClient.rollbackAndRetrySession()` → 以原问题重新执行 |
-
-## 主题系统
-
-- 全局背景纹理由 `src/styles/main.css` 的 `body::after` 提供，页面级容器默认应保持透明或使用玻璃半透明背景，避免用 `var(--color-bg-app)` 之类实底整块覆盖，否则会遮挡点阵背景。
-- 管理页统一通过 `components/PageLayout.vue` 承载页面外壳；其外层 `page-layout` 负责留白与滚动，不再提供实底背景，具体内容区域使用 `glass-card` / `var(--glass-bg)` 系列半透明面板承载。
-- `PageLayout.vue` 的 embedded 模式支持按页面传入 `contentPadding` / `mobileContentPadding`，用于声明桌面端与移动端留白；需要特殊布局的页面（如 `AgentConfig.vue`）仍可完全自定义自己的边距实现。
-- 若组件同时需要主题色实体面板与半透明玻璃面板，应显式区分：实体面板使用 `--color-bg-primary/secondary/tertiary/elevated`，玻璃面板使用 `--glass-bg` / `--glass-bg-light`；不要混用，避免浅色模式下出现仍偏暗的背景。
-- 需要对玻璃面板做透明度微调时，优先基于 `--color-bg-elevated-rgb` 生成 `rgba(...)`，确保深浅主题都能同步切换。
-
-CSS 变量驱动，支持亮色/暗色切换：
-
-- 亮色：`data-theme="light"`
-- 暗色：默认
-- 切换：`emit('toggleTheme')`
-
-关键变量：`--color-bg-*`, `--color-text-*`, `--color-border-*`, `--color-brand-*`, `--glass-*`, `--radius-*`
+- `VisualizationLoader.vue` handles chart, image, and generic file artifacts.
+- The map workspace handles spatial artifacts only after `map_add_artifact_layer`.
+- Chat messages and Artifact selection do not auto-open a map or infer a map presentation.
+- No renderer configuration, legacy map payload, or alternate map engine is supported.

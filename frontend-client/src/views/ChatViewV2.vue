@@ -193,16 +193,16 @@
     <!-- 文件预览确认对话框 -->
     <FilePreviewConfirmDialog ref="filePreviewDialogRef" />
 
-    <!-- 态势大屏 -->
-    <SituationScreen
-      v-if="situationScreenActive"
-      :artifact-id="situationArtifactId"
-      :map-data="situationMapData"
+    <ArtifactMapScreen
+      v-if="mapWorkspaceActive"
+      ref="mapWorkspaceRef"
+      :layers="mapWorkspaceLayers"
       :messages="messages"
       :is-streaming="isStreaming"
-      :situation-info="situationInfo"
-      @close="situationScreenActive = false"
-      @send-message="handleSituationSendMessage"
+      @ready="handleMapReady"
+      @update:layers="replaceMapWorkspaceLayers"
+      @close="closeMapWorkspace"
+      @send-message="handleMapSendMessage"
     />
 </div>
 </template>
@@ -220,6 +220,7 @@ import { useSessionFilesAttachments } from '../composables/useSessionFilesAttach
 import { useApprovalQueue } from '../composables/useApprovalQueue';
 import { useChatScrolling } from '../composables/useChatScrolling';
 import { useMessageArtifacts } from '../composables/useMessageArtifacts';
+import { useArtifactMapWorkspace } from '../composables/useArtifactMapWorkspace.js';
 import { useLlmRetryState } from '../composables/useLlmRetryState';
 import { useChatMessageRuntime } from '../composables/useChatMessageRuntime';
 import { useMessageListView } from '../composables/useMessageListView';
@@ -254,7 +255,7 @@ import { useSessionListStore } from '../stores/session-list.js';
 import { useLlmStore } from '../stores/llm.js';
 import { sessionLoadStrategyRestoresActiveRun } from '@ragsystem/agent-protocol';
 
-const SituationScreen = defineAsyncComponent(() => import('../components/SituationScreen.vue'));
+const ArtifactMapScreen = defineAsyncComponent(() => import('../components/map-workspace/ArtifactMapScreen.vue'));
 
 // Emits
 const route = useRoute();
@@ -545,7 +546,6 @@ const {
   handleUserInputResolved,
   clearLlmRetryState,
   setLlmRetryState,
-  checkSituationScreenTrigger: (...a) => checkSituationScreenTrigger(...a),
   inputMessage,
   get pendingAttachments() { return pendingAttachments; },
   getCurrentSelectedLlm,
@@ -614,23 +614,16 @@ const {
   chatSdkClient,
 });
 
-// ── 态势大屏与消息产物 ──────────────────────────────────────────
-const situationScreenActive = ref(false);
-const situationArtifactId = ref(null);
-const situationMapData = ref(null);
-const situationInfo = ref(null);
-
+// ── Artifact 导航与工具驱动地图工作台 ──────────────────────────
+const { handleArtifactSelect } = useMessageArtifacts({ messagesRef });
 const {
-  handleArtifactSelect,
-  checkSituationScreenTrigger,
-  handleEnterSituation,
-} = useMessageArtifacts({
-  messagesRef,
-  situationScreenActive,
-  situationArtifactId,
-  situationMapData,
-  situationInfo,
-});
+  active: mapWorkspaceActive,
+  layers: mapWorkspaceLayers,
+  mapRef: mapWorkspaceRef,
+  close: closeMapWorkspace,
+  handleMapReady,
+  replaceLayersFromMap: replaceMapWorkspaceLayers,
+} = useArtifactMapWorkspace();
 
 // clearExecutionState 需要额外清理 view 级状态
 const clearExecutionState = (opts) => {
@@ -689,7 +682,6 @@ const {
 const messageContext = reactive({
   messageKey,
   getAssistantRuntimeStatusText,
-  handleEnterSituation,
   getAttachmentPreviewUrl,
   openAttachmentImages,
   confirmEditAndResend,
@@ -754,8 +746,8 @@ const handleSend = async (payload = null) => {
   }
 };
 
-const handleSituationSendMessage = (text) => {
-  // 在态势大屏中发送消息：复用主聊天的发送逻辑
+const handleMapSendMessage = (text) => {
+  // 在地图工作台中发送消息：复用主聊天的发送逻辑
   inputMessage.value = text;
   nextTick(() => handleSend());
 };

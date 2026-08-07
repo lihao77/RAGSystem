@@ -13,7 +13,7 @@
 | 路由 | vue-router 4（`^4.6.4`） |
 | 状态 | Pinia 3（`^3.0.4`） |
 | UI | TailwindCSS 3 + `reka-ui` + `@lucide/vue` |
-| 可视化 | ECharts 6 + Leaflet |
+| 可视化 | ECharts 6 + MapLibre GL |
 | 渲染 | markdown-it / marked + highlight.js |
 | HTTP | axios |
 | 工具 | `@vueuse/core`、`vue-virtual-scroller` |

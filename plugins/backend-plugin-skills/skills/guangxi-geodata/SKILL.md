@@ -12,7 +12,7 @@ description: 广西静态地理信息服务技能，提供地名坐标解析、�
 适用场景：
 - 需要将地名解析成坐标和 WKT。
 - 需要查询静态水文站、医院、避难所。
-- 需要给 `gis-bindmap`、`create_risk_map` 或 `assess_flood_risk` 提供基础地理字段。
+- 需要给 `gis-bindmap`、`build_risk_layer.py` 或 `assess_flood_risk.py` 提供基础地理字段。
 
 如果要获取实时降雨量或网页水情，改用 `guangxi-flood-data`。
 
@@ -20,7 +20,7 @@ description: 广西静态地理信息服务技能，提供地名坐标解析、�
 
 功能：
 - 将广西地名解析为 WGS84 坐标。
-- 输出 `wkt`，可直接用于地图工具。
+- 输出 `wkt`，可作为空间分析或风险图层脚本的几何输入。
 
 参数：
 - `--location`: 单地名

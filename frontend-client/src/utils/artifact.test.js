@@ -25,7 +25,7 @@ test('normalizes a V2 chart presentation without viz_type', () => {
   assert.equal(manifest.kind, 'chart.echarts');
 });
 
-test('selects a V2 image Asset through a raster Presentation', () => {
+test('selects a V2 image Asset without a map Presentation', () => {
   const manifest = normalizeArtifactManifest({
     schema_version: 2,
     artifact_id: 'art_map_1',
@@ -41,13 +41,8 @@ test('selects a V2 image Asset through a raster Presentation', () => {
       sha256: '0'.repeat(64),
       content_url: artifactAssetUrl('art_map_1', 'preview'),
     }],
-    presentations: [{
-      presentation_id: 'primary',
-      surface: 'map',
-      renderer: 'map.raster-image',
-      assets: { image: 'preview' },
-      config: { bounds: [[0, 0], [1, 1]] },
-    }],
+    presentations: [],
+    metadata: { spatial: { crs: 'EPSG:4326', bounds: [100, 20, 110, 30] } },
   });
 
   assert.equal(manifest.displayKind, 'image');

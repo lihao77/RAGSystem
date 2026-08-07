@@ -68,9 +68,12 @@ test("render_nc emits an Artifact V2 staging contract without raster data in JSO
     const payload = JSON.parse(renderResult.stdout);
     const artifact = payload.artifact;
     assert.equal(artifact.schema_version, 2);
-    assert.equal(artifact.kind, "map.raster");
+    assert.equal(artifact.kind, "raster.preview");
     assert.ok(Array.isArray(artifact.assets));
     assert.ok(Array.isArray(artifact.presentations));
+    assert.deepEqual(artifact.presentations, []);
+    assert.equal(artifact.metadata.spatial.crs, "EPSG:4326");
+    assert.deepEqual(artifact.metadata.spatial.bounds, [95, 5, 135, 35]);
     assert.equal(artifact.assets[0].staged_file, "temperature-raster.png");
     assert.equal(Object.hasOwn(artifact.assets[0], "data_base64"), false);
     assert.equal(Object.hasOwn(payload.data.raster, "values"), false);
@@ -81,14 +84,17 @@ test("render_nc emits an Artifact V2 staging contract without raster data in JSO
     const inspectResult = spawnSync(
       python,
       [path.join(skillRoot, "scripts", "inspect_nc.py"), "--file", inputPath],
-      { encoding: "utf8" },
+      { encoding: "utf8", env: { ...process.env, RAGSYSTEM_ARTIFACT_OUTPUT_DIR: outputDirectory } },
     );
     assert.equal(inspectResult.status, 0, inspectResult.stderr);
     const inspection = JSON.parse(inspectResult.stdout);
     assert.equal(inspection.artifact.schema_version, 2);
-    assert.equal(inspection.artifact.kind, "map.geojson");
+    assert.equal(inspection.artifact.kind, "vector.dataset");
     assert.ok(Array.isArray(inspection.artifact.presentations));
-    assert.equal(Object.hasOwn(inspection.artifact, "viz_type"), false);
+    assert.deepEqual(inspection.artifact.presentations, []);
+    assert.equal(inspection.artifact.assets[0].media_type, "application/geo+json");
+    assert.equal(inspection.artifact.metadata.spatial.crs, "EPSG:4326");
+    assert.deepEqual(inspection.artifact.metadata.spatial.bounds, [95, 5, 135, 35]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

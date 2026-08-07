@@ -8,7 +8,7 @@ const reference = value => ({ value });
 function buildReducer() {
   const messages = reference([]);
   const activeRun = { assistantMsgIndex: 0, phase: 'processing', runningToolCalls: {}, runningModelCalls: {} };
-  const calls = { chunks: [], cached: 0, situation: 0 };
+  const calls = { chunks: [], cached: 0 };
   const contextUsage = reference({ used: 0, max: 0 });
   const deps = {
     isMasterEvent: () => true,
@@ -18,7 +18,6 @@ function buildReducer() {
     findRunningExecutionAgentByAgentId: () => null,
     applyEnvelopeToMessage: () => {},
     cacheMessages: () => { calls.cached += 1; },
-    checkSituationScreenTrigger: () => { calls.situation += 1; },
     scrollToBottom: () => {},
   };
   const runtime = {
@@ -61,7 +60,6 @@ test('SessionEventReducer routes child stream output through execution projectio
       findRunningExecutionAgentByAgentId: () => null,
       applyEnvelopeToMessage: () => { calls.chunks.push('projected'); },
       cacheMessages: () => {},
-      checkSituationScreenTrigger: () => {},
       scrollToBottom: () => {},
     },
     runtime: {
@@ -110,7 +108,6 @@ test('SessionEventReducer deterministically applies stream delta and final compe
   assert.equal(currentMessage.finished, true);
   assert.deepEqual(calls.chunks, ['hel']);
   assert.equal(calls.cached, 1);
-  assert.equal(calls.situation, 1);
 });
 
 test('SessionEventReducer only inserts visible root compression summaries', () => {

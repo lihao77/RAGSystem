@@ -45,7 +45,7 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
 import MarkdownContent from './chat/MarkdownContent.vue';
 import IconSend from './icons/IconSend.vue';
@@ -55,18 +55,19 @@ const props = defineProps({
   messages: { type: Array, default: () => [] },
   isStreaming: { type: Boolean, default: false },
   prefillText: { type: String, default: '' },
+  collapsed: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['send-message', 'close', 'collapse-change']);
+const emit = defineEmits(['send-message', 'close', 'collapse-change', 'update:collapsed']);
 
-const isCollapsed = ref(false);
+const isCollapsed = computed(() => props.collapsed);
 const inputText = ref('');
 const messagesContainer = ref(null);
 const inputRef = ref(null);
 const unreadCount = ref(0);
 
 const toggleCollapse = (val) => {
-  isCollapsed.value = val;
+  emit('update:collapsed', val);
   emit('collapse-change', val);
 };
 

@@ -1,6 +1,6 @@
 <template>
   <div class="visualization-loader">
-    <!-- 骨架屏：结构与实际渲染器 (chart-renderer / map-renderer) 对齐 -->
+    <!-- 骨架屏：结构与 Artifact 图表和文件展示区域对齐 -->
     <div v-if="loading" class="viz-skeleton">
       <div class="skel-header">
         <span class="skel-icon"></span>
@@ -29,12 +29,6 @@
         :echartsConfig="vizData.config"
         :title="vizData.title"
         :chartType="vizData.subtype"
-      />
-      <MapRenderer
-        v-else-if="vizData.displayKind === 'map'"
-        :mapData="vizData.config"
-        :title="vizData.title"
-        @enter-situation="$emit('enter-situation', { artifactId: props.artifactId, mapData: vizData.config, vizData })"
       />
       <div v-else-if="isImage" class="fallback-image-wrapper">
         <AuthenticatedImage
@@ -79,7 +73,6 @@ import AuthenticatedImage from './common/AuthenticatedImage.vue';
 import { Button } from './ui/button';
 
 const ChartRenderer = defineAsyncComponent(() => import('./ChartRenderer.vue'));
-const MapRenderer = defineAsyncComponent(() => import('./MapRenderer.vue'));
 
 const props = defineProps({
   artifactId: {
@@ -87,8 +80,6 @@ const props = defineProps({
     required: true,
   },
 });
-
-defineEmits(['enter-situation']);
 
 const loading = ref(true);
 const error = ref(null);
@@ -164,7 +155,7 @@ onMounted(fetchConfig);
   margin: 0.5rem 0;
 }
 
-/* ===== 骨架屏：结构对齐 chart-renderer / map-renderer ===== */
+/* ===== 骨架屏：结构对齐 Artifact 展示区域 ===== */
 
 .viz-skeleton {
   border: 1px solid var(--color-border);
@@ -173,7 +164,7 @@ onMounted(fetchConfig);
   background: var(--glass-bg-light);
 }
 
-/* 头部：与 chart-header / map-header 同高、同结构 */
+/* 头部：与 Artifact 展示标题栏同高、同结构 */
 .skel-header {
   display: flex;
   align-items: center;
@@ -215,7 +206,7 @@ onMounted(fetchConfig);
   border: 1px solid var(--color-border);
 }
 
-/* 内容区：尺寸匹配实际渲染器的 chart-container / map-container */
+/* 内容区：尺寸匹配实际 Artifact 展示区域 */
 .skel-body {
   aspect-ratio: 16 / 9;
   min-height: 300px;
@@ -246,7 +237,7 @@ onMounted(fetchConfig);
   100% { background-position: -200% 0; }
 }
 
-/* 响应式：匹配 ChartRenderer / MapRenderer 的移动端收缩 */
+/* 响应式：匹配 Artifact 内容的移动端收缩 */
 @media (max-width: 767px) {
   .skel-body {
     aspect-ratio: 4 / 3;

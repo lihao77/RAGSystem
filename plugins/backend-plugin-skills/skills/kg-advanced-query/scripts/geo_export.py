@@ -6,7 +6,7 @@ geo_export.py - Export geometry data from knowledge graph as GeoJSON
 Supports:
   --type boundary --name "南宁市" [--include-children]
   --type river --name "柳江" [--all]
-  --type bindmap-layers --name "南宁市" --include boundary,rivers
+  --type layers --name "南宁市" --include boundary,rivers
 """
 
 import sys
@@ -14,6 +14,7 @@ import os
 import json
 import re
 import argparse
+from pathlib import Path
 
 from neo4j import GraphDatabase
 from neo4j.time import Date, DateTime, Time, Duration
@@ -152,35 +153,72 @@ def _make_feature(record, geojson_geom):
     }
 
 
-def _build_bindmap_layer(features, label, map_type):
-    """Build a single bindmap_ready layer from GeoJSON features."""
-    data_items = []
-    for f in features:
-        data_items.append({
-            "name": f["properties"].get("name", ""),
-            "value": 1,
-            "geometry": json.dumps(f["geometry"], ensure_ascii=False),
-        })
+def _tag_features(features, layer, category):
+    tagged = []
+    for feature in features:
+        item = dict(feature)
+        properties = dict(item.get("properties") or {})
+        properties["layer"] = layer
+        properties["category"] = category
+        item["properties"] = properties
+        tagged.append(item)
+    return tagged
+
+
+def _feature_bounds(features):
+    points = []
+
+    def visit(value):
+        if isinstance(value, list) and value and isinstance(value[0], (int, float)):
+            if len(value) >= 2:
+                points.append((float(value[0]), float(value[1])))
+            return
+        if isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    for feature in features:
+        visit((feature.get("geometry") or {}).get("coordinates", []))
+    if not points:
+        return []
+    lngs, lats = zip(*points)
+    west, south, east, north = min(lngs), min(lats), max(lngs), max(lats)
+    if west == east:
+        west -= 0.00001
+        east += 0.00001
+    if south == north:
+        south -= 0.00001
+        north += 0.00001
+    return [west, south, east, north]
+
+
+def _write_artifact(features, title, subtype):
+    output_directory = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
+    if not output_directory:
+        raise ValueError("geo_export.py 需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
+    filename = f"{subtype}.geojson"
+    output_path = Path(output_directory).resolve() / filename
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    collection = {"type": "FeatureCollection", "features": features}
+    output_path.write_text(json.dumps(collection, ensure_ascii=False, allow_nan=False), encoding="utf-8")
     return {
-        "data": json.dumps(data_items, ensure_ascii=False),
-        "map_type": map_type,
-        "label": label,
-        "name_field": "name",
-        "value_field": "value",
-        "geometry_field": "geometry",
+        "schema_version": 2,
+        "kind": "vector.dataset",
+        "subtype": subtype,
+        "title": title,
+        "assets": [{
+            "asset_id": "data",
+            "role": "data",
+            "filename": filename,
+            "media_type": "application/geo+json",
+            "staged_file": filename,
+        }],
+        "presentations": [],
+        "metadata": {
+            "spatial": {"crs": "EPSG:4326", "bounds": _feature_bounds(features)},
+            "feature_count": len(features),
+        },
     }
-
-
-def _geom_to_map_type(geojson_geom):
-    """Determine map_type based on geometry type."""
-    if not geojson_geom:
-        return "marker"
-    gtype = geojson_geom.get("type", "")
-    if gtype in ("Polygon", "MultiPolygon"):
-        return "choropleth"
-    if gtype in ("LineString", "MultiLineString"):
-        return "geojson"
-    return "marker"
 
 
 # --------------- Query operations ---------------
@@ -213,13 +251,11 @@ def do_boundary(session, args):
             if rec["id"] == primary["id"]:
                 primary_geom = geojson
 
-    map_type = _geom_to_map_type(primary_geom)
     result = {
         "type": "boundary",
         "name": primary.get("name", name),
         "entity_id": primary.get("id", ""),
         "geometry_type": primary_geom.get("type", "") if primary_geom else "unknown",
-        "features": features,
     }
 
     # Children
@@ -237,22 +273,11 @@ def do_boundary(session, args):
             geojson = wkt_to_geojson(ch.get("geometry", ""))
             if geojson:
                 children_features.append(_make_feature(ch, geojson))
-        result["children"] = children_features
+        result["children_count"] = len(children_features)
 
-    # Build bindmap_ready
-    layers = []
-    if features:
-        layers.append(_build_bindmap_layer(features, f"{primary.get('name', name)}行政边界", map_type))
-    if children_features:
-        child_map_type = _geom_to_map_type(
-            wkt_to_geojson(children[0].get("geometry", "")) if children else None
-        )
-        layers.append(_build_bindmap_layer(children_features, f"{primary.get('name', name)}子区域", child_map_type))
-
-    result["bindmap_ready"] = {
-        "layers": layers,
-        "title": f"{primary.get('name', name)}行政区划",
-    }
+    result["features"] = _tag_features(features, "行政边界", "boundary")
+    result["features"].extend(_tag_features(children_features, "子区域", "children"))
+    result["title"] = f"{primary.get('name', name)}行政区划"
 
     return result
 
@@ -296,20 +321,17 @@ def do_river(session, args):
     result = {
         "type": "river",
         "name": title_name,
-        "features": features,
-        "bindmap_ready": {
-            "layers": [_build_bindmap_layer(features, title_name, "geojson")],
-            "title": f"{title_name}河流走向",
-        },
+        "title": f"{title_name}河流走向",
+        "features": _tag_features(features, "河流", "river"),
     }
     return result
 
 
-def do_bindmap_layers(session, args):
-    """Combined query producing multi-layer bindmap output."""
+def do_layers(session, args):
+    """Query multiple geometry categories into one GeoJSON dataset."""
     name = args.name
     if not name:
-        return {"type": "bindmap-layers", "features": [],
+        return {"type": "layers", "features": [],
                 "message": "需要 --name 参数"}
 
     include_set = set()
@@ -318,7 +340,7 @@ def do_bindmap_layers(session, args):
     else:
         include_set = {"boundary", "rivers"}
 
-    layers = []
+    combined_features = []
 
     # Boundary layer
     if "boundary" in include_set:
@@ -337,9 +359,7 @@ def do_bindmap_layers(session, args):
             if geojson:
                 features.append(_make_feature(rec, geojson))
         if features:
-            map_type = _geom_to_map_type(features[0]["geometry"])
-            layers.append(_build_bindmap_layer(
-                features, f"{name}行政边界", map_type))
+            combined_features.extend(_tag_features(features, "行政边界", "boundary"))
 
     # Children layer
     if "children" in include_set:
@@ -355,9 +375,7 @@ def do_bindmap_layers(session, args):
             if geojson:
                 child_features.append(_make_feature(ch, geojson))
         if child_features:
-            child_map_type = _geom_to_map_type(child_features[0]["geometry"])
-            layers.append(_build_bindmap_layer(
-                child_features, f"{name}子区域", child_map_type))
+            combined_features.extend(_tag_features(child_features, "子区域", "children"))
 
     # Rivers layer
     if "rivers" in include_set:
@@ -385,17 +403,14 @@ def do_bindmap_layers(session, args):
             if geojson:
                 river_features.append(_make_feature(rv, geojson))
         if river_features:
-            layers.append(_build_bindmap_layer(
-                river_features, f"{name}相关河流", "geojson"))
+            combined_features.extend(_tag_features(river_features, "相关河流", "river"))
 
     result = {
-        "type": "bindmap-layers",
+        "type": "layers",
         "name": name,
-        "layer_count": len(layers),
-        "bindmap_ready": {
-            "layers": layers,
-            "title": f"{name}综合地理底图",
-        },
+        "feature_count": len(combined_features),
+        "title": f"{name}综合地理数据",
+        "features": combined_features,
     }
     return result
 
@@ -406,8 +421,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Export geometry data from knowledge graph as GeoJSON")
     parser.add_argument("--type", required=True,
-                        choices=["boundary", "river", "bindmap-layers"],
-                        help="Query type: boundary, river, or bindmap-layers")
+                        choices=["boundary", "river", "layers"],
+                        help="Query type: boundary, river, or layers")
     parser.add_argument("--name", default=None,
                         help="Location or river name to query")
     parser.add_argument("--include-children", action="store_true",
@@ -415,7 +430,7 @@ def main():
     parser.add_argument("--all", action="store_true",
                         help="Query all rivers (river mode)")
     parser.add_argument("--include", default=None,
-                        help="Comma-separated layers: boundary,rivers,children (bindmap-layers mode)")
+                        help="Comma-separated categories: boundary,rivers,children (layers mode)")
     args = parser.parse_args()
 
     if args.type != "river" and not args.name:
@@ -435,14 +450,16 @@ def main():
                     data = do_boundary(session, args)
                 elif args.type == "river":
                     data = do_river(session, args)
-                elif args.type == "bindmap-layers":
-                    data = do_bindmap_layers(session, args)
+                elif args.type == "layers":
+                    data = do_layers(session, args)
                 else:
                     data = {"error": f"Unknown type: {args.type}"}
         finally:
             driver.close()
 
-        print(json.dumps({"success": True, "data": data},
+        features = data.pop("features", [])
+        artifact = _write_artifact(features, data.get("title", "空间数据"), args.type) if features else None
+        print(json.dumps({"success": True, "data": data, **({"artifact": artifact} if artifact else {})},
                           ensure_ascii=False, indent=2))
         return 0
     except Exception as e:

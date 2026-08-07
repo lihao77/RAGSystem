@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>委托模式 Demo</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
 <style>
   :root { --bg:#1a1a1a; --panel:#222; --panel2:#2a2a2a; --border:#333; --text:#e0e0e0; --muted:#888; --accent:#3a5a8a; --accent2:#5a7aaa; --ok:#6a6; --warn:#d4a843; --err:#a66; }
   * { box-sizing:border-box; }
@@ -116,7 +116,7 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script>
 // ============ host 工具声明（tools.register 用，wire：input_schema / risk_level）============
 const HOST_TOOLS = [
@@ -140,8 +140,17 @@ let map=null; const markers=new Map(); let markerSeq=0; const geoLayers=new Map(
 const cards=[]; let cardSeq=0;
 
 function initMap(){
-  map=L.map('map').setView([35.86,104.19],4);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:18}).addTo(map);
+  map=new maplibregl.Map({
+    container:'map',
+    center:[104.19,35.86],
+    zoom:4,
+    style:{
+      version:8,
+      sources:{basemap:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap contributors',maxzoom:19}},
+      layers:[{id:'background',type:'background',paint:{'background-color':'#111'}},{id:'basemap',type:'raster',source:'basemap'}]
+    }
+  });
+  map.addControl(new maplibregl.NavigationControl(),'top-right');
 }
 
 // ============ 通知 toast ============
@@ -250,14 +259,24 @@ function promptUserInput(payload){
 async function executeHostTool(name,input){
   if(name.startsWith('map_') && !map) return { ok:false, error:'地图未初始化' };
   switch(name){
-    case 'map_set_view': { const z=typeof input.zoom==='number'?input.zoom:map.getZoom(); map.setView([input.latitude,input.longitude],z); return {ok:true,observation:`地图已移至 (${input.latitude}, ${input.longitude})，zoom=${z}`}; }
-    case 'map_add_marker': { const id=`marker_${++markerSeq}`; const m=L.marker([input.latitude,input.longitude]).addTo(map); if(input.label) m.bindPopup(String(input.label)).openPopup(); markers.set(id,m); return {ok:true,observation:`已添加标记 ${id} 于 (${input.latitude}, ${input.longitude})${input.label?`，标签："${input.label}"`:''}`}; }
-    case 'map_clear_markers': { const n=markers.size; markers.forEach(m=>map.removeLayer(m)); markers.clear(); return {ok:true,observation:`已清除 ${n} 个标记`}; }
+    case 'map_set_view': { const z=typeof input.zoom==='number'?input.zoom:map.getZoom(); map.easeTo({center:[input.longitude,input.latitude],zoom:z}); return {ok:true,observation:`地图已移至 (${input.latitude}, ${input.longitude})，zoom=${z}`}; }
+    case 'map_add_marker': { const id=`marker_${++markerSeq}`; const marker=new maplibregl.Marker().setLngLat([input.longitude,input.latitude]).addTo(map); if(input.label) marker.setPopup(new maplibregl.Popup().setText(String(input.label))).togglePopup(); markers.set(id,marker); return {ok:true,observation:`已添加标记 ${id} 于 (${input.latitude}, ${input.longitude})${input.label?`，标签："${input.label}"`:''}`}; }
+    case 'map_clear_markers': { const n=markers.size; markers.forEach(marker=>marker.remove()); markers.clear(); return {ok:true,observation:`已清除 ${n} 个标记`}; }
     case 'map_get_view': { const b=map.getBounds(); return {ok:true,observation:JSON.stringify({center:{lat:map.getCenter().lat,lng:map.getCenter().lng},zoom:map.getZoom(),bounds:{north:b.getNorth(),south:b.getSouth(),east:b.getEast(),west:b.getWest()}})}; }
-    case 'map_fit_bounds': { const pts=Array.isArray(input.points)?input.points:[]; if(!pts.length) return {ok:false,error:'points 为空'}; map.fitBounds(L.latLngBounds(pts.map(p=>[p.latitude,p.longitude]))); return {ok:true,observation:`已适配 ${pts.length} 个点`}; }
-    case 'map_fly_to': { const z=typeof input.zoom==='number'?input.zoom:map.getZoom(); map.flyTo([input.latitude,input.longitude],z); return {ok:true,observation:`飞行至 (${input.latitude}, ${input.longitude})，zoom=${z}`}; }
-    case 'map_add_geojson': { if(!input.geojson||typeof input.geojson!=='object') return {ok:false,error:'geojson 必须是对象'}; const id=`geojson_${++geoSeq}`; const style=(input.style&&typeof input.style==='object')?input.style:{color:'#3388ff',weight:2,fillColor:'#3388ff',fillOpacity:0.2}; const layer=L.geoJSON(input.geojson,{style}).addTo(map); geoLayers.set(id,layer); return {ok:true,observation:`已添加 GeoJSON 图层 ${id}（${layer.getLayers().length} 个要素）`}; }
-    case 'map_clear_geojson': { const n=geoLayers.size; geoLayers.forEach(l=>map.removeLayer(l)); geoLayers.clear(); return {ok:true,observation:`已清除 ${n} 个 GeoJSON 图层`}; }
+    case 'map_fit_bounds': { const pts=Array.isArray(input.points)?input.points:[]; if(!pts.length) return {ok:false,error:'points 为空'}; const bounds=new maplibregl.LngLatBounds(); pts.forEach(p=>bounds.extend([p.longitude,p.latitude])); map.fitBounds(bounds,{padding:40}); return {ok:true,observation:`已适配 ${pts.length} 个点`}; }
+    case 'map_fly_to': { const z=typeof input.zoom==='number'?input.zoom:map.getZoom(); map.flyTo({center:[input.longitude,input.latitude],zoom:z}); return {ok:true,observation:`飞行至 (${input.latitude}, ${input.longitude})，zoom=${z}`}; }
+    case 'map_add_geojson': {
+      if(!input.geojson||typeof input.geojson!=='object') return {ok:false,error:'geojson 必须是对象'};
+      if(!map.isStyleLoaded()) await new Promise(resolve=>map.once('load',resolve));
+      const id=`geojson_${++geoSeq}`; const sourceId=`${id}:source`; const style=(input.style&&typeof input.style==='object')?input.style:{};
+      map.addSource(sourceId,{type:'geojson',data:input.geojson});
+      map.addLayer({id:`${id}:fill`,type:'fill',source:sourceId,filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':style.fillColor||'#3388ff','fill-opacity':style.fillOpacity??0.2}});
+      map.addLayer({id:`${id}:line`,type:'line',source:sourceId,paint:{'line-color':style.color||'#3388ff','line-width':style.weight||2}});
+      map.addLayer({id:`${id}:circle`,type:'circle',source:sourceId,filter:['==',['geometry-type'],'Point'],paint:{'circle-color':style.color||'#3388ff','circle-radius':5}});
+      geoLayers.set(id,{sourceId,layerIds:[`${id}:fill`,`${id}:line`,`${id}:circle`]});
+      return {ok:true,observation:`已添加 GeoJSON 图层 ${id}`};
+    }
+    case 'map_clear_geojson': { const n=geoLayers.size; geoLayers.forEach(entry=>{entry.layerIds.forEach(layerId=>{if(map.getLayer(layerId)) map.removeLayer(layerId);}); if(map.getSource(entry.sourceId)) map.removeSource(entry.sourceId);}); geoLayers.clear(); return {ok:true,observation:`已清除 ${n} 个 GeoJSON 图层`}; }
     case 'notify': { notify(input.level||'info', input.message); return {ok:true,observation:`已发送 ${(input.level||'info').toUpperCase()} 通知：${input.message}`}; }
     case 'list_sessions': {                                      // 给 agent 用：返回会话列表，agent 据此选 session_id
       const base=host||'http://localhost:5002';
@@ -376,7 +395,7 @@ function switchTab(tab){
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   $('pane-'+tab).classList.add('active');
-  if(tab==='map'&&map) setTimeout(()=>map.invalidateSize(),100);
+  if(tab==='map'&&map) setTimeout(()=>map.resize(),100);
 }
 
 initMap();
