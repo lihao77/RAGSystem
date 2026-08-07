@@ -1,8 +1,11 @@
 import { asRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
+import { isPathUnder } from "@ragsystem/backend-core/tools/shared/paths.js";
 import { ManagedPathResolver, type ManagedRoots } from "../../paths/managed-path-resolver.js";
 import { executionPathEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import {
@@ -51,10 +54,15 @@ export class CodeExecutionToolService {
     return this.paths.roots(context);
   }
 
+  getExternalCandidates(input: CodeExecutionInput, context: ToolExecContext, pathService: PathAccessPolicy): string[] {
+    return this.paths.getExternalCandidates(input.cwd, context, pathService);
+  }
+
   async executeCode(
     input: CodeExecutionInput,
     context: ToolExecContext,
     toolCaller: ToolCaller | null = null,
+    pathService: PathAccessPolicy | null = null,
   ): Promise<ToolExecutionResult> {
     const toolName = "execute_code";
     const prepared = prepareCodeExecution(input, {
@@ -66,13 +74,15 @@ export class CodeExecutionToolService {
     const code = plan.code;
     const timeoutSeconds = plan.timeoutSeconds;
     const roots = this.getManagedRoots(context);
+    const cwd = resolveCodeCwd(input.cwd, context, roots, pathService);
     for (const root of Object.values(roots)) {
       fs.mkdirSync(root, { recursive: true });
     }
+    fs.mkdirSync(cwd, { recursive: true });
 
     const startedAt = Date.now();
     const child = spawn(resolvePythonExecutable(), ["-u", "-c", PYTHON_RUNNER], {
-      cwd: roots.workspace,
+      cwd,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       env: {
@@ -93,6 +103,7 @@ export class CodeExecutionToolService {
     const payload = {
       code,
       roots,
+      cwd,
       data_root: this.dataRoot,
     };
     child.stdin.write(`${JSON.stringify(payload)}\n`, "utf8");
@@ -158,7 +169,7 @@ export class CodeExecutionToolService {
           classification: plan.riskLevel,
           execution_paths: roots,
         },
-        artifacts: [],
+        files: [],
         llmHint: null,
       };
     } finally {
@@ -317,9 +328,22 @@ function errorResult(
       source_shape: "error",
       ...metadata,
     },
-    artifacts: [],
+    files: [],
     llmHint: null,
   };
+}
+
+function resolveCodeCwd(
+  rawCwd: string | null | undefined,
+  context: ToolExecContext,
+  roots: ManagedRoots,
+  pathService: PathAccessPolicy | null,
+): string {
+  const raw = rawCwd?.trim() || ".";
+  const candidate = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(roots.workspace, raw);
+  if (pathService) return pathService.assertWithin(candidate, [roots.workspace], raw);
+  if (isPathUnder(candidate, roots.workspace)) return candidate;
+  throw new Error(`路径 '${raw}' 超出受管目录；外部 cwd 需要经过路径审批`);
 }
 
 const PYTHON_RUNNER = String.raw`
@@ -337,6 +361,7 @@ from pathlib import Path
 
 payload = json.loads(sys.stdin.readline())
 roots = payload["roots"]
+cwd = payload.get("cwd") or roots["workspace"]
 code = payload["code"]
 tool_calls_count = 0
 
@@ -366,13 +391,14 @@ def _send(message):
 def _emit(message):
     _send({"type": "done", **message})
 
-def _resolve_managed_path(raw_path, space="workspace"):
+def _resolve_managed_path(raw_path, space=None):
     raw = str(raw_path)
     if os.path.isabs(raw):
         return os.path.abspath(raw)
-    if space not in ("workspace", "transient"):
-        raise ValueError("space 必须是 workspace/transient 之一")
-    return os.path.abspath(os.path.join(roots[space], raw))
+    base = cwd if space is None else roots.get(space)
+    if not base:
+        raise ValueError("space 必须是 workspace 或 uploads")
+    return os.path.abspath(os.path.join(base, raw))
 
 def _path_ops_path(value):
     return _resolve_managed_path(value, "workspace")
@@ -380,8 +406,6 @@ def _path_ops_path(value):
 path_ops = types.ModuleType("path_ops")
 path_ops.SESSION_WORKSPACE_DIR = roots["workspace"]
 path_ops.SESSION_UPLOADS_DIR = roots["uploads"]
-path_ops.SESSION_ARTIFACTS_DIR = roots["artifacts"]
-path_ops.SESSION_TRANSIENT_DIR = roots["transient"]
 path_ops.join = os.path.join
 path_ops.basename = os.path.basename
 path_ops.dirname = os.path.dirname
@@ -434,9 +458,7 @@ env = {
     "request_write_approval": request_write_approval,
     "DATA_DIR": roots["workspace"],
     "SESSION_WORKSPACE_DIR": roots["workspace"],
-    "SESSION_TRANSIENT_DIR": roots["transient"],
     "SESSION_UPLOADS_DIR": roots["uploads"],
-    "SESSION_ARTIFACTS_DIR": roots["artifacts"],
     "path_ops": path_ops,
 }
 

@@ -78,6 +78,7 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveMonitoringApplication: NonNullable<RouteOptions["resolveMonitoringApplication"]>;
   resolveSessionFileApplication: NonNullable<RouteOptions["resolveSessionFileApplication"]>;
   resolveFileChangeApplication: NonNullable<RouteOptions["resolveFileChangeApplication"]>;
+  resolveWorkspaceFileApplication: NonNullable<RouteOptions["resolveWorkspaceFileApplication"]>;
   pluginRoutes?: readonly BackendRouteContribution[];
   emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
 }
@@ -113,6 +114,7 @@ export async function registerSharedBusinessRoutes(
       wsTickets: options.wsTickets,
       resolveSessionFileApplication: options.resolveSessionFileApplication,
       resolveFileChangeApplication: options.resolveFileChangeApplication,
+      resolveWorkspaceFileApplication: options.resolveWorkspaceFileApplication,
     });
     if (options.registerPublicAgui) {
       await scope.register(registerAguiRoutes, {

@@ -3,8 +3,8 @@
 """
 build_risk_layer.py - 批量风险评估 + GeoJSON 风险图层
 
-对多个地点批量调用风险评估，生成带风险等级属性的 GeoJSON Artifact。
-地图展示由模型在拿到 artifact_id 后调用 map_add_artifact_layer 完成。
+对多个地点批量调用风险评估，生成带风险等级属性的 GeoJSON File。
+地图展示由模型在拿到 file.path 后调用 map_add_file_layer 完成。
 
 用法:
   python build_risk_layer.py --data '[{"location":"南宁市","geometry":"POINT (108.32 22.82)","rainfall_24h":150}]'
@@ -180,12 +180,8 @@ def main():
             for marker in markers
         ],
     }
-    output_directory = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
-    if not output_directory:
-        print(json.dumps({"success": False, "error": "build_risk_layer.py 需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR"}, ensure_ascii=False))
-        sys.exit(1)
-    staged_filename = "risk-assessment.geojson"
-    output_path = Path(output_directory).resolve() / staged_filename
+    pathname = "risk-assessment.geojson"
+    output_path = Path.cwd() / pathname
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(geojson, ensure_ascii=False, allow_nan=False), encoding="utf-8")
 
@@ -205,19 +201,10 @@ def main():
             "detailed_results": detailed_results,
         },
         "summary": f"风险评估：{title}（{len(markers)}个监测点，{', '.join(summary_parts) or '无风险'}）",
-        "artifact": {
-            "schema_version": 2,
-            "kind": "vector.dataset",
-            "subtype": "risk-assessment",
-            "title": title,
-            "assets": [{
-                "asset_id": "data",
-                "role": "data",
-                "filename": staged_filename,
-                "media_type": "application/geo+json",
-                "staged_file": staged_filename,
-            }],
-            "presentations": [],
+        "file": {
+            "path": pathname,
+            "media_type": "application/geo+json",
+            "size": Path(pathname).stat().st_size,
             "metadata": {
                 "spatial": {"crs": "EPSG:4326", "bounds": [
                     bounds[0][1] - (0.00001 if bounds[0][1] == bounds[1][1] else 0),
@@ -238,3 +225,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

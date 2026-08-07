@@ -52,7 +52,7 @@ function inputValidationErrorResult(
         ? { issues: error.issues.map((issue) => ({ path: formatIssuePath(issue.path), code: issue.code, message: issue.message })) }
         : {}),
     },
-    artifacts: [],
+    files: [],
     llmHint: "请按工具参数 schema 修正参数后重试，不要原样重复失败调用。",
   };
 }

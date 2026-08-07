@@ -1,22 +1,15 @@
-"""Artifact V2 helpers for GeoJSON analysis results."""
+"""Common workspace-file helpers for GeoJSON analysis results."""
 
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any
 
 
-def require_staging() -> Path:
-    raw = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
-    if not raw:
-        raise ValueError("GeoJSON 分析需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
-    path = Path(raw).resolve()
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
+def output_dir() -> Path:
+    return Path.cwd()
 
 def safe_name(value: str, fallback: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())[:80].strip(".-")
@@ -50,22 +43,16 @@ def bounds(feature_collection: dict[str, Any]) -> list[float]:
     return [west, south, east, north]
 
 
-def write_artifact(data: dict[str, Any], output_name: str, subtype: str, title: str, metadata: dict[str, Any]) -> dict[str, Any]:
-    staging = require_staging()
+def write_file(data: dict[str, Any], output_name: str, subtype: str, title: str, metadata: dict[str, Any]) -> dict[str, Any]:
+    output = output_dir()
     filename = f"{safe_name(output_name, 'geojson-result')}.geojson"
-    (staging / filename).write_text(json.dumps(data, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+    target = output / filename
+    target.write_text(json.dumps(data, ensure_ascii=False, allow_nan=False), encoding="utf-8")
     return {
-        "schema_version": 2,
-        "kind": "vector.dataset",
+        "file": {"path": filename, "media_type": "application/geo+json", "size": target.stat().st_size,
+                 "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": bounds(data)}, **metadata}},
         "subtype": subtype,
         "title": title,
-        "assets": [{
-            "asset_id": "data",
-            "role": "data",
-            "filename": filename,
-            "media_type": "application/geo+json",
-            "staged_file": filename,
-        }],
-        "presentations": [],
-        "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": bounds(data)}, **metadata},
     }
+
+

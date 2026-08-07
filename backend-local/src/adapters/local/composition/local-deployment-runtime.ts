@@ -14,6 +14,7 @@ import {
   createLocalFileChangeApplicationResolver,
   createLocalRequestApplicationResolvers,
   createLocalSessionFileApplicationResolver,
+  createLocalWorkspaceFileApplicationResolver,
 } from "../application/local-request-application-resolvers.js";
 import { LocalTenantRuntimeRegistry } from "../tenant-runtime-registry.js";
 import { TenantPaths } from "../tenant-paths.js";
@@ -39,6 +40,7 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
     ...applications,
     resolveSessionFileApplication: createLocalSessionFileApplicationResolver(),
     resolveFileChangeApplication: createLocalFileChangeApplicationResolver(),
+    resolveWorkspaceFileApplication: createLocalWorkspaceFileApplicationResolver(),
   };
   const hostResources: readonly BackendPluginResourceContribution[] = [
     provideBackendResource(BACKEND_HOST_RESOURCES.deployment, { kind: "local" }, "@ragsystem/backend-local"),

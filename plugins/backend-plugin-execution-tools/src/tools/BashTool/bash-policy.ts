@@ -13,8 +13,7 @@ import { normalizeString } from "@ragsystem/backend-core/utils/guards.js";
 
 export interface BashExecutionInput {
   command: string;
-  workingDir?: string | null;
-  workingDirSpace?: string | null;
+  cwd?: string | null;
   timeout?: number | null;
   runInBackground?: boolean | null;
   description?: string | null;
@@ -31,8 +30,7 @@ export interface BashCommandClassification {
   approvalDescription: string;
   timeoutSeconds: number;
   runInBackground: boolean;
-  workingDir: string | null;
-  workingDirSpace: string | null;
+  cwd: string | null;
 }
 
 export interface BashExecutionPlan {
@@ -122,8 +120,7 @@ export function classifyBashCommand(
       approvalDescription: buildApprovalDescription({ command, description, category: validation.category, dangerousCommands }),
       timeoutSeconds: clampTimeout(input.timeout, options.defaultTimeoutSeconds, options.maxTimeoutSeconds),
       runInBackground: Boolean(input.runInBackground),
-      workingDir: input.workingDir ?? null,
-      workingDirSpace: input.workingDirSpace ?? null,
+      cwd: input.cwd ?? null,
     },
   };
 }
@@ -133,7 +130,6 @@ export function buildBashExecutionPlan(
   resolvedCwd: string,
   displayCwd = resolvedCwd,
 ): BashExecutionPlan {
-  const workingDirSpace = classification.workingDirSpace ?? "workspace";
   return {
     command: classification.command,
     cwd: resolvedCwd,
@@ -147,9 +143,8 @@ export function buildBashExecutionPlan(
     approvalDescription: classification.approvalDescription,
     approvalArguments: {
       command: classification.command,
-      working_dir: displayCwd,
-      working_dir_space: workingDirSpace,
-      resolved_working_dir: displayCwd,
+      cwd: displayCwd,
+      resolved_cwd: displayCwd,
       description: classification.description,
       classification: classification.category,
       command_segments: classification.approvalCommands,
@@ -157,8 +152,7 @@ export function buildBashExecutionPlan(
     },
     metadata: {
       command: classification.command,
-      working_dir: displayCwd,
-      working_dir_space: workingDirSpace,
+      cwd: displayCwd,
       classification: classification.category,
       risk_level: classification.riskLevel,
       timeout_seconds: classification.timeoutSeconds,

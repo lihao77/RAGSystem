@@ -4,11 +4,9 @@ Feature plugins depend on the public `@ragsystem/backend-core` plugin API. The
 core must never import a concrete plugin. Product workspaces install plugins in
 their `backend.plugins.yaml` manifest.
 
-The first extracted plugin is `@ragsystem/backend-plugin-artifacts`. It owns the
-Artifact HTTP routes; omitting it removes `/api/artifacts/*` while the kernel
-continues to start normally. Its application resolvers and session access policy
-are injected by the Local or SaaS product manifest, so the plugin does not import
-core request containers, route helpers, services, or error utilities.
+Plugins own optional product features and expose them through the public
+`@ragsystem/backend-core` plugin API. File outputs use the shared workspace file
+view; there is no dedicated Artifact route or staging plugin.
 
 Plugins register routes, per-run hooks, runtime tools, and opaque resources during
 setup, and may implement `start` and `stop` lifecycle hooks. Resource semantics
@@ -24,7 +22,6 @@ in that file are the complete plugin inventory:
 version: 1
 plugins:
   - module: "@ragsystem/backend-plugin-skills/module.js"
-  - module: "@ragsystem/backend-plugin-artifacts/module.js"
 ```
 
 Adding a plugin means installing its package and adding its module entry to the

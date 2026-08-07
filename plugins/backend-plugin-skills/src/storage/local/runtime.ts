@@ -7,7 +7,7 @@ import type { SkillsPluginRuntimeFactory } from "../../dependencies.js";
 import { SkillLibraryService } from "../../services/skill-library-service.js";
 import { SkillAuthoringService } from "../../services/skill-authoring-service.js";
 import { SkillToolService } from "../../tools/SkillExecution.js";
-import { resolveArtifactStagingService, resolveBuiltinSkillSources } from "../../resources.js";
+import { resolveBuiltinSkillSources } from "../../resources.js";
 import { SqliteSkillsAgentConfigStore } from "./agent-config-store.js";
 import { FilesystemSkillPackageStore } from "./package-store.js";
 import { SqliteSkillDraftStore } from "./skill-draft-store.js";
@@ -38,11 +38,6 @@ export function createLocalSkillsRuntimeFactory(): SkillsPluginRuntimeFactory {
       clientEvents: context.clientEvents,
       packageStore,
       additionalBuiltinSkillSources: resolveBuiltinSkillSources(context.resources ?? []),
-      artifactStaging: resolveArtifactStagingService(
-        context.resources ?? [],
-        context.tenantId,
-        context.dataRoot,
-      ),
     });
     const library = new SkillLibraryService(tools, packageStore);
     return {

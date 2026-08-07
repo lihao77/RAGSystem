@@ -1,6 +1,5 @@
 version: 1
 plugins:
-  - module: "@ragsystem/backend-plugin-artifacts/module.js"
   - module: "@ragsystem/backend-plugin-execution-tools/module.js"
   - module: "@ragsystem/backend-plugin-document-tools/module.js"
   - module: "@ragsystem/backend-plugin-daemon-feishu/module.js"

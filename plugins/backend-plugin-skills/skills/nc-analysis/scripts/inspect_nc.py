@@ -250,7 +250,7 @@ def coordinate_axis(name: str, variable: Any) -> str | None:
     return None
 
 
-def build_footprint_artifact(
+def build_footprint_file(
     variable_items: list[tuple[str, Any]],
     coordinate_ranges: dict[str, dict[str, Any]],
     filename: str,
@@ -300,30 +300,18 @@ def build_footprint_artifact(
             }
         ],
     }
-    output_directory = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
-    if not output_directory:
-        raise ValueError("inspect_nc.py 需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
-    staged_filename = "netcdf-footprint.geojson"
-    output_path = Path(output_directory).resolve() / staged_filename
+    pathname = "netcdf-footprint.geojson"
+    output_path = Path.cwd() / pathname
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(geojson, ensure_ascii=False, allow_nan=False), encoding="utf-8")
     return {
-        "schema_version": 2,
-        "kind": "vector.dataset",
-        "subtype": "dataset-footprint",
-        "title": f"{filename} 数据覆盖范围",
-        "assets": [{
-            "asset_id": "data",
-            "role": "data",
-            "filename": staged_filename,
-            "media_type": "application/geo+json",
-            "staged_file": staged_filename,
-        }],
-        "presentations": [],
-        "metadata": {
+        "file": {"path": pathname, "media_type": "application/geo+json", "size": output_path.stat().st_size,
+                 "metadata": {
             "spatial": {"crs": "EPSG:4326", "bounds": [west, south, east, north]},
             "feature_count": 1,
-        },
+        }},
+        "subtype": "dataset-footprint",
+        "title": f"{filename} 数据覆盖范围",
     }
 
 
@@ -414,7 +402,7 @@ def inspect_file(file_path: Path, Dataset: Any, num2date: Any, np: Any) -> dict[
                 "coordinate_ranges": coordinate_ranges_truncated,
             },
         }
-        artifact = build_footprint_artifact(variable_items, coordinate_ranges, file_path.name)
+        file = build_footprint_file(variable_items, coordinate_ranges, file_path.name)
         model_variables = [
             {
                 "name": item["name"],
@@ -437,7 +425,7 @@ def inspect_file(file_path: Path, Dataset: Any, num2date: Any, np: Any) -> dict[
                     "time_range": time_range,
                 }
             },
-            **({"artifact": artifact} if artifact else {}),
+            **({"file": file} if file else {}),
         }
 
 
@@ -476,3 +464,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

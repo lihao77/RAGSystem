@@ -18,8 +18,9 @@
 
 ## Statistics
 
-`summary_statistics.py --stats` accepts comma-separated `FIELD:METHOD` specifications. Methods are `count`, `sum`, `mean`, `min`, `max`, `median` and `std` (`stddev` is accepted as an alias). `--by` accepts comma-separated grouping fields. The result is a JSON table Artifact with `kind: table.dataset`; it is not a map layer.
+`summary_statistics.py --stats` accepts comma-separated `FIELD:METHOD` specifications. Methods are `count`, `sum`, `mean`, `min`, `max`, `median` and `std` (`stddev` is accepted as an alias). `--by` accepts comma-separated grouping fields. The result is a JSON table File with `kind: table.dataset`; it is not a map layer.
 
-## Artifact contract
+## File contract
 
-Vector outputs are GeoJSON in `RAGSYSTEM_ARTIFACT_OUTPUT_DIR` with media type `application/geo+json`, `kind: geospatial.vector`, and WGS84 bounds in `metadata.spatial`. Statistics use a JSON asset with media type `application/json` and `kind: table.dataset`. Scripts do not create artifact IDs or map configuration.
+Vector outputs are GeoJSON in the Agent-selected cwd with media type `application/geo+json`, `kind: geospatial.vector`, and WGS84 bounds in `metadata.spatial`. Statistics use a JSON file with media type `application/json` and `kind: table.dataset`. Scripts do not create file IDs or map configuration.
+

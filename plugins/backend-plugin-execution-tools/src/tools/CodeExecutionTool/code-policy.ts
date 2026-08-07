@@ -3,6 +3,7 @@ import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
 
 export interface CodeExecutionInput {
   code: string;
+  cwd?: string | null;
   description?: string | null;
   timeout?: number | null;
 }

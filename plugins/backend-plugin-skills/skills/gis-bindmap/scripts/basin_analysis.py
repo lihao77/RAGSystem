@@ -22,7 +22,7 @@ import argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _shared import (
     load_river_topology, load_geodata_features, error_exit,
-    build_point_artifact, geocode_location,
+    build_point_file, geocode_location,
 )
 
 
@@ -173,8 +173,8 @@ def do_downstream(args):
         ],
         "affected_cities": affected_cities,
     }
-    artifact = build_point_artifact(groups, f"{station_name}下游影响分析", "downstream-impact", {"river": river_name})
-    print(json.dumps({"success": True, "data": data, "artifact": artifact}, ensure_ascii=False, indent=2))
+    file = build_point_file(groups, f"{station_name}下游影响分析", "downstream-impact", {"river": river_name})
+    print(json.dumps({"success": True, "data": data, "file": file}, ensure_ascii=False, indent=2))
 
 
 def do_upstream(args):
@@ -208,8 +208,8 @@ def do_upstream(args):
             for s in upstream
         ],
     }
-    artifact = build_point_artifact(groups, f"{station_name}上游溯源分析", "upstream-trace", {"river": river_name})
-    print(json.dumps({"success": True, "data": data, "artifact": artifact}, ensure_ascii=False, indent=2))
+    file = build_point_file(groups, f"{station_name}上游溯源分析", "upstream-trace", {"river": river_name})
+    print(json.dumps({"success": True, "data": data, "file": file}, ensure_ascii=False, indent=2))
 
 
 def do_river(args):
@@ -273,8 +273,8 @@ def do_river(args):
     }
     if missing:
         data["missing_stations"] = missing
-    artifact = build_point_artifact(groups, f"{river['name']}流域水文站分布", "river-stations", {"river": river["name"]})
-    print(json.dumps({"success": True, "data": data, "artifact": artifact}, ensure_ascii=False, indent=2))
+    file = build_point_file(groups, f"{river['name']}流域水文站分布", "river-stations", {"river": river["name"]})
+    print(json.dumps({"success": True, "data": data, "file": file}, ensure_ascii=False, indent=2))
 
 
 def main():
@@ -301,3 +301,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

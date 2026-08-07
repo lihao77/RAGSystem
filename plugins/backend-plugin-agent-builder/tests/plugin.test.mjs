@@ -482,10 +482,9 @@ test("plugin contributes the Builder route only when installed", async () => {
   await absent.register();
   assert.equal(absent.routes("tenant").some((route) => route.prefix === "/api/agent-builder"), false);
 
-  const artifacts = { manifest: { id: "@ragsystem/backend-plugin-artifacts", version: "0.1.0" }, register() {} };
   const mcp = { manifest: { id: "@ragsystem/backend-plugin-mcp", version: "0.1.0" }, register() {} };
   const skills = { manifest: { id: "@ragsystem/backend-plugin-skills", version: "0.1.0" }, register() {} };
-  const installed = new BackendPluginManager([artifacts, mcp, skills, createAgentBuilderPlugin()]);
+  const installed = new BackendPluginManager([mcp, skills, createAgentBuilderPlugin()]);
   await installed.register();
   assert.equal(installed.routes("tenant").some((route) => route.prefix === "/api/agent-builder"), true);
 });
@@ -937,10 +936,9 @@ function cloneLoaded(value) {
 }
 
 function installedAgentBuilderManager() {
-  const artifacts = { manifest: { id: "@ragsystem/backend-plugin-artifacts", version: "0.1.0" }, register() {} };
   const mcp = { manifest: { id: "@ragsystem/backend-plugin-mcp", version: "0.1.0" }, register() {} };
   const skills = { manifest: { id: "@ragsystem/backend-plugin-skills", version: "0.1.0" }, register() {} };
-  return new BackendPluginManager([artifacts, mcp, skills, createAgentBuilderPlugin()]);
+  return new BackendPluginManager([mcp, skills, createAgentBuilderPlugin()]);
 }
 
 function runtimeContext(fixture) {

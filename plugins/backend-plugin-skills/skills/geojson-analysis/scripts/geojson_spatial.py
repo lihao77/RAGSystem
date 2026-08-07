@@ -8,7 +8,7 @@ import math
 import sys
 from pathlib import Path
 
-from _artifact import write_artifact
+from _file import write_file
 
 _EARTH_RADIUS_KM = 6371.0
 
@@ -132,15 +132,16 @@ def main():
             parser.error("--bbox 需要 4 个值: min_lng,min_lat,max_lng,max_lat")
         result = _query_bbox(data, bbox)
 
-    artifact = write_artifact(
+    file = write_file(
         result,
         f"geojson-{args.query_type}",
         args.query_type,
         f"GeoJSON {args.query_type} 查询结果",
         result.get("metadata", {}),
     )
-    json.dump({"success": True, "data": result.get("metadata", {}), "artifact": artifact}, sys.stdout, ensure_ascii=False)
+    json.dump({"success": True, "data": result.get("metadata", {}), "file": file}, sys.stdout, ensure_ascii=False)
 
 
 if __name__ == "__main__":
     main()
+

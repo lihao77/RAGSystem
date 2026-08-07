@@ -46,7 +46,7 @@ export function createSkillsPlugin(dependencies: SkillsPluginDependencies): Back
           routeContext.emitPluginEvent ? { emitPluginEvent: routeContext.emitPluginEvent } : {},
         );
       });
-      context.tools.register(async ({ agent, teamName, capabilities }) => {
+      context.tools.register(async ({ agent, teamName, capabilities, pathAccessPolicy }) => {
         if (!capabilities) throw new Error("Skills plugin requires runtime capabilities");
         const runtime = capabilities.require(SKILLS_RUNTIME_CAPABILITY);
         await runtime.tools.hydrateUserGlobalPackages();
@@ -54,7 +54,12 @@ export function createSkillsPlugin(dependencies: SkillsPluginDependencies): Back
           teamName: teamName ?? "default",
           agentName: agent.agent_name,
         });
-        const usageTools = createSkillTools({ skillTools: runtime.tools, agent, config });
+        const usageTools = createSkillTools({
+          skillTools: runtime.tools,
+          agent,
+          config,
+          pathService: pathAccessPolicy,
+        });
         const enabledTools = new Set(agent.tools.enabled_tools);
         const authoringTools = teamName === "agent-builder" && agent.default_entry
           ? createSkillAuthoringTools({

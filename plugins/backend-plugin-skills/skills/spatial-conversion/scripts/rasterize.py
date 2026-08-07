@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from _shared import crs_text, print_json, raster_artifact
+from _shared import crs_text, print_json, raster_file
 
 
 def main() -> int:
@@ -46,8 +46,8 @@ def main() -> int:
         pairs = ((geometry, float(value)) for geometry, value in zip(frame.geometry, attribute_values))
         array = rasterize(pairs, out_shape=(height, width), transform=transform, fill=0, all_touched=args.all_touched, dtype="float32")
         profile = {"driver": "GTiff", "crs": crs_text(frame.crs), "transform": transform, "nodata": 0, "dtype": "float32", "count": 1}
-        artifact = raster_artifact(array, profile, args.output_name, "rasterize", f"Rasterize · {Path(args.input).name}", {"input": args.input, "attribute": args.attribute, "resolution": args.resolution})
-        print_json({"success": True, "artifact": artifact, "shape": [height, width]})
+        file = raster_file(array, profile, args.output_name, "rasterize", f"Rasterize · {Path(args.input).name}", {"input": args.input, "attribute": args.attribute, "resolution": args.resolution})
+        print_json({"success": True, "file": file, "shape": [height, width]})
         return 0
     except (OSError, ValueError, RuntimeError, ImportError, TypeError) as error:
         print(f"spatial-conversion: {error}", file=sys.stderr)
@@ -56,3 +56,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

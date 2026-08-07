@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { bindArtifactMapRuntime } from './artifactMapRuntime.js';
+import { bindFileMapRuntime } from './fileMapRuntime.js';
 import { getHostTool, getHostToolDeclarations } from './hostTools.js';
 
 test('declares the tool-driven MapLibre workspace API', () => {
   const names = getHostToolDeclarations().map((tool) => tool.name);
   assert.deepEqual(names.filter((name) => name.startsWith('map_')), [
-    'map_add_artifact_layer',
+    'map_add_file_layer',
     'map_set_layer_style',
     'map_remove_layer',
     'map_list_layers',
@@ -22,7 +22,7 @@ test('declares the tool-driven MapLibre workspace API', () => {
 });
 
 test('returns compact map observations without serializing layer data', async () => {
-  const unbind = bindArtifactMapRuntime({
+  const unbind = bindFileMapRuntime({
     setLayerVisibility: ({ layer_id, visible }) => ({ layer_id, visible }),
     setLayerOpacity: ({ layer_id, opacity }) => ({ layer_id, opacity }),
   });

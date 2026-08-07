@@ -589,7 +589,7 @@ description: 知识图谱高级查询技能，通过执行自定义 Cypher 语�
 ---
 
 ### geo_export.py
-**功能**：从知识图谱导出地点或河流几何数据（WKT → GeoJSON），并保存为 Artifact V2 GeoJSON Asset。
+**功能**：从知识图谱导出地点或河流几何数据（WKT → GeoJSON），并保存为 File V2 GeoJSON Asset。
 
 **三种模式**：
 - `boundary`：查询行政区划边界（POLYGON/POINT），可选包含子区域
@@ -665,8 +665,9 @@ description: 知识图谱高级查询技能，通过执行自定义 Cypher 语�
 
 **输出说明**：
 - `data.feature_count`：导出要素数量
-- `artifact.assets[0]`：完整 GeoJSON 数据
-- `artifact.metadata.spatial.crs`：固定为 `EPSG:4326`
-- `artifact.metadata.spatial.bounds`：`[west, south, east, north]`
-- 工具返回真实 `artifact_id` 后调用 `map_add_artifact_layer`；样式和专题字段作为地图工具参数传递
-- 不把完整 POLYGON 坐标放入模型上下文，不构造地图配置，也不使用 `[artifact:...]` 触发地图渲染
+- `file.path`：完整 GeoJSON 文件的 workspace 相对路径
+- `file.metadata.spatial.crs`：固定为 `EPSG:4326`
+- `file.metadata.spatial.bounds`：`[west, south, east, north]`
+- 工具返回真实 `file.path` 后调用 `map_add_file_layer`；样式和专题字段作为地图工具参数传递
+- 不把完整 POLYGON 坐标放入模型上下文，不构造地图配置，也不使用 `[file:...]` 触发地图渲染
+

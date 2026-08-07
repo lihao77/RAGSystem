@@ -2,36 +2,36 @@ import { nextTick, onUnmounted, ref } from 'vue';
 import { parseMessageParts } from '../utils/message-render.js';
 
 export function useMessageArtifacts(deps) {
-  const artifactFocusTimer = ref(null);
-  const artifactFocusTarget = ref(null);
+  const fileFocusTimer = ref(null);
+  const fileFocusTarget = ref(null);
 
   const clearArtifactFocus = () => {
-    if (artifactFocusTimer.value) {
-      clearTimeout(artifactFocusTimer.value);
-      artifactFocusTimer.value = null;
+    if (fileFocusTimer.value) {
+      clearTimeout(fileFocusTimer.value);
+      fileFocusTimer.value = null;
     }
-    artifactFocusTarget.value?.classList.remove('artifact-inline-focus');
-    artifactFocusTarget.value = null;
+    fileFocusTarget.value?.classList.remove('file-inline-focus');
+    fileFocusTarget.value = null;
   };
 
-  const handleArtifactSelect = async ({ artifactId } = {}) => {
-    if (!artifactId) return;
+  const handleArtifactSelect = async ({ filePath } = {}) => {
+    if (!filePath) return;
     await nextTick();
     const root = deps.messagesRef.value;
-    const target = Array.from(root?.querySelectorAll('[data-artifact-id]') || [])
-      .find((node) => node.getAttribute('data-artifact-id') === artifactId);
+    const target = Array.from(root?.querySelectorAll('[data-file-path]') || [])
+      .find((node) => node.getAttribute('data-file-path') === filePath);
     if (!target) return;
 
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     clearArtifactFocus();
-    artifactFocusTarget.value = target;
-    target.classList.add('artifact-inline-focus');
-    artifactFocusTimer.value = setTimeout(() => {
-      target.classList.remove('artifact-inline-focus');
-      if (artifactFocusTarget.value === target) {
-        artifactFocusTarget.value = null;
+    fileFocusTarget.value = target;
+    target.classList.add('file-inline-focus');
+    fileFocusTimer.value = setTimeout(() => {
+      target.classList.remove('file-inline-focus');
+      if (fileFocusTarget.value === target) {
+        fileFocusTarget.value = null;
       }
-      artifactFocusTimer.value = null;
+      fileFocusTimer.value = null;
     }, 1600);
   };
 

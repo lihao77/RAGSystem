@@ -17,10 +17,7 @@ interface BashToolDeps {
 
 const bashSchema = z.object({
   command: z.string(),
-  working_dir: optionalString,
-  workingDir: optionalString,
-  working_dir_space: optionalString,
-  workingDirSpace: optionalString,
+  cwd: optionalString,
   timeout: optionalInteger,
   run_in_background: optionalBoolean,
   runInBackground: optionalBoolean,
@@ -55,9 +52,9 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
 
  本次 run 的默认工作目录是 workspace。相对路径只按当前 workspace 解析；不会在多个目录之间搜索或自动切换。
 
- - 需要其他目录时，请传入该目录的绝对路径，或显式使用 \`working_dir_space\`。
- - 工具运行时会注入四个 \`SESSION_*_DIR\` 环境变量。
- - 返回 metadata 会包含本次 run 的四类实际路径。`,
+ - 需要其他目录时，请传入该目录的绝对路径；workspace 外的路径会进入统一审批。
+ - 工具运行时会注入 \`SESSION_WORKSPACE_DIR\` 和 \`SESSION_UPLOADS_DIR\` 环境变量。
+ - 返回 metadata 会包含本次 run 的共享 workspace/uploads 路径。`,
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -67,14 +64,9 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
             type: "string",
             description: "Shell command to execute. Command substitution, hidden newlines, dangerous env overrides, and write redirection are blocked.",
           },
-          working_dir: {
+          cwd: {
             type: "string",
-            description: "Optional working directory. Relative paths resolve against workspace by default; use an absolute path or working_dir_space for another execution directory.",
-          },
-          working_dir_space: {
-            type: "string",
-            enum: ["workspace", "transient"],
-            description: "Optional explicit base for a relative working_dir. Without this parameter, workspace is always the base.",
+            description: "Optional working directory. Relative paths resolve against workspace; external paths require approval.",
           },
           timeout: {
             type: "integer",
@@ -100,7 +92,7 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
       isConcurrencySafe: () => false,
       checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision => {
         const bashInput = readBashArguments(input);
-        // 只做命令分类（不 resolve workingDir）：workingDir 越界时 pathService 尚未 approve，resolve 会抛错。
+        // 只做命令分类（不 resolve cwd）：cwd 越界时 pathService 尚未 approve，resolve 会抛错。
         // 路径越界候选单独计算并交给 permission mode；命令自身高危才声明 ask。
         // call 阶段（gate allow/审批后已 approve）才调完整 prepareExecution resolve。
         const classified = bashTools.buildCommandClassification(bashInput, deps.agent);
@@ -135,7 +127,7 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
         };
       },
       call: (input, ctx: ToolExecContext) => {
-        // workingDir 越界场景：gate 已审批 → pathService.approve(candidate) → 此处 resolve 放行。
+        // cwd 越界场景：gate 已审批 → pathService.approve(candidate) → 此处 resolve 放行。
         const prepared = bashTools.prepareExecution(readBashArguments(input), ctx, deps.agent, deps.pathService);
         if (!prepared.ok) {
           return prepared.result;

@@ -22,7 +22,7 @@ description: 检查本地 NetCDF 文件的格式、维度、变量、属性、�
 ```
 
 4. 根据返回 JSON 的 `data` 或大结果引用中的 `样本` 回答。必须读取并列出返回的变量名称、维度和单位，不要仅根据变量数量推断坐标变量或声称工具未返回变量。
-5. `inspect_nc.py` 返回覆盖范围 `artifact_id` 时，调用 `map_add_artifact_layer` 把该 Artifact 加入地图。不要根据脚本输出自行编造 ID。
+5. `inspect_nc.py` 返回覆盖范围 `file.path` 时，调用 `map_add_file_layer` 把该文件加入地图。不要根据脚本输出自行编造路径。
 
 ## 变量数值地图
 
@@ -36,7 +36,7 @@ description: 检查本地 NetCDF 文件的格式、维度、变量、属性、�
 }
 ```
 
-含深度维时可增加 `--depth-index`。没有明确时间或深度选择时使用索引 0，并在回答中清楚说明。根据返回的 `statistics` 报告最小值、最大值、平均值和单位。拿到工具真实返回的 `artifact_id` 后调用 `map_add_artifact_layer`，由地图工具把 PNG Asset 加入 MapLibre 地图。
+含深度维时可增加 `--depth-index`。没有明确时间或深度选择时使用索引 0，并在回答中清楚说明。根据返回的 `statistics` 报告最小值、最大值、平均值和单位。拿到工具真实返回的 `file.path` 后调用 `map_add_file_layer`，由地图工具读取该 PNG 文件。
 
 ## 约束
 
@@ -44,8 +44,9 @@ description: 检查本地 NetCDF 文件的格式、维度、变量、属性、�
 - 不把路径拼入命令字符串，不调用任意用户命令。
 - 工具失败时准确转述错误，不声称已经读取文件。
 - `inspect_nc.py` 只检查元数据和大小受限的坐标变量；`render_nc.py` 的统计覆盖完整所选切片，展示数据在超限时按块均值聚合为有界 PNG 栅格，并将等纬度网格重采样为 MapLibre 使用的 EPSG:3857 行间距。透明像素表示整块无有效值，不把单一采样点当作整块。
-- `inspect_nc.py` 发现经纬度覆盖范围时返回 EPSG:4326 GeoJSON 数据 Asset；`presentations` 为空。
-- `render_nc.py` 通过 `RAGSYSTEM_ARTIFACT_OUTPUT_DIR` 将 PNG 写入本次执行的 staging 目录，返回 `artifact.schema_version: 2`、`assets[]`、`metadata.spatial.crs`、`metadata.spatial.bounds` 和 `staged_file`；`presentations` 为空。PNG 不得以内联 `data_base64` 返回，也不要把完整栅格值矩阵放入 JSON。
-- 不使用 `[artifact:...]`、map presentation 或 renderer 展示 NC 空间产物；地图展示只能调用 `map_add_artifact_layer`。
+- `inspect_nc.py` 发现经纬度覆盖范围时返回 EPSG:4326 GeoJSON 文件引用。
+- `render_nc.py` 将 PNG 写入 Agent 选择的 cwd，返回 `file.path`、`file.media_type`、`file.size` 和空间元数据；PNG 不得以内联 `data_base64` 返回，也不要把完整栅格值矩阵放入 JSON。
+- 不使用 `[file:...]`、map presentation 或 renderer 展示 NC 空间产物；地图展示只能调用 `map_add_file_layer`。
 - `render_nc.py` 当前只支持单调的一维规则经纬度坐标；不支持时准确说明限制。
 - 若提示缺少 `netCDF4`，告知用户需要为当前 Python 环境安装本 Skill 的依赖；不要声称已经自动安装。
+

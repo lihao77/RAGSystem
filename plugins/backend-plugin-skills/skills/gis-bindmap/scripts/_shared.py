@@ -148,8 +148,8 @@ def _safe_name(value, fallback):
     return cleaned or fallback
 
 
-def build_point_artifact(groups, title, subtype, metadata=None):
-    """Write grouped point records as one data-first GeoJSON Artifact V2."""
+def build_point_file(groups, title, subtype, metadata=None):
+    """Write grouped point records as one data-first GeoJSON File V2."""
     features = []
     lngs = []
     lats = []
@@ -177,11 +177,8 @@ def build_point_artifact(groups, title, subtype, metadata=None):
     if not features:
         raise ValueError("分析结果没有可导出的空间要素")
 
-    output_directory = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
-    if not output_directory:
-        raise ValueError("空间分析需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
     filename = f"{_safe_name(subtype, 'spatial-result')}.geojson"
-    output_path = Path(output_directory).resolve() / filename
+    output_path = Path.cwd() / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
     collection = {"type": "FeatureCollection", "features": features}
     output_path.write_text(json.dumps(collection, ensure_ascii=False, allow_nan=False), encoding="utf-8")
@@ -194,22 +191,12 @@ def build_point_artifact(groups, title, subtype, metadata=None):
         north += 0.00001
     bounds = [west, south, east, north]
     return {
-        "schema_version": 2,
-        "kind": "vector.dataset",
+        "file": {"path": filename, "media_type": "application/geo+json", "size": output_path.stat().st_size,
+                 "metadata": {
+            "spatial": {"crs": "EPSG:4326", "bounds": bounds},
+            "feature_count": len(features), "groups": group_counts, **(metadata or {}),
+        }},
         "subtype": subtype,
         "title": title,
-        "assets": [{
-            "asset_id": "data",
-            "role": "data",
-            "filename": filename,
-            "media_type": "application/geo+json",
-            "staged_file": filename,
-        }],
-        "presentations": [],
-        "metadata": {
-            "spatial": {"crs": "EPSG:4326", "bounds": bounds},
-            "feature_count": len(features),
-            "groups": group_counts,
-            **(metadata or {}),
-        },
     }
+

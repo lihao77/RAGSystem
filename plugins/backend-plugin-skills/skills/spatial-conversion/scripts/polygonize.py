@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from _shared import print_json, vector_artifact
+from _shared import print_json, vector_file
 
 
 def main() -> int:
@@ -27,8 +27,8 @@ def main() -> int:
             mask = source.read_masks(args.band) > 0 if args.mask else None
             records = [{"value": value, "geometry": shape(geometry)} for geometry, value in shapes(values, mask=mask, transform=source.transform)]
             frame = gpd.GeoDataFrame(records, geometry="geometry", crs=source.crs)
-            artifact = vector_artifact(frame, args.output_name, "polygonize", f"Polygonize · {Path(args.input).name}", {"input": args.input, "band": args.band})
-            print_json({"success": True, "artifact": artifact, "feature_count": len(frame)})
+            file = vector_file(frame, args.output_name, "polygonize", f"Polygonize · {Path(args.input).name}", {"input": args.input, "band": args.band})
+            print_json({"success": True, "file": file, "feature_count": len(frame)})
             return 0
     except (OSError, ValueError, RuntimeError, ImportError, TypeError) as error:
         print(f"spatial-conversion: {error}", file=sys.stderr)
@@ -37,3 +37,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

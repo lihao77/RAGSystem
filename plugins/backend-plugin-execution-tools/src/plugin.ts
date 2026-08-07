@@ -37,6 +37,7 @@ export function createExecutionToolsPlugin(dependencies: ExecutionToolsPluginDep
           ...createCodeExecutionTools({
             codeExecutionTools: runtime.code,
             agent,
+            pathService: pathAccessPolicy,
             ...(callTool ? {
               callTool: (toolName, args, toolContext) => callTool(toolName, args, {
                 ...toolContext,

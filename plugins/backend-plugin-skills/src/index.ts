@@ -21,17 +21,9 @@ export {
   type SkillsApprovalConfig,
 } from "./system-config.js";
 export {
-  ARTIFACT_STAGING_RESOURCE_KIND,
-  ARTIFACT_STAGING_RESOURCE,
-  resolveArtifactStagingService,
   resolveBuiltinSkillSources,
   SKILL_SOURCE_RESOURCE,
   SKILL_SOURCE_RESOURCE_KIND,
-} from "./resources.js";
-export type {
-  ArtifactStagedFileResource,
-  ArtifactStagingRunResource,
-  ArtifactStagingServiceResource,
 } from "./resources.js";
 export { createLocalSkillsRuntimeFactory } from "./storage/local/runtime.js";
 export { FilesystemSkillPackageStore } from "./storage/local/package-store.js";

@@ -1,4 +1,5 @@
 interface:
   display_name: "Vector Spatial Analysis"
   short_description: "Deterministic vector geoprocessing with GeoPandas"
-  default_prompt: "Use $vector-spatial-analysis for reproducible vector spatial analysis and GeoJSON Artifacts."
+  default_prompt: "Use $vector-spatial-analysis for reproducible vector spatial analysis and GeoJSON Files."
+

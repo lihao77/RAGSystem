@@ -116,8 +116,8 @@ description: 广西洪涝灾害应急决策支持技能，提供完整的"态势
 1. guangxi-flood-data/fetch_weather.py --batch "14市" → 获取 rainfall_24h_mm
 2. guangxi-geodata/geocode.py --batch "14市" → 获取 wkt 坐标
 3. 组装 [{location, geometry, rainfall_24h, ...}] JSON
-4. `build_risk_layer.py --data "[...]"` → 自动评估并生成 GeoJSON Artifact
-5. 读取工具真实返回的 `artifact_id`，调用 `map_add_artifact_layer` 添加风险图层
+4. `build_risk_layer.py --data "[...]"` → 自动评估并生成 GeoJSON File
+5. 读取工具真实返回的 `file.path`，调用 `map_add_file_layer` 添加风险图层
 ```
 
 ---
@@ -145,7 +145,7 @@ description: 广西洪涝灾害应急决策支持技能，提供完整的"态势
 ---
 
 ### `build_risk_layer.py`
-**功能**：批量风险评估并生成带风险属性的 GeoJSON Artifact。脚本不生成地图配置；取得 `artifact_id` 后必须调用 `map_add_artifact_layer`。
+**功能**：批量风险评估并生成带风险属性的 GeoJSON 文件。脚本不生成地图配置；取得 `file.path` 后必须调用 `map_add_file_layer`。
 
 **参数**：
 - `--data`（必填）：JSON 数组，每项含 location/geometry + 气象水文字段
@@ -308,3 +308,4 @@ description: 广西洪涝灾害应急决策支持技能，提供完整的"态势
   }
 }
 ```
+

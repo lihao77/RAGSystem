@@ -5,8 +5,7 @@ import type { CodeExecutionInput } from "./CodeExecutionTool/CodeExecution.js";
 export function readBashArguments(value: Record<string, unknown> | undefined): BashExecutionInput {
   return {
     command: asString(value?.command) ?? "",
-    workingDir: asString(value?.working_dir) ?? asString(value?.workingDir),
-    workingDirSpace: asString(value?.working_dir_space) ?? asString(value?.workingDirSpace),
+    cwd: asString(value?.cwd),
     timeout: asInteger(value?.timeout),
     runInBackground: typeof value?.run_in_background === "boolean"
       ? value.run_in_background
@@ -18,6 +17,7 @@ export function readBashArguments(value: Record<string, unknown> | undefined): B
 export function readCodeExecutionArguments(value: Record<string, unknown> | undefined): CodeExecutionInput {
   return {
     code: asString(value?.code) ?? "",
+    cwd: asString(value?.cwd),
     description: asString(value?.description),
     timeout: asInteger(value?.timeout),
   };

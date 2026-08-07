@@ -21,10 +21,10 @@ export { executeToolCallRound } from "./tool-round-executor.js";
 export type { ToolRoundExecutorOptions } from "./tool-round-executor.js";
 // Observation 渲染
 export { buildLlmFacingToolResult, buildToolMediaModelContent, renderToolResultContent } from "./observation.js";
-export { withArtifactIndexLock, withLeaseLock } from "./artifact-index-lock.js";
-export type { ArtifactIndexLockOptions, LeaseLockOptions } from "./artifact-index-lock.js";
 // 工具引用/错误
 export { resolveToolArgumentReferences, collectResultPlaceholders, collectResultReferenceIndexes, materializeToolResult, buildToolReferenceErrorResult, buildToolExecutionErrorResult } from "./tool-references.js";
 // 并发调度
 export { runToolBatchWithScheduler, partitionToolCalls } from "./scheduler.js";
 export type { ToolSchedulerCall, ToolSchedulerExecutor } from "./scheduler.js";
+export { withLeaseLock } from "./lease-lock.js";
+export type { LeaseLockOptions } from "./lease-lock.js";

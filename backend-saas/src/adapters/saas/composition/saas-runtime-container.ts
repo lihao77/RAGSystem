@@ -94,7 +94,10 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     goalStore,
   );
   const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
-  const sandboxFileBridge = new SaaSSandboxFileBridge(sessionFiles);
+  const sandboxFileBridge = new SaaSSandboxFileBridge(
+    sessionFiles,
+    conversationRuntime.createWorkspaceBlobStorage(tenantId),
+  );
   const sandboxRuntime = new RunSandboxManager(
     tenantId,
     options.sandboxDriver,

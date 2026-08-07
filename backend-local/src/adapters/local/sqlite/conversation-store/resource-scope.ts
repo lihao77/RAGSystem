@@ -24,12 +24,6 @@ export function inferResourceScope(input: {
       if (bucket === "workspace") {
         return "workspace";
       }
-      if (bucket === "sandbox" || bucket === "transient") {
-        return "transient";
-      }
-      if (bucket === "artifacts") {
-        return "session";
-      }
     }
     return "session";
   }

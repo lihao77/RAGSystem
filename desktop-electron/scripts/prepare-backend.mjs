@@ -72,11 +72,6 @@ copyPackage(
   path.join(repoRoot, "node_modules", "sqlite-vec-windows-x64"),
 );
 fs.cpSync(
-  path.join(repoRoot, "plugins", "backend-plugin-artifacts", "skills"),
-  path.join(outputRoot, "plugin-modules", "plugin-assets", "artifacts", "skills"),
-  { recursive: true },
-);
-fs.cpSync(
   path.join(repoRoot, "plugins", "backend-plugin-skills", "skills"),
   path.join(outputRoot, "plugin-modules", "plugin-assets", "skills"),
   { recursive: true },

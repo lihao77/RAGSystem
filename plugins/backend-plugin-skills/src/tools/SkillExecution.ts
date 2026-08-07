@@ -1,6 +1,7 @@
 import { isRecord, normalizeString, asString, asRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
@@ -11,15 +12,13 @@ import {
   executionPathEnvironment,
 } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import type { BackgroundTaskPort } from "@ragsystem/backend-core/contracts/runtime/background-tasks.js";
 import type { ClientEventPublisherPort } from "@ragsystem/backend-core/contracts/runtime/core-runtime-ports.js";
+import { ManagedPathResolver } from "@ragsystem/backend-core/tools/shared/managed-path-resolver.js";
 import type { SkillsAgentConfig, SkillsAgentConfigService } from "../config.js";
 import type { ISkillPackageStore, SkillPackageRecord } from "../contracts/skills/skill-package-store.js";
-import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
-import type {
-  ArtifactStagingRunResource,
-  ArtifactStagingServiceResource,
-} from "../resources.js";
+import type { ToolExecContext, ToolExecutionResult, ToolFile } from "@ragsystem/agent-sdk";
 
 type SkillSourceType = "workspace" | "user_global" | "builtin";
 
@@ -70,6 +69,7 @@ export interface SkillToolInput {
   resourceFile?: string | null;
   scriptName?: string | null;
   arguments?: string[] | null;
+  cwd?: string | null;
   runInBackground?: boolean | null;
   workspaceRoot?: string | null;
 }
@@ -91,6 +91,7 @@ export class SkillToolService {
   private readonly builtinSkillsRoot: string;
   private readonly additionalBuiltinSkillSources: readonly BuiltinSkillSourceInput[];
   private readonly userGlobalSkillsRoot: string;
+  private readonly paths: ManagedPathResolver;
 
   constructor(
     options: {
@@ -102,7 +103,6 @@ export class SkillToolService {
       backgroundTasks?: BackgroundTaskPort | null | undefined;
       clientEvents?: ClientEventPublisherPort | null | undefined;
       skillIsolationMode?: SkillIsolationMode | undefined;
-      artifactStaging?: ArtifactStagingServiceResource | null | undefined;
       /**
        * When set, user_global discovery uses packageStore.list() records (skillDir may be
        * content-addressed). Without it, user_global is scanned under userGlobalSkillsRoot.
@@ -114,6 +114,7 @@ export class SkillToolService {
       throw new Error("SkillToolService 必须传入已解析的 dataRoot");
     }
     this.dataRoot = path.resolve(options.dataRoot);
+    this.paths = new ManagedPathResolver(this.dataRoot);
     this.builtinSkillsRoot = path.resolve(options.builtinSkillsRoot ?? resolveDefaultBuiltinSkillsRoot());
     this.additionalBuiltinSkillSources = dedupeBuiltinSkillSources(options.additionalBuiltinSkillSources ?? []);
     this.userGlobalSkillsRoot = path.resolve(options.userGlobalSkillsRoot ?? path.join(this.dataRoot, "skills"));
@@ -122,7 +123,6 @@ export class SkillToolService {
     this.clientEvents = options.clientEvents ?? null;
     this.skillIsolationMode = options.skillIsolationMode ?? resolveDefaultIsolationMode();
     this.packageStore = options.packageStore ?? null;
-    this.artifactStaging = options.artifactStaging ?? null;
   }
 
   private readonly skillsConfig: SkillsAgentConfigService | null;
@@ -130,7 +130,6 @@ export class SkillToolService {
   private readonly clientEvents: ClientEventPublisherPort | null;
   private readonly skillIsolationMode: SkillIsolationMode;
   private readonly packageStore: ISkillPackageStore | null;
-  private readonly artifactStaging: ArtifactStagingServiceResource | null;
   private readonly envLocks = new Map<string, Promise<unknown>>();
   /** Serializes packageStore.list() so concurrent hydrates cannot publish stale snapshots. */
   private hydrateChain: Promise<void> = Promise.resolve();
@@ -276,7 +275,13 @@ export class SkillToolService {
     );
   }
 
-  async executeSkillScript(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null, config: SkillsAgentConfig): Promise<ToolExecutionResult> {
+  async executeSkillScript(
+    input: SkillToolInput,
+    context: ToolExecContext,
+    agent: AgentConfig | null,
+    config: SkillsAgentConfig,
+    pathService: PathAccessPolicy | null = null,
+  ): Promise<ToolExecutionResult> {
     const toolName = "execute_skill_script";
     const scriptName = input.scriptName?.trim();
     if (!scriptName) {
@@ -304,40 +309,42 @@ export class SkillToolService {
       });
     }
     if (input.runInBackground) {
-      return this.executeSkillScriptInBackground(skill, scriptPath, scriptName, input.arguments ?? [], workspaceRoot, context, agent, config);
+      return this.executeSkillScriptInBackground(
+        skill,
+        scriptPath,
+        scriptName,
+        input.arguments ?? [],
+        input.cwd,
+        workspaceRoot,
+        context,
+        agent,
+        config,
+        pathService,
+      );
     }
 
-    let stagingRun: ArtifactStagingRunResource | null = null;
-    if (this.artifactStaging && normalizeString(context.sessionId)) {
-      try {
-        stagingRun = await this.artifactStaging.createRun({
-          sessionId: normalizeString(context.sessionId)!,
-          runId: normalizeString(context.runId),
-          toolCallId: normalizeString(context.toolCallId),
-        });
-      } catch (error) {
-        return errorResult(
-          `无法创建 Artifact staging 目录: ${error instanceof Error ? error.message : String(error)}`,
-          toolName,
-        );
-      }
-    }
+    let cwd: string;
     try {
-      const scriptResult = await this.runScript(
+      cwd = this.resolveExecutionCwd(input.cwd, workspaceRoot, context, pathService);
+    } catch (error) {
+      return errorResult(error instanceof Error ? error.message : String(error), toolName);
+    }
+
+    const scriptResult = await this.runScript(
         skill,
         scriptPath,
         input.arguments ?? [],
         context,
         workspaceRoot,
-        stagingRun?.outputDirectory ?? null,
-      );
+        cwd,
+    );
       const meta: Record<string, unknown> = {
         success: scriptResult.returnCode === 0,
         script_name: scriptName,
         skill: skill.name,
       };
       if (scriptResult.stderr.trim()) meta.stderr = scriptResult.stderr;
-      if (scriptResult.stdout.length > 4000) meta.force_artifact = true;
+      if (scriptResult.stdout.length > 4000) meta.force_file = true;
 
       if (scriptResult.returnCode === 0) {
         const parsed = parseJsonStdout(scriptResult.stdout);
@@ -347,10 +354,9 @@ export class SkillToolService {
             scriptName,
             skill.name,
             meta,
-            stagingRun,
+            cwd,
           );
-          if (normalized.keepStaging) stagingRun = null;
-          return normalized.result;
+          return normalized;
         }
       }
 
@@ -369,9 +375,6 @@ export class SkillToolService {
           toolName,
         },
       );
-    } finally {
-      if (stagingRun) await this.artifactStaging?.discardRun(stagingRun.stageRunId).catch(() => undefined);
-    }
   }
 
   loadAllSkills(workspaceRoot?: string | null): SkillInfo[] {
@@ -445,7 +448,7 @@ export class SkillToolService {
     args: string[],
     context: ToolExecContext,
     workspaceRoot: string | null,
-    artifactOutputDirectory: string | null,
+    cwd: string,
   ): Promise<{ stdout: string; stderr: string; returnCode: number }> {
     const environment = await this.ensureSkillEnvironment(skill, context.signal);
     if ("error" in environment) {
@@ -456,7 +459,7 @@ export class SkillToolService {
       ? { ...context.executionPaths, workspace: resolvedWorkspace }
       : createLocalExecutionPaths(this.dataRoot, { ...context, workspaceRoot: resolvedWorkspace });
     return spawnProcess(environment.python, [scriptPath, ...args.map(String)], {
-      cwd: resolvedWorkspace,
+      cwd,
       timeoutMs: 30_000,
       timeoutMessage: "脚本执行超时（>30秒）",
       ...(context.signal ? { signal: context.signal } : {}),
@@ -466,7 +469,6 @@ export class SkillToolService {
         PYTHONUTF8: "1",
         RAG_DATA_ROOT: this.dataRoot,
         ...(context.sessionId ? { RAG_SESSION_ID: context.sessionId } : {}),
-        ...(artifactOutputDirectory ? { RAGSYSTEM_ARTIFACT_OUTPUT_DIR: artifactOutputDirectory } : {}),
         ...executionPathEnvironment(executionPaths),
       },
     });
@@ -500,10 +502,12 @@ export class SkillToolService {
     scriptPath: string,
     scriptName: string,
     args: string[],
+    cwd: string | null | undefined,
     workspaceRoot: string | null,
     context: ToolExecContext,
     agent: AgentConfig | null,
     config: SkillsAgentConfig,
+    pathService: PathAccessPolicy | null,
   ): ToolExecutionResult {
     const toolName = "execute_skill_script";
     if (!this.backgroundTasks) {
@@ -521,7 +525,7 @@ export class SkillToolService {
         background_started: false,
       });
     }
-    const outputDir = path.join(this.dataRoot, "sessions", sessionId, "transient");
+    const outputDir = path.join(os.tmpdir(), "ragsystem-background", sessionId);
     const resolvedWorkspace = workspaceRoot ?? context.executionPaths?.workspace ?? createLocalExecutionPaths(this.dataRoot, context).workspace;
     const executionPaths = context.executionPaths
       ? { ...context.executionPaths, workspace: resolvedWorkspace }
@@ -536,10 +540,18 @@ export class SkillToolService {
       resultType: "tool_execution_result",
       clientEvents: this.clientEvents,
       run: ({ signal }) => this.executeSkillScript(
-        { skillName: skill.name, scriptName, arguments: args, runInBackground: false, workspaceRoot },
+        {
+          skillName: skill.name,
+          scriptName,
+          arguments: args,
+          ...(cwd !== undefined ? { cwd } : {}),
+          runInBackground: false,
+          workspaceRoot,
+        },
         { ...context, signal },
         agent,
         config,
+        pathService,
       ),
     });
     return successResult(
@@ -574,52 +586,58 @@ export class SkillToolService {
     );
   }
 
+  getExternalCwdCandidates(
+    cwd: string | null | undefined,
+    context: ToolExecContext,
+    agent: AgentConfig | null,
+    pathService: PathAccessPolicy,
+  ): string[] {
+    const workspaceRoot = resolveWorkspaceRoot(context, agent);
+    const executionContext = workspaceRoot
+      ? { ...context, executionPaths: { ...this.paths.roots(context), workspace: workspaceRoot } }
+      : context;
+    return this.paths.getExternalCandidates(cwd, executionContext, pathService);
+  }
+
+  private resolveExecutionCwd(
+    cwd: string | null | undefined,
+    workspaceRoot: string | null,
+    context: ToolExecContext,
+    pathService: PathAccessPolicy | null,
+  ): string {
+    const executionPaths = {
+      ...this.paths.roots(context),
+      workspace: path.resolve(workspaceRoot ?? this.paths.roots(context).workspace),
+    };
+    const effectivePolicy = pathService ?? workspaceOnlyPathPolicy(executionPaths.workspace);
+    return this.paths.resolveWorkingDirectory(cwd, { ...context, executionPaths }, effectivePolicy);
+  }
+
   private async normalizeStructuredScriptResult(
     rawPayload: unknown,
     scriptName: string,
     skillName: string,
     metadata: Record<string, unknown>,
-    stagingRun: ArtifactStagingRunResource | null,
-  ): Promise<{ result: ToolExecutionResult; keepStaging: boolean }> {
+    cwd: string,
+  ): Promise<ToolExecutionResult> {
     const unwrapped = unwrapScriptResponse(rawPayload);
     if (unwrapped.error) {
-      return { result: errorResult(unwrapped.error, "execute_skill_script"), keepStaging: false };
+      return errorResult(unwrapped.error, "execute_skill_script");
     }
     let payload = mergeStructuredExtensions(unwrapped.payload, unwrapped.extensions);
     Object.assign(metadata, unwrapped.metadata);
-    let stagedFileCount = 0;
-    try {
-      const registered = await registerArtifactStagedFiles(
-        payload,
-        this.artifactStaging,
-        stagingRun,
-      );
-      payload = registered.payload;
-      stagedFileCount = registered.stagedFileCount;
-    } catch (error) {
-      return {
-        result: errorResult(
-          `Artifact staging 登记失败: ${error instanceof Error ? error.message : String(error)}`,
-          "execute_skill_script",
-          { script_name: scriptName, skill: skillName },
-        ),
-        keepStaging: false,
-      };
-    }
-    return {
-      result: successResult(payload, {
+    const file = extractSkillFileReference(rawPayload, cwd);
+    return successResult(payload, {
         summary: `脚本 ${scriptName} 执行完成（返回结构化 JSON）`,
         outputType: "json",
         metadata: {
           ...metadata,
           script_name: scriptName,
           skill: skillName,
-          ...(stagedFileCount ? { staged_file_count: stagedFileCount } : {}),
         },
         toolName: "execute_skill_script",
-      }),
-      keepStaging: stagedFileCount > 0,
-    };
+        ...(file ? { files: [file] } : {}),
+      });
   }
 
   /**
@@ -698,12 +716,28 @@ export function readSkillToolArguments(value: Record<string, unknown> | undefine
     resourceFile: asString(value?.resource_file) ?? asString(value?.resourceFile),
     scriptName: asString(value?.script_name) ?? asString(value?.scriptName),
     arguments: readStringArray(value?.arguments),
+    cwd: asString(value?.cwd),
     runInBackground: typeof value?.run_in_background === "boolean"
       ? value.run_in_background
       : typeof value?.runInBackground === "boolean"
         ? value.runInBackground
         : null,
     workspaceRoot: asString(value?.workspace_root) ?? asString(value?.workspaceRoot),
+  };
+}
+
+function workspaceOnlyPathPolicy(workspace: string): PathAccessPolicy {
+  return {
+    approve: () => undefined,
+    isApproved: () => false,
+    collectUnapproved: (candidates) => candidates.filter((item): item is string => typeof item === "string"),
+    setAllowUnapprovedExternalPaths: () => undefined,
+    assertWithin(candidate, _roots, originalPath) {
+      const resolved = path.resolve(candidate);
+      const relative = path.relative(path.resolve(workspace), resolved);
+      if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) return resolved;
+      throw new Error(`路径 '${originalPath}' 超出 workspace；外部 cwd 需要经过路径审批`);
+    },
   };
 }
 
@@ -837,56 +871,32 @@ function mergeStructuredExtensions(payload: unknown, extensions: Record<string, 
   return isRecord(payload) ? { ...payload, ...extensions } : { data: payload, ...extensions };
 }
 
-async function registerArtifactStagedFiles(
-  payload: unknown,
-  staging: ArtifactStagingServiceResource | null,
-  stagingRun: ArtifactStagingRunResource | null,
-): Promise<{ payload: unknown; stagedFileCount: number }> {
-  if (!isRecord(payload) || !isRecord(payload.artifact) || !Array.isArray(payload.artifact.assets)) {
-    return { payload, stagedFileCount: 0 };
-  }
-  const outputs: Array<{
-    relativePath: string;
-    filename?: string;
-    mediaType?: string;
-  }> = [];
-  const stagedIndexes = new Map<number, number>();
-  for (let index = 0; index < payload.artifact.assets.length; index += 1) {
-    const asset = payload.artifact.assets[index];
-    if (!isRecord(asset)) continue;
-    if (asset.staged_file_id != null) {
-      throw new Error("Skill 脚本不能直接提供 staged_file_id");
-    }
-    if (asset.staged_file == null) continue;
-    const relativePath = asString(asset.staged_file)?.trim();
-    if (!relativePath) throw new Error("asset.staged_file 必须是非空相对路径");
-    if (asset.data_base64 != null) throw new Error("asset 不能同时提供 staged_file 和 data_base64");
-    const filename = asString(asset.filename)?.trim();
-    const mediaType = asString(asset.media_type)?.trim();
-    stagedIndexes.set(index, outputs.length);
-    outputs.push({
-      relativePath,
-      ...(filename ? { filename } : {}),
-      ...(mediaType ? { mediaType } : {}),
-    });
-  }
-  if (!outputs.length) return { payload, stagedFileCount: 0 };
-  if (!staging || !stagingRun) {
-    throw new Error("脚本使用 staged_file 时需要 session 和 Artifact staging 插件");
-  }
-  const registered = await staging.registerOutputs(stagingRun.stageRunId, outputs);
-  if (registered.length !== outputs.length) throw new Error("Artifact staging 返回的文件数量不一致");
-  const assets = payload.artifact.assets.map((asset, index) => {
-    const registeredIndex = stagedIndexes.get(index);
-    if (registeredIndex == null || !isRecord(asset)) return asset;
-    const stagedFile = registered[registeredIndex];
-    if (!stagedFile) throw new Error("Artifact staging 文件登记结果缺失");
-    const { staged_file: _stagedFile, ...rest } = asset;
-    return { ...rest, staged_file_id: stagedFile.stagedFileId };
-  });
+function extractSkillFileReference(rawPayload: unknown, cwd: string): ToolFile | null {
+  if (!isRecord(rawPayload)) return null;
+  const candidate = isRecord(rawPayload.file)
+    ? rawPayload.file
+    : isRecord(rawPayload.data) && isRecord(rawPayload.data.file) ? rawPayload.data.file : null;
+  if (!candidate) return null;
+  const rawPath = asString(candidate.path) ?? asString(candidate.filename);
+  if (!rawPath) return null;
+  const resolved = path.resolve(cwd, rawPath);
+  const relative = path.relative(path.resolve(cwd), resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
+  let size = typeof candidate.size === "number" && Number.isFinite(candidate.size) ? candidate.size : 0;
+  try { size = fs.statSync(resolved).size; } catch { /* The script may return a path before a later stage creates it. */ }
+  const mimeType = asString(candidate.mime_type) ?? asString(candidate.media_type) ?? "application/octet-stream";
+  const fileType: ToolFile["fileType"] = mimeType.startsWith("image/") ? "image" : mimeType.startsWith("text/") ? "text" : "json";
   return {
-    payload: { ...payload, artifact: { ...payload.artifact, assets } },
-    stagedFileCount: registered.length,
+    fileType,
+    path: relative.replace(/\\/g, "/"),
+    mimeType,
+    size,
+    metadata: {
+      lifecycle: "workspace",
+      relative_path: relative.replace(/\\/g, "/"),
+      ...(asString(candidate.kind) ? { kind: candidate.kind } : {}),
+      ...(asString(candidate.subtype) ? { subtype: candidate.subtype } : {}),
+    },
   };
 }
 
@@ -898,6 +908,7 @@ function successResult<T>(
     metadata: Record<string, unknown>;
     toolName: string;
     llmHint?: string | null;
+    files?: ToolFile[];
   },
 ): ToolExecutionResult {
   return {
@@ -908,7 +919,7 @@ function successResult<T>(
     outputType: input.outputType,
     content,
     metadata: input.metadata,
-    artifacts: [],
+    files: input.files ?? [],
     llmHint: input.llmHint ?? null,
   };
 }
@@ -929,7 +940,7 @@ function errorResult(
       source_shape: "error",
       ...metadata,
     },
-    artifacts: [],
+    files: [],
     llmHint: null,
   };
 }

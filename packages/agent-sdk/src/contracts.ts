@@ -66,8 +66,8 @@ export interface PreparedRoundToolCall {
 export type KernelToolCall = PreparedRoundToolCall;
 
 /** observation 落盘产物（大 payload 物化成文件后的引用）。 */
-export interface ToolArtifact {
-  artifactType: "json" | "text" | "image";
+export interface ToolFile {
+  fileType: "json" | "text" | "image";
   path: string;
   mimeType: string;
   size: number;
@@ -92,7 +92,7 @@ export interface ToolExecutionResult {
   outputType: string;
   content: unknown;
   metadata: Record<string, unknown>;
-  artifacts: ToolArtifact[];
+  files: ToolFile[];
   media?: ToolResultMedia[];
   llmHint: string | null;
 }
@@ -231,8 +231,6 @@ export interface ToolExecContext {
 export interface ToolExecutionPaths {
   workspace: string;
   uploads: string;
-  artifacts: string;
-  transient: string;
 }
 
 /** 后台任务等待请求。 */

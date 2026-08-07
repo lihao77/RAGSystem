@@ -61,6 +61,7 @@ export interface SessionApplication {
   removeWorkspace(workspaceId: string): Promise<boolean>;
   resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
+  resolveWorkspaceRoot(sessionId: string): Promise<string | null>;
   getSessionForExecutionValidation(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown>>;
   updateSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<boolean>;

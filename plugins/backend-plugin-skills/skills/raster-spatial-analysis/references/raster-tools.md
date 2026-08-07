@@ -7,7 +7,7 @@
 `describe_raster.py`
 
 - 必选：`--input RASTER`
-- 仅返回元数据，不生成 Artifact。
+- 仅返回元数据，不生成 File。
 
 ## 投影、裁剪和网格
 
@@ -71,7 +71,7 @@
 
 - 必选：`--input RASTER`
 - 可选：`--band N`
-- 不传 `--band` 时统计全部波段，输出 count、min、max、mean、sum、std 的 JSON Artifact。
+- 不传 `--band` 时统计全部波段，输出 count、min、max、mean、sum、std 的 JSON File。
 
 `zonal_statistics.py`
 
@@ -89,3 +89,4 @@
 
 - 必选：`--input RASTER1 RASTER2 ...`
 - 使用 Rasterio merge 生成多波段镶嵌 GeoTIFF。
+

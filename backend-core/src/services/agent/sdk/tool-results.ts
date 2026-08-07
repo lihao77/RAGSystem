@@ -24,7 +24,7 @@ export function toolSuccess<T>(
     outputType: input.outputType,
     content,
     metadata: input.metadata ?? {},
-    artifacts: [],
+    files: [],
     llmHint: null,
   };
   if (input.media?.length) result.media = input.media;
@@ -47,7 +47,7 @@ export function toolError(
       source_shape: "error",
       ...metadata,
     },
-    artifacts: [],
+    files: [],
     llmHint: null,
   };
 }

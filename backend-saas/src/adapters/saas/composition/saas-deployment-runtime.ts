@@ -18,6 +18,7 @@ import { SaaSMonitoringApplication } from "../application/monitoring/saas-monito
 import { SaaSProviderApplication } from "../application/provider/saas-provider-application.js";
 import { SaaSSessionApplication } from "../application/session/saas-session-application.js";
 import { SaaSSessionFileApplication } from "../application/session-file/saas-session-file-application.js";
+import { SaaSWorkspaceFileApplication } from "../application/workspace-file/saas-workspace-file-application.js";
 import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./saas-control-runtime.js";
 import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
 import { createSaaSObjectStorage } from "./saas-object-storage.js";
@@ -76,13 +77,16 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
   const conversation = conversationRuntime;
   const pool = dataPool;
   const objects = objectStorage;
-  if (!objects) throw new Error("SaaS artifact plugin requires ObjectStorage");
+  if (!objects) throw new Error("SaaS file storage requires ObjectStorage");
   const deploymentApplications: DeploymentApplicationResolvers = {
     resolveSessionFileApplication: (request) => new SaaSSessionFileApplication(
       conversation.createSessionFileStorage(request.identity.tenantId),
     ),
     resolveFileChangeApplication: (request) => new SaaSFileChangeApplication(
       conversation.createFileHistoryStorage(request.identity.tenantId),
+    ),
+    resolveWorkspaceFileApplication: (request) => new SaaSWorkspaceFileApplication(
+      conversation.createWorkspaceBlobStorage(request.identity.tenantId),
     ),
     resolveProviderApplication: (request) => new SaaSProviderApplication(
       request.identity.tenantId,

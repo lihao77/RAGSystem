@@ -2,6 +2,7 @@ import { normalizeString } from "@ragsystem/backend-core/utils/guards.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import type { BackgroundTaskPort } from "@ragsystem/backend-core/contracts/runtime/background-tasks.js";
@@ -39,9 +40,9 @@ const PROCESS_TERMINATION_WAIT_MS = 5_000;
 const GROUP_KILLER_TIMEOUT_MS = 1_000;
 
 /**
- * 命令分类（不 resolve workingDir）—— checkAccess 用。
+ * 命令分类（不 resolve cwd）—— checkAccess 用。
  * prepareExecution 据此 + resolveWorkingDirectory 建 plan（含 resolved cwd）。
- * 拆分目的：checkAccess 阶段 workingDir 越界时 pathService.approved 还空（approve 在 gate 后），
+ * 拆分目的：checkAccess 阶段 cwd 越界时 pathService.approved 还空（approve 在 gate 后），
  * 若此时 resolve 会抛错被吞成 deny；故 checkAccess 只分类（不 resolve），call 阶段才 resolve。
  */
 interface ForegroundResult {
@@ -100,14 +101,13 @@ export class LocalBashToolService {
     const c = classified.classification;
     let cwd: string;
     try {
-      cwd = this.paths.resolveWorkingDirectory(c.workingDir, c.workingDirSpace, context, pathService);
+      cwd = this.paths.resolveWorkingDirectory(c.cwd, context, pathService);
     } catch (error) {
       return {
         ok: false,
         result: errorResult(error instanceof Error ? error.message : String(error), {
           command: c.command,
-          working_dir: c.workingDir ?? ".",
-          working_dir_space: c.workingDirSpace ?? "workspace",
+          cwd: c.cwd ?? ".",
         }),
       };
     }
@@ -115,7 +115,7 @@ export class LocalBashToolService {
   }
 
   getExternalCandidates(input: BashExecutionInput, context: ToolExecContext, pathService: PathAccessPolicy): string[] {
-    return this.paths.getExternalCandidates(input.workingDir, context, pathService);
+    return this.paths.getExternalCandidates(input.cwd, context, pathService);
   }
 
   async executePlan(plan: BashExecutionPlan, context: ToolExecContext): Promise<ToolExecutionResult> {
@@ -183,7 +183,7 @@ export class LocalBashToolService {
         background_started: false,
       });
     }
-    const outputDir = path.join(this.dataRoot, "sessions", sessionId, "transient");
+    const outputDir = path.join(os.tmpdir(), "ragsystem-background", sessionId);
     const task = this.backgroundTasks.spawnBash({
       command: plan.command,
       bashExecutable: this.bashExecutable,

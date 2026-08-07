@@ -3,8 +3,9 @@
  *
  * 工具执行的"O"：把 ToolExecutionResult 变成回喂给模型的 observation 文本。
  * 两层职责：
- * - buildLlmFacingToolResult：大 payload 决策——超过 inline 预算的 content 物化成 artifact 文件，
- *   落到 dataRoot/sessions/<sid>/transient/，结果替换成文件路径引用（供后续工具 {result_N} 复用）。
+ * - buildLlmFacingToolResult：大 payload 决策——超过 inline 预算的 content 物化成临时文件，
+ *   结果替换成文件路径引用（供后续工具 {result_N} 复用）。工具自己生成的持久文件由其 cwd 决定，
+ *   observation 只负责处理仍停留在内存中的结果。
  * - renderToolResultContent：把最终结果包进 <tool_result> 语义块（execute_bash/request_user_input 等特判）。
  *
  * 与 backend-ts 差异：
@@ -15,13 +16,13 @@
  */
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { ContentPart, ProviderConfig } from "@ragsystem/agent-llm";
-import type { ToolArtifact, ToolExecutionResult, ToolExecContext, ToolResultMedia } from "../contracts.js";
+import type { ToolFile, ToolExecutionResult, ToolExecContext, ToolResultMedia } from "../contracts.js";
 import type { AgentProfile } from "../types.js";
 import type { ObservationPolicy } from "../prompt/tool-types.js";
 import { renderSemanticBlock } from "../llm-protocol/xml/rendering.js";
-import { withArtifactIndexLock } from "./artifact-index-lock.js";
 
 const GEOJSON_TYPES = new Set(["FeatureCollection", "Feature", "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"]);
 const MAX_TOOL_IMAGES = 4;
@@ -29,10 +30,10 @@ const MAX_TOOL_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_TOOL_IMAGE_TOTAL_BYTES = 20 * 1024 * 1024;
 
 interface ObservationDecision {
-  mode: "inline" | "artifact_ref";
+  mode: "inline" | "file_ref";
   reason: string;
   estimatedSize: number;
-  artifactTtlSeconds: number | null;
+  fileTtlSeconds: number | null;
   budgetBucket: string;
 }
 
@@ -40,7 +41,7 @@ interface ObservationBudget {
   bucketName: string;
   inlineTextLimit: number;
   inlineJsonLimit: number;
-  artifactTtlSeconds: number;
+  fileTtlSeconds: number;
 }
 
 export async function buildLlmFacingToolResult(input: {
@@ -57,21 +58,14 @@ export async function buildLlmFacingToolResult(input: {
     return input.result;
   }
 
-  const sessionId = asNonEmptyString(input.toolContext.sessionId);
-  if (!sessionId) {
-    return input.result;
-  }
-
   try {
-    const artifact = await saveObservationArtifact({
-      dataRoot: input.dataRoot,
-      sessionId,
+    const file = await saveObservationFile({
       toolName: input.result.toolName || input.toolName,
       content: input.result.content,
       decision,
     });
-    input.result.artifacts.push(artifact);
-    return makeObservationOnlyToolResult(input.result, renderLargePayloadReference({ result: input.result, artifact, estimatedSize: decision.estimatedSize }));
+    input.result.files.push(file);
+    return makeObservationOnlyToolResult(input.result, renderLargePayloadReference({ result: input.result, file, estimatedSize: decision.estimatedSize }));
   } catch {
     return input.result;
   }
@@ -87,8 +81,6 @@ export async function buildToolMediaModelContent(input: {
 }): Promise<ContentPart[] | null> {
   const media = input.result.media?.slice(0, MAX_TOOL_IMAGES) ?? [];
   if (!media.length) return null;
-  const sessionId = asNonEmptyString(input.toolContext.sessionId);
-  if (!sessionId) return null;
   const budget = resolveObservationBudget(input.profile, input.provider);
   const parts: ContentPart[] = [{ type: "text", text: input.observation }];
   const materialized: ToolResultMedia[] = [];
@@ -107,16 +99,14 @@ export async function buildToolMediaModelContent(input: {
         continue;
       }
       totalBytes += bytes.length;
-      const artifact = await saveToolImageArtifact({
-        dataRoot: input.dataRoot,
-        sessionId,
+      const file = await saveToolImageFile({
         toolName: input.result.toolName,
         mimeType: item.mimeType,
         bytes,
-        ttlSeconds: budget.artifactTtlSeconds,
+        ttlSeconds: budget.fileTtlSeconds,
       });
-      input.result.artifacts.push(artifact);
-      materialized.push({ ...item, source: { type: "file", path: artifact.path } });
+      input.result.files.push(file);
+      materialized.push({ ...item, source: { type: "file", path: file.path } });
       if (input.provider.supports_vision === true) {
         parts.push({
           type: "image_url",
@@ -175,39 +165,29 @@ function matchesImageSignature(bytes: Buffer, mimeType: ToolResultMedia["mimeTyp
   return bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
 }
 
-async function saveToolImageArtifact(input: {
-  dataRoot: string;
-  sessionId: string;
+async function saveToolImageFile(input: {
   toolName: string;
   mimeType: ToolResultMedia["mimeType"];
   bytes: Buffer;
   ttlSeconds: number;
-}): Promise<ToolArtifact> {
-  const root = resolveSessionTransientRoot(input.dataRoot, input.sessionId);
-  await fs.promises.mkdir(root, { recursive: true });
+}): Promise<ToolFile> {
+  const root = await createObservationTempRoot();
   const filePath = path.join(root, `image_${randomUUID().replace(/-/g, "").slice(0, 8)}${imageExtension(input.mimeType)}`);
   await fs.promises.writeFile(filePath, input.bytes);
   const createdAt = Date.now() / 1000;
-  const artifact: ToolArtifact = {
-    artifactType: "image",
+  return {
+    fileType: "image",
     path: filePath,
     mimeType: input.mimeType,
     size: input.bytes.length,
     metadata: {
-      session_id: input.sessionId,
       tool_name: input.toolName,
       created_at: createdAt,
       expires_at: createdAt + input.ttlSeconds,
-      reason: "tool_image",
+      lifecycle: "transient",
+      reason: "observation_media",
     },
   };
-  try {
-    await appendArtifactIndexRecord(root, { artifact, toolName: input.toolName, sessionId: input.sessionId, createdAt });
-  } catch (error) {
-    await fs.promises.rm(filePath, { force: true });
-    throw error;
-  }
-  return artifact;
 }
 
 function imageExtension(mimeType: ToolResultMedia["mimeType"]): string {
@@ -222,15 +202,8 @@ function isPathUnder(candidate: string, root: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-function resolveSessionTransientRoot(dataRoot: string, sessionId: string): string {
-  const normalized = sessionId.trim();
-  if (!normalized || normalized.length > 200 || normalized === "." || normalized === ".." || /[<>:"/\\|?*\u0000-\u001f]/.test(normalized)) {
-    throw new Error("Unsafe sessionId for observation artifact path");
-  }
-  const sessionsRoot = path.resolve(dataRoot, "sessions");
-  const transientRoot = path.resolve(sessionsRoot, normalized, "transient");
-  if (!isPathUnder(transientRoot, sessionsRoot)) throw new Error("Observation artifact path escaped sessions root");
-  return transientRoot;
+async function createObservationTempRoot(): Promise<string> {
+  return fs.promises.mkdtemp(path.join(os.tmpdir(), "ragsystem-observation-"));
 }
 
 /* ============================================================
@@ -242,25 +215,25 @@ function decideObservation(result: ToolExecutionResult, input: { toolName: strin
   const budget = resolveObservationBudget(input.profile, input.provider);
   const metadata = result.metadata ?? {};
 
-  if (metadata.force_artifact === true) {
-    return { mode: "artifact_ref", reason: "force_artifact", estimatedSize, artifactTtlSeconds: budget.artifactTtlSeconds, budgetBucket: budget.bucketName };
+  if (metadata.force_file === true) {
+    return { mode: "file_ref", reason: "force_file", estimatedSize, fileTtlSeconds: budget.fileTtlSeconds, budgetBucket: budget.bucketName };
   }
   if (!result.success) {
-    return { mode: "inline", reason: "error_inline", estimatedSize, artifactTtlSeconds: null, budgetBucket: budget.bucketName };
+    return { mode: "inline", reason: "error_inline", estimatedSize, fileTtlSeconds: null, budgetBucket: budget.bucketName };
   }
   const outputType = result.outputType.toLowerCase();
   if (outputType === "chart" || outputType === "map") {
-    return { mode: "inline", reason: "visualization_inline", estimatedSize, artifactTtlSeconds: null, budgetBucket: budget.bucketName };
+    return { mode: "inline", reason: "visualization_inline", estimatedSize, fileTtlSeconds: null, budgetBucket: budget.bucketName };
   }
   if (input.observationPolicy === "inline") {
-    return { mode: "inline", reason: "tool_policy_inline", estimatedSize, artifactTtlSeconds: null, budgetBucket: budget.bucketName };
+    return { mode: "inline", reason: "tool_policy_inline", estimatedSize, fileTtlSeconds: null, budgetBucket: budget.bucketName };
   }
   const inlineLimit = inlineLimitForObservation(result, budget);
   return {
-    mode: estimatedSize <= inlineLimit ? "inline" : "artifact_ref",
+    mode: estimatedSize <= inlineLimit ? "inline" : "file_ref",
     reason: estimatedSize <= inlineLimit ? "size_inline" : "large_payload",
     estimatedSize,
-    artifactTtlSeconds: estimatedSize <= inlineLimit ? null : budget.artifactTtlSeconds,
+    fileTtlSeconds: estimatedSize <= inlineLimit ? null : budget.fileTtlSeconds,
     budgetBucket: budget.bucketName,
   };
 }
@@ -270,18 +243,18 @@ function resolveObservationBudget(profile: AgentProfile, _provider: ProviderConf
   const budgetProfile = asNonEmptyString(profile.customParams?.budget_profile) ?? "worker";
   let budget: ObservationBudget;
   if (maxContextTokens <= 8000) {
-    budget = { bucketName: "compact", inlineTextLimit: 800, inlineJsonLimit: 1200, artifactTtlSeconds: 6 * 60 * 60 };
+    budget = { bucketName: "compact", inlineTextLimit: 800, inlineJsonLimit: 1200, fileTtlSeconds: 6 * 60 * 60 };
   } else if (maxContextTokens <= 32000) {
-    budget = { bucketName: "balanced", inlineTextLimit: 1600, inlineJsonLimit: 2400, artifactTtlSeconds: 12 * 60 * 60 };
+    budget = { bucketName: "balanced", inlineTextLimit: 1600, inlineJsonLimit: 2400, fileTtlSeconds: 12 * 60 * 60 };
   } else {
-    budget = { bucketName: "expansive", inlineTextLimit: 2600, inlineJsonLimit: 3600, artifactTtlSeconds: 24 * 60 * 60 };
+    budget = { bucketName: "expansive", inlineTextLimit: 2600, inlineJsonLimit: 3600, fileTtlSeconds: 24 * 60 * 60 };
   }
   if (budgetProfile === "orchestrator") {
     return {
       bucketName: budget.bucketName,
       inlineTextLimit: Math.floor(budget.inlineTextLimit * 0.85),
       inlineJsonLimit: Math.floor(budget.inlineJsonLimit * 0.85),
-      artifactTtlSeconds: Math.max(2 * 60 * 60, Math.floor(budget.artifactTtlSeconds * 0.75)),
+      fileTtlSeconds: Math.max(2 * 60 * 60, Math.floor(budget.fileTtlSeconds * 0.75)),
     };
   }
   return budget;
@@ -313,58 +286,29 @@ function preserveObservationMetadata(metadata: Record<string, unknown>): Record<
   return semantic ? { semantic } : {};
 }
 
-async function saveObservationArtifact(input: { dataRoot: string; sessionId: string; toolName: string; content: unknown; decision: ObservationDecision }): Promise<ToolArtifact> {
+async function saveObservationFile(input: { toolName: string; content: unknown; decision: ObservationDecision }): Promise<ToolFile> {
   const isText = typeof input.content === "string";
-  const root = resolveSessionTransientRoot(input.dataRoot, input.sessionId);
-  await fs.promises.mkdir(root, { recursive: true });
+  const root = await createObservationTempRoot();
   const fileName = `data_${randomUUID().replace(/-/g, "").slice(0, 8)}${isText ? ".txt" : ".json"}`;
   const filePath = path.join(root, fileName);
-  await fs.promises.writeFile(filePath, isText ? (input.content as string) : stringifyJsonForArtifact(input.content), "utf8");
+  await fs.promises.writeFile(filePath, isText ? (input.content as string) : stringifyJsonForFile(input.content), "utf8");
   const stat = await fs.promises.stat(filePath);
   const createdAt = Date.now() / 1000;
-  const metadata: Record<string, unknown> = { session_id: input.sessionId, tool_name: input.toolName, created_at: createdAt, reason: input.decision.reason, estimated_size: input.decision.estimatedSize, budget_bucket: input.decision.budgetBucket };
-  if (input.decision.artifactTtlSeconds !== null) {
-    metadata.expires_at = createdAt + input.decision.artifactTtlSeconds;
+  const metadata: Record<string, unknown> = { tool_name: input.toolName, created_at: createdAt, reason: input.decision.reason, estimated_size: input.decision.estimatedSize, budget_bucket: input.decision.budgetBucket, lifecycle: "transient" };
+  if (input.decision.fileTtlSeconds !== null) {
+    metadata.expires_at = createdAt + input.decision.fileTtlSeconds;
   }
-  const artifact: ToolArtifact = { artifactType: isText ? "text" : "json", path: filePath, mimeType: isText ? "text/plain" : "application/json", size: stat.size, metadata };
-  try {
-    await appendArtifactIndexRecord(root, { artifact, toolName: input.toolName, sessionId: input.sessionId, createdAt });
-  } catch (error) {
-    await fs.promises.rm(filePath, { force: true });
-    throw error;
-  }
-  return artifact;
+  return { fileType: isText ? "text" : "json", path: filePath, mimeType: isText ? "text/plain" : "application/json", size: stat.size, metadata };
 }
 
-async function appendArtifactIndexRecord(root: string, input: { artifact: ToolArtifact; toolName: string; sessionId: string; createdAt: number }): Promise<void> {
-  const record: Record<string, unknown> = { artifact_type: input.artifact.artifactType, path: input.artifact.path, tool_name: input.toolName, session_id: input.sessionId, created_at: input.createdAt, mime_type: input.artifact.mimeType, size: input.artifact.size, metadata: stripArtifactIndexMetadata(input.artifact.metadata) };
-  if (typeof input.artifact.metadata.expires_at === "number") {
-    record.expires_at = input.artifact.metadata.expires_at;
-  }
-  await withArtifactIndexLock(root, async () => {
-    await fs.promises.appendFile(path.join(root, "artifact_index.jsonl"), `${JSON.stringify(record)}\n`, "utf8");
-  });
-}
-
-function stripArtifactIndexMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
-  const stripped: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(metadata)) {
-    if (key === "session_id" || key === "tool_name" || key === "created_at" || key === "expires_at") {
-      continue;
-    }
-    stripped[key] = value;
-  }
-  return stripped;
-}
-
-function renderLargePayloadReference(input: { result: ToolExecutionResult; artifact: ToolArtifact; estimatedSize: number }): string {
+function renderLargePayloadReference(input: { result: ToolExecutionResult; file: ToolFile; estimatedSize: number }): string {
   const metadata = input.result.metadata ?? {};
   const parts: string[] = [];
   const answer = asNonEmptyString(input.result.answer);
   const approvalMessage = asNonEmptyString(metadata.approval_message);
   if (answer) { parts.push(`${answer}\n`); }
   if (approvalMessage) { parts.push(`用户批注: ${approvalMessage}\n`); }
-  parts.push(`数据已存储: ${input.artifact.path}`);
+  parts.push(`数据已写入临时文件: ${input.file.path}`);
   parts.push(renderLargePayloadMetaInfo(input.result, input.estimatedSize));
   parts.push("后续工具可直接使用此文件路径作为 data 参数；需要处理数据时用 execute_code 读取此文件");
   if (metadata.sample !== undefined) { parts.push(`样本: ${stringifyJsonCompact(metadata.sample)}`); }
@@ -572,7 +516,7 @@ function stringifyJsonForObservation(content: unknown): string {
   try { return JSON.stringify(content, null, 2); } catch { return stringifyToolContent(content); }
 }
 
-function stringifyJsonForArtifact(value: unknown): string {
+function stringifyJsonForFile(value: unknown): string {
   const rendered = JSON.stringify(value, null, 2);
   return rendered === undefined ? String(value) : rendered;
 }

@@ -97,7 +97,7 @@ test("local document runtime owns file writes and consumes the edit-history reso
       resources: [provideBackendResource(BACKEND_HOST_RESOURCES.fileEditHistory, { trackEdit: (sessionId, filePath) => edits.push({ sessionId, filePath }) }, "test-host")],
     });
     const result = await runtime.document.writeFile(
-      { content: "hello", filePath: "note.txt", filePathSpace: "transient" },
+      { content: "hello", filePath: "note.txt", filePathSpace: "workspace" },
       { sessionId: "session-a", runId: "run-a" },
       { custom_params: {} },
       {
@@ -144,7 +144,7 @@ test("document relative writes and reads use the same workspace", async () => {
     assert.equal(read.content, "workspace content");
     assert.equal(read.metadata.file_path, written.metadata.file_path);
     assert.equal(read.metadata.execution_paths.workspace, path.join(root, "sessions", "session-workspace", "workspace"));
-    assert.deepEqual(Object.keys(read.metadata.execution_paths).sort(), ["artifacts", "transient", "uploads", "workspace"]);
+    assert.deepEqual(Object.keys(read.metadata.execution_paths).sort(), ["uploads", "workspace"]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -214,7 +214,7 @@ function success(toolName) {
     outputType: "text",
     content: "ok",
     metadata: {},
-    artifacts: [],
+    files: [],
     llmHint: null,
   };
 }

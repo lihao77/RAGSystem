@@ -1,19 +1,18 @@
 ---
 name: visualization
-description: 创建和修改 ECharts 折线图、柱状图、饼图和散点图。用户要求把结构化数据制作成统计图表或调整已有 ECharts Artifact 时使用。
+description: 创建和修改 ECharts 折线图、柱状图、饼图和散点图。用户要求把结构化数据制作成统计图表或调整已有图表文件时使用。
 ---
 
 ## 可视化工具
 
-本 Skill 只负责 ECharts 图表。所有脚本输出 Artifact V2，系统自动完成持久化。
-在 `<final_answer>` 中使用 `[artifact:artifact_id]` 展示图表产物。
+本 Skill 只负责 ECharts 图表。脚本把图表配置写入 execute_skill_script 传入的 cwd，并返回通用 `file.path`。
 
-脚本生成 PNG、GeoTIFF、CSV、JSON、PDF 等文件时，必须写入环境变量 `RAGSYSTEM_ARTIFACT_OUTPUT_DIR` 指向的目录，并在 Asset 中使用相对 `staged_file`。不要读取文件并生成 `data_base64`；系统会登记文件、替换为不透明 ID 并在 Artifact 创建成功后接管。
+不要把完整配置或二进制内容编码到 stdout；需要交付的文件必须写入 cwd，并在 `file` 中返回相对路径、媒体类型和大小。
 
 ## 可用脚本
 
 ### create_chart.py - ECharts 图表生成
-**功能**：从数据生成 ECharts 图表配置，自动持久化为 artifact。
+**功能**：从数据生成 ECharts 图表配置并写入 JSON 文件。
 
 **参数**：
 - `--data`（必填）：数据源，JSON 字符串或文件路径（.json/.csv）
@@ -35,11 +34,11 @@ description: 创建和修改 ECharts 折线图、柱状图、饼图和散点图�
 }
 ```
 
-### revise.py - 修改已有 artifact
-**功能**：修改已有可视化 Artifact 的 primary Presentation 配置，默认深度合并，可选完全替换。
+### revise.py - 修改已有图表文件
+**功能**：修改已有图表 JSON 配置，默认深度合并，可选完全替换。
 
 **参数**：
-- `--artifact-id`（必填）：要修改的 artifact ID
+- `--file`（必填）：cwd 下已有的图表 JSON 文件
 - `--config-patch`（必填）：配置补丁 JSON
 - `--replace`（可选）：加此标志则完全替换而非合并
 
@@ -50,7 +49,7 @@ description: 创建和修改 ECharts 折线图、柱状图、饼图和散点图�
   "arguments": {
     "skill_name": "visualization",
     "script_name": "revise.py",
-    "arguments": ["--artifact-id", "art_abc123", "--config-patch", "{\"title\":{\"text\":\"新标题\"}}"]
+    "arguments": ["--file", "chart-bar.json", "--config-patch", "{\"title\":{\"text\":\"新标题\"}}"]
   }
 }
 ```

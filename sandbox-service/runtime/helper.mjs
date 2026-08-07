@@ -28,15 +28,10 @@ async function dispatch(name, input) {
 
 async function initialize() {
   await fs.mkdir("/input/uploads", { recursive: true });
-  await fs.mkdir("/input/artifacts", { recursive: true });
-  await fs.mkdir("/work/transient", { recursive: true });
   // The trusted staging helper owns the volume and needs write permission.
   // The untrusted agent still sees this volume through a read-only mount.
   await fs.chmod("/input", 0o755);
   await fs.chmod("/input/uploads", 0o755);
-  await fs.chmod("/input/artifacts", 0o755);
-  await fs.chmod("/work/transient", 0o750);
-  await fs.chown("/work/transient", 10001, 10001);
   await fs.chmod("/work", 0o750);
   await fs.chown("/work", 10001, 10001);
   return { initialized: true };

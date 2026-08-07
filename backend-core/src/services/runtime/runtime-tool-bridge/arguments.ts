@@ -119,7 +119,7 @@ export function errorResult(
     outputType: "error",
     content: message,
     metadata: { source_shape: "error", ...metadata },
-    artifacts: [],
+    files: [],
     llmHint: null,
   };
 }
@@ -141,7 +141,7 @@ export function successResult<T>(
     outputType: input.outputType,
     content,
     metadata: input.metadata,
-    artifacts: [],
+    files: [],
     llmHint: null,
   };
 }

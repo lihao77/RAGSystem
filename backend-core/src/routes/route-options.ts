@@ -12,6 +12,7 @@ import type { MonitoringApplication } from "../contracts/application/monitoring-
 import type { ExecutionApplication } from "../contracts/execution/execution-application.js";
 import type { SessionFileApplication } from "../contracts/application/session-file-application.js";
 import type { FileChangeApplication } from "../contracts/application/file-change-application.js";
+import type { WorkspaceFileApplication } from "../contracts/application/workspace-file-application.js";
 
 export interface RouteOptions {
   registry: TenantRuntimeRegistry;
@@ -26,6 +27,7 @@ export interface RouteOptions {
   resolveFileHistoryStorage?: (request: FastifyRequest) => AsyncFileHistoryStore | undefined | Promise<AsyncFileHistoryStore | undefined>;
   resolveSessionFileApplication?: (request: FastifyRequest) => SessionFileApplication | undefined | Promise<SessionFileApplication | undefined>;
   resolveFileChangeApplication?: (request: FastifyRequest) => FileChangeApplication | undefined | Promise<FileChangeApplication | undefined>;
+  resolveWorkspaceFileApplication?: (request: FastifyRequest) => WorkspaceFileApplication | undefined | Promise<WorkspaceFileApplication | undefined>;
   emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
 }
 

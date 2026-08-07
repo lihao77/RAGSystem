@@ -18,6 +18,7 @@ export interface DeploymentApplicationResolvers {
   resolveMonitoringApplication: NonNullable<RouteOptions["resolveMonitoringApplication"]>;
   resolveSessionFileApplication: NonNullable<RouteOptions["resolveSessionFileApplication"]>;
   resolveFileChangeApplication: NonNullable<RouteOptions["resolveFileChangeApplication"]>;
+  resolveWorkspaceFileApplication: NonNullable<RouteOptions["resolveWorkspaceFileApplication"]>;
 }
 
 /**

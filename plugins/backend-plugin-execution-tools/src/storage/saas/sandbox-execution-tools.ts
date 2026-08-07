@@ -105,7 +105,7 @@ export class SaaSBashToolService {
     if (!classified.ok) return classified;
     try {
       const c = classified.classification;
-      const cwd = resolveSandboxPath(c.workingDir, { explicitSpace: c.workingDirSpace, operation: "search" });
+      const cwd = resolveSandboxPath(c.cwd, { operation: "search" });
       return { ok: true, plan: buildBashExecutionPlan(c, cwd.internalPath, cwd.displayPath) };
     } catch (error) { return { ok: false, result: toolError("execute_bash", messageOf(error)) }; }
   }
@@ -138,9 +138,10 @@ export class SaaSCodeExecutionService {
     if (!prepared.ok) return prepared.result;
     const plan = prepared.plan;
     try {
+      const cwd = resolveSandboxPath(input.cwd, { operation: "search" });
       const result = await this.sandbox.executeCode(context, {
         code: plan.code,
-        cwd: "/work",
+        cwd: cwd.internalPath,
         timeoutSeconds: plan.timeoutSeconds,
       });
       return toolSuccess(result.result, {
@@ -154,6 +155,7 @@ export class SaaSCodeExecutionService {
           interrupted: result.interrupted,
           tool_calls_supported: false,
           classification: plan.riskLevel,
+          cwd: cwd.displayPath,
         },
       });
     } catch (error) { return toolError(toolName, `代码执行失败: ${messageOf(error)}`); }

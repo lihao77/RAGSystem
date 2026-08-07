@@ -32,7 +32,7 @@ function executeBuiltinTool(toolName, args) {
       outputType: "text",
       content: now,
       metadata: {},
-      artifacts: [],
+      files: [],
       llmHint: null,
     };
   }
@@ -57,7 +57,7 @@ function executeBuiltinTool(toolName, args) {
         outputType: "text",
         content: text,
         metadata: { expression: expr },
-        artifacts: [],
+        files: [],
         llmHint: null,
       };
     } catch (e) {
@@ -78,7 +78,7 @@ function executeBuiltinTool(toolName, args) {
       outputType: "text",
       content: picked,
       metadata: { candidates: items.length },
-      artifacts: [],
+        files: [],
       llmHint: null,
     };
   }
@@ -86,7 +86,7 @@ function executeBuiltinTool(toolName, args) {
 }
 
 function errResult(toolName, message) {
-  return { success: false, toolName, summary: message, answer: null, outputType: "error", content: message, metadata: { source_shape: "error" }, artifacts: [], llmHint: null };
+  return { success: false, toolName, summary: message, answer: null, outputType: "error", content: message, metadata: { source_shape: "error" }, files: [], llmHint: null };
 }
 
 const tools = [

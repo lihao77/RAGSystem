@@ -184,14 +184,14 @@ def process(operation: str, args: argparse.Namespace) -> dict[str, object]:
             output = selected
         elif operation == "contour":
             frame = _contours(values, source, args.interval, args.base)
-            artifact = write_vector(frame, args.output_name, operation, f"Contours · {Path(args.input).name}", {"interval": args.interval, "base": args.base})
-            return {"success": True, "artifact": artifact, "feature_count": len(frame)}
+            file = write_vector(frame, args.output_name, operation, f"Contours · {Path(args.input).name}", {"interval": args.interval, "base": args.base})
+            return {"success": True, "file": file, "feature_count": len(frame)}
         else:
             raise ValueError(f"未知地形水文工具: {operation}")
         invalid = ~np.isfinite(values)
         output[invalid] = 0 if getattr(output.dtype, "kind", "f") in "ui" else -9999.0
-        artifact = write_raster(output, source, args.output_name, operation, f"{operation} · {Path(args.input).name}", {"input": args.input})
-        return {"success": True, "artifact": artifact, "shape": list(output.shape)}
+        file = write_raster(output, source, args.output_name, operation, f"{operation} · {Path(args.input).name}", {"input": args.input})
+        return {"success": True, "file": file, "shape": list(output.shape)}
     finally:
         source.close()
 
@@ -221,3 +221,4 @@ def main(forced_operation: str) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main("slope"))
+

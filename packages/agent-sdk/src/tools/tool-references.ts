@@ -74,7 +74,7 @@ export function materializeToolResult(result: ToolExecutionResult): Record<strin
     output_type: result.outputType,
     content: result.content,
     metadata: result.metadata,
-    artifacts: result.artifacts,
+    files: result.files,
     ...(result.success ? {} : { error: stringifyReferenceValue(result.content) || result.summary }),
   };
 }
@@ -161,12 +161,12 @@ export function collectResultReferenceIndexes(value: unknown): number[] {
 
 export function buildToolReferenceErrorResult(toolName: string, placeholders: string[]): ToolExecutionResult {
   const summary = `参数中包含未替换的占位符: ${placeholders.join(", ")}，请检查引用路径是否正确`;
-  return { success: false, toolName, summary, answer: null, outputType: "error", content: summary, metadata: { source_shape: "error", unresolved_placeholders: placeholders }, artifacts: [], llmHint: null };
+  return { success: false, toolName, summary, answer: null, outputType: "error", content: summary, metadata: { source_shape: "error", unresolved_placeholders: placeholders }, files: [], llmHint: null };
 }
 
 export function buildToolExecutionErrorResult(toolName: string, error: unknown): ToolExecutionResult {
   const message = error instanceof Error ? error.message : String(error);
-  return { success: false, toolName, summary: message, answer: null, outputType: "error", content: message, metadata: { source_shape: "error" }, artifacts: [], llmHint: null };
+  return { success: false, toolName, summary: message, answer: null, outputType: "error", content: message, metadata: { source_shape: "error" }, files: [], llmHint: null };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

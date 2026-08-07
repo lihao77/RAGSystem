@@ -33,14 +33,14 @@ export type { ToolValidationResult, ToolValidationSuccess, ToolValidationFailure
 // Preparer
 export { prepareTool } from "./tools/preparer.js";
 export type { PreparedTool, PrepareResult, ToolPreparerOptions } from "./tools/preparer.js";
-export type { ToolExecContext, ToolExecutionPaths, ToolWaitRequest, ToolWaitResult, ToolArtifact } from "./contracts.js";
+export type { ToolExecContext, ToolExecutionPaths, ToolWaitRequest, ToolWaitResult, ToolFile } from "./contracts.js";
 export type { RuntimeToolDefinition, RuntimeToolReturns, RuntimeToolExample } from "./prompt/tool-types.js";
 // Prompt 模块（system prompt 构建——与内核 makeContextPort 同源）
 export { buildFullSystemPrompt, getAgentBaseSystemPrompt } from "./prompt/prompt-builder.js";
 export type { AgentPromptContext } from "./prompt/types.js";
 // Tools 模块（SDK 自带编排 + observation 渲染）
-export { RuntimeToolProvider, executeToolCallRound, buildLlmFacingToolResult, buildToolMediaModelContent, renderToolResultContent, withArtifactIndexLock, withLeaseLock, resolveToolArgumentReferences, materializeToolResult, buildToolReferenceErrorResult, buildToolExecutionErrorResult, runToolBatchWithScheduler, partitionToolCalls } from "./tools/index.js";
-export type { RuntimeToolProviderOptions, ToolRoundExecutorOptions, ToolSchedulerCall, ToolSchedulerExecutor, ArtifactIndexLockOptions, LeaseLockOptions } from "./tools/index.js";
+export { RuntimeToolProvider, executeToolCallRound, buildLlmFacingToolResult, buildToolMediaModelContent, renderToolResultContent, withLeaseLock, resolveToolArgumentReferences, materializeToolResult, buildToolReferenceErrorResult, buildToolExecutionErrorResult, runToolBatchWithScheduler, partitionToolCalls } from "./tools/index.js";
+export type { RuntimeToolProviderOptions, ToolRoundExecutorOptions, ToolSchedulerCall, ToolSchedulerExecutor, LeaseLockOptions } from "./tools/index.js";
 // LLM 协议模块（工具调用编码：XML/native 协议解析 + 自动选择）
 export { XmlProtocol, NativeHybridProtocol, createProtocol, resolveToolInstructionMode } from "./llm-protocol/index.js";
 export type { XmlProtocolDeps, NativeHybridProtocolDeps, ProtocolFactoryOptions, SelectedProtocol } from "./llm-protocol/index.js";

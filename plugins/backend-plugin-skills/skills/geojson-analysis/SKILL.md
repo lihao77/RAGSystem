@@ -6,7 +6,7 @@ description: 对 GeoJSON 数据进行属性过滤、几何类型过滤、范围�
 # GeoJSON 空间分析 Skill（geojson-analysis）
 
 对 GeoJSON 数据进行过滤、空间查询和统计分析。所有脚本接受文件路径输入，输出 JSON 结果。
-过滤和空间查询脚本返回结果摘要以及 Artifact V2 GeoJSON Asset；统计脚本只返回 JSON 统计。
+过滤和空间查询脚本返回结果摘要以及 File V2 GeoJSON Asset；统计脚本只返回 JSON 统计。
 
 ## 依赖
 - 零第三方依赖，纯 Python 标准库
@@ -31,7 +31,7 @@ python scripts/geojson_filter.py --data path/to/data.geojson --geometry-types Po
 python scripts/geojson_filter.py --data path/to/data.geojson --where "risk_level eq 高" --geometry-types Polygon
 ```
 
-成功后如需地图展示，读取工具真实返回的 `artifact_id` 并调用 `map_add_artifact_layer`。
+成功后如需地图展示，读取工具真实返回的 `file.path` 并调用 `map_add_file_layer`。
 
 **--where 语法**: `"字段名 操作符 值"`
 - 操作符: eq, ne, gt, gte, lt, lte, in, contains, not_null
@@ -49,7 +49,7 @@ python scripts/geojson_spatial.py --data path/to/data.geojson --query-type buffe
 python scripts/geojson_spatial.py --data path/to/data.geojson --query-type bbox --bbox "107.0,22.0,109.0,24.0"
 ```
 
-成功后如需地图展示，读取工具真实返回的 `artifact_id` 并调用 `map_add_artifact_layer`。不要构造地图配置或使用 `[artifact:...]` 触发地图渲染。
+成功后如需地图展示，读取工具真实返回的 `file.path` 并调用 `map_add_file_layer`。不要构造地图配置或使用 `[file:...]` 触发地图渲染。
 
 ### 3. geojson_stats.py — 统计分析
 
@@ -68,3 +68,4 @@ python scripts/geojson_stats.py --data path/to/data.geojson --compute-area
 # 计算线长（LineString/MultiLineString，近似公里）
 python scripts/geojson_stats.py --data path/to/data.geojson --compute-length
 ```
+

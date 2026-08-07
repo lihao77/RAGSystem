@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import os from "node:os";
 import path from "node:path";
 
 import type { AgentRunEngine } from "../execution/run-engine.js";
@@ -194,7 +195,7 @@ export class AgentDelegationService implements DelegationPort {
     if (input.runInBackground) {
       this.activeChildRuns.set(childAgentId, childRunId);
       const backgroundTask = this.backgroundTasks!.runCallable({
-        outputDir: path.join(this.dataRoot!, "sessions", sessionId, "transient"),
+        outputDir: path.join(os.tmpdir(), "ragsystem-background", sessionId),
         description: `${childDisplayName}: ${task.slice(0, 120)}`,
         sessionId,
         runId: childRunId,
@@ -348,7 +349,7 @@ export class AgentDelegationService implements DelegationPort {
     if (input.runInBackground) {
       this.activeChildRuns.set(childAgentId, childRunId);
       const backgroundTask = this.backgroundTasks!.runCallable({
-        outputDir: path.join(this.dataRoot!, "sessions", sessionId, "transient"),
+        outputDir: path.join(os.tmpdir(), "ragsystem-background", sessionId),
         description: `${childDisplayName}: ${message.slice(0, 120)}`,
         sessionId,
         runId: childRunId,

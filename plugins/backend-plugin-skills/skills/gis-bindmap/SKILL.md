@@ -5,7 +5,7 @@ description: GIS 空间分析能力，支持缓冲区、最近邻、应急资源
 
 # GIS 空间分析
 
-空间脚本返回分析摘要和 Artifact V2 GeoJSON Asset，空间范围位于 `metadata.spatial`。Artifact 不包含 presentation 或地图配置。
+空间脚本返回分析摘要和 File V2 GeoJSON Asset，空间范围位于 `metadata.spatial`。File 不包含 presentation 或地图配置。
 
 ## 依赖
 
@@ -72,4 +72,5 @@ python scripts/basin_analysis.py --operation river --river "柳江"
 
 ## 地图展示
 
-脚本成功后读取工具真实返回的 `artifact_id`，调用 `map_add_artifact_layer`。多个分析结果逐个添加，不组装中间地图配置，也不使用 `[artifact:...]` 触发地图渲染。
+脚本成功后读取工具真实返回的 `file.path`，调用 `map_add_file_layer`。多个分析结果逐个添加，不组装中间地图配置，也不使用 `[file:...]` 触发地图渲染。
+

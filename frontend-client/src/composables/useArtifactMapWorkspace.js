@@ -1,7 +1,7 @@
 import { nextTick, onUnmounted, ref, shallowRef } from 'vue';
 
-import { resolveArtifactLayer } from '../utils/artifactLayerRegistry.js';
-import { bindArtifactMapRuntime } from '../utils/artifactMapRuntime.js';
+import { resolveFileLayer } from '../utils/fileLayerRegistry.js';
+import { bindFileMapRuntime } from '../utils/fileMapRuntime.js';
 import { normalizeLayerDescriptor } from '../components/map-workspace/layerDescriptors.js';
 
 function clamp(value, min, max) {
@@ -25,8 +25,8 @@ export function useArtifactMapWorkspace() {
     return next[index];
   };
 
-  const addArtifactLayer = async (input, context = {}) => {
-    const resolved = await resolveArtifactLayer(input, { signal: context.signal });
+  const addFileLayer = async (input, context = {}) => {
+    const resolved = await resolveFileLayer(input, { signal: context.signal, sessionId: context.sessionId });
     const descriptor = normalizeLayerDescriptor(resolved.descriptor);
     const previousUrl = resourceUrls.get(descriptor.id);
     if (previousUrl && previousUrl !== resolved.resourceUrl) URL.revokeObjectURL(previousUrl);
@@ -44,8 +44,7 @@ export function useArtifactMapWorkspace() {
     if (pendingFitLayerId && mapRef.value?.fitLayer?.(pendingFitLayerId)) pendingFitLayerId = null;
     return {
       layer_id: descriptor.id,
-      artifact_id: descriptor.artifactId,
-      asset_id: descriptor.assetId,
+      file_path: descriptor.filePath,
       type: descriptor.type,
       title: descriptor.name,
     };
@@ -73,8 +72,7 @@ export function useArtifactMapWorkspace() {
   const listLayers = () => ({
     layers: layers.value.map((layer, index) => ({
       layer_id: layer.id,
-      artifact_id: layer.artifactId,
-      asset_id: layer.assetId,
+      file_path: layer.filePath,
       title: layer.name,
       type: layer.type,
       visible: layer.visible,
@@ -148,7 +146,7 @@ export function useArtifactMapWorkspace() {
   };
 
   const controller = {
-    addArtifactLayer,
+    addFileLayer,
     removeLayer,
     clearLayers,
     listLayers,
@@ -160,7 +158,7 @@ export function useArtifactMapWorkspace() {
     getViewport,
     setViewport,
   };
-  const unbindRuntime = bindArtifactMapRuntime(controller);
+  const unbindRuntime = bindFileMapRuntime(controller);
 
   onUnmounted(() => {
     unbindRuntime();

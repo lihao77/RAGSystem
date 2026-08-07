@@ -13,7 +13,7 @@ import { createTenantId } from "../src/identity/types.js";
 import { createCoreRuntimeContainer } from "../src/services/runtime/core-runtime-container.js";
 
 describe("Local execution environment", () => {
-  it("materializes one stable four-directory view and its environment variables", () => {
+  it("materializes one stable workspace/uploads view and its environment variables", () => {
     const dataRoot = path.resolve("test-data-root");
     const environment = createLocalExecutionEnvironment(dataRoot);
 
@@ -23,18 +23,12 @@ describe("Local execution environment", () => {
     expect(paths).toEqual({
       workspace: path.join(dataRoot, "sessions", "session-1", "workspace"),
       uploads: path.join(dataRoot, "sessions", "session-1", "uploads"),
-      artifacts: path.join(dataRoot, "sessions", "session-1", "artifacts"),
-      transient: path.join(dataRoot, "sessions", "session-1", "transient"),
     });
     expect(environment.environment({ sessionId: "session-1" })).toEqual({
       SESSION_WORKSPACE_DIR: paths.workspace,
       SESSION_UPLOADS_DIR: paths.uploads,
-      SESSION_ARTIFACTS_DIR: paths.artifacts,
-      SESSION_TRANSIENT_DIR: paths.transient,
       RAGSYSTEM_WORKSPACE_DIR: paths.workspace,
       RAGSYSTEM_UPLOADS_DIR: paths.uploads,
-      RAGSYSTEM_ARTIFACTS_DIR: paths.artifacts,
-      RAGSYSTEM_TRANSIENT_DIR: paths.transient,
     });
   });
 
@@ -94,18 +88,12 @@ describe("SaaS execution environment", () => {
     expect(paths).toEqual({
       workspace: "/work",
       uploads: "/input/uploads",
-      artifacts: "/input/artifacts",
-      transient: "/work/transient",
     });
     expect(environment.environment({})).toEqual({
       SESSION_WORKSPACE_DIR: "/work",
       SESSION_UPLOADS_DIR: "/input/uploads",
-      SESSION_ARTIFACTS_DIR: "/input/artifacts",
-      SESSION_TRANSIENT_DIR: "/work/transient",
       RAGSYSTEM_WORKSPACE_DIR: "/work",
       RAGSYSTEM_UPLOADS_DIR: "/input/uploads",
-      RAGSYSTEM_ARTIFACTS_DIR: "/input/artifacts",
-      RAGSYSTEM_TRANSIENT_DIR: "/work/transient",
     });
   });
 });

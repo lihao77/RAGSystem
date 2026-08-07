@@ -12,8 +12,8 @@ description: 对 GeoTIFF、Cloud Optimized GeoTIFF 及其他 Rasterio 可读栅�
 1. 激活 `raster-spatial-analysis`。
 2. 先用 `describe_raster.py` 检查 CRS、范围、尺寸、波段和 NoData。
 3. 调用对应的独立脚本。`execute_skill_script` 的 `arguments` 必须是 argv token 数组，每个参数和值分别占一个元素。
-4. 数据脚本把结果写入运行时注入的 `RAGSYSTEM_ARTIFACT_OUTPUT_DIR`，stdout 只输出一份 JSON。脚本返回的 `artifact` 使用 Artifact V2，真实 `artifact_id` 由 Artifact hook 持久化后注入。
-5. 需要地图时，先将 GeoTIFF 交给 `geospatial-visualization/prepare_raster_layer.py` 生成 WGS84 PNG，再用真实 `artifact_id` 调用 `map_add_artifact_layer`。分析脚本不生成地图配置或 presentation。
+4. 数据脚本把结果写入 Agent 选择的 cwd，stdout 只输出一份 JSON。脚本返回的 `file` 包含真实相对路径、媒体类型和大小。
+5. 需要地图时，先将 GeoTIFF 交给 `geospatial-visualization/prepare_raster_layer.py` 生成 WGS84 PNG，再用真实文件路径调用 `map_add_file_layer`。分析脚本不生成地图配置。
 
 调用示例：
 
@@ -41,10 +41,9 @@ description: 对 GeoTIFF、Cloud Optimized GeoTIFF 及其他 Rasterio 可读栅�
 
 ## 输出约定
 
-- 栅格结果使用 `geospatial.raster` Artifact，唯一数据 Asset 为 `image/tiff`，并提供 `metadata.spatial.crs` 与 `metadata.spatial.bounds`。
-- `raster_statistics.py` 和 `zonal_statistics.py` 使用 `geospatial.table` JSON Artifact；统计记录同时放在返回 JSON 的 `result` 中。
-- 所有 Artifact 的 `schema_version` 为 `2`，`presentations` 始终为空。
-- 不在脚本中生成 `artifact_id`，不把文件转成 Base64，不直接调用地图工具。
+- 栅格结果返回 `file.path`，媒体类型为 `image/tiff`，并提供 `metadata.spatial.crs` 与 `metadata.spatial.bounds`。
+- `raster_statistics.py` 和 `zonal_statistics.py` 返回 JSON 文件；统计记录同时放在返回 JSON 的 `result` 中。
+- 不在脚本中生成文件 ID，不把文件转成 Base64，不直接调用地图工具。
 
 ## 约束
 
@@ -52,3 +51,4 @@ description: 对 GeoTIFF、Cloud Optimized GeoTIFF 及其他 Rasterio 可读栅�
 - 逐像元运算要求输入栅格具有相同的尺寸、CRS 和仿射变换。
 - 距离和面积不在本 Skill 中解释；栅格单位由输入 CRS 和像元分辨率决定。
 - 大栅格应先裁剪、重采样或分区处理，避免超过运行时和内存限制。
+

@@ -10,6 +10,7 @@ import { registerFileChangeRoutes } from "./file-changes.js";
 import { registerSessionFileRoutes } from "./session-files.js";
 import { registerSessionRoutes } from "./sessions.js";
 import { registerStreamRoutes } from "./stream.js";
+import { registerWorkspaceFileRoutes } from "./workspace-files.js";
 
 export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async (app, options) => {
   const routeOptions: AgentRouteOptions = {
@@ -24,6 +25,7 @@ export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async 
     ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
     ...(options.resolveSessionFileApplication ? { resolveSessionFileApplication: options.resolveSessionFileApplication } : {}),
     ...(options.resolveFileChangeApplication ? { resolveFileChangeApplication: options.resolveFileChangeApplication } : {}),
+    ...(options.resolveWorkspaceFileApplication ? { resolveWorkspaceFileApplication: options.resolveWorkspaceFileApplication } : {}),
   };
   await app.register(registerAgentManagementRoutes, routeOptions);
   await app.register(registerExecutionRoutes, routeOptions);
@@ -33,5 +35,6 @@ export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async 
   await app.register(registerStreamRoutes, routeOptions);
   await app.register(registerSessionFileRoutes, routeOptions);
   await app.register(registerFileChangeRoutes, routeOptions);
+  await app.register(registerWorkspaceFileRoutes, routeOptions);
   await app.register(registerSessionRoutes, routeOptions);
 };

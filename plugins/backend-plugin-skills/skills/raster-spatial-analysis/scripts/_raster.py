@@ -19,7 +19,7 @@ from _shared import (
     describe_raster,
     load_rasterio,
     print_json,
-    write_json_artifact,
+    write_json_file,
     write_raster_array,
 )
 
@@ -80,8 +80,8 @@ def _spatial(src: Any) -> dict[str, Any]:
     }
 
 
-def _output(artifact: dict[str, Any], result: dict[str, Any], tool: str) -> dict[str, Any]:
-    return {"success": True, "tool": tool, "result": result, "artifact": artifact}
+def _output(file: dict[str, Any], result: dict[str, Any], tool: str) -> dict[str, Any]:
+    return {"success": True, "tool": tool, "result": result, "file": file}
 
 
 def _read_mask_shapes(path: str, src: Any) -> list[Any]:
@@ -205,8 +205,8 @@ def _project(args: argparse.Namespace, rio: Any, np: Any) -> dict[str, Any]:
                       dst_transform=transform, dst_crs=args.target_crs, src_nodata=src.nodata,
                       dst_nodata=src.nodata, resampling=Resampling.nearest)
         profile = _profile(src, height=height, width=width, transform=transform, crs=args.target_crs, nodata=src.nodata)
-        artifact = write_raster_array(array, profile, args.output_name, args.tool, args.title or args.tool, {"target_crs": str(args.target_crs)})
-        return _output(artifact, {"shape": list(array.shape), "crs": str(args.target_crs)}, args.tool)
+        file = write_raster_array(array, profile, args.output_name, args.tool, args.title or args.tool, {"target_crs": str(args.target_crs)})
+        return _output(file, {"shape": list(array.shape), "crs": str(args.target_crs)}, args.tool)
 
 
 def _raster_statistics(args: argparse.Namespace, rio: Any, np: Any) -> dict[str, Any]:
@@ -219,8 +219,8 @@ def _raster_statistics(args: argparse.Namespace, rio: Any, np: Any) -> dict[str,
                                "max": float(np.max(data)) if data.size else None, "mean": float(np.mean(data)) if data.size else None,
                                "sum": float(np.sum(data)) if data.size else None, "std": float(np.std(data)) if data.size else None})
         value = {"input": str(args.input[0]), "statistics": statistics}
-        artifact = write_json_artifact(value, args.output_name, args.tool, args.title or args.tool, {"source": _spatial(src)})
-        return _output(artifact, value, args.tool)
+        file = write_json_file(value, args.output_name, args.tool, args.title or args.tool, {"source": _spatial(src)})
+        return _output(file, value, args.tool)
 
 
 def _zonal_statistics(args: argparse.Namespace, rio: Any, np: Any) -> dict[str, Any]:
@@ -253,8 +253,8 @@ def _zonal_statistics(args: argparse.Namespace, rio: Any, np: Any) -> dict[str, 
                 item["zone_value"] = row.get(args.zone_field)
             rows.append(item)
         value = {"input": str(args.input[0]), "zone_field": args.zone_field, "band": args.band, "zones": rows}
-        artifact = write_json_artifact(value, args.output_name, args.tool, args.title or args.tool, {"source": _spatial(src)})
-        return _output(artifact, value, args.tool)
+        file = write_json_file(value, args.output_name, args.tool, args.title or args.tool, {"source": _spatial(src)})
+        return _output(file, value, args.tool)
 
 
 def _run(args: argparse.Namespace) -> dict[str, Any]:
@@ -269,8 +269,8 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
     if tool in {"clip_raster", "extract_by_mask"}:
         with rio.open(args.input[0]) as src:
             array, profile, details = _clip(src, args.mask, args.all_touched)
-            artifact = write_raster_array(array, profile, args.output_name, tool, args.title or tool, details)
-            return _output(artifact, {"shape": list(array.shape), **details}, tool)
+            file = write_raster_array(array, profile, args.output_name, tool, args.title or tool, details)
+            return _output(file, {"shape": list(array.shape), **details}, tool)
     if tool == "resample_raster":
         from rasterio.enums import Resampling
         if args.scale <= 0:
@@ -280,8 +280,8 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             array = src.read(out_shape=(src.count, height, width), resampling=getattr(Resampling, args.resampling))
             transform = src.transform * src.transform.scale(src.width / width, src.height / height)
             profile = _profile(src, height=height, width=width, transform=transform)
-            artifact = write_raster_array(array, profile, args.output_name, tool, args.title or tool, {"scale": args.scale, "resampling": args.resampling})
-            return _output(artifact, {"shape": list(array.shape), "scale": args.scale}, tool)
+            file = write_raster_array(array, profile, args.output_name, tool, args.title or tool, {"scale": args.scale, "resampling": args.resampling})
+            return _output(file, {"shape": list(array.shape), "scale": args.scale}, tool)
     if tool == "raster_calculator":
         second = rio.open(args.overlay) if args.overlay else None
         try:
@@ -304,12 +304,12 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
                 if src.nodata is not None:
                     value = np.where(invalid, src.nodata, value)
                 profile = _profile(src, count=1, dtype="float32", nodata=src.nodata)
-                artifact = write_raster_array(value.astype("float32"), profile, args.output_name, tool, args.title or tool,
+                file = write_raster_array(value.astype("float32"), profile, args.output_name, tool, args.title or tool,
                                               {"expression": args.expression})
                 finite = np.isfinite(value)
                 result = {"expression": args.expression, "min": float(np.min(value[finite])) if finite.any() else None,
                           "max": float(np.max(value[finite])) if finite.any() else None}
-                return _output(artifact, result, tool)
+                return _output(file, result, tool)
         finally:
             if second:
                 second.close()
@@ -322,8 +322,8 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             result = np.digitize(values, breaks, right=False).astype("int16") + 1
             result[_nodata_mask(values, src.nodata, np)] = 0
             profile = _profile(src, count=1, dtype="int16", nodata=0)
-            artifact = write_raster_array(result, profile, args.output_name, tool, args.title or tool, {"breaks": breaks})
-            return _output(artifact, {"breaks": breaks, "classes": len(breaks) + 1}, tool)
+            file = write_raster_array(result, profile, args.output_name, tool, args.title or tool, {"breaks": breaks})
+            return _output(file, {"breaks": breaks, "classes": len(breaks) + 1}, tool)
     if tool == "focal_statistics":
         if args.window < 1 or args.window % 2 == 0:
             raise ValueError("focal_statistics 的 --window 必须是正奇数")
@@ -343,8 +343,8 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             if src.nodata is not None:
                 result[np.isnan(result)] = src.nodata
             profile = _profile(src, count=1, dtype="float32", nodata=src.nodata)
-            artifact = write_raster_array(result, profile, args.output_name, tool, args.title or tool, {"window": args.window, "statistic": args.statistic})
-            return _output(artifact, {"window": args.window, "statistic": args.statistic}, tool)
+            file = write_raster_array(result, profile, args.output_name, tool, args.title or tool, {"window": args.window, "statistic": args.statistic})
+            return _output(file, {"window": args.window, "statistic": args.statistic}, tool)
     if tool == "zonal_statistics":
         return _zonal_statistics(args, rio, np)
     if tool == "raster_statistics":
@@ -353,9 +353,9 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
         with rio.open(args.input[0]) as src:
             array = src.read(masked=True).filled(args.nodata)
             profile = _profile(src, nodata=args.nodata)
-            artifact = write_raster_array(array, profile, args.output_name, tool, args.title or tool,
+            file = write_raster_array(array, profile, args.output_name, tool, args.title or tool,
                                           {"nodata": args.nodata, "source_nodata": src.nodata})
-            return _output(artifact, {"source_nodata": src.nodata, "nodata": args.nodata}, tool)
+            return _output(file, {"source_nodata": src.nodata, "nodata": args.nodata}, tool)
     if tool == "fill_nodata":
         from rasterio.fill import fillnodata
         with rio.open(args.input[0]) as src:
@@ -366,9 +366,9 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
                 valid = (~masked.mask).astype("uint8")
                 array[index] = fillnodata(values, mask=valid, max_search_distance=args.max_distance)
             profile = _profile(src, dtype="float32")
-            artifact = write_raster_array(array, profile, args.output_name, tool, args.title or tool,
+            file = write_raster_array(array, profile, args.output_name, tool, args.title or tool,
                                           {"max_distance": args.max_distance, "source_nodata": src.nodata})
-            return _output(artifact, {"bands": src.count, "max_distance": args.max_distance}, tool)
+            return _output(file, {"bands": src.count, "max_distance": args.max_distance}, tool)
     if tool == "aggregate_raster":
         factor = args.factor
         if factor < 2:
@@ -393,9 +393,9 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             result[np.isnan(result)] = output_nodata
             transform = src.transform * src.transform.scale(factor, factor)
             profile = _profile(src, height=out_h, width=out_w, transform=transform, dtype="float32", nodata=output_nodata)
-            artifact = write_raster_array(result, profile, args.output_name, tool, args.title or tool,
+            file = write_raster_array(result, profile, args.output_name, tool, args.title or tool,
                                           {"factor": factor, "statistic": args.statistic})
-            return _output(artifact, {"shape": list(result.shape), "factor": factor, "statistic": args.statistic}, tool)
+            return _output(file, {"shape": list(result.shape), "factor": factor, "statistic": args.statistic}, tool)
     if tool == "cell_statistics":
         if len(args.input) < 2:
             raise ValueError("cell_statistics 至少需要两个输入栅格")
@@ -418,9 +418,9 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
             output_nodata = first.nodata if first.nodata is not None else -9999.0
             result[np.isnan(result)] = output_nodata
             profile = _profile(first, count=1, dtype="float32", nodata=output_nodata)
-            artifact = write_raster_array(result, profile, args.output_name, tool, args.title or tool,
+            file = write_raster_array(result, profile, args.output_name, tool, args.title or tool,
                                           {"inputs": len(datasets), "statistic": args.statistic})
-            return _output(artifact, {"shape": list(result.shape), "inputs": len(datasets), "statistic": args.statistic}, tool)
+            return _output(file, {"shape": list(result.shape), "inputs": len(datasets), "statistic": args.statistic}, tool)
         finally:
             for dataset in datasets:
                 dataset.close()
@@ -432,8 +432,8 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
                 raise ValueError("mosaic 至少需要一个输入栅格")
             array, transform = merge(datasets)
             profile = _profile(datasets[0], height=array.shape[1], width=array.shape[2], transform=transform)
-            artifact = write_raster_array(array, profile, args.output_name, tool, args.title or tool, {"inputs": len(datasets)})
-            return _output(artifact, {"shape": list(array.shape), "inputs": len(datasets)}, tool)
+            file = write_raster_array(array, profile, args.output_name, tool, args.title or tool, {"inputs": len(datasets)})
+            return _output(file, {"shape": list(array.shape), "inputs": len(datasets)}, tool)
         finally:
             for dataset in datasets:
                 dataset.close()
@@ -516,4 +516,5 @@ def main(tool: str) -> None:
     except Exception as error:
         print_json({"success": False, "tool": tool, "error": str(error)})
         raise SystemExit(1) from error
+
 

@@ -54,15 +54,15 @@
 
       <div
         v-for="artifact in artifacts"
-        :key="artifact.artifactId"
+        :key="artifact.filePath"
         class="artifact-item"
-        :title="`定位 ${artifact.artifactId}`"
+        :title="`定位 ${artifact.filePath}`"
       >
         <button type="button" class="artifact-item-trigger" @click="emit('select', artifact)">
           <span class="artifact-item-index">{{ artifact.index + 1 }}</span>
           <span class="artifact-item-main">
             <span class="artifact-item-title">{{ artifact.label }}</span>
-            <span class="artifact-item-id">{{ artifact.artifactId }}</span>
+            <span class="artifact-item-id">{{ artifact.filePath }}</span>
           </span>
         </button>
         <span class="artifact-item-action" aria-hidden="true">
@@ -81,6 +81,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { getLatestFileChanges } from '../../api/fileChanges.js';
+import { parseMessageParts } from '../../utils/message-render.js';
 
 const props = defineProps({
   message: { type: Object, default: null },
@@ -94,23 +95,18 @@ const files = ref([]);
 let fileChangesRequest = 0;
 
 const artifacts = computed(() => {
-  const content = props.message?.content || '';
-  const matches = content.matchAll(/\[artifact:(art_[A-Za-z0-9_]+)\]/g);
   const seen = new Set();
   const items = [];
-
-  for (const match of matches) {
-    const artifactId = match[1];
-    if (!artifactId || seen.has(artifactId)) continue;
-    seen.add(artifactId);
+  for (const part of parseMessageParts(props.message || {})) {
+    if (part.type !== 'file' || !part.filePath || seen.has(part.filePath)) continue;
+    seen.add(part.filePath);
     items.push({
-      artifactId,
+      filePath: part.filePath,
       index: items.length,
-      label: `产物 ${items.length + 1}`,
+      label: part.filePath.split(/[\\/]/u).pop() || part.filePath,
       message: props.message,
     });
   }
-
   return items;
 });
 

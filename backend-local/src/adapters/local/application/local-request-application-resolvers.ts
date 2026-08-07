@@ -2,6 +2,7 @@ import { LocalExecutionApplication } from "./execution/local-execution-applicati
 import "@ragsystem/backend-core/fastify-context.js";
 import type { RequestApplicationResolvers } from "@ragsystem/backend-core/app/request-applications.js";
 import { LocalProviderApplication } from "./provider/local-provider-application.js";
+import { LocalWorkspaceFileApplication } from "./workspace-file/local-workspace-file-application.js";
 
 /** Local composition root for request-level application ports. */
 export function createLocalRequestApplicationResolvers(): RequestApplicationResolvers {
@@ -24,6 +25,14 @@ export function createLocalSessionFileApplicationResolver() {
 export function createLocalFileChangeApplicationResolver() {
   return (request: Parameters<RequestApplicationResolvers["resolveSessionApplication"]>[0]) =>
     requireLocalCapabilities(request).fileChanges;
+}
+
+export function createLocalWorkspaceFileApplicationResolver() {
+  return (request: Parameters<RequestApplicationResolvers["resolveSessionApplication"]>[0]) => {
+    const local = requireLocalCapabilities(request);
+    const sessions = local.createSessionApplication(request.identity.tenantId);
+    return new LocalWorkspaceFileApplication((sessionId) => sessions.resolveWorkspaceRoot(sessionId));
+  };
 }
 
 function requireLocalCapabilities(request: Parameters<RequestApplicationResolvers["resolveSessionApplication"]>[0]) {

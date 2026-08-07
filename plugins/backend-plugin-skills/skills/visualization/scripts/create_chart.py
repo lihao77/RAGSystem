@@ -3,7 +3,7 @@
 """
 create_chart.py - ECharts 图表生成
 
-输出 artifact 协议格式，由 execute_skill_script 自动持久化。
+输出通用文件引用；图表配置写入当前 cwd。
 
 用法:
   python create_chart.py --data '[{"年份":2020,"人口":100}]' --chart-type bar --x-field 年份 --y-field 人口
@@ -14,6 +14,7 @@ import sys
 import os
 import json
 import argparse
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from lib.data_loader import load_records
@@ -70,22 +71,22 @@ def main():
     preview = build_chart_preview(option, args.chart_type)
     final_title = option.get("title", {}).get("text", args.title or "未命名图表")
 
+    output_name = "chart-{}.json".format(args.chart_type)
+    output_path = Path.cwd() / output_name
+    output_path.write_text(json.dumps(option, ensure_ascii=False, indent=2), encoding="utf-8")
     output = {
         "success": True,
         "data": {"title": final_title, "preview": preview},
-        "artifact": {
-            "schema_version": 2,
-            "kind": "chart.echarts",
-            "subtype": args.chart_type,
-            "title": final_title,
-            "metadata": {"chart_type": args.chart_type},
-            "presentations": [{
-                "presentation_id": "primary",
-                "surface": "chart",
-                "renderer": "chart.echarts",
-                "assets": {},
-                "config": option,
-            }],
+        "file": {
+            "path": output_name,
+            "media_type": "application/json",
+            "size": output_path.stat().st_size,
+            "metadata": {
+                "kind": "chart.echarts",
+                "subtype": args.chart_type,
+                "title": final_title,
+                "chart_type": args.chart_type,
+            },
         },
     }
     print(json.dumps(output, ensure_ascii=False))

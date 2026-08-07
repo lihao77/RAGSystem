@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { AsyncSessionFileStorage } from "@ragsystem/backend-core/contracts/session/session-file-storage.js";
+import type { WorkspaceBlobStorage } from "@ragsystem/backend-core/contracts/storage/workspace-blob-storage.js";
 import type { SandboxDriver, SandboxLease, SandboxLeaseLifecycle, SandboxOwner } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 import type { UploadedFileRecord } from "@ragsystem/backend-core/contracts/storage/files.js";
 
@@ -30,6 +31,7 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
 
   constructor(
     private readonly files: AsyncSessionFileStorage,
+    private readonly workspace: WorkspaceBlobStorage,
     limits: Partial<SandboxFileTransferLimits> = {},
   ) {
     this.limits = validateLimits({ ...DEFAULT_SANDBOX_FILE_TRANSFER_LIMITS, ...limits });
@@ -105,7 +107,7 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
       recursive: true,
       maxResults: this.limits.maxOutputFiles + 1,
     });
-    const outputFiles = listed.files.filter((file) => !isTransientWorkspacePath(file));
+    const outputFiles = listed.files;
     if (listed.truncated || outputFiles.length > this.limits.maxOutputFiles) {
       throw new Error(`Sandbox output file count exceeds limit ${this.limits.maxOutputFiles}`);
     }
@@ -127,18 +129,15 @@ export class SaaSSandboxFileBridge implements SandboxLeaseLifecycle {
       if (totalBytes > this.limits.maxOutputTotalBytes) {
         throw new Error(`Sandbox output total exceeds byte limit ${this.limits.maxOutputTotalBytes}`);
       }
-      await this.files.add(owner.sessionId, {
-        originalName: relativePath,
-        buffer: body,
-        mime: inferMimeType(relativePath),
+      await this.workspace.put({
+        sessionId: owner.sessionId,
+        space: "workspace",
+        relativePath,
+        body,
+        contentType: inferMimeType(relativePath),
       });
     }
   }
-}
-
-function isTransientWorkspacePath(value: string): boolean {
-  const normalized = value.trim().replace(/\\/g, "/");
-  return normalized === "transient" || normalized.startsWith("transient/");
 }
 
 function validateInputMetadata(

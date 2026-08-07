@@ -192,32 +192,17 @@ def _feature_bounds(features):
     return [west, south, east, north]
 
 
-def _write_artifact(features, title, subtype):
-    output_directory = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
-    if not output_directory:
-        raise ValueError("geo_export.py 需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
+def _write_file(features, title, subtype):
     filename = f"{subtype}.geojson"
-    output_path = Path(output_directory).resolve() / filename
+    output_path = Path.cwd() / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
     collection = {"type": "FeatureCollection", "features": features}
     output_path.write_text(json.dumps(collection, ensure_ascii=False, allow_nan=False), encoding="utf-8")
     return {
-        "schema_version": 2,
-        "kind": "vector.dataset",
+        "file": {"path": filename, "media_type": "application/geo+json", "size": output_path.stat().st_size,
+                 "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": _feature_bounds(features)}, "feature_count": len(features)}},
         "subtype": subtype,
         "title": title,
-        "assets": [{
-            "asset_id": "data",
-            "role": "data",
-            "filename": filename,
-            "media_type": "application/geo+json",
-            "staged_file": filename,
-        }],
-        "presentations": [],
-        "metadata": {
-            "spatial": {"crs": "EPSG:4326", "bounds": _feature_bounds(features)},
-            "feature_count": len(features),
-        },
     }
 
 
@@ -458,8 +443,8 @@ def main():
             driver.close()
 
         features = data.pop("features", [])
-        artifact = _write_artifact(features, data.get("title", "空间数据"), args.type) if features else None
-        print(json.dumps({"success": True, "data": data, **({"artifact": artifact} if artifact else {})},
+        file = _write_file(features, data.get("title", "空间数据"), args.type) if features else None
+        print(json.dumps({"success": True, "data": data, **({"file": file} if file else {})},
                           ensure_ascii=False, indent=2))
         return 0
     except Exception as e:
@@ -470,3 +455,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

@@ -1,4 +1,4 @@
-const ARTIFACT_PLACEHOLDER_RE = /\[artifact:(art_[A-Za-z0-9_]+)\]/g;
+const FILE_PLACEHOLDER_RE = /\[file:([^\]\r\n]+)\]/g;
 
 const executionTreeHasContent = (executionTree) => Boolean(executionTree?.root);
 
@@ -79,19 +79,19 @@ export function parseTaskNotifications(msg) {
 
 export function parseMessageParts(msg) {
   const content = msg?.content || '';
-  const hasArtifact = ARTIFACT_PLACEHOLDER_RE.test(content);
-  ARTIFACT_PLACEHOLDER_RE.lastIndex = 0;
+  const hasFile = FILE_PLACEHOLDER_RE.test(content);
+  FILE_PLACEHOLDER_RE.lastIndex = 0;
 
-  if (!hasArtifact) return [{ type: 'text', content }];
+  if (!hasFile) return [{ type: 'text', content }];
 
   const parts = [];
   let lastIndex = 0;
   let match;
-  while ((match = ARTIFACT_PLACEHOLDER_RE.exec(content)) !== null) {
+  while ((match = FILE_PLACEHOLDER_RE.exec(content)) !== null) {
     if (match.index > lastIndex) {
       parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
     }
-    parts.push({ type: 'artifact', artifactId: match[1] });
+    parts.push({ type: 'file', filePath: match[1].trim() });
     lastIndex = match.index + match[0].length;
   }
   if (lastIndex < content.length) {

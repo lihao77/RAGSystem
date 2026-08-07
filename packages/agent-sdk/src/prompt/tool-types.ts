@@ -11,7 +11,7 @@ export type RuntimeToolExample = Record<string, unknown>;
 
 /**
  * 工具自声明的 observation 策略，决定结果如何回喂模型。
- * - default：走 SDK 大小决策（超限落盘 artifact）
+ * - default：走 SDK 大小决策（超限落盘临时文件）
  * - inline：工具声明结果必须完整 inline，不落盘（如 read_file 已自带分页、技能文档需即时阅读）
  */
 export type ObservationPolicy = "default" | "inline";

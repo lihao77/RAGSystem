@@ -14,4 +14,5 @@ export interface WorkspaceSearchPort {
 
 export interface CodeExecutionPort {
   executeCode: (...args: any[]) => any;
+  getExternalCandidates?: (...args: any[]) => string[];
 }

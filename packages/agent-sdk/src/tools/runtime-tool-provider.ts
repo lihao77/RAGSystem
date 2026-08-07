@@ -25,7 +25,7 @@ export interface RuntimeToolProviderOptions {
   registry: ToolRegistry;
   /** 工具执行上下文模板（sessionId/runId/taskId 等运行时元数据）。 */
   toolContext: ToolExecContext;
-  /** 数据根目录（observation artifact 落盘用）。 */
+  /** 数据根目录（工具媒体读取等宿主资源使用；大结果临时文件由 observation 写入 os.tmpdir）。 */
   dataRoot: string;
   /** 实时输出导线：tool_call / tool_result 经它透传到 Dispatcher。 */
   events: EventSink;

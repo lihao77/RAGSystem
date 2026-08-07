@@ -1,10 +1,9 @@
-"""Shared IO and Artifact V2 helpers for vector spatial analysis."""
+"""Shared IO and File V2 helpers for vector spatial analysis."""
 
 from __future__ import annotations
 
 import json
 import math
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -19,14 +18,8 @@ def load_geopandas():
     return gpd, pd
 
 
-def require_staging() -> Path:
-    raw = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
-    if not raw:
-        raise RuntimeError("脚本需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
-    output = Path(raw).resolve()
-    output.mkdir(parents=True, exist_ok=True)
-    return output
-
+def output_dir() -> Path:
+    return Path.cwd()
 
 def safe_name(value: str, fallback: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())[:80].strip(".-")
@@ -79,16 +72,16 @@ def _wgs84_bounds(gdf: Any) -> list[float]:
     return [west, south, east, north]
 
 
-def write_geojson_artifact(
+def write_geojson_file(
     gdf: Any,
     output_name: str,
     subtype: str,
     title: str,
     processing: dict[str, Any],
 ) -> dict[str, Any]:
-    output_dir = require_staging()
+    output_root = output_dir()
     filename = f"{safe_name(output_name, 'vector-result')}.geojson"
-    path = output_dir / filename
+    path = output_root / filename
     export = gdf
     if export.crs is not None:
         try:
@@ -98,26 +91,14 @@ def write_geojson_artifact(
     # to_json also handles a valid zero-feature selection, which some drivers reject.
     path.write_text(export.to_json(drop_id=True), encoding="utf-8")
     return {
-        "schema_version": 2,
-        "kind": "geospatial.vector",
+        "file": {"path": filename, "media_type": "application/geo+json", "size": path.stat().st_size,
+                 "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": _wgs84_bounds(gdf)}, "processing": processing}},
         "subtype": subtype,
         "title": title,
-        "assets": [{
-            "asset_id": "data",
-            "role": "data",
-            "filename": filename,
-            "media_type": "application/geo+json",
-            "staged_file": filename,
-        }],
-        "presentations": [],
-        "metadata": {
-            "spatial": {"crs": "EPSG:4326", "bounds": _wgs84_bounds(gdf)},
-            "processing": processing,
-        },
     }
 
 
-def write_table_artifact(
+def write_table_file(
     rows: list[dict[str, Any]],
     output_name: str,
     subtype: str,
@@ -125,29 +106,19 @@ def write_table_artifact(
     processing: dict[str, Any],
     source_bounds: list[float] | None = None,
 ) -> dict[str, Any]:
-    output_dir = require_staging()
+    output_root = output_dir()
     filename = f"{safe_name(output_name, 'table-result')}.json"
-    path = output_dir / filename
+    path = output_root / filename
     path.write_text(json.dumps(rows, ensure_ascii=False, allow_nan=False, default=str), encoding="utf-8")
     return {
-        "schema_version": 2,
-        "kind": "table.dataset",
+        "file": {"path": filename, "media_type": "application/json", "size": path.stat().st_size,
+                 "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": source_bounds or []}, "processing": processing}},
         "subtype": subtype,
         "title": title,
-        "assets": [{
-            "asset_id": "data",
-            "role": "data",
-            "filename": filename,
-            "media_type": "application/json",
-            "staged_file": filename,
-        }],
-        "presentations": [],
-        "metadata": {
-            "spatial": {"crs": "EPSG:4326", "bounds": source_bounds or []},
-            "processing": processing,
-        },
     }
 
 
 def print_json(value: Any) -> None:
     print(json.dumps(value, ensure_ascii=False, allow_nan=False, default=str))
+
+

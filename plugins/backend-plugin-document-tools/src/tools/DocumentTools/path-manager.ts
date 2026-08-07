@@ -11,7 +11,7 @@ export type ManagedOperation = "read" | "write" | "edit";
 export type ManagedSpace = keyof ExecutionPaths;
 
 /**
- * Document tools share the same four-directory view as shell and code tools.
+ * Document tools share the same workspace/uploads view as shell and code tools.
  * Relative paths have exactly one meaning: workspace, unless a space is
  * explicitly selected. This class does not search candidate roots or create
  * display aliases.
@@ -37,7 +37,7 @@ export class LocalDocumentPathManager {
     const explicitSpace = normalizeManagedSpace(input.explicitSpace);
     const defaultOutputSpace = normalizeManagedSpace(input.customParams?.default_output_space);
 
-    if ((explicitSpace === "uploads" || explicitSpace === "artifacts") && input.operation !== "read") {
+    if (explicitSpace === "uploads" && input.operation !== "read") {
       throw new Error(`${explicitSpace} 是只读空间，禁止写入或编辑`);
     }
     if (!rawPath && input.operation === "read") {
@@ -45,8 +45,8 @@ export class LocalDocumentPathManager {
     }
 
     if (!rawPath) {
-      const outputSpace = explicitSpace ?? defaultOutputSpace ?? "transient";
-      if (outputSpace === "uploads" || outputSpace === "artifacts") {
+      const outputSpace = explicitSpace ?? defaultOutputSpace ?? "workspace";
+      if (outputSpace === "uploads") {
         throw new Error(`${outputSpace} 是只读空间，不能作为输出目录`);
       }
       const root = roots[outputSpace];
@@ -70,10 +70,12 @@ export class LocalDocumentPathManager {
     const operation = documentOperationForTool(toolName);
     if (!operation) return [];
     const rawPath = normalizeString(args?.file_path) ?? normalizeString(args?.filePath);
-    if (!rawPath || !isAbsolutePathLike(rawPath)) return [];
-    const candidatePath = resolvePathLike(rawPath);
-    if (pathService.isApproved(candidatePath)) return [];
+    if (!rawPath) return [];
     const roots = this.roots(context, null);
+    const candidatePath = isAbsolutePathLike(rawPath)
+      ? resolvePathLike(rawPath)
+      : path.resolve(roots.workspace, rawPath);
+    if (pathService.isApproved(candidatePath)) return [];
     if (this.allowedRoots(roots, operation).some((root) => isPathUnder(candidatePath, root))) return [];
     return [candidatePath];
   }
@@ -113,7 +115,7 @@ export class LocalDocumentPathManager {
 
   private allowedRoots(roots: ExecutionPaths, operation: ManagedOperation): string[] {
     if (operation === "read") return Object.values(roots);
-    return [roots.workspace, roots.transient];
+    return [roots.workspace];
   }
 }
 
@@ -124,10 +126,10 @@ function randomSuffix(): string {
 function normalizeManagedSpace(value: unknown): ManagedSpace | null {
   const normalized = normalizeString(value)?.toLowerCase();
   if (!normalized) return null;
-  if (normalized === "uploads" || normalized === "workspace" || normalized === "artifacts" || normalized === "transient") {
+  if (normalized === "uploads" || normalized === "workspace") {
     return normalized;
   }
-  throw new Error(`不支持的显式空间: ${value}；请使用 workspace/uploads/artifacts/transient`);
+  throw new Error(`不支持的显式空间: ${value}；请使用 workspace 或 uploads`);
 }
 
 function documentOperationForTool(toolName: string): ManagedOperation | null {

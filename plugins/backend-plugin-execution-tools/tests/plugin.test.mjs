@@ -160,13 +160,8 @@ test("managed paths share one deterministic workspace view across execution tool
     fs.writeFileSync(path.join(roots.workspace, "root.txt"), "root", "utf8");
 
     const pathPolicy = new PathApprovalService();
-    assert.equal(resolver.resolveWorkingDirectory(null, null, context, pathPolicy), roots.workspace);
-    assert.equal(resolver.resolveWorkingDirectory(".", "workspace", context, pathPolicy), roots.workspace);
-    assert.equal(resolver.resolveWorkingDirectory(".", "transient", context, pathPolicy), roots.transient);
-    assert.throws(
-      () => resolver.resolveWorkingDirectory(".", "exports", context, pathPolicy),
-      /不支持的路径空间/,
-    );
+    assert.equal(resolver.resolveWorkingDirectory(null, context, pathPolicy), roots.workspace);
+    assert.equal(resolver.resolveWorkingDirectory(".", context, pathPolicy), roots.workspace);
     assert.equal(resolver.toDisplayPath(roots.workspace), roots.workspace);
 
     const bash = new LocalBashToolService({ dataRoot, pathResolver: resolver });
@@ -186,16 +181,15 @@ test("managed paths share one deterministic workspace view across execution tool
     const otherSessionRoots = resolver.roots({ sessionId: "session-b", runId: "run-a" });
     const otherRunRoots = resolver.roots({ sessionId: "session-a", runId: "run-b" });
     assert.notEqual(otherSessionRoots.workspace, roots.workspace);
-    assert.notEqual(otherSessionRoots.transient, roots.transient);
     assert.equal(otherRunRoots.workspace, roots.workspace);
 
     assert.deepEqual(resolver.getExternalCandidates(externalRoot, context, pathPolicy), [externalRoot]);
     assert.throws(
-      () => resolver.resolveWorkingDirectory(externalRoot, null, context, pathPolicy),
+      () => resolver.resolveWorkingDirectory(externalRoot, context, pathPolicy),
       /超出允许的受管目录范围/,
     );
     pathPolicy.approve([externalRoot]);
-    assert.equal(resolver.resolveWorkingDirectory(externalRoot, null, context, pathPolicy), externalRoot);
+    assert.equal(resolver.resolveWorkingDirectory(externalRoot, context, pathPolicy), externalRoot);
   } finally {
     fs.rmSync(dataRoot, { recursive: true, force: true });
     fs.rmSync(externalRoot, { recursive: true, force: true });
@@ -206,8 +200,6 @@ test("system prompt exposes stable execution paths", () => {
   const executionPaths = {
     workspace: "D:/session/workspace",
     uploads: "D:/session/uploads",
-    artifacts: "D:/session/artifacts",
-    transient: "D:/session/transient",
   };
   const runtime = createRuntime({
     profile: { agentName: "prompt-test", behavior: { systemPrompt: "" }, llmTiers: {} },
@@ -220,8 +212,6 @@ test("system prompt exposes stable execution paths", () => {
     assert.equal(first.systemPrompt, second.systemPrompt);
     assert.match(first.systemPrompt, /workspace.*D:\/session\/workspace/s);
     assert.match(first.systemPrompt, /uploads.*D:\/session\/uploads/s);
-    assert.match(first.systemPrompt, /artifacts.*D:\/session\/artifacts/s);
-    assert.match(first.systemPrompt, /transient.*D:\/session\/transient/s);
   } finally {
     runtime.close();
   }
@@ -410,7 +400,7 @@ function success(toolName) {
     outputType: "text",
     content: "ok",
     metadata: {},
-    artifacts: [],
+    files: [],
     llmHint: null,
   };
 }

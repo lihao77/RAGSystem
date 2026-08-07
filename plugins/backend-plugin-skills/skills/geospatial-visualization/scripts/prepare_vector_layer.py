@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Prepare a vector dataset as a data-first GeoJSON Artifact V2."""
+"""Prepare a vector dataset as a data-first GeoJSON File V2."""
 
 from __future__ import annotations
 
 import argparse
 import sys
 
-from _shared import print_json, require_staging, safe_name
+from _shared import print_json, output_dir, safe_name
 
 
 def main() -> int:
@@ -35,9 +35,9 @@ def main() -> int:
             if not values:
                 raise ValueError(f"字段 {args.value_field} 没有有效数值")
         value_range = {"min": min(values), "max": max(values)} if values else None
-        output_dir = require_staging()
+        output_root = output_dir()
         filename = f"{safe_name(args.output_name, 'vector-layer')}.geojson"
-        frame.to_file(output_dir / filename, driver="GeoJSON", index=False)
+        frame.to_file(output_root / filename, driver="GeoJSON", index=False)
         title = args.title or f"{args.value_field or '矢量'}图层"
         if not len(frame):
             raise ValueError("矢量数据没有要素")
@@ -48,22 +48,11 @@ def main() -> int:
         if bounds[1] == bounds[3]:
             bounds[1] -= 0.00001
             bounds[3] += 0.00001
-        artifact = {
-            "schema_version": 2,
-            "kind": "geospatial.vector",
-            "subtype": "thematic" if args.value_field else "geojson",
-            "title": title,
-            "assets": [{"asset_id": "data", "role": "data", "filename": filename, "media_type": "application/geo+json", "staged_file": filename}],
-            "presentations": [],
-            "metadata": {
-                "spatial": {"crs": "EPSG:4326", "bounds": bounds},
-                "feature_count": int(len(frame)),
-                "geometry_types": sorted(str(value) for value in frame.geometry.geom_type.dropna().unique()),
-                "value_field": args.value_field,
-                "value_range": value_range,
-            },
-        }
-        print_json({"success": True, "data": {"title": title, "feature_count": int(len(frame)), "crs": "EPSG:4326", "bounds": bounds, "value_field": args.value_field, "value_range": value_range}, "artifact": artifact})
+        file = {"path": filename, "media_type": "application/geo+json", "size": (output_root / filename).stat().st_size,
+                "metadata": {"spatial": {"crs": "EPSG:4326", "bounds": bounds},
+                              "feature_count": int(len(frame)), "geometry_types": sorted(str(value) for value in frame.geometry.geom_type.dropna().unique()),
+                              "value_field": args.value_field, "value_range": value_range}}
+        print_json({"success": True, "data": {"title": title, "feature_count": int(len(frame)), "crs": "EPSG:4326", "bounds": bounds, "value_field": args.value_field, "value_range": value_range}, "file": file})
         return 0
     except (OSError, ValueError, RuntimeError) as error:
         print(f"prepare_vector_layer: {error}", file=sys.stderr)
@@ -75,3 +64,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

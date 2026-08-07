@@ -370,7 +370,7 @@ async function resolveToolObservation(input: {
         success: input.result.success,
         summary: input.result.summary,
         observation,
-        rawResult: materializeForRef(input.result),
+        rawResult: materializeForRef(llmFacingResult),
         ...(modelContent ? { modelContent } : {}),
       };
     } catch (error) {
@@ -454,7 +454,7 @@ function summarizeBackgroundWaitResult(waitResult: ToolWaitResult): string {
 }
 
 function materializeForRef(result: ToolExecutionResult): Record<string, unknown> {
-  return { success: result.success, tool_name: result.toolName, summary: result.summary, content: result.content, metadata: result.metadata };
+  return { success: result.success, tool_name: result.toolName, summary: result.summary, content: result.content, metadata: result.metadata, files: result.files };
 }
 
 function asNonEmptyString(value: unknown): string | null {

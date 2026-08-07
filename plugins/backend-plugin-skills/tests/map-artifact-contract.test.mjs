@@ -7,7 +7,6 @@ import test from "node:test";
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skillRoots = [
   path.join(packageRoot, "skills"),
-  path.resolve(packageRoot, "..", "backend-plugin-artifacts", "skills"),
 ];
 const forbidden = [
   ["map", "geojson"].join("."),
@@ -32,7 +31,7 @@ function pythonFiles(root) {
   return files;
 }
 
-test("map-producing skill scripts use data-first Artifact V2", () => {
+test("map-producing skill scripts use data-first file outputs", () => {
   const violations = [];
   for (const root of skillRoots) {
     for (const file of pythonFiles(root)) {
@@ -46,7 +45,7 @@ test("map-producing skill scripts use data-first Artifact V2", () => {
 });
 
 test("legacy map-generation entry points are removed", () => {
-  const visualizationScripts = path.join(packageRoot, "..", "backend-plugin-artifacts", "skills", "visualization", "scripts");
+  const visualizationScripts = path.join(packageRoot, "skills", "visualization", "scripts");
   const emergencyScripts = path.join(packageRoot, "skills", "emergency-decision-support", "scripts");
   assert.equal(fs.existsSync(path.join(visualizationScripts, ["create", "map.py"].join("_"))), false);
   assert.equal(fs.existsSync(path.join(visualizationScripts, ["create", "bindmap.py"].join("_"))), false);

@@ -2,6 +2,7 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { z } from "zod";
 
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import type { SkillsAgentConfig } from "../config.js";
 import type { SkillToolService } from "./SkillExecution.js";
 import { readSkillToolArguments } from "./SkillExecution.js";
@@ -17,6 +18,7 @@ interface SkillToolDeps {
   skillTools: SkillToolService | null;
   agent: AgentConfig | null;
   config: SkillsAgentConfig;
+  pathService: PathAccessPolicy;
 }
 
 const skillBaseSchema = z.object({
@@ -35,6 +37,7 @@ const executeSkillScriptSchema = skillBaseSchema.extend({
   script_name: z.string(),
   scriptName: z.string().optional(),
   arguments: nullableStringArray(),
+  cwd: optionalString,
   run_in_background: optionalBoolean,
   runInBackground: optionalBoolean,
 }).strict();
@@ -111,11 +114,12 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
     riskLevel: "medium",
     allowed_callers: ["direct"],
     description:
-      "Execute a Skill utility script from the shared workspace. The arguments field is argv-style: each command-line token must be one array item.",
+      "Execute a Skill utility script in an Agent-selected working directory. Relative cwd values resolve from the current workspace; external directories require path approval.",
     usage_contract: [
       "arguments 是 argv token 数组，每个 token 一个数组项，不要合并成单个字符串或 JSON 对象。",
-      "脚本进程的当前工作目录是 workspace；相对 request 文件和脚本输出文件应直接使用 workspace 下的相对路径。",
-      "脚本可通过 SESSION_WORKSPACE_DIR、SESSION_UPLOADS_DIR、SESSION_ARTIFACTS_DIR、SESSION_TRANSIENT_DIR 访问四类路径。",
+      "用 cwd 决定脚本最终产物目录；相对 cwd 从 workspace 解析，未传时使用 workspace 根目录。",
+      "workspace 外的 cwd 会进入路径审批，批准后脚本才会执行。",
+      "脚本可通过 SESSION_WORKSPACE_DIR、SESSION_UPLOADS_DIR 访问受管路径；最终文件应使用 cwd 下的相对路径。",
     ],
     parameters: {
       type: "object",
@@ -129,6 +133,10 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
           items: { type: "string" },
           description:
             "Command line argv tokens, one token per array item (e.g. [\"--data\", \"data.json\"]). Do not join tokens with spaces/semicolons, and do not pass an object like {\"--data\":\"...\"}.",
+        },
+        cwd: {
+          type: "string",
+          description: "Working directory for the script. Relative paths resolve from workspace; absolute external paths require approval.",
         },
         run_in_background: { type: "boolean", description: "Reserved for background execution." },
         workspace_root: { type: "string", description: "Optional workspace root for workspace Skills." },
@@ -175,7 +183,20 @@ export function createSkillTools(deps: SkillToolDeps): Tool[] {
       ...metadataFrom(omitBackgroundParam(definitionByName.get(EXECUTE_SKILL_SCRIPT_TOOL_NAME)!, allowBackground)),
       inputSchema: executeSkillScriptSchema,
       isConcurrencySafe: () => false,
-      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.executeSkillScript(readSkillToolArguments(input), context, agent, deps.config),
+      checkAccess: (input: Record<string, unknown>, context: ToolExecContext) => {
+        const parsed = readSkillToolArguments(input);
+        const candidates = skillTools.getExternalCwdCandidates(parsed.cwd, context, agent, deps.pathService);
+        return candidates.length
+          ? { action: "allow" as const, signals: { candidatePaths: candidates } }
+          : { action: "allow" as const };
+      },
+      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.executeSkillScript(
+        readSkillToolArguments(input),
+        context,
+        agent,
+        deps.config,
+        deps.pathService,
+      ),
     }),
   ];
 }

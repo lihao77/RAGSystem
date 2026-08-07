@@ -71,11 +71,11 @@ const toggleCollapse = (val) => {
   emit('collapse-change', val);
 };
 
-// 主渲染器 + Artifact 标记后处理。
+// 主渲染器 + 文件引用后处理。
 const renderWithViz = (content) =>
   renderMarkdown(content || '').replace(
-    /\[artifact:(art_[A-Za-z0-9_]+)\]/g,
-    '<span class="viz-link">[ 查看产物 ]</span>',
+    /\[file:([^\]\r\n]+)\]/g,
+    '<span class="viz-link">[ 查看文件 ]</span>',
   );
 
 const sendMessage = () => {

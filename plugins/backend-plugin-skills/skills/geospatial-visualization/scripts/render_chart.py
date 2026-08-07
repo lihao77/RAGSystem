@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a small ECharts Artifact from JSON or CSV records."""
+"""Build a small ECharts File from JSON or CSV records."""
 
 from __future__ import annotations
 
@@ -54,8 +54,12 @@ def main() -> int:
                 option["series"] = [{"name": name, "type": "scatter", "data": points} for name, points in groups.items()]
         title = args.title or "空间数据图表"
         option["title"]["text"] = title
-        artifact = {"schema_version": 2, "kind": "chart.echarts", "subtype": args.chart_type, "title": title, "assets": [], "presentations": [{"presentation_id": "primary", "surface": "chart", "renderer": "chart.echarts", "assets": {}, "config": option}], "metadata": {"chart_type": args.chart_type, "record_count": len(records)}}
-        print_json({"success": True, "data": {"title": title, "record_count": len(records)}, "artifact": artifact})
+        filename = f"{args.output_name}.json"
+        output_path = Path.cwd() / filename
+        output_path.write_text(json.dumps(option, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+        file = {"path": filename, "media_type": "application/json", "size": output_path.stat().st_size,
+                "metadata": {"chart_type": args.chart_type, "record_count": len(records), "renderer": "echarts"}}
+        print_json({"success": True, "data": {"title": title, "record_count": len(records)}, "file": file})
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"render_chart: {error}", file=sys.stderr)
@@ -67,3 +71,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

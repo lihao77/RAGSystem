@@ -36,14 +36,13 @@ test("raster expression evaluator is AST-whitelisted", () => {
   assert.match(source, /ast\.Call/);
 });
 
-test("spatial artifact and map contracts are documented", () => {
+test("spatial file and map contracts are documented", () => {
   const vector = fs.readFileSync(path.join(skillsRoot, "vector-spatial-analysis", "SKILL.md"), "utf8");
   const raster = fs.readFileSync(path.join(skillsRoot, "raster-spatial-analysis", "SKILL.md"), "utf8");
   const visualization = fs.readFileSync(path.join(skillsRoot, "geospatial-visualization", "SKILL.md"), "utf8");
   for (const content of [vector, raster]) {
-    assert.match(content, /artifact_id/);
-    assert.match(content, /map_add_artifact_layer/);
-    assert.match(content, /presentations/);
+    assert.match(content, /file\.path/);
+    assert.match(content, /map_add_file_layer/);
   }
-  assert.match(visualization, /map_add_artifact_layer/);
+  assert.match(visualization, /map_add_file_layer/);
 });

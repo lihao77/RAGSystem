@@ -17,8 +17,8 @@ from _shared import (
     load_geopandas,
     print_json,
     summarize,
-    write_geojson_artifact,
-    write_table_artifact,
+    write_geojson_file,
+    write_table_file,
 )
 
 
@@ -345,10 +345,10 @@ def main(forced_operation: str | None = None) -> int:
         result, details, rows = _process(frame, args, gpd)
         title = f"{args.operation} · {Path(args.input[0]).name}"
         if rows is not None:
-            artifact = write_table_artifact(rows, args.output_name, args.operation, title, details, details["input"].get("bounds", []))
+            file = write_table_file(rows, args.output_name, args.operation, title, details, details["input"].get("bounds", []))
         else:
-            artifact = write_geojson_artifact(result, args.output_name, args.operation, title, details)
-        print_json({"success": True, "data": details, "artifact": artifact})
+            file = write_geojson_file(result, args.output_name, args.operation, title, details)
+        print_json({"success": True, "data": details, "file": file})
         return 0
     except (OSError, ValueError, RuntimeError) as error:
         print(f"vector_geoprocessing: {error}", file=sys.stderr)
@@ -360,3 +360,4 @@ def main(forced_operation: str | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

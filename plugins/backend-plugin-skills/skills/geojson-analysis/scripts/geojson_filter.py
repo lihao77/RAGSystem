@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from _artifact import write_artifact
+from _file import write_file
 
 
 def _load_data(raw: str) -> dict:
@@ -116,15 +116,16 @@ def main():
     geom_types = [t.strip() for t in args.geometry_types.split(",")] if args.geometry_types else None
 
     result = _filter_features(data, conditions, geom_types)
-    artifact = write_artifact(
+    file = write_file(
         result,
         "geojson-filter",
         "filtered",
         "GeoJSON 过滤结果",
         result.get("metadata", {}),
     )
-    json.dump({"success": True, "data": {"operation": "filter", **result.get("metadata", {})}, "artifact": artifact}, sys.stdout, ensure_ascii=False)
+    json.dump({"success": True, "data": {"operation": "filter", **result.get("metadata", {})}, "file": file}, sys.stdout, ensure_ascii=False)
 
 
 if __name__ == "__main__":
     main()
+

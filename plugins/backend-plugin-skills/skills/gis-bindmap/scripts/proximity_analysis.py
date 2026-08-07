@@ -6,7 +6,7 @@ proximity_analysis.py - 邻近空间分析
 操作:
   buffer   — 缓冲区分析（中心点+半径，查找区域内要素）
   nearest  — 最近邻查询（查找最近 N 个要素）
-  resources — 多类型应急资源查询并输出 GeoJSON Artifact
+  resources — 多类型应急资源查询并输出 GeoJSON File
 
 用法:
   python scripts/proximity_analysis.py --operation buffer --location "南宁市" --radius 50 --types hospital,shelter
@@ -23,7 +23,7 @@ import argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _shared import (
     resolve_location, load_geodata_features, error_exit,
-    features_in_radius, nearest_features, build_point_artifact,
+    features_in_radius, nearest_features, build_point_file,
     FEATURE_LABELS,
 )
 
@@ -56,8 +56,8 @@ def do_buffer(args):
     }
     groups = [{"name": "查询中心", "category": "origin", "items": [center]}]
     groups.extend({"name": FEATURE_LABELS.get(key, key), "category": key, "items": value} for key, value in results.items())
-    artifact = build_point_artifact(groups, f"{center['name']} {args.radius}km 缓冲查询", "buffer-query", {"radius_km": args.radius})
-    print(json.dumps({"success": True, "data": data, "artifact": artifact}, ensure_ascii=False, indent=2))
+    file = build_point_file(groups, f"{center['name']} {args.radius}km 缓冲查询", "buffer-query", {"radius_km": args.radius})
+    print(json.dumps({"success": True, "data": data, "file": file}, ensure_ascii=False, indent=2))
 
 
 def do_nearest(args):
@@ -79,7 +79,7 @@ def do_nearest(args):
         "top_k": args.top_k,
         "results": found,
     }
-    artifact = build_point_artifact(
+    file = build_point_file(
         [
             {"name": "查询起点", "category": "origin", "items": [center]},
             {"name": FEATURE_LABELS.get(ftype, ftype), "category": ftype, "items": found},
@@ -88,7 +88,7 @@ def do_nearest(args):
         "nearest-query",
         {"top_k": args.top_k},
     )
-    print(json.dumps({"success": True, "data": data, "artifact": artifact}, ensure_ascii=False, indent=2))
+    print(json.dumps({"success": True, "data": data, "file": file}, ensure_ascii=False, indent=2))
 
 
 def do_resources(args):
@@ -120,8 +120,8 @@ def do_resources(args):
         "radius_km": args.radius,
         "summary": summary,
     }
-    artifact = build_point_artifact(groups, title, "resource-query", {"radius_km": args.radius})
-    print(json.dumps({"success": True, "data": data, "artifact": artifact}, ensure_ascii=False, indent=2))
+    file = build_point_file(groups, title, "resource-query", {"radius_km": args.radius})
+    print(json.dumps({"success": True, "data": data, "file": file}, ensure_ascii=False, indent=2))
 
 
 def main():
@@ -154,3 +154,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

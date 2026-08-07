@@ -39,7 +39,7 @@ function parseToolResult(value: unknown): ToolExecutionResult | null {
     outputType: typeof value.output_type === "string" ? value.output_type : "unknown",
     content: value.content,
     metadata: isRecord(value.metadata) ? value.metadata : {},
-    artifacts: Array.isArray(value.artifacts) ? value.artifacts as ToolExecutionResult["artifacts"] : [],
+    files: Array.isArray(value.files) ? value.files as ToolExecutionResult["files"] : [],
     llmHint: null,
   };
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare a raster band as a WGS84 PNG layer Artifact V2."""
+"""Prepare a raster band as a WGS84 PNG layer File V2."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import io
 import sys
 from pathlib import Path
 
-from _shared import print_json, require_staging, safe_name
+from _shared import print_json, output_dir, safe_name
 
 
 def _palette(name: str, values):
@@ -77,18 +77,12 @@ def main() -> int:
                 rgba = np.concatenate([rgb, alpha[..., None]], axis=2)
                 image_buffer = io.BytesIO()
                 Image.fromarray(rgba, mode="RGBA").save(image_buffer, format="PNG", optimize=True)
-                output_dir = require_staging()
+                output_root = output_dir()
                 filename = f"{safe_name(args.output_name, 'raster-layer')}.png"
-                (output_dir / filename).write_bytes(image_buffer.getvalue())
+                (output_root / filename).write_bytes(image_buffer.getvalue())
                 title = args.title or f"{Path(args.file).name} · Band {args.band}"
-                artifact = {
-                    "schema_version": 2,
-                    "kind": "raster.preview",
-                    "subtype": "colorized",
-                    "title": title,
-                    "assets": [{"asset_id": "image", "role": "data", "filename": filename, "media_type": "image/png", "staged_file": filename}],
-                    "presentations": [],
-                    "metadata": {
+                file = {"path": filename, "media_type": "image/png", "size": (output_root / filename).stat().st_size,
+                        "metadata": {
                         "spatial": {"crs": "EPSG:4326", "bounds": bounds},
                         "source": args.file,
                         "source_crs": source_crs,
@@ -98,9 +92,8 @@ def main() -> int:
                         "palette": args.palette,
                         "width": width,
                         "height": height,
-                    },
-                }
-        print_json({"success": True, "data": {"title": title, "statistics": {"min": minimum, "max": maximum, "valid_count": int(valid.size)}, "preview_shape": [height, width]}, "artifact": artifact})
+                    }}
+        print_json({"success": True, "data": {"title": title, "statistics": {"min": minimum, "max": maximum, "valid_count": int(valid.size)}, "preview_shape": [height, width]}, "file": file})
         return 0
     except (OSError, ValueError, RuntimeError) as error:
         print(f"prepare_raster_layer: {error}", file=sys.stderr)
@@ -112,3 +105,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

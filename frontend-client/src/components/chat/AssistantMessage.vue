@@ -20,11 +20,11 @@
       />
     </div>
     <div
-      v-else-if="part.type === 'artifact'"
-      class="inline-chart-wrapper"
-      :data-artifact-id="part.artifactId"
+      v-else-if="part.type === 'file'"
+      class="inline-file-wrapper"
+      :data-file-path="part.filePath"
     >
-      <VisualizationLoader :artifactId="part.artifactId" />
+      <VisualizationLoader :session-id="currentSessionId" :file-path="part.filePath" />
     </div>
   </template>
 
@@ -49,6 +49,7 @@ const props = defineProps({
 
 const emit = defineEmits(['notify', 'citation-click']);
 const messageContext = inject('messageContext');
+const currentSessionId = computed(() => messageContext?.currentSessionId?.value || messageContext?.currentSessionId || '');
 
 // 流式中（未停止且未结束）→ 显示呼吸光标
 const isStreaming = computed(() => !props.msg.finished && !props.msg.stopped);

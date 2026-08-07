@@ -19,8 +19,8 @@ from _shared import (
     load_rasterio,
     print_json,
     wgs84_bounds,
-    write_table_artifact,
-    write_vector_artifact,
+    write_table_file,
+    write_vector_file,
 )
 
 
@@ -310,13 +310,13 @@ def process(operation: str, args: argparse.Namespace) -> dict[str, Any]:
     elif operation == "summary_statistics":
         rows = _statistics(frame, args.stats, args.by)
         details.update({"stats": args.stats, "by": args.by, "row_count": len(rows)})
-        artifact = write_table_artifact(rows, args.output_name, operation, f"{operation} · {Path(args.input).name}", details, wgs84_bounds(frame))
-        return {"success": True, "data": details, "artifact": artifact}
+        file = write_table_file(rows, args.output_name, operation, f"{operation} · {Path(args.input).name}", details, wgs84_bounds(frame))
+        return {"success": True, "data": details, "file": file}
     else:
         raise ValueError(f"不支持的操作: {operation}")
     details["output"] = describe_frame(result)
-    artifact = write_vector_artifact(result, args.output_name, operation, f"{operation} · {Path(args.input).name}", details)
-    return {"success": True, "data": details, "artifact": artifact}
+    file = write_vector_file(result, args.output_name, operation, f"{operation} · {Path(args.input).name}", details)
+    return {"success": True, "data": details, "file": file}
 
 
 def build_parser(forced_operation: str | None = None) -> argparse.ArgumentParser:
@@ -364,3 +364,4 @@ def main(forced_operation: str | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

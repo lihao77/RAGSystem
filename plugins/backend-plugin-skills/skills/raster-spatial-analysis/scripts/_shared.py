@@ -1,9 +1,8 @@
-"""Shared contracts for raster-spatial-analysis scripts."""
+"""Shared workspace-file contracts for raster-spatial-analysis scripts."""
 
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -17,14 +16,8 @@ def load_rasterio():
     return rasterio
 
 
-def require_staging() -> Path:
-    raw = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
-    if not raw:
-        raise RuntimeError("脚本需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
-    output = Path(raw).resolve()
-    output.mkdir(parents=True, exist_ok=True)
-    return output
-
+def output_dir() -> Path:
+    return Path.cwd()
 
 def safe_name(value: str | None, fallback: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip())[:80].strip(".-")
@@ -49,28 +42,20 @@ def describe_raster(dataset: Any) -> dict[str, Any]:
     }
 
 
-def _artifact(kind: str, subtype: str, title: str, metadata: dict[str, Any], filename: str, media_type: str) -> dict[str, Any]:
+def _file(kind: str, subtype: str, title: str, metadata: dict[str, Any], filename: str, media_type: str) -> dict[str, Any]:
     return {
-        "schema_version": 2,
+        "file": {"path": filename, "media_type": media_type, "size": (output_dir() / filename).stat().st_size,
+                 "metadata": metadata},
         "kind": kind,
         "subtype": subtype,
         "title": title,
-        "assets": [{
-            "asset_id": "data",
-            "role": "data",
-            "filename": filename,
-            "media_type": media_type,
-            "staged_file": filename,
-        }],
-        "presentations": [],
-        "metadata": metadata,
     }
 
 
-def write_raster_artifact(dataset: Any, output_name: str | None, subtype: str, title: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    output_dir = require_staging()
+def write_raster_file(dataset: Any, output_name: str | None, subtype: str, title: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    output_root = output_dir()
     filename = f"{safe_name(output_name, 'raster-result')}.tif"
-    path = output_dir / filename
+    path = output_root / filename
     profile = dataset.profile.copy()
     with load_rasterio().open(path, "w", **profile) as target:
         for index in range(1, dataset.count + 1):
@@ -79,18 +64,18 @@ def write_raster_artifact(dataset: Any, output_name: str | None, subtype: str, t
             "crs": target.crs.to_string() if target.crs else None,
             "bounds": [float(value) for value in target.bounds],
         }
-    return _artifact("geospatial.raster", subtype, title, {"spatial": spatial, **(metadata or {})}, filename, "image/tiff")
+    return _file("geospatial.raster", subtype, title, {"spatial": spatial, **(metadata or {})}, filename, "image/tiff")
 
 
 def write_raster_array(array: Any, profile: dict[str, Any], output_name: str | None, subtype: str, title: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Stage a 2D or 3D array as a GeoTIFF Artifact V2."""
+    """Stage a 2D or 3D array as a GeoTIFF File V2."""
     values = array
     ndim = getattr(values, "ndim", 0)
     if ndim not in (2, 3):
         raise ValueError("栅格结果必须是二维或三维数组")
-    output_dir = require_staging()
+    output_root = output_dir()
     filename = f"{safe_name(output_name or subtype, 'raster-result')}.tif"
-    path = output_dir / filename
+    path = output_root / filename
     profile = dict(profile)
     profile.update({
         "height": int(values.shape[-2]),
@@ -104,12 +89,14 @@ def write_raster_array(array: Any, profile: dict[str, Any], output_name: str | N
             "crs": target.crs.to_string() if target.crs else None,
             "bounds": [float(value) for value in target.bounds],
         }
-    return _artifact("geospatial.raster", subtype, title, {"spatial": spatial, **(metadata or {})}, filename, "image/tiff")
+    return _file("geospatial.raster", subtype, title, {"spatial": spatial, **(metadata or {})}, filename, "image/tiff")
 
 
-def write_json_artifact(value: Any, output_name: str | None, subtype: str, title: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Stage structured tabular/statistical output as JSON Artifact V2."""
-    output_dir = require_staging()
+def write_json_file(value: Any, output_name: str | None, subtype: str, title: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Stage structured tabular/statistical output as JSON File V2."""
+    output_root = output_dir()
     filename = f"{safe_name(output_name or subtype, 'table-result')}.json"
-    (output_dir / filename).write_text(json.dumps(value, ensure_ascii=False, allow_nan=False, default=str), encoding="utf-8")
-    return _artifact("table.dataset", subtype, title, metadata or {}, filename, "application/json")
+    (output_root / filename).write_text(json.dumps(value, ensure_ascii=False, allow_nan=False, default=str), encoding="utf-8")
+    return _file("table.dataset", subtype, title, metadata or {}, filename, "application/json")
+
+

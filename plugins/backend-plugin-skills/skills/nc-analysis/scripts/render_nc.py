@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a bounded regular NetCDF variable slice as a PNG raster Artifact."""
+"""Render a bounded regular NetCDF variable slice as a PNG raster File."""
 
 from __future__ import annotations
 
@@ -248,10 +248,7 @@ def safe_asset_name(variable_name: str) -> str:
 
 
 def stage_png(png_bytes: bytes, variable_name: str) -> str:
-    output_directory = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
-    if not output_directory:
-        raise ValueError("render_nc.py 需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
-    output_path = Path(output_directory).resolve() / safe_asset_name(variable_name)
+    output_path = Path.cwd() / safe_asset_name(variable_name)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(png_bytes)
     return output_path.name
@@ -318,7 +315,7 @@ def render(file_path: Path, args: argparse.Namespace, Dataset: Any, Image: Any, 
         rgba = colorize_raster(raster_values, minimum, maximum, np)
         png_buffer = io.BytesIO()
         Image.fromarray(rgba).save(png_buffer, format="PNG", optimize=True)
-        staged_filename = stage_png(png_buffer.getvalue(), args.variable)
+        pathname = stage_png(png_buffer.getvalue(), args.variable)
         units = attribute_text(variable, "units")
         long_name = attribute_text(variable, "long_name") or args.variable
         title = f"{long_name} 分布"
@@ -377,21 +374,8 @@ def render(file_path: Path, args: argparse.Namespace, Dataset: Any, Image: Any, 
                     "nodata": None,
                 },
             },
-            "artifact": {
-                "schema_version": 2,
-                "kind": "raster.preview",
-                "subtype": "netcdf",
-                "title": title,
-                "assets": [{
-                    "asset_id": "image",
-                    "role": "data",
-                    "filename": staged_filename,
-                    "media_type": "image/png",
-                    "staged_file": staged_filename,
-                }],
-                "presentations": [],
-                "metadata": spatial_metadata,
-            },
+            "file": {"path": pathname, "media_type": "image/png", "size": (Path.cwd() / pathname).stat().st_size,
+                     "metadata": spatial_metadata},
         }
 
 
@@ -419,3 +403,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

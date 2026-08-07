@@ -7,7 +7,6 @@ import test from "node:test";
 import { createSaaSProductPlugins } from "../dist/product-plugins.js";
 
 const ALL_IDS = [
-  "@ragsystem/backend-plugin-artifacts",
   "@ragsystem/backend-plugin-execution-tools",
   "@ragsystem/backend-plugin-document-tools",
   "@ragsystem/backend-plugin-daemon-feishu",

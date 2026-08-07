@@ -43,7 +43,7 @@ describe("durable run round continuation", () => {
           output_type: "json",
           content: { path: "a.txt" },
           metadata: {},
-          artifacts: [],
+          files: [],
         },
       },
     }], "run-1", 2);
@@ -141,7 +141,7 @@ describe("durable run round continuation", () => {
           outputType: "text",
           content: "durable content",
           metadata: {},
-          artifacts: [],
+          files: [],
           llmHint: null,
         },
       ]]),

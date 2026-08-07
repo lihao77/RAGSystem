@@ -7,11 +7,11 @@
  * 工具用客户端独有能力（浏览器环境/本地资源），后端无法执行——这正是委托模式的价值。
  */
 
-import { callArtifactMapRuntime } from './artifactMapRuntime.js';
+import { callFileMapRuntime } from './fileMapRuntime.js';
 
 async function runMapTool(method, input, context, successMessage) {
   try {
-    const structured = await callArtifactMapRuntime(method, input, context);
+    const structured = await callFileMapRuntime(method, input, context);
     return {
       ok: true,
       observation: `${successMessage}\n${JSON.stringify(structured, null, 2)}`,
@@ -23,7 +23,7 @@ async function runMapTool(method, input, context, successMessage) {
   }
 }
 
-const LAYER_ID_SCHEMA = { type: 'string', description: 'map_add_artifact_layer 返回的 layer_id' };
+const LAYER_ID_SCHEMA = { type: 'string', description: 'map_add_file_layer 返回的 layer_id' };
 const VECTOR_STYLE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -87,15 +87,15 @@ const HOST_TOOLS = [
     },
   },
   {
-    name: 'map_add_artifact_layer',
-    description: '把 Artifact V2 中的空间数据 Asset 加入前端地图工作台。只传 artifact_id；前端按 MIME 和 metadata.spatial 自动识别 GeoJSON、地理配准图片或栅格瓦片。不要生成地图展示配置。',
+    name: 'map_add_file_layer',
+    description: '把 workspace 中的 GeoJSON 文件加入前端地图工作台。只传 file_path；不要生成地图展示配置。',
     inputSchema: {
       type: 'object',
-      required: ['artifact_id'],
+      required: ['file_path'],
       additionalProperties: false,
       properties: {
-        artifact_id: { type: 'string', description: 'Artifact V2 标识，例如 art_xxx' },
-        asset_id: { type: 'string', description: '可选；指定 Manifest 中的 Asset' },
+        file_path: { type: 'string', description: 'workspace 内的 GeoJSON 相对路径' },
+        session_id: { type: 'string', description: '当前 session 标识，通常由宿主自动提供' },
         layer_id: { type: 'string', description: '可选；自定义前端图层标识' },
         title: { type: 'string', description: '可选图层标题' },
         visible: { type: 'boolean', description: '初始是否可见，默认 true' },
@@ -107,7 +107,7 @@ const HOST_TOOLS = [
     riskLevel: 'medium',
     cancellable: true,
     execute(input, context) {
-      return runMapTool('addArtifactLayer', input, context, 'Artifact 图层已加入地图');
+      return runMapTool('addFileLayer', { ...input, session_id: input?.session_id || context?.sessionId || context?.session_id }, context, '文件图层已加入地图');
     },
   },
   {

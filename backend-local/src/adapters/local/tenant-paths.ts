@@ -18,10 +18,8 @@ export class TenantPaths {
   systemRoot(): string { return path.join(this.dataRoot, "system"); }
   ragsystemDbPath(): string { return path.join(this.dataRoot, "db", "ragsystem.db"); }
   sessionRoot(sessionId: string): string { return path.join(this.dataRoot, "sessions", sessionId); }
-  sessionTransient(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "transient"); }
   sessionWorkspace(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "workspace"); }
   sessionUploads(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "uploads"); }
-  sessionArtifacts(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "artifacts"); }
   sessionSandbox(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "sandbox"); }
   fileHistorySession(sessionId: string): string { return path.join(this.dataRoot, "file-history", sessionId); }
   configApp(): string { return path.join(this.dataRoot, "config", "app", "config.yaml"); }

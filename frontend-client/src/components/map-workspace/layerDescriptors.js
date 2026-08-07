@@ -243,8 +243,7 @@ export function normalizeLayerDescriptor(value) {
     visible: value.visible !== false,
     opacity: clamp(finiteNumber(value.opacity, 1), 0, 1),
     style: type === 'geojson' ? normalizeVectorStyle(value.style) : undefined,
-    artifactId: typeof value.artifactId === 'string' ? value.artifactId : undefined,
-    assetId: typeof value.assetId === 'string' ? value.assetId : undefined,
+    filePath: typeof value.filePath === 'string' ? value.filePath : undefined,
   };
 }
 

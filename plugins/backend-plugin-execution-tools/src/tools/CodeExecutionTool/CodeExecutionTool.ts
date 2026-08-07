@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import type { CodeExecutionPort } from "../../contracts.js";
 import { readCodeExecutionArguments } from "../arguments.js";
 import { optionalInteger, optionalString } from "@ragsystem/backend-core/tools/schema-helpers.js";
@@ -12,6 +13,7 @@ interface CodeExecutionToolDeps {
   codeExecutionTools: CodeExecutionPort | null;
   agent: AgentConfig;
   callTool?: (toolName: string, args: Record<string, unknown>, context: ToolExecContext) => Promise<import("@ragsystem/agent-sdk").ToolExecutionResult>;
+  pathService: PathAccessPolicy;
 }
 
 function resolveWorkspaceRoot(agent: AgentConfig): string | null {
@@ -21,6 +23,7 @@ function resolveWorkspaceRoot(agent: AgentConfig): string | null {
 
 const executeCodeSchema = z.object({
   code: z.string(),
+  cwd: optionalString,
   description: optionalString,
   timeout: optionalInteger,
 }).strict();
@@ -40,7 +43,7 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
     buildTool({
       name: EXECUTE_CODE_TOOL_NAME,
       description:
-        "Execute Python code from the shared Local workspace for data processing and tool orchestration. Set result as the final output.",
+        "Execute Python code in an Agent-selected working directory for data processing and tool orchestration. Set result as the final output.",
       source: "execution",
       category: "execution",
       riskLevel: "high",
@@ -50,8 +53,8 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
 - \`result\` — 必须赋值为最终输出
 - \`call_tool(tool_name, arguments)\` — 调用其他工具（仅限 \`allowed_callers\` 包含 \`code_execution\` 的工具）
 - Local 阶段使用标准 Python 运行时：可正常导入标准库（例如 \`html\`、\`os\`），\`os.getcwd()\` 是共享 workspace
-- 相对路径默认相对 workspace；可通过 \`os.environ["SESSION_*_DIR"]\` 或同名全局变量访问 workspace、uploads、artifacts、transient
-- \`path_ops\` 提供四个目录常量；Local 当前是宿主机直执行，不提供 OS 级隔离
+- 相对路径默认相对当前 cwd；可通过 \`os.environ["SESSION_WORKSPACE_DIR"]\` 和 \`os.environ["SESSION_UPLOADS_DIR"]\` 访问受管目录
+- \`path_ops\` 提供 workspace/uploads 路径操作；Local 当前是宿主机直执行，不提供 OS 级隔离
 
 只在需要程序化处理、批量转换或工具编排时使用 execute_code。`,
       parameters: {
@@ -62,6 +65,10 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
           code: {
             type: "string",
             description: "Python code. Must assign the final output to the result variable.",
+          },
+          cwd: {
+            type: "string",
+            description: "Optional working directory. Relative paths resolve against workspace; external paths require approval.",
           },
           description: {
             type: "string",
@@ -77,11 +84,18 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
       },
       inputSchema: executeCodeSchema,
       isConcurrencySafe: () => false,
+      checkAccess: (input, ctx: ToolExecContext) => {
+        const parsed = readCodeExecutionArguments(input);
+        const candidates = codeExecutionTools.getExternalCandidates?.(parsed, ctx, deps.pathService) ?? [];
+        return candidates.length
+          ? { action: "allow" as const, signals: { candidatePaths: candidates } }
+          : { action: "allow" as const };
+      },
       call: (input, ctx: ToolExecContext) =>
         codeExecutionTools.executeCode(readCodeExecutionArguments(input), {
           ...ctx,
           workspaceRoot: ctx.workspaceRoot ?? agentWorkspaceRoot,
-        }, deps.callTool ?? null),
+        }, deps.callTool ?? null, deps.pathService),
     }),
   ];
 }

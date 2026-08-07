@@ -1,10 +1,9 @@
-"""Shared IO and Artifact V2 helpers for spatial data management."""
+"""Shared IO and File V2 helpers for spatial data management."""
 
 from __future__ import annotations
 
 import json
 import math
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -26,14 +25,8 @@ def load_rasterio() -> Any:
     return rasterio
 
 
-def require_staging() -> Path:
-    raw = os.environ.get("RAGSYSTEM_ARTIFACT_OUTPUT_DIR", "").strip()
-    if not raw:
-        raise RuntimeError("数据生产工具需要 execute_skill_script 提供 RAGSYSTEM_ARTIFACT_OUTPUT_DIR")
-    output = Path(raw).resolve()
-    output.mkdir(parents=True, exist_ok=True)
-    return output
-
+def output_dir() -> Path:
+    return Path.cwd()
 
 def safe_name(value: str | None, fallback: str) -> str:
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip())[:80].strip(".-")
@@ -119,40 +112,31 @@ def describe_dataset(dataset: Any) -> dict[str, Any]:
     }
 
 
-def write_vector_artifact(
+def write_vector_file(
     frame: Any,
     output_name: str | None,
     subtype: str,
     title: str,
     processing: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    output_dir = require_staging()
+    output_root = output_dir()
     filename = f"{safe_name(output_name, 'vector-result')}.geojson"
-    path = output_dir / filename
+    path = output_root / filename
     export = frame.to_crs("EPSG:4326") if frame.crs is not None else frame
     # JSON serialization remains valid for an empty selection and avoids driver-specific errors.
     path.write_text(export.to_json(drop_id=True), encoding="utf-8")
     return {
-        "schema_version": 2,
-        "kind": "geospatial.vector",
-        "subtype": subtype,
-        "title": title,
-        "assets": [{
-            "asset_id": "data",
-            "role": "data",
-            "filename": filename,
-            "media_type": "application/geo+json",
-            "staged_file": filename,
-        }],
-        "presentations": [],
-        "metadata": {
+        "file": {"path": filename, "media_type": "application/geo+json", "size": path.stat().st_size,
+                 "metadata": {
             "spatial": {"crs": "EPSG:4326" if frame.crs is not None else None, "bounds": wgs84_bounds(frame)},
             "processing": processing or {},
-        },
+        }},
+        "subtype": subtype,
+        "title": title,
     }
 
 
-def write_table_artifact(
+def write_table_file(
     rows: list[dict[str, Any]],
     output_name: str | None,
     subtype: str,
@@ -160,29 +144,22 @@ def write_table_artifact(
     processing: dict[str, Any] | None = None,
     source_bounds: list[float] | None = None,
 ) -> dict[str, Any]:
-    output_dir = require_staging()
+    output_root = output_dir()
     filename = f"{safe_name(output_name, 'table-result')}.json"
-    path = output_dir / filename
+    path = output_root / filename
     path.write_text(json.dumps(rows, ensure_ascii=False, allow_nan=False, default=str), encoding="utf-8")
     return {
-        "schema_version": 2,
-        "kind": "table.dataset",
-        "subtype": subtype,
-        "title": title,
-        "assets": [{
-            "asset_id": "data",
-            "role": "data",
-            "filename": filename,
-            "media_type": "application/json",
-            "staged_file": filename,
-        }],
-        "presentations": [],
-        "metadata": {
+        "file": {"path": filename, "media_type": "application/json", "size": path.stat().st_size,
+                 "metadata": {
             "spatial": {"crs": "EPSG:4326", "bounds": source_bounds or []},
             "processing": processing or {},
-        },
+        }},
+        "subtype": subtype,
+        "title": title,
     }
 
 
 def print_json(value: Any) -> None:
     print(json.dumps(value, ensure_ascii=False, allow_nan=False, default=str))
+
+

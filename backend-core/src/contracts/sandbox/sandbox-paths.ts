@@ -1,4 +1,4 @@
-export type SandboxFileSpace = "uploads" | "workspace" | "artifacts" | "transient";
+export type SandboxFileSpace = "uploads" | "workspace";
 
 export interface ResolvedSandboxPath {
   internalPath: string;
@@ -10,8 +10,6 @@ export interface ResolvedSandboxPath {
 const ROOTS: Record<SandboxFileSpace, string> = {
   uploads: "/input/uploads",
   workspace: "/work",
-  artifacts: "/input/artifacts",
-  transient: "/work/transient",
 };
 
 const SPACE_ALIASES = new Map<string, SandboxFileSpace>([
@@ -19,8 +17,6 @@ const SPACE_ALIASES = new Map<string, SandboxFileSpace>([
   ["uploads", "uploads"],
   ["work", "workspace"],
   ["workspace", "workspace"],
-  ["artifacts", "artifacts"],
-  ["transient", "transient"],
 ]);
 
 export function resolveSandboxPath(
@@ -35,13 +31,13 @@ export function resolveSandboxPath(
   const space = explicitSpace ?? prefixedSpace ?? "workspace";
   if (prefixedSpace) parts.shift();
   if (input.operation !== "search" && parts.length === 0) throw new Error("文件路径不能为空");
-  if (input.operation === "write" && (space === "uploads" || space === "artifacts")) throw new Error(`${space} 是只读空间，禁止写入`);
+  if (input.operation === "write" && space === "uploads") throw new Error(`${space} 是只读空间，禁止写入`);
   const relativePath = parts.join("/");
   return {
     internalPath: relativePath ? `${ROOTS[space]}/${relativePath}` : ROOTS[space],
     displayPath: relativePath ? `${space}/${relativePath}` : space,
     space,
-    writable: space !== "uploads" && space !== "artifacts",
+    writable: space !== "uploads",
   };
 }
 

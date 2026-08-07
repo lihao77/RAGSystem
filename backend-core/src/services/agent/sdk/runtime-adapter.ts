@@ -723,7 +723,7 @@ function toHostToolExecutionResult(toolName: string, resolution: DelegationResol
       outputType: "error",
       content: resolution.error ?? "前端委托执行失败",
       metadata: {},
-      artifacts: [],
+      files: [],
       llmHint: null,
     };
   }
@@ -735,7 +735,7 @@ function toHostToolExecutionResult(toolName: string, resolution: DelegationResol
     outputType: "text",
     content: resolution.observation ?? "",
     metadata: typeof resolution.elapsedMs === "number" ? { elapsed_ms: resolution.elapsedMs } : {},
-    artifacts: [],
+    files: [],
     llmHint: null,
   };
 }
