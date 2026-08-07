@@ -22,7 +22,7 @@
       @approval-submit="emit('approvalSubmit', $event)"
       @user-input-submit="emit('userInputSubmit', $event)"
       @user-input-cancel="emit('userInputCancel')"
-      @artifact-select="emit('artifactSelect', $event)"
+      @file-select="emit('fileSelect', $event)"
       @file-changes="emit('fileChanges')"
     />
   </Transition>
@@ -52,7 +52,7 @@
         @approval-submit="emit('approvalSubmit', $event)"
         @user-input-submit="emit('userInputSubmit', $event)"
         @user-input-cancel="emit('userInputCancel')"
-        @artifact-select="emit('artifactSelect', $event)"
+        @file-select="emit('fileSelect', $event)"
         @file-changes="emit('fileChanges')"
       />
     </SheetContent>
@@ -101,7 +101,7 @@ const emit = defineEmits([
   'approvalSubmit',
   'userInputSubmit',
   'userInputCancel',
-  'artifactSelect',
+  'fileSelect',
   'fileChanges',
 ]);
 

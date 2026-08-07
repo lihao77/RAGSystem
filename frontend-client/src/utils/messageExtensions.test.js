@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createAttachmentsExtension, getMessageAttachments } from './messageExtensions.js';
+import {
+  applyRichContentPart,
+  applyRichContentTextDelta,
+  createAttachmentsExtension,
+  getMessageAttachments,
+  getMessageFileRefs,
+  reconcileRichContent,
+} from './messageExtensions.js';
 
 test('createAttachmentsExtension 生成唯一 attachments@v1 权威快照', () => {
   const extension = createAttachmentsExtension([{
@@ -29,6 +36,28 @@ test('createAttachmentsExtension 生成唯一 attachments@v1 权威快照', () =
     },
   });
   assert.equal(JSON.stringify(extension).includes('stored_path'), false);
+});
+
+test('rich_content@v1 支持增量内容块并由 final 快照校准', () => {
+  const message = { content: 'Map: ', metadata: {} };
+  applyRichContentPart(message, 1, {
+    type: 'file_ref',
+    file_path: 'results/map.png',
+    presentation: 'inline',
+  });
+  applyRichContentTextDelta(message, 2, ' done');
+
+  assert.deepEqual(getMessageFileRefs(message), [{
+    type: 'file_ref',
+    file_path: 'results/map.png',
+    presentation: 'inline',
+  }]);
+
+  reconcileRichContent(message, [
+    { type: 'text', text: 'Final map: ' },
+    { type: 'file_ref', file_path: 'results/final.png', presentation: 'preview' },
+  ]);
+  assert.deepEqual(getMessageFileRefs(message).map(part => part.file_path), ['results/final.png']);
 });
 
 test('getMessageAttachments 只读取 attachments@v1，不读取旧 metadata.attachments', () => {

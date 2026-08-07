@@ -17,6 +17,11 @@ import { randomUUID } from "node:crypto";
 import type { ChatMessage, ChatToolCall, ChatToolDefinition, ContentPart, LlmClient, LlmRequest, LlmResult, LlmStreamHandler, ProviderConfig } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "../abort.js";
+import {
+  parseAssistantContent,
+  StreamingAssistantContentParser,
+  type AssistantContentStreamEvent,
+} from "../assistant-content.js";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
 import { buildPromptCacheKey, readTierParams } from "../llm-params/index.js";
 import type { RuntimeToolDefinition } from "../prompt/tool-types.js";
@@ -110,10 +115,10 @@ export class NativeHybridProtocol implements Protocol {
     const signal = session.signal;
 
     const parser = new StreamingRuntimeXmlParser();
+    const contentParser = new StreamingAssistantContentParser();
     let firstChunkSeen = false;
     const providerStartedAt = Date.now();
     let intent = "";
-    let finalAnswer = "";
     let protocolTagSeen = false;
     const pendingFallbackDeltas: string[] = [];
     const toolCalls: ChatToolCall[] = [];
@@ -131,32 +136,24 @@ export class NativeHybridProtocol implements Protocol {
         this.deps.events.emit({ type: "first_token", agentName, elapsedMs: Date.now() - providerStartedAt });
       }
       const events = parser.feed(chunk.content);
-      let sawOpenInThisChunk = false;
       for (const event of events) {
+        if (event.type === "fallback") {
+          pendingFallbackDeltas.push(event.content);
+          continue;
+        }
         if (event.type === "tag_open") {
           protocolTagSeen = true;
-          sawOpenInThisChunk = true;
         }
         if (event.type === "content" && event.tag === "intent") {
           intent += event.content;
           this.deps.events.emit({ type: "intent_delta", agentName, content: event.content, round });
         }
         if (event.type === "content" && event.tag === "final_answer") {
-          finalAnswer += event.content;
-          this.deps.events.emit({ type: "output_delta", agentName, content: event.content });
+          emitAssistantContentEvents(this.deps.events, agentName, contentParser.feed(event.content));
         }
         if (event.type === "tag_close" && event.tag === "intent") {
           this.deps.events.emit({ type: "intent_complete", agentName, content: intent, round });
         }
-      }
-      if (
-        !protocolTagSeen &&
-        !sawOpenInThisChunk &&
-        parser.currentState === null &&
-        events.length === 0 &&
-        !chunk.content.trimStart().startsWith("<")
-      ) {
-        pendingFallbackDeltas.push(chunk.content);
       }
       return undefined;
     });
@@ -177,7 +174,7 @@ export class NativeHybridProtocol implements Protocol {
         this.deps.events.emit({ type: "intent_delta", agentName, content: fallbackText, round });
         this.deps.events.emit({ type: "intent_complete", agentName, content: fallbackText, round });
       } else {
-        this.deps.events.emit({ type: "output_delta", agentName, content: fallbackText });
+        emitAssistantContentEvents(this.deps.events, agentName, contentParser.feed(fallbackText));
       }
     }
 
@@ -199,11 +196,14 @@ export class NativeHybridProtocol implements Protocol {
       return { kind: "tool_calls", calls, assistantMessage, finishReason: result.finishReason ?? null, usage: result.usage };
     }
 
+    emitAssistantContentEvents(this.deps.events, agentName, contentParser.finish());
     const rawContent = parser.getFullResponse() || result.content || "";
+    const fallbackContent = contentParser.getFallbackContent();
     return {
       kind: "final",
-      finalAnswer: finalAnswer.trim() ? finalAnswer : rawContent,
-      assistantMessage: { role: "assistant", content: finalAnswer.trim() ? finalAnswer : rawContent },
+      finalAnswer: fallbackContent || rawContent,
+      contentParts: contentParser.getParts(),
+      assistantMessage: { role: "assistant", content: fallbackContent || rawContent },
       finishReason: result.finishReason ?? null,
       usage: result.usage,
     };
@@ -250,10 +250,12 @@ export class NativeHybridProtocol implements Protocol {
       };
     }
 
+    const parsedContent = parseAssistantContent(content);
     return {
       kind: "final",
-      finalAnswer: content,
-      assistantMessage: { role: "assistant", content },
+      finalAnswer: parsedContent.content,
+      contentParts: parsedContent.parts,
+      assistantMessage: { role: "assistant", content: parsedContent.content },
       finishReason: result.finishReason ?? null,
       usage: result.usage,
     };
@@ -319,6 +321,20 @@ export class NativeHybridProtocol implements Protocol {
     }
     flushImages();
     return rendered;
+  }
+}
+
+function emitAssistantContentEvents(
+  sink: EventSink,
+  agentName: string,
+  events: readonly AssistantContentStreamEvent[],
+): void {
+  for (const event of events) {
+    if (event.type === "text_delta") {
+      sink.emit({ type: "output_delta", agentName, content: event.content, partIndex: event.partIndex });
+    } else {
+      sink.emit({ type: "output_file_ref", agentName, partIndex: event.partIndex, part: event.part });
+    }
   }
 }
 

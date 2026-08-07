@@ -1,5 +1,11 @@
 // @ts-check
 
+import {
+  applyRichContentPart,
+  applyRichContentTextDelta,
+  reconcileRichContent,
+} from '../utils/messageExtensions.js';
+
 /** @typedef {Record<string, any>} AnyRecord */
 
 /** @param {AnyRecord} eventData */
@@ -139,6 +145,15 @@ export function createSessionEventReducer({
         syncLlmRetryState();
         if (deps.isMasterEvent(event)) {
           currentMsg.content += payload.content;
+          applyRichContentTextDelta(currentMsg, payload.part_index, payload.content || '');
+        } else {
+          deps.applyEnvelopeToMessage(currentMsg, event);
+        }
+      } else if (phase === 'part_added') {
+        runtime.markOutputChunk(event, '');
+        syncLlmRetryState();
+        if (deps.isMasterEvent(event)) {
+          applyRichContentPart(currentMsg, payload.part_index, payload.part);
         } else {
           deps.applyEnvelopeToMessage(currentMsg, event);
         }
@@ -146,10 +161,8 @@ export function createSessionEventReducer({
         runtime.markModelAttemptCompleted(event);
         syncLlmRetryState();
         if (deps.isMasterEvent(event)) {
-          const serverContent = payload.content || '';
-          if (serverContent && (!currentMsg.content || currentMsg.content.length < serverContent.length)) {
-            currentMsg.content = serverContent;
-          }
+          if (typeof payload.content === 'string') currentMsg.content = payload.content;
+          reconcileRichContent(currentMsg, payload.content_parts);
           currentMsg.finished = true;
           runtime.markRecentSessionUpdated(sessionId, currentMsg);
           deps.cacheMessages(sessionId, messages.value);

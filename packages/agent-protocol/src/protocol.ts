@@ -116,6 +116,7 @@ export type ModelAttemptStartedPayload = z.infer<typeof ModelAttemptStartedPaylo
 export type ModelAttemptFailedPayload = z.infer<typeof ModelAttemptFailedPayloadSchema>;
 export type ModelAttemptCompletedPayload = z.infer<typeof ModelAttemptCompletedPayloadSchema>;
 export type StreamOutputPayload = z.infer<typeof StreamOutputPayloadSchema>;
+export type AssistantContentPart = z.infer<typeof AssistantContentPartSchema>;
 
 /**
  * 状态同步：外部状态已变更，请对齐本地视图。
@@ -126,6 +127,7 @@ export type StateSyncPayload = z.infer<typeof StateSyncPayloadSchema>;
 /* —— 工具帧（投影通知，后端本地执行） —— */
 export type ToolCallPayload = z.infer<typeof ToolCallPayloadSchema>;
 export type ToolResultPayload = z.infer<typeof ToolResultPayloadSchema>;
+export type ToolFileRef = z.infer<typeof ToolFileRefSchema>;
 
 /* —— 委托帧（宿主执行，独立语义） —— */
 /** 委托执行指令（后端→前端）：gate 通过后驱动宿主执行。独立于 tool_call（纯通知）。 */
@@ -282,15 +284,33 @@ export const ModelAttemptCompletedPayloadSchema = ModelAttemptPayloadBaseSchema.
   elapsed_ms: z.number().nonnegative(),
 });
 
+export const AssistantContentPartSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text"),
+    text: z.string(),
+  }).strict(),
+  z.object({
+    type: z.literal("file_ref"),
+    file_path: z.string().min(1),
+    presentation: z.enum(["inline", "attachment", "preview"]),
+    caption: z.string().min(1).optional(),
+  }).strict(),
+]);
+
 export const StreamOutputPayloadSchema = z.object({
   phase: z.enum([
     "first_token",
     "delta",
+    "part_added",
     "final",
     "intent_delta",
     "intent_complete",
   ]),
   content: z.string().optional(),
+  part_index: z.number().int().nonnegative().optional(),
+  part: AssistantContentPartSchema.optional(),
+  /** Ordered rich content for clients that can render workspace file references. */
+  content_parts: z.array(AssistantContentPartSchema).optional(),
   elapsed_ms: z.number().nonnegative().optional(),
   round: z.number().int().nonnegative().optional(),
   /** 当前 agent 的父调用；子 agent 输出据此归入父执行树，而不是 root 文本流。 */
@@ -328,6 +348,14 @@ export const ToolCallPayloadSchema = z.object({
   lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
 });
 
+export const ToolFileRefSchema = z.object({
+  file_type: z.enum(["json", "text", "image"]),
+  path: z.string().min(1),
+  media_type: z.string().min(1),
+  size: z.number().int().nonnegative(),
+  metadata: z.record(z.unknown()),
+}).strict();
+
 export const ToolResultPayloadSchema = z
   .object({
     tool: z.string().min(1),
@@ -336,6 +364,7 @@ export const ToolResultPayloadSchema = z
     status: z.enum(["succeeded", "failed"]).optional(),
     observation: z.string().optional(),
     summary: z.string().optional(),
+    files: z.array(ToolFileRefSchema).optional(),
     elapsed_ms: z.number().nonnegative().optional(),
     approval: z
       .object({

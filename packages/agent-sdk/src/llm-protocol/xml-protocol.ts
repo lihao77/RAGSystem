@@ -26,6 +26,12 @@ import { randomUUID } from "node:crypto";
 import type { ChatMessage, ChatToolCall, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig, TokenUsage } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "../abort.js";
+import {
+  parseAssistantContent,
+  StreamingAssistantContentParser,
+  type AssistantContentPart,
+  type AssistantContentStreamEvent,
+} from "../assistant-content.js";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
 import { buildPromptCacheKey, readTierParams } from "../llm-params/index.js";
 import type { RuntimeToolDefinition } from "../prompt/tool-types.js";
@@ -180,6 +186,7 @@ export class XmlProtocol implements Protocol {
         return {
           kind: "final",
           finalAnswer: content,
+          contentParts: roundResult.contentParts,
           assistantMessage: { role: "assistant", content },
           finishReason: roundResult.finishReason,
           usage: roundResult.usage,
@@ -235,11 +242,12 @@ export class XmlProtocol implements Protocol {
       }
     }
     const finalAnswer = parser.getTagContent("final_answer");
-    const content = finalAnswer.trim() ? finalAnswer : result.content;
+    const parsedContent = parseAssistantContent(finalAnswer.trim() ? finalAnswer : result.content);
     return {
       kind: "final",
-      finalAnswer: content,
-      assistantMessage: { role: "assistant", content },
+      finalAnswer: parsedContent.content,
+      contentParts: parsedContent.parts,
+      assistantMessage: { role: "assistant", content: parsedContent.content },
       finishReason: result.finishReason ?? null,
       usage: result.usage,
     };
@@ -287,6 +295,7 @@ export class XmlProtocol implements Protocol {
     rawContent: string;
     intent: string;
     finalAnswer: string;
+    contentParts: AssistantContentPart[];
     fallbackAnswer: string;
     toolCalls: ParsedToolCall[];
     finishReason: string | null;
@@ -298,10 +307,10 @@ export class XmlProtocol implements Protocol {
     const signal = session.signal;
 
     const parser = new StreamingRuntimeXmlParser();
+    const contentParser = new StreamingAssistantContentParser();
     let firstChunkSeen = false;
     const providerStartedAt = Date.now();
     let intent = "";
-    let finalAnswer = "";
     let toolCallsClosed = false;
     let finalAnswerStarted = false;
     let ignoredToolCallsAfterFinal = false;
@@ -325,6 +334,10 @@ export class XmlProtocol implements Protocol {
       }
       const events = parser.feed(chunk.content, { stopAfterClosingTag: "tool_calls" });
       for (const event of events) {
+        if (event.type === "fallback") {
+          pendingFallbackDeltas.push(event.content);
+          continue;
+        }
         if (event.type === "tag_open") {
           protocolTagSeen = true;
         }
@@ -344,12 +357,7 @@ export class XmlProtocol implements Protocol {
           });
         }
         if (event.type === "content" && event.tag === "final_answer" && !toolCallsClosed) {
-          finalAnswer += event.content;
-          this.deps.events.emit({
-            type: "output_delta",
-            agentName,
-            content: event.content,
-          });
+          emitAssistantContentEvents(this.deps.events, agentName, contentParser.feed(event.content));
         }
         if (event.type === "tag_close" && event.tag === "intent") {
           this.deps.events.emit({
@@ -371,14 +379,6 @@ export class XmlProtocol implements Protocol {
       if (toolCallsClosed) {
         return { stop: true };
       }
-      if (
-        !protocolTagSeen &&
-        parser.currentState === null &&
-        events.length === 0 &&
-        !chunk.content.trimStart().startsWith("<")
-      ) {
-        pendingFallbackDeltas.push(chunk.content);
-      }
       return undefined;
     });
     throwIfAborted(signal, "Agent run aborted");
@@ -394,19 +394,35 @@ export class XmlProtocol implements Protocol {
     );
     if (!sawProtocolTag) {
       for (const content of pendingFallbackDeltas) {
-        this.deps.events.emit({ type: "output_delta", agentName, content });
+        emitAssistantContentEvents(this.deps.events, agentName, contentParser.feed(content));
       }
     }
-    const fallbackAnswer = sawProtocolTag ? "" : rawContent;
+    emitAssistantContentEvents(this.deps.events, agentName, contentParser.finish());
+    const fallbackAnswer = sawProtocolTag ? "" : contentParser.getFallbackContent();
     return {
       rawContent,
       intent: parser.getTagContent("intent"),
-      finalAnswer,
+      finalAnswer: contentParser.getFallbackContent(),
+      contentParts: contentParser.getParts(),
       fallbackAnswer,
       toolCalls,
       finishReason: result.finishReason ?? null,
       error,
       usage: result.usage,
     };
+  }
+}
+
+function emitAssistantContentEvents(
+  sink: EventSink,
+  agentName: string,
+  events: readonly AssistantContentStreamEvent[],
+): void {
+  for (const event of events) {
+    if (event.type === "text_delta") {
+      sink.emit({ type: "output_delta", agentName, content: event.content, partIndex: event.partIndex });
+    } else {
+      sink.emit({ type: "output_file_ref", agentName, partIndex: event.partIndex, part: event.part });
+    }
   }
 }

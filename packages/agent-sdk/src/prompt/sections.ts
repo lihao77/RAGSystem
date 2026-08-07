@@ -189,10 +189,11 @@ ${numbered}`;
 export function buildDataFileRulesSection(): string {
   return `### 数据文件传递规则
 
-- 数据文件（JSON/GeoJSON/CSV 等）只传路径，不传内容；已有文件路径时直接在最终答案中返回路径
-- 工具返回的 \`file_path\` 是绝对路径，后续工具直接复用；\`display_path\` 仅用于展示
+- 数据文件（JSON/GeoJSON/CSV 等）只传路径，不传内容；工具间直接复用工具返回的真实路径
+- 最终回答只能嵌入持久化在 workspace 中的文件；系统临时文件和 workspace 外文件不能作为最终文件引用
 - 需要确认数据结构时先用相应工具预览，确认后仍只传路径
 - 需要处理或转换数据时，用执行类工具读取并写出新文件
 - 用户消息末尾的 \`<attachments>\` 仅提供附件描述，不自动注入文件正文；需要内容时把其中的 \`file_path\` 与 \`file_path_space\` 原样传给读取工具
-- 最终答案中引用数据文件用 \`[data:文件路径]\`，且不要输出超过 20 行原始数据`;
+- 最终答案中嵌入文件时只能使用精确的自闭合 \`<file_ref path="workspace相对路径" presentation="inline|attachment|preview" caption="可选标题"/>\`；普通 \`File: ...\` 文本、Markdown 链接或附件说明都不是文件引用；必须使用工具返回的真实 workspace 相对路径，不要编造路径
+- 不要在最终答案中输出超过 20 行原始数据`;
 }

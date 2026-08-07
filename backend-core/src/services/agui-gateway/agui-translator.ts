@@ -177,9 +177,19 @@ export class AguiTranslator {
       if (content && !this.textHasStreamedContent) {
         events.push(this.textContent(content));
       }
-      events.push({ type: "TEXT_MESSAGE_END", ...this.base(), messageId: this.textMessageId });
+      events.push({
+        type: "TEXT_MESSAGE_END",
+        ...this.base(),
+        messageId: this.textMessageId,
+        ...(Array.isArray(payload.content_parts) ? { content_parts: payload.content_parts } : {}),
+      });
       this.textMessageId = null;
       this.textHasStreamedContent = false;
+    } else if (phase === "part_added") {
+      // AG-UI has no standard rich-content event. Preserve the canonical
+      // stream_output payload as a CUSTOM event; RAGSystem clients map it
+      // back to the same envelope used by WebSocket transport.
+      events.push({ type: "CUSTOM", ...this.base(), name: "stream_output", value: payload });
     }
     return events;
   }

@@ -18,8 +18,19 @@
         <component :is="RENDERERS[ext.kind].component" :data="ext.data" :msg="msg" />
       </template>
       <div class="message-content">
+        <template v-if="replaceExts.length">
+          <component
+            v-for="(ext, i) in replaceExts"
+            :is="RENDERERS[ext.kind].component"
+            :key="`ext-replace-${i}`"
+            :data="ext.data"
+            :msg="msg"
+            @notify="emit('notify', $event)"
+            @citation-click="emit('citation-click', $event)"
+          />
+        </template>
         <AssistantMessage
-          v-if="msg.role === 'assistant'"
+          v-else-if="msg.role === 'assistant'"
           :msg="msg"
           @notify="emit('notify', $event)"
           @citation-click="emit('citation-click', $event)"
@@ -66,5 +77,6 @@ const messageContext = inject('messageContext');
 const renderableExts = computed(() => getMessageExtensions(props.msg).filter((e) => RENDERERS[e.kind]));
 const aboveExts = computed(() => renderableExts.value.filter((e) => RENDERERS[e.kind].slot === 'above'));
 const belowExts = computed(() => renderableExts.value.filter((e) => RENDERERS[e.kind].slot === 'below'));
+const replaceExts = computed(() => renderableExts.value.filter((e) => RENDERERS[e.kind].slot === 'replace'));
 
 </script>

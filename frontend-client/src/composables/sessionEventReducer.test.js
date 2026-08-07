@@ -110,6 +110,44 @@ test('SessionEventReducer deterministically applies stream delta and final compe
   assert.equal(calls.cached, 1);
 });
 
+test('SessionEventReducer incrementally inserts file parts and reconciles the final snapshot', () => {
+  const { reducer, messages } = buildReducer();
+  const currentMessage = { content: '', metadata: {}, status: [], finished: false };
+  messages.value.push(currentMessage);
+
+  reducer({
+    type: 'stream_output',
+    payload: { phase: 'delta', content: 'Map: ', part_index: 0 },
+  }, currentMessage, 'session-1');
+  reducer({
+    type: 'stream_output',
+    payload: {
+      phase: 'part_added',
+      part_index: 1,
+      part: { type: 'file_ref', file_path: 'results/map.png', presentation: 'inline' },
+    },
+  }, currentMessage, 'session-1');
+  reducer({
+    type: 'stream_output',
+    payload: {
+      phase: 'final',
+      content: 'Map: \n\nFile: map.png (results/map.png)\n\n',
+      content_parts: [
+        { type: 'text', text: 'Map: ' },
+        { type: 'file_ref', file_path: 'results/map.png', presentation: 'inline' },
+      ],
+    },
+  }, currentMessage, 'session-1');
+
+  const rich = currentMessage.metadata.extensions.find(extension => extension.kind === 'rich_content');
+  assert.deepEqual(rich.data.parts[1], {
+    type: 'file_ref',
+    file_path: 'results/map.png',
+    presentation: 'inline',
+  });
+  assert.equal(currentMessage.finished, true);
+});
+
 test('SessionEventReducer only inserts visible root compression summaries', () => {
   const { reducer, messages, activeRun } = buildReducer();
   const currentMessage = { content: '', metadata: {}, status: [], finished: false };

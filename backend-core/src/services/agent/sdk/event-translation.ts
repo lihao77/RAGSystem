@@ -9,6 +9,7 @@ import type {
   ModelAttemptStartedEvent,
   ModelRequestEvent,
   OutputDeltaEvent,
+  OutputFileRefEvent,
   RuntimeErrorEvent,
   ToolCallEvent,
   ToolResultEvent,
@@ -50,6 +51,8 @@ export function translateKernelEvent(event: KernelEvent, ctx: WireTranslationCon
       return [onFirstToken(event, ctx)];
     case "output_delta":
       return [onOutputDelta(event, ctx)];
+    case "output_file_ref":
+      return [onOutputFileRef(event, ctx)];
     case "intent_delta":
       return [onIntentDelta(event, ctx)];
     case "intent_complete":
@@ -159,7 +162,25 @@ function onOutputDelta(event: OutputDeltaEvent, ctx: WireTranslationContext): En
   return {
     type: "stream_output",
     ...topMarkers(ctx),
-    payload: { phase: "delta", content: event.content, ...streamLineage(ctx) } satisfies StreamOutputPayload,
+    payload: { phase: "delta", content: event.content, part_index: event.partIndex, ...streamLineage(ctx) } satisfies StreamOutputPayload,
+  };
+}
+
+function onOutputFileRef(event: OutputFileRefEvent, ctx: WireTranslationContext): Envelope {
+  return {
+    type: "stream_output",
+    ...topMarkers(ctx),
+    payload: {
+      phase: "part_added",
+      part_index: event.partIndex,
+      part: {
+        type: "file_ref",
+        file_path: event.part.filePath,
+        presentation: event.part.presentation,
+        ...(event.part.caption ? { caption: event.part.caption } : {}),
+      },
+      ...streamLineage(ctx),
+    } satisfies StreamOutputPayload,
   };
 }
 
@@ -210,6 +231,8 @@ function onToolResult(event: ToolResultEvent, ctx: WireTranslationContext): Enve
     summary: event.summary,
     lineage: toolLineage(ctx),
   };
+  const files = translateToolFiles(event.referenceResult.files);
+  if (files.length > 0) base.files = files;
   if (typeof event.elapsedTime === "number") {
     base.elapsed_ms = event.elapsedTime * 1000;
   }
@@ -224,6 +247,29 @@ function onToolResult(event: ToolResultEvent, ctx: WireTranslationContext): Enve
     agent_id: ctx.agentId,
     payload: base,
   };
+}
+
+function translateToolFiles(value: unknown): NonNullable<ToolResultPayload["files"]> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const fileType = asString(item.fileType);
+    const path = asString(item.path);
+    const mediaType = asString(item.mimeType);
+    const size = typeof item.size === "number" && Number.isInteger(item.size) && item.size >= 0
+      ? item.size
+      : null;
+    if ((fileType !== "json" && fileType !== "text" && fileType !== "image") || !path || !mediaType || size === null) {
+      return [];
+    }
+    return [{
+      file_type: fileType,
+      path,
+      media_type: mediaType,
+      size,
+      metadata: isRecord(item.metadata) ? item.metadata : {},
+    }];
+  });
 }
 
 function onError(event: RuntimeErrorEvent, ctx: WireTranslationContext): Envelope {

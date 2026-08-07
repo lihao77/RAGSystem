@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
-    <div class="artifact-map-screen" @keydown.esc="emit('close')">
-      <header class="artifact-map-screen__bar">
+    <div class="file-map-screen" @keydown.esc="emit('close')">
+      <header class="file-map-screen__bar">
         <div class="flex min-w-0 items-center gap-2">
           <Map aria-hidden="true" />
           <h1 class="truncate text-sm font-semibold">空间数据工作台</h1>
@@ -19,11 +19,11 @@
         </TooltipProvider>
       </header>
 
-      <main class="artifact-map-screen__map" :class="{ 'artifact-map-screen__map--chat-collapsed': panelCollapsed }">
+      <main class="file-map-screen__map" :class="{ 'file-map-screen__map--chat-collapsed': panelCollapsed }">
         <MapWorkspace
           ref="workspaceRef"
           :layers="layers"
-          class="artifact-map-screen__workspace"
+          class="file-map-screen__workspace"
           @ready="emit('ready', $event)"
           @update:layers="emit('update:layers', $event)"
         />
@@ -32,6 +32,7 @@
       <FloatingChatPanel
         v-model:collapsed="panelCollapsed"
         :messages="messages"
+        :session-id="sessionId"
         :is-streaming="isStreaming"
         :prefill-text="prefillText"
         @send-message="emit('send-message', $event)"
@@ -54,6 +55,7 @@ import MapWorkspace from './MapWorkspace.vue';
 defineProps({
   layers: { type: Array, default: () => [] },
   messages: { type: Array, default: () => [] },
+  sessionId: { type: String, default: '' },
   isStreaming: { type: Boolean, default: false },
 });
 
@@ -87,7 +89,7 @@ defineExpose({
 </script>
 
 <style scoped>
-.artifact-map-screen {
+.file-map-screen {
   position: fixed;
   inset: 0;
   z-index: 10000;
@@ -96,7 +98,7 @@ defineExpose({
   background: var(--color-bg-app);
 }
 
-.artifact-map-screen__bar {
+.file-map-screen__bar {
   display: flex;
   min-height: 48px;
   flex-shrink: 0;
@@ -108,31 +110,31 @@ defineExpose({
   padding: 8px 16px;
 }
 
-.artifact-map-screen__map {
+.file-map-screen__map {
   position: relative;
   flex: 1 1 auto;
   height: auto;
   min-height: 0;
 }
 
-.artifact-map-screen__workspace {
+.file-map-screen__workspace {
   height: 100%;
   min-height: 0;
   border: 0;
   border-radius: 0;
 }
 
-.artifact-map-screen__map :deep(section[aria-label="地理空间地图工作台"]) {
+.file-map-screen__map :deep(section[aria-label="地理空间地图工作台"]) {
   height: 100%;
   min-height: 0;
 }
 
 @media (min-width: 768px) {
-  .artifact-map-screen__map :deep(aside) {
+  .file-map-screen__map :deep(aside) {
     margin-right: 380px;
   }
 
-  .artifact-map-screen__map--chat-collapsed :deep(aside) {
+  .file-map-screen__map--chat-collapsed :deep(aside) {
     margin-right: 0;
   }
 }

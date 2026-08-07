@@ -1,5 +1,5 @@
 import type { ProviderContinuationState } from "@ragsystem/agent-llm";
-import type { KernelEvent } from "@ragsystem/agent-sdk";
+import type { AssistantContentPart, KernelEvent } from "@ragsystem/agent-sdk";
 
 import type { RunInfo } from "../conversation-store/index.js";
 import type { RunStepInfo } from "../common.js";
@@ -46,7 +46,7 @@ export interface ExecutionRunPersistenceContext {
 export interface ExecutionEventPersister {
   startRun(): Promise<ExecutionStartDisposition>;
   persist(event: KernelEvent): Promise<void>;
-  finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: { id?: string; content: string; metadata?: Record<string, unknown> } | null, error?: unknown): Promise<{ readyResumeInteractionIds: string[] }>;
+  finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: { id?: string; content: string; contentParts?: AssistantContentPart[]; metadata?: Record<string, unknown> } | null, error?: unknown): Promise<{ readyResumeInteractionIds: string[] }>;
   resolveFinalMessage(): Promise<{ id: string; seq: number; content: string } | null>;
 }
 

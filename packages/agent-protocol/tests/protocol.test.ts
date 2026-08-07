@@ -146,6 +146,60 @@ describe("agent-protocol envelope compatibility", () => {
     });
   });
 
+  it("接受流式文件内容块和 final 权威快照", () => {
+    const filePart = {
+      type: "file_ref" as const,
+      file_path: "results/map.png",
+      presentation: "inline" as const,
+      caption: "Risk map",
+    };
+    const added = ServerToClientEnvelopeSchema.parse({
+      type: "stream_output",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "root-call",
+      agent_id: "agent",
+      payload: { phase: "part_added", part_index: 1, part: filePart },
+    });
+    const final = ServerToClientEnvelopeSchema.parse({
+      type: "stream_output",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "root-call",
+      agent_id: "agent",
+      payload: {
+        phase: "final",
+        content: "Risk map",
+        content_parts: [{ type: "text", text: "Risk map" }, filePart],
+      },
+    });
+
+    expect(added.payload).toMatchObject({ phase: "part_added", part_index: 1, part: filePart });
+    expect(final.payload).toMatchObject({ content_parts: [{ type: "text" }, filePart] });
+  });
+
+  it("接受 tool_result 的通用文件列表", () => {
+    const parsed = ServerToClientEnvelopeSchema.parse({
+      type: "tool_result",
+      session_id: "session-1",
+      call_id: "tool-1",
+      payload: {
+        tool: "execute_skill_script",
+        phase: "end",
+        ok: true,
+        files: [{
+          file_type: "image",
+          path: "results/map.png",
+          media_type: "image/png",
+          size: 128,
+          metadata: { lifecycle: "workspace" },
+        }],
+      },
+    });
+
+    expect(parsed.payload).toMatchObject({ files: [{ path: "results/map.png" }] });
+  });
+
   it("接受后端权威的模型请求开始事件", () => {
     const parsed = ServerToClientEnvelopeSchema.parse({
       type: "model_request",

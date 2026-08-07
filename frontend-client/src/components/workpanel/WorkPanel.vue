@@ -19,12 +19,13 @@
       />
 
       <div class="wp-body">
-        <ArtifactPanel
+        <FileOutputPanel
           :message="currentMessage"
           :session-id="sessionId"
           :refresh-key="messageKey"
+          :message-key="messageKey"
           :running="activeRun.active"
-          @select="emit('artifactSelect', $event)"
+          @select="emit('fileSelect', $event)"
           @file-changes="emit('fileChanges')"
         />
 
@@ -70,7 +71,7 @@ import WorkPanelApproval from './WorkPanelApproval.vue'
 import WorkPanelUserInput from './WorkPanelUserInput.vue'
 import BackgroundTasksPanel from './BackgroundTasksPanel.vue'
 import GoalPanel from './GoalPanel.vue'
-import ArtifactPanel from '../chat/ArtifactPanel.vue'
+import FileOutputPanel from '../chat/FileOutputPanel.vue'
 
 const props = defineProps({
   activeRun: { type: Object, required: true },
@@ -94,7 +95,7 @@ const emit = defineEmits([
   'approvalSubmit',
   'userInputSubmit',
   'userInputCancel',
-  'artifactSelect',
+  'fileSelect',
   'fileChanges',
 ])
 

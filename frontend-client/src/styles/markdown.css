@@ -364,7 +364,6 @@
   border-bottom-color: var(--color-link-hover);
 }
 
-/* Artifact 标记（[artifact:art_xxx] → 产物入口，FloatingChatPanel 特有业务点） */
 .markdown-body .viz-link {
   color: var(--color-link);
   cursor: default;

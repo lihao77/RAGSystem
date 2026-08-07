@@ -17,7 +17,13 @@
           <div v-for="(msg, idx) in messages" :key="idx" class="chat-msg" :class="msg.role">
             <div class="msg-bubble">
               <div v-if="msg.role === 'user'" class="msg-content">{{ msg.content }}</div>
-              <MarkdownContent v-else :content="msg.content" :render-markdown="renderWithViz" />
+              <RichContentExt
+                v-else-if="getRichContentExtension(msg)"
+                :data="getRichContentExtension(msg).data"
+                :msg="msg"
+                :session-id="sessionId"
+              />
+              <MarkdownContent v-else :content="msg.content" />
             </div>
           </div>
           <div v-if="isStreaming" class="streaming-indicator">
@@ -46,13 +52,15 @@
 
 <script setup>
 import { computed, ref, watch, nextTick } from 'vue';
-import { renderMarkdown } from '../utils/markdown';
 import MarkdownContent from './chat/MarkdownContent.vue';
+import RichContentExt from './chat/extensions/RichContentExt.vue';
 import IconSend from './icons/IconSend.vue';
 import { Button } from './ui/button';
+import { getRichContentExtension } from '../utils/messageExtensions.js';
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },
+  sessionId: { type: String, default: '' },
   isStreaming: { type: Boolean, default: false },
   prefillText: { type: String, default: '' },
   collapsed: { type: Boolean, default: false },
@@ -70,13 +78,6 @@ const toggleCollapse = (val) => {
   emit('update:collapsed', val);
   emit('collapse-change', val);
 };
-
-// 主渲染器 + 文件引用后处理。
-const renderWithViz = (content) =>
-  renderMarkdown(content || '').replace(
-    /\[file:([^\]\r\n]+)\]/g,
-    '<span class="viz-link">[ 查看文件 ]</span>',
-  );
 
 const sendMessage = () => {
   const text = inputText.value.trim();

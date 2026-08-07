@@ -149,7 +149,7 @@
       @approval-submit="({ approvalId, approved, message }) => submitApproval(approvalId, approved, message, currentSessionId)"
       @user-input-submit="handleWorkPanelUserInputSubmit"
       @user-input-cancel="handleWorkPanelUserInputCancel"
-      @artifact-select="handleArtifactSelect"
+      @file-select="handleFileSelect"
       @file-changes="fileChangesOpen = true"
     />
     </main>
@@ -206,7 +206,7 @@ import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
 import { useApprovalQueue } from '../composables/useApprovalQueue';
 import { useChatScrolling } from '../composables/useChatScrolling';
-import { useMessageArtifacts } from '../composables/useMessageArtifacts';
+import { useMessageFiles } from '../composables/useMessageFiles';
 import { useLlmRetryState } from '../composables/useLlmRetryState';
 import { useChatMessageRuntime } from '../composables/useChatMessageRuntime';
 import { useMessageListView } from '../composables/useMessageListView';
@@ -596,8 +596,8 @@ const {
   chatSdkClient,
 });
 
-// ── Artifact 导航 ──────────────────────────────────────────────
-const { handleArtifactSelect } = useMessageArtifacts({ messagesRef });
+// ── Workspace 文件导航 ─────────────────────────────────────────
+const { handleFileSelect } = useMessageFiles({ messagesRef });
 
 // clearExecutionState 需要额外清理 view 级状态
 const clearExecutionState = (opts) => {
@@ -1058,7 +1058,7 @@ onUnmounted(() => {
   width: 100%;
 }
 
-.artifact-inline-focus {
+.file-inline-focus {
   border-radius: 10px;
   outline: 1px solid rgba(var(--color-active-rgb), 0.34);
   outline-offset: 4px;

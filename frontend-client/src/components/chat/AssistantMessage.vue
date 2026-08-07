@@ -10,23 +10,14 @@
     <span class="loading-text">{{ messageContext.getAssistantRuntimeStatusText(msg) || '正在运行...' }}</span>
   </div>
 
-  <template v-for="(part, pi) in parseMessageParts(msg)" :key="pi">
-    <div v-if="part.type === 'text' && part.content?.trim()" class="final-answer">
-      <MarkdownContent
-        :content="part.content"
-        :streaming="isStreaming && pi === lastTextIndex"
-        @notify="emit('notify', $event)"
-        @citation-click="emit('citation-click', $event)"
-      />
-    </div>
-    <div
-      v-else-if="part.type === 'file'"
-      class="inline-file-wrapper"
-      :data-file-path="part.filePath"
-    >
-      <VisualizationLoader :session-id="currentSessionId" :file-path="part.filePath" />
-    </div>
-  </template>
+  <div v-if="msg.content?.trim()" class="final-answer">
+    <MarkdownContent
+      :content="msg.content"
+      :streaming="isStreaming"
+      @notify="emit('notify', $event)"
+      @citation-click="emit('citation-click', $event)"
+    />
+  </div>
 
   <div v-if="msg.stopped" class="stopped-badge">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -38,9 +29,7 @@
 
 <script setup>
 import MarkdownContent from './MarkdownContent.vue';
-import VisualizationLoader from '../VisualizationLoader.vue';
 import { Spinner } from '@/components/ui/spinner';
-import { parseMessageParts } from '../../utils/message-render.js';
 import { inject, computed } from 'vue';
 
 const props = defineProps({
@@ -49,17 +38,8 @@ const props = defineProps({
 
 const emit = defineEmits(['notify', 'citation-click']);
 const messageContext = inject('messageContext');
-const currentSessionId = computed(() => messageContext?.currentSessionId?.value || messageContext?.currentSessionId || '');
 
 // 流式中（未停止且未结束）→ 显示呼吸光标
 const isStreaming = computed(() => !props.msg.finished && !props.msg.stopped);
 
-// 光标只挂在最后一个文本块末尾
-const lastTextIndex = computed(() => {
-  const parts = parseMessageParts(props.msg);
-  for (let i = parts.length - 1; i >= 0; i -= 1) {
-    if (parts[i].type === 'text' && parts[i].content?.trim()) return i;
-  }
-  return -1;
-});
 </script>

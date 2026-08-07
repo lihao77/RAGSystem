@@ -1294,7 +1294,15 @@ function aguiEventToEnvelope(
     case "TEXT_MESSAGE_CONTENT":
       return { type: "stream_output", ...base, payload: { phase: "delta", content: typeof event.delta === "string" ? event.delta : "" } } as Envelope;
     case "TEXT_MESSAGE_END":
-      return { type: "stream_output", ...base, payload: { phase: "final", content: "" } } as Envelope;
+      return {
+        type: "stream_output",
+        ...base,
+        payload: {
+          phase: "final",
+          content: "",
+          ...(Array.isArray(event.content_parts) ? { content_parts: event.content_parts } : {}),
+        },
+      } as Envelope;
     case "REASONING_MESSAGE_START":
       return { type: "stream_output", ...base, payload: { phase: "intent_delta", content: "" } } as Envelope;
     case "REASONING_MESSAGE_CONTENT":
@@ -1355,6 +1363,13 @@ function aguiEventToEnvelope(
     case "CUSTOM":
       if (event.name === "session.runtime" && isRuntimeSnapshot(event.value)) {
         return { type: "session.runtime", ...base, payload: event.value } as Envelope;
+      }
+      if (
+        event.name === "stream_output"
+        && event.value && typeof event.value === "object" && !Array.isArray(event.value)
+        && typeof (event.value as { phase?: unknown }).phase === "string"
+      ) {
+        return { type: "stream_output", ...base, payload: event.value as Record<string, unknown> } as Envelope;
       }
       if (
         (event.name === "model_request"

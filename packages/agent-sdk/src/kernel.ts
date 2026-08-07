@@ -182,6 +182,7 @@ export class AgentKernel {
 
         ctx.setFinalAnswer(
           outcome.kind === "final" ? (outcome.finalAnswer ?? "") : "",
+          outcome.kind === "final" ? (outcome.contentParts ?? [{ type: "text", text: outcome.finalAnswer ?? "" }]) : [],
           outcome.finishReason,
         );
         break;

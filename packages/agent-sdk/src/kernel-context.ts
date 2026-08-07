@@ -13,6 +13,7 @@
  */
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import { throwIfAborted } from "./abort.js";
+import type { AssistantContentPart } from "./assistant-content.js";
 import type { KernelResult, RuntimeSession } from "./contracts.js";
 
 export class KernelContext {
@@ -24,6 +25,7 @@ export class KernelContext {
   readonly session: RuntimeSession;
 
   private finalAnswer: string | null = null;
+  private finalContentParts: AssistantContentPart[] = [];
   private finishReason: string | null = null;
 
   private constructor(session: RuntimeSession) {
@@ -71,8 +73,9 @@ export class KernelContext {
   }
 
   /** 记录最终回答并退出循环。 */
-  setFinalAnswer(answer: string, finishReason: string | null = null): void {
+  setFinalAnswer(answer: string, contentParts: AssistantContentPart[], finishReason: string | null = null): void {
     this.finalAnswer = answer;
+    this.finalContentParts = contentParts;
     this.finishReason = finishReason;
   }
 
@@ -80,6 +83,7 @@ export class KernelContext {
   toResult(): KernelResult {
     return {
       content: this.finalAnswer ?? "",
+      contentParts: this.finalContentParts.map((part) => ({ ...part })),
       finishReason: this.finishReason,
       metadata: {
         agentName: this.session.profile.agentName,

@@ -19,6 +19,10 @@ export const RENDERERS = {
     component: defineAsyncComponent(() => import('../components/chat/extensions/UiContextExt.vue')),
     slot: 'above',
   },
+  rich_content: {
+    component: defineAsyncComponent(() => import('../components/chat/extensions/RichContentExt.vue')),
+    slot: 'replace',
+  },
 };
 
 /** 读侧归一:metadata.extensions[] 优先,否则空数组(写入侧 backend 已统一,不读老 attachments)。 */
@@ -48,4 +52,67 @@ export function getMessageAttachments(metadata) {
   const extension = normalizeExtensions(metadata).find((item) => item?.kind === 'attachments' && item?.version === 1);
   const items = Array.isArray(extension?.data?.items) ? extension.data.items : [];
   return items.map(normalizeSessionAttachment).filter(Boolean);
+}
+
+export function getRichContentExtension(msg) {
+  return getMessageExtensions(msg).find(
+    item => item?.kind === 'rich_content' && item?.version === 1 && Array.isArray(item?.data?.parts),
+  ) || null;
+}
+
+export function getMessageFileRefs(msg) {
+  const parts = getRichContentExtension(msg)?.data?.parts || [];
+  return parts.filter(part => part?.type === 'file_ref' && typeof part.file_path === 'string' && part.file_path);
+}
+
+export function applyRichContentPart(msg, partIndex, part) {
+  if (!msg || !Number.isSafeInteger(partIndex) || partIndex < 0 || !part) return;
+  const parts = ensureRichContentParts(msg, partIndex);
+  if (part.type === 'file_ref') {
+    parts[partIndex] = {
+      type: 'file_ref',
+      file_path: String(part.file_path || ''),
+      presentation: ['inline', 'attachment', 'preview'].includes(part.presentation) ? part.presentation : 'attachment',
+      ...(part.caption ? { caption: String(part.caption) } : {}),
+    };
+  }
+}
+
+export function applyRichContentTextDelta(msg, partIndex, delta) {
+  const extension = getRichContentExtension(msg);
+  if (!extension || !Number.isSafeInteger(partIndex) || partIndex < 0 || !delta) return;
+  const parts = extension.data.parts;
+  const existing = parts[partIndex];
+  if (existing?.type === 'text') existing.text += delta;
+  else parts[partIndex] = { type: 'text', text: delta };
+}
+
+export function reconcileRichContent(msg, contentParts) {
+  if (!msg) return;
+  const parts = Array.isArray(contentParts) ? contentParts.filter(isContentPart) : [];
+  const extensions = getMessageExtensions(msg).filter(item => item?.kind !== 'rich_content');
+  if (parts.some(part => part.type === 'file_ref')) {
+    extensions.push({ kind: 'rich_content', version: 1, slot: 'replace', data: { parts } });
+  }
+  msg.metadata = { ...(msg.metadata || {}), extensions };
+}
+
+function ensureRichContentParts(msg, targetIndex) {
+  let extension = getRichContentExtension(msg);
+  if (!extension) {
+    const extensions = getMessageExtensions(msg).filter(item => item?.kind !== 'rich_content');
+    const parts = [];
+    if (targetIndex > 0 && msg.content) parts[0] = { type: 'text', text: msg.content };
+    extension = { kind: 'rich_content', version: 1, slot: 'replace', data: { parts } };
+    msg.metadata = { ...(msg.metadata || {}), extensions: [...extensions, extension] };
+  }
+  return extension.data.parts;
+}
+
+function isContentPart(part) {
+  if (part?.type === 'text') return typeof part.text === 'string';
+  return part?.type === 'file_ref'
+    && typeof part.file_path === 'string'
+    && part.file_path
+    && ['inline', 'attachment', 'preview'].includes(part.presentation);
 }

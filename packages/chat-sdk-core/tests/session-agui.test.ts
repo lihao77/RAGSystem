@@ -125,6 +125,88 @@ describe("SessionAgentClient AG-UI fallback", () => {
     client.disconnect();
   });
 
+  it("restores AG-UI rich content parts on the final stream envelope", async () => {
+    let onEvent: ((event: Record<string, unknown>) => void) | undefined;
+    const client = new SessionAgentClient({
+      baseUrl: "https://rag.example.test",
+      sessionId: "session-1",
+      issueWsTicket: async () => "ticket-1",
+      aguiFallback: (input, callback) => {
+        onEvent = callback as unknown as (event: Record<string, unknown>) => void;
+        return {
+          started: Promise.resolve({ type: "RUN_STARTED", runId: input.runId }),
+          completed: new Promise(() => {}),
+          abort: vi.fn(),
+        };
+      },
+    });
+    let finalPayload: Record<string, unknown> | null = null;
+    client.events.subscribe((event) => {
+      if (event.type === "stream_output" && event.payload?.phase === "final") {
+        finalPayload = event.payload as Record<string, unknown>;
+      }
+    });
+
+    await client.send({ task: "rich" });
+    onEvent?.({
+      type: "TEXT_MESSAGE_END",
+      threadId: "session-1",
+      runId: "run-1",
+      messageId: "message-1",
+      content_parts: [{ type: "file_ref", file_path: "results/map.png", presentation: "inline" }],
+    });
+
+    expect(finalPayload).toEqual({
+      phase: "final",
+      content: "",
+      content_parts: [{ type: "file_ref", file_path: "results/map.png", presentation: "inline" }],
+    });
+    client.disconnect();
+  });
+
+  it("restores AG-UI streamed file parts as stream_output envelopes", async () => {
+    let onEvent: ((event: Record<string, unknown>) => void) | undefined;
+    const client = new SessionAgentClient({
+      baseUrl: "https://rag.example.test",
+      sessionId: "session-1",
+      issueWsTicket: async () => "ticket-1",
+      aguiFallback: (input, callback) => {
+        onEvent = callback as unknown as (event: Record<string, unknown>) => void;
+        return {
+          started: Promise.resolve({ type: "RUN_STARTED", runId: input.runId }),
+          completed: new Promise(() => {}),
+          abort: vi.fn(),
+        };
+      },
+    });
+    let partPayload: Record<string, unknown> | null = null;
+    client.events.subscribe((event) => {
+      if (event.type === "stream_output" && event.payload?.phase === "part_added") {
+        partPayload = event.payload as Record<string, unknown>;
+      }
+    });
+
+    await client.send({ task: "rich" });
+    onEvent?.({
+      type: "CUSTOM",
+      threadId: "session-1",
+      runId: "run-1",
+      name: "stream_output",
+      value: {
+        phase: "part_added",
+        part_index: 1,
+        part: { type: "file_ref", file_path: "results/map.png", presentation: "inline" },
+      },
+    });
+
+    expect(partPayload).toEqual({
+      phase: "part_added",
+      part_index: 1,
+      part: { type: "file_ref", file_path: "results/map.png", presentation: "inline" },
+    });
+    client.disconnect();
+  });
+
   it("converts a post-start SSE failure into a terminal failed run", async () => {
     const callbacks: Array<(event: Record<string, unknown>) => void> = [];
     let rejectCompleted: ((error: Error) => void) | undefined;

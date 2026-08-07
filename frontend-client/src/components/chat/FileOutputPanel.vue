@@ -1,5 +1,5 @@
 <template>
-  <section class="artifact-panel">
+  <section class="file-output-panel">
     <Transition
       :css="false"
       @before-enter="onBeforeEnter"
@@ -9,10 +9,10 @@
       @leave="onLeave"
       @after-leave="onAfterLeave"
     >
-      <div v-if="outputCount" class="artifact-reveal-inner">
-        <div class="artifact-panel-header">
-      <div class="artifact-panel-title">
-        <span class="artifact-panel-icon" aria-hidden="true">
+      <div v-if="outputCount" class="file-output-reveal">
+        <div class="file-output-panel-header">
+      <div class="file-output-panel-title">
+        <span class="file-output-panel-icon" aria-hidden="true">
           <svg viewBox="0 0 20 20">
             <path d="M4 5.5C4 4.7 4.7 4 5.5 4h9c.8 0 1.5.7 1.5 1.5v9c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5v-9Z" />
             <path d="M7 13V9" />
@@ -22,29 +22,29 @@
         </span>
         <span>产物</span>
       </div>
-      <span class="artifact-count">{{ outputCount }}</span>
+      <span class="file-output-count">{{ outputCount }}</span>
         </div>
-        <div class="artifact-list">
+        <div class="file-output-list">
       <button
         v-if="files.length"
         type="button"
-        class="artifact-item"
+        class="file-output-item"
         data-output-kind="file-changes"
         title="查看本轮文件变更"
         @click="emit('fileChanges')"
       >
-        <span class="artifact-item-index artifact-item-index--files" aria-hidden="true">
+        <span class="file-output-item-index file-output-item-index--files" aria-hidden="true">
           <svg viewBox="0 0 20 20">
             <path d="M6 3.5h5.5L15 7v9.5H6z" />
             <path d="M11.5 3.5V7H15" />
             <path d="M8.5 10h4M8.5 12.5h4" />
           </svg>
         </span>
-        <span class="artifact-item-main">
-          <span class="artifact-item-title">文件变更</span>
-          <span class="artifact-item-id">{{ fileChangeSummary }}</span>
+        <span class="file-output-item-main">
+          <span class="file-output-item-title">文件变更</span>
+          <span class="file-output-item-path">{{ fileChangeSummary }}</span>
         </span>
-        <span class="artifact-item-action" aria-hidden="true">
+        <span class="file-output-item-action" aria-hidden="true">
           <svg viewBox="0 0 20 20">
             <path d="M7 4.5h8.5V13" />
             <path d="M15.5 4.5 5 15" />
@@ -53,19 +53,19 @@
       </button>
 
       <div
-        v-for="artifact in artifacts"
-        :key="artifact.filePath"
-        class="artifact-item"
-        :title="`定位 ${artifact.filePath}`"
+        v-for="file in referencedFiles"
+        :key="file.filePath"
+        class="file-output-item"
+        :title="`定位 ${file.filePath}`"
       >
-        <button type="button" class="artifact-item-trigger" @click="emit('select', artifact)">
-          <span class="artifact-item-index">{{ artifact.index + 1 }}</span>
-          <span class="artifact-item-main">
-            <span class="artifact-item-title">{{ artifact.label }}</span>
-            <span class="artifact-item-id">{{ artifact.filePath }}</span>
+        <button type="button" class="file-output-item-trigger" @click="emit('select', file)">
+          <span class="file-output-item-index">{{ file.index + 1 }}</span>
+          <span class="file-output-item-main">
+            <span class="file-output-item-title">{{ file.label }}</span>
+            <span class="file-output-item-path">{{ file.filePath }}</span>
           </span>
         </button>
-        <span class="artifact-item-action" aria-hidden="true">
+        <span class="file-output-item-action" aria-hidden="true">
           <svg viewBox="0 0 20 20">
             <path d="M7 4.5h8.5V13" />
             <path d="M15.5 4.5 5 15" />
@@ -81,12 +81,13 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { getLatestFileChanges } from '../../api/fileChanges.js';
-import { parseMessageParts } from '../../utils/message-render.js';
+import { getMessageFileRefs } from '../../utils/messageExtensions.js';
 
 const props = defineProps({
   message: { type: Object, default: null },
   sessionId: { type: String, default: '' },
   refreshKey: { type: String, default: '' },
+  messageKey: { type: String, default: '' },
   running: { type: Boolean, default: false },
 });
 
@@ -94,23 +95,28 @@ const emit = defineEmits(['select', 'fileChanges']);
 const files = ref([]);
 let fileChangesRequest = 0;
 
-const artifacts = computed(() => {
+const referencedFiles = computed(() => {
   const seen = new Set();
   const items = [];
-  for (const part of parseMessageParts(props.message || {})) {
-    if (part.type !== 'file' || !part.filePath || seen.has(part.filePath)) continue;
-    seen.add(part.filePath);
+  for (const part of getMessageFileRefs(props.message || {})) {
+    const filePath = part.file_path;
+    if (!filePath || seen.has(filePath)) continue;
+    seen.add(filePath);
     items.push({
-      filePath: part.filePath,
+      filePath,
       index: items.length,
-      label: part.filePath.split(/[\\/]/u).pop() || part.filePath,
+      label: part.caption || filePath.split(/[\\/]/u).pop() || filePath,
+      messageKey: props.messageKey || '',
+      messageId: props.message?.id || '',
+      messageSeq: props.message?.seq ?? null,
+      runId: props.message?.run_id || props.message?.metadata?.run_id || '',
       message: props.message,
     });
   }
   return items;
 });
 
-const outputCount = computed(() => artifacts.value.length + (files.value.length ? 1 : 0));
+const outputCount = computed(() => referencedFiles.value.length + (files.value.length ? 1 : 0));
 const fileChangeSummary = computed(() => {
   const created = files.value.filter(file => file.action === 'created').length;
   const modified = files.value.length - created;
@@ -149,8 +155,8 @@ watch(
   { immediate: true },
 );
 
-const ARTIFACT_REVEAL_MS = 300;
-const ARTIFACT_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+const FILE_OUTPUT_REVEAL_MS = 300;
+const FILE_OUTPUT_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 
 function prefersReducedMotion() {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -174,7 +180,7 @@ function onBeforeEnter(el) {
 
 function onEnter(el, done) {
   const target = el.scrollHeight;
-  el.style.transition = `height ${ARTIFACT_REVEAL_MS}ms ${ARTIFACT_EASING}`;
+  el.style.transition = `height ${FILE_OUTPUT_REVEAL_MS}ms ${FILE_OUTPUT_EASING}`;
   void el.offsetHeight; // 强制 reflow，确保从 0 过渡到目标高度
   el.style.height = `${target}px`;
   if (prefersReducedMotion()) { done(); return; }
@@ -194,7 +200,7 @@ function onBeforeLeave(el) {
 
 function onLeave(el, done) {
   void el.offsetHeight;
-  el.style.transition = `height ${ARTIFACT_REVEAL_MS}ms ${ARTIFACT_EASING}`;
+  el.style.transition = `height ${FILE_OUTPUT_REVEAL_MS}ms ${FILE_OUTPUT_EASING}`;
   el.style.height = '0';
   if (prefersReducedMotion()) { done(); return; }
   bindEnd(el, done);
@@ -208,11 +214,11 @@ function onAfterLeave(el) {
 </script>
 
 <style scoped>
-.artifact-panel {
+.file-output-panel {
   flex-shrink: 0;
 }
 
-.artifact-panel-header {
+.file-output-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -220,7 +226,7 @@ function onAfterLeave(el) {
   padding: 10px 14px 6px;
 }
 
-.artifact-panel-title {
+.file-output-panel-title {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -231,7 +237,7 @@ function onAfterLeave(el) {
   line-height: 1.2;
 }
 
-.artifact-panel-icon {
+.file-output-panel-icon {
   width: 20px;
   height: 20px;
   border-radius: 999px;
@@ -244,8 +250,8 @@ function onAfterLeave(el) {
   flex-shrink: 0;
 }
 
-.artifact-panel-icon svg,
-.artifact-item-action svg {
+.file-output-panel-icon svg,
+.file-output-item-action svg {
   width: 13px;
   height: 13px;
   fill: none;
@@ -255,7 +261,7 @@ function onAfterLeave(el) {
   stroke-linejoin: round;
 }
 
-.artifact-count {
+.file-output-count {
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
@@ -268,19 +274,19 @@ function onAfterLeave(el) {
   text-align: center;
 }
 
-.artifact-reveal-inner {
+.file-output-reveal {
   border-top: 1px solid var(--color-border);
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.18);
 }
 
-.artifact-list {
+.file-output-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 0 10px 10px;
 }
 
-.artifact-item {
+.file-output-item {
   width: 100%;
   min-height: 42px;
   display: grid;
@@ -301,7 +307,7 @@ function onAfterLeave(el) {
     color var(--transition-fast);
 }
 
-.artifact-item-trigger {
+.file-output-item-trigger {
   min-width: 0;
   grid-column: 1;
   display: grid;
@@ -317,12 +323,12 @@ function onAfterLeave(el) {
   cursor: pointer;
 }
 
-.artifact-item:hover {
+.file-output-item:hover {
   border-color: var(--color-border);
   background: var(--surface-shell);
 }
 
-.artifact-item-index {
+.file-output-item-index {
   width: 22px;
   height: 22px;
   border-radius: 999px;
@@ -335,7 +341,7 @@ function onAfterLeave(el) {
   font-weight: 700;
 }
 
-.artifact-item-index--files svg {
+.file-output-item-index--files svg {
   width: 13px;
   height: 13px;
   fill: none;
@@ -345,21 +351,21 @@ function onAfterLeave(el) {
   stroke-linejoin: round;
 }
 
-.artifact-item-main {
+.file-output-item-main {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.artifact-item-title {
+.file-output-item-title {
   color: var(--color-text-primary);
   font-size: var(--font-size-xs);
   line-height: 1.2;
   font-weight: 650;
 }
 
-.artifact-item-id {
+.file-output-item-path {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
   line-height: 1.2;
@@ -369,7 +375,7 @@ function onAfterLeave(el) {
   white-space: nowrap;
 }
 
-.artifact-item-action {
+.file-output-item-action {
   width: 22px;
   height: 22px;
   border-radius: 999px;
@@ -379,7 +385,7 @@ function onAfterLeave(el) {
   color: var(--color-text-muted);
 }
 
-.artifact-item:hover .artifact-item-action {
+.file-output-item:hover .file-output-item-action {
   color: var(--color-text-secondary);
 }
 </style>

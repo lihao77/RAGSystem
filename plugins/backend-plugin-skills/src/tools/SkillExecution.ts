@@ -355,6 +355,7 @@ export class SkillToolService {
             skill.name,
             meta,
             cwd,
+            workspaceRoot ?? context.executionPaths?.workspace ?? this.paths.roots(context).workspace,
           );
           return normalized;
         }
@@ -619,6 +620,7 @@ export class SkillToolService {
     skillName: string,
     metadata: Record<string, unknown>,
     cwd: string,
+    workspaceRoot: string,
   ): Promise<ToolExecutionResult> {
     const unwrapped = unwrapScriptResponse(rawPayload);
     if (unwrapped.error) {
@@ -626,7 +628,7 @@ export class SkillToolService {
     }
     let payload = mergeStructuredExtensions(unwrapped.payload, unwrapped.extensions);
     Object.assign(metadata, unwrapped.metadata);
-    const file = extractSkillFileReference(rawPayload, cwd);
+    const file = extractSkillFileReference(rawPayload, cwd, workspaceRoot);
     return successResult(payload, {
         summary: `脚本 ${scriptName} 执行完成（返回结构化 JSON）`,
         outputType: "json",
@@ -871,7 +873,7 @@ function mergeStructuredExtensions(payload: unknown, extensions: Record<string, 
   return isRecord(payload) ? { ...payload, ...extensions } : { data: payload, ...extensions };
 }
 
-function extractSkillFileReference(rawPayload: unknown, cwd: string): ToolFile | null {
+function extractSkillFileReference(rawPayload: unknown, cwd: string, workspaceRoot: string): ToolFile | null {
   if (!isRecord(rawPayload)) return null;
   const candidate = isRecord(rawPayload.file)
     ? rawPayload.file
@@ -880,20 +882,24 @@ function extractSkillFileReference(rawPayload: unknown, cwd: string): ToolFile |
   const rawPath = asString(candidate.path) ?? asString(candidate.filename);
   if (!rawPath) return null;
   const resolved = path.resolve(cwd, rawPath);
-  const relative = path.relative(path.resolve(cwd), resolved);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
+  const cwdRelative = path.relative(path.resolve(cwd), resolved);
+  if (cwdRelative.startsWith("..") || path.isAbsolute(cwdRelative)) return null;
   let size = typeof candidate.size === "number" && Number.isFinite(candidate.size) ? candidate.size : 0;
   try { size = fs.statSync(resolved).size; } catch { /* The script may return a path before a later stage creates it. */ }
   const mimeType = asString(candidate.mime_type) ?? asString(candidate.media_type) ?? "application/octet-stream";
   const fileType: ToolFile["fileType"] = mimeType.startsWith("image/") ? "image" : mimeType.startsWith("text/") ? "text" : "json";
+  const workspace = path.resolve(workspaceRoot);
+  const inWorkspace = isPathUnder(resolved, workspace);
+  const workspaceRelative = inWorkspace ? path.relative(workspace, resolved).replace(/\\/g, "/") : null;
   return {
     fileType,
-    path: relative.replace(/\\/g, "/"),
+    path: workspaceRelative ?? resolved,
     mimeType,
     size,
     metadata: {
-      lifecycle: "workspace",
-      relative_path: relative.replace(/\\/g, "/"),
+      lifecycle: inWorkspace ? "workspace" : "external",
+      ...(workspaceRelative ? { relative_path: workspaceRelative } : {}),
+      cwd_relative_path: cwdRelative.replace(/\\/g, "/"),
       ...(asString(candidate.kind) ? { kind: candidate.kind } : {}),
       ...(asString(candidate.subtype) ? { subtype: candidate.subtype } : {}),
     },

@@ -12,6 +12,7 @@
  */
 import type { ChatMessage, LlmRequest, TokenUsage } from "@ragsystem/agent-llm";
 import type { KernelEvent } from "./kernel-events.js";
+import type { AssistantContentPart } from "./assistant-content.js";
 export type {
   KernelEvent,
   ModelRequestEvent,
@@ -20,6 +21,7 @@ export type {
   ModelAttemptCompletedEvent,
   FirstTokenEvent,
   OutputDeltaEvent,
+  OutputFileRefEvent,
   IntentDeltaEvent,
   IntentCompleteEvent,
   AssistantIntermediateEvent,
@@ -111,12 +113,13 @@ export interface KernelObservation {
 
 /** 一次 invoke 的产物：最终回答 or 工具调用申请。两分支都携带本轮 LLM 返回的 token 用量槽位（provider 未返回时为 undefined）。 */
 export type KernelOutcome =
-  | { kind: "final"; finalAnswer: string; assistantMessage: ChatMessage; finishReason: string | null; usage: TokenUsage | undefined }
+  | { kind: "final"; finalAnswer: string; contentParts?: AssistantContentPart[]; assistantMessage: ChatMessage; finishReason: string | null; usage: TokenUsage | undefined }
   | { kind: "tool_calls"; calls: KernelToolCall[]; assistantMessage: ChatMessage; finishReason: string | null; usage: TokenUsage | undefined };
 
 /** run 最终结果（metadata 源自 profile/provider，对齐 backend-ts KernelResult 形状）。usage 为本轮循环累计 token 用量。 */
 export interface KernelResult {
   content: string;
+  contentParts: AssistantContentPart[];
   raw?: unknown;
   finishReason: string | null;
   metadata: {

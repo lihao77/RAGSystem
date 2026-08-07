@@ -91,6 +91,44 @@ describe("AguiTranslator text streaming", () => {
       expect.objectContaining({ type: "TEXT_MESSAGE_CONTENT", delta: "继续", eventSeq: 27 }),
     ]);
   });
+
+  it("carries rich content parts through the AG-UI final event", () => {
+    const events = translator().translate({
+      ...streamEnvelope("final", "File: map.png (results/map.png)"),
+      payload: {
+        phase: "final",
+        content: "File: map.png (results/map.png)",
+        content_parts: [
+          { type: "text", text: "Map: " },
+          { type: "file_ref", file_path: "results/map.png", presentation: "inline" },
+        ],
+      },
+    }).events;
+    expect(events.at(-1)).toEqual(expect.objectContaining({
+      type: "TEXT_MESSAGE_END",
+      content_parts: [{ type: "text", text: "Map: " }, { type: "file_ref", file_path: "results/map.png", presentation: "inline" }],
+    }));
+  });
+
+  it("preserves streamed file parts as a RAGSystem CUSTOM event", () => {
+    const result = translator().translate({
+      ...streamEnvelope("part_added"),
+      payload: {
+        phase: "part_added",
+        part_index: 1,
+        part: { type: "file_ref", file_path: "results/map.png", presentation: "inline" },
+      },
+    });
+    expect(result.events).toEqual([expect.objectContaining({
+      type: "CUSTOM",
+      name: "stream_output",
+      value: {
+        phase: "part_added",
+        part_index: 1,
+        part: { type: "file_ref", file_path: "results/map.png", presentation: "inline" },
+      },
+    })]);
+  });
 });
 
 describe("AguiTranslator interrupt identity", () => {

@@ -1,4 +1,5 @@
 import type { ChatMessage } from "@ragsystem/agent-llm";
+import type { AssistantContentPart } from "./assistant-content.js";
 
 export interface ModelRequestEvent {
   type: "model_request";
@@ -44,6 +45,14 @@ export interface OutputDeltaEvent {
   type: "output_delta";
   agentName: string;
   content: string;
+  partIndex: number;
+}
+
+export interface OutputFileRefEvent {
+  type: "output_file_ref";
+  agentName: string;
+  partIndex: number;
+  part: Extract<AssistantContentPart, { type: "file_ref" }>;
 }
 
 export interface IntentDeltaEvent {
@@ -126,6 +135,7 @@ export type KernelEvent =
   | ModelAttemptCompletedEvent
   | FirstTokenEvent
   | OutputDeltaEvent
+  | OutputFileRefEvent
   | IntentDeltaEvent
   | IntentCompleteEvent
   | AssistantIntermediateEvent

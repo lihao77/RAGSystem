@@ -163,11 +163,55 @@ function applyIntentStream(state: ExecutionTreeState, env: Envelope, payload: Re
 /** stream_output(delta/final)：agent 输出内容（非 intent 思考），累加到 agent.output（delta 累加 / final 覆盖）。 */
 function applyOutputStream(state: ExecutionTreeState, env: Envelope, payload: Record<string, unknown>): void {
   const phase = asString(payload.phase);
-  if (phase !== "delta" && phase !== "final") return;
+  if (phase !== "delta" && phase !== "part_added" && phase !== "final") return;
   const agent = routeStreamAgent(state, env);
+  if (phase === "part_added") {
+    const part = asAssistantContentPart(payload.part);
+    const partIndex = asNumber(payload.part_index);
+    if (!part || partIndex === undefined || !Number.isInteger(partIndex) || partIndex < 0) return;
+    if (!agent.outputParts) {
+      agent.outputParts = [];
+      if (partIndex > 0 && agent.output) agent.outputParts[0] = { type: "text", text: agent.output };
+    }
+    agent.outputParts[partIndex] = part;
+    return;
+  }
   const content = asString(payload.content);
+  if (phase === "final") {
+    if (content !== undefined) agent.output = content;
+    if (Array.isArray(payload.content_parts)) {
+      agent.outputParts = payload.content_parts.flatMap((part) => {
+        const parsed = asAssistantContentPart(part);
+        return parsed ? [parsed] : [];
+      });
+    }
+    return;
+  }
   if (!content) return;
-  agent.output = phase === "final" ? content : (agent.output ?? "") + content;
+  agent.output = (agent.output ?? "") + content;
+  const partIndex = asNumber(payload.part_index);
+  if (agent.outputParts && partIndex !== undefined && Number.isInteger(partIndex) && partIndex >= 0) {
+    const existing = agent.outputParts[partIndex];
+    agent.outputParts[partIndex] = existing?.type === "text"
+      ? { type: "text", text: existing.text + content }
+      : { type: "text", text: content };
+  }
+}
+
+function asAssistantContentPart(value: unknown): import("./protocol.js").AssistantContentPart | null {
+  const part = asRecord(value);
+  if (part.type === "text" && typeof part.text === "string") return { type: "text", text: part.text };
+  if (part.type !== "file_ref") return null;
+  const filePath = asString(part.file_path);
+  const presentation = asString(part.presentation);
+  if (!filePath || (presentation !== "inline" && presentation !== "attachment" && presentation !== "preview")) return null;
+  const caption = asString(part.caption);
+  return {
+    type: "file_ref",
+    file_path: filePath,
+    presentation,
+    ...(caption ? { caption } : {}),
+  };
 }
 
 function applyToolCall(state: ExecutionTreeState, env: Envelope, payload: Record<string, unknown>): void {
@@ -212,6 +256,9 @@ function applyToolResult(state: ExecutionTreeState, env: Envelope, payload: Reco
   if (observation) tool.observation = observation;
   const summary = asString(payload.summary);
   if (summary) tool.summary = summary;
+  if (Array.isArray(payload.files)) {
+    tool.files = payload.files.filter(isToolFileRef);
+  }
   const elapsed = asNumber(payload.elapsed_ms);
   if (elapsed !== undefined) tool.elapsedMs = elapsed;
   const approval = asRecord(payload.approval);
@@ -219,6 +266,24 @@ function applyToolResult(state: ExecutionTreeState, env: Envelope, payload: Reco
   if (approvalStatus === "pending" || approvalStatus === "granted" || approvalStatus === "denied") {
     tool.approval = { status: approvalStatus };
   }
+}
+
+function isToolFileRef(value: unknown): value is NonNullable<ExecutionToolCall["files"]>[number] {
+  const file = asRecord(value);
+  const fileType = asString(file.file_type);
+  return (fileType === "json" || fileType === "text" || fileType === "image")
+    && typeof file.path === "string"
+    && file.path.length > 0
+    && typeof file.media_type === "string"
+    && file.media_type.length > 0
+    && typeof file.size === "number"
+    && Number.isInteger(file.size)
+    && file.size >= 0
+    && isPlainRecord(file.metadata);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /** 将一条 envelope 投影进状态机。 */
@@ -253,7 +318,7 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
       const phase = asString(payload.phase);
       if (phase === "intent_delta" || phase === "intent_complete") {
         applyIntentStream(state, env, payload);
-      } else if (phase === "delta" || phase === "final") {
+      } else if (phase === "delta" || phase === "part_added" || phase === "final") {
         applyOutputStream(state, env, payload);
       }
       return;

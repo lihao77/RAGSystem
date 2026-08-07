@@ -1,5 +1,3 @@
-const FILE_PLACEHOLDER_RE = /\[file:([^\]\r\n]+)\]/g;
-
 const executionTreeHasContent = (executionTree) => Boolean(executionTree?.root);
 
 const getMessageExecutionTime = (msg) => {
@@ -75,27 +73,4 @@ export function parseTaskNotificationContent(content) {
 export function parseTaskNotifications(msg) {
   if (msg._notifications?.length) return msg._notifications;
   return parseTaskNotificationContent(msg.content);
-}
-
-export function parseMessageParts(msg) {
-  const content = msg?.content || '';
-  const hasFile = FILE_PLACEHOLDER_RE.test(content);
-  FILE_PLACEHOLDER_RE.lastIndex = 0;
-
-  if (!hasFile) return [{ type: 'text', content }];
-
-  const parts = [];
-  let lastIndex = 0;
-  let match;
-  while ((match = FILE_PLACEHOLDER_RE.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
-    }
-    parts.push({ type: 'file', filePath: match[1].trim() });
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < content.length) {
-    parts.push({ type: 'text', content: content.slice(lastIndex) });
-  }
-  return parts;
 }

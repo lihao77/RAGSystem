@@ -19,6 +19,8 @@
  */
 
 import type {
+  AssistantContentPart,
+  ToolFileRef,
   Envelope,
   InteractionKind,
   AttachmentRef,
@@ -141,6 +143,7 @@ export interface ExecutionToolCall {
   arguments?: unknown;
   observation?: string;
   summary?: string;
+  files?: ToolFileRef[];
   rawResultRef?: string;
   approval?: { status: "pending" | "granted" | "denied" };
   elapsedMs?: number;
@@ -167,6 +170,7 @@ export interface ExecutionAgent {
   displayName?: string;
   /** agent 流式输出（stream_output delta/final 累加）；子 agent 实时展示用，result 为终态。 */
   output?: string;
+  outputParts?: AssistantContentPart[];
   task?: string;
   status: "running" | "succeeded" | "failed";
   result?: string;

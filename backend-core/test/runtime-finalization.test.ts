@@ -121,6 +121,80 @@ describe("buildTerminalToolMessages", () => {
 });
 
 describe("AsyncKernelEventPersister terminal cleanup", () => {
+  it("persists rich_content@v1 and publishes the same final content parts", async () => {
+    const tenantId = createTenantId("tnt_test");
+    let finalizeInput: RuntimeFinalizeRunInput | null = null;
+    let terminalEvents: unknown[] = [];
+    const storage = {
+      tenantId,
+      operations: {
+        finalizeRun: vi.fn(async (input: RuntimeFinalizeRunInput) => {
+          finalizeInput = input;
+          const finalMessage = {
+            id: input.finalMessage!.messageId,
+            seq: 2,
+            session_id: input.sessionId,
+            role: "assistant",
+            content: input.finalMessage!.content,
+            metadata: input.finalMessage!.metadata ?? {},
+            created_at: "2026-01-01T00:00:00.000Z",
+            thread_key: "root",
+            child_agent_id: null,
+          } as MessageInfo;
+          terminalEvents = (input.buildTerminalRecords?.(finalMessage) ?? [])
+            .map((record) => record.outbox.payload.client_event);
+          return { finalMessage, records: [], readyResumeInteractionIds: [] };
+        }),
+      },
+    } as unknown as RuntimeStorage;
+    const clientEvents = {
+      prepare: vi.fn(),
+      flush: vi.fn(async () => undefined),
+      deliver: vi.fn(async () => undefined),
+    };
+    const persister = new AsyncKernelEventPersister(storage, clientEvents, {
+      tenantId,
+      sessionId: "session-1",
+      runId: "run-1",
+      threadKey: "root",
+      agentName: "agent-1",
+      agentDisplayName: "Agent 1",
+      rootCallId: "root-call-1",
+      sessionIdentity: {
+        sessionId: "session-1",
+        ownerUserId: null,
+        visibility: "private",
+        originType: "direct",
+        originId: null,
+        originChannel: "api",
+        workspaceId: null,
+      },
+    });
+
+    await persister.finalize("completed", {
+      content: "Map: \n\nFile: map.png (results/map.png)\n\n",
+      contentParts: [
+        { type: "text", text: "Map: " },
+        { type: "file_ref", filePath: "results/map.png", presentation: "inline" },
+      ],
+    });
+
+    expect(finalizeInput).not.toBeNull();
+    const completedFinalizeInput = finalizeInput as unknown as RuntimeFinalizeRunInput;
+    expect(completedFinalizeInput.finalMessage?.metadata).toMatchObject({
+      extensions: [{
+        kind: "rich_content",
+        version: 1,
+        slot: "replace",
+        data: { parts: [{ type: "text", text: "Map: " }, { type: "file_ref", file_path: "results/map.png" }] },
+      }],
+    });
+    expect(terminalEvents[0]).toMatchObject({
+      type: "stream_output",
+      payload: { phase: "final", content_parts: [{ type: "text" }, { type: "file_ref", file_path: "results/map.png" }] },
+    });
+  });
+
   it("passes a failed reason into dangling tool-call cleanup", async () => {
     const tenantId = createTenantId("tnt_test");
     let finalizeInput: RuntimeFinalizeRunInput | null = null;

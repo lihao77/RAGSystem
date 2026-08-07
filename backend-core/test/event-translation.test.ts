@@ -3,6 +3,66 @@ import { describe, expect, it } from "vitest";
 import { translateKernelEvent } from "../src/services/agent/sdk/event-translation.js";
 
 describe("kernel event wire translation", () => {
+  const context = {
+    sessionId: "session-1",
+    runId: "run-1",
+    rootCallId: "root-call",
+    requestId: "request-1",
+    agentId: "agent",
+  };
+
+  it("projects ordered text and file content parts", () => {
+    expect(translateKernelEvent({
+      type: "output_delta",
+      agentName: "agent",
+      content: "Map: ",
+      partIndex: 0,
+    }, context)[0]?.payload).toMatchObject({ phase: "delta", content: "Map: ", part_index: 0 });
+
+    expect(translateKernelEvent({
+      type: "output_file_ref",
+      agentName: "agent",
+      partIndex: 1,
+      part: {
+        type: "file_ref",
+        filePath: "results/map.png",
+        presentation: "inline",
+      },
+    }, context)[0]?.payload).toMatchObject({
+      phase: "part_added",
+      part_index: 1,
+      part: { type: "file_ref", file_path: "results/map.png", presentation: "inline" },
+    });
+  });
+
+  it("projects tool files onto the wire result", () => {
+    const [event] = translateKernelEvent({
+      type: "tool_result",
+      agentName: "agent",
+      toolCallId: "tool-1",
+      toolName: "execute_skill_script",
+      success: true,
+      summary: "done",
+      observation: "done",
+      metadata: {},
+      referenceResult: {
+        files: [{
+          fileType: "image",
+          path: "results/map.png",
+          mimeType: "image/png",
+          size: 128,
+          metadata: { lifecycle: "workspace" },
+        }],
+      },
+      elapsedTime: 0.1,
+      round: 0,
+      order: 0,
+      roundIndex: 0,
+    }, context);
+
+    expect(event?.payload).toMatchObject({ files: [{ path: "results/map.png", media_type: "image/png" }] });
+  });
+
   it("projects model_request as an explicit root model lifecycle event", () => {
     const events = translateKernelEvent(
       { type: "model_request", agentName: "agent", round: 3 },

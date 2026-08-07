@@ -7,11 +7,9 @@
  */
 export type RuntimeXmlTag = "intent" | "tool_calls" | "final_answer";
 
-export interface RuntimeXmlParseEvent {
-  type: "tag_open" | "content" | "tag_close";
-  tag: RuntimeXmlTag;
-  content: string;
-}
+export type RuntimeXmlParseEvent =
+  | { type: "tag_open" | "content" | "tag_close"; tag: RuntimeXmlTag; content: string }
+  | { type: "fallback"; content: string };
 
 export interface RuntimeXmlFeedOptions {
   stopAfterClosingTag?: RuntimeXmlTag | undefined;
@@ -76,9 +74,13 @@ export class StreamingRuntimeXmlParser {
   private scanForOpenTag(events: RuntimeXmlParseEvent[]): boolean {
     const ltPos = this.buffer.indexOf("<");
     if (ltPos === -1) {
-      return false;
+      const content = this.buffer;
+      this.buffer = "";
+      if (content) events.push({ type: "fallback", content });
+      return Boolean(content);
     }
     if (ltPos > 0) {
+      events.push({ type: "fallback", content: this.buffer.slice(0, ltPos) });
       this.buffer = this.buffer.slice(ltPos);
     }
 
@@ -90,11 +92,14 @@ export class StreamingRuntimeXmlParser {
     const rawTag = this.buffer.slice(1, gtPos).trim().toLowerCase();
     const tagName = rawTag.split(/\s+/, 1)[0] ?? "";
     const matchedTag = TAG_ALIASES[tagName];
-    this.buffer = this.buffer.slice(gtPos + 1);
     if (!matchedTag) {
+      const content = this.buffer.slice(0, gtPos + 1);
+      this.buffer = this.buffer.slice(gtPos + 1);
+      events.push({ type: "fallback", content });
       return true;
     }
 
+    this.buffer = this.buffer.slice(gtPos + 1);
     this.state = matchedTag;
     events.push({ type: "tag_open", tag: matchedTag, content: "" });
     return true;

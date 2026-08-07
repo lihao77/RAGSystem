@@ -19,7 +19,8 @@
 export type ExtensionKind =
   | "ui_context"
   | "attachments"
-  | "tool_result_media";
+  | "tool_result_media"
+  | "rich_content";
 
 /** 渲染插槽:扩展相对 message content 的渲染位置(前端 renderer 用;投影不读)。 */
 export type RenderSlot = "above" | "below" | "replace";

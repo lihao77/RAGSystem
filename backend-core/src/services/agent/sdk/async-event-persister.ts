@@ -1,5 +1,5 @@
 import { extractText, type ChatMessage } from "@ragsystem/agent-llm";
-import type { KernelEvent } from "@ragsystem/agent-sdk";
+import type { AssistantContentPart, KernelEvent } from "@ragsystem/agent-sdk";
 
 import type {
   AddMessageInput,
@@ -23,6 +23,11 @@ import {
   buildExpiredRunLeaseRecord,
 } from "../../runtime/event-outbox/execution-envelope-archive.js";
 import { terminalReason } from "./terminal-reason.js";
+import {
+  createRichContentExtension,
+  mergeRichContentExtension,
+  readRichContentParts,
+} from "./rich-content.js";
 
 export interface AsyncPersisterRunContext {
   tenantId: TenantId;
@@ -56,6 +61,7 @@ export interface AsyncPersisterRunContext {
 export interface AsyncFinalMessageInput {
   id?: string;
   content: string;
+  contentParts?: AssistantContentPart[];
   metadata?: Record<string, unknown>;
 }
 
@@ -380,18 +386,22 @@ export class AsyncKernelEventPersister {
   ): (AddMessageInput & { messageId: string }) | null {
     if (status === "completed") {
       if (!finalMessage) throw new Error("completed finalize requires a final message");
+      const metadata = {
+        ...this.finalMessageMeta(),
+        msg_type: MSG_TYPE.ASSISTANT_FINAL,
+        ...(this.ctx.messageMetadata ?? {}),
+        ...(finalMessage.metadata ?? {}),
+      };
       return {
         messageId: finalMessage.id?.trim() || `${this.ctx.runId}:final`,
         sessionId: this.ctx.sessionId,
         role: "assistant",
         content: finalMessage.content,
         threadKey: this.ctx.threadKey,
-        metadata: {
-          ...this.finalMessageMeta(),
-          msg_type: MSG_TYPE.ASSISTANT_FINAL,
-          ...(this.ctx.messageMetadata ?? {}),
-          ...(finalMessage.metadata ?? {}),
-        },
+        metadata: mergeRichContentExtension(
+          metadata,
+          createRichContentExtension(finalMessage.contentParts),
+        ),
       };
     }
     if (status === "interrupted") {
@@ -413,7 +423,7 @@ export class AsyncKernelEventPersister {
 
   private buildTerminalRecords(
     status: RuntimeFinalizeStatus,
-    finalMessage: { id: string; seq: number; content: string } | null,
+    finalMessage: { id: string; seq: number; content: string; metadata?: Record<string, unknown> } | null,
     closedToolMessages: readonly {
       tool_call_id?: string | undefined;
       name?: string | undefined;
@@ -478,7 +488,7 @@ export class AsyncKernelEventPersister {
 function buildTerminalEnvelopes(
   ctx: AsyncPersisterRunContext,
   status: RuntimeFinalizeStatus,
-  finalMessage: { id: string; seq: number; content: string } | null,
+  finalMessage: { id: string; seq: number; content: string; metadata?: Record<string, unknown> } | null,
   closedToolMessages: readonly {
     tool_call_id?: string | undefined;
     name?: string | undefined;
@@ -488,6 +498,7 @@ function buildTerminalEnvelopes(
 ): Envelope[] {
   if (status === "completed") {
     if (!finalMessage) return [];
+    const contentParts = readRichContentParts(finalMessage.metadata);
     return [
       {
         type: "stream_output",
@@ -498,6 +509,7 @@ function buildTerminalEnvelopes(
         payload: {
           phase: "final",
           content: finalMessage.content,
+          ...(contentParts ? { content_parts: contentParts } : {}),
           ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
         },
       },

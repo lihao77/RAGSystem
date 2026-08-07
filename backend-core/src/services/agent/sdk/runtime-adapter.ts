@@ -624,7 +624,10 @@ export async function executeRunWithSdk(
   runtime.close();
 
   // completed：终态合一落库（最终 assistant message + Envelope 关联 + updateRunStatus）。
-  const finalized = await persister.finalize("completed", { content: result.content });
+  const finalized = await persister.finalize("completed", {
+    content: result.content,
+    contentParts: result.contentParts,
+  });
   if (isInteractionRoot) {
     await deps.pendingInteractions.onRootFinalized(
       input.sessionId,

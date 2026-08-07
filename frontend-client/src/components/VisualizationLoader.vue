@@ -6,9 +6,9 @@
       <Button variant="ghost" size="sm" @click="loadFile">重试</Button>
     </div>
     <template v-else-if="fileUrl">
-      <div v-if="isImage" class="fallback-image-wrapper">
+      <div v-if="showInlineImage" class="fallback-image-wrapper">
         <AuthenticatedImage :src="fileUrl" :alt="fileName" class="fallback-image" loading="lazy" />
-        <div class="image-caption">{{ fileName }}</div>
+        <div class="image-caption">{{ caption || fileName }}</div>
       </div>
       <div v-else class="workspace-file-card">
         <div class="workspace-file-copy">
@@ -32,6 +32,8 @@ import { Button } from './ui/button';
 const props = defineProps({
   sessionId: { type: String, required: true },
   filePath: { type: String, required: true },
+  presentation: { type: String, default: 'attachment' },
+  caption: { type: String, default: '' },
 });
 
 const loading = ref(true);
@@ -42,6 +44,7 @@ const downloading = ref(false);
 const fileUrl = computed(() => workspaceFileUrl(props.sessionId, props.filePath));
 const fileName = computed(() => String(props.filePath).replace(/\\/g, '/').split('/').pop() || props.filePath);
 const isImage = computed(() => /^image\//u.test(mimeType.value));
+const showInlineImage = computed(() => isImage.value && props.presentation !== 'attachment');
 
 function formatSize(value) {
   const size = Number(value);
