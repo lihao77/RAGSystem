@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { buildTerminalToolMessages } from "../src/contracts/storage/runtime-finalization.js";
+import {
+  buildTerminalAssistantMessage,
+  buildTerminalToolMessages,
+} from "../src/contracts/storage/runtime-finalization.js";
 import type { RuntimeFinalizeRunInput, RuntimeStorage } from "../src/contracts/storage/runtime-storage.js";
 import type { MessageInfo } from "../src/contracts/session/session.js";
 import { createTenantId } from "../src/identity/types.js";
 import { AsyncKernelEventPersister } from "../src/services/agent/sdk/async-event-persister.js";
+import { filterHistoryMessages, messagesToConversation } from "../src/services/agent/context/history-view.js";
 
 describe("buildTerminalToolMessages", () => {
   it.each([
@@ -120,6 +124,66 @@ describe("buildTerminalToolMessages", () => {
 
     expect(closed?.metadata).toMatchObject({ terminal_reason: "未提供失败原因" });
     expect(closed?.content).toBe("工具执行因 Run 失败而终止：未提供失败原因");
+  });
+});
+
+describe("buildTerminalAssistantMessage", () => {
+  it.each([
+    {
+      terminalStatus: "failed" as const,
+      reason: "provider stream disconnected",
+      content: "本次运行执行失败：provider stream disconnected",
+    },
+    {
+      terminalStatus: "interrupted" as const,
+      reason: "session_stopped",
+      content: "本次运行已中断，未生成最终答案。原因：用户主动停止运行",
+    },
+  ])("persists a non-empty $terminalStatus context boundary", ({ terminalStatus, reason, content }) => {
+    const message = buildTerminalAssistantMessage({
+      sessionId: "session-1",
+      runId: "run-1",
+      threadKey: "root",
+      agentName: "agent-1",
+      terminalStatus,
+      reason,
+    });
+    expect(message.messageId).toBe("run-1:terminal");
+    expect(message.content).toBe(content);
+    expect(message.contentParts).toEqual([{ type: "text", text: content }]);
+    expect(message.metadata).toMatchObject({
+      msg_type: "run_terminal",
+      terminal_status: terminalStatus,
+      terminal_reason: reason,
+      visible_to_user: true,
+    });
+  });
+
+  it("remains in the next model context as an explicit assistant boundary", () => {
+    const input = buildTerminalAssistantMessage({
+      sessionId: "session-1",
+      runId: "run-1",
+      threadKey: "root",
+      agentName: "agent-1",
+      terminalStatus: "failed",
+      reason: "provider stream disconnected",
+    });
+    const message = {
+      ...input,
+      id: input.messageId,
+      seq: 2,
+      session_id: input.sessionId,
+      created_at: "2026-01-01T00:00:00.000Z",
+      thread_key: input.threadKey ?? "root",
+      child_agent_id: null,
+      metadata: input.metadata ?? {},
+      content_parts: input.contentParts ?? [],
+    } as MessageInfo;
+    const history = filterHistoryMessages([message]);
+    expect(history).toHaveLength(1);
+    expect(messagesToConversation(history).conversation).toEqual([
+      { role: "assistant", content: "本次运行执行失败：provider stream disconnected" },
+    ]);
   });
 });
 

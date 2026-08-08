@@ -1173,26 +1173,6 @@ onUnmounted(() => {
   }
 }
 
-.stopped-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  line-height: 1;
-  min-height: 28px;
-  border-radius: var(--radius-full);
-  background: var(--color-warning-bg, rgba(250, 173, 20, 0.1));
-  color: var(--color-warning);
-  font-size: 0.8rem;
-  font-weight: 600;
-  border: 1px solid rgba(250, 173, 20, 0.2);
-  width: fit-content;
-}
-
-.stopped-badge svg {
-  flex-shrink: 0;
-}
-
 /* 消息查看/编辑模式切换动画 */
 .message-view-mode,
 .message-edit-mode {

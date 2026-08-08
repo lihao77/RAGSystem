@@ -24,6 +24,7 @@ import {
   buildExecutionEnvelopeRunStep,
   buildExpiredRunLeaseRecord,
 } from "../../runtime/event-outbox/execution-envelope-archive.js";
+import { buildTerminalAssistantMessage } from "../../../contracts/storage/runtime-finalization.js";
 import { terminalReason } from "./terminal-reason.js";
 
 export interface AsyncPersisterRunContext {
@@ -238,7 +239,7 @@ export class AsyncKernelEventPersister {
   ): Promise<{ readyResumeInteractionIds: string[] }> {
     try {
       await this.ensureRunLease();
-      const persistedFinal = this.buildFinalMessage(status, finalMessage);
+      const persistedFinal = this.buildFinalMessage(status, finalMessage, error);
       const rootRunId = this.ctx.rootRunId ?? this.ctx.runId;
       const isInteractionRoot = this.isRootRun() || this.ctx.ownsRunLease === true;
       await this.clientEvents.flush(this.ctx.sessionId);
@@ -385,6 +386,7 @@ export class AsyncKernelEventPersister {
   private buildFinalMessage(
     status: RuntimeFinalizeStatus,
     finalMessage: AsyncFinalMessageInput | null,
+    error: unknown,
   ): (AddMessageInput & { messageId: string }) | null {
     if (status === "completed") {
       if (!finalMessage) throw new Error("completed finalize requires a final message");
@@ -413,22 +415,23 @@ export class AsyncKernelEventPersister {
         metadata,
       };
     }
-    if (status === "interrupted") {
-      return {
-        messageId: `${this.ctx.runId}:interrupted`,
-        sessionId: this.ctx.sessionId,
-        role: "assistant",
-        content: "",
-        contentParts: [],
-        threadKey: this.ctx.threadKey,
-        metadata: {
-          ...this.finalMessageMeta(),
-          msg_type: MSG_TYPE.ASSISTANT_FINAL,
-          interrupted: true,
-        },
-      };
-    }
-    return null;
+    if (status !== "failed" && status !== "interrupted") return null;
+    return buildTerminalAssistantMessage({
+      sessionId: this.ctx.sessionId,
+      runId: this.ctx.runId,
+      threadKey: this.ctx.threadKey,
+      agentName: this.ctx.agentName,
+      terminalStatus: status,
+      reason: terminalReason(status, error),
+      metadata: {
+        ...this.finalMessageMeta(),
+        ...(this.ctx.messageMetadata ?? {}),
+        conversation_scope: this.ctx.parentCallId != null ? "child" : "root",
+        ...(this.ctx.taskId ? { task_id: this.ctx.taskId } : {}),
+        ...(this.ctx.requestId ? { request_id: this.ctx.requestId } : {}),
+        ...(this.ctx.executionKind ? { execution_kind: this.ctx.executionKind } : {}),
+      },
+    });
   }
 
   private buildTerminalRecords(
@@ -561,7 +564,45 @@ function buildTerminalEnvelopes(
   const closedToolSummary = status === "failed"
     ? "工具执行因 Run 失败而终止"
     : "工具执行被中断";
+  const terminalContentParts: WireAssistantContentPart[] = finalMessage
+    ? finalMessage.content_parts.flatMap((part): WireAssistantContentPart[] => {
+      if (part.type === "text") return [{ type: "text", text: part.text }];
+      if (part.type !== "file_ref") return [];
+      return [{
+        type: "file_ref" as const,
+        file_path: part.file_path,
+        presentation: part.presentation,
+        ...(part.caption ? { caption: part.caption } : {}),
+      }];
+    })
+    : [];
   return [
+    ...(finalMessage ? [{
+      type: "stream_output" as const,
+      session_id: ctx.sessionId,
+      run_id: ctx.runId,
+      call_id: ctx.rootCallId,
+      agent_id: ctx.agentName,
+      payload: {
+        phase: "final" as const,
+        content: finalMessage.content,
+        content_parts: terminalContentParts,
+        ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
+      },
+    }, {
+      type: "state_sync" as const,
+      session_id: ctx.sessionId,
+      run_id: ctx.runId,
+      payload: {
+        category: "message_saved" as const,
+        ref: {
+          message_id: finalMessage.id,
+          seq: finalMessage.seq,
+          role: "assistant",
+          content_parts: finalMessage.content_parts,
+        },
+      },
+    }] : []),
     ...closedToolMessages.flatMap((message) => {
       if (!message.tool_call_id) return [];
       return [{
@@ -590,7 +631,7 @@ function buildTerminalEnvelopes(
       payload: {
         phase: "end",
         display_name: ctx.agentDisplayName,
-        result: status === "interrupted" ? "[已停止生成]" : errorMessage.slice(0, 500),
+        result: finalMessage?.content.slice(0, 500) ?? errorMessage.slice(0, 500),
         success: false,
         ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
       },
@@ -599,7 +640,7 @@ function buildTerminalEnvelopes(
       type: "run_ended",
       session_id: ctx.sessionId,
       run_id: ctx.runId,
-      payload: { status, ...(status !== "interrupted" ? { reason: errorMessage } : {}) },
+      payload: { status, reason: errorMessage },
     },
   ];
 }

@@ -480,6 +480,37 @@ test('state_sync(message_saved) 用服务端 canonical content_parts 校准乐�
   }]);
 });
 
+test('旧 Run 的 assistant message_saved 不会覆盖当前 Run 消息', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [createAssistantMessage({
+    run_id: 'run-new',
+    metadata: { run_id: 'run-new' },
+    content: '当前运行',
+  })];
+  deps.activeRun.active = true;
+  deps.activeRun.runId = 'run-new';
+  deps.activeRun.assistantMsgIndex = 0;
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'state_sync',
+    run_id: 'run-old',
+    payload: {
+      category: 'message_saved',
+      ref: {
+        message_id: 'run-old:terminal',
+        seq: 8,
+        role: 'assistant',
+        content_parts: [{ type: 'text', text: '旧运行失败' }],
+      },
+    },
+  }, 'session-1');
+
+  assert.equal(deps.messages.value.length, 1);
+  assert.equal(deps.messages.value[0].content, '当前运行');
+  assert.deepEqual(calls.cacheMessages, []);
+});
+
 test('run_started 后的 message_saved 只确认一次已结束 followup 的新 run 主消息', () => {
   const { deps } = createDeps();
   deps.messages.value = [
@@ -1791,6 +1822,7 @@ test('run_ended 事件收尾回答，但不会越权覆盖 Session runtime', () 
 
   assert.equal(deps.sessionRuntime.value.state, 'running');
   assert.equal(deps.messages.value[0].finished, true);
+  assert.equal(deps.messages.value[0].has_execution, true);
   assert.equal(deps.activeRun.active, false);
   assert.equal(deps.isLoading.value, true);
   assert.equal(calls.clearLlmRetryState, 1);
@@ -1808,12 +1840,38 @@ test('run_ended 以 interrupted/failed 终止时清空残留 approval/input 弹�
   const stream = useSessionAgentClient(deps);
 
   // interrupted：后端 abort 只 reject waitForApproval 不发取消事件，前端据终态清弹窗
-  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'interrupted' } }, 'session-1');
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'interrupted', reason: 'session_stopped' } }, 'session-1');
   assert.equal(calls.resetApprovalState.length, 1);
+  assert.equal(deps.messages.value[0].content, '本次运行已中断，未生成最终答案。原因：用户主动停止运行');
+  assert.equal(deps.messages.value[0].metadata.terminal_reason, 'session_stopped');
+  assert.equal(deps.messages.value[0].finished, true);
+  assert.equal(deps.messages.value[0].has_execution, true);
 
   calls.resetApprovalState.length = 0;
-  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'failed' } }, 'session-1');
+  deps.messages.value[0].content = '';
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'failed', reason: 'provider disconnected' } }, 'session-1');
   assert.equal(calls.resetApprovalState.length, 1);
+  assert.equal(deps.messages.value[0].content, '本次运行执行失败：provider disconnected');
+});
+
+test('仅收到终态事件时也能定位消息并保留执行过程入口', () => {
+  const { deps, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
+  deps.messages.value = [createAssistantMessage({ id: 'assistant-run-1', run_id: 'run-1' })];
+  deps.activeRun.assistantMsgIndex = -1;
+  deps.activeRun.runId = 'run-1';
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'run_ended',
+    run_id: 'run-1',
+    payload: { status: 'interrupted', reason: 'backend_restarted' },
+  }, 'session-1');
+
+  assert.equal(deps.messages.value[0].finished, true);
+  assert.equal(deps.messages.value[0].has_execution, true);
+  assert.equal(deps.messages.value[0].run_id, 'run-1');
+  assert.match(deps.messages.value[0].content, /后端重启导致运行中断/);
 });
 
 test('run_ended 正常完成时不清 approval（应已 resolved）', () => {

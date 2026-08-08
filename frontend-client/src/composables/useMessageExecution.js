@@ -88,16 +88,19 @@ export function useMessageExecution(deps) {
   };
 
   const createAssistantMessageFromHistory = (item) => {
-    const interrupted = Boolean(item.metadata?.interrupted);
+    const terminalStatus = item.metadata?.terminal_status || null;
+    const interrupted = terminalStatus === 'interrupted';
+    const failed = terminalStatus === 'failed';
     return createAssistantMessage({
       id: item.id,
       seq: item.seq,
-      content: interrupted ? '' : (item.content || ''),
-      content_parts: interrupted ? [] : (Array.isArray(item.content_parts) ? item.content_parts : []),
+      content: item.content || '',
+      content_parts: Array.isArray(item.content_parts) ? item.content_parts : [],
       executionTree: { root: null, steps: [] },
-      status: interrupted ? [{ type: 'error', content: '已中断' }] : (item.status || []),
+      status: item.status || [],
       finished: true,
       stopped: interrupted,
+      run_failed: failed,
       has_execution: Boolean(item.has_execution || item.metadata?.run_id),
       executionStepsLoaded: false,
       executionStepsLoading: false,

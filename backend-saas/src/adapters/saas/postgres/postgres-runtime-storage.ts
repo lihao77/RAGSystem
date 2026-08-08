@@ -56,7 +56,10 @@ import type {
   RunStepRecord,
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { toSessionIdentity, type MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
-import { buildTerminalToolMessages } from "@ragsystem/backend-core/contracts/storage/runtime-finalization.js";
+import {
+  buildTerminalAssistantMessage,
+  buildTerminalToolMessages,
+} from "@ragsystem/backend-core/contracts/storage/runtime-finalization.js";
 import type { PostgresExecutor } from "./postgres-executor.js";
 import { PostgresConversationRepository } from "./conversation-repository.js";
 import { PostgresOutboxRepository } from "./outbox-repository.js";
@@ -765,8 +768,9 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (nextStatus === "interrupted") {
         for (const row of recoveredRuns.rows) {
           const threadKey = String(row.thread_key || "root");
+          const messages = await tx.conversation.getRecentMessages(sessionId, 10_000, threadKey);
           for (const message of buildTerminalToolMessages(
-            await tx.conversation.getRecentMessages(sessionId, 10_000, threadKey),
+            messages,
             {
               sessionId,
               runId: String(row.run_id),
@@ -777,6 +781,29 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
             },
           )) {
             await getOrCreateMessage(transactionExecutor, tx, message, "terminal tool message");
+          }
+          const runId = String(row.run_id);
+          const parentRunId = row.parent_run_id == null ? null : String(row.parent_run_id);
+          const finalMessage = await getOrCreateMessage(
+            transactionExecutor,
+            tx,
+            buildTerminalAssistantMessage({
+              sessionId,
+              runId,
+              threadKey,
+              agentName: row.agent_name ?? "unknown",
+              terminalStatus: "interrupted",
+              reason: "run_lease_expired",
+              metadata: {
+                conversation_scope: parentRunId === null ? "root" : "child",
+                ...(parentRunId ? { parent_run_id: parentRunId } : {}),
+              },
+            }),
+            "terminal message",
+          );
+          await tx.runs.updateRunStepsMessageId(sessionId, runId, finalMessage.id);
+          if (!await tx.runs.updateRunStatus(runId, sessionId, "interrupted", finalMessage.id, "run_lease_expired")) {
+            throw new Error(`run not found while recovering expired lease: ${runId}`);
           }
         }
       }
@@ -1296,12 +1323,10 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         const parentRunId = row.parent_run_id === null ? null : String(row.parent_run_id);
         const run = await lockTenantRun(transactionExecutor, this.tenantId, runId);
         if (!run || run.session_id !== input.sessionId || run.status !== "suspended") continue;
-        if (!await tx.runs.updateRunStatus(runId, input.sessionId, "interrupted", null, "session_stopped")) {
-          throw new Error(`run not found while interrupting session: ${runId}`);
-        }
         const threadKey = run.thread_key || "root";
+        const messages = await tx.conversation.getRecentMessages(input.sessionId, 10_000, threadKey);
         for (const message of buildTerminalToolMessages(
-          await tx.conversation.getRecentMessages(input.sessionId, 10_000, threadKey),
+          messages,
           {
             sessionId: input.sessionId,
             runId,
@@ -1313,13 +1338,36 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         )) {
           await getOrCreateMessage(transactionExecutor, tx, message, "terminal tool message");
         }
+        const finalMessage = await getOrCreateMessage(
+          transactionExecutor,
+          tx,
+          buildTerminalAssistantMessage({
+            sessionId: input.sessionId,
+            runId,
+            threadKey,
+            agentName: run.agent_name ?? "unknown",
+            terminalStatus: "interrupted",
+            reason: "session_stopped",
+            metadata: {
+              conversation_scope: parentRunId === null ? "root" : "child",
+              ...(parentRunId ? { parent_run_id: parentRunId } : {}),
+            },
+          }),
+          "terminal message",
+        );
+        if (!await tx.runs.updateRunStatus(runId, input.sessionId, "interrupted", finalMessage.id, "session_stopped")) {
+          throw new Error(`run not found while interrupting session: ${runId}`);
+        }
         const interrupted = { runId, parentRunId };
         interruptedRuns.push(interrupted);
         if (!runIds.has(runId)) continue;
-        const normalized = normalizeRecord(input.buildRunEndedRecord(interrupted));
-        assertRecordScope(normalized, input.sessionId, runId);
-        await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
-        records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalized));
+        for (const terminalRecord of input.buildTerminalRecords(interrupted, finalMessage)) {
+          const normalized = normalizeRecord(terminalRecord);
+          assertRecordScope(normalized, input.sessionId, runId);
+          await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
+          records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalized));
+        }
+        await tx.runs.updateRunStepsMessageId(input.sessionId, runId, finalMessage.id);
       }
       return { interruptedRuns, cancelledInteractions, records };
     });
@@ -1809,11 +1857,11 @@ function assertEventId(eventId: string): void {
 }
 
 function assertTerminalMessageRule(input: RuntimeFinalizeRunInput): void {
-  if (input.status === "completed" && !input.finalMessage) {
-    throw new Error("completed finalize requires a final message");
+  if (input.status !== "suspended" && !input.finalMessage) {
+    throw new Error(`${input.status} finalize requires a terminal message`);
   }
-  if ((input.status === "failed" || input.status === "suspended") && input.finalMessage) {
-    throw new Error(`${input.status} finalize must not include a final message`);
+  if (input.status === "suspended" && input.finalMessage) {
+    throw new Error("suspended finalize must not include a final message");
   }
 }
 

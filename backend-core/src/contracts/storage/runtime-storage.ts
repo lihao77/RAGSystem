@@ -375,7 +375,10 @@ export interface RuntimeRollbackResumeResult {
 
 export interface RuntimeInterruptSessionInput {
   sessionId: string;
-  buildRunEndedRecord(run: { runId: string; parentRunId: string | null }): RuntimeRecordEnvelopeInput;
+  buildTerminalRecords(
+    run: { runId: string; parentRunId: string | null },
+    finalMessage: MessageInfo,
+  ): readonly RuntimeRecordEnvelopeInput[];
 }
 
 export interface RuntimeInterruptSessionResult {

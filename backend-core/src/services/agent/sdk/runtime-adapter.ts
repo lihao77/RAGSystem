@@ -6,7 +6,7 @@ import { asString } from "../../../utils/guards.js";
  * deployment-neutral persister 完成 message/run/step/outbox 写入，并翻译 KernelEvent 推送 Envelope。
  */
 import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, RecoverableInterrupt, resolveToolInstructionMode, throwIfAborted, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
-import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefresher } from "@ragsystem/agent-sdk";
+import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefresher, KernelResult } from "@ragsystem/agent-sdk";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import { translateKernelEvent, type WireTranslationContext } from "./event-translation.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
@@ -524,64 +524,69 @@ export async function executeRunWithSdk(
     input.onStartDisposition?.(startDisposition);
     return { content: "", success: true, followup: startDisposition, tokenUsage: { inputTokens: 0, outputTokens: 0 }, toolCalls: {} };
   }
-  input.onStartDisposition?.(startDisposition);
-  input.onRunPersisted?.();
-  if ((input.userMessageId && input.initialUserMessageMetadata) || input.pendingUserMessageId) {
-    // startRun atomically persists the initial user message. Rebuild after that
-    // commit so the first model request sees the same durable history as subsequent rounds.
-    const startedContext = await contextBuilder.buildContext({
-      sessionId: input.sessionId,
-      threadKey: input.threadKey,
-      microcompact: true,
-    });
-    await sessionMetadata.flush();
-    conversation = startedContext.conversation;
-    contextRawMessages = startedContext.rawMessages;
-    lastSeq = startedContext.rawMessages.reduce(
-      (max, message) => message && typeof message.seq === "number" && message.seq > max ? message.seq : max,
-      lastSeq,
-    );
-  }
-  // 首次用户消息由 startRun 原子落库，附件只会出现在上面的 startedContext 中。
-  // 必须基于最终实际发送给模型的上下文生成 sandbox allowlist，不能使用落库前的预构建快照。
-  baseExecCtx.attachmentFileIds = collectAttachmentFileIds(contextRawMessages);
-  const startRound = resolveRunStartRound(contextRawMessages, input.runId);
-  const resumeToolResults = resolveResumeToolResults(contextRawMessages, input.runId, startRound);
-  const runtime = createRuntime(runtimeOpts);
-  const handle = runtime.run({
-    sessionId: input.sessionId,
-    task: input.task,
-    runId: input.runId,
-    rootCallId: input.rootCallId,
-    threadKey: input.threadKey,
-    startRound,
-    resumeToolResults,
-    conversation,
-    ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
-    signal: input.signal,
-  });
-
-  // 事件循环：增量落库（KernelEventPersister）+ 翻译推流（translateKernelEvent → envelope → outbox）。
-  const consumeEvents = (async () => {
-    for await (const event of handle.events) {
-      if (event.type === "tool_call") {
-        toolCalls[event.toolName] = (toolCalls[event.toolName] ?? 0) + 1;
-      }
-      await persister.persist(event);
-      for (const envelope of translateKernelEvent(event, wireCtx)) {
-        deps.eventPublisher.publishEnvelope(envelope);
-      }
-      if (event.type === "tool_call") {
-        orderedDelegateCalls.markToolCallPublished(event.toolCallId);
-      }
-    }
-  })();
-
-  let result;
+  let runtime: ReturnType<typeof createRuntime> | null = null;
+  let consumeEvents: Promise<void> | null = null;
+  let result: KernelResult | null = null;
   try {
-    result = await handle.result;
+    input.onStartDisposition?.(startDisposition);
+    input.onRunPersisted?.();
+    if ((input.userMessageId && input.initialUserMessageMetadata) || input.pendingUserMessageId) {
+      // startRun atomically persists the initial user message. Rebuild after that
+      // commit so the first model request sees the same durable history as subsequent rounds.
+      const startedContext = await contextBuilder.buildContext({
+        sessionId: input.sessionId,
+        threadKey: input.threadKey,
+        microcompact: true,
+      });
+      await sessionMetadata.flush();
+      conversation = startedContext.conversation;
+      contextRawMessages = startedContext.rawMessages;
+      lastSeq = startedContext.rawMessages.reduce(
+        (max, message) => message && typeof message.seq === "number" && message.seq > max ? message.seq : max,
+        lastSeq,
+      );
+    }
+    // 首次用户消息由 startRun 原子落库，附件只会出现在上面的 startedContext 中。
+    // 必须基于最终实际发送给模型的上下文生成 sandbox allowlist，不能使用落库前的预构建快照。
+    baseExecCtx.attachmentFileIds = collectAttachmentFileIds(contextRawMessages);
+    const startRound = resolveRunStartRound(contextRawMessages, input.runId);
+    const resumeToolResults = resolveResumeToolResults(contextRawMessages, input.runId, startRound);
+    runtime = createRuntime(runtimeOpts);
+    const handle = runtime.run({
+      sessionId: input.sessionId,
+      task: input.task,
+      runId: input.runId,
+      rootCallId: input.rootCallId,
+      threadKey: input.threadKey,
+      startRound,
+      resumeToolResults,
+      conversation,
+      ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
+      signal: input.signal,
+    });
+
+    // 事件循环：增量落库（KernelEventPersister）+ 翻译推流（translateKernelEvent → envelope → outbox）。
+    consumeEvents = (async () => {
+      for await (const event of handle.events) {
+        if (event.type === "tool_call") {
+          toolCalls[event.toolName] = (toolCalls[event.toolName] ?? 0) + 1;
+        }
+        await persister.persist(event);
+        for (const envelope of translateKernelEvent(event, wireCtx)) {
+          deps.eventPublisher.publishEnvelope(envelope);
+        }
+        if (event.type === "tool_call") {
+          orderedDelegateCalls.markToolCallPublished(event.toolCallId);
+        }
+      }
+    })();
+    const eventConsumption = consumeEvents;
+    if (!eventConsumption) throw new Error("SDK event consumer was not started");
+    const [kernelResult] = await Promise.all([handle.result, eventConsumption]);
+    result = kernelResult;
   } catch (error) {
-    await consumeEvents.catch(() => undefined);
+    await consumeEvents?.catch(() => undefined);
+    runtime?.close();
     if (error instanceof RecoverableInterrupt) {
       const finalized = await persister.finalize("suspended", null, error);
       if (isInteractionRoot) {
@@ -592,7 +597,6 @@ export async function executeRunWithSdk(
           finalized.readyResumeInteractionIds,
         );
       }
-      runtime.close();
       if (input.runId !== error.rootRunId) {
         throw error;
       }
@@ -610,10 +614,10 @@ export async function executeRunWithSdk(
         toolCalls,
       };
     }
-    runtime.close();
     const interrupted = input.signal.aborted;
     // 终态合一落库：failed/interrupted 更新 run 状态并补齐本 run 的悬空 tool observation。
-    const finalized = await persister.finalize(interrupted ? "interrupted" : "failed", null, error);
+    const terminalError = interrupted ? new Error("session_stopped") : error;
+    const finalized = await persister.finalize(interrupted ? "interrupted" : "failed", null, terminalError);
     if (isInteractionRoot) {
       await deps.pendingInteractions.onRootFinalized(
         input.sessionId,
@@ -622,7 +626,7 @@ export async function executeRunWithSdk(
         finalized.readyResumeInteractionIds,
       );
     }
-    const message = terminalReason(interrupted ? "interrupted" : "failed", error);
+    const message = terminalReason(interrupted ? "interrupted" : "failed", terminalError);
     const pendingFollowup = isRootRun
       ? await findPendingFollowup(deps.storage, input.sessionId, input.threadKey)
       : null;
@@ -635,8 +639,8 @@ export async function executeRunWithSdk(
     };
   }
 
-  await consumeEvents;
-  runtime.close();
+  if (!result) throw new Error("SDK run completed without a result");
+  runtime?.close();
 
   // completed：终态合一落库（最终 assistant message + Envelope 关联 + updateRunStatus）。
   const finalized = await persister.finalize("completed", {

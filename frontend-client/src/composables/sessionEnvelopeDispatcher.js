@@ -471,14 +471,55 @@ export function createSessionEnvelopeDispatcher({
       const category = payload.category;
       if (category === 'message_saved') {
         const ref = { ...(payload.ref || {}), ...(event.run_id ? { run_id: event.run_id } : {}) };
-        const currentMsg = messages.value[activeRun.assistantMsgIndex];
+        let currentMsg = messages.value[activeRun.assistantMsgIndex];
         const candidate = ref.role === 'user' && ref.request_id
           ? takeFollowupCandidate(ref.request_id)
           : null;
         const committedCandidate = candidate ? commitFollowupCandidate(candidate, ref) : null;
-        const target = committedCandidate?.message
-          || (ref.role === 'user' ? findUserMessageSavedTarget(ref) : currentMsg);
+        const refMessageId = ref.message_id || ref.id || null;
+        const refRunId = ref.run_id || null;
+        const matchingAssistant = ref.role === 'assistant'
+          ? messages.value.find(message => message?.role === 'assistant'
+            && ((refMessageId && message.id === refMessageId)
+              || (refRunId && getMessageRunId(message) === refRunId)))
+          : null;
+        const activeRunId = activeRun.runId || getMessageRunId(currentMsg);
+        if (ref.role === 'assistant'
+          && refRunId
+          && activeRunId
+          && refRunId !== activeRunId
+          && !matchingAssistant) {
+          return;
+        }
+        let target = committedCandidate?.message
+          || (ref.role === 'user'
+            ? findUserMessageSavedTarget(ref)
+            : matchingAssistant || (refRunId && getMessageRunId(currentMsg) === refRunId ? currentMsg : null));
+        if (!target && ref.role === 'assistant' && Array.isArray(ref.content_parts)) {
+          const contentParts = normalizeMessageContentParts(ref.content_parts);
+          const content = contentParts
+            .filter(part => part.type === 'text')
+            .map(part => part.text)
+            .join('');
+          const created = deps.createAssistantMessage({
+            id: ref.message_id || ref.id,
+            seq: ref.seq,
+            content,
+            content_parts: contentParts,
+            finished: true,
+            has_execution: true,
+            run_id: refRunId,
+            metadata: { run_id: refRunId },
+          });
+          messages.value.push(created);
+          if (!activeRunId || !refRunId || activeRunId === refRunId) {
+            activeRun.assistantMsgIndex = messages.value.length - 1;
+          }
+          currentMsg = created;
+          target = created;
+        }
         applyMessageSaved(target, ref, sessionId);
+        if (target?.role === 'assistant' && refRunId) target.has_execution = true;
         if (committedCandidate) {
           deps.updateRecentSession(sessionId, committedCandidate.message.content, new Date().toISOString());
         }
@@ -530,7 +571,13 @@ export function createSessionEnvelopeDispatcher({
     }
 
     if (eventType === 'run_ended') {
-      const currentMsg = messages.value[activeRun.assistantMsgIndex];
+      const eventRunId = event.run_id || null;
+      const indexedMsg = messages.value[activeRun.assistantMsgIndex];
+      const currentMsg = eventRunId
+        ? (getMessageRunId(indexedMsg) === eventRunId
+          ? indexedMsg
+          : messages.value.find(message => message?.role === 'assistant' && getMessageRunId(message) === eventRunId))
+        : indexedMsg;
       const activeRootRunId = activeRun.runId
         || currentMsg?.run_id
         || currentMsg?.metadata?.run_id
@@ -543,8 +590,41 @@ export function createSessionEnvelopeDispatcher({
       const terminalStatus = runtime.terminalStatusFromEvent(event);
       if (terminalStatus === 'suspended') return;
       if (currentMsg) {
-        if (terminalStatus === 'interrupted') currentMsg.stopped = true;
-        if (terminalStatus === 'failed') currentMsg.run_failed = true;
+        currentMsg.finished = true;
+        currentMsg.has_execution = true;
+        if (eventRunId) {
+          currentMsg.run_id = eventRunId;
+          currentMsg.metadata = { ...(currentMsg.metadata || {}), run_id: eventRunId };
+        }
+        const reason = typeof payload.reason === 'string' ? payload.reason.trim() : '';
+        if (terminalStatus === 'interrupted') {
+          const displayReason = {
+            session_stopped: '用户主动停止运行',
+            backend_restarted: '后端重启导致运行中断',
+            run_lease_expired: '运行租约过期导致运行中断',
+          }[reason] || reason || '未提供中断原因';
+          currentMsg.stopped = true;
+          currentMsg.metadata = {
+            ...(currentMsg.metadata || {}),
+            terminal_status: 'interrupted',
+            terminal_reason: reason || '未提供中断原因',
+            interrupted: true,
+          };
+          currentMsg.content = `本次运行已中断，未生成最终答案。原因：${displayReason}`;
+          currentMsg.content_parts = [{ type: 'text', text: currentMsg.content }];
+        }
+        if (terminalStatus === 'failed') {
+          currentMsg.run_failed = true;
+          currentMsg.metadata = {
+            ...(currentMsg.metadata || {}),
+            terminal_status: 'failed',
+            terminal_reason: reason || '未提供失败原因',
+            run_failed: true,
+          };
+          currentMsg.content = `本次运行执行失败：${reason || '未提供失败原因'}`;
+          currentMsg.content_parts = [{ type: 'text', text: currentMsg.content }];
+        }
+        runtime.markRecentSessionUpdated(sessionId, currentMsg);
       }
       if (terminalStatus === 'interrupted' || terminalStatus === 'failed') deps.resetApprovalState?.();
       runtime.finalizeActiveRun(sessionId);

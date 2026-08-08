@@ -44,7 +44,13 @@ test('useSessionMessages excludes tool observations from chat bubbles', async ()
           content: '工具执行被中断',
           metadata: { msg_type: 'observation', interrupted: true },
         },
-        { id: 'assistant-1', seq: 3, role: 'assistant', content: '', metadata: { interrupted: true } },
+        {
+          id: 'assistant-1',
+          seq: 3,
+          role: 'assistant',
+          content: '本次运行已中断，未生成最终答案。原因：用户主动停止运行',
+          metadata: { msg_type: 'run_terminal', terminal_status: 'interrupted', terminal_reason: 'session_stopped' },
+        },
       ],
     },
   }; } };
@@ -54,6 +60,7 @@ test('useSessionMessages excludes tool observations from chat bubbles', async ()
 
     assert.deepEqual(messages.value.map(message => message.role), ['user', 'assistant']);
     assert.equal(messages.value.some(message => message.id === 'tool-1'), false);
+    assert.equal(messages.value[1].content.includes('用户主动停止运行'), true);
     assert.equal(watermark, 17);
 });
 

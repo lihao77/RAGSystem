@@ -8,8 +8,10 @@
  * visible_to_user)、来源(background_notification.source)、运行态(interrupted)。
  */
 export const MSG_TYPE = {
-  /** assistant 终态输出消息(completed final,含 interrupted 空占位)。 */
+  /** assistant 正常完成的终态输出消息。 */
   ASSISTANT_FINAL: "assistant_final",
+  /** failed/interrupted Run 的非空终态消息，既是用户可见提示也是下一轮上下文边界。 */
+  RUN_TERMINAL: "run_terminal",
   /** tool_result——工具执行结果回灌(tool role)。 */
   OBSERVATION: "observation",
   /** assistant 中间轮次(含 tool_call 的 intent)。 */

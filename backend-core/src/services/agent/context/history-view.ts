@@ -44,9 +44,6 @@ export function filterHistoryMessages(messages: MessageInfo[]): MessageInfo[] {
     if (metadata.hidden) {
       return false;
     }
-    if (message.role === "assistant" && metadata.interrupted) {
-      return false;
-    }
     return true;
   });
 }

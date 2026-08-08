@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { createTenantId } from '@ragsystem/backend-core/identity/types.js';
+import { buildTerminalAssistantMessage } from '@ragsystem/backend-core/contracts/storage/runtime-finalization.js';
 import { SessionRuntimeService } from '@ragsystem/backend-core/services/runtime/session-runtime-service.js';
 import { createConversationStore } from '../dist/adapters/local/sqlite/conversation-store/index.js';
 import { SqliteRuntimeStorage } from '../dist/adapters/local/sqlite-runtime-storage.js';
@@ -190,6 +191,10 @@ test('Local 崩溃恢复对无可恢复交互的 run 使用 interrupted', async 
 
   assert.deepEqual(recovered.interruptedRuns, [{ runId: 'run-1', parentRunId: null }]);
   assert.equal(store.getRun('session-1', 'run-1').status, 'interrupted');
+  assert.match(
+    store.getMessageById('session-1', store.getRun('session-1', 'run-1').final_message_id).content,
+    /本次运行已中断/,
+  );
   assert.equal(
     store.getRecentMessages('session-1', 100, 'root')
       .some((message) => message.role === 'tool' && message.tool_call_id === 'call-recovery-1'),
@@ -221,6 +226,14 @@ test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async
     runId: 'run-1',
     sessionId: 'session-1',
     status: 'interrupted',
+    finalMessage: buildTerminalAssistantMessage({
+      sessionId: 'session-1',
+      runId: 'run-1',
+      threadKey: 'root',
+      agentName: 'root',
+      terminalStatus: 'interrupted',
+      reason: 'user stopped the run',
+    }),
     closeDanglingToolCalls: {
       threadKey: 'root',
       agentName: 'root',
@@ -281,6 +294,14 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
     runId: 'run-1',
     sessionId: 'session-1',
     status: 'failed',
+    finalMessage: buildTerminalAssistantMessage({
+      sessionId: 'session-1',
+      runId: 'run-1',
+      threadKey: 'root',
+      agentName: 'root',
+      terminalStatus: 'failed',
+      reason: 'provider stream disconnected',
+    }),
     closeDanglingToolCalls: {
       threadKey: 'root',
       agentName: 'root',

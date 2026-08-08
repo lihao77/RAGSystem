@@ -36,7 +36,10 @@ import type {
   RuntimeSessionMaintenanceInput,
   RuntimeSessionFacts,
 } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
-import { buildTerminalToolMessages } from "@ragsystem/backend-core/contracts/storage/runtime-finalization.js";
+import {
+  buildTerminalAssistantMessage,
+  buildTerminalToolMessages,
+} from "@ragsystem/backend-core/contracts/storage/runtime-finalization.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import {
   toSessionIdentity,
@@ -316,19 +319,12 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
               pendingRootIds,
             ));
             for (const run of treeRuns) {
-              if (!tx.updateRunStatus(
-                run.run_id,
-                session.session_id,
-                nextStatus,
-                null,
-                nextStatus === "interrupted" ? "backend_restarted" : null,
-              )) {
-                throw new Error(`orphaned run not found while recovering session: ${run.run_id}`);
-              }
+              let finalMessage: MessageInfo | null = null;
               if (nextStatus === "interrupted") {
                 const threadKey = run.thread_key || "root";
+                const messages = tx.getRecentMessages(session.session_id, Number.MAX_SAFE_INTEGER, threadKey);
                 for (const message of buildTerminalToolMessages(
-                  tx.getRecentMessages(session.session_id, Number.MAX_SAFE_INTEGER, threadKey),
+                  messages,
                   {
                     sessionId: session.session_id,
                     runId: run.run_id,
@@ -340,6 +336,32 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
                 )) {
                   resolveDeterministicMessage(tx, message, "terminal tool message");
                 }
+                finalMessage = resolveDeterministicMessage(
+                  tx,
+                  buildTerminalAssistantMessage({
+                    sessionId: session.session_id,
+                    runId: run.run_id,
+                    threadKey,
+                    agentName: run.agent_name ?? "unknown",
+                    terminalStatus: "interrupted",
+                    reason: "backend_restarted",
+                    metadata: {
+                      conversation_scope: run.parent_run_id === null ? "root" : "child",
+                      ...(run.parent_run_id ? { parent_run_id: run.parent_run_id } : {}),
+                    },
+                  }),
+                  "terminal message",
+                );
+                tx.updateRunStepsMessageId(session.session_id, run.run_id, finalMessage.id);
+              }
+              if (!tx.updateRunStatus(
+                run.run_id,
+                session.session_id,
+                nextStatus,
+                finalMessage?.id ?? null,
+                nextStatus === "interrupted" ? "backend_restarted" : null,
+              )) {
+                throw new Error(`orphaned run not found while recovering session: ${run.run_id}`);
               }
               const recoveredRun = { runId: run.run_id, parentRunId: run.parent_run_id };
               if (shouldSuspend) sessionSuspendedRuns.push(recoveredRun);
@@ -756,12 +778,10 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         tx.finalizePendingInteractions(input.sessionId, rootRunId, "interrupted");
       }
       for (const run of activeRuns) {
-        if (!tx.updateRunStatus(run.run_id, input.sessionId, "interrupted", null, "session_stopped")) {
-          throw new Error(`run not found while interrupting session: ${run.run_id}`);
-        }
         const threadKey = run.thread_key || "root";
+        const messages = tx.getRecentMessages(input.sessionId, Number.MAX_SAFE_INTEGER, threadKey);
         for (const message of buildTerminalToolMessages(
-          tx.getRecentMessages(input.sessionId, Number.MAX_SAFE_INTEGER, threadKey),
+          messages,
           {
             sessionId: input.sessionId,
             runId: run.run_id,
@@ -773,9 +793,34 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         )) {
           resolveDeterministicMessage(tx, message, "terminal tool message");
         }
+        const finalMessage = resolveDeterministicMessage(
+          tx,
+          buildTerminalAssistantMessage({
+            sessionId: input.sessionId,
+            runId: run.run_id,
+            threadKey,
+            agentName: run.agent_name ?? "unknown",
+            terminalStatus: "interrupted",
+            reason: "session_stopped",
+            metadata: {
+              conversation_scope: run.parent_run_id === null ? "root" : "child",
+              ...(run.parent_run_id ? { parent_run_id: run.parent_run_id } : {}),
+            },
+          }),
+          "terminal message",
+        );
+        if (!tx.updateRunStatus(run.run_id, input.sessionId, "interrupted", finalMessage.id, "session_stopped")) {
+          throw new Error(`run not found while interrupting session: ${run.run_id}`);
+        }
         const interrupted = { runId: run.run_id, parentRunId: run.parent_run_id };
         interruptedRuns.push(interrupted);
-        if (rootRunIds.has(run.run_id)) records.push(recordEnvelope(tx, input.buildRunEndedRecord(interrupted)));
+        if (rootRunIds.has(run.run_id)) {
+          for (const terminalRecord of input.buildTerminalRecords(interrupted, finalMessage)) {
+            assertRecordScope(terminalRecord, input.sessionId, run.run_id);
+            records.push(recordEnvelope(tx, terminalRecord));
+          }
+        }
+        tx.updateRunStepsMessageId(input.sessionId, run.run_id, finalMessage.id);
       }
       return { interruptedRuns, cancelledInteractions, records };
     }));
@@ -1003,11 +1048,11 @@ function assertSessionId(actual: string, expected: string, subject: string): voi
 }
 
 function assertFinalizeMessagePolicy(input: RuntimeFinalizeRunInput): void {
-  if (input.status === "completed" && !input.finalMessage) {
-    throw new Error("completed run requires a final message");
+  if (input.status !== "suspended" && !input.finalMessage) {
+    throw new Error(`${input.status} run requires a terminal message`);
   }
-  if ((input.status === "failed" || input.status === "suspended") && input.finalMessage) {
-    throw new Error(`${input.status} run must not include a final message`);
+  if (input.status === "suspended" && input.finalMessage) {
+    throw new Error("suspended run must not include a final message");
   }
 }
 
