@@ -41,7 +41,11 @@ describe("slash command content semantics", () => {
     const sessions = {
       getSession: vi.fn(async () => ({ session_id: "session-1" })),
       addMessage: vi.fn(async (input: Record<string, unknown>) => {
-        const message = { id: `message-${added.length + 1}`, ...input };
+        const message = {
+          id: `message-${added.length + 1}`,
+          ...input,
+          content_parts: input.contentParts,
+        };
         added.push(message);
         return message;
       }),
@@ -80,6 +84,12 @@ describe("slash command content semantics", () => {
     });
 
     expect(result?.success).toBe(true);
+    expect(result?.contentParts).toEqual([expect.objectContaining({
+      type: "command_result",
+      name: "help",
+      success: true,
+      text: expect.any(String),
+    })]);
     expect(added).toHaveLength(2);
     expect(added[0]?.contentParts).toEqual([expect.objectContaining({
       type: "command_ref",
@@ -96,5 +106,18 @@ describe("slash command content semantics", () => {
     })]);
     expect(added[0]?.metadata).toEqual({});
     expect(added[1]?.metadata).toEqual({});
+    expect(clientEvents.publish).toHaveBeenCalledTimes(2);
+    expect(clientEvents.publish).toHaveBeenNthCalledWith(
+      1,
+      "session-1",
+      expect.objectContaining({
+        type: "state_sync",
+        payload: expect.objectContaining({
+          category: "message_saved",
+          ref: expect.objectContaining({ content_parts: expect.any(Array) }),
+        }),
+      }),
+      expect.any(Object),
+    );
   });
 });

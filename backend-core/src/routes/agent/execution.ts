@@ -32,6 +32,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
     return ok(
       {
         answer: result.answer,
+        content_parts: result.content_parts,
         agent_name: result.agent_name,
         execution_time: result.execution_time,
         tool_calls: result.tool_calls,
@@ -83,6 +84,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
         results: result.results.map((item) => ({
           success: item.success,
           content: item.answer,
+          content_parts: item.content_parts,
           error: item.error,
           agent_name: item.agent_name,
           execution_time: item.execution_time,

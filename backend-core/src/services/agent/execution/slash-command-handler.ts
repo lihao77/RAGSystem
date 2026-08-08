@@ -35,6 +35,7 @@ export interface SlashCommandDispatchResult {
   start: AgentRunStartResult;
   success: boolean;
   content: string;
+  contentParts: MessageContentPart[];
 }
 
 const PROMPT_SLASH_COMMANDS: Record<string, { description: string; template: string }> = {
@@ -99,7 +100,7 @@ export class SlashCommandHandler {
       });
     }
     const commandPart = createCommandRefPart(input.command, input.originalTask);
-    await this.sessions.addMessage({
+    const savedUserMessage = await this.sessions.addMessage({
       sessionId: input.sessionId,
       role: "user",
       content: input.originalTask,
@@ -108,19 +109,37 @@ export class SlashCommandHandler {
         ...(input.messageMetadata ?? {}),
       },
     });
+    await this.clientEvents.publish(input.sessionId, {
+      type: "state_sync",
+      session_id: input.sessionId,
+      payload: {
+        category: "message_saved",
+        ref: {
+          message_id: savedUserMessage.id,
+          seq: savedUserMessage.seq,
+          role: savedUserMessage.role,
+          request_id: input.requestId,
+          content_parts: savedUserMessage.content_parts,
+        },
+      },
+    }, {
+      aggregateType: "session",
+      aggregateId: input.sessionId,
+    });
     const result = await this.resolveSystemSlashCommandResult(input);
+    const resultPart: Extract<MessageContentPart, { type: "command_result" }> = {
+      type: "command_result",
+      invocation_id: commandPart.invocation_id,
+      name: result.command,
+      success: result.success,
+      text: result.content,
+      ...(result.error ? { error: result.error } : {}),
+    };
     const message = await this.sessions.addMessage({
       sessionId: input.sessionId,
       role: "system",
       content: result.content,
-      contentParts: [{
-        type: "command_result",
-        invocation_id: commandPart.invocation_id,
-        name: result.command,
-        success: result.success,
-        text: result.content,
-        ...(result.error ? { error: result.error } : {}),
-      }],
+      contentParts: [resultPart],
       metadata: {},
     });
     await this.clientEvents.publish(input.sessionId, {
@@ -150,6 +169,7 @@ export class SlashCommandHandler {
       },
       success: result.success,
       content: result.content,
+      contentParts: [resultPart],
     };
   }
 

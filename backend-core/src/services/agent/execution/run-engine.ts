@@ -126,6 +126,7 @@ export class AgentRunEngine {
       runId?: string;
       followupJoined?: boolean;
       followupFailed?: boolean;
+      contentParts?: MessageContentPart[];
     }>;
     durableStarted: Promise<ExecutionStartDisposition>;
   } {
@@ -327,12 +328,14 @@ export class AgentRunEngine {
       suspended?: boolean;
       followupJoined?: boolean;
       followupFailed?: boolean;
+      contentParts?: MessageContentPart[];
     };
   }): Promise<AgentExecuteResult> {
     if (!input.runId) {
       return {
         success: false,
         answer: null,
+        content_parts: [],
         agent_name: input.agentName,
         execution_time: null,
         tool_calls: [],
@@ -349,6 +352,10 @@ export class AgentRunEngine {
         success: input.outcome.success,
         ...(input.outcome.suspended ? { suspended: true, rootRunId: input.runId } : {}),
         answer: input.outcome.success ? input.outcome.content : null,
+        content_parts: input.outcome.contentParts
+          ?? (input.outcome.success && input.outcome.content
+            ? [{ type: "text", text: input.outcome.content }]
+            : []),
         agent_name: input.agentName,
         execution_time: null,
         tool_calls: [],
@@ -396,6 +403,7 @@ export class AgentRunEngine {
       success: run?.status === "completed" && Boolean(finalMessage),
       ...(run?.status === "suspended" ? { suspended: true, rootRunId: input.runId } : {}),
       answer: finalMessage?.content ?? null,
+      content_parts: finalMessage?.content_parts ?? [],
       agent_name: run?.agent_name ?? input.agentName,
       execution_time: executionTime,
       tool_calls: toolCalls,
@@ -728,6 +736,7 @@ export class AgentRunEngine {
     runId?: string;
     followupJoined?: boolean;
     followupFailed?: boolean;
+    contentParts?: MessageContentPart[];
   }> {
     let watchedRunId = initiallyActiveRunId;
     for (;;) {
@@ -767,7 +776,12 @@ export class AgentRunEngine {
             ? await this.storage.resultReader.getMessageById(sessionId, run.final_message_id)
             : null;
           if (finalMessage) {
-            return { content: finalMessage.content, success: run.status === "completed", runId: consumedRunId };
+            return {
+              content: finalMessage.content,
+              success: run.status === "completed",
+              runId: consumedRunId,
+              contentParts: finalMessage.content_parts,
+            };
           }
           return {
             content: `followup run ended with status ${run.status}`,

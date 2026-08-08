@@ -85,7 +85,7 @@ interface SendUserMessageInput {
 
 type SendUserMessageResult =
   | { kind: "error"; sessionId: string; error: string; runId?: string | null; taskId?: string | null }
-  | { kind: "command"; sessionId: string; start: AgentRunStartResult; success: boolean; content: string }
+  | { kind: "command"; sessionId: string; start: AgentRunStartResult; success: boolean; content: string; contentParts: MessageContentPart[] }
   | { kind: "run"; sessionId: string; agentName: string; handle: StartedRunHandle };
 
 export interface RollbackRetryInput {
@@ -252,6 +252,7 @@ class AgentLaunchers {
           start: commandResult.start,
           success: commandResult.success,
           content: commandResult.content,
+          contentParts: commandResult.contentParts,
         };
       }
     }
@@ -413,6 +414,7 @@ class AgentLaunchers {
       return {
         success: false,
         answer: null,
+        content_parts: [],
         agent_name: null,
         execution_time: null,
         tool_calls: [],
@@ -427,6 +429,7 @@ class AgentLaunchers {
       return {
         success: submitted.success,
         answer: submitted.content,
+        content_parts: submitted.contentParts,
         agent_name: null,
         execution_time: 0,
         tool_calls: [],
@@ -446,6 +449,7 @@ class AgentLaunchers {
           return {
             success: false,
             answer: null,
+            content_parts: [],
             agent_name: submitted.agentName,
             execution_time: null,
             tool_calls: [],
@@ -461,6 +465,7 @@ class AgentLaunchers {
       return {
         success: false,
         answer: null,
+        content_parts: [],
         agent_name: submitted.agentName,
         execution_time: null,
         tool_calls: [],

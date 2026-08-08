@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AttachmentRefSchema } from "@ragsystem/agent-protocol";
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 
 import { InteractionResponsePayloadSchema } from "../interactions.js";
 import { OptionalSessionIdSchema, RequiredSessionIdSchema } from "../session/session-id.js";
@@ -88,6 +89,8 @@ export interface AgentExecuteResult {
   suspended?: boolean;
   rootRunId?: string;
   answer: string | null;
+  /** Canonical persisted output parts. `answer` is the plain-text projection only. */
+  content_parts: MessageContentPart[];
   agent_name: string | null;
   execution_time: number | null;
   tool_calls: unknown[];
