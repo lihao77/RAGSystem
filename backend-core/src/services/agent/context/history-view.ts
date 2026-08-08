@@ -10,6 +10,7 @@ import type { MessageInfo } from "../../../contracts/session/session.js";
 import { MICROCOMPACT_CLEARED_LABEL } from "./types.js";
 import { numberOrNull } from "./helpers.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
+import { hasAgentVisibleMessageContent } from "./message-content-projector.js";
 
 interface CompressionViewResolution {
   messages: MessageInfo[];
@@ -33,11 +34,8 @@ export function filterHistoryMessages(messages: MessageInfo[]): MessageInfo[] {
       return false;
     }
     const metadata = message.metadata ?? {};
-    const metadataMsgType = metadata.msg_type;
-    if (metadataMsgType === MSG_TYPE.COMMAND_RESULT) {
-      return false;
-    }
-    if (metadataMsgType === MSG_TYPE.COMMAND && metadata.command_mode !== "prompt") {
+    if (!hasAgentVisibleMessageContent(message.content_parts, message.role)
+      && !(message.role === "assistant" && message.tool_calls?.length)) {
       return false;
     }
     if (metadata.display_only) {
@@ -98,9 +96,7 @@ export function messagesToConversation(messages: MessageInfo[]): { conversation:
     if (message.role === "tool" && message.tool_call_id && !seenToolUseIds.has(message.tool_call_id)) {
       continue;
     }
-    // prompt 模式斜杠命令(/review 等):user 消息持久化原始命令,组装 LLM conversation 时投影成展开后的完整 prompt。
-    const expandedTask = message.role === "user" ? message.metadata?.expanded_task : undefined;
-    const entry: ChatMessage = { role: message.role, content: typeof expandedTask === "string" ? expandedTask : message.content };
+    const entry: ChatMessage = { role: message.role, content: message.content };
     if (message.role === "tool" && message.tool_call_id) {
       entry.tool_call_id = message.tool_call_id;
       if (message.name) {
@@ -184,7 +180,12 @@ export function microcompactHistoryMessages(messages: MessageInfo[], keepRecentT
       return message;
     }
     if (contentChanged) clearedCount += 1;
-    return { ...message, content: nextContent, metadata: { ...message.metadata, microcompact_cleared: true } };
+    return {
+      ...message,
+      content: nextContent,
+      content_parts: [{ type: "text" as const, text: nextContent }],
+      metadata: { ...message.metadata, microcompact_cleared: true },
+    };
   });
   return { messages: compacted, observationCount: observationIndices.length, clearedCount };
 }

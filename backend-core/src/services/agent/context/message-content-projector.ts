@@ -17,17 +17,39 @@ export async function projectCanonicalMessageContent(
   for (const [index, message] of conversation.entries()) {
     const raw = rawMessages[index];
     if (!raw || raw.role !== message.role) continue;
-    const textOverride = raw.role === "user" && typeof raw.metadata.expanded_task === "string"
-      ? raw.metadata.expanded_task
-      : null;
-    message.content = await projectParts(raw.content_parts, raw.role, textOverride, options);
+    message.content = await projectParts(raw.content_parts, raw.role, options);
   }
+}
+
+export function hasAgentVisibleMessageContent(
+  parts: readonly MessageContentPart[],
+  role: MessageInfo["role"],
+): boolean {
+  return parts.some((part) => {
+    if (part.type === "text") return part.text.length > 0;
+    if (part.type === "file_ref") return role === "assistant";
+    if (part.type === "attachment_ref") return role === "user";
+    if (part.type === "command_ref") {
+      return role === "user" && part.resolution.kind === "prompt";
+    }
+    return false;
+  });
+}
+
+export function resolveAgentTaskText(parts: readonly MessageContentPart[], fallback: string): string {
+  const rendered = parts.flatMap((part): string[] => {
+    if (part.type === "text") return [part.text];
+    if (part.type === "command_ref" && part.resolution.kind === "prompt") {
+      return [part.resolution.agent_text];
+    }
+    return [];
+  }).join("\n").trim();
+  return rendered || fallback;
 }
 
 async function projectParts(
   parts: readonly MessageContentPart[],
   role: MessageInfo["role"],
-  textOverride: string | null,
   options: {
     sessionId: string;
     supportsVision: boolean;
@@ -36,16 +58,10 @@ async function projectParts(
 ): Promise<ChatMessage["content"]> {
   const renderedText: string[] = [];
   const images: ContentPart[] = [];
-  let insertedOverride = false;
 
   for (const part of parts) {
     if (part.type === "text") {
-      if (textOverride !== null) {
-        if (!insertedOverride) renderedText.push(textOverride);
-        insertedOverride = true;
-      } else {
-        renderedText.push(part.text);
-      }
+      renderedText.push(part.text);
       continue;
     }
     if (part.type === "file_ref") {
@@ -54,22 +70,29 @@ async function projectParts(
       renderedText.push(`<file_ref path="${escapeXmlAttribute(part.file_path)}" presentation="${part.presentation}"${caption}/>`);
       continue;
     }
-    if (role !== "user") continue;
-    renderedText.push(renderAttachment(part));
-    if (part.kind !== "image" || !options.supportsVision) continue;
-    const source = await options.readAttachment(options.sessionId, part.file_id);
-    if (!source) {
-      renderedText.push(`[图片加载失败:${part.original_name}]`);
+    if (part.type === "command_ref") {
+      if (role === "user" && part.resolution.kind === "prompt") {
+        renderedText.push(part.resolution.agent_text);
+      }
       continue;
     }
-    const mime = normalizeImageMime(part.mime) ?? normalizeImageMime(source.contentType) ?? "image/png";
-    images.push({
-      type: "image_url",
-      image_url: { url: `data:${mime};base64,${Buffer.from(source.body).toString("base64")}`, detail: "auto" },
-    });
+    if (part.type === "attachment_ref") {
+      if (role !== "user") continue;
+      renderedText.push(renderAttachment(part));
+      if (part.kind !== "image" || !options.supportsVision) continue;
+      const source = await options.readAttachment(options.sessionId, part.file_id);
+      if (!source) {
+        renderedText.push(`[图片加载失败:${part.original_name}]`);
+        continue;
+      }
+      const mime = normalizeImageMime(part.mime) ?? normalizeImageMime(source.contentType) ?? "image/png";
+      images.push({
+        type: "image_url",
+        image_url: { url: `data:${mime};base64,${Buffer.from(source.body).toString("base64")}`, detail: "auto" },
+      });
+    }
   }
 
-  if (textOverride !== null && !insertedOverride) renderedText.unshift(textOverride);
   const text = renderedText.join("\n");
   if (images.length === 0) return text;
   return [...(text ? [{ type: "text" as const, text }] : []), ...images];

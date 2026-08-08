@@ -175,6 +175,7 @@ test('Local 崩溃恢复对无可恢复交互的 run 使用 interrupted', async 
     sessionId: 'session-1',
     role: 'assistant',
     content: '正在执行命令',
+    contentParts: [{ type: 'text', text: '正在执行命令' }],
     threadKey: 'root',
     toolCalls: [{
       id: 'call-recovery-1',
@@ -206,6 +207,7 @@ test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async
     sessionId: 'session-1',
     role: 'assistant',
     content: '正在执行命令',
+    contentParts: [{ type: 'text', text: '正在执行命令' }],
     threadKey: 'root',
     toolCalls: [{
       id: 'call-bash-1',
@@ -265,6 +267,7 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
     sessionId: 'session-1',
     role: 'assistant',
     content: '正在调用模型工具',
+    contentParts: [{ type: 'text', text: '正在调用模型工具' }],
     threadKey: 'root',
     toolCalls: [{
       id: 'call-provider-1',
@@ -336,6 +339,7 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
       sessionId: 'session-1',
       role: 'user',
       content: '继续新任务',
+      contentParts: [{ type: 'text', text: '继续新任务' }],
       threadKey: 'root',
       metadata: { run_id: 'run-2' },
     },
@@ -419,6 +423,7 @@ test('恢复同一 run 时 intent 必须续用下一逻辑轮次，不能覆盖�
     sessionId: 'session-1',
     role: 'assistant',
     threadKey: 'root',
+    contentParts: [],
     metadata: {
       run_id: 'run-1',
       agent: 'root',
@@ -437,6 +442,7 @@ test('恢复同一 run 时 intent 必须续用下一逻辑轮次，不能覆盖�
       ...base,
       messageId: 'run-1:intent:0',
       content: 'first intent',
+      contentParts: [{ type: 'text', text: 'first intent' }],
       metadata: { ...base.metadata, round: 1 },
     },
   });
@@ -448,6 +454,7 @@ test('恢复同一 run 时 intent 必须续用下一逻辑轮次，不能覆盖�
         ...base,
         messageId: 'run-1:intent:0',
         content: 'resumed intent',
+        contentParts: [{ type: 'text', text: 'resumed intent' }],
         metadata: { ...base.metadata, round: 1 },
       },
     }),
@@ -458,8 +465,9 @@ test('恢复同一 run 时 intent 必须续用下一逻辑轮次，不能覆盖�
     leaseRootRunId: 'run-1',
     message: {
       ...base,
-      messageId: 'run-1:intent:1',
-      content: 'resumed intent',
+        messageId: 'run-1:intent:1',
+        content: 'resumed intent',
+        contentParts: [{ type: 'text', text: 'resumed intent' }],
       metadata: { ...base.metadata, round: 2 },
     },
   });

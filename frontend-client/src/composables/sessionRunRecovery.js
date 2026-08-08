@@ -35,7 +35,14 @@ export function createSessionRunRecovery({
       const message = messages.value[messageIndex];
       if (message && !message.finished) {
         message.content = message.content || '[命令执行超时或结果未送达]';
-        message.metadata = { ...message.metadata, msg_type: 'command_result', success: false };
+        message.content_parts = [{
+          type: 'command_result',
+          invocation_id: 'pending-command',
+          name: 'unknown',
+          success: false,
+          text: message.content,
+          error: 'timeout',
+        }];
         message.finished = true;
       }
       invalidateActiveStream();

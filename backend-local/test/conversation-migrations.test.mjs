@@ -7,7 +7,7 @@ import { BASELINE_SCHEMA_SQL } from "../dist/adapters/local/sqlite/conversation-
 
 const withoutContentParts = sql => sql.replace("      content_parts TEXT NOT NULL DEFAULT '[]',\n", "");
 
-test("conversation schema v1 upgrades to v5 without replacing run data", () => {
+test("conversation schema v1 upgrades to v6 without replacing run data", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(withoutContentParts(BASELINE_SCHEMA_SQL
@@ -30,7 +30,7 @@ test("conversation schema v1 upgrades to v5 without replacing run data", () => {
     const columns = db.prepare("PRAGMA table_info(runs)").all();
     const run = db.prepare("SELECT task_summary, terminal_reason FROM runs WHERE run_id=?").get("run-1");
     const workspaceColumns = db.prepare("PRAGMA table_info(workspaces)").all();
-    assert.equal(version.user_version, 5);
+    assert.equal(version.user_version, 6);
     assert.equal(columns.some((column) => column.name === "terminal_reason"), true);
     assert.equal(workspaceColumns.some((column) => column.name === "removed_at"), true);
     assert.equal(run.task_summary, "preserved task");
@@ -40,7 +40,7 @@ test("conversation schema v1 upgrades to v5 without replacing run data", () => {
   }
 });
 
-test("conversation schema v2 upgrades to v5 without replacing sessions", () => {
+test("conversation schema v2 upgrades to v6 without replacing sessions", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(withoutContentParts(BASELINE_SCHEMA_SQL.replace("      removed_at TIMESTAMP,\n", "")));
@@ -59,14 +59,14 @@ test("conversation schema v2 upgrades to v5 without replacing sessions", () => {
 
     const version = db.prepare("PRAGMA user_version").get();
     const session = db.prepare("SELECT workspace_id FROM sessions WHERE session_id=?").get("session-1");
-    assert.equal(version.user_version, 5);
+    assert.equal(version.user_version, 6);
     assert.equal(session.workspace_id, "workspace-1");
   } finally {
     db.close();
   }
 });
 
-test("conversation schema v3 upgrades to v5 and purges only removed workspaces without sessions", () => {
+test("conversation schema v3 upgrades to v6 and purges only removed workspaces without sessions", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(withoutContentParts(BASELINE_SCHEMA_SQL));
@@ -89,7 +89,7 @@ test("conversation schema v3 upgrades to v5 and purges only removed workspaces w
     const version = db.prepare("PRAGMA user_version").get();
     const emptyWorkspace = db.prepare("SELECT workspace_id FROM workspaces WHERE workspace_id=?").get("workspace-empty");
     const usedWorkspace = db.prepare("SELECT removed_at FROM workspaces WHERE workspace_id=?").get("workspace-used");
-    assert.equal(version.user_version, 5);
+    assert.equal(version.user_version, 6);
     assert.equal(emptyWorkspace, undefined);
     assert.notEqual(usedWorkspace.removed_at, null);
   } finally {
@@ -159,6 +159,61 @@ test("conversation schema v4 migrates structured files and attachments into cont
     ]);
     assert.equal(Object.hasOwn(JSON.parse(rows[0].metadata), "extensions"), false);
     assert.equal(Object.hasOwn(JSON.parse(rows[1].metadata), "extensions"), false);
+  } finally {
+    db.close();
+  }
+});
+
+test("conversation schema v5 migrates slash command metadata into canonical command parts", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(BASELINE_SCHEMA_SQL);
+    db.exec("PRAGMA user_version = 5");
+    db.prepare(`
+      INSERT INTO sessions (session_id, tenant_id, owner_user_id, visibility, origin_type, origin_channel)
+      VALUES (?, ?, ?, 'private', 'direct', 'web')
+    `).run("session-1", "tnt_test", "usr_test");
+    const insert = db.prepare(`
+      INSERT INTO messages(id,session_id,role,content,content_parts,metadata)
+      VALUES(?,?,?,?,?,?)
+    `);
+    insert.run("command-1", "session-1", "user", "/review src", JSON.stringify([
+      { type: "text", text: "/review src" },
+    ]), JSON.stringify({
+      msg_type: "command",
+      command: "review",
+      command_mode: "prompt",
+      expanded_task: "请审查 src",
+    }));
+    insert.run("result-1", "session-1", "system", "已执行", JSON.stringify([
+      { type: "text", text: "已执行" },
+    ]), JSON.stringify({
+      msg_type: "command_result",
+      command: "review",
+      success: true,
+    }));
+
+    runMigrations(db);
+
+    const rows = db.prepare("SELECT content_parts,metadata FROM messages ORDER BY seq").all();
+    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 6);
+    assert.deepEqual(JSON.parse(rows[0].content_parts), [{
+      type: "command_ref",
+      invocation_id: "cmd_command-1",
+      name: "review",
+      args: "src",
+      raw_text: "/review src",
+      resolution: { kind: "prompt", agent_text: "请审查 src", snapshot_id: "migration:command-1" },
+    }]);
+    assert.deepEqual(JSON.parse(rows[1].content_parts), [{
+      type: "command_result",
+      invocation_id: "cmd_command-1",
+      name: "review",
+      success: true,
+      text: "已执行",
+    }]);
+    assert.deepEqual(JSON.parse(rows[0].metadata), {});
+    assert.deepEqual(JSON.parse(rows[1].metadata), {});
   } finally {
     db.close();
   }

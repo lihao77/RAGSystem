@@ -17,6 +17,7 @@ import type { CompressionHistoryPort } from "../../../contracts/runtime/core-run
 import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { SystemConfigService } from "../../config/system-config-service.js";
 import { HISTORY_SCAN_LIMIT, resolveCompressionView } from "../context/index.js";
+import { hasAgentVisibleMessageContent } from "../context/message-content-projector.js";
 import { projectAgentProfile } from "../sdk/projection.js";
 import { resolveContextCompressionSettings, type ContextCompressionSettings } from "./index.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
@@ -251,12 +252,10 @@ function selectCompressibleSegment(historyResolved: MessageInfo[], settings: Con
 }
 
 function isCompressibleHistoryMessage(message: MessageInfo): boolean {
-  return (
-    message.role === "user" ||
-    message.role === "assistant" ||
-    message.role === "tool" ||
-    Boolean(message.metadata.msg_type === MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY)
-  );
+  if (message.metadata.msg_type === MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY) return true;
+  if (message.role !== "user" && message.role !== "assistant" && message.role !== "tool") return false;
+  return hasAgentVisibleMessageContent(message.content_parts, message.role)
+    || Boolean(message.role === "assistant" && message.tool_calls?.length);
 }
 
 function lastPositiveSeq(messages: MessageInfo[]): number | null {

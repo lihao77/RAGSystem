@@ -5,7 +5,7 @@ import type {
   AgentSessionRunRecord,
 } from "../../contracts/session/agent-session-repository.js";
 import type { SessionHistoryPort } from "../../contracts/session/session-history.js";
-import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
+import { EnvelopeSchema, type Envelope, type MessageContentPart } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-envelope-archive.js";
 import type { SessionResourceCleanup } from "../../contracts/session/session-resource-cleanup.js";
 import { assertSafeSessionId } from "../../contracts/session/session-id.js";
@@ -182,6 +182,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     sessionId: string;
     role: MessageInfo["role"];
     content: string;
+    contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
     toolCalls?: MessageInfo["tool_calls"];
     toolCallId?: string | undefined;
@@ -229,6 +230,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     return this.repository.updateMessage({
       messageId: input.messageId,
       content: input.content,
+      contentParts: input.content ? [{ type: "text", text: input.content }] : [],
       sessionId: input.sessionId,
       roleFilter: "user",
     });

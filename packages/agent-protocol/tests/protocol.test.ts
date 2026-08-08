@@ -37,6 +37,30 @@ describe("agent-protocol envelope compatibility", () => {
     })).toMatchObject({ file_path_space: "absolute" });
   });
 
+  it("校验 slash command 的原始视图与不可变 Agent 快照", () => {
+    expect(MessageContentPartSchema.parse({
+      type: "command_ref",
+      invocation_id: "cmd-1",
+      name: "review",
+      args: "当前仓库",
+      raw_text: "/review 当前仓库",
+      resolution: {
+        kind: "prompt",
+        agent_text: "请审查当前仓库",
+        snapshot_id: "sha256:abc",
+      },
+    })).toMatchObject({ type: "command_ref", resolution: { kind: "prompt" } });
+
+    expect(MessageContentPartSchema.parse({
+      type: "command_result",
+      invocation_id: "cmd-1",
+      name: "review",
+      success: false,
+      text: "执行失败",
+      error: "failed",
+    })).toMatchObject({ type: "command_result", success: false });
+  });
+
   it("保留 typed envelope 的公共游标和路由字段", () => {
     const parsed = ServerToClientEnvelopeSchema.parse({
       type: "run_started",

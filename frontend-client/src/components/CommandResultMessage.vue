@@ -2,7 +2,7 @@
   <div :class="['command-result', statusClass]">
     <span class="command-name">{{ commandName }}</span>
     <span class="command-status"><IconCheck v-if="statusClass === 'success'" :size="13" /><IconClose v-else :size="13" /></span>
-    <span class="command-text">{{ message.content }}</span>
+    <span class="command-text">{{ result.text }}</span>
   </div>
 </template>
 
@@ -12,17 +12,15 @@ import IconCheck from './icons/IconCheck.vue';
 import IconClose from './icons/IconClose.vue';
 
 const props = defineProps({
-  message: { type: Object, required: true },
+  result: { type: Object, required: true },
 });
 
 const commandName = computed(() => {
-  const meta = props.message.metadata || {};
-  return `/${meta.command || 'unknown'}`;
+  return `/${props.result.name || 'unknown'}`;
 });
 
 const statusClass = computed(() => {
-  const meta = props.message.metadata || {};
-  if (meta.error || meta.success === false || meta.command === 'unknown') return 'error';
+  if (props.result.error || props.result.success === false || props.result.name === 'unknown') return 'error';
   return 'success';
 });
 </script>

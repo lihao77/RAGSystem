@@ -2,8 +2,7 @@
  * projectConversationExtensions——按 messagesToConversation 的 originals 索引，把消息扩展投影进模型消息。
  *
  * messagesToConversation 对 user 消息保持 1:1 数量对应(占位只补在 assistant tool_call 后),故按 user 序对齐可靠。
- * 注:user 的 content 可能已被 expanded_task 投影改写(messagesToConversation 内),但本函数消费 rawMessages
- * (原始 user.metadata.extensions)、追加投影进 conversation user content,不读 conversation 原始 content,故不受影响。
+ * 本函数消费 rawMessages 中正文之外的 metadata.extensions，并追加到规范正文投影之后。
  * user 支持 ui_context，tool 支持 tool_result_media；各 projector 自行校验 role。
  * 投影文本/parts 追加到 content 末尾。
  *

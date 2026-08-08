@@ -6,6 +6,7 @@ import {
   applyMessageContentTextDelta,
   createUserContentParts,
   getMessageAttachments,
+  getMessageCommandResult,
   getMessageFileRefs,
   reconcileMessageContentParts,
 } from './messageContentParts.js';
@@ -82,4 +83,24 @@ test('getMessageAttachments 从 content_parts 派生附件视图', () => {
     size: 12,
     kind: 'file',
   }]);
+});
+
+test('command parts 保留用户原文和系统结果语义', () => {
+  const message = {
+    content_parts: [{
+      type: 'command_result',
+      invocation_id: 'cmd-1',
+      name: 'compact',
+      success: true,
+      text: '压缩完成',
+    }],
+  };
+
+  assert.deepEqual(getMessageCommandResult(message), {
+    type: 'command_result',
+    invocation_id: 'cmd-1',
+    name: 'compact',
+    success: true,
+    text: '压缩完成',
+  });
 });

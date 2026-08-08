@@ -3,6 +3,7 @@ import { nextTick } from 'vue';
 import { sessionLoadStrategyRestoresActiveRun } from '@ragsystem/agent-protocol';
 import { createSessionEventReducer } from './sessionEventReducer.js';
 import { createUserMessage } from './sessionCommandController.js';
+import { getMessageAttachments, normalizeMessageContentParts } from '../utils/messageContentParts.js';
 
 const startupPhases = new Set(['creating_session', 'preparing_attachments', 'starting_agent']);
 
@@ -205,6 +206,10 @@ export function createSessionEnvelopeDispatcher({
     const messageId = eventData.message_id ?? eventData.id;
     if (messageId != null) target.id = messageId;
     if (eventData.seq != null) target.seq = eventData.seq;
+    if (Array.isArray(eventData.content_parts)) {
+      target.content_parts = normalizeMessageContentParts(eventData.content_parts);
+      if (target.role === 'user') target.attachments = getMessageAttachments(target);
+    }
     target.metadata = {
       ...(target.metadata || {}),
       ...(eventData.request_id ? { request_id: eventData.request_id } : {}),
@@ -507,14 +512,14 @@ export function createSessionEnvelopeDispatcher({
           targetMsg = messages.value[messages.value.length - 1];
         }
         targetMsg.content = detail.content || '';
-        targetMsg.metadata = {
-          ...targetMsg.metadata,
-          msg_type: 'command_result',
-          command: detail.command || 'unknown',
+        targetMsg.content_parts = [{
+          type: 'command_result',
+          invocation_id: detail.invocation_id || 'pending-command',
+          name: detail.command || 'unknown',
           success: detail.success !== false,
-          error: detail.error || null,
-          data: detail.data || null,
-        };
+          text: detail.content || '',
+          ...(detail.error ? { error: detail.error } : {}),
+        }];
         targetMsg.finished = true;
         finishOptimisticCommand();
         deps.deleteMessageCache(sessionId);

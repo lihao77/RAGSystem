@@ -1,5 +1,6 @@
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { Envelope, StateSyncPayload } from "../../../contracts/events.js";
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import type { ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 
@@ -58,7 +59,7 @@ export class AgentExecutionEventPublisher {
   publishOutputMessageSaved(
     sessionId: string,
     runId: string | null | undefined,
-    payload: { message_id: string; seq?: number; role?: string; request_id?: string; round_index?: number },
+    payload: { message_id: string; seq?: number; role?: string; request_id?: string; round_index?: number; content_parts?: MessageContentPart[] },
   ): void {
     this.publish(sessionId, this.buildOutputMessageSaved(sessionId, runId, payload));
   }
@@ -66,7 +67,7 @@ export class AgentExecutionEventPublisher {
   buildOutputMessageSaved(
     sessionId: string,
     runId: string | null | undefined,
-    payload: { message_id: string; seq?: number; role?: string; request_id?: string; round_index?: number },
+    payload: { message_id: string; seq?: number; role?: string; request_id?: string; round_index?: number; content_parts?: MessageContentPart[] },
   ): Envelope {
     return {
       type: "state_sync",
@@ -80,6 +81,7 @@ export class AgentExecutionEventPublisher {
           ...(payload.role ? { role: payload.role } : {}),
           ...(payload.request_id ? { request_id: payload.request_id } : {}),
           ...(payload.round_index !== undefined ? { round_index: payload.round_index } : {}),
+          ...(payload.content_parts ? { content_parts: payload.content_parts } : {}),
         },
       } satisfies StateSyncPayload,
     };

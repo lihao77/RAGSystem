@@ -24,13 +24,12 @@ import {
 } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AttachmentResolver } from "./attachment-resolver.js";
-import { parseSlashCommand, type SlashCommandHandler } from "./slash-command-handler.js";
+import { createCommandRefPart, parseSlashCommand, type SlashCommandHandler } from "./slash-command-handler.js";
 import type { AgentRunEngine } from "./run-engine.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { MessageExtension } from "../context/extensions/kinds.js";
 import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
-import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { Goal, GoalContinuationReason, GoalStore } from "../../../contracts/runtime/goals.js";
@@ -53,7 +52,7 @@ interface UnifiedRunStartInput {
   modelTask?: string;
   entrypoint?: string;
   persistMetadata: Record<string, unknown>;
-  persistContentParts?: MessageContentPart[];
+  persistContentParts: MessageContentPart[];
   traceMetadata?: Record<string, unknown>;
   sessionMaintenanceToken?: string;
   awaitFollowupCompletion?: boolean;
@@ -184,7 +183,7 @@ class AgentLaunchers {
         : {}),
       persistUserMessage: {
         metadata: input.persistMetadata,
-        contentParts: input.persistContentParts ?? (input.task ? [{ type: "text", text: input.task }] : []),
+        contentParts: input.persistContentParts,
       },
       ...(input.traceMetadata
         ? {
@@ -292,7 +291,9 @@ class AgentLaunchers {
     const extensions: MessageExtension[] = [];
     if (input.uiContext) extensions.push({ kind: "ui_context", data: input.uiContext });
     const contentParts: MessageContentPart[] = [
-      ...(task ? [{ type: "text" as const, text: task }] : []),
+      ...(slashCommand
+        ? [createCommandRefPart(slashCommand, task)]
+        : task ? [{ type: "text" as const, text: task }] : []),
       ...attachmentResolution.attachments.map((attachment): MessageContentPart => ({
         type: "attachment_ref",
         file_id: attachment.file_id,
@@ -313,21 +314,13 @@ class AgentLaunchers {
       userId: input.userId,
       requestId: input.requestId,
       task,
-      ...(slashCommand?.mode === "prompt" ? { modelTask: slashCommand.expandedTask } : {}),
+      ...(slashCommand?.mode === "prompt" ? { modelTask: slashCommand.agentText } : {}),
       executionKind: input.executionKind,
       selectedLlm: input.selectedLlm,
       ...(input.agentName ? { agentName: input.agentName } : {}),
       ...(input.entrypoint ? { entrypoint: input.entrypoint } : {}),
       persistMetadata: {
         ...(input.messageMetadata ?? {}),
-        ...(slashCommand
-          ? {
-              msg_type: MSG_TYPE.COMMAND,
-              command: slashCommand.name,
-              command_mode: slashCommand.mode,
-              ...(slashCommand.mode === "prompt" ? { expanded_task: slashCommand.expandedTask } : {}),
-            }
-          : {}),
         ...(extensions.length ? { extensions } : {}),
       },
       persistContentParts: contentParts,
@@ -823,6 +816,7 @@ class AgentLaunchers {
         provider: ready.provider,
         modelName: ready.modelName,
         persistUserMessage: {
+          contentParts: [{ type: "text", text: task }],
           metadata: {
             source,
             ...(claimedGoal ? {

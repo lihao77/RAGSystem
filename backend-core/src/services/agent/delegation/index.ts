@@ -488,6 +488,7 @@ export class AgentDelegationService implements DelegationPort {
         sessionId: input.sessionId,
         role: "user",
         content: input.task,
+        contentParts: [{ type: "text", text: input.task }],
         metadata: {
           agent: targetAgent.agent_name,
           run_id: childRunId,

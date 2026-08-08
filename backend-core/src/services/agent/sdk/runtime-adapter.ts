@@ -342,11 +342,24 @@ export async function executeRunWithSdk(
           })
         : [];
       const claimedIds = new Set(claimed.map((message) => message.id));
-      const result = newer
+      const accepted = newer
         .filter((message) => message.metadata.followup_pending !== true || claimedIds.has(message.id))
-        .map((message): ChatMessage => ({ role: "user", content: message.content ?? "" }));
+        .map((message) => message.id);
       if (lastMsg && typeof lastMsg.seq === "number") lastSeq = lastMsg.seq;
-      return result;
+      if (accepted.length === 0) return [];
+      // Reuse the canonical history pipeline for follow-ups so command_ref, attachments,
+      // and metadata extensions have the exact same Agent projection as the first request.
+      const refreshed = await contextBuilder.buildContext({
+        sessionId: sid,
+        threadKey: tk,
+        microcompact: false,
+      });
+      await sessionMetadata.flush();
+      const acceptedIds = new Set(accepted);
+      return refreshed.conversation.flatMap((message, index): ChatMessage[] => {
+        const raw = refreshed.rawMessages[index];
+        return raw?.role === "user" && acceptedIds.has(raw.id) ? [message] : [];
+      });
     },
   };
   // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。
@@ -488,9 +501,7 @@ export async function executeRunWithSdk(
       initialUserMessage: {
         id: input.userMessageId,
         content: input.initialUserMessageContent ?? input.task,
-        contentParts: input.initialUserMessageContentParts ?? (input.initialUserMessageContent
-          ? [{ type: "text", text: input.initialUserMessageContent }]
-          : [{ type: "text", text: input.task }]),
+        contentParts: requireInitialUserMessageContentParts(input.initialUserMessageContentParts),
         metadata: {
           ...(input.initialUserMessageMetadata ?? {}),
           agent: input.agent.agent_name,
@@ -650,6 +661,11 @@ export async function executeRunWithSdk(
     toolCalls,
     ...(pendingFollowup ? { pendingFollowup } : {}),
   };
+}
+
+function requireInitialUserMessageContentParts(parts: MessageContentPart[] | undefined): MessageContentPart[] {
+  if (!parts) throw new Error("initial user message requires canonical content parts");
+  return parts;
 }
 
 function collectAttachmentFileIds(messages: readonly (MessageInfo | null)[]): string[] {

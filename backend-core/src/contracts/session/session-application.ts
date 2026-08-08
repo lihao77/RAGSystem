@@ -1,4 +1,4 @@
-import type { Envelope } from "@ragsystem/agent-protocol";
+import type { Envelope, MessageContentPart } from "@ragsystem/agent-protocol";
 
 import type { PermissionMode } from "../runtime/permissions.js";
 import type {
@@ -29,6 +29,7 @@ export interface ExecutionSessionPort {
     sessionId: string;
     role: MessageInfo["role"];
     content: string;
+    contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
     toolCalls?: MessageInfo["tool_calls"];
     toolCallId?: string;

@@ -39,6 +39,7 @@ import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../runtime/event-outbox/executi
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import { resolveAgentTaskText } from "../context/message-content-projector.js";
 
 export interface AgentExecutionLogger {
   error(bindings: Record<string, unknown>, message: string): void;
@@ -107,7 +108,7 @@ export class AgentRunEngine {
     selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
     persistUserMessage?: {
       metadata?: Record<string, unknown> | undefined;
-      contentParts?: MessageContentPart[] | undefined;
+      contentParts: MessageContentPart[];
     } | undefined;
     /** Durable follow-up already visible in history; claimed atomically with this continuation root. */
     pendingUserMessageId?: string | undefined;
@@ -159,6 +160,7 @@ export class AgentRunEngine {
       userMessageSavedPayload = {
         id: userMessageId,
         role: "user",
+        content_parts: input.persistUserMessage.contentParts,
       };
     }
 
@@ -175,6 +177,9 @@ export class AgentRunEngine {
           ...(typeof userMessageSavedPayload.seq === "number" ? { seq: userMessageSavedPayload.seq } : {}),
           ...(typeof userMessageSavedPayload.role === "string" ? { role: userMessageSavedPayload.role } : {}),
           ...(input.requestId ? { request_id: input.requestId } : {}),
+          ...(Array.isArray(userMessageSavedPayload.content_parts)
+            ? { content_parts: userMessageSavedPayload.content_parts as MessageContentPart[] }
+            : {}),
         }));
       }
       initialEnvelopes.push(this.eventPublisher.buildRootAgentStart({
@@ -244,7 +249,7 @@ export class AgentRunEngine {
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
       userMessageId,
       initialUserMessageContent: input.task,
-      ...(input.persistUserMessage?.contentParts ? { initialUserMessageContentParts: input.persistUserMessage.contentParts } : {}),
+      ...(input.persistUserMessage ? { initialUserMessageContentParts: input.persistUserMessage.contentParts } : {}),
       ...(initialUserMessageMetadata ? { initialUserMessageMetadata } : {}),
       ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
       ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
@@ -666,9 +671,7 @@ export class AgentRunEngine {
     const requestId = typeof pending.metadata.request_id === "string"
       ? pending.metadata.request_id
       : randomUUID();
-    const modelTask = typeof pending.metadata.expanded_task === "string"
-      ? pending.metadata.expanded_task
-      : pending.content;
+    const modelTask = resolveAgentTaskText(pending.content_parts, pending.content);
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         const started = this.startRun({
@@ -818,6 +821,7 @@ export class AgentRunEngine {
         sessionId,
         role: "user",
         content,
+        contentParts: [{ type: "text", text: content }],
         threadKey,
         metadata: { source: "background_notification" },
       });

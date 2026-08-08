@@ -10,7 +10,6 @@ import type { AddMessageInput } from "@ragsystem/backend-core/contracts/conversa
 import { AddMessageInputSchema } from "@ragsystem/backend-core/contracts/conversation-store/types.js";
 import type { MessageRow, SqlInputValue } from "./types.js";
 import { SessionListProjector } from "./session-list-projector.js";
-import type { MessageContentPart } from "@ragsystem/agent-protocol";
 
 /**
  * listMessages / getRecentMessages 的默认查询条数上限（SQL LIMIT 防野）。
@@ -47,9 +46,7 @@ export class MessageOps {
       tool_call_id: input.toolCallId,
       name: input.name,
     });
-    const contentParts: MessageContentPart[] = (input.contentParts ?? []).length > 0
-      ? input.contentParts!
-      : input.content ? [{ type: "text", text: input.content }] : [];
+    const contentParts = input.contentParts;
 
     const session = this.db.prepare("SELECT 1 FROM sessions WHERE session_id=?").get(input.sessionId);
     if (!session) throw new Error(`Cannot add message to missing session: ${input.sessionId}`);
@@ -107,6 +104,7 @@ export class MessageOps {
       sessionId: string;
       role: MessageInfo["role"];
       content: string;
+      contentParts: import("@ragsystem/agent-protocol").MessageContentPart[];
       metadata: Record<string, unknown>;
       threadKey?: string;
       childAgentId?: string | null;
@@ -114,6 +112,7 @@ export class MessageOps {
       sessionId: input.sessionId,
       role: "assistant",
       content: input.summaryContent,
+      contentParts: [{ type: "text", text: input.summaryContent }],
       metadata,
       childAgentId: input.childAgentId ?? null,
     };
@@ -251,6 +250,7 @@ export class MessageOps {
   updateMessage(input: {
     messageId: string;
     content?: string | null;
+    contentParts?: import("@ragsystem/agent-protocol").MessageContentPart[] | null;
     metadata?: Record<string, unknown> | null;
     sessionId?: string | null;
     roleFilter?: MessageInfo["role"] | null;
@@ -261,6 +261,7 @@ export class MessageOps {
   updateMessageInTransaction(input: {
     messageId: string;
     content?: string | null;
+    contentParts?: import("@ragsystem/agent-protocol").MessageContentPart[] | null;
     metadata?: Record<string, unknown> | null;
     sessionId?: string | null;
     roleFilter?: MessageInfo["role"] | null;
@@ -270,6 +271,10 @@ export class MessageOps {
     if (input.content !== undefined && input.content !== null) {
       updates.push("content=?");
       params.push(input.content);
+    }
+    if (input.contentParts !== undefined && input.contentParts !== null) {
+      updates.push("content_parts=?");
+      params.push(stringifyJson(input.contentParts));
     }
     if (input.metadata !== undefined && input.metadata !== null) {
       updates.push("metadata=?");

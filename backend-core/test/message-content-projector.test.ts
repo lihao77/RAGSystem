@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 
 import type { MessageInfo } from "../src/contracts/session/session.js";
-import { projectCanonicalMessageContent } from "../src/services/agent/context/message-content-projector.js";
+import {
+  hasAgentVisibleMessageContent,
+  projectCanonicalMessageContent,
+} from "../src/services/agent/context/message-content-projector.js";
 
 function message(overrides: Partial<MessageInfo>): MessageInfo {
   return {
@@ -43,13 +46,24 @@ describe("projectCanonicalMessageContent", () => {
     expect(conversation[0]?.content).not.toContain("File:");
   });
 
-  it("keeps the user text visible while projecting slash expansion and authoritative attachments for the agent", async () => {
+  it("projects slash command snapshots and authoritative attachments from one ordered content_parts array", async () => {
     const conversation: ChatMessage[] = [{ role: "user", content: "/review src" }];
     const raw = message({
       role: "user",
       content: "/review src",
       content_parts: [
-        { type: "text", text: "/review src" },
+        {
+          type: "command_ref",
+          invocation_id: "cmd-1",
+          name: "review",
+          args: "src",
+          raw_text: "/review src",
+          resolution: {
+            kind: "prompt",
+            agent_text: "Review the source tree",
+            snapshot_id: "sha256:test",
+          },
+        },
         {
           type: "attachment_ref",
           file_id: "file-1",
@@ -63,7 +77,7 @@ describe("projectCanonicalMessageContent", () => {
           file_path_space: "absolute",
         },
       ],
-      metadata: { expanded_task: "Review the source tree" },
+      metadata: {},
     });
 
     await projectCanonicalMessageContent(conversation, [raw], {
@@ -76,5 +90,23 @@ describe("projectCanonicalMessageContent", () => {
       'Review the source tree\n<attachments version="1"><attachment file_id="file-1" name="input.nc" mime="application/x-netcdf" size="12" kind="file" file_path="D:/data/input.nc" file_path_space="absolute"/></attachments>',
     );
     expect(raw.content).toBe("/review src");
+  });
+
+  it("excludes system commands and command results from the Agent view by part semantics", () => {
+    expect(hasAgentVisibleMessageContent([{
+      type: "command_ref",
+      invocation_id: "cmd-1",
+      name: "help",
+      args: "",
+      raw_text: "/help",
+      resolution: { kind: "system" },
+    }], "user")).toBe(false);
+    expect(hasAgentVisibleMessageContent([{
+      type: "command_result",
+      invocation_id: "cmd-1",
+      name: "help",
+      success: true,
+      text: "可用命令",
+    }], "system")).toBe(false);
   });
 });

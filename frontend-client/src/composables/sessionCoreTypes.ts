@@ -15,7 +15,7 @@ export interface RefLike<T> {
   value: T;
 }
 
-export interface SessionMessage extends Omit<Partial<ContractSessionMessage>, 'role' | 'content' | 'metadata'>, OpenRecord {
+export interface SessionMessage extends Omit<Partial<ContractSessionMessage>, 'role' | 'content' | 'content_parts' | 'metadata'>, OpenRecord {
   role: string;
   content: string;
   content_parts: OpenRecord[];

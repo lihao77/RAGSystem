@@ -43,6 +43,52 @@ export function normalizeMessageContentParts(parts) {
         ...(['uploads', 'absolute'].includes(part.file_path_space) ? { file_path_space: part.file_path_space } : {}),
       }];
     }
+    if (part?.type === 'command_ref'
+      && typeof part.invocation_id === 'string'
+      && part.invocation_id
+      && typeof part.name === 'string'
+      && part.name
+      && typeof part.args === 'string'
+      && typeof part.raw_text === 'string'
+      && part.raw_text
+      && part.resolution
+      && ['prompt', 'system'].includes(part.resolution.kind)) {
+      const resolution = part.resolution.kind === 'prompt'
+        && typeof part.resolution.agent_text === 'string'
+        && part.resolution.agent_text
+        && typeof part.resolution.snapshot_id === 'string'
+        && part.resolution.snapshot_id
+        ? {
+            kind: 'prompt',
+            agent_text: part.resolution.agent_text,
+            snapshot_id: part.resolution.snapshot_id,
+          }
+        : part.resolution.kind === 'system' ? { kind: 'system' } : null;
+      return resolution ? [{
+        type: 'command_ref',
+        invocation_id: part.invocation_id,
+        name: part.name,
+        args: part.args,
+        raw_text: part.raw_text,
+        resolution,
+      }] : [];
+    }
+    if (part?.type === 'command_result'
+      && typeof part.invocation_id === 'string'
+      && part.invocation_id
+      && typeof part.name === 'string'
+      && part.name
+      && typeof part.success === 'boolean'
+      && typeof part.text === 'string') {
+      return [{
+        type: 'command_result',
+        invocation_id: part.invocation_id,
+        name: part.name,
+        success: part.success,
+        text: part.text,
+        ...(typeof part.error === 'string' && part.error ? { error: part.error } : {}),
+      }];
+    }
     return [];
   });
 }
@@ -82,6 +128,11 @@ export function getMessageAttachments(message) {
 export function getMessageFileRefs(message) {
   return normalizeMessageContentParts(message?.content_parts)
     .filter(part => part.type === 'file_ref');
+}
+
+export function getMessageCommandResult(message) {
+  return normalizeMessageContentParts(message?.content_parts)
+    .find(part => part.type === 'command_result') || null;
 }
 
 export function applyMessageContentPart(message, partIndex, part) {

@@ -220,7 +220,7 @@ test('state_sync(command_result) 会补建 assistant 消息并触发静默刷新
     type: 'state_sync',
     payload: {
       category: 'command_result',
-      detail: { content: '命令完成', command: '/foo', success: true },
+      detail: { content: '命令完成', command: 'foo', invocation_id: 'cmd-1', success: true },
     },
   }, 'session-1');
   await nextTick();
@@ -228,8 +228,13 @@ test('state_sync(command_result) 会补建 assistant 消息并触发静默刷新
   assert.equal(deps.messages.value.length, 2);
   assert.equal(deps.messages.value[1].role, 'assistant');
   assert.equal(deps.messages.value[1].content, '命令完成');
-  assert.equal(deps.messages.value[1].metadata.msg_type, 'command_result');
-  assert.equal(deps.messages.value[1].metadata.command, '/foo');
+  assert.deepEqual(deps.messages.value[1].content_parts, [{
+    type: 'command_result',
+    invocation_id: 'cmd-1',
+    name: 'foo',
+    success: true,
+    text: '命令完成',
+  }]);
   assert.equal(deps.messages.value[1].finished, true);
   assert.equal(deps.isLoading.value, false);
   assert.deepEqual(calls.deleteMessageCache, [['session-1']]);
@@ -415,6 +420,64 @@ test('state_sync(message_saved) 会将确认的 run 内 followup 移入执行树
   assert.equal(deps.messages.value[2].metadata.round_index, 4);
   assert.equal(deps.pendingFollowupCandidates.value.length, 0);
   assert.deepEqual(calls.cacheMessages, [['session-1', deps.messages.value]]);
+});
+
+test('state_sync(message_saved) 用服务端 canonical content_parts 校准乐观用户消息', () => {
+  const { deps } = createDeps();
+  deps.messages.value = [{
+    role: 'user',
+    content: '/review src',
+    content_parts: [{ type: 'text', text: '/review src' }],
+    metadata: { persistence_status: 'pending' },
+    attachments: [],
+  }, createAssistantMessage()];
+  deps.activeRun.assistantMsgIndex = 1;
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'state_sync',
+    payload: {
+      category: 'message_saved',
+      ref: {
+        message_id: 'msg-command',
+        seq: 3,
+        role: 'user',
+        content_parts: [{
+          type: 'command_ref',
+          invocation_id: 'cmd-1',
+          name: 'review',
+          args: 'src',
+          raw_text: '/review src',
+          resolution: {
+            kind: 'prompt',
+            agent_text: '请审查 src',
+            snapshot_id: 'sha256:test',
+          },
+        }, {
+          type: 'attachment_ref',
+          file_id: 'file-1',
+          original_name: 'input.txt',
+          stored_name: 'input.txt',
+          mime: 'text/plain',
+          size: 4,
+          kind: 'file',
+          presentation: 'attachment',
+        }],
+      },
+    },
+  }, 'session-1');
+
+  assert.equal(deps.messages.value[0].id, 'msg-command');
+  assert.equal(deps.messages.value[0].content_parts[0].type, 'command_ref');
+  assert.deepEqual(deps.messages.value[0].attachments, [{
+    file_id: 'file-1',
+    original_name: 'input.txt',
+    stored_name: 'input.txt',
+    mime: 'text/plain',
+    size: 4,
+    kind: 'file',
+    source: 'session',
+  }]);
 });
 
 test('run_started 后的 message_saved 只确认一次已结束 followup 的新 run 主消息', () => {

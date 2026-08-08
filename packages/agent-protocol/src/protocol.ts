@@ -289,6 +289,17 @@ export const AssistantContentPartSchema = z.discriminatedUnion("type", [
   }).strict(),
 ]);
 
+export const CommandResolutionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("prompt"),
+    agent_text: z.string().min(1),
+    snapshot_id: z.string().min(1),
+  }).strict(),
+  z.object({
+    kind: z.literal("system"),
+  }).strict(),
+]);
+
 /** Canonical message content shared by history APIs, clients, and agent context. */
 export const MessageContentPartSchema = z.discriminatedUnion("type", [
   z.object({
@@ -314,6 +325,22 @@ export const MessageContentPartSchema = z.discriminatedUnion("type", [
     presentation: z.enum(["inline", "attachment", "preview"]),
     file_path: z.string().min(1).optional(),
     file_path_space: z.enum(["uploads", "absolute"]).optional(),
+  }).strict(),
+  z.object({
+    type: z.literal("command_ref"),
+    invocation_id: z.string().min(1),
+    name: z.string().min(1),
+    args: z.string(),
+    raw_text: z.string().min(1),
+    resolution: CommandResolutionSchema,
+  }).strict(),
+  z.object({
+    type: z.literal("command_result"),
+    invocation_id: z.string().min(1),
+    name: z.string().min(1),
+    success: z.boolean(),
+    text: z.string(),
+    error: z.string().min(1).optional(),
   }).strict(),
 ]);
 
@@ -353,6 +380,8 @@ export const StateSyncPayloadSchema = z.object({
       request_id: z.string().optional(),
       /** Server-confirmed execution round for a run-injected user message. */
       round_index: z.number().int().nonnegative().optional(),
+      /** Canonical persisted message content, used to reconcile optimistic client state. */
+      content_parts: z.array(MessageContentPartSchema).optional(),
     })
     .optional(),
   metrics: z.record(z.number()).optional(),

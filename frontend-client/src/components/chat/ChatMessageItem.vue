@@ -9,11 +9,11 @@
     @mouseenter="emit('hover', index)"
     @mouseleave="emit('hover', null)"
   >
-    <div v-if="msg.metadata?.msg_type === 'command_result'" class="message-content-wrapper">
-      <CommandResultMessage :message="msg" />
+    <div v-if="commandResult" class="message-content-wrapper">
+      <CommandResultMessage :result="commandResult" />
     </div>
 
-    <div class="message-content-wrapper">
+    <div v-else class="message-content-wrapper">
       <template v-for="(ext, i) in aboveExts" :key="`ext-above-${i}`">
         <component :is="RENDERERS[ext.kind].component" :data="ext.data" :msg="msg" />
       </template>
@@ -50,6 +50,7 @@ import MessageActions from './MessageActions.vue';
 import UserMessage from './UserMessage.vue';
 import { computed, inject } from 'vue';
 import { RENDERERS, getMessageExtensions } from '../../utils/messageExtensions.js';
+import { getMessageCommandResult } from '../../utils/messageContentParts.js';
 
 const props = defineProps({
   msg: { type: Object, required: true },
@@ -60,9 +61,9 @@ const props = defineProps({
 
 const emit = defineEmits(['hover', 'update:editingDraft', 'notify', 'citation-click']);
 const messageContext = inject('messageContext');
+const commandResult = computed(() => getMessageCommandResult(props.msg));
 
 // Message Extension 渲染编排:按 slot 分组(above=content 上方 / below=下方)。
-// replace slot 留待第 4 步 command_result 收编(届时加顶层拦截)。本期 only ui_context(above)。
 const renderableExts = computed(() => getMessageExtensions(props.msg).filter((e) => RENDERERS[e.kind]));
 const aboveExts = computed(() => renderableExts.value.filter((e) => RENDERERS[e.kind].slot === 'above'));
 const belowExts = computed(() => renderableExts.value.filter((e) => RENDERERS[e.kind].slot === 'below'));

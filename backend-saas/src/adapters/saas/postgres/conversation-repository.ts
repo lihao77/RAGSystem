@@ -232,9 +232,7 @@ export class PostgresConversationRepository implements AsyncConversationReposito
       tool_call_id: normalized.toolCallId,
       name: normalized.name,
     });
-    const contentParts: MessageContentPart[] = (normalized.contentParts ?? []).length > 0
-      ? normalized.contentParts!
-      : normalized.content ? [{ type: "text", text: normalized.content }] : [];
+    const contentParts: MessageContentPart[] = normalized.contentParts;
     return this.executor.transaction(async (executor) => {
       const result = await executor.query(
         "INSERT INTO conversation_messages(id,session_id,role,content,content_parts,metadata,thread_key,child_agent_id) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8) RETURNING *",
@@ -316,10 +314,11 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     });
   }
 
-  async updateMessage(input: { messageId: string; content?: string | null; metadata?: Record<string, unknown> | null; sessionId?: string | null; roleFilter?: MessageInfo["role"] | null }): Promise<boolean> {
+  async updateMessage(input: { messageId: string; content?: string | null; contentParts?: MessageContentPart[] | null; metadata?: Record<string, unknown> | null; sessionId?: string | null; roleFilter?: MessageInfo["role"] | null }): Promise<boolean> {
     const sets: string[] = [];
     const params: unknown[] = [];
     if (input.content != null) { params.push(input.content); sets.push(`content=$${params.length}`); }
+    if (input.contentParts != null) { params.push(JSON.stringify(input.contentParts)); sets.push(`content_parts=$${params.length}::jsonb`); }
     if (input.metadata != null) { params.push(JSON.stringify(input.metadata)); sets.push(`metadata=$${params.length}::jsonb`); }
     if (!sets.length) return false;
     params.push(input.messageId);
@@ -335,6 +334,7 @@ export class PostgresConversationRepository implements AsyncConversationReposito
       sessionId: input.sessionId,
       role: "assistant",
       content: input.summaryContent,
+      contentParts: [{ type: "text", text: input.summaryContent }],
       metadata: { ...(input.metadata ?? {}), ...(input.replacesUpToSeq == null ? {} : { replaces_up_to_seq: input.replacesUpToSeq }) },
       threadKey: input.threadKey,
       childAgentId: input.childAgentId,

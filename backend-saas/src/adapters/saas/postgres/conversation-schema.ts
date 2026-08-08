@@ -376,4 +376,65 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
     FROM cleaned
     WHERE message.id = cleaned.id;
   `,
+}, {
+  version: 6,
+  name: "canonical_command_content_parts",
+  sql: `
+    UPDATE conversation_messages AS message
+    SET content_parts = jsonb_build_array(
+      jsonb_build_object(
+        'type', 'command_result',
+        'invocation_id', COALESCE((
+          SELECT 'cmd_' || command.id
+          FROM conversation_messages AS command
+          WHERE command.session_id = message.session_id
+            AND command.thread_key = message.thread_key
+            AND command.seq < message.seq
+            AND command.metadata->>'msg_type' = 'command'
+          ORDER BY command.seq DESC
+          LIMIT 1
+        ), 'cmd_result_' || message.id),
+        'name', COALESCE(NULLIF(message.metadata->>'command', ''), 'unknown'),
+        'success', CASE WHEN message.metadata->>'success' = 'false' THEN false ELSE true END,
+        'text', message.content
+      ) || CASE WHEN NULLIF(message.metadata->>'error', '') IS NOT NULL
+        THEN jsonb_build_object('error', message.metadata->>'error') ELSE '{}'::jsonb END
+    ),
+    metadata = message.metadata
+      - 'msg_type' - 'command' - 'command_mode' - 'expanded_task' - 'success' - 'error'
+    WHERE message.metadata->>'msg_type' = 'command_result';
+
+    UPDATE conversation_messages AS message
+    SET content_parts = jsonb_build_array(
+      jsonb_build_object(
+        'type', 'command_ref',
+        'invocation_id', 'cmd_' || message.id,
+        'name', COALESCE(
+          NULLIF(message.metadata->>'command', ''),
+          NULLIF(lower(substring(message.content FROM '^\\s*/([^\\s/]+)')), ''),
+          'unknown'
+        ),
+        'args', regexp_replace(btrim(message.content), '^/[^[:space:]/]+[[:space:]]*', ''),
+        'raw_text', CASE WHEN message.content <> '' THEN message.content ELSE '/unknown' END,
+        'resolution', CASE
+          WHEN message.metadata->>'command_mode' = 'prompt'
+            AND NULLIF(message.metadata->>'expanded_task', '') IS NOT NULL
+          THEN jsonb_build_object(
+            'kind', 'prompt',
+            'agent_text', message.metadata->>'expanded_task',
+            'snapshot_id', 'migration:' || message.id
+          )
+          ELSE jsonb_build_object('kind', 'system')
+        END
+      )
+    ) || CASE
+      WHEN message.content_parts->0->>'type' = 'text'
+        AND message.content_parts->0->>'text' = message.content
+      THEN message.content_parts - 0
+      ELSE message.content_parts
+    END,
+    metadata = message.metadata
+      - 'msg_type' - 'command' - 'command_mode' - 'expanded_task' - 'success' - 'error'
+    WHERE message.metadata->>'msg_type' = 'command';
+  `,
 }];

@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 5;
+export const LATEST_SCHEMA_VERSION = 6;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,13 +33,16 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current === 1 || current === 2 || current === 3 || current === 4) {
+  if (current === 1 || current === 2 || current === 3 || current === 4 || current === 5) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
       if (current <= 2) db.exec("ALTER TABLE workspaces ADD COLUMN removed_at TIMESTAMP");
-      db.exec("ALTER TABLE messages ADD COLUMN content_parts TEXT NOT NULL DEFAULT '[]'");
-      migrateCanonicalMessageContent(db);
+      if (current <= 4) {
+        db.exec("ALTER TABLE messages ADD COLUMN content_parts TEXT NOT NULL DEFAULT '[]'");
+        migrateCanonicalMessageContent(db);
+      }
+      migrateCommandContent(db);
       db.exec(`
         DELETE FROM workspaces
         WHERE removed_at IS NOT NULL
@@ -66,6 +69,102 @@ export function runMigrations(db: MigrationDatabase): void {
     db.exec(BASELINE_SCHEMA_SQL);
     db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
   });
+}
+
+function migrateCommandContent(db: MigrationDatabase): void {
+  const rows = db.prepare(`
+    SELECT seq,id,session_id,content,content_parts,metadata,thread_key
+    FROM messages ORDER BY seq
+  `).all() as unknown as Array<{
+    seq: number;
+    id: string;
+    session_id: string;
+    content: string;
+    content_parts: string;
+    metadata: string | null;
+    thread_key: string | null;
+  }>;
+  const update = db.prepare("UPDATE messages SET content_parts=?, metadata=? WHERE seq=?");
+  const latestInvocationByThread = new Map<string, string>();
+  for (const row of rows) {
+    const metadata = parseObject(row.metadata);
+    const messageType = metadata.msg_type;
+    const threadKey = `${row.session_id}\0${row.thread_key ?? "root"}`;
+    if (messageType === "command") {
+      const invocationId = `cmd_${row.id}`;
+      const name = stringValue(metadata.command) ?? commandName(row.content);
+      const args = commandArgs(row.content);
+      const expanded = stringValue(metadata.expanded_task);
+      const commandPart: MessageContentPart = {
+        type: "command_ref",
+        invocation_id: invocationId,
+        name,
+        args,
+        raw_text: row.content || `/${name}`,
+        resolution: metadata.command_mode === "prompt" && expanded
+          ? { kind: "prompt", agent_text: expanded, snapshot_id: `migration:${row.id}` }
+          : { kind: "system" },
+      };
+      const existing = parseContentParts(row.content_parts);
+      let removedSourceText = false;
+      const retained = existing.filter((part) => {
+        if (!removedSourceText && part.type === "text" && part.text === row.content) {
+          removedSourceText = true;
+          return false;
+        }
+        return true;
+      });
+      latestInvocationByThread.set(threadKey, invocationId);
+      cleanCommandMetadata(metadata);
+      update.run(JSON.stringify([commandPart, ...retained]), JSON.stringify(metadata), row.seq);
+      continue;
+    }
+    if (messageType === "command_result") {
+      const name = stringValue(metadata.command) ?? "unknown";
+      const error = stringValue(metadata.error);
+      const resultPart: MessageContentPart = {
+        type: "command_result",
+        invocation_id: latestInvocationByThread.get(threadKey) ?? `cmd_result_${row.id}`,
+        name,
+        success: metadata.success !== false,
+        text: row.content,
+        ...(error ? { error } : {}),
+      };
+      cleanCommandMetadata(metadata);
+      update.run(JSON.stringify([resultPart]), JSON.stringify(metadata), row.seq);
+    }
+  }
+}
+
+function parseContentParts(value: string): MessageContentPart[] {
+  try {
+    const parsed = MessageContentPartSchema.array().safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
+  }
+}
+
+function cleanCommandMetadata(metadata: Record<string, unknown>): void {
+  delete metadata.msg_type;
+  delete metadata.command;
+  delete metadata.command_mode;
+  delete metadata.expanded_task;
+  delete metadata.success;
+  delete metadata.error;
+}
+
+function commandName(content: string): string {
+  const match = /^\s*\/([^\s/]+)/.exec(content);
+  return match?.[1]?.toLowerCase() || "unknown";
+}
+
+function commandArgs(content: string): string {
+  return content.trim().replace(/^\/[^\s/]+\s*/, "").trim();
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function assertVersionOneSchema(db: MigrationDatabase): void {

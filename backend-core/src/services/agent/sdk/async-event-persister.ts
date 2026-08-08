@@ -160,6 +160,7 @@ export class AsyncKernelEventPersister {
                     role: message.role,
                     request_id: this.ctx.requestId ?? undefined,
                     round_index: roundIndex,
+                    content_parts: this.ctx.initialUserMessage!.contentParts,
                   },
                 },
               }, {
@@ -505,7 +506,7 @@ function buildTerminalEnvelopes(
     if (!finalMessage) return [];
     const contentParts: WireAssistantContentPart[] = finalMessage.content_parts.flatMap((part): WireAssistantContentPart[] => {
       if (part.type === "text") return [{ type: "text", text: part.text }];
-      if (part.type === "attachment_ref") return [];
+      if (part.type !== "file_ref") return [];
       return [{
         type: "file_ref" as const,
         file_path: part.file_path,

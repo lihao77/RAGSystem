@@ -4,9 +4,8 @@
  * 写入侧只把消息正文之外的上下文扩展(ui_context/tool_result_media)落 extensions[],
  * 本函数纯透传:extensions 存在且非空则原样返回,否则空数组(防御缺字段/非数组)。
  *
- * 注:command_result / command 是消息类型(metadata.msg_type),background_notification 走
- * metadata.source——都不进 extensions[],走 role+msg_type/source 渲染分派与消息级上下文,
- * 不是内容伴随。
+ * command_ref / command_result 属于 content_parts；background_notification 走
+ * metadata.source。它们都不是内容伴随。
  */
 import type { MessageExtension } from "./kinds.js";
 

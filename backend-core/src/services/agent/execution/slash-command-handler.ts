@@ -1,9 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { AgentRunStartResult } from "../../../contracts/execution/execution.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
-import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import { buildFullSystemPrompt, estimateTokens, resolveToolInstructionMode } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../sdk/projection.js";
@@ -14,12 +13,14 @@ import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { SessionIdentity } from "../../../contracts/session/session.js";
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 
-interface ParsedSlashCommand {
+export interface ParsedSlashCommand {
   name: string;
   args: string;
   mode: "system" | "prompt";
-  expandedTask: string;
+  /** Immutable Agent-view text captured at command parse time. */
+  agentText: string;
 }
 
 interface SystemSlashCommandResult {
@@ -97,15 +98,14 @@ export class SlashCommandHandler {
         ...input.sessionIdentity,
       });
     }
+    const commandPart = createCommandRefPart(input.command, input.originalTask);
     await this.sessions.addMessage({
       sessionId: input.sessionId,
       role: "user",
       content: input.originalTask,
+      contentParts: [commandPart],
       metadata: {
         ...(input.messageMetadata ?? {}),
-        msg_type: MSG_TYPE.COMMAND,
-        command: input.command.name,
-        command_mode: input.command.mode,
       },
     });
     const result = await this.resolveSystemSlashCommandResult(input);
@@ -113,12 +113,15 @@ export class SlashCommandHandler {
       sessionId: input.sessionId,
       role: "system",
       content: result.content,
-      metadata: {
-        msg_type: MSG_TYPE.COMMAND_RESULT,
-        command: result.command,
+      contentParts: [{
+        type: "command_result",
+        invocation_id: commandPart.invocation_id,
+        name: result.command,
         success: result.success,
+        text: result.content,
         ...(result.error ? { error: result.error } : {}),
-      },
+      }],
+      metadata: {},
     });
     await this.clientEvents.publish(input.sessionId, {
       type: "state_sync",
@@ -128,6 +131,7 @@ export class SlashCommandHandler {
         ref: { message_id: message.id },
         detail: {
           command: result.command,
+          invocation_id: commandPart.invocation_id,
           success: result.success,
           content: result.content,
           ...(result.error ? { error: result.error } : {}),
@@ -316,20 +320,41 @@ export function parseSlashCommand(task: string): ParsedSlashCommand | null {
   const name = rawCommand.slice(1).toLowerCase();
   const args = rest.join(" ").trim();
   if (name === "help" || name === "compact") {
-    return { name, args, mode: "system", expandedTask: "" };
+    return { name, args, mode: "system", agentText: "" };
   }
   const promptCommand = PROMPT_SLASH_COMMANDS[name];
   if (!promptCommand) {
-    return { name, args, mode: "system", expandedTask: "" };
+    return { name, args, mode: "system", agentText: "" };
   }
   if (!args) {
-    return { name, args, mode: "system", expandedTask: "" };
+    return { name, args, mode: "system", agentText: "" };
   }
   return {
     name,
     args,
     mode: "prompt",
-    expandedTask: promptCommand.template.replace("{args}", args),
+    agentText: promptCommand.template.replace("{args}", args),
+  };
+}
+
+export function createCommandRefPart(
+  command: ParsedSlashCommand,
+  rawText: string,
+  invocationId = `cmd_${randomUUID()}`,
+): Extract<MessageContentPart, { type: "command_ref" }> {
+  return {
+    type: "command_ref",
+    invocation_id: invocationId,
+    name: command.name || "unknown",
+    args: command.args,
+    raw_text: rawText,
+    resolution: command.mode === "prompt"
+      ? {
+          kind: "prompt",
+          agent_text: command.agentText,
+          snapshot_id: `sha256:${createHash("sha256").update(command.agentText).digest("hex")}`,
+        }
+      : { kind: "system" },
   };
 }
 

@@ -4,8 +4,7 @@
  * RENDERERS:kind → { component(异步组件), slot }。ChatMessageItem 遍历 extensions 按 slot 编排。
  * normalizeExtensions:读 metadata.extensions[](写入侧 backend 已统一落 extensions,纯透传)。
  *
- * 注:command_result/command 是消息类型(role + metadata.msg_type 分派,见 ChatMessageItem);
- * background_notification 走 metadata.source——都不是消息的内容伴随,不进 extensions[]。
+ * command_ref/command_result 属于规范 content_parts；background_notification 仍走 metadata.source。
  */
 import { defineAsyncComponent } from 'vue';
 

@@ -59,6 +59,7 @@ export interface DurableExecutionConversationPort {
     sessionId: string;
     role: MessageInfo["role"];
     content: string;
+    contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
     threadKey?: string;
     childAgentId?: string | null;

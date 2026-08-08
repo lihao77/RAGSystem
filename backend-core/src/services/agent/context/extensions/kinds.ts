@@ -11,9 +11,8 @@
 /**
  * 内容扩展种类(挂在消息上的内容伴随/修饰)。投影/渲染 registry 按 kind 查找。
  *
- * 注意:command_result / command 是"消息类型"(消息本身的种类,由 role + metadata.msg_type
- * 区分,见 ChatMessageItem 的分派);background_notification 走 metadata.source——它们都不是
- * 挂在消息上的伴随内容,故不在此列,不进 extensions[],不投影。
+ * command_ref / command_result 属于规范正文；background_notification 走 metadata.source。
+ * 它们都不属于正文之外的伴随内容。
  */
 export type ExtensionKind =
   | "ui_context"
