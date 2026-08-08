@@ -37,6 +37,8 @@ export interface ExecutionRunPersistenceContext {
   parentRunId?: string | null;
   parentCallId?: string | null;
   childAgentId?: string | null;
+  /** Propagated cancellation signal; used only to preserve child terminal projection on parent abort. */
+  signal?: AbortSignal;
   messageMetadata?: Record<string, unknown> | null;
   initialUserMessage?: { id: string; content: string; contentParts: MessageContentPart[]; metadata?: Record<string, unknown> | null };
   pendingUserMessageId?: string | null;

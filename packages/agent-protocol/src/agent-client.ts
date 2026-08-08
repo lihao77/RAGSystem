@@ -172,7 +172,7 @@ export interface ExecutionAgent {
   output?: string;
   outputParts?: AssistantContentPart[];
   task?: string;
-  status: "running" | "succeeded" | "failed";
+  status: "running" | "succeeded" | "failed" | "interrupted";
   result?: string;
   rounds: ExecutionRound[];
   children: ExecutionAgent[];

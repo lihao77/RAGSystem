@@ -12,8 +12,37 @@ import {
   EnvelopeDeliveryCursor,
   getEnvelopeCursorSeq,
 } from "../src/envelope-delivery.js";
+import {
+  applyEnvelope,
+  createExecutionTreeState,
+  getExecutionTree,
+} from "../src/execution-tree.js";
 
 describe("agent-protocol envelope compatibility", () => {
+  it("projects an interrupted agent as stopped instead of failed", () => {
+    const state = createExecutionTreeState();
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_started",
+      protocol_version: "1.0",
+      session_id: "session-1",
+      run_id: "child-run-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+      payload: { phase: "start", task: "child task" },
+    }));
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_ended",
+      protocol_version: "1.0",
+      session_id: "session-1",
+      run_id: "child-run-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+      payload: { phase: "end", success: false, status: "interrupted", result: "stopped" },
+    }));
+
+    expect(getExecutionTree(state).root).toMatchObject({ status: "interrupted", result: "stopped" });
+  });
+
   it("上行附件严格只接受 file_id", () => {
     expect(AttachmentRefSchema.parse({ file_id: "file-1" })).toEqual({ file_id: "file-1" });
     expect(() => AttachmentRefSchema.parse({

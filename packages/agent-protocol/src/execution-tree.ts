@@ -309,7 +309,10 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
       if (!callId) return;
       const agent = state.agentsByCallId.get(callId);
       if (!agent) return;
-      agent.status = payload.success === false ? "failed" : "succeeded";
+      const status = asString(payload.status);
+      agent.status = status === "interrupted"
+        ? "interrupted"
+        : status === "failed" || payload.success === false ? "failed" : "succeeded";
       const result = asString(payload.result);
       if (result) agent.result = result;
       return;

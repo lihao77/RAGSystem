@@ -132,6 +132,7 @@ function buildInterruptedTerminalRecords(
         display_name: agentName,
         result: finalMessage.content.slice(0, 500),
         success: false,
+        status: "interrupted" as const,
       },
     },
     {

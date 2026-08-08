@@ -749,6 +749,50 @@ test('子 Run 的 run_ended 不会提前结束仍在运行的根 Run', () => {
   assert.equal(deps.messages.value[0].finished, true);
 });
 
+test('根 Run 中断后迟到的子 Agent 终态仍会更新执行树状态', () => {
+  const { deps, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
+  const execution = useMessageExecution({
+    currentSessionId: deps.currentSessionId,
+    chatSdkClient: deps.chatSdkClient,
+    activeRun: deps.activeRun,
+  });
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
+  deps.isRootEvent = execution.isRootEvent;
+  deps.isMasterEvent = execution.isMasterEvent;
+  deps.messages.value = [execution.createAssistantMessage({
+    run_id: 'run-root',
+    metadata: { run_id: 'run-root' },
+  })];
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.runId = 'run-root';
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'agent_started', run_id: 'run-root', call_id: 'root-call', agent_id: 'root-agent',
+    payload: { phase: 'start', task: 'root task' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'agent_started', run_id: 'run-root', call_id: 'child-call', agent_id: 'worker',
+    payload: { phase: 'start', task: 'child task', lineage: { parent_call_id: 'root-call' } },
+  }, 'session-1');
+
+  const child = deps.messages.value[0].executionTree.root.children[0];
+  assert.equal(child.status, 'running');
+
+  stream.handleEnvelope({
+    type: 'run_ended', run_id: 'run-root', payload: { status: 'interrupted', reason: 'session_stopped' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'agent_ended', run_id: 'run-child', call_id: 'child-call', agent_id: 'worker',
+    payload: { phase: 'end', success: false, status: 'interrupted', result: '本次运行已中断', lineage: { parent_call_id: 'root-call' } },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.active, false);
+  assert.equal(child.status, 'interrupted');
+  assert.equal(child.result, '本次运行已中断');
+});
+
 test('durable outbox 纯终态 replay 不创建空 assistant 占位', () => {
   const { deps, calls } = createDeps();
   deps.messages.value = [

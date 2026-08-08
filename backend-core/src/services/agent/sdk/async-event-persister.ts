@@ -49,6 +49,8 @@ export interface AsyncPersisterRunContext {
   childAgentId?: string | null;
   /** Background child runs retain lineage but own their write lease. */
   ownsRunLease?: boolean;
+  /** Parent abort signal, allowing a foreground child to publish its own interrupted projection. */
+  signal?: AbortSignal;
   messageMetadata?: Record<string, unknown> | null;
   initialUserMessage?: { id: string; content: string; contentParts: MessageContentPart[]; metadata?: Record<string, unknown> | null };
   pendingUserMessageId?: string | null;
@@ -440,7 +442,13 @@ export class AsyncKernelEventPersister {
     closedToolMessages: readonly MessageInfo[] | undefined,
     error: unknown,
   ): RuntimeRecordEnvelopeInput[] {
-    if (status === "suspended" || (this.ctx.childAgentId && !this.ctx.ownsRunLease)) return [];
+    const foregroundChildInterruptedByAbort = Boolean(
+      this.ctx.childAgentId
+      && !this.ctx.ownsRunLease
+      && status === "interrupted"
+      && this.ctx.signal?.aborted,
+    );
+    if (status === "suspended" || (this.ctx.childAgentId && !this.ctx.ownsRunLease && !foregroundChildInterruptedByAbort)) return [];
     const events = buildTerminalEnvelopes(this.ctx, status, finalMessage, closedToolMessages ?? [], error);
     return events.map((event, index) => {
       const eventId = `${this.ctx.runId}:terminal:${index}:${event.type}`;
@@ -548,6 +556,7 @@ function buildTerminalEnvelopes(
           display_name: ctx.agentDisplayName,
           result: finalMessage.content.slice(0, 500),
           success: true,
+          status: "succeeded" as const,
           ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
         },
       },
@@ -633,6 +642,7 @@ function buildTerminalEnvelopes(
         display_name: ctx.agentDisplayName,
         result: finalMessage?.content.slice(0, 500) ?? errorMessage.slice(0, 500),
         success: false,
+        status: status === "interrupted" ? "interrupted" as const : "failed" as const,
         ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
       },
     },

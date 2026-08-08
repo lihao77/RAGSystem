@@ -308,4 +308,67 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
       },
     });
   });
+
+  it("publishes an interrupted terminal agent event for a foreground child aborted with its parent", async () => {
+    const tenantId = createTenantId("tnt_test");
+    const controller = new AbortController();
+    controller.abort();
+    let terminalEvents: Array<{ type: string }> = [];
+    const storage = {
+      tenantId,
+      operations: {
+        finalizeRun: vi.fn(async (input: RuntimeFinalizeRunInput) => {
+          const finalMessage = {
+            id: input.finalMessage!.messageId,
+            seq: 2,
+            session_id: input.sessionId,
+            role: "assistant",
+            content: input.finalMessage!.content,
+            content_parts: input.finalMessage!.contentParts ?? [],
+            metadata: input.finalMessage!.metadata ?? {},
+            created_at: "2026-01-01T00:00:00.000Z",
+            thread_key: "child:child-1",
+            child_agent_id: "child-1",
+          } as MessageInfo;
+          terminalEvents = (input.buildTerminalRecords?.(finalMessage) ?? [])
+            .map((record) => record.outbox.payload.client_event as { type: string });
+          return { finalMessage, records: [], readyResumeInteractionIds: [] };
+        }),
+      },
+    } as unknown as RuntimeStorage;
+    const clientEvents = {
+      prepare: vi.fn(),
+      flush: vi.fn(async () => undefined),
+      deliver: vi.fn(async () => undefined),
+    };
+    const persister = new AsyncKernelEventPersister(storage, clientEvents, {
+      tenantId,
+      sessionId: "session-1",
+      runId: "child-run-1",
+      threadKey: "child:child-1",
+      agentName: "worker",
+      agentDisplayName: "Worker",
+      rootCallId: "child-call-1",
+      rootRunId: "root-run-1",
+      parentRunId: "root-run-1",
+      parentCallId: "root-call-1",
+      lineageParentCallId: "root-call-1",
+      childAgentId: "child-1",
+      signal: controller.signal,
+      sessionIdentity: {
+        sessionId: "session-1",
+        ownerUserId: null,
+        visibility: "private",
+        originType: "direct",
+        originId: null,
+        originChannel: "api",
+        workspaceId: null,
+      },
+    });
+
+    await persister.finalize("interrupted", null, new Error("session_stopped"));
+
+    expect(terminalEvents.map((event) => event.type)).toContain("agent_ended");
+    expect(terminalEvents.map((event) => event.type)).toContain("run_ended");
+  });
 });

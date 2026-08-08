@@ -496,6 +496,7 @@ export async function executeRunWithSdk(
     ...(input.lineageParentCallId !== undefined ? { lineageParentCallId: input.lineageParentCallId } : {}),
     ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
     ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
+    signal: input.signal,
     ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
     ...(input.userMessageId && input.initialUserMessageMetadata ? {
       initialUserMessage: {

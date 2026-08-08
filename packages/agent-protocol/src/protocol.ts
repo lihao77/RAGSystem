@@ -724,6 +724,7 @@ export const AgentEndedPayloadSchema = z.object({
   phase: z.literal("end"),
   result: z.string().optional(),
   success: z.boolean().optional(),
+  status: z.enum(["succeeded", "failed", "interrupted"]).optional(),
   display_name: z.string().optional(),
   invocation_call_id: z.string().min(1).optional(),
   lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
