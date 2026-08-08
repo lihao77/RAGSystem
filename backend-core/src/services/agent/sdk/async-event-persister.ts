@@ -9,7 +9,6 @@ import type { Envelope } from "../../../contracts/events.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type {
   RuntimeFinalizeStatus,
-  RuntimeRecordEnvelopeInput,
   RuntimeStorage,
   RuntimeStartRunInput,
 } from "../../../contracts/storage/runtime-storage.js";
@@ -19,12 +18,10 @@ import type { ClientEventPublisherPort } from "../../../contracts/runtime/core-r
 import type { SessionHistoryPort } from "../../../contracts/session/session-history.js";
 import type { SessionIdentity } from "../../../contracts/session/session.js";
 import type { MessageInfo } from "../../../contracts/session/session.js";
-import type { AssistantContentPart as WireAssistantContentPart, MessageContentPart } from "@ragsystem/agent-protocol";
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import {
-  buildExecutionEnvelopeRunStep,
-  buildExpiredRunLeaseRecord,
-} from "../../runtime/event-outbox/execution-envelope-archive.js";
-import { buildTerminalAssistantMessage } from "../../../contracts/storage/runtime-finalization.js";
+  buildTerminalAssistantMessage,
+} from "../../../contracts/storage/runtime-finalization.js";
 import { terminalReason } from "./terminal-reason.js";
 
 export interface AsyncPersisterRunContext {
@@ -49,8 +46,6 @@ export interface AsyncPersisterRunContext {
   childAgentId?: string | null;
   /** Background child runs retain lineage but own their write lease. */
   ownsRunLease?: boolean;
-  /** Parent abort signal, allowing a foreground child to publish its own interrupted projection. */
-  signal?: AbortSignal;
   messageMetadata?: Record<string, unknown> | null;
   initialUserMessage?: { id: string; content: string; contentParts: MessageContentPart[]; metadata?: Record<string, unknown> | null };
   pendingUserMessageId?: string | null;
@@ -102,6 +97,10 @@ export class AsyncKernelEventPersister {
         sessionId: this.ctx.sessionId,
         status: "running",
         agentName: this.ctx.agentName,
+        agentCallId: this.ctx.rootCallId,
+        lineageParentCallId: this.ctx.lineageParentCallId ?? null,
+        agentDisplayName: this.ctx.agentDisplayName,
+        leaseRootRunId: this.ctx.ownsRunLease ? this.ctx.runId : this.ctx.rootRunId ?? this.ctx.runId,
         threadKey: this.ctx.threadKey,
         ...(this.ctx.executionKind ? { entrypoint: this.ctx.executionKind } : {}),
         ...(this.ctx.taskSummary !== undefined ? { taskSummary: this.ctx.taskSummary } : {}),
@@ -174,12 +173,6 @@ export class AsyncKernelEventPersister {
               }),
             }],
           }),
-          buildExpiredRunEndedRecord: (run) => buildExpiredRunLeaseRecord(
-            run.sessionId,
-            run.runId,
-            run.status,
-            run.reason,
-          ),
         })
       : { kind: "started" as const, ...await this.storage.operations.startRun(startInput) };
     // Delivery occurs after the atomic commit. A transport failure leaves the
@@ -255,9 +248,6 @@ export class AsyncKernelEventPersister {
       finalMessage: persistedFinal,
       ...(persistedFinal ? { attachStepsToFinalMessage: true } : {}),
       ...(isInteractionRoot ? { interactionRootRunId: this.ctx.runId } : {}),
-      ...(status !== "suspended"
-        ? { deleteProviderContinuationThreadKey: this.ctx.threadKey }
-        : {}),
       ...(status === "failed" || status === "interrupted" ? {
         closeDanglingToolCalls: {
           threadKey: this.ctx.threadKey,
@@ -266,12 +256,6 @@ export class AsyncKernelEventPersister {
           reason: terminalReason(status, error),
         },
       } : {}),
-      buildTerminalRecords: (message, closedToolMessages) => this.buildTerminalRecords(
-        status,
-        message,
-        closedToolMessages,
-        error,
-      ),
       });
 
       this.finalMessage = result.finalMessage
@@ -436,37 +420,6 @@ export class AsyncKernelEventPersister {
     });
   }
 
-  private buildTerminalRecords(
-    status: RuntimeFinalizeStatus,
-    finalMessage: MessageInfo | null,
-    closedToolMessages: readonly MessageInfo[] | undefined,
-    error: unknown,
-  ): RuntimeRecordEnvelopeInput[] {
-    const foregroundChildInterruptedByAbort = Boolean(
-      this.ctx.childAgentId
-      && !this.ctx.ownsRunLease
-      && status === "interrupted"
-      && this.ctx.signal?.aborted,
-    );
-    if (status === "suspended" || (this.ctx.childAgentId && !this.ctx.ownsRunLease && !foregroundChildInterruptedByAbort)) return [];
-    const events = buildTerminalEnvelopes(this.ctx, status, finalMessage, closedToolMessages ?? [], error);
-    return events.map((event, index) => {
-      const eventId = `${this.ctx.runId}:terminal:${index}:${event.type}`;
-      return {
-        step: buildExecutionEnvelopeRunStep(this.ctx.sessionId, this.ctx.runId, event, eventId),
-        outbox: {
-          sessionId: this.ctx.sessionId,
-          runId: this.ctx.runId,
-          eventId,
-          eventType: `client.${event.type}`,
-          aggregateType: "run",
-          aggregateId: this.ctx.runId,
-          payload: { client_event: event },
-        },
-      };
-    });
-  }
-
   private messageMeta(round: number): Record<string, unknown> {
     return {
       ...this.baseMessageMeta(),
@@ -500,157 +453,4 @@ export class AsyncKernelEventPersister {
       // File history is auxiliary and must not invalidate a committed run terminal state.
     }
   }
-}
-
-function buildTerminalEnvelopes(
-  ctx: AsyncPersisterRunContext,
-  status: RuntimeFinalizeStatus,
-  finalMessage: MessageInfo | null,
-  closedToolMessages: readonly {
-    tool_call_id?: string | undefined;
-    name?: string | undefined;
-    content: string;
-  }[],
-  error: unknown,
-): Envelope[] {
-  if (status === "completed") {
-    if (!finalMessage) return [];
-    const contentParts: WireAssistantContentPart[] = finalMessage.content_parts.flatMap((part): WireAssistantContentPart[] => {
-      if (part.type === "text") return [{ type: "text", text: part.text }];
-      if (part.type !== "file_ref") return [];
-      return [{
-        type: "file_ref" as const,
-        file_path: part.file_path,
-        presentation: part.presentation,
-        ...(part.caption ? { caption: part.caption } : {}),
-      }];
-    });
-    return [
-      {
-        type: "stream_output",
-        session_id: ctx.sessionId,
-        run_id: ctx.runId,
-        call_id: ctx.rootCallId,
-        agent_id: ctx.agentName,
-        payload: {
-          phase: "final",
-          content: finalMessage.content,
-          content_parts: contentParts,
-          ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
-        },
-      },
-      {
-        type: "state_sync",
-        session_id: ctx.sessionId,
-        run_id: ctx.runId,
-        payload: { category: "message_saved", ref: { message_id: finalMessage.id, seq: finalMessage.seq } },
-      },
-      {
-        type: "agent_ended",
-        session_id: ctx.sessionId,
-        run_id: ctx.runId,
-        call_id: ctx.rootCallId,
-        agent_id: ctx.agentName,
-        payload: {
-          phase: "end",
-          display_name: ctx.agentDisplayName,
-          result: finalMessage.content.slice(0, 500),
-          success: true,
-          status: "succeeded" as const,
-          ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
-        },
-      },
-      {
-        type: "run_ended",
-        session_id: ctx.sessionId,
-        run_id: ctx.runId,
-        payload: { status: "completed" },
-      },
-    ];
-  }
-  if (status === "suspended") return [];
-  const errorMessage = terminalReason(status, error);
-  const closedToolSummary = status === "failed"
-    ? "工具执行因 Run 失败而终止"
-    : "工具执行被中断";
-  const terminalContentParts: WireAssistantContentPart[] = finalMessage
-    ? finalMessage.content_parts.flatMap((part): WireAssistantContentPart[] => {
-      if (part.type === "text") return [{ type: "text", text: part.text }];
-      if (part.type !== "file_ref") return [];
-      return [{
-        type: "file_ref" as const,
-        file_path: part.file_path,
-        presentation: part.presentation,
-        ...(part.caption ? { caption: part.caption } : {}),
-      }];
-    })
-    : [];
-  return [
-    ...(finalMessage ? [{
-      type: "stream_output" as const,
-      session_id: ctx.sessionId,
-      run_id: ctx.runId,
-      call_id: ctx.rootCallId,
-      agent_id: ctx.agentName,
-      payload: {
-        phase: "final" as const,
-        content: finalMessage.content,
-        content_parts: terminalContentParts,
-        ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
-      },
-    }, {
-      type: "state_sync" as const,
-      session_id: ctx.sessionId,
-      run_id: ctx.runId,
-      payload: {
-        category: "message_saved" as const,
-        ref: {
-          message_id: finalMessage.id,
-          seq: finalMessage.seq,
-          role: "assistant",
-          content_parts: finalMessage.content_parts,
-        },
-      },
-    }] : []),
-    ...closedToolMessages.flatMap((message) => {
-      if (!message.tool_call_id) return [];
-      return [{
-        type: "tool_result" as const,
-        session_id: ctx.sessionId,
-        run_id: ctx.runId,
-        call_id: message.tool_call_id,
-        agent_id: ctx.agentName,
-        payload: {
-          tool: message.name ?? "",
-          phase: "end" as const,
-          ok: false,
-          status: "failed" as const,
-          observation: message.content,
-          summary: closedToolSummary,
-          lineage: { parent_call_id: ctx.rootCallId },
-        },
-      }];
-    }),
-    {
-      type: "agent_ended",
-      session_id: ctx.sessionId,
-      run_id: ctx.runId,
-      call_id: ctx.rootCallId,
-      agent_id: ctx.agentName,
-      payload: {
-        phase: "end",
-        display_name: ctx.agentDisplayName,
-        result: finalMessage?.content.slice(0, 500) ?? errorMessage.slice(0, 500),
-        success: false,
-        status: status === "interrupted" ? "interrupted" as const : "failed" as const,
-        ...(ctx.lineageParentCallId ? { lineage: { parent_call_id: ctx.lineageParentCallId } } : {}),
-      },
-    },
-    {
-      type: "run_ended",
-      session_id: ctx.sessionId,
-      run_id: ctx.runId,
-      payload: { status, reason: errorMessage },
-    },
-  ];
 }

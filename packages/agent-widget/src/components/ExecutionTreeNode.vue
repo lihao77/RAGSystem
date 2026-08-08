@@ -118,6 +118,7 @@ const CHEVRON_DOWN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 
 function agentSummary(node) {
   if (node.status === "failed") return "失败";
+  if (node.status === "interrupted") return "已中断";
   return "";
 }
 function cleanObservation(raw) {
@@ -141,6 +142,7 @@ function cleanObservation(raw) {
 function toolSummary(tool) {
   if (tool.status === "running") return "运行中";
   if (tool.status === "failed") return "失败";
+  if (tool.status === "interrupted") return "已中断";
   const obs = cleanObservation(tool.summary || tool.observation || "").replace(/\s+/g, " ").trim();
   if (!obs) return "完成";
   return obs.length > 36 ? `${obs.slice(0, 36)}…` : obs;
@@ -158,7 +160,9 @@ function formatResult(tool) {
   if (tool.status === "running") return "执行中…";
   const obs = cleanObservation(tool.observation || tool.summary || "");
   if (obs) return obs;
-  return tool.status === "failed" ? "失败（无结果）" : "（无结果）";
+  if (tool.status === "failed") return "失败（无结果）";
+  if (tool.status === "interrupted") return "已中断（无结果）";
+  return "（无结果）";
 }
 </script>
 

@@ -22,4 +22,6 @@ test('工作栏展示权威运行状态并公开并发工具数量', async () =>
   assert.equal(statusSource.includes('aria-live="polite"'), true);
   assert.equal(panelSource.includes(':running-tool-count="runningToolCount"'), true);
   assert.equal(panelSource.includes('Object.keys(props.activeRun?.runningToolCalls || {}).length'), true);
+  assert.equal(panelSource.includes(':interrupted="messageInterrupted"'), true);
+  assert.equal(statusSource.includes("props.interrupted"), true);
 });

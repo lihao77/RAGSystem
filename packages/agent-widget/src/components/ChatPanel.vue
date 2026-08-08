@@ -1339,6 +1339,9 @@ function scrollToBottom() {
 .st-failed.rag-exec-node:hover .rag-exec-name,
 .st-failed.rag-exec-node:hover .rag-exec-icon,
 .st-failed.rag-exec-node:hover .rag-exec-status { color: var(--color-error, #e05252); }
+.st-interrupted.rag-exec-node:hover .rag-exec-name,
+.st-interrupted.rag-exec-node:hover .rag-exec-icon,
+.st-interrupted.rag-exec-node:hover .rag-exec-status { color: var(--color-text-muted, #6e7280); }
 .st-running.rag-exec-node:hover .rag-exec-name,
 .st-running.rag-exec-node:hover .rag-exec-icon { color: var(--color-running, #3b82f6); }
 /* 状态分层着色：名/图标/摘要随状态变化 */
@@ -1348,6 +1351,9 @@ function scrollToBottom() {
 .st-failed .rag-exec-icon,
 .st-failed .rag-exec-status { color: var(--color-error, #e05252); }
 .st-failed .rag-exec-status { opacity: 0.9; }
+.st-interrupted .rag-exec-name,
+.st-interrupted .rag-exec-icon,
+.st-interrupted .rag-exec-status { color: var(--color-text-muted, #6e7280); }
 .rag-exec-empty {
   font-size: 12px;
   color: var(--color-text-muted, #6e7280);

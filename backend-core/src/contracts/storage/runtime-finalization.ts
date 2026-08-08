@@ -1,8 +1,20 @@
 import type { AddMessageInput } from "../conversation-store/index.js";
 import { MSG_TYPE } from "../message-kinds.js";
 import type { MessageInfo } from "../session/session.js";
+import { PROTOCOL_VERSION, type AssistantContentPart, type Envelope } from "@ragsystem/agent-protocol";
+import type { RuntimeRecordEnvelopeInput } from "./runtime-storage.js";
 
 export type TerminalAssistantStatus = "failed" | "interrupted";
+export type TerminalRunStatus = "completed" | TerminalAssistantStatus;
+
+export interface TerminalRunIdentity {
+  sessionId: string;
+  runId: string;
+  agentCallId: string;
+  lineageParentCallId: string | null;
+  agentName: string;
+  agentDisplayName: string;
+}
 
 /**
  * Builds the durable assistant message that closes a failed/interrupted Run.
@@ -112,6 +124,145 @@ export function buildTerminalToolMessages(
     }
   }
   return result;
+}
+
+/** Canonical, idempotent projection for every terminal Run transition. */
+export function buildRunTerminalRecords(input: {
+  run: TerminalRunIdentity;
+  status: TerminalRunStatus;
+  reason?: string | null;
+  finalMessage: MessageInfo | null;
+  closedToolMessages?: readonly MessageInfo[];
+}): RuntimeRecordEnvelopeInput[] {
+  const { run, status, finalMessage } = input;
+  const reason = input.reason?.trim() || null;
+  const lineage = run.lineageParentCallId
+    ? { lineage: { parent_call_id: run.lineageParentCallId } }
+    : {};
+  const records: RuntimeRecordEnvelopeInput[] = [];
+  if (finalMessage) {
+    records.push(terminalEnvelopeRecord(run, `${run.runId}:terminal:stream_output`, {
+      type: "stream_output",
+      session_id: run.sessionId,
+      run_id: run.runId,
+      call_id: run.agentCallId,
+      agent_id: run.agentName,
+      payload: {
+        phase: "final",
+        content: finalMessage.content,
+        content_parts: toAssistantContentParts(finalMessage),
+        ...lineage,
+      },
+    }));
+    records.push(terminalEnvelopeRecord(run, `${run.runId}:terminal:state_sync`, {
+      type: "state_sync",
+      session_id: run.sessionId,
+      run_id: run.runId,
+      payload: {
+        category: "message_saved",
+        ref: {
+          message_id: finalMessage.id,
+          seq: finalMessage.seq,
+          role: "assistant",
+          content_parts: finalMessage.content_parts,
+        },
+        ...lineage,
+      },
+    }));
+  }
+  const toolStatus = status === "interrupted" ? "interrupted" as const : "failed" as const;
+  const toolSummary = status === "interrupted" ? "工具执行被中断" : "工具执行因 Run 失败而终止";
+  if (status !== "completed") {
+    for (const message of input.closedToolMessages ?? []) {
+      if (!message.tool_call_id) continue;
+      records.push(terminalEnvelopeRecord(run, `${run.runId}:terminal:tool:${message.tool_call_id}`, {
+        type: "tool_result",
+        session_id: run.sessionId,
+        run_id: run.runId,
+        call_id: message.tool_call_id,
+        agent_id: run.agentName,
+        payload: {
+          tool: message.name ?? "unknown",
+          phase: "end",
+          ok: false,
+          status: toolStatus,
+          observation: message.content,
+          summary: toolSummary,
+          lineage: { parent_call_id: run.agentCallId },
+        },
+      }));
+    }
+  }
+  const agentStatus = status === "completed" ? "succeeded" as const : status;
+  records.push(terminalEnvelopeRecord(run, `${run.runId}:terminal:agent_ended`, {
+    type: "agent_ended",
+    session_id: run.sessionId,
+    run_id: run.runId,
+    call_id: run.agentCallId,
+    agent_id: run.agentName,
+    payload: {
+      phase: "end",
+      display_name: run.agentDisplayName,
+      result: (finalMessage?.content ?? reason ?? "").slice(0, 500),
+      success: status === "completed",
+      status: agentStatus,
+      ...lineage,
+    },
+  }));
+  records.push(terminalEnvelopeRecord(run, `${run.runId}:terminal:run_ended`, {
+    type: "run_ended",
+    session_id: run.sessionId,
+    run_id: run.runId,
+    payload: {
+      status,
+      ...(reason ? { reason } : {}),
+      ...lineage,
+    },
+  }));
+  return records;
+}
+
+function terminalEnvelopeRecord(
+  run: TerminalRunIdentity,
+  eventId: string,
+  event: Envelope,
+): RuntimeRecordEnvelopeInput {
+  return {
+    step: {
+      sessionId: run.sessionId,
+      runId: run.runId,
+      eventId,
+      stepType: "protocol.envelope.v1",
+      payload: {
+        ...event,
+        protocol_version: event.protocol_version ?? PROTOCOL_VERSION,
+        session_id: run.sessionId,
+        run_id: run.runId,
+      },
+    },
+    outbox: {
+      sessionId: run.sessionId,
+      runId: run.runId,
+      eventId,
+      eventType: `client.${event.type}`,
+      aggregateType: "run",
+      aggregateId: run.runId,
+      payload: { client_event: event },
+    },
+  };
+}
+
+function toAssistantContentParts(message: MessageInfo): AssistantContentPart[] {
+  return message.content_parts.flatMap((part): AssistantContentPart[] => {
+    if (part.type === "text") return [{ type: "text", text: part.text }];
+    if (part.type !== "file_ref") return [];
+    return [{
+      type: "file_ref",
+      file_path: part.file_path,
+      presentation: part.presentation,
+      ...(part.caption ? { caption: part.caption } : {}),
+    }];
+  });
 }
 
 function resolveRound(value: unknown): number {

@@ -10,13 +10,14 @@ import type { ClientEventPublisher } from "../../runtime/event-outbox/client-eve
 import type { RuntimeExecutionConfigResolver } from "../execution/runtime-core-service.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
+import type { Envelope } from "../../../contracts/events.js";
 import type {
   DelegationPort,
   AgentDelegationCall,
   SendMessageCall,
   ListChildAgentsCall,
 } from "./port.js";
-import { publishAgentCallEnd, publishAgentCallStart } from "./events.js";
+import { buildAgentCallStart } from "./events.js";
 import {
   applyWorkspaceOverride,
   buildChildMetadata,
@@ -57,6 +58,7 @@ interface ChildRunInput {
   teamName: string | null;
   workspaceRoot: string | null;
   ownsRunLease?: boolean;
+  initialEnvelopes?: readonly Envelope[];
 }
 
 export class AgentDelegationService implements DelegationPort {
@@ -131,7 +133,7 @@ export class AgentDelegationService implements DelegationPort {
     const childAgentId = resumedRun && matchingChild ? matchingChild.child_agent_id : `child_${randomUUID()}`;
     const threadKey = resumedRun && matchingChild ? matchingChild.thread_key : `child:${childAgentId}`;
     const resumedAgentCallId = resumedRun && matchingChild
-      ? normalizeString(matchingChild.metadata.agent_call_id) ?? resumedRun.parent_call_id
+      ? normalizeString(matchingChild.metadata.agent_call_id) ?? resumedRun.agent_call_id
       : null;
     const agentCallId = resumedAgentCallId ?? `call_${randomUUID()}`;
     const childRunId = resumedRun?.run_id ?? randomUUID();
@@ -154,9 +156,9 @@ export class AgentDelegationService implements DelegationPort {
         });
 
     const childDisplayName = this.resolveChildDisplayName(targetAgentName, normalizeString(teamName));
-    if (!resumedRun) {
-      publishAgentCallStart(this.clientEvents, {
+    const initialEnvelopes = !resumedRun ? [buildAgentCallStart({
         sessionId,
+        runId: childRunId,
         parentRunId,
         parentAgentName: parentAgent.agent_name,
         parentCallId,
@@ -167,8 +169,7 @@ export class AgentDelegationService implements DelegationPort {
         description: task,
         childAgentId,
         mode: "create",
-      });
-    }
+      })] : undefined;
 
     const runInput: Omit<ChildRunInput, "signal"> = {
       sessionId,
@@ -191,6 +192,7 @@ export class AgentDelegationService implements DelegationPort {
       source: "agent_call",
       teamName: normalizeString(teamName),
       workspaceRoot: getChildWorkspaceRoot(child, ctx),
+      ...(initialEnvelopes ? { initialEnvelopes } : {}),
     };
     if (input.runInBackground) {
       this.activeChildRuns.set(childAgentId, childRunId);
@@ -245,20 +247,6 @@ export class AgentDelegationService implements DelegationPort {
     } finally {
       if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
     }
-    publishAgentCallEnd(this.clientEvents, {
-      sessionId,
-      parentRunId,
-      parentAgentName: parentAgent.agent_name,
-      parentCallId,
-      rootParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId) ?? normalizeString(ctx.rootCallId),
-      agentCallId,
-      agentName: targetAgentName,
-      childDisplayName,
-      result: result.content || result.summary,
-      success: result.success,
-      childAgentId,
-      mode: "create",
-    });
     return toToolResult(toolName, result, {
       agent_name: targetAgentName,
       agent_call_id: agentCallId,
@@ -309,8 +297,10 @@ export class AgentDelegationService implements DelegationPort {
     }
 
     const childDisplayName = this.resolveChildDisplayName(child.agent_name, normalizeString(teamName));
-    publishAgentCallStart(this.clientEvents, {
+    const childRunId = randomUUID();
+    const initialEnvelopes = [buildAgentCallStart({
       sessionId,
+      runId: childRunId,
       parentRunId: normalizeString(ctx.runId),
       parentAgentName: parentAgent.agent_name,
       parentCallId,
@@ -321,9 +311,8 @@ export class AgentDelegationService implements DelegationPort {
       description: message,
       childAgentId,
       mode: "resume",
-    });
+    })];
 
-    const childRunId = randomUUID();
     const runInput: Omit<ChildRunInput, "signal"> = {
       sessionId,
       agentName: child.agent_name,
@@ -345,6 +334,7 @@ export class AgentDelegationService implements DelegationPort {
       source: "agent_call",
       teamName: normalizeString(teamName),
       workspaceRoot: getChildWorkspaceRoot(child, ctx),
+      initialEnvelopes,
     };
     if (input.runInBackground) {
       this.activeChildRuns.set(childAgentId, childRunId);
@@ -386,20 +376,6 @@ export class AgentDelegationService implements DelegationPort {
     } finally {
       if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
     }
-    publishAgentCallEnd(this.clientEvents, {
-      sessionId,
-      parentRunId: normalizeString(ctx.runId),
-      parentAgentName: parentAgent.agent_name,
-      parentCallId,
-      rootParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId) ?? normalizeString(ctx.rootCallId),
-      agentCallId,
-      agentName: child.agent_name,
-      childDisplayName,
-      result: result.content || result.summary,
-      success: result.success,
-      childAgentId,
-      mode: "resume",
-    });
     return toToolResult(toolName, result, {
       agent_name: child.agent_name,
       agent_call_id: agentCallId,
@@ -561,6 +537,7 @@ export class AgentDelegationService implements DelegationPort {
       ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
       executionKind: input.executionKind,
       rootTask: input.ownsRunLease ? input.task : input.rootTask,
+      ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
     });
 
     if (outcome.suspended) {

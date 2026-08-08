@@ -43,7 +43,6 @@ import { LocalAgentMetricsStoreAdapter } from "./local-agent-metrics-store-adapt
 import { LocalOutboxStoreAdapter } from "./local-outbox-store-adapter.js";
 import { LocalAgentSessionRepository } from "./local-agent-session-repository.js";
 import { LocalSessionHistoryAdapter } from "./local-session-history-adapter.js";
-import { buildExecutionEnvelopeRunStep } from "@ragsystem/backend-core/services/runtime/event-outbox/execution-envelope-archive.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export async function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): Promise<LocalRuntimeContainer> {
@@ -69,27 +68,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     dispatchRows: (rows) => outboxDispatcher.dispatchRows(rows),
   });
   if (runtimeStorage instanceof SqliteRuntimeStorage) {
-    const recovered = await runtimeStorage.recoverOrphanedRuns((run) => {
-      const eventId = `${run.runId}:${run.reason}:run_ended`;
-      const event = {
-        type: "run_ended" as const,
-        session_id: run.sessionId,
-        run_id: run.runId,
-        payload: { status: run.status, reason: run.reason },
-      };
-      return {
-        step: buildExecutionEnvelopeRunStep(run.sessionId, run.runId, event, eventId),
-        outbox: {
-          sessionId: run.sessionId,
-          runId: run.runId,
-          eventId,
-          eventType: "client.run_ended",
-          aggregateType: "run",
-          aggregateId: run.runId,
-          payload: { client_event: event },
-        },
-      };
-    });
+    const recovered = await runtimeStorage.recoverOrphanedRuns();
     await localClientEvents.deliver(recovered.records.map((record) => record.outbox));
   }
   if (options.startOutboxDispatcher ?? true) {

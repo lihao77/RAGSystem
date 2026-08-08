@@ -139,7 +139,7 @@ export interface PendingInteraction {
 export interface ExecutionToolCall {
   callId: string;
   toolName: string;
-  status: "running" | "succeeded" | "failed";
+  status: "running" | "succeeded" | "failed" | "interrupted";
   arguments?: unknown;
   observation?: string;
   summary?: string;

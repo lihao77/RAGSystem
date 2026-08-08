@@ -1,5 +1,5 @@
 import { runInTransaction } from "./shared/transaction.js";
-import { BASELINE_SCHEMA_SQL } from "./schema.js";
+import { BASELINE_SCHEMA_SQL, RUNS_SCHEMA_SQL } from "./schema.js";
 import { MessageContentPartSchema, type MessageContentPart } from "@ragsystem/agent-protocol";
 
 export interface MigrationDatabase {
@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 6;
+export const LATEST_SCHEMA_VERSION = 8;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current === 1 || current === 2 || current === 3 || current === 4 || current === 5) {
+  if (current >= 1 && current <= 7) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -43,6 +43,7 @@ export function runMigrations(db: MigrationDatabase): void {
         migrateCanonicalMessageContent(db);
       }
       migrateCommandContent(db);
+      if (current <= 7) migrateRunLifecycleIdentity(db);
       db.exec(`
         DELETE FROM workspaces
         WHERE removed_at IS NOT NULL
@@ -181,9 +182,19 @@ function assertVersionOneSchema(db: MigrationDatabase): void {
 
 function assertCurrentSchema(db: MigrationDatabase): void {
   assertVersionOneSchema(db);
-  const runColumns = db.prepare("PRAGMA table_info(runs)").all() as unknown as Array<{ name: string }>;
+  const runColumns = db.prepare("PRAGMA table_info(runs)").all() as unknown as Array<{ name: string; notnull: number }>;
   if (!runColumns.some((column) => column.name === "terminal_reason")) {
     throw new Error("Conversation database schema is obsolete; delete the development database and restart");
+  }
+  for (const name of ["agent_call_id", "lineage_parent_call_id", "agent_display_name", "lease_root_run_id"]) {
+    if (!runColumns.some((column) => column.name === name)) {
+      throw new Error(`Conversation database is missing run lifecycle column ${name}`);
+    }
+  }
+  for (const name of ["agent_call_id", "agent_display_name", "lease_root_run_id"]) {
+    if (runColumns.find((column) => column.name === name)?.notnull !== 1) {
+      throw new Error(`Conversation database run lifecycle column ${name} must be NOT NULL`);
+    }
   }
   const workspaceColumns = db.prepare("PRAGMA table_info(workspaces)").all() as unknown as Array<{ name: string }>;
   if (!workspaceColumns.some((column) => column.name === "removed_at")) {
@@ -193,6 +204,59 @@ function assertCurrentSchema(db: MigrationDatabase): void {
   if (!messageColumns.some((column) => column.name === "content_parts")) {
     throw new Error("Conversation database is missing canonical message content_parts");
   }
+}
+
+function migrateRunLifecycleIdentity(db: MigrationDatabase): void {
+  const columns = db.prepare("PRAGMA table_info(runs)").all() as unknown as Array<{ name: string }>;
+  const names = new Set(columns.map((column) => column.name));
+  const agentCallId = names.has("agent_call_id")
+    ? "COALESCE(NULLIF(legacy.agent_call_id, ''), legacy.run_id)"
+    : "legacy.run_id";
+  const lineageParentCallId = names.has("lineage_parent_call_id") ? "legacy.lineage_parent_call_id" : "NULL";
+  const agentDisplayName = names.has("agent_display_name")
+    ? "COALESCE(NULLIF(legacy.agent_display_name, ''), NULLIF(legacy.agent_name, ''), 'unknown')"
+    : "COALESCE(NULLIF(legacy.agent_name, ''), 'unknown')";
+  const leaseRootRunId = names.has("lease_root_run_id")
+    ? "COALESCE(NULLIF(legacy.lease_root_run_id, ''), roots.lease_root_run_id, legacy.run_id)"
+    : "COALESCE(roots.lease_root_run_id, legacy.run_id)";
+  db.exec("ALTER TABLE runs RENAME TO runs_pre_v7");
+  db.exec(`
+    DROP INDEX IF EXISTS runs_session_agent_call_idx;
+    DROP INDEX IF EXISTS runs_lease_root_status_idx;
+    DROP INDEX IF EXISTS idx_runs_session;
+    DROP INDEX IF EXISTS idx_runs_session_thread_created;
+  `);
+  db.exec(RUNS_SCHEMA_SQL);
+  db.exec(`
+    WITH RECURSIVE run_roots(run_id, lease_root_run_id) AS (
+      SELECT run_id, run_id FROM runs_pre_v7 WHERE parent_run_id IS NULL
+      UNION ALL
+      SELECT child.run_id, parent.lease_root_run_id
+      FROM runs_pre_v7 AS child
+      JOIN run_roots AS parent ON child.parent_run_id = parent.run_id
+    )
+    INSERT INTO runs (
+      run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
+      request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+      agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
+      final_message_id, child_agent_id, created_at, updated_at
+    )
+    SELECT
+      legacy.run_id, legacy.session_id, legacy.tenant_id, legacy.entrypoint, legacy.status,
+      legacy.task_summary, legacy.terminal_reason, legacy.request_id, legacy.user_id,
+      legacy.agent_name, ${agentCallId}, ${lineageParentCallId}, ${agentDisplayName},
+      ${leaseRootRunId}, legacy.thread_key, legacy.parent_run_id, legacy.parent_call_id,
+      legacy.final_message_id, legacy.child_agent_id, legacy.created_at, legacy.updated_at
+    FROM runs_pre_v7 AS legacy
+    LEFT JOIN run_roots AS roots ON roots.run_id = legacy.run_id;
+    DROP TABLE runs_pre_v7;
+    CREATE UNIQUE INDEX IF NOT EXISTS runs_session_agent_call_idx
+      ON runs(session_id, agent_call_id);
+    CREATE INDEX IF NOT EXISTS runs_lease_root_status_idx
+      ON runs(session_id, lease_root_run_id, status);
+    CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id);
+    CREATE INDEX IF NOT EXISTS idx_runs_session_thread_created ON runs(session_id, thread_key, created_at);
+  `);
 }
 
 function migrateCanonicalMessageContent(db: MigrationDatabase): void {

@@ -32,6 +32,7 @@ export class LocalExecutionReadApplication implements ExecutionReadApplication {
           run_id: item.run_id!, session_id: item.session_id!, tenant_id: "local", entrypoint: item.execution_kind,
           status: item.status, task_summary: item.task, request_id: item.request_id, user_id: null, agent_name: null,
           terminal_reason: null,
+          agent_call_id: item.run_id!, lineage_parent_call_id: null, agent_display_name: "unknown", lease_root_run_id: item.run_id!,
           thread_key: "root", parent_run_id: null, parent_call_id: null, child_agent_id: null, final_message_id: null,
           created_at: item.started_at ?? "", updated_at: item.finished_at ?? item.started_at ?? "",
         }));

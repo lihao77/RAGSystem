@@ -53,7 +53,6 @@ import type { RuntimeStorage } from "@ragsystem/backend-core/contracts/storage/r
 import { createTenantId, type TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { WorkflowTaskStore } from "@ragsystem/backend-core/contracts/runtime/workflow-tasks.js";
 import type { GoalStore } from "@ragsystem/backend-core/contracts/runtime/goals.js";
-import { buildExpiredRunLeaseRecord } from "@ragsystem/backend-core/services/runtime/event-outbox/execution-envelope-archive.js";
 
 export interface SaaSConversationRuntimeOptions {
   connectionString: string;
@@ -155,7 +154,7 @@ export async function createSaaSConversationRuntime(
         const tenants = await executor.query<{ tenant_id: string }>(
           `SELECT DISTINCT tenant_id FROM saas_runs
            WHERE status='running'
-             AND (parent_run_id IS NULL OR owner_instance_id IS NOT NULL)
+             AND lease_root_run_id = run_id
              AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
            ORDER BY tenant_id`,
         );
@@ -166,14 +165,7 @@ export async function createSaaSConversationRuntime(
               executor,
               runtimeOwnerInstanceId,
             );
-            const recovered = await storage.operations.recoverExpiredRunLeases!({
-              buildRunEndedRecord: (run) => buildExpiredRunLeaseRecord(
-                run.sessionId,
-                run.runId,
-                run.status,
-                run.reason,
-              ),
-            });
+            const recovered = await storage.operations.recoverExpiredRunLeases!({});
             if (recovered.records.length > 0) {
               await sharedOutboxDispatcher.dispatchPendingRows(recovered.records.map((record) => record.outbox));
             }

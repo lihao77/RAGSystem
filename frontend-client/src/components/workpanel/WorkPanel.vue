@@ -14,8 +14,8 @@
         :running-tool-count="runningToolCount"
         :running-model-count="runningModelCount"
         :has-error="messageHasError"
+        :interrupted="messageInterrupted"
         :completed="messageCompleted"
-        :stopped="Boolean(currentMessage?.stopped)"
       />
 
       <div class="wp-body">
@@ -108,9 +108,23 @@ const messageHasError = computed(() => {
   return false
 })
 
+const messageInterrupted = computed(() => {
+  const msg = props.currentMessage
+  return Boolean(
+    msg?.stopped
+    || msg?.metadata?.interrupted
+    || msg?.metadata?.terminal_status === 'interrupted',
+  )
+})
+
 const messageCompleted = computed(() => {
   const msg = props.currentMessage
-  return Boolean(msg?.finished && !msg?.stopped && !props.activeRun?.active && !messageHasError.value)
+  return Boolean(
+    msg?.finished
+    && !messageInterrupted.value
+    && !props.activeRun?.active
+    && !messageHasError.value,
+  )
 })
 
 const runningToolCount = computed(() => Object.keys(props.activeRun?.runningToolCalls || {}).length)

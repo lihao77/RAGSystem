@@ -793,6 +793,66 @@ test('根 Run 中断后迟到的子 Agent 终态仍会更新执行树状态', ()
   assert.equal(child.result, '本次运行已中断');
 });
 
+test('Run A 结束并启动 Run B 后，Run A child 的迟到终态只更新 Run A', () => {
+  const { deps, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
+  const execution = useMessageExecution({
+    currentSessionId: deps.currentSessionId,
+    chatSdkClient: deps.chatSdkClient,
+    activeRun: deps.activeRun,
+  });
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
+  deps.isRootEvent = execution.isRootEvent;
+  deps.isMasterEvent = execution.isMasterEvent;
+  deps.messages.value = [execution.createAssistantMessage({
+    run_id: 'run-a',
+    metadata: { run_id: 'run-a', execution_run_ids: ['run-a'] },
+  })];
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.runId = 'run-a';
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'agent_started', run_id: 'run-a', call_id: 'root-call-a', agent_id: 'root-agent',
+    payload: { phase: 'start', task: 'root task A' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'agent_started', run_id: 'run-a-child', call_id: 'child-call-a', agent_id: 'worker',
+    payload: { phase: 'start', task: 'child task A', lineage: { parent_call_id: 'root-call-a' } },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'run_ended', run_id: 'run-a', payload: { status: 'interrupted', reason: 'session_stopped' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'run_started', run_id: 'run-b', payload: { task: 'root task B' },
+  }, 'session-1');
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running', {
+    active_run: { ...runtimeSnapshot('running').active_run, run_id: 'run-b' },
+  }));
+  stream.handleEnvelope({
+    type: 'agent_started', run_id: 'run-b', call_id: 'root-call-b', agent_id: 'root-agent',
+    payload: { phase: 'start', task: 'root task B' },
+  }, 'session-1');
+
+  const runAMessage = deps.messages.value[0];
+  const runBMessage = deps.messages.value[1];
+  const runAChild = runAMessage.executionTree.root.children[0];
+  stream.handleEnvelope({
+    type: 'agent_ended', run_id: 'run-a-child', call_id: 'child-call-a', agent_id: 'worker',
+    payload: {
+      phase: 'end', success: false, status: 'interrupted', result: 'A child stopped',
+      lineage: { parent_call_id: 'root-call-a' },
+    },
+  }, 'session-1');
+
+  assert.equal(runAChild.status, 'interrupted');
+  assert.equal(runAChild.result, 'A child stopped');
+  assert.equal(runBMessage.executionTree.root.callId, 'root-call-b');
+  assert.equal(runBMessage.executionTree.root.children.length, 0);
+  assert.equal(deps.activeRun.active, true);
+  assert.equal(deps.activeRun.runId, 'run-b');
+});
+
 test('durable outbox 纯终态 replay 不创建空 assistant 占位', () => {
   const { deps, calls } = createDeps();
   deps.messages.value = [
@@ -885,6 +945,75 @@ test('durable outbox replay 只有真实 run 事件才懒恢复 activeRun 并收
   assert.equal(deps.activeRun.active, false);
   assert.equal(deps.activeRun.isReplaying, false);
   assert.deepEqual(calls.loadSessionMessages, []);
+});
+
+test('durable outbox child-first replay 复用 root assistant，不创建 child 占位', () => {
+  const { deps } = createDeps();
+  deps.messages.value = [{ role: 'user', content: 'hello', metadata: { request_id: 'req-1' } }];
+  const stream = useSessionAgentClient(deps);
+
+  stream.handleEnvelope({
+    type: 'session.reconnect',
+    run_id: 'run-root',
+    payload: { phase: 'start', replay_source: 'durable_outbox' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'agent_started',
+    run_id: 'run-child',
+    call_id: 'child-call',
+    agent_id: 'worker',
+    payload: { phase: 'start', lineage: { parent_call_id: 'root-call' }, replay_source: 'durable_outbox' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'stream_output',
+    run_id: 'run-child',
+    call_id: 'child-call',
+    agent_id: 'worker',
+    payload: {
+      phase: 'final', content: 'child output',
+      lineage: { parent_call_id: 'root-call' }, replay_source: 'durable_outbox',
+    },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'state_sync',
+    run_id: 'run-child',
+    payload: {
+      category: 'message_saved',
+      lineage: { parent_call_id: 'root-call' },
+      ref: { id: 'child-terminal', seq: 3, role: 'assistant', content_parts: [{ type: 'text', text: 'child output' }] },
+      replay_source: 'durable_outbox',
+    },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'agent_ended',
+    run_id: 'run-child',
+    call_id: 'child-call',
+    agent_id: 'worker',
+    payload: {
+      phase: 'end', success: true, status: 'succeeded',
+      lineage: { parent_call_id: 'root-call' }, replay_source: 'durable_outbox',
+    },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'run_ended',
+    run_id: 'run-child',
+    payload: { status: 'completed', lineage: { parent_call_id: 'root-call' }, replay_source: 'durable_outbox' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'run_ended',
+    run_id: 'run-root',
+    payload: { status: 'completed', replay_source: 'durable_outbox' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'session.reconnect',
+    payload: { phase: 'end', replay_source: 'durable_outbox' },
+  }, 'session-1');
+
+  const assistants = deps.messages.value.filter(message => message.role === 'assistant');
+  assert.equal(assistants.length, 1);
+  assert.equal(assistants[0].run_id, 'run-root');
+  assert.equal(assistants[0].finished, true);
+  assert.equal(deps.activeRun.active, false);
 });
 
 
@@ -1178,6 +1307,13 @@ test('并发工具按 call_id 收敛，最后一个结果到达前保持工具�
   assert.equal(deps.activeRun.phase, 'model_waiting');
 
   stream.handleEnvelope({
+    type: 'agent_started',
+    run_id: 'run-child',
+    call_id: 'child-call',
+    agent_id: 'child-agent',
+    payload: { phase: 'start', task: 'child task', lineage: { parent_call_id: 'root-call' } },
+  }, 'session-1');
+  stream.handleEnvelope({
     type: 'tool_call',
     run_id: 'run-child',
     call_id: 'child-tool',
@@ -1210,14 +1346,14 @@ test('agent_ended 清理对应子 Agent 的悬挂模型和工具活动', () => {
 
   stream.handleEnvelope({
     type: 'agent_ended', run_id: 'child-run-1', call_id: 'child-model', agent_id: 'child-1',
-    payload: { phase: 'end', success: false },
+    payload: { phase: 'end', success: false, status: 'failed' },
   }, 'session-1');
   assert.deepEqual(deps.activeRun.runningModelCalls, {});
   assert.equal(deps.activeRun.phase, 'tool_running');
 
   stream.handleEnvelope({
     type: 'agent_ended', run_id: 'child-run-2', call_id: 'child-agent-call', agent_id: 'child-2',
-    payload: { phase: 'end', success: true },
+    payload: { phase: 'end', success: true, status: 'succeeded' },
   }, 'session-1');
   assert.deepEqual(deps.activeRun.runningToolCalls, {});
   assert.equal(deps.activeRun.phase, 'processing');
@@ -1251,7 +1387,7 @@ test('同名 Agent 并发结束时只清理对应 invocation 的活动', () => {
 
   stream.handleEnvelope({
     type: 'agent_ended', run_id: 'run-worker-call-1', call_id: 'worker-call-1', agent_id: 'worker',
-    payload: { phase: 'end', success: true },
+    payload: { phase: 'end', success: true, status: 'succeeded' },
   }, 'session-1');
 
   assert.deepEqual(Object.keys(deps.activeRun.runningModelCalls), ['worker\u0000worker-call-2']);

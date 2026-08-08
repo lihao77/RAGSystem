@@ -1,3 +1,34 @@
+export const RUNS_SCHEMA_SQL = `
+    CREATE TABLE IF NOT EXISTS runs (
+      run_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      tenant_id TEXT,
+      entrypoint TEXT,
+      status TEXT NOT NULL DEFAULT 'running',
+      task_summary TEXT,
+      terminal_reason TEXT,
+      request_id TEXT,
+      user_id TEXT,
+      agent_name TEXT,
+      agent_call_id TEXT NOT NULL,
+      lineage_parent_call_id TEXT,
+      agent_display_name TEXT NOT NULL,
+      lease_root_run_id TEXT NOT NULL,
+      thread_key TEXT NOT NULL DEFAULT 'root',
+      parent_run_id TEXT,
+      parent_call_id TEXT,
+      final_message_id TEXT,
+      child_agent_id TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS runs_session_agent_call_idx
+      ON runs(session_id, agent_call_id);
+    CREATE INDEX IF NOT EXISTS runs_lease_root_status_idx
+      ON runs(session_id, lease_root_run_id, status);
+`;
+
 /** Current clean baseline. Explicit migrations upgrade supported historical schema versions. */
 export const BASELINE_SCHEMA_SQL = `
     CREATE TABLE workspaces (
@@ -97,26 +128,7 @@ export const BASELINE_SCHEMA_SQL = `
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS runs (
-      run_id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      tenant_id TEXT,
-      entrypoint TEXT,
-      status TEXT NOT NULL DEFAULT 'running',
-      task_summary TEXT,
-      terminal_reason TEXT,
-      request_id TEXT,
-      user_id TEXT,
-      agent_name TEXT,
-      thread_key TEXT NOT NULL DEFAULT 'root',
-      parent_run_id TEXT,
-      parent_call_id TEXT,
-      final_message_id TEXT,
-      child_agent_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-    );
+    ${RUNS_SCHEMA_SQL}
 
     CREATE TABLE IF NOT EXISTS resources (
       resource_id TEXT PRIMARY KEY,

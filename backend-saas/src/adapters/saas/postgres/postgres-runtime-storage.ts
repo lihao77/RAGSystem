@@ -57,6 +57,7 @@ import type {
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { toSessionIdentity, type MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
 import {
+  buildRunTerminalRecords,
   buildTerminalAssistantMessage,
   buildTerminalToolMessages,
 } from "@ragsystem/backend-core/contracts/storage/runtime-finalization.js";
@@ -195,7 +196,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       const session = await tx.conversation.getSession(sessionId);
       const activeRoots = await transactionExecutor.query<Record<string, unknown>>(
         `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
-                request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+                request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+                agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
                 child_agent_id, final_message_id, created_at, updated_at,
                 owner_instance_id, lease_expires_at,
                 (owner_instance_id=$3 AND lease_expires_at > CURRENT_TIMESTAMP) AS owned_by_current_instance
@@ -218,7 +220,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       );
       const terminalRoots = await transactionExecutor.query<Record<string, unknown>>(
         `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
-                request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+                request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+                agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
                 child_agent_id, final_message_id, created_at, updated_at
          FROM saas_runs
          WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND child_agent_id IS NULL
@@ -503,14 +506,11 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         [this.tenantId, input.session.sessionId, input.sessionMaintenanceToken ?? null],
       );
       if (maintenance.rows[0]) throw new Error("session maintenance is in progress");
-      const recovered = input.buildExpiredRunEndedRecord
-        ? await this.recoverExpiredSessionRunLeases(
-            transactionExecutor,
-            input.session.sessionId,
-            null,
-            input.buildExpiredRunEndedRecord,
-          )
-        : { interruptedRuns: [], suspendedRuns: [], cancelledInteractions: 0, records: [] };
+      const recovered = await this.recoverExpiredSessionRunLeases(
+        transactionExecutor,
+        input.session.sessionId,
+        null,
+      );
       const active = await transactionExecutor.query<{ run_id: string; owner_instance_id: string | null; status: string }>(
         `SELECT run_id, owner_instance_id, status FROM saas_runs WHERE tenant_id=$1 AND session_id=$2
          AND parent_run_id IS NULL AND status IN ('running','suspended') ORDER BY created_at DESC LIMIT 1`,
@@ -658,7 +658,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     const candidates = await this.executor.query<{ session_id: string }>(
       `SELECT DISTINCT session_id FROM saas_runs
        WHERE tenant_id=$1 AND status='running'
-         AND (parent_run_id IS NULL OR owner_instance_id IS NOT NULL)
+         AND lease_root_run_id = run_id
          AND (lease_expires_at IS NULL OR lease_expires_at <= COALESCE($2::timestamptz, CURRENT_TIMESTAMP))
        ORDER BY session_id`,
       [this.tenantId, now],
@@ -675,8 +675,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         return this.recoverExpiredSessionRunLeases(
           transactionExecutor,
           candidate.session_id,
-          now,
-          input.buildRunEndedRecord,
+           now,
         );
       });
       result.interruptedRuns.push(...recovered.interruptedRuns);
@@ -691,12 +690,11 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     transactionExecutor: PostgresExecutor,
     sessionId: string,
     now: string | null,
-    buildRunEndedRecord: RuntimeRecoverExpiredRunLeasesInput["buildRunEndedRecord"],
   ): Promise<RuntimeRecoverExpiredRunLeasesResult> {
     const expiredRoots = await transactionExecutor.query<{ run_id: string }>(
       `SELECT run_id FROM saas_runs
        WHERE tenant_id=$1 AND session_id=$2 AND status='running'
-         AND (parent_run_id IS NULL OR owner_instance_id IS NOT NULL)
+         AND lease_root_run_id = run_id
          AND (lease_expires_at IS NULL OR lease_expires_at <= COALESCE($3::timestamptz, CURRENT_TIMESTAMP))
        ORDER BY created_at, run_id FOR UPDATE`,
       [this.tenantId, sessionId, now],
@@ -734,56 +732,47 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         await tx.pendingInteractions.finalizePendingInteractions(sessionId, rootRunId, "interrupted");
       }
       const nextStatus = shouldSuspend ? "suspended" as const : "interrupted" as const;
-      const recoveredRuns = await transactionExecutor.query<{
-        run_id: string;
-        parent_run_id: string | null;
-        thread_key: string;
-        agent_name: string | null;
-      }>(
-        `WITH RECURSIVE run_tree AS (
-           SELECT run_id FROM saas_runs
-           WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
-           UNION ALL
-           SELECT child.run_id FROM saas_runs AS child
-           JOIN run_tree AS parent ON child.parent_run_id=parent.run_id
-           WHERE child.tenant_id=$1 AND child.session_id=$2
-             AND child.owner_instance_id IS NULL
-         )
-         UPDATE saas_runs AS run
-         SET status=$4, final_message_id=NULL, terminal_reason=$5, owner_instance_id=NULL,
-             lease_expires_at=NULL, updated_at=CURRENT_TIMESTAMP
-         FROM run_tree
-         WHERE run.tenant_id=$1 AND run.session_id=$2 AND run.run_id=run_tree.run_id
-           AND run.status IN ('running','suspended')
-         RETURNING run.run_id, run.parent_run_id, run.thread_key, run.agent_name`,
-        [
-          this.tenantId,
-          sessionId,
-          rootRunId,
-          nextStatus,
-          nextStatus === "interrupted" ? "run_lease_expired" : null,
-        ],
+      const recoveredRuns = await transactionExecutor.query<Record<string, unknown>>(
+        `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
+                request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+                agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
+                child_agent_id, final_message_id, created_at, updated_at
+         FROM saas_runs
+         WHERE tenant_id=$1 AND session_id=$2 AND lease_root_run_id=$3
+           AND status IN ('running','suspended')
+         ORDER BY CASE WHEN run_id=$3 THEN 1 ELSE 0 END, run_id
+         FOR UPDATE`,
+         [this.tenantId, sessionId, rootRunId],
       );
       if (!recoveredRuns.rows.some((row) => row.run_id === rootRunId)) continue;
-      if (nextStatus === "interrupted") {
+      if (shouldSuspend) {
         for (const row of recoveredRuns.rows) {
-          const threadKey = String(row.thread_key || "root");
+          if (!await tx.runs.updateRunStatus(String(row.run_id), sessionId, "suspended", null, null)) {
+            throw new Error(`run not found while suspending expired lease: ${String(row.run_id)}`);
+          }
+        }
+      }
+      if (nextStatus === "interrupted") {
+        for (const raw of recoveredRuns.rows) {
+          const row = mapRun(raw);
+          const threadKey = row.thread_key || "root";
           const messages = await tx.conversation.getRecentMessages(sessionId, 10_000, threadKey);
+          const closedToolMessages: MessageInfo[] = [];
           for (const message of buildTerminalToolMessages(
             messages,
             {
               sessionId,
-              runId: String(row.run_id),
+              runId: row.run_id,
               threadKey,
-              agentName: row.agent_name ?? "unknown",
+              agentName: row.agent_name ?? row.agent_display_name,
               terminalStatus: "interrupted",
               reason: "run_lease_expired",
             },
           )) {
-            await getOrCreateMessage(transactionExecutor, tx, message, "terminal tool message");
+            closedToolMessages.push(await getOrCreateMessage(transactionExecutor, tx, message, "terminal tool message"));
           }
-          const runId = String(row.run_id);
-          const parentRunId = row.parent_run_id == null ? null : String(row.parent_run_id);
+          const runId = row.run_id;
+          const parentRunId = row.parent_run_id;
           const finalMessage = await getOrCreateMessage(
             transactionExecutor,
             tx,
@@ -791,7 +780,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
               sessionId,
               runId,
               threadKey,
-              agentName: row.agent_name ?? "unknown",
+              agentName: row.agent_name ?? row.agent_display_name,
               terminalStatus: "interrupted",
               reason: "run_lease_expired",
               metadata: {
@@ -802,9 +791,29 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
             "terminal message",
           );
           await tx.runs.updateRunStepsMessageId(sessionId, runId, finalMessage.id);
+          for (const terminalRecord of buildRunTerminalRecords({
+            run: {
+              sessionId,
+              runId,
+              agentCallId: row.agent_call_id,
+              lineageParentCallId: row.lineage_parent_call_id,
+              agentName: row.agent_name ?? "unknown",
+              agentDisplayName: row.agent_display_name,
+            },
+            status: "interrupted",
+            reason: "run_lease_expired",
+            finalMessage,
+            closedToolMessages,
+          })) {
+            const normalized = normalizeRecord(terminalRecord);
+            assertRecordScope(normalized, sessionId, runId);
+            await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
+            result.records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalized));
+          }
           if (!await tx.runs.updateRunStatus(runId, sessionId, "interrupted", finalMessage.id, "run_lease_expired")) {
             throw new Error(`run not found while recovering expired lease: ${runId}`);
           }
+          await tx.providerContinuations.deleteProviderContinuations(sessionId, threadKey);
         }
       }
       const projectedRuns = recoveredRuns.rows.map((row) => ({
@@ -814,16 +823,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       }));
       if (shouldSuspend) result.suspendedRuns.push(...projectedRuns);
       else result.interruptedRuns.push(...projectedRuns);
-      const record = normalizeRecord(buildRunEndedRecord({
-        sessionId,
-        runId: rootRunId,
-        parentRunId: projectedRuns.find((run) => run.runId === rootRunId)?.parentRunId ?? null,
-        status: nextStatus,
-        reason: shouldSuspend ? "backend_restarted_waiting_interaction" : "run_lease_expired",
-      }));
-      assertRecordScope(record, sessionId, rootRunId);
-      await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
-      result.records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, record));
     }
     return result;
   }
@@ -1288,13 +1287,17 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       const runIds = new Set<string>();
-      const activeRuns = await transactionExecutor.query<{ run_id: string; parent_run_id: string | null }>(
-        `SELECT run_id, parent_run_id FROM saas_runs
-         WHERE tenant_id=$1 AND session_id=$2 AND status='suspended'
+      const activeRuns = await transactionExecutor.query<Record<string, unknown>>(
+        `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
+                request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+                agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
+                child_agent_id, final_message_id, created_at, updated_at
+         FROM saas_runs
+         WHERE tenant_id=$1 AND session_id=$2 AND status IN ('running','suspended')
          ORDER BY run_id`,
         [this.tenantId, input.sessionId],
       );
-      for (const row of activeRuns.rows) if (row.parent_run_id === null) runIds.add(String(row.run_id));
+      for (const row of activeRuns.rows) runIds.add(String(row.lease_root_run_id));
       const activePending = await tx.pendingInteractions.listPendingInteractions({
         sessionId: input.sessionId,
         statuses: ["waiting", "suspended", "resolved", "resuming"],
@@ -1310,7 +1313,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           `interaction-root:${this.tenantId}:${input.sessionId}:${rootRunId}`,
         );
         const rootRun = await lockTenantRun(transactionExecutor, this.tenantId, rootRunId);
-        if (rootRun && rootRun.status !== "suspended") continue;
+        if (rootRun && rootRun.status !== "running" && rootRun.status !== "suspended") continue;
         const rootPending = activePending.filter((pending) => pending.root_run_id === rootRunId);
         cancelledInteractions += rootPending.length;
         await tx.pendingInteractions.finalizePendingInteractions(input.sessionId, rootRunId, "interrupted");
@@ -1318,13 +1321,14 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           throw new Error(`pending interaction root is invalid while interrupting session: ${rootRunId}`);
         }
       }
-      for (const row of activeRuns.rows) {
-        const runId = String(row.run_id);
-        const parentRunId = row.parent_run_id === null ? null : String(row.parent_run_id);
+      for (const raw of activeRuns.rows) {
+        const runId = String(raw.run_id);
         const run = await lockTenantRun(transactionExecutor, this.tenantId, runId);
-        if (!run || run.session_id !== input.sessionId || run.status !== "suspended") continue;
+        if (!run || run.session_id !== input.sessionId || (run.status !== "running" && run.status !== "suspended")) continue;
+        const parentRunId = run.parent_run_id;
         const threadKey = run.thread_key || "root";
         const messages = await tx.conversation.getRecentMessages(input.sessionId, 10_000, threadKey);
+        const closedToolMessages: MessageInfo[] = [];
         for (const message of buildTerminalToolMessages(
           messages,
           {
@@ -1336,7 +1340,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
             reason: "session_stopped",
           },
         )) {
-          await getOrCreateMessage(transactionExecutor, tx, message, "terminal tool message");
+          closedToolMessages.push(await getOrCreateMessage(transactionExecutor, tx, message, "terminal tool message"));
         }
         const finalMessage = await getOrCreateMessage(
           transactionExecutor,
@@ -1358,10 +1362,23 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         if (!await tx.runs.updateRunStatus(runId, input.sessionId, "interrupted", finalMessage.id, "session_stopped")) {
           throw new Error(`run not found while interrupting session: ${runId}`);
         }
+        await tx.providerContinuations.deleteProviderContinuations(input.sessionId, threadKey);
         const interrupted = { runId, parentRunId };
         interruptedRuns.push(interrupted);
-        if (!runIds.has(runId)) continue;
-        for (const terminalRecord of input.buildTerminalRecords(interrupted, finalMessage)) {
+        for (const terminalRecord of buildRunTerminalRecords({
+          run: {
+            sessionId: input.sessionId,
+            runId,
+            agentCallId: run.agent_call_id,
+            lineageParentCallId: run.lineage_parent_call_id,
+            agentName: run.agent_name ?? "unknown",
+            agentDisplayName: run.agent_display_name,
+          },
+          status: "interrupted",
+          reason: "session_stopped",
+          finalMessage,
+          closedToolMessages,
+        })) {
           const normalized = normalizeRecord(terminalRecord);
           assertRecordScope(normalized, input.sessionId, runId);
           await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
@@ -1421,6 +1438,9 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         if (root.status !== "running") {
           if (root.status === "completed" || root.status === "failed" || root.status === "interrupted" || root.status === "suspended") {
             await tx.pendingInteractions.finalizePendingInteractions(input.sessionId, rootRunId, root.status);
+            if (root.status !== "suspended") {
+              await tx.providerContinuations.deleteProviderContinuations(input.sessionId, root.thread_key || "root");
+            }
             recoveredClaimIds.add(group[0]!.resume_claim_id!);
             recoveredBatchIds.add(group[0]!.batch_id);
           }
@@ -1454,15 +1474,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     return this.executor.transaction(async (transactionExecutor) => {
       await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
       await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
-      if (input.leaseRootRunId) {
-        await assertOwnedRunLeaseForRun(
-          transactionExecutor,
-          this.tenantId,
-          this.ownerInstanceId,
-          input.sessionId,
-          input.leaseRootRunId,
-        );
-      }
       if (input.interactionRootRunId && input.interactionRootRunId !== input.runId) {
         throw new Error(`root interaction finalization requires the root run: ${input.runId}`);
       }
@@ -1476,7 +1487,28 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (!run || run.session_id !== input.sessionId) {
         throw new Error(`run not found while finalizing: ${input.runId}`);
       }
-      assertTerminalTransition(run.status, input.status, input.runId);
+      if (input.leaseRootRunId && run.status === "running") {
+        await assertOwnedRunLeaseForRun(
+          transactionExecutor,
+          this.tenantId,
+          this.ownerInstanceId,
+          input.sessionId,
+          input.leaseRootRunId,
+        );
+      }
+      if (run.status !== "running" && run.status !== input.status) {
+        if (run.lease_root_run_id !== run.run_id
+          && (run.status === "completed" || run.status === "failed" || run.status === "interrupted")) {
+          await createTransactionFacade(this.tenantId, transactionExecutor).providerContinuations
+            .deleteProviderContinuations(input.sessionId, run.thread_key || "root");
+          const convergedMessage = run.final_message_id
+            ? await createTransactionFacade(this.tenantId, transactionExecutor).conversation
+              .getMessageById(input.sessionId, run.final_message_id)
+            : null;
+          return { finalMessage: convergedMessage, records: [], readyResumeInteractionIds: [] };
+        }
+        assertTerminalTransition(run.status, input.status, input.runId);
+      }
       const terminalToolCleanup = input.closeDanglingToolCalls;
       if (terminalToolCleanup?.terminalStatus !== undefined && terminalToolCleanup.terminalStatus !== input.status) {
         throw new Error(`terminal tool status mismatch: ${input.runId}`);
@@ -1496,68 +1528,98 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
             input.status,
           )
         : [];
-      if (input.deleteProviderContinuationThreadKey) {
-        await tx.providerContinuations.deleteProviderContinuations(
-          input.sessionId,
-          input.deleteProviderContinuationThreadKey,
-        );
-      }
-      const closedToolMessages: MessageInfo[] = [];
-      if (terminalToolCleanup) {
-        const messages = await tx.conversation.getRecentMessages(
-          input.sessionId,
-          10_000,
-          terminalToolCleanup.threadKey,
-        );
-        closedToolMessages.push(...messages.filter((message) => (
-          message.role === "tool"
-          && message.metadata.run_id === input.runId
-          && message.metadata.terminal_tool_result === true
-          && message.metadata.terminal_status === terminalToolCleanup.terminalStatus
-        )));
-        for (const message of buildTerminalToolMessages(messages, {
-          sessionId: input.sessionId,
-          runId: input.runId,
-          ...terminalToolCleanup,
-        })) {
-          closedToolMessages.push(await getOrCreateMessage(
-            transactionExecutor,
-            tx,
-            message,
-            "terminal tool message",
-          ));
+      if (input.status === "suspended") {
+        if (run.status === "running"
+          && !await tx.runs.updateRunStatus(input.runId, input.sessionId, "suspended", null, null)) {
+          throw new Error(`run not found while suspending: ${input.runId}`);
         }
+        return { finalMessage: null, records: [], readyResumeInteractionIds };
       }
-      const finalMessage = input.finalMessage
-        ? await getOrCreateMessage(transactionExecutor, tx, input.finalMessage, "final message")
-        : null;
-      if (run.status === input.status && run.final_message_id !== (finalMessage?.id ?? null)) {
-        throw new Error(`run final message conflicts with idempotent finalize: ${input.runId}`);
-      }
-      const terminalRecords = input.buildTerminalRecords?.(finalMessage, closedToolMessages) ?? [];
       const records: RuntimeRecordEnvelopeResult[] = [];
-      for (const terminalRecord of terminalRecords) {
-        const normalized = normalizeRecord(terminalRecord);
-        assertRecordScope(normalized, input.sessionId, input.runId);
-        await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
-        records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalized));
-      }
-      if (finalMessage && input.attachStepsToFinalMessage !== false) {
-        await tx.runs.updateRunStepsMessageId(input.sessionId, input.runId, finalMessage.id);
-      }
-      if (run.status === "running") {
-        const updated = await tx.runs.updateRunStatus(
-          input.runId,
-          input.sessionId,
-          input.status,
-          finalMessage?.id ?? null,
-          expectedTerminalReason,
-        );
-        if (!updated) {
-          throw new Error(`run not found while finalizing: ${input.runId}`);
+      const scopedRuns = run.lease_root_run_id === run.run_id
+        ? (await transactionExecutor.query<Record<string, unknown>>(
+            `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
+                    request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+                    agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
+                    child_agent_id, final_message_id, created_at, updated_at
+             FROM saas_runs
+             WHERE tenant_id=$1 AND session_id=$2 AND lease_root_run_id=$3
+               AND (run_id=$4 OR status IN ('running','suspended'))
+             ORDER BY CASE WHEN run_id=$4 THEN 1 ELSE 0 END, run_id
+             FOR UPDATE`,
+            [this.tenantId, input.sessionId, run.lease_root_run_id, input.runId],
+          )).rows.map(mapRun)
+        : [run];
+      let requestedFinalMessage: MessageInfo | null = null;
+      for (const scopedRun of scopedRuns) {
+        const isRequestedRun = scopedRun.run_id === input.runId;
+        const runStatus = isRequestedRun ? input.status : (input.status === "completed" ? "failed" as const : input.status);
+        const runReason = isRequestedRun ? expectedTerminalReason : (expectedTerminalReason ?? "parent_run_terminated");
+        const threadKey = scopedRun.thread_key || "root";
+        await tx.providerContinuations.deleteProviderContinuations(input.sessionId, threadKey);
+        const messages = await tx.conversation.getRecentMessages(input.sessionId, 10_000, threadKey);
+        const closedToolMessages: MessageInfo[] = [];
+        if (runStatus === "failed" || runStatus === "interrupted") {
+          for (const message of buildTerminalToolMessages(messages, {
+            sessionId: input.sessionId,
+            runId: scopedRun.run_id,
+            threadKey,
+            agentName: scopedRun.agent_name ?? scopedRun.agent_display_name,
+            terminalStatus: runStatus,
+            reason: runReason ?? "未提供终止原因",
+          })) {
+            closedToolMessages.push(await getOrCreateMessage(transactionExecutor, tx, message, "terminal tool message"));
+          }
+        }
+        const finalMessage = isRequestedRun
+          ? (input.finalMessage
+              ? await getOrCreateMessage(transactionExecutor, tx, input.finalMessage, "final message")
+              : null)
+          : await getOrCreateMessage(transactionExecutor, tx, buildTerminalAssistantMessage({
+              sessionId: input.sessionId,
+              runId: scopedRun.run_id,
+              threadKey,
+              agentName: scopedRun.agent_name ?? scopedRun.agent_display_name,
+              terminalStatus: runStatus === "failed" ? "failed" : "interrupted",
+              reason: runReason ?? "parent_run_terminated",
+              metadata: {
+                conversation_scope: scopedRun.parent_run_id === null ? "root" : "child",
+                ...(scopedRun.parent_run_id ? { parent_run_id: scopedRun.parent_run_id } : {}),
+              },
+            }), "terminal message");
+        if (isRequestedRun) requestedFinalMessage = finalMessage;
+        if (scopedRun.status === runStatus && scopedRun.final_message_id !== (finalMessage?.id ?? null)) {
+          throw new Error(`run final message conflicts with idempotent finalize: ${scopedRun.run_id}`);
+        }
+        for (const record of buildRunTerminalRecords({
+          run: {
+            sessionId: input.sessionId,
+            runId: scopedRun.run_id,
+            agentCallId: scopedRun.agent_call_id,
+            lineageParentCallId: scopedRun.lineage_parent_call_id,
+            agentName: scopedRun.agent_name ?? "unknown",
+            agentDisplayName: scopedRun.agent_display_name,
+          },
+          status: runStatus,
+          ...(runReason ? { reason: runReason } : {}),
+          finalMessage,
+          closedToolMessages,
+        })) {
+          const normalized = normalizeRecord(record);
+          assertRecordScope(normalized, input.sessionId, scopedRun.run_id);
+          await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
+          records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalized));
+        }
+        if (finalMessage && input.attachStepsToFinalMessage !== false) {
+          await tx.runs.updateRunStepsMessageId(input.sessionId, scopedRun.run_id, finalMessage.id);
+        }
+        if (scopedRun.status === "running" || scopedRun.status === "suspended") {
+          if (!await tx.runs.updateRunStatus(scopedRun.run_id, input.sessionId, runStatus, finalMessage?.id ?? null, runReason)) {
+            throw new Error(`run not found while finalizing: ${scopedRun.run_id}`);
+          }
         }
       }
-      return { finalMessage, records, readyResumeInteractionIds };
+      return { finalMessage: requestedFinalMessage, records, readyResumeInteractionIds };
     });
   }
 }
@@ -1664,7 +1726,8 @@ async function lockTenantRun(
 ): Promise<RunInfo | null> {
   const result = await executor.query<Record<string, unknown>>(
     `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
-      request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+      request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+      agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
       child_agent_id, final_message_id, created_at, updated_at
      FROM saas_runs WHERE tenant_id=$1 AND run_id=$2 FOR UPDATE`,
     [tenantId, runId],
@@ -1680,38 +1743,16 @@ async function assertOwnedRunLeaseForRun(
   sessionId: string,
   runId: string,
 ): Promise<void> {
-  let run = await lockTenantRun(executor, tenantId, runId);
+  const run = await lockTenantRun(executor, tenantId, runId);
   if (!run || run.session_id !== sessionId) throw new Error(`run not found while checking lease: ${runId}`);
-  const visited = new Set<string>();
-  while (run) {
-    if (visited.has(run.run_id)) throw new Error(`run lineage cycle while checking lease: ${runId}`);
-    visited.add(run.run_id);
-    const lease = await executor.query<{
-      run_id: string;
-      owner_instance_id: string | null;
-      lease_expires_at: unknown;
-      owned: boolean;
-    }>(
-      `SELECT run_id, owner_instance_id, lease_expires_at,
-              (owner_instance_id=$4 AND lease_expires_at > CURRENT_TIMESTAMP) AS owned
-       FROM saas_runs
-       WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
-         AND status='running'
-       FOR UPDATE`,
-      [tenantId, sessionId, run.run_id, ownerInstanceId],
-    );
-    const current = lease.rows[0];
-    if (current?.owned === true) return;
-    // A lease marker on a child means it is an independently leased run. It
-    // must not fall back to its parent's lease after ownership is lost.
-    if ((current?.owner_instance_id !== null && current?.owner_instance_id !== undefined)
-      || (current?.lease_expires_at !== null && current?.lease_expires_at !== undefined)) break;
-    if (!run.parent_run_id) break;
-    run = await lockTenantRun(executor, tenantId, run.parent_run_id);
-    if (!run || run.session_id !== sessionId) {
-      throw new Error(`run parent not found while checking lease: ${runId}`);
-    }
-  }
+  const lease = await executor.query<{ run_id: string; owned: boolean }>(
+    `SELECT run_id, (owner_instance_id=$4 AND lease_expires_at > CURRENT_TIMESTAMP) AS owned
+     FROM saas_runs
+     WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3 AND status='running'
+     FOR UPDATE`,
+    [tenantId, sessionId, run.lease_root_run_id, ownerInstanceId],
+  );
+  if (lease.rows[0]?.owned === true) return;
   throw new Error(`run lease was lost: ${runId}`);
 }
 
@@ -1723,6 +1764,10 @@ function assertRunScope(existing: RunInfo, expected: RuntimeStartRunInput["run"]
     ["parent call", existing.parent_call_id, expected.parentCallId ?? null],
     ["child agent", existing.child_agent_id, expected.childAgentId ?? null],
     ["agent", existing.agent_name, expected.agentName ?? null],
+    ["agent call", existing.agent_call_id, expected.agentCallId],
+    ["lineage parent call", existing.lineage_parent_call_id, expected.lineageParentCallId],
+    ["agent display name", existing.agent_display_name, expected.agentDisplayName],
+    ["lease root", existing.lease_root_run_id, expected.leaseRootRunId],
   ] as const;
   const conflict = conflicts.find(([, actual, value]) => actual !== value);
   if (conflict) {
@@ -1738,6 +1783,10 @@ function toCreatedRun(run: RunInfo): RuntimeStartRunResult["run"] {
     thread_key: run.thread_key,
     parent_run_id: run.parent_run_id,
     parent_call_id: run.parent_call_id,
+    agent_call_id: run.agent_call_id,
+    lineage_parent_call_id: run.lineage_parent_call_id,
+    agent_display_name: run.agent_display_name,
+    lease_root_run_id: run.lease_root_run_id,
     child_agent_id: run.child_agent_id,
   };
 }
@@ -1996,6 +2045,8 @@ function mapRun(row: Record<string, unknown>): RunInfo {
     entrypoint: nullable(row.entrypoint), status: String(row.status), task_summary: nullable(row.task_summary),
     terminal_reason: nullable(row.terminal_reason),
     request_id: nullable(row.request_id), user_id: nullable(row.user_id), agent_name: nullable(row.agent_name),
+    agent_call_id: String(row.agent_call_id), lineage_parent_call_id: nullable(row.lineage_parent_call_id),
+    agent_display_name: String(row.agent_display_name), lease_root_run_id: String(row.lease_root_run_id),
     thread_key: String(row.thread_key ?? "root"), parent_run_id: nullable(row.parent_run_id),
     parent_call_id: nullable(row.parent_call_id), child_agent_id: nullable(row.child_agent_id),
     final_message_id: nullable(row.final_message_id), created_at: iso(row.created_at), updated_at: iso(row.updated_at),

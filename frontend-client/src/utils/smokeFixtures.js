@@ -132,7 +132,7 @@ const smokeExecutionEvents = [
     session_id: 'smoke-session',
     call_id: 'smoke-root',
     agent_id: 'orchestrator_agent',
-    payload: { phase: 'end', success: true, display_name: '编排 Agent' },
+    payload: { phase: 'end', success: true, status: 'succeeded', display_name: '编排 Agent' },
   },
 ];
 

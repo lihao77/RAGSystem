@@ -16,6 +16,10 @@ const tenantScopedRunSchema = `
         request_id TEXT,
         user_id TEXT,
         agent_name TEXT,
+        agent_call_id TEXT NOT NULL,
+        lineage_parent_call_id TEXT,
+        agent_display_name TEXT NOT NULL,
+        lease_root_run_id TEXT NOT NULL,
         thread_key TEXT NOT NULL DEFAULT 'root',
         parent_run_id TEXT,
         parent_call_id TEXT,
@@ -33,6 +37,10 @@ const tenantScopedRunSchema = `
         ON saas_runs(tenant_id, session_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS saas_runs_parent_idx
         ON saas_runs(tenant_id, session_id, parent_run_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS saas_runs_agent_call_idx
+        ON saas_runs(tenant_id, session_id, agent_call_id);
+      CREATE INDEX IF NOT EXISTS saas_runs_lease_root_status_idx
+        ON saas_runs(tenant_id, session_id, lease_root_run_id, status);
 
       CREATE TABLE IF NOT EXISTS saas_run_steps (
         id BIGSERIAL PRIMARY KEY,
@@ -139,6 +147,44 @@ export const POSTGRES_RUN_MIGRATIONS: readonly PostgresRunMigration[] = [
     sql: `
       ALTER TABLE saas_runs
         ADD COLUMN IF NOT EXISTS terminal_reason TEXT;
+    `,
+  },
+  {
+    version: 7,
+    name: "run-lifecycle-identity",
+    sql: `
+      ALTER TABLE saas_runs
+        ADD COLUMN IF NOT EXISTS agent_call_id TEXT,
+        ADD COLUMN IF NOT EXISTS lineage_parent_call_id TEXT,
+        ADD COLUMN IF NOT EXISTS agent_display_name TEXT,
+        ADD COLUMN IF NOT EXISTS lease_root_run_id TEXT;
+      WITH RECURSIVE run_roots(tenant_id, run_id, lease_root_run_id) AS (
+        SELECT tenant_id, run_id, run_id FROM saas_runs WHERE parent_run_id IS NULL
+        UNION ALL
+        SELECT child.tenant_id, child.run_id, parent.lease_root_run_id
+        FROM saas_runs AS child
+        JOIN run_roots AS parent
+          ON child.tenant_id = parent.tenant_id AND child.parent_run_id = parent.run_id
+      )
+      UPDATE saas_runs AS run
+      SET agent_call_id = COALESCE(NULLIF(run.agent_call_id, ''), run.run_id),
+          agent_display_name = COALESCE(NULLIF(run.agent_display_name, ''), NULLIF(run.agent_name, ''), 'unknown'),
+          lease_root_run_id = COALESCE(NULLIF(run.lease_root_run_id, ''), roots.lease_root_run_id, run.run_id)
+      FROM run_roots AS roots
+      WHERE roots.tenant_id = run.tenant_id AND roots.run_id = run.run_id;
+      UPDATE saas_runs
+      SET agent_call_id = COALESCE(NULLIF(agent_call_id, ''), run_id),
+          agent_display_name = COALESCE(NULLIF(agent_display_name, ''), NULLIF(agent_name, ''), 'unknown'),
+          lease_root_run_id = COALESCE(NULLIF(lease_root_run_id, ''), run_id)
+      WHERE agent_call_id IS NULL OR agent_display_name IS NULL OR lease_root_run_id IS NULL;
+      ALTER TABLE saas_runs
+        ALTER COLUMN agent_call_id SET NOT NULL,
+        ALTER COLUMN agent_display_name SET NOT NULL,
+        ALTER COLUMN lease_root_run_id SET NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS saas_runs_agent_call_idx
+        ON saas_runs(tenant_id, session_id, agent_call_id);
+      CREATE INDEX IF NOT EXISTS saas_runs_lease_root_status_idx
+        ON saas_runs(tenant_id, session_id, lease_root_run_id, status);
     `,
   },
 ];

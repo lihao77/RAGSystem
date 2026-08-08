@@ -239,6 +239,7 @@ export const RunStartedPayloadSchema = z.object({
 export const RunEndedPayloadSchema = z.object({
   status: z.enum(["completed", "failed", "interrupted", "suspended"]),
   reason: z.string().optional(),
+  lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
 });
 
 export const ModelRequestPayloadSchema = z.object({
@@ -386,6 +387,7 @@ export const StateSyncPayloadSchema = z.object({
     .optional(),
   metrics: z.record(z.number()).optional(),
   detail: z.unknown().optional(),
+  lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
 });
 
 export const ToolCallPayloadSchema = z.object({
@@ -410,7 +412,7 @@ export const ToolResultPayloadSchema = z
     tool: z.string().min(1),
     phase: z.literal("end"),
     ok: z.boolean(),
-    status: z.enum(["succeeded", "failed"]).optional(),
+    status: z.enum(["succeeded", "failed", "interrupted"]),
     observation: z.string().optional(),
     summary: z.string().optional(),
     files: z.array(ToolFileRefSchema).optional(),
@@ -424,13 +426,16 @@ export const ToolResultPayloadSchema = z
     lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
   })
   .superRefine((payload, ctx) => {
-    if (payload.status === undefined) return;
-    const expectedStatus = payload.ok ? "succeeded" : "failed";
-    if (payload.status !== expectedStatus) {
+    const valid = payload.ok
+      ? payload.status === "succeeded"
+      : payload.status === "failed" || payload.status === "interrupted";
+    if (!valid) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["status"],
-        message: `status must be ${expectedStatus} when ok is ${payload.ok}`,
+        message: payload.ok
+          ? "status must be succeeded when ok is true"
+          : "status must be failed or interrupted when ok is false",
       });
     }
   });
@@ -720,17 +725,27 @@ export const AgentStartedPayloadSchema = z.object({
   lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
 });
 
-export const AgentEndedPayloadSchema = z.object({
+const AgentEndedPayloadObjectSchema = z.object({
   phase: z.literal("end"),
   result: z.string().optional(),
-  success: z.boolean().optional(),
-  status: z.enum(["succeeded", "failed", "interrupted"]).optional(),
+  success: z.boolean(),
+  status: z.enum(["succeeded", "failed", "interrupted"]),
   display_name: z.string().optional(),
   invocation_call_id: z.string().min(1).optional(),
   lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
 });
 
-export const AgentLifecyclePayloadSchema = z.discriminatedUnion("phase", [
+export const AgentEndedPayloadSchema = AgentEndedPayloadObjectSchema.superRefine((payload, ctx) => {
+  if (payload.success !== (payload.status === "succeeded")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["success"],
+      message: `success must be ${payload.status === "succeeded"} when status is ${payload.status}`,
+    });
+  }
+});
+
+export const AgentLifecyclePayloadSchema = z.union([
   AgentStartedPayloadSchema,
   AgentEndedPayloadSchema,
 ]);
@@ -745,8 +760,8 @@ export const ServerToClientEnvelopeSchema = z.discriminatedUnion("type", [
   typed({ type: z.literal("error"), session_id: z.string().min(1), payload: ErrorPayloadSchema }),
   typed({ type: z.literal("run_started"), session_id: z.string().min(1), run_id: z.string().min(1), payload: RunStartedPayloadSchema.optional() }),
   typed({ type: z.literal("run_ended"), session_id: z.string().min(1), run_id: z.string().min(1), payload: RunEndedPayloadSchema }),
-  typed({ type: z.literal("agent_started"), session_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1).optional(), payload: AgentStartedPayloadSchema.optional() }),
-  typed({ type: z.literal("agent_ended"), session_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1).optional(), payload: AgentEndedPayloadSchema.optional() }),
+  typed({ type: z.literal("agent_started"), session_id: z.string().min(1), agent_id: z.string().min(1), call_id: z.string().min(1), payload: AgentStartedPayloadSchema }),
+  typed({ type: z.literal("agent_ended"), session_id: z.string().min(1), agent_id: z.string().min(1), call_id: z.string().min(1), payload: AgentEndedPayloadSchema }),
   typed({ type: z.literal("model_request"), session_id: z.string().min(1), run_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1), payload: ModelRequestPayloadSchema }),
   typed({ type: z.literal("model_attempt_started"), session_id: z.string().min(1), run_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1), payload: ModelAttemptStartedPayloadSchema }),
   typed({ type: z.literal("model_attempt_failed"), session_id: z.string().min(1), run_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1), payload: ModelAttemptFailedPayloadSchema }),

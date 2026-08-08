@@ -37,6 +37,7 @@ import type {
   RuntimeSessionFacts,
 } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import {
+  buildRunTerminalRecords,
   buildTerminalAssistantMessage,
   buildTerminalToolMessages,
 } from "@ragsystem/backend-core/contracts/storage/runtime-finalization.js";
@@ -230,15 +231,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
    * Local runtime 是单进程所有者；容器刚创建时仍为 running 的 run 只可能来自上个已退出进程。
    * 在接受新消息前将它们收敛为 interrupted，并产生 durable run_ended 供重连客户端恢复。
    */
-  recoverOrphanedRuns(
-    buildRunEndedRecord: (run: {
-      sessionId: string;
-      runId: string;
-      parentRunId: string | null;
-      status: "interrupted" | "suspended";
-      reason: "backend_restarted" | "backend_restarted_waiting_interaction";
-    }) => RuntimeRecordEnvelopeInput,
-  ): Promise<RuntimeInterruptSessionResult & {
+  recoverOrphanedRuns(): Promise<RuntimeInterruptSessionResult & {
     suspendedRuns: Array<{ runId: string; parentRunId: string | null }>;
   }> {
     return this.serial.run(() => {
@@ -266,29 +259,24 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           if (activeRuns.length === 0) {
             return { interruptedRuns: [], suspendedRuns: [], cancelledInteractions: 0, records: [] };
           }
-          const activeById = new Map(activeRuns.map((run) => [run.run_id, run]));
-          // A background child owns its interaction root. If its parent root
-          // is still running, the child must be recovered separately; if the
-          // parent already finished, the child is the only recovery root left.
           const pendingRootIds = new Set(
             tx.listPendingInteractions({
               sessionId: session.session_id,
               statuses: ["waiting", "suspended", "resolved", "resuming"],
             }).map((interaction) => interaction.root_run_id),
           );
-          const recoveryRootRuns = activeRuns
-            .filter((run) => run.parent_run_id === null || pendingRootIds.has(run.run_id))
-            .sort((left, right) => {
-              const leftIndependent = pendingRootIds.has(left.run_id) ? 0 : 1;
-              const rightIndependent = pendingRootIds.has(right.run_id) ? 0 : 1;
-              return leftIndependent - rightIndependent || left.run_id.localeCompare(right.run_id);
-            });
+          const recoveryRootRunIds = [...new Set(activeRuns.map((run) => run.lease_root_run_id))]
+            .sort((left, right) => (pendingRootIds.has(left) ? 0 : 1)
+              - (pendingRootIds.has(right) ? 0 : 1)
+              || left.localeCompare(right));
           let sessionCancelledInteractions = 0;
           const sessionInterruptedRuns: RuntimeInterruptSessionResult["interruptedRuns"] = [];
           const sessionSuspendedRuns: Array<{ runId: string; parentRunId: string | null }> = [];
           const sessionRecords: RuntimeRecordEnvelopeResult[] = [];
-          for (const recoveryRoot of recoveryRootRuns) {
-            const rootRunId = recoveryRoot.run_id;
+          for (const rootRunId of recoveryRootRunIds) {
+            if (!tx.getRun(session.session_id, rootRunId)) {
+              throw new Error(`orphaned lease root run is missing: ${rootRunId}`);
+            }
             let pending = tx.listPendingInteractions({
               sessionId: session.session_id,
               rootRunId,
@@ -312,17 +300,14 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
               sessionCancelledInteractions += pending.length;
               tx.finalizePendingInteractions(session.session_id, rootRunId, "interrupted");
             }
-            const treeRuns = activeRuns.filter((run) => runBelongsToRoot(
-              run.run_id,
-              rootRunId,
-              activeById,
-              pendingRootIds,
-            ));
+            const treeRuns = activeRuns.filter((run) => run.lease_root_run_id === rootRunId);
+            const closedToolsByRun = new Map<string, MessageInfo[]>();
             for (const run of treeRuns) {
               let finalMessage: MessageInfo | null = null;
               if (nextStatus === "interrupted") {
                 const threadKey = run.thread_key || "root";
                 const messages = tx.getRecentMessages(session.session_id, Number.MAX_SAFE_INTEGER, threadKey);
+                const closedToolMessages: MessageInfo[] = [];
                 for (const message of buildTerminalToolMessages(
                   messages,
                   {
@@ -334,8 +319,9 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
                     reason: "backend_restarted",
                   },
                 )) {
-                  resolveDeterministicMessage(tx, message, "terminal tool message");
+                  closedToolMessages.push(resolveDeterministicMessage(tx, message, "terminal tool message"));
                 }
+                closedToolsByRun.set(run.run_id, closedToolMessages);
                 finalMessage = resolveDeterministicMessage(
                   tx,
                   buildTerminalAssistantMessage({
@@ -363,19 +349,35 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
               )) {
                 throw new Error(`orphaned run not found while recovering session: ${run.run_id}`);
               }
+              if (nextStatus !== "suspended") {
+                tx.deleteProviderContinuations(session.session_id, run.thread_key || "root");
+              }
               const recoveredRun = { runId: run.run_id, parentRunId: run.parent_run_id };
               if (shouldSuspend) sessionSuspendedRuns.push(recoveredRun);
               else sessionInterruptedRuns.push(recoveredRun);
             }
-            sessionRecords.push(recordEnvelope(tx, buildRunEndedRecord({
-                sessionId: session.session_id,
-                runId: rootRunId,
-                parentRunId: recoveryRoot.parent_run_id,
-                status: nextStatus,
-                reason: shouldSuspend
-                  ? "backend_restarted_waiting_interaction"
-                  : "backend_restarted",
-              })));
+            if (!shouldSuspend) {
+              for (const run of treeRuns) {
+                const finalMessage = tx.getMessageById(session.session_id, `${run.run_id}:terminal`);
+                if (!finalMessage) throw new Error(`recovered terminal message missing: ${run.run_id}`);
+                for (const terminalRecord of buildRunTerminalRecords({
+                  run: {
+                    sessionId: session.session_id,
+                    runId: run.run_id,
+                    agentCallId: run.agent_call_id,
+                    lineageParentCallId: run.lineage_parent_call_id,
+                    agentName: run.agent_name ?? "unknown",
+                    agentDisplayName: run.agent_display_name,
+                  },
+                  status: "interrupted",
+                  reason: "backend_restarted",
+                  finalMessage,
+                  closedToolMessages: closedToolsByRun.get(run.run_id) ?? [],
+                })) {
+                  sessionRecords.push(recordEnvelope(tx, terminalRecord));
+                }
+              }
+            }
           }
           return {
             interruptedRuns: sessionInterruptedRuns,
@@ -755,7 +757,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
     return this.serial.run(() => this.store.runInTransaction((tx) => {
       assertTenantSession(tx, this.tenantId, input.sessionId);
       const activeRuns = tx.listRuns(input.sessionId, Number.MAX_SAFE_INTEGER).items
-        .filter((run) => run.status === "suspended")
+        .filter((run) => run.status === "running" || run.status === "suspended")
         .sort((left, right) => left.run_id.localeCompare(right.run_id));
       const rootRunIds = new Set(activeRuns.filter((run) => run.parent_run_id === null).map((run) => run.run_id));
       for (const pending of tx.listPendingInteractions({
@@ -769,7 +771,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       let cancelledInteractions = 0;
       for (const rootRunId of [...rootRunIds].sort()) {
         const root = tx.getRun(input.sessionId, rootRunId);
-        if (root && root.status !== "suspended") continue;
+        if (root && root.status !== "running" && root.status !== "suspended") continue;
         cancelledInteractions += tx.listPendingInteractions({
           sessionId: input.sessionId,
           rootRunId,
@@ -780,6 +782,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       for (const run of activeRuns) {
         const threadKey = run.thread_key || "root";
         const messages = tx.getRecentMessages(input.sessionId, Number.MAX_SAFE_INTEGER, threadKey);
+        const closedToolMessages: MessageInfo[] = [];
         for (const message of buildTerminalToolMessages(
           messages,
           {
@@ -791,7 +794,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             reason: "session_stopped",
           },
         )) {
-          resolveDeterministicMessage(tx, message, "terminal tool message");
+          closedToolMessages.push(resolveDeterministicMessage(tx, message, "terminal tool message"));
         }
         const finalMessage = resolveDeterministicMessage(
           tx,
@@ -812,13 +815,25 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (!tx.updateRunStatus(run.run_id, input.sessionId, "interrupted", finalMessage.id, "session_stopped")) {
           throw new Error(`run not found while interrupting session: ${run.run_id}`);
         }
+        tx.deleteProviderContinuations(input.sessionId, threadKey);
         const interrupted = { runId: run.run_id, parentRunId: run.parent_run_id };
         interruptedRuns.push(interrupted);
-        if (rootRunIds.has(run.run_id)) {
-          for (const terminalRecord of input.buildTerminalRecords(interrupted, finalMessage)) {
-            assertRecordScope(terminalRecord, input.sessionId, run.run_id);
-            records.push(recordEnvelope(tx, terminalRecord));
-          }
+        for (const terminalRecord of buildRunTerminalRecords({
+          run: {
+            sessionId: input.sessionId,
+            runId: run.run_id,
+            agentCallId: run.agent_call_id,
+            lineageParentCallId: run.lineage_parent_call_id,
+            agentName: run.agent_name ?? "unknown",
+            agentDisplayName: run.agent_display_name,
+          },
+          status: "interrupted",
+          reason: "session_stopped",
+          finalMessage,
+          closedToolMessages,
+        })) {
+          assertRecordScope(terminalRecord, input.sessionId, run.run_id);
+          records.push(recordEnvelope(tx, terminalRecord));
         }
         tx.updateRunStepsMessageId(input.sessionId, run.run_id, finalMessage.id);
       }
@@ -888,6 +903,17 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         }
         const replayingTerminal = currentRun.status === input.status;
         if (currentRun.status !== "running" && !replayingTerminal) {
+          if (currentRun.lease_root_run_id !== currentRun.run_id
+            && (currentRun.status === "completed" || currentRun.status === "failed" || currentRun.status === "interrupted")) {
+            tx.deleteProviderContinuations(input.sessionId, currentRun.thread_key || "root");
+            return {
+              finalMessage: currentRun.final_message_id
+                ? tx.getMessageById(input.sessionId, currentRun.final_message_id)
+                : null,
+              records: [],
+              readyResumeInteractionIds: [],
+            };
+          }
           throw new Error(
             `run terminal status conflict: expected running or ${input.status}, received ${currentRun.status}`,
           );
@@ -903,51 +929,88 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (replayingTerminal && currentRun.terminal_reason !== expectedTerminalReason) {
           throw new Error(`run terminal reason conflicts with idempotent finalize: ${input.runId}`);
         }
-        if (input.deleteProviderContinuationThreadKey) {
-          tx.deleteProviderContinuations(input.sessionId, input.deleteProviderContinuationThreadKey);
-        }
         const readyResumeInteractionIds = input.interactionRootRunId
           ? tx.finalizePendingInteractions(input.sessionId, input.interactionRootRunId, input.status)
           : [];
-        const closedToolMessages: MessageInfo[] = [];
-        if (terminalToolCleanup) {
-          const messages = tx.getRecentMessages(
-            input.sessionId,
-            Number.MAX_SAFE_INTEGER,
-            terminalToolCleanup.threadKey,
-          );
-          closedToolMessages.push(...messages.filter((message) => (
-            message.role === "tool"
-            && message.metadata.run_id === input.runId
-            && message.metadata.terminal_tool_result === true
-            && message.metadata.terminal_status === terminalToolCleanup.terminalStatus
-          )));
-          for (const message of buildTerminalToolMessages(messages, {
-            sessionId: input.sessionId,
-            runId: input.runId,
-            ...terminalToolCleanup,
+        if (input.status === "suspended") {
+          if (currentRun.status === "running"
+            && !tx.updateRunStatus(input.runId, input.sessionId, "suspended", null, null)) {
+            throw new Error(`run not found while suspending: ${input.runId}`);
+          }
+          return { finalMessage: null, records: [], readyResumeInteractionIds };
+        }
+        const allRuns = tx.listRuns(input.sessionId, Number.MAX_SAFE_INTEGER).items;
+        const leaseRootRunId = currentRun.lease_root_run_id;
+        const cascade = currentRun.lease_root_run_id === currentRun.run_id
+          ? allRuns.filter((candidate) => candidate.run_id === input.runId || candidate.status === "running" || candidate.status === "suspended")
+            .filter((candidate) => candidate.lease_root_run_id === leaseRootRunId)
+          : [currentRun];
+        const terminalRuns = cascade.sort((left, right) => left.run_id === input.runId ? 1 : right.run_id === input.runId ? -1 : left.run_id.localeCompare(right.run_id));
+        const records: RuntimeRecordEnvelopeResult[] = [];
+        let rootFinalMessage: MessageInfo | null = null;
+        for (const run of terminalRuns) {
+          const isRequestedRun = run.run_id === input.runId;
+          const runReason = isRequestedRun ? expectedTerminalReason : (expectedTerminalReason ?? "parent_run_terminated");
+          const runStatus = isRequestedRun ? input.status : (input.status === "completed" ? "failed" as const : input.status);
+          const cleanup = runStatus === "failed" || runStatus === "interrupted";
+          const threadKey = run.thread_key || "root";
+          tx.deleteProviderContinuations(input.sessionId, threadKey);
+          const messages = tx.getRecentMessages(input.sessionId, Number.MAX_SAFE_INTEGER, threadKey);
+          const closedToolMessages: MessageInfo[] = [];
+          if (cleanup) {
+            for (const message of buildTerminalToolMessages(messages, {
+              sessionId: input.sessionId,
+              runId: run.run_id,
+              threadKey,
+              agentName: run.agent_name ?? run.agent_display_name,
+              terminalStatus: runStatus,
+              reason: runReason ?? "未提供终止原因",
+            })) {
+              closedToolMessages.push(resolveDeterministicMessage(tx, message, "terminal tool message"));
+            }
+          }
+          const finalMessage = isRequestedRun
+            ? resolveFinalMessage(tx, input, run, replayingTerminal)
+            : resolveDeterministicMessage(tx, buildTerminalAssistantMessage({
+              sessionId: input.sessionId,
+              runId: run.run_id,
+              threadKey,
+              agentName: run.agent_name ?? run.agent_display_name,
+              terminalStatus: runStatus === "failed" ? "failed" : "interrupted",
+              reason: runReason ?? "parent_run_terminated",
+              metadata: {
+                conversation_scope: run.parent_run_id === null ? "root" : "child",
+                ...(run.parent_run_id ? { parent_run_id: run.parent_run_id } : {}),
+              },
+            }), "terminal message");
+          if (isRequestedRun) rootFinalMessage = finalMessage;
+          if (finalMessage && input.attachStepsToFinalMessage !== false) {
+            tx.updateRunStepsMessageId(input.sessionId, run.run_id, finalMessage.id);
+          }
+          for (const terminalRecord of buildRunTerminalRecords({
+            run: {
+              sessionId: input.sessionId,
+              runId: run.run_id,
+              agentCallId: run.agent_call_id,
+              lineageParentCallId: run.lineage_parent_call_id,
+              agentName: run.agent_name ?? "unknown",
+              agentDisplayName: run.agent_display_name,
+            },
+            status: runStatus,
+            ...(runReason ? { reason: runReason } : {}),
+            finalMessage,
+            closedToolMessages,
           })) {
-            closedToolMessages.push(resolveDeterministicMessage(tx, message, "terminal tool message"));
+            assertRecordScope(terminalRecord, input.sessionId, run.run_id);
+            records.push(recordEnvelope(tx, terminalRecord));
+          }
+          if (run.status === "running" || run.status === "suspended") {
+            if (!tx.updateRunStatus(run.run_id, input.sessionId, runStatus, finalMessage?.id ?? null, runReason)) {
+              throw new Error(`run not found while finalizing: ${run.run_id}`);
+            }
           }
         }
-        const finalMessage = resolveFinalMessage(tx, input, currentRun, replayingTerminal);
-        const records: RuntimeRecordEnvelopeResult[] = [];
-        for (const terminalRecord of input.buildTerminalRecords?.(finalMessage, closedToolMessages) ?? []) {
-          assertRecordScope(terminalRecord, input.sessionId, input.runId);
-          records.push(recordEnvelope(tx, terminalRecord));
-        }
-        if (finalMessage && input.attachStepsToFinalMessage !== false) {
-          tx.updateRunStepsMessageId(input.sessionId, input.runId, finalMessage.id);
-        }
-        const updated = tx.updateRunStatus(
-          input.runId,
-          input.sessionId,
-          input.status,
-          finalMessage?.id ?? null,
-          expectedTerminalReason,
-        );
-        if (!updated) throw new Error(`run not found while finalizing: ${input.runId}`);
-        return { finalMessage, records, readyResumeInteractionIds };
+        return { finalMessage: rootFinalMessage, records, readyResumeInteractionIds };
       });
     });
   }
@@ -1146,6 +1209,10 @@ function assertRunScope(
     || existing.thread_key !== threadKey
     || existing.parent_run_id !== (input.parentRunId ?? null)
     || existing.parent_call_id !== (input.parentCallId ?? null)
+    || existing.agent_call_id !== input.agentCallId
+    || existing.lineage_parent_call_id !== input.lineageParentCallId
+    || existing.agent_display_name !== input.agentDisplayName
+    || existing.lease_root_run_id !== input.leaseRootRunId
     || existing.child_agent_id !== (input.childAgentId ?? null)
     || existing.agent_name !== (input.agentName ?? null)) {
     throw new Error(`run scope conflict: ${input.runId}`);
@@ -1162,6 +1229,10 @@ function toCreatedRun(
     thread_key: run.thread_key,
     parent_run_id: run.parent_run_id,
     parent_call_id: run.parent_call_id,
+    agent_call_id: run.agent_call_id,
+    lineage_parent_call_id: run.lineage_parent_call_id,
+    agent_display_name: run.agent_display_name,
+    lease_root_run_id: run.lease_root_run_id,
     child_agent_id: run.child_agent_id,
   };
 }

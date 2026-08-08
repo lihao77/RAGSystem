@@ -129,6 +129,22 @@ export function createSessionEnvelopeDispatcher({
   /** @param {import('./sessionCoreTypes.js').SessionMessage} message */
   const getMessageRunId = message => message?.run_id || message?.metadata?.run_id || null;
 
+  /** @param {import('./sessionCoreTypes.js').SessionMessage | null | undefined} message */
+  const getMessageExecutionRunIds = message => Array.isArray(message?.metadata?.execution_run_ids)
+    ? message.metadata.execution_run_ids.filter(value => typeof value === 'string' && value)
+    : [];
+
+  /** @param {string | null | undefined} runId */
+  const findExecutionMessage = runId => !runId ? null : messages.value.find(message => message?.role === 'assistant'
+    && (getMessageRunId(message) === runId || getMessageExecutionRunIds(message).includes(runId))) || null;
+
+  /** @param {import('./sessionCoreTypes.js').SessionMessage} message @param {string} runId */
+  const bindExecutionRun = (message, runId) => {
+    const runIds = new Set(getMessageExecutionRunIds(message));
+    runIds.add(runId);
+    message.metadata = { ...(message.metadata || {}), execution_run_ids: [...runIds] };
+  };
+
   /** @param {import('./sessionCoreTypes.js').SessionMessage} candidate @param {AnyRecord} eventData @returns {import('./sessionCoreTypes.js').SessionMessage} */
   const asConfirmedRunInjection = (candidate, eventData) => {
     const { persistence_status: _persistenceStatus, ...metadata } = candidate.metadata || {};
@@ -457,6 +473,7 @@ export function createSessionEnvelopeDispatcher({
         if (currentMsg && nextRunId) {
           currentMsg.run_id = nextRunId;
           currentMsg.metadata = { ...(currentMsg.metadata || {}), run_id: nextRunId };
+          bindExecutionRun(currentMsg, nextRunId);
         }
       }
       activeRun.runId = nextRunId;
@@ -572,19 +589,19 @@ export function createSessionEnvelopeDispatcher({
 
     if (eventType === 'run_ended') {
       const eventRunId = event.run_id || null;
+      const isReplayChild = runtime.isDurableReplayActive()
+        && typeof payload.lineage?.parent_call_id === 'string'
+        && payload.lineage.parent_call_id.length > 0;
       const indexedMsg = messages.value[activeRun.assistantMsgIndex];
-      const currentMsg = eventRunId
-        ? (getMessageRunId(indexedMsg) === eventRunId
-          ? indexedMsg
-          : messages.value.find(message => message?.role === 'assistant' && getMessageRunId(message) === eventRunId))
-        : indexedMsg;
-      const activeRootRunId = activeRun.runId
-        || currentMsg?.run_id
-        || currentMsg?.metadata?.run_id
-        || null;
+      const currentMsg = isReplayChild
+        ? indexedMsg
+        : eventRunId
+          ? findExecutionMessage(eventRunId)
+          : indexedMsg;
+      const targetRootRunId = getMessageRunId(currentMsg);
       // Child delegation runs have their own terminal event. They must not
       // finalize the parent assistant message while the root run continues.
-      if (event.run_id && activeRootRunId && event.run_id !== activeRootRunId) {
+      if (eventRunId && targetRootRunId && eventRunId !== targetRootRunId) {
         return;
       }
       const terminalStatus = runtime.terminalStatusFromEvent(event);
@@ -603,7 +620,6 @@ export function createSessionEnvelopeDispatcher({
             backend_restarted: '后端重启导致运行中断',
             run_lease_expired: '运行租约过期导致运行中断',
           }[reason] || reason || '未提供中断原因';
-          currentMsg.stopped = true;
           currentMsg.metadata = {
             ...(currentMsg.metadata || {}),
             terminal_status: 'interrupted',
@@ -627,15 +643,37 @@ export function createSessionEnvelopeDispatcher({
         runtime.markRecentSessionUpdated(sessionId, currentMsg);
       }
       if (terminalStatus === 'interrupted' || terminalStatus === 'failed') deps.resetApprovalState?.();
-      runtime.finalizeActiveRun(sessionId);
+      if (!eventRunId || activeRun.runId === eventRunId) runtime.finalizeActiveRun(sessionId);
       return;
     }
 
-    if (activeRun.assistantMsgIndex >= 0) {
-      const currentMsg = messages.value[activeRun.assistantMsgIndex];
-      if (currentMsg) {
-        handleRunEvent(event, currentMsg, sessionId);
-      }
+    const eventRunId = event.run_id || null;
+    let currentMsg = eventRunId ? findExecutionMessage(eventRunId) : null;
+    const lineageParentCallId = event.payload?.lineage?.parent_call_id || null;
+    const identityCallIds = [event.call_id, lineageParentCallId].filter(Boolean);
+    if (!currentMsg && identityCallIds.length > 0) {
+      currentMsg = messages.value.find(message => message?.role === 'assistant'
+        && identityCallIds.some(callId => message._execState?.agentsByCallId?.has?.(callId)
+          || message._execState?.toolsByCallId?.has?.(callId))) || null;
+      if (currentMsg && eventRunId) bindExecutionRun(currentMsg, eventRunId);
+    }
+    if (!currentMsg && eventRunId && activeRun.active
+      && (!activeRun.runId || activeRun.runId === eventRunId)
+      && activeRun.assistantMsgIndex >= 0) {
+      currentMsg = messages.value[activeRun.assistantMsgIndex] || null;
+      if (currentMsg) bindExecutionRun(currentMsg, eventRunId);
+    }
+    if (!currentMsg && eventRunId && runtime.isDurableReplayActive()
+      && typeof lineageParentCallId === 'string' && lineageParentCallId
+      && activeRun.assistantMsgIndex >= 0) {
+      currentMsg = messages.value[activeRun.assistantMsgIndex] || null;
+      if (currentMsg) bindExecutionRun(currentMsg, eventRunId);
+    }
+    if (!currentMsg && activeRun.assistantMsgIndex >= 0 && !eventRunId) {
+      currentMsg = messages.value[activeRun.assistantMsgIndex] || null;
+    }
+    if (currentMsg) {
+      handleRunEvent(event, currentMsg, sessionId);
     }
   };
 

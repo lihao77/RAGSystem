@@ -40,9 +40,10 @@ export class RunOps {
         `
           INSERT INTO runs (
             run_id, session_id, tenant_id, entrypoint, status, task_summary,
-            request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id, child_agent_id
+            request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+            agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id, child_agent_id
           )
-          SELECT ?, session_id, tenant_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          SELECT ?, session_id, tenant_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
           FROM sessions
           WHERE session_id=?
         `,
@@ -55,6 +56,10 @@ export class RunOps {
         input.requestId ?? null,
         input.userId ?? null,
         input.agentName ?? null,
+        input.agentCallId,
+        input.lineageParentCallId,
+        input.agentDisplayName,
+        input.leaseRootRunId,
         threadKey,
         input.parentRunId ?? null,
         input.parentCallId ?? null,
@@ -68,6 +73,10 @@ export class RunOps {
       thread_key: threadKey,
       parent_run_id: input.parentRunId ?? null,
       parent_call_id: input.parentCallId ?? null,
+      agent_call_id: input.agentCallId,
+      lineage_parent_call_id: input.lineageParentCallId,
+      agent_display_name: input.agentDisplayName,
+      lease_root_run_id: input.leaseRootRunId,
       child_agent_id: input.childAgentId ?? null,
     };
   }
@@ -90,7 +99,8 @@ export class RunOps {
       .prepare(
         `
           SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
-                 request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+                 request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+                 agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
                  child_agent_id, final_message_id, created_at, updated_at
           FROM runs
           WHERE session_id=? AND run_id=?
@@ -108,7 +118,8 @@ export class RunOps {
       .prepare(
         `
           SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
-                 request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+                 request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+                 agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
                  child_agent_id, final_message_id, created_at, updated_at
           FROM runs
           WHERE session_id=?
@@ -124,7 +135,8 @@ export class RunOps {
   listActiveRootRuns(sessionId: string, limit = 2): RunInfo[] {
     const rows = this.db.prepare(`
       SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
-             request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+             request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+             agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
              child_agent_id, final_message_id, created_at, updated_at
       FROM runs
       WHERE session_id=? AND parent_run_id IS NULL AND child_agent_id IS NULL
@@ -138,7 +150,8 @@ export class RunOps {
   getLatestTerminalRootRun(sessionId: string): RunInfo | null {
     const row = this.db.prepare(`
       SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
-             request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+             request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+             agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
              child_agent_id, final_message_id, created_at, updated_at
       FROM runs
       WHERE session_id=? AND parent_run_id IS NULL AND child_agent_id IS NULL

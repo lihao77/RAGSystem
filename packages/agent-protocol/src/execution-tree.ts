@@ -143,7 +143,13 @@ function latestRound(agent: ExecutionAgent): number {
 /** stream_output 按 call_id 路由到所属 agent；无 call_id 时归隐式 root。 */
 function routeStreamAgent(state: ExecutionTreeState, env: Envelope): ExecutionAgent {
   const callId = asString(env.call_id) ?? IMPLICIT_ROOT_CALL_ID;
-  return ensureAgent(state, callId, { agentId: asString(env.agent_id) });
+  const lineage = asRecord(env.payload).lineage;
+  const parentCallId = asString(asRecord(lineage).parent_call_id);
+  if (parentCallId) ensureAgent(state, parentCallId, {});
+  return ensureAgent(state, callId, {
+    agentId: asString(env.agent_id),
+    ...(parentCallId ? { parentCallId } : {}),
+  });
 }
 
 function applyIntentStream(state: ExecutionTreeState, env: Envelope, payload: Record<string, unknown>): void {
@@ -251,7 +257,10 @@ function applyToolResult(state: ExecutionTreeState, env: Envelope, payload: Reco
   if (!callId) return;
   const tool = state.toolsByCallId.get(callId);
   if (!tool) return;
-  tool.status = payload.ok === true ? "succeeded" : "failed";
+  const status = asString(payload.status);
+  tool.status = payload.ok === true
+    ? "succeeded"
+    : status === "interrupted" ? "interrupted" : "failed";
   const observation = asString(payload.observation);
   if (observation) tool.observation = observation;
   const summary = asString(payload.summary);
@@ -308,12 +317,28 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
       const callId = asString(env.call_id);
       if (!callId) return;
       const agent = state.agentsByCallId.get(callId);
-      if (!agent) return;
       const status = asString(payload.status);
-      agent.status = status === "interrupted"
-        ? "interrupted"
-        : status === "failed" || payload.success === false ? "failed" : "succeeded";
+      // Keep the projection strict even when a caller bypasses the transport
+      // schema. An incomplete terminal event must never be inferred as a
+      // success or failure with different semantics.
+      if (status !== "succeeded" && status !== "failed" && status !== "interrupted") return;
+      if (typeof payload.success !== "boolean" || payload.success !== (status === "succeeded")) return;
+      const nextStatus = status;
       const result = asString(payload.result);
+      if (!agent) {
+        const lineage = asRecord(payload.lineage);
+        const parentCallId = asString(lineage.parent_call_id);
+        if (parentCallId) ensureAgent(state, parentCallId, {});
+        const terminalAgent = ensureAgent(state, callId, {
+          agentId: asString(env.agent_id),
+          ...(parentCallId ? { parentCallId } : {}),
+        });
+        terminalAgent.status = nextStatus;
+        if (result) terminalAgent.result = result;
+        return;
+      }
+      if (agent.status !== "running") return;
+      agent.status = nextStatus;
       if (result) agent.result = result;
       return;
     }

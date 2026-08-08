@@ -312,7 +312,14 @@ export function useRunRuntime(deps) {
 
   const isDurableReplayActive = () => internal.durableReplay.active;
 
-  const getDurableReplayRunId = (event) => extractRunId(event) || internal.durableReplay.runId || null;
+  const getDurableReplayRunId = (event) => {
+    const hasParentLineage = typeof event?.payload?.lineage?.parent_call_id === 'string'
+      && event.payload.lineage.parent_call_id.length > 0;
+    // Child Run events share the durable replay stream with their root. Route
+    // them into the root assistant instead of creating visible child drafts.
+    if (hasParentLineage && internal.durableReplay.runId) return internal.durableReplay.runId;
+    return extractRunId(event) || internal.durableReplay.runId || null;
+  };
 
   const ensureDurableReplayActiveRun = (event) => {
     const runId = getDurableReplayRunId(event);

@@ -11,7 +11,8 @@ import type { AsyncRunStore } from "@ragsystem/backend-core/contracts/storage/as
 export type { AsyncRunStore } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 
 const runColumns = `run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
-  request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+  request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id, agent_display_name,
+  lease_root_run_id, thread_key, parent_run_id, parent_call_id,
   child_agent_id, final_message_id, created_at, updated_at`;
 
 interface IdempotentRunStepRow extends Record<string, unknown> {
@@ -30,6 +31,8 @@ function run(row: Record<string, unknown>): RunInfo {
     entrypoint: textOrNull(row.entrypoint), status: String(row.status), task_summary: textOrNull(row.task_summary),
     terminal_reason: textOrNull(row.terminal_reason),
     request_id: textOrNull(row.request_id), user_id: textOrNull(row.user_id), agent_name: textOrNull(row.agent_name),
+    agent_call_id: String(row.agent_call_id), lineage_parent_call_id: textOrNull(row.lineage_parent_call_id),
+    agent_display_name: String(row.agent_display_name), lease_root_run_id: String(row.lease_root_run_id),
     thread_key: String(row.thread_key ?? "root"), parent_run_id: textOrNull(row.parent_run_id), parent_call_id: textOrNull(row.parent_call_id),
     child_agent_id: textOrNull(row.child_agent_id), final_message_id: textOrNull(row.final_message_id),
     created_at: new Date(String(row.created_at)).toISOString(), updated_at: new Date(String(row.updated_at)).toISOString(),
@@ -44,13 +47,18 @@ export class PostgresRunRepository implements AsyncRunStore {
     const status = input.status ?? "running";
     await this.executor.query(`INSERT INTO saas_runs
       (tenant_id, run_id, session_id, entrypoint, status, task_summary, request_id, user_id, agent_name,
+       agent_call_id, lineage_parent_call_id, agent_display_name, lease_root_run_id,
        thread_key, parent_run_id, parent_call_id, child_agent_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
       ON CONFLICT (tenant_id, run_id) DO NOTHING`, [input.tenantId, input.runId, input.sessionId, input.entrypoint ?? "execute", status,
       input.taskSummary ?? "", input.requestId ?? null, input.userId ?? null, input.agentName ?? null,
+      input.agentCallId, input.lineageParentCallId, input.agentDisplayName, input.leaseRootRunId,
       threadKey, input.parentRunId ?? null, input.parentCallId ?? null, input.childAgentId ?? null]);
     return { run_id: input.runId, session_id: input.sessionId, status, thread_key: threadKey,
-      parent_run_id: input.parentRunId ?? null, parent_call_id: input.parentCallId ?? null, child_agent_id: input.childAgentId ?? null };
+      parent_run_id: input.parentRunId ?? null, parent_call_id: input.parentCallId ?? null,
+      agent_call_id: input.agentCallId, lineage_parent_call_id: input.lineageParentCallId,
+      agent_display_name: input.agentDisplayName, lease_root_run_id: input.leaseRootRunId,
+      child_agent_id: input.childAgentId ?? null };
   }
 
   async updateRunStatus(tenantId: string, runId: string, sessionId: string, status: string, finalMessageId: string | null = null, terminalReason: string | null = null): Promise<boolean> {

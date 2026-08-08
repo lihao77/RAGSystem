@@ -44,8 +44,8 @@ const props = defineProps({
   runningToolCount: { type: Number, default: 0 },
   runningModelCount: { type: Number, default: 0 },
   hasError: { type: Boolean, default: false },
+  interrupted: { type: Boolean, default: false },
   completed: { type: Boolean, default: false },
-  stopped: { type: Boolean, default: false },
 })
 
 const PHASE_LABELS = {
@@ -61,8 +61,8 @@ const displayState = computed(() => {
   if (props.pendingInput) return { label: '待输入', tone: 'input', icon: 'input' }
   if (props.approvalCount > 0 || props.phase === 'approval_waiting') return { label: '等待审批', tone: 'warning', icon: 'approval' }
   if (props.phase === 'suspended') return { label: '已挂起', tone: 'warning', icon: 'idle' }
+  if (props.interrupted) return { label: '已中断', tone: 'warning', icon: 'idle' }
   if (props.hasError) return { label: '执行异常', tone: 'error', icon: 'error' }
-  if (props.stopped) return { label: '已停止', tone: 'idle', icon: 'idle' }
   if (props.phase === 'model_failed') return { label: '模型调用失败', tone: 'error', icon: 'error' }
   if (props.phase === 'retrying') return { label: '重试中', tone: 'warning', icon: 'approval' }
   if (props.phase === 'parallel_running') {

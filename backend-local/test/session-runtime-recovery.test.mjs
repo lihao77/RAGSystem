@@ -39,6 +39,10 @@ async function createHarness(t) {
     taskSummary: 'task',
     requestId: 'req-1',
     agentName: 'root',
+    agentCallId: 'root-call-1',
+    lineageParentCallId: null,
+    agentDisplayName: 'Root',
+    leaseRootRunId: 'run-1',
     threadKey: 'root',
   });
   return { store, storage, runtime: new SessionRuntimeService(storage) };
@@ -62,25 +66,6 @@ function createInteraction(store) {
       },
     },
   });
-}
-
-function terminalRecord({ sessionId, runId, status, reason }) {
-  return {
-    outbox: {
-      eventId: `recovery-${runId}`,
-      sessionId,
-      runId,
-      eventType: 'run_ended',
-      aggregateType: 'run',
-      aggregateId: runId,
-      payload: {
-        type: 'run_ended',
-        session_id: sessionId,
-        run_id: runId,
-        payload: { status, reason },
-      },
-    },
-  };
 }
 
 function resumeAttachRecord(claimId) {
@@ -137,7 +122,7 @@ test('Local 崩溃恢复会把等待交互的 running run 收敛为 suspended', 
   const { store, storage, runtime } = await createHarness(t);
   createInteraction(store);
 
-  const recovered = await storage.recoverOrphanedRuns(terminalRecord);
+  const recovered = await storage.recoverOrphanedRuns();
   const snapshot = await runtime.getSnapshot('session-1');
 
   assert.deepEqual(recovered.suspendedRuns, [{ runId: 'run-1', parentRunId: null }]);
@@ -159,7 +144,7 @@ test('Local 崩溃恢复释放 resuming claim，并保留 durable resolution 供
   });
   store.markPendingBatchResuming('session-1', 'batch-1');
 
-  await storage.recoverOrphanedRuns(terminalRecord);
+  await storage.recoverOrphanedRuns();
   const snapshot = await runtime.getSnapshot('session-1');
 
   assert.equal(store.getPendingInteraction('session-1', 'interaction-1').status, 'resolved');
@@ -186,7 +171,7 @@ test('Local 崩溃恢复对无可恢复交互的 run 使用 interrupted', async 
     metadata: { run_id: 'run-1', round: 1, agent_name: 'root' },
   });
 
-  const recovered = await storage.recoverOrphanedRuns(terminalRecord);
+  const recovered = await storage.recoverOrphanedRuns();
   const snapshot = await runtime.getSnapshot('session-1');
 
   assert.deepEqual(recovered.interruptedRuns, [{ runId: 'run-1', parentRunId: null }]);
@@ -240,25 +225,6 @@ test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async
       terminalStatus: 'interrupted',
       reason: 'user stopped the run',
     },
-    buildTerminalRecords: (_finalMessage, closedToolMessages = []) => closedToolMessages.map((message) => ({
-      outbox: {
-        eventId: `run-1:${message.tool_call_id}:tool_result`,
-        sessionId: 'session-1',
-        runId: 'run-1',
-        eventType: 'client.tool_result',
-        aggregateType: 'run',
-        aggregateId: 'run-1',
-        payload: {
-          client_event: {
-            type: 'tool_result',
-            session_id: 'session-1',
-            run_id: 'run-1',
-            call_id: message.tool_call_id,
-            payload: { phase: 'end', ok: false, status: 'failed' },
-          },
-        },
-      },
-    })),
   });
 
   const closed = store.getRecentMessages('session-1', 100, 'root')
@@ -267,8 +233,10 @@ test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async
   assert.equal(closed?.metadata.terminal_status, 'interrupted');
   assert.equal(closed?.metadata.terminal_reason, 'user stopped the run');
   assert.equal(closed?.content, '工具执行被中断：user stopped the run');
-  assert.equal(result.records.length, 1);
-  assert.equal(result.records[0]?.outbox.event_type, 'client.tool_result');
+  assert.equal(result.records.length, 5);
+  const toolResult = result.records.find(record => record.outbox.event_type === 'client.tool_result');
+  assert.equal(toolResult?.outbox.event_type, 'client.tool_result');
+  assert.equal(JSON.parse(toolResult.outbox.payload).client_event.payload.status, 'interrupted');
   assert.equal(store.getRun('session-1', 'run-1').status, 'interrupted');
   assert.equal(store.getRun('session-1', 'run-1').terminal_reason, 'user stopped the run');
 });
@@ -353,6 +321,10 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
       taskSummary: 'next task',
       requestId: 'req-2',
       agentName: 'root',
+      agentCallId: 'root-call-2',
+      lineageParentCallId: null,
+      agentDisplayName: 'Root',
+      leaseRootRunId: 'run-2',
       threadKey: 'root',
     },
     initialUserMessage: {
@@ -375,6 +347,110 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
   assert.equal(toolIndex >= 0 && nextUserIndex > toolIndex, true);
 });
 
+test('root 终态原子收敛共享 lease child，并保留独立 background child', async (t) => {
+  const { store, storage } = await createHarness(t);
+  store.createRun({
+    runId: 'foreground-child',
+    sessionId: 'session-1',
+    status: 'suspended',
+    agentName: 'worker',
+    agentCallId: 'foreground-call',
+    lineageParentCallId: 'root-call-1',
+    agentDisplayName: 'Worker',
+    leaseRootRunId: 'run-1',
+    threadKey: 'child:foreground',
+    parentRunId: 'run-1',
+    parentCallId: 'invoke-foreground',
+    childAgentId: 'foreground-agent',
+  });
+  store.createRun({
+    runId: 'background-child',
+    sessionId: 'session-1',
+    status: 'running',
+    agentName: 'worker',
+    agentCallId: 'background-call',
+    lineageParentCallId: 'root-call-1',
+    agentDisplayName: 'Worker',
+    leaseRootRunId: 'background-child',
+    threadKey: 'child:background',
+    parentRunId: 'run-1',
+    parentCallId: 'invoke-background',
+    childAgentId: 'background-agent',
+  });
+
+  const result = await storage.operations.finalizeRun({
+    runId: 'run-1',
+    sessionId: 'session-1',
+    status: 'interrupted',
+    reason: 'session_stopped',
+    finalMessage: buildTerminalAssistantMessage({
+      sessionId: 'session-1',
+      runId: 'run-1',
+      threadKey: 'root',
+      agentName: 'root',
+      terminalStatus: 'interrupted',
+      reason: 'session_stopped',
+    }),
+  });
+
+  assert.equal(store.getRun('session-1', 'run-1').status, 'interrupted');
+  assert.equal(store.getRun('session-1', 'foreground-child').status, 'interrupted');
+  assert.equal(store.getRun('session-1', 'background-child').status, 'running');
+  const ended = result.records
+    .map(record => JSON.parse(record.outbox.payload).client_event)
+    .filter(event => event.type === 'agent_ended');
+  assert.deepEqual(ended.map(event => event.call_id).sort(), ['foreground-call', 'root-call-1']);
+  assert.deepEqual(ended.map(event => event.payload.status), ['interrupted', 'interrupted']);
+
+  const lateFinalize = await storage.operations.finalizeRun({
+    runId: 'foreground-child',
+    sessionId: 'session-1',
+    status: 'failed',
+    reason: 'late child failure',
+    finalMessage: buildTerminalAssistantMessage({
+      sessionId: 'session-1',
+      runId: 'foreground-child',
+      threadKey: 'child:foreground',
+      agentName: 'worker',
+      terminalStatus: 'failed',
+      reason: 'late child failure',
+    }),
+  });
+  assert.equal(lateFinalize.records.length, 0);
+  assert.equal(store.getRun('session-1', 'foreground-child').status, 'interrupted');
+});
+
+test('Local 崩溃恢复按持久化 lease root 收敛前台 child', async (t) => {
+  const { store, storage } = await createHarness(t);
+  store.createRun({
+    runId: 'zz-foreground-child',
+    sessionId: 'session-1',
+    status: 'running',
+    agentName: 'worker',
+    agentCallId: 'zz-foreground-call',
+    lineageParentCallId: 'root-call-1',
+    agentDisplayName: 'Worker',
+    leaseRootRunId: 'run-1',
+    threadKey: 'child:zz-foreground',
+    parentRunId: 'run-1',
+    parentCallId: 'invoke-foreground',
+    childAgentId: 'zz-foreground-agent',
+  });
+
+  const recovered = await storage.recoverOrphanedRuns();
+
+  assert.deepEqual(recovered.interruptedRuns, [
+    { runId: 'run-1', parentRunId: null },
+    { runId: 'zz-foreground-child', parentRunId: 'run-1' },
+  ]);
+  assert.equal(store.getRun('session-1', 'run-1').status, 'interrupted');
+  assert.equal(store.getRun('session-1', 'zz-foreground-child').status, 'interrupted');
+  const ended = recovered.records
+    .map(record => JSON.parse(record.outbox.payload).client_event)
+    .filter(event => event.type === 'agent_ended');
+  assert.deepEqual(ended.map(event => event.call_id), ['root-call-1', 'zz-foreground-call']);
+});
+
 test('Local 崩溃恢复把后台 child 作为独立交互根，并允许 child 独立续接', async (t) => {
   const { store, storage, runtime } = await createHarness(t);
   store.createRun({
@@ -385,6 +461,10 @@ test('Local 崩溃恢复把后台 child 作为独立交互根，并允许 child 
     taskSummary: 'child task',
     requestId: 'child-req-1',
     agentName: 'worker',
+    agentCallId: 'child-call-1',
+    lineageParentCallId: 'root-call-1',
+    agentDisplayName: 'Worker',
+    leaseRootRunId: 'child-run-1',
     threadKey: 'child:child-1',
     parentRunId: 'run-1',
     parentCallId: 'parent-call-1',
@@ -409,7 +489,7 @@ test('Local 崩溃恢复把后台 child 作为独立交互根，并允许 child 
     },
   });
 
-  const recovered = await storage.recoverOrphanedRuns(terminalRecord);
+  const recovered = await storage.recoverOrphanedRuns();
   assert.deepEqual(recovered.interruptedRuns, [{ runId: 'run-1', parentRunId: null }]);
   assert.deepEqual(recovered.suspendedRuns, [{ runId: 'child-run-1', parentRunId: 'run-1' }]);
   assert.equal(store.getRun('session-1', 'run-1').status, 'interrupted');

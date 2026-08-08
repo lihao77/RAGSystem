@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildRunTerminalRecords,
   buildTerminalAssistantMessage,
   buildTerminalToolMessages,
 } from "../src/contracts/storage/runtime-finalization.js";
@@ -209,7 +210,19 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
             thread_key: "root",
             child_agent_id: null,
           } as MessageInfo;
-          terminalEvents = (input.buildTerminalRecords?.(finalMessage) ?? [])
+          terminalEvents = buildRunTerminalRecords({
+            run: {
+              sessionId: input.sessionId,
+              runId: input.runId,
+              agentCallId: "root-call-1",
+              lineageParentCallId: null,
+              agentName: "agent-1",
+              agentDisplayName: "Agent 1",
+            },
+            status: input.status as "completed" | "failed" | "interrupted",
+            ...(input.reason !== undefined ? { reason: input.reason } : {}),
+            finalMessage,
+          })
             .map((record) => record.outbox.payload.client_event);
           return { finalMessage, records: [], readyResumeInteractionIds: [] };
         }),
@@ -299,7 +312,6 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
 
     expect(finalizeInput).toMatchObject({
       status: "failed",
-      deleteProviderContinuationThreadKey: "root",
       closeDanglingToolCalls: {
         threadKey: "root",
         agentName: "agent-1",
@@ -311,8 +323,6 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
 
   it("publishes an interrupted terminal agent event for a foreground child aborted with its parent", async () => {
     const tenantId = createTenantId("tnt_test");
-    const controller = new AbortController();
-    controller.abort();
     let terminalEvents: Array<{ type: string }> = [];
     const storage = {
       tenantId,
@@ -330,7 +340,19 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
             thread_key: "child:child-1",
             child_agent_id: "child-1",
           } as MessageInfo;
-          terminalEvents = (input.buildTerminalRecords?.(finalMessage) ?? [])
+          terminalEvents = buildRunTerminalRecords({
+            run: {
+              sessionId: input.sessionId,
+              runId: input.runId,
+              agentCallId: "child-call-1",
+              lineageParentCallId: "root-call-1",
+              agentName: "worker",
+              agentDisplayName: "Worker",
+            },
+            status: input.status as "completed" | "failed" | "interrupted",
+            ...(input.reason !== undefined ? { reason: input.reason } : {}),
+            finalMessage,
+          })
             .map((record) => record.outbox.payload.client_event as { type: string });
           return { finalMessage, records: [], readyResumeInteractionIds: [] };
         }),
@@ -354,7 +376,6 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
       parentCallId: "root-call-1",
       lineageParentCallId: "root-call-1",
       childAgentId: "child-1",
-      signal: controller.signal,
       sessionIdentity: {
         sessionId: "session-1",
         ownerUserId: null,

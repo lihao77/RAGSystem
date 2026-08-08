@@ -43,6 +43,139 @@ describe("agent-protocol envelope compatibility", () => {
     expect(getExecutionTree(state).root).toMatchObject({ status: "interrupted", result: "stopped" });
   });
 
+  it("replays agent_ended that arrives before agent_started", () => {
+    const state = createExecutionTreeState();
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_ended",
+      session_id: "session-1",
+      run_id: "child-run-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+      payload: { phase: "end", success: false, status: "interrupted", result: "stopped" },
+    }));
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_started",
+      session_id: "session-1",
+      run_id: "child-run-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+      payload: { phase: "start", task: "child task" },
+    }));
+
+    expect(getExecutionTree(state).root).toMatchObject({ status: "interrupted", result: "stopped" });
+  });
+
+  it("keeps the first terminal agent state when conflicting terminal events arrive before start", () => {
+    const state = createExecutionTreeState();
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_ended",
+      session_id: "session-1",
+      run_id: "child-run-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+      payload: { phase: "end", success: false, status: "interrupted", result: "stopped" },
+    }));
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_ended",
+      session_id: "session-1",
+      run_id: "child-run-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+      payload: { phase: "end", success: false, status: "failed", result: "late failure" },
+    }));
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_started",
+      session_id: "session-1",
+      run_id: "child-run-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+      payload: { phase: "start", task: "child task" },
+    }));
+
+    expect(getExecutionTree(state).root).toMatchObject({ status: "interrupted", result: "stopped" });
+  });
+
+  it("requires complete and internally consistent agent lifecycle envelopes", () => {
+    expect(() => ServerToClientEnvelopeSchema.parse({
+      type: "agent_started",
+      session_id: "session-1",
+      agent_id: "worker",
+      payload: { phase: "start" },
+    })).toThrow();
+    expect(() => ServerToClientEnvelopeSchema.parse({
+      type: "agent_ended",
+      session_id: "session-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+    })).toThrow();
+    expect(() => ServerToClientEnvelopeSchema.parse({
+      type: "agent_ended",
+      session_id: "session-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+      payload: { phase: "end", success: true, status: "failed" },
+    })).toThrow();
+  });
+
+  it("projects an interrupted dangling tool without converting it to failed", () => {
+    const state = createExecutionTreeState();
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "tool_call",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "tool-1",
+      payload: { phase: "start", status: "running", tool: "search" },
+    }));
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "tool_result",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "tool-1",
+      payload: { phase: "end", ok: false, status: "interrupted", tool: "search" },
+    }));
+
+    expect(getExecutionTree(state).root?.rounds[0]?.toolCalls[0]?.status).toBe("interrupted");
+  });
+
+  it("attaches a child stream and terminal event from lineage when its start was missed", () => {
+    const state = createExecutionTreeState();
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "stream_output",
+      session_id: "session-1",
+      run_id: "child-run-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+      payload: {
+        phase: "final",
+        content: "child result",
+        lineage: { parent_call_id: "root-call-1" },
+      },
+    }));
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_ended",
+      session_id: "session-1",
+      run_id: "child-run-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+      payload: {
+        phase: "end",
+        success: false,
+        status: "interrupted",
+        result: "stopped",
+        lineage: { parent_call_id: "root-call-1" },
+      },
+    }));
+
+    const tree = getExecutionTree(state);
+    expect(tree.root?.callId).toBe("root-call-1");
+    expect(tree.root?.children).toHaveLength(1);
+    expect(tree.root?.children[0]).toMatchObject({
+      callId: "child-call-1",
+      status: "interrupted",
+      output: "child result",
+    });
+  });
+
   it("上行附件严格只接受 file_id", () => {
     expect(AttachmentRefSchema.parse({ file_id: "file-1" })).toEqual({ file_id: "file-1" });
     expect(() => AttachmentRefSchema.parse({
@@ -217,6 +350,7 @@ describe("agent-protocol envelope compatibility", () => {
         tool: "execute_skill_script",
         phase: "end",
         ok: true,
+        status: "succeeded",
         files: [{
           file_type: "image",
           path: "results/map.png",

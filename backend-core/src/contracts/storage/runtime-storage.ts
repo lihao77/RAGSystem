@@ -170,14 +170,6 @@ export interface RuntimeStartOrAppendRootInput extends RuntimeStartRunInput {
    */
   deferFollowup?: boolean;
   followupFactory: RuntimeRootFollowupFactory;
-  /** Builds the durable terminal event when this distributed start fences an expired prior root. */
-  buildExpiredRunEndedRecord?: (run: {
-    sessionId: string;
-    runId: string;
-    parentRunId: null;
-    status: "interrupted" | "suspended";
-    reason: "run_lease_expired" | "backend_restarted_waiting_interaction";
-  }) => RuntimeRecordEnvelopeInput;
 }
 
 export type RuntimeStartOrAppendRootResult =
@@ -219,21 +211,12 @@ export interface RuntimeFinalizeRunInput {
   attachStepsToFinalMessage?: boolean;
   /** Present only when finalizing the root run; applies the root interaction status matrix atomically. */
   interactionRootRunId?: string | null;
-  deleteProviderContinuationThreadKey?: string | null;
   closeDanglingToolCalls?: {
     threadKey: string;
     agentName: string;
     terminalStatus: "failed" | "interrupted";
     reason: string;
   } | null;
-  /**
-   * Builds terminal step/outbox records after final and terminal-tool messages have been inserted.
-   * This callback runs inside the database transaction and must be synchronous and free of I/O.
-   */
-  buildTerminalRecords?: (
-    finalMessage: MessageInfo | null,
-    closedToolMessages?: readonly MessageInfo[],
-  ) => readonly RuntimeRecordEnvelopeInput[];
 }
 
 export interface RuntimeFinalizeRunResult {
@@ -375,10 +358,6 @@ export interface RuntimeRollbackResumeResult {
 
 export interface RuntimeInterruptSessionInput {
   sessionId: string;
-  buildTerminalRecords(
-    run: { runId: string; parentRunId: string | null },
-    finalMessage: MessageInfo,
-  ): readonly RuntimeRecordEnvelopeInput[];
 }
 
 export interface RuntimeInterruptSessionResult {
@@ -401,13 +380,6 @@ export interface RuntimeRenewRunLeaseResult {
 export interface RuntimeRecoverExpiredRunLeasesInput {
   /** Optional clock override used by deterministic maintenance tests. */
   now?: string;
-  buildRunEndedRecord(run: {
-    sessionId: string;
-    runId: string;
-    parentRunId: string | null;
-    status: "interrupted" | "suspended";
-    reason: "run_lease_expired" | "backend_restarted_waiting_interaction";
-  }): RuntimeRecordEnvelopeInput;
 }
 
 export interface RuntimeRecoverExpiredRunLeasesResult {

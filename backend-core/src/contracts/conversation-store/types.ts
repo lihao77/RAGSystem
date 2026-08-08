@@ -118,6 +118,10 @@ export interface CreateRunInput {
   requestId?: string | null;
   userId?: string | null;
   agentName?: string | null;
+  agentCallId: string;
+  lineageParentCallId: string | null;
+  agentDisplayName: string;
+  leaseRootRunId: string;
   operation?: "publish" | "archive" | null;
   threadKey?: string | null;
   parentRunId?: string | null;
@@ -132,6 +136,10 @@ export interface CreatedRun {
   thread_key: string;
   parent_run_id: string | null;
   parent_call_id: string | null;
+  agent_call_id: string;
+  lineage_parent_call_id: string | null;
+  agent_display_name: string;
+  lease_root_run_id: string;
   child_agent_id: string | null;
 }
 
@@ -249,6 +257,10 @@ export const RunInfoSchema = z.object({
   request_id: z.string().nullable(),
   user_id: z.string().nullable(),
   agent_name: z.string().nullable(),
+  agent_call_id: z.string(),
+  lineage_parent_call_id: z.string().nullable(),
+  agent_display_name: z.string(),
+  lease_root_run_id: z.string(),
   thread_key: z.string(),
   parent_run_id: z.string().nullable(),
   parent_call_id: z.string().nullable(),

@@ -80,6 +80,10 @@ export interface RunRow {
   request_id: string | null;
   user_id: string | null;
   agent_name: string | null;
+  agent_call_id: string;
+  lineage_parent_call_id: string | null;
+  agent_display_name: string;
+  lease_root_run_id: string;
   thread_key: string;
   parent_run_id: string | null;
   parent_call_id: string | null;
