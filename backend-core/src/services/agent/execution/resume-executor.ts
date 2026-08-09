@@ -4,11 +4,11 @@ import type { InteractionResumeStarter } from "../../../contracts/runtime/pendin
 import { asString } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import { applyWorkspaceOverride } from "../delegation/helpers.js";
-import type { AgentRunEngine } from "./run-engine.js";
+import type { AgentInvocationPort } from "../../../contracts/execution/agent-invocation.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 
 export function createResumeExecutor(deps: {
-  runEngine: AgentRunEngine;
+  invocationService: AgentInvocationPort;
   runtimeCore: RuntimeExecutionConfigResolver;
 }): InteractionResumeStarter {
   return {
@@ -23,8 +23,10 @@ export function createResumeExecutor(deps: {
       );
       if (!ready.ok) throw new Error(ready.reason);
       if (claim.childAgentId) {
-        const abortController = new AbortController();
-        const promise = deps.runEngine.executeRun({
+        return deps.invocationService.invoke({
+          scope: "child",
+          mode: "resume",
+          execution: "background",
           sessionId,
           sessionIdentity: claim.sessionIdentity,
           runId: claim.rootRunId,
@@ -36,7 +38,6 @@ export function createResumeExecutor(deps: {
           requestId: claim.requestId ?? randomUUID(),
           task: claim.task,
           startedAt: new Date(),
-          abortController,
           agent: applyWorkspaceOverride(ready.agent, claim.workspaceRoot),
           provider: ready.provider,
           modelName: ready.modelName,
@@ -48,22 +49,23 @@ export function createResumeExecutor(deps: {
           executionKind: claim.executionKind,
           rootTask: claim.task,
         });
-        return { promise };
       }
-      return deps.runEngine.startRun({
-          sessionId,
-          sessionIdentity: claim.sessionIdentity,
-          runId: claim.rootRunId,
-          rootCallId: claim.rootCallId,
-          resume: true,
-          userId: claim.userId,
-          requestId: claim.requestId ?? randomUUID(),
-          task: claim.task,
-          executionKind: claim.executionKind,
-          agent: ready.agent,
-          provider: ready.provider,
-          modelName: ready.modelName,
-        });
+      return deps.invocationService.invoke({
+        scope: "root",
+        mode: "resume",
+        execution: "foreground",
+        sessionId,
+        sessionIdentity: claim.sessionIdentity,
+        runId: claim.rootRunId,
+        rootCallId: claim.rootCallId,
+        userId: claim.userId,
+        requestId: claim.requestId ?? randomUUID(),
+        task: claim.task,
+        executionKind: claim.executionKind,
+        agent: ready.agent,
+        provider: ready.provider,
+        modelName: ready.modelName,
+      });
     },
   };
 }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
-import type { AgentRunEngine } from "../execution/run-engine.js";
+import type { AgentInvocationPort } from "../../../contracts/execution/agent-invocation.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ChildAgentInfo } from "../../../contracts/conversation-store/index.js";
 import type { AgentDelegationStorePort } from "../../../contracts/runtime/core-runtime-ports.js";
@@ -62,7 +62,7 @@ interface ChildRunInput {
 }
 
 export class AgentDelegationService implements DelegationPort {
-  private runEngineProvider: (() => AgentRunEngine | null) | null = null;
+  private invocationService: AgentInvocationPort | null = null;
   private readonly activeChildRuns = new Map<string, string>();
 
   constructor(
@@ -73,8 +73,8 @@ export class AgentDelegationService implements DelegationPort {
     private readonly dataRoot: string | null = null,
   ) {}
 
-  setRunEngine(provider: () => AgentRunEngine | null): void {
-    this.runEngineProvider = provider;
+  setInvocationService(service: AgentInvocationPort): void {
+    this.invocationService = service;
   }
 
   async callAgent(call: AgentDelegationCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
@@ -479,9 +479,9 @@ export class AgentDelegationService implements DelegationPort {
     }
     throwIfAborted(input.signal);
 
-    const runEngine = this.runEngineProvider?.();
-    if (!runEngine) {
-      const message = "RunEngine 未注入，无法执行子 Agent";
+    const invocationService = this.invocationService;
+    if (!invocationService) {
+      const message = "AgentInvocationService 未注入，无法执行子 Agent";
       return {
         success: false,
         content: message,
@@ -497,15 +497,6 @@ export class AgentDelegationService implements DelegationPort {
     // 子 run 复用 root 的 executeRun 执行核心：prepare/kernel/事件/recorder 全部统一，
     // 靠 threadKey=child:xxx + parent_run_id/parent_call_id/child_agent_id 区分归属。
     // observation 落子 thread、step 落子 run_id，续聊 prepare 重建完整上下文、工作栏按 parent_call_id 展示。
-    const abortController = new AbortController();
-    if (input.signal) {
-      if (input.signal.aborted) {
-        abortController.abort();
-      } else {
-        input.signal.addEventListener("abort", () => abortController.abort(), { once: true });
-      }
-    }
-
     // 在执行前记录 last_run_id，确保子 run 挂起抛异常时仍可由原 call_agent 找回。
     await this.store.updateChildAgentLastRun({
       sessionId: input.sessionId,
@@ -514,7 +505,10 @@ export class AgentDelegationService implements DelegationPort {
     });
     throwIfAborted(input.signal);
 
-    const outcome = await runEngine.executeRun({
+    const handle = invocationService.invoke({
+      scope: "child",
+      mode: input.resumeRunId ? "resume" : "create",
+      execution: input.ownsRunLease ? "background" : "foreground",
       sessionId: input.sessionId,
       sessionIdentity: toSessionIdentity(session),
       runId: childRunId,
@@ -526,7 +520,7 @@ export class AgentDelegationService implements DelegationPort {
       requestId: input.requestId ?? "",
       task: input.task,
       startedAt: new Date(),
-      abortController,
+      ...(input.signal ? { signal: input.signal } : {}),
       agent: targetAgent,
       provider: resolved.provider,
       modelName: resolved.modelName,
@@ -539,6 +533,7 @@ export class AgentDelegationService implements DelegationPort {
       rootTask: input.ownsRunLease ? input.task : input.rootTask,
       ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
     });
+    const outcome = await handle.promise;
 
     if (outcome.suspended) {
       const interactionKind = outcome.interactionKind ?? "approval";

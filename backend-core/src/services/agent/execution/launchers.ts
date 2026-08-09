@@ -37,8 +37,10 @@ import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
-
-type StartedRunHandle = ReturnType<AgentRunEngine["startRun"]>;
+import type {
+  AgentInvocationHandle,
+  AgentInvocationPort,
+} from "../../../contracts/execution/agent-invocation.js";
 
 interface UnifiedRunStartInput {
   sessionId: string;
@@ -61,7 +63,7 @@ interface UnifiedRunStartInput {
 
 type UnifiedRunStartResult =
   | { ok: false; error: string }
-  | { ok: true; agentName: string; handle: StartedRunHandle };
+  | { ok: true; agentName: string; handle: AgentInvocationHandle };
 
 interface SendUserMessageInput {
   sessionId?: string | null;
@@ -86,7 +88,7 @@ interface SendUserMessageInput {
 type SendUserMessageResult =
   | { kind: "error"; sessionId: string; error: string; runId?: string | null; taskId?: string | null }
   | { kind: "command"; sessionId: string; start: AgentRunStartResult; success: boolean; content: string; contentParts: MessageContentPart[] }
-  | { kind: "run"; sessionId: string; agentName: string; handle: StartedRunHandle };
+  | { kind: "run"; sessionId: string; agentName: string; handle: AgentInvocationHandle };
 
 export interface RollbackRetryInput {
   sessionId: string;
@@ -117,6 +119,7 @@ export interface LauncherDeps {
   statusTracker: AgentExecutionStatusTracker;
   eventPublisher: AgentExecutionEventPublisher;
   runEngine: AgentRunEngine;
+  invocationService: AgentInvocationPort;
   notificationQueue: SessionNotificationQueue;
   backgroundTasks: BackgroundTaskService | null;
   goalStore: GoalStore | null;
@@ -140,6 +143,7 @@ class AgentLaunchers {
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly eventPublisher: AgentExecutionEventPublisher,
     private readonly runEngine: AgentRunEngine,
+    private readonly invocationService: AgentInvocationPort,
     private readonly notificationQueue: SessionNotificationQueue,
     private readonly backgroundTasks: BackgroundTaskService | null,
     private readonly goalStore: GoalStore | null,
@@ -166,7 +170,10 @@ class AgentLaunchers {
       return { ok: false, error: ready.reason };
     }
 
-    const handle = this.runEngine.startRun({
+    const handle = this.invocationService.invoke({
+      scope: "root",
+      mode: "create",
+      execution: "foreground",
       sessionId: input.sessionId,
       sessionIdentity: input.sessionIdentity,
       userId: input.userId,
@@ -811,7 +818,10 @@ class AgentLaunchers {
         ...(claimedGoal ? [renderGoalContinuation(claimedGoal)] : []),
       ].filter(Boolean).join("\n\n");
       const source = claimedGoal ? "goal_continuation" : "background_notification";
-      const started = this.runEngine.startRun({
+      const started = this.invocationService.invoke({
+        scope: "root",
+        mode: "create",
+        execution: "background",
         sessionId,
         sessionIdentity,
         requestId: `${claimedGoal ? "goal_continue" : "bg_notify"}_${randomUUID()}`,
@@ -907,6 +917,7 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.statusTracker,
     deps.eventPublisher,
     deps.runEngine,
+    deps.invocationService,
     deps.notificationQueue,
     deps.backgroundTasks,
     deps.goalStore,

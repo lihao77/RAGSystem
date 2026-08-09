@@ -13,6 +13,8 @@ import { createDelegationTools } from "../src/tools/DelegationTools/DelegationTo
 import { BackgroundTaskService } from "../src/services/runtime/background-task-service.js";
 import { AgentDelegationService } from "../src/services/agent/delegation/index.js";
 import { createResumeExecutor } from "../src/services/agent/execution/resume-executor.js";
+import { AgentInvocationService } from "../src/services/agent/execution/invocation-service.js";
+import { buildChildMetadata } from "../src/services/agent/delegation/helpers.js";
 import type { DelegationPort } from "../src/services/agent/delegation/port.js";
 
 const tempRoots: string[] = [];
@@ -117,6 +119,17 @@ function store(child: ChildAgentInfo): AgentDelegationStorePort {
 }
 
 describe("background child-agent delegation", () => {
+  it("stores the inherited workspace without worktree metadata", () => {
+    const metadata = buildChildMetadata({ workspaceRoot: "C:\\workspace" } as never, "child:worker", "call_agent");
+    expect(metadata).toMatchObject({
+      created_via: "call_agent",
+      thread_key: "child:worker",
+      workspace_root: "C:\\workspace",
+    });
+    expect(metadata).not.toHaveProperty("uses_worktree");
+    expect(metadata).not.toHaveProperty("original_workspace_root");
+  });
+
   it("exposes the background switch only when tasks.background is enabled", () => {
     const delegation = {} as DelegationPort;
     const enabled = createDelegationTools({
@@ -183,7 +196,7 @@ describe("background child-agent delegation", () => {
     }));
     const runEngine = { executeRun } as never;
     const service = new AgentDelegationService(store(child), runtimeCore(worker), null, backgroundTasks, root);
-    service.setRunEngine(() => runEngine);
+    service.setInvocationService(new AgentInvocationService(runEngine));
     const parentAbort = new AbortController();
 
     const result = await service.callAgent({
@@ -227,7 +240,7 @@ describe("background child-agent delegation", () => {
       interactionKind: "user_input" as const,
     }));
     const service = new AgentDelegationService(store(child), runtimeCore(worker), null, backgroundTasks, root);
-    service.setRunEngine(() => ({ executeRun } as never));
+    service.setInvocationService(new AgentInvocationService({ executeRun } as never));
 
     const result = await service.callAgent({
       agent: parentAgent(true),
@@ -256,7 +269,7 @@ describe("background child-agent delegation", () => {
       abortController.signal.addEventListener("abort", () => resolve({ success: false, content: "aborted" }), { once: true });
     }));
     const service = new AgentDelegationService(store(child), runtimeCore(worker), null, backgroundTasks, root);
-    service.setRunEngine(() => ({ executeRun } as never));
+    service.setInvocationService(new AgentInvocationService({ executeRun } as never));
 
     const result = await service.callAgent({
       agent: parentAgent(true),
@@ -275,7 +288,7 @@ describe("background child-agent delegation", () => {
     const worker = workerAgent();
     const executeRun = vi.fn(async (_input: Record<string, any>) => ({ success: true, content: "done" }));
     const resume = createResumeExecutor({
-      runEngine: { executeRun } as never,
+      invocationService: new AgentInvocationService({ executeRun } as never),
       runtimeCore: runtimeCore(worker),
     });
     const claim = {

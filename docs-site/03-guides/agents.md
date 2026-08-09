@@ -8,6 +8,7 @@ Agent 运行时由 `runtime-container.ts` 装配的多个协作服务构成：
 
 | 组件 | 类 | 职责 |
 |------|----|------|
+| 执行入口 | `AgentInvocationService` | root/child/background/resume 的统一 Agent invocation |
 | 执行引擎 | `AgentExecutionService` / `run-engine` | 工具循环、LLM 调用、事件产出 |
 | 运行时核心 | `RuntimeCoreService` | agent 配置 + provider 解析 |
 | 会话应用 | `AgentSessionApplication` | 会话生命周期 |
@@ -68,11 +69,10 @@ agentConfig.setSkillToolService(skillTools); // runtime-container.ts:182
 
 - `RuntimeCoreService` 提供 agent 配置与 provider 解析
 - `AgentDelegationService` 在运行时把子任务委派给其他 agent
-- 委派依赖延迟注入（`runtime-container.ts:248-249`）：
+- 委派依赖统一 invocation service 注入：
 
 ```ts
-agentDelegation.setRunEngine(() => agentExecution.runEngine);
-agentDelegation.setEventPublisher(() => agentExecution.eventPublisher);
+agentDelegation.setInvocationService(agentExecution.invocationService);
 ```
 
 ## 监控与分析

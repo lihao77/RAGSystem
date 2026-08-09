@@ -6,7 +6,7 @@
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| 执行服务 | `services/agent/execution/` | run-engine、事件发布、启动器、状态追踪 |
+| 执行服务 | `services/agent/execution/` | invocation service、run-engine、事件发布、启动器、状态追踪 |
 | 运行时核心 | `agent/execution/runtime-core-service.ts` | agent 配置 + provider 解析 |
 | 委派 | `agent/delegation/` | orchestrator 动态委派子 agent |
 | 上下文 | `agent/context/` | context-builder + provider-cache-tracker |
@@ -19,22 +19,23 @@
 
 ## 执行引擎（run-engine）
 
-`services/agent/execution/run-engine.ts` 是核心，入口方法 `executeRun`：
+`services/agent/execution/invocation-service.ts` 是 Agent 调用入口，按 root/child scope
+映射到 `AgentRunEngine.startRun` 或 `executeRun`。`run-engine.ts` 负责统一执行生命周期：
 
 ```ts
 async executeRun(input: { ... })
 ```
 
-由 `createAgentExecutionService`（`runtime-container.ts:222`）装配，返回的 `agentExecution` 暴露：
+由 `createAgentExecutionService` 装配，返回的 `agentExecution` 暴露：
 
-- `runEngine` — 执行引擎实例
-- `eventPublisher` — 事件发布器
+- `invocationService` — root、child、background、resume 的统一 Agent invocation 入口
 
 ### execution 目录文件
 
 | 文件 | 职责 |
 |------|------|
-| `run-engine.ts` | 执行引擎主循环 |
+| `invocation-service.ts` | 统一 root/child/background/resume 调用入口 |
+| `run-engine.ts` | 执行引擎主循环与生命周期收口 |
 | `event-publisher.ts` | 事件发布 |
 | `launchers.ts` | 执行启动器 |
 | `slash-command-handler.ts` | 斜杠命令处理 |
@@ -64,7 +65,7 @@ run-engine 驱动 LLM 与工具的循环：
     ▼         │
 执行工具 (createBackendTools 聚合的工具集)
     │         │
-    │  委派?──┤ AgentDelegationService → 子 agent run-engine
+    │  委派?──┤ AgentDelegationService → AgentInvocationService → 子 agent run
     │         │
     ▼         │
 观察结果回填上下文 ──┘
@@ -80,11 +81,10 @@ run-engine 驱动 LLM 与工具的循环：
 `AgentDelegationService`（`runtime-container.ts:200`）实现 orchestrator 模式的动态委派：
 
 - 子任务可委派给 Team 内其他 agent
-- 委派的 `runEngine` 与 `eventPublisher` 延迟注入（`runtime-container.ts:248-249`）：
+- 委派的 `invocationService` 延迟注入，以打破工具依赖与执行服务的初始化环：
 
 ```ts
-agentDelegation.setRunEngine(() => agentExecution.runEngine);
-agentDelegation.setEventPublisher(() => agentExecution.eventPublisher);
+agentDelegation.setInvocationService(agentExecution.invocationService);
 ```
 
 这样设计是因为 `agentDelegation` 需先实例化（工具依赖它），但其执行依赖尚未创建的 `agentExecution`。

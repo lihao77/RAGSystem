@@ -32,6 +32,7 @@ import { AgentExecutionStatusTracker } from "./status-tracker.js";
 import { AttachmentResolver } from "./attachment-resolver.js";
 import { SlashCommandHandler } from "./slash-command-handler.js";
 import { AgentRunEngine, type AgentExecutionLogger } from "./run-engine.js";
+import { AgentInvocationService } from "./invocation-service.js";
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import type { TenantId } from "../../../identity/types.js";
@@ -116,7 +117,9 @@ export interface AgentExecutionServiceParams {
  */
 export function createAgentExecutionService(
   params: AgentExecutionServiceParams,
-): AgentExecutionServiceApi & { runEngine: AgentRunEngine; eventPublisher: AgentExecutionEventPublisher } {
+): AgentExecutionServiceApi & {
+  invocationService: AgentInvocationService;
+} {
   if (!params.clientEvents) {
     throw new Error("AgentExecutionService requires a durable client event publisher");
   }
@@ -163,6 +166,7 @@ export function createAgentExecutionService(
     params.pluginTools ?? null,
     params.executionEnvironment ?? null,
   );
+  const invocationService = new AgentInvocationService(runEngine);
   const launchers = createLaunchers({
     tenantId: params.tenantId,
     sessions: params.sessions,
@@ -172,6 +176,7 @@ export function createAgentExecutionService(
     statusTracker,
     eventPublisher,
     runEngine,
+    invocationService,
     notificationQueue,
     backgroundTasks: params.backgroundTasks ?? null,
     goalStore: params.goalStore ?? null,
@@ -187,5 +192,5 @@ export function createAgentExecutionService(
     executeSynchronously: launchers.executeSynchronously,
   });
   const query = createExecutionQueryService(statusTracker);
-  return { ...launchers, ...sessionControl, ...query, runEngine, eventPublisher };
+  return { ...launchers, ...sessionControl, ...query, invocationService };
 }

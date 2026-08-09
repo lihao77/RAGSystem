@@ -120,11 +120,11 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     executionEnvironment,
   });
   const resumeExecutor = createResumeExecutor({
-    runEngine: agentExecution.runEngine,
+    invocationService: agentExecution.invocationService,
     runtimeCore,
   });
   interactionCoordinator.bindResumeStarter(resumeExecutor);
-  agentDelegation.setRunEngine(() => agentExecution.runEngine);
+  agentDelegation.setInvocationService(agentExecution.invocationService);
   backgroundTasks.setOnTaskCompleted((sessionId) => agentExecution.triggerBgNotificationRun(sessionId));
 
   let closePromise: Promise<void> | null = null;

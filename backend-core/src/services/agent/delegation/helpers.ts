@@ -22,9 +22,6 @@ export function buildChildMetadata(
     created_via: createdVia,
     thread_key: threadKey,
     workspace_root: workspaceRoot,
-    original_workspace_root: workspaceRoot,
-    uses_worktree: false,
-    worktree_disabled_reason: "worktree isolation is not migrated in the TypeScript runtime",
   };
 }
 
@@ -49,4 +46,3 @@ export function clampInteger(value: number | null, min: number, max: number): nu
   const integer = typeof value === "number" && Number.isInteger(value) ? value : min;
   return Math.min(max, Math.max(min, integer));
 }
-

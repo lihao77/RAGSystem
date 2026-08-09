@@ -2,7 +2,7 @@
 
 > 状态更新（2026-04-16）：经代码复审，D1（工具并行执行）与 D2（后台任务完成结果自动注入）均已完成。`BaseAgent._handle_actions()` 已按 `result_N` 依赖分批，并在批次内使用 `ThreadPoolExecutor` 并行执行；后台任务完成后也已通过 session 通知队列与 waiting loop 自动注入 Agent observation。本文其余内容若仍将 D1 / D2 标记为待做，均属于过期结论，已在本次更新中修正。
 
-> 状态更新（2026-04-16）：D3（文件变更回退）已完成并再次收敛。对齐 Claude Code 分层设计：入口 agent 直接在用户原目录操作（不创建 worktree），并在**用户消息提交时**把当前文件状态锚定到该条用户消息的 `snapshot_commit`；非 git 目录就地 `git init`，session 清理时移除。用户执行对话回退时，系统直接读取目标用户消息的 `snapshot_commit` 并自动 `git reset --hard`，不再依赖 run 结束 snapshot 或 assistant `run_id` 反查。Worktree 基础设施保留给 D5 子 Agent 并行隔离。核心模块：`utils/worktree.py`。
+> 状态更新（2026-04-16）：D3（文件变更回退）已完成并再次收敛。入口 agent 直接在用户原目录操作，并在**用户消息提交时**把当前文件状态锚定到该条用户消息的 `snapshot_commit`；非 git 目录就地 `git init`，session 清理时移除。用户执行对话回退时，系统直接读取目标用户消息的 `snapshot_commit` 并自动 `git reset --hard`。当前 TypeScript 子 Agent 统一复用父 workspace，不启用 worktree 隔离；并行写入依赖任务拆分和执行策略控制。
 
 > 目标：沉淀当前系统在运行时/执行层相对 Claude Code 的关键差距，并给出可直接排期实施的顺序化路线。
 >
@@ -87,7 +87,7 @@
 ### 2.3 回退能力现状：已完成（git snapshot 回退，对齐 Claude Code 分层）
 
 **已落地能力**：
-- `backend-fastapi/utils/worktree.py`：拆分为 Snapshot 层（通用）+ Worktree 层（保留给 D5 子 Agent 并行）。
+- `backend-fastapi/utils/worktree.py`：当前只保留 Snapshot 层（`ensure_git_snapshot` / `create_snapshot` / `get_head_commit` / `snapshot_enabled`）。
 - `backend-fastapi/services/agent_api_runtime_service.py`：`_get_session_workspace_root` 调用 `ensure_git_snapshot` 启用回退能力，不再创建 worktree 或重定向 workspace。
 - `backend-fastapi/services/agent_execution_service.py`：用户消息提交时先稳定当前 git 状态，再将 `snapshot_commit` 直接写入用户消息 metadata。
 - `backend-fastapi/application/agent_session.py`：对话回退时直接读取目标用户消息上的 `snapshot_commit` 自动恢复文件；session 删除时自动清理 snapshot 元数据（若为 agent 创建的 .git 则一并清理）。
@@ -98,10 +98,10 @@
 - 非 git 目录 → 就地 `git init`，session 清理时移除 `.git`
 - 用户消息提交时：若当前 workspace 有未提交变更，先提交一个 snapshot，再把当时 `HEAD` 写入该条用户消息的 `snapshot_commit`
 - 对话回退时：直接读取目标用户消息的 `snapshot_commit` 自动执行 `git reset --hard`
-- Worktree 基础设施保留给 D5 子 Agent 并行隔离
+- 子 Agent 当前复用父 workspace；D5 只做任务级并行、结果聚合和失败隔离，不引入 worktree。
 
 **验收结论**：
-- 对齐 Claude Code 分层设计：回退层（FileHistory）与隔离层（Worktree）分离。
+- 回退层（FileHistory）独立于 Agent invocation 编排。
 - 主对话在原目录操作，用户消息直接携带文件锚点；对话回退时消息状态与文件状态自动联动恢复。
 
 ---
@@ -166,7 +166,7 @@
 ### 已完成能力（不再列入实施主线）
 - D1 工具并行执行
 - D2 后台任务闭环（含自动完成注入）
-- D3 文件变更回退（git worktree 隔离）
+- D3 文件变更回退（git snapshot）
 - D4 日志主线治理
 
 ---
@@ -245,15 +245,15 @@
 ### 实际落地方案：git snapshot 回退，对齐 Claude Code 分层设计
 
 **核心设计**：
-- 回退层（Snapshot）与隔离层（Worktree）分离
+- 回退层（Snapshot）独立于 Agent invocation 编排
 - 入口 agent 直接在用户原目录操作，不创建 worktree
 - 用户消息提交时绑定 `snapshot_commit` 作为文件回退锚点
 - 非 git 目录就地 `git init`，session 清理时移除 `.git`
 - 对话回退时自动读取目标用户消息的 `snapshot_commit` 执行恢复
-- Worktree 基础设施保留给 D5 子 Agent 并行隔离
+- 子 Agent 当前复用父 workspace，不启用 worktree
 
 **已落地模块**：
-- `utils/worktree.py`：Snapshot 层（`ensure_git_snapshot` / `create_snapshot` / `get_head_commit` / `snapshot_enabled`）+ Worktree 层（保留）
+- `utils/worktree.py`：仅提供 Snapshot 层（`ensure_git_snapshot` / `create_snapshot` / `get_head_commit` / `snapshot_enabled`）
 - `services/agent_api_runtime_service.py`：`ensure_git_snapshot` 启用回退，不重定向 workspace
 - `services/agent_execution_service.py`：用户消息提交时绑定 `snapshot_commit`
 - `application/agent_session.py`：对话回退时按用户消息 `snapshot_commit` 自动恢复；session 删除时 `cleanup_snapshot`
@@ -306,7 +306,7 @@
 ## 5. 推荐落地排期
 
 ### Phase A（已完成）
-- D3 文件变更回退（git worktree 隔离）
+- D3 文件变更回退（git snapshot）
 
 ### Phase B（当前主线）
 - D5 子 Agent 并行专项收口
@@ -346,7 +346,7 @@
 - **并行执行**
 - **后台任务闭环**
 - **统一日志主线治理**
-- **文件变更回退**（git worktree 隔离）
+- **文件变更回退**（git snapshot）
 
 当前仍值得优先投入的，已经收敛为：
 
