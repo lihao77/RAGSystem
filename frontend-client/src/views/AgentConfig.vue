@@ -999,6 +999,7 @@ const configManagedToolNames = new Set([
   'task_stop',
   'agent',
   'list_child_agents',
+  // Retired split delegation names are stripped from older persisted configs.
   'call_agent',
   'send_message',
   'search_knowledge_base',

@@ -192,7 +192,7 @@ describe("background child-agent delegation", () => {
     }));
   });
 
-  it("delivers send_message to a running child through the durable mailbox", async () => {
+  it("delivers an agent follow-up to a running child through the durable mailbox", async () => {
     const child = { ...childAgent(), last_run_id: "child-run" };
     const delegationStore = store(child);
     const runningRun = {
@@ -821,6 +821,14 @@ describe("background child-agent delegation", () => {
     expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
       input: expect.objectContaining({ message: "progress", toParent: true }),
     }), childContext);
+
+    const rootWithoutTarget = await service.agent({
+      agent: parent,
+      teamName: null,
+      input: { message: "missing target", callId: "tool-root-error" },
+    }, runContext);
+    expect(rootWithoutTarget.success).toBe(false);
+    expect(rootWithoutTarget.content).toContain("需要 agent_name");
   });
 
   it("rejects an ambiguous request that includes both child targets", async () => {
