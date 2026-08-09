@@ -14,6 +14,7 @@ export function toolSuccess<T>(
     outputType: string;
     metadata?: Record<string, unknown>;
     media?: ToolResultMedia[];
+    llmHint?: string | null;
   },
 ): ToolExecutionResult {
   const result: ToolExecutionResult = {
@@ -25,7 +26,7 @@ export function toolSuccess<T>(
     content,
     metadata: input.metadata ?? {},
     files: [],
-    llmHint: null,
+    llmHint: input.llmHint ?? null,
   };
   if (input.media?.length) result.media = input.media;
   return result;

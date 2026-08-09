@@ -414,6 +414,8 @@ describe("background child-agent delegation", () => {
       kind: "progress",
       correlation_id: "corr-1",
     }));
+    expect(result.llmHint).toContain("status=queued");
+    expect(result.llmHint).toContain("尚未 ACK");
     expect(mailbox.enqueue).toHaveBeenCalledWith(expect.objectContaining({
       targetRunId: "child-run",
       targetAgentCallId: "child-call",
@@ -762,6 +764,11 @@ describe("background child-agent delegation", () => {
     const mailbox = {
       enqueue,
       get: vi.fn(),
+      listPending: vi.fn(async () => [{
+        message_id: "queued-child-request",
+        correlation_id: "corr-stop",
+        metadata: { target_lineage_parent_call_id: "parent-lineage" },
+      }]),
       claim: vi.fn(),
       ack: vi.fn(),
       release: vi.fn(),
@@ -805,6 +812,12 @@ describe("background child-agent delegation", () => {
       targetAgentCallId: "parent-agent-call",
       targetThreadKey: "root",
       targetAgentName: "parent",
+    }));
+    expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
+      targetChildAgentId: child.child_agent_id,
+      targetAgentName: child.agent_name,
+      sourceMessageId: "queued-child-request",
+      correlationId: "corr-stop",
     }));
   });
 

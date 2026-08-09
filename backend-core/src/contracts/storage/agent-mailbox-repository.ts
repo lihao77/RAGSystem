@@ -112,6 +112,9 @@ export interface AgentMailboxWakeupTarget {
   targetParentRunId: string | null;
   targetParentCallId: string | null;
   targetLineageParentCallId: string | null;
+  /** Mailbox request that caused this wakeup, used to correlate the automatic result. */
+  sourceMessageId?: string | null;
+  correlationId?: string | null;
 }
 
 /**

@@ -662,6 +662,8 @@ export class AgentDelegationService implements DelegationPort {
         targetParentRunId: runningChildRoute.parentRunId ?? normalizeString(ctx.runId),
         targetParentCallId: runningChildRoute.parentCallId ?? parentCallId,
         targetLineageParentCallId: runningChildRoute.lineageParentCallId ?? normalizeString(ctx.parentCallId),
+        sourceMessageId: queued.message_id,
+        correlationId: queued.correlation_id,
       });
       return successResult({
         message_id: queued.message_id,
@@ -798,6 +800,8 @@ export class AgentDelegationService implements DelegationPort {
       targetParentRunId: parent.parent_run_id ?? null,
       targetParentCallId: parent.parent_call_id ?? null,
       targetLineageParentCallId: parent.lineage_parent_call_id ?? null,
+      sourceMessageId: queued.message_id,
+      correlationId: queued.correlation_id,
     });
     return successResult({
       message_id: queued.message_id,
@@ -1230,6 +1234,8 @@ export class AgentDelegationService implements DelegationPort {
         targetParentRunId: input.parentParentRunId,
         targetParentCallId: input.parentParentCallId,
         targetLineageParentCallId: input.parentLineageParentCallId,
+        sourceMessageId: queued.message_id,
+        correlationId: queued.correlation_id,
       });
       return {
         ...result,
@@ -1247,6 +1253,46 @@ export class AgentDelegationService implements DelegationPort {
         error: error instanceof Error ? error.message : String(error),
       }, "failed to enqueue child terminal result");
       throw error;
+    } finally {
+      await this.wakePendingMessagesForCompletedChild(input);
+    }
+  }
+
+  private async wakePendingMessagesForCompletedChild(input: ChildRunInput): Promise<void> {
+    if (!this.mailbox?.listPending) return;
+    try {
+      const pending = await this.mailbox.listPending({
+        sessionId: input.sessionId,
+        targetRunId: input.childRunId,
+        targetAgentCallId: input.rootCallId,
+        targetThreadKey: input.childAgent.thread_key,
+        targetChildAgentId: input.childAgent.child_agent_id,
+        limit: 100,
+      });
+      for (const message of pending) {
+        const metadata = message.metadata ?? {};
+        this.notifyMailboxWakeup({
+          sessionId: input.sessionId,
+          targetRunId: input.childRunId,
+          targetAgentCallId: input.rootCallId,
+          targetThreadKey: input.childAgent.thread_key,
+          targetChildAgentId: input.childAgent.child_agent_id,
+          targetAgentName: input.childAgent.agent_name,
+          targetRootRunId: input.childRunId,
+          targetParentRunId: input.parentRunId,
+          targetParentCallId: input.runParentCallId,
+          targetLineageParentCallId: normalizeString(metadata.target_lineage_parent_call_id)
+            ?? input.lineageParentCallId,
+          sourceMessageId: message.message_id,
+          correlationId: message.correlation_id,
+        });
+      }
+    } catch (error) {
+      this.logger?.error({
+        session_id: input.sessionId,
+        child_run_id: input.childRunId,
+        error: error instanceof Error ? error.message : String(error),
+      }, "failed to wake pending child Agent messages");
     }
   }
 
