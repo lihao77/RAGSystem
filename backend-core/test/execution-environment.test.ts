@@ -40,7 +40,7 @@ describe("Local execution environment", () => {
       "test-deployment",
     );
     const closeInfrastructure = vi.fn();
-    const backgroundTasks = { setOnTaskCompleted: vi.fn() };
+    const backgroundTasks = { setOnTaskCompleted: vi.fn(), setOnTaskRecovered: vi.fn() };
     const dependencies = {
       deploymentKind: "local",
       tenantId: createTenantId("tnt_test"),

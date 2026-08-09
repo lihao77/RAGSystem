@@ -282,8 +282,12 @@ function applyAgentMessage(state: ExecutionTreeState, env: Envelope, payload: Re
   const messageId = asString(payload.message_id) ?? asString(env.message_id);
   if (!messageId) return;
   const targetCallId = asString(payload.target_agent_call_id) ?? asString(env.call_id) ?? IMPLICIT_ROOT_CALL_ID;
+  const continuationCallId = asString(env.call_id);
+  const parentCallId = asString(payload.target_parent_agent_call_id)
+    ?? (continuationCallId && continuationCallId !== targetCallId ? continuationCallId : undefined);
   const agent = ensureAgent(state, targetCallId, {
     agentId: asString(payload.target_agent_name) ?? asString(env.agent_id),
+    ...(parentCallId ? { parentCallId } : {}),
   });
   const kind = asString(payload.kind);
   if (kind !== "progress" && kind !== "request" && kind !== "response" && kind !== "result" && kind !== "cancel") return;

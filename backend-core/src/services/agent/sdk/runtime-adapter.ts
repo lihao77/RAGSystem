@@ -356,10 +356,12 @@ export async function executeRunWithSdk(
       const sid = ctx.session.sessionId;
       const tk = ctx.session.threadKey;
       const mailboxAcceptedIds = new Set<string>();
+      const mailboxClaims: Array<{ messageId: string; claimId: string }> = [];
       const refreshStartSeq = lastSeq;
       let mailboxMaxSeq = lastSeq;
-      if (deps.storage.agentMailbox) {
-        const claimed = await deps.storage.agentMailbox.claim({
+      const mailbox = deps.storage.agentMailbox;
+      if (mailbox) {
+        const claimed = await mailbox.claim({
           sessionId: sid,
           targetRunId: input.mailboxTargetRunId ?? input.runId,
           targetAgentCallId: input.mailboxTargetAgentCallId ?? input.rootCallId,
@@ -400,9 +402,10 @@ export async function executeRunWithSdk(
               });
             }
             if (!persisted) throw new Error(`Agent mailbox history write returned no message: ${mailboxMessage.message_id}`);
-            if (persisted.seq > refreshStartSeq) {
-              mailboxAcceptedIds.add(mailboxMessage.message_id);
-            }
+            // A claimed message is new work for this invocation even when its
+            // history row predates the current refresh watermark. This happens
+            // after a previous context-build failure released the claim.
+            mailboxAcceptedIds.add(mailboxMessage.message_id);
             mailboxMaxSeq = Math.max(mailboxMaxSeq, persisted.seq);
             deps.eventPublisher.publishAgentMessage({
               sessionId: sid,
@@ -410,14 +413,18 @@ export async function executeRunWithSdk(
               callId: input.rootCallId,
               message: mailboxMessage,
             });
-            await deps.storage.agentMailbox.ack({
-              sessionId: sid,
+            const claim = {
               messageId: mailboxMessage.message_id,
               claimId: mailboxMessage.claim_id ?? "",
-            });
-            if (mailboxMessage.kind === "cancel") mailboxCancelRequested = true;
+            };
+            if (mailboxMessage.kind === "cancel") {
+              await mailbox.ack({ sessionId: sid, ...claim });
+              mailboxCancelRequested = true;
+            } else {
+              mailboxClaims.push(claim);
+            }
           } catch (error) {
-            await deps.storage.agentMailbox.release({
+            await mailbox.release({
               sessionId: sid,
               messageId: mailboxMessage.message_id,
               claimId: mailboxMessage.claim_id ?? "",
@@ -427,6 +434,15 @@ export async function executeRunWithSdk(
         }
       }
       if (mailboxCancelRequested) {
+        if (mailbox) {
+          for (const claim of mailboxClaims) {
+            await mailbox.release({
+              sessionId: sid,
+              ...claim,
+              lastError: "cancelled before mailbox context refresh",
+            });
+          }
+        }
         input.abortController?.abort(new Error("agent_cancelled"));
         const cancelError = new Error("agent_cancelled");
         cancelError.name = "AbortError";
@@ -458,11 +474,30 @@ export async function executeRunWithSdk(
       if (accepted.length === 0 && mailboxAcceptedIds.size === 0) return [];
       // Reuse the canonical history pipeline for follow-ups so command_ref, attachments,
       // and metadata extensions have the exact same Agent projection as the first request.
-      const refreshed = await contextBuilder.buildContext({
-        sessionId: sid,
-        threadKey: tk,
-        microcompact: false,
-      });
+      let refreshed;
+      try {
+        refreshed = await contextBuilder.buildContext({
+          sessionId: sid,
+          threadKey: tk,
+          microcompact: false,
+        });
+      } catch (error) {
+        if (mailbox) {
+          for (const claim of mailboxClaims) {
+            await mailbox.release({
+              sessionId: sid,
+              ...claim,
+              lastError: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        throw error;
+      }
+      if (mailbox) {
+        for (const claim of mailboxClaims) {
+          await mailbox.ack({ sessionId: sid, ...claim });
+        }
+      }
       await sessionMetadata.flush();
       const acceptedIds = new Set([...mailboxAcceptedIds, ...accepted]);
       return refreshed.conversation.flatMap((message, index): ChatMessage[] => {

@@ -192,6 +192,8 @@ describe("executeRunWithSdk terminal convergence", () => {
           expect(refreshed).toHaveLength(1);
           expect(refreshed[0]?.content).toContain("[agent-message kind=request id=mailbox-1");
           expect(refreshed[0]?.content).toContain("please continue");
+          const retried = await options.refresher.refresh({ session: { sessionId: "session-1", threadKey: "child-thread" } }, 0);
+          expect(retried).toHaveLength(1);
           return { content: "done", contentParts: [], finishReason: "stop", metadata: {} };
         })(),
       }),
@@ -200,7 +202,8 @@ describe("executeRunWithSdk terminal convergence", () => {
 
     const result = await executeRunWithSdk(base, input({ threadKey: "child-thread", childAgentId: "child-1" }));
     expect(result.success).toBe(true);
-    expect(mailbox.claim).toHaveBeenCalledOnce();
+    expect(mailbox.claim).toHaveBeenCalledTimes(2);
+    expect(mailbox.ack).toHaveBeenCalledTimes(2);
     expect(mailbox.ack).toHaveBeenCalledWith(expect.objectContaining({ messageId: "mailbox-1", claimId: "claim-1" }));
     expect(base.storage.conversation.addMessage).toHaveBeenCalledWith(expect.objectContaining({
       messageId: "mailbox-1",

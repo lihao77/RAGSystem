@@ -118,4 +118,38 @@ describe("AgentInvocationService", () => {
     externalAbort.abort();
     expect(executeRun.mock.calls[0]?.[0].abortController.signal.aborted).toBe(true);
   });
+
+  it("aborts a child invocation when its execution timeout elapses", async () => {
+    const executeRun = vi.fn((input: { abortController: AbortController; onStartDisposition: (disposition: { kind: "started" }) => void }) => {
+      input.onStartDisposition({ kind: "started" });
+      return new Promise<{ content: string; success: boolean }>((resolve) => {
+        input.abortController.signal.addEventListener("abort", () => {
+          resolve({ content: "timed out", success: false });
+        }, { once: true });
+      });
+    });
+    const service = new AgentInvocationService({ executeRun } as never);
+    const handle = service.invoke({
+      scope: "child",
+      mode: "create",
+      execution: "foreground",
+      sessionId: "session-1",
+      sessionIdentity: identity,
+      requestId: "request-timeout",
+      task: "bounded child",
+      executionKind: "send_message",
+      agent,
+      provider,
+      modelName: "model",
+      runId: "child-timeout",
+      taskId: "child-task",
+      rootCallId: "child-call",
+      startedAt: new Date(),
+      threadKey: "child:child-1",
+      timeoutMs: 10,
+    });
+
+    await expect(handle.promise).resolves.toMatchObject({ success: false, content: "timed out" });
+    expect(executeRun.mock.calls[0]?.[0].abortController.signal.aborted).toBe(true);
+  });
 });

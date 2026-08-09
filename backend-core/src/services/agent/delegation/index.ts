@@ -9,7 +9,7 @@ import type { AgentDelegationStorePort } from "../../../contracts/runtime/core-r
 import type { AgentMailboxStorePort } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../execution/runtime-core-service.js";
-import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
+import type { BackgroundTask, BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import type { Envelope } from "../../../contracts/events.js";
 import type {
@@ -69,6 +69,11 @@ interface ChildRunInput {
   parentParentRunId: string | null;
   parentParentCallId: string | null;
   parentLineageParentCallId: string | null;
+  timeoutMs?: number | null;
+}
+
+export interface AgentDelegationLogger {
+  error(bindings: Record<string, unknown>, message: string): void;
 }
 
 export class AgentDelegationService implements DelegationPort {
@@ -83,6 +88,8 @@ export class AgentDelegationService implements DelegationPort {
     private readonly backgroundTasks: BackgroundTaskService | null = null,
     private readonly dataRoot: string | null = null,
     private readonly mailbox: AgentMailboxStorePort | null = null,
+    private readonly logger: AgentDelegationLogger | null = null,
+    private readonly tenantId: string | null = null,
   ) {}
 
   setInvocationService(service: AgentInvocationPort): void {
@@ -91,6 +98,89 @@ export class AgentDelegationService implements DelegationPort {
 
   setMailboxWakeup(handler: AgentMailboxWakeupHandler | null): void {
     this.mailboxWakeup = handler;
+  }
+
+  /** Reconstruct a terminal mailbox result when a leased background child died with its owner. */
+  async recoverBackgroundTask(task: BackgroundTask): Promise<void> {
+    if (
+      task.kind !== "agent"
+      || task.result_type !== "agent_delegation_result"
+      || !task.session_id
+      || !task.run_id
+      || !this.mailbox
+      || !this.tenantId
+    ) return;
+    const child = await this.store.getRun(task.session_id, task.run_id);
+    if (!child?.parent_run_id) return;
+    const parent = await this.store.getRun(task.session_id, child.parent_run_id);
+    if (!parent) return;
+    const status = child.status === "interrupted" || task.status === "cancelled" ? "interrupted" : "failed";
+    if (child.status === "running") {
+      await this.store.updateRunStatus(child.run_id, task.session_id, "interrupted", null, "background_task_owner_lease_expired");
+    }
+    const content = normalizeString(task.error) ?? `后台子 Agent 在运行时重启后以 ${status} 结束`;
+    try {
+      const queued = await this.mailbox.enqueue({
+        messageId: `${child.run_id}:terminal_result`,
+        tenantId: this.tenantId,
+        sessionId: task.session_id,
+        sourceRunId: child.run_id,
+        sourceAgentCallId: child.agent_call_id,
+        targetRunId: parent.run_id,
+        targetAgentCallId: parent.agent_call_id,
+        targetThreadKey: parent.thread_key,
+        targetChildAgentId: parent.child_agent_id,
+        kind: "result",
+        correlationId: child.parent_call_id ?? child.agent_call_id,
+        contentParts: [{ type: "text", text: content }],
+        metadata: {
+          source: "child_terminal_result_recovery",
+          child_run_id: child.run_id,
+          child_agent_call_id: child.agent_call_id,
+          parent_run_id: parent.run_id,
+          parent_call_id: child.parent_call_id,
+          parent_agent_call_id: parent.agent_call_id,
+          parent_thread_key: parent.thread_key,
+          parent_child_agent_id: parent.child_agent_id,
+          target_agent_name: parent.agent_name,
+          target_root_run_id: parent.lease_root_run_id,
+          target_parent_run_id: parent.parent_run_id,
+          target_parent_call_id: parent.parent_call_id,
+          target_parent_agent_call_id: parent.lineage_parent_call_id,
+          target_lineage_parent_call_id: parent.lineage_parent_call_id,
+          status,
+          success: false,
+          recovered: true,
+          visible_to_user: false,
+        },
+      });
+      this.notifyMailboxWakeup({
+        sessionId: task.session_id,
+        targetRunId: parent.run_id,
+        targetAgentCallId: parent.agent_call_id,
+        targetThreadKey: parent.thread_key,
+        targetChildAgentId: parent.child_agent_id,
+        targetAgentName: parent.agent_name ?? null,
+        targetRootRunId: parent.lease_root_run_id,
+        targetParentRunId: parent.parent_run_id,
+        targetParentCallId: parent.parent_call_id,
+        targetLineageParentCallId: parent.lineage_parent_call_id,
+      });
+      this.logger?.error({
+        session_id: task.session_id,
+        child_run_id: child.run_id,
+        parent_run_id: parent.run_id,
+        mailbox_message_id: queued.message_id,
+      }, "recovered terminal result for expired background child");
+    } catch (error) {
+      this.logger?.error({
+        session_id: task.session_id,
+        child_run_id: child.run_id,
+        parent_run_id: parent.run_id,
+        error: error instanceof Error ? error.message : String(error),
+      }, "failed to recover terminal result for expired background child");
+      throw error;
+    }
   }
 
   async callAgent(call: AgentDelegationCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
@@ -319,6 +409,40 @@ export class AgentDelegationService implements DelegationPort {
     const activeChildRunId = this.activeChildRuns.get(childAgentId) ?? null;
     const lastRun = child.last_run_id ? await this.store.getRun(sessionId, child.last_run_id) : null;
     const runningChildRunId = activeChildRunId ?? (lastRun?.status === "running" ? lastRun.run_id : null);
+    const kind = input.kind ?? "request";
+    if (!runningChildRunId && lastRun?.status === "suspended") {
+      return errorResult(
+        `子 Agent '${childAgentId}' 当前处于 suspended，不能通过 send_message 创建新 run；请先恢复或取消其交互`,
+        toolName,
+      );
+    }
+    if (!runningChildRunId && kind === "cancel" && !lastRun) {
+      return successResult({
+        child_agent_id: childAgentId,
+        status: "no_active_run",
+      }, {
+        summary: `子 Agent ${child.agent_name} 当前没有可取消的运行实例`,
+        outputType: "json",
+        metadata: { agent_name: child.agent_name, child_agent_id: childAgentId },
+        toolName,
+      });
+    }
+    if (!runningChildRunId && kind === "cancel" && lastRun) {
+      if (["completed", "failed", "interrupted", "cancelled"].includes(lastRun.status)) {
+        return successResult({
+          child_agent_id: childAgentId,
+          target_run_id: lastRun.run_id,
+          status: "already_finished",
+          previous_status: lastRun.status,
+        }, {
+          summary: `子 Agent ${child.agent_name} 已处于终态，无需取消`,
+          outputType: "json",
+          metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: lastRun.run_id },
+          toolName,
+        });
+      }
+      return errorResult(`子 Agent '${childAgentId}' 当前没有可取消的运行实例`, toolName);
+    }
     if (runningChildRunId) {
       if (!this.mailbox) {
         return errorResult("运行中的子 Agent 暂不支持消息投递（mailbox 未注入）", toolName);
@@ -340,7 +464,7 @@ export class AgentDelegationService implements DelegationPort {
         targetAgentCallId,
         targetThreadKey: child.thread_key,
         targetChildAgentId: childAgentId,
-        kind: input.kind ?? "request",
+        kind,
         correlationId: normalizeString(input.correlationId),
         replyToMessageId: normalizeString(input.replyToMessageId),
         contentParts: [{ type: "text", text: message }],
@@ -350,7 +474,7 @@ export class AgentDelegationService implements DelegationPort {
           parent_tool_call_id: parentCallId,
         },
       });
-      this.mailboxWakeup?.({
+      this.notifyMailboxWakeup({
         sessionId,
         targetRunId: runningChildRunId,
         targetAgentCallId,
@@ -432,6 +556,7 @@ export class AgentDelegationService implements DelegationPort {
       parentParentCallId: normalizeString(ctx.runParentCallId),
       parentLineageParentCallId: normalizeString(ctx.parentCallId),
       initialEnvelopes,
+      ...(clampMailboxTimeout(input.timeoutMs) ? { timeoutMs: clampMailboxTimeout(input.timeoutMs) } : {}),
     };
     if (input.runInBackground) {
       this.activeChildRuns.set(childAgentId, childRunId);
@@ -525,10 +650,11 @@ export class AgentDelegationService implements DelegationPort {
         parent_run_id: parent.run_id,
         parent_agent_call_id: parent.agent_call_id,
         target_agent_name: parent.agent_name ?? null,
+        target_parent_agent_call_id: parent.lineage_parent_call_id,
         visible_to_user: false,
       },
     });
-    this.mailboxWakeup?.({
+    this.notifyMailboxWakeup({
       sessionId,
       targetRunId: parent.run_id,
       targetAgentCallId: parent.agent_call_id,
@@ -729,6 +855,7 @@ export class AgentDelegationService implements DelegationPort {
       parentRunId: input.parentRunId,
       childAgentId: input.childAgent.child_agent_id,
       ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
+      ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
       executionKind: input.executionKind,
       rootTask: input.ownsRunLease ? input.task : input.rootTask,
       ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
@@ -816,13 +943,14 @@ export class AgentDelegationService implements DelegationPort {
           target_root_run_id: input.parentRootRunId,
           target_parent_run_id: input.parentParentRunId,
           target_parent_call_id: input.parentParentCallId,
+          target_parent_agent_call_id: input.parentLineageParentCallId,
           target_lineage_parent_call_id: input.parentLineageParentCallId,
           status,
           success: result.success,
           visible_to_user: false,
         },
       });
-      this.mailboxWakeup?.({
+      this.notifyMailboxWakeup({
         sessionId: input.sessionId,
         targetRunId: parent.run_id,
         targetAgentCallId: parent.agent_call_id,
@@ -842,8 +970,27 @@ export class AgentDelegationService implements DelegationPort {
           mailbox_result_queued: true,
         },
       };
-    } catch {
-      return result;
+    } catch (error) {
+      this.logger?.error({
+        session_id: input.sessionId,
+        child_run_id: input.childRunId,
+        parent_run_id: input.parentRunId,
+        error: error instanceof Error ? error.message : String(error),
+      }, "failed to enqueue child terminal result");
+      throw error;
+    }
+  }
+
+  private notifyMailboxWakeup(target: Parameters<AgentMailboxWakeupHandler>[0]): void {
+    try {
+      this.mailboxWakeup?.(target);
+    } catch (error) {
+      this.logger?.error({
+        session_id: target.sessionId,
+        target_run_id: target.targetRunId,
+        target_agent_call_id: target.targetAgentCallId,
+        error: error instanceof Error ? error.message : String(error),
+      }, "failed to wake Agent mailbox target");
     }
   }
 

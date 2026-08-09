@@ -288,6 +288,149 @@ describe("background child-agent delegation", () => {
     expect(invocation).not.toHaveBeenCalled();
   });
 
+  it("does not fork a suspended child when sending a follow-up", async () => {
+    const child = { ...childAgent(), last_run_id: "suspended-child-run" };
+    const delegationStore = store(child);
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "suspended-child-run",
+      agent_call_id: "child-call",
+      status: "suspended",
+    } as never);
+    const mailbox = {
+      enqueue: vi.fn(),
+      get: vi.fn(),
+      claim: vi.fn(),
+      ack: vi.fn(),
+      release: vi.fn(),
+      expire: vi.fn(),
+    };
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      mailbox as never,
+    );
+    const invocation = vi.fn();
+    service.setInvocationService({ invoke: invocation } as never);
+
+    const result = await service.sendMessage({
+      agent: parentAgent(false),
+      teamName: null,
+      input: {
+        childAgentId: child.child_agent_id,
+        message: "continue",
+        kind: "request",
+        callId: "parent-tool-call",
+      },
+    }, context(new AbortController().signal));
+
+    expect(result.success).toBe(false);
+    expect(String(result.content)).toContain("suspended");
+    expect(mailbox.enqueue).not.toHaveBeenCalled();
+    expect(invocation).not.toHaveBeenCalled();
+  });
+
+  it("does not create a new invocation when cancelling a completed child", async () => {
+    const child = { ...childAgent(), last_run_id: "completed-child-run" };
+    const delegationStore = store(child);
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "completed-child-run",
+      agent_call_id: "child-call",
+      status: "completed",
+    } as never);
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue: vi.fn(), get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+    const invocation = vi.fn();
+    service.setInvocationService({ invoke: invocation } as never);
+
+    const result = await service.sendMessage({
+      agent: parentAgent(false),
+      teamName: null,
+      input: {
+        childAgentId: child.child_agent_id,
+        message: "stop",
+        kind: "cancel",
+        callId: "parent-tool-call",
+      },
+    }, context(new AbortController().signal));
+
+    expect(result.success).toBe(true);
+    expect(result.content).toEqual(expect.objectContaining({ status: "already_finished" }));
+    expect(invocation).not.toHaveBeenCalled();
+  });
+
+  it("does not start a child when cancelling an idle child without a prior run", async () => {
+    const child = childAgent();
+    const delegationStore = store(child);
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue: vi.fn(), get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+    const invocation = vi.fn();
+    service.setInvocationService({ invoke: invocation } as never);
+
+    const result = await service.sendMessage({
+      agent: parentAgent(false),
+      teamName: null,
+      input: {
+        childAgentId: child.child_agent_id,
+        message: "stop",
+        kind: "cancel",
+        callId: "parent-tool-call",
+      },
+    }, context(new AbortController().signal));
+
+    expect(result.success).toBe(true);
+    expect(result.content).toEqual(expect.objectContaining({ status: "no_active_run" }));
+    expect(invocation).not.toHaveBeenCalled();
+  });
+
+  it("keeps a durable send successful when the in-process wakeup throws", async () => {
+    const child = { ...childAgent(), last_run_id: "child-run" };
+    const delegationStore = store(child);
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "child-run",
+      agent_call_id: "child-call",
+      status: "running",
+    } as never);
+    const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
+      message_id: input.messageId,
+      kind: input.kind,
+      correlation_id: null,
+      expires_at: null,
+    })) as never;
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+    service.setMailboxWakeup(() => { throw new Error("wakeup unavailable"); });
+
+    const result = await service.sendMessage({
+      agent: parentAgent(false),
+      teamName: null,
+      input: { childAgentId: child.child_agent_id, message: "ping", kind: "progress", callId: "parent-tool-call" },
+    }, context(new AbortController().signal));
+
+    expect(result.success).toBe(true);
+    expect(enqueue).toHaveBeenCalledOnce();
+  });
+
   it("routes a terminal background child result to the exact parent mailbox target", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "ragsystem-delegation-result-"));
     tempRoots.push(root);
@@ -393,6 +536,88 @@ describe("background child-agent delegation", () => {
       targetThreadKey: "root",
       targetAgentName: "parent",
     }));
+  });
+
+  it("reconstructs a terminal mailbox result after a background owner lease expires", async () => {
+    const child = childAgent();
+    const delegationStore = store(child);
+    const childRun = {
+      run_id: "child-run",
+      status: "running",
+      agent_call_id: "child-call",
+      parent_run_id: "parent-run",
+      parent_call_id: "parent-call",
+      thread_key: child.thread_key,
+      child_agent_id: child.child_agent_id,
+      agent_name: "worker",
+    };
+    const parentRun = {
+      run_id: "parent-run",
+      status: "completed",
+      agent_call_id: "parent-agent-call",
+      parent_run_id: null,
+      parent_call_id: null,
+      lineage_parent_call_id: null,
+      lease_root_run_id: "parent-run",
+      thread_key: "root",
+      child_agent_id: null,
+      agent_name: "parent",
+    };
+    vi.mocked(delegationStore.getRun).mockImplementation(async (_sessionId, runId) => {
+      return (runId === "child-run" ? childRun : runId === "parent-run" ? parentRun : null) as never;
+    });
+    const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
+      message_id: input.messageId,
+      kind: input.kind,
+      correlation_id: input.correlationId,
+      expires_at: null,
+    })) as never;
+    const wakeup = vi.fn();
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+      null,
+      "tenant-1",
+    );
+    service.setMailboxWakeup(wakeup);
+
+    await service.recoverBackgroundTask({
+      task_id: "background-task",
+      description: "worker",
+      output_path: "",
+      started_at: 1,
+      status: "failed",
+      return_code: 1,
+      error: "owner lease expired",
+      expires_at: null,
+      run_id: "child-run",
+      owner_task_id: null,
+      session_id: "session-1",
+      completed_at: 2,
+      result_type: "agent_delegation_result",
+      kind: "agent",
+      cancel_supported: true,
+    });
+
+    expect(delegationStore.updateRunStatus).toHaveBeenCalledWith(
+      "child-run",
+      "session-1",
+      "interrupted",
+      null,
+      "background_task_owner_lease_expired",
+    );
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: "child-run:terminal_result",
+      targetRunId: "parent-run",
+      targetAgentCallId: "parent-agent-call",
+      kind: "result",
+      metadata: expect.objectContaining({ recovered: true, status: "failed" }),
+    }));
+    expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({ targetRunId: "parent-run" }));
   });
 
   it("does not duplicate foreground results or publish suspended children", async () => {

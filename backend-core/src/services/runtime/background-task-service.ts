@@ -63,6 +63,7 @@ export class BackgroundTaskService {
   private readonly notificationQueue: SessionNotificationQueue;
   private readonly triggeringSessions = new Set<string>();
   private readonly pendingTriggers = new Set<ReturnType<typeof setTimeout>>();
+  private readonly pendingRecoveryTaskIds = new Set<string>();
   private readonly repository: AsyncBackgroundTaskRepository | null;
   private readonly tenantId: string | null;
   private readonly instanceId = randomUUID();
@@ -71,6 +72,7 @@ export class BackgroundTaskService {
   private readonly heartbeatTimer: ReturnType<typeof setInterval> | null;
   private persistence = Promise.resolve();
   private onTaskCompleted: ((sessionId: string) => void) | null = null;
+  private onTaskRecovered: ((task: BackgroundTask) => Promise<void> | void) | null = null;
 
   constructor(options: {
     retentionSeconds?: number | undefined;
@@ -98,11 +100,28 @@ export class BackgroundTaskService {
   async initialize(): Promise<void> {
     if (!this.repository || !this.tenantId) return;
     const now = nowSeconds();
-    await this.repository.failExpiredRunning(this.tenantId, now, "background task owner lease expired after runtime restart");
-    await this.repository.deleteExpired(this.tenantId, now);
-    for (const record of await this.repository.listActive(this.tenantId, now)) {
-      this.tasks.set(record.task_id, fromDurableRecord(record));
+    const recoveredIds = new Set(await this.repository.failExpiredRunning(
+      this.tenantId,
+      now,
+      "background task owner lease expired after runtime restart",
+    ));
+    const records = await this.repository.listActive(this.tenantId, now);
+    for (const record of records) {
+      const task = fromDurableRecord(record);
+      this.tasks.set(record.task_id, task);
+      if (recoveredIds.has(record.task_id)) this.pendingRecoveryTaskIds.add(record.task_id);
+      if (this.pendingRecoveryTaskIds.has(record.task_id) && this.onTaskRecovered) {
+        try {
+          await this.onTaskRecovered(task);
+          this.pendingRecoveryTaskIds.delete(record.task_id);
+          if (task.session_id) this.scheduleAutoTrigger(task.session_id);
+        } catch {
+          // Keep the failed record pending; the next durable refresh retries the
+          // stable mailbox delivery instead of silently losing the result.
+        }
+      }
     }
+    await this.repository.deleteExpired(this.tenantId, now);
   }
 
   async waitForPersistence(): Promise<void> {
@@ -112,6 +131,11 @@ export class BackgroundTaskService {
   /** 注入"后台完成 → 自动触发 system run"回调（runtime-container lazy 绑定 triggerBgNotificationRun）。 */
   setOnTaskCompleted(handler: ((sessionId: string) => void) | null): void {
     this.onTaskCompleted = handler;
+  }
+
+  /** Reconcile owner-lease failures into domain-specific durable results. */
+  setOnTaskRecovered(handler: ((task: BackgroundTask) => Promise<void> | void) | null): void {
+    this.onTaskRecovered = handler;
   }
 
   /** 供 run-engine 询问队列是否有待投递通知（run 结束时判定是否再触发一轮）。 */
@@ -496,11 +520,12 @@ export class BackgroundTaskService {
       result_type: task.result_type,
       session_id: task.session_id,
     };
-    // Agent delegation results have their own durable mailbox route to the
-    // exact parent invocation. Do not also broadcast them through the generic
-    // session notification queue, which would make the parent process the
-    // same child result twice.
-    const routedToAgentMailbox = task.kind === "agent" && task.result_type === "agent_delegation_result";
+    // Successfully persisted Agent delegation results have their own durable
+    // mailbox route to the exact parent invocation. Failed mailbox delivery
+    // stays visible through the generic queue so it cannot disappear silently.
+    const routedToAgentMailbox = task.kind === "agent"
+      && task.result_type === "agent_delegation_result"
+      && task.status === "completed";
     if (task.session_id) {
       if (!routedToAgentMailbox) {
         // Generic task notifications are consumed by the session-level system run.
@@ -538,11 +563,12 @@ export class BackgroundTaskService {
     await this.waitForPersistence();
     const now = nowSeconds();
     if (reconcileExpiredLeases) {
-      await this.repository.failExpiredRunning(
+      const recoveredIds = await this.repository.failExpiredRunning(
         this.tenantId,
         now,
         "background task owner lease expired",
       );
+      for (const taskId of recoveredIds) this.pendingRecoveryTaskIds.add(taskId);
     }
     const records = await this.repository.listBySession(this.tenantId, sessionId, now);
     const retainedIds = new Set(records.map((record) => record.task_id));
@@ -551,7 +577,17 @@ export class BackgroundTaskService {
       // snapshot can let an in-flight callback write completed after task_stop
       // already marked the current task cancelled.
       if (this.ownedTaskIds.has(record.task_id)) continue;
-      this.tasks.set(record.task_id, fromDurableRecord(record));
+      const task = fromDurableRecord(record);
+      this.tasks.set(record.task_id, task);
+      if (this.pendingRecoveryTaskIds.has(record.task_id) && this.onTaskRecovered) {
+        try {
+          await this.onTaskRecovered(task);
+          this.pendingRecoveryTaskIds.delete(record.task_id);
+          if (task.session_id) this.scheduleAutoTrigger(task.session_id);
+        } catch {
+          // Retry on the next refresh; the mailbox message id is stable.
+        }
+      }
     }
     for (const [taskId, task] of this.tasks) {
       if (task.session_id === sessionId && !this.ownedTaskIds.has(taskId) && !retainedIds.has(taskId)) {

@@ -73,6 +73,8 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     backgroundTasks,
     dataRoot,
     dependencies.executionStorage?.agentMailbox ?? null,
+    dependencies.logger ?? null,
+    tenantId,
   );
   const toolsDeps = {
     pendingInteractions: selectedPendingInteractions,
@@ -127,6 +129,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   interactionCoordinator.bindResumeStarter(resumeExecutor);
   agentDelegation.setInvocationService(agentExecution.invocationService);
   agentDelegation.setMailboxWakeup((target) => agentExecution.triggerAgentMailboxRun(target));
+  backgroundTasks.setOnTaskRecovered((task) => agentDelegation.recoverBackgroundTask(task));
   backgroundTasks.setOnTaskCompleted((sessionId) => agentExecution.triggerBgNotificationRun(sessionId));
 
   let closePromise: Promise<void> | null = null;

@@ -77,6 +77,14 @@ export class AgentInvocationService implements AgentInvocationPort {
       onStartDisposition: _inputStart,
       ...runInput
     } = input;
+    const timeoutMs = input.timeoutMs != null && Number.isFinite(input.timeoutMs)
+      ? Math.max(1, Math.floor(input.timeoutMs))
+      : null;
+    const timeout = timeoutMs == null
+      ? null
+      : setTimeout(() => {
+          abortController.abort(new Error("agent_timeout"));
+        }, timeoutMs);
     const promise = this.runEngine.executeRun({
       ...runInput,
       abortController,
@@ -87,6 +95,8 @@ export class AgentInvocationService implements AgentInvocationPort {
         rejectDurable(error);
       }
       throw error;
+    }).finally(() => {
+      if (timeout) clearTimeout(timeout);
     });
     return {
       started: true,

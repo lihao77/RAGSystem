@@ -627,4 +627,43 @@ describe("Session runtime snapshot invariants", () => {
       expect.objectContaining({ messageId: "message-1", kind: "result", content: "child finished" }),
     ]));
   });
+
+  it("keeps a mailbox message visible under a continuation root", () => {
+    const state = createExecutionTreeState();
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_started",
+      session_id: "session-1",
+      run_id: "continuation-run",
+      call_id: "continuation-call",
+      agent_id: "parent",
+      payload: { phase: "start", task: "continue" },
+    }));
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_message",
+      session_id: "session-1",
+      run_id: "continuation-run",
+      message_id: "message-continuation",
+      payload: {
+        kind: "result",
+        message_id: "message-continuation",
+        target_agent_call_id: "old-parent-call",
+        source_run_id: "child-run",
+        source_agent_call_id: "child-call",
+        target_parent_agent_call_id: "continuation-call",
+        content: "child finished after restart",
+      },
+    }));
+
+    const root = getExecutionTree(state).root;
+    expect(root?.callId).toBe("continuation-call");
+    expect(root?.children).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        callId: "old-parent-call",
+        parentCallId: "continuation-call",
+        messages: expect.arrayContaining([
+          expect.objectContaining({ messageId: "message-continuation" }),
+        ]),
+      }),
+    ]));
+  });
 });

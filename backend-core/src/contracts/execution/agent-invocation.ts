@@ -23,6 +23,8 @@ interface AgentInvocationBase {
   /** Existing run/call used to claim durable agent messages during an idle continuation. */
   mailboxTargetRunId?: string | null;
   mailboxTargetAgentCallId?: string | null;
+  /** Abort this invocation after the requested wall-clock duration. */
+  timeoutMs?: number | null;
 }
 
 export interface AgentInvocationRootInput extends AgentInvocationBase {

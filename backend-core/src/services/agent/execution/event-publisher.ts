@@ -168,6 +168,16 @@ export class AgentExecutionEventPublisher {
     message: AgentMailboxMessage;
   }): void {
     const message = input.message;
+    const metadata = message.metadata ?? {};
+    const targetParentCallId = typeof metadata.target_parent_call_id === "string"
+      ? metadata.target_parent_call_id
+      : null;
+    const targetParentAgentCallId = typeof metadata.target_parent_agent_call_id === "string"
+      ? metadata.target_parent_agent_call_id
+      : null;
+    const targetRootRunId = typeof metadata.target_root_run_id === "string"
+      ? metadata.target_root_run_id
+      : null;
     this.publishEnvelope({
       type: "agent_message",
       session_id: input.sessionId,
@@ -181,6 +191,9 @@ export class AgentExecutionEventPublisher {
         source_agent_call_id: message.source_agent_call_id,
         target_run_id: message.target_run_id,
         target_agent_call_id: message.target_agent_call_id,
+        target_parent_call_id: targetParentCallId,
+        target_parent_agent_call_id: targetParentAgentCallId,
+        target_root_run_id: targetRootRunId,
         correlation_id: message.correlation_id,
         reply_to_message_id: message.reply_to_message_id,
         content: message.content_parts
