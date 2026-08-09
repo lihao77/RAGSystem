@@ -75,17 +75,15 @@ export function readAgentArguments(value: Record<string, unknown> | undefined, c
   callId?: string | null;
 } {
   return {
-    agentName: asString(value?.agent_name) ?? asString(value?.agentName),
-    childAgentId: asString(value?.child_agent_id) ?? asString(value?.childAgentId),
+    agentName: asString(value?.agent_name),
+    childAgentId: asString(value?.child_agent_id),
     message: asString(value?.message) ?? "",
-    contextHint: asString(value?.context_hint) ?? asString(value?.contextHint),
+    contextHint: asString(value?.context_hint),
     kind: asMailboxKind(value?.kind),
-    correlationId: asString(value?.correlation_id) ?? asString(value?.correlationId),
-    replyToMessageId: asString(value?.reply_to_message_id) ?? asString(value?.replyToMessageId),
-    timeoutMs: asInteger(value?.timeout_ms) ?? asInteger(value?.timeoutMs),
-    runInBackground: typeof value?.run_in_background === "boolean"
-      ? value.run_in_background
-      : typeof value?.runInBackground === "boolean" ? value.runInBackground : null,
+    correlationId: asString(value?.correlation_id),
+    replyToMessageId: asString(value?.reply_to_message_id),
+    timeoutMs: asInteger(value?.timeout_ms),
+    runInBackground: typeof value?.run_in_background === "boolean" ? value.run_in_background : null,
     callId: callId ?? null,
   };
 }
@@ -95,7 +93,7 @@ export function readListChildAgentsArguments(value: Record<string, unknown> | un
   limit?: number | null;
 } {
   return {
-    agentName: asString(value?.agent_name) ?? asString(value?.agentName),
+    agentName: asString(value?.agent_name),
     limit: asInteger(value?.limit),
   };
 }

@@ -17,9 +17,6 @@ export const CONFIG_MANAGED_TOOL_NAMES = new Set([
   "task_stop",
   "agent",
   "list_child_agents",
-  // Retired split delegation entrypoints.
-  "call_agent",
-  "send_message",
 ]);
 
 export function stripConfigManagedToolNames(enabledTools: readonly string[] | undefined): string[] {

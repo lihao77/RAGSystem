@@ -21,7 +21,7 @@ function delegationTool() {
 }
 
 describe("agent delegation concurrency key", () => {
-  it("normalizes snake_case and camelCase child ids and ignores message text", () => {
+  it("uses the canonical child id and rejects hidden aliases", () => {
     const registry = createToolRegistry({ tools: [delegationTool()] });
 
     const snakeCase = registry.concurrencyKey(AGENT_TOOL_NAME, {
@@ -34,10 +34,10 @@ describe("agent delegation concurrency key", () => {
     });
 
     expect(snakeCase).toBe("agent:child-worker");
-    expect(camelCase).toBe(snakeCase);
+    expect(camelCase).toBeNull();
   });
 
-  it("normalizes agent name and uses child id when both routes are present", () => {
+  it("uses the canonical agent name and prioritizes an explicit child route", () => {
     const registry = createToolRegistry({ tools: [delegationTool()] });
 
     expect(registry.concurrencyKey(AGENT_TOOL_NAME, {
@@ -45,11 +45,7 @@ describe("agent delegation concurrency key", () => {
       message: "snake request",
     })).toBe("agent:worker");
     expect(registry.concurrencyKey(AGENT_TOOL_NAME, {
-      agentName: "worker",
-      message: "camel request",
-    })).toBe("agent:worker");
-    expect(registry.concurrencyKey(AGENT_TOOL_NAME, {
-      agentName: "worker",
+      agent_name: "worker",
       child_agent_id: "child-worker",
       message: "child route wins",
     })).toBe("agent:child-worker");

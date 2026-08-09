@@ -48,37 +48,25 @@ interface DelegationToolDeps {
 
 const agentSchema = z.object({
   agent_name: optionalString,
-  agentName: z.string().optional(),
   child_agent_id: optionalString,
-  childAgentId: z.string().optional(),
   message: z.string(),
   context_hint: optionalString,
-  contextHint: optionalString,
   kind: z.enum(["progress", "request", "response", "result", "cancel"]).optional(),
   correlation_id: z.string().optional(),
-  correlationId: z.string().optional(),
   reply_to_message_id: z.string().optional(),
-  replyToMessageId: z.string().optional(),
   timeout_ms: optionalInteger,
-  timeoutMs: optionalInteger,
   run_in_background: optionalBoolean,
-  runInBackground: optionalBoolean,
 }).strict();
 
 const parentMessageSchema = agentSchema.omit({
   agent_name: true,
-  agentName: true,
   child_agent_id: true,
-  childAgentId: true,
   context_hint: true,
-  contextHint: true,
   run_in_background: true,
-  runInBackground: true,
 });
 
 const listChildAgentsSchema = z.object({
   agent_name: optionalString,
-  agentName: optionalString,
   limit: optionalInteger,
 }).strict();
 
@@ -187,13 +175,9 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
   const visibleAgentDef = parentOnly
     ? omitDefinitionProperties(agentDef, [
         "agent_name",
-        "agentName",
         "child_agent_id",
-        "childAgentId",
         "context_hint",
-        "contextHint",
         "run_in_background",
-        "runInBackground",
       ])
     : agentDef;
   const listChildAgentsDef = withAgentNameEnum(definitionByName.get(LIST_CHILD_AGENTS_TOOL_NAME)!, agentNames);
@@ -294,9 +278,8 @@ function omitBackgroundParam(definition: RuntimeToolDefinition, allowBackground:
   if (allowBackground) return definition;
   const parameters = definition.parameters;
   const properties = isRecord(parameters.properties) ? { ...parameters.properties } : {};
-  if (!("run_in_background" in properties) && !("runInBackground" in properties)) return definition;
+  if (!("run_in_background" in properties)) return definition;
   delete properties.run_in_background;
-  delete properties.runInBackground;
   return { ...definition, parameters: { ...parameters, properties } };
 }
 
