@@ -52,6 +52,15 @@ export interface SessionExport {
   message_count: number;
 }
 
+export interface SessionParticipantRunSummary {
+  run_id: string;
+  status: string;
+  task_summary: string | null;
+  final_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Request-scoped session use cases shared by Local and SaaS deployments. */
 export interface SessionApplication {
   ensureSession(input: SessionIdentity): Promise<void>;
@@ -79,7 +88,14 @@ export interface SessionApplication {
     offset: number;
     has_more: boolean;
   }>;
-  listRunExecutionSteps(input: { sessionId: string; runId: string; limit?: number; offset?: number }): Promise<{
+  listParticipantRuns(input: { sessionId: string; participantId: string; limit?: number; offset?: number }): Promise<{
+    items: SessionParticipantRunSummary[];
+    total: number;
+    limit: number;
+    offset: number;
+    has_more: boolean;
+  }>;
+  listParticipantRunExecutionSteps(input: { sessionId: string; participantId: string; runId: string; limit?: number; offset?: number }): Promise<{
     run_id: string;
     items: Envelope[];
     total: number;

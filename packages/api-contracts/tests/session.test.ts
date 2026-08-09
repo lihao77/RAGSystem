@@ -8,6 +8,7 @@ import {
   SessionListResponseSchema,
   SessionMessageListResponseSchema,
   SessionMessageRunStepsResponseSchema,
+  SessionParticipantRunListResponseSchema,
   SessionParticipantRunStepsResponseSchema,
   SessionPermissionResponseSchema,
 } from "../src/session.js";
@@ -160,5 +161,25 @@ describe("Session REST contracts", () => {
         has_more: false,
       },
     }).data.run_id).toBe("run-1");
+
+    expect(SessionParticipantRunListResponseSchema.parse({
+      success: true,
+      message: "ok",
+      data: {
+        participant_id: "child-1",
+        items: [{
+          run_id: "run-1",
+          status: "completed",
+          task_summary: "inspect code",
+          final_message_id: "message-1",
+          created_at: detail.created_at,
+          updated_at: detail.updated_at,
+        }],
+        total: 1,
+        limit: 100,
+        offset: 0,
+        has_more: false,
+      },
+    }).data.items[0]?.run_id).toBe("run-1");
   });
 });

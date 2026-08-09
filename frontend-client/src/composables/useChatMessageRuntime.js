@@ -27,6 +27,8 @@ export function useChatMessageRuntime({
     selectedParticipantId,
     selectedParticipant,
     getParticipantRunExecutionMessage: execution.getParticipantRunExecutionMessage,
+    getParticipantRunExecutionMessages: execution.getParticipantRunExecutionMessages,
+    ensureParticipantRunsLoaded: execution.ensureParticipantRunsLoaded,
   });
 
   const notifications = useTaskNotifications();

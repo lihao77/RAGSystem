@@ -35,8 +35,14 @@ export interface AgentSessionMessageUpdate {
 
 export interface AgentSessionRunRecord {
   run_id: string;
+  status: string;
+  task_summary: string | null;
+  thread_key: string;
   parent_run_id: string | null;
+  child_agent_id: string | null;
+  final_message_id: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 /** Promise-only persistence boundary used by the Local agent session application. */
@@ -62,6 +68,8 @@ export interface AgentSessionRepositoryPort {
   updateMessage(input: AgentSessionMessageUpdate): Promise<boolean>;
 
   listRuns(sessionId: string, limit: number): Promise<{ items: AgentSessionRunRecord[]; total: number }>;
+  listParticipantRuns(sessionId: string, participantId: string, limit: number, offset: number): Promise<{ items: AgentSessionRunRecord[]; total: number }>;
+  getRun(sessionId: string, runId: string): Promise<AgentSessionRunRecord | null>;
   listRunSteps(input: {
     runId?: string | null;
     messageId?: string | null;

@@ -5,6 +5,24 @@
     <GoalPanel v-else-if="activeTab === 'goal'" :goal-state="goalState" />
 
     <div v-else class="runtime-execution-view">
+      <div v-if="executionMessages.length > 1" class="wp-run-select">
+        <Select :model-value="messageKey" @update:model-value="emit('selectExecutionMessage', $event)">
+          <SelectTrigger aria-label="选择 Run">
+            <SelectValue placeholder="选择 Run" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem
+                v-for="(item, index) in executionMessages"
+                :key="item.key"
+                :value="item.key"
+              >
+                {{ runOptionLabel(item, index) }}
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
       <WorkPanelRunStatus
         :phase="activeRun.phase"
         :run-started-at="activeRun.runStartedAt"
@@ -72,10 +90,12 @@ import WorkPanelUserInput from './WorkPanelUserInput.vue'
 import BackgroundTasksPanel from './BackgroundTasksPanel.vue'
 import GoalPanel from './GoalPanel.vue'
 import FileOutputPanel from '../chat/FileOutputPanel.vue'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 
 const props = defineProps({
   activeRun: { type: Object, required: true },
   currentMessage: { type: Object, default: null },
+  executionMessages: { type: Array, default: () => [] },
   injectionsByRunId: { type: Object, default: () => ({}) },
   messageKey: { type: String, default: '' },
   approvalQueue: { type: Array, default: () => [] },
@@ -97,7 +117,15 @@ const emit = defineEmits([
   'userInputCancel',
   'fileSelect',
   'fileChanges',
+  'selectExecutionMessage',
 ])
+
+const runOptionLabel = (item, index) => {
+  const message = item?.message || {}
+  const runId = message.run_id || message.metadata?.run_id || ''
+  const status = message.finished === false ? '运行中' : message.run_failed ? '失败' : message.stopped ? '已停止' : '已完成'
+  return `Run ${index + 1}${runId ? ` · ${runId.slice(0, 8)}` : ''} · ${status}`
+}
 
 const messageHasError = computed(() => {
   const msg = props.currentMessage
@@ -162,6 +190,15 @@ const currentInjections = computed(() => {
   min-height: 0;
   flex: 1;
   flex-direction: column;
+}
+
+.wp-run-select {
+  flex: 0 0 auto;
+  padding: 10px 12px 0;
+}
+
+.wp-run-select :deep(button) {
+  width: 100%;
 }
 
 .work-panel--mobile :deep(.wpr-root),

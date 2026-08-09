@@ -14,9 +14,13 @@ export function useWorkPanelSelection(deps) {
     return `idx:${deps.messages.value.indexOf(msg)}`;
   };
 
-  const participantRunMessage = computed(() => deps.getParticipantRunExecutionMessage?.(
-    deps.selectedParticipant?.value,
-  ) || null);
+  const participantRunMessages = computed(() => {
+    const participant = deps.selectedParticipant?.value;
+    const items = deps.getParticipantRunExecutionMessages?.(participant);
+    if (Array.isArray(items)) return items;
+    const latest = deps.getParticipantRunExecutionMessage?.(participant) || null;
+    return latest ? [latest] : [];
+  });
 
   const workPanelExecutionMessages = computed(() => {
     const items = deps.messages.value
@@ -27,15 +31,23 @@ export function useWorkPanelSelection(deps) {
       index,
       message: msg,
     }));
-    const anchor = participantRunMessage.value;
-    const anchorRunId = anchor?.run_id || anchor?.metadata?.run_id;
-    if (anchor && !items.some(item => (
-      item.message?.run_id || item.message?.metadata?.run_id
-    ) === anchorRunId)) {
-      items.push({ key: getWorkPanelMessageKey(anchor), index: -1, message: anchor });
+    for (const anchor of participantRunMessages.value) {
+      const anchorRunId = anchor?.run_id || anchor?.metadata?.run_id;
+      if (anchor && !items.some(item => (
+        item.message?.run_id || item.message?.metadata?.run_id
+      ) === anchorRunId)) {
+        items.push({ key: getWorkPanelMessageKey(anchor), index: -1, message: anchor });
+      }
     }
     return items;
   });
+
+  watch(() => deps.selectedParticipant?.value, (participant) => {
+    if (!participant || participant.participant_id === 'root') return;
+    deps.ensureParticipantRunsLoaded?.(participant)?.catch?.((error) => {
+      deps.showToast(error?.message || '加载 Run 列表失败');
+    });
+  }, { immediate: true });
 
   const activeRunApplies = computed(() => (
     (!deps.selectedParticipantId || deps.selectedParticipantId.value === 'root')

@@ -132,6 +132,31 @@ export class RunOps {
     return { items, total: totalRow.cnt };
   }
 
+  listParticipantRuns(sessionId: string, participantId: string, limit: number, offset: number): { items: RunInfo[]; total: number } {
+    const participantWhere = participantId === "root"
+      ? "child_agent_id IS NULL AND thread_key='root'"
+      : "child_agent_id=?";
+    const identityParams = participantId === "root" ? [sessionId] : [sessionId, participantId];
+    const totalRow = this.db
+      .prepare(`SELECT COUNT(1) AS cnt FROM runs WHERE session_id=? AND ${participantWhere}`)
+      .get(...identityParams) as { cnt: number };
+    const rows = this.db
+      .prepare(
+        `
+          SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
+                 request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+                 agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
+                 child_agent_id, final_message_id, created_at, updated_at
+          FROM runs
+          WHERE session_id=? AND ${participantWhere}
+          ORDER BY created_at DESC
+          LIMIT ? OFFSET ?
+        `,
+      )
+      .all(...identityParams, Math.max(1, Math.trunc(limit)), Math.max(0, Math.trunc(offset))) as unknown as RunRow[];
+    return { items: rows.map(rowToRun), total: totalRow.cnt };
+  }
+
   listActiveRootRuns(sessionId: string, limit = 2): RunInfo[] {
     const rows = this.db.prepare(`
       SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,

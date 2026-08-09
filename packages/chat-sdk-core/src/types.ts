@@ -27,6 +27,7 @@ export type RagChatEndpointName =
   | "getContextSnapshot"
   | "rollbackAndRetrySession"
   | "listSessionParticipants"
+  | "listSessionParticipantRuns"
   | "getParticipantRunSteps"
   | "listMessages"
   | "getMessageRunSteps"

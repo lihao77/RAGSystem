@@ -11,7 +11,7 @@ import type { SessionResourceCleanup } from "../../contracts/session/session-res
 import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/runtime/permissions.js";
-import type { ExecutionSessionPort } from "../../contracts/session/session-application.js";
+import type { ExecutionSessionPort, SessionParticipantRunSummary } from "../../contracts/session/session-application.js";
 
 export class AgentSessionApplication implements ExecutionSessionPort {
   constructor(
@@ -132,16 +132,47 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     };
   }
 
-  async listRunExecutionSteps(input: {
+  async listParticipantRuns(input: {
     sessionId: string;
+    participantId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ items: SessionParticipantRunSummary[]; total: number; limit: number; offset: number; has_more: boolean }> {
+    const limit = input.limit ?? 100;
+    const offset = input.offset ?? 0;
+    const page = await this.repository.listParticipantRuns(
+      input.sessionId,
+      input.participantId,
+      limit,
+      offset,
+    );
+    return {
+      items: page.items.map((run) => ({
+        run_id: run.run_id,
+        status: run.status,
+        task_summary: run.task_summary,
+        final_message_id: run.final_message_id,
+        created_at: run.created_at,
+        updated_at: run.updated_at,
+      })),
+      total: page.total,
+      limit,
+      offset,
+      has_more: offset + limit < page.total,
+    };
+  }
+
+  async listParticipantRunExecutionSteps(input: {
+    sessionId: string;
+    participantId: string;
     runId: string;
     limit?: number;
     offset?: number;
   }): Promise<{ run_id: string; items: Envelope[]; total: number; limit: number; offset: number; has_more: boolean }> {
     const limit = input.limit ?? 500;
     const offset = input.offset ?? 0;
-    const runs = (await this.repository.listRuns(input.sessionId, 1000)).items;
-    if (!runs.some((run) => run.run_id === input.runId)) {
+    const run = await this.repository.getRun(input.sessionId, input.runId);
+    if (!run || !this.isParticipantRun(run, input.participantId)) {
       throw new Error(`Run 不存在: ${input.runId}`);
     }
     const envelopes = await this.collectRunTreeExecutionEnvelopes(
@@ -157,6 +188,12 @@ export class AgentSessionApplication implements ExecutionSessionPort {
       offset,
       has_more: offset + limit < envelopes.length,
     };
+  }
+
+  private isParticipantRun(run: AgentSessionRunRecord, participantId: string): boolean {
+    return participantId === "root"
+      ? run.child_agent_id == null && run.thread_key === "root"
+      : run.child_agent_id === participantId;
   }
 
   /**

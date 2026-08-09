@@ -152,6 +152,7 @@
       :disable-transition="switchingToNewChat"
       :active-run="workPanelActiveRun"
       :current-message="currentRunMessage"
+      :execution-messages="workPanelExecutionMessages"
       :injections-by-run-id="injectionsByRunId"
       :message-key="selectedWorkPanelMessageKey"
      :approval-queue="approvalQueue"
@@ -170,6 +171,7 @@
       @user-input-cancel="handleWorkPanelUserInputCancel"
       @file-select="handleFileSelect"
       @file-changes="fileChangesOpen = true"
+      @select-execution-message="selectWorkPanelMessage"
     />
     </main>
 
@@ -428,6 +430,7 @@ const {
   selectedWorkPanelMessageKey,
   getWorkPanelMessageKey,
   currentRunMessage,
+  workPanelExecutionMessages,
   selectWorkPanelMessage,
 } = useChatMessageRuntime({
   activeRun: _activeRun,
@@ -462,6 +465,7 @@ const {
 const selectParticipant = async (participantId) => {
   const next = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
   if (!currentSessionId.value || !participants.value.some(item => item?.participant_id === next)) return;
+  if (next !== 'root') openRuntimeCenter('execution');
   if (!sessionRunStore.setSelectedParticipant(next)) return;
   await loadSessionMessages(currentSessionId.value, {
     participantId: next,

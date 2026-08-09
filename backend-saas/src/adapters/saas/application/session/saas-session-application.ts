@@ -10,7 +10,7 @@ import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "@ragsystem/backend-core/services/runtime/event-outbox/execution-envelope-archive.js";
 import { EnvelopeProjector } from "@ragsystem/backend-core/services/runtime/event-outbox/projector.js";
 import { TenantSessionIdentityApplication } from "@ragsystem/backend-core/services/sessions/session-identity-application.js";
-import type { ExecutionSessionPort, SessionApplication } from "@ragsystem/backend-core/contracts/session/session-application.js";
+import type { ExecutionSessionPort, SessionApplication, SessionParticipantRunSummary } from "@ragsystem/backend-core/contracts/session/session-application.js";
 import type { WorkspaceRepositoryPort } from "@ragsystem/backend-core/contracts/workspace/workspace-repository.js";
 
 export class SaaSSessionApplication implements SessionApplication, ExecutionSessionPort {
@@ -230,8 +230,44 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
     };
   }
 
-  async listRunExecutionSteps(input: {
+  async listParticipantRuns(input: {
     sessionId: string;
+    participantId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ items: SessionParticipantRunSummary[]; total: number; limit: number; offset: number; has_more: boolean }> {
+    if (!(await this.getSession(input.sessionId))) {
+      throw new Error(`会话不存在: ${input.sessionId}`);
+    }
+    if (!this.runs) throw new Error("SaaS run repository 未配置");
+    const limit = input.limit ?? 100;
+    const offset = input.offset ?? 0;
+    const page = await this.runs.listParticipantRuns(
+      this.tenantId,
+      input.sessionId,
+      input.participantId,
+      limit,
+      offset,
+    );
+    return {
+      items: page.items.map((run) => ({
+        run_id: run.run_id,
+        status: run.status,
+        task_summary: run.task_summary,
+        final_message_id: run.final_message_id,
+        created_at: run.created_at,
+        updated_at: run.updated_at,
+      })),
+      total: page.total,
+      limit,
+      offset,
+      has_more: offset + limit < page.total,
+    };
+  }
+
+  async listParticipantRunExecutionSteps(input: {
+    sessionId: string;
+    participantId: string;
     runId: string;
     limit?: number;
     offset?: number;
@@ -240,6 +276,10 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
       throw new Error(`会话不存在: ${input.sessionId}`);
     }
     if (!this.runs) throw new Error("SaaS run repository 未配置");
+    const run = await this.runs.getRun(this.tenantId, input.sessionId, input.runId);
+    if (!run || !isParticipantRun(run, input.participantId)) {
+      throw new Error(`Run 不存在: ${input.runId}`);
+    }
     const limit = input.limit ?? 500;
     const offset = input.offset ?? 0;
     const envelopes = await this.collectRunExecutionEnvelopes(input.sessionId, input.runId, limit + offset);
@@ -324,6 +364,12 @@ function isVisibleParticipantMessage(message: MessageInfo, threadKey: string): b
   return message.thread_key === threadKey
     && message.metadata.react_intermediate !== true
     && message.metadata.visible_to_user !== false;
+}
+
+function isParticipantRun(run: RunInfo, participantId: string): boolean {
+  return participantId === "root"
+    ? run.child_agent_id == null && run.thread_key === "root"
+    : run.child_agent_id === participantId;
 }
 
 function collectRunTreeRunIds(allRuns: RunInfo[], rootRunId: string): string[] {

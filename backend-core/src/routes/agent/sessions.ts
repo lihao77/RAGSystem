@@ -8,6 +8,7 @@ import {
   SessionListResponseSchema,
   SessionMessageListResponseSchema,
   SessionMessageRunStepsResponseSchema,
+  SessionParticipantRunListResponseSchema,
   SessionParticipantRunStepsResponseSchema,
   SessionParticipantListResponseSchema,
   SessionPermissionResponseSchema,
@@ -55,6 +56,9 @@ interface MessageParams extends SessionParams {
 
 interface ParticipantParams extends SessionParams {
   participantId: string;
+}
+
+interface ParticipantRunParams extends ParticipantParams {
   runId: string;
 }
 
@@ -247,6 +251,30 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.get<{ Params: ParticipantParams }>(
+    "/sessions/:sessionId/participants/:participantId/runs",
+    async (request) => {
+      const sessions = await resolveSessionApplication(options, request);
+      await loadReadableSession(request, request.params.sessionId, sessions);
+      const participant = await resolveSessionParticipant(
+        request,
+        request.params.sessionId,
+        request.params.participantId,
+      );
+      const query = request.query as { limit?: string; offset?: string };
+      const data = await sessions.listParticipantRuns({
+        sessionId: request.params.sessionId,
+        participantId: participant.participant_id,
+        limit: clampInt(query.limit, 100, 1, 500),
+        offset: clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+      });
+      return validateResponse(SessionParticipantRunListResponseSchema, ok({
+        participant_id: participant.participant_id,
+        ...data,
+      }, "获取参与者 Run 列表成功"));
+    },
+  );
+
+  app.get<{ Params: ParticipantRunParams }>(
     "/sessions/:sessionId/participants/:participantId/runs/:runId/steps",
     async (request) => {
       const sessions = await resolveSessionApplication(options, request);
@@ -256,17 +284,12 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
         request.params.sessionId,
         request.params.participantId,
       );
-      if (!participant.last_run_id) {
-        throw new HttpError(404, "not_found", `会话参与者尚无 Run: ${participant.participant_id}`);
-      }
-      if (participant.last_run_id !== request.params.runId) {
-        throw new HttpError(404, "not_found", `参与者 Run 不存在: ${request.params.runId}`);
-      }
       const query = request.query as { limit?: string; offset?: string };
       let data;
       try {
-        data = await sessions.listRunExecutionSteps({
+        data = await sessions.listParticipantRunExecutionSteps({
           sessionId: request.params.sessionId,
+          participantId: participant.participant_id,
           runId: request.params.runId,
           limit: clampInt(query.limit, 500, 1, 2000),
           offset: clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER),

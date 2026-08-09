@@ -80,6 +80,30 @@ export class PostgresRunRepository implements AsyncRunStore {
     return { items: rows.rows.map(run), total: Number(count.rows[0]?.count ?? 0) };
   }
 
+  async listParticipantRuns(tenantId: string, sessionId: string, participantId: string, limit: number, offset: number): Promise<{ items: RunInfo[]; total: number }> {
+    const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+    const boundedOffset = Math.max(0, Math.trunc(offset));
+    const participantWhere = participantId === "root"
+      ? "child_agent_id IS NULL AND thread_key='root'"
+      : "child_agent_id=$3";
+    const identityParams = participantId === "root"
+      ? [tenantId, sessionId]
+      : [tenantId, sessionId, participantId];
+    const limitIndex = identityParams.length + 1;
+    const offsetIndex = identityParams.length + 2;
+    const [count, rows] = await Promise.all([
+      this.executor.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 AND ${participantWhere}`,
+        identityParams,
+      ),
+      this.executor.query(
+        `SELECT ${runColumns} FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 AND ${participantWhere} ORDER BY created_at DESC LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+        [...identityParams, boundedLimit, boundedOffset],
+      ),
+    ]);
+    return { items: rows.rows.map(run), total: Number(count.rows[0]?.count ?? 0) };
+  }
+
   async interruptSuspendedRuns(tenantId: string, sessionId: string): Promise<RunInfo[]> {
     const result = await this.executor.query(`UPDATE saas_runs
       SET status='interrupted', final_message_id=NULL, updated_at=CURRENT_TIMESTAMP

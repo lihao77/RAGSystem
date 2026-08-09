@@ -95,6 +95,29 @@ describe("loginRagSystem", () => {
 });
 
 describe("RagChatClient", () => {
+  it("lists every Run owned by a participant", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      success: true,
+      message: "ok",
+      data: {
+        participant_id: "child/1",
+        items: [],
+        total: 0,
+        limit: 25,
+        offset: 5,
+        has_more: false,
+      },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const client = createRagChatClient({ baseUrl: "https://rag.example.test", fetch: fetchMock });
+
+    await client.listSessionParticipantRuns("session-1", "child/1", { limit: 25, offset: 5 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://rag.example.test/api/agent/sessions/session-1/participants/child%2F1/runs?limit=25&offset=5",
+      expect.any(Object),
+    );
+  });
+
   it("loads the latest participant run steps from the participant route", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       success: true,

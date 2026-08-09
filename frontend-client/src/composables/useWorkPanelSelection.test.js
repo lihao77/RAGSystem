@@ -142,3 +142,29 @@ test('child participant exposes a run anchor before its final message exists', a
   assert.equal(state.selectedWorkPanelMessageKey.value, 'participant:child-1:run:child-run');
   assert.deepEqual(ensureCalls, ['child-run']);
 });
+
+test('child participant keeps every historical run selectable', async () => {
+  const firstRun = createMessage('child-run-1:final', { run_id: 'child-run-1' });
+  const secondRun = createMessage('child-run-2:final', { run_id: 'child-run-2' });
+  const state = useWorkPanelSelection({
+    messages: ref([firstRun, secondRun]),
+    activeRun: reactive({ ...createActiveRunState() }),
+    selectedParticipantId: ref('child-1'),
+    selectedParticipant: ref({ participant_id: 'child-1', last_run_id: 'child-run-2' }),
+    getParticipantRunExecutionMessage: () => secondRun,
+    hasExecutionContent: (msg) => Boolean(msg?.has_execution),
+    ensureExecutionStepsLoaded: async (msg) => { msg.executionStepsLoaded = true; },
+    showToast: () => {},
+  });
+  await nextTick();
+
+  assert.deepEqual(
+    state.workPanelExecutionMessages.value.map(item => item.key),
+    ['id:child-run-1:final', 'id:child-run-2:final'],
+  );
+
+  await state.selectWorkPanelMessage('id:child-run-1:final');
+
+  assert.equal(state.currentRunMessage.value.id, firstRun.id);
+  assert.equal(firstRun.executionStepsLoaded, true);
+});

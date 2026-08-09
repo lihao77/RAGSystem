@@ -46,6 +46,10 @@ export class LocalAgentSessionRepository implements AgentSessionRepositoryPort {
   async updateMessage(input: AgentSessionMessageUpdate) { return this.store.updateMessage(input); }
 
   async listRuns(sessionId: string, limit: number) { return this.store.listRuns(sessionId, limit); }
+  async listParticipantRuns(sessionId: string, participantId: string, limit: number, offset: number) {
+    return this.store.listParticipantRuns(sessionId, participantId, limit, offset);
+  }
+  async getRun(sessionId: string, runId: string) { return this.store.getRun(sessionId, runId); }
   async listRunSteps(input: {
     runId?: string | null;
     messageId?: string | null;

@@ -7,6 +7,7 @@
       v-if="isWideScreen && showWorkPanel"
       :active-run="activeRun"
       :current-message="currentMessage"
+      :execution-messages="executionMessages"
       :injections-by-run-id="injectionsByRunId"
       :approval-queue="approvalQueue"
       :approval-submitting-id="approvalSubmittingId"
@@ -24,6 +25,7 @@
       @user-input-cancel="emit('userInputCancel')"
       @file-select="emit('fileSelect', $event)"
       @file-changes="emit('fileChanges')"
+      @select-execution-message="emit('selectExecutionMessage', $event)"
     />
   </Transition>
 
@@ -37,6 +39,7 @@
         mobile
         :active-run="activeRun"
         :current-message="currentMessage"
+        :execution-messages="executionMessages"
         :injections-by-run-id="injectionsByRunId"
         :approval-queue="approvalQueue"
         :approval-submitting-id="approvalSubmittingId"
@@ -54,6 +57,7 @@
         @user-input-cancel="emit('userInputCancel')"
         @file-select="emit('fileSelect', $event)"
         @file-changes="emit('fileChanges')"
+        @select-execution-message="emit('selectExecutionMessage', $event)"
       />
     </SheetContent>
   </Sheet>
@@ -79,6 +83,7 @@ defineProps({
   showWorkPanel: { type: Boolean, default: false },
   activeRun: { type: Object, required: true },
   currentMessage: { type: Object, default: null },
+  executionMessages: { type: Array, default: () => [] },
   injectionsByRunId: { type: Object, default: () => ({}) },
   approvalQueue: { type: Array, default: () => [] },
   approvalSubmittingId: { type: String, default: '' },
@@ -103,6 +108,7 @@ const emit = defineEmits([
   'userInputCancel',
   'fileSelect',
   'fileChanges',
+  'selectExecutionMessage',
 ]);
 
 const approvalDialogRef = ref(null);

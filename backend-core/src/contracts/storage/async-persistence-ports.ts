@@ -52,6 +52,7 @@ export interface AsyncRunStore {
   updateRunStatus(tenantId: string, runId: string, sessionId: string, status: string, finalMessageId?: string | null, terminalReason?: string | null): Promise<boolean>;
   getRun(tenantId: string, sessionId: string, runId: string): Promise<RunInfo | null>;
   listRuns(tenantId: string, sessionId: string, limit?: number): Promise<{ items: RunInfo[]; total: number }>;
+  listParticipantRuns(tenantId: string, sessionId: string, participantId: string, limit: number, offset: number): Promise<{ items: RunInfo[]; total: number }>;
   interruptSuspendedRuns(tenantId: string, sessionId: string): Promise<RunInfo[]>;
   addRunStep(input: AddRunStepInput & { tenantId: string }): Promise<RunStepRecord>;
   updateRunStepsMessageId(tenantId: string, sessionId: string, runId: string, messageId: string): Promise<number>;
