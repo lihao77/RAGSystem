@@ -113,7 +113,10 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
     const targetThreadKey = required(input.targetThreadKey, "targetThreadKey");
     const availableAt = timestamp(input.availableAt);
     const expiresAt = input.expiresAt == null ? null : timestamp(input.expiresAt);
-    const existing = await this.get(sessionId, messageId);
+    // message_id is unique per tenant, not per session. Resolve the existing
+    // row without a session filter so a cross-session reuse is reported as an
+    // identity conflict instead of a misleading insert failure.
+    const existing = await this.getByTenantMessageId(messageId);
     if (existing) {
       if (!sameMessageIdentity(existing, input, availableAt, expiresAt)) throw new Error(`Agent mailbox message id conflict: ${messageId}`);
       return existing;
@@ -132,7 +135,7 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
       JSON.stringify(input.contentParts ?? []), JSON.stringify(input.metadata ?? {}), availableAt,
       expiresAt,
     ]);
-    const created = await this.get(sessionId, messageId);
+    const created = await this.getByTenantMessageId(messageId);
     if (!created) throw new Error(`Agent mailbox insert failed: ${messageId}`);
     if (!sameMessageIdentity(created, input, availableAt, expiresAt)) throw new Error(`Agent mailbox message id conflict: ${messageId}`);
     return created;
@@ -140,6 +143,11 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
 
   async get(sessionId: string, messageId: string): Promise<AgentMailboxMessage | null> {
     const result = await this.executor.query(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox_messages WHERE tenant_id=$1 AND session_id=$2 AND message_id=$3`, [this.tenant(), required(sessionId, "sessionId"), required(messageId, "messageId")]);
+    return result.rows[0] ? row(result.rows[0]) : null;
+  }
+
+  private async getByTenantMessageId(messageId: string): Promise<AgentMailboxMessage | null> {
+    const result = await this.executor.query(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox_messages WHERE tenant_id=$1 AND message_id=$2`, [this.tenant(), required(messageId, "messageId")]);
     return result.rows[0] ? row(result.rows[0]) : null;
   }
 

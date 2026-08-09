@@ -615,7 +615,7 @@ describe("background child-agent delegation", () => {
       targetRunId: "parent-run",
       targetAgentCallId: "parent-agent-call",
       kind: "result",
-      metadata: expect.objectContaining({ recovered: true, status: "failed" }),
+      metadata: expect.objectContaining({ recovered: true, status: "interrupted" }),
     }));
     expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({ targetRunId: "parent-run" }));
   });

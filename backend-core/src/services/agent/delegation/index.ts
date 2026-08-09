@@ -185,7 +185,10 @@ export class AgentDelegationService implements DelegationPort {
     if (!child?.parent_run_id) return;
     const parent = await this.store.getRun(task.session_id, child.parent_run_id);
     if (!parent) return;
-    const status = child.status === "interrupted" || task.status === "cancelled" ? "interrupted" : "failed";
+    const shouldInterrupt = child.status === "running"
+      || child.status === "interrupted"
+      || task.status === "cancelled";
+    const status = shouldInterrupt ? "interrupted" : "failed";
     if (child.status === "running") {
       await this.store.updateRunStatus(child.run_id, task.session_id, "interrupted", null, "background_task_owner_lease_expired");
     }

@@ -109,7 +109,10 @@ export class BackgroundTaskService {
     for (const record of records) {
       const task = fromDurableRecord(record);
       this.tasks.set(record.task_id, task);
-      if (recoveredIds.has(record.task_id)) this.pendingRecoveryTaskIds.add(record.task_id);
+      if (recoveredIds.has(record.task_id) || isLeaseRecoveryCandidate(record)) {
+        this.pendingRecoveryTaskIds.add(record.task_id);
+      }
+      if (isLeaseRecoveryCandidate(record)) this.pendingRecoveryTaskIds.add(record.task_id);
       if (this.pendingRecoveryTaskIds.has(record.task_id) && this.onTaskRecovered) {
         try {
           await this.onTaskRecovered(task);
@@ -701,6 +704,14 @@ export function toPublicBackgroundTask(task: BackgroundTask, owned = false): Pub
     cancel_available: cancelUnavailableReason === null,
     cancel_unavailable_reason: cancelUnavailableReason,
   };
+}
+
+function isLeaseRecoveryCandidate(record: DurableBackgroundTaskRecord): boolean {
+  return record.status === "failed"
+    && record.kind === "agent"
+    && record.result_type === "agent_delegation_result"
+    && typeof record.error === "string"
+    && record.error.includes("background task owner lease expired");
 }
 
 function fromDurableRecord(record: DurableBackgroundTaskRecord): BackgroundTask {

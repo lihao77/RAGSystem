@@ -77,6 +77,43 @@ describe("background task cancellation scope", () => {
     expect(repository.deleteExpired).toHaveBeenCalledOnce();
   });
 
+  it("retries a lease recovery record after restart even when expiry was already persisted", async () => {
+    const recovered = vi.fn(async () => undefined);
+    const repository = {
+      failExpiredRunning: vi.fn(async () => []),
+      listActive: vi.fn(async () => [{
+        tenant_id: "tenant-1",
+        task_id: "task-recovered",
+        description: "child",
+        output_path: "",
+        started_at: 1,
+        status: "failed",
+        return_code: 1,
+        error: "background task owner lease expired after runtime restart",
+        expires_at: null,
+        run_id: "child-run",
+        owner_task_id: null,
+        session_id: "session-1",
+        completed_at: 2,
+        result_type: "agent_delegation_result",
+        kind: "agent",
+        cancel_supported: true,
+        owner_instance_id: null,
+        lease_expires_at: null,
+      }]),
+      deleteExpired: vi.fn(async () => 0),
+      upsert: vi.fn(async () => undefined),
+      listBySession: vi.fn(async () => []),
+    };
+    const service = new BackgroundTaskService({ repository: repository as never, tenantId: "tenant-1" });
+    service.setOnTaskRecovered(recovered);
+
+    await service.initialize();
+
+    expect(repository.failExpiredRunning).toHaveBeenCalledOnce();
+    expect(recovered).toHaveBeenCalledWith(expect.objectContaining({ task_id: "task-recovered" }));
+  });
+
   it("uses a task-local signal that is independent from the parent run", async () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-background-signal-"));
     tempRoots.push(outputDir);

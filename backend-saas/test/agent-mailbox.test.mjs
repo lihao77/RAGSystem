@@ -19,6 +19,10 @@ class FakeExecutor {
       const [tenantId, sessionId, messageId] = params;
       return { rows: this.rows.filter((row) => row.tenant_id === tenantId && row.session_id === sessionId && row.message_id === messageId) };
     }
+    if (sql.includes("SELECT") && sql.includes("WHERE tenant_id=$1 AND message_id=$2")) {
+      const [tenantId, messageId] = params;
+      return { rows: this.rows.filter((row) => row.tenant_id === tenantId && row.message_id === messageId) };
+    }
     if (sql.includes("INSERT INTO agent_mailbox_messages")) {
       const [messageId, tenantId, sessionId, sourceRunId, sourceCallId, targetRunId, targetCallId, targetThreadKey, targetChildAgentId, kind, correlationId, replyToMessageId, contentParts, metadata, availableAt, expiresAt] = params;
       const existing = this.rows.find((row) => row.tenant_id === tenantId && row.message_id === messageId);
@@ -118,6 +122,7 @@ test("SaaS Agent mailbox fences tenant, target tuple, and claim retry", async ()
   assert.equal(duplicate.message_id, created.message_id);
   await assert.rejects(() => mailbox.enqueue(messageInput({ expiresAt: "2026-01-01T00:00:01.000Z" })), /conflict/);
   await assert.rejects(() => mailbox.enqueue(messageInput({ tenantId: "tenant-2" })), /tenant mismatch/);
+  await assert.rejects(() => mailbox.enqueue(messageInput({ sessionId: "session-2" })), /conflict/);
 
   const wrongTarget = await mailbox.claim({
     sessionId: "session-1", targetRunId: "target-run", targetAgentCallId: "target-call",
