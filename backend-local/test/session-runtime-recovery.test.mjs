@@ -102,6 +102,47 @@ function resumeAttachRecord(claimId) {
   };
 }
 
+test('message participant identity comes from canonical fields, not metadata', (t) => {
+  const store = createConversationStore({ dbPath: ':memory:', dataRoot: process.cwd() });
+  t.after(() => store.close());
+  store.createSession({
+    tenantId,
+    sessionId: 'identity-session',
+    ownerUserId: 'usr_test',
+    visibility: 'private',
+    originType: 'direct',
+    originId: null,
+    originChannel: 'web',
+    workspaceId: null,
+    teamSnapshot,
+    metadata: {},
+  });
+
+  const rootMessage = store.addMessage({
+    sessionId: 'identity-session',
+    role: 'user',
+    content: 'root',
+    contentParts: [{ type: 'text', text: 'root' }],
+    metadata: { thread_key: 'metadata-child', child_agent_id: 'metadata-child' },
+  });
+  assert.equal(rootMessage.thread_key, 'root');
+  assert.equal(rootMessage.child_agent_id, null);
+  assert.equal(rootMessage.metadata.thread_key, 'metadata-child');
+
+  const childMessage = store.addMessage({
+    sessionId: 'identity-session',
+    role: 'assistant',
+    content: 'child',
+    contentParts: [{ type: 'text', text: 'child' }],
+    threadKey: 'child:worker',
+    childAgentId: 'worker',
+    metadata: { thread_key: 'wrong-thread', child_agent_id: 'wrong-child' },
+  });
+  assert.equal(childMessage.thread_key, 'child:worker');
+  assert.equal(childMessage.child_agent_id, 'worker');
+  assert.equal(childMessage.metadata.thread_key, 'wrong-thread');
+});
+
 async function createResumeClaim(store, storage) {
   createInteraction(store);
   store.updatePendingInteractionStatus({

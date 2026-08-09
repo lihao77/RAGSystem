@@ -72,7 +72,7 @@ function childAgent(): ChildAgentInfo {
     parent_run_id: "parent-run",
     parent_call_id: "parent-call",
     last_run_id: null,
-    metadata: { agent_call_id: "child-call" },
+    metadata: {},
     created_at: new Date(0).toISOString(),
     updated_at: new Date(0).toISOString(),
   };
@@ -500,7 +500,6 @@ describe("background child-agent delegation", () => {
     const child = {
       ...childAgent(),
       last_run_id: "completed-child-run",
-      metadata: { agent_call_id: "completed-child-call" },
     };
     const delegationStore = store(child);
     vi.mocked(delegationStore.getRun).mockResolvedValue({

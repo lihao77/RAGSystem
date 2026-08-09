@@ -716,23 +716,13 @@ class AgentLaunchers {
     if (currentStatus === "running" || currentStatus === "suspended") return;
     if (await this.durableActiveRunId(target.sessionId)) return;
     if (await this.backgroundTasks?.hasRunningTasksDurable(target.sessionId)) return;
-    const durableTarget = await this.runReader?.getRun(target.sessionId, target.targetRunId);
+    if (!this.runReader) return;
+    const durableTarget = await this.runReader.getRun(target.sessionId, target.targetRunId);
+    if (!durableTarget) return;
     if (durableTarget?.status === "running" || durableTarget?.status === "suspended") return;
     const session = await this.sessions.getSession(target.sessionId);
-    const sessionIdentity: SessionIdentity = session
-      ? toSessionIdentity(session)
-      : {
-          sessionId: target.sessionId,
-          ownerUserId: "usr_system",
-          visibility: "tenant",
-          originType: "direct",
-          originId: null,
-          originChannel: "api",
-          workspaceId: null,
-          teamSnapshot: this.runtimeCore.createTeamSnapshot(),
-          metadata: {},
-          permissionMode: null,
-        };
+    if (!session) return;
+    const sessionIdentity = toSessionIdentity(session);
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {
@@ -839,21 +829,8 @@ class AgentLaunchers {
       }
 
       const existingSession = await this.sessions.getSession(sessionId);
-      const sessionMetadata = existingSession?.metadata ?? {};
-      const sessionIdentity: SessionIdentity = existingSession
-        ? toSessionIdentity(existingSession)
-        : {
-            sessionId,
-            ownerUserId: "usr_system",
-            visibility: "tenant",
-            originType: "direct",
-            originId: null,
-            originChannel: "api",
-            workspaceId: null,
-            teamSnapshot: this.runtimeCore.createTeamSnapshot(),
-            metadata: sessionMetadata,
-            permissionMode: null,
-          };
+      if (!existingSession) return;
+      const sessionIdentity = toSessionIdentity(existingSession);
       const ready = resolveReadyAgent(
         this.runtimeCore,
         {
@@ -865,10 +842,6 @@ class AgentLaunchers {
       if (!ready.ok) {
         await markReason("readiness_failed");
         return;
-      }
-
-      if (!existingSession) {
-        await this.sessions.createSystemSession({ tenantId: this.tenantId, sessionId });
       }
 
       // Session/agent readiness may require SaaS I/O. Claim only after those checks pass so a

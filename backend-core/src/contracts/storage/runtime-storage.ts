@@ -213,6 +213,7 @@ export interface RuntimeFinalizeRunInput {
   interactionRootRunId?: string | null;
   closeDanglingToolCalls?: {
     threadKey: string;
+    childAgentId?: string | null;
     agentName: string;
     terminalStatus: "failed" | "interrupted";
     reason: string;

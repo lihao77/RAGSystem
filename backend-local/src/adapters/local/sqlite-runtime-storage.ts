@@ -314,6 +314,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
                     sessionId: session.session_id,
                     runId: run.run_id,
                     threadKey,
+                    childAgentId: run.child_agent_id,
                     agentName: run.agent_name ?? "unknown",
                     terminalStatus: "interrupted",
                     reason: "backend_restarted",
@@ -328,6 +329,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
                     sessionId: session.session_id,
                     runId: run.run_id,
                     threadKey,
+                    childAgentId: run.child_agent_id,
                     agentName: run.agent_name ?? "unknown",
                     terminalStatus: "interrupted",
                     reason: "backend_restarted",
@@ -789,6 +791,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             sessionId: input.sessionId,
             runId: run.run_id,
             threadKey,
+            childAgentId: run.child_agent_id,
             agentName: run.agent_name ?? "unknown",
             terminalStatus: "interrupted",
             reason: "session_stopped",
@@ -962,6 +965,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
               sessionId: input.sessionId,
               runId: run.run_id,
               threadKey,
+              childAgentId: run.child_agent_id,
               agentName: run.agent_name ?? run.agent_display_name,
               terminalStatus: runStatus,
               reason: runReason ?? "未提供终止原因",
@@ -975,6 +979,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
               sessionId: input.sessionId,
               runId: run.run_id,
               threadKey,
+              childAgentId: run.child_agent_id,
               agentName: run.agent_name ?? run.agent_display_name,
               terminalStatus: runStatus === "failed" ? "failed" : "interrupted",
               reason: runReason ?? "parent_run_terminated",
@@ -1181,11 +1186,8 @@ function assertMessageMatches(
   input: import("@ragsystem/backend-core/contracts/conversation-store/index.js").AddMessageInput & { messageId: string },
   subject: string,
 ): void {
-  const expectedThreadKey = input.threadKey?.trim()
-    || (typeof input.metadata?.thread_key === "string" ? input.metadata.thread_key.trim() : "")
-    || "root";
-  const expectedChildAgentId = input.childAgentId
-    ?? (typeof input.metadata?.child_agent_id === "string" ? input.metadata.child_agent_id : null);
+  const expectedThreadKey = input.threadKey?.trim() || "root";
+  const expectedChildAgentId = input.childAgentId ?? null;
   const mismatched = existing.session_id !== input.sessionId
     || existing.role !== input.role
     || existing.content !== input.content

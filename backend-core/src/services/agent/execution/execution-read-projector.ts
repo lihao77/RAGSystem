@@ -114,7 +114,7 @@ export class ExecutionReadProjector {
 
 function latestRootRun(runs: RunInfo[]): RunInfo | null {
   const roots = runs.filter((run) => !run.parent_run_id && !run.child_agent_id);
-  return (roots.length ? roots : runs).sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))[0] ?? null;
+  return roots.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))[0] ?? null;
 }
 
 function toTaskStatus(run: RunInfo): ExecutionTaskStatus {

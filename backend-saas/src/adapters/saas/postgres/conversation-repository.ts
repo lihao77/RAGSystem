@@ -227,20 +227,17 @@ export class PostgresConversationRepository implements AsyncConversationReposito
   async addMessage(input: AddMessageInput): Promise<MessageInfo> {
     const normalized = AddMessageInputSchema.parse(input);
     const id = normalized.messageId ?? randomUUID();
-    const metadata = encodeChatFields({
-      ...(normalized.metadata ?? {}),
-      thread_key: normalized.threadKey?.trim() || "root",
-      ...(normalized.childAgentId ? { child_agent_id: normalized.childAgentId } : {}),
-    }, {
+    const metadata = encodeChatFields({ ...(normalized.metadata ?? {}) }, {
       tool_calls: normalized.toolCalls as never,
       tool_call_id: normalized.toolCallId,
       name: normalized.name,
     });
+    const threadKey = normalized.threadKey?.trim() || "root";
     const contentParts: MessageContentPart[] = normalized.contentParts;
     return this.executor.transaction(async (executor) => {
       const result = await executor.query(
         "INSERT INTO conversation_messages(id,session_id,role,content,content_parts,metadata,thread_key,child_agent_id) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8) RETURNING *",
-        [id, normalized.sessionId, normalized.role, normalized.content, JSON.stringify(contentParts), JSON.stringify(metadata), metadata.thread_key, normalized.childAgentId ?? null],
+        [id, normalized.sessionId, normalized.role, normalized.content, JSON.stringify(contentParts), JSON.stringify(metadata), threadKey, normalized.childAgentId ?? null],
       );
       await executor.query("UPDATE conversation_sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=$1", [normalized.sessionId]);
       if (!result.rows[0]) throw new Error("message insert returned no row");

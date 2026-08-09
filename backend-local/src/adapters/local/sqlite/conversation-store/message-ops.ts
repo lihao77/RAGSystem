@@ -3,7 +3,7 @@ import type { PaginatedResult } from "@ragsystem/backend-core/contracts/common.j
 import type { MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
-import { asNullableString, asString, stringifyJson } from "./helpers.js";
+import { stringifyJson } from "./helpers.js";
 import { decodeChatFields, encodeChatFields } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import { rowToMessage } from "./mappers.js";
 import type { AddMessageInput } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
@@ -34,13 +34,9 @@ export class MessageOps {
   addMessageInTransaction(input: AddMessageInput): MessageInfo {
     const messageId = input.messageId ?? randomUUID();
     const metadata = { ...(input.metadata ?? {}) };
-    const rawThreadKey = input.threadKey ?? asString(metadata.thread_key) ?? "root";
+    const rawThreadKey = input.threadKey ?? "root";
     const threadKey = rawThreadKey.trim() || "root";
-    const childAgentId = input.childAgentId ?? asNullableString(metadata.child_agent_id);
-    metadata.thread_key = threadKey;
-    if (childAgentId) {
-      metadata.child_agent_id = childAgentId;
-    }
+    const childAgentId = input.childAgentId ?? null;
     const persistedMetadata = encodeChatFields(metadata, {
       tool_calls: input.toolCalls,
       tool_call_id: input.toolCallId,

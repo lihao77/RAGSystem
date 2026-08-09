@@ -208,6 +208,7 @@ export class AsyncKernelEventPersister {
           content: event.observation,
           contentParts: [{ type: "text", text: event.observation }],
           threadKey: this.ctx.threadKey,
+          childAgentId: this.ctx.childAgentId ?? null,
           toolCallId: event.toolCallId,
           name: event.toolName,
           metadata: {
@@ -251,6 +252,7 @@ export class AsyncKernelEventPersister {
       ...(status === "failed" || status === "interrupted" ? {
         closeDanglingToolCalls: {
           threadKey: this.ctx.threadKey,
+          childAgentId: this.ctx.childAgentId ?? null,
           agentName: this.ctx.agentName,
           terminalStatus: status,
           reason: terminalReason(status, error),
@@ -334,6 +336,7 @@ export class AsyncKernelEventPersister {
       content: extractText(message.content),
       contentParts: [{ type: "text", text: extractText(message.content) }],
       threadKey: this.ctx.threadKey,
+      childAgentId: this.ctx.childAgentId ?? null,
       metadata: { ...this.messageMeta(round), msg_type: MSG_TYPE.INTENT },
     };
     if (message.tool_calls) {
@@ -398,6 +401,7 @@ export class AsyncKernelEventPersister {
               }])
           : (finalMessage.content ? [{ type: "text", text: finalMessage.content }] : []),
         threadKey: this.ctx.threadKey,
+        childAgentId: this.ctx.childAgentId ?? null,
         metadata,
       };
     }
@@ -406,6 +410,7 @@ export class AsyncKernelEventPersister {
       sessionId: this.ctx.sessionId,
       runId: this.ctx.runId,
       threadKey: this.ctx.threadKey,
+      childAgentId: this.ctx.childAgentId ?? null,
       agentName: this.ctx.agentName,
       terminalStatus: status,
       reason: terminalReason(status, error),
@@ -438,7 +443,6 @@ export class AsyncKernelEventPersister {
       agent_name: this.ctx.agentName,
       run_id: this.ctx.runId,
       agent: this.ctx.agentName,
-      thread_key: this.ctx.threadKey,
       conversation_scope: this.ctx.parentCallId != null ? "child" : "root",
       ...(this.ctx.taskId ? { task_id: this.ctx.taskId } : {}),
       ...(this.ctx.requestId ? { request_id: this.ctx.requestId } : {}),

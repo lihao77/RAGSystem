@@ -318,11 +318,6 @@ export class AgentDelegationService implements DelegationPort {
           source: "child_terminal_result_recovery",
           child_run_id: childRun.run_id,
           child_agent_call_id: childRun.agent_call_id,
-          parent_run_id: parent.run_id,
-          parent_call_id: childRun.parent_call_id,
-          parent_agent_call_id: parent.agent_call_id,
-          parent_thread_key: parent.thread_key,
-          parent_child_agent_id: parent.child_agent_id,
           target_agent_name: parent.agent_name,
           target_root_run_id: parent.lease_root_run_id,
           target_parent_run_id: parent.parent_run_id,
@@ -465,9 +460,7 @@ export class AgentDelegationService implements DelegationPort {
     const resumedRun = existingRun?.status === "suspended" ? existingRun : null;
     const childAgentId = resumedRun && matchingChild ? matchingChild.child_agent_id : `child_${randomUUID()}`;
     const threadKey = resumedRun && matchingChild ? matchingChild.thread_key : `child:${childAgentId}`;
-    const resumedAgentCallId = resumedRun && matchingChild
-      ? normalizeString(matchingChild.metadata.agent_call_id) ?? resumedRun.agent_call_id
-      : null;
+    const resumedAgentCallId = resumedRun?.agent_call_id ?? null;
     const agentCallId = resumedAgentCallId ?? `call_${randomUUID()}`;
     const childRunId = resumedRun?.run_id ?? randomUUID();
     const child = resumedRun && matchingChild
@@ -483,10 +476,7 @@ export class AgentDelegationService implements DelegationPort {
           createdByCallId: parentCallId,
           parentRunId,
           parentCallId,
-          metadata: {
-            ...buildChildMetadata(ctx, "agent"),
-            agent_call_id: agentCallId,
-          },
+          metadata: buildChildMetadata(ctx, "agent"),
         });
 
     const childDisplayName = this.resolveChildDisplayName(targetAgentName, session.team_snapshot);
@@ -581,7 +571,7 @@ export class AgentDelegationService implements DelegationPort {
     const lastRun = child.last_run_id ? await this.store.getRun(sessionId, child.last_run_id) : null;
     const runningChildRoute = activeChildRoute ?? (lastRun?.status === "running" ? {
       runId: lastRun.run_id,
-      agentCallId: normalizeString(lastRun.agent_call_id) ?? normalizeString(child.metadata.agent_call_id) ?? "",
+      agentCallId: lastRun.agent_call_id,
       rootRunId: lastRun.lease_root_run_id,
       parentRunId: lastRun.parent_run_id,
       parentCallId: lastRun.parent_call_id,
@@ -778,8 +768,6 @@ export class AgentDelegationService implements DelegationPort {
         direction: "child_to_parent",
         child_agent_id: ctx.currentChildAgentId,
         child_run_id: ctx.runId,
-        parent_run_id: parent.run_id,
-        parent_agent_call_id: parent.agent_call_id,
         target_agent_name: parent.agent_name ?? null,
         target_root_run_id: parent.lease_root_run_id ?? parent.run_id,
         target_parent_run_id: parent.parent_run_id ?? null,
@@ -1204,11 +1192,6 @@ export class AgentDelegationService implements DelegationPort {
           child_agent_id: input.childAgent.child_agent_id,
           child_run_id: input.childRunId,
           child_agent_call_id: input.rootCallId,
-          parent_run_id: parent.run_id,
-          parent_call_id: input.runParentCallId,
-          parent_agent_call_id: parent.agent_call_id,
-          parent_thread_key: parent.thread_key,
-          parent_child_agent_id: parent.child_agent_id,
           target_agent_name: parent.agent_name ?? input.parentAgentName,
           target_root_run_id: input.parentRootRunId,
           target_parent_run_id: input.parentParentRunId,

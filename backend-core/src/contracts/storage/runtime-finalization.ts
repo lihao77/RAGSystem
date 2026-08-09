@@ -25,6 +25,7 @@ export function buildTerminalAssistantMessage(input: {
   sessionId: string;
   runId: string;
   threadKey: string;
+  childAgentId?: string | null;
   agentName: string;
   terminalStatus: TerminalAssistantStatus;
   reason: string;
@@ -44,11 +45,11 @@ export function buildTerminalAssistantMessage(input: {
     content,
     contentParts: [{ type: "text", text: content }],
     threadKey: input.threadKey,
+    childAgentId: input.childAgentId ?? null,
     metadata: {
       agent_name: input.agentName,
       run_id: input.runId,
       agent: input.agentName,
-      thread_key: input.threadKey,
       ...(input.metadata ?? {}),
       msg_type: MSG_TYPE.RUN_TERMINAL,
       terminal_status: input.terminalStatus,
@@ -74,6 +75,7 @@ export function buildTerminalToolMessages(
     sessionId: string;
     runId: string;
     threadKey: string;
+    childAgentId?: string | null;
     agentName: string;
     terminalStatus: "failed" | "interrupted";
     reason: string;
@@ -111,6 +113,7 @@ export function buildTerminalToolMessages(
         toolCallId: toolCall.id,
         name: toolCall.function.name,
         threadKey: input.threadKey,
+        childAgentId: input.childAgentId ?? null,
         metadata: {
           terminal_tool_result: true,
           terminal_status: input.terminalStatus,
