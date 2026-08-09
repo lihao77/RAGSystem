@@ -89,6 +89,8 @@ agentDelegation.setInvocationService(agentExecution.invocationService);
 
 这样设计是因为 `agentDelegation` 需先实例化（工具依赖它），但其执行依赖尚未创建的 `agentExecution`。
 
+协作工具的目标字段决定命令类型：`agent_name` 创建 child，`child_agent_id` 联系已有 child，child 上下文省略目标时向直接 parent 汇报。入口内部只解析 `create_child`、`message_child`、`message_parent`，创建和 idle continuation 共享普通 `AgentInvocationService` 启动器；运行中消息与终态结果通过 durable mailbox 投递和恢复。子 Agent 与 parent 共享 workspace，不使用 worktree。
+
 ## 上下文压缩
 
 `AgentCompressionService`（`runtime-container.ts:241`）：

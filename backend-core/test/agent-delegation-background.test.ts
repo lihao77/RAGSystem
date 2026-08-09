@@ -192,6 +192,59 @@ describe("background child-agent delegation", () => {
     }));
   });
 
+  it("preserves nested child lineage when a grandchild reports to its parent", async () => {
+    const delegationStore = store(childAgent());
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "child-a-run",
+      agent_call_id: "child-a-call",
+      agent_name: "worker-a",
+      thread_key: "child:child_a",
+      child_agent_id: "child_a",
+      parent_run_id: "root-run",
+      parent_call_id: "root-tool-call",
+      lineage_parent_call_id: "root-agent-call",
+      lease_root_run_id: "root-run",
+    } as never);
+    const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
+      message_id: input.messageId,
+      kind: input.kind,
+      correlation_id: input.correlationId ?? null,
+      expires_at: null,
+    })) as never;
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+
+    await invokeMessage(service, {
+      agent: workerAgent(),
+      teamName: null,
+      input: { toParent: true, message: "grandchild result", kind: "result", correlationId: "corr-nested", callId: "child-b-tool" },
+    }, {
+      ...context(new AbortController().signal),
+      runId: "child-b-run",
+      rootRunId: "root-run",
+      rootCallId: "child-b-call",
+      currentCallId: "child-b-call",
+      currentChildAgentId: "child_b",
+      parentRunId: "child-a-run",
+      threadKey: "child:child_b",
+    } as never);
+
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      targetRunId: "child-a-run",
+      targetAgentCallId: "child-a-call",
+      targetThreadKey: "child:child_a",
+      targetChildAgentId: "child_a",
+      correlationId: "corr-nested",
+      metadata: expect.objectContaining({ target_parent_agent_call_id: "root-agent-call" }),
+    }));
+  });
+
   it("delivers an agent follow-up to a running child through the durable mailbox", async () => {
     const child = { ...childAgent(), last_run_id: "child-run" };
     const delegationStore = store(child);

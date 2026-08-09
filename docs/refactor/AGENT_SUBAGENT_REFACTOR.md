@@ -18,6 +18,7 @@
 | 6 | 受控并行 fan-out、稳定顺序聚合和失败隔离 | `8aa82960` |
 | 7 | `agent_message` WS/outbox 协议事件、执行树和 WorkPanel 投影 | `59f3133c` |
 | 8 | claim 竞争/恢复、child 到 parent、TTL/cancel 和后台完成通知收口 | 当前阶段提交 |
+| 9 | 统一协作命令、私有化分裂处理器、共享 child invocation runner、恢复语义收口 | `d6a75bca`, `e599911f`, `c1452822` |
 
 ## 消息模型
 
@@ -30,6 +31,12 @@ Mailbox 行由 `session_id`、来源 run/call、目标 run/call/thread/child、`
 - `cancel`：在下一 round boundary 中断目标 invocation
 
 父向子和子向父统一使用 `agent` 工具：不传 `child_agent_id` 且提供 `agent_name` 时创建 child；传 `child_agent_id` 时向已有 child 投递 follow-up；child 上下文中省略两个目标字段时投递给直接父 Agent。请求可设置 `timeout_ms`（1 至 600000），映射为 mailbox `expires_at`。重复 terminal result 使用 `<childRunId>:terminal_result`，重复 enqueue 只接受相同 payload。
+
+## 最终内部边界
+
+公开协作入口只有 `agent`（创建/联系/向父汇报）和只读的 `list_child_agents`。`DelegationPort` 不再暴露 `callAgent` 或 `sendMessage`；统一入口先解析为 `create_child`、`message_child`、`message_parent` 三种命令，再进入私有处理器。
+
+创建 child 与 idle continuation 共用 `buildChildRunInput` 和 `runChildInvocation`。两者仍明确区分 invocation 语义：suspended resume 复用原 run/call，idle continuation 复用 child/thread 但创建新 run/call；运行中的消息、child 终态结果和 parent 汇报始终使用 durable mailbox。所有 child 共享父 workspace，不创建 worktree。
 
 ## 消费和恢复
 
