@@ -148,6 +148,8 @@ export interface CreateChildAgentInput {
   sessionId: string;
   agentName: string;
   threadKey?: string | null;
+  /** Runtime participant that owns this child; null means the session root Agent. */
+  parentParticipantId?: string | null;
   createdSeq?: number | null;
   createdByRunId?: string | null;
   createdByCallId?: string | null;
@@ -162,11 +164,13 @@ export interface FindChildAgentByCreatorInput {
   sessionId: string;
   createdByRunId: string;
   createdByCallId: string;
+  parentParticipantId?: string | null;
 }
 
 export interface ListChildAgentsInput {
   sessionId: string;
   agentName?: string | null;
+  parentParticipantId?: string | null;
   operation?: "publish" | "archive" | null;
   limit?: number;
 }
@@ -273,6 +277,7 @@ export type RunInfo = z.infer<typeof RunInfoSchema>;
 
 export const ChildAgentInfoSchema = z.object({
   child_agent_id: z.string(), session_id: z.string(), agent_name: z.string(), thread_key: z.string(), status: z.string(),
+  parent_participant_id: z.string().nullable(),
   created_seq: z.number().nullable(), created_by_run_id: z.string().nullable(), created_by_call_id: z.string().nullable(),
   parent_run_id: z.string().nullable(), parent_call_id: z.string().nullable(), last_run_id: z.string().nullable(),
   metadata: z.record(z.unknown()), created_at: z.string(), updated_at: z.string(),

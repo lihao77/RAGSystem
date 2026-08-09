@@ -205,6 +205,7 @@ export const BASELINE_SCHEMA_SQL = `
       agent_name TEXT NOT NULL,
       thread_key TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
+      parent_participant_id TEXT,
       created_seq INTEGER,
       created_by_run_id TEXT,
       created_by_call_id TEXT,

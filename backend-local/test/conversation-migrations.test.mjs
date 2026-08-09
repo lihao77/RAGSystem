@@ -18,7 +18,7 @@ const nullableRunIdentity = sql => sql
   .replace("      agent_display_name TEXT NOT NULL,\n", "      agent_display_name TEXT,\n")
   .replace("      lease_root_run_id TEXT NOT NULL,\n", "      lease_root_run_id TEXT,\n");
 
-test("conversation schema v1 upgrades to v10 without replacing run data", () => {
+test("conversation schema v1 upgrades to v11 without replacing run data", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(withoutContentParts(withoutRunIdentity(BASELINE_SCHEMA_SQL)
@@ -41,7 +41,7 @@ test("conversation schema v1 upgrades to v10 without replacing run data", () => 
     const columns = db.prepare("PRAGMA table_info(runs)").all();
     const run = db.prepare("SELECT task_summary, terminal_reason FROM runs WHERE run_id=?").get("run-1");
     const workspaceColumns = db.prepare("PRAGMA table_info(workspaces)").all();
-    assert.equal(version.user_version, 10);
+    assert.equal(version.user_version, 11);
     assert.equal(columns.some((column) => column.name === "terminal_reason"), true);
     assert.equal(columns.find((column) => column.name === "agent_call_id")?.notnull, 1);
     assert.equal(columns.find((column) => column.name === "agent_display_name")?.notnull, 1);
@@ -54,7 +54,7 @@ test("conversation schema v1 upgrades to v10 without replacing run data", () => 
   }
 });
 
-test("conversation schema v2 upgrades to v10 without replacing sessions", () => {
+test("conversation schema v2 upgrades to v11 without replacing sessions", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(withoutContentParts(withoutRunIdentity(BASELINE_SCHEMA_SQL).replace("      removed_at TIMESTAMP,\n", "")));
@@ -73,14 +73,14 @@ test("conversation schema v2 upgrades to v10 without replacing sessions", () => 
 
     const version = db.prepare("PRAGMA user_version").get();
     const session = db.prepare("SELECT workspace_id FROM sessions WHERE session_id=?").get("session-1");
-    assert.equal(version.user_version, 10);
+    assert.equal(version.user_version, 11);
     assert.equal(session.workspace_id, "workspace-1");
   } finally {
     db.close();
   }
 });
 
-test("conversation schema v3 upgrades to v10 and purges only removed workspaces without sessions", () => {
+test("conversation schema v3 upgrades to v11 and purges only removed workspaces without sessions", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(withoutContentParts(withoutRunIdentity(BASELINE_SCHEMA_SQL)));
@@ -103,7 +103,7 @@ test("conversation schema v3 upgrades to v10 and purges only removed workspaces 
     const version = db.prepare("PRAGMA user_version").get();
     const emptyWorkspace = db.prepare("SELECT workspace_id FROM workspaces WHERE workspace_id=?").get("workspace-empty");
     const usedWorkspace = db.prepare("SELECT removed_at FROM workspaces WHERE workspace_id=?").get("workspace-used");
-    assert.equal(version.user_version, 10);
+    assert.equal(version.user_version, 11);
     assert.equal(emptyWorkspace, undefined);
     assert.notEqual(usedWorkspace.removed_at, null);
   } finally {
@@ -111,7 +111,7 @@ test("conversation schema v3 upgrades to v10 and purges only removed workspaces 
   }
 });
 
-test("conversation schema v4 upgrades to v10 and migrates structured content_parts", () => {
+test("conversation schema v4 upgrades to v11 and migrates structured content_parts", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(withoutContentParts(withoutRunIdentity(BASELINE_SCHEMA_SQL)));
@@ -178,7 +178,7 @@ test("conversation schema v4 upgrades to v10 and migrates structured content_par
   }
 });
 
-test("conversation schema v5 upgrades to v10 and migrates slash commands", () => {
+test("conversation schema v5 upgrades to v11 and migrates slash commands", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(withoutRunIdentity(BASELINE_SCHEMA_SQL));
@@ -210,7 +210,7 @@ test("conversation schema v5 upgrades to v10 and migrates slash commands", () =>
     runMigrations(db);
 
     const rows = db.prepare("SELECT content_parts,metadata FROM messages ORDER BY seq").all();
-    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 10);
+    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 11);
     assert.deepEqual(JSON.parse(rows[0].content_parts), [{
       type: "command_ref",
       invocation_id: "cmd_command-1",
@@ -233,7 +233,7 @@ test("conversation schema v5 upgrades to v10 and migrates slash commands", () =>
   }
 });
 
-test("conversation schema v7 upgrades to v10 and repairs nullable run lifecycle identity columns", () => {
+test("conversation schema v7 upgrades to v11 and repairs nullable run lifecycle identity columns", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(nullableRunIdentity(BASELINE_SCHEMA_SQL));
@@ -253,7 +253,7 @@ test("conversation schema v7 upgrades to v10 and repairs nullable run lifecycle 
     const columns = db.prepare("PRAGMA table_info(runs)").all();
     const run = db.prepare("SELECT agent_call_id, agent_display_name, lease_root_run_id FROM runs WHERE run_id=?").get("run-1");
     const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='runs'").all();
-    assert.equal(version.user_version, 10);
+    assert.equal(version.user_version, 11);
     assert.equal(columns.find((column) => column.name === "agent_call_id")?.notnull, 1);
     assert.equal(columns.find((column) => column.name === "agent_display_name")?.notnull, 1);
     assert.equal(columns.find((column) => column.name === "lease_root_run_id")?.notnull, 1);

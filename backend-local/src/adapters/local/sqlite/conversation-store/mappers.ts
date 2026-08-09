@@ -63,6 +63,7 @@ export function rowToChildAgent(row: ChildAgentRow): ChildAgentInfo {
     agent_name: row.agent_name,
     thread_key: row.thread_key,
     status: row.status,
+    parent_participant_id: row.parent_participant_id,
     created_seq: row.created_seq,
     created_by_run_id: row.created_by_run_id,
     created_by_call_id: row.created_by_call_id,

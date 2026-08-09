@@ -11,7 +11,7 @@ import type {
 import type { ChildAgentRow } from "./types.js";
 
 const CHILD_AGENT_SELECT_COLUMNS = `
-  child_agent_id, session_id, agent_name, thread_key, status,
+  child_agent_id, session_id, agent_name, thread_key, status, parent_participant_id,
   created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
   last_run_id, metadata, created_at, updated_at
 `;
@@ -29,10 +29,10 @@ export class ChildAgentOps {
         `
           INSERT INTO child_agents (
             child_agent_id, session_id, agent_name, thread_key, status,
-            created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
+            parent_participant_id, created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
             last_run_id, metadata
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
@@ -41,6 +41,7 @@ export class ChildAgentOps {
         input.agentName,
         threadKey,
         status,
+        input.parentParticipantId ?? null,
         input.createdSeq ?? null,
         input.createdByRunId ?? null,
         input.createdByCallId ?? null,
@@ -69,20 +70,25 @@ export class ChildAgentOps {
     const limit = input.limit ?? 100;
     const totalRow = this.db
       .prepare(
-        "SELECT COUNT(1) AS cnt FROM child_agents WHERE session_id=? AND (? IS NULL OR agent_name=?)",
+        `SELECT COUNT(1) AS cnt FROM child_agents
+         WHERE session_id=?
+           AND ((? IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=?)
+           AND (? IS NULL OR agent_name=?)`,
       )
-      .get(input.sessionId, agentName, agentName) as { cnt: number };
+      .get(input.sessionId, input.parentParticipantId ?? null, input.parentParticipantId ?? null, agentName, agentName) as { cnt: number };
     const rows = this.db
       .prepare(
         `
           SELECT ${CHILD_AGENT_SELECT_COLUMNS}
           FROM child_agents
-          WHERE session_id=? AND (? IS NULL OR agent_name=?)
+          WHERE session_id=?
+            AND ((? IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=?)
+            AND (? IS NULL OR agent_name=?)
           ORDER BY created_at DESC
           LIMIT ?
         `,
       )
-      .all(input.sessionId, agentName, agentName, limit) as unknown as ChildAgentRow[];
+      .all(input.sessionId, input.parentParticipantId ?? null, input.parentParticipantId ?? null, agentName, agentName, limit) as unknown as ChildAgentRow[];
     const items = rows.map(rowToChildAgent);
     return { items, total: totalRow.cnt };
   }
@@ -107,11 +113,12 @@ export class ChildAgentOps {
           SELECT ${CHILD_AGENT_SELECT_COLUMNS}
           FROM child_agents
           WHERE session_id=? AND created_by_run_id=? AND created_by_call_id=?
+            AND ((? IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=?)
           ORDER BY created_at DESC
           LIMIT 1
         `,
       )
-      .get(input.sessionId, input.createdByRunId, input.createdByCallId) as ChildAgentRow | undefined;
+      .get(input.sessionId, input.createdByRunId, input.createdByCallId, input.parentParticipantId ?? null, input.parentParticipantId ?? null) as ChildAgentRow | undefined;
     return row ? rowToChildAgent(row) : null;
   }
 

@@ -8,7 +8,7 @@ import type {
 import type { PostgresExecutor } from "./postgres-executor.js";
 
 const columns = `
-  child_agent_id, session_id, agent_name, thread_key, status,
+  child_agent_id, session_id, agent_name, thread_key, status, parent_participant_id,
   created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
   last_run_id, metadata, created_at, updated_at
 `;
@@ -30,6 +30,7 @@ function childAgent(row: Record<string, unknown>): ChildAgentInfo {
     agent_name: String(row.agent_name),
     thread_key: String(row.thread_key),
     status: String(row.status),
+    parent_participant_id: row.parent_participant_id == null ? null : String(row.parent_participant_id),
     created_seq: row.created_seq == null ? null : Number(row.created_seq),
     created_by_run_id: row.created_by_run_id == null ? null : String(row.created_by_run_id),
     created_by_call_id: row.created_by_call_id == null ? null : String(row.created_by_call_id),
@@ -60,9 +61,9 @@ export class PostgresChildAgentRepository {
     const inserted = await this.executor.query(
       `INSERT INTO saas_child_agents
         (tenant_id, child_agent_id, session_id, agent_name, thread_key, status,
-         created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
+         parent_participant_id, created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
          last_run_id, metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
        RETURNING ${columns}`,
       [
         tenantId,
@@ -71,6 +72,7 @@ export class PostgresChildAgentRepository {
         input.agentName,
         threadKey,
         status,
+        input.parentParticipantId ?? null,
         input.createdSeq ?? null,
         input.createdByRunId ?? null,
         input.createdByCallId ?? null,
@@ -92,14 +94,19 @@ export class PostgresChildAgentRepository {
     const limit = Math.max(1, Math.min(100, Math.trunc(input.limit ?? 100)));
     const [total, rows] = await Promise.all([
       this.executor.query<{ cnt: string }>(
-        "SELECT COUNT(*)::text AS cnt FROM saas_child_agents WHERE tenant_id=$1 AND session_id=$2 AND ($3::text IS NULL OR agent_name=$3)",
-        [tenantId, input.sessionId, agentName],
+        `SELECT COUNT(*)::text AS cnt FROM saas_child_agents
+         WHERE tenant_id=$1 AND session_id=$2
+           AND (($3::text IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=$3)
+           AND ($4::text IS NULL OR agent_name=$4)`,
+        [tenantId, input.sessionId, input.parentParticipantId ?? null, agentName],
       ),
       this.executor.query(
         `SELECT ${columns} FROM saas_child_agents
-         WHERE tenant_id=$1 AND session_id=$2 AND ($3::text IS NULL OR agent_name=$3)
-         ORDER BY created_at DESC LIMIT $4`,
-        [tenantId, input.sessionId, agentName, limit],
+         WHERE tenant_id=$1 AND session_id=$2
+           AND (($3::text IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=$3)
+           AND ($4::text IS NULL OR agent_name=$4)
+         ORDER BY created_at DESC LIMIT $5`,
+        [tenantId, input.sessionId, input.parentParticipantId ?? null, agentName, limit],
       ),
     ]);
     return { items: rows.rows.map(childAgent), total: Number(total.rows[0]?.cnt ?? 0) };
@@ -120,8 +127,9 @@ export class PostgresChildAgentRepository {
     const result = await this.executor.query(
       `SELECT ${columns} FROM saas_child_agents
        WHERE tenant_id=$1 AND session_id=$2 AND created_by_run_id=$3 AND created_by_call_id=$4
+         AND (($5::text IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=$5)
        ORDER BY created_at DESC LIMIT 1`,
-      [tenantId, input.sessionId, input.createdByRunId, input.createdByCallId],
+      [tenantId, input.sessionId, input.createdByRunId, input.createdByCallId, input.parentParticipantId ?? null],
     );
     return result.rows[0] ? childAgent(result.rows[0]) : null;
   }

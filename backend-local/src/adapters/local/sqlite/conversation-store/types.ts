@@ -111,6 +111,7 @@ export interface ChildAgentRow {
   agent_name: string;
   thread_key: string;
   status: string;
+  parent_participant_id: string | null;
   created_seq: number | null;
   created_by_run_id: string | null;
   created_by_call_id: string | null;

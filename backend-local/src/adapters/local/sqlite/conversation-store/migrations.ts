@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 10;
+export const LATEST_SCHEMA_VERSION = 11;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 9) {
+  if (current >= 1 && current <= 10) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -57,6 +57,7 @@ export function runMigrations(db: MigrationDatabase): void {
         db.exec(AGENT_MAILBOX_SCHEMA_SQL);
       }
       migrateAgentMailboxTenantKey(db);
+      if (current <= 10) ensureChildParticipantLineage(db);
       db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
     });
     assertCurrentSchema(db);
@@ -74,6 +75,14 @@ export function runMigrations(db: MigrationDatabase): void {
     db.exec(BASELINE_SCHEMA_SQL);
     db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
   });
+}
+
+function ensureChildParticipantLineage(db: MigrationDatabase): void {
+  const columns = db.prepare("PRAGMA table_info(child_agents)").all() as unknown as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "parent_participant_id")) {
+    db.exec("ALTER TABLE child_agents ADD COLUMN parent_participant_id TEXT");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_child_agents_parent ON child_agents(session_id, parent_participant_id, created_at DESC)");
 }
 
 function migrateAgentMailboxTenantKey(db: MigrationDatabase): void {
@@ -248,6 +257,10 @@ function assertCurrentSchema(db: MigrationDatabase): void {
     if (!mailboxColumns.some((column) => column.name === name)) {
       throw new Error(`Conversation database is missing Agent mailbox column ${name}`);
     }
+  }
+  const childAgentColumns = db.prepare("PRAGMA table_info(child_agents)").all() as unknown as Array<{ name: string }>;
+  if (!childAgentColumns.some((column) => column.name === "parent_participant_id")) {
+    throw new Error("Conversation database is missing child participant lineage column");
   }
 }
 

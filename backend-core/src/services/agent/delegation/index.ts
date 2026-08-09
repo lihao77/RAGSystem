@@ -190,47 +190,47 @@ export class AgentDelegationService implements DelegationPort {
       || !this.mailbox
       || !this.tenantId
     ) return;
-    const child = await this.store.getRun(task.session_id, task.run_id);
-    if (!child?.parent_run_id) return;
-    const parent = await this.store.getRun(task.session_id, child.parent_run_id);
+    const childRun = await this.store.getRun(task.session_id, task.run_id);
+    if (!childRun?.parent_run_id) return;
+    const parent = await this.store.getRun(task.session_id, childRun.parent_run_id);
     if (!parent) return;
-    const shouldInterrupt = child.status === "running"
-      || child.status === "interrupted"
-      || child.status === "cancelled"
+    const shouldInterrupt = childRun.status === "running"
+      || childRun.status === "interrupted"
+      || childRun.status === "cancelled"
       || task.status === "cancelled";
     const status = shouldInterrupt
       ? "interrupted"
-      : child.status === "completed"
+      : childRun.status === "completed"
         ? "completed"
         : "failed";
-    if (child.status === "running") {
-      await this.store.updateRunStatus(child.run_id, task.session_id, "interrupted", null, "background_task_owner_lease_expired");
+    if (childRun.status === "running") {
+      await this.store.updateRunStatus(childRun.run_id, task.session_id, "interrupted", null, "background_task_owner_lease_expired");
     }
     const content = status === "completed"
-      ? `后台子 Agent ${child.agent_name ?? ""} 已完成；运行时在投递终态结果前重启，已恢复为 completed`
+      ? `后台子 Agent ${childRun.agent_name ?? ""} 已完成；运行时在投递终态结果前重启，已恢复为 completed`
       : normalizeString(task.error) ?? `后台子 Agent 在运行时重启后以 ${status} 结束`;
     try {
-      const messageId = `${child.run_id}:terminal_result`;
+      const messageId = `${childRun.run_id}:terminal_result`;
       const existing = await this.mailbox.get(task.session_id, messageId);
       const queued = existing ?? await this.mailbox.enqueue({
         messageId,
         tenantId: this.tenantId,
         sessionId: task.session_id,
-        sourceRunId: child.run_id,
-        sourceAgentCallId: child.agent_call_id,
+        sourceRunId: childRun.run_id,
+        sourceAgentCallId: childRun.agent_call_id,
         targetRunId: parent.run_id,
         targetAgentCallId: parent.agent_call_id,
         targetThreadKey: parent.thread_key,
         targetChildAgentId: parent.child_agent_id,
         kind: "result",
-        correlationId: child.parent_call_id ?? child.agent_call_id,
+        correlationId: childRun.parent_call_id ?? childRun.agent_call_id,
         contentParts: [{ type: "text", text: content }],
         metadata: {
           source: "child_terminal_result_recovery",
-          child_run_id: child.run_id,
-          child_agent_call_id: child.agent_call_id,
+          child_run_id: childRun.run_id,
+          child_agent_call_id: childRun.agent_call_id,
           parent_run_id: parent.run_id,
-          parent_call_id: child.parent_call_id,
+          parent_call_id: childRun.parent_call_id,
           parent_agent_call_id: parent.agent_call_id,
           parent_thread_key: parent.thread_key,
           parent_child_agent_id: parent.child_agent_id,
@@ -260,14 +260,14 @@ export class AgentDelegationService implements DelegationPort {
       });
       this.logger?.error({
         session_id: task.session_id,
-        child_run_id: child.run_id,
+        child_run_id: childRun.run_id,
         parent_run_id: parent.run_id,
         mailbox_message_id: queued.message_id,
       }, "recovered terminal result for expired background child");
     } catch (error) {
       this.logger?.error({
         session_id: task.session_id,
-        child_run_id: child.run_id,
+        child_run_id: childRun.run_id,
         parent_run_id: parent.run_id,
         error: error instanceof Error ? error.message : String(error),
       }, "failed to recover terminal result for expired background child");
@@ -325,6 +325,7 @@ export class AgentDelegationService implements DelegationPort {
     const task = normalizeString(input.task);
     const parentCallId = normalizeString(input.callId);
     const parentRunId = normalizeString(ctx.runId);
+    const parentParticipantId = normalizeString(ctx.currentChildAgentId);
     if (!sessionId) {
       return errorResult("agent 缺少 session_id", toolName);
     }
@@ -358,6 +359,7 @@ export class AgentDelegationService implements DelegationPort {
       sessionId,
       createdByRunId: parentRunId,
       createdByCallId: parentCallId,
+      parentParticipantId,
     });
     const matchingChild = existingChild?.agent_name === targetAgentName ? existingChild : null;
     const existingRun = matchingChild?.last_run_id
@@ -384,6 +386,7 @@ export class AgentDelegationService implements DelegationPort {
           sessionId,
           agentName: targetAgentName,
           threadKey,
+          parentParticipantId,
           createdSeq: (await this.store.getRecentMessages(sessionId, 1, "root")).at(-1)?.seq ?? null,
           createdByRunId: parentRunId,
           createdByCallId: parentCallId,
@@ -466,6 +469,10 @@ export class AgentDelegationService implements DelegationPort {
     }
     if (child.status !== "active") {
       return errorResult(`子 Agent '${childAgentId}' 当前不可用`, toolName);
+    }
+    const callerParticipantId = normalizeString(ctx.currentChildAgentId);
+    if (child.parent_participant_id !== callerParticipantId) {
+      return errorResult(`子 Agent '${childAgentId}' 不是当前 Agent 的直接 child`, toolName);
     }
     const allowedAgents = parentAgent.delegation.enabled_agents ?? [];
     if (!allowedAgents.includes(child.agent_name)) {
@@ -651,6 +658,10 @@ export class AgentDelegationService implements DelegationPort {
     if (!tenantId || !sessionId) return errorResult("agent 缺少 tenant_id 或 session_id", toolName);
     const parent = await this.store.getRun(sessionId, ctx.parentRunId);
     if (!parent) return errorResult(`父 Agent run '${ctx.parentRunId}' 不存在`, toolName);
+    const current = await this.store.getChildAgent(sessionId, ctx.currentChildAgentId);
+    if (!current || current.parent_participant_id !== (parent.child_agent_id ?? null)) {
+      return errorResult("当前 Agent 与目标父 invocation 不存在有效的直接 lineage", toolName);
+    }
     const kind = call.input.kind ?? "response";
     const timeoutMs = clampMailboxTimeout(call.input.timeoutMs);
     const messageId = randomUUID();
@@ -725,6 +736,7 @@ export class AgentDelegationService implements DelegationPort {
       return errorResult("list_child_agents 缺少 session_id", "list_child_agents");
     }
     const agentName = normalizeString(input.agentName);
+    const parentParticipantId = normalizeString(ctx.currentChildAgentId);
     const allowedAgents = [...new Set(call.agent.delegation.enabled_agents ?? [])].filter(Boolean);
     if (!allowedAgents.length) {
       return errorResult("当前 Agent 未启用子 Agent 委派能力", "list_child_agents");
@@ -734,10 +746,11 @@ export class AgentDelegationService implements DelegationPort {
     }
     const limit = clampInteger(input.limit ?? 20, 1, 100);
     const results = agentName
-      ? [await this.store.listChildAgents({ sessionId, agentName, limit })]
+      ? [await this.store.listChildAgents({ sessionId, agentName, parentParticipantId, limit })]
       : await Promise.all(allowedAgents.map((allowedAgent) => this.store.listChildAgents({
           sessionId,
           agentName: allowedAgent,
+          parentParticipantId,
           limit,
         })));
     const childItems = [...new Map(results.flatMap((result) => result.items)

@@ -63,6 +63,7 @@ function childAgent(): ChildAgentInfo {
     agent_name: "worker",
     thread_key: "child:child_worker",
     status: "active",
+    parent_participant_id: null,
     created_seq: null,
     created_by_run_id: "parent-run",
     created_by_call_id: "parent-call",
@@ -193,7 +194,12 @@ describe("background child-agent delegation", () => {
   });
 
   it("preserves nested child lineage when a grandchild reports to its parent", async () => {
-    const delegationStore = store(childAgent());
+    const delegationStore = store({
+      ...childAgent(),
+      child_agent_id: "child_b",
+      thread_key: "child:child_b",
+      parent_participant_id: "child_a",
+    });
     vi.mocked(delegationStore.getRun).mockResolvedValue({
       run_id: "child-a-run",
       agent_call_id: "child-a-call",
@@ -384,6 +390,30 @@ describe("background child-agent delegation", () => {
 
     expect(result.success).toBe(false);
     expect(result.content).toContain("不在当前 allowlist");
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("rejects a child id that is not a direct child of the caller", async () => {
+    const child = { ...childAgent(), parent_participant_id: "different-parent" };
+    const delegationStore = store(child);
+    const enqueue = vi.fn();
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+
+    const result = await invokeMessage(service, {
+      agent: parentAgent(false),
+      teamName: null,
+      input: { childAgentId: child.child_agent_id, message: "do not deliver", callId: "parent-tool-call" },
+    }, context(new AbortController().signal));
+
+    expect(result.success).toBe(false);
+    expect(result.content).toContain("不是当前 Agent 的直接 child");
     expect(enqueue).not.toHaveBeenCalled();
   });
 
