@@ -27,6 +27,7 @@ export type RagChatEndpointName =
   | "getContextSnapshot"
   | "rollbackAndRetrySession"
   | "listSessionParticipants"
+  | "getParticipantRunSteps"
   | "listMessages"
   | "getMessageRunSteps"
   | "listFiles"
@@ -44,6 +45,8 @@ export interface RagChatRequestContext {
   sessionId?: string;
   fileId?: string;
   messageId?: string;
+  participantId?: string;
+  runId?: string;
   workspaceId?: string;
   body?: unknown;
 }

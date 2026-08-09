@@ -805,6 +805,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             sessionId: input.sessionId,
             runId: run.run_id,
             threadKey,
+            childAgentId: run.child_agent_id,
             agentName: run.agent_name ?? "unknown",
             terminalStatus: "interrupted",
             reason: "session_stopped",

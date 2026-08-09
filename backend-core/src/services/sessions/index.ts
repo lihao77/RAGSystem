@@ -132,6 +132,33 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     };
   }
 
+  async listRunExecutionSteps(input: {
+    sessionId: string;
+    runId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ run_id: string; items: Envelope[]; total: number; limit: number; offset: number; has_more: boolean }> {
+    const limit = input.limit ?? 500;
+    const offset = input.offset ?? 0;
+    const runs = (await this.repository.listRuns(input.sessionId, 1000)).items;
+    if (!runs.some((run) => run.run_id === input.runId)) {
+      throw new Error(`Run 不存在: ${input.runId}`);
+    }
+    const envelopes = await this.collectRunTreeExecutionEnvelopes(
+      input.sessionId,
+      input.runId,
+      limit + offset,
+    );
+    return {
+      run_id: input.runId,
+      items: envelopes.slice(offset, offset + limit),
+      total: envelopes.length,
+      limit,
+      offset,
+      has_more: offset + limit < envelopes.length,
+    };
+  }
+
   /**
    * 聚合 root/child run 的持久化 Envelope。系统只支持 protocol.envelope.v1，
    * 数据库 v5 迁移会一次性删除旧 execution.step。

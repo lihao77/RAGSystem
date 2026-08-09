@@ -178,6 +178,9 @@ export class AgentExecutionEventPublisher {
     const targetRootRunId = typeof metadata.target_root_run_id === "string"
       ? metadata.target_root_run_id
       : null;
+    const targetAgentName = typeof metadata.target_agent_name === "string"
+      ? metadata.target_agent_name
+      : null;
     this.publishEnvelope({
       type: "agent_message",
       session_id: input.sessionId,
@@ -194,6 +197,7 @@ export class AgentExecutionEventPublisher {
         target_parent_call_id: targetParentCallId,
         target_parent_agent_call_id: targetParentAgentCallId,
         target_root_run_id: targetRootRunId,
+        ...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
         correlation_id: message.correlation_id,
         reply_to_message_id: message.reply_to_message_id,
         content: message.content_parts

@@ -143,6 +143,31 @@ test('message participant identity comes from canonical fields, not metadata', (
   assert.equal(childMessage.metadata.thread_key, 'wrong-thread');
 });
 
+test('停止 Session 时保留 child 终态 assistant 的 participant 身份', async (t) => {
+  const { store, storage } = await createHarness(t);
+  store.createRun({
+    runId: 'child-run',
+    sessionId: 'session-1',
+    status: 'running',
+    agentName: 'worker',
+    agentCallId: 'child-call',
+    lineageParentCallId: 'root-call-1',
+    agentDisplayName: 'Worker',
+    leaseRootRunId: 'run-1',
+    threadKey: 'child:child-1',
+    parentRunId: 'run-1',
+    parentCallId: 'invoke-child',
+    childAgentId: 'child-1',
+  });
+
+  await storage.operations.interruptSession({ sessionId: 'session-1' });
+
+  const childRun = store.getRun('session-1', 'child-run');
+  const finalMessage = store.getMessageById('session-1', childRun.final_message_id);
+  assert.equal(finalMessage.thread_key, 'child:child-1');
+  assert.equal(finalMessage.child_agent_id, 'child-1');
+});
+
 async function createResumeClaim(store, storage) {
   createInteraction(store);
   store.updatePendingInteractionStatus({

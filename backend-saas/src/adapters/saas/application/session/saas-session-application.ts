@@ -206,35 +206,20 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
     const limit = input.limit ?? 500;
     const offset = input.offset ?? 0;
     const rootRunId = message.metadata.run_id ? String(message.metadata.run_id) : null;
-    let runIds: string[] = [];
-    let steps;
+    let envelopes: Envelope[];
     if (!rootRunId) {
-      steps = await this.runs.listRunSteps({
+      const steps = await this.runs.listRunSteps({
         tenantId: this.tenantId,
         messageId: input.messageId,
         sessionId: input.sessionId,
         limit: limit + offset,
       });
+      envelopes = steps
+        .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
+        .map((step) => EnvelopeSchema.parse(step.payload) as Envelope);
     } else {
-      const allRuns = (await this.runs.listRuns(this.tenantId, input.sessionId, 1000)).items;
-      runIds = collectRunTreeRunIds(allRuns, rootRunId);
-      steps = (await Promise.all(runIds.map((runId) => this.runs!.listRunSteps({
-        tenantId: this.tenantId,
-        runId,
-        sessionId: input.sessionId,
-        limit: limit + offset,
-      })))).flat();
+      envelopes = await this.collectRunExecutionEnvelopes(input.sessionId, rootRunId, limit + offset);
     }
-    const archivedEnvelopes = steps
-      .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
-      .map((step) => ({
-        eventId: step.event_id ?? null,
-        envelope: EnvelopeSchema.parse(step.payload) as Envelope,
-      }));
-    const durableEnvelopes = this.outbox && rootRunId
-      ? await this.collectRunTreeOutboxEnvelopes(input.sessionId, runIds, limit + offset)
-      : [];
-    const envelopes = mergeExecutionEnvelopes(archivedEnvelopes, durableEnvelopes);
     return {
       message_id: input.messageId,
       items: envelopes.slice(offset, offset + limit),
@@ -243,6 +228,52 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
       offset,
       has_more: offset + limit < envelopes.length,
     };
+  }
+
+  async listRunExecutionSteps(input: {
+    sessionId: string;
+    runId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ run_id: string; items: Envelope[]; total: number; limit: number; offset: number; has_more: boolean }> {
+    if (!(await this.getSession(input.sessionId))) {
+      throw new Error(`会话不存在: ${input.sessionId}`);
+    }
+    if (!this.runs) throw new Error("SaaS run repository 未配置");
+    const limit = input.limit ?? 500;
+    const offset = input.offset ?? 0;
+    const envelopes = await this.collectRunExecutionEnvelopes(input.sessionId, input.runId, limit + offset);
+    return {
+      run_id: input.runId,
+      items: envelopes.slice(offset, offset + limit),
+      total: envelopes.length,
+      limit,
+      offset,
+      has_more: offset + limit < envelopes.length,
+    };
+  }
+
+  private async collectRunExecutionEnvelopes(sessionId: string, rootRunId: string, limit: number): Promise<Envelope[]> {
+    if (!this.runs) throw new Error("SaaS run repository 未配置");
+    const allRuns = (await this.runs.listRuns(this.tenantId, sessionId, 1000)).items;
+    if (!allRuns.some((run) => run.run_id === rootRunId)) {
+      throw new Error(`Run 不存在: ${rootRunId}`);
+    }
+    const runIds = collectRunTreeRunIds(allRuns, rootRunId);
+    const steps = (await Promise.all(runIds.map((runId) => this.runs!.listRunSteps({
+      tenantId: this.tenantId,
+      runId,
+      sessionId,
+      limit,
+    })))).flat();
+    const archived = steps
+      .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
+      .map((step) => ({
+        eventId: step.event_id ?? null,
+        envelope: EnvelopeSchema.parse(step.payload) as Envelope,
+      }));
+    const durable = await this.collectRunTreeOutboxEnvelopes(sessionId, runIds, limit);
+    return mergeExecutionEnvelopes(archived, durable);
   }
 
   private async collectRunTreeOutboxEnvelopes(

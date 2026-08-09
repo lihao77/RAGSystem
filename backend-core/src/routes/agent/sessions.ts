@@ -8,6 +8,7 @@ import {
   SessionListResponseSchema,
   SessionMessageListResponseSchema,
   SessionMessageRunStepsResponseSchema,
+  SessionParticipantRunStepsResponseSchema,
   SessionParticipantListResponseSchema,
   SessionPermissionResponseSchema,
   SessionWsTicketResponseSchema,
@@ -50,6 +51,11 @@ interface SessionParams {
 
 interface MessageParams extends SessionParams {
   messageId: string;
+}
+
+interface ParticipantParams extends SessionParams {
+  participantId: string;
+  runId: string;
 }
 
 interface WorkspaceParams {
@@ -239,6 +245,41 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     if (!participants) throw new HttpError(404, "not_found", "会话不存在");
     return validateResponse(SessionParticipantListResponseSchema, ok(participants, "获取会话参与者成功"));
   });
+
+  app.get<{ Params: ParticipantParams }>(
+    "/sessions/:sessionId/participants/:participantId/runs/:runId/steps",
+    async (request) => {
+      const sessions = await resolveSessionApplication(options, request);
+      await loadReadableSession(request, request.params.sessionId, sessions);
+      const participant = await resolveSessionParticipant(
+        request,
+        request.params.sessionId,
+        request.params.participantId,
+      );
+      if (!participant.last_run_id) {
+        throw new HttpError(404, "not_found", `会话参与者尚无 Run: ${participant.participant_id}`);
+      }
+      if (participant.last_run_id !== request.params.runId) {
+        throw new HttpError(404, "not_found", `参与者 Run 不存在: ${request.params.runId}`);
+      }
+      const query = request.query as { limit?: string; offset?: string };
+      let data;
+      try {
+        data = await sessions.listRunExecutionSteps({
+          sessionId: request.params.sessionId,
+          runId: request.params.runId,
+          limit: clampInt(query.limit, 500, 1, 2000),
+          offset: clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+        });
+      } catch (error) {
+        throw new HttpError(404, "not_found", error instanceof Error ? error.message : String(error));
+      }
+      return validateResponse(SessionParticipantRunStepsResponseSchema, ok({
+        participant_id: participant.participant_id,
+        ...data,
+      }, "获取参与者执行步骤成功"));
+    },
+  );
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/messages", async (request) => {
     const sessions = await resolveSessionApplication(options, request);

@@ -79,6 +79,14 @@ export interface SessionApplication {
     offset: number;
     has_more: boolean;
   }>;
+  listRunExecutionSteps(input: { sessionId: string; runId: string; limit?: number; offset?: number }): Promise<{
+    run_id: string;
+    items: Envelope[];
+    total: number;
+    limit: number;
+    offset: number;
+    has_more: boolean;
+  }>;
   updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean>;
   rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number>;
   exportSession(sessionId: string): Promise<SessionExport>;

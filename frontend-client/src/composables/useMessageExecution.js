@@ -1,4 +1,5 @@
 import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-protocol';
+import { getCurrentScope, onScopeDispose, reactive, watch } from 'vue';
 import {
   getMessageExecutionTimeText,
   getMessageExecutionTimeTitle,
@@ -44,6 +45,8 @@ export const normalizeAssistantExecutionState = (msg) => {
 };
 
 export function useMessageExecution(deps) {
+  const participantRunMessages = new Map();
+
   // core ExecutionTreeState（增量投影状态机）懒挂在 msg._execState。
   const ensureExecutionTreeState = (msg) => {
     if (!msg._execState) {
@@ -61,24 +64,32 @@ export function useMessageExecution(deps) {
   };
 
   const ensureExecutionStepsLoaded = async (msg) => {
-    if (!msg || msg.role !== 'assistant' || !msg.id || !deps.currentSessionId.value || msg.executionStepsLoaded || msg.executionStepsLoading || !msg.has_execution) {
+    const participantId = msg?.executionParticipantId || null;
+    if (!msg || msg.role !== 'assistant' || (!msg.id && !participantId) || !deps.currentSessionId.value || msg.executionStepsLoaded || msg.executionStepsLoading || !msg.has_execution) {
       return;
     }
     msg.executionStepsLoading = true;
     msg.executionStepsLoadError = '';
     try {
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
-      const result = await deps.chatSdkClient.getMessageRunSteps(
-        deps.currentSessionId.value,
-        msg.id,
-        {
-          limit: 500,
-          offset: 0,
-          ...(deps.selectedParticipantId?.value && deps.selectedParticipantId.value !== 'root'
-            ? { participantId: deps.selectedParticipantId.value }
-            : {}),
-        },
-      );
+      const result = participantId
+        ? await deps.chatSdkClient.getParticipantRunSteps(
+            deps.currentSessionId.value,
+            participantId,
+            msg.run_id || msg.metadata?.run_id,
+            { limit: 500, offset: 0 },
+          )
+        : await deps.chatSdkClient.getMessageRunSteps(
+            deps.currentSessionId.value,
+            msg.id,
+            {
+              limit: 500,
+              offset: 0,
+              ...(deps.selectedParticipantId?.value && deps.selectedParticipantId.value !== 'root'
+                ? { participantId: deps.selectedParticipantId.value }
+                : {}),
+            },
+          );
       const payload = result?.data || result;
       const envelopes = Array.isArray(payload?.items) ? payload.items : [];
       const state = ensureExecutionTreeState(msg);
@@ -92,6 +103,70 @@ export function useMessageExecution(deps) {
       msg.executionStepsLoading = false;
     }
   };
+
+  const getParticipantRunExecutionMessage = (participant) => {
+    const participantId = participant?.participant_id;
+    const runId = participant?.last_run_id;
+    if (!participantId || participantId === 'root' || !runId) return null;
+    const sessionId = deps.currentSessionId.value || '';
+    const key = `${sessionId}:${runId}`;
+    let msg = participantRunMessages.get(key);
+    if (!msg) {
+      msg = reactive(createAssistantMessage({
+        run_id: runId,
+        has_execution: true,
+        executionParticipantId: participantId,
+        metadata: {
+          run_id: runId,
+          participant_id: participantId,
+          execution_anchor: true,
+        },
+      }));
+      participantRunMessages.set(key, msg);
+    }
+    const status = participant.last_run_status || participant.lifecycle_status || '';
+    msg.finished = status !== 'running' && status !== 'suspended';
+    msg.run_failed = status === 'failed';
+    msg.stopped = status === 'interrupted';
+    msg.metadata = {
+      ...(msg.metadata || {}),
+      run_id: runId,
+      participant_id: participantId,
+      execution_anchor: true,
+      ...(status ? { terminal_status: status } : {}),
+    };
+    return msg;
+  };
+
+  const liveExecutionEventTypes = new Set([
+    'agent_started',
+    'agent_ended',
+    'model_request',
+    'model_attempt_started',
+    'model_attempt_failed',
+    'model_attempt_completed',
+    'stream_output',
+    'tool_call',
+    'tool_result',
+    'agent_message',
+  ]);
+  const unsubscribe = deps.chatSdkClient?.on?.('event', (event) => {
+    const runId = event?.run_id;
+    const sessionId = event?.session_id || deps.chatSdkClient?.sessionId || deps.currentSessionId.value;
+    if (!runId || !sessionId || sessionId !== deps.currentSessionId.value) return;
+    const msg = participantRunMessages.get(`${sessionId}:${runId}`);
+    if (!msg) return;
+    if (liveExecutionEventTypes.has(event.type)) applyEnvelopeToMessage(msg, event);
+    if (event.type === 'run_ended') {
+      const status = event.payload?.status || 'completed';
+      msg.finished = status !== 'suspended';
+      msg.run_failed = status === 'failed';
+      msg.stopped = status === 'interrupted';
+      msg.metadata = { ...(msg.metadata || {}), terminal_status: status };
+    }
+  });
+  watch(deps.currentSessionId, () => participantRunMessages.clear());
+  if (getCurrentScope()) onScopeDispose(() => unsubscribe?.());
 
   const createAssistantMessageFromHistory = (item) => {
     const terminalStatus = item.metadata?.terminal_status || null;
@@ -156,6 +231,7 @@ export function useMessageExecution(deps) {
     ensureExecutionTreeState,
     applyEnvelopeToMessage,
     ensureExecutionStepsLoaded,
+    getParticipantRunExecutionMessage,
     createAssistantMessageFromHistory,
     isRootEvent,
     isMasterEvent,

@@ -95,6 +95,30 @@ describe("loginRagSystem", () => {
 });
 
 describe("RagChatClient", () => {
+  it("loads the latest participant run steps from the participant route", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      success: true,
+      message: "ok",
+      data: {
+        participant_id: "child/1",
+        run_id: "run-1",
+        items: [],
+        total: 0,
+        limit: 25,
+        offset: 5,
+        has_more: false,
+      },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const client = createRagChatClient({ baseUrl: "https://rag.example.test", fetch: fetchMock });
+
+    await client.getParticipantRunSteps("session-1", "child/1", "run/1", { limit: 25, offset: 5 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://rag.example.test/api/agent/sessions/session-1/participants/child%2F1/runs/run%2F1/steps?limit=25&offset=5",
+      expect.any(Object),
+    );
+  });
+
   it("unifies REST auth and session-scoped WebSocket tickets", async () => {
     const sockets: FakeWebSocket[] = [];
     const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {

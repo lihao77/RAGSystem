@@ -452,6 +452,7 @@ export const AgentMessagePayloadSchema = z.object({
   target_parent_call_id: z.string().nullable().optional(),
   target_parent_agent_call_id: z.string().nullable().optional(),
   target_root_run_id: z.string().nullable().optional(),
+  target_agent_name: z.string().min(1).optional(),
   correlation_id: z.string().nullable().optional(),
   reply_to_message_id: z.string().nullable().optional(),
   content: z.string().optional(),
@@ -741,6 +742,7 @@ export const AgentStartedPayloadSchema = z.object({
   task: z.string().optional(),
   display_name: z.string().optional(),
   invocation_call_id: z.string().min(1).optional(),
+  child_agent_id: z.string().min(1).optional(),
   lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
 });
 

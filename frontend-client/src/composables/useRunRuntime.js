@@ -32,7 +32,7 @@ const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
 export function useRunRuntime(deps) {
   const sessionRunStore = useSessionRunStore();
   const {
-    messages,
+    rootMessages: messages,
     isCompressing,
   } = storeToRefs(sessionRunStore);
   const activeRun = sessionRunStore.activeRun;

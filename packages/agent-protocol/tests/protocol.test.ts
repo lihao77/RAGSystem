@@ -19,6 +19,22 @@ import {
 } from "../src/execution-tree.js";
 
 describe("agent-protocol envelope compatibility", () => {
+  it("preserves child participant identity through wire parsing", () => {
+    const state = createExecutionTreeState();
+    const event = ServerToClientEnvelopeSchema.parse({
+      type: "agent_started",
+      session_id: "session-1",
+      run_id: "child-run-1",
+      call_id: "child-call-1",
+      agent_id: "worker",
+      payload: { phase: "start", child_agent_id: "child-1" },
+    });
+    applyEnvelope(state, event);
+
+    expect(event.payload.child_agent_id).toBe("child-1");
+    expect(getExecutionTree(state).root?.participantId).toBe("child-1");
+  });
+
   it("projects an interrupted agent as stopped instead of failed", () => {
     const state = createExecutionTreeState();
     applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
@@ -647,6 +663,7 @@ describe("Session runtime snapshot invariants", () => {
         kind: "result",
         message_id: "message-continuation",
         target_agent_call_id: "old-parent-call",
+        target_agent_name: "parent",
         source_run_id: "child-run",
         source_agent_call_id: "child-call",
         target_parent_agent_call_id: "continuation-call",
@@ -659,6 +676,7 @@ describe("Session runtime snapshot invariants", () => {
     expect(root?.children).toEqual(expect.arrayContaining([
       expect.objectContaining({
         callId: "old-parent-call",
+        agentId: "parent",
         parentCallId: "continuation-call",
         messages: expect.arrayContaining([
           expect.objectContaining({ messageId: "message-continuation" }),

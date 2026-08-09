@@ -7,20 +7,43 @@ export function useWorkPanelSelection(deps) {
   const getWorkPanelMessageKey = (msg) => {
     if (!msg) return '';
     if (msg.id) return `id:${msg.id}`;
+    if (msg.executionParticipantId && (msg.run_id || msg.metadata?.run_id)) {
+      return `participant:${msg.executionParticipantId}:run:${msg.run_id || msg.metadata.run_id}`;
+    }
     if (msg.seq != null) return `seq:${msg.seq}`;
     return `idx:${deps.messages.value.indexOf(msg)}`;
   };
 
-  const workPanelExecutionMessages = computed(() => deps.messages.value
+  const participantRunMessage = computed(() => deps.getParticipantRunExecutionMessage?.(
+    deps.selectedParticipant?.value,
+  ) || null);
+
+  const workPanelExecutionMessages = computed(() => {
+    const items = deps.messages.value
     .map((msg, index) => ({ msg, index }))
     .filter(({ msg }) => deps.hasExecutionContent(msg))
     .map(({ msg, index }) => ({
       key: getWorkPanelMessageKey(msg),
       index,
       message: msg,
-    })));
+    }));
+    const anchor = participantRunMessage.value;
+    const anchorRunId = anchor?.run_id || anchor?.metadata?.run_id;
+    if (anchor && !items.some(item => (
+      item.message?.run_id || item.message?.metadata?.run_id
+    ) === anchorRunId)) {
+      items.push({ key: getWorkPanelMessageKey(anchor), index: -1, message: anchor });
+    }
+    return items;
+  });
+
+  const activeRunApplies = computed(() => (
+    (!deps.selectedParticipantId || deps.selectedParticipantId.value === 'root')
+    && deps.activeRun.active
+  ));
 
   const activeWorkPanelRunMessage = computed(() => {
+    if (deps.selectedParticipantId?.value && deps.selectedParticipantId.value !== 'root') return null;
     if (deps.activeRun.assistantMsgIndex < 0) return null;
     return deps.messages.value[deps.activeRun.assistantMsgIndex] ?? null;
   });
@@ -30,7 +53,7 @@ export function useWorkPanelSelection(deps) {
   const currentRunMessage = computed(() => {
     const selected = workPanelExecutionMessages.value.find(item => item.key === selectedWorkPanelMessageKey.value)?.message;
     if (selectedByUser.value && selected) return selected;
-    if (deps.activeRun.active) {
+    if (activeRunApplies.value) {
       return activeWorkPanelRunMessage.value;
     }
     if (selected) return selected;
@@ -38,16 +61,16 @@ export function useWorkPanelSelection(deps) {
   });
 
   watch(currentRunMessage, (msg) => {
-    if (!deps.activeRun.active && msg?.has_execution && !msg.executionStepsLoaded) {
+    if (!activeRunApplies.value && msg?.has_execution && !msg.executionStepsLoaded) {
       deps.ensureExecutionStepsLoaded(msg).catch(() => {
         deps.showToast(msg.executionStepsLoadError || '加载执行过程失败');
       });
     }
-  });
+  }, { immediate: true });
 
   watch(workPanelExecutionMessages, (items) => {
     const selectedExists = selectedWorkPanelMessageKey.value && items.some(item => item.key === selectedWorkPanelMessageKey.value);
-    if (deps.activeRun.active) {
+    if (activeRunApplies.value) {
       if (selectedByUser.value && selectedExists) return;
       selectedByUser.value = false;
       const activeRunKey = activeWorkPanelRunMessageKey.value;
@@ -73,7 +96,7 @@ export function useWorkPanelSelection(deps) {
     selectedWorkPanelMessageKey.value = latestKey;
   }, { immediate: true });
 
-  watch(() => deps.activeRun.active, (active, wasActive) => {
+  watch(activeRunApplies, (active, wasActive) => {
     const activeRunKey = activeWorkPanelRunMessageKey.value;
     if (active) {
       selectedByUser.value = false;

@@ -9,6 +9,7 @@ import type {
   SessionMessageListResponse,
   SessionMessageRunStepsResponse,
   SessionParticipantListResponse,
+  SessionParticipantRunStepsResponse,
   SessionPermissionResponse,
   WorkspaceListResponse,
   WorkspaceResponse,
@@ -286,6 +287,16 @@ export class RagChatClient {
     return this.request<SessionParticipantListResponse>("listSessionParticipants", {
       context: { sessionId },
       ...(options.signal ? { signal: options.signal } : {}),
+    });
+  }
+
+  async getParticipantRunSteps(sessionId: string, participantId: string, runId: string, options: ListMessagesOptions = {}): Promise<SessionParticipantRunStepsResponse> {
+    const query = new URLSearchParams({
+      limit: String(options.limit ?? 500),
+      offset: String(options.offset ?? 0),
+    });
+    return this.request<SessionParticipantRunStepsResponse>("getParticipantRunSteps", {
+      context: { sessionId, participantId, runId }, query, ...(options.signal ? { signal: options.signal } : {}),
     });
   }
 
@@ -694,6 +705,7 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "getContextSnapshot": return "/api/agent/context-snapshot";
     case "rollbackAndRetrySession": return `/api/agent/sessions/${sessionId}/rollback-and-retry`;
     case "listSessionParticipants": return `/api/agent/sessions/${sessionId}/participants`;
+    case "getParticipantRunSteps": return `/api/agent/sessions/${sessionId}/participants/${encodeURIComponent(String(context.participantId ?? ""))}/runs/${encodeURIComponent(String(context.runId ?? ""))}/steps`;
     case "listMessages": return `/api/agent/sessions/${sessionId}/messages`;
     case "getMessageRunSteps": return `/api/agent/sessions/${sessionId}/messages/${encodeURIComponent(String(context.messageId ?? ""))}/run-steps`;
     case "listFiles": return `/api/agent/sessions/${sessionId}/files`;

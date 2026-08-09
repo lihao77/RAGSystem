@@ -93,3 +93,52 @@ test('selection ignores non-assistant messages', async () => {
   await state.selectWorkPanelMessage({ id: 'goal-user', role: 'user', has_execution: true });
   assert.equal(state.selectedWorkPanelMessageKey.value, '');
 });
+
+test('child participant ignores the root active run and loads its own execution', async () => {
+  const oldChildMessage = createMessage('child-old', { run_id: 'child-old-run' });
+  const latestChildMessage = createMessage('child-latest', { run_id: 'child-run' });
+  const activeRun = reactive({
+    ...createActiveRunState(),
+    active: true,
+    assistantMsgIndex: 0,
+  });
+  const selectedParticipantId = ref('child-1');
+  const ensureCalls = [];
+  const state = useWorkPanelSelection({
+    messages: ref([oldChildMessage, latestChildMessage]),
+    activeRun,
+    selectedParticipantId,
+    selectedParticipant: ref({ participant_id: 'child-1', last_run_id: 'child-run' }),
+    hasExecutionContent: (msg) => Boolean(msg?.has_execution),
+    ensureExecutionStepsLoaded: async (msg) => { ensureCalls.push(msg.id); },
+    showToast: () => {},
+  });
+  await nextTick();
+
+  assert.equal(state.currentRunMessage.value.id, 'child-latest');
+  assert.deepEqual(ensureCalls, ['child-latest']);
+});
+
+test('child participant exposes a run anchor before its final message exists', async () => {
+  const anchor = createMessage(null, {
+    run_id: 'child-run',
+    executionParticipantId: 'child-1',
+    executionStepsLoaded: false,
+  });
+  const ensureCalls = [];
+  const state = useWorkPanelSelection({
+    messages: ref([]),
+    activeRun: reactive({ ...createActiveRunState(), active: true, assistantMsgIndex: 4 }),
+    selectedParticipantId: ref('child-1'),
+    selectedParticipant: ref({ participant_id: 'child-1', last_run_id: 'child-run' }),
+    getParticipantRunExecutionMessage: () => anchor,
+    hasExecutionContent: (msg) => Boolean(msg?.has_execution),
+    ensureExecutionStepsLoaded: async (msg) => { ensureCalls.push(msg.run_id); },
+    showToast: () => {},
+  });
+  await nextTick();
+
+  assert.equal(state.currentRunMessage.value, anchor);
+  assert.equal(state.selectedWorkPanelMessageKey.value, 'participant:child-1:run:child-run');
+  assert.deepEqual(ensureCalls, ['child-run']);
+});

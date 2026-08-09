@@ -88,6 +88,7 @@ export class LocalSessionApplication implements SessionApplication {
       : input.afterMessageId ? this.conversations.getMessageById(input.sessionId, input.afterMessageId) : null;
   }
   async listMessageRunSteps(input: Parameters<SessionApplication["listMessageRunSteps"]>[0]) { return this.sessions.listMessageRunSteps(input); }
+  async listRunExecutionSteps(input: Parameters<SessionApplication["listRunExecutionSteps"]>[0]) { return this.sessions.listRunExecutionSteps(input); }
   async updateUserMessage(input: Parameters<SessionApplication["updateUserMessage"]>[0]) { return this.sessions.updateUserMessage(input); }
   async rollbackMessages(input: Parameters<SessionApplication["rollbackMessages"]>[0]) { return this.sessions.rollbackMessages(input); }
   async exportSession(sessionId: string) { return this.sessions.exportSession(sessionId); }

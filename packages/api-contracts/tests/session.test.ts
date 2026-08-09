@@ -8,6 +8,7 @@ import {
   SessionListResponseSchema,
   SessionMessageListResponseSchema,
   SessionMessageRunStepsResponseSchema,
+  SessionParticipantRunStepsResponseSchema,
   SessionPermissionResponseSchema,
 } from "../src/session.js";
 
@@ -145,5 +146,19 @@ describe("Session REST contracts", () => {
         has_more: false,
       },
     }).data.items[0]?.type).toBe("stream_output");
+
+    expect(SessionParticipantRunStepsResponseSchema.parse({
+      success: true,
+      message: "ok",
+      data: {
+        participant_id: "child-1",
+        run_id: "run-1",
+        items: [],
+        total: 0,
+        limit: 500,
+        offset: 0,
+        has_more: false,
+      },
+    }).data.run_id).toBe("run-1");
   });
 });

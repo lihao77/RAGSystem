@@ -150,7 +150,7 @@
       ref="approvalQueueHostRef"
       :show-work-panel="visibleWorkPanel"
       :disable-transition="switchingToNewChat"
-      :active-run="_activeRun"
+      :active-run="workPanelActiveRun"
       :current-message="currentRunMessage"
       :injections-by-run-id="injectionsByRunId"
       :message-key="selectedWorkPanelMessageKey"
@@ -434,6 +434,7 @@ const {
   showToast,
   chatSdkClient,
   selectedParticipantId,
+  selectedParticipant,
 });
 
 const {
@@ -503,6 +504,17 @@ const {
 } = useSessionRuntimeCenter(isWideScreen);
 const desktopWorkPanelVisible = computed(() => Boolean(currentSessionId.value) && isWideScreen.value && showWorkPanel.value);
 const visibleWorkPanel = computed(() => Boolean(currentSessionId.value) && (desktopWorkPanelVisible.value || runtimeMobileOpen.value));
+const workPanelActiveRun = computed(() => {
+  if (isRootParticipant.value) return _activeRun;
+  const status = selectedParticipant.value?.last_run_status || selectedParticipant.value?.lifecycle_status || '';
+  return {
+    active: status === 'running',
+    phase: status === 'running' ? 'processing' : status === 'suspended' ? 'suspended' : 'idle',
+    runStartedAt: null,
+    runningToolCalls: {},
+    runningModelCalls: {},
+  };
+});
 
 const {
   approvalQueue,

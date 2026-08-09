@@ -13,6 +13,7 @@ export function useChatMessageRuntime({
   showToast,
   chatSdkClient,
   selectedParticipantId,
+  selectedParticipant,
 }) {
   const { currentSessionId, messages } = storeToRefs(useSessionRunStore());
   const execution = useMessageExecution({ currentSessionId, chatSdkClient, activeRun, selectedParticipantId });
@@ -23,6 +24,9 @@ export function useChatMessageRuntime({
     hasExecutionContent: execution.hasExecutionContent,
     ensureExecutionStepsLoaded: execution.ensureExecutionStepsLoaded,
     showToast,
+    selectedParticipantId,
+    selectedParticipant,
+    getParticipantRunExecutionMessage: execution.getParticipantRunExecutionMessage,
   });
 
   const notifications = useTaskNotifications();
