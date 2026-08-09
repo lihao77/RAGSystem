@@ -247,24 +247,32 @@ test('child stream output creates the same live assistant message used by the pa
 
   for (const handler of handlers) {
     handler({
-      type: 'stream_output',
+      type: 'agent_started',
       session_id: 'session-1',
       run_id: 'child-run',
       call_id: 'child-call',
-      payload: { phase: 'delta', content: '正在停止', child_agent_id: 'child-1' },
+      agent_id: 'worker',
+      payload: { phase: 'start', child_agent_id: 'child-1', task: 'stop tools' },
     });
     handler({
       type: 'stream_output',
       session_id: 'session-1',
       run_id: 'child-run',
       call_id: 'child-call',
-      payload: { phase: 'final', content: '已停止', content_parts: [{ type: 'text', text: '已停止' }], child_agent_id: 'child-1' },
+      payload: { phase: 'delta', content: '正在停止' },
+    });
+    handler({
+      type: 'stream_output',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      call_id: 'child-call',
+      payload: { phase: 'final', content: '已停止', content_parts: [{ type: 'text', text: '已停止' }] },
     });
   }
 
-  assert.equal(synced.length, 2);
+  assert.equal(synced.length, 1);
   assert.equal(synced[0].participantId, 'child-1');
-  assert.equal(synced[1].message.content, '已停止');
-  assert.equal(synced[1].message.finished, true);
-  assert.deepEqual(synced[1].message.content_parts, [{ type: 'text', text: '已停止' }]);
+  assert.equal(synced[0].message.content, '已停止');
+  assert.equal(synced[0].message.finished, true);
+  assert.deepEqual(synced[0].message.content_parts, [{ type: 'text', text: '已停止' }]);
 });
