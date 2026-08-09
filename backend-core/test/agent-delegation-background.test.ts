@@ -15,7 +15,11 @@ import { AgentDelegationService } from "../src/services/agent/delegation/index.j
 import { createResumeExecutor } from "../src/services/agent/execution/resume-executor.js";
 import { AgentInvocationService } from "../src/services/agent/execution/invocation-service.js";
 import { buildChildMetadata } from "../src/services/agent/delegation/helpers.js";
-import type { DelegationPort } from "../src/services/agent/delegation/port.js";
+import type {
+  AgentDelegationCall,
+  DelegationPort,
+  SendMessageCall,
+} from "../src/services/agent/delegation/port.js";
 
 const tempRoots: string[] = [];
 
@@ -151,7 +155,7 @@ describe("background child-agent delegation", () => {
     const wakeup = vi.fn();
     service.setMailboxWakeup(wakeup);
 
-    const result = await service.sendMessage({
+    const result = await invokeMessage(service, {
       agent: workerAgent(),
       teamName: null,
       input: {
@@ -250,7 +254,7 @@ describe("background child-agent delegation", () => {
     const wakeup = vi.fn();
     service.setMailboxWakeup(wakeup);
 
-    const result = await service.sendMessage({
+    const result = await invokeMessage(service, {
       agent: parentAgent(false),
       teamName: null,
       input: {
@@ -315,7 +319,7 @@ describe("background child-agent delegation", () => {
     const invocation = vi.fn();
     service.setInvocationService({ invoke: invocation } as never);
 
-    const result = await service.sendMessage({
+    const result = await invokeMessage(service, {
       agent: parentAgent(false),
       teamName: null,
       input: {
@@ -351,7 +355,7 @@ describe("background child-agent delegation", () => {
     const invocation = vi.fn();
     service.setInvocationService({ invoke: invocation } as never);
 
-    const result = await service.sendMessage({
+    const result = await invokeMessage(service, {
       agent: parentAgent(false),
       teamName: null,
       input: {
@@ -381,7 +385,7 @@ describe("background child-agent delegation", () => {
     const invocation = vi.fn();
     service.setInvocationService({ invoke: invocation } as never);
 
-    const result = await service.sendMessage({
+    const result = await invokeMessage(service, {
       agent: parentAgent(false),
       teamName: null,
       input: {
@@ -421,7 +425,7 @@ describe("background child-agent delegation", () => {
     );
     service.setMailboxWakeup(() => { throw new Error("wakeup unavailable"); });
 
-    const result = await service.sendMessage({
+    const result = await invokeMessage(service, {
       agent: parentAgent(false),
       teamName: null,
       input: { childAgentId: child.child_agent_id, message: "ping", kind: "progress", callId: "parent-tool-call" },
@@ -510,7 +514,7 @@ describe("background child-agent delegation", () => {
     service.setMailboxWakeup(wakeup);
     service.setInvocationService(new AgentInvocationService({ executeRun } as never));
 
-    const result = await service.callAgent({
+    const result = await invokeCreate(service, {
       agent: parentAgent(true),
       teamName: null,
       input: { agentName: "worker", task: "do work", timeoutMs: 4321, runInBackground: true, callId: "parent-call" },
@@ -649,7 +653,7 @@ describe("background child-agent delegation", () => {
         interactionKind: "user_input" as const,
       })),
     } as never));
-    const suspendedResult = await suspendedService.callAgent({
+    const suspendedResult = await invokeCreate(suspendedService, {
       agent: parentAgent(true),
       teamName: null,
       input: { agentName: "worker", task: "ask user", runInBackground: true, callId: "parent-call" },
@@ -668,7 +672,7 @@ describe("background child-agent delegation", () => {
     foregroundService.setInvocationService(new AgentInvocationService({
       executeRun: vi.fn(async () => ({ success: true, content: "foreground result" })),
     } as never));
-    const foregroundResult = await foregroundService.callAgent({
+    const foregroundResult = await invokeCreate(foregroundService, {
       agent: parentAgent(false),
       teamName: null,
       input: { agentName: "worker", task: "do foreground work", callId: "parent-call" },
@@ -731,7 +735,7 @@ describe("background child-agent delegation", () => {
       executeRun: vi.fn(async () => ({ success: false, content: "worker failed" })),
     } as never));
 
-    const result = await service.callAgent({
+    const result = await invokeCreate(service, {
       agent: parentAgent(true),
       teamName: null,
       input: { agentName: "worker", task: "fail", runInBackground: true, callId: "parent-call" },
@@ -781,11 +785,11 @@ describe("background child-agent delegation", () => {
 
   it("routes the unified agent tool by target shape", async () => {
     const service = new AgentDelegationService({} as never, {} as never);
-    const callAgent = vi.spyOn(service, "callAgent").mockResolvedValue({
+    const createChild = vi.spyOn(service as any, "createChild").mockResolvedValue({
       success: true,
       toolName: "agent",
     } as never);
-    const sendMessage = vi.spyOn(service, "sendMessage").mockResolvedValue({
+    const deliverMessage = vi.spyOn(service as any, "deliverMessage").mockResolvedValue({
       success: true,
       toolName: "agent",
     } as never);
@@ -798,7 +802,7 @@ describe("background child-agent delegation", () => {
       input: { agentName: "worker", message: "inspect this", timeoutMs: 1234, callId: "tool-create" },
     }, runContext);
     expect(created.toolName).toBe("agent");
-    expect(callAgent).toHaveBeenCalledWith(expect.objectContaining({
+    expect(createChild).toHaveBeenCalledWith(expect.objectContaining({
       input: expect.objectContaining({ agentName: "worker", task: "inspect this", timeoutMs: 1234 }),
     }), runContext);
 
@@ -808,7 +812,7 @@ describe("background child-agent delegation", () => {
       input: { childAgentId: "child-worker", message: "continue", callId: "tool-followup" },
     }, runContext);
     expect(existing.toolName).toBe("agent");
-    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(deliverMessage).toHaveBeenCalledWith(expect.objectContaining({
       input: expect.objectContaining({ childAgentId: "child-worker", message: "continue", toParent: false }),
     }), runContext);
 
@@ -818,7 +822,7 @@ describe("background child-agent delegation", () => {
       teamName: null,
       input: { message: "progress", callId: "tool-parent" },
     }, childContext);
-    expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(deliverMessage).toHaveBeenLastCalledWith(expect.objectContaining({
       input: expect.objectContaining({ message: "progress", toParent: true }),
     }), childContext);
 
@@ -906,7 +910,7 @@ describe("background child-agent delegation", () => {
     service.setInvocationService(new AgentInvocationService(runEngine));
     const parentAbort = new AbortController();
 
-    const result = await service.callAgent({
+    const result = await invokeCreate(service, {
       agent: parentAgent(true),
       teamName: null,
       input: { agentName: "worker", task: "do work", timeoutMs: 4321, runInBackground: true, callId: "parent-call" },
@@ -950,7 +954,7 @@ describe("background child-agent delegation", () => {
     const service = new AgentDelegationService(store(child), runtimeCore(worker), null, backgroundTasks, root);
     service.setInvocationService(new AgentInvocationService({ executeRun } as never));
 
-    const result = await service.callAgent({
+    const result = await invokeCreate(service, {
       agent: parentAgent(true),
       teamName: null,
       input: { agentName: "worker", task: "ask the user", runInBackground: true, callId: "parent-call" },
@@ -979,7 +983,7 @@ describe("background child-agent delegation", () => {
     const service = new AgentDelegationService(store(child), runtimeCore(worker), null, backgroundTasks, root);
     service.setInvocationService(new AgentInvocationService({ executeRun } as never));
 
-    const result = await service.callAgent({
+    const result = await invokeCreate(service, {
       agent: parentAgent(true),
       teamName: null,
       input: { agentName: "worker", task: "long work", runInBackground: true, callId: "parent-call" },
@@ -1044,4 +1048,46 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   expect(predicate()).toBe(true);
+}
+
+type AgentTestContext = Parameters<AgentDelegationService["agent"]>[1];
+
+function invokeCreate(
+  service: AgentDelegationService,
+  call: AgentDelegationCall,
+  ctx: AgentTestContext,
+) {
+  return service.agent({
+    agent: call.agent,
+    teamName: call.teamName,
+    input: {
+      agentName: call.input.agentName,
+      message: call.input.task,
+      contextHint: call.input.contextHint,
+      timeoutMs: call.input.timeoutMs,
+      runInBackground: call.input.runInBackground,
+      callId: call.input.callId,
+    },
+  }, ctx);
+}
+
+function invokeMessage(
+  service: AgentDelegationService,
+  call: SendMessageCall,
+  ctx: AgentTestContext,
+) {
+  return service.agent({
+    agent: call.agent,
+    teamName: call.teamName,
+    input: {
+      ...(call.input.childAgentId ? { childAgentId: call.input.childAgentId } : {}),
+      message: call.input.message,
+      kind: call.input.kind,
+      correlationId: call.input.correlationId,
+      replyToMessageId: call.input.replyToMessageId,
+      timeoutMs: call.input.timeoutMs,
+      runInBackground: call.input.runInBackground,
+      callId: call.input.callId,
+    },
+  }, ctx);
 }

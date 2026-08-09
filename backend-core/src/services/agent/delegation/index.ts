@@ -201,7 +201,7 @@ export class AgentDelegationService implements DelegationPort {
     }
 
     if (childAgentId || (!agentName && ctx.parentRunId && ctx.currentChildAgentId)) {
-      const result = await this.sendMessage({
+      const result = await this.deliverMessage({
         agent: call.agent,
         teamName: call.teamName,
         input: {
@@ -222,7 +222,7 @@ export class AgentDelegationService implements DelegationPort {
     if (!agentName) {
       return errorResult("agent 需要 agent_name 创建子 Agent，或在 child 上下文中省略目标向父 Agent 发消息", "agent");
     }
-    const result = await this.callAgent({
+    const result = await this.createChild({
       agent: call.agent,
       teamName: call.teamName,
       input: {
@@ -237,7 +237,7 @@ export class AgentDelegationService implements DelegationPort {
     return { ...result, toolName: "agent" };
   }
 
-  async callAgent(call: AgentDelegationCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
+  private async createChild(call: AgentDelegationCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
     const { agent: parentAgent, teamName, input } = call;
     const toolName = "agent";
     const sessionId = normalizeString(ctx.sessionId);
@@ -425,7 +425,7 @@ export class AgentDelegationService implements DelegationPort {
     });
   }
 
-  async sendMessage(call: SendMessageCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
+  private async deliverMessage(call: SendMessageCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
     const { agent: parentAgent, teamName, input } = call;
     const toolName = "agent";
     const sessionId = normalizeString(ctx.sessionId);
@@ -445,7 +445,7 @@ export class AgentDelegationService implements DelegationPort {
     }
     if (toParent) {
       if (input.runInBackground) return errorResult("to_parent 消息不能再次后台委派", toolName);
-      return this.sendMessageToParent(call, ctx, message, parentCallId, toolName);
+      return this.deliverMessageToParent(call, ctx, message, parentCallId, toolName);
     }
     if (!childAgentId) return errorResult("agent 通信模式缺少 child_agent_id", toolName);
     const child = await this.store.getChildAgent(sessionId, childAgentId);
@@ -663,7 +663,7 @@ export class AgentDelegationService implements DelegationPort {
   }
 
   /** Route a child-originated progress/request/response/cancel message to its exact parent run. */
-  private async sendMessageToParent(
+  private async deliverMessageToParent(
     call: SendMessageCall,
     ctx: ToolExecContext,
     message: string,
