@@ -65,6 +65,17 @@ const agentSchema = z.object({
   runInBackground: optionalBoolean,
 }).strict();
 
+const parentMessageSchema = agentSchema.omit({
+  agent_name: true,
+  agentName: true,
+  child_agent_id: true,
+  childAgentId: true,
+  context_hint: true,
+  contextHint: true,
+  run_in_background: true,
+  runInBackground: true,
+});
+
 const listChildAgentsSchema = z.object({
   agent_name: optionalString,
   agentName: optionalString,
@@ -172,12 +183,25 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
     agentNames,
     delegatedAgents,
   );
+  const parentOnly = !hasChildDelegation && canMessageParent;
+  const visibleAgentDef = parentOnly
+    ? omitDefinitionProperties(agentDef, [
+        "agent_name",
+        "agentName",
+        "child_agent_id",
+        "childAgentId",
+        "context_hint",
+        "contextHint",
+        "run_in_background",
+        "runInBackground",
+      ])
+    : agentDef;
   const listChildAgentsDef = withAgentNameEnum(definitionByName.get(LIST_CHILD_AGENTS_TOOL_NAME)!, agentNames);
 
   const tools: Tool[] = [];
   if (hasChildDelegation || canMessageParent) tools.push(buildTool({
-      ...metadataFrom(agentDef),
-      inputSchema: agentSchema,
+      ...metadataFrom(visibleAgentDef),
+      inputSchema: parentOnly ? parentMessageSchema : agentSchema,
       isConcurrencySafe: () => false,
       concurrencyPolicy: agent.delegation.parallel_children ? "parallel" : "serial",
       concurrencyKey: (input) => delegationConcurrencyKey(input),
@@ -273,6 +297,16 @@ function omitBackgroundParam(definition: RuntimeToolDefinition, allowBackground:
   if (!("run_in_background" in properties) && !("runInBackground" in properties)) return definition;
   delete properties.run_in_background;
   delete properties.runInBackground;
+  return { ...definition, parameters: { ...parameters, properties } };
+}
+
+function omitDefinitionProperties(
+  definition: RuntimeToolDefinition,
+  names: readonly string[],
+): RuntimeToolDefinition {
+  const parameters = definition.parameters;
+  const properties = isRecord(parameters.properties) ? { ...parameters.properties } : {};
+  for (const name of names) delete properties[name];
   return { ...definition, parameters: { ...parameters, properties } };
 }
 

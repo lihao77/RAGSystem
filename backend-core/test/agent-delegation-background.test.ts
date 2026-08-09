@@ -241,7 +241,13 @@ describe("background child-agent delegation", () => {
       targetThreadKey: "child:child_a",
       targetChildAgentId: "child_a",
       correlationId: "corr-nested",
-      metadata: expect.objectContaining({ target_parent_agent_call_id: "root-agent-call" }),
+      metadata: expect.objectContaining({
+        target_agent_name: "worker-a",
+        target_root_run_id: "root-run",
+        target_parent_run_id: "root-run",
+        target_parent_call_id: "root-tool-call",
+        target_lineage_parent_call_id: "root-agent-call",
+      }),
     }));
   });
 
@@ -331,6 +337,13 @@ describe("background child-agent delegation", () => {
       correlationId: "corr-1",
       sourceRunId: "parent-run",
       expiresAt: expect.any(String),
+      metadata: expect.objectContaining({
+        target_agent_name: child.agent_name,
+        target_root_run_id: "child-run",
+        target_parent_run_id: "parent-run",
+        target_parent_call_id: "parent-tool-call",
+        target_lineage_parent_call_id: null,
+      }),
     }));
     expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
       targetRunId: "child-run",
@@ -339,6 +352,102 @@ describe("background child-agent delegation", () => {
       targetChildAgentId: child.child_agent_id,
     }));
     expect(invocation).not.toHaveBeenCalled();
+  });
+
+  it("rejects a parent mailbox target outside its delegation allowlist", async () => {
+    const child = childAgent();
+    const delegationStore = store(child);
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "child-run",
+      agent_call_id: "child-call",
+      status: "running",
+    } as never);
+    const enqueue = vi.fn();
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+    const caller = AgentConfigSchema.parse({
+      agent_name: "parent",
+      delegation: { enabled_agents: ["other-worker"] },
+    });
+
+    const result = await invokeMessage(service, {
+      agent: caller,
+      teamName: null,
+      input: { childAgentId: child.child_agent_id, message: "do not deliver", callId: "parent-tool-call" },
+    }, context(new AbortController().signal));
+
+    expect(result.success).toBe(false);
+    expect(result.content).toContain("不在当前 allowlist");
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("routes a follow-up to the new run and call while an idle continuation is starting", async () => {
+    const child = {
+      ...childAgent(),
+      last_run_id: "completed-child-run",
+      metadata: { agent_call_id: "completed-child-call" },
+    };
+    const delegationStore = store(child);
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "completed-child-run",
+      agent_call_id: "completed-child-call",
+      status: "completed",
+    } as never);
+    let releaseLastRunWrite!: (value: boolean) => void;
+    const lastRunWrite = new Promise<boolean>((resolve) => { releaseLastRunWrite = resolve; });
+    vi.mocked(delegationStore.updateChildAgentLastRun).mockImplementation(() => lastRunWrite);
+    const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
+      message_id: input.messageId,
+      kind: input.kind,
+      correlation_id: input.correlationId ?? null,
+      expires_at: null,
+    })) as never;
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+    service.setInvocationService(new AgentInvocationService({
+      executeRun: vi.fn(async () => ({ success: true, content: "continued" })),
+    } as never));
+    const runContext = context(new AbortController().signal);
+
+    const continuation = invokeMessage(service, {
+      agent: parentAgent(false),
+      teamName: null,
+      input: { childAgentId: child.child_agent_id, message: "resume", callId: "resume-tool-call" },
+    }, runContext);
+    await waitFor(() => vi.mocked(delegationStore.updateChildAgentLastRun).mock.calls.length === 1);
+    const activeRoute = (service as any).activeChildRuns.get(child.child_agent_id) as {
+      runId: string;
+      agentCallId: string;
+    };
+    expect(activeRoute.runId).not.toBe("completed-child-run");
+    expect(activeRoute.agentCallId).not.toBe("completed-child-call");
+
+    const followup = await invokeMessage(service, {
+      agent: parentAgent(false),
+      teamName: null,
+      input: { childAgentId: child.child_agent_id, message: "startup follow-up", callId: "followup-tool-call" },
+    }, runContext);
+
+    expect(followup.success).toBe(true);
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      targetRunId: activeRoute.runId,
+      targetAgentCallId: activeRoute.agentCallId,
+    }));
+    releaseLastRunWrite(true);
+    await continuation;
+    expect((service as any).activeChildRuns.has(child.child_agent_id)).toBe(false);
   });
 
   it("does not fork a suspended child when sending a follow-up", async () => {
@@ -673,6 +782,77 @@ describe("background child-agent delegation", () => {
     expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({ targetRunId: "parent-run" }));
   });
 
+  it("preserves a completed child and reuses an already persisted terminal mailbox result during recovery", async () => {
+    const child = childAgent();
+    const delegationStore = store(child);
+    const childRun = {
+      run_id: "child-run",
+      status: "completed",
+      agent_call_id: "child-call",
+      agent_name: "worker",
+      parent_run_id: "parent-run",
+      parent_call_id: "parent-call",
+      thread_key: child.thread_key,
+      child_agent_id: child.child_agent_id,
+      lease_root_run_id: "parent-run",
+    };
+    const parentRun = {
+      run_id: "parent-run",
+      status: "completed",
+      agent_call_id: "parent-agent-call",
+      parent_run_id: null,
+      parent_call_id: null,
+      lineage_parent_call_id: null,
+      lease_root_run_id: "parent-run",
+      thread_key: "root",
+      child_agent_id: null,
+      agent_name: "parent",
+    };
+    vi.mocked(delegationStore.getRun).mockImplementation(async (_sessionId, runId) => {
+      return (runId === "child-run" ? childRun : runId === "parent-run" ? parentRun : null) as never;
+    });
+    const existing = { message_id: "child-run:terminal_result", kind: "result" } as never;
+    const get = vi.fn(async () => existing);
+    const enqueue = vi.fn();
+    const wakeup = vi.fn();
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue, get, claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+      null,
+      "tenant-1",
+    );
+    service.setMailboxWakeup(wakeup);
+
+    await service.recoverBackgroundTask({
+      task_id: "background-task",
+      description: "worker",
+      output_path: "",
+      started_at: 1,
+      status: "failed",
+      return_code: 1,
+      error: "terminal mailbox delivery failed",
+      expires_at: null,
+      run_id: "child-run",
+      owner_task_id: null,
+      session_id: "session-1",
+      completed_at: 2,
+      result_type: "agent_delegation_result",
+      kind: "agent",
+      cancel_supported: true,
+    });
+
+    expect(get).toHaveBeenCalledWith("session-1", "child-run:terminal_result");
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
+      targetRunId: "parent-run",
+      targetAgentCallId: "parent-agent-call",
+    }));
+  });
+
   it("does not duplicate foreground results or publish suspended children", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "ragsystem-delegation-terminal-"));
     tempRoots.push(root);
@@ -907,7 +1087,9 @@ describe("background child-agent delegation", () => {
       canMessageParent: true,
     });
     expect(tools.map((tool) => tool.name)).toEqual(["agent"]);
-    expect(tools[0]?.parameters.properties).toHaveProperty("child_agent_id");
+    expect(tools[0]?.parameters.properties).not.toHaveProperty("child_agent_id");
+    expect(tools[0]?.parameters.properties).not.toHaveProperty("agent_name");
+    expect(tools[0]?.parameters.properties).toHaveProperty("message");
   });
 
   it("keeps delegation policy concise and puts candidate details in the function schema", () => {
