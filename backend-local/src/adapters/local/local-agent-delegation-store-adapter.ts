@@ -9,7 +9,7 @@ import type { AgentDelegationStorePort } from "@ragsystem/backend-core/contracts
 import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 
 type LocalDelegationStore = Pick<ConversationStore,
-  "getSession" | "addMessage" | "getRecentMessages" | "getRun" | "updateRunStatus" |
+  "getSession" | "addMessage" | "getRecentMessages" | "getRun" | "listRuns" | "updateRunStatus" |
   "createChildAgent" | "findChildAgentByCreator" | "getChildAgent" |
   "listChildAgents" | "updateChildAgentLastRun">;
 
@@ -31,6 +31,10 @@ export class LocalAgentDelegationStoreAdapter implements AgentDelegationStorePor
 
   async getRun(sessionId: string, runId: string) {
     return this.store.getRun(sessionId, runId);
+  }
+
+  async listRuns(sessionId: string, limit?: number) {
+    return this.store.listRuns(sessionId, limit);
   }
 
   async updateRunStatus(

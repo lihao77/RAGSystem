@@ -54,6 +54,10 @@ export class TenantBoundPostgresAgentDelegationStore implements AgentDelegationS
     return this.runs.getRun(this.tenantId, sessionId, runId);
   }
 
+  listRuns(sessionId: string, limit?: number): Promise<{ items: RunInfo[]; total: number }> {
+    return this.runs.listRuns(this.tenantId, sessionId, limit);
+  }
+
   updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null, terminalReason?: string | null): Promise<boolean> {
     return this.runs.updateRunStatus(this.tenantId, runId, sessionId, status, finalMessageId, terminalReason);
   }

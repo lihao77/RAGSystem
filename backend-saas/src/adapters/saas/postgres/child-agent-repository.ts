@@ -91,22 +91,24 @@ export class PostgresChildAgentRepository {
     input: ListChildAgentsInput,
   ): Promise<{ items: ChildAgentInfo[]; total: number }> {
     const agentName = input.agentName ?? null;
-    const limit = Math.max(1, Math.min(100, Math.trunc(input.limit ?? 100)));
+    const limit = Math.max(1, Math.min(10_000, Math.trunc(input.limit ?? 100)));
+    const filterByParent = input.parentParticipantId !== undefined;
+    const parentParticipantId = input.parentParticipantId ?? null;
     const [total, rows] = await Promise.all([
       this.executor.query<{ cnt: string }>(
         `SELECT COUNT(*)::text AS cnt FROM saas_child_agents
          WHERE tenant_id=$1 AND session_id=$2
-           AND (($3::text IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=$3)
-           AND ($4::text IS NULL OR agent_name=$4)`,
-        [tenantId, input.sessionId, input.parentParticipantId ?? null, agentName],
+           AND ($3::boolean=false OR (($4::text IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=$4))
+           AND ($5::text IS NULL OR agent_name=$5)`,
+        [tenantId, input.sessionId, filterByParent, parentParticipantId, agentName],
       ),
       this.executor.query(
         `SELECT ${columns} FROM saas_child_agents
          WHERE tenant_id=$1 AND session_id=$2
-           AND (($3::text IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=$3)
-           AND ($4::text IS NULL OR agent_name=$4)
-         ORDER BY created_at DESC LIMIT $5`,
-        [tenantId, input.sessionId, input.parentParticipantId ?? null, agentName, limit],
+           AND ($3::boolean=false OR (($4::text IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=$4))
+           AND ($5::text IS NULL OR agent_name=$5)
+         ORDER BY created_at DESC LIMIT $6`,
+        [tenantId, input.sessionId, filterByParent, parentParticipantId, agentName, limit],
       ),
     ]);
     return { items: rows.rows.map(childAgent), total: Number(total.rows[0]?.cnt ?? 0) };

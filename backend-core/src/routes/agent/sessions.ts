@@ -8,6 +8,7 @@ import {
   SessionListResponseSchema,
   SessionMessageListResponseSchema,
   SessionMessageRunStepsResponseSchema,
+  SessionParticipantListResponseSchema,
   SessionPermissionResponseSchema,
   SessionWsTicketResponseSchema,
   UpdateSessionPermissionModeRequestSchema,
@@ -225,18 +226,28 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     return ok(undefined, "会话删除成功");
   });
 
+  app.get<{ Params: SessionParams }>("/sessions/:sessionId/participants", async (request) => {
+    const sessions = await resolveSessionApplication(options, request);
+    await loadReadableSession(request, request.params.sessionId, sessions);
+    const participants = await request.container.agentDelegation.listSessionParticipants(request.params.sessionId);
+    if (!participants) throw new HttpError(404, "not_found", "会话不存在");
+    return validateResponse(SessionParticipantListResponseSchema, ok(participants, "获取会话参与者成功"));
+  });
+
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/messages", async (request) => {
     const sessions = await resolveSessionApplication(options, request);
     const session = await sessions.getSession(request.params.sessionId);
     if (!session) throw new HttpError(404, "not_found", "会话不存在");
     await assertSessionReadable(request, session);
-    const query = request.query as { limit?: string; offset?: string };
+    const query = request.query as { limit?: string; offset?: string; participant_id?: string };
     const limit = clampInt(query.limit, 20, 1, 1000);
     const offset = clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
+    const participant = await resolveSessionParticipant(request, request.params.sessionId, query.participant_id);
     const messages = await sessions.listMessages({
       sessionId: request.params.sessionId,
       limit,
       offset,
+      threadKey: participant.thread_key,
     });
     if (!messages) throw new HttpError(404, "not_found", "会话不存在");
     return validateResponse(SessionMessageListResponseSchema, ok(messages, "获取对话记录成功"));
@@ -263,12 +274,14 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       const sessions = await resolveSessionApplication(options, request);
     await loadReadableSession(request, request.params.sessionId, sessions);
       try {
-        const query = request.query as { limit?: string; offset?: string };
+        const query = request.query as { limit?: string; offset?: string; participant_id?: string };
+        const participant = await resolveSessionParticipant(request, request.params.sessionId, query.participant_id);
         const input = {
           sessionId: request.params.sessionId,
           messageId: request.params.messageId,
           limit: clampInt(query.limit, 500, 1, 2000),
           offset: clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+          threadKey: participant.thread_key,
         };
         const data = await sessions.listMessageRunSteps(input);
         return validateResponse(SessionMessageRunStepsResponseSchema, ok(data, "获取执行步骤成功"));
@@ -554,6 +567,17 @@ function clampInt(rawValue: string | undefined, fallback: number, min: number, m
     return fallback;
   }
   return Math.max(min, Math.min(max, parsed));
+}
+
+async function resolveSessionParticipant(
+  request: Parameters<typeof sessionListAccess>[0],
+  sessionId: string,
+  rawParticipantId: string | undefined,
+) {
+  const participantId = rawParticipantId?.trim() || "root";
+  const participant = await request.container.agentDelegation.getSessionParticipant(sessionId, participantId);
+  if (!participant) throw new HttpError(404, "not_found", `会话参与者不存在: ${participantId}`);
+  return participant;
 }
 
 function sanitizeExportSessionId(sessionId: string): string {

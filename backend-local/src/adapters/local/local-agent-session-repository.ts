@@ -20,9 +20,9 @@ export class LocalAgentSessionRepository implements AgentSessionRepositoryPort {
   async listSessionFacets(input: Parameters<AgentSessionRepositoryPort["listSessionFacets"]>[0]) { return this.store.listSessionFacets(input); }
 
   async addMessage(input: AgentSessionMessageInput) { return this.store.addMessage(input); }
-  async listMessages(sessionId: string, limit: number, offset: number) {
+  async listMessages(sessionId: string, limit: number, offset: number, threadKey?: string | null) {
     return this.store.runInTransaction((tx) => ({
-      ...tx.listMessages(sessionId, limit, offset),
+      ...tx.listMessages(sessionId, limit, offset, threadKey),
       outbox_watermark: tx.getSessionOutboxWatermark(sessionId),
     }));
   }

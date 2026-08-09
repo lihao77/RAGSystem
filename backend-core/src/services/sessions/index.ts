@@ -75,10 +75,12 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     sessionId: string;
     limit?: number;
     offset?: number;
+    threadKey?: string | null;
   }): Promise<SessionMessageListSnapshot> {
-    const data = await this.repository.listMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0);
+    const threadKey = input.threadKey?.trim() || "root";
+    const data = await this.repository.listMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0, threadKey);
     data.items = data.items
-      .filter((item) => isVisibleRootMessage(item))
+      .filter((item) => threadKey === "root" ? isVisibleRootMessage(item) : isVisibleParticipantMessage(item, threadKey))
       .map((item) =>
         item.role === "assistant"
           ? {
@@ -95,9 +97,12 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     messageId: string;
     limit?: number;
     offset?: number;
+    threadKey?: string | null;
   }): Promise<{ message_id: string; items: Envelope[]; total: number; limit: number; offset: number; has_more: boolean }> {
-    const data = await this.repository.listMessages(input.sessionId, 1000, 0);
-    const message = data.items.find((item) => item.id === input.messageId && isVisibleRootMessage(item));
+    const threadKey = input.threadKey?.trim() || "root";
+    const data = await this.repository.listMessages(input.sessionId, 1000, 0, threadKey);
+    const message = data.items.find((item) => item.id === input.messageId
+      && (threadKey === "root" ? isVisibleRootMessage(item) : isVisibleParticipantMessage(item, threadKey)));
     if (!message) {
       throw new Error(`消息不存在: ${input.messageId}`);
     }
@@ -378,6 +383,12 @@ function isVisibleRootMessage(item: MessageInfo): boolean {
     return false;
   }
   return true;
+}
+
+function isVisibleParticipantMessage(item: MessageInfo, threadKey: string): boolean {
+  return item.thread_key === threadKey
+    && item.metadata.react_intermediate !== true
+    && item.metadata.visible_to_user !== false;
 }
 
 function parseArchivedEnvelope(payload: Record<string, unknown>): Envelope {

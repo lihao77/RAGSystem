@@ -68,6 +68,9 @@ export type {
   WorkspaceResponse,
   SessionMessageListResponse,
   SessionMessageRunStepsResponse,
+  SessionParticipant,
+  SessionParticipantListData,
+  SessionParticipantListResponse,
   SessionPermissionResponse,
   UpdateSessionPermissionModeRequest,
 } from "@ragsystem/api-contracts";

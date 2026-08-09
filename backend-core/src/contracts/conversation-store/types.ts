@@ -171,7 +171,6 @@ export interface ListChildAgentsInput {
   sessionId: string;
   agentName?: string | null;
   parentParticipantId?: string | null;
-  operation?: "publish" | "archive" | null;
   limit?: number;
 }
 

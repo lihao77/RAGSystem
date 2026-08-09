@@ -68,27 +68,29 @@ export class ChildAgentOps {
   listChildAgents(input: ListChildAgentsInput): { items: ChildAgentInfo[]; total: number } {
     const agentName = input.agentName ?? null;
     const limit = input.limit ?? 100;
+    const filterByParent = input.parentParticipantId !== undefined;
+    const parentParticipantId = input.parentParticipantId ?? null;
     const totalRow = this.db
       .prepare(
         `SELECT COUNT(1) AS cnt FROM child_agents
          WHERE session_id=?
-           AND ((? IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=?)
+           AND (?=0 OR ((? IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=?))
            AND (? IS NULL OR agent_name=?)`,
       )
-      .get(input.sessionId, input.parentParticipantId ?? null, input.parentParticipantId ?? null, agentName, agentName) as { cnt: number };
+      .get(input.sessionId, filterByParent ? 1 : 0, parentParticipantId, parentParticipantId, agentName, agentName) as { cnt: number };
     const rows = this.db
       .prepare(
         `
           SELECT ${CHILD_AGENT_SELECT_COLUMNS}
           FROM child_agents
           WHERE session_id=?
-            AND ((? IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=?)
+            AND (?=0 OR ((? IS NULL AND parent_participant_id IS NULL) OR parent_participant_id=?))
             AND (? IS NULL OR agent_name=?)
           ORDER BY created_at DESC
           LIMIT ?
         `,
       )
-      .all(input.sessionId, input.parentParticipantId ?? null, input.parentParticipantId ?? null, agentName, agentName, limit) as unknown as ChildAgentRow[];
+      .all(input.sessionId, filterByParent ? 1 : 0, parentParticipantId, parentParticipantId, agentName, agentName, limit) as unknown as ChildAgentRow[];
     const items = rows.map(rowToChildAgent);
     return { items, total: totalRow.cnt };
   }

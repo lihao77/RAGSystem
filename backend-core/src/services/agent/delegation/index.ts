@@ -4,7 +4,9 @@ import path from "node:path";
 
 import type { AgentInvocationPort } from "../../../contracts/execution/agent-invocation.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
-import type { ChildAgentInfo } from "../../../contracts/conversation-store/index.js";
+import type { ChildAgentInfo, RunInfo } from "../../../contracts/conversation-store/index.js";
+import type { SessionParticipant, SessionParticipantListData } from "@ragsystem/api-contracts";
+import type { SessionInfo } from "../../../contracts/session/session.js";
 import type { AgentDelegationStorePort } from "../../../contracts/runtime/core-runtime-ports.js";
 import type { AgentMailboxStorePort } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -178,6 +180,93 @@ export class AgentDelegationService implements DelegationPort {
 
   setMailboxWakeup(handler: AgentMailboxWakeupHandler | null): void {
     this.mailboxWakeup = handler;
+  }
+
+  async listSessionParticipants(sessionId: string): Promise<SessionParticipantListData | null> {
+    const session = await this.store.getSession(sessionId);
+    if (!session) return null;
+    const [children, runs] = await Promise.all([
+      this.store.listChildAgents({ sessionId, limit: 10_000 }),
+      this.store.listRuns(sessionId, 5_000),
+    ]);
+    const runById = new Map(runs.items.map((run) => [run.run_id, run]));
+    const rootRun = runs.items.find((run) => run.child_agent_id === null && run.thread_key === "root") ?? null;
+    const items = [
+      this.toRootParticipant(session, rootRun),
+      ...children.items.map((child) => this.toChildParticipant(
+        session.metadata,
+        child,
+        child.last_run_id ? runById.get(child.last_run_id) ?? null : null,
+      )),
+    ];
+    return { items, total: items.length };
+  }
+
+  async getSessionParticipant(sessionId: string, participantId: string): Promise<SessionParticipant | null> {
+    const session = await this.store.getSession(sessionId);
+    if (!session) return null;
+    if (participantId === "root") {
+      const runs = await this.store.listRuns(sessionId, 5_000);
+      const rootRun = runs.items.find((run) => run.child_agent_id === null && run.thread_key === "root") ?? null;
+      return this.toRootParticipant(session, rootRun);
+    }
+    const child = await this.store.getChildAgent(sessionId, participantId);
+    if (!child) return null;
+    const lastRun = child.last_run_id ? await this.store.getRun(sessionId, child.last_run_id) : null;
+    return this.toChildParticipant(session.metadata, child, lastRun);
+  }
+
+  private toRootParticipant(
+    session: SessionInfo,
+    lastRun: RunInfo | null,
+  ): SessionParticipant {
+    const configured = this.runtimeCore.resolveExecutionConfig({
+      agentName: normalizeString(session.metadata.entry_agent),
+      teamName: normalizeString(session.metadata.team),
+    }).agent;
+    const agentName = normalizeString(lastRun?.agent_name) ?? configured?.agent_name ?? null;
+    return {
+      participant_id: "root",
+      parent_participant_id: null,
+      scope: "root",
+      agent_name: agentName,
+      display_name: normalizeString(lastRun?.agent_display_name)
+        ?? normalizeString(configured?.display_name)
+        ?? agentName
+        ?? "Main Agent",
+      thread_key: "root",
+      lifecycle_status: "active",
+      last_run_id: lastRun?.run_id ?? null,
+      last_run_status: lastRun?.status ?? null,
+      created_at: session.created_at,
+      updated_at: lastRun?.updated_at ?? session.updated_at,
+    };
+  }
+
+  private toChildParticipant(
+    sessionMetadata: Record<string, unknown>,
+    child: ChildAgentInfo,
+    lastRun: RunInfo | null,
+  ): SessionParticipant {
+    const configured = this.runtimeCore.resolveExecutionConfig({
+      agentName: child.agent_name,
+      teamName: normalizeString(sessionMetadata.team),
+    }).agent;
+    return {
+      participant_id: child.child_agent_id,
+      parent_participant_id: child.parent_participant_id,
+      scope: "child",
+      agent_name: child.agent_name,
+      display_name: normalizeString(lastRun?.agent_display_name)
+        ?? normalizeString(configured?.display_name)
+        ?? child.agent_name,
+      thread_key: child.thread_key,
+      lifecycle_status: child.status,
+      last_run_id: child.last_run_id,
+      last_run_status: lastRun?.status ?? null,
+      created_at: child.created_at,
+      updated_at: child.updated_at,
+    };
   }
 
   /** Reconstruct a terminal mailbox result when a leased background child died with its owner. */

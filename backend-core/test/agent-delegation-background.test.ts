@@ -111,6 +111,7 @@ function store(child: ChildAgentInfo): AgentDelegationStorePort {
     addMessage: vi.fn(async () => ({}) as never),
     getRecentMessages: vi.fn(async () => []),
     getRun: vi.fn(async () => null),
+    listRuns: vi.fn(async () => ({ items: [], total: 0 })),
     updateRunStatus: vi.fn(async () => true),
     createChildAgent: vi.fn(async () => child),
     findChildAgentByCreator: vi.fn(async () => null),
@@ -119,6 +120,82 @@ function store(child: ChildAgentInfo): AgentDelegationStorePort {
     updateChildAgentLastRun: vi.fn(async () => true),
   };
 }
+
+describe("session participant projection", () => {
+  it("returns root and nested children with separate lifecycle and run status", async () => {
+    const rootChild = childAgent();
+    rootChild.last_run_id = "child-run";
+    const nestedChild = {
+      ...childAgent(),
+      child_agent_id: "child_nested",
+      thread_key: "child:child_nested",
+      parent_participant_id: rootChild.child_agent_id,
+      last_run_id: null,
+    };
+    const delegationStore = store(rootChild);
+    vi.mocked(delegationStore.listChildAgents).mockResolvedValue({ items: [rootChild, nestedChild], total: 2 });
+    vi.mocked(delegationStore.listRuns).mockResolvedValue({
+      items: [
+        {
+          run_id: "child-run",
+          child_agent_id: rootChild.child_agent_id,
+          thread_key: rootChild.thread_key,
+          agent_name: "worker",
+          agent_display_name: "Worker Snapshot",
+          status: "completed",
+          updated_at: new Date(2).toISOString(),
+        },
+        {
+          run_id: "root-run",
+          child_agent_id: null,
+          thread_key: "root",
+          agent_name: "parent",
+          agent_display_name: "Parent Snapshot",
+          status: "running",
+          updated_at: new Date(1).toISOString(),
+        },
+      ] as never,
+      total: 2,
+    });
+    const service = new AgentDelegationService(delegationStore, runtimeCore(workerAgent()));
+
+    const result = await service.listSessionParticipants("session-1");
+
+    expect(result?.total).toBe(3);
+    expect(result?.items).toEqual([
+      expect.objectContaining({
+        participant_id: "root",
+        parent_participant_id: null,
+        scope: "root",
+        display_name: "Parent Snapshot",
+        last_run_id: "root-run",
+        last_run_status: "running",
+      }),
+      expect.objectContaining({
+        participant_id: "child_worker",
+        parent_participant_id: null,
+        scope: "child",
+        lifecycle_status: "active",
+        display_name: "Worker Snapshot",
+        last_run_status: "completed",
+      }),
+      expect.objectContaining({
+        participant_id: "child_nested",
+        parent_participant_id: "child_worker",
+        last_run_id: null,
+        last_run_status: null,
+      }),
+    ]);
+  });
+
+  it("returns null for an unknown participant", async () => {
+    const delegationStore = store(childAgent());
+    vi.mocked(delegationStore.getChildAgent).mockResolvedValue(null);
+    const service = new AgentDelegationService(delegationStore, runtimeCore(workerAgent()));
+
+    await expect(service.getSessionParticipant("session-1", "missing")).resolves.toBeNull();
+  });
+});
 
 describe("background child-agent delegation", () => {
   it("routes a child progress message to the exact parent invocation", async () => {

@@ -26,6 +26,7 @@ export type RagChatEndpointName =
   | "getSessionRuntime"
   | "getContextSnapshot"
   | "rollbackAndRetrySession"
+  | "listSessionParticipants"
   | "listMessages"
   | "getMessageRunSteps"
   | "listFiles"
@@ -92,6 +93,7 @@ export interface ListSessionsOptions {
 export interface ListMessagesOptions {
   limit?: number;
   offset?: number;
+  participantId?: string;
   signal?: AbortSignal;
 }
 

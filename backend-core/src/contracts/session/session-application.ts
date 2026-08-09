@@ -67,10 +67,10 @@ export interface SessionApplication {
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown>>;
   updateSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<boolean>;
   deleteSession(sessionId: string): Promise<boolean>;
-  listMessages(input: { sessionId: string; limit?: number; offset?: number }): Promise<SessionMessageListSnapshot | null>;
+  listMessages(input: { sessionId: string; limit?: number; offset?: number; threadKey?: string | null }): Promise<SessionMessageListSnapshot | null>;
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
   getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<MessageInfo | null>;
-  listMessageRunSteps(input: { sessionId: string; messageId: string; limit?: number; offset?: number }): Promise<{
+  listMessageRunSteps(input: { sessionId: string; messageId: string; limit?: number; offset?: number; threadKey?: string | null }): Promise<{
     message_id: string;
     items: Envelope[];
     total: number;

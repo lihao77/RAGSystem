@@ -8,6 +8,7 @@ import type {
   SessionListResponse,
   SessionMessageListResponse,
   SessionMessageRunStepsResponse,
+  SessionParticipantListResponse,
   SessionPermissionResponse,
   WorkspaceListResponse,
   WorkspaceResponse,
@@ -277,7 +278,15 @@ export class RagChatClient {
       limit: String(options.limit ?? 500),
       offset: String(options.offset ?? 0),
     });
+    if (options.participantId) query.set("participant_id", options.participantId);
     return this.request<SessionMessageListResponse>("listMessages", { context: { sessionId }, query, ...(options.signal ? { signal: options.signal } : {}) });
+  }
+
+  async listSessionParticipants(sessionId: string, options: { signal?: AbortSignal } = {}): Promise<SessionParticipantListResponse> {
+    return this.request<SessionParticipantListResponse>("listSessionParticipants", {
+      context: { sessionId },
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
   }
 
   async getMessageRunSteps(sessionId: string, messageId: string, options: ListMessagesOptions = {}): Promise<SessionMessageRunStepsResponse> {
@@ -285,6 +294,7 @@ export class RagChatClient {
       limit: String(options.limit ?? 500),
       offset: String(options.offset ?? 0),
     });
+    if (options.participantId) query.set("participant_id", options.participantId);
     return this.request<SessionMessageRunStepsResponse>("getMessageRunSteps", {
       context: { sessionId, messageId }, query, ...(options.signal ? { signal: options.signal } : {}),
     });
@@ -683,6 +693,7 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "getSessionRuntime": return `/api/agent/sessions/${sessionId}/runtime`;
     case "getContextSnapshot": return "/api/agent/context-snapshot";
     case "rollbackAndRetrySession": return `/api/agent/sessions/${sessionId}/rollback-and-retry`;
+    case "listSessionParticipants": return `/api/agent/sessions/${sessionId}/participants`;
     case "listMessages": return `/api/agent/sessions/${sessionId}/messages`;
     case "getMessageRunSteps": return `/api/agent/sessions/${sessionId}/messages/${encodeURIComponent(String(context.messageId ?? ""))}/run-steps`;
     case "listFiles": return `/api/agent/sessions/${sessionId}/files`;

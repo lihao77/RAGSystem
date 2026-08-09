@@ -145,6 +145,25 @@ export const SessionMessageListDataSchema = z.object({
   outbox_watermark: z.number().int().nonnegative(),
 }).strict();
 
+export const SessionParticipantSchema = z.object({
+  participant_id: z.string().min(1),
+  parent_participant_id: z.string().min(1).nullable(),
+  scope: z.enum(["root", "child"]),
+  agent_name: z.string().min(1).nullable(),
+  display_name: z.string().min(1),
+  thread_key: z.string().min(1),
+  lifecycle_status: z.string().min(1),
+  last_run_id: z.string().min(1).nullable(),
+  last_run_status: z.string().min(1).nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}).strict();
+
+export const SessionParticipantListDataSchema = z.object({
+  items: z.array(SessionParticipantSchema),
+  total: z.number().int().nonnegative(),
+}).strict();
+
 export const SessionMessageRunStepsDataSchema = z.object({
   message_id: z.string().min(1),
   items: z.array(ServerToClientEnvelopeSchema),
@@ -170,6 +189,7 @@ export const WorkspaceListResponseSchema = successResponseSchema(WorkspaceListDa
 export const SessionPermissionResponseSchema = successResponseSchema(SessionPermissionDataSchema);
 export const SessionMessageListResponseSchema = successResponseSchema(SessionMessageListDataSchema);
 export const SessionMessageRunStepsResponseSchema = successResponseSchema(SessionMessageRunStepsDataSchema);
+export const SessionParticipantListResponseSchema = successResponseSchema(SessionParticipantListDataSchema);
 
 export const SessionWsTicketDataSchema = z.object({
   ticket: z.string().min(1),
@@ -200,6 +220,8 @@ export type SessionMessageToolCall = z.infer<typeof SessionMessageToolCallSchema
 export type SessionMessage = z.infer<typeof SessionMessageSchema>;
 export type SessionMessageListData = z.infer<typeof SessionMessageListDataSchema>;
 export type SessionMessageRunStepsData = z.infer<typeof SessionMessageRunStepsDataSchema>;
+export type SessionParticipant = z.infer<typeof SessionParticipantSchema>;
+export type SessionParticipantListData = z.infer<typeof SessionParticipantListDataSchema>;
 export type CreateSessionResponse = z.infer<typeof CreateSessionResponseSchema>;
 export type SessionDetailResponse = z.infer<typeof SessionDetailResponseSchema>;
 export type SessionListResponse = z.infer<typeof SessionListResponseSchema>;
@@ -211,5 +233,6 @@ export type WorkspaceResponse = z.infer<typeof WorkspaceResponseSchema>;
 export type SessionPermissionResponse = z.infer<typeof SessionPermissionResponseSchema>;
 export type SessionMessageListResponse = z.infer<typeof SessionMessageListResponseSchema>;
 export type SessionMessageRunStepsResponse = z.infer<typeof SessionMessageRunStepsResponseSchema>;
+export type SessionParticipantListResponse = z.infer<typeof SessionParticipantListResponseSchema>;
 export type SessionWsTicketData = z.infer<typeof SessionWsTicketDataSchema>;
 export type SessionWsTicketResponse = z.infer<typeof SessionWsTicketResponseSchema>;
