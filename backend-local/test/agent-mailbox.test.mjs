@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import { createConversationStore } from "../dist/adapters/local/sqlite/conversation-store/index.js";
 
-function createStore() {
-  const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+function createSession(store) {
   store.createSession({
     tenantId: "tnt_test",
     sessionId: "session-mailbox",
@@ -17,6 +19,11 @@ function createStore() {
     metadata: {},
     permissionMode: null,
   });
+}
+
+function createStore() {
+  const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+  createSession(store);
   return store;
 }
 
@@ -64,4 +71,109 @@ test("local Agent mailbox expires queued messages and reclaims expired leases", 
   } finally {
     store.close();
   }
+});
+
+test("local Agent mailbox active claims fence the complete target tuple", async () => {
+  const store = createStore();
+  try {
+    const mailbox = store.agentMailbox;
+    await mailbox.enqueue({
+      messageId: "active-target-message",
+      tenantId: "tnt_test",
+      sessionId: "session-mailbox",
+      targetRunId: "run-active",
+      targetAgentCallId: "call-active",
+      targetThreadKey: "child-thread",
+      targetChildAgentId: "child-1",
+      kind: "result",
+      contentParts: [{ type: "text", text: "terminal" }],
+      availableAt: "2026-01-01T00:00:00.000Z",
+    });
+    const wrongThread = await mailbox.claim({
+      sessionId: "session-mailbox",
+      targetRunId: "run-active",
+      targetAgentCallId: "call-active",
+      targetThreadKey: "other-thread",
+      targetChildAgentId: "child-1",
+      claimId: "claim-wrong-thread",
+      consumerId: "worker-wrong-thread",
+      now: "2026-01-01T00:00:00.000Z",
+    });
+    assert.deepEqual(wrongThread, []);
+    const wrongChild = await mailbox.claim({
+      sessionId: "session-mailbox",
+      targetRunId: "run-active",
+      targetAgentCallId: "call-active",
+      targetThreadKey: "child-thread",
+      targetChildAgentId: "child-2",
+      claimId: "claim-wrong-child",
+      consumerId: "worker-wrong-child",
+      now: "2026-01-01T00:00:00.000Z",
+    });
+    assert.deepEqual(wrongChild, []);
+    const exact = await mailbox.claim({
+      sessionId: "session-mailbox",
+      targetRunId: "run-active",
+      targetAgentCallId: "call-active",
+      targetThreadKey: "child-thread",
+      targetChildAgentId: "child-1",
+      claimId: "claim-exact",
+      consumerId: "worker-exact",
+      now: "2026-01-01T00:00:00.000Z",
+    });
+    assert.deepEqual(exact.map((message) => message.message_id), ["active-target-message"]);
+  } finally {
+    store.close();
+  }
+});
+
+test("local Agent mailbox claim is single-owner across SQLite store instances", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ragsystem-mailbox-claim-"));
+  const dbPath = join(dir, "conversation.db");
+  const first = createConversationStore({ dbPath, dataRoot: dir });
+  const second = createConversationStore({ dbPath, dataRoot: dir });
+  t.after(async () => {
+    first.close();
+    second.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+  createSession(first);
+  await first.agentMailbox.enqueue({
+    messageId: "cross-instance-message",
+    tenantId: "tnt_test",
+    sessionId: "session-mailbox",
+    targetThreadKey: "child-thread",
+    kind: "request",
+    contentParts: [{ type: "text", text: "one" }],
+    availableAt: "2026-01-01T00:00:00.000Z",
+  });
+
+  const [left, right] = await Promise.all([
+    first.agentMailbox.claim({
+      sessionId: "session-mailbox",
+      targetThreadKey: "child-thread",
+      claimId: "claim-left",
+      consumerId: "worker-left",
+      now: "2026-01-01T00:00:00.000Z",
+    }),
+    second.agentMailbox.claim({
+      sessionId: "session-mailbox",
+      targetThreadKey: "child-thread",
+      claimId: "claim-right",
+      consumerId: "worker-right",
+      now: "2026-01-01T00:00:00.000Z",
+    }),
+  ]);
+  assert.equal(left.length + right.length, 1);
+  const owner = left.length === 1 ? first : second;
+  const claimId = left.length === 1 ? "claim-left" : "claim-right";
+  const retry = await owner.agentMailbox.claim({
+    sessionId: "session-mailbox",
+    targetThreadKey: "child-thread",
+    claimId,
+    consumerId: "worker-retry",
+    now: "2026-01-01T00:00:00.000Z",
+  });
+  assert.equal(retry.length, 1);
+  assert.equal(retry[0].attempt_count, 1);
 });

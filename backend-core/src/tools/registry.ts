@@ -25,6 +25,8 @@ export interface BackendToolsDeps {
   agentConfig?: DelegationAgentConfigLookup | null;
   /** session team（delegation 工具用）。 */
   teamName?: string | null;
+  /** Whether this run may use the parent-only Agent mailbox route. */
+  canMessageParent?: boolean;
 }
 
 /**
@@ -41,6 +43,7 @@ export function createBackendTools(deps: BackendToolsDeps): Tool[] {
       agent,
       teamName: deps.teamName ?? null,
       agentConfig: deps.agentConfig ?? null,
+      canMessageParent: deps.canMessageParent ?? false,
     }),
   ];
 }

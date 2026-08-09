@@ -76,7 +76,12 @@ function timestamp(value: string | undefined): string {
   return parsed.toISOString();
 }
 
-function sameMessageIdentity(existing: AgentMailboxMessage, input: EnqueueAgentMailboxMessageInput): boolean {
+function sameMessageIdentity(
+  existing: AgentMailboxMessage,
+  input: EnqueueAgentMailboxMessageInput,
+  availableAt: string,
+  expiresAt: string | null,
+): boolean {
   return existing.tenant_id === input.tenantId
     && existing.session_id === input.sessionId
     && existing.source_run_id === (input.sourceRunId ?? null)
@@ -89,7 +94,9 @@ function sameMessageIdentity(existing: AgentMailboxMessage, input: EnqueueAgentM
     && existing.correlation_id === (input.correlationId ?? null)
     && existing.reply_to_message_id === (input.replyToMessageId ?? null)
     && isDeepStrictEqual(existing.content_parts, input.contentParts ?? [])
-    && isDeepStrictEqual(existing.metadata, input.metadata ?? {});
+    && isDeepStrictEqual(existing.metadata, input.metadata ?? {})
+    && (input.availableAt === undefined || existing.available_at === availableAt)
+    && (input.expiresAt === undefined || existing.expires_at === expiresAt);
 }
 
 /** Tenant-bound PostgreSQL mailbox. Every query includes tenant_id by construction. */
@@ -104,9 +111,11 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
     const messageId = required(input.messageId, "messageId");
     const sessionId = required(input.sessionId, "sessionId");
     const targetThreadKey = required(input.targetThreadKey, "targetThreadKey");
+    const availableAt = timestamp(input.availableAt);
+    const expiresAt = input.expiresAt == null ? null : timestamp(input.expiresAt);
     const existing = await this.get(sessionId, messageId);
     if (existing) {
-      if (!sameMessageIdentity(existing, input)) throw new Error(`Agent mailbox message id conflict: ${messageId}`);
+      if (!sameMessageIdentity(existing, input, availableAt, expiresAt)) throw new Error(`Agent mailbox message id conflict: ${messageId}`);
       return existing;
     }
     await this.executor.query(`
@@ -120,12 +129,12 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
       messageId, tenantId, sessionId, input.sourceRunId ?? null, input.sourceAgentCallId ?? null,
       input.targetRunId ?? null, input.targetAgentCallId ?? null, targetThreadKey, input.targetChildAgentId ?? null,
       input.kind, input.correlationId ?? null, input.replyToMessageId ?? null,
-      JSON.stringify(input.contentParts ?? []), JSON.stringify(input.metadata ?? {}), timestamp(input.availableAt),
-      input.expiresAt == null ? null : timestamp(input.expiresAt),
+      JSON.stringify(input.contentParts ?? []), JSON.stringify(input.metadata ?? {}), availableAt,
+      expiresAt,
     ]);
     const created = await this.get(sessionId, messageId);
     if (!created) throw new Error(`Agent mailbox insert failed: ${messageId}`);
-    if (!sameMessageIdentity(created, input)) throw new Error(`Agent mailbox message id conflict: ${messageId}`);
+    if (!sameMessageIdentity(created, input, availableAt, expiresAt)) throw new Error(`Agent mailbox message id conflict: ${messageId}`);
     return created;
   }
 
@@ -196,6 +205,11 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
     return this.executor.transaction(async (tx) => {
       await tx.query(`UPDATE agent_mailbox_messages SET status='expired',claim_id=NULL,claimed_by=NULL,claim_expires_at=NULL,last_error=COALESCE(last_error,'message expired'),updated_at=$1::timestamptz WHERE tenant_id=$2 AND session_id=$3 AND status IN ('queued','claimed') AND expires_at IS NOT NULL AND expires_at <= $1::timestamptz`, [now, tenantId, sessionId]);
       await tx.query(`UPDATE agent_mailbox_messages SET status='queued',claim_id=NULL,claimed_by=NULL,claim_expires_at=NULL,updated_at=$1::timestamptz WHERE tenant_id=$2 AND session_id=$3 AND status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= $1::timestamptz`, [now, tenantId, sessionId]);
+      const existingClaim = await tx.query(
+        `SELECT ${SELECT_COLUMNS} FROM agent_mailbox_messages WHERE tenant_id=$1 AND session_id=$2 AND status='claimed' AND claim_id=$3 ORDER BY seq ASC`,
+        [tenantId, sessionId, claimId],
+      );
+      if (existingClaim.rows.length > 0) return existingClaim.rows.map(row);
       const params: unknown[] = [tenantId, sessionId, now];
       const targetRunId = input.targetRunId?.trim() || null;
       const targetChildAgentId = input.targetChildAgentId?.trim() || null;
@@ -204,11 +218,20 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
       if (targetRunId) {
         params.push(targetRunId);
         const activeRunParam = params.length;
-        if (targetAgentCallId) params.push(targetAgentCallId);
-        const activeCallClause = targetAgentCallId ? ` AND target_agent_call_id=$${params.length}` : "";
         params.push(targetThreadKey);
         const threadParam = params.length;
-        predicate = `(target_run_id=$${activeRunParam}${activeCallClause} OR (target_run_id IS NULL AND target_thread_key=$${threadParam}`;
+        predicate = `(target_run_id=$${activeRunParam} AND target_thread_key=$${threadParam}`;
+        if (targetAgentCallId) {
+          params.push(targetAgentCallId);
+          predicate += ` AND target_agent_call_id=$${params.length}`;
+        }
+        if (targetChildAgentId) {
+          params.push(targetChildAgentId);
+          predicate += ` AND target_child_agent_id=$${params.length}`;
+        }
+        params.push(targetThreadKey);
+        const idleThreadParam = params.length;
+        predicate += ` OR (target_run_id IS NULL AND target_thread_key=$${idleThreadParam}`;
         if (targetAgentCallId) {
           params.push(targetAgentCallId);
           predicate += ` AND (target_agent_call_id IS NULL OR target_agent_call_id=$${params.length})`;

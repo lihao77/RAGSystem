@@ -470,7 +470,7 @@ export class BackgroundTaskService {
       this.callableAbortControllers.delete(taskId);
       this.callableCancellers.delete(taskId);
     }
-    if (!task || isDone(task.status)) return;
+    if (!task || !isDone(task.status)) return;
     this.persistTask(task);
     const snapshot = this.getTask(taskId);
     if (snapshot) {

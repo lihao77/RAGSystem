@@ -44,6 +44,8 @@ interface DelegationToolDeps {
   getAgentDelegation: () => DelegationPort | null;
   /** 解析可委派 agent 展示信息；不提供则 allowlist 仅含 agent_name、无展示文案。 */
   agentConfig?: DelegationAgentConfigLookup | null;
+  /** Child invocations receive a parent-only mailbox route even without child delegation allowlist. */
+  canMessageParent?: boolean;
 }
 
 const callAgentSchema = z.object({
@@ -63,17 +65,23 @@ const listChildAgentsSchema = z.object({
 }).strict();
 
 const sendMessageSchema = z.object({
-  child_agent_id: z.string(),
+  child_agent_id: optionalString,
   childAgentId: z.string().optional(),
+  to_parent: optionalBoolean,
+  toParent: optionalBoolean,
   message: z.string(),
   kind: z.enum(["progress", "request", "response", "result", "cancel"]).optional(),
   correlation_id: z.string().optional(),
   correlationId: z.string().optional(),
   reply_to_message_id: z.string().optional(),
   replyToMessageId: z.string().optional(),
+  timeout_ms: optionalInteger,
+  timeoutMs: optionalInteger,
   run_in_background: optionalBoolean,
   runInBackground: optionalBoolean,
-}).strict();
+}).strict().refine((value) => Boolean(value.child_agent_id ?? value.childAgentId ?? value.to_parent ?? value.toParent), {
+  message: "send_message requires child_agent_id or to_parent",
+});
 
 const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
   {
@@ -138,15 +146,19 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
     category: "agent_delegation",
     riskLevel: "low",
     allowed_callers: ["direct"],
-    description: "Send a follow-up message to an existing child Agent session by child_agent_id.",
+    description: "Send a durable message to an existing child Agent, or to the direct parent when to_parent=true.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      required: ["child_agent_id", "message"],
+      required: ["message"],
       properties: {
         child_agent_id: {
           type: "string",
-          description: "Child Agent id returned by call_agent or list_child_agents.",
+          description: "Child Agent id returned by call_agent or list_child_agents. Omit when to_parent=true.",
+        },
+        to_parent: {
+          type: "boolean",
+          description: "Deliver to the direct parent invocation of the current child run.",
         },
         message: {
           type: "string",
@@ -165,6 +177,12 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
           type: "string",
           description: "Message id this response or result replies to.",
         },
+        timeout_ms: {
+          type: "integer",
+          minimum: 1,
+          maximum: 600000,
+          description: "Optional mailbox TTL in milliseconds. Expired messages are not delivered.",
+        },
         run_in_background: {
           type: "boolean",
           description: "Run this follow-up independently and immediately return background_task_id and run_id.",
@@ -177,7 +195,10 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
 export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
   const { agent, teamName, getAgentDelegation } = deps;
   // 可见性筛选：未启用委派能力 或 当前 Agent 未配置 enabled_agents 时，整体不提供工具。
-  if (getAgentDelegation() === null || !(agent.delegation.enabled_agents?.length)) {
+  const delegation = getAgentDelegation();
+  const hasChildDelegation = delegation !== null && Boolean(agent.delegation.enabled_agents?.length);
+  const canMessageParent = deps.canMessageParent === true;
+  if (!hasChildDelegation && !canMessageParent) {
     return [];
   }
   // 可委派 agent 名单 + 展示信息直接进入 function schema，避免在 system prompt 重复整份工具手册。
@@ -194,8 +215,8 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
   const listChildAgentsDef = withAgentNameEnum(definitionByName.get(LIST_CHILD_AGENTS_TOOL_NAME)!, agentNames);
   const sendMessageDef = omitBackgroundParam(definitionByName.get(SEND_MESSAGE_TOOL_NAME)!, allowBackground);
 
-  return [
-    buildTool({
+  const tools: Tool[] = [];
+  if (hasChildDelegation) tools.push(buildTool({
       ...metadataFrom(callAgentDef),
       inputSchema: callAgentSchema,
       isConcurrencySafe: () => false,
@@ -210,8 +231,8 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
             )
           : toolError(CALL_AGENT_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
       },
-    }),
-    buildTool({
+    }));
+  if (hasChildDelegation) tools.push(buildTool({
       ...metadataFrom(listChildAgentsDef),
       inputSchema: listChildAgentsSchema,
       isReadOnly: () => true,
@@ -222,8 +243,8 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
           ? service.listChildAgents({ agent, teamName, input: readListChildAgentsArguments(input) }, ctx)
           : toolError(LIST_CHILD_AGENTS_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
       },
-    }),
-    buildTool({
+    }));
+  tools.push(buildTool({
       ...metadataFrom(sendMessageDef),
       inputSchema: sendMessageSchema,
       isConcurrencySafe: () => false,
@@ -238,8 +259,8 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
             )
           : toolError(SEND_MESSAGE_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
       },
-    }),
-  ];
+    }));
+  return tools;
 }
 
 /** 解析可委派 agent 展示信息（原 buildPromptDelegatedAgents 逻辑，下沉到工具工厂自描述）。 */

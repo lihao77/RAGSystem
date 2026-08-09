@@ -752,7 +752,7 @@ class AgentLaunchers {
     const runId = randomUUID();
     const taskId = randomUUID();
     const rootCallId = `call_${randomUUID()}`;
-    const task = "处理来自子 Agent 的终态结果，并继续当前任务。";
+    const task = "处理来自 Agent 的消息，并继续当前任务。";
     const base = {
       mode: "create" as const,
       execution: "background" as const,
@@ -829,7 +829,11 @@ class AgentLaunchers {
         await markReason("background_tasks_running");
         return;
       }
-      const pendingMailbox = await this.mailbox?.listPending?.({ sessionId, kinds: ["result"], limit: 1 }) ?? [];
+      // Any durable Agent message may require a continuation when the in-process
+      // wakeup was lost (for example after an instance restart). Terminal results
+      // are only one mailbox kind; progress/request/response/cancel must not be
+      // stranded behind a result-only scan.
+      const pendingMailbox = await this.mailbox?.listPending?.({ sessionId, limit: 1 }) ?? [];
       const firstMailbox = pendingMailbox[0];
       if (firstMailbox?.target_run_id) {
         this.triggerAgentMailboxRun(toMailboxWakeupTarget(firstMailbox));

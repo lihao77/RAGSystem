@@ -91,20 +91,26 @@ export function readListChildAgentsArguments(value: Record<string, unknown> | un
 }
 
 export function readSendMessageArguments(value: Record<string, unknown> | undefined, callId: string | undefined): {
-  childAgentId: string;
+  childAgentId?: string | null;
+  toParent?: boolean | null;
   message: string;
   kind?: import("../../../contracts/storage/agent-mailbox-repository.js").AgentMailboxMessageKind | null;
   correlationId?: string | null;
   replyToMessageId?: string | null;
+  timeoutMs?: number | null;
   runInBackground?: boolean | null;
   callId?: string | null;
 } {
   return {
-    childAgentId: asString(value?.child_agent_id) ?? asString(value?.childAgentId) ?? "",
+    childAgentId: asString(value?.child_agent_id) ?? asString(value?.childAgentId),
+    toParent: typeof value?.to_parent === "boolean"
+      ? value.to_parent
+      : typeof value?.toParent === "boolean" ? value.toParent : null,
     message: asString(value?.message) ?? "",
     kind: asMailboxKind(value?.kind),
     correlationId: asString(value?.correlation_id) ?? asString(value?.correlationId),
     replyToMessageId: asString(value?.reply_to_message_id) ?? asString(value?.replyToMessageId),
+    timeoutMs: asInteger(value?.timeout_ms) ?? asInteger(value?.timeoutMs),
     runInBackground: typeof value?.run_in_background === "boolean"
       ? value.run_in_background
       : typeof value?.runInBackground === "boolean" ? value.runInBackground : null,

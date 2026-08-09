@@ -285,18 +285,24 @@ export class AgentDelegationService implements DelegationPort {
     const toolName = "send_message";
     const sessionId = normalizeString(ctx.sessionId);
     const childAgentId = normalizeString(input.childAgentId);
+    const toParent = input.toParent === true;
     const message = normalizeString(input.message);
     const parentCallId = normalizeString(input.callId);
     const agentCallId = `call_${randomUUID()}`;
     if (!sessionId) {
       return errorResult("send_message 缺少 session_id", toolName);
     }
-    if (!childAgentId) {
+    if (!childAgentId && !toParent) {
       return errorResult("send_message 缺少 child_agent_id", toolName);
     }
     if (!message) {
       return errorResult("send_message 缺少 message", toolName);
     }
+    if (toParent) {
+      if (input.runInBackground) return errorResult("to_parent 消息不能再次后台委派", toolName);
+      return this.sendMessageToParent(call, ctx, message, parentCallId, toolName);
+    }
+    if (!childAgentId) return errorResult("send_message 缺少 child_agent_id", toolName);
     const child = await this.store.getChildAgent(sessionId, childAgentId);
     if (!child) {
       return errorResult(`子 Agent '${childAgentId}' 不存在`, toolName);
@@ -323,6 +329,7 @@ export class AgentDelegationService implements DelegationPort {
       const sourceAgentCallId = normalizeString(ctx.currentCallId) ?? normalizeString(ctx.rootCallId) ?? parentCallId;
       const targetAgentCallId = normalizeString(lastRun?.agent_call_id)
         ?? normalizeString(child.metadata.agent_call_id);
+      const timeoutMs = clampMailboxTimeout(input.timeoutMs);
       const queued = await this.mailbox.enqueue({
         messageId: randomUUID(),
         tenantId,
@@ -337,10 +344,23 @@ export class AgentDelegationService implements DelegationPort {
         correlationId: normalizeString(input.correlationId),
         replyToMessageId: normalizeString(input.replyToMessageId),
         contentParts: [{ type: "text", text: message }],
+        ...(timeoutMs ? { expiresAt: new Date(Date.now() + timeoutMs).toISOString() } : {}),
         metadata: {
           source: "send_message",
           parent_tool_call_id: parentCallId,
         },
+      });
+      this.mailboxWakeup?.({
+        sessionId,
+        targetRunId: runningChildRunId,
+        targetAgentCallId,
+        targetThreadKey: child.thread_key,
+        targetChildAgentId: childAgentId,
+        targetAgentName: child.agent_name,
+        targetRootRunId: lastRun?.lease_root_run_id ?? runningChildRunId,
+        targetParentRunId: lastRun?.parent_run_id ?? normalizeString(ctx.runId),
+        targetParentCallId: lastRun?.parent_call_id ?? parentCallId,
+        targetLineageParentCallId: lastRun?.lineage_parent_call_id ?? normalizeString(ctx.parentCallId),
       });
       return successResult({
         message_id: queued.message_id,
@@ -349,6 +369,7 @@ export class AgentDelegationService implements DelegationPort {
         status: "queued",
         kind: queued.kind,
         correlation_id: queued.correlation_id,
+        expires_at: queued.expires_at,
       }, {
         summary: `已向运行中的子 Agent ${child.agent_name} 投递 ${queued.kind} 消息`,
         outputType: "json",
@@ -458,6 +479,85 @@ export class AgentDelegationService implements DelegationPort {
       parent_call_id: parentCallId,
       child_agent_id: childAgentId,
       mode: "resume",
+    });
+  }
+
+  /** Route a child-originated progress/request/response/cancel message to its exact parent run. */
+  private async sendMessageToParent(
+    call: SendMessageCall,
+    ctx: ToolExecContext,
+    message: string,
+    sourceToolCallId: string | null,
+    toolName: string,
+  ): Promise<ToolExecutionResult> {
+    if (!ctx.parentRunId || !ctx.currentChildAgentId) {
+      return errorResult("当前 Agent 没有可投递的父 invocation", toolName);
+    }
+    if (!this.mailbox) return errorResult("Agent mailbox 未注入，无法向父 Agent 投递消息", toolName);
+    const tenantId = normalizeString(ctx.tenantId);
+    const sessionId = normalizeString(ctx.sessionId);
+    if (!tenantId || !sessionId) return errorResult("send_message 缺少 tenant_id 或 session_id", toolName);
+    const parent = await this.store.getRun(sessionId, ctx.parentRunId);
+    if (!parent) return errorResult(`父 Agent run '${ctx.parentRunId}' 不存在`, toolName);
+    const kind = call.input.kind ?? "response";
+    const timeoutMs = clampMailboxTimeout(call.input.timeoutMs);
+    const messageId = randomUUID();
+    const queued = await this.mailbox.enqueue({
+      messageId,
+      tenantId,
+      sessionId,
+      sourceRunId: normalizeString(ctx.runId),
+      sourceAgentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.rootCallId),
+      targetRunId: parent.run_id,
+      targetAgentCallId: parent.agent_call_id,
+      targetThreadKey: parent.thread_key ?? "root",
+      targetChildAgentId: parent.child_agent_id ?? null,
+      kind,
+      correlationId: normalizeString(call.input.correlationId) ?? sourceToolCallId,
+      replyToMessageId: normalizeString(call.input.replyToMessageId),
+      contentParts: [{ type: "text", text: message }],
+      ...(timeoutMs ? { expiresAt: new Date(Date.now() + timeoutMs).toISOString() } : {}),
+      metadata: {
+        source: "send_message",
+        direction: "child_to_parent",
+        child_agent_id: ctx.currentChildAgentId,
+        child_run_id: ctx.runId,
+        parent_run_id: parent.run_id,
+        parent_agent_call_id: parent.agent_call_id,
+        target_agent_name: parent.agent_name ?? null,
+        visible_to_user: false,
+      },
+    });
+    this.mailboxWakeup?.({
+      sessionId,
+      targetRunId: parent.run_id,
+      targetAgentCallId: parent.agent_call_id,
+      targetThreadKey: parent.thread_key ?? "root",
+      targetChildAgentId: parent.child_agent_id ?? null,
+      targetAgentName: parent.agent_name ?? null,
+      targetRootRunId: parent.lease_root_run_id ?? parent.run_id,
+      targetParentRunId: parent.parent_run_id ?? null,
+      targetParentCallId: parent.parent_call_id ?? null,
+      targetLineageParentCallId: parent.lineage_parent_call_id ?? null,
+    });
+    return successResult({
+      message_id: queued.message_id,
+      target: "parent",
+      target_run_id: parent.run_id,
+      status: "queued",
+      kind: queued.kind,
+      correlation_id: queued.correlation_id,
+      expires_at: queued.expires_at,
+    }, {
+      summary: `已向父 Agent 投递 ${queued.kind} 消息`,
+      outputType: "json",
+      metadata: {
+        message_id: queued.message_id,
+        mailbox_kind: queued.kind,
+        mailbox_queued: true,
+        direction: "child_to_parent",
+      },
+      toolName,
     });
   }
 
@@ -754,4 +854,9 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   const error = new Error("子 Agent 执行已取消");
   error.name = "AbortError";
   throw error;
+}
+
+function clampMailboxTimeout(value: number | null | undefined): number {
+  if (value == null || !Number.isFinite(value)) return 0;
+  return Math.min(600_000, Math.max(1, Math.floor(value)));
 }

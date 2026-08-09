@@ -26,11 +26,15 @@ export interface AgentDelegationInput {
 }
 
 export interface SendMessageInput {
-  childAgentId: string;
+  childAgentId?: string | null | undefined;
+  /** Deliver to the direct parent invocation of the current child run. */
+  toParent?: boolean | null | undefined;
   message: string;
   kind?: AgentMailboxMessageKind | null | undefined;
   correlationId?: string | null | undefined;
   replyToMessageId?: string | null | undefined;
+  /** Optional mailbox TTL. Expired requests are never injected into the target run. */
+  timeoutMs?: number | null | undefined;
   runInBackground?: boolean | null | undefined;
   callId?: string | null | undefined;
 }

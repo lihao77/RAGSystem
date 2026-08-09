@@ -248,7 +248,7 @@ export class AgentRunEngine {
       threadKey: "root",
        rootRunId: runId,
        ...(input.mailboxTargetRunId ? { mailboxTargetRunId: input.mailboxTargetRunId } : {}),
-       ...(input.mailboxTargetAgentCallId ? { mailboxTargetAgentCallId: input.mailboxTargetAgentCallId } : {}),
+          ...(input.mailboxTargetAgentCallId ? { mailboxTargetAgentCallId: input.mailboxTargetAgentCallId } : {}),
       parentRunId: null,
       childAgentId: null,
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
@@ -571,6 +571,7 @@ export class AgentRunEngine {
           ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
           ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
           ...(input.onStartDisposition ? { onStartDisposition: input.onStartDisposition } : {}),
+          abortController: input.abortController,
           signal: input.abortController.signal,
           selectedLlm: input.selectedLlm ?? null,
           // 最终 assistant 消息的调用点元数据：execution_kind + finalMetadataExtra（retry_of_* 等）。

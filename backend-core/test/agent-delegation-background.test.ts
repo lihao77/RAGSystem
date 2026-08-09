@@ -120,6 +120,78 @@ function store(child: ChildAgentInfo): AgentDelegationStorePort {
 }
 
 describe("background child-agent delegation", () => {
+  it("routes a child progress message to the exact parent invocation", async () => {
+    const delegationStore = store(childAgent());
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "parent-run",
+      agent_call_id: "parent-call",
+      agent_name: "parent",
+      thread_key: "root",
+      child_agent_id: null,
+      parent_run_id: null,
+      parent_call_id: null,
+      lineage_parent_call_id: null,
+      lease_root_run_id: "parent-run",
+    } as never);
+    const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
+      message_id: input.messageId,
+      kind: input.kind,
+      correlation_id: input.correlationId ?? null,
+      expires_at: input.expiresAt ?? null,
+    })) as never;
+    const mailbox = { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() };
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      mailbox as never,
+    );
+    const wakeup = vi.fn();
+    service.setMailboxWakeup(wakeup);
+
+    const result = await service.sendMessage({
+      agent: workerAgent(),
+      teamName: null,
+      input: {
+        toParent: true,
+        message: "progress from child",
+        kind: "progress",
+        correlationId: "corr-child",
+        timeoutMs: 10_000,
+        callId: "child-tool-call",
+      },
+    }, {
+      ...context(new AbortController().signal),
+      runId: "child-run",
+      rootRunId: "parent-run",
+      rootCallId: "child-call",
+      currentCallId: "child-call",
+      currentChildAgentId: "child_worker",
+      parentRunId: "parent-run",
+      runParentCallId: "parent-call",
+      threadKey: "child:child_worker",
+    } as never);
+
+    expect(result.success).toBe(true);
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      targetRunId: "parent-run",
+      targetAgentCallId: "parent-call",
+      targetThreadKey: "root",
+      targetChildAgentId: null,
+      kind: "progress",
+      correlationId: "corr-child",
+      metadata: expect.objectContaining({ direction: "child_to_parent" }),
+      expiresAt: expect.any(String),
+    }));
+    expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
+      targetRunId: "parent-run",
+      targetAgentCallId: "parent-call",
+      targetThreadKey: "root",
+    }));
+  });
+
   it("delivers send_message to a running child through the durable mailbox", async () => {
     const child = { ...childAgent(), last_run_id: "child-run" };
     const delegationStore = store(child);
@@ -175,6 +247,8 @@ describe("background child-agent delegation", () => {
     );
     const invocation = vi.fn();
     service.setInvocationService({ invoke: invocation } as never);
+    const wakeup = vi.fn();
+    service.setMailboxWakeup(wakeup);
 
     const result = await service.sendMessage({
       agent: parentAgent(false),
@@ -184,6 +258,7 @@ describe("background child-agent delegation", () => {
         message: "please send progress",
         kind: "progress",
         correlationId: "corr-1",
+        timeoutMs: 10_000,
         callId: "parent-tool-call",
       },
     }, context(new AbortController().signal));
@@ -202,6 +277,13 @@ describe("background child-agent delegation", () => {
       kind: "progress",
       correlationId: "corr-1",
       sourceRunId: "parent-run",
+      expiresAt: expect.any(String),
+    }));
+    expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
+      targetRunId: "child-run",
+      targetAgentCallId: "child-call",
+      targetThreadKey: child.thread_key,
+      targetChildAgentId: child.child_agent_id,
     }));
     expect(invocation).not.toHaveBeenCalled();
   });
@@ -470,6 +552,17 @@ describe("background child-agent delegation", () => {
     expect(enabledCall?.parameters.properties).toHaveProperty("run_in_background");
     expect(disabledCall?.parameters.properties).not.toHaveProperty("run_in_background");
     expect(disabledCall?.parameters.properties).not.toHaveProperty("runInBackground");
+  });
+
+  it("exposes the parent mailbox route for child invocations without child allowlist", () => {
+    const tools = createDelegationTools({
+      agent: workerAgent(),
+      teamName: null,
+      getAgentDelegation: () => ({} as DelegationPort),
+      canMessageParent: true,
+    });
+    expect(tools.map((tool) => tool.name)).toEqual(["send_message"]);
+    expect(tools[0]?.parameters.properties).toHaveProperty("to_parent");
   });
 
   it("keeps delegation policy concise and puts candidate details in the function schema", () => {

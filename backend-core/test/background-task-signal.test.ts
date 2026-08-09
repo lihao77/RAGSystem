@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { BackgroundTaskService } from "../src/services/runtime/background-task-service.js";
+import { SessionNotificationQueue } from "../src/services/runtime/session-notification-queue.js";
 
 const tempRoots: string[] = [];
 
@@ -15,6 +16,26 @@ afterEach(() => {
 });
 
 describe("background task cancellation scope", () => {
+  it("publishes callable completion after transitioning to a terminal state", async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-background-notify-"));
+    tempRoots.push(outputDir);
+    const queue = new SessionNotificationQueue();
+    const service = new BackgroundTaskService({ notificationQueue: queue });
+    const task = service.runCallable({
+      outputDir,
+      sessionId: "session-notify",
+      run: async () => ({ success: true, content: "done" }),
+    });
+
+    await waitFor(() => queue.peek("session-notify"));
+    const payload = queue.drain("session-notify")[0];
+    expect(payload).toEqual(expect.objectContaining({
+      task_id: task.task_id,
+      status: "completed",
+      success: true,
+    }));
+  });
+
   it("uses a task-local signal that is independent from the parent run", async () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-background-signal-"));
     tempRoots.push(outputDir);

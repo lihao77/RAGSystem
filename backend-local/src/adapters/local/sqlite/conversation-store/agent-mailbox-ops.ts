@@ -280,42 +280,61 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
             updated_at=?
         WHERE session_id=? AND status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= ?
       `).run(now, sessionId, now);
+      const existingClaim = this.db.prepare(`
+        SELECT ${SELECT_COLUMNS} FROM agent_mailbox
+        WHERE session_id=? AND claim_id=? AND status='claimed'
+        ORDER BY seq ASC
+      `).all(sessionId, claimId) as unknown as AgentMailboxRow[];
+      if (existingClaim.length > 0) return existingClaim.map(mapRow);
       const targetRunId = input.targetRunId?.trim() || null;
       const targetChildAgentId = input.targetChildAgentId?.trim() || null;
       const targetAgentCallId = input.targetAgentCallId?.trim() || null;
-      const activeTarget = targetRunId
-        ? `target_run_id=?${targetAgentCallId ? " AND target_agent_call_id=?" : ""}`
-        : "target_run_id IS NULL";
-      const idleTarget = `target_run_id IS NULL AND target_thread_key=?${targetAgentCallId ? " AND (target_agent_call_id IS NULL OR target_agent_call_id=?)" : ""}${targetChildAgentId ? " AND target_child_agent_id=?" : ""}`;
-      const targetPredicate = targetRunId
-        ? `(${activeTarget} OR ${idleTarget})`
-        : idleTarget;
+      const activeParams: string[] = [];
+      let activeTarget = "target_run_id=? AND target_thread_key=?";
+      activeParams.push(targetRunId ?? "", targetThreadKey);
+      if (targetAgentCallId) {
+        activeTarget += " AND target_agent_call_id=?";
+        activeParams.push(targetAgentCallId);
+      }
+      if (targetChildAgentId) {
+        activeTarget += " AND target_child_agent_id=?";
+        activeParams.push(targetChildAgentId);
+      }
+      const idleParams: string[] = [targetThreadKey];
+      let idleTarget = "target_run_id IS NULL AND target_thread_key=?";
+      if (targetAgentCallId) {
+        idleTarget += " AND (target_agent_call_id IS NULL OR target_agent_call_id=?)";
+        idleParams.push(targetAgentCallId);
+      }
+      if (targetChildAgentId) {
+        idleTarget += " AND target_child_agent_id=?";
+        idleParams.push(targetChildAgentId);
+      }
+      const targetPredicate = targetRunId ? `(${activeTarget} OR ${idleTarget})` : idleTarget;
       const targetParams: string[] = targetRunId
-        ? [targetRunId, ...(targetAgentCallId ? [targetAgentCallId] : []), targetThreadKey, ...(targetAgentCallId ? [targetAgentCallId] : [])]
-        : [targetThreadKey];
-      if (!targetRunId && targetAgentCallId) targetParams.push(targetAgentCallId);
-      if (targetChildAgentId) targetParams.push(targetChildAgentId);
-      const rows = this.db.prepare(`
-        SELECT seq, message_id FROM agent_mailbox
-        WHERE session_id=? AND status='queued' AND available_at <= ?
-          AND (expires_at IS NULL OR expires_at > ?)
-          AND ${targetPredicate}
-        ORDER BY seq ASC LIMIT ?
-      `).all(sessionId, now, now, ...targetParams, limit) as Array<{ seq: number; message_id: string }>;
-      if (rows.length === 0) return [];
-      const placeholders = rows.map(() => "?").join(",");
+        ? [...activeParams, ...idleParams]
+        : idleParams;
       this.db.prepare(`
         UPDATE agent_mailbox
         SET status='claimed', claim_id=?, claimed_by=?, claim_expires_at=?,
             attempt_count=attempt_count+1, updated_at=?
-        WHERE session_id=? AND status='queued' AND seq IN (${placeholders})
+        WHERE seq IN (
+          SELECT seq FROM agent_mailbox
+          WHERE session_id=? AND status='queued' AND available_at <= ?
+            AND (expires_at IS NULL OR expires_at > ?)
+            AND ${targetPredicate}
+          ORDER BY seq ASC LIMIT ?
+        )
       `).run(
         claimId,
         consumerId,
         claimExpiresAt,
         now,
         sessionId,
-        ...rows.map((row) => row.seq),
+        now,
+        now,
+        ...targetParams,
+        limit,
       );
       return this.db.prepare(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox WHERE session_id=? AND claim_id=? ORDER BY seq ASC`)
         .all(sessionId, claimId).map((row) => mapRow(row as unknown as AgentMailboxRow));

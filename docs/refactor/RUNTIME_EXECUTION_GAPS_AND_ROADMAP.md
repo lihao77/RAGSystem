@@ -12,6 +12,8 @@
 
 > 状态更新（2026-08-09）：子 Agent 重构阶段 3 已完成。新增独立 durable Agent mailbox（SQLite v9 / PostgreSQL 独立 migration），统一承载 `progress`、`request`、`response`、`result`、`cancel` 五类父子消息。消息按 session + target run/thread/child 匹配，claim 在事务内回收过期租约并以 FIFO 顺序加租约；ACK/release 必须携带 `claim_id`，重复消息 ID 仅接受同一 payload。Local 与 SaaS 均通过 Promise-only `AgentMailboxStorePort` 暴露，后续运行时在 round boundary 注入，不再把 Agent-to-Agent 消息伪装成 root followup。
 
+> 状态更新（2026-08-09）：子 Agent 重构阶段 8 已完成。统一 invocation、durable mailbox、运行中双向消息、后台终态精准路由、受控并行 fan-out、Local/SaaS claim 恢复、TTL/cancel、`agent_message` WS/前端执行树投影均已落地。子 Agent 继续复用父 workspace，不启用 worktree。完整实现与阶段提交见 `AGENT_SUBAGENT_REFACTOR.md`。
+
 ## 0. 先说结论
 
 当前系统的主要剩余短板已经收敛到**执行编排层的后半段能力**：

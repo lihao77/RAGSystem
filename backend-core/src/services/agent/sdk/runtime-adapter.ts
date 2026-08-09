@@ -74,6 +74,8 @@ export interface SdkExecuteRunInput {
   rootCallId: string;
   mailboxTargetRunId?: string | null;
   mailboxTargetAgentCallId?: string | null;
+  /** Run-engine-owned controller; mailbox cancel messages abort at the next round boundary. */
+  abortController?: AbortController;
   agent: AgentConfig;
   provider: ModelProviderConfig;
   modelName: string;
@@ -182,6 +184,17 @@ function renderMailboxContent(parts: MessageContentPart[]): string {
   return text || parts.map((part) => `[agent message part:${part.type}]`).join("\n");
 }
 
+function renderAgentMailboxMessage(message: {
+  message_id: string;
+  kind: string;
+  content_parts: MessageContentPart[];
+  source_agent_call_id: string | null;
+}): string {
+  const content = renderMailboxContent(message.content_parts);
+  const source = message.source_agent_call_id ? ` source_call=${message.source_agent_call_id}` : "";
+  return `[agent-message kind=${message.kind} id=${message.message_id}${source}]\n${content}\n[/agent-message]`;
+}
+
 /**
  * 用 SDK createRuntime 执行一次 agent run。
  *
@@ -240,6 +253,7 @@ export async function executeRunWithSdk(
       ...deps.toolsDeps,
       agent: input.agent,
       ...(teamName ? { teamName } : {}),
+      canMessageParent: Boolean(input.parentRunId && input.childAgentId),
     }),
     ...(Array.isArray(contributedTools) ? contributedTools : [contributedTools]),
     ...hostTools,
@@ -333,6 +347,7 @@ export async function executeRunWithSdk(
     0,
   );
   const mailboxConsumerId = `${process.pid}:${input.runId}:${randomUUID()}`;
+  let mailboxCancelRequested = false;
   // Follow-ups are persisted atomically before their sender receives an ACK.
   // At each round boundary, read newer durable user messages into the SDK copy
   // so they cannot be inserted between a tool call and its result.
@@ -359,12 +374,15 @@ export async function executeRunWithSdk(
             const existing = await deps.storage.conversation.getMessageById(sid, mailboxMessage.message_id);
             let persisted = existing;
             if (!existing) {
+              const renderedContent = renderAgentMailboxMessage(mailboxMessage);
               persisted = await deps.storage.conversation.addMessage({
                 sessionId: sid,
                 messageId: mailboxMessage.message_id,
                 role: "user",
-                content: renderMailboxContent(mailboxMessage.content_parts),
-                contentParts: mailboxMessage.content_parts,
+                content: renderedContent,
+                // Keep the semantic envelope in the canonical history projection so
+                // the next model round cannot lose message kind/source metadata.
+                contentParts: [{ type: "text", text: renderedContent }],
                 threadKey: mailboxMessage.target_thread_key,
                 childAgentId: mailboxMessage.target_child_agent_id,
                 metadata: {
@@ -397,6 +415,7 @@ export async function executeRunWithSdk(
               messageId: mailboxMessage.message_id,
               claimId: mailboxMessage.claim_id ?? "",
             });
+            if (mailboxMessage.kind === "cancel") mailboxCancelRequested = true;
           } catch (error) {
             await deps.storage.agentMailbox.release({
               sessionId: sid,
@@ -406,6 +425,12 @@ export async function executeRunWithSdk(
             });
           }
         }
+      }
+      if (mailboxCancelRequested) {
+        input.abortController?.abort(new Error("agent_cancelled"));
+        const cancelError = new Error("agent_cancelled");
+        cancelError.name = "AbortError";
+        throw cancelError;
       }
       const recent = await deps.storage.conversation.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
       const newerRaw = recent
@@ -698,7 +723,7 @@ export async function executeRunWithSdk(
         toolCalls,
       };
     }
-    const interrupted = input.signal.aborted;
+    const interrupted = input.signal.aborted || (error instanceof Error && error.name === "AbortError");
     // 终态合一落库：failed/interrupted 更新 run 状态并补齐本 run 的悬空 tool observation。
     const terminalError = interrupted ? new Error("session_stopped") : error;
     const finalized = await persister.finalize(interrupted ? "interrupted" : "failed", null, terminalError);
