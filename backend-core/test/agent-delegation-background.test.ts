@@ -513,7 +513,7 @@ describe("background child-agent delegation", () => {
     const result = await service.callAgent({
       agent: parentAgent(true),
       teamName: null,
-      input: { agentName: "worker", task: "do work", runInBackground: true, callId: "parent-call" },
+      input: { agentName: "worker", task: "do work", timeoutMs: 4321, runInBackground: true, callId: "parent-call" },
     }, context(new AbortController().signal));
     const taskId = String((result.content as Record<string, unknown>).background_task_id);
     await waitFor(() => backgroundTasks.getTaskSnapshot(taskId)?.status === "completed");
@@ -795,11 +795,11 @@ describe("background child-agent delegation", () => {
     const created = await service.agent({
       agent: parent,
       teamName: null,
-      input: { agentName: "worker", message: "inspect this", callId: "tool-create" },
+      input: { agentName: "worker", message: "inspect this", timeoutMs: 1234, callId: "tool-create" },
     }, runContext);
     expect(created.toolName).toBe("agent");
     expect(callAgent).toHaveBeenCalledWith(expect.objectContaining({
-      input: expect.objectContaining({ agentName: "worker", task: "inspect this" }),
+      input: expect.objectContaining({ agentName: "worker", task: "inspect this", timeoutMs: 1234 }),
     }), runContext);
 
     const existing = await service.agent({
@@ -821,6 +821,21 @@ describe("background child-agent delegation", () => {
     expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
       input: expect.objectContaining({ message: "progress", toParent: true }),
     }), childContext);
+  });
+
+  it("rejects an ambiguous request that includes both child targets", async () => {
+    const service = new AgentDelegationService({} as never, {} as never);
+    const result = await service.agent({
+      agent: parentAgent(false),
+      teamName: null,
+      input: {
+        agentName: "worker",
+        childAgentId: "child-worker",
+        message: "ambiguous",
+      },
+    }, context(new AbortController().signal));
+    expect(result.success).toBe(false);
+    expect(result.content).toContain("不能同时指定");
   });
 
   it("exposes the parent mailbox route for child invocations without child allowlist", () => {
@@ -909,6 +924,7 @@ describe("background child-agent delegation", () => {
     await waitFor(() => backgroundTasks.getTaskSnapshot(String(content.background_task_id))?.status === "completed");
     expect(executeRun).toHaveBeenCalledOnce();
     expect(executeRun.mock.calls[0]?.[0].ownsRunLease).toBe(true);
+    expect(executeRun.mock.calls[0]?.[0].timeoutMs).toBe(4321);
   });
 
   it("completes the background task while leaving an interaction child suspended", async () => {

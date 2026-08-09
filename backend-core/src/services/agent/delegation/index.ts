@@ -196,6 +196,9 @@ export class AgentDelegationService implements DelegationPort {
     const childAgentId = normalizeString(call.input.childAgentId);
     const message = normalizeString(call.input.message);
     if (!message) return errorResult("agent 缺少 message", "agent");
+    if (agentName && childAgentId) {
+      return errorResult("agent 不能同时指定 agent_name 和 child_agent_id", "agent");
+    }
 
     if (childAgentId || (!agentName && ctx.parentRunId && ctx.currentChildAgentId)) {
       const result = await this.sendMessage({
@@ -226,6 +229,7 @@ export class AgentDelegationService implements DelegationPort {
         agentName,
         task: message,
         contextHint: call.input.contextHint,
+        timeoutMs: call.input.timeoutMs,
         runInBackground: call.input.runInBackground,
         callId: call.input.callId,
       },
@@ -356,6 +360,7 @@ export class AgentDelegationService implements DelegationPort {
       parentParentRunId: normalizeString(ctx.parentRunId),
       parentParentCallId: normalizeString(ctx.runParentCallId),
       parentLineageParentCallId: normalizeString(ctx.parentCallId),
+      ...(clampMailboxTimeout(input.timeoutMs) ? { timeoutMs: clampMailboxTimeout(input.timeoutMs) } : {}),
       ...(initialEnvelopes ? { initialEnvelopes } : {}),
     };
     if (input.runInBackground) {

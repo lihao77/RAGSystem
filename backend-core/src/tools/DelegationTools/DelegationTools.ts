@@ -180,7 +180,7 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
       inputSchema: agentSchema,
       isConcurrencySafe: () => false,
       concurrencyPolicy: agent.delegation.parallel_children ? "parallel" : "serial",
-      concurrencyKey: (input) => `agent:${input.child_agent_id ?? input.agent_name ?? "parent"}:${input.message}`,
+      concurrencyKey: (input) => delegationConcurrencyKey(input),
       call: (input, ctx: ToolExecContext) => {
         const service = getAgentDelegation();
         return service
@@ -204,6 +204,18 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
       },
     }));
   return tools;
+}
+
+/**
+ * Keep scheduler resource keys aligned with the arguments passed to the
+ * delegation service. The tool schema accepts both snake_case (model-facing)
+ * and camelCase (internal callers), so deriving the key from raw input would
+ * split equivalent calls into different concurrency groups.
+ */
+function delegationConcurrencyKey(input: Record<string, unknown>): string {
+  const normalized = readAgentArguments(input, undefined);
+  const target = normalized.childAgentId ?? normalized.agentName ?? "parent";
+  return `agent:${target}`;
 }
 
 /** 解析可委派 agent 展示信息（原 buildPromptDelegatedAgents 逻辑，下沉到工具工厂自描述）。 */

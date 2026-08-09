@@ -21,6 +21,7 @@ export interface AgentDelegationInput {
   agentName: string;
   task: string;
   contextHint?: string | null | undefined;
+  timeoutMs?: number | null | undefined;
   runInBackground?: boolean | null | undefined;
   callId?: string | null | undefined;
 }
