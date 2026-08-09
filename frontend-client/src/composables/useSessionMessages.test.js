@@ -83,6 +83,9 @@ test('agent mailbox messages are visible with clean display content while other 
           metadata: { agent_message: true, visible_to_user: false, mailbox_kind: 'request' },
         },
         { id: 'internal-1', seq: 2, role: 'user', content: 'internal', metadata: { visible_to_user: false } },
+        { id: 'string-hidden', seq: 3, role: 'user', content: 'string flag remains visible', metadata: { hidden: 'false' } },
+        { id: 'hidden', seq: 4, role: 'user', content: 'hidden', metadata: { hidden: true } },
+        { id: 'react-intermediate', seq: 5, role: 'user', content: 'intermediate', metadata: { react_intermediate: true } },
       ],
     },
   }; } };
@@ -90,10 +93,11 @@ test('agent mailbox messages are visible with clean display content while other 
   const sessionMessages = useSessionMessages(createDeps({ chatSdkClient }));
   await sessionMessages.loadSessionMessages('session-1', { participantId: 'child-1' });
 
-  assert.equal(messages.value.length, 1);
+  assert.equal(messages.value.length, 2);
   assert.equal(messages.value[0].content, '停止工具调用');
   assert.equal(messages.value[0].metadata.agent_message, true);
   assert.equal(messages.value[0].metadata.agent_message_display_content, '停止工具调用');
+  assert.equal(messages.value[1].id, 'string-hidden');
 });
 
 test('active run 消息重载完成后重新请求历史执行快照', async () => {
