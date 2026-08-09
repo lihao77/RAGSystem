@@ -29,6 +29,49 @@ export const RUNS_SCHEMA_SQL = `
       ON runs(session_id, lease_root_run_id, status);
 `;
 
+/** Durable Agent-to-Agent inbox. Message content is deliberately separate from conversation messages. */
+export const AGENT_MAILBOX_SCHEMA_SQL = `
+    CREATE TABLE IF NOT EXISTS agent_mailbox (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id TEXT UNIQUE NOT NULL,
+      tenant_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      source_run_id TEXT,
+      source_agent_call_id TEXT,
+      target_run_id TEXT,
+      target_agent_call_id TEXT,
+      target_thread_key TEXT NOT NULL,
+      target_child_agent_id TEXT,
+      kind TEXT NOT NULL CHECK(kind IN ('progress', 'request', 'response', 'result', 'cancel')),
+      correlation_id TEXT,
+      reply_to_message_id TEXT,
+      content_parts TEXT NOT NULL DEFAULT '[]',
+      metadata TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'queued'
+        CHECK(status IN ('queued', 'claimed', 'acked', 'expired')),
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+      claim_id TEXT,
+      claimed_by TEXT,
+      claim_expires_at TEXT,
+      available_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      expires_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      acked_at TEXT,
+      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_mailbox_target_run
+      ON agent_mailbox(session_id, target_run_id, status, available_at, seq);
+    CREATE INDEX IF NOT EXISTS idx_agent_mailbox_target_thread
+      ON agent_mailbox(session_id, target_thread_key, target_child_agent_id, status, available_at, seq);
+    CREATE INDEX IF NOT EXISTS idx_agent_mailbox_claim_expiry
+      ON agent_mailbox(status, claim_expires_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_mailbox_correlation
+      ON agent_mailbox(session_id, correlation_id, seq);
+`;
+
 /** Current clean baseline. Explicit migrations upgrade supported historical schema versions. */
 export const BASELINE_SCHEMA_SQL = `
     CREATE TABLE workspaces (
@@ -199,6 +242,8 @@ export const BASELINE_SCHEMA_SQL = `
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
+
+    ${AGENT_MAILBOX_SCHEMA_SQL}
 
     CREATE INDEX IF NOT EXISTS idx_run_steps_session_run ON run_steps(session_id, run_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_run_steps_event_id ON run_steps(event_id) WHERE event_id IS NOT NULL;

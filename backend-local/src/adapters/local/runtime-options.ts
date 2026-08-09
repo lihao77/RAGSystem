@@ -2,6 +2,7 @@ import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { AgentExecutionLogger } from "@ragsystem/backend-core/services/agent/execution/index.js";
 import type { AsyncBackgroundTaskRepository } from "@ragsystem/backend-core/contracts/storage/background-task-repository.js";
+import type { AgentMailboxStorePort } from "@ragsystem/backend-core/contracts/storage/agent-mailbox-repository.js";
 import type { RealtimeEventBus } from "@ragsystem/backend-core/contracts/runtime/realtime-event-bus.js";
 import type { ClientEventPublisherPort } from "@ragsystem/backend-core/contracts/runtime/core-runtime-ports.js";
 import type { ExecutionStorage } from "@ragsystem/backend-core/contracts/execution/execution-storage.js";
@@ -13,6 +14,7 @@ import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 
 export interface LocalRuntimeInfrastructure {
   conversationStore: ConversationStore;
+  agentMailbox: AgentMailboxStorePort;
   sessions: AgentSessionApplication;
 }
 

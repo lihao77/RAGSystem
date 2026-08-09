@@ -43,11 +43,13 @@ import { LocalAgentMetricsStoreAdapter } from "./local-agent-metrics-store-adapt
 import { LocalOutboxStoreAdapter } from "./local-outbox-store-adapter.js";
 import { LocalAgentSessionRepository } from "./local-agent-session-repository.js";
 import { LocalSessionHistoryAdapter } from "./local-session-history-adapter.js";
+import { LocalAgentMailboxStoreAdapter } from "./local-agent-mailbox-store-adapter.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export async function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): Promise<LocalRuntimeContainer> {
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot });
+  const agentMailbox = new LocalAgentMailboxStoreAdapter(conversationStore);
   const fileHistory = new FileHistoryService({ dataRoot });
   const transientResources = new TransientSessionResourceService(dataRoot);
   transientResources.startPruning();
@@ -200,6 +202,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     },
   });
   localExecutionRead = new LocalExecutionReadApplication(runtime.agentExecution, conversationStore);
-  options.onInfrastructureCreated?.({ conversationStore, sessions: sessionApplication });
+  options.onInfrastructureCreated?.({ conversationStore, agentMailbox, sessions: sessionApplication });
   return runtime;
 }

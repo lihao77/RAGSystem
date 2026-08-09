@@ -20,7 +20,7 @@
 
 - `RUNTIME_EXECUTION_GAPS_AND_ROADMAP.md`
   - 运行时缺陷分析与实施路线（2026-04-14，2026-04-16 已校正状态）
-  - D1 工具并行、D2 后台任务自动注入、D3 文件变更回退（git snapshot）、D4 日志治理均已完成；当前主线剩余子 Agent 并行（D5）与超时熔断（D6）。子 Agent 当前统一复用父 workspace，不启用 worktree 隔离。
+  - D1 工具并行、D2 后台任务自动注入、D3 文件变更回退（git snapshot）、D4 日志治理均已完成；子 Agent 重构已完成统一 invocation 与 durable mailbox 基础，后续收口运行中双向消息、并行聚合和前端投影。子 Agent 当前统一复用父 workspace，不启用 worktree 隔离。
 
 - `TS_EVENT_ARCHITECTURE_PLAN.md`
   - TS 后端事件架构落地方案 V1（2026-06-07）

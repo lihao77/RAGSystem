@@ -40,6 +40,8 @@ import {
   PostgresAgentConfigTeamStore,
   runPostgresSystemConfigMigrations,
   PostgresSystemConfigStore,
+  PostgresAgentMailboxRepository,
+  runPostgresAgentMailboxMigrations,
 } from "../../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
 import { OutboxDispatcher } from "@ragsystem/backend-core/services/runtime/event-outbox/dispatcher.js";
@@ -97,6 +99,7 @@ export interface SaaSConversationRuntimeHandle {
   createAgentConfigTeamStore(tenantId: TenantId): PostgresAgentConfigTeamStore;
   /** Tenant-bound system configuration store (Postgres source of truth). */
   createSystemConfigStore(tenantId: TenantId): PostgresSystemConfigStore;
+  createAgentMailboxStore(tenantId: TenantId): PostgresAgentMailboxRepository;
   close(): Promise<void>;
 }
 
@@ -128,6 +131,7 @@ export async function createSaaSConversationRuntime(
       await runPostgresSessionFileMigrations(executor);
       await runPostgresAgentTeamMigrations(executor);
       await runPostgresSystemConfigMigrations(executor);
+      await runPostgresAgentMailboxMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
     const workspaces = new PostgresWorkspaceRepository(executor);
@@ -239,6 +243,7 @@ export async function createSaaSConversationRuntime(
       },
       createAgentConfigTeamStore: (tenantId) => new PostgresAgentConfigTeamStore(tenantId, executor),
       createSystemConfigStore: (tenantId) => new PostgresSystemConfigStore(tenantId, executor),
+      createAgentMailboxStore: (tenantId) => new PostgresAgentMailboxRepository(tenantId, executor),
       close: () => {
         closePromise ??= (async () => {
           clearInterval(runLeaseRecoveryTimer);

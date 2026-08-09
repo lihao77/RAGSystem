@@ -1,5 +1,5 @@
 import { runInTransaction } from "./shared/transaction.js";
-import { BASELINE_SCHEMA_SQL, RUNS_SCHEMA_SQL } from "./schema.js";
+import { AGENT_MAILBOX_SCHEMA_SQL, BASELINE_SCHEMA_SQL, RUNS_SCHEMA_SQL } from "./schema.js";
 import { MessageContentPartSchema, type MessageContentPart } from "@ragsystem/agent-protocol";
 
 export interface MigrationDatabase {
@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 8;
+export const LATEST_SCHEMA_VERSION = 9;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 7) {
+  if (current >= 1 && current <= 8) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -53,6 +53,7 @@ export function runMigrations(db: MigrationDatabase): void {
               AND sessions.workspace_id=workspaces.workspace_id
           )
       `);
+      db.exec(AGENT_MAILBOX_SCHEMA_SQL);
       db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
     });
     assertCurrentSchema(db);
@@ -203,6 +204,12 @@ function assertCurrentSchema(db: MigrationDatabase): void {
   const messageColumns = db.prepare("PRAGMA table_info(messages)").all() as unknown as Array<{ name: string }>;
   if (!messageColumns.some((column) => column.name === "content_parts")) {
     throw new Error("Conversation database is missing canonical message content_parts");
+  }
+  const mailboxColumns = db.prepare("PRAGMA table_info(agent_mailbox)").all() as unknown as Array<{ name: string }>;
+  for (const name of ["message_id", "session_id", "target_thread_key", "kind", "status", "content_parts", "metadata"]) {
+    if (!mailboxColumns.some((column) => column.name === name)) {
+      throw new Error(`Conversation database is missing Agent mailbox column ${name}`);
+    }
   }
 }
 

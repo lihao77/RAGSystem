@@ -13,6 +13,7 @@ import { WorkflowTaskOps } from "./workflow-task-ops.js";
 import { GoalOps } from "./goal-ops.js";
 import { SessionListProjector } from "./session-list-projector.js";
 import { WorkspaceOps } from "./workspace-ops.js";
+import { AgentMailboxOps } from "./agent-mailbox-ops.js";
 
 export interface ConversationStoreOptions {
   dbPath: string;
@@ -41,6 +42,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const providerContinuations = new ProviderContinuationOps(db);
   const workflowTasks = new WorkflowTaskOps(db);
   const goals = new GoalOps(db);
+  const agentMailbox = new AgentMailboxOps(db);
 
   const createTransactionFacade = () => ({
     createSession: sessions.createSessionInTransaction.bind(sessions),
@@ -80,6 +82,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
 
   return {
     close: () => db.close(),
+    agentMailbox,
 
     // session
     createSession: sessions.createSession.bind(sessions),
@@ -206,6 +209,14 @@ export function createConversationStore(options: ConversationStoreOptions) {
     suspendPendingInteractions: pendingInteractions.suspendPendingInteractions.bind(pendingInteractions),
     consumePendingResolution: pendingInteractions.consumePendingResolution.bind(pendingInteractions),
     cancelPendingInteractions: pendingInteractions.cancelPendingInteractions.bind(pendingInteractions),
+
+    // durable Agent mailbox
+    enqueueAgentMailboxMessage: agentMailbox.enqueue.bind(agentMailbox),
+    getAgentMailboxMessage: agentMailbox.get.bind(agentMailbox),
+    claimAgentMailboxMessages: agentMailbox.claim.bind(agentMailbox),
+    ackAgentMailboxMessage: agentMailbox.ack.bind(agentMailbox),
+    releaseAgentMailboxMessage: agentMailbox.release.bind(agentMailbox),
+    expireAgentMailboxMessages: agentMailbox.expire.bind(agentMailbox),
 
 
     // 跨域事务（组合 message/run/outbox ops）
