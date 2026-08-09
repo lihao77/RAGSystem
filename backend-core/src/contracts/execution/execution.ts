@@ -35,7 +35,7 @@ export const CollaborateTaskSchema = z.object({
 export const CollaborateRequestSchema = z.object({
   tasks: z.array(CollaborateTaskSchema).min(1),
   session_id: OptionalSessionIdSchema.nullable().optional(),
-  mode: z.string().optional().default("sequential"),
+  mode: z.enum(["sequential", "parallel"]).optional().default("sequential"),
 }).strict();
 
 export const StreamStopRequestSchema = z.object({

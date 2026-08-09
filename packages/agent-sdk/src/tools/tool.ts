@@ -13,6 +13,7 @@ import type { ObservationPolicy, RuntimeToolDefinition, RuntimeToolReturns } fro
 export type RiskLevel = "low" | "medium" | "high";
 export type ToolCaller = "direct" | "code_execution" | string;
 export type ToolSource = "runtime_builtin" | "memory" | "document" | "execution" | "agent_tool" | "knowledge" | "mcp";
+export type ToolConcurrencyPolicy = "serial" | "parallel";
 
 /* ── InputSchema 鸭子类型（兼容 Zod，SDK 不依赖 Zod 包）── */
 
@@ -37,7 +38,7 @@ export type ToolAccessDecision = (
 
 /* ── Tool 接口 ── */
 
-export interface Tool<I = Record<string, unknown>, O = unknown> {
+export interface Tool<I = any, O = unknown> {
   readonly name: string;
   readonly description: string;
   /** 输入校验——鸭子类型兼容 Zod（SDK 不依赖 Zod 包）。 */
@@ -55,6 +56,10 @@ export interface Tool<I = Record<string, unknown>, O = unknown> {
   readonly extendedUsage?: string;
   readonly returns?: RuntimeToolReturns;
   readonly observationPolicy?: ObservationPolicy;
+  /** Explicitly permits side-effecting calls to run concurrently when the tool owns the policy. */
+  readonly concurrencyPolicy?: ToolConcurrencyPolicy;
+  /** Optional key used to serialize calls targeting the same resource. */
+  concurrencyKey?: (input: any) => string | null;
 
   /** 输入是否只读（影响并发分类）。 */
   isReadOnly(input: I): boolean;
@@ -83,6 +88,8 @@ export interface BuildToolInput<I, O> {
   extendedUsage?: string;
   returns?: RuntimeToolReturns;
   observationPolicy?: ObservationPolicy;
+  concurrencyPolicy?: ToolConcurrencyPolicy;
+  concurrencyKey?: (input: any) => string | null;
   isReadOnly?(input: I): boolean;
   isConcurrencySafe?(input: I): boolean;
   checkAccess?(input: I, ctx: ToolExecContext): ToolAccessDecision;
@@ -116,6 +123,8 @@ export function buildTool<I extends Record<string, unknown>, O = unknown>(
   if (def.extendedUsage !== undefined) { (tool as MutableTool<I, O>).extendedUsage = def.extendedUsage; }
   if (def.returns !== undefined) { (tool as MutableTool<I, O>).returns = def.returns; }
   if (def.observationPolicy !== undefined) { (tool as MutableTool<I, O>).observationPolicy = def.observationPolicy; }
+  if (def.concurrencyPolicy !== undefined) { (tool as MutableTool<I, O>).concurrencyPolicy = def.concurrencyPolicy; }
+  if (def.concurrencyKey !== undefined) { (tool as MutableTool<I, O>).concurrencyKey = def.concurrencyKey; }
   if (def.checkAccess !== undefined) { (tool as MutableTool<I, O>).checkAccess = def.checkAccess; }
   return tool;
 }

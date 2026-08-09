@@ -52,7 +52,10 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
     },
     goals: config.goals ?? { enabled: false },
     tasks: config.tasks ?? { background: false },
-    delegation: config.delegation ?? { enabled_agents: [] },
+    delegation: {
+      enabled_agents: config.delegation?.enabled_agents ?? [],
+      parallel_children: config.delegation?.parallel_children ?? false,
+    },
     custom_params: config.custom_params ?? {},
   };
 }

@@ -21,6 +21,11 @@ export interface ExecutionApplication {
     session_id: string;
     total_tasks: number;
   }>;
+  collaborate(request: CollaborateRequest, requestId: string): Promise<{
+    results: AgentExecuteResult[];
+    session_id: string;
+    total_tasks: number;
+  }>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
   stopSession(sessionId: string): Promise<boolean>;
 }

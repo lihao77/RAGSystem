@@ -94,6 +94,7 @@ export async function executeToolCallRound(
       signal: opts.toolContext.signal,
       classify: (item) => item.result === null
         && opts.registry.classifyConcurrency(item.call.toolName, item.arguments),
+      concurrencyKey: (item) => opts.registry.concurrencyKey(item.call.toolName, item.arguments),
       run: (item) => executePlannedToolCall(item, opts),
     });
     throwIfAborted(opts.toolContext.signal, "Agent run aborted");

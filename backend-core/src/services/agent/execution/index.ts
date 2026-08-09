@@ -58,6 +58,10 @@ export interface AgentExecutionServiceApi {
     request: CollaborateRequest,
     requestId: string,
   ): Promise<{ results: AgentExecuteResult[]; session_id: string; total_tasks: number }>;
+  collaborate(
+    request: CollaborateRequest,
+    requestId: string,
+  ): Promise<{ results: AgentExecuteResult[]; session_id: string; total_tasks: number }>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
   /** Session idle 时消费后台通知，并在 Goal active 时拉起 continuation system run。 */
   triggerBgNotificationRun(sessionId: string): void;
@@ -185,6 +189,7 @@ export function createAgentExecutionService(
     runtimeStorage: params.runtimeStorage,
     clientEvents: params.clientEvents,
     mailbox: params.executionStorage?.agentMailbox ?? null,
+    runReader: params.executionStorage?.resultReader,
   });
   const sessionControl = createSessionControl({
     statusTracker,

@@ -199,6 +199,8 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
       ...metadataFrom(callAgentDef),
       inputSchema: callAgentSchema,
       isConcurrencySafe: () => false,
+      concurrencyPolicy: agent.delegation.parallel_children ? "parallel" : "serial",
+      concurrencyKey: (input) => `call_agent:${input.agent_name}:${input.task}`,
       call: (input, ctx: ToolExecContext) => {
         const service = getAgentDelegation();
         return service
@@ -225,6 +227,8 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
       ...metadataFrom(sendMessageDef),
       inputSchema: sendMessageSchema,
       isConcurrencySafe: () => false,
+      concurrencyPolicy: agent.delegation.parallel_children ? "parallel" : "serial",
+      concurrencyKey: (input) => `send_message:${input.child_agent_id}`,
       call: (input, ctx: ToolExecContext) => {
         const service = getAgentDelegation();
         return service

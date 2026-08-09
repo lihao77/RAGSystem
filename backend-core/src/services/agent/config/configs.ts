@@ -101,7 +101,7 @@ export function buildCustomAgentConfig(input: CreateAgentRequest): AgentConfig {
     tools: { enabled_tools: [] },
     goals: { enabled: false },
     tasks: { background: false },
-    delegation: { enabled_agents: [] },
+    delegation: { enabled_agents: [], parallel_children: false },
     custom_params: input.custom_params ?? {},
   });
 }
@@ -164,7 +164,7 @@ function buildSystemAgentConfig(input: {
     tools: { enabled_tools: input.tools ?? ["read_file", "preview_data_structure"] },
     goals: { enabled: false, ...(input.goals ?? {}) },
     tasks: { background: false, ...(input.tasks ?? {}) },
-    delegation: { enabled_agents: input.delegation ?? [] },
+    delegation: { enabled_agents: input.delegation ?? [], parallel_children: false },
     custom_params: {
       type: "orchestrator",
       behavior: {

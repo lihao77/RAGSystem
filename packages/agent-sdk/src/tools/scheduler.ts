@@ -15,6 +15,7 @@ export interface ToolSchedulerCall {
 
 export interface ToolSchedulerExecutor<TCall extends ToolSchedulerCall, TResult> {
   classify(call: TCall): boolean;
+  concurrencyKey?: ((call: TCall) => string | null) | undefined;
   run(call: TCall): Promise<TResult>;
   signal?: AbortSignal | undefined;
   maxConcurrency?: number | undefined;
@@ -23,7 +24,7 @@ export interface ToolSchedulerExecutor<TCall extends ToolSchedulerCall, TResult>
 export async function runToolBatchWithScheduler<TCall extends ToolSchedulerCall, TResult>(calls: TCall[], executor: ToolSchedulerExecutor<TCall, TResult>): Promise<TResult[]> {
   const maxConcurrency = readMaxConcurrency(executor.maxConcurrency);
   const results: TResult[] = [];
-  for (const group of partitionToolCalls(calls, executor.classify, maxConcurrency)) {
+  for (const group of partitionToolCalls(calls, executor.classify, maxConcurrency, executor.concurrencyKey)) {
     throwIfAborted(executor.signal, "Agent run aborted");
     if (group.parallel) {
       results.push(...await Promise.all(group.calls.map((call) => executor.run(call))));
@@ -36,17 +37,31 @@ export async function runToolBatchWithScheduler<TCall extends ToolSchedulerCall,
   return results;
 }
 
-export function partitionToolCalls<TCall extends ToolSchedulerCall>(calls: TCall[], classify: (call: TCall) => boolean, maxConcurrency = DEFAULT_MAX_TOOL_CONCURRENCY): Array<{ parallel: boolean; calls: TCall[] }> {
+export function partitionToolCalls<TCall extends ToolSchedulerCall>(
+  calls: TCall[],
+  classify: (call: TCall) => boolean,
+  maxConcurrency = DEFAULT_MAX_TOOL_CONCURRENCY,
+  concurrencyKey?: ((call: TCall) => string | null) | undefined,
+): Array<{ parallel: boolean; calls: TCall[] }> {
   const groups: Array<{ parallel: boolean; calls: TCall[] }> = [];
   let parallelCalls: TCall[] = [];
+  let parallelKeys = new Set<string>();
   const flushParallel = (): void => {
     if (!parallelCalls.length) { return; }
     groups.push({ parallel: parallelCalls.length > 1, calls: parallelCalls });
     parallelCalls = [];
+    parallelKeys = new Set<string>();
   };
   for (const call of calls) {
     if (classify(call)) {
+      const key = concurrencyKey?.(call) ?? null;
+      if (key && parallelKeys.has(key)) {
+        flushParallel();
+        groups.push({ parallel: false, calls: [call] });
+        continue;
+      }
       parallelCalls.push(call);
+      if (key) parallelKeys.add(key);
       if (parallelCalls.length >= maxConcurrency) { flushParallel(); }
       continue;
     }

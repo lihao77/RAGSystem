@@ -31,7 +31,11 @@ const AgentConfigObjectSchema = z.object({
     .optional()
     .default({ background: false }),
   delegation: z
-    .object({ enabled_agents: z.array(z.string()).optional().default([]) })
+    .object({
+      enabled_agents: z.array(z.string()).optional().default([]),
+      /** Allow independent child invocations to fan out in one model round. */
+      parallel_children: z.boolean().optional().default(false),
+    })
     .optional()
     .default({ enabled_agents: [] }),
   custom_params: z.record(z.unknown()).optional().default({}),

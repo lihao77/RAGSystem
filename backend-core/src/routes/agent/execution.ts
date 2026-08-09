@@ -72,10 +72,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
     const payload = parseCollaborateRequest(request.body);
     const sessions = await resolveSessionApplication(options, request);
     await assertExecutableSessionIfExists(request, payload.session_id, sessions);
-    if (payload.mode !== "sequential") {
-      throw new HttpError(400, "invalid_request", "并行模式尚未实现");
-    }
-    const result = await (await ensureRequestApplications(request, options)).execution.collaborateSequentially(
+    const result = await (await ensureRequestApplications(request, options)).execution.collaborate(
       { ...payload, userId: request.identity.userId },
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );

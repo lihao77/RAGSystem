@@ -22,6 +22,8 @@ export interface ToolRegistry {
   getTool(name: string): Tool | null;
   /** 并发分类：isReadOnly && isConcurrencySafe。 */
   classifyConcurrency(toolName: string, args: Record<string, unknown>): boolean;
+  /** Stable resource key for side-effecting parallel tools; equal keys stay serial. */
+  concurrencyKey(toolName: string, args: Record<string, unknown>): string | null;
 }
 
 export function createToolRegistry(options: ToolRegistryOptions): ToolRegistry {
@@ -42,7 +44,15 @@ export function createToolRegistry(options: ToolRegistryOptions): ToolRegistry {
       if (!tool) { return false; }
       const validation = validateToolInput(tool as Tool<Record<string, unknown>>, args);
       if (!validation.ok) { return false; }
-      return tool.isReadOnly(validation.input) && tool.isConcurrencySafe(validation.input);
+      return tool.concurrencyPolicy === "parallel"
+        || (tool.isReadOnly(validation.input) && tool.isConcurrencySafe(validation.input));
+    },
+    concurrencyKey(toolName, args) {
+      const tool = tools.find((t) => t.name === toolName);
+      if (!tool) return null;
+      const validation = validateToolInput(tool as Tool<Record<string, unknown>>, args);
+      if (!validation.ok) return null;
+      return tool.concurrencyKey?.(validation.input) ?? null;
     },
   };
 }
