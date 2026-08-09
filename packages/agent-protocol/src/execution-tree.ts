@@ -64,6 +64,7 @@ function ensureAgent(
     task?: string | undefined;
     parentCallId?: string | undefined;
     invocationCallId?: string | undefined;
+    participantId?: string | undefined;
     displayName?: string | undefined;
   },
 ): ExecutionAgent {
@@ -73,6 +74,7 @@ function ensureAgent(
     if (init.agentId && existing.agentId === existing.callId) existing.agentId = init.agentId;
     if (init.displayName && !existing.displayName) existing.displayName = init.displayName;
     if (init.invocationCallId && !existing.invocationCallId) existing.invocationCallId = init.invocationCallId;
+    if (init.participantId && !existing.participantId) existing.participantId = init.participantId;
     if (init.task && !existing.task) existing.task = init.task;
     if (init.parentCallId && !existing.parentCallId) {
       existing.parentCallId = init.parentCallId;
@@ -89,6 +91,7 @@ function ensureAgent(
   };
   if (init.displayName) agent.displayName = init.displayName;
   if (init.invocationCallId) agent.invocationCallId = init.invocationCallId;
+  if (init.participantId) agent.participantId = init.participantId;
   if (init.task) agent.task = init.task;
   if (init.parentCallId) agent.parentCallId = init.parentCallId;
   state.agentsByCallId.set(callId, agent);
@@ -341,6 +344,7 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
         task: asString(payload.task),
         parentCallId: asString(lineage.parent_call_id),
         invocationCallId: asString(payload.invocation_call_id),
+        participantId: asString(payload.child_agent_id),
       });
       return;
     }

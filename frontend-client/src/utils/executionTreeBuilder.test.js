@@ -88,3 +88,20 @@ test('renders durable agent messages as distinct execution nodes', () => {
   assert.equal(message.message_kind, 'result');
   assert.equal(message.content, 'child finished');
 });
+
+test('keeps child execution as a reference instead of nesting its full tree', () => {
+  const nested = child('nested', null, 'nested task');
+  nested.rounds = [{ round: 0, intent: 'internal', toolCalls: [tool('nested-tool', 'search')] }];
+  const tree = treeWith(
+    [tool('delegate', 'agent', { agent_name: 'worker', message: 'delegate' })],
+    [child('worker-run', 'delegate', 'delegate', 'worker')],
+  );
+  tree.root.children[0].children = [nested];
+  tree.root.children[0].participantId = 'child-worker';
+
+  const node = buildExecutionTree(tree)[0].children[0];
+  assert.equal(node.type, 'agent_call');
+  assert.equal(node.is_reference, true);
+  assert.equal(node.participant_id, 'child-worker');
+  assert.deepEqual(node.children, []);
+});

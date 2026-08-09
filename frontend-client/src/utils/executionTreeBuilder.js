@@ -5,8 +5,9 @@
  * 本文件只做形状映射 + 注入展示态（expanded），不重建树——投影逻辑只在 core 一份。
  *
  * core 模型：agent 是父 agent 某 round 的 toolCall，child agent 是父 agent 的 children（分开）。
- * 为保留旧 UI 的"合并 agent_call 节点"视觉，遇到 agent toolCall 时，
- * 只按 invocationCallId 精确匹配 child，合并为 agent_call 节点；
+ * 主执行树只保留 child 的 delegation reference；child 的完整 rounds/messages
+ * 通过 Participant thread 查看，避免在 root 时间线递归展开整棵子树。
+ * 遇到 agent toolCall 时，仍按 invocationCallId 精确匹配 child；
  * 匹配不到则保留普通 tool_call，未匹配的 child 作为独立 agent_call 追加，不按名称猜测。
  */
 
@@ -65,7 +66,7 @@ const createAgentMessageNode = (message) => ({
   status: 'success',
 });
 
-const createAgentCallNode = (agent) => ({
+const createAgentCallNode = (agent, toolCall = null) => ({
   type: 'agent_call',
   task_id: agent.callId,
   agent_name: agent.agentId,
@@ -75,7 +76,12 @@ const createAgentCallNode = (agent) => ({
   status: mapStatus(agent.status),
   expanded: false,
   ctx: agent.ctx || null,
-  children: buildAgentChildren(agent, new Set()),
+  participant_id: agent.participantId
+    || toolCall?.arguments?.child_agent_id
+    || toolCall?.arguments?.childAgentId
+    || null,
+  is_reference: true,
+  children: [],
 });
 
 const isDelegateTool = (toolName) => toolName === 'agent';
@@ -101,7 +107,7 @@ function buildAgentChildren(agent, consumedChildIds, injections = []) {
         const child = childByInvocationCallId.get(toolCall.callId);
         if (child && !consumedChildIds.has(child.callId)) {
           consumedChildIds.add(child.callId);
-          roundChildren.push(createAgentCallNode(child));
+          roundChildren.push(createAgentCallNode(child, toolCall));
         } else {
           roundChildren.push(createToolNode(toolCall));
         }

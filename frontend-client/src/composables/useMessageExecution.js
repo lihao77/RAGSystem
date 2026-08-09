@@ -71,7 +71,13 @@ export function useMessageExecution(deps) {
       const result = await deps.chatSdkClient.getMessageRunSteps(
         deps.currentSessionId.value,
         msg.id,
-        { limit: 500, offset: 0 },
+        {
+          limit: 500,
+          offset: 0,
+          ...(deps.selectedParticipantId?.value && deps.selectedParticipantId.value !== 'root'
+            ? { participantId: deps.selectedParticipantId.value }
+            : {}),
+        },
       );
       const payload = result?.data || result;
       const envelopes = Array.isArray(payload?.items) ? payload.items : [];

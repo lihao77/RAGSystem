@@ -51,7 +51,25 @@ const parseRuntimeTimestampSeconds = (value) => {
  */
 export const useSessionRunStore = defineStore('session-run', () => {
   const currentSessionId = ref(null);
-  const messages = ref([]);
+  const participantMessages = ref({ root: [] });
+  const selectedParticipantId = ref('root');
+  const messages = computed({
+    get: () => participantMessages.value[selectedParticipantId.value] || [],
+    set: (value) => {
+      participantMessages.value = {
+        ...participantMessages.value,
+        [selectedParticipantId.value]: value,
+      };
+    },
+  });
+  const rootMessages = computed({
+    get: () => participantMessages.value.root || [],
+    set: (value) => {
+      participantMessages.value = { ...participantMessages.value, root: value };
+    },
+  });
+  const participants = ref([]);
+  const participantsLoading = ref(false);
   const isCompressing = ref(false);
   const sessionRuntime = ref(null);
   const optimisticCommand = ref(null);
@@ -205,6 +223,48 @@ export const useSessionRunStore = defineStore('session-run', () => {
     sessionWorkspaceDisplay.value = '';
   };
 
+  const resetSessionParticipants = () => {
+    participantMessages.value = { root: [] };
+    selectedParticipantId.value = 'root';
+    participants.value = [];
+    participantsLoading.value = false;
+  };
+
+  const setParticipants = (items) => {
+    participants.value = Array.isArray(items) ? items : [];
+    if (!participants.value.some(item => item?.participant_id === selectedParticipantId.value)) {
+      selectedParticipantId.value = 'root';
+    }
+  };
+
+  const setSelectedParticipant = (participantId) => {
+    const next = typeof participantId === 'string' && participantId.trim()
+      ? participantId.trim()
+      : 'root';
+    if (next === selectedParticipantId.value) return false;
+    selectedParticipantId.value = next;
+    return true;
+  };
+
+  const setParticipantMessages = (participantId, value) => {
+    const id = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
+    participantMessages.value = {
+      ...participantMessages.value,
+      [id]: Array.isArray(value) ? value : [],
+    };
+  };
+
+  const clearParticipantMessages = (participantId = null) => {
+    if (participantId) {
+      const next = { ...participantMessages.value };
+      delete next[participantId];
+      if (participantId === 'root') next.root = [];
+      participantMessages.value = next;
+      return;
+    }
+    participantMessages.value = { root: [] };
+  };
+
   const applySessionContext = ({
     team = '',
     entryAgent = '',
@@ -220,6 +280,11 @@ export const useSessionRunStore = defineStore('session-run', () => {
   return {
     currentSessionId,
     messages,
+    rootMessages,
+    participantMessages,
+    selectedParticipantId,
+    participants,
+    participantsLoading,
     isLoading,
     isCompressing,
     sessionRuntime,
@@ -247,5 +312,10 @@ export const useSessionRunStore = defineStore('session-run', () => {
     clearFollowupCandidates,
     clearSessionContext,
     applySessionContext,
+    resetSessionParticipants,
+    setParticipants,
+    setSelectedParticipant,
+    setParticipantMessages,
+    clearParticipantMessages,
   };
 });

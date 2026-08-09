@@ -1332,6 +1332,12 @@
     max-width: calc(100% - var(--work-panel-width));
   }
 
+  .chat-main.multi-agent-active.workbench-layout .chat-conversation-column {
+    flex: 0 0 calc(100% - var(--work-panel-width) - 224px);
+    width: calc(100% - var(--work-panel-width) - 224px);
+    max-width: calc(100% - var(--work-panel-width) - 224px);
+  }
+
   /* 对话栏内消息流适当放宽，充分利用空间 */
   .chat-conversation-column .message-stream {
     max-width: var(--content-max-width);
@@ -1345,4 +1351,17 @@
     flex-direction: column;
   }
 
+}
+
+@media (min-width: 1024px) {
+  .chat-main.multi-agent-active {
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .chat-main.multi-agent-active:not(.workbench-layout) .chat-conversation-column {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: none;
+  }
 }

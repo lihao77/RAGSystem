@@ -12,9 +12,10 @@ export function useChatMessageRuntime({
   activeRun,
   showToast,
   chatSdkClient,
+  selectedParticipantId,
 }) {
   const { currentSessionId, messages } = storeToRefs(useSessionRunStore());
-  const execution = useMessageExecution({ currentSessionId, chatSdkClient, activeRun });
+  const execution = useMessageExecution({ currentSessionId, chatSdkClient, activeRun, selectedParticipantId });
 
   const workPanel = useWorkPanelSelection({
     messages,

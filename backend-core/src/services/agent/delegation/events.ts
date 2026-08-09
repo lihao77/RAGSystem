@@ -31,6 +31,7 @@ export function buildAgentCallStart(input: AgentCallStartEventInput & { runId: s
         task: input.description,
         display_name: input.childDisplayName,
         ...(input.parentCallId ? { invocation_call_id: input.parentCallId } : {}),
+        child_agent_id: input.childAgentId,
         lineage: input.rootParentCallId ? { parent_call_id: input.rootParentCallId } : undefined,
       },
   };

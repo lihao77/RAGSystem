@@ -1,7 +1,25 @@
 <template>
  <div class="chat-page-shell">
-    <main id="main-content" tabindex="-1" class="chat-main" :class="chatMainClasses">
+    <main id="main-content" tabindex="-1" class="chat-main multi-agent-layout" :class="chatMainClasses">
+    <SessionParticipantNav
+      v-if="currentSessionId"
+      mode="desktop"
+      :participants="participants"
+      :selected-id="selectedParticipantId"
+      :loading="participantsLoading"
+      @select="selectParticipant"
+      @refresh="loadSessionParticipants(currentSessionId)"
+    />
     <div class="chat-conversation-column">
+      <SessionParticipantNav
+        v-if="currentSessionId"
+        mode="mobile"
+        :participants="participants"
+        :selected-id="selectedParticipantId"
+        :loading="participantsLoading"
+        @select="selectParticipant"
+        @refresh="loadSessionParticipants(currentSessionId)"
+      />
       <SessionContextBar
         :current-session-id="currentSessionId || ''"
         :session-title="currentSessionTitle"
@@ -31,11 +49,12 @@
           @citation-click="openCitation"
         >
           <template #empty>
-            <ChatEmptyState />
+            <ChatEmptyState v-if="isRootParticipant" />
+            <ParticipantThreadEmpty v-else :participant="selectedParticipant" />
           </template>
         </ChatMessageList>
       </div>
-      <div class="bottom-dock" :class="{ 'bottom-dock--new-chat': !hasMessages, 'bottom-dock--launching': newChatLaunching && hasMessages }">
+      <div v-if="isRootParticipant" class="bottom-dock" :class="{ 'bottom-dock--new-chat': !hasMessages, 'bottom-dock--launching': newChatLaunching && hasMessages }">
          <transition name="scroll-btn-fade">
             <LiquidGlass v-if="showScrollToBottomButton" :width="40" :height="40" :radius="999"
               extra-filter="blur(2px) contrast(1.15) brightness(1.06) saturate(1.1)"
@@ -202,6 +221,7 @@ import { getFrontendChatSdk } from '../composables/chatSdkClient';
 import { useSessionAgentClient } from '../composables/useSessionAgentClient';
 import { useSessionRuntimeStatus } from '../composables/useSessionRuntimeStatus';
 import { useSessionMessages } from '../composables/useSessionMessages';
+import { useSessionParticipants } from '../composables/useSessionParticipants.js';
 import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
 import { useApprovalQueue } from '../composables/useApprovalQueue';
@@ -229,6 +249,8 @@ import { useToast } from '../composables/useToast.js';
 import ChatMessageList from '../components/chat/ChatMessageList.vue';
 import ChatEmptyState from '../components/chat/ChatEmptyState.vue';
 import SessionContextBar from '../components/chat/SessionContextBar.vue';
+import SessionParticipantNav from '../components/chat/SessionParticipantNav.vue';
+import ParticipantThreadEmpty from '../components/chat/ParticipantThreadEmpty.vue';
 import ApprovalQueueHost from '../components/chat/ApprovalQueueHost.vue';
 import TaskLauncher from '../components/chat/TaskLauncher.vue';
 import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
@@ -252,6 +274,7 @@ const llmStore = useLlmStore();
 const chatSdkClient = getFrontendChatSdk();
 const {
   messages,
+  rootMessages,
   currentSessionId,
   isLoading,
   isCompressing,
@@ -259,14 +282,17 @@ const {
   runtimeObservability,
   contextUsage,
   pendingFollowupCandidates,
+  selectedParticipantId,
 } = storeToRefs(sessionRunStore);
+
+const isRootParticipant = computed(() => selectedParticipantId.value === 'root');
 
 const currentSessionTitle = computed(() => {
   if (!currentSessionId.value) return '新聊天';
   const session = sessionListStore.getById(currentSessionId.value);
   const storedTitle = String(session?.title || '').trim();
   if (storedTitle && !['New Conversation', '新会话', '新聊天'].includes(storedTitle)) return storedTitle;
-  const firstUserMessage = messages.value.find(message => message?.role === 'user' && String(message.content || '').trim());
+  const firstUserMessage = rootMessages.value.find(message => message?.role === 'user' && String(message.content || '').trim());
   const messageTitle = String(firstUserMessage?.content || '').replace(/\s+/g, ' ').trim();
   return messageTitle ? messageTitle.slice(0, 60) : '未命名会话';
 });
@@ -345,6 +371,13 @@ const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   toast.show(message, action || type, actionLabel);
 };
 
+const {
+  participants,
+  participantsLoading,
+  selectedParticipant,
+  loadSessionParticipants,
+} = useSessionParticipants({ chatSdkClient, showToast });
+
 const focusInput = async () => {
   if (chatInputRef.value?.focus) {
     await chatInputRef.value.focus();
@@ -400,6 +433,7 @@ const {
   activeRun: _activeRun,
   showToast,
   chatSdkClient,
+  selectedParticipantId,
 });
 
 const {
@@ -423,6 +457,18 @@ const {
   beginInitialScrollRestore,
   endInitialScrollRestore,
 });
+
+const selectParticipant = async (participantId) => {
+  const next = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
+  if (!currentSessionId.value || !participants.value.some(item => item?.participant_id === next)) return;
+  if (!sessionRunStore.setSelectedParticipant(next)) return;
+  await loadSessionMessages(currentSessionId.value, {
+    participantId: next,
+    preserveStream: true,
+  });
+  await nextTick();
+  await scrollToBottom(true, 'auto');
+};
 
 const { loadContextSnapshot, clearExecutionState: _clearExecutionStateBase } = useSessionRuntimeStatus({
   clearLlmRetryState,
@@ -498,6 +544,7 @@ const chatMainClasses = computed(() => ({
   'is-launching-chat': newChatLaunching.value,
   'is-switching-to-new-chat': switchingToNewChat.value,
   'is-restoring-session-scroll': restoringSessionScroll.value,
+  'multi-agent-active': Boolean(currentSessionId.value),
 }));
 
 const {
@@ -640,6 +687,7 @@ const {
   clearComposerAttachments,
   showToast,
   chatSdkClient,
+  loadSessionParticipants,
 });
 
 const {

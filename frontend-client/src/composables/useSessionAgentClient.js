@@ -30,7 +30,7 @@ export function useSessionAgentClient(deps) {
   const sessionRunStore = useSessionRunStore();
   const {
     currentSessionId,
-    messages,
+    rootMessages: messages,
     isLoading,
     isCompressing,
     contextUsage,

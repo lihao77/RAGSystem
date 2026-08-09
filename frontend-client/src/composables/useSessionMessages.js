@@ -24,20 +24,24 @@ import { getMessageAttachments, normalizeMessageContentParts } from '../utils/me
  * @param {Function} [deps.endInitialScrollRestore]
  */
 export function useSessionMessages(deps) {
-  const { currentSessionId, messages } = storeToRefs(useSessionRunStore());
+  const { currentSessionId, selectedParticipantId, rootMessages } = storeToRefs(useSessionRunStore());
+  const sessionRunStore = useSessionRunStore();
   const messageCache = ref(new Map());
   const messagesLoading = ref(false);
   const maxCachedSessions = 10;
   let messageLoadSeq = 0;
   let messageMergeSeq = 0;
 
-  const cacheMessages = (sessionId, list) => {
+  const cacheKey = (sessionId, participantId = 'root') => `${sessionId}::${participantId || 'root'}`;
+
+  const cacheMessages = (sessionId, list, participantId = 'root') => {
     if (!sessionId) return;
-    if (messageCache.value.has(sessionId)) {
-      messageCache.value.delete(sessionId);
+    const key = cacheKey(sessionId, participantId);
+    if (messageCache.value.has(key)) {
+      messageCache.value.delete(key);
     }
     messageCache.value.set(
-      sessionId,
+      key,
       list.slice(-500).map(item => deps.normalizeAssistantExecutionState(item))
     );
     if (messageCache.value.size > maxCachedSessions) {
@@ -47,17 +51,22 @@ export function useSessionMessages(deps) {
   };
 
   const deleteMessageCache = (sessionId) => {
-    messageCache.value.delete(sessionId);
+    for (const key of messageCache.value.keys()) {
+      if (key.startsWith(`${sessionId}::`)) messageCache.value.delete(key);
+    }
   };
 
   /**
    * 只负责消息列表与缓存，不负责 Session 生命周期。
    * 进入/切换会话时由 WebSocket 首帧 session.runtime 决定后续加载策略。
    */
-  const loadSessionMessages = async (sessionId, { silent = false } = {}) => {
+  const loadSessionMessages = async (sessionId, { silent = false, participantId = 'root', preserveStream = false } = {}) => {
     if (!sessionId) return null;
+    const targetParticipantId = participantId || 'root';
     const seq = ++messageLoadSeq;
-    const isCurrent = () => seq === messageLoadSeq && currentSessionId.value === sessionId;
+    const isCurrent = () => seq === messageLoadSeq
+      && currentSessionId.value === sessionId
+      && (silent || selectedParticipantId.value === targetParticipantId);
     let scrollRestoreStarted = false;
     let scrollRestoreEnded = false;
     const endScrollRestore = () => {
@@ -67,17 +76,17 @@ export function useSessionMessages(deps) {
     };
 
     if (!silent) {
-      deps.invalidateActiveStream();
+      if (!preserveStream) deps.invalidateActiveStream();
       deps.beginInitialScrollRestore?.();
       scrollRestoreStarted = true;
       messagesLoading.value = true;
     }
     try {
       // 非静默加载（路由切换/手动刷新）始终绕过缓存，确保拿到最新数据
-      const cached = silent ? messageCache.value.get(sessionId) : null;
+      const cached = silent ? messageCache.value.get(cacheKey(sessionId, targetParticipantId)) : null;
       if (cached) {
         if (!isCurrent()) return;
-        messages.value = cached.map(item => deps.normalizeAssistantExecutionState(item));
+        sessionRunStore.setParticipantMessages(targetParticipantId, cached.map(item => deps.normalizeAssistantExecutionState(item)));
         messagesLoading.value = false;
         await nextTick();
         if (!isCurrent()) return;
@@ -93,7 +102,10 @@ export function useSessionMessages(deps) {
       }
       const client = deps.chatSdkClient;
       if (!client) throw new Error('Chat SDK 未初始化');
-      const result = await client.listMessages(sessionId);
+      const result = await client.listMessages(
+        sessionId,
+        targetParticipantId === 'root' ? {} : { participantId: targetParticipantId },
+      );
       const items = result.data?.items || [];
       const rawOutboxWatermark = Number(result.data?.outbox_watermark);
       const outboxWatermark = Number.isSafeInteger(rawOutboxWatermark) && rawOutboxWatermark >= 0
@@ -135,8 +147,8 @@ export function useSessionMessages(deps) {
           return { ...message, attachments: getMessageAttachments(message) };
         });
       if (!isCurrent()) return;
-      messages.value = mapped;
-      cacheMessages(sessionId, mapped);
+      sessionRunStore.setParticipantMessages(targetParticipantId, mapped);
+      cacheMessages(sessionId, mapped, targetParticipantId);
       messagesLoading.value = false;
       await nextTick();
       await nextTick();
@@ -149,7 +161,7 @@ export function useSessionMessages(deps) {
       if (!isCurrent()) return;
       endScrollRestore();
       deps.focusInput();
-      if (!silent) {
+      if (!silent && !preserveStream) {
         await deps.loadContextSnapshot(sessionId);
         // 手动重载消息会替换 messages，active run 的执行树不在聊天消息接口中；
         // 由当前权威 runtime 决定是否重新请求 active-run 快照。
@@ -161,7 +173,10 @@ export function useSessionMessages(deps) {
     } catch (error) {
       if (!isCurrent()) return;
       console.error('loadSessionMessages failed:', { sessionId, error });
-      deps.showToast('加载会话失败', () => loadSessionMessages(sessionId));
+      deps.showToast('加载会话失败', () => loadSessionMessages(sessionId, {
+        participantId: targetParticipantId,
+        preserveStream,
+      }));
     } finally {
       if (seq === messageLoadSeq) {
         messagesLoading.value = false;
@@ -172,7 +187,7 @@ export function useSessionMessages(deps) {
 
   /** 仅从服务端拉取并合并 id/seq 到当前列表（不替换整表，避免闪烁） */
   const mergeMessageIdsFromServer = async (sessionId) => {
-    if (!sessionId || currentSessionId.value !== sessionId || messages.value.length === 0) return;
+    if (!sessionId || currentSessionId.value !== sessionId || rootMessages.value.length === 0) return;
     const seq = ++messageMergeSeq;
     try {
       const client = deps.chatSdkClient;
@@ -180,16 +195,16 @@ export function useSessionMessages(deps) {
       const result = await client.listMessages(sessionId);
       if (seq !== messageMergeSeq || currentSessionId.value !== sessionId) return;
       const items = result.data?.items || [];
-      if (items.length !== messages.value.length) return;
+      if (items.length !== rootMessages.value.length) return;
       for (let i = 0; i < items.length; i++) {
-        const m = messages.value[i];
+        const m = rootMessages.value[i];
         const it = items[i];
         if (!m || !it) continue;
         if (m.role !== it.role) continue;
         m.id = it.id;
         m.seq = it.seq;
       }
-      cacheMessages(sessionId, messages.value);
+      cacheMessages(sessionId, rootMessages.value, 'root');
     } catch (error) {
       console.warn('刷新消息失败:', error.message);
       return;

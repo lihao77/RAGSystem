@@ -226,6 +226,7 @@ export function useChatSessionController(deps) {
       deps.disconnectSessionWS();
       deps.invalidateActiveStream();
       deps.clearExecutionState({ resetContextUsage: true });
+      sessionRunStore.resetSessionParticipants();
       currentSessionId.value = sessionId;
       // 不先清空上下文：列表无 team，清空会先闪「未选择」；
       // workspace 能从列表立刻 seed，team 等 hydrate 覆盖（短暂保留上一会话 team 优于假空）。
@@ -237,6 +238,8 @@ export function useChatSessionController(deps) {
       }
       if (!await hydrateSessionContext(sessionId, matched, isCurrent)) return;
       deps.clearComposerAttachments();
+      await deps.loadSessionParticipants?.(sessionId);
+      if (!isCurrent()) return;
       const outboxWatermark = await deps.loadSessionMessages(sessionId);
       if (!isCurrent()) return;
       await deps.loadSessionFiles(sessionId);
@@ -256,6 +259,7 @@ export function useChatSessionController(deps) {
      deps.invalidateActiveStream();
       deps.clearExecutionState({ resetContextUsage: true });
       currentSessionId.value = null;
+      sessionRunStore.resetSessionParticipants();
       deps.sessionFiles.value = [];
       await resetNewSessionSetup();
       if (!isCurrent()) return;
@@ -330,6 +334,7 @@ export function useChatSessionController(deps) {
       await navigate(getChatSessionPath(sessionId));
       await ensureSessionConnection(sessionId);
       await deps.loadSessionFiles(sessionId);
+      await deps.loadSessionParticipants?.(sessionId);
     }
     return currentSessionId.value;
   };
