@@ -42,6 +42,67 @@ function queuedChildMessage(messageId: string) {
 }
 
 describe("Agent mailbox continuation launcher", () => {
+  it("rejects a mailbox wakeup whose durable target lineage does not match", async () => {
+    const invoke = vi.fn();
+    const mailbox = {
+      get: vi.fn(),
+      enqueue: vi.fn(),
+      listPending: vi.fn(),
+    };
+    const launchers = createLaunchers({
+      tenantId: "tenant-1" as never,
+      sessions: { getSession: vi.fn() } as never,
+      runtimeCore: {} as never,
+      slashCommandHandler: {} as never,
+      attachmentResolver: {} as never,
+      statusTracker: { getStatusBySession: vi.fn(() => ({ status: "idle" })) } as never,
+      eventPublisher: {} as never,
+      runEngine: {} as never,
+      invocationService: { invoke } as never,
+      notificationQueue: {} as never,
+      backgroundTasks: null,
+      goalStore: null,
+      runtimeStorage: { operations: {} } as never,
+      clientEvents: {} as never,
+      mailbox: mailbox as never,
+      runReader: {
+        getRun: vi.fn(async () => ({
+          session_id: "session-1",
+          run_id: "child-run",
+          status: "completed",
+          agent_call_id: "child-call",
+          agent_name: "worker",
+          agent_display_name: "Worker",
+          lease_root_run_id: "child-run",
+          thread_key: "child:child-1",
+          child_agent_id: "child-1",
+          parent_run_id: "parent-run",
+          parent_call_id: "parent-tool-call",
+          lineage_parent_call_id: "parent-call",
+        })) as never,
+      },
+      participantRuns: { registerParticipantRun: vi.fn(), releaseParticipantRun: vi.fn() },
+    });
+
+    launchers.triggerAgentMailboxRun({
+      sessionId: "session-1",
+      targetRunId: "child-run",
+      targetAgentCallId: "child-call",
+      targetThreadKey: "child:child-1",
+      targetChildAgentId: "child-1",
+      targetAgentName: "worker",
+      targetRootRunId: "child-run",
+      targetParentRunId: "forged-parent-run",
+      targetParentCallId: "parent-tool-call",
+      targetLineageParentCallId: "parent-call",
+      sourceMessageId: "request-1",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(mailbox.get).not.toHaveBeenCalled();
+  });
+
   it("continues a terminal child while the root is running and returns its result to the parent", async () => {
     const session = {
       session_id: "session-1",

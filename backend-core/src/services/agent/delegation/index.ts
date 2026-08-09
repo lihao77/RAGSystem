@@ -967,7 +967,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     const activeRoute: ActiveChildRunRoute = {
       runId: childRunId,
       agentCallId: runInput.rootCallId,
-      rootRunId: runInput.rootRunId,
+      rootRunId: spec.runInBackground ? childRunId : runInput.rootRunId,
       parentRunId: runInput.parentRunId,
       parentCallId: runInput.runParentCallId,
       lineageParentCallId: runInput.lineageParentCallId,

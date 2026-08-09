@@ -1405,6 +1405,66 @@ describe("background child-agent delegation", () => {
     expect(executeRun.mock.calls[0]?.[0].timeoutMs).toBe(4321);
   });
 
+  it("routes follow-ups to a background child's independently leased Run", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ragsystem-delegation-"));
+    tempRoots.push(root);
+    const backgroundTasks = new BackgroundTaskService();
+    const child = childAgent();
+    const delegationStore = store(child);
+    let finishRun!: () => void;
+    const executeRun = vi.fn(() => new Promise<{ success: boolean; content: string }>((resolve) => {
+      finishRun = () => resolve({ success: true, content: "done" });
+    }));
+    const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
+      message_id: input.messageId,
+      kind: input.kind,
+      correlation_id: input.correlationId ?? null,
+      expires_at: null,
+    })) as never;
+    const mailbox = {
+      enqueue,
+      get: vi.fn(),
+      claim: vi.fn(),
+      ack: vi.fn(),
+      release: vi.fn(),
+      expire: vi.fn(),
+    };
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      backgroundTasks,
+      root,
+      mailbox as never,
+    );
+    service.setInvocationService(new AgentInvocationService({ executeRun } as never));
+
+    const started = await invokeCreate(service, {
+      agent: parentAgent(true),
+      teamName: null,
+      input: { agentName: "worker", task: "long work", runInBackground: true, callId: "parent-call" },
+    }, context(new AbortController().signal));
+    const startedContent = started.content as Record<string, unknown>;
+    const childRunId = String(startedContent.run_id);
+    const childAgentId = String(startedContent.child_agent_id);
+    const taskId = String(startedContent.background_task_id);
+    await waitFor(() => executeRun.mock.calls.length === 1);
+
+    const followup = await invokeMessage(service, {
+      agent: parentAgent(true),
+      teamName: null,
+      input: { childAgentId, message: "stop now", callId: "followup-call" },
+    }, context(new AbortController().signal));
+
+    expect(followup.success).toBe(true);
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      targetRunId: childRunId,
+      metadata: expect.objectContaining({ target_root_run_id: childRunId }),
+    }));
+    finishRun();
+    await waitFor(() => backgroundTasks.getTaskSnapshot(taskId)?.status === "completed");
+  });
+
   it("completes the background task while leaving an interaction child suspended", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "ragsystem-delegation-"));
     tempRoots.push(root);
