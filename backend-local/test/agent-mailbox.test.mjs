@@ -29,6 +29,8 @@ test("local Agent mailbox is durable, FIFO, and fenced by claim id", async () =>
     assert.equal(duplicate.content_parts[0].text, "first");
     await assert.rejects(() => mailbox.enqueue({ messageId: "message-1", tenantId: "tnt_test", sessionId: "session-mailbox", targetThreadKey: "child-thread", targetChildAgentId: "child-1", kind: "request", contentParts: [{ type: "text", text: "different" }], availableAt: "2026-01-01T00:00:00.000Z" }));
     await mailbox.enqueue({ messageId: "message-2", tenantId: "tnt_test", sessionId: "session-mailbox", targetThreadKey: "child-thread", targetChildAgentId: "child-1", kind: "progress", contentParts: [{ type: "text", text: "second" }], availableAt: "2026-01-01T00:00:00.000Z" });
+    const pending = await mailbox.listPending({ sessionId: "session-mailbox", targetThreadKey: "child-thread", targetChildAgentId: "child-1", now: "2026-01-01T00:00:00.000Z" });
+    assert.deepEqual(pending.map((message) => message.message_id), ["message-1", "message-2"]);
 
     const claimed = await mailbox.claim({ sessionId: "session-mailbox", targetThreadKey: "child-thread", targetChildAgentId: "child-1", claimId: "claim-1", consumerId: "worker-1", leaseMs: 1000, now: "2026-01-01T00:00:00.000Z", limit: 10 });
     assert.deepEqual(claimed.map((message) => message.message_id), ["message-1", "message-2"]);

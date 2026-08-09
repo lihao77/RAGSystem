@@ -8,6 +8,7 @@ import type {
   AgentMailboxStorePort,
   ClaimAgentMailboxInput,
   EnqueueAgentMailboxMessageInput,
+  ListPendingAgentMailboxInput,
   ReleaseAgentMailboxInput,
 } from "@ragsystem/backend-core/contracts/storage/agent-mailbox-repository.js";
 import type { ConversationDb } from "./shared/db.js";
@@ -148,6 +149,10 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     return this.claimSync(input);
   }
 
+  async listPending(input: ListPendingAgentMailboxInput): Promise<AgentMailboxMessage[]> {
+    return this.listPendingSync(input);
+  }
+
   async ack(input: AckAgentMailboxInput): Promise<boolean> {
     return this.ackSync(input);
   }
@@ -210,6 +215,46 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     const row = this.db.prepare(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox WHERE session_id=? AND message_id=?`)
       .get(sessionId, messageId) as AgentMailboxRow | undefined;
     return row ? mapRow(row) : null;
+  }
+
+  private listPendingSync(input: ListPendingAgentMailboxInput): AgentMailboxMessage[] {
+    const sessionId = required(input.sessionId, "sessionId");
+    const now = asNow(input.now);
+    this.db.prepare(`
+      UPDATE agent_mailbox
+      SET status='expired', claim_id=NULL, claimed_by=NULL, claim_expires_at=NULL,
+          last_error=COALESCE(last_error, 'message expired'), updated_at=?
+      WHERE session_id=? AND status IN ('queued','claimed')
+        AND expires_at IS NOT NULL AND expires_at <= ?
+    `).run(now, sessionId, now);
+    this.db.prepare(`
+      UPDATE agent_mailbox
+      SET status='queued', claim_id=NULL, claimed_by=NULL, claim_expires_at=NULL, updated_at=?
+      WHERE session_id=? AND status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= ?
+    `).run(now, sessionId, now);
+    const clauses = ["session_id=?", "status='queued'", "available_at <= ?", "(expires_at IS NULL OR expires_at > ?)"];
+    const params: Array<string | number> = [sessionId, now, now];
+    const add = (column: string, value: string | null | undefined): void => {
+      const normalized = value?.trim();
+      if (!normalized) return;
+      clauses.push(`${column}=?`);
+      params.push(normalized);
+    };
+    add("target_run_id", input.targetRunId);
+    add("target_agent_call_id", input.targetAgentCallId);
+    add("target_thread_key", input.targetThreadKey);
+    add("target_child_agent_id", input.targetChildAgentId);
+    if (input.kinds?.length) {
+      const kinds = input.kinds.filter((kind) => kind.trim().length > 0);
+      if (kinds.length) {
+        clauses.push(`kind IN (${kinds.map(() => "?").join(",")})`);
+        params.push(...kinds);
+      }
+    }
+    const limit = Math.max(1, Math.min(100, Math.floor(input.limit ?? 100)));
+    return this.db.prepare(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox WHERE ${clauses.join(" AND ")} ORDER BY seq ASC LIMIT ?`)
+      .all(...params, limit)
+      .map((row) => mapRow(row as unknown as AgentMailboxRow));
   }
 
   private claimSync(input: ClaimAgentMailboxInput): AgentMailboxMessage[] {

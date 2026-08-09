@@ -20,6 +20,9 @@ interface AgentInvocationBase {
   provider: ModelProviderConfig;
   modelName: string;
   selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
+  /** Existing run/call used to claim durable agent messages during an idle continuation. */
+  mailboxTargetRunId?: string | null;
+  mailboxTargetAgentCallId?: string | null;
 }
 
 export interface AgentInvocationRootInput extends AgentInvocationBase {

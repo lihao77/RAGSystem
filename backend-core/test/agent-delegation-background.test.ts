@@ -206,6 +206,88 @@ describe("background child-agent delegation", () => {
     expect(invocation).not.toHaveBeenCalled();
   });
 
+  it("routes a terminal background child result to the exact parent mailbox target", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ragsystem-delegation-result-"));
+    tempRoots.push(root);
+    const backgroundTasks = new BackgroundTaskService();
+    const child = childAgent();
+    const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
+      message_id: input.messageId,
+      seq: 1,
+      tenant_id: input.tenantId,
+      session_id: input.sessionId,
+      source_run_id: input.sourceRunId ?? null,
+      source_agent_call_id: input.sourceAgentCallId ?? null,
+      target_run_id: input.targetRunId ?? null,
+      target_agent_call_id: input.targetAgentCallId ?? null,
+      target_thread_key: input.targetThreadKey,
+      target_child_agent_id: input.targetChildAgentId ?? null,
+      kind: input.kind,
+      correlation_id: input.correlationId ?? null,
+      reply_to_message_id: null,
+      content_parts: input.contentParts,
+      metadata: input.metadata ?? {},
+      status: "queued",
+      attempt_count: 0,
+      claim_id: null,
+      claimed_by: null,
+      claim_expires_at: null,
+      available_at: new Date(0).toISOString(),
+      expires_at: null,
+      last_error: null,
+      created_at: new Date(0).toISOString(),
+      updated_at: new Date(0).toISOString(),
+      acked_at: null,
+    })) as never;
+    const mailbox = {
+      enqueue,
+      get: vi.fn(),
+      claim: vi.fn(),
+      ack: vi.fn(),
+      release: vi.fn(),
+      expire: vi.fn(),
+    };
+    const executeRun = vi.fn(async () => ({ success: true, content: "finished child work" }));
+    const service = new AgentDelegationService(
+      store(child),
+      runtimeCore(workerAgent()),
+      null,
+      backgroundTasks,
+      root,
+      mailbox as never,
+    );
+    const wakeup = vi.fn();
+    service.setMailboxWakeup(wakeup);
+    service.setInvocationService(new AgentInvocationService({ executeRun } as never));
+
+    const result = await service.callAgent({
+      agent: parentAgent(true),
+      teamName: null,
+      input: { agentName: "worker", task: "do work", runInBackground: true, callId: "parent-call" },
+    }, context(new AbortController().signal));
+    const taskId = String((result.content as Record<string, unknown>).background_task_id);
+    await waitFor(() => backgroundTasks.getTaskSnapshot(taskId)?.status === "completed");
+
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: expect.stringContaining("agent_result:"),
+      tenantId: "tenant-1",
+      sourceRunId: expect.any(String),
+      targetRunId: "parent-run",
+      targetAgentCallId: "parent-call",
+      targetThreadKey: "root",
+      kind: "result",
+      correlationId: "parent-call",
+      contentParts: [{ type: "text", text: "finished child work" }],
+    }));
+    expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "session-1",
+      targetRunId: "parent-run",
+      targetAgentCallId: "parent-call",
+      targetThreadKey: "root",
+      targetAgentName: "parent",
+    }));
+  });
+
   it("stores the inherited workspace without worktree metadata", () => {
     const metadata = buildChildMetadata({ workspaceRoot: "C:\\workspace" } as never, "child:worker", "call_agent");
     expect(metadata).toMatchObject({

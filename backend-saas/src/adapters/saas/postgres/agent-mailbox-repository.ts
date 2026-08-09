@@ -4,6 +4,7 @@ import type {
   AgentMailboxStorePort,
   ClaimAgentMailboxInput,
   EnqueueAgentMailboxMessageInput,
+  ListPendingAgentMailboxInput,
   ReleaseAgentMailboxInput,
 } from "@ragsystem/backend-core/contracts/storage/agent-mailbox-repository.js";
 import { MessageContentPartSchema } from "@ragsystem/agent-protocol";
@@ -131,6 +132,55 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
   async get(sessionId: string, messageId: string): Promise<AgentMailboxMessage | null> {
     const result = await this.executor.query(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox_messages WHERE tenant_id=$1 AND session_id=$2 AND message_id=$3`, [this.tenant(), required(sessionId, "sessionId"), required(messageId, "messageId")]);
     return result.rows[0] ? row(result.rows[0]) : null;
+  }
+
+  async listPending(input: ListPendingAgentMailboxInput): Promise<AgentMailboxMessage[]> {
+    const tenantId = this.tenant();
+    const sessionId = required(input.sessionId, "sessionId");
+    const now = timestamp(input.now);
+    await this.executor.query(
+      "UPDATE agent_mailbox_messages SET status='expired',claim_id=NULL,claimed_by=NULL,claim_expires_at=NULL,last_error=COALESCE(last_error,'message expired'),updated_at=$1::timestamptz WHERE tenant_id=$2 AND session_id=$3 AND status IN ('queued','claimed') AND expires_at IS NOT NULL AND expires_at <= $1::timestamptz",
+      [now, tenantId, sessionId],
+    );
+    await this.executor.query(
+      "UPDATE agent_mailbox_messages SET status='queued',claim_id=NULL,claimed_by=NULL,claim_expires_at=NULL,updated_at=$1::timestamptz WHERE tenant_id=$2 AND session_id=$3 AND status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= $1::timestamptz",
+      [now, tenantId, sessionId],
+    );
+    const params: unknown[] = [tenantId, sessionId, now];
+    const clauses = [
+      "tenant_id=$1",
+      "session_id=$2",
+      "status='queued'",
+      "available_at <= $3::timestamptz",
+      "(expires_at IS NULL OR expires_at > $3::timestamptz)",
+    ];
+    const add = (column: string, value: string | null | undefined): void => {
+      const normalized = value?.trim();
+      if (!normalized) return;
+      params.push(normalized);
+      clauses.push(`${column}=$${params.length}`);
+    };
+    add("target_run_id", input.targetRunId);
+    add("target_agent_call_id", input.targetAgentCallId);
+    add("target_thread_key", input.targetThreadKey);
+    add("target_child_agent_id", input.targetChildAgentId);
+    if (input.kinds?.length) {
+      const kinds = input.kinds.filter((kind) => kind.trim().length > 0);
+      if (kinds.length) {
+        const placeholders = kinds.map((kind) => {
+          params.push(kind);
+          return `$${params.length}`;
+        });
+        clauses.push(`kind IN (${placeholders.join(",")})`);
+      }
+    }
+    const limit = Math.max(1, Math.min(100, Math.floor(input.limit ?? 100)));
+    params.push(limit);
+    const result = await this.executor.query(
+      `SELECT ${SELECT_COLUMNS} FROM agent_mailbox_messages WHERE ${clauses.join(" AND ")} ORDER BY seq ASC LIMIT $${params.length}`,
+      params,
+    );
+    return result.rows.map(row);
   }
 
   async claim(input: ClaimAgentMailboxInput): Promise<AgentMailboxMessage[]> {

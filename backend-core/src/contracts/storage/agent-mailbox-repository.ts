@@ -89,6 +89,31 @@ export interface ReleaseAgentMailboxInput {
   lastError?: string | null;
 }
 
+export interface ListPendingAgentMailboxInput {
+  sessionId: string;
+  targetRunId?: string | null;
+  targetAgentCallId?: string | null;
+  targetThreadKey?: string | null;
+  targetChildAgentId?: string | null;
+  kinds?: readonly AgentMailboxMessageKind[];
+  limit?: number;
+  now?: string;
+}
+
+/** Target used to wake an idle parent after a background child publishes a result. */
+export interface AgentMailboxWakeupTarget {
+  sessionId: string;
+  targetRunId: string;
+  targetAgentCallId: string | null;
+  targetThreadKey: string;
+  targetChildAgentId: string | null;
+  targetAgentName: string | null;
+  targetRootRunId: string | null;
+  targetParentRunId: string | null;
+  targetParentCallId: string | null;
+  targetLineageParentCallId: string | null;
+}
+
 /**
  * Promise-only durable mailbox port. Implementations must fence every state
  * transition with claimId so a worker whose lease expired cannot ACK a newer
@@ -98,6 +123,8 @@ export interface ReleaseAgentMailboxInput {
 export interface AgentMailboxStorePort {
   enqueue(input: EnqueueAgentMailboxMessageInput): Promise<AgentMailboxMessage>;
   get(sessionId: string, messageId: string): Promise<AgentMailboxMessage | null>;
+  /** Read queued messages for restart/idle wakeup orchestration. */
+  listPending?(input: ListPendingAgentMailboxInput): Promise<AgentMailboxMessage[]>;
   claim(input: ClaimAgentMailboxInput): Promise<AgentMailboxMessage[]>;
   ack(input: AckAgentMailboxInput): Promise<boolean>;
   release(input: ReleaseAgentMailboxInput): Promise<boolean>;

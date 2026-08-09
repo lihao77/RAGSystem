@@ -26,6 +26,7 @@ import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
+import type { AgentMailboxWakeupTarget } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
@@ -60,6 +61,7 @@ export interface AgentExecutionServiceApi {
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
   /** Session idle 时消费后台通知，并在 Goal active 时拉起 continuation system run。 */
   triggerBgNotificationRun(sessionId: string): void;
+  triggerAgentMailboxRun(target: AgentMailboxWakeupTarget): void;
   stopSession(sessionId: string): Promise<boolean>;
   getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics;
   getTaskStatus(taskId: string): ScopedTaskStatus;
@@ -182,6 +184,7 @@ export function createAgentExecutionService(
     goalStore: params.goalStore ?? null,
     runtimeStorage: params.runtimeStorage,
     clientEvents: params.clientEvents,
+    mailbox: params.executionStorage?.agentMailbox ?? null,
   });
   const sessionControl = createSessionControl({
     statusTracker,

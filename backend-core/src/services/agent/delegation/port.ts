@@ -1,6 +1,7 @@
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
-import type { AgentMailboxMessageKind } from "../../../contracts/storage/agent-mailbox-repository.js";
+import type { AgentMailboxMessageKind, AgentMailboxWakeupTarget } from "../../../contracts/storage/agent-mailbox-repository.js";
+export type { AgentMailboxWakeupTarget } from "../../../contracts/storage/agent-mailbox-repository.js";
 
 /**
  * 委派能力契约(DelegationPort)。
@@ -63,3 +64,5 @@ export interface DelegationPort {
   sendMessage(call: SendMessageCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;
   listChildAgents(call: ListChildAgentsCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;
 }
+
+export type AgentMailboxWakeupHandler = (target: AgentMailboxWakeupTarget) => void;

@@ -72,6 +72,8 @@ export interface SdkExecuteRunInput {
   taskId: string;
   requestId: string;
   rootCallId: string;
+  mailboxTargetRunId?: string | null;
+  mailboxTargetAgentCallId?: string | null;
   agent: AgentConfig;
   provider: ModelProviderConfig;
   modelName: string;
@@ -253,6 +255,8 @@ export async function executeRunWithSdk(
     runId: input.runId,
     rootRunId: interactionRootRunId,
     rootCallId: interactionRootCallId,
+    threadKey: input.threadKey,
+    currentChildAgentId: input.childAgentId ?? null,
     currentCallId: input.rootCallId,
     parentRunId: input.parentRunId ?? null,
     runParentCallId: input.parentCallId ?? null,
@@ -342,8 +346,8 @@ export async function executeRunWithSdk(
       if (deps.storage.agentMailbox) {
         const claimed = await deps.storage.agentMailbox.claim({
           sessionId: sid,
-          targetRunId: input.runId,
-          targetAgentCallId: input.rootCallId,
+          targetRunId: input.mailboxTargetRunId ?? input.runId,
+          targetAgentCallId: input.mailboxTargetAgentCallId ?? input.rootCallId,
           targetThreadKey: tk,
           ...(input.childAgentId ? { targetChildAgentId: input.childAgentId } : {}),
           claimId: `${input.runId}:mailbox:${randomUUID()}`,

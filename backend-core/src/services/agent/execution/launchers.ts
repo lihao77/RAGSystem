@@ -34,6 +34,11 @@ import type { TenantId } from "../../../identity/types.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { Goal, GoalContinuationReason, GoalStore } from "../../../contracts/runtime/goals.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
+import type {
+  AgentMailboxMessage,
+  AgentMailboxStorePort,
+  AgentMailboxWakeupTarget,
+} from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
@@ -108,6 +113,7 @@ export interface LauncherApi {
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
   /** Session idle 检查：消费后台通知，并在 Goal active 时拉起 continuation run。 */
   triggerBgNotificationRun(sessionId: string): void;
+  triggerAgentMailboxRun(target: AgentMailboxWakeupTarget): void;
 }
 
 export interface LauncherDeps {
@@ -125,6 +131,7 @@ export interface LauncherDeps {
   goalStore: GoalStore | null;
   runtimeStorage: RuntimeStorage;
   clientEvents: ClientEventPublisher;
+  mailbox?: AgentMailboxStorePort | null;
 }
 
 /**
@@ -133,6 +140,7 @@ export interface LauncherDeps {
  */
 class AgentLaunchers {
   private readonly idleLaunches = new Set<string>();
+  private readonly mailboxLaunches = new Set<string>();
 
   constructor(
     private readonly tenantId: TenantId,
@@ -149,6 +157,7 @@ class AgentLaunchers {
     private readonly goalStore: GoalStore | null,
     private readonly runtimeStorage: RuntimeStorage,
     private readonly clientEvents: ClientEventPublisher,
+    private readonly mailbox: AgentMailboxStorePort | null,
   ) {}
 
   private async durableActiveRunId(sessionId: string): Promise<string | null> {
@@ -692,6 +701,96 @@ class AgentLaunchers {
       .finally(() => this.idleLaunches.delete(normalizedSessionId));
   }
 
+  /** Wake one exact parent target for a queued terminal child result. */
+  triggerAgentMailboxRun(target: AgentMailboxWakeupTarget): void {
+    const sessionId = target.sessionId.trim();
+    const targetRunId = target.targetRunId.trim();
+    if (!sessionId || !targetRunId) return;
+    const key = `${sessionId}:${targetRunId}:${target.targetAgentCallId ?? ""}`;
+    if (this.mailboxLaunches.has(key)) return;
+    this.mailboxLaunches.add(key);
+    void this.startAgentMailboxRun(target)
+      .catch(() => undefined)
+      .finally(() => this.mailboxLaunches.delete(key));
+  }
+
+  private async startAgentMailboxRun(target: AgentMailboxWakeupTarget): Promise<void> {
+    const currentStatus = this.statusTracker.getStatusBySession(target.sessionId)?.status;
+    if (currentStatus === "running" || currentStatus === "suspended") return;
+    if (await this.durableActiveRunId(target.sessionId)) return;
+    const session = await this.sessions.getSession(target.sessionId);
+    const sessionIdentity: SessionIdentity = session
+      ? toSessionIdentity(session)
+      : {
+          sessionId: target.sessionId,
+          ownerUserId: "usr_system",
+          visibility: "tenant",
+          originType: "direct",
+          originId: null,
+          originChannel: "api",
+          workspaceId: null,
+          metadata: {},
+          permissionMode: null,
+        };
+    const metadata = sessionIdentity.metadata ?? {};
+    const ready = resolveReadyAgent(
+      this.runtimeCore,
+      {
+        agentName: target.targetAgentName,
+        teamName: asString(metadata.team),
+        selectedLlm: null,
+      },
+      metadata,
+    );
+    if (!ready.ok) return;
+    const runId = randomUUID();
+    const taskId = randomUUID();
+    const rootCallId = `call_${randomUUID()}`;
+    const task = "处理来自子 Agent 的终态结果，并继续当前任务。";
+    const base = {
+      mode: "create" as const,
+      execution: "background" as const,
+      sessionId: target.sessionId,
+      sessionIdentity,
+      runId,
+      taskId,
+      rootCallId,
+      requestId: `agent_result_${target.targetRunId}`,
+      task,
+      executionKind: "system.agent_message",
+      agent: ready.agent,
+      provider: ready.provider,
+      modelName: ready.modelName,
+      mailboxTargetRunId: target.targetRunId,
+      mailboxTargetAgentCallId: target.targetAgentCallId,
+    };
+    const started = target.targetChildAgentId
+      ? this.invocationService.invoke({
+          ...base,
+          scope: "child",
+          startedAt: new Date(),
+          threadKey: target.targetThreadKey,
+          rootRunId: target.targetRootRunId ?? target.targetRunId,
+          interactionRootCallId: target.targetAgentCallId ?? rootCallId,
+          parentRunId: target.targetParentRunId,
+          parentCallId: target.targetParentCallId,
+          lineageParentCallId: target.targetLineageParentCallId,
+          childAgentId: target.targetChildAgentId,
+          ownsRunLease: true,
+        })
+      : this.invocationService.invoke({
+          ...base,
+          scope: "root",
+          rootCallId,
+        });
+    try {
+      await started.durableStarted;
+      await started.promise;
+    } finally {
+      this.backgroundTasks?.scheduleAutoTrigger(target.sessionId);
+    }
+  }
+
   private async startSessionIdleRun(sessionId: string): Promise<void> {
     let claimedGoal: Goal | null = null;
     let payloads: Parameters<SessionNotificationQueue["add"]>[1][] = [];
@@ -722,6 +821,12 @@ class AgentLaunchers {
       }
       if (await this.backgroundTasks?.hasRunningTasksDurable(sessionId)) {
         await markReason("background_tasks_running");
+        return;
+      }
+      const pendingMailbox = await this.mailbox?.listPending?.({ sessionId, limit: 1 }) ?? [];
+      const firstMailbox = pendingMailbox[0];
+      if (firstMailbox?.target_run_id) {
+        this.triggerAgentMailboxRun(toMailboxWakeupTarget(firstMailbox));
         return;
       }
       const hasNotifications = this.notificationQueue.peek(sessionId);
@@ -860,6 +965,23 @@ class AgentLaunchers {
 
 }
 
+function toMailboxWakeupTarget(message: AgentMailboxMessage): AgentMailboxWakeupTarget {
+  const metadata = message.metadata;
+  const read = (key: string): string | null => asString(metadata[key]);
+  return {
+    sessionId: message.session_id,
+    targetRunId: message.target_run_id ?? "",
+    targetAgentCallId: message.target_agent_call_id,
+    targetThreadKey: message.target_thread_key,
+    targetChildAgentId: message.target_child_agent_id,
+    targetAgentName: read("target_agent_name"),
+    targetRootRunId: read("target_root_run_id"),
+    targetParentRunId: read("target_parent_run_id"),
+    targetParentCallId: read("target_parent_call_id"),
+    targetLineageParentCallId: read("target_lineage_parent_call_id"),
+  };
+}
+
 export function renderGoalContinuation(goal: Goal): string {
   const criteria = goal.success_criteria.map((item, index) => `${index + 1}. ${item}`).join("\n");
   const steps = goal.steps.map((step) => (
@@ -923,11 +1045,13 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.goalStore,
     deps.runtimeStorage,
     deps.clientEvents,
+    deps.mailbox ?? null,
   );
   return {
     startStream: impl.startStream.bind(impl),
     executeSynchronously: impl.executeSynchronously.bind(impl),
     startRollbackRetry: impl.startRollbackRetry.bind(impl),
     triggerBgNotificationRun: impl.triggerBgNotificationRun.bind(impl),
+    triggerAgentMailboxRun: impl.triggerAgentMailboxRun.bind(impl),
   };
 }

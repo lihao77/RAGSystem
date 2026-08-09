@@ -126,6 +126,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   });
   interactionCoordinator.bindResumeStarter(resumeExecutor);
   agentDelegation.setInvocationService(agentExecution.invocationService);
+  agentDelegation.setMailboxWakeup((target) => agentExecution.triggerAgentMailboxRun(target));
   backgroundTasks.setOnTaskCompleted((sessionId) => agentExecution.triggerBgNotificationRun(sessionId));
 
   let closePromise: Promise<void> | null = null;

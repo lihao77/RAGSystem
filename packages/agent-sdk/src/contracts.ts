@@ -187,6 +187,10 @@ export interface ToolExecContext {
   rootRunId?: string | null;
   /** 当前 run 的父 run id；root run 为 null。 */
   parentRunId?: string | null;
+  /** 当前运行所在的 durable conversation thread. */
+  threadKey?: string | null;
+  /** 当前运行对应的 child identity, when the run is a child invocation. */
+  currentChildAgentId?: string | null;
   /** 当前 run 在父 agent 下的调用 id；root run 为 null。 */
   runParentCallId?: string | null;
   taskId: string | null;

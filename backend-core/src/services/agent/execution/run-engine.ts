@@ -89,7 +89,9 @@ export class AgentRunEngine {
     sessionIdentity: SessionIdentity;
     runId?: string | undefined;
     taskId?: string | undefined;
-    rootCallId?: string | undefined;
+     rootCallId?: string | undefined;
+     mailboxTargetRunId?: string | null | undefined;
+     mailboxTargetAgentCallId?: string | null | undefined;
     resume?: boolean | undefined;
     userId?: string | null;
     requestId: string;
@@ -244,7 +246,9 @@ export class AgentRunEngine {
       modelName: input.modelName,
       ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
       threadKey: "root",
-      rootRunId: runId,
+       rootRunId: runId,
+       ...(input.mailboxTargetRunId ? { mailboxTargetRunId: input.mailboxTargetRunId } : {}),
+       ...(input.mailboxTargetAgentCallId ? { mailboxTargetAgentCallId: input.mailboxTargetAgentCallId } : {}),
       parentRunId: null,
       childAgentId: null,
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
@@ -421,6 +425,8 @@ export class AgentRunEngine {
     runId: string;
     taskId: string;
     rootCallId: string;
+    mailboxTargetRunId?: string | null;
+    mailboxTargetAgentCallId?: string | null;
     requestId: string;
     task: string;
     startedAt: Date;
@@ -540,7 +546,9 @@ export class AgentRunEngine {
           lineageParentCallId: input.lineageParentCallId ?? null,
           taskId: input.taskId,
           requestId: input.requestId,
-          rootCallId: input.rootCallId,
+           rootCallId: input.rootCallId,
+           ...(input.mailboxTargetRunId ? { mailboxTargetRunId: input.mailboxTargetRunId } : {}),
+           ...(input.mailboxTargetAgentCallId ? { mailboxTargetAgentCallId: input.mailboxTargetAgentCallId } : {}),
           agent: input.agent,
           provider: input.provider,
           modelName: input.modelName,

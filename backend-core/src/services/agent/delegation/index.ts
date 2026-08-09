@@ -17,6 +17,7 @@ import type {
   AgentDelegationCall,
   SendMessageCall,
   ListChildAgentsCall,
+  AgentMailboxWakeupHandler,
 } from "./port.js";
 import { buildAgentCallStart } from "./events.js";
 import {
@@ -37,6 +38,7 @@ import {
 import { toSessionIdentity } from "../../../contracts/session/session.js";
 
 interface ChildRunInput {
+  tenantId: string;
   sessionId: string;
   agentName: string;
   task: string;
@@ -60,11 +62,19 @@ interface ChildRunInput {
   workspaceRoot: string | null;
   ownsRunLease?: boolean;
   initialEnvelopes?: readonly Envelope[];
+  parentThreadKey: string;
+  parentChildAgentId: string | null;
+  parentAgentName: string;
+  parentRootRunId: string | null;
+  parentParentRunId: string | null;
+  parentParentCallId: string | null;
+  parentLineageParentCallId: string | null;
 }
 
 export class AgentDelegationService implements DelegationPort {
   private invocationService: AgentInvocationPort | null = null;
   private readonly activeChildRuns = new Map<string, string>();
+  private mailboxWakeup: AgentMailboxWakeupHandler | null = null;
 
   constructor(
     private readonly store: AgentDelegationStorePort,
@@ -77,6 +87,10 @@ export class AgentDelegationService implements DelegationPort {
 
   setInvocationService(service: AgentInvocationPort): void {
     this.invocationService = service;
+  }
+
+  setMailboxWakeup(handler: AgentMailboxWakeupHandler | null): void {
+    this.mailboxWakeup = handler;
   }
 
   async callAgent(call: AgentDelegationCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
@@ -174,6 +188,7 @@ export class AgentDelegationService implements DelegationPort {
       })] : undefined;
 
     const runInput: Omit<ChildRunInput, "signal"> = {
+      tenantId: normalizeString(ctx.tenantId) ?? "",
       sessionId,
       agentName: targetAgentName,
       task: buildDelegatedTask(task, input.contextHint),
@@ -194,6 +209,13 @@ export class AgentDelegationService implements DelegationPort {
       source: "agent_call",
       teamName: normalizeString(teamName),
       workspaceRoot: getChildWorkspaceRoot(child, ctx),
+      parentThreadKey: normalizeString(ctx.threadKey) ?? "root",
+      parentChildAgentId: normalizeString(ctx.currentChildAgentId),
+      parentAgentName: parentAgent.agent_name,
+      parentRootRunId: normalizeString(ctx.rootRunId) ?? parentRunId,
+      parentParentRunId: normalizeString(ctx.parentRunId),
+      parentParentCallId: normalizeString(ctx.runParentCallId),
+      parentLineageParentCallId: normalizeString(ctx.parentCallId),
       ...(initialEnvelopes ? { initialEnvelopes } : {}),
     };
     if (input.runInBackground) {
@@ -360,6 +382,7 @@ export class AgentDelegationService implements DelegationPort {
     })];
 
     const runInput: Omit<ChildRunInput, "signal"> = {
+      tenantId: normalizeString(ctx.tenantId) ?? "",
       sessionId,
       agentName: child.agent_name,
       task: message,
@@ -380,6 +403,13 @@ export class AgentDelegationService implements DelegationPort {
       source: "agent_call",
       teamName: normalizeString(teamName),
       workspaceRoot: getChildWorkspaceRoot(child, ctx),
+      parentThreadKey: normalizeString(ctx.threadKey) ?? "root",
+      parentChildAgentId: normalizeString(ctx.currentChildAgentId),
+      parentAgentName: parentAgent.agent_name,
+      parentRootRunId: normalizeString(ctx.rootRunId) ?? normalizeString(ctx.runId),
+      parentParentRunId: normalizeString(ctx.parentRunId),
+      parentParentCallId: normalizeString(ctx.runParentCallId),
+      parentLineageParentCallId: normalizeString(ctx.parentCallId),
       initialEnvelopes,
     };
     if (input.runInBackground) {
@@ -604,7 +634,7 @@ export class AgentDelegationService implements DelegationPort {
       };
     }
 
-    return {
+    const result: DelegationRunResult = {
       success: outcome.success,
       content: outcome.content,
       summary: outcome.content.slice(0, 500),
@@ -616,6 +646,55 @@ export class AgentDelegationService implements DelegationPort {
         thread_key: input.childAgent.thread_key,
       },
     };
+    if (input.ownsRunLease && this.mailbox && !outcome.suspended) {
+      const targetRunId = input.parentRunId;
+      if (targetRunId) {
+        const queued = await this.mailbox.enqueue({
+          messageId: `agent_result:${childRunId}`,
+          tenantId: input.tenantId,
+          sessionId: input.sessionId,
+          sourceRunId: childRunId,
+          sourceAgentCallId: input.rootCallId,
+          targetRunId,
+          targetAgentCallId: input.runParentCallId,
+          targetThreadKey: input.parentThreadKey,
+          targetChildAgentId: input.parentChildAgentId,
+          kind: "result",
+          correlationId: input.runParentCallId,
+          contentParts: [{ type: "text", text: outcome.content }],
+          metadata: {
+            source: "agent_result",
+            success: outcome.success,
+            source_agent_name: targetAgent.agent_name,
+            target_agent_name: input.parentAgentName,
+            target_root_run_id: input.parentRootRunId,
+            target_parent_run_id: input.parentParentRunId,
+            target_parent_call_id: input.parentParentCallId,
+            target_lineage_parent_call_id: input.parentLineageParentCallId,
+            target_child_agent_id: input.parentChildAgentId,
+            source_child_agent_id: input.childAgent.child_agent_id,
+          },
+        });
+        this.mailboxWakeup?.({
+          sessionId: input.sessionId,
+          targetRunId,
+          targetAgentCallId: input.runParentCallId,
+          targetThreadKey: input.parentThreadKey,
+          targetChildAgentId: input.parentChildAgentId,
+          targetAgentName: input.parentAgentName,
+          targetRootRunId: input.parentRootRunId,
+          targetParentRunId: input.parentParentRunId,
+          targetParentCallId: input.parentParentCallId,
+          targetLineageParentCallId: input.parentLineageParentCallId,
+        });
+        result.metadata = {
+          ...result.metadata,
+          mailbox_message_id: queued.message_id,
+          mailbox_result_queued: true,
+        };
+      }
+    }
+    return result;
   }
 
 }
