@@ -227,7 +227,7 @@ export class AgentDelegationService implements DelegationPort {
         runId: childRunId,
         ownerTaskId: normalizeString(ctx.taskId),
         kind: "agent",
-        resultType: "agent_delegation_result",
+        resultType: this.mailbox ? "agent_delegation_result" : "agent_delegation_fallback",
         clientEvents: this.clientEvents,
         run: async ({ signal }) => {
           try {
@@ -421,7 +421,7 @@ export class AgentDelegationService implements DelegationPort {
         runId: childRunId,
         ownerTaskId: normalizeString(ctx.taskId),
         kind: "agent",
-        resultType: "agent_delegation_result",
+        resultType: this.mailbox ? "agent_delegation_result" : "agent_delegation_fallback",
         clientEvents: this.clientEvents,
         run: async ({ signal }) => {
           try {
@@ -510,12 +510,36 @@ export class AgentDelegationService implements DelegationPort {
   }
 
   private async executeChildRun(input: ChildRunInput): Promise<DelegationRunResult> {
+    try {
+      return await this.executeChildRunImpl(input);
+    } catch (error) {
+      const run = await this.store.getRun(input.sessionId, input.childRunId);
+      const suspended = run?.status === "suspended"
+        || (error instanceof Error && error.name === "RecoverableInterrupt");
+      if (!suspended) {
+        await this.enqueueChildTerminalResult(input, {
+          success: false,
+          content: error instanceof Error ? error.message : String(error),
+          summary: error instanceof Error ? error.message : String(error),
+          outputType: "error",
+          metadata: {
+            run_id: input.childRunId,
+            agent_name: input.agentName,
+            child_agent_id: input.childAgent.child_agent_id,
+          },
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async executeChildRunImpl(input: ChildRunInput): Promise<DelegationRunResult> {
     const resolved = this.runtimeCore.resolveExecutionConfig({
       agentName: input.agentName,
       teamName: input.teamName,
     });
     if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
-      return {
+      return this.enqueueChildTerminalResult(input, {
         success: false,
         content: summarizeReadinessFailure(resolved.readiness.requirements),
         summary: summarizeReadinessFailure(resolved.readiness.requirements),
@@ -524,7 +548,7 @@ export class AgentDelegationService implements DelegationPort {
           agent_name: input.agentName,
           child_agent_id: input.childAgent.child_agent_id,
         },
-      };
+      });
     }
 
     const childRunId = input.childRunId;
@@ -558,7 +582,7 @@ export class AgentDelegationService implements DelegationPort {
     const invocationService = this.invocationService;
     if (!invocationService) {
       const message = "AgentInvocationService 未注入，无法执行子 Agent";
-      return {
+      return this.enqueueChildTerminalResult(input, {
         success: false,
         content: message,
         summary: message,
@@ -567,7 +591,7 @@ export class AgentDelegationService implements DelegationPort {
           agent_name: targetAgent.agent_name,
           child_agent_id: input.childAgent.child_agent_id,
         },
-      };
+      });
     }
 
     // 子 run 复用 root 的 executeRun 执行核心：prepare/kernel/事件/recorder 全部统一，
@@ -646,55 +670,81 @@ export class AgentDelegationService implements DelegationPort {
         thread_key: input.childAgent.thread_key,
       },
     };
-    if (input.ownsRunLease && this.mailbox && !outcome.suspended) {
-      const targetRunId = input.parentRunId;
-      if (targetRunId) {
-        const queued = await this.mailbox.enqueue({
-          messageId: `agent_result:${childRunId}`,
-          tenantId: input.tenantId,
-          sessionId: input.sessionId,
-          sourceRunId: childRunId,
-          sourceAgentCallId: input.rootCallId,
-          targetRunId,
-          targetAgentCallId: input.runParentCallId,
-          targetThreadKey: input.parentThreadKey,
-          targetChildAgentId: input.parentChildAgentId,
-          kind: "result",
-          correlationId: input.runParentCallId,
-          contentParts: [{ type: "text", text: outcome.content }],
-          metadata: {
-            source: "agent_result",
-            success: outcome.success,
-            source_agent_name: targetAgent.agent_name,
-            target_agent_name: input.parentAgentName,
-            target_root_run_id: input.parentRootRunId,
-            target_parent_run_id: input.parentParentRunId,
-            target_parent_call_id: input.parentParentCallId,
-            target_lineage_parent_call_id: input.parentLineageParentCallId,
-            target_child_agent_id: input.parentChildAgentId,
-            source_child_agent_id: input.childAgent.child_agent_id,
-          },
-        });
-        this.mailboxWakeup?.({
-          sessionId: input.sessionId,
-          targetRunId,
-          targetAgentCallId: input.runParentCallId,
-          targetThreadKey: input.parentThreadKey,
-          targetChildAgentId: input.parentChildAgentId,
-          targetAgentName: input.parentAgentName,
-          targetRootRunId: input.parentRootRunId,
-          targetParentRunId: input.parentParentRunId,
-          targetParentCallId: input.parentParentCallId,
-          targetLineageParentCallId: input.parentLineageParentCallId,
-        });
-        result.metadata = {
+    return this.enqueueChildTerminalResult(input, result);
+  }
+
+  private async enqueueChildTerminalResult(
+    input: ChildRunInput,
+    result: DelegationRunResult,
+  ): Promise<DelegationRunResult> {
+    if (!input.ownsRunLease || !this.mailbox || !input.tenantId || !input.parentRunId || result.suspended) return result;
+    const parent = await this.store.getRun(input.sessionId, input.parentRunId);
+    if (!parent) return result;
+    const status = result.success
+      ? "completed"
+      : input.signal?.aborted
+        ? "interrupted"
+        : "failed";
+    const content = normalizeString(result.content)
+      ?? normalizeString(result.summary)
+      ?? `子 Agent ${status}`;
+    try {
+      const queued = await this.mailbox.enqueue({
+        messageId: `${input.childRunId}:terminal_result`,
+        tenantId: input.tenantId,
+        sessionId: input.sessionId,
+        sourceRunId: input.childRunId,
+        sourceAgentCallId: input.rootCallId,
+        targetRunId: parent.run_id,
+        targetAgentCallId: parent.agent_call_id,
+        targetThreadKey: parent.thread_key,
+        targetChildAgentId: parent.child_agent_id,
+        kind: "result",
+        correlationId: input.runParentCallId ?? input.rootCallId,
+        contentParts: [{ type: "text", text: content }],
+        metadata: {
+          source: "child_terminal_result",
+          child_agent_id: input.childAgent.child_agent_id,
+          child_run_id: input.childRunId,
+          child_agent_call_id: input.rootCallId,
+          parent_run_id: parent.run_id,
+          parent_call_id: input.runParentCallId,
+          parent_agent_call_id: parent.agent_call_id,
+          parent_thread_key: parent.thread_key,
+          parent_child_agent_id: parent.child_agent_id,
+          target_agent_name: parent.agent_name ?? input.parentAgentName,
+          target_root_run_id: input.parentRootRunId,
+          target_parent_run_id: input.parentParentRunId,
+          target_parent_call_id: input.parentParentCallId,
+          target_lineage_parent_call_id: input.parentLineageParentCallId,
+          status,
+          success: result.success,
+          visible_to_user: false,
+        },
+      });
+      this.mailboxWakeup?.({
+        sessionId: input.sessionId,
+        targetRunId: parent.run_id,
+        targetAgentCallId: parent.agent_call_id,
+        targetThreadKey: parent.thread_key,
+        targetChildAgentId: parent.child_agent_id,
+        targetAgentName: parent.agent_name ?? input.parentAgentName,
+        targetRootRunId: input.parentRootRunId,
+        targetParentRunId: input.parentParentRunId,
+        targetParentCallId: input.parentParentCallId,
+        targetLineageParentCallId: input.parentLineageParentCallId,
+      });
+      return {
+        ...result,
+        metadata: {
           ...result.metadata,
           mailbox_message_id: queued.message_id,
           mailbox_result_queued: true,
-        };
-      }
+        },
+      };
+    } catch {
+      return result;
     }
-    return result;
   }
 
 }

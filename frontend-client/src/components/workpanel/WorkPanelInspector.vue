@@ -221,6 +221,7 @@ const selectedInspectorMeta = computed(() => {
     const agent = node.agent_display_name || node.agent_name || node.agent
     if (agent) meta.push({ label: 'Agent', value: agent })
   }
+  if (node.type === 'agent_message' && node.message_kind) meta.push({ label: '消息', value: node.message_kind })
   if (node.type === 'tool_call' && node.tool_name) meta.push({ label: '工具', value: node.tool_name })
   if (node.type === 'tool_call') {
     meta.push(...resolveToolInspectorMeta(node))
@@ -240,6 +241,9 @@ const selectedSummarySections = computed(() => {
   }
   if (node.type === 'injection') {
     return node.content ? [{ id: 'summary-injection', label: '内容', text: node.content }] : []
+  }
+  if (node.type === 'agent_message') {
+    return node.content ? [{ id: 'summary-agent-message', label: '内容', text: node.content }] : []
   }
   if (node.type !== 'tool_call') {
     const text = node.description || inspectorTitle.value
@@ -273,6 +277,7 @@ const inspectorTypeLabel = computed(() => {
   if (props.node.type === 'agent_call') return 'Agent 详情'
   if (props.node.type === 'tool_call') return resolveToolInspectorLabel(props.node.tool_name)
   if (props.node.type === 'thought') return props.node.round ? `轮次 ${props.node.round}` : '思考详情'
+  if (props.node.type === 'agent_message') return 'Agent 消息'
   return '执行详情'
 })
 
@@ -280,6 +285,7 @@ const inspectorTitle = computed(() => {
   const node = props.node
   if (node.type === 'agent_call') return node.agent_display_name || node.agent_name || node.description || 'Agent'
   if (node.type === 'tool_call') return resolveToolDisplayName(node)
+  if (node.type === 'agent_message') return node.message_kind ? `Agent ${node.message_kind}` : 'Agent 消息'
   return node.intent || node.thought || node.thinking || node.description || '执行步骤'
 })
 

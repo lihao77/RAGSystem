@@ -107,6 +107,7 @@ const iconKind = computed(() => {
   if (isGroup.value) return props.group.icon || 'tool'
   const node = props.node
   if (node.type === 'agent_call') return 'agent'
+  if (node.type === 'agent_message') return 'input'
   if (node.type === 'injection') return 'input'
   if (node.type === 'tool_call') return resolveToolIconKind(node.tool_name)
   return 'step'
@@ -116,6 +117,7 @@ const iconLabel = computed(() => {
   if (isGroup.value) return '工具组'
   const node = props.node
   if (node.type === 'agent_call') return 'Agent'
+  if (node.type === 'agent_message') return 'Agent 消息'
   if (node.type === 'injection') return node.injection_kind === 'background_notification' ? '后台通知' : '用户补充'
   return '工具'
 })
@@ -149,6 +151,9 @@ const titleText = computed(() => {
   if (node.type === 'injection') {
     return truncate(node.content || '注入消息', 84)
   }
+  if (node.type === 'agent_message') {
+    return truncate(node.content || `${node.message_kind || 'message'} 消息`, 84)
+  }
   return '执行步骤'
 })
 
@@ -163,6 +168,7 @@ const subtitleText = computed(() => {
     // 主行已是动词短语时,副标题显示工具名补充;主行退化为工具名时副标题留空,避免重复。
     return toolSubtitle.value ? resolveToolDisplayName(node) : ''
   }
+  if (node.type === 'agent_message') return node.message_kind || '消息'
   return ''
 })
 

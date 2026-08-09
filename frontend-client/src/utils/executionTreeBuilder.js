@@ -52,6 +52,19 @@ const createInjectionNode = (msg) => {
   };
 };
 
+const createAgentMessageNode = (message) => ({
+  type: 'agent_message',
+  message_id: message.messageId,
+  message_kind: message.kind,
+  content: message.content || '',
+  source_run_id: message.sourceRunId || null,
+  source_agent_call_id: message.sourceAgentCallId || null,
+  correlation_id: message.correlationId || null,
+  reply_to_message_id: message.replyToMessageId || null,
+  metadata: message.metadata || {},
+  status: 'success',
+});
+
 const createAgentCallNode = (agent) => ({
   type: 'agent_call',
   task_id: agent.callId,
@@ -120,6 +133,10 @@ function buildAgentChildren(agent, consumedChildIds, injections = []) {
         pendingInjections.splice(i, 1);
       }
     }
+  }
+
+  for (const message of agent.messages || []) {
+    children.push(createAgentMessageNode(message));
   }
 
   // 未被 call_agent 合并消费的 child agent：作为独立 agent_call 追加

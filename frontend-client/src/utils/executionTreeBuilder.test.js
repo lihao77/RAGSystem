@@ -71,3 +71,20 @@ test('keeps ambiguous legacy child separate instead of guessing by name', () => 
   assert.equal(nodes[1].type, 'agent_call');
   assert.equal(nodes[1].task_id, 'unrelated-agent-call');
 });
+
+test('renders durable agent messages as distinct execution nodes', () => {
+  const tree = treeWith([], []);
+  tree.root.messages = [{
+    messageId: 'message-1',
+    kind: 'result',
+    content: 'child finished',
+    sourceRunId: 'child-run',
+    sourceAgentCallId: 'child-call',
+  }];
+
+  const nodes = buildExecutionTree(tree);
+  const message = nodes[nodes.length - 1];
+  assert.equal(message.type, 'agent_message');
+  assert.equal(message.message_kind, 'result');
+  assert.equal(message.content, 'child finished');
+});

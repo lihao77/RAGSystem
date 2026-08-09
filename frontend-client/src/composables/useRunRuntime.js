@@ -15,6 +15,7 @@ const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
   'stream_output',
   'tool_call',
   'tool_result',
+  'agent_message',
   'state_sync',
   'interaction',
   'error',

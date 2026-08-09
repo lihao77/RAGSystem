@@ -99,6 +99,7 @@ function deps(
     eventPublisher: {
       publishEnvelope: vi.fn(),
       publishDelegateCall: vi.fn(),
+      publishAgentMessage: vi.fn(),
     },
     providers: [{
       key: "provider",

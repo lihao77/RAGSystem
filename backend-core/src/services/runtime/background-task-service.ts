@@ -496,9 +496,18 @@ export class BackgroundTaskService {
       result_type: task.result_type,
       session_id: task.session_id,
     };
+    // Agent delegation results have their own durable mailbox route to the
+    // exact parent invocation. Do not also broadcast them through the generic
+    // session notification queue, which would make the parent process the
+    // same child result twice.
+    const routedToAgentMailbox = task.kind === "agent" && task.result_type === "agent_delegation_result";
     if (task.session_id) {
-      // 入暂存队列（consumed 去重由 queue.add 承接）+ 编排自动触发（idle/run结束时拉起 system run）
-      this.notificationQueue.add(task.session_id, payload);
+      if (!routedToAgentMailbox) {
+        // Generic task notifications are consumed by the session-level system run.
+        this.notificationQueue.add(task.session_id, payload);
+      }
+      // Mailbox-routed child results still need the idle trigger as a durable
+      // fallback when the in-process wakeup callback is unavailable.
       this.scheduleAutoTrigger(task.session_id);
     }
   }

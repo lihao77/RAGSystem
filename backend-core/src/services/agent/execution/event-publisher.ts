@@ -1,6 +1,7 @@
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { Envelope, StateSyncPayload } from "../../../contracts/events.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import type { AgentMailboxMessage } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 
@@ -156,6 +157,38 @@ export class AgentExecutionEventPublisher {
         input: input.arguments,
         phase: "request",
         ...(input.parentCallId ? { lineage: { parent_call_id: input.parentCallId } } : {}),
+      },
+    });
+  }
+
+  publishAgentMessage(input: {
+    sessionId: string;
+    runId: string;
+    callId?: string | null;
+    message: AgentMailboxMessage;
+  }): void {
+    const message = input.message;
+    this.publishEnvelope({
+      type: "agent_message",
+      session_id: input.sessionId,
+      run_id: input.runId,
+      ...(input.callId ? { call_id: input.callId } : {}),
+      message_id: message.message_id,
+      payload: {
+        kind: message.kind,
+        message_id: message.message_id,
+        source_run_id: message.source_run_id,
+        source_agent_call_id: message.source_agent_call_id,
+        target_run_id: message.target_run_id,
+        target_agent_call_id: message.target_agent_call_id,
+        correlation_id: message.correlation_id,
+        reply_to_message_id: message.reply_to_message_id,
+        content: message.content_parts
+          .filter((part): part is { type: "text"; text: string } => part.type === "text")
+          .map((part) => part.text)
+          .join(""),
+        content_parts: message.content_parts,
+        metadata: message.metadata,
       },
     });
   }

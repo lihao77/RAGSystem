@@ -211,6 +211,31 @@ describe("background child-agent delegation", () => {
     tempRoots.push(root);
     const backgroundTasks = new BackgroundTaskService();
     const child = childAgent();
+    const parentRun = {
+      run_id: "parent-run",
+      session_id: "session-1",
+      tenant_id: "tenant-1",
+      entrypoint: "agent_stream",
+      status: "completed",
+      task_summary: "parent task",
+      terminal_reason: null,
+      request_id: "request-1",
+      user_id: null,
+      agent_name: "parent",
+      agent_call_id: "parent-agent-call",
+      lineage_parent_call_id: null,
+      agent_display_name: "Parent",
+      lease_root_run_id: "parent-run",
+      thread_key: "root",
+      parent_run_id: null,
+      parent_call_id: null,
+      child_agent_id: null,
+      final_message_id: null,
+      created_at: new Date(0).toISOString(),
+      updated_at: new Date(0).toISOString(),
+    };
+    const delegationStore = store(child);
+    vi.mocked(delegationStore.getRun).mockResolvedValue(parentRun as never);
     const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
       message_id: input.messageId,
       seq: 1,
@@ -249,7 +274,7 @@ describe("background child-agent delegation", () => {
     };
     const executeRun = vi.fn(async () => ({ success: true, content: "finished child work" }));
     const service = new AgentDelegationService(
-      store(child),
+      delegationStore,
       runtimeCore(workerAgent()),
       null,
       backgroundTasks,
@@ -269,11 +294,11 @@ describe("background child-agent delegation", () => {
     await waitFor(() => backgroundTasks.getTaskSnapshot(taskId)?.status === "completed");
 
     expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
-      messageId: expect.stringContaining("agent_result:"),
+      messageId: expect.stringContaining(":terminal_result"),
       tenantId: "tenant-1",
       sourceRunId: expect.any(String),
       targetRunId: "parent-run",
-      targetAgentCallId: "parent-call",
+      targetAgentCallId: "parent-agent-call",
       targetThreadKey: "root",
       kind: "result",
       correlationId: "parent-call",
@@ -282,9 +307,137 @@ describe("background child-agent delegation", () => {
     expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: "session-1",
       targetRunId: "parent-run",
-      targetAgentCallId: "parent-call",
+      targetAgentCallId: "parent-agent-call",
       targetThreadKey: "root",
       targetAgentName: "parent",
+    }));
+  });
+
+  it("does not duplicate foreground results or publish suspended children", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ragsystem-delegation-terminal-"));
+    tempRoots.push(root);
+    const mailbox = {
+      enqueue: vi.fn(),
+      get: vi.fn(),
+      claim: vi.fn(),
+      ack: vi.fn(),
+      release: vi.fn(),
+      expire: vi.fn(),
+    };
+
+    const suspendedTasks = new BackgroundTaskService();
+    const suspendedService = new AgentDelegationService(
+      store(childAgent()),
+      runtimeCore(workerAgent()),
+      null,
+      suspendedTasks,
+      root,
+      mailbox as never,
+    );
+    suspendedService.setInvocationService(new AgentInvocationService({
+      executeRun: vi.fn(async () => ({
+        success: false,
+        content: "waiting for input",
+        suspended: true,
+        interactionKind: "user_input" as const,
+      })),
+    } as never));
+    const suspendedResult = await suspendedService.callAgent({
+      agent: parentAgent(true),
+      teamName: null,
+      input: { agentName: "worker", task: "ask user", runInBackground: true, callId: "parent-call" },
+    }, context(new AbortController().signal));
+    const suspendedTaskId = String((suspendedResult.content as Record<string, unknown>).background_task_id);
+    await waitFor(() => suspendedTasks.getTaskSnapshot(suspendedTaskId)?.status === "completed");
+
+    const foregroundService = new AgentDelegationService(
+      store(childAgent()),
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      mailbox as never,
+    );
+    foregroundService.setInvocationService(new AgentInvocationService({
+      executeRun: vi.fn(async () => ({ success: true, content: "foreground result" })),
+    } as never));
+    const foregroundResult = await foregroundService.callAgent({
+      agent: parentAgent(false),
+      teamName: null,
+      input: { agentName: "worker", task: "do foreground work", callId: "parent-call" },
+    }, context(new AbortController().signal));
+
+    expect(suspendedResult.success).toBe(true);
+    expect(foregroundResult.success).toBe(true);
+    expect(mailbox.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("publishes failed background outcomes with a stable idempotency key", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ragsystem-delegation-failed-"));
+    tempRoots.push(root);
+    const backgroundTasks = new BackgroundTaskService();
+    const delegationStore = store(childAgent());
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "parent-run",
+      agent_call_id: "parent-agent-call",
+      thread_key: "root",
+      child_agent_id: null,
+      agent_name: "parent",
+    } as never);
+    const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
+      message_id: input.messageId,
+      seq: 1,
+      tenant_id: input.tenantId,
+      session_id: input.sessionId,
+      source_run_id: input.sourceRunId ?? null,
+      source_agent_call_id: input.sourceAgentCallId ?? null,
+      target_run_id: input.targetRunId ?? null,
+      target_agent_call_id: input.targetAgentCallId ?? null,
+      target_thread_key: input.targetThreadKey,
+      target_child_agent_id: input.targetChildAgentId ?? null,
+      kind: input.kind,
+      correlation_id: input.correlationId ?? null,
+      reply_to_message_id: null,
+      content_parts: input.contentParts,
+      metadata: input.metadata ?? {},
+      status: "queued",
+      attempt_count: 0,
+      claim_id: null,
+      claimed_by: null,
+      claim_expires_at: null,
+      available_at: new Date(0).toISOString(),
+      expires_at: null,
+      last_error: null,
+      created_at: new Date(0).toISOString(),
+      updated_at: new Date(0).toISOString(),
+      acked_at: null,
+    })) as never;
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      backgroundTasks,
+      root,
+      { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+    service.setInvocationService(new AgentInvocationService({
+      executeRun: vi.fn(async () => ({ success: false, content: "worker failed" })),
+    } as never));
+
+    const result = await service.callAgent({
+      agent: parentAgent(true),
+      teamName: null,
+      input: { agentName: "worker", task: "fail", runInBackground: true, callId: "parent-call" },
+    }, context(new AbortController().signal));
+    const taskId = String((result.content as Record<string, unknown>).background_task_id);
+    await waitFor(() => backgroundTasks.getTaskSnapshot(taskId)?.status === "failed");
+
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: expect.stringContaining(":terminal_result"),
+      targetRunId: "parent-run",
+      targetAgentCallId: "parent-agent-call",
+      kind: "result",
+      metadata: expect.objectContaining({ status: "failed", success: false, visible_to_user: false }),
     }));
   });
 

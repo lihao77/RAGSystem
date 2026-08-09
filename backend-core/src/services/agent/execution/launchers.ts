@@ -34,6 +34,7 @@ import type { TenantId } from "../../../identity/types.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { Goal, GoalContinuationReason, GoalStore } from "../../../contracts/runtime/goals.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
+import type { ExecutionResultReader } from "../../../contracts/execution/execution-storage.js";
 import type {
   AgentMailboxMessage,
   AgentMailboxStorePort,
@@ -132,6 +133,7 @@ export interface LauncherDeps {
   runtimeStorage: RuntimeStorage;
   clientEvents: ClientEventPublisher;
   mailbox?: AgentMailboxStorePort | null;
+  runReader?: Pick<ExecutionResultReader, "getRun">;
 }
 
 /**
@@ -158,6 +160,7 @@ class AgentLaunchers {
     private readonly runtimeStorage: RuntimeStorage,
     private readonly clientEvents: ClientEventPublisher,
     private readonly mailbox: AgentMailboxStorePort | null,
+    private readonly runReader: Pick<ExecutionResultReader, "getRun"> | null,
   ) {}
 
   private async durableActiveRunId(sessionId: string): Promise<string | null> {
@@ -718,6 +721,9 @@ class AgentLaunchers {
     const currentStatus = this.statusTracker.getStatusBySession(target.sessionId)?.status;
     if (currentStatus === "running" || currentStatus === "suspended") return;
     if (await this.durableActiveRunId(target.sessionId)) return;
+    if (await this.backgroundTasks?.hasRunningTasksDurable(target.sessionId)) return;
+    const durableTarget = await this.runReader?.getRun(target.sessionId, target.targetRunId);
+    if (durableTarget?.status === "running" || durableTarget?.status === "suspended") return;
     const session = await this.sessions.getSession(target.sessionId);
     const sessionIdentity: SessionIdentity = session
       ? toSessionIdentity(session)
@@ -823,7 +829,7 @@ class AgentLaunchers {
         await markReason("background_tasks_running");
         return;
       }
-      const pendingMailbox = await this.mailbox?.listPending?.({ sessionId, limit: 1 }) ?? [];
+      const pendingMailbox = await this.mailbox?.listPending?.({ sessionId, kinds: ["result"], limit: 1 }) ?? [];
       const firstMailbox = pendingMailbox[0];
       if (firstMailbox?.target_run_id) {
         this.triggerAgentMailboxRun(toMailboxWakeupTarget(firstMailbox));
@@ -1046,6 +1052,7 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.runtimeStorage,
     deps.clientEvents,
     deps.mailbox ?? null,
+    deps.runReader ?? null,
   );
   return {
     startStream: impl.startStream.bind(impl),

@@ -596,4 +596,35 @@ describe("Session runtime snapshot invariants", () => {
     expect(sessionLoadStrategyRestoresActiveRun("restore_suspended_run_and_present_interactions")).toBe(true);
     expect(sessionLoadStrategyRestoresActiveRun("attach_resume")).toBe(true);
   });
+
+  it("projects durable agent messages without treating them as root output", () => {
+    const state = createExecutionTreeState();
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_started",
+      session_id: "session-1",
+      run_id: "run-parent",
+      call_id: "parent-call",
+      agent_id: "parent",
+      payload: { phase: "start", task: "parent" },
+    }));
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "agent_message",
+      session_id: "session-1",
+      run_id: "run-parent",
+      message_id: "message-1",
+      payload: {
+        kind: "result",
+        message_id: "message-1",
+        target_agent_call_id: "parent-call",
+        source_run_id: "run-child",
+        source_agent_call_id: "child-call",
+        content: "child finished",
+      },
+    }));
+    const tree = getExecutionTree(state);
+    expect(tree.root?.output).toBeUndefined();
+    expect(tree.root?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "message-1", kind: "result", content: "child finished" }),
+    ]));
+  });
 });

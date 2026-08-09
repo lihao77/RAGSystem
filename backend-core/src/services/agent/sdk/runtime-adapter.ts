@@ -386,6 +386,12 @@ export async function executeRunWithSdk(
               mailboxAcceptedIds.add(mailboxMessage.message_id);
             }
             mailboxMaxSeq = Math.max(mailboxMaxSeq, persisted.seq);
+            deps.eventPublisher.publishAgentMessage({
+              sessionId: sid,
+              runId: input.runId,
+              callId: input.rootCallId,
+              message: mailboxMessage,
+            });
             await deps.storage.agentMailbox.ack({
               sessionId: sid,
               messageId: mailboxMessage.message_id,

@@ -37,6 +37,7 @@ export const EnvelopeTypeSchema = z.enum([
   "state_sync",
   "tool_call",
   "tool_result",
+  "agent_message",
   "delegate_call",
   "delegate_result",
   "tools.register",
@@ -127,6 +128,7 @@ export type StateSyncPayload = z.infer<typeof StateSyncPayloadSchema>;
 /* —— 工具帧（投影通知，后端本地执行） —— */
 export type ToolCallPayload = z.infer<typeof ToolCallPayloadSchema>;
 export type ToolResultPayload = z.infer<typeof ToolResultPayloadSchema>;
+export type AgentMessagePayload = z.infer<typeof AgentMessagePayloadSchema>;
 export type ToolFileRef = z.infer<typeof ToolFileRefSchema>;
 
 /* —— 委托帧（宿主执行，独立语义） —— */
@@ -439,6 +441,20 @@ export const ToolResultPayloadSchema = z
       });
     }
   });
+
+export const AgentMessagePayloadSchema = z.object({
+  kind: z.enum(["progress", "request", "response", "result", "cancel"]),
+  message_id: z.string().min(1),
+  source_run_id: z.string().nullable().optional(),
+  source_agent_call_id: z.string().nullable().optional(),
+  target_run_id: z.string().nullable().optional(),
+  target_agent_call_id: z.string().nullable().optional(),
+  correlation_id: z.string().nullable().optional(),
+  reply_to_message_id: z.string().nullable().optional(),
+  content: z.string().optional(),
+  content_parts: z.array(MessageContentPartSchema).optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
 
 export const DelegateCallPayloadSchema = z.object({
   tool: z.string().min(1),
@@ -770,6 +786,7 @@ export const ServerToClientEnvelopeSchema = z.discriminatedUnion("type", [
   typed({ type: z.literal("state_sync"), session_id: z.string().min(1), payload: StateSyncPayloadSchema }),
   typed({ type: z.literal("tool_call"), session_id: z.string().min(1), call_id: z.string().min(1), payload: ToolCallPayloadSchema }),
   typed({ type: z.literal("tool_result"), session_id: z.string().min(1), call_id: z.string().min(1), payload: ToolResultPayloadSchema }),
+  typed({ type: z.literal("agent_message"), session_id: z.string().min(1), run_id: z.string().min(1), payload: AgentMessagePayloadSchema }),
   typed({ type: z.literal("delegate_call"), session_id: z.string().min(1), call_id: z.string().min(1), payload: DelegateCallPayloadSchema }),
   typed({ type: z.literal("interaction"), session_id: z.string().min(1), call_id: z.string().min(1), payload: InteractionPayloadSchema.extend({ phase: z.literal("required") }) }),
   typed({ type: z.literal("abort"), session_id: z.string().min(1), payload: AbortPayloadSchema }),

@@ -22,6 +22,7 @@ import type {
   ExecutionRound,
   ExecutionToolCall,
   ExecutionTree,
+  ExecutionAgentMessage,
 } from "./agent-client.js";
 
 /** 无显式 call_id 时的隐式 root 标识（容错：tool 无父时挂到此处）。 */
@@ -277,6 +278,32 @@ function applyToolResult(state: ExecutionTreeState, env: Envelope, payload: Reco
   }
 }
 
+function applyAgentMessage(state: ExecutionTreeState, env: Envelope, payload: Record<string, unknown>): void {
+  const messageId = asString(payload.message_id) ?? asString(env.message_id);
+  if (!messageId) return;
+  const targetCallId = asString(payload.target_agent_call_id) ?? asString(env.call_id) ?? IMPLICIT_ROOT_CALL_ID;
+  const agent = ensureAgent(state, targetCallId, {
+    agentId: asString(payload.target_agent_name) ?? asString(env.agent_id),
+  });
+  const kind = asString(payload.kind);
+  if (kind !== "progress" && kind !== "request" && kind !== "response" && kind !== "result" && kind !== "cancel") return;
+  const content = asString(payload.content) ?? "";
+  const messages = agent.messages ?? (agent.messages = []);
+  if (messages.some((message) => message.messageId === messageId)) return;
+  const view: ExecutionAgentMessage = {
+    messageId,
+    kind,
+    content,
+    sourceRunId: (asString(payload.source_run_id) ?? null),
+    sourceAgentCallId: (asString(payload.source_agent_call_id) ?? null),
+    correlationId: (asString(payload.correlation_id) ?? null),
+    replyToMessageId: (asString(payload.reply_to_message_id) ?? null),
+    ...(isPlainRecord(payload.metadata) ? { metadata: payload.metadata } : {}),
+    receivedAt: typeof env.timestamp === "number" ? env.timestamp * 1000 : Date.now(),
+  };
+  messages.push(view);
+}
+
 function isToolFileRef(value: unknown): value is NonNullable<ExecutionToolCall["files"]>[number] {
   const file = asRecord(value);
   const fileType = asString(file.file_type);
@@ -356,6 +383,9 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
       return;
     case "tool_result":
       applyToolResult(state, env, payload);
+      return;
+    case "agent_message":
+      applyAgentMessage(state, env, payload);
       return;
     default:
       return;
