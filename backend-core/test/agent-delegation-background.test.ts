@@ -560,6 +560,121 @@ describe("background child-agent delegation", () => {
     expect((service as any).activeChildRuns.has(child.child_agent_id)).toBe(false);
   });
 
+  it("registers an external participant continuation as the active and latest child Run", async () => {
+    const child = {
+      ...childAgent(),
+      last_run_id: "completed-child-run",
+    };
+    const delegationStore = store(child);
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "completed-child-run",
+      agent_call_id: "completed-child-call",
+      status: "completed",
+    } as never);
+    let releaseLastRunWrite!: (value: boolean) => void;
+    const lastRunWrite = new Promise<boolean>((resolve) => { releaseLastRunWrite = resolve; });
+    vi.mocked(delegationStore.updateChildAgentLastRun).mockImplementation(() => lastRunWrite);
+    const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
+      message_id: input.messageId,
+      kind: input.kind,
+      correlation_id: input.correlationId ?? null,
+      expires_at: null,
+    })) as never;
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+    (service as any).activeChildRuns.set(child.child_agent_id, {
+      runId: "completed-child-run",
+      agentCallId: "completed-child-call",
+      rootRunId: "completed-child-run",
+      parentRunId: "parent-run",
+      parentCallId: "parent-tool-call",
+      lineageParentCallId: "parent-call",
+    });
+    const registration = service.registerParticipantRun({
+      sessionId: "session-1",
+      childAgentId: child.child_agent_id,
+      runId: "mailbox-continuation-run",
+      agentCallId: "mailbox-continuation-call",
+      rootRunId: "completed-child-run",
+      parentRunId: "parent-run",
+      parentCallId: "parent-tool-call",
+      lineageParentCallId: "parent-call",
+      replacesRunId: "completed-child-run",
+    });
+    await waitFor(() => vi.mocked(delegationStore.updateChildAgentLastRun).mock.calls.length === 1);
+
+    const followup = await invokeMessage(service, {
+      agent: parentAgent(false),
+      teamName: null,
+      input: { childAgentId: child.child_agent_id, message: "while starting", callId: "followup-call" },
+    }, context(new AbortController().signal));
+
+    expect(followup.success).toBe(true);
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      targetRunId: "mailbox-continuation-run",
+      targetAgentCallId: "mailbox-continuation-call",
+    }));
+    releaseLastRunWrite(true);
+    await registration;
+    expect(delegationStore.updateChildAgentLastRun).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      childAgentId: child.child_agent_id,
+      lastRunId: "mailbox-continuation-run",
+      expectedLastRunId: "completed-child-run",
+    });
+
+    service.releaseParticipantRun({ childAgentId: child.child_agent_id, runId: "completed-child-run" });
+    expect((service as any).activeChildRuns.has(child.child_agent_id)).toBe(true);
+    service.releaseParticipantRun({ childAgentId: child.child_agent_id, runId: "another-run" });
+    expect((service as any).activeChildRuns.has(child.child_agent_id)).toBe(true);
+    service.releaseParticipantRun({ childAgentId: child.child_agent_id, runId: "mailbox-continuation-run" });
+    expect((service as any).activeChildRuns.has(child.child_agent_id)).toBe(false);
+  });
+
+  it("allows only one durable participant continuation to replace the same latest Run", async () => {
+    let latestRunId = "completed-child-run";
+    const sharedChild = { ...childAgent(), last_run_id: latestRunId };
+    const createStore = () => {
+      const delegationStore = store(sharedChild);
+      vi.mocked(delegationStore.getChildAgent).mockImplementation(async () => ({
+        ...sharedChild,
+        last_run_id: latestRunId,
+      }));
+      vi.mocked(delegationStore.updateChildAgentLastRun).mockImplementation(async (input) => {
+        if (input.expectedLastRunId !== latestRunId) return false;
+        latestRunId = input.lastRunId;
+        return true;
+      });
+      return delegationStore;
+    };
+    const first = new AgentDelegationService(createStore(), runtimeCore(workerAgent()));
+    const second = new AgentDelegationService(createStore(), runtimeCore(workerAgent()));
+    const route = {
+      sessionId: "session-1",
+      childAgentId: sharedChild.child_agent_id,
+      agentCallId: "mailbox-call",
+      rootRunId: "root-run",
+      parentRunId: "parent-run",
+      parentCallId: "parent-tool-call",
+      lineageParentCallId: "parent-call",
+    };
+
+    const registrations = await Promise.allSettled([
+      first.registerParticipantRun({ ...route, runId: "continuation-a" }),
+      second.registerParticipantRun({ ...route, runId: "continuation-b" }),
+    ]);
+
+    expect(registrations.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(registrations.filter(result => result.status === "rejected")).toHaveLength(1);
+    expect(["continuation-a", "continuation-b"]).toContain(latestRunId);
+  });
+
   it("does not fork a suspended child when sending a follow-up", async () => {
     const child = { ...childAgent(), last_run_id: "suspended-child-run" };
     const delegationStore = store(child);
@@ -1350,9 +1465,16 @@ describe("background child-agent delegation", () => {
   it("resumes an independently leased child with its durable execution context", async () => {
     const worker = workerAgent();
     const executeRun = vi.fn(async (_input: Record<string, any>) => ({ success: true, content: "done" }));
+    const participantRuns = {
+      registerParticipantRun: vi.fn(async () => undefined),
+      releaseParticipantRun: vi.fn(),
+    };
+    const completeAgentMailboxContinuation = vi.fn(async () => undefined);
     const resume = createResumeExecutor({
       invocationService: new AgentInvocationService({ executeRun } as never),
       runtimeCore: runtimeCore(worker),
+      participantRuns,
+      completeAgentMailboxContinuation,
     });
     const claim = {
       claimed: true as const,
@@ -1375,7 +1497,7 @@ describe("background child-agent delegation", () => {
       resolutions: [],
     };
 
-    const started = resume.startClaim({ sessionId: "session-1", claim });
+    const started = await resume.startClaim({ sessionId: "session-1", claim });
     await started.promise;
     expect(executeRun).toHaveBeenCalledWith(expect.objectContaining({
       runId: "child-run",
@@ -1390,6 +1512,70 @@ describe("background child-agent delegation", () => {
     }));
     const executeInput = executeRun.mock.calls[0]?.[0];
     expect(executeInput?.agent?.custom_params?.workspace_root).toBe("C:\\workspace");
+    expect(participantRuns.registerParticipantRun).toHaveBeenCalledWith(expect.objectContaining({
+      childAgentId: "child_worker",
+      runId: "child-run",
+    }));
+    expect(participantRuns.registerParticipantRun.mock.invocationCallOrder[0])
+      .toBeLessThan(executeRun.mock.invocationCallOrder[0]!);
+    expect(participantRuns.releaseParticipantRun).toHaveBeenCalledWith({
+      childAgentId: "child_worker",
+      runId: "child-run",
+    });
+    expect(completeAgentMailboxContinuation).not.toHaveBeenCalled();
+  });
+
+  it("reports a resumed mailbox child continuation to its parent", async () => {
+    const worker = workerAgent();
+    const executeRun = vi.fn(async () => ({ success: true, content: "resumed result" }));
+    const participantRuns = {
+      registerParticipantRun: vi.fn(async () => undefined),
+      releaseParticipantRun: vi.fn(),
+    };
+    const completeAgentMailboxContinuation = vi.fn(async () => undefined);
+    const resume = createResumeExecutor({
+      invocationService: new AgentInvocationService({ executeRun } as never),
+      runtimeCore: runtimeCore(worker),
+      participantRuns,
+      completeAgentMailboxContinuation,
+    });
+    const claim = {
+      claimed: true as const,
+      claimId: "claim-mailbox",
+      batchId: "batch-mailbox",
+      rootRunId: "mailbox-run",
+      rootCallId: "mailbox-call",
+      agentName: "worker",
+      threadKey: "child:child_worker",
+      parentRunId: "parent-run",
+      parentCallId: "parent-tool-call",
+      lineageParentCallId: "parent-call",
+      childAgentId: "child_worker",
+      workspaceRoot: null,
+      task: "continue mailbox request",
+      requestId: "agent_result:message-1",
+      executionKind: "system.agent_message",
+      userId: null,
+      sessionIdentity: toSessionIdentity(session()),
+      resolutions: [],
+    };
+
+    const started = await resume.startClaim({ sessionId: "session-1", claim });
+    const outcome = await started.promise;
+
+    expect(outcome).toEqual(expect.objectContaining({ success: true, content: "resumed result" }));
+    expect(completeAgentMailboxContinuation).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "session-1",
+      sourceRunId: "mailbox-run",
+      sourceAgentCallId: "mailbox-call",
+      sourceAgentName: "worker",
+      sourceChildAgentId: "child_worker",
+      parentRunId: "parent-run",
+      replyToMessageId: "message-1",
+      outcome: expect.objectContaining({ success: true, content: "resumed result" }),
+    }));
+    expect(participantRuns.releaseParticipantRun.mock.invocationCallOrder[0])
+      .toBeGreaterThan(completeAgentMailboxContinuation.mock.invocationCallOrder[0]!);
   });
 });
 

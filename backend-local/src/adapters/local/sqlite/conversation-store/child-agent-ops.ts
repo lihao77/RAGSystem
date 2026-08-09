@@ -125,15 +125,18 @@ export class ChildAgentOps {
   }
 
   updateChildAgentLastRun(input: UpdateChildAgentLastRunInput): boolean {
-    const result = this.db
-      .prepare(
-        `
-          UPDATE child_agents
-          SET last_run_id=?, updated_at=CURRENT_TIMESTAMP
-          WHERE session_id=? AND child_agent_id=?
-        `,
-      )
-      .run(input.lastRunId, input.sessionId, input.childAgentId);
+    const hasExpectation = Object.prototype.hasOwnProperty.call(input, "expectedLastRunId");
+    const result = this.db.prepare(`
+      UPDATE child_agents
+      SET last_run_id=?, updated_at=CURRENT_TIMESTAMP
+      WHERE session_id=? AND child_agent_id=?
+        ${hasExpectation ? "AND last_run_id IS ?" : ""}
+    `).run(
+      input.lastRunId,
+      input.sessionId,
+      input.childAgentId,
+      ...(hasExpectation ? [input.expectedLastRunId ?? null] : []),
+    );
     return Number(result.changes) > 0;
   }
 }

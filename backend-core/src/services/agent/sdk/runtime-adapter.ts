@@ -349,6 +349,10 @@ export async function executeRunWithSdk(
     (max, m) => (m && typeof m.seq === "number" && m.seq > max ? m.seq : max),
     0,
   );
+  const deliveredMailboxMessageIds = new Set<string>();
+  for (const message of built.rawMessages) {
+    if (message?.metadata?.agent_message === true) deliveredMailboxMessageIds.add(message.id);
+  }
   const mailboxConsumerId = `${process.pid}:${input.runId}:${randomUUID()}`;
   let mailboxCancelRequested = false;
   // Follow-ups are persisted atomically before their sender receives an ACK.
@@ -360,6 +364,7 @@ export async function executeRunWithSdk(
       const tk = ctx.session.threadKey;
       const mailboxAcceptedIds = new Set<string>();
       const mailboxClaims: Array<{ messageId: string; claimId: string }> = [];
+      const duplicateMailboxClaims: Array<{ messageId: string; claimId: string }> = [];
       const refreshStartSeq = lastSeq;
       let mailboxMaxSeq = lastSeq;
       const mailbox = deps.storage.agentMailbox;
@@ -414,10 +419,6 @@ export async function executeRunWithSdk(
               });
             }
             if (!persisted) throw new Error(`Agent mailbox history write returned no message: ${mailboxMessage.message_id}`);
-            // A claimed message is new work for this invocation even when its
-            // history row predates the current refresh watermark. This happens
-            // after a previous context-build failure released the claim.
-            mailboxAcceptedIds.add(mailboxMessage.message_id);
             mailboxMaxSeq = Math.max(mailboxMaxSeq, persisted.seq);
             deps.eventPublisher.publishAgentMessage({
               sessionId: sid,
@@ -432,7 +433,10 @@ export async function executeRunWithSdk(
             if (mailboxMessage.kind === "cancel") {
               await mailbox.ack({ sessionId: sid, ...claim });
               mailboxCancelRequested = true;
+            } else if (deliveredMailboxMessageIds.has(mailboxMessage.message_id)) {
+              duplicateMailboxClaims.push(claim);
             } else {
+              mailboxAcceptedIds.add(mailboxMessage.message_id);
               mailboxClaims.push(claim);
             }
           } catch (error) {
@@ -483,6 +487,11 @@ export async function executeRunWithSdk(
         .map((message) => message.id);
       if (lastMsg && typeof lastMsg.seq === "number") lastSeq = Math.max(lastSeq, lastMsg.seq);
       lastSeq = Math.max(lastSeq, mailboxMaxSeq);
+      if (mailbox) {
+        for (const claim of duplicateMailboxClaims) {
+          await mailbox.ack({ sessionId: sid, ...claim });
+        }
+      }
       if (accepted.length === 0 && mailboxAcceptedIds.size === 0) return [];
       // Reuse the canonical history pipeline for follow-ups so command_ref, attachments,
       // and metadata extensions have the exact same Agent projection as the first request.
@@ -510,6 +519,7 @@ export async function executeRunWithSdk(
           await mailbox.ack({ sessionId: sid, ...claim });
         }
       }
+      for (const messageId of mailboxAcceptedIds) deliveredMailboxMessageIds.add(messageId);
       await sessionMetadata.flush();
       const acceptedIds = new Set([...mailboxAcceptedIds, ...accepted]);
       return refreshed.conversation.flatMap((message, index): ChatMessage[] => {

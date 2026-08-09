@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentConfigSchema, type AgentConfig } from "../src/contracts/agent/agent-config.js";
 import { executeRunWithSdk, type SdkRuntimeAdapterDeps } from "../src/services/agent/sdk/runtime-adapter.js";
-import type { SessionIdentity } from "../src/contracts/session/session.js";
+import type { MessageInfo, SessionIdentity } from "../src/contracts/session/session.js";
 import type { AgentMailboxStorePort } from "../src/contracts/storage/agent-mailbox-repository.js";
 import { createTestTeamSnapshot } from "./session-team-fixture.js";
 
@@ -196,7 +196,7 @@ describe("executeRunWithSdk terminal convergence", () => {
           expect(refreshed[0]?.content).toContain("[agent-message kind=request id=mailbox-1");
           expect(refreshed[0]?.content).toContain("please continue");
           const retried = await options.refresher.refresh({ session: { sessionId: "session-1", threadKey: "child-thread" } }, 0);
-          expect(retried).toHaveLength(1);
+          expect(retried).toHaveLength(0);
           return { content: "done", contentParts: [], finishReason: "stop", metadata: {} };
         })(),
       }),
@@ -219,6 +219,89 @@ describe("executeRunWithSdk terminal convergence", () => {
         agent_message_target_thread_key: "child-thread",
       }),
     }));
+  });
+
+  it("重领已经进入初始上下文的 mailbox 消息时只 ACK 不重复追加", async () => {
+    runtimeMock.createRuntime.mockReset();
+    const historyMessage: MessageInfo = {
+      seq: 1,
+      id: "mailbox-retry",
+      session_id: "session-1",
+      role: "user",
+      content: "[agent-message kind=request id=mailbox-retry]\nplease continue\n[/agent-message]",
+      content_parts: [{ type: "text", text: "please continue" }],
+      metadata: { agent_message: true },
+      thread_key: "child-thread",
+      child_agent_id: "child-1",
+      created_at: new Date(0).toISOString(),
+    };
+    const mailbox: AgentMailboxStorePort = {
+      claim: vi.fn(async () => [{
+        seq: 1,
+        message_id: "mailbox-retry",
+        tenant_id: "tenant-1",
+        session_id: "session-1",
+        source_run_id: "parent-run",
+        source_agent_call_id: "parent-call",
+        target_run_id: "run-1",
+        target_agent_call_id: "call-1",
+        target_thread_key: "child-thread",
+        target_child_agent_id: "child-1",
+        kind: "request",
+        correlation_id: "corr-1",
+        reply_to_message_id: null,
+        content_parts: [{ type: "text", text: "please continue" }],
+        metadata: {},
+        status: "claimed",
+        attempt_count: 2,
+        claim_id: "claim-retry",
+        claimed_by: "worker",
+        claim_expires_at: new Date(Date.now() + 30_000).toISOString(),
+        available_at: new Date(0).toISOString(),
+        expires_at: null,
+        last_error: "previous context build failed",
+        created_at: new Date(0).toISOString(),
+        updated_at: new Date(0).toISOString(),
+        acked_at: null,
+      }] as any),
+      ack: vi.fn(async () => true),
+      release: vi.fn(async () => true),
+      enqueue: vi.fn(),
+      get: vi.fn(async () => null),
+      expire: vi.fn(async () => 0),
+    };
+    const base = deps(
+      vi.fn(async () => ({ finalMessage: null, records: [], readyResumeInteractionIds: [] })),
+      vi.fn(async () => ({ kind: "started", run: {} })),
+      vi.fn(async () => undefined),
+    );
+    base.storage.agentMailbox = mailbox;
+    base.storage.conversation.getRecentMessages = vi.fn(async () => [historyMessage]);
+    base.storage.conversation.getMessageById = vi.fn(async () => historyMessage);
+    base.storage.conversation.addMessage = vi.fn();
+    runtimeMock.createRuntime.mockImplementation((options: any) => ({
+      run: () => ({
+        runId: "run-1",
+        events: (async function* () {})(),
+        result: (async () => {
+          const refreshed = await options.refresher.refresh({
+            session: { sessionId: "session-1", threadKey: "child-thread" },
+          }, 0);
+          expect(refreshed).toHaveLength(0);
+          return { content: "done", contentParts: [], finishReason: "stop", metadata: {} };
+        })(),
+      }),
+      close: vi.fn(),
+    }));
+
+    const result = await executeRunWithSdk(base, input({ threadKey: "child-thread", childAgentId: "child-1" }));
+
+    expect(result.success).toBe(true);
+    expect(mailbox.ack).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: "mailbox-retry",
+      claimId: "claim-retry",
+    }));
+    expect(base.storage.conversation.addMessage).not.toHaveBeenCalled();
   });
 
   it("startRun 已提交后初始化回调失败也会落 failed 终态消息", async () => {

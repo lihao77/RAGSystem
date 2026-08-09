@@ -178,6 +178,8 @@ export interface UpdateChildAgentLastRunInput {
   sessionId: string;
   childAgentId: string;
   lastRunId: string;
+  /** When present, update only if the participant still points at this Run. */
+  expectedLastRunId?: string | null;
 }
 
 export const AddRunStepInputSchema = z.object({

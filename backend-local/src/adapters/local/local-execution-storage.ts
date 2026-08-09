@@ -28,6 +28,7 @@ export function createLocalExecutionStorage(input: {
     },
     resultReader: {
       getRun: async (sessionId, runId) => input.conversation.getRun(sessionId, runId),
+      listRuns: async (sessionId, limit) => input.conversation.listRuns(sessionId, limit),
       getMessageById: async (sessionId, messageId) => input.conversation.getMessageById(sessionId, messageId),
       listRunSteps: async (query) => input.conversation.listRunSteps(query),
     },

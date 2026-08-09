@@ -357,9 +357,9 @@ function visibleConversationMessageSql(alias = "", threadKeyParam = "$3"): strin
   const metadata = column("metadata");
   return `${column("thread_key")}=${threadKeyParam}
     AND ${column("role")} IN ('user','assistant','system')
-    AND ${metadata}->>'react_intermediate' IS DISTINCT FROM 'true'
-    AND ${metadata}->>'hidden' IS DISTINCT FROM 'true'
-    AND (${metadata}->>'visible_to_user' IS DISTINCT FROM 'false' OR ${metadata}->>'agent_message' = 'true')
+    AND ${metadata}->'react_intermediate' IS DISTINCT FROM 'true'::jsonb
+    AND ${metadata}->'hidden' IS DISTINCT FROM 'true'::jsonb
+    AND (${metadata}->'visible_to_user' IS DISTINCT FROM 'false'::jsonb OR ${metadata}->'agent_message' = 'true'::jsonb)
     AND (${threadKeyParam} <> 'root' OR (
       ${column("child_agent_id")} IS NULL
       AND ${metadata}->>'conversation_scope' IS DISTINCT FROM 'child'

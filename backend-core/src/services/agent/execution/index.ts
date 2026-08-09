@@ -42,11 +42,13 @@ import type { ExecutionStartOptions } from "../../../contracts/execution/executi
 import type { GoalStore } from "../../../contracts/runtime/goals.js";
 import {
   createLaunchers,
+  type AgentMailboxContinuationCompletionInput,
   type RollbackRetryInput,
 } from "./launchers.js";
 import { createSessionControl } from "./session-control.js";
 import { createExecutionQueryService } from "./query.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
+import type { ParticipantRunLifecyclePort } from "../delegation/port.js";
 
 export type { AgentExecutionLogger } from "./run-engine.js";
 export type { RollbackRetryInput } from "./launchers.js";
@@ -66,6 +68,7 @@ export interface AgentExecutionServiceApi {
   /** Session idle 时消费后台通知，并在 Goal active 时拉起 continuation system run。 */
   triggerBgNotificationRun(sessionId: string): void;
   triggerAgentMailboxRun(target: AgentMailboxWakeupTarget): void;
+  completeAgentMailboxContinuation(input: AgentMailboxContinuationCompletionInput): Promise<void>;
   stopSession(sessionId: string): Promise<boolean>;
   getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics;
   getTaskStatus(taskId: string): ScopedTaskStatus;
@@ -114,6 +117,7 @@ export interface AgentExecutionServiceParams {
   compressionService?: AgentCompressionService;
   runtimeStorage: RuntimeStorage;
   executionEnvironment?: ExecutionEnvironmentCapability | null;
+  participantRuns: ParticipantRunLifecyclePort;
 }
 
 /**
@@ -190,6 +194,7 @@ export function createAgentExecutionService(
     clientEvents: params.clientEvents,
     mailbox: params.executionStorage?.agentMailbox ?? null,
     runReader: params.executionStorage?.resultReader,
+    participantRuns: params.participantRuns,
   });
   const sessionControl = createSessionControl({
     statusTracker,

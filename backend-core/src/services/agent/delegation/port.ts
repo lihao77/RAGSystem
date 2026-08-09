@@ -53,3 +53,21 @@ export interface DelegationPort {
 }
 
 export type AgentMailboxWakeupHandler = (target: AgentMailboxWakeupTarget) => void;
+
+export interface ParticipantRunRoute {
+  sessionId: string;
+  childAgentId: string;
+  runId: string;
+  agentCallId: string;
+  rootRunId: string | null;
+  parentRunId: string | null;
+  parentCallId: string | null;
+  lineageParentCallId: string | null;
+  replacesRunId?: string | null;
+}
+
+/** Keeps participant routing aligned with child Runs started outside the delegation tool call. */
+export interface ParticipantRunLifecyclePort {
+  registerParticipantRun(route: ParticipantRunRoute): Promise<void>;
+  releaseParticipantRun(input: { childAgentId: string; runId: string }): void;
+}

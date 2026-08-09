@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type {
   AgentExecuteResult,
@@ -14,6 +14,7 @@ import {
   type SessionIdentity,
   type SessionOriginChannel,
 } from "../../../contracts/session/session.js";
+import { isRootUserRevisionAnchor } from "../../../contracts/session/message-visibility.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import { asString, renderBackgroundNotification } from "./helpers.js";
@@ -38,10 +39,13 @@ import type {
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import type { RunInfo } from "../../../contracts/conversation-store/index.js";
 import type {
   AgentInvocationHandle,
+  AgentInvocationOutcome,
   AgentInvocationPort,
 } from "../../../contracts/execution/agent-invocation.js";
+import type { ParticipantRunLifecyclePort } from "../delegation/port.js";
 
 interface UnifiedRunStartInput {
   sessionId: string;
@@ -103,6 +107,18 @@ export interface RollbackRetryInput {
   uiContext?: Record<string, unknown> | null;
 }
 
+export interface AgentMailboxContinuationCompletionInput {
+  sessionId: string;
+  sourceRunId: string;
+  sourceAgentCallId: string;
+  sourceAgentName: string;
+  sourceChildAgentId: string;
+  parentRunId: string | null;
+  correlationId?: string | null;
+  replyToMessageId?: string | null;
+  outcome: AgentInvocationOutcome;
+}
+
 export interface LauncherApi {
   startStream(request: StreamExecuteRequest, requestId: string, options?: ExecutionStartOptions): Promise<AgentRunStartResult>;
   executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult>;
@@ -110,6 +126,7 @@ export interface LauncherApi {
   /** Session idle 检查：消费后台通知，并在 Goal active 时拉起 continuation run。 */
   triggerBgNotificationRun(sessionId: string): void;
   triggerAgentMailboxRun(target: AgentMailboxWakeupTarget): void;
+  completeAgentMailboxContinuation(input: AgentMailboxContinuationCompletionInput): Promise<void>;
 }
 
 export interface LauncherDeps {
@@ -128,7 +145,54 @@ export interface LauncherDeps {
   runtimeStorage: RuntimeStorage;
   clientEvents: ClientEventPublisher;
   mailbox?: AgentMailboxStorePort | null;
-  runReader?: Pick<ExecutionResultReader, "getRun">;
+  runReader?: Pick<ExecutionResultReader, "getRun"> & Partial<Pick<ExecutionResultReader, "getMessageById" | "listRuns">>;
+  participantRuns: ParticipantRunLifecyclePort;
+}
+
+interface MailboxLaunchState {
+  target: AgentMailboxWakeupTarget;
+  dirty: boolean;
+}
+
+type MailboxLaunchDisposition = "completed" | "deferred" | "skipped";
+
+export const MAILBOX_CONTINUATION_REQUEST_PREFIX = "agent_result:";
+
+export function mailboxContinuationSourceMessageId(requestId: string | null | undefined): string | null {
+  const normalized = requestId?.trim() ?? "";
+  if (!normalized.startsWith(MAILBOX_CONTINUATION_REQUEST_PREFIX)) return null;
+  return normalized.slice(MAILBOX_CONTINUATION_REQUEST_PREFIX.length).trim() || null;
+}
+
+function mailboxContinuationIds(target: AgentMailboxWakeupTarget): {
+  runId: string;
+  taskId: string;
+  rootCallId: string;
+} | null {
+  const sourceMessageId = target.sourceMessageId?.trim();
+  if (!sourceMessageId) return null;
+  const digest = createHash("sha256")
+    .update(`${target.sessionId}\0${target.targetRunId}\0${target.targetAgentCallId ?? ""}\0${sourceMessageId}`)
+    .digest("hex")
+    .slice(0, 32);
+  return {
+    runId: `mailbox_${digest}`,
+    taskId: `mailbox_task_${digest}`,
+    rootCallId: `call_mailbox_${digest}`,
+  };
+}
+
+function mailboxTargetMatchesRun(target: AgentMailboxWakeupTarget, run: RunInfo): boolean {
+  return run.session_id === target.sessionId
+    && run.run_id === target.targetRunId
+    && run.agent_call_id === target.targetAgentCallId
+    && run.thread_key === target.targetThreadKey
+    && run.child_agent_id === target.targetChildAgentId
+    && run.agent_name === target.targetAgentName
+    && run.lease_root_run_id === target.targetRootRunId
+    && run.parent_run_id === target.targetParentRunId
+    && run.parent_call_id === target.targetParentCallId
+    && run.lineage_parent_call_id === target.targetLineageParentCallId;
 }
 
 /**
@@ -137,7 +201,7 @@ export interface LauncherDeps {
  */
 class AgentLaunchers {
   private readonly idleLaunches = new Set<string>();
-  private readonly mailboxLaunches = new Set<string>();
+  private readonly mailboxLaunches = new Map<string, MailboxLaunchState>();
 
   constructor(
     private readonly tenantId: TenantId,
@@ -155,7 +219,8 @@ class AgentLaunchers {
     private readonly runtimeStorage: RuntimeStorage,
     private readonly clientEvents: ClientEventPublisher,
     private readonly mailbox: AgentMailboxStorePort | null,
-    private readonly runReader: Pick<ExecutionResultReader, "getRun"> | null,
+    private readonly runReader: (Pick<ExecutionResultReader, "getRun"> & Partial<Pick<ExecutionResultReader, "getMessageById" | "listRuns">>) | null,
+    private readonly participantRuns: ParticipantRunLifecyclePort,
   ) {}
 
   private async durableActiveRunId(sessionId: string): Promise<string | null> {
@@ -533,8 +598,8 @@ class AgentLaunchers {
     if (!retryMessage) {
       return { started: false, session_id: sessionId, deleted: 0, error: "未找到要重试的用户消息" };
     }
-    if (retryMessage.role !== "user") {
-      return { started: false, session_id: sessionId, deleted: 0, error: "指定位置必须是用户消息（user），才能从此处重试" };
+    if (!isRootUserRevisionAnchor(retryMessage)) {
+      return { started: false, session_id: sessionId, deleted: 0, error: "只能从根会话中的用户消息重试" };
     }
     const task = input.modifyUserMessage?.trim() || retryMessage.content.trim();
     if (!task) {
@@ -704,40 +769,102 @@ class AgentLaunchers {
     const targetRunId = target.targetRunId.trim();
     if (!sessionId || !targetRunId) return;
     const key = `${sessionId}:${targetRunId}:${target.targetAgentCallId ?? ""}`;
-    if (this.mailboxLaunches.has(key)) return;
-    this.mailboxLaunches.add(key);
-    void this.startAgentMailboxRun(target)
+    const existing = this.mailboxLaunches.get(key);
+    if (existing) {
+      existing.target = target;
+      existing.dirty = true;
+      return;
+    }
+    const state: MailboxLaunchState = { target, dirty: false };
+    this.mailboxLaunches.set(key, state);
+    void this.drainAgentMailboxTarget(state)
       .catch(() => undefined)
-      .finally(() => this.mailboxLaunches.delete(key));
+      .finally(() => {
+        if (this.mailboxLaunches.get(key) !== state) return;
+        this.mailboxLaunches.delete(key);
+        if (state.dirty) this.triggerAgentMailboxRun(state.target);
+      });
   }
 
-  private async startAgentMailboxRun(target: AgentMailboxWakeupTarget): Promise<void> {
+  private async drainAgentMailboxTarget(state: MailboxLaunchState): Promise<void> {
+    for (;;) {
+      state.dirty = false;
+      const disposition = await this.startAgentMailboxRun(state.target);
+      if (disposition === "deferred") {
+        if (state.dirty) continue;
+        return;
+      }
+      if (disposition !== "completed") return;
+      const next = await this.findStablePendingMailboxTarget(state);
+      if (!next) return;
+      state.target = next;
+    }
+  }
+
+  private async findStablePendingMailboxTarget(
+    state: MailboxLaunchState,
+  ): Promise<AgentMailboxWakeupTarget | null> {
+    state.dirty = false;
+    const pending = await this.findPendingMailboxTarget(state.target);
+    if (pending) return pending;
+    return state.dirty ? state.target : null;
+  }
+
+  private async findPendingMailboxTarget(
+    target: AgentMailboxWakeupTarget,
+  ): Promise<AgentMailboxWakeupTarget | null> {
+    const pending = await this.mailbox?.listPending?.({
+      sessionId: target.sessionId,
+      targetRunId: target.targetRunId,
+      targetAgentCallId: target.targetAgentCallId,
+      targetThreadKey: target.targetThreadKey,
+      targetChildAgentId: target.targetChildAgentId,
+      limit: 1,
+    }) ?? [];
+    const first = pending[0];
+    return first?.target_run_id ? toMailboxWakeupTarget(first) : null;
+  }
+
+  private async startAgentMailboxRun(target: AgentMailboxWakeupTarget): Promise<MailboxLaunchDisposition> {
     const targetsChild = Boolean(target.targetChildAgentId);
     if (!targetsChild) {
       const currentStatus = this.statusTracker.getStatusBySession(target.sessionId)?.status;
-      if (currentStatus === "running" || currentStatus === "suspended") return;
-      if (await this.durableActiveRunId(target.sessionId)) return;
-      if (await this.backgroundTasks?.hasRunningTasksDurable(target.sessionId)) return;
+      if (currentStatus === "running" || currentStatus === "suspended") return "deferred";
+      if (await this.durableActiveRunId(target.sessionId)) return "deferred";
+      if (await this.backgroundTasks?.hasRunningTasksDurable(target.sessionId)) return "deferred";
     }
-    if (!this.runReader) return;
+    if (!this.mailbox || !this.runReader) return "skipped";
     const durableTarget = await this.runReader.getRun(target.sessionId, target.targetRunId);
-    if (!durableTarget) return;
-    if (durableTarget?.status === "running" || durableTarget?.status === "suspended") return;
+    if (!durableTarget) return "skipped";
+    if (!mailboxTargetMatchesRun(target, durableTarget)) return "skipped";
+    if (durableTarget.status === "running" || durableTarget.status === "suspended") return "deferred";
+    if (!target.sourceMessageId) {
+      const pendingTarget = await this.findPendingMailboxTarget(target);
+      if (!pendingTarget) return "skipped";
+      target = pendingTarget;
+    }
+    const sourceMessage = target.sourceMessageId
+      ? await this.mailbox.get(target.sessionId, target.sourceMessageId)
+      : null;
+    if (!sourceMessage || sourceMessage.status !== "queued") return "skipped";
+    const durableSourceTarget = toMailboxWakeupTarget(sourceMessage);
+    if (!mailboxTargetMatchesRun(durableSourceTarget, durableTarget)) return "skipped";
+    target = durableSourceTarget;
     const session = await this.sessions.getSession(target.sessionId);
-    if (!session) return;
+    if (!session) return "skipped";
     const sessionIdentity = toSessionIdentity(session);
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {
-        agentName: target.targetAgentName,
+        agentName: durableTarget.agent_name,
         teamSnapshot: sessionIdentity.teamSnapshot,
         selectedLlm: null,
       },
     );
-    if (!ready.ok) return;
-    const runId = randomUUID();
-    const taskId = randomUUID();
-    const rootCallId = `call_${randomUUID()}`;
+    if (!ready.ok) return "skipped";
+    const continuationIds = mailboxContinuationIds(target);
+    if (!continuationIds) return "skipped";
+    const { runId, taskId, rootCallId } = continuationIds;
     const task = "处理来自 Agent 的消息，并继续当前任务。";
     const base = {
       mode: "create" as const,
@@ -747,7 +874,7 @@ class AgentLaunchers {
       runId,
       taskId,
       rootCallId,
-      requestId: `agent_result_${target.targetRunId}`,
+      requestId: `${MAILBOX_CONTINUATION_REQUEST_PREFIX}${target.sourceMessageId}`,
       task,
       executionKind: "system.agent_message",
       agent: ready.agent,
@@ -756,68 +883,117 @@ class AgentLaunchers {
       mailboxTargetRunId: target.targetRunId,
       mailboxTargetAgentCallId: target.targetAgentCallId,
     };
-    const started = target.targetChildAgentId
-      ? this.invocationService.invoke({
-          ...base,
-          scope: "child",
-          startedAt: new Date(),
-          threadKey: target.targetThreadKey,
+    let participantRegistered = false;
+    let completedChildTarget: AgentMailboxWakeupTarget | null = null;
+    try {
+      if (target.targetChildAgentId) {
+        await this.participantRuns.registerParticipantRun({
+          sessionId: target.sessionId,
+          childAgentId: target.targetChildAgentId,
+          runId,
+          agentCallId: rootCallId,
           rootRunId: target.targetRootRunId ?? target.targetRunId,
-          interactionRootCallId: target.targetAgentCallId ?? rootCallId,
           parentRunId: target.targetParentRunId,
           parentCallId: target.targetParentCallId,
           lineageParentCallId: target.targetLineageParentCallId,
-          childAgentId: target.targetChildAgentId,
-          ownsRunLease: true,
-        })
-      : this.invocationService.invoke({
-          ...base,
-          scope: "root",
-          rootCallId,
+          replacesRunId: target.targetRunId,
         });
-    try {
+        participantRegistered = true;
+      }
+      const started = target.targetChildAgentId
+        ? this.invocationService.invoke({
+            ...base,
+            scope: "child",
+            startedAt: new Date(),
+            threadKey: target.targetThreadKey,
+            rootRunId: target.targetRootRunId ?? target.targetRunId,
+            interactionRootCallId: target.targetAgentCallId ?? rootCallId,
+            parentRunId: target.targetParentRunId,
+            parentCallId: target.targetParentCallId,
+            lineageParentCallId: target.targetLineageParentCallId,
+            childAgentId: target.targetChildAgentId,
+            ownsRunLease: true,
+          })
+        : this.invocationService.invoke({
+            ...base,
+            scope: "root",
+            rootCallId,
+          });
       await started.durableStarted;
       const outcome = await started.promise;
       if (targetsChild && !outcome.suspended) {
-        await this.enqueueMailboxContinuationResult(target, runId, rootCallId, outcome);
+        completedChildTarget = {
+          ...target,
+          targetRunId: runId,
+          targetAgentCallId: rootCallId,
+        };
+        await this.completeAgentMailboxContinuation({
+          sessionId: target.sessionId,
+          sourceRunId: runId,
+          sourceAgentCallId: rootCallId,
+          sourceAgentName: target.targetAgentName ?? ready.agent.agent_name,
+          sourceChildAgentId: target.targetChildAgentId!,
+          parentRunId: target.targetParentRunId,
+          correlationId: target.correlationId ?? null,
+          replyToMessageId: target.sourceMessageId ?? null,
+          outcome,
+        });
       }
+      return outcome.suspended ? "skipped" : "completed";
     } finally {
-      this.backgroundTasks?.scheduleAutoTrigger(target.sessionId);
+      if (participantRegistered && target.targetChildAgentId) {
+        this.participantRuns.releaseParticipantRun({
+          childAgentId: target.targetChildAgentId,
+          runId,
+        });
+      }
+      try {
+        if (completedChildTarget) {
+          const pending = await this.findPendingMailboxTarget(completedChildTarget);
+          if (pending) this.triggerAgentMailboxRun(pending);
+        }
+      } finally {
+        this.backgroundTasks?.scheduleAutoTrigger(target.sessionId);
+      }
     }
   }
 
-  private async enqueueMailboxContinuationResult(
-    target: AgentMailboxWakeupTarget,
-    sourceRunId: string,
-    sourceAgentCallId: string,
-    outcome: Awaited<AgentInvocationHandle["promise"]>,
-  ): Promise<void> {
-    if (!this.mailbox || !this.runReader || !target.targetParentRunId) return;
-    const parent = await this.runReader.getRun(target.sessionId, target.targetParentRunId);
+  async completeAgentMailboxContinuation(input: AgentMailboxContinuationCompletionInput): Promise<void> {
+    if (!this.mailbox || !this.runReader || !input.parentRunId) return;
+    const parent = await this.runReader.getRun(input.sessionId, input.parentRunId);
     if (!parent) return;
-    const content = outcome.content.trim() || (outcome.success ? "子 Agent 已完成消息处理" : "子 Agent 消息处理失败");
+    const repliedMessage = input.replyToMessageId && !input.correlationId
+      ? await this.mailbox.get(input.sessionId, input.replyToMessageId)
+      : null;
+    const content = input.outcome.content.trim()
+      || (input.outcome.success ? "子 Agent 已完成消息处理" : "子 Agent 消息处理失败");
     const queued = await this.mailbox.enqueue({
-      messageId: `${sourceRunId}:terminal_result`,
+      messageId: `${input.sourceRunId}:terminal_result`,
       tenantId: this.tenantId,
-      sessionId: target.sessionId,
-      sourceRunId,
-      sourceAgentCallId,
+      sessionId: input.sessionId,
+      sourceRunId: input.sourceRunId,
+      sourceAgentCallId: input.sourceAgentCallId,
       targetRunId: parent.run_id,
       targetAgentCallId: parent.agent_call_id,
       targetThreadKey: parent.thread_key,
       targetChildAgentId: parent.child_agent_id,
       kind: "result",
-      correlationId: target.correlationId ?? target.sourceMessageId ?? sourceAgentCallId,
-      replyToMessageId: target.sourceMessageId ?? null,
-      contentParts: outcome.contentParts?.length ? outcome.contentParts : [{ type: "text", text: content }],
+      correlationId: input.correlationId
+        ?? repliedMessage?.correlation_id
+        ?? input.replyToMessageId
+        ?? input.sourceAgentCallId,
+      replyToMessageId: input.replyToMessageId ?? null,
+      contentParts: input.outcome.contentParts?.length
+        ? input.outcome.contentParts
+        : [{ type: "text", text: content }],
       metadata: {
         source: "agent_message_continuation_result",
         direction: "child_to_parent",
-        source_agent_name: target.targetAgentName,
-        source_child_agent_id: target.targetChildAgentId,
-        child_agent_id: target.targetChildAgentId,
-        child_run_id: sourceRunId,
-        child_agent_call_id: sourceAgentCallId,
+        source_agent_name: input.sourceAgentName,
+        source_child_agent_id: input.sourceChildAgentId,
+        child_agent_id: input.sourceChildAgentId,
+        child_run_id: input.sourceRunId,
+        child_agent_call_id: input.sourceAgentCallId,
         target_agent_name: parent.agent_name,
         target_child_agent_id: parent.child_agent_id,
         target_thread_key: parent.thread_key,
@@ -826,13 +1002,13 @@ class AgentLaunchers {
         target_parent_call_id: parent.parent_call_id,
         target_parent_agent_call_id: parent.lineage_parent_call_id,
         target_lineage_parent_call_id: parent.lineage_parent_call_id,
-        status: outcome.success ? "completed" : "failed",
-        success: outcome.success,
+        status: input.outcome.success ? "completed" : "failed",
+        success: input.outcome.success,
         visible_to_user: false,
       },
     });
     this.triggerAgentMailboxRun({
-      sessionId: target.sessionId,
+      sessionId: input.sessionId,
       targetRunId: parent.run_id,
       targetAgentCallId: parent.agent_call_id,
       targetThreadKey: parent.thread_key,
@@ -845,6 +1021,53 @@ class AgentLaunchers {
       sourceMessageId: queued.message_id,
       correlationId: queued.correlation_id,
     });
+  }
+
+  private async recoverMailboxContinuationResults(sessionId: string): Promise<void> {
+    if (!this.mailbox || !this.runReader?.listRuns || !this.runReader.getMessageById) return;
+    const runs = await this.runReader.listRuns(sessionId, 500);
+    for (const run of runs.items) {
+      if (
+        run.entrypoint !== "system.agent_message"
+        || !run.child_agent_id
+        || !run.parent_run_id
+        || !run.final_message_id
+        || !["completed", "failed", "interrupted"].includes(run.status)
+        || !run.request_id?.startsWith(MAILBOX_CONTINUATION_REQUEST_PREFIX)
+      ) {
+        continue;
+      }
+      const sourceMessageId = run.request_id.slice(MAILBOX_CONTINUATION_REQUEST_PREFIX.length).trim();
+      if (!sourceMessageId) continue;
+      const existingResult = await this.mailbox.get(sessionId, `${run.run_id}:terminal_result`);
+      if (existingResult) {
+        if (existingResult.status === "queued" && existingResult.target_run_id) {
+          this.triggerAgentMailboxRun(toMailboxWakeupTarget(existingResult));
+        }
+        continue;
+      }
+      const [sourceMessage, finalMessage] = await Promise.all([
+        this.mailbox.get(sessionId, sourceMessageId),
+        this.runReader.getMessageById(sessionId, run.final_message_id),
+      ]);
+      if (!sourceMessage || !finalMessage) continue;
+      await this.completeAgentMailboxContinuation({
+        sessionId,
+        sourceRunId: run.run_id,
+        sourceAgentCallId: run.agent_call_id,
+        sourceAgentName: run.agent_name ?? "agent",
+        sourceChildAgentId: run.child_agent_id,
+        parentRunId: run.parent_run_id,
+        correlationId: sourceMessage.correlation_id,
+        replyToMessageId: sourceMessageId,
+        outcome: {
+          content: finalMessage.content,
+          contentParts: finalMessage.content_parts,
+          success: run.status === "completed",
+          runId: run.run_id,
+        },
+      });
+    }
   }
 
   private async startSessionIdleRun(sessionId: string): Promise<void> {
@@ -861,6 +1084,7 @@ class AgentLaunchers {
     };
 
     try {
+      await this.recoverMailboxContinuationResults(sessionId);
       const currentGoal = await this.goalStore?.getCurrent(sessionId) ?? null;
       const markReason = async (reason: GoalContinuationReason): Promise<void> => {
         if (currentGoal && this.goalStore?.setContinuationReason) {
@@ -1092,6 +1316,7 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.clientEvents,
     deps.mailbox ?? null,
     deps.runReader ?? null,
+    deps.participantRuns,
   );
   return {
     startStream: impl.startStream.bind(impl),
@@ -1099,5 +1324,6 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     startRollbackRetry: impl.startRollbackRetry.bind(impl),
     triggerBgNotificationRun: impl.triggerBgNotificationRun.bind(impl),
     triggerAgentMailboxRun: impl.triggerAgentMailboxRun.bind(impl),
+    completeAgentMailboxContinuation: impl.completeAgentMailboxContinuation.bind(impl),
   };
 }

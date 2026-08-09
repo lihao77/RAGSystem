@@ -152,11 +152,11 @@ export class MessageOps {
       : "";
     const where = `session_id=? AND thread_key=?
       AND role IN ('user', 'assistant', 'system')
-      AND COALESCE(json_extract(metadata, '$.react_intermediate'), 0) != 1
-      AND COALESCE(json_extract(metadata, '$.hidden'), 0) != 1
+      AND json_type(metadata, '$.react_intermediate') IS NOT 'true'
+      AND json_type(metadata, '$.hidden') IS NOT 'true'
       AND (
-        COALESCE(json_extract(metadata, '$.visible_to_user'), 1) != 0
-        OR COALESCE(json_extract(metadata, '$.agent_message'), 0) = 1
+        json_type(metadata, '$.visible_to_user') IS NOT 'false'
+        OR json_type(metadata, '$.agent_message') = 'true'
       )
       ${rootClause}`;
     const totalRow = this.db

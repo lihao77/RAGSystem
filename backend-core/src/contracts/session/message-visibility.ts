@@ -21,3 +21,12 @@ export function isParticipantConversationMessageVisible(
   }
   return true;
 }
+
+/** Only a human-facing root user turn may anchor a session-wide rollback/retry. */
+export function isRootUserRevisionAnchor(
+  message: Pick<MessageInfo, "role" | "metadata" | "thread_key" | "child_agent_id">,
+): boolean {
+  return message.role === "user"
+    && !isAgentConversationMessage(message)
+    && isParticipantConversationMessageVisible(message, "root");
+}

@@ -140,10 +140,18 @@ export class PostgresChildAgentRepository {
     tenantId: string,
     input: UpdateChildAgentLastRunInput,
   ): Promise<boolean> {
+    const hasExpectation = Object.prototype.hasOwnProperty.call(input, "expectedLastRunId");
     const result = await this.executor.query(
       `UPDATE saas_child_agents SET last_run_id=$1, updated_at=CURRENT_TIMESTAMP
-       WHERE tenant_id=$2 AND session_id=$3 AND child_agent_id=$4`,
-      [input.lastRunId, tenantId, input.sessionId, input.childAgentId],
+       WHERE tenant_id=$2 AND session_id=$3 AND child_agent_id=$4
+         ${hasExpectation ? "AND last_run_id IS NOT DISTINCT FROM $5" : ""}`,
+      [
+        input.lastRunId,
+        tenantId,
+        input.sessionId,
+        input.childAgentId,
+        ...(hasExpectation ? [input.expectedLastRunId ?? null] : []),
+      ],
     );
     return Number(result.rowCount ?? 0) > 0;
   }

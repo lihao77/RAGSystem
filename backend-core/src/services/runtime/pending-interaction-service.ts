@@ -285,9 +285,9 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
       throw new Error(`resume executor attach claim was lost: ${claim.claimId}`);
     }
     void this.publisher.deliver([attached.record.outbox]).catch(() => undefined);
-    let started: ReturnType<InteractionResumeStarter["startClaim"]>;
+    let started: Awaited<ReturnType<InteractionResumeStarter["startClaim"]>>;
     try {
-      started = this.resumeStarter.startClaim({ sessionId, claim });
+      started = await this.resumeStarter.startClaim({ sessionId, claim });
     } catch (error) {
       for (const item of claim.resolutions) this.resolutionCache.delete(cacheKey(sessionId, item.toolCallId));
       await this.runtimeStorage.operations.rollbackResume({

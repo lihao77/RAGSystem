@@ -121,10 +121,13 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     ...(dependencies.plugins ? { pluginTools: createPluginTools } : {}),
     runtimeStorage: dependencies.runtimeStorage,
     executionEnvironment,
+    participantRuns: agentDelegation,
   });
   const resumeExecutor = createResumeExecutor({
     invocationService: agentExecution.invocationService,
     runtimeCore,
+    participantRuns: agentDelegation,
+    completeAgentMailboxContinuation: agentExecution.completeAgentMailboxContinuation,
   });
   interactionCoordinator.bindResumeStarter(resumeExecutor);
   agentDelegation.setInvocationService(agentExecution.invocationService);

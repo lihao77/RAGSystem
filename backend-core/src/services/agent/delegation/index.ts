@@ -20,6 +20,8 @@ import type {
   AgentToolCall,
   ListChildAgentsCall,
   AgentMailboxWakeupHandler,
+  ParticipantRunLifecyclePort,
+  ParticipantRunRoute,
 } from "./port.js";
 import { buildAgentCallStart } from "./events.js";
 import {
@@ -158,7 +160,7 @@ export interface AgentDelegationLogger {
   error(bindings: Record<string, unknown>, message: string): void;
 }
 
-export class AgentDelegationService implements DelegationPort {
+export class AgentDelegationService implements DelegationPort, ParticipantRunLifecyclePort {
   private invocationService: AgentInvocationPort | null = null;
   private readonly activeChildRuns = new Map<string, ActiveChildRunRoute>();
   private mailboxWakeup: AgentMailboxWakeupHandler | null = null;
@@ -180,6 +182,44 @@ export class AgentDelegationService implements DelegationPort {
 
   setMailboxWakeup(handler: AgentMailboxWakeupHandler | null): void {
     this.mailboxWakeup = handler;
+  }
+
+  async registerParticipantRun(route: ParticipantRunRoute): Promise<void> {
+    const child = await this.store.getChildAgent(route.sessionId, route.childAgentId);
+    if (!child) throw new Error(`child Agent not found: ${route.childAgentId}`);
+    const existing = this.activeChildRuns.get(route.childAgentId);
+    if (existing && existing.runId !== route.runId && existing.runId !== route.replacesRunId) {
+      throw new Error(`child Agent already has an active Run: ${route.childAgentId}`);
+    }
+    const activeRoute: ActiveChildRunRoute = {
+      runId: route.runId,
+      agentCallId: route.agentCallId,
+      rootRunId: route.rootRunId,
+      parentRunId: route.parentRunId,
+      parentCallId: route.parentCallId,
+      lineageParentCallId: route.lineageParentCallId,
+    };
+    this.activeChildRuns.set(route.childAgentId, activeRoute);
+    try {
+      const updated = child.last_run_id === route.runId || await this.store.updateChildAgentLastRun({
+        sessionId: route.sessionId,
+        childAgentId: route.childAgentId,
+        lastRunId: route.runId,
+        expectedLastRunId: child.last_run_id,
+      });
+      if (!updated) throw new Error(`failed to update child Agent latest Run: ${route.childAgentId}`);
+    } catch (error) {
+      if (this.activeChildRuns.get(route.childAgentId) === activeRoute) {
+        this.activeChildRuns.delete(route.childAgentId);
+      }
+      throw error;
+    }
+  }
+
+  releaseParticipantRun(input: { childAgentId: string; runId: string }): void {
+    if (this.activeChildRuns.get(input.childAgentId)?.runId === input.runId) {
+      this.activeChildRuns.delete(input.childAgentId);
+    }
   }
 
   async listSessionParticipants(sessionId: string): Promise<SessionParticipantListData | null> {

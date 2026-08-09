@@ -79,7 +79,7 @@ export interface InteractionResumeStarter {
       sessionId: string;
       claim: Extract<RuntimeClaimResumeResult, { claimed: true }>;
     },
-  ): { promise: Promise<{ content: string; success: boolean; suspended?: boolean }> };
+  ): Promise<{ promise: Promise<{ content: string; success: boolean; suspended?: boolean }> }>;
 }
 
 export interface InteractionCoordinator extends PendingInteractionPort {
