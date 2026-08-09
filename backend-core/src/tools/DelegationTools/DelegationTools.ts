@@ -66,6 +66,11 @@ const sendMessageSchema = z.object({
   child_agent_id: z.string(),
   childAgentId: z.string().optional(),
   message: z.string(),
+  kind: z.enum(["progress", "request", "response", "result", "cancel"]).optional(),
+  correlation_id: z.string().optional(),
+  correlationId: z.string().optional(),
+  reply_to_message_id: z.string().optional(),
+  replyToMessageId: z.string().optional(),
   run_in_background: optionalBoolean,
   runInBackground: optionalBoolean,
 }).strict();
@@ -146,6 +151,19 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
         message: {
           type: "string",
           description: "Follow-up task or correction for the existing child Agent.",
+        },
+        kind: {
+          type: "string",
+          enum: ["progress", "request", "response", "result", "cancel"],
+          description: "Durable parent-child message semantic. Defaults to request.",
+        },
+        correlation_id: {
+          type: "string",
+          description: "Correlation id for request/response messages.",
+        },
+        reply_to_message_id: {
+          type: "string",
+          description: "Message id this response or result replies to.",
         },
         run_in_background: {
           type: "boolean",

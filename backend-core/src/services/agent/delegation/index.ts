@@ -6,6 +6,7 @@ import type { AgentInvocationPort } from "../../../contracts/execution/agent-inv
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ChildAgentInfo } from "../../../contracts/conversation-store/index.js";
 import type { AgentDelegationStorePort } from "../../../contracts/runtime/core-runtime-ports.js";
+import type { AgentMailboxStorePort } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../execution/runtime-core-service.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
@@ -71,6 +72,7 @@ export class AgentDelegationService implements DelegationPort {
     private readonly clientEvents: ClientEventPublisher | null = null,
     private readonly backgroundTasks: BackgroundTaskService | null = null,
     private readonly dataRoot: string | null = null,
+    private readonly mailbox: AgentMailboxStorePort | null = null,
   ) {}
 
   setInvocationService(service: AgentInvocationPort): void {
@@ -286,14 +288,58 @@ export class AgentDelegationService implements DelegationPort {
     if (input.runInBackground && (!this.backgroundTasks || !this.dataRoot)) {
       return errorResult("子 Agent 后台委派暂不可用", toolName);
     }
-    if (this.activeChildRuns.has(childAgentId)) {
-      return errorResult(`子 Agent '${childAgentId}' 仍在运行，请等待当前 run 完成后再续接`, toolName);
-    }
-    if (child.last_run_id) {
-      const lastRun = await this.store.getRun(sessionId, child.last_run_id);
-      if (lastRun?.status === "running") {
-        return errorResult(`子 Agent '${childAgentId}' 仍在运行，请等待当前 run 完成后再续接`, toolName);
+    const activeChildRunId = this.activeChildRuns.get(childAgentId) ?? null;
+    const lastRun = child.last_run_id ? await this.store.getRun(sessionId, child.last_run_id) : null;
+    const runningChildRunId = activeChildRunId ?? (lastRun?.status === "running" ? lastRun.run_id : null);
+    if (runningChildRunId) {
+      if (!this.mailbox) {
+        return errorResult("运行中的子 Agent 暂不支持消息投递（mailbox 未注入）", toolName);
       }
+      const tenantId = normalizeString(ctx.tenantId);
+      if (!tenantId) return errorResult("send_message 缺少 tenant_id", toolName);
+      const sourceRunId = normalizeString(ctx.runId);
+      const sourceAgentCallId = normalizeString(ctx.currentCallId) ?? normalizeString(ctx.rootCallId) ?? parentCallId;
+      const targetAgentCallId = normalizeString(lastRun?.agent_call_id)
+        ?? normalizeString(child.metadata.agent_call_id);
+      const queued = await this.mailbox.enqueue({
+        messageId: randomUUID(),
+        tenantId,
+        sessionId,
+        sourceRunId,
+        sourceAgentCallId,
+        targetRunId: runningChildRunId,
+        targetAgentCallId,
+        targetThreadKey: child.thread_key,
+        targetChildAgentId: childAgentId,
+        kind: input.kind ?? "request",
+        correlationId: normalizeString(input.correlationId),
+        replyToMessageId: normalizeString(input.replyToMessageId),
+        contentParts: [{ type: "text", text: message }],
+        metadata: {
+          source: "send_message",
+          parent_tool_call_id: parentCallId,
+        },
+      });
+      return successResult({
+        message_id: queued.message_id,
+        child_agent_id: childAgentId,
+        target_run_id: runningChildRunId,
+        status: "queued",
+        kind: queued.kind,
+        correlation_id: queued.correlation_id,
+      }, {
+        summary: `已向运行中的子 Agent ${child.agent_name} 投递 ${queued.kind} 消息`,
+        outputType: "json",
+        metadata: {
+          agent_name: child.agent_name,
+          child_agent_id: childAgentId,
+          run_id: runningChildRunId,
+          message_id: queued.message_id,
+          mailbox_kind: queued.kind,
+          mailbox_queued: true,
+        },
+        toolName,
+      });
     }
 
     const childDisplayName = this.resolveChildDisplayName(child.agent_name, normalizeString(teamName));

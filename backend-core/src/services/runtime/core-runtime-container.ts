@@ -72,6 +72,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     clientEvents,
     backgroundTasks,
     dataRoot,
+    dependencies.executionStorage?.agentMailbox ?? null,
   );
   const toolsDeps = {
     pendingInteractions: selectedPendingInteractions,

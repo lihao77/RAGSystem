@@ -77,6 +77,7 @@ function childAgent(): ChildAgentInfo {
 
 function context(signal: AbortSignal) {
   return {
+    tenantId: "tenant-1",
     sessionId: "session-1",
     runId: "parent-run",
     rootRunId: "parent-run",
@@ -119,6 +120,92 @@ function store(child: ChildAgentInfo): AgentDelegationStorePort {
 }
 
 describe("background child-agent delegation", () => {
+  it("delivers send_message to a running child through the durable mailbox", async () => {
+    const child = { ...childAgent(), last_run_id: "child-run" };
+    const delegationStore = store(child);
+    const runningRun = {
+      run_id: "child-run",
+      agent_call_id: "child-call",
+      status: "running",
+    };
+    vi.mocked(delegationStore.getRun).mockResolvedValue(runningRun as never);
+    const mailbox = {
+      enqueue: vi.fn(async (input: Record<string, unknown>) => ({
+        ...input,
+        seq: 1,
+        message_id: input.messageId,
+        tenant_id: input.tenantId,
+        session_id: input.sessionId,
+        source_run_id: input.sourceRunId ?? null,
+        source_agent_call_id: input.sourceAgentCallId ?? null,
+        target_run_id: input.targetRunId ?? null,
+        target_agent_call_id: input.targetAgentCallId ?? null,
+        target_thread_key: input.targetThreadKey,
+        target_child_agent_id: input.targetChildAgentId ?? null,
+        kind: input.kind,
+        correlation_id: input.correlationId ?? null,
+        reply_to_message_id: input.replyToMessageId ?? null,
+        content_parts: input.contentParts,
+        metadata: input.metadata ?? {},
+        status: "queued",
+        attempt_count: 0,
+        claim_id: null,
+        claimed_by: null,
+        claim_expires_at: null,
+        available_at: new Date(0).toISOString(),
+        expires_at: null,
+        last_error: null,
+        created_at: new Date(0).toISOString(),
+        updated_at: new Date(0).toISOString(),
+        acked_at: null,
+      })) as never,
+      get: vi.fn(),
+      claim: vi.fn(),
+      ack: vi.fn(),
+      release: vi.fn(),
+      expire: vi.fn(),
+    };
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      mailbox as never,
+    );
+    const invocation = vi.fn();
+    service.setInvocationService({ invoke: invocation } as never);
+
+    const result = await service.sendMessage({
+      agent: parentAgent(false),
+      teamName: null,
+      input: {
+        childAgentId: child.child_agent_id,
+        message: "please send progress",
+        kind: "progress",
+        correlationId: "corr-1",
+        callId: "parent-tool-call",
+      },
+    }, context(new AbortController().signal));
+
+    expect(result.success).toBe(true);
+    expect(result.content).toEqual(expect.objectContaining({
+      status: "queued",
+      target_run_id: "child-run",
+      kind: "progress",
+      correlation_id: "corr-1",
+    }));
+    expect(mailbox.enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      targetRunId: "child-run",
+      targetAgentCallId: "child-call",
+      targetChildAgentId: child.child_agent_id,
+      kind: "progress",
+      correlationId: "corr-1",
+      sourceRunId: "parent-run",
+    }));
+    expect(invocation).not.toHaveBeenCalled();
+  });
+
   it("stores the inherited workspace without worktree metadata", () => {
     const metadata = buildChildMetadata({ workspaceRoot: "C:\\workspace" } as never, "child:worker", "call_agent");
     expect(metadata).toMatchObject({

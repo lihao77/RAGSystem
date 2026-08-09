@@ -93,17 +93,29 @@ export function readListChildAgentsArguments(value: Record<string, unknown> | un
 export function readSendMessageArguments(value: Record<string, unknown> | undefined, callId: string | undefined): {
   childAgentId: string;
   message: string;
+  kind?: import("../../../contracts/storage/agent-mailbox-repository.js").AgentMailboxMessageKind | null;
+  correlationId?: string | null;
+  replyToMessageId?: string | null;
   runInBackground?: boolean | null;
   callId?: string | null;
 } {
   return {
     childAgentId: asString(value?.child_agent_id) ?? asString(value?.childAgentId) ?? "",
     message: asString(value?.message) ?? "",
+    kind: asMailboxKind(value?.kind),
+    correlationId: asString(value?.correlation_id) ?? asString(value?.correlationId),
+    replyToMessageId: asString(value?.reply_to_message_id) ?? asString(value?.replyToMessageId),
     runInBackground: typeof value?.run_in_background === "boolean"
       ? value.run_in_background
       : typeof value?.runInBackground === "boolean" ? value.runInBackground : null,
     callId: callId ?? null,
   };
+}
+
+function asMailboxKind(value: unknown): import("../../../contracts/storage/agent-mailbox-repository.js").AgentMailboxMessageKind | null {
+  return value === "progress" || value === "request" || value === "response" || value === "result" || value === "cancel"
+    ? value
+    : null;
 }
 
 export function errorResult(

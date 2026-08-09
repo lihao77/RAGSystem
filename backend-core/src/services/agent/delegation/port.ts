@@ -1,5 +1,6 @@
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
+import type { AgentMailboxMessageKind } from "../../../contracts/storage/agent-mailbox-repository.js";
 
 /**
  * 委派能力契约(DelegationPort)。
@@ -26,6 +27,9 @@ export interface AgentDelegationInput {
 export interface SendMessageInput {
   childAgentId: string;
   message: string;
+  kind?: AgentMailboxMessageKind | null | undefined;
+  correlationId?: string | null | undefined;
+  replyToMessageId?: string | null | undefined;
   runInBackground?: boolean | null | undefined;
   callId?: string | null | undefined;
 }
