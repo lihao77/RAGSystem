@@ -40,6 +40,7 @@
 <script setup>
 import { inject, ref } from 'vue';
 import { IconLogo } from '../icons';
+import { findRetryMessage } from '../../composables/useMessageListView.js';
 import ChatMessageItem from './ChatMessageItem.vue';
 
 const props = defineProps({
@@ -53,8 +54,10 @@ const messageContext = inject('messageContext');
 const messageActionsVisible = ref(null);
 
 function getRetryMessage(index) {
-  return props.visibleMessages
-    .slice(0, index)
-    .findLast(msg => msg.role === 'user' && msg.seq != null && msg.metadata?.agent_message !== true) || null;
+  return findRetryMessage(
+    props.visibleMessages,
+    index,
+    messageContext.canReviseMessage,
+  );
 }
 </script>

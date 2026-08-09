@@ -246,7 +246,7 @@ test('confirmEditAndResend 在运行中会被拦截，不发起请求', async ()
 
 test('resetEditingState 在消息编辑场景会关闭附件抽屉并重置目标', () => {
   const { deps } = createDeps();
-  deps.messages.value = [{ role: 'user', content: 'draft' }];
+  deps.messages.value = [{ role: 'user', id: 'message-1', content: 'draft' }];
   deps.sessionFilesDrawerVisible.value = true;
 
   const revision = useMessageRevision(deps);
@@ -259,4 +259,63 @@ test('resetEditingState 在消息编辑场景会关闭附件抽屉并重置目�
   assert.deepEqual(revision.editingAttachmentsDraft.value, []);
   assert.equal(deps.sessionFilesDrawerVisible.value, false);
   assert.equal(deps.sessionFilesDrawerTarget.value, 'composer');
+});
+
+test('editing follows root participant and message identity instead of array index', () => {
+  const { deps, sessionRunStore } = createDeps();
+  deps.messages.value = [
+    { role: 'user', id: 'message-1', content: 'first' },
+    { role: 'user', id: 'message-2', content: 'second' },
+  ];
+  const revision = useMessageRevision(deps);
+  revision.startEditMessage(deps.messages.value[1]);
+  deps.messages.value.unshift({ role: 'system', id: 'summary-1', content: 'summary' });
+
+  assert.equal(revision.editingMessage.value.id, 'message-2');
+  sessionRunStore.setParticipantMessages('child-1', [
+    { role: 'user', id: 'child-message-1', content: 'delegated task' },
+  ]);
+  sessionRunStore.setSelectedParticipant('child-1');
+
+  assert.equal(revision.editingMessage.value, null);
+  assert.equal(revision.editingDraft.value, '');
+});
+
+test('child and agent messages cannot enter edit or rollback flows', async () => {
+  let rollbackCalls = 0;
+  const { deps, sessionRunStore, toasts } = createDeps({
+    chatSdkClient: {
+      async rollbackAndRetrySession() {
+        rollbackCalls += 1;
+        return { data: { started: true } };
+      },
+    },
+  });
+  const childTask = { role: 'user', id: 'child-message-1', seq: 4, content: 'delegated task', metadata: {} };
+  sessionRunStore.setParticipantMessages('child-1', [childTask]);
+  sessionRunStore.setSelectedParticipant('child-1');
+  const revision = useMessageRevision(deps);
+
+  assert.equal(revision.canReviseMessage(childTask), false);
+  revision.startEditMessage(childTask);
+  assert.equal(revision.editingMessage.value, null);
+  await revision.rollbackAndRetry(childTask);
+
+  sessionRunStore.setSelectedParticipant('root');
+  const agentMessage = {
+    role: 'user',
+    id: 'agent-message-1',
+    seq: 5,
+    content: 'internal request',
+    metadata: { agent_message: true },
+  };
+  deps.messages.value = [agentMessage];
+  assert.equal(revision.canReviseMessage(agentMessage), false);
+  await revision.rollbackAndRetry(agentMessage);
+
+  assert.equal(rollbackCalls, 0);
+  assert.deepEqual(toasts, [
+    '仅支持从根会话中的用户消息重试',
+    '仅支持从根会话中的用户消息重试',
+  ]);
 });

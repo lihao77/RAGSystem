@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
+import { reactive } from 'vue';
 
 import { useSessionMessages } from './useSessionMessages.js';
 import { useSessionRunStore } from '../stores/session-run.js';
@@ -147,4 +148,81 @@ test('a late response from the previous session cannot overwrite current message
 
     assert.deepEqual(messages.value.map(message => message.id), ['b-1']);
     assert.equal(sessionMessages.messageCache.value.has('session-a'), false);
+});
+
+test('participant history reconciliation preserves live message identity and insertion order', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const { currentSessionId, messages } = storeToRefs(store);
+  currentSessionId.value = 'session-1';
+  store.setSelectedParticipant('child-1');
+  let resolveMessages;
+  const chatSdkClient = {
+    listMessages() {
+      return new Promise((resolve) => { resolveMessages = resolve; });
+    },
+  };
+  const sessionMessages = useSessionMessages(createDeps({ chatSdkClient }));
+  const loading = sessionMessages.loadSessionMessages('session-1', {
+    participantId: 'child-1',
+    preserveStream: true,
+  });
+  const bubble = reactive({
+    role: 'user',
+    id: 'mailbox-live',
+    content: '继续处理',
+    metadata: { agent_message: true },
+  });
+  const carrier = reactive({
+    role: 'assistant',
+    run_id: 'child-run-live',
+    content: '实时结果',
+    metadata: { run_id: 'child-run-live' },
+  });
+  store.upsertParticipantMessage('child-1', bubble);
+  store.upsertParticipantMessage('child-1', carrier);
+
+  resolveMessages({
+    data: {
+      items: [{ id: 'task-1', seq: 1, role: 'user', content: '初始任务', metadata: {} }],
+      outbox_watermark: 12,
+    },
+  });
+  await loading;
+
+  assert.deepEqual(messages.value.map(message => message.id || message.run_id), [
+    'task-1',
+    'mailbox-live',
+    'child-run-live',
+  ]);
+  assert.equal(messages.value[2], carrier);
+  assert.deepEqual(
+    sessionMessages.messageCache.value.get('session-1::child-1').map(message => message.id || message.run_id),
+    ['task-1', 'mailbox-live', 'child-run-live'],
+  );
+});
+
+test('realtime agent messages sort before the matching root carrier without losing its active index', () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const carrier = reactive({
+    role: 'assistant',
+    run_id: 'root-run',
+    content: 'streaming',
+    metadata: { run_id: 'root-run' },
+  });
+  store.setParticipantMessages('root', [carrier]);
+  store.activeRun.assistantMsgIndex = 0;
+
+  store.upsertParticipantMessage('root', {
+    role: 'user',
+    id: 'mailbox-root',
+    run_id: 'root-run',
+    content: 'child result',
+    metadata: { agent_message: true, run_id: 'root-run' },
+  });
+
+  assert.deepEqual(store.rootMessages.map(message => message.id || message.run_id), ['mailbox-root', 'root-run']);
+  assert.equal(store.rootMessages[1], carrier);
+  assert.equal(store.activeRun.assistantMsgIndex, 1);
 });

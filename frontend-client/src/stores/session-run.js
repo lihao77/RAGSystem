@@ -37,6 +37,51 @@ const parseRuntimeTimestampSeconds = (value) => {
   return Number.isFinite(milliseconds) ? milliseconds / 1000 : null;
 };
 
+const getMessageRunId = message => message?.run_id || message?.metadata?.run_id || null;
+
+const participantMessagesMatch = (current, incoming) => Boolean(
+  (incoming?.id && current?.id === incoming.id)
+  || (
+    incoming?.role === 'assistant'
+    && current?.role === 'assistant'
+    && getMessageRunId(incoming)
+    && getMessageRunId(current) === getMessageRunId(incoming)
+  )
+);
+
+const mergeParticipantMessage = (current, incoming) => {
+  if (current === incoming) return current;
+  if (current?.role !== 'assistant' || incoming?.role !== 'assistant') {
+    Object.assign(current, incoming);
+    return current;
+  }
+  const liveExecution = {
+    _execState: current._execState,
+    _executionRootCallId: current._executionRootCallId,
+    executionTree: current.executionTree,
+    executionStepsLoaded: current.executionStepsLoaded,
+    executionStepsLoading: current.executionStepsLoading,
+    executionStepsLoadError: current.executionStepsLoadError,
+  };
+  Object.assign(current, incoming);
+  for (const [key, value] of Object.entries(liveExecution)) {
+    if (value !== undefined && value !== null) current[key] = value;
+  }
+  return current;
+};
+
+const sortParticipantMessages = (items) => items
+  .map((message, index) => ({ message, index }))
+  .sort((left, right) => {
+    const leftSeq = Number.isSafeInteger(left.message?.seq) ? left.message.seq : null;
+    const rightSeq = Number.isSafeInteger(right.message?.seq) ? right.message.seq : null;
+    if (leftSeq !== null && rightSeq !== null) return leftSeq - rightSeq;
+    if (leftSeq !== null) return -1;
+    if (rightSeq !== null) return 1;
+    return left.index - right.index;
+  })
+  .map(item => item.message);
+
 /**
  * 当前会话运行态单源。
  *
@@ -248,25 +293,55 @@ export const useSessionRunStore = defineStore('session-run', () => {
 
   const setParticipantMessages = (participantId, value) => {
     const id = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
+    const next = Array.isArray(value) ? value : [];
     participantMessages.value = {
       ...participantMessages.value,
-      [id]: Array.isArray(value) ? value : [],
+      [id]: next,
     };
+    return next;
+  };
+
+  const reconcileParticipantMessages = (participantId, value) => {
+    const id = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
+    const current = participantMessages.value[id] || [];
+    const claimed = new Set();
+    const durable = (Array.isArray(value) ? value : []).map((incoming) => {
+      const index = current.findIndex((message, currentIndex) => (
+        !claimed.has(currentIndex) && participantMessagesMatch(message, incoming)
+      ));
+      if (index < 0) return incoming;
+      claimed.add(index);
+      return mergeParticipantMessage(current[index], incoming);
+    });
+    const live = current.filter((message, index) => !claimed.has(index) && !Number.isSafeInteger(message?.seq));
+    const next = sortParticipantMessages([...durable, ...live]);
+    const activeAssistant = id === 'root' && activeRun.assistantMsgIndex >= 0
+      ? current[activeRun.assistantMsgIndex]
+      : null;
+    participantMessages.value = { ...participantMessages.value, [id]: next };
+    if (activeAssistant) activeRun.assistantMsgIndex = next.indexOf(activeAssistant);
+    return next;
   };
 
   const upsertParticipantMessage = (participantId, message) => {
     if (!message) return;
     const id = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
     const current = participantMessages.value[id] || [];
-    const runId = message.run_id || message.metadata?.run_id || null;
-    const index = current.findIndex(item => (
-      (message.id && item.id === message.id)
-      || (runId && item.role === 'assistant' && (item.run_id || item.metadata?.run_id) === runId)
-    ));
+    const index = current.findIndex(item => participantMessagesMatch(item, message));
     const next = [...current];
-    if (index >= 0) next[index] = message;
-    else next.push(message);
-    participantMessages.value = { ...participantMessages.value, [id]: next };
+    const activeAssistant = id === 'root' && activeRun.assistantMsgIndex >= 0
+      ? current[activeRun.assistantMsgIndex]
+      : null;
+    if (index >= 0) next[index] = mergeParticipantMessage(next[index], message);
+    else if (message.role === 'user' && message.metadata?.agent_message === true && getMessageRunId(message)) {
+      const carrierIndex = next.findIndex(item => (
+        item.role === 'assistant' && getMessageRunId(item) === getMessageRunId(message)
+      ));
+      next.splice(carrierIndex >= 0 ? carrierIndex : next.length, 0, message);
+    } else next.push(message);
+    const sorted = sortParticipantMessages(next);
+    participantMessages.value = { ...participantMessages.value, [id]: sorted };
+    if (activeAssistant) activeRun.assistantMsgIndex = sorted.indexOf(activeAssistant);
   };
 
   const clearParticipantMessages = (participantId = null) => {
@@ -331,6 +406,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
     setParticipants,
     setSelectedParticipant,
     setParticipantMessages,
+    reconcileParticipantMessages,
     upsertParticipantMessage,
     clearParticipantMessages,
   };

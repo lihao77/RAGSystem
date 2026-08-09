@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { createAssistantMessage } from './useMessageExecution.js';
@@ -23,8 +23,8 @@ function buildRetryAnchorBody(messages, index) {
  */
 export function useMessageRevision(deps) {
   const sessionRunStore = useSessionRunStore();
-  const { messages, currentSessionId } = storeToRefs(sessionRunStore);
-  const editingMessageIndex = ref(null);
+  const { messages, currentSessionId, selectedParticipantId } = storeToRefs(sessionRunStore);
+  const editingTarget = ref(null);
   const editingDraft = ref('');
   const editingAttachmentsDraft = ref([]);
   const editingSubmitting = ref(false);
@@ -119,13 +119,21 @@ export function useMessageRevision(deps) {
   };
 
   const editingMessage = computed(() => {
-    const index = editingMessageIndex.value;
-    if (index == null || index < 0) return null;
-    return messages.value[index] || null;
+    const target = editingTarget.value;
+    if (!target || target.participantId !== selectedParticipantId.value) return null;
+    return messages.value.find(message => message?.id === target.messageId) || null;
   });
 
+  const canReviseMessage = msg => Boolean(
+    selectedParticipantId.value === 'root'
+    && msg?.role === 'user'
+    && msg?.metadata?.agent_message !== true
+    && msg?.id
+    && messages.value.some(message => message === msg || message?.id === msg.id)
+  );
+
   const resetEditingState = ({ closeDrawer = true } = {}) => {
-    editingMessageIndex.value = null;
+    editingTarget.value = null;
     editingDraft.value = '';
     editingAttachmentsDraft.value = [];
     editingSubmitting.value = false;
@@ -135,10 +143,14 @@ export function useMessageRevision(deps) {
     deps.sessionFilesDrawerTarget.value = 'composer';
   };
 
-  const startEditMessage = (msg, index) => {
-    if (!msg || msg.role !== 'user') return;
-    const foundIndex = messages.value.findIndex(item => item === msg);
-    editingMessageIndex.value = foundIndex >= 0 ? foundIndex : index;
+  watch([selectedParticipantId, currentSessionId], () => resetEditingState(), { flush: 'sync' });
+
+  const startEditMessage = (msg) => {
+    if (!canReviseMessage(msg)) return;
+    editingTarget.value = {
+      participantId: selectedParticipantId.value,
+      messageId: msg.id,
+    };
     editingDraft.value = msg.content || '';
     editingAttachmentsDraft.value = Array.isArray(msg.attachments)
       ? msg.attachments.map(deps.normalizeAttachment).filter(Boolean)
@@ -153,10 +165,10 @@ export function useMessageRevision(deps) {
   };
 
   const confirmEditAndResend = async () => {
-    const index = editingMessageIndex.value;
-    if (index == null || editingSubmitting.value) return;
-    const msg = messages.value[index];
-    if (!msg || msg.role !== 'user') {
+    if (!editingTarget.value || editingSubmitting.value) return;
+    const msg = editingMessage.value;
+    const index = msg ? messages.value.findIndex(item => item?.id === msg.id) : -1;
+    if (index < 0 || !canReviseMessage(msg)) {
       cancelEdit();
       return;
     }
@@ -237,8 +249,8 @@ export function useMessageRevision(deps) {
       deps.showToast('当前无会话');
       return;
     }
-    if (msg.role !== 'user') {
-      deps.showToast('仅支持从用户消息重试');
+    if (!canReviseMessage(msg)) {
+      deps.showToast('仅支持从根会话中的用户消息重试');
       return;
     }
     if (!sessionRunStore.allowsRuntimeAction('start_maintenance')) {
@@ -294,6 +306,7 @@ export function useMessageRevision(deps) {
     editingDraft,
     editingAttachmentsDraft,
     editingSubmitting,
+    canReviseMessage,
     startEditMessage,
     resetEditingState,
     cancelEdit,

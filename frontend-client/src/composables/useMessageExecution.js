@@ -30,6 +30,47 @@ export const createAssistantMessage = (overrides = {}) => ({
   ...overrides,
 });
 
+const getAgentMessageEventContent = (payload = {}) => {
+  if (typeof payload.content === 'string' && payload.content) return payload.content;
+  const parts = Array.isArray(payload.content_parts) ? payload.content_parts : [];
+  return parts.flatMap((part) => {
+    if (part?.type === 'text' && typeof part.text === 'string') return [part.text];
+    if (part?.type === 'command_ref' && part.resolution?.kind === 'prompt') {
+      return [part.resolution.agent_text || ''];
+    }
+    return [];
+  }).filter(Boolean).join('\n').trim();
+};
+
+const createAgentMessageFromEvent = (event, participantId) => {
+  const payload = event?.payload || {};
+  const content = getAgentMessageEventContent(payload);
+  const metadata = payload.metadata || {};
+  return {
+    role: 'user',
+    id: payload.message_id || event?.message_id,
+    run_id: event?.run_id || null,
+    content,
+    content_parts: [{ type: 'text', text: content }],
+    thread_key: payload.target_thread_key || metadata.target_thread_key,
+    child_agent_id: participantId === 'root' ? null : participantId,
+    metadata: {
+      ...metadata,
+      agent_message: true,
+      run_id: event?.run_id || metadata.run_id || null,
+      agent_message_display_content: content,
+      mailbox_kind: payload.kind || metadata.mailbox_kind,
+      agent_message_direction: payload.direction || metadata.direction || null,
+      agent_message_source_agent_name: payload.source_agent_name || metadata.source_agent_name || null,
+      agent_message_source_child_agent_id: payload.source_child_agent_id || metadata.source_child_agent_id || null,
+      agent_message_target_agent_name: payload.target_agent_name || metadata.target_agent_name || null,
+      agent_message_target_child_agent_id: payload.target_child_agent_id || null,
+      agent_message_target_thread_key: payload.target_thread_key || metadata.target_thread_key || null,
+      visible_to_user: false,
+    },
+  };
+};
+
 const executionTreeHasContent = (executionTree) => Boolean(executionTree?.root);
 
 export const normalizeAssistantExecutionState = (msg) => {
@@ -310,8 +351,16 @@ export function useMessageExecution(deps) {
     if (!runId || !sessionId || sessionId !== deps.currentSessionId.value) return;
     const participantId = event?.payload?.child_agent_id
       || event?.payload?.participant_id
+      || (event?.type === 'agent_message' ? event?.payload?.target_child_agent_id : null)
       || event?.child_agent_id
       || null;
+    if (event.type === 'agent_message') {
+      const targetParticipantId = event?.payload?.target_child_agent_id || 'root';
+      deps.syncParticipantMessage?.(
+        targetParticipantId,
+        createAgentMessageFromEvent(event, targetParticipantId),
+      );
+    }
     const msg = participantId
       ? participantRunMessages.get(`${sessionId}:${participantId}:${runId}`)
         || getOrCreateParticipantRunMessage(participantId, { run_id: runId, status: 'running' })

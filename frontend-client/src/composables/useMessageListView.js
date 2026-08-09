@@ -11,6 +11,14 @@ const INJECTION_SOURCES = new Set(['running_session']);
 
 const isRunInjection = (message) => INJECTION_SOURCES.has(message?.metadata?.source || '');
 
+export const findRetryMessage = (items, index, canReviseMessage = () => true) => {
+  const nearestUserMessage = (Array.isArray(items) ? items : [])
+    .slice(0, index)
+    .findLast(message => message?.role === 'user') || null;
+  if (!nearestUserMessage || nearestUserMessage.metadata?.agent_message === true) return null;
+  return canReviseMessage(nearestUserMessage) ? nearestUserMessage : null;
+};
+
 const groupInjectionsByRunId = (items) => {
   const map = {};
   for (const message of items) {

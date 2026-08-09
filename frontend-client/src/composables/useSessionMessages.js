@@ -95,7 +95,12 @@ export function useSessionMessages(deps) {
       const cached = silent ? messageCache.value.get(cacheKey(sessionId, targetParticipantId)) : null;
       if (cached) {
         if (!isCurrent()) return;
-        sessionRunStore.setParticipantMessages(targetParticipantId, cached.map(item => deps.normalizeAssistantExecutionState(item)));
+        const restored = cached.map(item => deps.normalizeAssistantExecutionState(item));
+        if (targetParticipantId !== 'root' || preserveStream) {
+          sessionRunStore.reconcileParticipantMessages(targetParticipantId, restored);
+        } else {
+          sessionRunStore.setParticipantMessages(targetParticipantId, restored);
+        }
         messagesLoading.value = false;
         await nextTick();
         if (!isCurrent()) return;
@@ -161,8 +166,10 @@ export function useSessionMessages(deps) {
           return { ...message, attachments: getMessageAttachments(message) };
         });
       if (!isCurrent()) return;
-      sessionRunStore.setParticipantMessages(targetParticipantId, mapped);
-      cacheMessages(sessionId, mapped, targetParticipantId);
+      const nextMessages = targetParticipantId !== 'root' || preserveStream
+        ? sessionRunStore.reconcileParticipantMessages(targetParticipantId, mapped)
+        : sessionRunStore.setParticipantMessages(targetParticipantId, mapped);
+      cacheMessages(sessionId, nextMessages, targetParticipantId);
       messagesLoading.value = false;
       await nextTick();
       await nextTick();
