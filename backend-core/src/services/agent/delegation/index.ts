@@ -73,6 +73,32 @@ interface ChildRunInput {
   timeoutMs?: number | null;
 }
 
+interface ChildRunBuildSpec {
+  parentAgent: AgentConfig;
+  teamName: string | null;
+  ctx: ToolExecContext;
+  childAgent: ChildAgentInfo;
+  agentName: string;
+  task: string;
+  rootTask: string;
+  childRunId: string;
+  agentCallId: string;
+  runParentCallId: string | null;
+  resumeRunId: string | null;
+  initialEnvelopes?: readonly Envelope[];
+  timeoutMs?: number | null;
+}
+
+interface ChildRunExecutionSpec {
+  runInput: Omit<ChildRunInput, "signal">;
+  childAgentId: string;
+  childRunId: string;
+  childDisplayName: string;
+  description: string;
+  mode: "create" | "resume";
+  runInBackground: boolean;
+}
+
 export interface AgentDelegationLogger {
   error(bindings: Record<string, unknown>, message: string): void;
 }
@@ -331,98 +357,30 @@ export class AgentDelegationService implements DelegationPort {
         mode: "create",
       })] : undefined;
 
-    const runInput: Omit<ChildRunInput, "signal"> = {
-      tenantId: normalizeString(ctx.tenantId) ?? "",
-      sessionId,
+    const runInput = this.buildChildRunInput({
+      parentAgent,
+      teamName: normalizeString(teamName),
+      ctx,
+      childAgent: child,
       agentName: targetAgentName,
       task: buildDelegatedTask(task, input.contextHint),
-      requestId: normalizeString(ctx.requestId),
-      parentRunId,
-      rootRunId: normalizeString(ctx.rootRunId) ?? parentRunId,
-      rootCallId: agentCallId,
-      runParentCallId: parentCallId,
-      lineageParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId),
-      interactionRootCallId: normalizeString(ctx.rootCallId) ?? parentCallId,
-      round: ctx.round ?? null,
-      childAgent: child,
-      childRunId,
-      resumeRunId: resumedRun?.run_id ?? null,
-      entrypoint: "agent",
-      executionKind: ctx.executionKind ?? "agent",
       rootTask: ctx.rootTask ?? task,
-      source: "agent_call",
-      teamName: normalizeString(teamName),
-      workspaceRoot: getChildWorkspaceRoot(child, ctx),
-      parentThreadKey: normalizeString(ctx.threadKey) ?? "root",
-      parentChildAgentId: normalizeString(ctx.currentChildAgentId),
-      parentAgentName: parentAgent.agent_name,
-      parentRootRunId: normalizeString(ctx.rootRunId) ?? parentRunId,
-      parentParentRunId: normalizeString(ctx.parentRunId),
-      parentParentCallId: normalizeString(ctx.runParentCallId),
-      parentLineageParentCallId: normalizeString(ctx.parentCallId),
-      ...(clampMailboxTimeout(input.timeoutMs) ? { timeoutMs: clampMailboxTimeout(input.timeoutMs) } : {}),
+      childRunId,
+      agentCallId,
+      runParentCallId: parentCallId,
+      resumeRunId: resumedRun?.run_id ?? null,
       ...(initialEnvelopes ? { initialEnvelopes } : {}),
-    };
-    if (input.runInBackground) {
-      this.activeChildRuns.set(childAgentId, childRunId);
-      const backgroundTask = this.backgroundTasks!.runCallable({
-        outputDir: path.join(os.tmpdir(), "ragsystem-background", sessionId),
-        description: `${childDisplayName}: ${task.slice(0, 120)}`,
-        sessionId,
-        runId: childRunId,
-        ownerTaskId: normalizeString(ctx.taskId),
-        kind: "agent",
-        resultType: this.mailbox ? "agent_delegation_result" : "agent_delegation_fallback",
-        clientEvents: this.clientEvents,
-        run: async ({ signal }) => {
-          try {
-            return await this.executeChildRun({ ...runInput, ownsRunLease: true, signal });
-          } finally {
-            if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
-          }
-        },
-      });
-      return successResult(
-        {
-          task_id: backgroundTask.task_id,
-          background_task_id: backgroundTask.task_id,
-          background_started: true,
-          child_agent_id: childAgentId,
-          run_id: childRunId,
-          status: "running",
-        },
-        {
-          summary: `子 Agent ${childDisplayName} 已在后台启动`,
-          outputType: "json",
-          metadata: {
-            agent_name: targetAgentName,
-            agent_call_id: agentCallId,
-            parent_call_id: parentCallId,
-            child_agent_id: childAgentId,
-            run_id: childRunId,
-            background_task_id: backgroundTask.task_id,
-            task_id: backgroundTask.task_id,
-            background_started: true,
-            mode: "create",
-          },
-          toolName,
-        },
-      );
-    }
-    this.activeChildRuns.set(childAgentId, childRunId);
-    let result: DelegationRunResult;
-    try {
-      result = await this.executeChildRun({ ...runInput, signal: ctx.signal });
-    } finally {
-      if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
-    }
-    return toToolResult(toolName, result, {
-      agent_name: targetAgentName,
-      agent_call_id: agentCallId,
-      parent_call_id: parentCallId,
-      child_agent_id: childAgentId,
-      mode: "create",
+      ...(clampMailboxTimeout(input.timeoutMs) ? { timeoutMs: clampMailboxTimeout(input.timeoutMs) } : {}),
     });
+    return this.runChildInvocation({
+      runInput,
+      childAgentId,
+      childRunId,
+      childDisplayName,
+      description: task,
+      mode: resumedRun ? "resume" : "create",
+      runInBackground: input.runInBackground === true,
+    }, ctx);
   }
 
   private async deliverMessage(call: SendMessageCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
@@ -581,85 +539,30 @@ export class AgentDelegationService implements DelegationPort {
       mode: "resume",
     })];
 
-    const runInput: Omit<ChildRunInput, "signal"> = {
-      tenantId: normalizeString(ctx.tenantId) ?? "",
-      sessionId,
+    const runInput = this.buildChildRunInput({
+      parentAgent,
+      teamName: normalizeString(teamName),
+      ctx,
+      childAgent: child,
       agentName: child.agent_name,
       task: message,
-      requestId: normalizeString(ctx.requestId),
-      parentRunId: normalizeString(ctx.runId),
-      rootRunId: normalizeString(ctx.rootRunId) ?? normalizeString(ctx.runId),
-      rootCallId: agentCallId,
-      runParentCallId: parentCallId,
-      lineageParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId),
-      interactionRootCallId: normalizeString(ctx.rootCallId) ?? parentCallId ?? agentCallId,
-      round: ctx.round ?? null,
-      childAgent: child,
-      childRunId,
-      resumeRunId: null,
-      entrypoint: "agent",
-      executionKind: ctx.executionKind ?? "agent",
       rootTask: ctx.rootTask ?? message,
-      source: "agent_call",
-      teamName: normalizeString(teamName),
-      workspaceRoot: getChildWorkspaceRoot(child, ctx),
-      parentThreadKey: normalizeString(ctx.threadKey) ?? "root",
-      parentChildAgentId: normalizeString(ctx.currentChildAgentId),
-      parentAgentName: parentAgent.agent_name,
-      parentRootRunId: normalizeString(ctx.rootRunId) ?? normalizeString(ctx.runId),
-      parentParentRunId: normalizeString(ctx.parentRunId),
-      parentParentCallId: normalizeString(ctx.runParentCallId),
-      parentLineageParentCallId: normalizeString(ctx.parentCallId),
+      childRunId,
+      agentCallId,
+      runParentCallId: parentCallId,
+      resumeRunId: null,
       initialEnvelopes,
       ...(clampMailboxTimeout(input.timeoutMs) ? { timeoutMs: clampMailboxTimeout(input.timeoutMs) } : {}),
-    };
-    if (input.runInBackground) {
-      this.activeChildRuns.set(childAgentId, childRunId);
-      const backgroundTask = this.backgroundTasks!.runCallable({
-        outputDir: path.join(os.tmpdir(), "ragsystem-background", sessionId),
-        description: `${childDisplayName}: ${message.slice(0, 120)}`,
-        sessionId,
-        runId: childRunId,
-        ownerTaskId: normalizeString(ctx.taskId),
-        kind: "agent",
-        resultType: this.mailbox ? "agent_delegation_result" : "agent_delegation_fallback",
-        clientEvents: this.clientEvents,
-        run: async ({ signal }) => {
-          try {
-            return await this.executeChildRun({ ...runInput, ownsRunLease: true, signal });
-          } finally {
-            if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
-          }
-        },
-      });
-      return successResult(
-        { task_id: backgroundTask.task_id, background_task_id: backgroundTask.task_id, background_started: true, child_agent_id: childAgentId, run_id: childRunId, status: "running" },
-        {
-          summary: `子 Agent ${childDisplayName} 已在后台续接`,
-          outputType: "json",
-          metadata: {
-            agent_name: child.agent_name, agent_call_id: agentCallId, parent_call_id: parentCallId,
-            child_agent_id: childAgentId, run_id: childRunId, task_id: backgroundTask.task_id, background_task_id: backgroundTask.task_id,
-            background_started: true, mode: "resume",
-          },
-          toolName,
-        },
-      );
-    }
-    this.activeChildRuns.set(childAgentId, childRunId);
-    let result: DelegationRunResult;
-    try {
-      result = await this.executeChildRun({ ...runInput, signal: ctx.signal });
-    } finally {
-      if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
-    }
-    return toToolResult(toolName, result, {
-      agent_name: child.agent_name,
-      agent_call_id: agentCallId,
-      parent_call_id: parentCallId,
-      child_agent_id: childAgentId,
-      mode: "resume",
     });
+    return this.runChildInvocation({
+      runInput,
+      childAgentId,
+      childRunId,
+      childDisplayName,
+      description: message,
+      mode: "resume",
+      runInBackground: input.runInBackground === true,
+    }, ctx);
   }
 
   /** Route a child-originated progress/request/response/cancel message to its exact parent run. */
@@ -782,6 +685,118 @@ export class AgentDelegationService implements DelegationPort {
         toolName: "list_child_agents",
       },
     );
+  }
+
+  private buildChildRunInput(spec: ChildRunBuildSpec): Omit<ChildRunInput, "signal"> {
+    const parentRunId = normalizeString(spec.ctx.runId);
+    return {
+      tenantId: normalizeString(spec.ctx.tenantId) ?? "",
+      sessionId: normalizeString(spec.ctx.sessionId) ?? "",
+      agentName: spec.agentName,
+      task: spec.task,
+      requestId: normalizeString(spec.ctx.requestId),
+      parentRunId,
+      rootRunId: normalizeString(spec.ctx.rootRunId) ?? parentRunId,
+      rootCallId: spec.agentCallId,
+      runParentCallId: spec.runParentCallId,
+      lineageParentCallId: normalizeString(spec.ctx.currentCallId) ?? normalizeString(spec.ctx.parentCallId),
+      interactionRootCallId: normalizeString(spec.ctx.rootCallId) ?? spec.runParentCallId ?? spec.agentCallId,
+      round: spec.ctx.round ?? null,
+      childAgent: spec.childAgent,
+      childRunId: spec.childRunId,
+      resumeRunId: spec.resumeRunId,
+      entrypoint: "agent",
+      executionKind: spec.ctx.executionKind ?? "agent",
+      rootTask: spec.rootTask,
+      source: "agent_call",
+      teamName: normalizeString(spec.teamName),
+      workspaceRoot: getChildWorkspaceRoot(spec.childAgent, spec.ctx),
+      parentThreadKey: normalizeString(spec.ctx.threadKey) ?? "root",
+      parentChildAgentId: normalizeString(spec.ctx.currentChildAgentId),
+      parentAgentName: spec.parentAgent.agent_name,
+      parentRootRunId: normalizeString(spec.ctx.rootRunId) ?? parentRunId,
+      parentParentRunId: normalizeString(spec.ctx.parentRunId),
+      parentParentCallId: normalizeString(spec.ctx.runParentCallId),
+      parentLineageParentCallId: normalizeString(spec.ctx.parentCallId),
+      ...(spec.timeoutMs ? { timeoutMs: spec.timeoutMs } : {}),
+      ...(spec.initialEnvelopes ? { initialEnvelopes: spec.initialEnvelopes } : {}),
+    };
+  }
+
+  private async runChildInvocation(
+    spec: ChildRunExecutionSpec,
+    ctx: ToolExecContext,
+  ): Promise<ToolExecutionResult> {
+    const toolName = "agent";
+    const { runInput, childAgentId, childRunId, childDisplayName, description, mode } = spec;
+    this.activeChildRuns.set(childAgentId, childRunId);
+    if (spec.runInBackground) {
+      let backgroundTask: BackgroundTask;
+      try {
+        backgroundTask = this.backgroundTasks!.runCallable({
+          outputDir: path.join(os.tmpdir(), "ragsystem-background", runInput.sessionId),
+          description: `${childDisplayName}: ${description.slice(0, 120)}`,
+          sessionId: runInput.sessionId,
+          runId: childRunId,
+          ownerTaskId: normalizeString(ctx.taskId),
+          kind: "agent",
+          resultType: this.mailbox ? "agent_delegation_result" : "agent_delegation_fallback",
+          clientEvents: this.clientEvents,
+          run: async ({ signal }) => {
+            try {
+              return await this.executeChildRun({ ...runInput, ownsRunLease: true, signal });
+            } finally {
+              if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
+            }
+          },
+        });
+      } catch (error) {
+        if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
+        throw error;
+      }
+      return successResult(
+        {
+          task_id: backgroundTask.task_id,
+          background_task_id: backgroundTask.task_id,
+          background_started: true,
+          child_agent_id: childAgentId,
+          run_id: childRunId,
+          status: "running",
+        },
+        {
+          summary: mode === "create"
+            ? `子 Agent ${childDisplayName} 已在后台启动`
+            : `子 Agent ${childDisplayName} 已在后台续接`,
+          outputType: "json",
+          metadata: {
+            agent_name: runInput.agentName,
+            agent_call_id: runInput.rootCallId,
+            parent_call_id: runInput.runParentCallId,
+            child_agent_id: childAgentId,
+            run_id: childRunId,
+            background_task_id: backgroundTask.task_id,
+            task_id: backgroundTask.task_id,
+            background_started: true,
+            mode,
+          },
+          toolName,
+        },
+      );
+    }
+
+    let result: DelegationRunResult;
+    try {
+      result = await this.executeChildRun({ ...runInput, signal: ctx.signal });
+    } finally {
+      if (this.activeChildRuns.get(childAgentId) === childRunId) this.activeChildRuns.delete(childAgentId);
+    }
+    return toToolResult(toolName, result, {
+      agent_name: runInput.agentName,
+      agent_call_id: runInput.rootCallId,
+      parent_call_id: runInput.runParentCallId,
+      child_agent_id: childAgentId,
+      mode,
+    });
   }
 
   /** 提前解析 child agent 展示名（agent_started/ended payload.display_name）；resolve 失败回退 agent_name。 */
