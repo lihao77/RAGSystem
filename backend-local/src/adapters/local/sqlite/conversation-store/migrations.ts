@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 9;
+export const LATEST_SCHEMA_VERSION = 10;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 8) {
+  if (current >= 1 && current <= 9) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -44,16 +44,19 @@ export function runMigrations(db: MigrationDatabase): void {
       }
       migrateCommandContent(db);
       if (current <= 7) migrateRunLifecycleIdentity(db);
-      db.exec(`
-        DELETE FROM workspaces
-        WHERE removed_at IS NOT NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM sessions
-            WHERE sessions.tenant_id=workspaces.tenant_id
-              AND sessions.workspace_id=workspaces.workspace_id
-          )
-      `);
-      db.exec(AGENT_MAILBOX_SCHEMA_SQL);
+      if (current <= 8) {
+        db.exec(`
+          DELETE FROM workspaces
+          WHERE removed_at IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM sessions
+              WHERE sessions.tenant_id=workspaces.tenant_id
+                AND sessions.workspace_id=workspaces.workspace_id
+            )
+        `);
+        db.exec(AGENT_MAILBOX_SCHEMA_SQL);
+      }
+      migrateAgentMailboxTenantKey(db);
       db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
     });
     assertCurrentSchema(db);
@@ -71,6 +74,41 @@ export function runMigrations(db: MigrationDatabase): void {
     db.exec(BASELINE_SCHEMA_SQL);
     db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
   });
+}
+
+function migrateAgentMailboxTenantKey(db: MigrationDatabase): void {
+  const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_mailbox'").get() as { name?: string } | undefined;
+  if (!table?.name) {
+    db.exec(AGENT_MAILBOX_SCHEMA_SQL);
+    return;
+  }
+  for (const index of [
+    "idx_agent_mailbox_target_run",
+    "idx_agent_mailbox_target_thread",
+    "idx_agent_mailbox_claim_expiry",
+    "idx_agent_mailbox_correlation",
+  ]) {
+    db.exec(`DROP INDEX IF EXISTS ${index}`);
+  }
+  db.exec("ALTER TABLE agent_mailbox RENAME TO agent_mailbox_pre_v10");
+  db.exec(AGENT_MAILBOX_SCHEMA_SQL);
+  db.exec(`
+    INSERT INTO agent_mailbox (
+      seq, message_id, tenant_id, session_id, source_run_id, source_agent_call_id,
+      target_run_id, target_agent_call_id, target_thread_key, target_child_agent_id,
+      kind, correlation_id, reply_to_message_id, content_parts, metadata, status,
+      attempt_count, claim_id, claimed_by, claim_expires_at, available_at, expires_at,
+      last_error, created_at, updated_at, acked_at
+    )
+    SELECT
+      seq, message_id, tenant_id, session_id, source_run_id, source_agent_call_id,
+      target_run_id, target_agent_call_id, target_thread_key, target_child_agent_id,
+      kind, correlation_id, reply_to_message_id, content_parts, metadata, status,
+      attempt_count, claim_id, claimed_by, claim_expires_at, available_at, expires_at,
+      last_error, created_at, updated_at, acked_at
+    FROM agent_mailbox_pre_v10
+  `);
+  db.exec("DROP TABLE agent_mailbox_pre_v10");
 }
 
 function migrateCommandContent(db: MigrationDatabase): void {

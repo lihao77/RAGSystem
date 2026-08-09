@@ -33,7 +33,7 @@ export const RUNS_SCHEMA_SQL = `
 export const AGENT_MAILBOX_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS agent_mailbox (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
-      message_id TEXT UNIQUE NOT NULL,
+      message_id TEXT NOT NULL,
       tenant_id TEXT NOT NULL,
       session_id TEXT NOT NULL,
       source_run_id TEXT,
@@ -59,6 +59,7 @@ export const AGENT_MAILBOX_SCHEMA_SQL = `
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       acked_at TEXT,
+      UNIQUE(tenant_id, message_id),
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
 

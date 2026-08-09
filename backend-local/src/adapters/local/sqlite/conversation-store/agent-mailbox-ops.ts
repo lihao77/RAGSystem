@@ -173,7 +173,7 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     const availableAt = asNow(input.availableAt);
     const expiresAt = input.expiresAt == null ? null : asNow(input.expiresAt);
     runInTransaction(this.db, () => {
-      const existing = this.db.prepare(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox WHERE message_id=?`).get(messageId) as AgentMailboxRow | undefined;
+      const existing = this.db.prepare(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox WHERE tenant_id=? AND message_id=?`).get(tenantId, messageId) as AgentMailboxRow | undefined;
       if (existing) {
         if (!sameMessageIdentity(existing, input, availableAt, expiresAt)) {
           throw new Error(`Agent mailbox message id already belongs to another message: ${messageId}`);

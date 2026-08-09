@@ -54,6 +54,45 @@ test("local Agent mailbox is durable, FIFO, and fenced by claim id", async () =>
   }
 });
 
+test("local Agent mailbox scopes message ids by tenant", async () => {
+  const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+  try {
+    createSession(store);
+    store.createSession({
+      tenantId: "tnt_other",
+      sessionId: "session-mailbox-other",
+      ownerUserId: "usr_other",
+      visibility: "private",
+      originType: "direct",
+      originId: null,
+      originChannel: "web",
+      workspaceId: null,
+      metadata: {},
+      permissionMode: null,
+    });
+    await store.agentMailbox.enqueue({
+      messageId: "shared-message-id",
+      tenantId: "tnt_test",
+      sessionId: "session-mailbox",
+      targetThreadKey: "child-thread",
+      kind: "request",
+      contentParts: [{ type: "text", text: "tenant one" }],
+    });
+    const other = await store.agentMailbox.enqueue({
+      messageId: "shared-message-id",
+      tenantId: "tnt_other",
+      sessionId: "session-mailbox-other",
+      targetThreadKey: "child-thread",
+      kind: "request",
+      contentParts: [{ type: "text", text: "tenant two" }],
+    });
+    assert.equal(other.content_parts[0].text, "tenant two");
+    assert.equal((await store.agentMailbox.get("session-mailbox", "shared-message-id")).content_parts[0].text, "tenant one");
+  } finally {
+    store.close();
+  }
+});
+
 test("local Agent mailbox expires queued messages and reclaims expired leases", async () => {
   const store = createStore();
   try {
