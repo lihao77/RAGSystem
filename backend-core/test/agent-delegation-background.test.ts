@@ -889,7 +889,7 @@ describe("background child-agent delegation", () => {
     const worker = workerAgent();
     const child = childAgent();
     let finishRun!: () => void;
-    const executeRun = vi.fn(({ abortController }: { abortController: AbortController; ownsRunLease?: boolean }) => new Promise<{ success: boolean; content: string }>((resolve) => {
+    const executeRun = vi.fn(({ abortController }: { abortController: AbortController; ownsRunLease?: boolean; timeoutMs?: number }) => new Promise<{ success: boolean; content: string }>((resolve) => {
       finishRun = () => resolve({ success: true, content: "worker result" });
       abortController.signal.addEventListener("abort", () => resolve({ success: false, content: "aborted" }), { once: true });
     }));
@@ -901,7 +901,7 @@ describe("background child-agent delegation", () => {
     const result = await service.callAgent({
       agent: parentAgent(true),
       teamName: null,
-      input: { agentName: "worker", task: "do work", runInBackground: true, callId: "parent-call" },
+      input: { agentName: "worker", task: "do work", timeoutMs: 4321, runInBackground: true, callId: "parent-call" },
     }, context(parentAbort.signal));
 
     const content = result.content as Record<string, unknown>;
