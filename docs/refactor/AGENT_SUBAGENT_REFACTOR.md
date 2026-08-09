@@ -19,7 +19,7 @@
 | 7 | `agent_message` WS/outbox 协议事件、执行树和 WorkPanel 投影 | `59f3133c` |
 | 8 | claim 竞争/恢复、child 到 parent、TTL/cancel 和后台完成通知收口 | 当前阶段提交 |
 | 9 | 统一协作命令、私有化分裂处理器、共享 child invocation runner、恢复语义收口 | `d6a75bca`, `e599911f`, `c1452822` |
-| 10 | idle continuation 活动 run/call 原子路由、普通 mailbox lineage 持久化、终态恢复幂等和目标权限收口 | 本轮提交 |
+| 10 | idle continuation 活动 run/call 原子路由、普通 mailbox lineage 持久化、终态恢复幂等和目标权限收口 | `cf0da71e` |
 
 ## 消息模型
 
