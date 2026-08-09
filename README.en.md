@@ -7,7 +7,7 @@ RAGSystem is an agent-first full-stack project for multi-agent collaboration. It
 ## Key Features
 
 - Multi-agent orchestration driven by an Orchestrator Agent for delegation, collaboration, and continuous execution
-- Child agent sessions with create, resume, and send_message continuation flows
+- Child agent sessions with unified `agent` create, resume, and bidirectional messaging flows
 - Realtime interaction where `POST /api/agent/stream` starts a run and the session WebSocket delivers message chunks, execution steps, approvals, user input requests, and reconnect replay events
 - Extensible runtime with local tools, Skills, and MCP server integration
 - Memory recall, session memory write-back, and Hook-based event extensibility

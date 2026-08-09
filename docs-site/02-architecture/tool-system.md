@@ -44,7 +44,7 @@ export function createBackendTools(deps: BackendToolsDeps, pathService: PathAppr
 | 知识库 | `KnowledgeTools/` | `VectorLibraryService` | 向量检索 |
 | 任务 | `TaskTools/` | `TaskToolService` | 后台任务（含 background-output、task-store） |
 | 记忆 | `MemoryTools/` | `MemoryToolService` | 记忆读写 |
-| 委派 | `DelegationTools/` | `AgentDelegationService` | call_agent 等委派工具 |
+| 委派 | `DelegationTools/` | `AgentDelegationService` | agent、list_child_agents 等委派工具 |
 | MCP | `McpTools/` | `McpService` | 动态 MCP 工具发现与调用 |
 
 ## 工具依赖注入

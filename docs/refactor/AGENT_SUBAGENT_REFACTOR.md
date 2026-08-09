@@ -29,7 +29,7 @@ Mailbox 行由 `session_id`、来源 run/call、目标 run/call/thread/child、`
 - `result`：子 Agent 终态结果
 - `cancel`：在下一 round boundary 中断目标 invocation
 
-父向子使用 `send_message(child_agent_id=...)`；子向父使用 `send_message(to_parent=true)`。请求可设置 `timeout_ms`（1 至 600000），映射为 mailbox `expires_at`。重复 terminal result 使用 `<childRunId>:terminal_result`，重复 enqueue 只接受相同 payload。
+父向子和子向父统一使用 `agent` 工具：不传 `child_agent_id` 且提供 `agent_name` 时创建 child；传 `child_agent_id` 时向已有 child 投递 follow-up；child 上下文中省略两个目标字段时投递给直接父 Agent。请求可设置 `timeout_ms`（1 至 600000），映射为 mailbox `expires_at`。重复 terminal result 使用 `<childRunId>:terminal_result`，重复 enqueue 只接受相同 payload。
 
 ## 消费和恢复
 
@@ -41,7 +41,7 @@ Mailbox 行由 `session_id`、来源 run/call、目标 run/call/thread/child、`
 
 ## 并行边界
 
-只有 Agent 配置 `delegation.parallel_children=true` 时，独立 `call_agent` 才能在同一模型轮次 fan-out。相同 child/resource key 仍串行；结果按原始 tool-call 顺序聚合；一个 child 失败只影响自己的 observation。共享 workspace 不提供文件级隔离，任务拆分必须避免写冲突。
+只有 Agent 配置 `delegation.parallel_children=true` 时，独立 `agent(agent_name=...)` 调用才会在同一模型轮次 fan-out。相同 child/resource key 仍串行；结果按原始 tool-call 顺序聚合；一个 child 失败只影响自己的 observation。共享 workspace 不提供文件级隔离，任务拆分必须避免写冲突。
 
 ## 验收
 

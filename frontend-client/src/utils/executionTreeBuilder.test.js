@@ -34,8 +34,8 @@ const treeWith = (toolCalls, children) => ({
 test('matches repeated same-name agent calls by invocation call id', () => {
   const tree = treeWith(
     [
-      tool('tool-first', 'call_agent', { agent_name: 'worker' }),
-      tool('tool-second', 'call_agent', { agent_name: 'worker' }),
+      tool('tool-first', 'agent', { agent_name: 'worker', message: 'first task' }),
+      tool('tool-second', 'agent', { agent_name: 'worker', message: 'second task' }),
     ],
     [
       child('agent-second', 'tool-second', 'second task'),
@@ -48,9 +48,9 @@ test('matches repeated same-name agent calls by invocation call id', () => {
   assert.deepEqual(thought.children.map((node) => node.description), ['first task', 'second task']);
 });
 
-test('matches send_message without relying on agent_name arguments', () => {
+test('matches an existing child agent without relying on agent_name arguments', () => {
   const tree = treeWith(
-    [tool('tool-resume', 'send_message', { child_agent_id: 'child-1' })],
+    [tool('tool-resume', 'agent', { child_agent_id: 'child-1', message: 'continue task' })],
     [child('agent-resume', 'tool-resume', 'continue task')],
   );
 
@@ -61,7 +61,7 @@ test('matches send_message without relying on agent_name arguments', () => {
 
 test('keeps ambiguous legacy child separate instead of guessing by name', () => {
   const tree = treeWith(
-    [tool('tool-delegate', 'call_agent', { agent_name: 'worker' })],
+    [tool('tool-delegate', 'agent', { agent_name: 'worker', message: 'delegate task' })],
     [child('unrelated-agent-call', null, 'unlinked task')],
   );
 

@@ -419,7 +419,7 @@ TOOL_PERMISSIONS = {}  # 仅剩文档工具
 | **Memory** | `memory.allowed_scopes` | Memory 配置派生 | `list_memory_index`, `write_memory` |
 | **Skill System** | `skills.enabled_skills` | 有任意 Skill 时自动注入 | `execute_skill_script`, `list_skills` |
 | **Builtin** | 硬编码 | 始终可见 | `request_user_input` |
-| **Delegation** | `delegation.enabled_agents` | 有子 Agent 时注入 | `call_agent`, `list_child_agents` |
+| **Delegation** | `delegation.enabled_agents` | 有子 Agent 时注入 | `agent`, `list_child_agents` |
 | **MCP** | `mcp.enabled_servers` | MCP Server 启用 | `mcp__filesystem__read_file` |
 
 ---

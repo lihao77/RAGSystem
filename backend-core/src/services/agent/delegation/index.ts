@@ -15,6 +15,7 @@ import type { Envelope } from "../../../contracts/events.js";
 import type {
   DelegationPort,
   AgentDelegationCall,
+  AgentToolCall,
   SendMessageCall,
   ListChildAgentsCall,
   AgentMailboxWakeupHandler,
@@ -53,7 +54,7 @@ interface ChildRunInput {
   childAgent: ChildAgentInfo;
   childRunId: string;
   resumeRunId: string | null;
-  entrypoint: "call_agent" | "send_message";
+  entrypoint: "agent";
   executionKind: string;
   rootTask: string;
   source: "agent_call";
@@ -183,25 +184,74 @@ export class AgentDelegationService implements DelegationPort {
     }
   }
 
+  /**
+   * Unified Agent collaboration command.
+   *
+   * An agent name creates a new logical child invocation. A child id sends a
+   * durable follow-up to an existing child. Inside a child invocation, omitting
+   * both targets addresses the direct parent.
+   */
+  async agent(call: AgentToolCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
+    const agentName = normalizeString(call.input.agentName);
+    const childAgentId = normalizeString(call.input.childAgentId);
+    const message = normalizeString(call.input.message);
+    if (!message) return errorResult("agent 缺少 message", "agent");
+
+    if (childAgentId || (!agentName && ctx.parentRunId && ctx.currentChildAgentId)) {
+      const result = await this.sendMessage({
+        agent: call.agent,
+        teamName: call.teamName,
+        input: {
+          childAgentId,
+          toParent: !childAgentId && !agentName,
+          message,
+          kind: call.input.kind,
+          correlationId: call.input.correlationId,
+          replyToMessageId: call.input.replyToMessageId,
+          timeoutMs: call.input.timeoutMs,
+          runInBackground: call.input.runInBackground,
+          callId: call.input.callId,
+        },
+      }, ctx);
+      return { ...result, toolName: "agent" };
+    }
+
+    if (!agentName) {
+      return errorResult("agent 需要 agent_name 创建子 Agent，或在 child 上下文中省略目标向父 Agent 发消息", "agent");
+    }
+    const result = await this.callAgent({
+      agent: call.agent,
+      teamName: call.teamName,
+      input: {
+        agentName,
+        task: message,
+        contextHint: call.input.contextHint,
+        runInBackground: call.input.runInBackground,
+        callId: call.input.callId,
+      },
+    }, ctx);
+    return { ...result, toolName: "agent" };
+  }
+
   async callAgent(call: AgentDelegationCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
     const { agent: parentAgent, teamName, input } = call;
-    const toolName = "call_agent";
+    const toolName = "agent";
     const sessionId = normalizeString(ctx.sessionId);
     const targetAgentName = normalizeString(input.agentName);
     const task = normalizeString(input.task);
     const parentCallId = normalizeString(input.callId);
     const parentRunId = normalizeString(ctx.runId);
     if (!sessionId) {
-      return errorResult("call_agent 缺少 session_id", toolName);
+      return errorResult("agent 缺少 session_id", toolName);
     }
     if (!targetAgentName) {
-      return errorResult("call_agent 缺少 agent_name", toolName);
+      return errorResult("agent 创建模式缺少 agent_name", toolName);
     }
     if (!task) {
-      return errorResult("call_agent 缺少 task", toolName);
+      return errorResult("agent 创建模式缺少 message", toolName);
     }
     if (!parentRunId || !parentCallId) {
-      return errorResult("call_agent 缺少 run_id 或 call_id", toolName);
+      return errorResult("agent 缺少 run_id 或 call_id", toolName);
     }
     const allowedAgents = parentAgent.delegation.enabled_agents ?? [];
     if (!allowedAgents.length) {
@@ -231,7 +281,7 @@ export class AgentDelegationService implements DelegationPort {
       : null;
     if (matchingChild && (existingRun?.status === "running" || this.activeChildRuns.has(matchingChild.child_agent_id))) {
       return errorResult(
-        `该 call_agent 调用对应的子 Agent '${matchingChild.child_agent_id}' 仍在运行，请查询现有后台任务，勿重复委派`,
+        `该 agent 调用对应的子 Agent '${matchingChild.child_agent_id}' 仍在运行，请查询现有后台任务，勿重复委派`,
         toolName,
       );
     }
@@ -256,7 +306,7 @@ export class AgentDelegationService implements DelegationPort {
           parentRunId,
           parentCallId,
           metadata: {
-            ...buildChildMetadata(ctx, threadKey, "call_agent"),
+            ...buildChildMetadata(ctx, threadKey, "agent"),
             agent_call_id: agentCallId,
           },
         });
@@ -293,8 +343,8 @@ export class AgentDelegationService implements DelegationPort {
       childAgent: child,
       childRunId,
       resumeRunId: resumedRun?.run_id ?? null,
-      entrypoint: "call_agent",
-      executionKind: ctx.executionKind ?? "call_agent",
+      entrypoint: "agent",
+      executionKind: ctx.executionKind ?? "agent",
       rootTask: ctx.rootTask ?? task,
       source: "agent_call",
       teamName: normalizeString(teamName),
@@ -372,7 +422,7 @@ export class AgentDelegationService implements DelegationPort {
 
   async sendMessage(call: SendMessageCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
     const { agent: parentAgent, teamName, input } = call;
-    const toolName = "send_message";
+    const toolName = "agent";
     const sessionId = normalizeString(ctx.sessionId);
     const childAgentId = normalizeString(input.childAgentId);
     const toParent = input.toParent === true;
@@ -380,19 +430,19 @@ export class AgentDelegationService implements DelegationPort {
     const parentCallId = normalizeString(input.callId);
     const agentCallId = `call_${randomUUID()}`;
     if (!sessionId) {
-      return errorResult("send_message 缺少 session_id", toolName);
+      return errorResult("agent 缺少 session_id", toolName);
     }
     if (!childAgentId && !toParent) {
-      return errorResult("send_message 缺少 child_agent_id", toolName);
+      return errorResult("agent 通信模式缺少 child_agent_id", toolName);
     }
     if (!message) {
-      return errorResult("send_message 缺少 message", toolName);
+      return errorResult("agent 通信模式缺少 message", toolName);
     }
     if (toParent) {
       if (input.runInBackground) return errorResult("to_parent 消息不能再次后台委派", toolName);
       return this.sendMessageToParent(call, ctx, message, parentCallId, toolName);
     }
-    if (!childAgentId) return errorResult("send_message 缺少 child_agent_id", toolName);
+    if (!childAgentId) return errorResult("agent 通信模式缺少 child_agent_id", toolName);
     const child = await this.store.getChildAgent(sessionId, childAgentId);
     if (!child) {
       return errorResult(`子 Agent '${childAgentId}' 不存在`, toolName);
@@ -412,7 +462,7 @@ export class AgentDelegationService implements DelegationPort {
     const kind = input.kind ?? "request";
     if (!runningChildRunId && lastRun?.status === "suspended") {
       return errorResult(
-        `子 Agent '${childAgentId}' 当前处于 suspended，不能通过 send_message 创建新 run；请先恢复或取消其交互`,
+        `子 Agent '${childAgentId}' 当前处于 suspended，不能通过 agent 创建新 run；请先恢复或取消其交互`,
         toolName,
       );
     }
@@ -448,7 +498,7 @@ export class AgentDelegationService implements DelegationPort {
         return errorResult("运行中的子 Agent 暂不支持消息投递（mailbox 未注入）", toolName);
       }
       const tenantId = normalizeString(ctx.tenantId);
-      if (!tenantId) return errorResult("send_message 缺少 tenant_id", toolName);
+      if (!tenantId) return errorResult("agent 缺少 tenant_id", toolName);
       const sourceRunId = normalizeString(ctx.runId);
       const sourceAgentCallId = normalizeString(ctx.currentCallId) ?? normalizeString(ctx.rootCallId) ?? parentCallId;
       const targetAgentCallId = normalizeString(lastRun?.agent_call_id)
@@ -470,7 +520,7 @@ export class AgentDelegationService implements DelegationPort {
         contentParts: [{ type: "text", text: message }],
         ...(timeoutMs ? { expiresAt: new Date(Date.now() + timeoutMs).toISOString() } : {}),
         metadata: {
-          source: "send_message",
+          source: "agent",
           parent_tool_call_id: parentCallId,
         },
       });
@@ -542,8 +592,8 @@ export class AgentDelegationService implements DelegationPort {
       childAgent: child,
       childRunId,
       resumeRunId: null,
-      entrypoint: "send_message",
-      executionKind: ctx.executionKind ?? "send_message",
+      entrypoint: "agent",
+      executionKind: ctx.executionKind ?? "agent",
       rootTask: ctx.rootTask ?? message,
       source: "agent_call",
       teamName: normalizeString(teamName),
@@ -621,7 +671,7 @@ export class AgentDelegationService implements DelegationPort {
     if (!this.mailbox) return errorResult("Agent mailbox 未注入，无法向父 Agent 投递消息", toolName);
     const tenantId = normalizeString(ctx.tenantId);
     const sessionId = normalizeString(ctx.sessionId);
-    if (!tenantId || !sessionId) return errorResult("send_message 缺少 tenant_id 或 session_id", toolName);
+    if (!tenantId || !sessionId) return errorResult("agent 缺少 tenant_id 或 session_id", toolName);
     const parent = await this.store.getRun(sessionId, ctx.parentRunId);
     if (!parent) return errorResult(`父 Agent run '${ctx.parentRunId}' 不存在`, toolName);
     const kind = call.input.kind ?? "response";
@@ -643,7 +693,7 @@ export class AgentDelegationService implements DelegationPort {
       contentParts: [{ type: "text", text: message }],
       ...(timeoutMs ? { expiresAt: new Date(Date.now() + timeoutMs).toISOString() } : {}),
       metadata: {
-        source: "send_message",
+        source: "agent",
         direction: "child_to_parent",
         child_agent_id: ctx.currentChildAgentId,
         child_run_id: ctx.runId,
@@ -823,7 +873,7 @@ export class AgentDelegationService implements DelegationPort {
     // 子 run 复用 root 的 executeRun 执行核心：prepare/kernel/事件/recorder 全部统一，
     // 靠 threadKey=child:xxx + parent_run_id/parent_call_id/child_agent_id 区分归属。
     // observation 落子 thread、step 落子 run_id，续聊 prepare 重建完整上下文、工作栏按 parent_call_id 展示。
-    // 在执行前记录 last_run_id，确保子 run 挂起抛异常时仍可由原 call_agent 找回。
+    // 在执行前记录 last_run_id，确保子 run 挂起抛异常时仍可由原 agent 调用找回。
     await this.store.updateChildAgentLastRun({
       sessionId: input.sessionId,
       childAgentId: input.childAgent.child_agent_id,

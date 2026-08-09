@@ -67,7 +67,7 @@ export function getToolInspectorLabel(toolName = '') {
   if (name === 'grep' || name === 'glob') return '搜索详情'
   if (name === 'web_fetch') return '网页详情'
   if (name === 'request_user_input') return '输入详情'
-  if (name === 'call_agent') return 'Agent 调用'
+  if (name === 'agent') return 'Agent 调用'
   if (name.includes('skill')) return 'Skill 详情'
   if (name.startsWith('goal_')) return 'Goal 详情'
   if (name === 'todo_write' || name.startsWith('task_')) return '任务详情'
@@ -79,7 +79,7 @@ export function getToolIconKind(toolName = '') {
   const name = String(toolName || '').toLowerCase()
   if (parseMcpToolName(name)) return 'mcp'
   if (name === 'request_user_input') return 'input'
-  if (name === 'call_agent') return 'agentCall'
+  if (name === 'agent') return 'agentCall'
   if (name.includes('skill')) return 'skill'
   if (name.includes('map') || name.includes('geo') || name.includes('spatial') || name.includes('basin')) return 'map'
   if (name.includes('chart') || name.includes('visual') || name.includes('risk_matrix')) return 'chart'
@@ -106,7 +106,7 @@ export function getToolSubtitle(node, options = {}) {
     const mcpSummary = pickString(payload?.summary, content?.summary, content?.message, payload?.message)
     return mcpSummary ? truncateText(mcpSummary, 42) : `${mcpName.server}/${mcpName.tool}`
   }
-  if (name === 'call_agent') return previewCallAgent(node, args, content, running)
+  if (name === 'agent') return previewAgent(node, args, content, running)
   if (name === 'request_user_input') return previewUserInput(args, metadata, running)
   if (name === 'execute_bash') return previewBash(args, content, metadata, running)
   if (name === 'execute_code') return previewCode(args, content, metadata, running)
@@ -225,7 +225,7 @@ function buildToolMeta(node, args, content, metadata, payload) {
     return meta
   }
 
-  if (name === 'call_agent') {
+  if (name === 'agent') {
     add('目标 Agent', pickString(args.agent_name, payload?.metadata?.agent_name, content?.metadata?.agent_name))
     add('子会话', pickString(payload?.metadata?.child_agent_id, content?.metadata?.child_agent_id))
     return meta
@@ -290,7 +290,7 @@ function buildToolSummarySections(node, args, content, metadata, payload) {
     return compactSections(sections)
   }
 
-  if (name === 'call_agent') {
+  if (name === 'agent') {
     sections.push(section('summary-agent-task', '任务', args.task))
     sections.push(section('summary-agent-context', '上下文', args.context_hint))
     sections.push(section('summary-tool-result', '结果摘要', summary))
@@ -431,9 +431,10 @@ function buildToolInputSections(node, args) {
     return compactSections(sections)
   }
 
-  if (name === 'call_agent') {
+  if (name === 'agent') {
     sections.push(section('input-agent-name', '目标 Agent', args.agent_name))
-    sections.push(section('input-agent-task', '任务', args.task))
+    sections.push(section('input-agent-target', '子会话', args.child_agent_id))
+    sections.push(section('input-agent-task', '任务或消息', args.message || args.task))
     sections.push(section('input-agent-context', '上下文提示', args.context_hint))
     return compactSections(sections)
   }
@@ -584,7 +585,7 @@ function buildToolOutputSections(node, args, content, metadata, payload) {
     return compactSections(sections)
   }
 
-  if (name === 'call_agent') {
+  if (name === 'agent') {
     sections.push(section('output-agent-summary', '结果摘要', summary))
     if (content !== null && content !== undefined && content !== '') {
       sections.push(section('output-agent-content', '结果内容', formatContent(content, 1800), typeof content === 'string' ? 'text' : 'code'))
@@ -617,9 +618,9 @@ function buildToolOutputSections(node, args, content, metadata, payload) {
   return []
 }
 
-function previewCallAgent(node, args, content, running) {
+function previewAgent(node, args, content, running) {
   const calledAgent = node.linkedAgentCall?.agent_display_name || args.agent_name || content?.metadata?.agent_name || ''
-  const task = pickString(args.task, args.description, content?.summary)
+  const task = pickString(args.message, args.task, args.description, content?.summary)
   const lead = calledAgent ? `${running ? '调用中' : '调用'} ${shortName(calledAgent)}` : (running ? '调用中' : '调用子 Agent')
   return joinParts([lead, truncateText(task, 36)])
 }

@@ -15,7 +15,7 @@ export function buildDelegatedTask(task: string, contextHint: string | null | un
 export function buildChildMetadata(
   context: ToolExecContext,
   threadKey: string,
-  createdVia: "call_agent",
+  createdVia: "agent",
 ): Record<string, unknown> {
   const workspaceRoot = normalizeString(context.workspaceRoot);
   return {

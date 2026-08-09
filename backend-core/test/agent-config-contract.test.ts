@@ -53,7 +53,7 @@ describe("core Agent config contract", () => {
     expect(stripConfigManagedToolNames([
       "read_file",
       "goal_create",
-      "call_agent",
+      "agent",
       "activate_skill",
       "search_knowledge_base",
     ])).toEqual(["read_file", "activate_skill", "search_knowledge_base"]);

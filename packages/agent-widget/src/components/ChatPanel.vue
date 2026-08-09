@@ -254,7 +254,7 @@ const STREAM_FLUSH_MS = 80;
 let streamTarget = null;
 let streamBuffer = "";
 // 当前 root run 的 run_id（run_started 登记）。stream_output/run_ended 的 run_id 与之不同
-// 即为子智能体（call_agent/委托）的子 run，其输出不进 root 正文（由 executionTree 投影到 agent.output）。
+// 即为子智能体（agent/委托）的子 run，其输出不进 root 正文（由 executionTree 投影到 agent.output）。
 let rootRunId = null;
 // 当前 run 产生的 assistant message 引用（run_started 绑定）。
 // executionTree 挂它而非 messages 末尾：abort 期间后端可能补 error envelope → pushError 推一条
@@ -799,7 +799,7 @@ const showTyping = computed(() => {
 });
 
 /** 从 executionTree 提取带层级的节点（工具 + 子 agent 分组），子 agent 工具按 depth 缩进。 */
-/** 读取 call_agent/send_message 工具调用的目标 agent 名（input.agent_name 等）。*/
+/** 读取 agent 工具调用的目标 agent 名（input.agent_name 等）。*/
 function readCallAgentTarget(tc) {
   const args = tc.arguments || {};
   return args.agent_name || args.agent || args.agentId || null;
@@ -817,7 +817,7 @@ function buildTree(tree) {
     for (const round of agent.rounds || []) {
       const roundChildren = [];
       for (const tc of round.toolCalls || []) {
-        if (tc.toolName === "call_agent" || tc.toolName === "send_message") {
+        if (tc.toolName === "agent") {
           // 委托工具：用对应子 agent 节点代替，挂在该轮 intent 下。
           const target = readCallAgentTarget(tc);
           const child = (agent.children || []).find(

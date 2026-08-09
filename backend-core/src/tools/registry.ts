@@ -20,7 +20,7 @@ export interface BackendToolsDeps {
   getAgentDelegation: () => DelegationPort | null;
   /**
    * agent 配置查找（delegation 工厂解析可委派 agent 展示信息用；结构上与 agentConfig 容器 getConfig 兼容）。
-   * 用于让 call_agent 等工具自描述 allowlist，不提供则 allowlist 仅含 agent_name、无展示文案。
+   * 用于让 agent 工具自描述 allowlist，不提供则 allowlist 仅含 agent_name、无展示文案。
    */
   agentConfig?: DelegationAgentConfigLookup | null;
   /** session team（delegation 工具用）。 */

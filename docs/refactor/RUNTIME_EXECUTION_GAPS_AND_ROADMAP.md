@@ -134,9 +134,9 @@
 ### 2.5 子 Agent 执行现状：会话能力已完成，并已受益于工具层并行
 
 **现状**：
-- `call_agent` / `send_message` / `list_child_agents` 已完成子 Agent 会话能力。
+- `agent` / `list_child_agents` 已完成子 Agent 会话能力；`agent` 根据是否提供 `agent_name` 或 `child_agent_id` 统一处理创建与续接。
 - `BaseAgent._handle_actions()` 已具备按依赖分批的并行调度能力，因此多个无依赖 agent 类工具调用在运行时调度层不再天然受限于串行 for 循环。
-- 当前仍缺针对多 `call_agent` 并发场景的专项验收与文档口径收口。
+- 当前仍缺针对多 `agent(agent_name=...)` 并发场景的专项验收与文档口径收口。
 
 **结论**：
 - 子 Agent 能力基础已经具备，运行时底层并行能力也已就位。
@@ -296,12 +296,12 @@
 - 必须建立在 D1 工具并行执行能力之上
 
 ### 建议实现
-1. 将多个无依赖 `call_agent` 调用纳入并行批次
+1. 将多个无依赖 `agent(agent_name=...)` 调用纳入并行批次
 2. 统一聚合子 Agent 结果
 3. 保留每个子 Agent 的会话与事件上下文隔离
 
 ### 验收标准
-- 单轮多个 `call_agent` 可并发
+- 单轮多个 `agent(agent_name=...)` 可并发
 - 子 Agent 结果可稳定回收并按既定顺序进入主 Agent observation
 - 某个子 Agent 失败不影响其他子 Agent 结果回收
 

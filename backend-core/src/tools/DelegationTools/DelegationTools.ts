@@ -10,21 +10,19 @@ import {
 import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 import type { DelegationPort } from "../../services/agent/delegation/port.js";
 import {
-  readCallAgentArguments,
+  readAgentArguments,
   readListChildAgentsArguments,
-  readSendMessageArguments,
 } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import {
-  CALL_AGENT_TOOL_NAME,
+  AGENT_TOOL_NAME,
   LIST_CHILD_AGENTS_TOOL_NAME,
-  SEND_MESSAGE_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import { toolError } from "../../services/agent/sdk/tool-results.js";
 import { metadataFrom, optionalBoolean, optionalInteger, optionalString } from "../schema-helpers.js";
 
 /**
  * agent 配置查找端口：delegation 工厂用它解析可委派 agent 的展示信息（display_name/description/use_cases），
- * 从而让 call_agent 等工具自描述其 allowlist。结构上与 agentConfig 容器的 getConfig 兼容。
+ * 从而让 agent 工具自描述其 allowlist。结构上与 agentConfig 容器的 getConfig 兼容。
  */
 export interface DelegationAgentConfigLookup {
   getConfig(agentName: string, options?: { teamName?: string | null }): AgentConfig | null;
@@ -48,12 +46,21 @@ interface DelegationToolDeps {
   canMessageParent?: boolean;
 }
 
-const callAgentSchema = z.object({
-  agent_name: z.string(),
+const agentSchema = z.object({
+  agent_name: optionalString,
   agentName: z.string().optional(),
-  task: z.string(),
+  child_agent_id: optionalString,
+  childAgentId: z.string().optional(),
+  message: z.string(),
   context_hint: optionalString,
   contextHint: optionalString,
+  kind: z.enum(["progress", "request", "response", "result", "cancel"]).optional(),
+  correlation_id: z.string().optional(),
+  correlationId: z.string().optional(),
+  reply_to_message_id: z.string().optional(),
+  replyToMessageId: z.string().optional(),
+  timeout_ms: optionalInteger,
+  timeoutMs: optionalInteger,
   run_in_background: optionalBoolean,
   runInBackground: optionalBoolean,
 }).strict();
@@ -64,50 +71,53 @@ const listChildAgentsSchema = z.object({
   limit: optionalInteger,
 }).strict();
 
-const sendMessageSchema = z.object({
-  child_agent_id: optionalString,
-  childAgentId: z.string().optional(),
-  to_parent: optionalBoolean,
-  toParent: optionalBoolean,
-  message: z.string(),
-  kind: z.enum(["progress", "request", "response", "result", "cancel"]).optional(),
-  correlation_id: z.string().optional(),
-  correlationId: z.string().optional(),
-  reply_to_message_id: z.string().optional(),
-  replyToMessageId: z.string().optional(),
-  timeout_ms: optionalInteger,
-  timeoutMs: optionalInteger,
-  run_in_background: optionalBoolean,
-  runInBackground: optionalBoolean,
-}).strict().refine((value) => Boolean(value.child_agent_id ?? value.childAgentId ?? value.to_parent ?? value.toParent), {
-  message: "send_message requires child_agent_id or to_parent",
-});
-
 const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
   {
-    name: CALL_AGENT_TOOL_NAME,
+    name: AGENT_TOOL_NAME,
     source: "agent_tool",
     category: "agent_delegation",
     riskLevel: "low",
     allowed_callers: ["direct"],
     description:
-      "Delegate a self-contained subtask to one allowed child Agent. agent_name must come from the current Agent delegation allowlist.",
+      "Create a child Agent with agent_name, continue an existing child with child_agent_id, or send a message to the direct parent from a child context.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      required: ["agent_name", "task"],
       properties: {
         agent_name: {
           type: "string",
-          description: "Target child Agent name from the current delegation allowlist.",
+          description: "Target child Agent name from the current delegation allowlist. Omit when communicating with an existing child or the direct parent.",
         },
-        task: {
+        child_agent_id: {
           type: "string",
-          description: "Complete task description with all context the child Agent needs.",
+          description: "Existing child Agent id returned by a previous agent call. Omit to create a new child or message the direct parent.",
+        },
+        message: {
+          type: "string",
+          description: "Task for a new child Agent, or message for an existing child/parent.",
         },
         context_hint: {
           type: "string",
           description: "Optional extra constraints, output format, or background.",
+        },
+        kind: {
+          type: "string",
+          enum: ["progress", "request", "response", "result", "cancel"],
+          description: "Durable message semantic for an existing Agent. Defaults based on direction.",
+        },
+        correlation_id: {
+          type: "string",
+          description: "Correlation id for request/response messages.",
+        },
+        reply_to_message_id: {
+          type: "string",
+          description: "Message id this response replies to.",
+        },
+        timeout_ms: {
+          type: "integer",
+          minimum: 1,
+          maximum: 600000,
+          description: "Optional delivery TTL for an existing Agent message.",
         },
         run_in_background: {
           type: "boolean",
@@ -140,56 +150,6 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
       },
     },
   },
-  {
-    name: SEND_MESSAGE_TOOL_NAME,
-    source: "agent_tool",
-    category: "agent_delegation",
-    riskLevel: "low",
-    allowed_callers: ["direct"],
-    description: "Send a durable message to an existing child Agent, or to the direct parent when to_parent=true.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["message"],
-      properties: {
-        child_agent_id: {
-          type: "string",
-          description: "Child Agent id returned by call_agent or list_child_agents. Omit when to_parent=true.",
-        },
-        to_parent: {
-          type: "boolean",
-          description: "Deliver to the direct parent invocation of the current child run.",
-        },
-        message: {
-          type: "string",
-          description: "Follow-up task or correction for the existing child Agent.",
-        },
-        kind: {
-          type: "string",
-          enum: ["progress", "request", "response", "result", "cancel"],
-          description: "Durable parent-child message semantic. Defaults to request.",
-        },
-        correlation_id: {
-          type: "string",
-          description: "Correlation id for request/response messages.",
-        },
-        reply_to_message_id: {
-          type: "string",
-          description: "Message id this response or result replies to.",
-        },
-        timeout_ms: {
-          type: "integer",
-          minimum: 1,
-          maximum: 600000,
-          description: "Optional mailbox TTL in milliseconds. Expired messages are not delivered.",
-        },
-        run_in_background: {
-          type: "boolean",
-          description: "Run this follow-up independently and immediately return background_task_id and run_id.",
-        },
-      },
-    },
-  },
 ];
 
 export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
@@ -207,29 +167,28 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
   const allowBackground = !!agent.tasks?.background;
 
   const definitionByName = new Map(AGENT_DELEGATION_TOOLS.map((definition) => [definition.name, definition]));
-  const callAgentDef = withDelegationSelfDescription(
-    omitBackgroundParam(definitionByName.get(CALL_AGENT_TOOL_NAME)!, allowBackground),
+  const agentDef = withDelegationSelfDescription(
+    omitBackgroundParam(definitionByName.get(AGENT_TOOL_NAME)!, allowBackground),
     agentNames,
     delegatedAgents,
   );
   const listChildAgentsDef = withAgentNameEnum(definitionByName.get(LIST_CHILD_AGENTS_TOOL_NAME)!, agentNames);
-  const sendMessageDef = omitBackgroundParam(definitionByName.get(SEND_MESSAGE_TOOL_NAME)!, allowBackground);
 
   const tools: Tool[] = [];
-  if (hasChildDelegation) tools.push(buildTool({
-      ...metadataFrom(callAgentDef),
-      inputSchema: callAgentSchema,
+  if (hasChildDelegation || canMessageParent) tools.push(buildTool({
+      ...metadataFrom(agentDef),
+      inputSchema: agentSchema,
       isConcurrencySafe: () => false,
       concurrencyPolicy: agent.delegation.parallel_children ? "parallel" : "serial",
-      concurrencyKey: (input) => `call_agent:${input.agent_name}:${input.task}`,
+      concurrencyKey: (input) => `agent:${input.child_agent_id ?? input.agent_name ?? "parent"}:${input.message}`,
       call: (input, ctx: ToolExecContext) => {
         const service = getAgentDelegation();
         return service
-          ? service.callAgent(
-              { agent, teamName, input: readCallAgentArguments(input, ctx.toolCallId ?? undefined) },
+          ? service.agent(
+              { agent, teamName, input: readAgentArguments(input, ctx.toolCallId ?? undefined) },
               ctx,
             )
-          : toolError(CALL_AGENT_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
+          : toolError(AGENT_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
       },
     }));
   if (hasChildDelegation) tools.push(buildTool({
@@ -242,22 +201,6 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
         return service
           ? service.listChildAgents({ agent, teamName, input: readListChildAgentsArguments(input) }, ctx)
           : toolError(LIST_CHILD_AGENTS_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
-      },
-    }));
-  tools.push(buildTool({
-      ...metadataFrom(sendMessageDef),
-      inputSchema: sendMessageSchema,
-      isConcurrencySafe: () => false,
-      concurrencyPolicy: agent.delegation.parallel_children ? "parallel" : "serial",
-      concurrencyKey: (input) => `send_message:${input.child_agent_id}`,
-      call: (input, ctx: ToolExecContext) => {
-        const service = getAgentDelegation();
-        return service
-          ? service.sendMessage(
-              { agent, teamName, input: readSendMessageArguments(input, ctx.toolCallId ?? undefined) },
-              ctx,
-            )
-          : toolError(SEND_MESSAGE_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
       },
     }));
   return tools;
@@ -321,7 +264,7 @@ function omitBackgroundParam(definition: RuntimeToolDefinition, allowBackground:
   return { ...definition, parameters: { ...parameters, properties } };
 }
 
-/** call_agent 自描述：候选名单及职责进入 agent_name schema，system prompt 只保留最小委派策略。 */
+/** agent 自描述：候选名单及职责进入 agent_name schema，system prompt 只保留最小委派策略。 */
 function withDelegationSelfDescription(
   definition: RuntimeToolDefinition,
   agentNames: string[],

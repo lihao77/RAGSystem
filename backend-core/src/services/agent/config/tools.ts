@@ -17,9 +17,8 @@ function allRuntimeTools(): AvailableToolInfo[] {
     availableTool("goal_list", "List current and historical session Goals", "goal", "low"),
     availableTool("task_output", "Read a background task status and output", "task", "low"),
     availableTool("task_stop", "Stop a cancellable background task", "task", "medium"),
-    availableTool("call_agent", "Delegate a subtask to an allowed child Agent", "agent_delegation", "low"),
+    availableTool("agent", "Create or communicate with an allowed child Agent", "agent_delegation", "low"),
     availableTool("list_child_agents", "List child Agent sessions for the current session", "agent_delegation", "low"),
-    availableTool("send_message", "Continue an existing child Agent session", "agent_delegation", "low"),
   ];
 }
 

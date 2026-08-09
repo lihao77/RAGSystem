@@ -749,9 +749,9 @@ describe("background child-agent delegation", () => {
   });
 
   it("stores the inherited workspace without worktree metadata", () => {
-    const metadata = buildChildMetadata({ workspaceRoot: "C:\\workspace" } as never, "child:worker", "call_agent");
+    const metadata = buildChildMetadata({ workspaceRoot: "C:\\workspace" } as never, "child:worker", "agent");
     expect(metadata).toMatchObject({
-      created_via: "call_agent",
+      created_via: "agent",
       thread_key: "child:worker",
       workspace_root: "C:\\workspace",
     });
@@ -772,11 +772,55 @@ describe("background child-agent delegation", () => {
       getAgentDelegation: () => delegation,
     });
 
-    const enabledCall = enabled.find((tool) => tool.name === "call_agent");
-    const disabledCall = disabled.find((tool) => tool.name === "call_agent");
+    const enabledCall = enabled.find((tool) => tool.name === "agent");
+    const disabledCall = disabled.find((tool) => tool.name === "agent");
     expect(enabledCall?.parameters.properties).toHaveProperty("run_in_background");
     expect(disabledCall?.parameters.properties).not.toHaveProperty("run_in_background");
     expect(disabledCall?.parameters.properties).not.toHaveProperty("runInBackground");
+  });
+
+  it("routes the unified agent tool by target shape", async () => {
+    const service = new AgentDelegationService({} as never, {} as never);
+    const callAgent = vi.spyOn(service, "callAgent").mockResolvedValue({
+      success: true,
+      toolName: "agent",
+    } as never);
+    const sendMessage = vi.spyOn(service, "sendMessage").mockResolvedValue({
+      success: true,
+      toolName: "agent",
+    } as never);
+    const parent = parentAgent(false);
+    const runContext = context(new AbortController().signal);
+
+    const created = await service.agent({
+      agent: parent,
+      teamName: null,
+      input: { agentName: "worker", message: "inspect this", callId: "tool-create" },
+    }, runContext);
+    expect(created.toolName).toBe("agent");
+    expect(callAgent).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ agentName: "worker", task: "inspect this" }),
+    }), runContext);
+
+    const existing = await service.agent({
+      agent: parent,
+      teamName: null,
+      input: { childAgentId: "child-worker", message: "continue", callId: "tool-followup" },
+    }, runContext);
+    expect(existing.toolName).toBe("agent");
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ childAgentId: "child-worker", message: "continue", toParent: false }),
+    }), runContext);
+
+    const childContext = { ...runContext, parentRunId: "parent-run", currentChildAgentId: "child-worker" };
+    await service.agent({
+      agent: workerAgent(),
+      teamName: null,
+      input: { message: "progress", callId: "tool-parent" },
+    }, childContext);
+    expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ message: "progress", toParent: true }),
+    }), childContext);
   });
 
   it("exposes the parent mailbox route for child invocations without child allowlist", () => {
@@ -786,8 +830,8 @@ describe("background child-agent delegation", () => {
       getAgentDelegation: () => ({} as DelegationPort),
       canMessageParent: true,
     });
-    expect(tools.map((tool) => tool.name)).toEqual(["send_message"]);
-    expect(tools[0]?.parameters.properties).toHaveProperty("to_parent");
+    expect(tools.map((tool) => tool.name)).toEqual(["agent"]);
+    expect(tools[0]?.parameters.properties).toHaveProperty("child_agent_id");
   });
 
   it("keeps delegation policy concise and puts candidate details in the function schema", () => {
@@ -798,8 +842,8 @@ describe("background child-agent delegation", () => {
       getAgentDelegation: () => delegation,
       agentConfig: { getConfig: () => ({ ...workerAgent(), description: "Processes focused research tasks." }) },
     });
-    const callAgent = tools.find((tool) => tool.name === "call_agent");
-    const properties = callAgent?.parameters.properties as Record<string, Record<string, unknown>> | undefined;
+    const agentTool = tools.find((tool) => tool.name === "agent");
+    const properties = agentTool?.parameters.properties as Record<string, Record<string, unknown>> | undefined;
     const agentName = properties?.agent_name;
     const prompt = buildFullSystemPrompt(
       { behavior: { systemPrompt: "" } } as Parameters<typeof buildFullSystemPrompt>[0],
@@ -815,8 +859,8 @@ describe("background child-agent delegation", () => {
 
     expect(agentName?.enum).toEqual(["worker"]);
     expect(agentName?.description).toContain("worker (Worker): Processes focused research tasks.");
-    expect(callAgent?.extendedUsage).toBe("仅在直接回答或直接工具不足时委派；优先复用已有 child_agent_id，单个子 Agent 足够时不要拆成多个。");
-    expect(callAgent?.examples).toBeUndefined();
+    expect(agentTool?.extendedUsage).toContain("优先复用已有 child_agent_id");
+    expect(agentTool?.examples).toBeUndefined();
     expect(prompt).not.toContain("优先顺序：直答 > direct tool > 单子 Agent > 多 Agent");
     expect(prompt).not.toContain("background_task_id");
     expect(prompt).not.toContain("可委派子 Agent：");
@@ -946,7 +990,7 @@ describe("background child-agent delegation", () => {
       workspaceRoot: "C:\\workspace",
       task: "continue the child task",
       requestId: "request-1",
-      executionKind: "call_agent",
+      executionKind: "agent",
       userId: null,
       sessionIdentity: toSessionIdentity(session()),
       resolutions: [],

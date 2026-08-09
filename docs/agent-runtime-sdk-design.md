@@ -35,7 +35,7 @@ agent-sdk = backend-ts agent 运行时的核心功能子集。一个进程 `crea
 - 知识库：RAG retrieval
 - skill：技能系统
 - mcp：外部工具服务器
-- 多 agent 委派：delegation / call_agent / send_message
+- 多 agent 委派：delegation / agent / list_child_agents
 - 审批：PendingInteractionService
 - outbox / WS 投递：claim / 重试 / 实时分发（backend-ts 读 SDK 事件流自己玩，SDK 不认识这些概念）
 - 重型工具链：execute_code / execute_bash / 文件工具等（调用者作为 tools 注入）

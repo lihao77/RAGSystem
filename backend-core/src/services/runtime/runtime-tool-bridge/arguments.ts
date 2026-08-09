@@ -62,17 +62,27 @@ export function readTaskStopArguments(value: Record<string, unknown> | undefined
   };
 }
 
-export function readCallAgentArguments(value: Record<string, unknown> | undefined, callId: string | undefined): {
-  agentName: string;
-  task: string;
+export function readAgentArguments(value: Record<string, unknown> | undefined, callId: string | undefined): {
+  agentName?: string | null;
+  childAgentId?: string | null;
+  message: string;
   contextHint?: string | null;
+  kind?: import("../../../contracts/storage/agent-mailbox-repository.js").AgentMailboxMessageKind | null;
+  correlationId?: string | null;
+  replyToMessageId?: string | null;
+  timeoutMs?: number | null;
   runInBackground?: boolean | null;
   callId?: string | null;
 } {
   return {
-    agentName: asString(value?.agent_name) ?? asString(value?.agentName) ?? "",
-    task: asString(value?.task) ?? "",
+    agentName: asString(value?.agent_name) ?? asString(value?.agentName),
+    childAgentId: asString(value?.child_agent_id) ?? asString(value?.childAgentId),
+    message: asString(value?.message) ?? "",
     contextHint: asString(value?.context_hint) ?? asString(value?.contextHint),
+    kind: asMailboxKind(value?.kind),
+    correlationId: asString(value?.correlation_id) ?? asString(value?.correlationId),
+    replyToMessageId: asString(value?.reply_to_message_id) ?? asString(value?.replyToMessageId),
+    timeoutMs: asInteger(value?.timeout_ms) ?? asInteger(value?.timeoutMs),
     runInBackground: typeof value?.run_in_background === "boolean"
       ? value.run_in_background
       : typeof value?.runInBackground === "boolean" ? value.runInBackground : null,
@@ -87,34 +97,6 @@ export function readListChildAgentsArguments(value: Record<string, unknown> | un
   return {
     agentName: asString(value?.agent_name) ?? asString(value?.agentName),
     limit: asInteger(value?.limit),
-  };
-}
-
-export function readSendMessageArguments(value: Record<string, unknown> | undefined, callId: string | undefined): {
-  childAgentId?: string | null;
-  toParent?: boolean | null;
-  message: string;
-  kind?: import("../../../contracts/storage/agent-mailbox-repository.js").AgentMailboxMessageKind | null;
-  correlationId?: string | null;
-  replyToMessageId?: string | null;
-  timeoutMs?: number | null;
-  runInBackground?: boolean | null;
-  callId?: string | null;
-} {
-  return {
-    childAgentId: asString(value?.child_agent_id) ?? asString(value?.childAgentId),
-    toParent: typeof value?.to_parent === "boolean"
-      ? value.to_parent
-      : typeof value?.toParent === "boolean" ? value.toParent : null,
-    message: asString(value?.message) ?? "",
-    kind: asMailboxKind(value?.kind),
-    correlationId: asString(value?.correlation_id) ?? asString(value?.correlationId),
-    replyToMessageId: asString(value?.reply_to_message_id) ?? asString(value?.replyToMessageId),
-    timeoutMs: asInteger(value?.timeout_ms) ?? asInteger(value?.timeoutMs),
-    runInBackground: typeof value?.run_in_background === "boolean"
-      ? value.run_in_background
-      : typeof value?.runInBackground === "boolean" ? value.runInBackground : null,
-    callId: callId ?? null,
   };
 }
 

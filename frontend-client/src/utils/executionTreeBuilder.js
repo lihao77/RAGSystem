@@ -4,8 +4,8 @@
  * core 投影（execution-tree.ts）产 ExecutionAgent/Round/ToolCall（协议投影真相源）；
  * 本文件只做形状映射 + 注入展示态（expanded），不重建树——投影逻辑只在 core 一份。
  *
- * core 模型：call_agent 是父 agent 某 round 的 toolCall，child agent 是父 agent 的 children（分开）。
- * 为保留旧 UI 的"合并 agent_call 节点"视觉，遇到 call_agent/send_message toolCall 时，
+ * core 模型：agent 是父 agent 某 round 的 toolCall，child agent 是父 agent 的 children（分开）。
+ * 为保留旧 UI 的"合并 agent_call 节点"视觉，遇到 agent toolCall 时，
  * 只按 invocationCallId 精确匹配 child，合并为 agent_call 节点；
  * 匹配不到则保留普通 tool_call，未匹配的 child 作为独立 agent_call 追加，不按名称猜测。
  */
@@ -78,11 +78,11 @@ const createAgentCallNode = (agent) => ({
   children: buildAgentChildren(agent, new Set()),
 });
 
-const isDelegateTool = (toolName) => toolName === 'call_agent' || toolName === 'send_message';
+const isDelegateTool = (toolName) => toolName === 'agent';
 
 /**
  * 构建一个 agent 的子节点：rounds → thought(intent) + tool_call/agent_call；未消费 children → agent_call。
- * consumedChildIds 追踪当前 agent.children 的消费（避免 call_agent 合并后重复出现）。
+ * consumedChildIds 追踪当前 agent.children 的消费（避免 agent 合并后重复出现）。
  */
 function buildAgentChildren(agent, consumedChildIds, injections = []) {
   const children = [];
@@ -139,7 +139,7 @@ function buildAgentChildren(agent, consumedChildIds, injections = []) {
     children.push(createAgentMessageNode(message));
   }
 
-  // 未被 call_agent 合并消费的 child agent：作为独立 agent_call 追加
+  // 未被 agent 合并消费的 child agent：作为独立 agent_call 追加
   for (const child of agent.children || []) {
     if (!consumedChildIds.has(child.callId)) {
       consumedChildIds.add(child.callId);

@@ -7,7 +7,7 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 ## 核心能力
 
 - 多智能体编排：基于 Orchestrator Agent 的动态委派、协作与连续执行
-- 子 Agent 会话：支持 child agent 创建、找回与 send_message 续接
+- 子 Agent 会话：统一通过 `agent` 工具创建、找回与双向续接
 - 实时交互：`POST /api/agent/stream` 启动任务，session WebSocket 推送消息流、执行树、审批、输入和重连回放事件
 - 工具与扩展：内置工具运行时、Skills、MCP Server 集成
 - 记忆与钩子：支持按需记忆召回、会话记忆写入与 Hook 事件扩展

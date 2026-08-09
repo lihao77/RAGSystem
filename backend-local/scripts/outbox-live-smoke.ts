@@ -66,7 +66,7 @@ const DEFAULT_USER_INPUT_TASK = [
   "After the user responds, include the provided value in a concise final answer.",
 ].join(" ");
 const DEFAULT_DELEGATION_TASK = [
-  "You must call call_agent exactly once.",
+  "You must call agent exactly once.",
   "Use agent_name 'general_agent'.",
   "Use task 'Reply exactly: outbox-child-ok'.",
   "Use context_hint 'No tools are needed; answer directly.'.",

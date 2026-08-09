@@ -25,6 +25,19 @@ export interface AgentDelegationInput {
   callId?: string | null | undefined;
 }
 
+export interface AgentToolInput {
+  agentName?: string | null | undefined;
+  childAgentId?: string | null | undefined;
+  message: string;
+  contextHint?: string | null | undefined;
+  kind?: AgentMailboxMessageKind | null | undefined;
+  correlationId?: string | null | undefined;
+  replyToMessageId?: string | null | undefined;
+  timeoutMs?: number | null | undefined;
+  runInBackground?: boolean | null | undefined;
+  callId?: string | null | undefined;
+}
+
 export interface SendMessageInput {
   childAgentId?: string | null | undefined;
   /** Deliver to the direct parent invocation of the current child run. */
@@ -51,6 +64,12 @@ export interface AgentDelegationCall {
   input: AgentDelegationInput;
 }
 
+export interface AgentToolCall {
+  agent: AgentConfig;
+  teamName: string | null;
+  input: AgentToolInput;
+}
+
 export interface SendMessageCall {
   agent: AgentConfig;
   teamName: string | null;
@@ -64,6 +83,7 @@ export interface ListChildAgentsCall {
 }
 
 export interface DelegationPort {
+  agent(call: AgentToolCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;
   callAgent(call: AgentDelegationCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;
   sendMessage(call: SendMessageCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;
   listChildAgents(call: ListChildAgentsCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;

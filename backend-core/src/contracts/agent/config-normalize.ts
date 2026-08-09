@@ -15,8 +15,10 @@ export const CONFIG_MANAGED_TOOL_NAMES = new Set([
   "task_list",
   "task_output",
   "task_stop",
-  "call_agent",
+  "agent",
   "list_child_agents",
+  // Retired split delegation entrypoints.
+  "call_agent",
   "send_message",
 ]);
 
