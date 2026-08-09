@@ -78,7 +78,7 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
     riskLevel: "low",
     allowed_callers: ["direct"],
     description:
-      "Create a child Agent with agent_name, continue an existing child with child_agent_id, or send a message to the direct parent from a child context.",
+      "Create a child Agent with agent_name, continue an existing child with child_agent_id, or send a message to the direct parent from a child context. Existing-Agent message mode returns after durable enqueue; queued does not mean acknowledged, processed, or answered.",
     parameters: {
       type: "object",
       additionalProperties: false,

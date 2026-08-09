@@ -12,6 +12,7 @@ import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/runtime/permissions.js";
 import type { ExecutionSessionPort, SessionParticipantRunSummary } from "../../contracts/session/session-application.js";
+import { isParticipantConversationMessageVisible } from "../../contracts/session/message-visibility.js";
 
 export class AgentSessionApplication implements ExecutionSessionPort {
   constructor(
@@ -80,10 +81,8 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     threadKey?: string | null;
   }): Promise<SessionMessageListSnapshot> {
     const threadKey = input.threadKey?.trim() || "root";
-    const data = await this.repository.listMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0, threadKey);
-    data.items = data.items
-      .filter((item) => threadKey === "root" ? isVisibleRootMessage(item) : isVisibleParticipantMessage(item, threadKey))
-      .map((item) =>
+    const data = await this.repository.listVisibleMessages(input.sessionId, threadKey, input.limit ?? 20, input.offset ?? 0);
+    data.items = data.items.map((item) =>
         item.role === "assistant"
           ? {
               ...item,
@@ -104,7 +103,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     const threadKey = input.threadKey?.trim() || "root";
     const data = await this.repository.listMessages(input.sessionId, 1000, 0, threadKey);
     const message = data.items.find((item) => item.id === input.messageId
-      && (threadKey === "root" ? isVisibleRootMessage(item) : isVisibleParticipantMessage(item, threadKey)));
+      && isParticipantConversationMessageVisible(item, threadKey));
     if (!message) {
       throw new Error(`消息不存在: ${input.messageId}`);
     }
@@ -436,25 +435,11 @@ export class AgentSessionApplication implements ExecutionSessionPort {
 }
 
 function isVisibleRootMessage(item: MessageInfo): boolean {
-  if (item.metadata.react_intermediate) {
-    return false;
-  }
-  if (item.metadata.visible_to_user === false) {
-    return false;
-  }
-  if (item.metadata.conversation_scope === "child") {
-    return false;
-  }
-  if (item.thread_key && item.thread_key !== "root") {
-    return false;
-  }
-  return true;
+  return isParticipantConversationMessageVisible(item, "root");
 }
 
 function isVisibleParticipantMessage(item: MessageInfo, threadKey: string): boolean {
-  return item.thread_key === threadKey
-    && item.metadata.react_intermediate !== true
-    && item.metadata.visible_to_user !== false;
+  return isParticipantConversationMessageVisible(item, threadKey);
 }
 
 function parseArchivedEnvelope(payload: Record<string, unknown>): Envelope {

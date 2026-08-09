@@ -143,6 +143,33 @@ export class MessageOps {
     };
   }
 
+  listVisibleMessages(sessionId: string, threadKey: string, limit = DEFAULT_MESSAGE_LIST_LIMIT, offset = 0): PaginatedResult<MessageInfo> {
+    const resolvedThreadKey = threadKey.trim() || "root";
+    const rootClause = resolvedThreadKey === "root"
+      ? `AND child_agent_id IS NULL
+         AND COALESCE(json_extract(metadata, '$.conversation_scope'), '') != 'child'
+         AND COALESCE(json_extract(metadata, '$.msg_type'), '') NOT IN ('intent', 'observation')`
+      : "";
+    const where = `session_id=? AND thread_key=?
+      AND role IN ('user', 'assistant', 'system')
+      AND COALESCE(json_extract(metadata, '$.react_intermediate'), 0) != 1
+      AND COALESCE(json_extract(metadata, '$.hidden'), 0) != 1
+      AND (
+        COALESCE(json_extract(metadata, '$.visible_to_user'), 1) != 0
+        OR COALESCE(json_extract(metadata, '$.agent_message'), 0) = 1
+      )
+      ${rootClause}`;
+    const totalRow = this.db
+      .prepare(`SELECT COUNT(1) AS cnt FROM messages WHERE ${where}`)
+      .get(sessionId, resolvedThreadKey) as { cnt: number };
+    const rows = this.db
+      .prepare(`SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
+        FROM messages WHERE ${where} ORDER BY seq DESC LIMIT ? OFFSET ?`)
+      .all(sessionId, resolvedThreadKey, limit, offset) as unknown as MessageRow[];
+    const items = rows.map(rowToMessage).reverse();
+    return { items, total: totalRow.cnt, limit, offset, has_more: offset + limit < totalRow.cnt };
+  }
+
   getMessageBySeq(sessionId: string, seq: number): MessageInfo | null {
     const row = this.db
       .prepare(`

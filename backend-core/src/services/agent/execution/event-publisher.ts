@@ -181,6 +181,15 @@ export class AgentExecutionEventPublisher {
     const targetAgentName = typeof metadata.target_agent_name === "string"
       ? metadata.target_agent_name
       : null;
+    const sourceAgentName = typeof metadata.source_agent_name === "string"
+      ? metadata.source_agent_name
+      : null;
+    const sourceChildAgentId = typeof metadata.source_child_agent_id === "string"
+      ? metadata.source_child_agent_id
+      : null;
+    const direction = metadata.direction === "parent_to_child" || metadata.direction === "child_to_parent"
+      ? metadata.direction
+      : null;
     this.publishEnvelope({
       type: "agent_message",
       session_id: input.sessionId,
@@ -192,12 +201,17 @@ export class AgentExecutionEventPublisher {
         message_id: message.message_id,
         source_run_id: message.source_run_id,
         source_agent_call_id: message.source_agent_call_id,
+        ...(sourceAgentName ? { source_agent_name: sourceAgentName } : {}),
+        source_child_agent_id: sourceChildAgentId,
         target_run_id: message.target_run_id,
         target_agent_call_id: message.target_agent_call_id,
+        target_child_agent_id: message.target_child_agent_id,
+        target_thread_key: message.target_thread_key,
         target_parent_call_id: targetParentCallId,
         target_parent_agent_call_id: targetParentAgentCallId,
         target_root_run_id: targetRootRunId,
         ...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
+        ...(direction ? { direction } : {}),
         correlation_id: message.correlation_id,
         reply_to_message_id: message.reply_to_message_id,
         content: message.content_parts

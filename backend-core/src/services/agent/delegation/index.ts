@@ -638,8 +638,13 @@ export class AgentDelegationService implements DelegationPort {
         ...(timeoutMs ? { expiresAt: new Date(Date.now() + timeoutMs).toISOString() } : {}),
         metadata: {
           source: "agent",
+          direction: "parent_to_child",
+          source_agent_name: parentAgent.agent_name,
+          source_child_agent_id: normalizeString(ctx.currentChildAgentId),
           parent_tool_call_id: parentCallId,
           target_agent_name: child.agent_name,
+          target_child_agent_id: childAgentId,
+          target_thread_key: child.thread_key,
           target_root_run_id: runningChildRoute.rootRunId ?? runningChildRoute.runId,
           target_parent_run_id: runningChildRoute.parentRunId ?? normalizeString(ctx.runId),
           target_parent_call_id: runningChildRoute.parentCallId ?? parentCallId,
@@ -667,7 +672,7 @@ export class AgentDelegationService implements DelegationPort {
         correlation_id: queued.correlation_id,
         expires_at: queued.expires_at,
       }, {
-        summary: `已向运行中的子 Agent ${child.agent_name} 投递 ${queued.kind} 消息`,
+        summary: `消息已进入子 Agent ${child.agent_name} 的队列；尚未确认接收、处理或回复`,
         outputType: "json",
         metadata: {
           agent_name: child.agent_name,
@@ -678,6 +683,7 @@ export class AgentDelegationService implements DelegationPort {
           mailbox_queued: true,
         },
         toolName,
+        llmHint: "status=queued 仅表示消息已持久化入队。目标 Agent 尚未 ACK，也不代表已按消息执行；在收到后续 response/result 前，不要向用户声称目标已收到、已停止或已完成。",
       });
     }
 
@@ -766,9 +772,13 @@ export class AgentDelegationService implements DelegationPort {
       metadata: {
         source: "agent",
         direction: "child_to_parent",
+        source_agent_name: current.agent_name,
+        source_child_agent_id: ctx.currentChildAgentId,
         child_agent_id: ctx.currentChildAgentId,
         child_run_id: ctx.runId,
         target_agent_name: parent.agent_name ?? null,
+        target_child_agent_id: parent.child_agent_id ?? null,
+        target_thread_key: parent.thread_key ?? "root",
         target_root_run_id: parent.lease_root_run_id ?? parent.run_id,
         target_parent_run_id: parent.parent_run_id ?? null,
         target_parent_call_id: parent.parent_call_id ?? null,
@@ -798,7 +808,7 @@ export class AgentDelegationService implements DelegationPort {
       correlation_id: queued.correlation_id,
       expires_at: queued.expires_at,
     }, {
-      summary: `已向父 Agent 投递 ${queued.kind} 消息`,
+      summary: `消息已进入父 Agent 队列；尚未确认接收、处理或回复`,
       outputType: "json",
       metadata: {
         message_id: queued.message_id,
@@ -807,6 +817,7 @@ export class AgentDelegationService implements DelegationPort {
         direction: "child_to_parent",
       },
       toolName,
+      llmHint: "status=queued 仅表示消息已持久化入队。父 Agent 尚未 ACK，也不代表已读取或处理；在收到后续响应前，不要把入队描述为已送达或已完成。",
     });
   }
 
@@ -1189,10 +1200,15 @@ export class AgentDelegationService implements DelegationPort {
         contentParts: [{ type: "text", text: content }],
         metadata: {
           source: "child_terminal_result",
+          direction: "child_to_parent",
+          source_agent_name: input.childAgent.agent_name,
+          source_child_agent_id: input.childAgent.child_agent_id,
           child_agent_id: input.childAgent.child_agent_id,
           child_run_id: input.childRunId,
           child_agent_call_id: input.rootCallId,
           target_agent_name: parent.agent_name ?? input.parentAgentName,
+          target_child_agent_id: parent.child_agent_id ?? null,
+          target_thread_key: parent.thread_key,
           target_root_run_id: input.parentRootRunId,
           target_parent_run_id: input.parentParentRunId,
           target_parent_call_id: input.parentParentCallId,

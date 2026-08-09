@@ -212,6 +212,12 @@ describe("executeRunWithSdk terminal convergence", () => {
       messageId: "mailbox-1",
       childAgentId: "child-1",
       threadKey: "child-thread",
+      metadata: expect.objectContaining({
+        agent_message: true,
+        agent_message_display_content: "please continue",
+        agent_message_target_child_agent_id: "child-1",
+        agent_message_target_thread_key: "child-thread",
+      }),
     }));
   });
 

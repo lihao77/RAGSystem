@@ -1,6 +1,7 @@
 import type { AsyncConversationRepository, AsyncRunStore, ExecutionReplayRepositoryPort } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
+import { isParticipantConversationMessageVisible } from "@ragsystem/backend-core/contracts/session/message-visibility.js";
 import type { CreateSessionRecordInput, MessageInfo, SessionCreateInput, SessionIdentity, SessionInfo, SessionMessageListSnapshot, SessionTeamSnapshotResolver } from "@ragsystem/backend-core/contracts/session/session.js";
 import { normalizeSessionMetadata } from "@ragsystem/backend-core/contracts/session/session.js";
 import { assertSafeSessionId } from "@ragsystem/backend-core/contracts/session/session-id.js";
@@ -107,29 +108,17 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   async listMessages(input: { sessionId: string; limit?: number; offset?: number; threadKey?: string | null }): Promise<SessionMessageListSnapshot | null> {
     if (!(await this.getSession(input.sessionId))) return null;
     const threadKey = input.threadKey?.trim() || "root";
-    const data = threadKey === "root"
-      ? await this.repository.listVisibleRootMessagesSnapshot(
-          this.tenantId,
-          input.sessionId,
-          input.limit ?? 20,
-          input.offset ?? 0,
-        )
-      : await this.listParticipantMessagesSnapshot(input.sessionId, threadKey, input.limit ?? 20, input.offset ?? 0);
+    const data = await this.repository.listVisibleMessagesSnapshot(
+      this.tenantId,
+      input.sessionId,
+      threadKey,
+      input.limit ?? 20,
+      input.offset ?? 0,
+    );
     data.items = data.items.map((item) => item.role === "assistant"
       ? { ...item, has_execution: Boolean(item.metadata.run_id) && item.metadata.execution_history_discarded !== true }
       : item);
     return data;
-  }
-  private async listParticipantMessagesSnapshot(sessionId: string, threadKey: string, limit: number, offset: number): Promise<SessionMessageListSnapshot> {
-    const page = await this.repository.listMessages(sessionId, limit, offset, threadKey);
-    const watermark = this.outbox
-      ? await this.outbox.getSessionOutboxWatermark(this.tenantId, sessionId)
-      : 0;
-    return {
-      ...page,
-      items: page.items.filter((item) => isVisibleParticipantMessage(item, threadKey)),
-      outbox_watermark: watermark,
-    };
   }
   async exportSession(sessionId: string): Promise<{ version: number; exported_at: string; session: SessionInfo; messages: MessageInfo[]; message_count: number }> {
     const session = await this.getSession(sessionId);
@@ -354,16 +343,11 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
 }
 
 function isVisibleRootMessage(message: MessageInfo): boolean {
-  return !message.metadata.react_intermediate
-    && message.metadata.visible_to_user !== false
-    && message.metadata.conversation_scope !== "child"
-    && (!message.thread_key || message.thread_key === "root");
+  return isParticipantConversationMessageVisible(message, "root");
 }
 
 function isVisibleParticipantMessage(message: MessageInfo, threadKey: string): boolean {
-  return message.thread_key === threadKey
-    && message.metadata.react_intermediate !== true
-    && message.metadata.visible_to_user !== false;
+  return isParticipantConversationMessageVisible(message, threadKey);
 }
 
 function isParticipantRun(run: RunInfo, participantId: string): boolean {

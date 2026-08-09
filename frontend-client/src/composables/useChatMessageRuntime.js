@@ -15,8 +15,15 @@ export function useChatMessageRuntime({
   selectedParticipantId,
   selectedParticipant,
 }) {
-  const { currentSessionId, messages } = storeToRefs(useSessionRunStore());
-  const execution = useMessageExecution({ currentSessionId, chatSdkClient, activeRun, selectedParticipantId });
+  const sessionRunStore = useSessionRunStore();
+  const { currentSessionId, messages } = storeToRefs(sessionRunStore);
+  const execution = useMessageExecution({
+    currentSessionId,
+    chatSdkClient,
+    activeRun,
+    selectedParticipantId,
+    syncParticipantMessage: sessionRunStore.upsertParticipantMessage,
+  });
 
   const workPanel = useWorkPanelSelection({
     messages,

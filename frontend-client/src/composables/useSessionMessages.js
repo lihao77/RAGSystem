@@ -3,6 +3,15 @@ import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { getMessageAttachments, normalizeMessageContentParts } from '../utils/messageContentParts.js';
 
+const AGENT_MESSAGE_WRAPPER = /^\[agent-message[^\]]*\]\r?\n([\s\S]*?)\r?\n\[\/agent-message\]\s*$/;
+
+export function getAgentMessageDisplayContent(item) {
+  const metadataContent = item?.metadata?.agent_message_display_content;
+  if (typeof metadataContent === 'string') return metadataContent;
+  const content = typeof item?.content === 'string' ? item.content : '';
+  return content.match(AGENT_MESSAGE_WRAPPER)?.[1] ?? content;
+}
+
 /**
  * 会话消息加载、缓存、合并。
  *
@@ -114,7 +123,7 @@ export function useSessionMessages(deps) {
       const mapped = items
         .filter(item => {
           const meta = item.metadata || {};
-          if (meta.visible_to_user === false && !meta.display_only) return false;
+          if (meta.visible_to_user === false && !meta.display_only && meta.agent_message !== true) return false;
           if (meta.hidden) return false;
           // Tool observations are execution/context records, not chat bubbles.
           // They are rendered through the assistant message's execution tree.
@@ -136,13 +145,18 @@ export function useSessionMessages(deps) {
             };
           }
           const contentParts = normalizeMessageContentParts(item.content_parts);
+          const metadata = item.metadata || {};
+          const agentMessage = metadata.agent_message === true;
+          const content = agentMessage ? getAgentMessageDisplayContent(item) : (item.content || '');
           const message = {
             role: 'user',
             id: item.id,
             seq: item.seq,
-            content: item.content || '',
-            content_parts: contentParts,
-            metadata: item.metadata || {},
+            content,
+            content_parts: agentMessage ? [{ type: 'text', text: content }] : contentParts,
+            metadata: agentMessage
+              ? { ...metadata, agent_message_display_content: content }
+              : metadata,
           };
           return { ...message, attachments: getMessageAttachments(message) };
         });

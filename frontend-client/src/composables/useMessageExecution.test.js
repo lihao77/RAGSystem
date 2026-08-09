@@ -228,3 +228,43 @@ test('participant projection removes only the external parent of its Run root', 
   assert.equal(message.executionTree.root.rounds[0].toolCalls[0].callId, 'tool-1');
   assert.deepEqual(stepOffsets, [0, 1]);
 });
+
+test('child stream output creates the same live assistant message used by the participant chat', () => {
+  const handlers = new Set();
+  const synced = [];
+  useMessageExecution({
+    currentSessionId: ref('session-1'),
+    selectedParticipantId: ref('child-1'),
+    activeRun: { runId: 'root-run', rootCallId: 'root-call' },
+    syncParticipantMessage(participantId, message) { synced.push({ participantId, message }); },
+    chatSdkClient: {
+      on(name, handler) {
+        if (name === 'event') handlers.add(handler);
+        return () => handlers.delete(handler);
+      },
+    },
+  });
+
+  for (const handler of handlers) {
+    handler({
+      type: 'stream_output',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      call_id: 'child-call',
+      payload: { phase: 'delta', content: '正在停止', child_agent_id: 'child-1' },
+    });
+    handler({
+      type: 'stream_output',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      call_id: 'child-call',
+      payload: { phase: 'final', content: '已停止', content_parts: [{ type: 'text', text: '已停止' }], child_agent_id: 'child-1' },
+    });
+  }
+
+  assert.equal(synced.length, 2);
+  assert.equal(synced[0].participantId, 'child-1');
+  assert.equal(synced[1].message.content, '已停止');
+  assert.equal(synced[1].message.finished, true);
+  assert.deepEqual(synced[1].message.content_parts, [{ type: 'text', text: '已停止' }]);
+});

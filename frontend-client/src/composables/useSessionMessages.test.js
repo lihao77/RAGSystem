@@ -64,6 +64,37 @@ test('useSessionMessages excludes tool observations from chat bubbles', async ()
     assert.equal(watermark, 17);
 });
 
+test('agent mailbox messages are visible with clean display content while other hidden messages stay hidden', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const { currentSessionId, messages } = storeToRefs(store);
+  currentSessionId.value = 'session-1';
+  store.setSelectedParticipant('child-1');
+  const chatSdkClient = { async listMessages() { return {
+    data: {
+      items: [
+        {
+          id: 'agent-message-1',
+          seq: 1,
+          role: 'user',
+          content: '[agent-message kind=request id=agent-message-1]\n停止工具调用\n[/agent-message]',
+          content_parts: [{ type: 'text', text: '[agent-message kind=request id=agent-message-1]\n停止工具调用\n[/agent-message]' }],
+          metadata: { agent_message: true, visible_to_user: false, mailbox_kind: 'request' },
+        },
+        { id: 'internal-1', seq: 2, role: 'user', content: 'internal', metadata: { visible_to_user: false } },
+      ],
+    },
+  }; } };
+
+  const sessionMessages = useSessionMessages(createDeps({ chatSdkClient }));
+  await sessionMessages.loadSessionMessages('session-1', { participantId: 'child-1' });
+
+  assert.equal(messages.value.length, 1);
+  assert.equal(messages.value[0].content, '停止工具调用');
+  assert.equal(messages.value[0].metadata.agent_message, true);
+  assert.equal(messages.value[0].metadata.agent_message_display_content, '停止工具调用');
+});
+
 test('active run 消息重载完成后重新请求历史执行快照', async () => {
   setActivePinia(createPinia());
   const store = useSessionRunStore();

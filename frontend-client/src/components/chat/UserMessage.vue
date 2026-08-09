@@ -33,6 +33,7 @@
   </div>
 
   <div v-else-if="messageContext.editingMessage !== msg" class="user-bubble-wrapper message-view-mode">
+    <div v-if="isAgentMessage" class="agent-message-label">{{ agentMessageLabel }}</div>
     <div class="user-text">{{ msg.content }}</div>
     <div v-if="msg.attachments?.length" class="user-attachments">
       <div v-if="imageAttachments.length" class="user-attachment-images">
@@ -102,4 +103,12 @@ const emit = defineEmits(['update:editingDraft']);
 const messageContext = inject('messageContext');
 const imageAttachments = computed(() => (props.msg.attachments || []).filter(isImageAttachment));
 const fileAttachments = computed(() => (props.msg.attachments || []).filter((attachment) => !isImageAttachment(attachment)));
+const isAgentMessage = computed(() => props.msg.metadata?.agent_message === true);
+const agentMessageLabel = computed(() => {
+  const metadata = props.msg.metadata || {};
+  const source = metadata.agent_message_source_agent_name || metadata.source_agent_name || '智能体';
+  const kind = metadata.mailbox_kind;
+  const kindLabels = { progress: '进度', request: '请求', response: '回复', result: '结果', cancel: '取消' };
+  return `${source} · ${kindLabels[kind] || '消息'}`;
+});
 </script>

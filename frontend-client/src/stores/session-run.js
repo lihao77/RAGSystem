@@ -254,6 +254,21 @@ export const useSessionRunStore = defineStore('session-run', () => {
     };
   };
 
+  const upsertParticipantMessage = (participantId, message) => {
+    if (!message) return;
+    const id = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
+    const current = participantMessages.value[id] || [];
+    const runId = message.run_id || message.metadata?.run_id || null;
+    const index = current.findIndex(item => (
+      (message.id && item.id === message.id)
+      || (runId && item.role === 'assistant' && (item.run_id || item.metadata?.run_id) === runId)
+    ));
+    const next = [...current];
+    if (index >= 0) next[index] = message;
+    else next.push(message);
+    participantMessages.value = { ...participantMessages.value, [id]: next };
+  };
+
   const clearParticipantMessages = (participantId = null) => {
     if (participantId) {
       const next = { ...participantMessages.value };
@@ -316,6 +331,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
     setParticipants,
     setSelectedParticipant,
     setParticipantMessages,
+    upsertParticipantMessage,
     clearParticipantMessages,
   };
 });

@@ -631,7 +631,12 @@ describe("Session runtime snapshot invariants", () => {
       payload: {
         kind: "result",
         message_id: "message-1",
+        source_agent_name: "worker",
+        source_child_agent_id: "child-1",
         target_agent_call_id: "parent-call",
+        target_child_agent_id: null,
+        target_thread_key: "root",
+        direction: "child_to_parent",
         source_run_id: "run-child",
         source_agent_call_id: "child-call",
         content: "child finished",

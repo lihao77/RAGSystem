@@ -56,6 +56,7 @@ export interface AgentSessionRepositoryPort {
 
   addMessage(input: AgentSessionMessageInput): Promise<MessageInfo>;
   listMessages(sessionId: string, limit: number, offset: number, threadKey?: string | null): Promise<SessionMessageListSnapshot>;
+  listVisibleMessages(sessionId: string, threadKey: string, limit: number, offset: number): Promise<SessionMessageListSnapshot>;
   getMessageBySeq(sessionId: string, seq: number): Promise<MessageInfo | null>;
   getMessageById(sessionId: string, messageId: string): Promise<MessageInfo | null>;
   getFirstMessageAfterSeq(sessionId: string, seq: number): Promise<MessageInfo | null>;

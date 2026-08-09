@@ -55,6 +55,6 @@ const messageActionsVisible = ref(null);
 function getRetryMessage(index) {
   return props.visibleMessages
     .slice(0, index)
-    .findLast(msg => msg.role === 'user' && msg.seq != null) || null;
+    .findLast(msg => msg.role === 'user' && msg.seq != null && msg.metadata?.agent_message !== true) || null;
 }
 </script>

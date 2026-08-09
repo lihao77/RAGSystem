@@ -35,7 +35,7 @@ export interface AsyncConversationRepository {
   listSessionFacets(input: Pick<SessionListQuery, "tenantId" | "access">): Promise<SessionFacetCounts>;
   addMessage(input: AddMessageInput): Promise<MessageInfo>;
   listMessages(sessionId: string, limit?: number, offset?: number, threadKey?: string | null): Promise<PaginatedResult<MessageInfo>>;
-  listVisibleRootMessagesSnapshot(tenantId: TenantId, sessionId: string, limit?: number, offset?: number): Promise<SessionMessageListSnapshot>;
+  listVisibleMessagesSnapshot(tenantId: TenantId, sessionId: string, threadKey: string, limit?: number, offset?: number): Promise<SessionMessageListSnapshot>;
   getMessageBySeq(sessionId: string, seq: number): Promise<MessageInfo | null>;
   getMessageById(sessionId: string, id: string): Promise<MessageInfo | null>;
   getFirstMessageAfterSeq(sessionId: string, seq: number): Promise<MessageInfo | null>;

@@ -1,6 +1,11 @@
 import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-protocol';
 import { getCurrentScope, onScopeDispose, reactive, ref, watch } from 'vue';
 import {
+  applyMessageContentPart,
+  applyMessageContentTextDelta,
+  reconcileMessageContentParts,
+} from '../utils/messageContentParts.js';
+import {
   getMessageExecutionTimeText,
   getMessageExecutionTimeTitle,
   hasExecutionContent,
@@ -286,6 +291,19 @@ export function useMessageExecution(deps) {
     'tool_result',
     'agent_message',
   ]);
+  const applyStreamOutputToMessage = (msg, payload = {}) => {
+    if (payload.phase === 'delta') {
+      const delta = payload.content || '';
+      msg.content += delta;
+      applyMessageContentTextDelta(msg, payload.part_index, delta);
+    } else if (payload.phase === 'part_added') {
+      applyMessageContentPart(msg, payload.part_index, payload.part);
+    } else if (payload.phase === 'final') {
+      if (typeof payload.content === 'string') msg.content = payload.content;
+      reconcileMessageContentParts(msg, payload.content_parts);
+      msg.finished = true;
+    }
+  };
   const unsubscribe = deps.chatSdkClient?.on?.('event', (event) => {
     const runId = event?.run_id;
     const sessionId = event?.session_id || deps.chatSdkClient?.sessionId || deps.currentSessionId.value;
@@ -296,9 +314,11 @@ export function useMessageExecution(deps) {
       || null;
     const msg = participantId
       ? participantRunMessages.get(`${sessionId}:${participantId}:${runId}`)
+        || getOrCreateParticipantRunMessage(participantId, { run_id: runId, status: 'running' })
       : [...participantRunMessages.entries()].find(([key]) => key.startsWith(`${sessionId}:`) && key.endsWith(`:${runId}`))?.[1];
     if (!msg) return;
     if (liveExecutionEventTypes.has(event.type)) applyEnvelopeToMessage(msg, event);
+    if (event.type === 'stream_output') applyStreamOutputToMessage(msg, event.payload);
     if (event.type === 'run_ended') {
       const status = event.payload?.status || 'completed';
       msg.finished = status !== 'suspended';
@@ -306,6 +326,7 @@ export function useMessageExecution(deps) {
       msg.stopped = status === 'interrupted';
       msg.metadata = { ...(msg.metadata || {}), terminal_status: status };
     }
+    if (participantId) deps.syncParticipantMessage?.(participantId, msg);
   });
   watch(deps.currentSessionId, () => {
     participantRunMessages.clear();

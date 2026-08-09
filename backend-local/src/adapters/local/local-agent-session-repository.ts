@@ -26,6 +26,12 @@ export class LocalAgentSessionRepository implements AgentSessionRepositoryPort {
       outbox_watermark: tx.getSessionOutboxWatermark(sessionId),
     }));
   }
+  async listVisibleMessages(sessionId: string, threadKey: string, limit: number, offset: number) {
+    return this.store.runInTransaction((tx) => ({
+      ...tx.listVisibleMessages(sessionId, threadKey, limit, offset),
+      outbox_watermark: tx.getSessionOutboxWatermark(sessionId),
+    }));
+  }
   async getMessageBySeq(sessionId: string, seq: number) { return this.store.getMessageBySeq(sessionId, seq); }
   async getMessageById(sessionId: string, messageId: string) { return this.store.getMessageById(sessionId, messageId); }
   async getFirstMessageAfterSeq(sessionId: string, seq: number) {

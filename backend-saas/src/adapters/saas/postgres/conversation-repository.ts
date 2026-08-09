@@ -255,9 +255,10 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     return { items: rows.rows.map(message).reverse(), total: count, limit, offset, has_more: offset + limit < count };
   }
 
-  async listVisibleRootMessagesSnapshot(
+  async listVisibleMessagesSnapshot(
     tenantId: TenantId,
     sessionId: string,
+    threadKey: string,
     limit = 20,
     offset = 0,
   ): Promise<SessionMessageListSnapshot> {
@@ -268,9 +269,9 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     }>(
       `WITH visible_messages AS MATERIALIZED (
          SELECT * FROM conversation_messages
-         WHERE session_id=$2 AND ${visibleRootMessageSql()}
+         WHERE session_id=$2 AND ${visibleConversationMessageSql("", "$3")}
        ), page AS MATERIALIZED (
-         SELECT * FROM visible_messages ORDER BY seq DESC LIMIT $3 OFFSET $4
+         SELECT * FROM visible_messages ORDER BY seq DESC LIMIT $4 OFFSET $5
        )
        SELECT
          COALESCE((SELECT jsonb_agg(to_jsonb(page) ORDER BY page.seq ASC) FROM page), '[]'::jsonb) AS items,
@@ -279,7 +280,7 @@ export class PostgresConversationRepository implements AsyncConversationReposito
            SELECT MAX(session_seq) FROM event_outbox
            WHERE tenant_id=$1 AND session_id=$2 AND event_type LIKE 'client.%'
          ), 0) AS outbox_watermark`,
-      [tenantId, sessionId, limit, offset],
+      [tenantId, sessionId, threadKey, limit, offset],
     );
     const snapshot = result.rows[0];
     const rawItems = Array.isArray(snapshot?.items) ? snapshot.items : [];
@@ -351,16 +352,19 @@ function sameTeamSnapshot(left: unknown, right: CreateSessionRecordInput["teamSn
     && parsed.entry_agent_name === expected.entry_agent_name;
 }
 
-function visibleRootMessageSql(alias = ""): string {
+function visibleConversationMessageSql(alias = "", threadKeyParam = "$3"): string {
   const column = (name: string) => alias ? `${alias}.${name}` : name;
   const metadata = column("metadata");
-  return `${column("thread_key")}='root'
-    AND ${column("child_agent_id")} IS NULL
+  return `${column("thread_key")}=${threadKeyParam}
     AND ${column("role")} IN ('user','assistant','system')
     AND ${metadata}->>'react_intermediate' IS DISTINCT FROM 'true'
-    AND ${metadata}->>'visible_to_user' IS DISTINCT FROM 'false'
-    AND ${metadata}->>'conversation_scope' IS DISTINCT FROM 'child'
-    AND COALESCE(${metadata}->>'msg_type','') NOT IN ('intent','observation')`;
+    AND ${metadata}->>'hidden' IS DISTINCT FROM 'true'
+    AND (${metadata}->>'visible_to_user' IS DISTINCT FROM 'false' OR ${metadata}->>'agent_message' = 'true')
+    AND (${threadKeyParam} <> 'root' OR (
+      ${column("child_agent_id")} IS NULL
+      AND ${metadata}->>'conversation_scope' IS DISTINCT FROM 'child'
+      AND COALESCE(${metadata}->>'msg_type','') NOT IN ('intent','observation')
+    ))`;
 }
 
 function deepMergeRecords(current: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {

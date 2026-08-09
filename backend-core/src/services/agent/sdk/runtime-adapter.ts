@@ -380,6 +380,8 @@ export async function executeRunWithSdk(
             let persisted = existing;
             if (!existing) {
               const renderedContent = renderAgentMailboxMessage(mailboxMessage);
+              const displayContent = renderMailboxContent(mailboxMessage.content_parts);
+              const mailboxMetadata = mailboxMessage.metadata ?? {};
               persisted = await deps.storage.conversation.addMessage({
                 sessionId: sid,
                 messageId: mailboxMessage.message_id,
@@ -391,8 +393,15 @@ export async function executeRunWithSdk(
                 threadKey: mailboxMessage.target_thread_key,
                 childAgentId: mailboxMessage.target_child_agent_id,
                 metadata: {
-                  ...mailboxMessage.metadata,
+                  ...mailboxMetadata,
                   agent_message: true,
+                  agent_message_display_content: displayContent,
+                  agent_message_direction: mailboxMetadata.direction ?? null,
+                  agent_message_source_agent_name: mailboxMetadata.source_agent_name ?? null,
+                  agent_message_source_child_agent_id: mailboxMetadata.source_child_agent_id ?? mailboxMetadata.child_agent_id ?? null,
+                  agent_message_target_agent_name: mailboxMetadata.target_agent_name ?? null,
+                  agent_message_target_child_agent_id: mailboxMessage.target_child_agent_id,
+                  agent_message_target_thread_key: mailboxMessage.target_thread_key,
                   mailbox_message_id: mailboxMessage.message_id,
                   mailbox_kind: mailboxMessage.kind,
                   mailbox_correlation_id: mailboxMessage.correlation_id,
