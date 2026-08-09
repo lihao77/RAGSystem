@@ -1,7 +1,7 @@
 import type { AsyncConversationRepository, AsyncRunStore, ExecutionReplayRepositoryPort } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
-import type { CreateSessionRecordInput, MessageInfo, SessionIdentity, SessionInfo, SessionMessageListSnapshot } from "@ragsystem/backend-core/contracts/session/session.js";
+import type { CreateSessionRecordInput, MessageInfo, SessionCreateInput, SessionIdentity, SessionInfo, SessionMessageListSnapshot, SessionTeamSnapshotResolver } from "@ragsystem/backend-core/contracts/session/session.js";
 import { normalizeSessionMetadata } from "@ragsystem/backend-core/contracts/session/session.js";
 import { assertSafeSessionId } from "@ragsystem/backend-core/contracts/session/session-id.js";
 import type { AsyncFileHistoryStore } from "@ragsystem/backend-core/contracts/file-history-store/index.js";
@@ -19,6 +19,7 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   constructor(
     private readonly tenantId: TenantId,
     private readonly repository: AsyncConversationRepository,
+    private readonly teamSnapshots: SessionTeamSnapshotResolver,
     private readonly fileHistory: AsyncFileHistoryStore | null = null,
     private readonly runs: AsyncRunStore | null = null,
     private readonly outbox: ExecutionReplayRepositoryPort | null = null,
@@ -33,10 +34,17 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   ensureSession(input: Parameters<SessionApplication["ensureSession"]>[0]) {
     return this.sessionIdentities.ensureSession(input);
   }
-  async createSession(input: SessionIdentity): Promise<SessionInfo> {
+  async createSession(input: SessionCreateInput): Promise<SessionInfo> {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
-    await this.repository.createSession({ ...input, tenantId: this.tenantId, metadata });
+    const { teamName, entryAgentName, ...identity } = input;
+    const record: CreateSessionRecordInput = {
+      ...identity,
+      tenantId: this.tenantId,
+      metadata,
+      teamSnapshot: this.teamSnapshots.createTeamSnapshot({ teamName, entryAgentName }),
+    };
+    await this.repository.createSession(record);
     const created = await this.getSession(input.sessionId);
     if (!created) throw new Error(`session create returned no row: ${input.sessionId}`);
     return created;
@@ -53,6 +61,7 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
       originId: null,
       originChannel: "api",
       workspaceId: null,
+      teamSnapshot: this.teamSnapshots.createTeamSnapshot(),
       metadata,
       permissionMode: input.permissionMode ?? null,
     });

@@ -16,6 +16,7 @@ import { createResumeExecutor } from "../src/services/agent/execution/resume-exe
 import { AgentInvocationService } from "../src/services/agent/execution/invocation-service.js";
 import { buildChildMetadata } from "../src/services/agent/delegation/helpers.js";
 import type { DelegationPort } from "../src/services/agent/delegation/port.js";
+import { createTestTeamSnapshot } from "./session-team-fixture.js";
 
 const tempRoots: string[] = [];
 
@@ -42,6 +43,7 @@ function workerAgent(): AgentConfig {
 function session(): SessionInfo {
   return {
     session_id: "session-1",
+    team_snapshot: createTestTeamSnapshot("parent", [parentAgent(true), workerAgent()]),
     tenant_id: "tenant-1" as SessionInfo["tenant_id"],
     owner_user_id: null,
     visibility: "private",

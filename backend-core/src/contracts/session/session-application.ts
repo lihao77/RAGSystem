@@ -9,6 +9,7 @@ import type {
   SessionListProjectionPage,
   SessionListQuery,
   SessionIdentity,
+  SessionCreateInput,
   SessionMessageListSnapshot,
 } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
@@ -54,7 +55,7 @@ export interface SessionExport {
 /** Request-scoped session use cases shared by Local and SaaS deployments. */
 export interface SessionApplication {
   ensureSession(input: SessionIdentity): Promise<void>;
-  createSession(input: SessionIdentity): Promise<SessionInfo>;
+  createSession(input: SessionCreateInput): Promise<SessionInfo>;
   listSessions(input: Omit<SessionListQuery, "tenantId">): Promise<SessionListProjectionPage>;
   listSessionFacets(input: Pick<SessionListQuery, "access">): Promise<SessionFacetCounts>;
   listWorkspacesByIds(workspaceIds: readonly string[]): Promise<WorkspaceRecord[]>;

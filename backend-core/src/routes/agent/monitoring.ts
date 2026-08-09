@@ -140,9 +140,10 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       await assertSessionReadable(request, sessionInfo);
     }
     const sessionMetadata = sessionInfo?.metadata ?? {};
+    const teamSnapshot = sessionInfo?.team_snapshot ?? request.container.runtimeCore.createTeamSnapshot();
     const resolved = request.container.runtimeCore.resolveExecutionConfig({
-      agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
-      teamName: normalizeString(sessionMetadata.team),
+      agentName: teamSnapshot.entry_agent_name,
+      teamSnapshot,
       selectedLlm: normalizeString(query.selected_llm),
     });
     if (!resolved.agent) {
@@ -157,7 +158,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const executionPaths = sessionId && executionEnvironment
       ? executionEnvironment.paths({ sessionId, workspaceRoot })
       : undefined;
-    const teamName = normalizeString(sessionMetadata.team);
+    const teamName = teamSnapshot.team_name;
 
     // 装配 createRuntime（轻量，只 preview 不 run）—— preview 内部用 SDK builder + protocol.buildRequest，
     // 与 run 完全同源（同一套组请求代码），调试快照即真实 run 所见。snapshot 不再 backend 自组装。
@@ -183,6 +184,9 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           ...request.container.toolsDeps,
           agent,
           ...(teamName ? { teamName } : {}),
+          agentConfig: {
+            getConfig: (agentName) => teamSnapshot.agents[agentName] ?? null,
+          },
         }),
         ...contributedTools,
       ],
@@ -336,21 +340,6 @@ function parseSelectedLlmForSnapshot(value: string): Record<string, string | nul
     provider_type: parts[1] || null,
     model_name: parts[2] || null,
   };
-}
-
-function normalizeSessionEntryAgent(value: unknown): string | null {
-  const normalized = normalizeString(value);
-  if (!normalized) {
-    return null;
-  }
-  const lowered = normalized.toLowerCase();
-  if (lowered === "default") {
-    return null;
-  }
-  if (lowered === "orchestrator") {
-    return "orchestrator_agent";
-  }
-  return normalized;
 }
 
 function applySessionWorkspace(agent: AgentConfig, workspaceRoot: string | null): AgentConfig {

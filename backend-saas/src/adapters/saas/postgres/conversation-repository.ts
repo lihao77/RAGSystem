@@ -15,7 +15,7 @@ import type {
   SessionListQuery,
   SessionMessageListSnapshot,
 } from "@ragsystem/backend-core/contracts/session/session.js";
-import { normalizeSessionMetadata } from "@ragsystem/backend-core/contracts/session/session.js";
+import { normalizeSessionMetadata, normalizeSessionTeamSnapshot } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { AsyncConversationRepository } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { PostgresExecutor } from "./postgres-executor.js";
@@ -28,6 +28,7 @@ const iso = (value: unknown) => new Date(String(value)).toISOString();
 function session(row: Record<string, unknown>): SessionInfo {
   return {
     session_id: String(row.session_id),
+    team_snapshot: normalizeSessionTeamSnapshot(row.team_snapshot),
     tenant_id: row.tenant_id as TenantId,
     owner_user_id: row.owner_user_id == null ? null : String(row.owner_user_id),
     visibility: row.visibility as SessionInfo["visibility"],
@@ -84,12 +85,13 @@ export class PostgresConversationRepository implements AsyncConversationReposito
 
   async createSession(input: CreateSessionRecordInput): Promise<void> {
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
+    const teamSnapshot = normalizeSessionTeamSnapshot(input.teamSnapshot);
     await this.executor.transaction(async (executor) => {
       const inserted = await executor.query(
         `INSERT INTO conversation_sessions(
           session_id,tenant_id,owner_user_id,visibility,origin_type,origin_id,
-          origin_channel,workspace_id,metadata,permission_mode
-        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)
+          origin_channel,workspace_id,metadata,permission_mode,team_snapshot
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11::jsonb)
         ON CONFLICT(session_id) DO NOTHING
         RETURNING session_id`,
         [
@@ -103,11 +105,12 @@ export class PostgresConversationRepository implements AsyncConversationReposito
           input.workspaceId,
           JSON.stringify(metadata),
           input.permissionMode ?? null,
+          JSON.stringify(teamSnapshot),
         ],
       );
       if (inserted.rows[0]) return;
       const existing = await executor.query(
-        `SELECT tenant_id,owner_user_id,visibility,origin_type,origin_id,origin_channel,workspace_id
+        `SELECT tenant_id,owner_user_id,visibility,origin_type,origin_id,origin_channel,workspace_id,team_snapshot
          FROM conversation_sessions WHERE session_id=$1 FOR UPDATE`,
         [input.sessionId],
       );
@@ -118,7 +121,8 @@ export class PostgresConversationRepository implements AsyncConversationReposito
         || row.origin_type !== input.originType
         || nullableString(row.origin_id) !== input.originId
         || row.origin_channel !== input.originChannel
-        || nullableString(row.workspace_id) !== input.workspaceId) {
+        || nullableString(row.workspace_id) !== input.workspaceId
+        || !sameTeamSnapshot(row.team_snapshot, teamSnapshot)) {
         throw new Error(`session id conflicts with a different immutable session identity: ${input.sessionId}`);
       }
     });
@@ -340,6 +344,14 @@ export class PostgresConversationRepository implements AsyncConversationReposito
       childAgentId: input.childAgentId,
     });
   }
+}
+
+function sameTeamSnapshot(left: unknown, right: CreateSessionRecordInput["teamSnapshot"]): boolean {
+  const parsed = normalizeSessionTeamSnapshot(left);
+  const expected = normalizeSessionTeamSnapshot(right);
+  return parsed.team_name === expected.team_name
+    && parsed.team_revision === expected.team_revision
+    && parsed.entry_agent_name === expected.entry_agent_name;
 }
 
 function visibleRootMessageSql(alias = ""): string {

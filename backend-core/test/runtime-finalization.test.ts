@@ -10,6 +10,7 @@ import type { MessageInfo } from "../src/contracts/session/session.js";
 import { createTenantId } from "../src/identity/types.js";
 import { AsyncKernelEventPersister } from "../src/services/agent/sdk/async-event-persister.js";
 import { filterHistoryMessages, messagesToConversation } from "../src/services/agent/context/history-view.js";
+import { createTestTeamSnapshot } from "./session-team-fixture.js";
 
 describe("buildTerminalToolMessages", () => {
   it.each([
@@ -248,7 +249,8 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
         originType: "direct",
         originId: null,
         originChannel: "api",
-        workspaceId: null,
+      workspaceId: null,
+      teamSnapshot: createTestTeamSnapshot(),
       },
     });
 
@@ -304,7 +306,8 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
         originType: "direct",
         originId: null,
         originChannel: "api",
-        workspaceId: null,
+      workspaceId: null,
+      teamSnapshot: createTestTeamSnapshot(),
       },
     });
 
@@ -383,7 +386,8 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
         originType: "direct",
         originId: null,
         originChannel: "api",
-        workspaceId: null,
+      workspaceId: null,
+      teamSnapshot: createTestTeamSnapshot(),
       },
     });
 

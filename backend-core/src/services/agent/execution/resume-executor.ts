@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import type { InteractionResumeStarter } from "../../../contracts/runtime/pending-interactions.js";
-import { asString } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import { applyWorkspaceOverride } from "../delegation/helpers.js";
 import type { AgentInvocationPort } from "../../../contracts/execution/agent-invocation.js";
@@ -17,9 +16,8 @@ export function createResumeExecutor(deps: {
         deps.runtimeCore,
         {
           agentName: claim.agentName,
-          teamName: asString(claim.sessionIdentity.metadata?.team),
+          teamSnapshot: claim.sessionIdentity.teamSnapshot,
         },
-        claim.sessionIdentity.metadata ?? {},
       );
       if (!ready.ok) throw new Error(ready.reason);
       if (claim.childAgentId) {

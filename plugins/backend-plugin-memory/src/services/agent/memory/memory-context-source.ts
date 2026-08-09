@@ -39,6 +39,7 @@ export class MemoryContextSource implements AgentContextSource {
     private readonly sessions: SessionMetadataPort & Partial<ExecutionMemoryCandidateListPort>,
     private readonly repository: MemoryContextRepository,
     private readonly memory: MemoryAgentConfig,
+    private readonly teamName: string,
     private readonly agentName: string,
     options: MemoryContextSourceOptions = {},
   ) {
@@ -64,7 +65,7 @@ export class MemoryContextSource implements AgentContextSource {
       memory: this.memory,
       sessionId: request.sessionId,
       agentName: this.agentName,
-      sessionMetadata,
+      teamName: this.teamName,
       userId,
       workspaceKey: await this.repository.resolveWorkspaceKey(session?.workspace_id ?? null),
     });
@@ -86,7 +87,7 @@ export class MemoryContextSource implements AgentContextSource {
 
     const privateCandidates = this.memory.auto_inject === false
       ? []
-      : await this.loadPrivateCandidates(userId, sessionMetadata, scopeCapabilities.allowed_scopes);
+      : await this.loadPrivateCandidates(userId, scopeCapabilities.allowed_scopes);
     const revisions = await Promise.all(scopeSpecs.map(async (scopeSpec) => ({
       scopeSpec,
       revision: await this.repository.getScopeRevision(scopeSpec),
@@ -136,11 +137,10 @@ export class MemoryContextSource implements AgentContextSource {
 
   private async loadPrivateCandidates(
     userId: string | null,
-    sessionMetadata: Record<string, unknown>,
     allowedScopes: string[],
   ): Promise<MemoryCandidateRecord[]> {
     if (!userId || !this.sessions.listMemoryCandidates) return [];
-    const teamName = typeof sessionMetadata.team === "string" ? sessionMetadata.team.trim() : "";
+    const teamName = this.teamName.trim();
     if (!teamName) return [];
     const records: MemoryCandidateRecord[] = [];
     if (allowedScopes.includes("agent")) {

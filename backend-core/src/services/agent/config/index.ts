@@ -1,7 +1,7 @@
 import YAML from "yaml";
-
 import {
   AgentConfigSchema,
+  TeamSelectionError,
   type ApplyTeamPayloadResult,
   type AgentConfig,
   type AgentInfo,
@@ -27,6 +27,7 @@ import {
   type TeamConfigs,
 } from "./configs.js";
 import type { IAgentConfigTeamStore } from "../../../contracts/agent/team-store.js";
+import { computeSessionTeamRevision, type SessionTeamSnapshot } from "../../../contracts/session/session.js";
 import { listAvailableTools as listAvailableRuntimeTools } from "./tools.js";
 import { toYaml } from "./yaml.js";
 
@@ -74,6 +75,44 @@ export class AgentConfigService {
     return Array.from(this.getActiveConfigs().values())
       .map((config) => configToAgentInfo(config))
       .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  createTeamSnapshot(input: {
+    teamName?: string | null | undefined;
+    entryAgentName?: string | null | undefined;
+  } = {}): SessionTeamSnapshot {
+    this.assertInitialized();
+    const teamName = input.teamName?.trim()
+      ? normalizeTeamName(input.teamName)
+      : this.activeTeam;
+    let configs: TeamConfigs;
+    try {
+      configs = this.getTeamConfigs(teamName);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("不存在")) {
+        throw new TeamSelectionError("team_not_found", error.message);
+      }
+      throw error;
+    }
+    const agents = configsToRecord(configs);
+    const requestedEntry = input.entryAgentName?.trim() || null;
+    const entryAgentName = requestedEntry
+      ?? Object.values(agents).find((config) => config.default_entry)?.agent_name
+      ?? (agents.orchestrator_agent ? "orchestrator_agent" : null);
+    if (!entryAgentName || !agents[entryAgentName]) {
+      throw new TeamSelectionError(requestedEntry ? "entry_agent_not_found" : "entry_agent_missing", requestedEntry
+        ? `team '${teamName}' 中不存在入口智能体 '${requestedEntry}'`
+        : `team '${teamName}' 缺少 default_entry 入口智能体`);
+    }
+    if (!agents[entryAgentName].enabled) {
+      throw new TeamSelectionError("entry_agent_disabled", `team '${teamName}' 的入口智能体 '${entryAgentName}' 未启用`);
+    }
+    return {
+      team_name: teamName,
+      team_revision: computeSessionTeamRevision(agents),
+      entry_agent_name: entryAgentName,
+      agents,
+    };
   }
 
   getConfig(agentName: string, options: { teamName?: string | null } = {}): AgentConfig | null {
@@ -402,6 +441,7 @@ export class AgentConfigService {
     const agents = Array.from(configs.keys()).sort();
     return {
       team_name: teamName,
+      team_revision: computeSessionTeamRevision(configsToRecord(configs)),
       file_path: (await this.teamStore.getTeamLocation(teamName)) ?? "",
       is_active: teamName === this.activeTeam,
       agent_count: agents.length,

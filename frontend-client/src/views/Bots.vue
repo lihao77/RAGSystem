@@ -95,7 +95,7 @@
                 :placeholder="teamLoading ? '加载 Team…' : '使用默认激活 Team'"
                 @update:modelValue="handleTeamChange"
               />
-              <small>新建会话会把所选 Team 写入 metadata.team；留空则快照当时激活 Team。</small>
+              <small>新建会话会固定所选 Team 的配置版本；留空则固定当时激活的 Team。</small>
             </div>
             <div class="form-item">
               <label>入口 Agent</label>

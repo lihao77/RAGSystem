@@ -220,14 +220,14 @@ export async function executeRunWithSdk(
   const interactionRootCallId = input.ownsRunLease
     ? input.rootCallId
     : input.interactionRootCallId ?? input.rootCallId;
-  // session metadata 端口只承载 team/entry_agent 等扩展配置；Workspace 从 Session 一等字段解析。
+  // Session metadata only carries extensible context; Team configuration is an immutable Session snapshot.
   const sessionMetadata = await resolveSessionMetadataPort(
     input.sessionId,
     deps.storage.conversation,
   );
 
   // per-run 构建工具集合：后端工具 + 前端委托工具（source=host，其 Tool.call 转发宿主执行 + 等回传）。
-  const teamName = asString(input.sessionIdentity.metadata?.team);
+  const teamName = input.sessionIdentity.teamSnapshot.team_name;
   const pathService = deps.pathAccessPolicyFactory();
   const effectivePermission = deps.permissionPolicy.getEffectivePolicy(input.sessionId);
   pathService.setAllowUnapprovedExternalPaths(
@@ -253,6 +253,9 @@ export async function executeRunWithSdk(
       ...deps.toolsDeps,
       agent: input.agent,
       ...(teamName ? { teamName } : {}),
+      agentConfig: {
+        getConfig: (agentName) => input.sessionIdentity.teamSnapshot.agents[agentName] ?? null,
+      },
       canMessageParent: Boolean(input.parentRunId && input.childAgentId),
     }),
     ...(Array.isArray(contributedTools) ? contributedTools : [contributedTools]),

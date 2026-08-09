@@ -1,5 +1,5 @@
 import type { RunStepInfo } from "../../contracts/common.js";
-import { normalizeSessionMetadata, type CreateSessionRecordInput, type MessageInfo, type SessionInfo, type SessionListQuery, type SessionMessageListSnapshot } from "../../contracts/session/session.js";
+import { normalizeSessionMetadata, type CreateSessionRecordInput, type MessageInfo, type SessionInfo, type SessionListQuery, type SessionMessageListSnapshot, type SessionTeamSnapshotResolver } from "../../contracts/session/session.js";
 import type {
   AgentSessionRepositoryPort,
   AgentSessionRunRecord,
@@ -19,6 +19,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     private readonly history: SessionHistoryPort | null = null,
     private readonly resourceCleanup: SessionResourceCleanup | null = null,
     private readonly workspaceRootResolver: ((session: SessionInfo) => Promise<string | null>) | null = null,
+    private readonly teamSnapshots: SessionTeamSnapshotResolver | null = null,
   ) {}
 
   async createSession(input: CreateSessionRecordInput): Promise<SessionInfo> {
@@ -38,7 +39,8 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   }): Promise<SessionInfo | null> {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
-    await this.repository.createSession({ tenantId: input.tenantId, sessionId: input.sessionId, ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null, metadata, permissionMode: input.permissionMode ?? null });
+    if (!this.teamSnapshots) throw new Error("Session Team snapshot resolver is not configured");
+    await this.repository.createSession({ tenantId: input.tenantId, sessionId: input.sessionId, ownerUserId: "usr_system", visibility: "tenant", originType: "direct", originId: null, originChannel: "api", workspaceId: null, teamSnapshot: this.teamSnapshots.createTeamSnapshot(), metadata, permissionMode: input.permissionMode ?? null });
     return this.repository.getSession(input.sessionId);
   }
 

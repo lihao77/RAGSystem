@@ -36,6 +36,7 @@ export interface SessionRow {
   origin_channel: SessionOriginChannel;
   workspace_id: string | null;
   permission_mode: PermissionMode | null;
+  team_snapshot: string | null;
   metadata: string | null;
   created_at: string;
   updated_at: string;

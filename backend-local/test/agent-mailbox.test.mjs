@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { createConversationStore } from "../dist/adapters/local/sqlite/conversation-store/index.js";
+import { computeSessionTeamRevision } from "@ragsystem/backend-core/contracts/session/session.js";
+
+const agents = { orchestrator_agent: { agent_name: "orchestrator_agent" } };
+const teamSnapshot = { team_name: "test", team_revision: computeSessionTeamRevision(agents), entry_agent_name: "orchestrator_agent", agents };
 
 function createSession(store) {
   store.createSession({
@@ -16,6 +20,7 @@ function createSession(store) {
     originId: null,
     originChannel: "web",
     workspaceId: null,
+    teamSnapshot,
     metadata: {},
     permissionMode: null,
   });
@@ -67,6 +72,7 @@ test("local Agent mailbox scopes message ids by tenant", async () => {
       originId: null,
       originChannel: "web",
       workspaceId: null,
+      teamSnapshot,
       metadata: {},
       permissionMode: null,
     });

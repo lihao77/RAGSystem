@@ -1,5 +1,5 @@
 import type { RunStepInfo } from "@ragsystem/backend-core/contracts/common.js";
-import type { MessageInfo, SessionInfo, SessionListProjection } from "@ragsystem/backend-core/contracts/session/session.js";
+import { normalizeSessionTeamSnapshot, type MessageInfo, type SessionInfo, type SessionListProjection } from "@ragsystem/backend-core/contracts/session/session.js";
 import { parseJsonObject, sqliteTimestampToIso } from "./helpers.js";
 import { decodeChatFields } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import { MessageContentPartSchema } from "@ragsystem/agent-protocol";
@@ -17,6 +17,7 @@ import type {
 export function rowToSession(row: SessionRow): SessionInfo {
   return {
     session_id: row.session_id,
+    team_snapshot: normalizeSessionTeamSnapshot(row.team_snapshot ? JSON.parse(row.team_snapshot) : null),
     tenant_id: row.tenant_id,
     owner_user_id: row.owner_user_id,
     visibility: row.visibility,

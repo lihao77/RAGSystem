@@ -13,7 +13,7 @@ import {
 } from "../contracts/memory-store/index.js";
 
 export interface RuntimeMemorySessionPort {
-  getSession(sessionId: string): Promise<Pick<SessionInfo, "metadata"> & Partial<Pick<SessionInfo, "owner_user_id">> | null>;
+  getSession(sessionId: string): Promise<Pick<SessionInfo, "metadata" | "team_snapshot"> & Partial<Pick<SessionInfo, "owner_user_id">> | null>;
 }
 
 export interface MemoryToolRuntimeContext {
@@ -357,8 +357,8 @@ export class MemoryToolService implements MemoryToolOperations {
     currentAgentName: string | null,
   ): Promise<MemoryScopeSpec | { error: string }> {
     const sessionId = normalizeString(context.sessionId);
-    const sessionMetadata = sessionId ? ((await this.sessions.getSession(sessionId))?.metadata ?? {}) : {};
-    const teamName = normalizeString(context.teamName) ?? normalizeString(sessionMetadata.team);
+    const session = sessionId ? await this.sessions.getSession(sessionId) : null;
+    const teamName = normalizeString(context.teamName) ?? session?.team_snapshot.team_name ?? null;
     const workspaceRoot = normalizeString(context.workspaceRoot);
 
     if (scope === "team") {

@@ -49,6 +49,8 @@ import { LocalAgentMailboxStoreAdapter } from "./local-agent-mailbox-store-adapt
 export async function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): Promise<LocalRuntimeContainer> {
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot });
+  const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot }));
+  await agentConfig.initialize();
   const agentMailbox = new LocalAgentMailboxStoreAdapter(conversationStore);
   const fileHistory = new FileHistoryService({ dataRoot });
   const transientResources = new TransientSessionResourceService(dataRoot);
@@ -60,8 +62,9 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     async (session) => session.workspace_id
       ? conversationStore.getWorkspaceById(session.tenant_id, session.workspace_id)?.root_path ?? null
       : null,
+    agentConfig,
   );
-  const requestSessionApplication = new LocalSessionApplication(options.tenantId, sessionApplication, conversationStore);
+  const requestSessionApplication = new LocalSessionApplication(options.tenantId, sessionApplication, conversationStore, agentConfig);
   const realtimeEvents = new RealtimeEventHub();
   const outboxDispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(conversationStore), realtimeEvents);
   const runtimeStorage = options.runtimeStorageFactory?.(options.tenantId)
@@ -78,8 +81,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   }
   const clientEvents = options.clientEventsFactory?.(options.tenantId, realtimeEvents, runtimeStorage)
     ?? localClientEvents;
-  const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot }));
-  await agentConfig.initialize();
   const modelAdapter = new ModelAdapterService({
     dataRoot: options.dataRoot,
     providersConfigPath: options.modelAdapterProvidersConfigPath,
@@ -182,6 +183,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
         tenantId,
         sessionApplication,
         conversationStore,
+        agentConfig,
       ),
       analytics: localAnalytics,
       monitoring: localMonitoring,

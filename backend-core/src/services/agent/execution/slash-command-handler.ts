@@ -7,7 +7,6 @@ import type { ModelProviderConfig } from "../../../contracts/integrations/model-
 import { buildFullSystemPrompt, estimateTokens, resolveToolInstructionMode } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../sdk/projection.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
-import { asString, normalizeSessionEntryAgent } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { TenantId } from "../../../identity/types.js";
@@ -192,15 +191,22 @@ export class SlashCommandHandler {
         content: "该会话正在执行任务，请等待完成后再压缩",
       };
     }
-    const sessionMetadata = (await this.sessions.getSession(input.sessionId))?.metadata ?? {};
+    const session = await this.sessions.getSession(input.sessionId);
+    if (!session) {
+      return {
+        command: "compact",
+        success: false,
+        content: "会话不存在",
+        error: "session_not_found",
+      };
+    }
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {
-        agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
-        teamName: asString(sessionMetadata.team),
+        agentName: session.team_snapshot.entry_agent_name,
+        teamSnapshot: session.team_snapshot,
         selectedLlm: input.selectedLlm,
       },
-      sessionMetadata,
     );
     if (!ready.ok) {
       return {

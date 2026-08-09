@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createConversationStore } from "../dist/adapters/local/sqlite/conversation-store/index.js";
+import { computeSessionTeamRevision } from "@ragsystem/backend-core/contracts/session/session.js";
+
+const agents = { orchestrator_agent: { agent_name: "orchestrator_agent" } };
+const teamSnapshot = { team_name: "test", team_revision: computeSessionTeamRevision(agents), entry_agent_name: "orchestrator_agent", agents };
 
 test("removing and re-adding a workspace preserves its sessions and identity", () => {
   const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
@@ -23,6 +27,7 @@ test("removing and re-adding a workspace preserves its sessions and identity", (
       originId: null,
       originChannel: "web",
       workspaceId: workspace.workspace_id,
+      teamSnapshot,
       metadata: {},
       permissionMode: null,
     });

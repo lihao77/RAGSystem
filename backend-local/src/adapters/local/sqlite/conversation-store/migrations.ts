@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 11;
+export const LATEST_SCHEMA_VERSION = 12;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 10) {
+  if (current >= 1 && current <= 11) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -58,6 +58,13 @@ export function runMigrations(db: MigrationDatabase): void {
       }
       migrateAgentMailboxTenantKey(db);
       if (current <= 10) ensureChildParticipantLineage(db);
+      if (current <= 11) {
+        const sessions = db.prepare("SELECT COUNT(*) AS count FROM sessions").get() as { count?: number } | undefined;
+        if (Number(sessions?.count ?? 0) > 0) {
+          throw new Error("Conversation database contains sessions without immutable Team snapshots; delete the development database and restart");
+        }
+        db.exec("ALTER TABLE sessions ADD COLUMN team_snapshot TEXT NOT NULL");
+      }
       db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
     });
     assertCurrentSchema(db);
@@ -261,6 +268,10 @@ function assertCurrentSchema(db: MigrationDatabase): void {
   const childAgentColumns = db.prepare("PRAGMA table_info(child_agents)").all() as unknown as Array<{ name: string }>;
   if (!childAgentColumns.some((column) => column.name === "parent_participant_id")) {
     throw new Error("Conversation database is missing child participant lineage column");
+  }
+  const sessionColumns = db.prepare("PRAGMA table_info(sessions)").all() as unknown as Array<{ name: string }>;
+  if (!sessionColumns.some((column) => column.name === "team_snapshot")) {
+    throw new Error("Conversation database is missing immutable Session Team snapshot");
   }
 }
 

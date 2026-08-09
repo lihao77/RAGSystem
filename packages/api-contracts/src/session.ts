@@ -16,6 +16,8 @@ export const SessionOriginChannelSchema = z.enum([
 
 export const CreateSessionRequestSchema = z.object({
   session_id: z.string().trim().min(1).nullable().optional(),
+  team_name: z.string().trim().min(1).nullable().optional(),
+  entry_agent_name: z.string().trim().min(1).nullable().optional(),
   permission_mode: PermissionModeSchema.nullable().optional(),
   workspace: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("local_path"), root_path: z.string().trim().min(1) }).strict(),
@@ -45,6 +47,9 @@ export const SessionWorkspaceSchema = z.object({
 
 export const CreatedSessionSchema = z.object({
   session_id: z.string().min(1),
+  team_name: z.string().min(1),
+  team_revision: z.string().min(1),
+  entry_agent_name: z.string().min(1),
   owner_user_id: z.string().min(1).nullable(),
   visibility: SessionVisibilitySchema,
   origin: SessionOriginSchema,

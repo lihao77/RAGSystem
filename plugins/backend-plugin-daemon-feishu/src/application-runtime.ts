@@ -49,23 +49,11 @@ async function runAgentTask(
   try {
     try {
       const existing = await lease.runtime.sessionApplication.getSession(input.sessionId);
-      let createMetadata = input.sessionMetadata ? { ...input.sessionMetadata } : {};
-      if (!existing) {
-        const teams = await lease.runtime.agentConfig.listTeams();
-        const configuredTeam = typeof input.team === "string" ? input.team.trim() : "";
-        const team = configuredTeam || teams.active_team || "";
-        if (team) createMetadata = { ...createMetadata, team };
-        let entryAgent = typeof input.entryAgent === "string" ? input.entryAgent.trim() : "";
-        if (!entryAgent) {
-          const configs = lease.runtime.agentConfig.listConfigs({ teamName: team || null });
-          const defaultEntry = Object.values(configs).find((config) => config.default_entry);
-          entryAgent = defaultEntry?.agent_name?.trim() || "";
-        }
-        if (entryAgent) createMetadata = { ...createMetadata, entry_agent: entryAgent };
-      } else {
-        const { team: _team, entry_agent: _entry, ...channelMeta } = createMetadata as Record<string, unknown>;
-        createMetadata = channelMeta;
-      }
+      const { team: _team, entry_agent: _entry, ...createMetadata } = (input.sessionMetadata ?? {}) as Record<string, unknown>;
+      const teamSnapshot = existing?.team_snapshot ?? lease.runtime.agentConfig.createTeamSnapshot({
+        teamName: input.team,
+        entryAgentName: input.entryAgent,
+      });
       const sessionBot = await dependencies.botRepository.get(input.botId);
       if (!sessionBot) throw new Error(`bot 不存在: ${input.botId}`);
       await lease.runtime.sessionApplication.ensureSession({
@@ -76,6 +64,7 @@ async function runAgentTask(
         originId: input.botId,
         originChannel: input.source.includes("cron") ? "cron" : input.source.includes("feishu") ? "feishu" : "api",
         workspaceId: null,
+        teamSnapshot,
         ...(Object.keys(createMetadata).length > 0 ? { metadata: createMetadata } : {}),
         permissionMode: input.permissionMode,
       });
@@ -108,7 +97,7 @@ async function runAgentTask(
       const result = await lease.runtime.agentExecution.executeSynchronously({
         task: input.task,
         session_id: input.sessionId,
-        agent: input.entryAgent,
+        agent: teamSnapshot.entry_agent_name,
         userId: input.botId,
         executionKind: input.source,
         onInteractionRequired,

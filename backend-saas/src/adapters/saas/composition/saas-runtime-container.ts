@@ -59,17 +59,17 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   const clientEvents = new DurableClientEventPublisher(runtimeStorage, outboxDispatcher);
   const fileHistory = conversationRuntime.createFileHistoryStorage(tenantId);
   const sessionFiles = conversationRuntime.createSessionFileStorage(tenantId);
+  const agentConfig = new AgentConfigService(conversationRuntime.createAgentConfigTeamStore(tenantId));
+  await agentConfig.initialize();
   const sessionApplication = new SaaSSessionApplication(
     tenantId,
     conversationRuntime.conversation,
+    agentConfig,
     fileHistory,
     conversationRuntime.runs,
     conversationRuntime.outbox,
     conversationRuntime.workspaces,
   );
-
-  const agentConfig = new AgentConfigService(conversationRuntime.createAgentConfigTeamStore(tenantId));
-  await agentConfig.initialize();
   // SaaS providers are Postgres-backed; ModelAdapterService is a pure in-process projection.
   // Keep provider configuration process-local so create/update never writes providers.yaml under dataRoot.
   const modelAdapter = new ModelAdapterService({

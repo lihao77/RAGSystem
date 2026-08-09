@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CreateSessionResponseSchema,
+  CreateSessionRequestSchema,
   SessionDetailResponseSchema,
   SessionListFacetsResponseSchema,
   SessionListResponseSchema,
@@ -13,6 +14,9 @@ import {
 const origin = { type: "direct" as const, id: null, display_name: "直接对话", channel: "web" as const };
 const detail = {
   session_id: "session-1",
+  team_name: "default",
+  team_revision: "revision-1",
+  entry_agent_name: "orchestrator_agent",
   tenant_id: "tnt_local",
   owner_user_id: "usr_local",
   visibility: "private" as const,
@@ -25,12 +29,22 @@ const detail = {
 };
 
 describe("Session REST contracts", () => {
+  it("accepts first-class Team and entry Agent selection", () => {
+    expect(CreateSessionRequestSchema.parse({
+      team_name: "research",
+      entry_agent_name: "orchestrator_agent",
+    })).toMatchObject({ team_name: "research", entry_agent_name: "orchestrator_agent" });
+  });
+
   it("accepts explicit ownership, origin and workspace fields", () => {
     expect(CreateSessionResponseSchema.parse({
       success: true,
       message: "created",
       data: {
         session_id: detail.session_id,
+        team_name: detail.team_name,
+        team_revision: detail.team_revision,
+        entry_agent_name: detail.entry_agent_name,
         owner_user_id: detail.owner_user_id,
         visibility: detail.visibility,
         origin,

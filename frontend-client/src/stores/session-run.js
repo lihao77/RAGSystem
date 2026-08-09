@@ -43,7 +43,7 @@ const parseRuntimeTimestampSeconds = (value) => {
  * 收编原散落在 ChatViewV2 顶层(messages/currentSessionId/isLoading/isCompressing)
  * 与 useActiveRunState 内部(activeRun reactive)的状态字段。
  * 会话上下文(team/workspace/entry_agent)也放这里，供对话页各区域同源消费；
- * 列表投影不含 metadata.team，team 以 session detail 为准。
+ * 列表投影不含 Team snapshot，Team 身份以 Session detail 为准。
  * llmRetryState(带定时器) 有行为，留阶段 2.3b。
  *
  * 各消费 composable 直接 useSessionRunStore() 取，不再走 deps 透传。Session 生命周期只接受

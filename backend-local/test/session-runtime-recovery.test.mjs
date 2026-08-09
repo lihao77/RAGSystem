@@ -9,8 +9,11 @@ import { buildTerminalAssistantMessage } from '@ragsystem/backend-core/contracts
 import { SessionRuntimeService } from '@ragsystem/backend-core/services/runtime/session-runtime-service.js';
 import { createConversationStore } from '../dist/adapters/local/sqlite/conversation-store/index.js';
 import { SqliteRuntimeStorage } from '../dist/adapters/local/sqlite-runtime-storage.js';
+import { computeSessionTeamRevision } from '@ragsystem/backend-core/contracts/session/session.js';
 
 const tenantId = createTenantId('tnt_test');
+const agents = { root: { agent_name: 'root' } };
+const teamSnapshot = { team_name: 'test', team_revision: computeSessionTeamRevision(agents), entry_agent_name: 'root', agents };
 
 async function createHarness(t) {
   const root = await mkdtemp(join(tmpdir(), 'ragsystem-runtime-recovery-'));
@@ -29,6 +32,7 @@ async function createHarness(t) {
     originId: null,
     originChannel: 'web',
     workspaceId: null,
+    teamSnapshot,
     metadata: {},
   });
   store.createRun({
@@ -312,6 +316,7 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
       originId: null,
       originChannel: 'web',
       workspaceId: null,
+      teamSnapshot,
       metadata: {},
     },
     run: {

@@ -119,7 +119,7 @@ export function useChatSessionController(deps) {
   /**
    * 加载 team 列表与 active team。
    * 仅在「新会话且用户尚未选择 team」时回填默认 active team；
-   * 绝不给已有 session 用 active team 冒充 metadata.team。
+   * 已有 Session 始终使用服务端返回的固定 Team snapshot 身份。
    */
   const loadActiveTeam = async () => {
     teamLoading.value = true;
@@ -152,8 +152,8 @@ export function useChatSessionController(deps) {
     const workspace = detail.workspace || listItem?.workspace || null;
     const workspaceRoot = normalizeWorkspaceRootInput(workspace?.root_path || '');
     sessionRunStore.applySessionContext({
-      team: detail.metadata?.team || '',
-      entryAgent: detail.metadata?.entry_agent || '',
+      team: detail.team_name || '',
+      entryAgent: detail.entry_agent_name || '',
       workspaceRoot,
       workspaceDisplay: workspace?.display_name || workspaceRoot || '',
     });
@@ -282,19 +282,14 @@ export function useChatSessionController(deps) {
       await loadActiveTeam();
     }
     const team = currentSessionTeam.value.trim();
-    const metadata = {
-      ...(team ? { team } : {}),
-      ...(entryAgent ? { entry_agent: entryAgent } : {}),
-    };
     const selectedWorkspaceId = workspaceStore.currentWorkspaceId || UNASSIGNED_WORKSPACE_ID;
     const body = selectedWorkspaceId && selectedWorkspaceId !== UNASSIGNED_WORKSPACE_ID
       ? { workspace: { kind: 'existing', workspace_id: selectedWorkspaceId } }
       : workspaceRoot
         ? { workspace: { kind: 'local_path', root_path: workspaceRoot } }
         : {};
-    if (Object.keys(metadata).length > 0) {
-      body.metadata = metadata;
-    }
+    if (team) body.team_name = team;
+    if (entryAgent) body.entry_agent_name = entryAgent;
     const client = deps.chatSdkClient;
     if (!client) throw new Error('Chat SDK 未初始化');
     const result = await client.createSession(body);
@@ -302,11 +297,6 @@ export function useChatSessionController(deps) {
     if (sessionId) {
       const now = new Date().toISOString();
       // 服务端返回优先，本地选择作兜底
-      const sessionMetadata = {
-        ...(team ? { team } : {}),
-        ...(entryAgent ? { entry_agent: entryAgent } : {}),
-        ...(result.data?.metadata || {}),
-      };
       const createdListItem = {
         session_id: sessionId,
         title: '新会话',
@@ -322,8 +312,8 @@ export function useChatSessionController(deps) {
       void sessionListStore.loadFacets().catch(() => undefined);
       const nextWorkspaceRoot = normalizeWorkspaceRootInput(result.data.workspace?.root_path || workspaceRoot);
       sessionRunStore.applySessionContext({
-        team: sessionMetadata.team || '',
-        entryAgent: sessionMetadata.entry_agent || '',
+        team: result.data?.team_name || team,
+        entryAgent: result.data?.entry_agent_name || entryAgent,
         workspaceRoot: nextWorkspaceRoot,
         workspaceDisplay: result.data.workspace?.display_name || nextWorkspaceRoot || '',
       });

@@ -5,7 +5,7 @@ import type {
   SessionListProjectionPage,
   SessionListQuery,
 } from "@ragsystem/backend-core/contracts/session/session.js";
-import { normalizeSessionMetadata } from "@ragsystem/backend-core/contracts/session/session.js";
+import { normalizeSessionMetadata, normalizeSessionTeamSnapshot } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
@@ -27,11 +27,12 @@ export class SessionOps {
 
   createSessionInTransaction(input: CreateSessionRecordInput): void {
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
+    const teamSnapshot = normalizeSessionTeamSnapshot(input.teamSnapshot);
     const result = this.db.prepare(`
         INSERT INTO sessions (
           session_id, tenant_id, owner_user_id, visibility, origin_type, origin_id,
-          origin_channel, workspace_id, permission_mode, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          origin_channel, workspace_id, permission_mode, team_snapshot, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_id) DO NOTHING
     `).run(
         input.sessionId,
@@ -43,6 +44,7 @@ export class SessionOps {
         input.originChannel,
         input.workspaceId,
         input.permissionMode ?? null,
+        stringifyJson(teamSnapshot),
         stringifyJson(metadata),
     );
     const persisted = this.getSession(input.sessionId);
@@ -53,7 +55,10 @@ export class SessionOps {
       || persisted.origin_type !== input.originType
       || persisted.origin_id !== input.originId
       || persisted.origin_channel !== input.originChannel
-      || persisted.workspace_id !== input.workspaceId;
+      || persisted.workspace_id !== input.workspaceId
+      || persisted.team_snapshot.team_name !== teamSnapshot.team_name
+      || persisted.team_snapshot.team_revision !== teamSnapshot.team_revision
+      || persisted.team_snapshot.entry_agent_name !== teamSnapshot.entry_agent_name;
     if (identityConflict) throw new Error(`Session immutable identity conflict: ${input.sessionId}`);
     if (Number(result.changes) > 0) this.projector.rebuildSessionListProjection(input.sessionId);
   }
@@ -62,6 +67,7 @@ export class SessionOps {
     const row = this.db.prepare(`
       SELECT session_id, tenant_id, owner_user_id, visibility, origin_type, origin_id,
              origin_channel, workspace_id, permission_mode, metadata, created_at, updated_at
+             , team_snapshot
       FROM sessions WHERE session_id=?
     `).get(sessionId) as SessionRow | undefined;
     return row ? rowToSession(row) : null;

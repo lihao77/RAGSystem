@@ -5,6 +5,7 @@ import type {
   AgentInvocationRootInput,
 } from "../src/contracts/execution/agent-invocation.js";
 import { AgentInvocationService } from "../src/services/agent/execution/invocation-service.js";
+import { createTestTeamSnapshot } from "./session-team-fixture.js";
 
 const identity = {
   sessionId: "session-1",
@@ -14,6 +15,7 @@ const identity = {
   originId: null,
   originChannel: "api" as const,
   workspaceId: null,
+  teamSnapshot: createTestTeamSnapshot("worker"),
   metadata: {},
   permissionMode: null,
 };

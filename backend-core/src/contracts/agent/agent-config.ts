@@ -88,8 +88,21 @@ export type CopyAgentsRequest = z.infer<typeof CopyAgentsRequestSchema>;
 export type CreateAgentRequest = z.infer<typeof CreateAgentRequestSchema>;
 export type ApplyPresetRequest = z.infer<typeof ApplyPresetRequestSchema>;
 
+export type TeamSelectionErrorCode = "team_not_found" | "entry_agent_not_found" | "entry_agent_disabled" | "entry_agent_missing";
+
+export class TeamSelectionError extends Error {
+  readonly code: TeamSelectionErrorCode;
+
+  constructor(code: TeamSelectionErrorCode, message: string) {
+    super(message);
+    this.name = "TeamSelectionError";
+    this.code = code;
+  }
+}
+
 export interface TeamInfo {
   team_name: string;
+  team_revision: string;
   file_path: string;
   is_active: boolean;
   agent_count: number;

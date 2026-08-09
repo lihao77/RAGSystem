@@ -86,21 +86,6 @@ function backgroundTaskSummary(taskId: string, status: string): string {
   return `后台任务 ${taskId} 已完成，输出已写入文件`;
 }
 
-export function normalizeSessionEntryAgent(value: unknown): string | null {
-  const normalized = asString(value);
-  if (!normalized) {
-    return null;
-  }
-  const lowered = normalized.toLowerCase();
-  if (lowered === "default") {
-    return null;
-  }
-  if (lowered === "orchestrator") {
-    return "orchestrator_agent";
-  }
-  return normalized;
-}
-
 function escapeXmlText(value: string): string {
   return value
     .replace(/&/g, "&amp;")

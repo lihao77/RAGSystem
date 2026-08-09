@@ -18,6 +18,74 @@ import { PermissionModeSchema, type PermissionMode } from "../runtime/permission
 import { OptionalSessionIdSchema } from "./session-id.js";
 import type { TenantId } from "../../identity/types.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import { AgentConfigSchema, type AgentConfig } from "../agent/agent-config.js";
+import { createHash } from "node:crypto";
+
+export const SessionTeamSnapshotSchema = z.object({
+  team_name: z.string().trim().min(1),
+  team_revision: z.string().trim().min(1),
+  entry_agent_name: z.string().trim().min(1),
+  agents: z.record(z.string(), AgentConfigSchema),
+}).strict().superRefine((snapshot, context) => {
+  for (const [agentName, config] of Object.entries(snapshot.agents)) {
+    if (config.agent_name !== agentName) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["agents", agentName, "agent_name"],
+        message: `Agent key '${agentName}' does not match agent_name '${config.agent_name}'`,
+      });
+    }
+  }
+  if (!snapshot.agents[snapshot.entry_agent_name]) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["entry_agent_name"],
+      message: `Entry agent '${snapshot.entry_agent_name}' is not present in the Team snapshot`,
+    });
+  }
+  const expectedRevision = computeSessionTeamRevision(snapshot.agents);
+  if (snapshot.team_revision !== expectedRevision) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["team_revision"],
+      message: "Team snapshot revision does not match its Agent configuration",
+    });
+  }
+});
+
+export interface SessionTeamSnapshot {
+  team_name: string;
+  team_revision: string;
+  entry_agent_name: string;
+  agents: Record<string, AgentConfig>;
+}
+
+export interface SessionTeamSnapshotResolver {
+  createTeamSnapshot(input?: {
+    teamName?: string | null | undefined;
+    entryAgentName?: string | null | undefined;
+  }): SessionTeamSnapshot;
+}
+
+/** Content-addressed identity for a normalized immutable Team Agent snapshot. */
+export function computeSessionTeamRevision(agents: Record<string, unknown>): string {
+  const normalized = Object.fromEntries(
+    Object.entries(agents).map(([name, config]) => [name, AgentConfigSchema.parse(config)]),
+  );
+  return createHash("sha256").update(stableJson(normalized), "utf8").digest("hex");
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((item) => stableJson(item)).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
 
 export const SessionMetadataSchema = z.unknown().optional().transform((value, context) => {
   try {
@@ -63,6 +131,7 @@ export type RollbackAndRetryRequest = z.infer<typeof RollbackAndRetryRequestSche
 
 export interface SessionInfo {
   session_id: string;
+  team_snapshot: SessionTeamSnapshot;
   tenant_id: TenantId;
   owner_user_id: string | null;
   visibility: SessionVisibility;
@@ -133,15 +202,22 @@ export interface CreateSessionRecordInput {
   originId: string | null;
   originChannel: SessionOriginChannel;
   workspaceId: string | null;
+  teamSnapshot: SessionTeamSnapshot;
   metadata?: Record<string, unknown>;
   permissionMode?: PermissionMode | null;
 }
 
 export type SessionIdentity = Omit<CreateSessionRecordInput, "tenantId">;
 
+export type SessionCreateInput = Omit<SessionIdentity, "teamSnapshot"> & {
+  teamName?: string | null;
+  entryAgentName?: string | null;
+};
+
 export function toSessionIdentity(session: SessionInfo): SessionIdentity {
   return {
     sessionId: session.session_id,
+    teamSnapshot: structuredClone(session.team_snapshot),
     ownerUserId: session.owner_user_id,
     visibility: session.visibility,
     originType: session.origin_type,
@@ -166,6 +242,8 @@ export const RESERVED_SESSION_METADATA_KEYS = [
   "origin_channel",
   "owner_user_id",
   "visibility",
+  "team",
+  "entry_agent",
 ] as const;
 
 /**
@@ -227,41 +305,9 @@ export function normalizeSessionMetadata(value: unknown): Record<string, unknown
   if (reservedKey) {
     throw new Error(`metadata.${reservedKey} 是保留字段，请使用 Session 一等字段`);
   }
-  if ("entry_agent" in metadata) {
-    metadata.entry_agent = normalizeEntryAgent(metadata.entry_agent);
-  }
-  if ("team" in metadata) {
-    const team = normalizeTeam(metadata.team);
-    if (team === null) {
-      delete metadata.team;
-    } else {
-      metadata.team = team;
-    }
-  }
   return metadata;
 }
 
-function normalizeEntryAgent(value: unknown): string | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  if (typeof value !== "string") {
-    throw new Error("metadata.entry_agent 必须是字符串或 null");
-  }
-  const normalized = value.trim();
-  if (!normalized) {
-    throw new Error("metadata.entry_agent 不能为空字符串");
-  }
-  return normalized;
-}
-
-function normalizeTeam(value: unknown): string | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  if (typeof value !== "string") {
-    throw new Error("metadata.team 必须是字符串或 null");
-  }
-  const normalized = value.trim();
-  return normalized || null;
+export function normalizeSessionTeamSnapshot(value: unknown): SessionTeamSnapshot {
+  return SessionTeamSnapshotSchema.parse(value) as SessionTeamSnapshot;
 }

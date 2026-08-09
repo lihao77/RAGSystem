@@ -257,8 +257,8 @@ export class SaaSMemoryToolService implements MemoryToolOperations {
     const scope = normalizeMemoryScope(input.scope);
     if (!scope) return { error: `不支持的 memory scope: ${input.scope}` };
     const sessionId = normalizeString(context.sessionId);
-    const metadata = sessionId ? (await this.sessions.getSession(sessionId))?.metadata ?? {} : {};
-    const teamName = normalizeString(context.teamName) ?? normalizeString(metadata.team);
+    const session = sessionId ? await this.sessions.getSession(sessionId) : null;
+    const teamName = normalizeString(context.teamName) ?? session?.team_snapshot.team_name ?? null;
     const userId = normalizeString(context.userId);
     const agentName = normalizeString(input.currentAgentName) ?? normalizeString(context.currentAgentName) ?? context.agent?.agent_name ?? null;
     const workspaceRoot = normalizeString(context.workspaceRoot);

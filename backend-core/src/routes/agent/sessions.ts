@@ -42,6 +42,7 @@ import { resolveSessionApplication } from "../session-application.js";
 import { decodeSessionListCursor, encodeSessionListCursor } from "../session-list-cursor.js";
 import type { SessionApplication } from "../../contracts/session/session-application.js";
 import type { SessionInfo, SessionListProjection } from "../../contracts/session/session.js";
+import { TeamSelectionError } from "../../contracts/agent/agent-config.js";
 
 interface SessionParams {
   sessionId: string;
@@ -90,10 +91,15 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
         originId: null,
         originChannel: "web",
         workspaceId,
+        teamName: payload.team_name ?? null,
+        entryAgentName: payload.entry_agent_name ?? null,
         permissionMode: payload.permission_mode ?? null, ...(payload.metadata ? { metadata: payload.metadata } : {}),
       });
       return validateResponse(CreateSessionResponseSchema, ok(await assembleCreatedSession(session, sessions, options, request), "会话创建成功"));
     } catch (error) {
+      if (error instanceof TeamSelectionError) {
+        throw new HttpError(400, "invalid_request", error.message);
+      }
       if (error instanceof Error && error.message.includes("Workspace")) {
         throw new HttpError(400, "invalid_request", error.message);
       }
@@ -510,6 +516,9 @@ async function assembleSessionDetail(
   const workspaces = await application.listWorkspacesByIds(session.workspace_id ? [session.workspace_id] : []);
   return {
     session_id: session.session_id,
+    team_name: session.team_snapshot.team_name,
+    team_revision: session.team_snapshot.team_revision,
+    entry_agent_name: session.team_snapshot.entry_agent_name,
     tenant_id: session.tenant_id,
     owner_user_id: session.owner_user_id,
     visibility: session.visibility,

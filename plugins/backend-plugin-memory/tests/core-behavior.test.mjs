@@ -6,6 +6,28 @@ import test from "node:test";
 
 import { MemoryStore } from "../dist/storage/local/memory-store.js";
 import { POSTGRES_MEMORY_MIGRATIONS } from "../dist/storage/postgres/schema.js";
+import { buildMemoryScopeSpecs } from "../dist/services/agent/memory/memory-prefix.js";
+
+test("memory scopes use the explicit Session Team snapshot identity", () => {
+  const scopes = buildMemoryScopeSpecs({
+    memory: {
+      enabled: true,
+      auto_inject: true,
+      allowed_scopes: ["team", "agent", "session"],
+      write_scopes: [],
+      archive_scopes: [],
+    },
+    sessionId: "session-1",
+    teamName: "snapshot-team",
+    agentName: "researcher",
+  });
+
+  assert.deepEqual(scopes, [
+    { scope: "team", team_name: "snapshot-team" },
+    { scope: "session", session_id: "session-1" },
+    { scope: "agent", agent_name: "researcher", team_name: "snapshot-team" },
+  ]);
+});
 
 test("local Memory store rejects traversal in every scope identity", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "memory-paths-"));

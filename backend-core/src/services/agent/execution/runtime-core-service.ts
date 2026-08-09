@@ -4,10 +4,12 @@ import type { RuntimeCoreReadiness, RuntimeCoreRequirement } from "../../../cont
 import type { ModelProviderConfig, ModelMapValue } from "../../../contracts/integrations/model-adapter.js";
 import type { SystemLlmConfig } from "../../../contracts/runtime/system-config.js";
 import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";
+import type { SessionTeamSnapshot } from "../../../contracts/session/session.js";
 
 export interface RuntimeCoreReadinessInput {
   agentName?: string | null;
   teamName?: string | null;
+  teamSnapshot?: SessionTeamSnapshot | null;
   selectedLlm?: string | null;
 }
 
@@ -34,6 +36,7 @@ export interface RuntimeExecutionConfig {
 export interface RuntimeExecutionConfigResolver {
   getReadiness(input?: RuntimeCoreReadinessInput): RuntimeCoreReadiness;
   resolveExecutionConfig(input?: RuntimeCoreReadinessInput): RuntimeExecutionConfig;
+  createTeamSnapshot(input?: { teamName?: string | null | undefined; entryAgentName?: string | null | undefined }): SessionTeamSnapshot;
 }
 
 interface ResolvedLlm {
@@ -105,8 +108,20 @@ export class RuntimeCoreService {
     };
   }
 
+  createTeamSnapshot(input: { teamName?: string | null | undefined; entryAgentName?: string | null | undefined } = {}): SessionTeamSnapshot {
+    const source = this.agentConfigs as RuntimeAgentConfigPort & {
+      createTeamSnapshot?: (selection?: { teamName?: string | null | undefined; entryAgentName?: string | null | undefined }) => SessionTeamSnapshot;
+    };
+    if (!source.createTeamSnapshot) throw new Error("Runtime Agent config does not support Team snapshots");
+    return source.createTeamSnapshot(input);
+  }
+
   private resolveAgent(input: RuntimeCoreReadinessInput): AgentConfig | null {
     const requested = input.agentName?.trim();
+    if (input.teamSnapshot) {
+      const agentName = requested || input.teamSnapshot.entry_agent_name;
+      return input.teamSnapshot.agents[agentName] ?? null;
+    }
     const teamName = input.teamName?.trim() || null;
     if (requested) {
       return this.agentConfigs.getConfig(requested, { teamName });

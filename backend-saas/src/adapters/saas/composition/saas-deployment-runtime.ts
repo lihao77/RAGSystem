@@ -96,6 +96,7 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
     resolveSessionApplication: (request) => new SaaSSessionApplication(
       request.identity.tenantId,
       conversation.conversation,
+      request.container.agentConfig,
       conversation.createFileHistoryStorage(request.identity.tenantId),
       conversation.runs,
       conversation.outbox,

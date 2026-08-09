@@ -70,12 +70,12 @@ export function buildMemoryScopeSpecs(input: {
   memory: MemoryAgentConfig;
   sessionId: string;
   agentName: string;
-  sessionMetadata: Record<string, unknown>;
+  teamName: string;
   userId?: string | null;
   workspaceKey?: string | null;
 }): MemoryScopeSpec[] {
   const allowedScopes = new Set(input.memory.allowed_scopes);
-  const teamName = getString(input.sessionMetadata.team);
+  const teamName = input.teamName.trim();
   const workspaceKey = input.workspaceKey?.trim() || null;
   const scopeSpecs: MemoryScopeSpec[] = [];
   if (allowedScopes.has("team") && teamName) {

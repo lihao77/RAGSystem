@@ -437,4 +437,16 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
       - 'msg_type' - 'command' - 'command_mode' - 'expanded_task' - 'success' - 'error'
     WHERE message.metadata->>'msg_type' = 'command';
   `,
+}, {
+  version: 7,
+  name: "session_team_snapshot",
+  sql: `
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM conversation_sessions LIMIT 1) THEN
+        RAISE EXCEPTION 'conversation database contains sessions without immutable Team snapshots; recreate the development database';
+      END IF;
+    END $$;
+    ALTER TABLE conversation_sessions ADD COLUMN team_snapshot JSONB NOT NULL;
+  `,
 }];

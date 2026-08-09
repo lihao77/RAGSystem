@@ -7,6 +7,7 @@ import { TenantSessionIdentityApplication } from "@ragsystem/backend-core/servic
 import { canonicalLocalWorkspaceKey, normalizeLocalWorkspacePath } from "@ragsystem/backend-core/services/workspaces/workspace-application.js";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import type { SessionTeamSnapshotResolver } from "@ragsystem/backend-core/contracts/session/session.js";
 
 /** Binds the Local session service to one request tenant. */
 export class LocalSessionApplication implements SessionApplication {
@@ -16,6 +17,7 @@ export class LocalSessionApplication implements SessionApplication {
     private readonly tenantId: TenantId,
     private readonly sessions: AgentSessionApplication,
     private readonly conversations: ConversationStore,
+    private readonly teamSnapshots: SessionTeamSnapshotResolver,
   ) {
     this.sessionIdentities = new TenantSessionIdentityApplication(tenantId, {
       getSession: async (sessionId) => conversations.getSession(sessionId),
@@ -29,7 +31,12 @@ export class LocalSessionApplication implements SessionApplication {
   }
 
   async createSession(input: Parameters<SessionApplication["createSession"]>[0]) {
-    return this.sessions.createSession({ ...input, tenantId: this.tenantId });
+    const { teamName, entryAgentName, ...identity } = input;
+    return this.sessions.createSession({
+      ...identity,
+      tenantId: this.tenantId,
+      teamSnapshot: this.teamSnapshots.createTeamSnapshot({ teamName, entryAgentName }),
+    });
   }
   async listSessions(input: Parameters<SessionApplication["listSessions"]>[0]) {
     return this.sessions.listSessions({ ...input, tenantId: this.tenantId });

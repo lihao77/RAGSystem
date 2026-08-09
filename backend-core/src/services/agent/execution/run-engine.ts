@@ -24,6 +24,7 @@ import type { TenantId } from "../../../identity/types.js";
 import type { Envelope } from "../../../contracts/events.js";
 import {
   toSessionIdentity,
+  normalizeSessionTeamSnapshot,
   type MessageInfo,
   type SessionIdentity,
 } from "../../../contracts/session/session.js";
@@ -863,12 +864,17 @@ function assertSessionIdentityScope(sessionId: string, identity: SessionIdentity
 }
 
 function assertSessionIdentityMatch(requested: SessionIdentity, persisted: SessionIdentity): void {
+  const requestedTeam = normalizeSessionTeamSnapshot(requested.teamSnapshot);
+  const persistedTeam = normalizeSessionTeamSnapshot(persisted.teamSnapshot);
   const conflict = requested.ownerUserId !== persisted.ownerUserId
     || requested.visibility !== persisted.visibility
     || requested.originType !== persisted.originType
     || requested.originId !== persisted.originId
     || requested.originChannel !== persisted.originChannel
-    || requested.workspaceId !== persisted.workspaceId;
+    || requested.workspaceId !== persisted.workspaceId
+    || requestedTeam.team_name !== persistedTeam.team_name
+    || requestedTeam.team_revision !== persistedTeam.team_revision
+    || requestedTeam.entry_agent_name !== persistedTeam.entry_agent_name;
   if (conflict) {
     throw new Error(`session immutable identity mismatch: ${persisted.sessionId}`);
   }

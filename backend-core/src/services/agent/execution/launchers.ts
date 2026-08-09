@@ -17,11 +17,7 @@ import {
 } from "../../../contracts/session/session.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
-import {
-  asString,
-  normalizeSessionEntryAgent,
-  renderBackgroundNotification,
-} from "./helpers.js";
+import { asString, renderBackgroundNotification } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AttachmentResolver } from "./attachment-resolver.js";
 import { createCommandRefPart, parseSlashCommand, type SlashCommandHandler } from "./slash-command-handler.js";
@@ -168,15 +164,13 @@ class AgentLaunchers {
   }
 
   private launchRun(input: UnifiedRunStartInput): UnifiedRunStartResult {
-    const sessionMetadata = input.sessionIdentity.metadata ?? {};
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {
-        agentName: input.agentName?.trim() || normalizeSessionEntryAgent(sessionMetadata.entry_agent),
-        teamName: asString(sessionMetadata.team),
+        agentName: input.agentName?.trim() || input.sessionIdentity.teamSnapshot.entry_agent_name,
+        teamSnapshot: input.sessionIdentity.teamSnapshot,
         selectedLlm: input.selectedLlm,
       },
-      sessionMetadata,
     );
     if (!ready.ok) {
       return { ok: false, error: ready.reason };
@@ -248,6 +242,7 @@ class AgentLaunchers {
           originId: null,
           originChannel: input.originChannel,
           workspaceId: null,
+          teamSnapshot: this.runtimeCore.createTeamSnapshot(),
           metadata: {},
           permissionMode: null,
         };
@@ -735,18 +730,17 @@ class AgentLaunchers {
           originId: null,
           originChannel: "api",
           workspaceId: null,
+          teamSnapshot: this.runtimeCore.createTeamSnapshot(),
           metadata: {},
           permissionMode: null,
         };
-    const metadata = sessionIdentity.metadata ?? {};
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {
         agentName: target.targetAgentName,
-        teamName: asString(metadata.team),
+        teamSnapshot: sessionIdentity.teamSnapshot,
         selectedLlm: null,
       },
-      metadata,
     );
     if (!ready.ok) return;
     const runId = randomUUID();
@@ -857,17 +851,17 @@ class AgentLaunchers {
             originId: null,
             originChannel: "api",
             workspaceId: null,
+            teamSnapshot: this.runtimeCore.createTeamSnapshot(),
             metadata: sessionMetadata,
             permissionMode: null,
           };
       const ready = resolveReadyAgent(
         this.runtimeCore,
         {
-          agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
-          teamName: asString(sessionMetadata.team),
+          agentName: sessionIdentity.teamSnapshot.entry_agent_name,
+          teamSnapshot: sessionIdentity.teamSnapshot,
           selectedLlm: null,
         },
-        sessionMetadata,
       );
       if (!ready.ok) {
         await markReason("readiness_failed");

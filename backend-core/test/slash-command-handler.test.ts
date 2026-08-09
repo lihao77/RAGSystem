@@ -11,6 +11,7 @@ import {
   parseSlashCommand,
   SlashCommandHandler,
 } from "../src/services/agent/execution/slash-command-handler.js";
+import { createTestTeamSnapshot } from "./session-team-fixture.js";
 
 describe("slash command content semantics", () => {
   it("captures prompt command Agent text in a stable command_ref snapshot", () => {
@@ -73,6 +74,7 @@ describe("slash command content semantics", () => {
         originId: null,
         originChannel: "web",
         workspaceId: null,
+        teamSnapshot: createTestTeamSnapshot(),
         metadata: {},
         permissionMode: null,
       },

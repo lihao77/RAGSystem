@@ -17,7 +17,6 @@ export type ReadinessResolution =
 export function resolveReadyAgent(
   resolver: RuntimeExecutionConfigResolver,
   input: RuntimeCoreReadinessInput,
-  sessionMetadata: Record<string, unknown>,
 ): ReadinessResolution {
   const resolved = resolver.resolveExecutionConfig(input);
   if (

@@ -99,6 +99,7 @@ export const BASELINE_SCHEMA_SQL = `
       origin_channel TEXT NOT NULL CHECK(origin_channel IN ('web', 'api', 'feishu', 'cron', 'widget_embed', 'widget_api')),
       workspace_id TEXT,
       permission_mode TEXT,
+      team_snapshot TEXT NOT NULL,
       metadata TEXT NOT NULL DEFAULT '{}',
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

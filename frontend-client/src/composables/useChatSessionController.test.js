@@ -89,7 +89,7 @@ test('late session detail cannot continue an obsolete route switch', async () =>
     resolveB({
       data: {
         workspace: { workspace_id: 'workspace-b', display_name: 'B', root_path: 'D:/b' },
-        metadata: { team: 'team-b', entry_agent: 'agent-b' },
+        team_name: 'team-b', entry_agent_name: 'agent-b', metadata: {},
       },
     });
     await switchB;
@@ -97,7 +97,7 @@ test('late session detail cannot continue an obsolete route switch', async () =>
     resolveA({
       data: {
         workspace: { workspace_id: 'workspace-a', display_name: 'A', root_path: 'D:/a' },
-        metadata: { team: 'team-a', entry_agent: 'agent-a' },
+        team_name: 'team-a', entry_agent_name: 'agent-a', metadata: {},
       },
     });
     await switchA;

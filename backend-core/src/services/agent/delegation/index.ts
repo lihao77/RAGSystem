@@ -6,7 +6,7 @@ import type { AgentInvocationPort } from "../../../contracts/execution/agent-inv
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ChildAgentInfo, RunInfo } from "../../../contracts/conversation-store/index.js";
 import type { SessionParticipant, SessionParticipantListData } from "@ragsystem/api-contracts";
-import type { SessionInfo } from "../../../contracts/session/session.js";
+import type { SessionInfo, SessionTeamSnapshot } from "../../../contracts/session/session.js";
 import type { AgentDelegationStorePort } from "../../../contracts/runtime/core-runtime-ports.js";
 import type { AgentMailboxStorePort } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -60,7 +60,7 @@ interface ChildRunInput {
   rootTask: string;
   source: "agent_call";
   signal?: AbortSignal | undefined;
-  teamName: string | null;
+  teamSnapshot: SessionTeamSnapshot;
   workspaceRoot: string | null;
   ownsRunLease?: boolean;
   initialEnvelopes?: readonly Envelope[];
@@ -76,7 +76,7 @@ interface ChildRunInput {
 
 interface ChildRunBuildSpec {
   parentAgent: AgentConfig;
-  teamName: string | null;
+  teamSnapshot: SessionTeamSnapshot;
   ctx: ToolExecContext;
   childAgent: ChildAgentInfo;
   agentName: string;
@@ -194,7 +194,7 @@ export class AgentDelegationService implements DelegationPort {
     const items = [
       this.toRootParticipant(session, rootRun),
       ...children.items.map((child) => this.toChildParticipant(
-        session.metadata,
+        session.team_snapshot,
         child,
         child.last_run_id ? runById.get(child.last_run_id) ?? null : null,
       )),
@@ -213,7 +213,7 @@ export class AgentDelegationService implements DelegationPort {
     const child = await this.store.getChildAgent(sessionId, participantId);
     if (!child) return null;
     const lastRun = child.last_run_id ? await this.store.getRun(sessionId, child.last_run_id) : null;
-    return this.toChildParticipant(session.metadata, child, lastRun);
+    return this.toChildParticipant(session.team_snapshot, child, lastRun);
   }
 
   private toRootParticipant(
@@ -221,8 +221,8 @@ export class AgentDelegationService implements DelegationPort {
     lastRun: RunInfo | null,
   ): SessionParticipant {
     const configured = this.runtimeCore.resolveExecutionConfig({
-      agentName: normalizeString(session.metadata.entry_agent),
-      teamName: normalizeString(session.metadata.team),
+      agentName: session.team_snapshot.entry_agent_name,
+      teamSnapshot: session.team_snapshot,
     }).agent;
     const agentName = normalizeString(lastRun?.agent_name) ?? configured?.agent_name ?? null;
     return {
@@ -244,13 +244,13 @@ export class AgentDelegationService implements DelegationPort {
   }
 
   private toChildParticipant(
-    sessionMetadata: Record<string, unknown>,
+    teamSnapshot: SessionTeamSnapshot,
     child: ChildAgentInfo,
     lastRun: RunInfo | null,
   ): SessionParticipant {
     const configured = this.runtimeCore.resolveExecutionConfig({
       agentName: child.agent_name,
-      teamName: normalizeString(sessionMetadata.team),
+      teamSnapshot,
     }).agent;
     return {
       participant_id: child.child_agent_id,
@@ -418,6 +418,8 @@ export class AgentDelegationService implements DelegationPort {
     if (!sessionId) {
       return errorResult("agent 缺少 session_id", toolName);
     }
+    const session = await this.store.getSession(sessionId);
+    if (!session) return errorResult(`会话 '${sessionId}' 不存在`, toolName);
     if (!targetAgentName) {
       return errorResult("agent 创建模式缺少 agent_name", toolName);
     }
@@ -487,7 +489,7 @@ export class AgentDelegationService implements DelegationPort {
           },
         });
 
-    const childDisplayName = this.resolveChildDisplayName(targetAgentName, normalizeString(teamName));
+    const childDisplayName = this.resolveChildDisplayName(targetAgentName, session.team_snapshot);
     const initialEnvelopes = !resumedRun ? [buildAgentCallStart({
         sessionId,
         runId: childRunId,
@@ -505,7 +507,7 @@ export class AgentDelegationService implements DelegationPort {
 
     const runInput = this.buildChildRunInput({
       parentAgent,
-      teamName: normalizeString(teamName),
+      teamSnapshot: session.team_snapshot,
       ctx,
       childAgent: child,
       agentName: targetAgentName,
@@ -541,6 +543,8 @@ export class AgentDelegationService implements DelegationPort {
     if (!sessionId) {
       return errorResult("agent 缺少 session_id", toolName);
     }
+    const session = await this.store.getSession(sessionId);
+    if (!session) return errorResult(`会话 '${sessionId}' 不存在`, toolName);
     if (!childAgentId && !toParent) {
       return errorResult("agent 通信模式缺少 child_agent_id", toolName);
     }
@@ -687,7 +691,7 @@ export class AgentDelegationService implements DelegationPort {
       });
     }
 
-    const childDisplayName = this.resolveChildDisplayName(child.agent_name, normalizeString(teamName));
+    const childDisplayName = this.resolveChildDisplayName(child.agent_name, session.team_snapshot);
     const childRunId = randomUUID();
     const initialEnvelopes = [buildAgentCallStart({
       sessionId,
@@ -706,7 +710,7 @@ export class AgentDelegationService implements DelegationPort {
 
     const runInput = this.buildChildRunInput({
       parentAgent,
-      teamName: normalizeString(teamName),
+      teamSnapshot: session.team_snapshot,
       ctx,
       childAgent: child,
       agentName: child.agent_name,
@@ -897,7 +901,7 @@ export class AgentDelegationService implements DelegationPort {
       executionKind: spec.ctx.executionKind ?? "agent",
       rootTask: spec.rootTask,
       source: "agent_call",
-      teamName: normalizeString(spec.teamName),
+      teamSnapshot: spec.teamSnapshot,
       workspaceRoot: getChildWorkspaceRoot(spec.childAgent, spec.ctx),
       parentThreadKey: normalizeString(spec.ctx.threadKey) ?? "root",
       parentChildAgentId: normalizeString(spec.ctx.currentChildAgentId),
@@ -996,8 +1000,8 @@ export class AgentDelegationService implements DelegationPort {
   }
 
   /** 提前解析 child agent 展示名（agent_started/ended payload.display_name）；resolve 失败回退 agent_name。 */
-  private resolveChildDisplayName(agentName: string, teamName: string | null): string {
-    const resolved = this.runtimeCore.resolveExecutionConfig({ agentName, teamName });
+  private resolveChildDisplayName(agentName: string, teamSnapshot: SessionTeamSnapshot): string {
+    const resolved = this.runtimeCore.resolveExecutionConfig({ agentName, teamSnapshot });
     return resolved.agent?.display_name || agentName;
   }
 
@@ -1028,7 +1032,7 @@ export class AgentDelegationService implements DelegationPort {
   private async executeChildRunImpl(input: ChildRunInput): Promise<DelegationRunResult> {
     const resolved = this.runtimeCore.resolveExecutionConfig({
       agentName: input.agentName,
-      teamName: input.teamName,
+      teamSnapshot: input.teamSnapshot,
     });
     if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
       return this.enqueueChildTerminalResult(input, {

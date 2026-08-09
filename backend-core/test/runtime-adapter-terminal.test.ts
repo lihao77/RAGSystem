@@ -3,6 +3,7 @@ import { AgentConfigSchema, type AgentConfig } from "../src/contracts/agent/agen
 import { executeRunWithSdk, type SdkRuntimeAdapterDeps } from "../src/services/agent/sdk/runtime-adapter.js";
 import type { SessionIdentity } from "../src/contracts/session/session.js";
 import type { AgentMailboxStorePort } from "../src/contracts/storage/agent-mailbox-repository.js";
+import { createTestTeamSnapshot } from "./session-team-fixture.js";
 
 const runtimeMock = vi.hoisted(() => ({
   createRuntime: vi.fn(),
@@ -27,6 +28,7 @@ const sessionIdentity: SessionIdentity = {
   originId: null,
   originChannel: "api",
   workspaceId: null,
+  teamSnapshot: createTestTeamSnapshot("test-agent", [agent]),
   metadata: {},
   permissionMode: null,
 };
@@ -63,6 +65,7 @@ function deps(
 ): SdkRuntimeAdapterDeps {
   const session = {
     session_id: "session-1",
+    team_snapshot: createTestTeamSnapshot("test-agent", [agent]),
     tenant_id: "tenant-1",
     owner_user_id: null,
     visibility: "private",

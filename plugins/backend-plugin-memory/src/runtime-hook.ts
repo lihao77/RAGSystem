@@ -18,11 +18,8 @@ export function configureMemoryHooks(registry: HookRegistry, dependencies: Memor
   registry.on("round.before", async ({ ctx }) => {
     const session = await dependencies.context.sessions.getSession(ctx.session.sessionId);
     if (!session) return;
-    const teamName = stringValue(session.metadata.team)
-      ?? (await dependencies.context.agentConfig.listTeams()).active_team;
-    const agent = dependencies.context.agentConfig.getConfig(ctx.session.profile.agentName, {
-      ...(teamName ? { teamName } : {}),
-    });
+    const teamName = session.team_snapshot.team_name;
+    const agent = session.team_snapshot.agents[ctx.session.profile.agentName] ?? null;
     if (!agent) return;
     const memory = await dependencies.agentConfig.getEffective({
       teamName,
@@ -41,7 +38,7 @@ export function configureMemoryHooks(registry: HookRegistry, dependencies: Memor
         return metadata;
       },
       listMemoryCandidates: (input) => dependencies.listCandidates(input),
-    }, dependencies.repository, memory, agent.agent_name, {
+    }, dependencies.repository, memory, teamName, agent.agent_name, {
       indexMaxLines: systemConfig.index_max_lines,
       indexMaxChars: systemConfig.index_max_chars,
     });
@@ -83,8 +80,4 @@ function mergeMetadata(current: Record<string, unknown>, patch: Record<string, u
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
