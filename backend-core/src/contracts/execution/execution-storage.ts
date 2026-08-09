@@ -7,6 +7,7 @@ import type { RunStepInfo } from "../common.js";
 import type { Envelope } from "../events.js";
 import type { MessageInfo, SessionIdentity, SessionInfo } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
+import type { AgentMailboxStorePort } from "../storage/agent-mailbox-repository.js";
 
 export type ExecutionStartDisposition =
   | { kind: "started" }
@@ -55,10 +56,12 @@ export interface ExecutionEventPersister {
 
 export interface DurableExecutionConversationPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
+  getMessageById(sessionId: string, messageId: string): Promise<MessageInfo | null>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
   addMessage(input: {
     sessionId: string;
+    messageId?: string;
     role: MessageInfo["role"];
     content: string;
     contentParts: MessageContentPart[];
@@ -97,6 +100,8 @@ export interface DurableExecutionClientEventPort {
 export interface ExecutionStorage {
   tenantId: TenantId;
   conversation: DurableExecutionConversationPort;
+  /** Optional during adapter migration; present in Local and SaaS runtime containers. */
+  agentMailbox?: AgentMailboxStorePort;
   providerContinuations: ExecutionProviderContinuationPort;
   resultReader: ExecutionResultReader;
   consumePendingFollowups(input: {

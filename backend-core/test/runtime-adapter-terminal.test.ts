@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentConfigSchema, type AgentConfig } from "../src/contracts/agent/agent-config.js";
 import { executeRunWithSdk, type SdkRuntimeAdapterDeps } from "../src/services/agent/sdk/runtime-adapter.js";
 import type { SessionIdentity } from "../src/contracts/session/session.js";
+import type { AgentMailboxStorePort } from "../src/contracts/storage/agent-mailbox-repository.js";
 
 const runtimeMock = vi.hoisted(() => ({
   createRuntime: vi.fn(),
@@ -120,6 +121,92 @@ function deps(
 }
 
 describe("executeRunWithSdk terminal convergence", () => {
+  it("在 round boundary claim mailbox、写入 child history 并 ACK", async () => {
+    runtimeMock.createRuntime.mockReset();
+    let history: any[] = [];
+    const mailbox: AgentMailboxStorePort = {
+      claim: vi.fn(async () => [{
+        seq: 1,
+        message_id: "mailbox-1",
+        tenant_id: "tenant-1",
+        session_id: "session-1",
+        source_run_id: "parent-run",
+        source_agent_call_id: "parent-call",
+        target_run_id: "run-1",
+        target_agent_call_id: "call-1",
+        target_thread_key: "child-thread",
+        target_child_agent_id: "child-1",
+        kind: "request",
+        correlation_id: "corr-1",
+        reply_to_message_id: null,
+        content_parts: [{ type: "text", text: "please continue" }],
+        metadata: { priority: "high" },
+        status: "claimed",
+        attempt_count: 1,
+        claim_id: "claim-1",
+        claimed_by: "worker",
+        claim_expires_at: new Date(Date.now() + 30_000).toISOString(),
+        available_at: new Date(0).toISOString(),
+        expires_at: null,
+        last_error: null,
+        created_at: new Date(0).toISOString(),
+        updated_at: new Date(0).toISOString(),
+        acked_at: null,
+      }] as any),
+      ack: vi.fn(async () => true),
+      release: vi.fn(async () => true),
+      enqueue: vi.fn(),
+      get: vi.fn(async () => null),
+      expire: vi.fn(async () => 0),
+    };
+    const finalize = vi.fn(async () => ({ finalMessage: null, records: [], readyResumeInteractionIds: [] }));
+    const startRun = vi.fn(async () => ({ kind: "started", run: {} }));
+    const persist = vi.fn(async () => undefined);
+    const base = deps(finalize, startRun, persist);
+    base.storage.agentMailbox = mailbox;
+    base.storage.conversation.getRecentMessages = vi.fn(async () => history);
+    base.storage.conversation.getMessageById = vi.fn(async (_sessionId: string, messageId: string) => history.find((message) => message.id === messageId) ?? null);
+    base.storage.conversation.addMessage = vi.fn(async (message) => {
+      const created = {
+        seq: 1,
+        id: message.messageId ?? "mailbox-1",
+        session_id: message.sessionId,
+        role: message.role,
+        content: message.content,
+        content_parts: message.contentParts,
+        metadata: message.metadata ?? {},
+        thread_key: message.threadKey ?? "root",
+        child_agent_id: message.childAgentId ?? null,
+        created_at: new Date(0).toISOString(),
+      };
+      history = [created];
+      return created;
+    });
+    runtimeMock.createRuntime.mockImplementation((options: any) => ({
+      run: () => ({
+        runId: "run-1",
+        events: (async function* () {})(),
+        result: (async () => {
+          const refreshed = await options.refresher.refresh({ session: { sessionId: "session-1", threadKey: "child-thread" } }, 0);
+          expect(refreshed).toHaveLength(1);
+          expect(refreshed[0]?.content).toBe("please continue");
+          return { content: "done", contentParts: [], finishReason: "stop", metadata: {} };
+        })(),
+      }),
+      close: vi.fn(),
+    }));
+
+    const result = await executeRunWithSdk(base, input({ threadKey: "child-thread", childAgentId: "child-1" }));
+    expect(result.success).toBe(true);
+    expect(mailbox.claim).toHaveBeenCalledOnce();
+    expect(mailbox.ack).toHaveBeenCalledWith(expect.objectContaining({ messageId: "mailbox-1", claimId: "claim-1" }));
+    expect(base.storage.conversation.addMessage).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: "mailbox-1",
+      childAgentId: "child-1",
+      threadKey: "child-thread",
+    }));
+  });
+
   it("startRun 已提交后初始化回调失败也会落 failed 终态消息", async () => {
     runtimeMock.createRuntime.mockReset();
     const startRun = vi.fn(async () => ({ kind: "started", run: {} }));

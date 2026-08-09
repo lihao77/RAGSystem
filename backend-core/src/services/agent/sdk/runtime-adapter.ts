@@ -1,4 +1,5 @@
 import { asString } from "../../../utils/guards.js";
+import { randomUUID } from "node:crypto";
 /**
  * Runtime 适配器—— 组装投影 + ToolRegistry + createRuntime，跑 SDK 事件循环 + 落库 + 翻译推流 + terminal。
  *
@@ -170,6 +171,15 @@ export class OrderedDelegateCallPublisher {
   }
 }
 
+function renderMailboxContent(parts: MessageContentPart[]): string {
+  const text = parts.flatMap((part): string[] => {
+    if (part.type === "text") return [part.text];
+    if (part.type === "command_ref" && part.resolution.kind === "prompt") return [part.resolution.agent_text];
+    return [];
+  }).join("\n").trim();
+  return text || parts.map((part) => `[agent message part:${part.type}]`).join("\n");
+}
+
 /**
  * 用 SDK createRuntime 执行一次 agent run。
  *
@@ -318,6 +328,7 @@ export async function executeRunWithSdk(
     (max, m) => (m && typeof m.seq === "number" && m.seq > max ? m.seq : max),
     0,
   );
+  const mailboxConsumerId = `${process.pid}:${input.runId}:${randomUUID()}`;
   // Follow-ups are persisted atomically before their sender receives an ACK.
   // At each round boundary, read newer durable user messages into the SDK copy
   // so they cannot be inserted between a tool call and its result.
@@ -325,12 +336,74 @@ export async function executeRunWithSdk(
     refresh: async (ctx) => {
       const sid = ctx.session.sessionId;
       const tk = ctx.session.threadKey;
+      const mailboxAcceptedIds = new Set<string>();
+      const refreshStartSeq = lastSeq;
+      let mailboxMaxSeq = lastSeq;
+      if (deps.storage.agentMailbox) {
+        const claimed = await deps.storage.agentMailbox.claim({
+          sessionId: sid,
+          targetRunId: input.runId,
+          targetAgentCallId: input.rootCallId,
+          targetThreadKey: tk,
+          ...(input.childAgentId ? { targetChildAgentId: input.childAgentId } : {}),
+          claimId: `${input.runId}:mailbox:${randomUUID()}`,
+          consumerId: mailboxConsumerId,
+          limit: 100,
+        });
+        for (const mailboxMessage of claimed) {
+          try {
+            const existing = await deps.storage.conversation.getMessageById(sid, mailboxMessage.message_id);
+            let persisted = existing;
+            if (!existing) {
+              persisted = await deps.storage.conversation.addMessage({
+                sessionId: sid,
+                messageId: mailboxMessage.message_id,
+                role: "user",
+                content: renderMailboxContent(mailboxMessage.content_parts),
+                contentParts: mailboxMessage.content_parts,
+                threadKey: mailboxMessage.target_thread_key,
+                childAgentId: mailboxMessage.target_child_agent_id,
+                metadata: {
+                  ...mailboxMessage.metadata,
+                  agent_message: true,
+                  mailbox_message_id: mailboxMessage.message_id,
+                  mailbox_kind: mailboxMessage.kind,
+                  mailbox_correlation_id: mailboxMessage.correlation_id,
+                  mailbox_reply_to_message_id: mailboxMessage.reply_to_message_id,
+                  mailbox_source_run_id: mailboxMessage.source_run_id,
+                  mailbox_source_agent_call_id: mailboxMessage.source_agent_call_id,
+                  conversation_scope: mailboxMessage.target_child_agent_id ? "child" : "agent",
+                  visible_to_user: false,
+                },
+              });
+            }
+            if (!persisted) throw new Error(`Agent mailbox history write returned no message: ${mailboxMessage.message_id}`);
+            if (persisted.seq > refreshStartSeq) {
+              mailboxAcceptedIds.add(mailboxMessage.message_id);
+            }
+            mailboxMaxSeq = Math.max(mailboxMaxSeq, persisted.seq);
+            await deps.storage.agentMailbox.ack({
+              sessionId: sid,
+              messageId: mailboxMessage.message_id,
+              claimId: mailboxMessage.claim_id ?? "",
+            });
+          } catch (error) {
+            await deps.storage.agentMailbox.release({
+              sessionId: sid,
+              messageId: mailboxMessage.message_id,
+              claimId: mailboxMessage.claim_id ?? "",
+              lastError: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      }
       const recent = await deps.storage.conversation.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
       const newerRaw = recent
-        .filter((m) => typeof m.seq === "number" && m.seq > lastSeq)
+        .filter((m) => typeof m.seq === "number" && m.seq > refreshStartSeq)
         .sort((a, b) => (a.seq as number) - (b.seq as number));
       const lastMsg = newerRaw.at(-1);
-      const newer = filterHistoryMessages(newerRaw).filter((message) => message.role === "user");
+      const newer = filterHistoryMessages(newerRaw)
+        .filter((message) => message.role === "user" && message.metadata.mailbox_message_id == null);
       const pendingIds = newer
         .filter((message) => message.metadata.followup_pending === true)
         .map((message) => message.id);
@@ -345,8 +418,9 @@ export async function executeRunWithSdk(
       const accepted = newer
         .filter((message) => message.metadata.followup_pending !== true || claimedIds.has(message.id))
         .map((message) => message.id);
-      if (lastMsg && typeof lastMsg.seq === "number") lastSeq = lastMsg.seq;
-      if (accepted.length === 0) return [];
+      if (lastMsg && typeof lastMsg.seq === "number") lastSeq = Math.max(lastSeq, lastMsg.seq);
+      lastSeq = Math.max(lastSeq, mailboxMaxSeq);
+      if (accepted.length === 0 && mailboxAcceptedIds.size === 0) return [];
       // Reuse the canonical history pipeline for follow-ups so command_ref, attachments,
       // and metadata extensions have the exact same Agent projection as the first request.
       const refreshed = await contextBuilder.buildContext({
@@ -355,7 +429,7 @@ export async function executeRunWithSdk(
         microcompact: false,
       });
       await sessionMetadata.flush();
-      const acceptedIds = new Set(accepted);
+      const acceptedIds = new Set([...mailboxAcceptedIds, ...accepted]);
       return refreshed.conversation.flatMap((message, index): ChatMessage[] => {
         const raw = refreshed.rawMessages[index];
         return raw?.role === "user" && acceptedIds.has(raw.id) ? [message] : [];

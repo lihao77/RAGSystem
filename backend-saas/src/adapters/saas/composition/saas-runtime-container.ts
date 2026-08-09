@@ -167,6 +167,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     sessionFiles,
     executionStorage: createPostgresExecutionStorage({
       tenantId,
+      agentMailbox: conversationRuntime.createAgentMailboxStore(tenantId),
       conversation: conversationRuntime.conversation,
       providerContinuations: conversationRuntime.providerContinuations,
       clientEvents,

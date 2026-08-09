@@ -16,9 +16,11 @@ export function createPostgresExecutionStorage(input: {
   createEventPersister(context: ExecutionRunPersistenceContext): ExecutionEventPersister;
   resultReader: ExecutionStorage["resultReader"];
   consumePendingFollowups: ExecutionStorage["consumePendingFollowups"];
+  agentMailbox?: ExecutionStorage["agentMailbox"];
 }): ExecutionStorage {
   return {
     tenantId: input.tenantId,
+    ...(input.agentMailbox ? { agentMailbox: input.agentMailbox } : {}),
     conversation: input.conversation,
     providerContinuations: { getProviderContinuation: (sessionId, messageId) => input.providerContinuations.getProviderContinuation(input.tenantId, sessionId, messageId) },
     resultReader: input.resultReader,

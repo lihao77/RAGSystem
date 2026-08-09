@@ -14,8 +14,10 @@ export function createLocalExecutionStorage(input: {
 }): ExecutionStorage {
   return {
     tenantId: input.tenantId,
+    agentMailbox: input.conversation.agentMailbox,
     conversation: {
       getRecentMessages: async (sessionId, limit, threadKey) => input.conversation.getRecentMessages(sessionId, limit, threadKey),
+      getMessageById: async (sessionId, messageId) => input.conversation.getMessageById(sessionId, messageId),
       getSession: async (sessionId) => input.conversation.getSession(sessionId),
       updateSessionMetadata: async (sessionId, patch) => input.conversation.updateSessionMetadata(sessionId, patch),
       addMessage: async (message) => input.conversation.addMessage(message),
