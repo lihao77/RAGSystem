@@ -74,7 +74,7 @@ export class AgentConfigService {
     this.assertInitialized();
     return Array.from(this.getActiveConfigs().values())
       .map((config) => configToAgentInfo(config))
-      .sort((left, right) => left.name.localeCompare(right.name));
+      .sort((left, right) => left.agent_name.localeCompare(right.agent_name));
   }
 
   createTeamSnapshot(input: {
@@ -443,8 +443,6 @@ export class AgentConfigService {
       team_name: teamName,
       team_revision: computeSessionTeamRevision(configsToRecord(configs)),
       file_path: (await this.teamStore.getTeamLocation(teamName)) ?? "",
-      is_active: teamName === this.activeTeam,
-      agent_count: agents.length,
       agents,
     };
   }

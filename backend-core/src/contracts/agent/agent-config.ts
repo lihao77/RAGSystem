@@ -104,8 +104,6 @@ export interface TeamInfo {
   team_name: string;
   team_revision: string;
   file_path: string;
-  is_active: boolean;
-  agent_count: number;
   agents: string[];
 }
 
@@ -115,13 +113,10 @@ export interface TeamSummary {
 }
 
 export interface AgentInfo {
-  name: string;
   agent_name: string;
   display_name: string | null;
   description: string | null;
-  capabilities: string[];
   tools: string[];
-  enabled: boolean;
   default_entry: boolean;
   config: {
     enabled: boolean;

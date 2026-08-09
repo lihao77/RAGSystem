@@ -386,7 +386,7 @@ const loadTeams = async () => {
       { value: '', label: result?.active_team ? `使用默认激活 Team（${result.active_team}）` : '使用默认激活 Team' },
       ...teams.map((team) => ({
         value: team.team_name,
-        label: team.is_active ? `${team.team_name}（当前激活）` : team.team_name,
+        label: team.team_name === result?.active_team ? `${team.team_name}（当前激活）` : team.team_name,
       })),
     ];
   } finally {

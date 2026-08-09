@@ -8,7 +8,6 @@ import type {
   RollbackRetryStartResult,
   StreamExecuteRequest,
 } from "../../../contracts/execution/execution.js";
-import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/execution/execution.js";
 import {
   toSessionIdentity,
   type MessageInfo,
@@ -363,7 +362,7 @@ class AgentLaunchers {
       attachments: request.attachments,
       executionKind: "agent_stream",
       originChannel: "web",
-      selectedLlm: resolveSelectedLlm(request),
+      selectedLlm: request.selected_llm ?? "",
       ...(request.ui_context !== undefined ? { uiContext: request.ui_context } : {}),
       followupPolicy: options.followupPolicy ?? "queue",
     });
@@ -417,7 +416,7 @@ class AgentLaunchers {
       attachments: [],
       executionKind,
       originChannel: "api",
-      selectedLlm: resolveSelectedLlm(request),
+      selectedLlm: request.selected_llm ?? "",
       ...(request.agent ? { agentName: request.agent } : {}),
       entrypoint: "execute",
       followupPolicy: "queue",

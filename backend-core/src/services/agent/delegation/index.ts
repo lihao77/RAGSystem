@@ -484,7 +484,7 @@ export class AgentDelegationService implements DelegationPort {
           parentRunId,
           parentCallId,
           metadata: {
-            ...buildChildMetadata(ctx, threadKey, "agent"),
+            ...buildChildMetadata(ctx, "agent"),
             agent_call_id: agentCallId,
           },
         });

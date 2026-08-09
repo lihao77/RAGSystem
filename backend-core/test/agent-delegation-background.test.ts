@@ -1091,10 +1091,9 @@ describe("background child-agent delegation", () => {
   });
 
   it("stores the inherited workspace without worktree metadata", () => {
-    const metadata = buildChildMetadata({ workspaceRoot: "C:\\workspace" } as never, "child:worker", "agent");
+    const metadata = buildChildMetadata({ workspaceRoot: "C:\\workspace" } as never, "agent");
     expect(metadata).toMatchObject({
       created_via: "agent",
-      thread_key: "child:worker",
       workspace_root: "C:\\workspace",
     });
     expect(metadata).not.toHaveProperty("uses_worktree");

@@ -94,7 +94,7 @@ function parseCreateAgentRequest(body: unknown) {
 
 function normalizeAgentCatalogItem(agent: unknown): Record<string, unknown> {
   const item = isRecord(agent) ? agent : {};
-  const name = String(item.name ?? item.agent_name ?? "");
+  const name = String(item.agent_name ?? "");
   return {
     name,
     description: item.description ?? null,

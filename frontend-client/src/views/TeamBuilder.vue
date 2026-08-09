@@ -219,25 +219,25 @@
           empty-hint="创建 Team 后会显示在这里。"
         >
           <div class="team-list adm-entity-list">
-            <article v-for="team in teams" :key="team.team_name" class="team-card adm-entity-row" :class="{ 'team-card--active': team.is_active, 'team-card--builder': isAgentBuilderTeam(team) }">
+            <article v-for="team in teams" :key="team.team_name" class="team-card adm-entity-row" :class="{ 'team-card--active': isActiveTeam(team), 'team-card--builder': isAgentBuilderTeam(team) }">
               <div class="team-card__main">
                 <div class="team-card__identity">
                   <div class="team-card__title-row">
                     <h3>{{ isAgentBuilderTeam(team) ? 'Agent Builder' : team.team_name }}</h3>
                     <UiBadge v-if="isAgentBuilderTeam(team)" class="team-badge" size="sm" tone="info">可激活 Team</UiBadge>
-                    <UiBadge class="team-badge" size="sm" :tone="team.is_active ? 'success' : 'neutral'">{{ team.is_active ? '当前生效' : `${team.agent_count} Agents` }}</UiBadge>
+                    <UiBadge class="team-badge" size="sm" :tone="isActiveTeam(team) ? 'success' : 'neutral'">{{ isActiveTeam(team) ? '当前生效' : `${team.agents.length} Agents` }}</UiBadge>
                   </div>
                   <p v-if="isAgentBuilderTeam(team)" class="team-card__description">通过调研、设计、评估和调优生成业务 Team</p>
                   <p v-else>{{ team.file_path }}</p>
                 </div>
                 <div class="section-actions section-actions--compact adm-action-row">
                   <Button v-if="isAgentBuilderTeam(team)" variant="action-success" size="action" :disabled="working" @click="handleActivateBuilderTeam(team.team_name)">
-                    {{ team.is_active ? '进入 Builder' : '激活并开始' }}
+                    {{ isActiveTeam(team) ? '进入 Builder' : '激活并开始' }}
                   </Button>
-                  <Button v-else variant="action-success" size="action" :disabled="working || team.is_active" @click="handleActivateTeam(team.team_name)">激活</Button>
+                  <Button v-else variant="action-success" size="action" :disabled="working || isActiveTeam(team)" @click="handleActivateTeam(team.team_name)">激活</Button>
                   <Button variant="action-neutral" size="action" @click="openTeamConfig(team.team_name)">细调配置</Button>
                   <Button v-if="team.team_name === 'default'" variant="action-warning" size="action" :disabled="working" @click="handleResetDefaultTeam">恢复默认</Button>
-                  <Button variant="action-danger" size="action" :disabled="working || team.is_active || teams.length <= 1" @click="handleDeleteTeam(team.team_name)">删除</Button>
+                  <Button variant="action-danger" size="action" :disabled="working || isActiveTeam(team) || teams.length <= 1" @click="handleDeleteTeam(team.team_name)">删除</Button>
                 </div>
               </div>
               <div v-if="team.agents && team.agents.length" class="team-card__agents">
@@ -308,11 +308,15 @@ const projectedTargetAgentCount = computed(() => copyTargetAgents.value.length +
 
 const kpiItems = computed(() => [
   { key: 'total', label: 'Team 总数', value: teams.value.length, icon: IconTotal },
-  { key: 'agents', label: '当前 Team Agent 数', value: activeTeamInfo.value?.agent_count || 0, icon: IconAgents },
+  { key: 'agents', label: '当前 Team Agent 数', value: activeTeamInfo.value?.agents?.length || 0, icon: IconAgents },
 ]);
 
 function isAgentBuilderTeam(team) {
   return team?.team_name === AGENT_BUILDER_TEAM_NAME;
+}
+
+function isActiveTeam(team) {
+  return team?.team_name === activeTeam.value;
 }
 
 function draftStatusLabel(status) {

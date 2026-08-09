@@ -14,13 +14,11 @@ export function buildDelegatedTask(task: string, contextHint: string | null | un
 
 export function buildChildMetadata(
   context: ToolExecContext,
-  threadKey: string,
   createdVia: "agent",
 ): Record<string, unknown> {
   const workspaceRoot = normalizeString(context.workspaceRoot);
   return {
     created_via: createdVia,
-    thread_key: threadKey,
     workspace_root: workspaceRoot,
   };
 }

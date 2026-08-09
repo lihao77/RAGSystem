@@ -108,13 +108,10 @@ export function buildCustomAgentConfig(input: CreateAgentRequest): AgentConfig {
 
 export function configToAgentInfo(config: AgentConfig): AgentInfo {
   return {
-    name: config.agent_name,
     agent_name: config.agent_name,
     display_name: config.display_name ?? config.agent_name,
     description: config.description ?? null,
-    capabilities: [],
     tools: config.tools?.enabled_tools ?? [],
-    enabled: config.enabled,
     default_entry: config.default_entry,
     config: {
       enabled: config.enabled,

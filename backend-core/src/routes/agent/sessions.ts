@@ -359,7 +359,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
         sessionId: request.params.sessionId,
         userId: request.identity.userId,
         requestId: request.headers["x-request-id"]?.toString() ?? randomUUID(),
-        selectedLlm: payload.selected_llm ?? payload.selectedLLM ?? null,
+        selectedLlm: payload.selected_llm ?? null,
       };
       if (payload.after_seq !== undefined) {
         retryInput.afterSeq = payload.after_seq;

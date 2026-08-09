@@ -80,11 +80,15 @@ export function useChatSessionController(deps) {
 
   const syncTeamOptions = (result) => {
     const teams = Array.isArray(result?.teams) ? result.teams : [];
-    teamOptions.value = teams.map((team) => ({
-      value: team.team_name,
-      label: team.is_active ? `${team.team_name}（默认）` : team.team_name,
-      isActive: Boolean(team.is_active),
-    }));
+    const activeTeam = result?.active_team || '';
+    teamOptions.value = teams.map((team) => {
+      const isActive = team.team_name === activeTeam;
+      return {
+        value: team.team_name,
+        label: isActive ? `${team.team_name}（默认）` : team.team_name,
+        isActive,
+      };
+    });
     return result;
   };
 
