@@ -659,7 +659,7 @@ function toRuntimeAgent(agent: AgentBlueprintAgent, isEntry: boolean): AgentConf
     tools: { enabled_tools: agent.tools },
     goals: { enabled: agent.goals_enabled },
     tasks: { background: agent.background_tasks },
-    delegation: { enabled_agents: agent.delegates },
+    delegation: { enabled_agents: agent.delegates, parallel_children: false },
     custom_params: {
       ...agent.custom_params,
       type: agent.custom_params.type ?? (isEntry && agent.delegates.length > 0 ? "orchestrator" : "general"),

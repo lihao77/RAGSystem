@@ -234,7 +234,7 @@ function builderAgent(input: BuilderAgentInput): AgentConfig {
     tools: { enabled_tools: input.tools ?? [] },
     goals: { enabled: input.goals ?? false },
     tasks: { background: input.background ?? false },
-    delegation: { enabled_agents: input.delegation ?? [] },
+    delegation: { enabled_agents: input.delegation ?? [], parallel_children: false },
     custom_params: {
       type: input.defaultEntry ? "orchestrator" : "general",
       behavior: {
