@@ -17,15 +17,6 @@ export type { AgentMailboxWakeupTarget } from "../../../contracts/storage/agent-
  * 父 Agent 配置不再从 ctx.agent 读取(SDK ToolExecContext 无 agent 字段),
  * 由调用方(工厂闭包)作为显式入参传入。
  */
-export interface AgentDelegationInput {
-  agentName: string;
-  task: string;
-  contextHint?: string | null | undefined;
-  timeoutMs?: number | null | undefined;
-  runInBackground?: boolean | null | undefined;
-  callId?: string | null | undefined;
-}
-
 export interface AgentToolInput {
   agentName?: string | null | undefined;
   childAgentId?: string | null | undefined;
@@ -39,42 +30,15 @@ export interface AgentToolInput {
   callId?: string | null | undefined;
 }
 
-export interface SendMessageInput {
-  childAgentId?: string | null | undefined;
-  /** Deliver to the direct parent invocation of the current child run. */
-  toParent?: boolean | null | undefined;
-  message: string;
-  kind?: AgentMailboxMessageKind | null | undefined;
-  correlationId?: string | null | undefined;
-  replyToMessageId?: string | null | undefined;
-  /** Optional mailbox TTL. Expired requests are never injected into the target run. */
-  timeoutMs?: number | null | undefined;
-  runInBackground?: boolean | null | undefined;
-  callId?: string | null | undefined;
-}
-
 export interface ListChildAgentsInput {
   agentName?: string | null | undefined;
   limit?: number | null | undefined;
-}
-
-export interface AgentDelegationCall {
-  agent: AgentConfig;
-  /** 当前 session 的 team（解析 child agent 展示名用）；SDK ToolExecContext 不携带，由调用方注入。 */
-  teamName: string | null;
-  input: AgentDelegationInput;
 }
 
 export interface AgentToolCall {
   agent: AgentConfig;
   teamName: string | null;
   input: AgentToolInput;
-}
-
-export interface SendMessageCall {
-  agent: AgentConfig;
-  teamName: string | null;
-  input: SendMessageInput;
 }
 
 export interface ListChildAgentsCall {

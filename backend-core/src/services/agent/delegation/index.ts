@@ -14,9 +14,8 @@ import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk"
 import type { Envelope } from "../../../contracts/events.js";
 import type {
   DelegationPort,
-  AgentDelegationCall,
+  AgentToolInput,
   AgentToolCall,
-  SendMessageCall,
   ListChildAgentsCall,
   AgentMailboxWakeupHandler,
 } from "./port.js";
@@ -97,6 +96,51 @@ interface ChildRunExecutionSpec {
   description: string;
   mode: "create" | "resume";
   runInBackground: boolean;
+}
+
+interface CollaborationMessageFields {
+  message: string;
+  kind: AgentToolInput["kind"];
+  correlationId: AgentToolInput["correlationId"];
+  replyToMessageId: AgentToolInput["replyToMessageId"];
+  timeoutMs: AgentToolInput["timeoutMs"];
+  runInBackground: AgentToolInput["runInBackground"];
+  callId: AgentToolInput["callId"];
+}
+
+type AgentCollaborationCommand =
+  | (CollaborationMessageFields & { type: "create_child"; agentName: string; contextHint: string | null | undefined })
+  | (CollaborationMessageFields & { type: "message_child"; childAgentId: string })
+  | (CollaborationMessageFields & { type: "message_parent" })
+  | { type: "error"; message: string };
+
+interface CreateChildCall {
+  agent: AgentConfig;
+  teamName: string | null;
+  input: {
+    agentName: string;
+    task: string;
+    contextHint?: string | null | undefined;
+    timeoutMs?: number | null | undefined;
+    runInBackground?: boolean | null | undefined;
+    callId?: string | null | undefined;
+  };
+}
+
+interface DeliverMessageCall {
+  agent: AgentConfig;
+  teamName: string | null;
+  input: {
+    childAgentId?: string | null | undefined;
+    toParent?: boolean | null | undefined;
+    message: string;
+    kind?: AgentToolInput["kind"];
+    correlationId?: string | null | undefined;
+    replyToMessageId?: string | null | undefined;
+    timeoutMs?: number | null | undefined;
+    runInBackground?: boolean | null | undefined;
+    callId?: string | null | undefined;
+  };
 }
 
 export interface AgentDelegationLogger {
@@ -218,52 +262,41 @@ export class AgentDelegationService implements DelegationPort {
    * both targets addresses the direct parent.
    */
   async agent(call: AgentToolCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
-    const agentName = normalizeString(call.input.agentName);
-    const childAgentId = normalizeString(call.input.childAgentId);
-    const message = normalizeString(call.input.message);
-    if (!message) return errorResult("agent 缺少 message", "agent");
-    if (agentName && childAgentId) {
-      return errorResult("agent 不能同时指定 agent_name 和 child_agent_id", "agent");
-    }
+    const command = parseAgentCommand(call.input, ctx);
+    if (command.type === "error") return errorResult(command.message, "agent");
 
-    if (childAgentId || (!agentName && ctx.parentRunId && ctx.currentChildAgentId)) {
-      const result = await this.deliverMessage({
-        agent: call.agent,
-        teamName: call.teamName,
-        input: {
-          childAgentId,
-          toParent: !childAgentId && !agentName,
-          message,
-          kind: call.input.kind,
-          correlationId: call.input.correlationId,
-          replyToMessageId: call.input.replyToMessageId,
-          timeoutMs: call.input.timeoutMs,
-          runInBackground: call.input.runInBackground,
-          callId: call.input.callId,
-        },
-      }, ctx);
-      return { ...result, toolName: "agent" };
-    }
-
-    if (!agentName) {
-      return errorResult("agent 需要 agent_name 创建子 Agent，或在 child 上下文中省略目标向父 Agent 发消息", "agent");
-    }
-    const result = await this.createChild({
-      agent: call.agent,
-      teamName: call.teamName,
-      input: {
-        agentName,
-        task: message,
-        contextHint: call.input.contextHint,
-        timeoutMs: call.input.timeoutMs,
-        runInBackground: call.input.runInBackground,
-        callId: call.input.callId,
-      },
-    }, ctx);
+    const result = command.type === "create_child"
+      ? await this.createChild({
+          agent: call.agent,
+          teamName: call.teamName,
+          input: {
+            agentName: command.agentName,
+            task: command.message,
+            contextHint: command.contextHint,
+            timeoutMs: command.timeoutMs,
+            runInBackground: command.runInBackground,
+            callId: command.callId,
+          },
+        }, ctx)
+      : await this.deliverMessage({
+          agent: call.agent,
+          teamName: call.teamName,
+          input: {
+            childAgentId: command.type === "message_child" ? command.childAgentId : undefined,
+            toParent: command.type === "message_parent",
+            message: command.message,
+            kind: command.kind,
+            correlationId: command.correlationId,
+            replyToMessageId: command.replyToMessageId,
+            timeoutMs: command.timeoutMs,
+            runInBackground: command.runInBackground,
+            callId: command.callId,
+          },
+        }, ctx);
     return { ...result, toolName: "agent" };
   }
 
-  private async createChild(call: AgentDelegationCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
+  private async createChild(call: CreateChildCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
     const { agent: parentAgent, teamName, input } = call;
     const toolName = "agent";
     const sessionId = normalizeString(ctx.sessionId);
@@ -383,7 +416,7 @@ export class AgentDelegationService implements DelegationPort {
     }, ctx);
   }
 
-  private async deliverMessage(call: SendMessageCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
+  private async deliverMessage(call: DeliverMessageCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
     const { agent: parentAgent, teamName, input } = call;
     const toolName = "agent";
     const sessionId = normalizeString(ctx.sessionId);
@@ -567,7 +600,7 @@ export class AgentDelegationService implements DelegationPort {
 
   /** Route a child-originated progress/request/response/cancel message to its exact parent run. */
   private async deliverMessageToParent(
-    call: SendMessageCall,
+    call: DeliverMessageCall,
     ctx: ToolExecContext,
     message: string,
     sourceToolCallId: string | null,
@@ -1076,4 +1109,44 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 function clampMailboxTimeout(value: number | null | undefined): number {
   if (value == null || !Number.isFinite(value)) return 0;
   return Math.min(600_000, Math.max(1, Math.floor(value)));
+}
+
+function parseAgentCommand(
+  input: AgentToolInput,
+  ctx: ToolExecContext,
+): AgentCollaborationCommand {
+  const agentName = normalizeString(input.agentName);
+  const childAgentId = normalizeString(input.childAgentId);
+  const message = normalizeString(input.message);
+  if (!message) return { type: "error", message: "agent 缺少 message" };
+  if (agentName && childAgentId) {
+    return { type: "error", message: "agent 不能同时指定 agent_name 和 child_agent_id" };
+  }
+  const fields: CollaborationMessageFields = {
+    message,
+    kind: input.kind,
+    correlationId: input.correlationId,
+    replyToMessageId: input.replyToMessageId,
+    timeoutMs: input.timeoutMs,
+    runInBackground: input.runInBackground,
+    callId: input.callId,
+  };
+  if (agentName) {
+    return {
+      ...fields,
+      type: "create_child",
+      agentName,
+      contextHint: input.contextHint,
+    };
+  }
+  if (childAgentId) {
+    return { ...fields, type: "message_child", childAgentId };
+  }
+  if (ctx.parentRunId && ctx.currentChildAgentId) {
+    return { ...fields, type: "message_parent" };
+  }
+  return {
+    type: "error",
+    message: "agent 需要 agent_name 创建子 Agent，或在 child 上下文中省略目标向父 Agent 发消息",
+  };
 }

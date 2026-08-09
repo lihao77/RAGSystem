@@ -15,11 +15,7 @@ import { AgentDelegationService } from "../src/services/agent/delegation/index.j
 import { createResumeExecutor } from "../src/services/agent/execution/resume-executor.js";
 import { AgentInvocationService } from "../src/services/agent/execution/invocation-service.js";
 import { buildChildMetadata } from "../src/services/agent/delegation/helpers.js";
-import type {
-  AgentDelegationCall,
-  DelegationPort,
-  SendMessageCall,
-} from "../src/services/agent/delegation/port.js";
+import type { DelegationPort } from "../src/services/agent/delegation/port.js";
 
 const tempRoots: string[] = [];
 
@@ -1052,9 +1048,38 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 
 type AgentTestContext = Parameters<AgentDelegationService["agent"]>[1];
 
+type CreateTestCall = {
+  agent: AgentConfig;
+  teamName: string | null;
+  input: {
+    agentName: string;
+    task: string;
+    contextHint?: string | null;
+    timeoutMs?: number | null;
+    runInBackground?: boolean | null;
+    callId?: string | null;
+  };
+};
+
+type MessageTestCall = {
+  agent: AgentConfig;
+  teamName: string | null;
+  input: {
+    childAgentId?: string | null;
+    toParent?: boolean | null;
+    message: string;
+    kind?: "progress" | "request" | "response" | "result" | "cancel" | null;
+    correlationId?: string | null;
+    replyToMessageId?: string | null;
+    timeoutMs?: number | null;
+    runInBackground?: boolean | null;
+    callId?: string | null;
+  };
+};
+
 function invokeCreate(
   service: AgentDelegationService,
-  call: AgentDelegationCall,
+  call: CreateTestCall,
   ctx: AgentTestContext,
 ) {
   return service.agent({
@@ -1073,7 +1098,7 @@ function invokeCreate(
 
 function invokeMessage(
   service: AgentDelegationService,
-  call: SendMessageCall,
+  call: MessageTestCall,
   ctx: AgentTestContext,
 ) {
   return service.agent({
