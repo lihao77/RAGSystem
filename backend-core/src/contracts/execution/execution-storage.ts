@@ -89,7 +89,7 @@ export interface ExecutionRunStepQuery {
 
 export interface ExecutionResultReader {
   getRun(sessionId: string, runId: string): Promise<RunInfo | null>;
-  listRuns(sessionId: string, limit?: number): Promise<{ items: RunInfo[]; total: number }>;
+  listRuns(sessionId: string, limit?: number, offset?: number): Promise<{ items: RunInfo[]; total: number }>;
   getMessageById(sessionId: string, messageId: string): Promise<MessageInfo | null>;
   listRunSteps(input: ExecutionRunStepQuery): Promise<RunStepInfo[]>;
 }

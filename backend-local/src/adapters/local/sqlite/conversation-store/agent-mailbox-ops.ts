@@ -10,6 +10,7 @@ import type {
   EnqueueAgentMailboxMessageInput,
   ListPendingAgentMailboxInput,
   ReleaseAgentMailboxInput,
+  SettleAgentMailboxInput,
 } from "@ragsystem/backend-core/contracts/storage/agent-mailbox-repository.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
@@ -155,6 +156,10 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
 
   async ack(input: AckAgentMailboxInput): Promise<boolean> {
     return this.ackSync(input);
+  }
+
+  async settle(input: SettleAgentMailboxInput): Promise<boolean> {
+    return this.settleSync(input);
   }
 
   async release(input: ReleaseAgentMailboxInput): Promise<boolean> {
@@ -349,6 +354,22 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
       WHERE session_id=? AND message_id=? AND status='claimed' AND claim_id=?
     `).run(now, now, required(input.sessionId, "sessionId"), required(input.messageId, "messageId"), required(input.claimId, "claimId"));
     return Number(result.changes ?? 0) > 0;
+  }
+
+  private settleSync(input: SettleAgentMailboxInput): boolean {
+    const sessionId = required(input.sessionId, "sessionId");
+    const messageId = required(input.messageId, "messageId");
+    const now = nowIso();
+    this.db.prepare(`
+      UPDATE agent_mailbox
+      SET status='acked', acked_at=COALESCE(acked_at, ?), updated_at=?,
+          claim_id=NULL, claimed_by=NULL, claim_expires_at=NULL
+      WHERE session_id=? AND message_id=? AND status IN ('queued','claimed')
+    `).run(now, now, sessionId, messageId);
+    const row = this.db.prepare(
+      "SELECT status FROM agent_mailbox WHERE session_id=? AND message_id=?",
+    ).get(sessionId, messageId) as { status: string } | undefined;
+    return row?.status === "acked" || row?.status === "expired";
   }
 
   private releaseSync(input: ReleaseAgentMailboxInput): boolean {

@@ -110,7 +110,7 @@ export class RunOps {
     return row ? rowToRun(row) : null;
   }
 
-  listRuns(sessionId: string, limit = 50): { items: RunInfo[]; total: number } {
+  listRuns(sessionId: string, limit = 50, offset = 0): { items: RunInfo[]; total: number } {
     const totalRow = this.db
       .prepare("SELECT COUNT(1) AS cnt FROM runs WHERE session_id=?")
       .get(sessionId) as { cnt: number };
@@ -124,10 +124,10 @@ export class RunOps {
           FROM runs
           WHERE session_id=?
           ORDER BY created_at DESC
-          LIMIT ?
+          LIMIT ? OFFSET ?
         `,
       )
-      .all(sessionId, limit) as unknown as RunRow[];
+      .all(sessionId, Math.max(1, Math.trunc(limit)), Math.max(0, Math.trunc(offset))) as unknown as RunRow[];
     const items = rows.map(rowToRun);
     return { items, total: totalRow.cnt };
   }

@@ -89,6 +89,11 @@ export interface ReleaseAgentMailboxInput {
   lastError?: string | null;
 }
 
+export interface SettleAgentMailboxInput {
+  sessionId: string;
+  messageId: string;
+}
+
 export interface ListPendingAgentMailboxInput {
   sessionId: string;
   targetRunId?: string | null;
@@ -130,6 +135,8 @@ export interface AgentMailboxStorePort {
   listPending?(input: ListPendingAgentMailboxInput): Promise<AgentMailboxMessage[]>;
   claim(input: ClaimAgentMailboxInput): Promise<AgentMailboxMessage[]>;
   ack(input: AckAgentMailboxInput): Promise<boolean>;
+  /** Terminal recovery only: prevent a durably finalized continuation source from being retried. */
+  settle(input: SettleAgentMailboxInput): Promise<boolean>;
   release(input: ReleaseAgentMailboxInput): Promise<boolean>;
   expire(input?: { sessionId?: string; now?: string }): Promise<number>;
 }

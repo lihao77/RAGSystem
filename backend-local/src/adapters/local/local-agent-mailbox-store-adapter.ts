@@ -30,6 +30,10 @@ export class LocalAgentMailboxStoreAdapter implements AgentMailboxStorePort {
     return this.mailbox.ack(input);
   }
 
+  settle(input: Parameters<AgentMailboxStorePort["settle"]>[0]) {
+    return this.mailbox.settle(input);
+  }
+
   release(input: Parameters<AgentMailboxStorePort["release"]>[0]) {
     return this.mailbox.release(input);
   }

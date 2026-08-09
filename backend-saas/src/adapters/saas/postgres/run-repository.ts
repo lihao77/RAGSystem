@@ -71,11 +71,12 @@ export class PostgresRunRepository implements AsyncRunStore {
     return result.rows[0] ? run(result.rows[0]) : null;
   }
 
-  async listRuns(tenantId: string, sessionId: string, limit = 50): Promise<{ items: RunInfo[]; total: number }> {
+  async listRuns(tenantId: string, sessionId: string, limit = 50, offset = 0): Promise<{ items: RunInfo[]; total: number }> {
     const bounded = Math.max(1, Math.min(5000, Math.trunc(limit)));
+    const boundedOffset = Math.max(0, Math.trunc(offset));
     const [count, rows] = await Promise.all([
       this.executor.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM saas_runs WHERE tenant_id=$1 AND session_id=$2", [tenantId, sessionId]),
-      this.executor.query(`SELECT ${runColumns} FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 ORDER BY created_at DESC LIMIT $3`, [tenantId, sessionId, bounded]),
+      this.executor.query(`SELECT ${runColumns} FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`, [tenantId, sessionId, bounded, boundedOffset]),
     ]);
     return { items: rows.rows.map(run), total: Number(count.rows[0]?.count ?? 0) };
   }

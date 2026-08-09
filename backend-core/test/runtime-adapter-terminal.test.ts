@@ -158,6 +158,7 @@ describe("executeRunWithSdk terminal convergence", () => {
         acked_at: null,
       }] as any),
       ack: vi.fn(async () => true),
+      settle: vi.fn(async () => true),
       release: vi.fn(async () => true),
       enqueue: vi.fn(),
       get: vi.fn(async () => null),
@@ -265,6 +266,7 @@ describe("executeRunWithSdk terminal convergence", () => {
         acked_at: null,
       }] as any),
       ack: vi.fn(async () => true),
+      settle: vi.fn(async () => true),
       release: vi.fn(async () => true),
       enqueue: vi.fn(),
       get: vi.fn(async () => null),
@@ -384,6 +386,7 @@ describe("executeRunWithSdk terminal convergence", () => {
     const mailbox: AgentMailboxStorePort = {
       claim: vi.fn(async () => [cancelMessage] as any),
       ack: vi.fn(async () => true),
+      settle: vi.fn(async () => true),
       release: vi.fn(async () => true),
       enqueue: vi.fn(),
       get: vi.fn(async () => null),

@@ -82,6 +82,16 @@ class FakeExecutor {
     }
     if (sql.includes("status='expired'")) return { rows: [], rowCount: 0 };
     if (sql.includes("status='queued'")) return { rows: [], rowCount: 0 };
+    if (sql.includes("RETURNING status") && sql.includes("status IN ('queued','claimed')")) {
+      const [tenantId, sessionId, messageId] = params;
+      const row = this.rows.find((item) => item.tenant_id === tenantId && item.session_id === sessionId && item.message_id === messageId && ["queued", "claimed"].includes(item.status));
+      if (!row) return { rows: [], rowCount: 0 };
+      row.status = "acked";
+      row.claim_id = null;
+      row.claimed_by = null;
+      row.claim_expires_at = null;
+      return { rows: [{ status: "acked" }], rowCount: 1 };
+    }
     if (sql.startsWith("UPDATE agent_mailbox_messages SET status='acked'")) {
       const [, sessionId, messageId, claimId] = params;
       const row = this.rows.find((item) => item.tenant_id === params[0] && item.session_id === sessionId && item.message_id === messageId && item.status === "claimed" && item.claim_id === claimId);
@@ -144,4 +154,7 @@ test("SaaS Agent mailbox fences tenant, target tuple, and claim retry", async ()
   assert.deepEqual(retry.map((item) => item.message_id), ["message-1"]);
   assert.equal(retry[0].attempt_count, 1);
   assert.equal(executor.claimQueries, 2);
+  assert.equal(await mailbox.settle({ sessionId: "session-1", messageId: "message-1" }), true);
+  assert.equal(await mailbox.settle({ sessionId: "session-1", messageId: "message-1" }), true);
+  assert.equal((await mailbox.get("session-1", "message-1")).status, "acked");
 });

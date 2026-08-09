@@ -179,7 +179,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
       ),
       resultReader: {
         getRun: (sessionId, runId) => conversationRuntime.runs.getRun(tenantId, sessionId, runId),
-        listRuns: (sessionId, limit) => conversationRuntime.runs.listRuns(tenantId, sessionId, limit),
+        listRuns: (sessionId, limit, offset) => conversationRuntime.runs.listRuns(tenantId, sessionId, limit, offset),
         getMessageById: (sessionId, messageId) => conversationRuntime.conversation.getMessageById(sessionId, messageId),
         listRunSteps: (input) => conversationRuntime.runs.listRunSteps({ tenantId, ...input }),
       },

@@ -54,6 +54,9 @@ test("local Agent mailbox is durable, FIFO, and fenced by claim id", async () =>
     const reclaimed = await mailbox.claim({ sessionId: "session-mailbox", targetRunId: "run-active", targetThreadKey: "child-thread", targetChildAgentId: "child-1", claimId: "claim-2", consumerId: "worker-2", now: "2026-01-01T00:00:02.000Z" });
     assert.deepEqual(reclaimed.map((message) => message.message_id), ["message-1"]);
     assert.equal(reclaimed[0].attempt_count, 2);
+    assert.equal(await mailbox.settle({ sessionId: "session-mailbox", messageId: "message-1" }), true);
+    assert.equal(await mailbox.settle({ sessionId: "session-mailbox", messageId: "message-1" }), true);
+    assert.equal((await mailbox.get("session-mailbox", "message-1")).status, "acked");
   } finally {
     store.close();
   }

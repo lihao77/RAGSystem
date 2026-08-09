@@ -6,6 +6,7 @@ import type {
   EnqueueAgentMailboxMessageInput,
   ListPendingAgentMailboxInput,
   ReleaseAgentMailboxInput,
+  SettleAgentMailboxInput,
 } from "@ragsystem/backend-core/contracts/storage/agent-mailbox-repository.js";
 import { MessageContentPartSchema } from "@ragsystem/agent-protocol";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
@@ -284,6 +285,23 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
   async ack(input: AckAgentMailboxInput): Promise<boolean> {
     const result = await this.executor.query("UPDATE agent_mailbox_messages SET status='acked',acked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND session_id=$2 AND message_id=$3 AND status='claimed' AND claim_id=$4", [this.tenant(), required(input.sessionId, "sessionId"), required(input.messageId, "messageId"), required(input.claimId, "claimId")]);
     return Number(result.rowCount ?? 0) > 0;
+  }
+
+  async settle(input: SettleAgentMailboxInput): Promise<boolean> {
+    const tenantId = this.tenant();
+    const sessionId = required(input.sessionId, "sessionId");
+    const messageId = required(input.messageId, "messageId");
+    const result = await this.executor.query<{ status: string }>(`
+      UPDATE agent_mailbox_messages
+      SET status='acked',acked_at=COALESCE(acked_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP,
+          claim_id=NULL,claimed_by=NULL,claim_expires_at=NULL
+      WHERE tenant_id=$1 AND session_id=$2 AND message_id=$3
+        AND status IN ('queued','claimed')
+      RETURNING status
+    `, [tenantId, sessionId, messageId]);
+    if (result.rows[0]?.status === "acked") return true;
+    const existing = await this.get(sessionId, messageId);
+    return existing?.status === "acked" || existing?.status === "expired";
   }
 
   async release(input: ReleaseAgentMailboxInput): Promise<boolean> {

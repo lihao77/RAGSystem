@@ -46,6 +46,7 @@ import type {
   AgentInvocationPort,
 } from "../../../contracts/execution/agent-invocation.js";
 import type { ParticipantRunLifecyclePort } from "../delegation/port.js";
+import { terminalReasonDisplay } from "../../../contracts/storage/runtime-finalization.js";
 
 interface UnifiedRunStartInput {
   sessionId: string;
@@ -892,7 +893,7 @@ class AgentLaunchers {
           childAgentId: target.targetChildAgentId,
           runId,
           agentCallId: rootCallId,
-          rootRunId: target.targetRootRunId ?? target.targetRunId,
+          rootRunId: runId,
           parentRunId: target.targetParentRunId,
           parentCallId: target.targetParentCallId,
           lineageParentCallId: target.targetLineageParentCallId,
@@ -906,7 +907,7 @@ class AgentLaunchers {
             scope: "child",
             startedAt: new Date(),
             threadKey: target.targetThreadKey,
-            rootRunId: target.targetRootRunId ?? target.targetRunId,
+            rootRunId: runId,
             interactionRootCallId: target.targetAgentCallId ?? rootCallId,
             parentRunId: target.targetParentRunId,
             parentCallId: target.targetParentCallId,
@@ -926,6 +927,7 @@ class AgentLaunchers {
           ...target,
           targetRunId: runId,
           targetAgentCallId: rootCallId,
+          targetRootRunId: runId,
         };
         await this.completeAgentMailboxContinuation({
           sessionId: target.sessionId,
@@ -1025,48 +1027,62 @@ class AgentLaunchers {
 
   private async recoverMailboxContinuationResults(sessionId: string): Promise<void> {
     if (!this.mailbox || !this.runReader?.listRuns || !this.runReader.getMessageById) return;
-    const runs = await this.runReader.listRuns(sessionId, 500);
-    for (const run of runs.items) {
-      if (
-        run.entrypoint !== "system.agent_message"
-        || !run.child_agent_id
-        || !run.parent_run_id
-        || !run.final_message_id
-        || !["completed", "failed", "interrupted"].includes(run.status)
-        || !run.request_id?.startsWith(MAILBOX_CONTINUATION_REQUEST_PREFIX)
-      ) {
-        continue;
-      }
-      const sourceMessageId = run.request_id.slice(MAILBOX_CONTINUATION_REQUEST_PREFIX.length).trim();
-      if (!sourceMessageId) continue;
-      const existingResult = await this.mailbox.get(sessionId, `${run.run_id}:terminal_result`);
-      if (existingResult) {
-        if (existingResult.status === "queued" && existingResult.target_run_id) {
-          this.triggerAgentMailboxRun(toMailboxWakeupTarget(existingResult));
+    const pageSize = 500;
+    for (let offset = 0;; offset += pageSize) {
+      const runs = await this.runReader.listRuns(sessionId, pageSize, offset);
+      for (const run of runs.items) {
+        if (
+          run.entrypoint !== "system.agent_message"
+          || !run.child_agent_id
+          || !run.parent_run_id
+          || !["completed", "failed", "interrupted"].includes(run.status)
+          || !run.request_id?.startsWith(MAILBOX_CONTINUATION_REQUEST_PREFIX)
+        ) {
+          continue;
         }
-        continue;
+        const sourceMessageId = run.request_id.slice(MAILBOX_CONTINUATION_REQUEST_PREFIX.length).trim();
+        if (!sourceMessageId) continue;
+        const sourceMessage = await this.mailbox.get(sessionId, sourceMessageId);
+        if (!sourceMessage) continue;
+        if (sourceMessage.status === "queued" || sourceMessage.status === "claimed") {
+          const settled = await this.mailbox.settle({ sessionId, messageId: sourceMessageId });
+          if (!settled) continue;
+        }
+        const existingResult = await this.mailbox.get(sessionId, `${run.run_id}:terminal_result`);
+        if (existingResult) {
+          if (existingResult.status === "queued" && existingResult.target_run_id) {
+            this.triggerAgentMailboxRun(toMailboxWakeupTarget(existingResult));
+          }
+          continue;
+        }
+        const finalMessage = run.final_message_id
+          ? await this.runReader.getMessageById(sessionId, run.final_message_id)
+          : null;
+        const failedStatus = run.status === "interrupted" ? "interrupted" : "failed";
+        const fallbackContent = run.status === "completed"
+          ? "子 Agent 已完成消息处理"
+          : terminalReasonDisplay(
+              failedStatus,
+              run.terminal_reason?.trim() || (failedStatus === "failed" ? "未提供失败原因" : "未提供中断原因"),
+            );
+        await this.completeAgentMailboxContinuation({
+          sessionId,
+          sourceRunId: run.run_id,
+          sourceAgentCallId: run.agent_call_id,
+          sourceAgentName: run.agent_name ?? "agent",
+          sourceChildAgentId: run.child_agent_id,
+          parentRunId: run.parent_run_id,
+          correlationId: sourceMessage.correlation_id,
+          replyToMessageId: sourceMessageId,
+          outcome: {
+            content: finalMessage?.content ?? fallbackContent,
+            contentParts: finalMessage?.content_parts ?? [{ type: "text", text: fallbackContent }],
+            success: run.status === "completed",
+            runId: run.run_id,
+          },
+        });
       }
-      const [sourceMessage, finalMessage] = await Promise.all([
-        this.mailbox.get(sessionId, sourceMessageId),
-        this.runReader.getMessageById(sessionId, run.final_message_id),
-      ]);
-      if (!sourceMessage || !finalMessage) continue;
-      await this.completeAgentMailboxContinuation({
-        sessionId,
-        sourceRunId: run.run_id,
-        sourceAgentCallId: run.agent_call_id,
-        sourceAgentName: run.agent_name ?? "agent",
-        sourceChildAgentId: run.child_agent_id,
-        parentRunId: run.parent_run_id,
-        correlationId: sourceMessage.correlation_id,
-        replyToMessageId: sourceMessageId,
-        outcome: {
-          content: finalMessage.content,
-          contentParts: finalMessage.content_parts,
-          success: run.status === "completed",
-          runId: run.run_id,
-        },
-      });
+      if (runs.items.length < pageSize || offset + runs.items.length >= runs.total) break;
     }
   }
 

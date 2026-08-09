@@ -157,6 +157,7 @@ describe("Agent mailbox continuation launcher", () => {
           ...childRun,
           run_id: continuationRunId,
           agent_call_id: continuationCallId,
+          lease_root_run_id: continuationRunId,
           status: "completed",
         } as never;
       }
@@ -206,7 +207,7 @@ describe("Agent mailbox continuation launcher", () => {
         correlation_id: "corr-2",
         metadata: {
           target_agent_name: "worker",
-          target_root_run_id: "child-run",
+          target_root_run_id: continuationRunId,
           target_parent_run_id: "parent-run",
           target_parent_call_id: "parent-tool-call",
           target_lineage_parent_call_id: "parent-call",
@@ -243,7 +244,14 @@ describe("Agent mailbox continuation launcher", () => {
         get: vi.fn(async (_sessionId, messageId) => ({
           ...queuedChildMessage(messageId),
           ...(messageId === "request-2" && continuationRunId
-            ? { target_run_id: continuationRunId, target_agent_call_id: continuationCallId }
+            ? {
+                target_run_id: continuationRunId,
+                target_agent_call_id: continuationCallId,
+                metadata: {
+                  ...queuedChildMessage(messageId).metadata,
+                  target_root_run_id: continuationRunId,
+                },
+              }
             : {}),
         })),
       } as never,
@@ -285,6 +293,7 @@ describe("Agent mailbox continuation launcher", () => {
       runId: continuationRunId,
       agentCallId: continuationCallId,
       replacesRunId: "child-run",
+      rootRunId: continuationRunId,
     }));
     expect(registerParticipantRun.mock.invocationCallOrder[0]).toBeLessThan(invoke.mock.invocationCallOrder[0]!);
     expect(releaseParticipantRun).toHaveBeenCalledWith({
@@ -475,10 +484,12 @@ describe("Agent mailbox continuation launcher", () => {
     expect(invoke.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
       mailboxTargetRunId: "child-run",
       mailboxTargetAgentCallId: "child-call",
+      rootRunId: invoke.mock.calls[1]?.[0].runId,
     }));
     expect(invoke.mock.calls[2]?.[0]).toEqual(expect.objectContaining({
       mailboxTargetRunId: "child-run",
       mailboxTargetAgentCallId: "child-call",
+      rootRunId: invoke.mock.calls[2]?.[0].runId,
     }));
     expect(participantRuns.registerParticipantRun).toHaveBeenCalledTimes(3);
   });
