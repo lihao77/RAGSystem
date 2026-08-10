@@ -124,7 +124,7 @@ defineExpose({ show, hide });
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-bg-primary);
+  color: var(--color-on-accent);
   flex-shrink: 0;
 }
 

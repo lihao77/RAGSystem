@@ -1,7 +1,8 @@
 <template>
   <div class="assistant-execution">
-    <button
+    <Button
       class="assistant-execution-toggle"
+      variant="bare"
       type="button"
       :aria-expanded="expanded"
       :title="expanded ? '收起执行步骤' : '展开执行步骤'"
@@ -10,12 +11,11 @@
       <span class="assistant-execution-label">{{ headerLabel }}</span>
       <span v-if="running" class="assistant-execution-running">运行中</span>
       <ChevronDown
-        data-icon="inline-end"
         class="assistant-execution-chevron"
         :class="{ open: expanded }"
         aria-hidden="true"
       />
-    </button>
+    </Button>
 
     <div class="assistant-execution-list-outer" :class="{ 'is-open': expanded }">
       <div class="assistant-execution-list-clip">
@@ -134,21 +134,14 @@ function nodeKey(node, index) {
 
 .assistant-execution-toggle {
   align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
   width: auto;
   height: auto;
   min-height: 0;
   justify-content: flex-start;
   gap: 6px;
   padding: 2px 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-text-muted);
-  font: inherit;
   font-size: 12.5px;
   line-height: 1.5;
-  cursor: pointer;
 }
 
 .assistant-execution-label {
@@ -161,9 +154,6 @@ function nodeKey(node, index) {
 }
 
 .assistant-execution-chevron {
-  width: 1em;
-  height: 1em;
-  flex: 0 0 auto;
   transition: transform var(--transition-fast);
 }
 

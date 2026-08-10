@@ -173,7 +173,7 @@ const selectFromSheet = (participantId) => {
   gap: 8px;
   padding: 12px 0;
   border-right: 1px solid var(--color-border);
-  background: var(--surface-sidebar);
+  background: var(--surface-rail);
 }
 
 .participant-rail__list {
@@ -250,7 +250,7 @@ const selectFromSheet = (participantId) => {
   height: 9px;
   border-radius: var(--radius-full);
   background: var(--dot-color, var(--color-text-muted));
-  border: 2px solid var(--surface-sidebar);
+  border: 2px solid var(--surface-rail);
 }
 
 .participant-rail__dot.is-live {

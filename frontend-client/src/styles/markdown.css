@@ -389,7 +389,7 @@
   user-select: none;
 }
 .markdown-body [data-citation-file-id]:hover {
-  color: var(--color-bg-elevated);
+  color: var(--color-on-accent);
   background: var(--color-brand-accent);
 }
 

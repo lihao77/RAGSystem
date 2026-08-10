@@ -405,7 +405,7 @@ onUnmounted(() => { stopAutoRefresh(); });
 .agents-list { display: flex; flex-direction: column; }
 .agent-card { padding: var(--spacing-md); border-bottom: 1px solid var(--color-border); transition: background 0.2s; }
 .agent-card:last-child { border-bottom: none; }
-.agent-card:hover { background: var(--color-bg-elevated); }
+.agent-card:hover { background: var(--color-hover-overlay-md); }
 .agent-card__head { display: flex; justify-content: space-between; align-items: center; gap: var(--spacing-sm); margin-bottom: var(--spacing-md); flex-wrap: wrap; }
 .agent-name { font-size: var(--font-size-base); font-weight: 600; color: var(--color-text-primary); font-family: var(--font-mono); }
 

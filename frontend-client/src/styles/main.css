@@ -4,6 +4,17 @@
    强调色：Linear 紫 #5E6AD2（唯一点缀）
    ============================================================ */
 
+/* ── Token 使用规约（踩坑沉淀,改样式前先读) ──────────────────
+   · 行内图标尺寸:一律 1em 跟字号走,不写死 px(独立按钮用 Button 的 size variant)
+   · hover 反馈:一律 --color-hover-overlay(暗加白/亮加黑,主题自适应),不用实色 bg token
+   · 彩色底(accent/success/warning/error)上的文字:用 --color-on-accent / --color-on-color(-strong),不借 bg token 当反色
+   · 无 hover 背景的纯文字/图标按钮:Button variant="bare"(保留图标尺寸管控,勿裸换原生 button)
+   · 胶囊分段控件:ToggleGroup variant="segment" size="segment"(勿用 !important 硬刚默认样式)
+   · 分区实底/轨道(scrollbar/进度条/选中态):用 --color-bg-tertiary;浮层用 --color-bg-elevated
+   · diff 增删等着色:从 --color-success/error 用 color-mix 派生透明度,不设独立 token
+   · 新增"中间档"前先看能否用既有 token 表达,避免手调 color-mix 造一次性中间色
+   ────────────────────────────────────────────────────────── */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -48,13 +59,14 @@
     --color-interactive-rgb: 42, 42, 42;
 
     /* 背景层级 —— neutral 纯灰，由深到浅每级差~16，区分明显不糊 */
+    /* 应用最底层(消息区/图表/地图画布的底,非 body 背景;body 用 --ambient-bg) */
     --color-bg-app: #060606;
     --color-bg-primary: #0a0a0a;
     /* 卡片/主内容面/画布 */
     --color-bg-secondary: #2B2B2B;
-    /* hover/分区（最浅） */
+    /* 分区实底/轨道(scrollbar/进度条/输入底);hover 请用 --color-hover-overlay* */
     --color-bg-tertiary: #383838;
-    /* 浮层/输入框/code block（浅于卡片，浮起） */
+    /* 浮层/输入框/code block(暗色浅于卡片靠底色浮起,亮色靠投影区分) */
     --color-bg-elevated: #2a2a2a;
     --color-bg-elevated-rgb: 42, 42, 42;
 
@@ -161,8 +173,12 @@
     --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 
     /* 语义面 —— neutral 灰 */
+    /* shell:主框架面;sidebar:主侧栏(浅灰陪衬) */
     --surface-shell: #161616;
     --surface-sidebar: #2B2B2B;
+    /* 参与者窄栏:浅于消息区(#0a)但克制,不抢对话 */
+    --surface-rail: #161616;
+    /* panel 系列:浮层组件专用别名,使用面窄,新代码优先用底层 bg/hover token */
     --surface-panel: var(--color-bg-elevated);
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);
@@ -314,13 +330,14 @@
     --color-interactive-rgb: 255, 255, 255;
 
     /* 背景层级 —— neutral 纯灰，由浅到深 */
+    /* 应用最底层(消息区/图表/地图画布的底,非 body 背景;body 用 --ambient-bg) */
     --color-bg-app: #fafafa;
     --color-bg-primary: #ffffff;
     /* 卡片/主内容面 */
     --color-bg-secondary: #f5f5f5;
-    /* hover/分区 */
+    /* 分区实底/轨道(scrollbar/进度条/输入底);hover 请用 --color-hover-overlay* */
     --color-bg-tertiary: #ededed;
-    /* 浮层/输入框（白，浅于卡片） */
+    /* 浮层/输入框/code block(暗色浅于卡片靠底色浮起,亮色靠投影区分) */
     --color-bg-elevated: #ffffff;
     --color-bg-elevated-rgb: 255, 255, 255;
 
@@ -423,8 +440,12 @@
     --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
 
     /* 语义面 —— neutral 灰 */
+    /* shell:主框架面;sidebar:主侧栏(亮色为浅一档陪衬,仅适用主内容是纯白的语境) */
     --surface-shell: #ffffff;
     --surface-sidebar: #f5f5f5;
+    /* 参与者窄栏:与主内容齐平(亮),靠右发丝边分隔,避免成为页面最深块 */
+    --surface-rail: #ffffff;
+    /* panel 系列:浮层组件专用别名,使用面窄,新代码优先用底层 bg/hover token */
     --surface-panel: var(--color-bg-elevated);
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);

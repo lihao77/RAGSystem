@@ -328,7 +328,7 @@ defineExpose({ show, hide, toggleCollapsed });
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-bg-primary);
+  color: var(--color-on-color-strong);
   flex-shrink: 0;
   box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb), 0.16), 0 6px 16px rgba(var(--color-warning-rgb), 0.3);
 }
@@ -732,7 +732,7 @@ defineExpose({ show, hide, toggleCollapsed });
   padding: 0 6px;
   border-radius: 999px;
   background: var(--color-warning);
-  color: var(--color-bg-primary);
+  color: var(--color-on-color-strong);
   font-size: 0.75rem;
   font-weight: 700;
   line-height: 20px;

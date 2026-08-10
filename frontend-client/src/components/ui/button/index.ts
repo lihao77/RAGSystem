@@ -20,6 +20,9 @@ export const buttonVariants = cva(
         secondary:
           "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
+        // bare:无 hover 背景的纯文字/图标按钮(折叠头、行内触发器);
+        // 仍走 Button 以保留图标尺寸管控(行内图标=1em 跟字号),避免裸换原生 button 图标失控。
+        bare: "rounded-none bg-transparent hover:bg-transparent text-muted-foreground [&_svg]:size-[1em]",
         link: "text-primary underline-offset-4 hover:underline",
         "action-neutral": "[&_svg]:size-3.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
         "action-success": "[&_svg]:size-3.5 text-muted-foreground hover:bg-success-bg hover:text-success",

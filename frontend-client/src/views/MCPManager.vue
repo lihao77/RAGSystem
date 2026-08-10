@@ -916,7 +916,7 @@ onMounted(() => {
 
 .registry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--spacing-md); }
 .registry-card { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-secondary); transition: border-color var(--transition-fast), background var(--transition-fast); }
-.registry-card:hover { border-color: var(--color-border-hover); background: var(--color-bg-secondary); }
+.registry-card:hover { border-color: var(--color-border-hover); background: var(--color-hover-overlay-md); }
 .registry-card-head { display: flex; align-items: flex-start; gap: var(--spacing-md); }
 .registry-card-title { flex: 1; min-width: 0; }
 .registry-card-title h3 { font-size: var(--font-size-base); font-weight: 600; margin: 0 0 4px; }

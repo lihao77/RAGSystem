@@ -183,6 +183,7 @@ import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
 import { useApprovalQueue } from '../composables/useApprovalQueue';
 import { useChatScrolling } from '../composables/useChatScrolling';
+import { useChatTransient } from '../composables/useChatTransient.js';
 import { useLlmRetryState } from '../composables/useLlmRetryState';
 import { useChatMessageRuntime } from '../composables/useChatMessageRuntime';
 import { useMessageListView } from '../composables/useMessageListView';
@@ -292,12 +293,18 @@ const filePreviewDialogRef = ref(null);
 const toast = useToast();
 const ctxDrawerVisible = ref(false);
 const ctxDrawerSelectedLlm = ref('');
-const newChatLaunching = ref(false);
-const switchingToNewChat = ref(false);
-const restoringSessionScroll = ref(false);
-let newChatLaunchTimer = null;
-let sessionScrollRestoreTimer = null;
-let pendingSessionScrollRestores = 0;
+const {
+  newChatLaunching,
+  switchingToNewChat,
+  restoringSessionScroll,
+  beginNewChatLaunch,
+  finishNewChatLaunchSoon,
+  startSwitchToNewChat,
+  finishSwitchToNewChat,
+  beginInitialScrollRestore,
+  endInitialScrollRestore,
+  resetChatTransient,
+} = useChatTransient();
 
 function getCurrentSelectedLlm() {
   return llmStore.selectedLLM || '';
@@ -311,7 +318,6 @@ function openCtxDrawer() {
 const { activeRun: _activeRun, resetActiveRun, clearFollowupCandidates } = sessionRunStore;
 
 // 被下方 composable deps 引用的工具函数前置定义，消除延迟闭包。
-// 仅被 view 内部引用的辅助函数（openMobileSidebar/clearNewChatLaunchTimer 等）保留原位置。
 const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   let type = 'error';
   let action = null;
@@ -334,28 +340,6 @@ const focusInput = async () => {
   if (chatComposerRef.value?.focus) {
     await chatComposerRef.value.focus();
   }
-};
-
-const clearSessionScrollRestoreTimer = () => {
-  if (!sessionScrollRestoreTimer) return;
-  window.clearTimeout(sessionScrollRestoreTimer);
-  sessionScrollRestoreTimer = null;
-};
-
-const beginInitialScrollRestore = () => {
-  clearSessionScrollRestoreTimer();
-  pendingSessionScrollRestores += 1;
-  restoringSessionScroll.value = true;
-};
-
-const endInitialScrollRestore = () => {
-  pendingSessionScrollRestores = Math.max(0, pendingSessionScrollRestores - 1);
-  if (pendingSessionScrollRestores > 0) return;
-  clearSessionScrollRestoreTimer();
-  sessionScrollRestoreTimer = window.setTimeout(() => {
-    restoringSessionScroll.value = false;
-    sessionScrollRestoreTimer = null;
-  }, 0);
 };
 
 // ── Composables ─────────────────────────────────────────────────────────
@@ -689,25 +673,10 @@ const openMobileSidebar = () => {
   shellSidebarControl?.openMobileSidebar?.();
 };
 
-const clearNewChatLaunchTimer = () => {
-  if (!newChatLaunchTimer) return;
-  window.clearTimeout(newChatLaunchTimer);
-  newChatLaunchTimer = null;
-};
-
-const finishNewChatLaunchSoon = (delay = 680) => {
-  clearNewChatLaunchTimer();
-  newChatLaunchTimer = window.setTimeout(() => {
-    newChatLaunching.value = false;
-    newChatLaunchTimer = null;
-  }, delay);
-};
-
 const handleSend = async (payload = null) => {
   const startsFromNewChat = messages.value.length === 0 && !currentSessionId.value;
   if (startsFromNewChat) {
-    clearNewChatLaunchTimer();
-    newChatLaunching.value = true;
+    beginNewChatLaunch();
   }
 
   try {
@@ -751,19 +720,13 @@ watch(
     const wasSessionChat = typeof previousRouteSessionId === 'string';
     const isEnteringBlankChat = !nextSessionId && wasSessionChat;
     if (isEnteringBlankChat) {
-      clearNewChatLaunchTimer();
-      newChatLaunching.value = false;
-      switchingToNewChat.value = true;
+      startSwitchToNewChat();
     }
     await syncSessionFromRoute(nextSessionId);
     if (isEnteringBlankChat) {
       await nextTick();
       resetScrollPosition(false);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          switchingToNewChat.value = false;
-        });
-      });
+      finishSwitchToNewChat();
     }
   },
   { immediate: true }
@@ -795,9 +758,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  clearNewChatLaunchTimer();
-  clearSessionScrollRestoreTimer();
-  pendingSessionScrollRestores = 0;
+  resetChatTransient();
   clearLlmRetryState();
   chatSdkClient.disconnect();
   // 不再通知后端停止任务 — Agent 继续在后台执行
@@ -834,159 +795,6 @@ onUnmounted(() => {
   .chat-surface-swap-leave-active {
     transition-duration: 1ms;
   }
-}
-
-/* #9: 压缩摘要 - 已移除独立卡片样式，走通用 assistant 渲染路径 */
-.user-edit-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  transform-origin: top right;
-  transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease;
-  will-change: transform, opacity;
-}
-.user-edit-shell.is-editing {
-  transform: translateY(-1px);
-}
-.user-edit-shell.is-submitting {
-  opacity: 0.86;
-  filter: saturate(0.96);
-  transform: translateY(-1px);
-}
-.user-text {
-  transition:
-    background-color var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
-    border-color var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
-    box-shadow var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
-    min-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
-    max-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
-    opacity var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
-    transform var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
-    filter var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo));
-  will-change: transform, opacity, min-height, max-height;
-}
-.user-text.is-editing {
-  transform: none;
-}
-.user-text.is-submitting {
-  opacity: 1;
-  filter: none;
-  transform: none;
-}
-.user-attachments {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 0;
-  transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease;
-  will-change: transform, opacity;
-}
-.user-attachments.is-editing {
-  align-items: flex-end;
-  margin-bottom: 0;
-}
-.user-attachments.is-submitting {
-  opacity: 1;
-  filter: none;
-  transform: none;
-}
-.user-attachments-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  width: min(420px, 100%);
-  box-sizing: border-box;
-  margin-top: 2px;
-  opacity: 0;
-  max-height: 0;
-  overflow: hidden;
-  transform: translateY(-4px);
-  pointer-events: none;
-  transition: opacity var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)), max-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)), transform var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo));
-}
-.user-attachments-toolbar.is-visible {
-  opacity: 1;
-  max-height: 40px;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-.user-attachment-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: min(420px, 100%);
-  box-sizing: border-box;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
-  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease, opacity 220ms ease, filter 220ms ease;
-}
-.user-attachment-card:hover {
-  border-color: var(--color-border-hover);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
-}
-.btn-editor {
-  transition: transform 180ms ease, opacity 180ms ease, box-shadow 180ms ease, filter 180ms ease;
-}
-.btn-editor:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-.btn-editor:active:not(:disabled) {
-  transform: scale(0.985);
-}
-.btn-editor:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-.user-attachment-image {
-  width: 56px;
-  height: 56px;
-  object-fit: cover;
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-.user-attachment-file-icon {
-  width: 56px;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.user-attachment-info {
-  min-width: 0;
-  flex: 1;
-}
-.user-attachment-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.user-attachment-meta {
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--color-text-muted);
-}
-
-.inline-chart-wrapper {
-  margin: 12px 0;
-  width: 100%;
-}
-
-.file-inline-focus {
-  border-radius: 10px;
-  outline: 1px solid rgba(var(--color-active-rgb), 0.34);
-  outline-offset: 4px;
-  transition: outline-color 0.2s ease;
 }
 
 /* ===== Scroll to Bottom Button ===== */

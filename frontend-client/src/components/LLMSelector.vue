@@ -27,7 +27,7 @@
           <CommandList>
             <CommandEmpty>No models found</CommandEmpty>
             <CommandGroup>
-              <CommandItem class="llm-option" value="__default__" @select="() => selectModel('')">
+              <CommandItem class="llm-option rounded-md px-3.5 py-2.5 data-[highlighted]:bg-[var(--color-interactive-hover)]" value="__default__" @select="() => selectModel('')">
                 <span class="option-copy">
                   <span class="option-label">默认</span>
                   <span class="option-sub">使用智能体配置</span>
@@ -38,7 +38,7 @@
               <CommandItem
                 v-for="m in models"
                 :key="m.value"
-                class="llm-option"
+                class="llm-option rounded-md px-3.5 py-2.5 data-[highlighted]:bg-[var(--color-interactive-hover)]"
                 :value="m.value"
                 @select="() => selectModel(m.value)"
               >
@@ -257,20 +257,13 @@ defineExpose({ getSelection });
   box-shadow: var(--shadow-lg);
 }
 
-/* Command 选项 */
+/* Command 选项:padding/圆角/hover 在模板上用 tailwind 类覆盖 CommandItem 默认,无需 !important */
 .llm-option {
-  padding: 10px 14px !important;
-  border-radius: var(--radius-md) !important;
   color: var(--color-text-primary);
   font-size: 14px;
   font-weight: 500;
-  display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-.llm-option[data-highlighted] {
-  background: var(--color-interactive-hover) !important;
 }
 
 .option-copy {
