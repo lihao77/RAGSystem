@@ -65,8 +65,6 @@
 
 .markdown-body h2 {
   font-size: var(--font-size-xl);
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: 0.3em;
 }
 
 .markdown-body h3 {
@@ -105,10 +103,9 @@
   font-family: var(--font-mono);
   font-size: 0.88em;
   background: var(--color-bg-elevated);
-  padding: 0.22em 0.48em;
+  padding: 0.18em 0.42em;
   border-radius: var(--radius-md);
   color: var(--code-inline-fg);
-  border: 1px solid var(--color-glass-border);
   font-weight: 500;
 }
 
@@ -116,7 +113,7 @@
 .markdown-body .md-special-block {
   margin: 1em 0;
   border-radius: var(--radius-lg);
-  border: 1px solid var(--color-glass-border);
+  border: 1px solid var(--color-border);
   background: var(--glass-bg);
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(var(--glass-blur));
@@ -131,7 +128,7 @@
   gap: 12px;
   min-height: 42px;
   padding: 0 14px;
-  border-bottom: 1px solid rgba(var(--color-border-rgb, 148, 163, 184), 0.22);
+  border-bottom: 1px solid var(--color-border);
   background: rgba(var(--color-bg-elevated-rgb), 0.24);
 }
 
@@ -338,30 +335,45 @@
 .markdown-body .hljs-addition { color: var(--hljs-addition); }
 
 /* ===== 引用块 ===== */
+/* 引用走轻量引述感,与代码/表格的玻璃外壳区分:去重壳、accent 淡竖条、italic */
+.markdown-body .md-quote-block {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.markdown-body .md-quote-block .md-block-head {
+  display: none;
+}
+
 .markdown-body .md-quote-block .md-block-body {
-  background: rgba(var(--color-bg-elevated-rgb), 0.28);
+  background: transparent;
 }
 
 .markdown-body .md-quote-block blockquote {
   margin: 0;
-  padding: 12px 14px;
-  border-left: 2px solid var(--color-border-hover);
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid rgba(var(--color-accent-rgb), 0.45);
   border-radius: 0;
   background: transparent;
   color: var(--color-text-secondary);
+  font-style: italic;
 }
 
 /* ===== 链接 ===== */
 .markdown-body a {
   color: var(--color-link);
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-  transition: all var(--transition-fast);
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--color-accent-rgb), 0.35);
+  text-underline-offset: 2px;
+  transition: text-decoration-color var(--transition-fast), color var(--transition-fast);
 }
 
 .markdown-body a:hover {
   color: var(--color-link-hover);
-  border-bottom-color: var(--color-link-hover);
+  text-decoration-color: currentColor;
 }
 
 .markdown-body .viz-link {
@@ -406,9 +418,9 @@
 
 .markdown-body .md-table-block th,
 .markdown-body .md-table-block td {
-  border-right: 1px solid rgba(var(--color-border-rgb, 148, 163, 184), 0.18);
-  border-bottom: 1px solid rgba(var(--color-border-rgb, 148, 163, 184), 0.18);
-  padding: 0.75em 1em;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0.6em 0.9em;
   text-align: left;
   white-space: nowrap;
 }
@@ -423,17 +435,13 @@
 }
 
 .markdown-body .md-table-block th {
-  background: rgba(var(--color-bg-elevated-rgb), 0.14);
+  background: var(--color-bg-elevated);
   font-weight: 600;
   color: var(--color-text-primary);
 }
 
 .markdown-body .md-table-block td {
   background: transparent;
-}
-
-.markdown-body .md-table-block tr:nth-child(even) {
-  background: rgba(var(--color-bg-elevated-rgb), 0.05);
 }
 
 /* ===== 分隔线 ===== */
@@ -448,8 +456,7 @@
   max-width: 100%;
   border-radius: var(--radius-md);
   margin: 1em 0;
-  box-shadow: var(--glass-shadow);
-  border: 1px solid var(--color-glass-border);
+  border: 1px solid var(--color-border);
 }
 
 /* ===== 强调 ===== */
