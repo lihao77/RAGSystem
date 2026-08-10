@@ -23,7 +23,8 @@ defineProps({
   height: 100%;
   flex-direction: column;
   overflow: hidden;
-  background: var(--surface-workpanel);
+  /* 透出宿主 Sheet 表面,不再叠异色实底 */
+  background: transparent;
   letter-spacing: 0;
 }
 </style>

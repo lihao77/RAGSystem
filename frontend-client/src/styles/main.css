@@ -163,8 +163,6 @@
     /* 语义面 —— neutral 灰 */
     --surface-shell: #161616;
     --surface-sidebar: #2B2B2B;
-    --surface-workpanel: #1a1a1a;
-    --surface-workpanel-rgb: 26, 26, 26;
     --surface-panel: var(--color-bg-elevated);
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);
@@ -427,8 +425,6 @@
     /* 语义面 —— neutral 灰 */
     --surface-shell: #ffffff;
     --surface-sidebar: #f5f5f5;
-    --surface-workpanel: #f5f5f5;
-    --surface-workpanel-rgb: 245, 245, 245;
     --surface-panel: var(--color-bg-elevated);
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);

@@ -13,6 +13,16 @@
       </Button>
 
       <span class="conversation-title" :title="sessionTitle">{{ sessionTitle }}</span>
+      <span
+        v-if="activeAgentChip"
+        class="active-agent-chip"
+        :style="{ '--agent-accent': activeAgentChip.color }"
+        :title="`当前线程:${activeAgentChip.name}`"
+      >
+        <Bot v-if="activeAgentChip.isRoot" />
+        <GitBranch v-else />
+        <span class="active-agent-chip__name">{{ activeAgentChip.name }}</span>
+      </span>
       <SessionContextInfoButton
         v-if="currentSessionId"
         :current-session-id="currentSessionId"
@@ -86,10 +96,11 @@
 
 <script setup>
 import { computed } from 'vue';
-import { Activity, Download, Ellipsis, FileText, Moon, Sun } from 'lucide-vue-next';
+import { Activity, Bot, Download, Ellipsis, FileText, GitBranch, Moon, Sun } from 'lucide-vue-next';
 import { IconMenu } from '../icons';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { participantAccentColor } from '../../utils/participantVisual.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -117,6 +128,7 @@ const props = defineProps({
   executionStatusText: { type: String, default: '' },
   showExecutionStatus: { type: Boolean, default: false },
   executionObservability: { type: Object, default: null },
+  selectedParticipant: { type: Object, default: null },
 });
 
 const emit = defineEmits([
@@ -125,6 +137,17 @@ const emit = defineEmits([
   'openFileChanges',
   'openRuntimeCenter',
 ]);
+
+// 当前线程 agent chip:仅在切到非 root participant 时显示,标识"你在看谁的对话"。
+const activeAgentChip = computed(() => {
+  const participant = props.selectedParticipant;
+  if (!participant || participant.scope === 'root' || participant.participant_id === 'root') return null;
+  return {
+    name: participant.display_name || participant.agent_name || '智能体',
+    color: participantAccentColor(participant),
+    isRoot: false,
+  };
+});
 
 const goalBadge = computed(() => ({
   active: { label: '进行中', variant: 'success' },
@@ -193,6 +216,33 @@ const runtimeTriggerTitle = computed(() => {
   font-size: var(--font-size-sm);
   font-weight: 650;
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active-agent-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 180px;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  background: var(--color-hover-overlay);
+  color: var(--agent-accent, var(--color-text-secondary));
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.active-agent-chip svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+.active-agent-chip__name {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

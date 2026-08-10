@@ -1,27 +1,28 @@
 <template>
-  <section :class="cn('runtime-tab-panel', { 'is-embedded': embedded })">
-    <div class="runtime-panel-header">
-      <div class="flex min-w-0 items-center gap-2">
-        <Target class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <div class="min-w-0">
-          <h3 class="runtime-panel-title">Goal</h3>
-          <p class="runtime-panel-subtitle">跨 Run 持续推进的当前目标</p>
-        </div>
+  <section class="runtime-section">
+    <header class="runtime-section__head">
+      <span class="runtime-section__icon" :style="{ color: statusToneColor(goal?.status) }">
+        <Target />
+      </span>
+      <div class="runtime-section__titles">
+        <h3 class="runtime-section__title">Goal</h3>
+        <p class="runtime-section__subtitle">跨 Run 持续推进的当前目标</p>
       </div>
-      <div class="flex items-center gap-2">
-        <Badge v-if="goal" :variant="statusMeta.variant">{{ statusMeta.label }}</Badge>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          :disabled="goalState.loading || Boolean(goalState.pendingAction)"
-          aria-label="刷新 Goal"
-          title="刷新 Goal"
-          @click="goalState.loadGoal()"
-        >
-          <RefreshCw data-icon="inline-start" :class="cn({ 'animate-spin': goalState.loading })" />
-        </Button>
-      </div>
-    </div>
+      <span class="runtime-section__status">
+        <span class="status-dot" :style="{ '--dot-color': statusToneColor(goal?.status) }" />
+        {{ statusMeta.label }}
+      </span>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        :disabled="goalState.loading || Boolean(goalState.pendingAction)"
+        aria-label="刷新 Goal"
+        title="刷新 Goal"
+        @click="goalState.loadGoal()"
+      >
+        <RefreshCw data-icon="inline-start" :class="cn({ 'animate-spin': goalState.loading })" />
+      </Button>
+    </header>
 
     <EmptyState
       v-if="goalState.error && !goal"
@@ -38,41 +39,45 @@
       class="runtime-empty"
     />
 
-    <div v-else class="runtime-panel-scroll">
-      <div class="goal-summary">
-        <p class="goal-objective">{{ goal.objective }}</p>
-        <div class="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">{{ progressText }}</Badge>
-          <Badge variant="secondary">自动续跑 {{ goal.continuation_count || 0 }} 次</Badge>
-        </div>
-        <div v-if="continuationReasonText" class="goal-continuation-reason" role="status">
-          <span class="goal-section-label">续跑状态</span>
-          <span>{{ continuationReasonText }}</span>
-        </div>
-        <p v-if="checkpointText" class="goal-checkpoint">{{ checkpointText }}</p>
+    <div v-else class="runtime-section__body">
+      <p class="goal-objective">{{ goal.objective }}</p>
+
+      <div class="goal-meta">
+        <span class="goal-meta__chip">{{ progressText }}</span>
+        <span class="goal-meta__chip">自动续跑 {{ goal.continuation_count || 0 }} 次</span>
+        <span v-if="continuationReasonText" class="goal-meta__chip goal-meta__chip--muted">
+          {{ continuationReasonText }}
+        </span>
       </div>
 
-      <div v-if="currentStep" class="goal-current-step">
-        <span class="goal-section-label">当前阶段</span>
-        <strong>{{ stepTitle(currentStep) }}</strong>
-        <span v-if="currentStep.description && currentStep.description !== stepTitle(currentStep)">{{ currentStep.description }}</span>
-      </div>
+      <p v-if="checkpointText" class="goal-checkpoint">{{ checkpointText }}</p>
 
       <div v-if="steps.length" class="goal-steps">
-        <div class="goal-steps-heading">
-          <span class="goal-section-label">阶段</span>
+        <div class="goal-steps__head">
+          <span>阶段</span>
           <span>{{ completedSteps }} / {{ steps.length }}</span>
         </div>
-        <ol class="goal-step-list">
-          <li v-for="(step, index) in steps" :key="step.id || index" class="goal-step-item">
-            <span class="goal-step-index">{{ index + 1 }}</span>
-            <span class="goal-step-copy">
-              <strong>{{ stepTitle(step, index) }}</strong>
-              <span v-if="step.description && step.description !== stepTitle(step, index)">{{ step.description }}</span>
+        <ol class="goal-steps__list">
+          <li
+            v-for="(step, index) in steps"
+            :key="step.id || index"
+            class="goal-step"
+            :class="{ 'is-current': step.status === 'in_progress' }"
+          >
+            <span class="goal-step__marker">
+              <Check v-if="step.status === 'completed'" />
+              <LoaderCircle v-else-if="step.status === 'in_progress'" class="animate-spin" />
+              <span v-else class="goal-step__index">{{ index + 1 }}</span>
             </span>
-            <Badge :variant="stepStatusMeta(step.status).variant">
-              {{ stepStatusMeta(step.status).label }}
-            </Badge>
+            <span class="goal-step__copy">
+              <strong>{{ stepTitle(step, index) }}</strong>
+              <span v-if="step.description && step.description !== stepTitle(step, index)">
+                {{ step.description }}
+              </span>
+            </span>
+            <span class="goal-step__status" :style="{ color: statusToneColor(step.status) }">
+              {{ stepStatusLabel(step.status) }}
+            </span>
           </li>
         </ol>
       </div>
@@ -80,7 +85,7 @@
       <p v-if="goalState.error" class="runtime-error" role="alert">{{ goalState.error }}</p>
     </div>
 
-    <div v-if="goal" class="runtime-panel-footer">
+    <footer v-if="goal" class="runtime-section__foot">
       <Button
         v-if="goalState.canPause"
         variant="outline"
@@ -102,17 +107,17 @@
         <Play v-else data-icon="inline-start" />
         继续 Goal
       </Button>
-    </div>
+    </footer>
   </section>
 </template>
 
 <script setup>
 import { computed } from 'vue';
-import { LoaderCircle, Pause, Play, RefreshCw, Target } from 'lucide-vue-next';
-import { Badge } from '@/components/ui/badge';
+import { Check, LoaderCircle, Pause, Play, RefreshCw, Target } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import EmptyState from '@/components/EmptyState.vue';
 import { cn } from '@/lib/utils';
+import { statusLabel, statusToneColor } from '@/utils/participantVisual.js';
 
 const props = defineProps({
   goalState: { type: Object, required: true },
@@ -120,20 +125,10 @@ const props = defineProps({
 });
 
 const goal = computed(() => props.goalState.goal || null);
-const steps = computed(() => Array.isArray(goal.value?.steps) ? goal.value.steps : []);
+const steps = computed(() => (Array.isArray(goal.value?.steps) ? goal.value.steps : []));
 const completedSteps = computed(() => steps.value.filter((step) => step.status === 'completed').length);
-const currentStep = computed(() => (
-  steps.value.find((step) => step.status === 'in_progress')
-  || steps.value.find((step) => step.status === 'pending')
-  || null
-));
 
-const statusMeta = computed(() => ({
-  active: { label: '进行中', variant: 'success' },
-  paused: { label: '已暂停', variant: 'warning' },
-  completed: { label: '已完成', variant: 'secondary' },
-  blocked: { label: '已阻塞', variant: 'destructive' },
-}[goal.value?.status] || { label: goal.value?.status || '未知', variant: 'outline' }));
+const statusMeta = computed(() => ({ label: statusLabel(goal.value?.status) }));
 
 const progressText = computed(() => {
   if (steps.value.length) return `${completedSteps.value} / ${steps.value.length} 阶段完成`;
@@ -166,14 +161,7 @@ const checkpointText = computed(() => {
   return '';
 });
 
-function stepStatusMeta(status) {
-  return ({
-    completed: { label: '完成', variant: 'success' },
-    in_progress: { label: '进行中', variant: 'default' },
-    blocked: { label: '阻塞', variant: 'destructive' },
-    pending: { label: '待执行', variant: 'outline' },
-  }[status] || { label: status || '待执行', variant: 'outline' });
-}
+const stepStatusLabel = (status) => statusLabel(status);
 
 function stepTitle(step, index = 0) {
   return step?.title || step?.subject || step?.description || `阶段 ${index + 1}`;
@@ -181,150 +169,186 @@ function stepTitle(step, index = 0) {
 </script>
 
 <style scoped>
-.runtime-tab-panel {
+.runtime-section {
   display: flex;
-  min-height: 0;
-  flex: 1;
   flex-direction: column;
-  overflow: hidden;
-}
-
-.runtime-tab-panel.is-embedded {
-  flex: none;
-  overflow: visible;
-}
-
-.runtime-tab-panel.is-embedded .runtime-panel-scroll {
-  flex: none;
-  overflow: visible;
-}
-
-.runtime-panel-header,
-.runtime-panel-footer {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 12px 14px;
   border-bottom: 1px solid var(--color-border);
 }
 
-.runtime-panel-footer {
-  justify-content: flex-end;
-  border-top: 1px solid var(--color-border);
-  border-bottom: 0;
+.runtime-section__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 10px;
 }
 
-.runtime-panel-title {
+.runtime-section__icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.runtime-section__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.runtime-section__titles {
+  min-width: 0;
+  flex: 1;
+}
+
+.runtime-section__title {
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   font-weight: 650;
+  line-height: 1.3;
 }
 
-.runtime-panel-subtitle,
-.goal-checkpoint,
-.goal-current-step span,
-.goal-step-copy span,
-.goal-steps-heading {
+.runtime-section__subtitle {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
 }
 
-.runtime-panel-scroll {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
-  padding: 14px;
+.runtime-section__status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
 }
 
-.goal-summary,
-.goal-current-step {
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--dot-color, var(--color-text-muted));
+}
+
+.runtime-section__body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: 12px;
-  background: var(--surface-shell);
+  gap: 12px;
+  padding: 2px 16px 14px;
 }
 
 .goal-objective {
   color: var(--color-text-primary);
-  line-height: 1.55;
   font-weight: 650;
+  line-height: 1.55;
 }
 
-.goal-continuation-reason {
+.goal-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.goal-meta__chip {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-hover-overlay);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.goal-meta__chip--muted {
+  color: var(--color-text-muted);
+}
+
+.goal-checkpoint {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
 }
 
-.goal-section-label {
+.goal-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.goal-steps__head {
+  display: flex;
+  justify-content: space-between;
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
   font-weight: 650;
   text-transform: uppercase;
 }
 
-.goal-steps {
+.goal-steps__list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
-.goal-steps-heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.goal-step-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.goal-step-item {
+.goal-step {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 8px;
-  padding: 9px 0;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
   border-bottom: 1px solid var(--color-border);
 }
 
-.goal-step-index {
+.goal-step:last-child {
+  border-bottom: 0;
+}
+
+.goal-step__marker {
   display: inline-flex;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-full);
-  background: var(--color-bg-secondary);
+  background: var(--color-hover-overlay);
   color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+}
+
+.goal-step.is-current .goal-step__marker {
+  color: var(--color-brand-accent);
+}
+
+.goal-step__marker svg {
+  width: 12px;
+  height: 12px;
+}
+
+.goal-step__index {
+  font-size: 11px;
   font-weight: 650;
 }
 
-.goal-step-copy {
+.goal-step__copy {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
-.goal-step-copy strong,
-.goal-current-step strong {
+.goal-step__copy strong {
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   line-height: 1.35;
+}
+
+.goal-step__copy span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.goal-step__status {
+  flex: 0 0 auto;
+  font-size: var(--font-size-xs);
+}
+
+.runtime-section__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 4px 16px 14px;
 }
 
 .runtime-error {
@@ -333,6 +357,6 @@ function stepTitle(step, index = 0) {
 }
 
 .runtime-empty {
-  margin: 14px;
+  margin: 8px 16px 16px;
 }
 </style>

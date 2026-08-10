@@ -34,6 +34,7 @@
         :execution-status-text="executionStatusText"
         :show-execution-status="showExecutionPill"
         :execution-observability="runtimeObservability"
+        :selected-participant="selectedParticipant"
         @open-mobile-sidebar="openMobileSidebar"
         @export-session="exportCurrentSession"
         @open-file-changes="fileChangesOpen = true"

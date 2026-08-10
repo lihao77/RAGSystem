@@ -26,8 +26,8 @@
       <button
         type="button"
         class="assistant-step-row"
-        :class="`status-${status}`"
-        :style="indentStyle"
+        :class="[`status-${status}`, { 'is-agent': node.type === 'agent_call' }]"
+        :style="[indentStyle, node.type === 'agent_call' ? { '--agent-accent': agentAccent } : null]"
         :aria-expanded="expandable ? expanded : undefined"
         @click="toggleExpanded"
       >
@@ -107,6 +107,7 @@ import {
   getExecutionNodeKey,
   normalizeExecutionStatus,
 } from '../../utils/executionTreePresentation.js';
+import { agentNodeAccentColor } from '../../utils/participantVisual.js';
 import MarkdownContent from './MarkdownContent.vue';
 
 defineOptions({ name: 'AssistantExecutionNode' });
@@ -140,6 +141,9 @@ const hasDetails = computed(() => Boolean(
   || detailResult.value,
 ));
 const expandable = computed(() => hasDetails.value || hasChildren.value);
+const agentAccent = computed(() => (
+  props.node.type === 'agent_call' ? agentNodeAccentColor(props.node) : ''
+));
 const indentStyle = computed(() => ({ paddingLeft: `${props.depth * 22}px` }));
 const detailIndentStyle = computed(() => ({ marginLeft: `${props.depth * 22 + 22}px` }));
 
@@ -320,6 +324,24 @@ function truncate(value, maxLength) {
 .assistant-step-row.status-running .assistant-step-icon,
 .assistant-step-row.status-running .assistant-step-name {
   color: var(--color-brand-accent);
+}
+
+/* agent 节点:icon + 名称按该 agent 语义色着色,与侧栏/运行中心同色。
+   运行中 accent 优先级更高(status-running 在后覆盖)。 */
+.assistant-step-row.is-agent .assistant-step-icon,
+.assistant-step-row.is-agent .assistant-step-name {
+  color: var(--agent-accent, var(--color-text-muted));
+}
+
+.assistant-step-row.is-agent.status-running .assistant-step-icon,
+.assistant-step-row.is-agent.status-running .assistant-step-name {
+  color: var(--agent-accent, var(--color-brand-accent));
+}
+
+.assistant-step-row.is-agent.status-error .assistant-step-icon,
+.assistant-step-row.is-agent.status-error .assistant-step-name,
+.assistant-step-row.is-agent.status-error .assistant-step-summary {
+  color: var(--color-error);
 }
 
 .assistant-step-row.status-error .assistant-step-icon,
