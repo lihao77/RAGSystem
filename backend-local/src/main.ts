@@ -4,6 +4,10 @@ import { buildCoreApp } from "@ragsystem/backend-core/core-app.js";
 import { createLocalProductPlugins } from "./product-plugins.js";
 
 const environment = loadEnvSource(process.env, process.env.INIT_CWD?.trim() || process.cwd());
+// Plugin modules are loaded dynamically and may read process.env during create().
+// Keep the resolved .env source visible to those modules while preserving
+// values explicitly supplied by the parent process (loadEnvSource precedence).
+Object.assign(process.env, environment);
 const env = loadEnv(environment);
 const socketPath = environment.BACKEND_TS_SOCKET_PATH?.trim();
 const deployment = createLocalDeploymentRuntime(env);

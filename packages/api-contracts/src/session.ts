@@ -30,6 +30,10 @@ export const UpdateSessionPermissionModeRequestSchema = z.object({
   mode: PermissionModeSchema,
 }).strict();
 
+export const UpdateSessionMetadataRequestSchema = z.object({
+  patch: z.record(z.string(), z.unknown()),
+}).strict();
+
 const SessionMetadataSchema = z.record(z.string(), z.unknown());
 
 export const SessionOriginSchema = z.object({
@@ -220,6 +224,9 @@ export const SessionListResponseSchema = successResponseSchema(SessionListDataSc
 export const SessionListFacetsResponseSchema = successResponseSchema(SessionListFacetsSchema);
 export const WorkspaceListResponseSchema = successResponseSchema(WorkspaceListDataSchema);
 export const SessionPermissionResponseSchema = successResponseSchema(SessionPermissionDataSchema);
+export const SessionMetadataResponseSchema = successResponseSchema(z.object({
+  metadata: z.record(z.string(), z.unknown()),
+}).strict());
 export const SessionMessageListResponseSchema = successResponseSchema(SessionMessageListDataSchema);
 export const SessionMessageRunStepsResponseSchema = successResponseSchema(SessionMessageRunStepsDataSchema);
 export const SessionParticipantRunListResponseSchema = successResponseSchema(SessionParticipantRunListDataSchema);
@@ -245,6 +252,7 @@ export type SessionOriginChannel = z.infer<typeof SessionOriginChannelSchema>;
 export type SessionOrigin = z.infer<typeof SessionOriginSchema>;
 export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
 export type UpdateSessionPermissionModeRequest = z.infer<typeof UpdateSessionPermissionModeRequestSchema>;
+export type UpdateSessionMetadataRequest = z.infer<typeof UpdateSessionMetadataRequestSchema>;
 export type CreatedSession = z.infer<typeof CreatedSessionSchema>;
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 export type SessionListItem = z.infer<typeof SessionListItemSchema>;
@@ -269,6 +277,7 @@ export type WorkspaceListResponse = z.infer<typeof WorkspaceListResponseSchema>;
 export type CreateWorkspaceRequest = z.infer<typeof CreateWorkspaceRequestSchema>;
 export type WorkspaceResponse = z.infer<typeof WorkspaceResponseSchema>;
 export type SessionPermissionResponse = z.infer<typeof SessionPermissionResponseSchema>;
+export type SessionMetadataResponse = z.infer<typeof SessionMetadataResponseSchema>;
 export type SessionMessageListResponse = z.infer<typeof SessionMessageListResponseSchema>;
 export type SessionMessageRunStepsResponse = z.infer<typeof SessionMessageRunStepsResponseSchema>;
 export type SessionParticipantRunListResponse = z.infer<typeof SessionParticipantRunListResponseSchema>;

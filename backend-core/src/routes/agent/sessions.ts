@@ -12,7 +12,9 @@ import {
   SessionParticipantRunStepsResponseSchema,
   SessionParticipantListResponseSchema,
   SessionPermissionResponseSchema,
+  SessionMetadataResponseSchema,
   SessionWsTicketResponseSchema,
+  UpdateSessionMetadataRequestSchema,
   UpdateSessionPermissionModeRequestSchema,
   type SessionListFacets,
   type SessionListItem,
@@ -71,6 +73,7 @@ interface BackgroundTaskParams extends SessionParams {
 }
 
 const BackgroundTaskIdSchema = z.string().uuid();
+const SESSION_METADATA_PATCH_MAX_BYTES = 256 * 1024;
 const CancelBackgroundTasksRequestSchema = z.object({
   task_ids: z.array(BackgroundTaskIdSchema).min(1).max(100),
 }).strict().superRefine((value, context) => {
@@ -198,6 +201,17 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     if (!session) throw new HttpError(404, "not_found", "会话不存在");
     await assertSessionReadable(request, session);
     return validateResponse(SessionDetailResponseSchema, ok(await assembleSessionDetail(session, sessions, options, request), "获取会话成功"));
+  });
+
+  app.patch<{ Params: SessionParams }>("/sessions/:sessionId/metadata", async (request) => {
+    const sessions = await resolveSessionApplication(options, request);
+    await loadMutableSession(request, request.params.sessionId, sessions);
+    const payload = UpdateSessionMetadataRequestSchema.parse(request.body);
+    if (Buffer.byteLength(JSON.stringify(payload.patch), "utf8") > SESSION_METADATA_PATCH_MAX_BYTES) {
+      throw new HttpError(413, "invalid_request", "会话元数据 patch 超过大小限制");
+    }
+    const metadata = await sessions.updateSessionMetadata(request.params.sessionId, payload.patch);
+    return validateResponse(SessionMetadataResponseSchema, ok({ metadata }, "会话元数据已更新"));
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/ws-ticket", async (request) => {
