@@ -169,6 +169,19 @@ const shots = [
     ],
   },
   {
+    name: 'chat-inline-execution-mobile',
+    path: '/?__smoke=artifact',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'expectText', selector: '.message-stream', text: '工具调用' },
+      { type: 'click', selector: 'button[title="展开执行步骤"]', waitMs: 300 },
+      { type: 'expectText', selector: '.message-stream', text: '读取监测数据并生成趋势图。' },
+      { type: 'expectVisible', selector: 'button[title="收起执行步骤"]' },
+    ],
+  },
+  {
     name: 'chat-mobile-runtime-execution',
     path: '/?__smoke=artifact',
     width: 390,

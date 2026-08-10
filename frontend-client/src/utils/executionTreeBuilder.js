@@ -126,7 +126,10 @@ function buildAgentChildren(agent, consumedChildIds, injections = []) {
         agent_display_name: agent.displayName || agent.agentId,
         round: round.round,
         intent: round.intent || '',
-        status: round.toolCalls?.some(t => t.status === 'running') ? 'running' : 'success',
+        intent_complete: round.intentComplete !== false,
+        status: round.intentComplete === false || round.toolCalls?.some(t => t.status === 'running')
+          ? 'running'
+          : 'success',
         children: roundChildren,
       });
     } else {

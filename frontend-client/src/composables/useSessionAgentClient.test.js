@@ -41,7 +41,6 @@ function createConnectionDeps(chatSdkClient) {
     handleStop: noop,
     scrollToBottom: noop,
     showToast: noop,
-    userInputDialogRef: ref(null),
     chatSdkClient,
   };
 }

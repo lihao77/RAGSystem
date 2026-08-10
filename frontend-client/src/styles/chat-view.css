@@ -25,7 +25,9 @@
   --ctx-ring-warning: var(--color-warning);
   --ctx-ring-danger: var(--color-error);
   /* 消息气泡 */
-  --user-bubble-corner: 4px;
+  --message-list-gap: 16px;
+  --message-bubble-radius: 16px;
+  --user-bubble-corner: var(--message-bubble-radius);
   /* 编辑框 */
   --edit-input-min-height: 90px;
 }
@@ -217,11 +219,13 @@
 }
 
 .chat-messages-wrapper {
+  position: relative;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  scrollbar-gutter: stable;
 }
 
 .chat-main:not(.has-messages) .chat-messages-wrapper {
@@ -455,13 +459,13 @@
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: var(--chat-message-gap);
+  gap: var(--message-list-gap);
 }
 
 .message {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: 4px;
   opacity: 0;
   /* Apple-style smooth entrance */
   animation: messageSlideIn 0.5s var(--ease-default) forwards;
@@ -542,9 +546,9 @@
   will-change: transform;
 }
 
-/* User 消息根据内容自适应，最大 85% */
+/* 与 Widget 一致：用户消息自适应，最多占消息列的 80%。 */
 .message.user .message-content-wrapper {
-  max-width: var(--user-message-max-width);
+  max-width: 80%;
   width: auto;
   transform-origin: top right;
   transition:
@@ -559,7 +563,7 @@
 .message-content {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: 10px;
   transition: gap var(--edit-transition-duration) var(--edit-transition-ease), opacity var(--edit-transition-duration) var(--edit-transition-ease), transform var(--edit-transition-duration) var(--edit-transition-ease);
 }
 
@@ -567,14 +571,14 @@
 
 /* #3: 正常态气泡 */
 .user-text {
-  background: var(--color-bg-tertiary);
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius-lg);
+  background: var(--color-bg-message-user);
+  padding: 8px 14px;
+  border-radius: var(--message-bubble-radius);
   border-bottom-right-radius: var(--user-bubble-corner);
   border: 1px solid transparent;
   color: var(--color-text-primary);
   line-height: 1.55;
-  font-size: var(--font-size-base);
+  font-size: 14px;
   white-space: pre-wrap;
   word-break: break-word;
   outline: none;
@@ -767,6 +771,11 @@
   box-shadow: none;
 }
 
+.message.assistant .markdown-body {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
 /* ===== Loading Indicator ===== */
 .loading-indicator {
   display: inline-flex;
@@ -857,6 +866,23 @@
   font-size: var(--font-size-sm);
 }
 
+.chat-bottom-region {
+  position: sticky;
+  bottom: 0;
+  flex: 0 0 auto;
+  min-width: 0;
+  z-index: var(--z-sticky);
+}
+
+.chat-bottom-region--new-chat {
+  position: absolute;
+  top: 50%;
+  bottom: auto;
+  left: 0;
+  width: 100%;
+  transform: translateY(-100px);
+}
+
 .bottom-dock {
   position: relative;
   bottom: auto;
@@ -866,14 +892,6 @@
   z-index: var(--z-sticky);
   pointer-events: none;
   transition: bottom 240ms var(--edit-transition-ease);
-}
-
-.bottom-dock--new-chat {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  bottom: auto;
-  transform: translateY(-100px);
 }
 
 .bottom-dock > * {
@@ -1047,7 +1065,7 @@
     padding-inline: 12px;
   }
 
-  .chat-main:not(.has-messages) .bottom-dock--new-chat {
+  .chat-bottom-region--new-chat {
     top: 47%;
     transform: translateY(-92px);
   }

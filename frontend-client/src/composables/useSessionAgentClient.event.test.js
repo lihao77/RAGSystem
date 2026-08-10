@@ -154,7 +154,6 @@ function createDeps(overrides = {}) {
     activeRun: sessionRunStore.activeRun,
     llmRetryState,
     pendingFollowupCandidates,
-    userInputDialogRef: ref(null),
     getWS: () => null,
     createAssistantMessage,
     clearSessionResumeRecovery: () => {},

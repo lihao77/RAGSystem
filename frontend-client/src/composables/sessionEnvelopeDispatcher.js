@@ -98,11 +98,8 @@ export function createSessionEnvelopeDispatcher({
       }
     };
     const cancelUserInput = async () => { await getStop()(); };
-    if (deps.showUserInput) {
-      deps.showUserInput(inputData, submitUserInput, cancelUserInput);
-    } else {
-      deps.userInputDialogRef.value?.show(inputData, submitUserInput, cancelUserInput);
-    }
+    // 用户输入由聊天区的 ChatInteractionHost 统一承载，不能回退到旧的浮层弹窗。
+    deps.showUserInput?.(inputData, submitUserInput, cancelUserInput);
   };
 
   /** @param {AnyRecord} eventData */

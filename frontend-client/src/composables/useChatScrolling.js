@@ -20,7 +20,7 @@ export function useChatScrolling(deps) {
   // --- 内容高度变化自动跟随（双 Observer） ---
   let mutationObs = null;
   let resizeObs = null;
-  let observedChild = null;
+  let observedChildren = new Set();
   let lastObsScrollHeight = 0;   // Observer 用的高度基线
   let lastObsClientHeight = 0;   // 滚动区自身高度变化（如底部输入区变高）
   let lastHandleHeight = 0;      // handleScroll 用的高度基线（独立，避免竞态）
@@ -47,18 +47,24 @@ export function useChatScrolling(deps) {
     });
   };
 
-  /** 对滚动容器的直接子元素挂 ResizeObserver */
-  const reobserveChild = (container) => {
-    if (observedChild && resizeObs) resizeObs.unobserve(observedChild);
-    observedChild = container.firstElementChild;
-    if (observedChild && resizeObs) resizeObs.observe(observedChild);
+  /** 对滚动容器的所有直接子元素挂 ResizeObserver，包括消息区和底部交互区。 */
+  const reobserveChildren = (container) => {
+    if (!resizeObs) return;
+    const nextChildren = new Set(container.children);
+    for (const child of observedChildren) {
+      if (!nextChildren.has(child)) resizeObs.unobserve(child);
+    }
+    for (const child of nextChildren) {
+      if (!observedChildren.has(child)) resizeObs.observe(child);
+    }
+    observedChildren = nextChildren;
   };
 
   const cleanupObservers = () => {
     if (pendingRaf) { cancelAnimationFrame(pendingRaf); pendingRaf = null; }
     if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
     if (mutationObs) { mutationObs.disconnect(); mutationObs = null; }
-    if (resizeObs) { resizeObs.disconnect(); resizeObs = null; observedChild = null; }
+    if (resizeObs) { resizeObs.disconnect(); resizeObs = null; observedChildren = new Set(); }
   };
 
   watch(messagesRef, (el) => {
@@ -73,7 +79,7 @@ export function useChatScrolling(deps) {
       // 直接子元素变化时，重新挂 ResizeObserver
       for (const m of mutations) {
         if (m.target === el && m.type === 'childList') {
-          reobserveChild(el);
+          reobserveChildren(el);
           break;
         }
       }
@@ -84,7 +90,7 @@ export function useChatScrolling(deps) {
     // ResizeObserver：捕获尺寸变化（ECharts canvas resize、图片加载、CSS 过渡等）
     resizeObs = new ResizeObserver(scheduleFollowScroll);
     resizeObs.observe(el);
-    reobserveChild(el);
+    reobserveChildren(el);
   });
 
   onScopeDispose(cleanupObservers);

@@ -53,19 +53,39 @@
             <ParticipantThreadEmpty v-else :participant="selectedParticipant" />
           </template>
         </ChatMessageList>
-      </div>
-      <div v-if="isRootParticipant" class="bottom-dock" :class="{ 'bottom-dock--new-chat': !hasMessages, 'bottom-dock--launching': newChatLaunching && hasMessages }">
-         <transition name="scroll-btn-fade">
-            <LiquidGlass v-if="showScrollToBottomButton" :width="40" :height="40" :radius="999"
-              extra-filter="blur(2px) contrast(1.15) brightness(1.06) saturate(1.1)"
-              class="scroll-to-bottom-btn" @click="onScrollToBottomClick"
-              :title="unreadCount > 0 ? `${unreadCount} 条新消息，滚动到底部` : '滚动到底部'"
-              :aria-label="unreadCount > 0 ? `${unreadCount} 条新消息，滚动到底部` : '滚动到底部'">
-              <IconChevronDown :size="18" />
-              <span v-if="unreadCount > 0" class="scroll-unread-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
-            </LiquidGlass>
-          </transition>
-          <div class="input-area-wrapper" :class="{ 'input-area-wrapper--new-chat': !hasMessages }">
+      <div
+        class="chat-bottom-region"
+        :class="{
+          'chat-bottom-region--interaction': approvalQueue.length || pendingUserInput,
+          'chat-bottom-region--new-chat': !hasMessages,
+        }"
+      >
+        <transition name="scroll-btn-fade">
+          <LiquidGlass v-if="isRootParticipant && showScrollToBottomButton" :width="40" :height="40" :radius="999"
+            extra-filter="blur(2px) contrast(1.15) brightness(1.06) saturate(1.1)"
+            class="scroll-to-bottom-btn" @click="onScrollToBottomClick"
+            :title="unreadCount > 0 ? `${unreadCount} 条新消息，滚动到底部` : '滚动到底部'"
+            :aria-label="unreadCount > 0 ? `${unreadCount} 条新消息，滚动到底部` : '滚动到底部'">
+            <IconChevronDown :size="18" />
+          </LiquidGlass>
+        </transition>
+        <Transition name="chat-surface-swap" mode="out-in">
+          <ChatInteractionHost
+            v-if="approvalQueue.length || pendingUserInput"
+            key="interaction"
+            :approval-queue="chatApprovalQueue"
+            :approval-submitting-id="approvalSubmittingId"
+            :pending-user-input="pendingUserInput"
+            :response-allowed="canRespondInteraction"
+            @approval-submit="({ approvalId, approved, message }) => submitApproval(approvalId, approved, message, currentSessionId)"
+            @user-input-submit="handleUserInputSubmit"
+            @user-input-cancel="handleUserInputCancel"
+          />
+          <div v-else-if="isRootParticipant" key="composer" class="bottom-dock" :class="{ 'bottom-dock--launching': newChatLaunching && hasMessages }">
+          <div
+            class="input-area-wrapper"
+            :class="{ 'input-area-wrapper--new-chat': !hasMessages }"
+          >
           <TransitionGroup
             v-if="pendingFollowupCandidates.length"
             name="followup-candidate"
@@ -144,10 +164,12 @@
             </template>
           </ChatInput>
         </div>
+        </div>
+        </Transition>
+      </div>
       </div>
     </div><!-- end .chat-conversation-column -->
     <ApprovalQueueHost
-      ref="approvalQueueHostRef"
       :show-work-panel="visibleWorkPanel"
       :disable-transition="switchingToNewChat"
       :active-run="workPanelActiveRun"
@@ -155,10 +177,6 @@
       :execution-messages="workPanelExecutionMessages"
       :injections-by-run-id="injectionsByRunId"
       :message-key="selectedWorkPanelMessageKey"
-     :approval-queue="approvalQueue"
-      :approval-submitting-id="approvalSubmittingId"
-      :pending-user-input="pendingUserInput"
-      :interaction-response-allowed="canRespondInteraction"
       :context-usage="contextUsage"
       :session-id="currentSessionId || ''"
       :is-wide-screen="isWideScreen"
@@ -166,9 +184,6 @@
       v-model:active-tab="runtimeActiveTab"
       :task-state="backgroundTaskState"
       :goal-state="goalState"
-      @approval-submit="({ approvalId, approved, message }) => submitApproval(approvalId, approved, message, currentSessionId)"
-      @user-input-submit="handleWorkPanelUserInputSubmit"
-      @user-input-cancel="handleWorkPanelUserInputCancel"
       @file-select="handleFileSelect"
       @file-changes="fileChangesOpen = true"
       @select-execution-message="selectWorkPanelMessage"
@@ -253,6 +268,7 @@ import ChatEmptyState from '../components/chat/ChatEmptyState.vue';
 import SessionContextBar from '../components/chat/SessionContextBar.vue';
 import SessionParticipantNav from '../components/chat/SessionParticipantNav.vue';
 import ParticipantThreadEmpty from '../components/chat/ParticipantThreadEmpty.vue';
+import ChatInteractionHost from '../components/chat/ChatInteractionHost.vue';
 import ApprovalQueueHost from '../components/chat/ApprovalQueueHost.vue';
 import TaskLauncher from '../components/chat/TaskLauncher.vue';
 import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
@@ -337,7 +353,6 @@ function openCitation(citation) { citationFile.file_id = citation?.file_id || ''
 function openAttachmentImages(attachments, selected) { const items = (attachments || []).filter(item => item && (item.mime?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(item.original_name || item.stored_name || ''))).map(item => ({ src: getAttachmentPreviewUrl(item), alt: item.original_name || item.stored_name || '图片', source: item })); const index = Math.max(0, items.findIndex(item => item.source === selected)); imageLightbox.show(items, index); }
 const sessionFilesDrawerTarget = ref('composer');
 const chatInputRef = ref(null);
-const approvalQueueHostRef = ref(null);
 const filePreviewDialogRef = ref(null);
 const toast = useToast();
 const ctxDrawerVisible = ref(false);
@@ -427,6 +442,7 @@ const {
   isRootEvent,
   isMasterEvent,
   findRunningExecutionAgentByAgentId,
+  ensureExecutionStepsLoaded,
   selectedWorkPanelMessageKey,
   getWorkPanelMessageKey,
   currentRunMessage,
@@ -529,14 +545,11 @@ const {
   submitApproval,
   resetApprovalState,
   showUserInput,
-  handleWorkPanelUserInputSubmit,
-  handleWorkPanelUserInputCancel,
+  handleUserInputSubmit,
+  handleUserInputCancel,
   handleUserInputResolved,
 } = useApprovalQueue({
-  showWorkPanel: visibleWorkPanel,
-  openExecutionPanel: () => openRuntimeCenter('execution'),
   currentSessionId,
-  approvalQueueHostRef,
   filePreviewDialogRef,
   respondInteraction: (id, response) => respondInteraction(id, response),
   canRespondInteraction: () => sessionRunStore.allowsRuntimeAction('respond_interaction'),
@@ -544,6 +557,15 @@ const {
 });
 
 const hasMessages = computed(() => messages.value.length > 0);
+// 大文件读取确认使用专用预览对话框；阻止其后的审批越过队列提前显示。
+const chatApprovalQueue = computed(() => {
+  const firstFilePreviewIndex = approvalQueue.value.findIndex(
+    approval => approval?.approval_type === 'file_read_confirm',
+  );
+  return firstFilePreviewIndex < 0
+    ? approvalQueue.value
+    : approvalQueue.value.slice(0, firstFilePreviewIndex);
+});
 const runtimeActions = computed(() => new Set(sessionRuntime.value?.allowed_actions || []));
 const canSendMessage = computed(() => !currentSessionId.value
   || runtimeActions.value.has('send_message')
@@ -731,6 +753,7 @@ const messageContext = reactive({
   copyMessage,
   getWorkPanelMessageKey,
   selectWorkPanelMessage,
+  ensureExecutionStepsLoaded,
   openWorkPanelMessage: async (message) => {
     openRuntimeCenter('execution');
     await selectWorkPanelMessage(message);
@@ -927,6 +950,33 @@ onUnmounted(() => {
 .followup-candidate-leave-to {
   opacity: 0;
   transform: translateY(5px);
+}
+
+.chat-surface-swap-enter-active,
+.chat-surface-swap-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 220ms var(--ease-out-expo),
+    filter 180ms ease;
+}
+
+.chat-surface-swap-enter-from {
+  opacity: 0;
+  filter: blur(2px);
+  transform: translateY(10px) scale(0.99);
+}
+
+.chat-surface-swap-leave-to {
+  opacity: 0;
+  filter: blur(1.5px);
+  transform: translateY(6px) scale(0.995);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-surface-swap-enter-active,
+  .chat-surface-swap-leave-active {
+    transition-duration: 1ms;
+  }
 }
 
 /* #9: 压缩摘要 - 已移除独立卡片样式，走通用 assistant 渲染路径 */
@@ -1167,26 +1217,6 @@ onUnmounted(() => {
 .scroll-to-bottom-btn:focus-visible {
   outline: 2px solid var(--color-border-focus);
   outline-offset: 3px;
-}
-
-.scroll-unread-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  color: var(--color-accent-fg);
-  background: var(--color-accent);
-  border: 2px solid var(--color-bg-primary);
-  border-radius: var(--radius-full);
-  font-variant-numeric: tabular-nums;
 }
 
 .scroll-btn-fade-enter-active,

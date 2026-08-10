@@ -105,3 +105,17 @@ test('keeps child execution as a reference instead of nesting its full tree', ()
   assert.equal(node.participant_id, 'child-worker');
   assert.deepEqual(node.children, []);
 });
+
+test('preserves intent completion so inline rendering only streams the active intent', () => {
+  const tree = treeWith([], []);
+  tree.root.rounds[0].intentComplete = false;
+
+  const [thought] = buildExecutionTree(tree);
+  assert.equal(thought.intent_complete, false);
+  assert.equal(thought.status, 'running');
+
+  tree.root.rounds[0].intentComplete = true;
+  const [completedThought] = buildExecutionTree(tree);
+  assert.equal(completedThought.intent_complete, true);
+  assert.equal(completedThought.status, 'success');
+});

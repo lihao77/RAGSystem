@@ -27,8 +27,6 @@
         :phase="activeRun.phase"
         :run-started-at="activeRun.runStartedAt"
         :context-usage="contextUsage"
-        :pending-input="Boolean(pendingUserInput)"
-        :approval-count="approvalQueue.length"
         :running-tool-count="runningToolCount"
         :running-model-count="runningModelCount"
         :has-error="messageHasError"
@@ -57,24 +55,6 @@
           />
         </Transition>
 
-        <Transition name="wp-overlay">
-          <div v-if="pendingUserInput || approvalQueue.length > 0" class="wp-overlay-stack">
-            <WorkPanelUserInput
-              v-if="pendingUserInput"
-              :input-data="pendingUserInput.data"
-              :response-allowed="interactionResponseAllowed"
-              @submit="emit('userInputSubmit', $event)"
-              @cancel="emit('userInputCancel')"
-            />
-            <WorkPanelApproval
-              v-if="approvalQueue.length > 0"
-              :queue="approvalQueue"
-              :submitting-id="approvalSubmittingId"
-              :response-allowed="interactionResponseAllowed"
-              @submit="emit('approvalSubmit', $event)"
-            />
-          </div>
-        </Transition>
       </div>
     </div>
   </aside>
@@ -85,8 +65,6 @@ import { computed } from 'vue'
 import { cn } from '@/lib/utils'
 import WorkPanelRunStatus from './WorkPanelRunStatus.vue'
 import WorkPanelExecution from './WorkPanelExecution.vue'
-import WorkPanelApproval from './WorkPanelApproval.vue'
-import WorkPanelUserInput from './WorkPanelUserInput.vue'
 import BackgroundTasksPanel from './BackgroundTasksPanel.vue'
 import GoalPanel from './GoalPanel.vue'
 import FileOutputPanel from '../chat/FileOutputPanel.vue'
@@ -98,10 +76,6 @@ const props = defineProps({
   executionMessages: { type: Array, default: () => [] },
   injectionsByRunId: { type: Object, default: () => ({}) },
   messageKey: { type: String, default: '' },
-  approvalQueue: { type: Array, default: () => [] },
-  approvalSubmittingId: { type: String, default: '' },
-  pendingUserInput: { type: Object, default: null },
-  interactionResponseAllowed: { type: Boolean, default: false },
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
   sessionId: { type: String, default: '' },
   activeTab: { type: String, default: 'execution' },
@@ -112,9 +86,6 @@ const props = defineProps({
 
 const emit = defineEmits([
   'update:activeTab',
-  'approvalSubmit',
-  'userInputSubmit',
-  'userInputCancel',
   'fileSelect',
   'fileChanges',
   'selectExecutionMessage',
@@ -215,16 +186,6 @@ const currentInjections = computed(() => {
   overflow: hidden;
 }
 
-.wp-overlay-stack {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 10;
-  padding-top: 22px;
-  will-change: transform, opacity;
-}
-
 .wp-content-enter-active,
 .wp-content-leave-active {
   transition: opacity var(--duration-base) ease, transform var(--duration-base) ease;
@@ -240,29 +201,14 @@ const currentInjections = computed(() => {
   transform: translateY(-6px);
 }
 
-.wp-overlay-enter-active,
-.wp-overlay-leave-active {
-  transition: opacity var(--duration-base) ease, transform var(--duration-base) cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.wp-overlay-enter-from,
-.wp-overlay-leave-to {
-  opacity: 0;
-  transform: translateY(14px);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .wp-content-enter-active,
-  .wp-content-leave-active,
-  .wp-overlay-enter-active,
-  .wp-overlay-leave-active {
+  .wp-content-leave-active {
     transition-duration: 1ms;
   }
 
   .wp-content-enter-from,
-  .wp-content-leave-to,
-  .wp-overlay-enter-from,
-  .wp-overlay-leave-to {
+  .wp-content-leave-to {
     transform: none;
   }
 }

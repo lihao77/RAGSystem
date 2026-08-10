@@ -9,10 +9,6 @@
       :current-message="currentMessage"
       :execution-messages="executionMessages"
       :injections-by-run-id="injectionsByRunId"
-      :approval-queue="approvalQueue"
-      :approval-submitting-id="approvalSubmittingId"
-      :pending-user-input="pendingUserInput"
-      :interaction-response-allowed="interactionResponseAllowed"
       :context-usage="contextUsage"
       :session-id="sessionId"
       :message-key="messageKey"
@@ -20,9 +16,6 @@
       :task-state="taskState"
       :goal-state="goalState"
       @update:active-tab="emit('update:activeTab', $event)"
-      @approval-submit="emit('approvalSubmit', $event)"
-      @user-input-submit="emit('userInputSubmit', $event)"
-      @user-input-cancel="emit('userInputCancel')"
       @file-select="emit('fileSelect', $event)"
       @file-changes="emit('fileChanges')"
       @select-execution-message="emit('selectExecutionMessage', $event)"
@@ -41,10 +34,6 @@
         :current-message="currentMessage"
         :execution-messages="executionMessages"
         :injections-by-run-id="injectionsByRunId"
-        :approval-queue="approvalQueue"
-        :approval-submitting-id="approvalSubmittingId"
-        :pending-user-input="pendingUserInput"
-        :interaction-response-allowed="interactionResponseAllowed"
         :context-usage="contextUsage"
         :session-id="sessionId"
         :message-key="messageKey"
@@ -52,9 +41,6 @@
         :task-state="taskState"
         :goal-state="goalState"
         @update:active-tab="emit('update:activeTab', $event)"
-        @approval-submit="emit('approvalSubmit', $event)"
-        @user-input-submit="emit('userInputSubmit', $event)"
-        @user-input-cancel="emit('userInputCancel')"
         @file-select="emit('fileSelect', $event)"
         @file-changes="emit('fileChanges')"
         @select-execution-message="emit('selectExecutionMessage', $event)"
@@ -62,14 +48,9 @@
     </SheetContent>
   </Sheet>
 
-  <ApprovalDialog ref="approvalDialogRef" />
-  <UserInputDialog ref="userInputDialogRef" />
 </template>
 
 <script setup>
-import { ref } from 'vue';
-import ApprovalDialog from '../ApprovalDialog.vue';
-import UserInputDialog from '../UserInputDialog.vue';
 import WorkPanel from '../workpanel/WorkPanel.vue';
 import {
   Sheet,
@@ -85,10 +66,6 @@ defineProps({
   currentMessage: { type: Object, default: null },
   executionMessages: { type: Array, default: () => [] },
   injectionsByRunId: { type: Object, default: () => ({}) },
-  approvalQueue: { type: Array, default: () => [] },
-  approvalSubmittingId: { type: String, default: '' },
-  pendingUserInput: { type: Object, default: null },
-  interactionResponseAllowed: { type: Boolean, default: false },
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
   sessionId: { type: String, default: '' },
   messageKey: { type: String, default: '' },
@@ -103,35 +80,11 @@ defineProps({
 const emit = defineEmits([
   'update:mobileOpen',
   'update:activeTab',
-  'approvalSubmit',
-  'userInputSubmit',
-  'userInputCancel',
   'fileSelect',
   'fileChanges',
   'selectExecutionMessage',
 ]);
 
-const approvalDialogRef = ref(null);
-const userInputDialogRef = ref(null);
-
-const showApproval = (...args) => approvalDialogRef.value?.show?.(...args);
-const hideApproval = () => approvalDialogRef.value?.hide?.();
-const toggleApprovalCollapsed = () => approvalDialogRef.value?.toggleCollapsed?.();
-
-const showUserInput = (...args) => userInputDialogRef.value?.show?.(...args);
-const hideUserInput = () => userInputDialogRef.value?.hide?.();
-const toggleUserInputCollapsed = () => userInputDialogRef.value?.toggleCollapsed?.();
-
-defineExpose({
-  show: showApproval,
-  hide: hideApproval,
-  showApproval,
-  hideApproval,
-  toggleApprovalCollapsed,
-  showUserInput,
-  hideUserInput,
-  toggleUserInputCollapsed,
-});
 </script>
 
 <style scoped>

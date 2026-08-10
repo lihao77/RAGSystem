@@ -16,7 +16,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 
-const BACKEND_BASE = (process.env.WIDGET_BACKEND_BASE || "http://localhost:5002").replace(/\/$/, "");
+const BACKEND_BASE = (process.env.WIDGET_BACKEND_BASE || "http://localhost:5003").replace(/\/$/, "");
 
 // 读同级 .env（如存在）补充环境变量——跨 shell 友好（PowerShell $env: 与 CMD set 语法不同，.env 统一）。
 const dotEnvPath = path.resolve(import.meta.dirname, ".env");

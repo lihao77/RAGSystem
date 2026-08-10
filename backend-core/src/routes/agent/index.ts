@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 
 import type { AgentRouteOptions, RouteOptions } from "../route-options.js";
+import { registerAguiRoutes } from "./agui.js";
 import { registerAgentManagementRoutes } from "./agents.js";
 import { registerAnalyticsRoutes } from "./analytics.js";
 import { registerExecutionRoutes } from "./execution.js";
@@ -37,4 +38,7 @@ export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async 
   await app.register(registerFileChangeRoutes, routeOptions);
   await app.register(registerWorkspaceFileRoutes, routeOptions);
   await app.register(registerSessionRoutes, routeOptions);
+  // Keep a tenant-authenticated AG-UI endpoint available even when the Widget
+  // plugin owns the public /api/agui route.
+  await app.register(registerAguiRoutes, { prefix: "/agui", ...routeOptions });
 };

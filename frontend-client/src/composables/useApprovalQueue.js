@@ -19,7 +19,7 @@ function normalizeApprovalEventData(event, eventData) {
 }
 
 /**
- * 审批队列、提交和工作栏内联用户输入管理。
+ * 审批队列、提交和聊天区内联用户输入管理。
  */
 export function useApprovalQueue(deps) {
   const approvalQueue = ref([]);
@@ -27,12 +27,7 @@ export function useApprovalQueue(deps) {
   const pendingUserInput = ref(null); // { data, submit, cancel }
 
   const hideApprovalDialogs = () => {
-    deps.approvalQueueHostRef.value?.hideApproval?.();
     deps.filePreviewDialogRef.value?.hide?.();
-  };
-
-  const openExecutionPanel = () => {
-    deps.openExecutionPanel?.();
   };
 
   const removeApprovalFromQueue = (approvalId) => {
@@ -42,9 +37,7 @@ export function useApprovalQueue(deps) {
 
   const showQueuedApproval = (approval, sessionId) => {
     if (!approval?.approval_id || !sessionId) return;
-    const dialogRef = approval?.approval_type === 'file_read_confirm'
-      ? deps.filePreviewDialogRef.value
-      : deps.approvalQueueHostRef.value;
+    const dialogRef = deps.filePreviewDialogRef.value;
     if (!dialogRef?.show) return;
     dialogRef.show(
       { ...approval, queue_count: approvalQueue.value.length || 1 },
@@ -55,8 +48,8 @@ export function useApprovalQueue(deps) {
 
   const showNextApproval = (sessionId = deps.currentSessionId.value) => {
     if (!sessionId || approvalSubmittingId.value) return;
-    // WorkPanel 模式：审批框靠 approvalQueue prop 自动渲染（currentApproval = queue[0]），
-    // resolve 后 queue[0] 自动切到下一个，不触发 ApprovalQueueHost 弹窗——避免窄屏弹窗覆盖工作栏。
+    // 普通审批始终由聊天区的 ChatInteractionHost 渲染；只有文件读取确认
+    // 继续使用专用预览对话框，避免把文件预览流程塞进消息列表。
     const nextApproval = approvalQueue.value[0] || null;
     if (!nextApproval) {
       hideApprovalDialogs();
@@ -66,9 +59,10 @@ export function useApprovalQueue(deps) {
       hideApprovalDialogs();
       return;
     }
-    // File preview confirmations keep their dedicated dialog even while the unified runtime
-    // center is open; ordinary approvals render inline in the execution tab.
-    if (deps.showWorkPanel.value && nextApproval.approval_type !== 'file_read_confirm') return;
+    if (nextApproval.approval_type !== 'file_read_confirm') {
+      hideApprovalDialogs();
+      return;
+    }
     hideApprovalDialogs();
     showQueuedApproval(nextApproval, sessionId);
   };
@@ -106,7 +100,7 @@ export function useApprovalQueue(deps) {
     }
   };
 
-  const handleWorkPanelUserInputSubmit = async ({ inputId, value } = {}) => {
+  const handleUserInputSubmit = async ({ inputId, value } = {}) => {
     const pending = pendingUserInput.value;
     if (!pending?.submit) return;
     if (deps.canRespondInteraction && !deps.canRespondInteraction()) {
@@ -122,7 +116,7 @@ export function useApprovalQueue(deps) {
     }
   };
 
-  const handleWorkPanelUserInputCancel = async () => {
+  const handleUserInputCancel = async () => {
     const pending = pendingUserInput.value;
     if (!pending?.cancel) {
       pendingUserInput.value = null;
@@ -137,18 +131,10 @@ export function useApprovalQueue(deps) {
       || pendingUserInput.value?.data?.interaction_id;
     if (!inputId || currentId !== inputId) return;
     pendingUserInput.value = null;
-    deps.approvalQueueHostRef.value?.hideUserInput?.();
   };
 
   const showUserInput = (eventData, submitFn, cancelFn) => {
-    openExecutionPanel();
-    if (deps.showWorkPanel.value) {
-      pendingUserInput.value = { data: eventData, submit: submitFn, cancel: cancelFn };
-      return;
-    }
-    if (!deps.canRespondInteraction || deps.canRespondInteraction()) {
-      deps.approvalQueueHostRef.value?.showUserInput?.(eventData, submitFn, cancelFn);
-    }
+    pendingUserInput.value = { data: eventData, submit: submitFn, cancel: cancelFn };
   };
 
   const resetApprovalState = () => {
@@ -165,7 +151,6 @@ export function useApprovalQueue(deps) {
     if (!exists) {
       approvalQueue.value = [...approvalQueue.value, approval];
     }
-    openExecutionPanel();
     showNextApproval(sessionId);
   };
 
@@ -179,8 +164,8 @@ export function useApprovalQueue(deps) {
     showNextApproval,
     showUserInput,
     resetApprovalState,
-    handleWorkPanelUserInputSubmit,
-    handleWorkPanelUserInputCancel,
+    handleUserInputSubmit,
+    handleUserInputCancel,
     handleUserInputResolved,
   };
 }
