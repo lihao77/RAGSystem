@@ -46,8 +46,7 @@ const messageContext = inject('messageContext');
 const normalizedParts = computed(() => normalizeMessageContentParts(props.parts));
 const currentSessionId = computed(() => props.sessionId || messageContext?.currentSessionId?.value || messageContext?.currentSessionId || '');
 const messageKey = computed(() => (
-  messageContext?.getWorkPanelMessageKey?.(props.msg)
-  || (props.msg?.id ? `id:${props.msg.id}` : props.msg?.seq != null ? `seq:${props.msg.seq}` : '')
+  props.msg?.id ? `id:${props.msg.id}` : props.msg?.seq != null ? `seq:${props.msg.seq}` : ''
 ));
 const messageId = computed(() => props.msg?.id || '');
 const messageSeq = computed(() => props.msg?.seq ?? null);

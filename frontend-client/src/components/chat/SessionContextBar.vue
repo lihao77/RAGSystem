@@ -35,43 +35,14 @@
         variant="ghost"
         size="sm"
         class="runtime-trigger"
-        title="打开执行过程"
-        aria-label="打开执行过程"
-        @click="emit('openRuntimeCenter', 'execution')"
+        :title="runtimeTriggerTitle"
+        aria-label="打开运行中心"
+        @click="emit('openRuntimeCenter', 'overview')"
       >
         <Activity />
-        <span class="runtime-trigger-label">执行</span>
-      </Button>
-
-      <Button
-        v-if="currentSessionId"
-        variant="ghost"
-        size="sm"
-        class="runtime-trigger"
-        :title="goalTriggerTitle"
-        aria-label="打开 Goal"
-        @click="emit('openRuntimeCenter', 'goal')"
-      >
-        <Target />
-        <span class="runtime-trigger-label">Goal</span>
-        <Badge v-if="goalState.goal" :variant="goalBadge.variant" class="runtime-trigger-badge">
-          {{ goalBadge.label }}
-        </Badge>
-      </Button>
-
-      <Button
-        v-if="currentSessionId"
-        variant="ghost"
-        size="sm"
-        class="runtime-trigger"
-        :title="backgroundTriggerTitle"
-        aria-label="打开后台任务"
-        @click="emit('openRuntimeCenter', 'background')"
-      >
-        <ListTodo />
-        <span class="runtime-trigger-label">后台</span>
-        <Badge v-if="taskState.runningCount" variant="secondary" class="runtime-trigger-badge">
-          {{ taskState.runningCount }}
+        <span class="runtime-trigger-label">运行</span>
+        <Badge v-if="runtimeBadge" :variant="runtimeBadge.variant" class="runtime-trigger-badge">
+          {{ runtimeBadge.label }}
         </Badge>
       </Button>
 
@@ -85,7 +56,6 @@
           <DropdownMenuLabel>会话操作</DropdownMenuLabel>
           <DropdownMenuGroup>
             <DropdownMenuItem
-              v-if="!isWideWorkbench"
               :disabled="!currentSessionId"
               @select="emit('openFileChanges')"
             >
@@ -116,8 +86,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { useMediaQuery } from '@vueuse/core';
-import { Activity, Download, Ellipsis, FileText, ListTodo, Moon, Sun, Target } from 'lucide-vue-next';
+import { Activity, Download, Ellipsis, FileText, Moon, Sun } from 'lucide-vue-next';
 import { IconMenu } from '../icons';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -134,8 +103,6 @@ import { useThemeStore } from '../../stores/theme.js';
 import SessionContextInfoButton from './SessionContextInfoButton.vue';
 
 const themeStore = useThemeStore();
-const isWideWorkbench = useMediaQuery('(min-width: 1200px)');
-
 const props = defineProps({
   currentSessionId: { type: String, default: '' },
   sessionTitle: { type: String, default: '新聊天' },
@@ -166,12 +133,18 @@ const goalBadge = computed(() => ({
   blocked: { label: '阻塞', variant: 'destructive' },
 }[props.goalState.goal?.status] || { label: '未知', variant: 'outline' }));
 
-const goalTriggerTitle = computed(() => props.goalState.goal
-  ? `Goal：${props.goalState.goal.objective || goalBadge.value.label}`
-  : '当前会话暂无 Goal');
-const backgroundTriggerTitle = computed(() => props.taskState.runningCount
-  ? `${props.taskState.runningCount} 个后台任务正在运行`
-  : '当前没有运行中的后台任务');
+const runtimeBadge = computed(() => {
+  if (props.taskState.runningCount) {
+    return { label: String(props.taskState.runningCount), variant: 'default' };
+  }
+  return props.goalState.goal ? goalBadge.value : null;
+});
+const runtimeTriggerTitle = computed(() => {
+  const details = [];
+  if (props.goalState.goal) details.push(`Goal ${goalBadge.value.label}`);
+  if (props.taskState.runningCount) details.push(`${props.taskState.runningCount} 个后台任务运行中`);
+  return details.length ? `打开运行中心：${details.join('，')}` : '打开运行中心';
+});
 </script>
 
 <style scoped>

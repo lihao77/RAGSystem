@@ -14,22 +14,6 @@
     </template>
 
     <template v-if="msg.role === 'assistant'">
-      <Button
-        v-if="hasExecutionContent(msg) || !msg.finished"
-        variant="ghost"
-        size="icon-xs"
-        :active="messageContext.selectedWorkPanelMessageKey === messageContext.getWorkPanelMessageKey(msg)"
-        aria-label="在运行中心查看执行树"
-        title="在运行中心查看执行树"
-        @click="messageContext.openWorkPanelMessage(msg)"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M6 3v12" />
-          <circle cx="6" cy="18" r="3" />
-          <path d="M6 9h8" />
-          <circle cx="17" cy="9" r="3" />
-        </svg>
-      </Button>
       <template v-if="msg.finished">
         <Button variant="ghost" size="icon-xs" :aria-label="copied ? '已复制' : '复制'" :title="copied ? '已复制' : '复制'" @click="onCopy(msg)">
           <IconCheck v-if="copied" :size="14" />
@@ -70,7 +54,6 @@ import { Button } from '../ui/button';
 import {
   getMessageExecutionTimeText,
   getMessageExecutionTimeTitle,
-  hasExecutionContent,
 } from '../../utils/message-render.js';
 import { inject, ref, onUnmounted } from 'vue';
 defineProps({

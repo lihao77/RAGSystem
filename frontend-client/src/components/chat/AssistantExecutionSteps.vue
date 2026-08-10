@@ -123,6 +123,7 @@ async function loadHistoricalSteps() {
 function nodeKey(node, index) {
   return getExecutionNodeKey(node) || `${node.type || 'step'}-${index}`;
 }
+
 </script>
 
 <style scoped>

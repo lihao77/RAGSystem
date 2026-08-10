@@ -1,24 +1,15 @@
-import { ref, unref, watch } from 'vue';
+import { ref } from 'vue';
 
-const RUNTIME_TABS = new Set(['execution', 'background', 'goal']);
+export function useSessionRuntimeCenter() {
+  const isOpen = ref(false);
 
-export function useSessionRuntimeCenter(isWideScreen) {
-  const activeTab = ref('execution');
-  const mobileOpen = ref(false);
-
-  function open(tab = 'execution') {
-    if (RUNTIME_TABS.has(tab)) activeTab.value = tab;
-    if (!unref(isWideScreen)) mobileOpen.value = true;
+  function open() {
+    isOpen.value = true;
   }
 
-  function closeMobile() {
-    mobileOpen.value = false;
+  function close() {
+    isOpen.value = false;
   }
 
-  watch(() => Boolean(unref(isWideScreen)), (wide) => {
-    if (wide) closeMobile();
-  });
-
-  return { activeTab, mobileOpen, open, closeMobile };
+  return { isOpen, open, close };
 }
-

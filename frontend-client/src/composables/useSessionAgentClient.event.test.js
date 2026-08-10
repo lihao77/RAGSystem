@@ -1,12 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextTick, ref } from 'vue';
+import { nextTick } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
 import { useSessionAgentClient } from './useSessionAgentClient.js';
 import { useMessageExecution } from './useMessageExecution.js';
-import { useWorkPanelSelection } from './useWorkPanelSelection.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { httpClient } from '../api/http.js';
 
@@ -600,7 +599,7 @@ test('goal continuation 的 run_started 会立即插入可见通知，无需刷�
   assert.equal(deps.activeRun.assistantMsgIndex, 3);
 });
 
-test('连续 Goal 自动续跑后，工作栏仍用 assistant message id 加载 execution steps', async () => {
+test('连续 Goal 自动续跑后，消息内执行步骤仍用 assistant message id 加载', async () => {
   const requestedUrls = [];
   await withMock((mock) => {
     mock.onGet().reply((config) => {
@@ -666,17 +665,9 @@ test('连续 Goal 自动续跑后，工作栏仍用 assistant message id 加载 
       chatSdkClient: deps.chatSdkClient,
       showToast: () => {},
     });
-    const selection = useWorkPanelSelection({
-      messages: deps.messages,
-      activeRun: deps.activeRun,
-      hasExecutionContent: execution.hasExecutionContent,
-      ensureExecutionStepsLoaded: execution.ensureExecutionStepsLoaded,
-      showToast: () => {},
-    });
-    await nextTick();
     previousAssistant.executionStepsLoaded = false;
 
-    await selection.selectWorkPanelMessage(previousAssistant);
+    await execution.ensureExecutionStepsLoaded(previousAssistant);
 
     assert.deepEqual(requestedUrls.filter(url => url?.includes('/run-steps')), [
       '/api/agent/sessions/session-1/messages/assistant-goal-1/run-steps',
@@ -1589,7 +1580,7 @@ test('session.reconnect 和 run 事件不能覆盖 suspended runtime', () => {
   assert.deepEqual(approvals, []);
 });
 
-test('刷新 suspended 会话会恢复 active run 执行树并选中工作面板', async () => {
+test('刷新 suspended 会话会恢复 active run 执行树', async () => {
   const { deps } = createDeps();
   const execution = useMessageExecution({
     currentSessionId: deps.currentSessionId,
@@ -1645,15 +1636,6 @@ test('刷新 suspended 会话会恢复 active run 执行树并选中工作面板
   assert.equal(restored.executionTree.root.rounds[0].toolCalls[0].toolName, 'execute_skill_script');
   assert.equal(deps.activeRun.phase, 'approval_waiting');
 
-  const selection = useWorkPanelSelection({
-    messages: deps.messages,
-    activeRun: deps.activeRun,
-    hasExecutionContent: execution.hasExecutionContent,
-    ensureExecutionStepsLoaded: execution.ensureExecutionStepsLoaded,
-    showToast: () => {},
-  });
-  await nextTick();
-  assert.equal(selection.currentRunMessage.value, restored);
 });
 
 test('active run 快照断线重放前会重置半截执行投影', () => {

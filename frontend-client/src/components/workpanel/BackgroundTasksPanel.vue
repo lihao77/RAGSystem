@@ -1,5 +1,5 @@
 <template>
-  <section class="runtime-tab-panel">
+  <section :class="cn('runtime-tab-panel', { 'is-embedded': embedded })">
     <div class="runtime-panel-header">
       <div class="min-w-0">
         <h3 class="runtime-panel-title">后台任务</h3>
@@ -143,6 +143,7 @@ import { cn } from '@/lib/utils';
 
 const props = defineProps({
   taskState: { type: Object, required: true },
+  embedded: { type: Boolean, default: false },
 });
 
 const taskId = backgroundTaskId;
@@ -170,6 +171,16 @@ function taskStatusMeta(status) {
   flex: 1;
   flex-direction: column;
   overflow: hidden;
+}
+
+.runtime-tab-panel.is-embedded {
+  flex: none;
+  overflow: visible;
+}
+
+.runtime-tab-panel.is-embedded .runtime-task-list {
+  flex: none;
+  overflow: visible;
 }
 
 .runtime-panel-header,

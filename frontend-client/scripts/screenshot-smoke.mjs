@@ -188,10 +188,11 @@ const shots = [
     height: 844,
     actions: [
       { type: 'mockArtifactApi' },
-      { type: 'expectVisible', selector: '[aria-label="打开执行过程"]' },
-      { type: 'click', selector: '[aria-label="打开执行过程"]', waitMs: 400 },
-      { type: 'expectVisible', selector: '.work-panel--mobile' },
-      { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
+      { type: 'expectVisible', selector: '[aria-label="打开运行中心"]' },
+      { type: 'click', selector: '[aria-label="打开运行中心"]', waitMs: 400 },
+      { type: 'expectText', selector: '.runtime-overview', text: '运行中心' },
+      { type: 'expectText', selector: '.runtime-overview', text: 'Goal' },
+      { type: 'expectText', selector: '.runtime-overview', text: '后台任务' },
     ],
   },
   {
@@ -215,10 +216,10 @@ const shots = [
     actions: [
       { type: 'mockArtifactApi' },
       { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
-      { type: 'expectVisible', selector: '[data-artifact-id="art_smoke_chart"]' },
-      { type: 'expectText', selector: '.artifact-panel', text: '产物' },
-      { type: 'expectText', selector: '.artifact-panel', text: '文件变更' },
-      { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
+      { type: 'expectText', selector: '.workspace-file-card', text: 'water-level-report.csv' },
+      { type: 'expectVisible', selector: '[aria-label="打开运行中心"]' },
+      { type: 'click', selector: '[aria-label="打开运行中心"]', waitMs: 300 },
+      { type: 'expectText', selector: '.runtime-overview', text: '持续目标与后台任务' },
     ],
   },
   {
@@ -261,9 +262,10 @@ const shots = [
     height: 900,
     actions: [
       { type: 'mockArtifactApi' },
-      { type: 'click', selector: '[aria-label="打开后台任务"]', waitMs: 250 },
-      { type: 'expectText', selector: '.runtime-tab-panel', text: '后台任务' },
-      { type: 'expectTop', selector: '.runtime-tab-panel .runtime-panel-header', maxTop: 120 },
+      { type: 'click', selector: '[aria-label="打开运行中心"]', waitMs: 250 },
+      { type: 'expectText', selector: '.runtime-overview', text: '运行中心' },
+      { type: 'expectText', selector: '.runtime-overview', text: '后台任务' },
+      { type: 'expectTop', selector: '.runtime-overview-header', maxTop: 120 },
     ],
   },
   {
@@ -273,8 +275,9 @@ const shots = [
     height: 900,
     actions: [
       { type: 'mockArtifactApi' },
-      { type: 'expectText', selector: '.artifact-panel', text: '文件变更' },
-      { type: 'click', selector: '[data-output-kind="file-changes"]', waitMs: 500 },
+      { type: 'click', selector: '[aria-label="更多会话操作"]' },
+      { type: 'expectText', selector: '[role="menu"]', text: '文件变更' },
+      { type: 'click', selector: '[role="menuitem"]', waitMs: 500 },
       { type: 'expectVisible', selector: '.file-changes-sheet' },
       { type: 'expectText', selector: '.file-changes-sheet', text: 'WaterLevelChart.vue' },
     ],
@@ -287,10 +290,7 @@ const shots = [
     actions: [
       { type: 'mockArtifactApi' },
       { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
-      { type: 'expectVisible', selector: '[data-artifact-id="art_smoke_chart"]' },
-      { type: 'expectText', selector: '.artifact-panel', text: '产物' },
-      { type: 'expectText', selector: '.artifact-panel', text: '文件变更' },
-      { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
+      { type: 'expectVisible', selector: '[aria-label="打开运行中心"]' },
     ],
   },
   { name: 'admin-mobile', path: '/admin', width: 390, height: 844 },
@@ -786,6 +786,18 @@ async function setupShotMocks(client, shot) {
           urlPattern: '*://*/api/agent/sessions/smoke-artifact-session/file-changes*',
           requestStage: 'Request',
         },
+        {
+          urlPattern: '*://*/api/agent/sessions/smoke-artifact-session/goals/current*',
+          requestStage: 'Request',
+        },
+        {
+          urlPattern: '*://*/api/agent/sessions/smoke-artifact-session/background-tasks*',
+          requestStage: 'Request',
+        },
+        {
+          urlPattern: '*://*/api/agent/sessions/smoke-artifact-session/workspace-files/content*',
+          requestStage: 'Request',
+        },
       ] : []),
       ...(mockMapArtifactApi ? [{
         urlPattern: '*://*/api/artifacts/art_smoke_map*',
@@ -1033,6 +1045,64 @@ async function setupShotMocks(client, shot) {
         responseCode: 200,
         responseHeaders: [
           { name: 'Content-Type', value: 'application/json; charset=utf-8' },
+          { name: 'Cache-Control', value: 'no-store' },
+        ],
+        body: Buffer.from(body, 'utf8').toString('base64'),
+      });
+      return;
+    }
+
+    if (event.request?.url?.includes('/api/agent/sessions/smoke-artifact-session/goals/current')) {
+      const body = JSON.stringify({
+        goal: {
+          id: 'goal-smoke',
+          objective: '完成水位趋势分析并交付图表',
+          status: 'active',
+          continuation_count: 1,
+          steps: [
+            { id: 'collect', title: '读取监测数据', status: 'completed' },
+            { id: 'deliver', title: '生成并核对图表', status: 'in_progress' },
+          ],
+        },
+      });
+      await client.send('Fetch.fulfillRequest', {
+        requestId: event.requestId,
+        responseCode: 200,
+        responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
+        body: Buffer.from(body, 'utf8').toString('base64'),
+      });
+      return;
+    }
+
+    if (event.request?.url?.includes('/api/agent/sessions/smoke-artifact-session/background-tasks')) {
+      const body = JSON.stringify({
+        tasks: [{
+          task_id: 'task-smoke-export',
+          description: '导出水位趋势图',
+          kind: 'artifact_export',
+          status: 'running',
+          run_id: 'smoke-run',
+          cancel_available: true,
+          started_at: 1,
+        }],
+      });
+      await client.send('Fetch.fulfillRequest', {
+        requestId: event.requestId,
+        responseCode: 200,
+        responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
+        body: Buffer.from(body, 'utf8').toString('base64'),
+      });
+      return;
+    }
+
+    if (event.request?.url?.includes('/api/agent/sessions/smoke-artifact-session/workspace-files/content')) {
+      const body = 'time,level\n08:00,10.8\n10:00,11.4\n12:00,12.0\n';
+      await client.send('Fetch.fulfillRequest', {
+        requestId: event.requestId,
+        responseCode: 200,
+        responseHeaders: [
+          { name: 'Content-Type', value: 'text/csv' },
+          { name: 'Content-Length', value: String(Buffer.byteLength(body)) },
           { name: 'Cache-Control', value: 'no-store' },
         ],
         body: Buffer.from(body, 'utf8').toString('base64'),

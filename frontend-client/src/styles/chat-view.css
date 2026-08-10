@@ -1141,13 +1141,6 @@
 }
 
 /* ===== 亮色主题补充覆盖 ===== */
-:root[data-theme="light"] {
-  /* 工作面板：亮色模式用微灰调区分主聊天区 */
-  .work-panel {
-    border-left-color: rgba(0, 0, 0, 0.09);
-    box-shadow: inset 1px 0 0 rgba(0, 0, 0, 0.03);
-  }
-}
 /* ===== Task Notification Block ===== */
 .task-notification-block {
   margin: 4px auto;
@@ -1353,38 +1346,10 @@
   }
 }
 
-/* ===== 双栏工作区（桌面端 ≥1200px）===== */
 @media (min-width: 1200px) {
-  .chat-main.workbench-layout {
-    flex-direction: row;
-    align-items: stretch;
-  }
-
-  .chat-main.workbench-layout .chat-conversation-column {
-    flex: 0 0 calc(100% - var(--work-panel-width));
-    width: calc(100% - var(--work-panel-width));
-    max-width: calc(100% - var(--work-panel-width));
-  }
-
-  .chat-main.multi-agent-active.workbench-layout .chat-conversation-column {
-    flex: 0 0 calc(100% - var(--work-panel-width) - 224px);
-    width: calc(100% - var(--work-panel-width) - 224px);
-    max-width: calc(100% - var(--work-panel-width) - 224px);
-  }
-
-  /* 对话栏内消息流适当放宽，充分利用空间 */
   .chat-conversation-column .message-stream {
     max-width: var(--content-max-width);
   }
-
-  .work-panel {
-    width: var(--work-panel-width);
-    flex-shrink: 0;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-
 }
 
 @media (min-width: 1024px) {
@@ -1393,7 +1358,7 @@
     align-items: stretch;
   }
 
-  .chat-main.multi-agent-active:not(.workbench-layout) .chat-conversation-column {
+  .chat-main.multi-agent-active .chat-conversation-column {
     flex: 1 1 auto;
     width: auto;
     max-width: none;

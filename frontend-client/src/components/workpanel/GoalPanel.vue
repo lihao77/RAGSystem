@@ -1,5 +1,5 @@
 <template>
-  <section class="runtime-tab-panel">
+  <section :class="cn('runtime-tab-panel', { 'is-embedded': embedded })">
     <div class="runtime-panel-header">
       <div class="flex min-w-0 items-center gap-2">
         <Target class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -116,6 +116,7 @@ import { cn } from '@/lib/utils';
 
 const props = defineProps({
   goalState: { type: Object, required: true },
+  embedded: { type: Boolean, default: false },
 });
 
 const goal = computed(() => props.goalState.goal || null);
@@ -186,6 +187,16 @@ function stepTitle(step, index = 0) {
   flex: 1;
   flex-direction: column;
   overflow: hidden;
+}
+
+.runtime-tab-panel.is-embedded {
+  flex: none;
+  overflow: visible;
+}
+
+.runtime-tab-panel.is-embedded .runtime-panel-scroll {
+  flex: none;
+  overflow: visible;
 }
 
 .runtime-panel-header,
@@ -291,7 +302,8 @@ function stepTitle(step, index = 0) {
 
 .goal-step-index {
   display: inline-flex;
-  size: 24px;
+  width: 24px;
+  height: 24px;
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-full);

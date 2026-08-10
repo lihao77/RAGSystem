@@ -169,24 +169,10 @@
       </div>
       </div>
     </div><!-- end .chat-conversation-column -->
-    <ApprovalQueueHost
-      :show-work-panel="visibleWorkPanel"
-      :disable-transition="switchingToNewChat"
-      :active-run="workPanelActiveRun"
-      :current-message="currentRunMessage"
-      :execution-messages="workPanelExecutionMessages"
-      :injections-by-run-id="injectionsByRunId"
-      :message-key="selectedWorkPanelMessageKey"
-      :context-usage="contextUsage"
-      :session-id="currentSessionId || ''"
-      :is-wide-screen="isWideScreen"
-      v-model:mobile-open="runtimeMobileOpen"
-      v-model:active-tab="runtimeActiveTab"
+    <RuntimeCenterHost
+      v-model:open="runtimeCenterOpen"
       :task-state="backgroundTaskState"
       :goal-state="goalState"
-      @file-select="handleFileSelect"
-      @file-changes="fileChangesOpen = true"
-      @select-execution-message="selectWorkPanelMessage"
     />
     </main>
 
@@ -219,7 +205,7 @@
     <FileChangesPanel
       v-model:open="fileChangesOpen"
       :session-id="currentSessionId || ''"
-      :message-seq="currentRunMessage?.seq ?? null"
+      :message-seq="currentContextMessage?.seq ?? null"
     />
     <ImageLightbox :open="imageLightbox.open.value" :images="imageLightbox.images.value" :index="imageLightbox.index.value" :current="imageLightbox.current.value" @close="imageLightbox.close" @previous="imageLightbox.previous" @next="imageLightbox.next" />
     <KnowledgeMdViewer v-model:open="showCitationViewer" :file-id="citationFile.file_id" :file-name="citationFile.file_name" :initial-char-start="citationFile.char_start" :initial-heading="citationFile.heading" @citation-click="openCitation" />
@@ -243,7 +229,6 @@ import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
 import { useApprovalQueue } from '../composables/useApprovalQueue';
 import { useChatScrolling } from '../composables/useChatScrolling';
-import { useMessageFiles } from '../composables/useMessageFiles';
 import { useLlmRetryState } from '../composables/useLlmRetryState';
 import { useChatMessageRuntime } from '../composables/useChatMessageRuntime';
 import { useMessageListView } from '../composables/useMessageListView';
@@ -269,9 +254,8 @@ import SessionContextBar from '../components/chat/SessionContextBar.vue';
 import SessionParticipantNav from '../components/chat/SessionParticipantNav.vue';
 import ParticipantThreadEmpty from '../components/chat/ParticipantThreadEmpty.vue';
 import ChatInteractionHost from '../components/chat/ChatInteractionHost.vue';
-import ApprovalQueueHost from '../components/chat/ApprovalQueueHost.vue';
+import RuntimeCenterHost from '../components/chat/RuntimeCenterHost.vue';
 import TaskLauncher from '../components/chat/TaskLauncher.vue';
-import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
 import { useSessionBackgroundTasks } from '../composables/useSessionBackgroundTasks.js';
 import { useSessionGoal } from '../composables/useSessionGoal.js';
 import { useSessionRuntimeCenter } from '../composables/useSessionRuntimeCenter.js';
@@ -443,17 +427,10 @@ const {
   isMasterEvent,
   findRunningExecutionAgentByAgentId,
   ensureExecutionStepsLoaded,
-  selectedWorkPanelMessageKey,
-  getWorkPanelMessageKey,
-  currentRunMessage,
-  workPanelExecutionMessages,
-  selectWorkPanelMessage,
 } = useChatMessageRuntime({
   activeRun: _activeRun,
-  showToast,
   chatSdkClient,
   selectedParticipantId,
-  selectedParticipant,
 });
 
 const {
@@ -481,7 +458,6 @@ const {
 const selectParticipant = async (participantId) => {
   const next = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
   if (!currentSessionId.value || !participants.value.some(item => item?.participant_id === next)) return;
-  if (next !== 'root') openRuntimeCenter('execution');
   if (!sessionRunStore.setSelectedParticipant(next)) return;
   await loadSessionMessages(currentSessionId.value, {
     participantId: next,
@@ -513,27 +489,21 @@ const {
   contextUsage,
 });
 
-const { isWideScreen, showWorkPanel } = useWorkbenchLayout();
 const goalState = reactive(useSessionGoal(currentSessionId));
 const backgroundTaskState = reactive(useSessionBackgroundTasks(currentSessionId));
 const {
-  activeTab: runtimeActiveTab,
-  mobileOpen: runtimeMobileOpen,
+  isOpen: runtimeCenterOpen,
   open: openRuntimeCenter,
-  closeMobile: closeRuntimeCenterMobile,
-} = useSessionRuntimeCenter(isWideScreen);
-const desktopWorkPanelVisible = computed(() => Boolean(currentSessionId.value) && isWideScreen.value && showWorkPanel.value);
-const visibleWorkPanel = computed(() => Boolean(currentSessionId.value) && (desktopWorkPanelVisible.value || runtimeMobileOpen.value));
-const workPanelActiveRun = computed(() => {
-  if (isRootParticipant.value) return _activeRun;
-  const status = selectedParticipant.value?.last_run_status || selectedParticipant.value?.lifecycle_status || '';
-  return {
-    active: status === 'running',
-    phase: status === 'running' ? 'processing' : status === 'suspended' ? 'suspended' : 'idle',
-    runStartedAt: null,
-    runningToolCalls: {},
-    runningModelCalls: {},
-  };
+  close: closeRuntimeCenter,
+} = useSessionRuntimeCenter();
+const currentContextMessage = computed(() => {
+  if (_activeRun.assistantMsgIndex >= 0) {
+    return messages.value[_activeRun.assistantMsgIndex] || null;
+  }
+  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+    if (messages.value[index]?.role === 'assistant') return messages.value[index];
+  }
+  return null;
 });
 
 const {
@@ -578,7 +548,6 @@ const canAttachFiles = computed(() => !currentSessionId.value || runtimeActions.
 // consolidated to a single source of truth. is-new-chat dropped (== !has-messages).
 const chatMainClasses = computed(() => ({
   'has-messages': hasMessages.value,
-  'workbench-layout': desktopWorkPanelVisible.value,
   'is-launching-chat': newChatLaunching.value,
   'is-switching-to-new-chat': switchingToNewChat.value,
   'is-restoring-session-scroll': restoringSessionScroll.value,
@@ -683,7 +652,6 @@ const {
 });
 
 // ── Workspace 文件导航 ─────────────────────────────────────────
-const { handleFileSelect } = useMessageFiles({ messagesRef });
 
 // clearExecutionState 需要额外清理 view 级状态
 const clearExecutionState = (opts) => {
@@ -732,7 +700,6 @@ const {
 const {
   messageKey,
   visibleMessages,
-  injectionsByRunId,
   copyMessage,
 } = useMessageListView({
   messages,
@@ -751,17 +718,10 @@ const messageContext = reactive({
   canReviseMessage,
   startEditMessage,
   copyMessage,
-  getWorkPanelMessageKey,
-  selectWorkPanelMessage,
   ensureExecutionStepsLoaded,
-  openWorkPanelMessage: async (message) => {
-    openRuntimeCenter('execution');
-    await selectWorkPanelMessage(message);
-  },
   rollbackAndRetry,
   currentSessionId,
   isLoading,
-  selectedWorkPanelMessageKey,
   editingMessage,
   editingDraft,
   editingAttachmentsDraft,
@@ -866,8 +826,7 @@ watch(
 );
 
 watch(currentSessionId, () => {
-  runtimeActiveTab.value = 'execution';
-  closeRuntimeCenterMobile();
+  closeRuntimeCenter();
 });
 
 onMounted(() => {

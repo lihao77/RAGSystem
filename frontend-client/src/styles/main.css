@@ -195,7 +195,6 @@
 
     /* 布局 —— workbench 双栏 */
     --workbench-breakpoint: 1200px;
-    --work-panel-width: clamp(360px, 30vw, 430px);
 
     /* 布局 —— 侧边栏 */
     --sidebar-width: 260px;

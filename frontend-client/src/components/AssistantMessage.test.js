@@ -41,15 +41,24 @@ test('消息列表复用 Widget 的紧凑气泡和工具调用视觉结构', asy
   assert.equal(styles.includes('max-width: 80%'), true);
 });
 
-test('工作栏展示权威运行状态并公开并发工具数量', async () => {
-  const statusSource = await readFile(new URL('./workpanel/WorkPanelRunStatus.vue', import.meta.url), 'utf8');
+test('运行中心按需打开并将 Goal 与后台任务合并在同一概览', async () => {
+  const barSource = await readFile(new URL('./chat/SessionContextBar.vue', import.meta.url), 'utf8');
+  const hostSource = await readFile(new URL('./chat/RuntimeCenterHost.vue', import.meta.url), 'utf8');
   const panelSource = await readFile(new URL('./workpanel/WorkPanel.vue', import.meta.url), 'utf8');
+  const overviewSource = await readFile(new URL('./workpanel/RuntimeOverviewPanel.vue', import.meta.url), 'utf8');
+  const nodeSource = await readFile(new URL('./chat/AssistantExecutionNode.vue', import.meta.url), 'utf8');
+  const actionsSource = await readFile(new URL('./chat/MessageActions.vue', import.meta.url), 'utf8');
 
-  assert.equal(statusSource.includes("props.phase === 'tool_running'"), true);
-  assert.equal(statusSource.includes('`工具执行中 · ${props.runningToolCount} 个`'), true);
-  assert.equal(statusSource.includes('aria-live="polite"'), true);
-  assert.equal(panelSource.includes(':running-tool-count="runningToolCount"'), true);
-  assert.equal(panelSource.includes('Object.keys(props.activeRun?.runningToolCalls || {}).length'), true);
-  assert.equal(panelSource.includes(':interrupted="messageInterrupted"'), true);
-  assert.equal(statusSource.includes("props.interrupted"), true);
+  assert.equal((barSource.match(/@click="emit\('openRuntimeCenter'/g) || []).length, 1);
+  assert.equal(barSource.includes('aria-label="打开运行中心"'), true);
+  assert.equal(hostSource.includes('<Sheet :open="open"'), true);
+  assert.equal(hostSource.includes('isWideScreen'), false);
+  assert.equal(panelSource.includes('<RuntimeOverviewPanel'), true);
+  assert.equal(panelSource.includes('<FileOutputPanel'), false);
+  assert.equal(panelSource.includes('WorkPanelExecution'), false);
+  assert.equal(overviewSource.includes('<GoalPanel v-if="showGoalSection" embedded'), true);
+  assert.equal(overviewSource.includes('<BackgroundTasksPanel v-if="showTaskSection" embedded'), true);
+  assert.equal(overviewSource.includes('执行详情'), false);
+  assert.equal(nodeSource.includes('完整详情'), false);
+  assert.equal(actionsSource.includes('在运行中心查看执行树'), false);
 });

@@ -26,7 +26,7 @@ test('审批和用户输入挂载在聊天主区域', async () => {
 
 test('运行侧栏不再接收或渲染审批和用户输入', async () => {
   const panelSource = await readFile(new URL('./workpanel/WorkPanel.vue', import.meta.url), 'utf8');
-  const hostSource = await readFile(new URL('./chat/ApprovalQueueHost.vue', import.meta.url), 'utf8');
+  const hostSource = await readFile(new URL('./chat/RuntimeCenterHost.vue', import.meta.url), 'utf8');
 
   assert.equal(panelSource.includes('<WorkPanelApproval'), false);
   assert.equal(panelSource.includes('<WorkPanelUserInput'), false);
