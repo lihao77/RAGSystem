@@ -1,0 +1,266 @@
+<template>
+  <div class="bottom-dock" :class="{ 'bottom-dock--launching': newChatLaunching && hasMessages }">
+    <div
+      class="input-area-wrapper"
+      :class="{ 'input-area-wrapper--new-chat': !hasMessages }"
+    >
+      <TransitionGroup
+        v-if="followupCandidates.length"
+        name="followup-candidate"
+        tag="div"
+        class="followup-candidate-area"
+        aria-live="polite"
+      >
+        <div
+          v-for="candidate in followupCandidates"
+          :key="candidate.metadata?.request_id"
+          class="followup-candidate"
+          :class="{ 'is-failed': candidate.metadata?.persistence_status === 'failed' }"
+        >
+          <span class="followup-candidate-state">
+            {{ candidate.metadata?.persistence_status === 'failed' ? '发送失败' : '待确认' }}
+          </span>
+          <span class="followup-candidate-content">{{ candidate.content }}</span>
+        </div>
+      </TransitionGroup>
+
+      <ChatInput
+        ref="chatInputRef"
+        :model-value="modelValue"
+        :attachments="attachments"
+        :can-send="canSend"
+        :can-stop="canStop"
+        :can-resume="canResume"
+        :can-attach="canAttach"
+        @update:model-value="emit('update:modelValue', $event)"
+        @send="emit('send', $event)"
+        @stop="emit('stop')"
+        @resume="emit('resume')"
+        @openAttachments="emit('openAttachments')"
+        @removeAttachment="emit('removeAttachment', $event)"
+        @pasteFiles="emit('pasteFiles', $event)"
+      >
+        <template v-if="!hasMessages" #context>
+          <TaskLauncher
+            :team="team"
+            :team-options="teamOptions"
+            :team-loading="teamLoading"
+            :entry-agent="entryAgent"
+            :workspace-root="workspaceRoot"
+            :entry-agent-options="entryAgentOptions"
+            :entry-agent-loading="entryAgentLoading"
+            @update:team="emit('update:team', $event)"
+            @update:entry-agent="emit('update:entryAgent', $event)"
+            @update:workspace-root="emit('update:workspaceRoot', $event)"
+          />
+        </template>
+        <template #footerMeta>
+          <div class="composer-run-controls" role="group" aria-label="本次发送设置">
+            <LLMSelector presentation="composer" />
+            <PermissionModeSelector v-if="sessionId" :session-id="sessionId" :chat-sdk-client="chatSdkClient" />
+          </div>
+        </template>
+        <template #rightActions>
+          <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="emit('openContextDrawer')" title="点击查看上下文详情">
+            <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
+              <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
+              <circle
+                cx="11"
+                cy="11"
+                r="9"
+                fill="none"
+                :stroke="contextUsageClass === 'danger' ? 'var(--ctx-ring-danger)' : contextUsageClass === 'warning' ? 'var(--ctx-ring-warning)' : 'var(--ctx-ring-success)'"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
+                stroke-dashoffset="0"
+                :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
+              />
+            </svg>
+            <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
+            <span v-if="isCompressing" class="compressing-indicator">
+              <span class="compressing-dot"></span>
+              压缩中
+            </span>
+          </div>
+        </template>
+      </ChatInput>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue';
+import ChatInput from '../ChatInput.vue';
+import LLMSelector from '../LLMSelector.vue';
+import PermissionModeSelector from '../PermissionModeSelector.vue';
+import TaskLauncher from './TaskLauncher.vue';
+
+defineProps({
+  modelValue: { type: String, default: '' },
+  attachments: { type: Array, default: () => [] },
+  canSend: { type: Boolean, default: false },
+  canStop: { type: Boolean, default: false },
+  canResume: { type: Boolean, default: false },
+  canAttach: { type: Boolean, default: false },
+  hasMessages: { type: Boolean, default: false },
+  newChatLaunching: { type: Boolean, default: false },
+  followupCandidates: { type: Array, default: () => [] },
+  sessionId: { type: String, default: '' },
+  chatSdkClient: { type: Object, default: null },
+  contextUsage: { type: Object, default: null },
+  contextUsagePct: { type: Number, default: 0 },
+  contextUsageClass: { type: String, default: '' },
+  isCompressing: { type: Boolean, default: false },
+  team: { type: String, default: '' },
+  teamOptions: { type: Array, default: () => [] },
+  teamLoading: { type: Boolean, default: false },
+  entryAgent: { type: String, default: '' },
+  workspaceRoot: { type: String, default: '' },
+  entryAgentOptions: { type: Array, default: () => [] },
+  entryAgentLoading: { type: Boolean, default: false },
+});
+
+const emit = defineEmits([
+  'update:modelValue',
+  'send',
+  'stop',
+  'resume',
+  'openAttachments',
+  'removeAttachment',
+  'pasteFiles',
+  'update:team',
+  'update:entryAgent',
+  'update:workspaceRoot',
+  'openContextDrawer',
+]);
+
+const chatInputRef = ref(null);
+
+const focus = async () => {
+  if (chatInputRef.value?.focus) await chatInputRef.value.focus();
+};
+
+defineExpose({ focus });
+</script>
+
+<style scoped>
+.followup-candidate-area {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 auto 8px;
+  width: min(100%, 920px);
+}
+
+.followup-candidate {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-left: 2px solid var(--color-brand-accent);
+  background: var(--surface-shell);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.followup-candidate.is-failed {
+  border-left-color: var(--color-error);
+}
+
+.followup-candidate-state {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-weight: 650;
+}
+
+.followup-candidate.is-failed .followup-candidate-state {
+  color: var(--color-error);
+}
+
+.followup-candidate-content {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.followup-candidate-enter-active,
+.followup-candidate-leave-active {
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.followup-candidate-enter-from,
+.followup-candidate-leave-to {
+  opacity: 0;
+  transform: translateY(5px);
+}
+
+.composer-run-controls {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.context-usage-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  cursor: pointer;
+  padding: 4px;
+  margin: -4px;
+}
+
+.context-usage-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.compressing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-brand-accent-light);
+  margin-left: 6px;
+}
+
+.compressing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-brand-accent-light);
+  animation: compressing-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes compressing-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+@media (max-width: 480px) {
+  .composer-run-controls {
+    max-width: 220px;
+  }
+
+  .context-usage-content {
+    flex: 0 0 auto;
+  }
+
+  .context-usage-label,
+  .compressing-indicator {
+    display: none;
+  }
+}
+</style>

@@ -12,7 +12,9 @@ test('审批和用户输入挂载在聊天主区域', async () => {
   assert.equal(viewSource.includes(':pending-user-input="pendingUserInput"'), true);
   assert.equal(viewSource.includes('<Transition name="chat-surface-swap" mode="out-in">'), true);
   assert.equal(viewSource.includes('v-if="approvalQueue.length || pendingUserInput"'), true);
-  assert.equal(viewSource.includes('v-else-if="isRootParticipant" key="composer"'), true);
+  assert.equal(viewSource.includes('<ChatComposer'), true);
+  assert.equal(viewSource.includes('v-else-if="isRootParticipant"'), true);
+  assert.equal(viewSource.includes('key="composer"'), true);
   assert.equal(viewSource.includes('class="chat-messages-wrapper" ref="messagesRef"'), true);
   assert.equal(viewSource.includes('chat-bottom-region--interaction'), true);
   assert.equal(viewSource.includes('chat-bottom-region--new-chat'), true);

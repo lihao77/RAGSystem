@@ -8,10 +8,17 @@
         <h3 class="runtime-section__title">Goal</h3>
         <p class="runtime-section__subtitle">跨 Run 持续推进的当前目标</p>
       </div>
-      <span class="runtime-section__status">
-        <span class="status-dot" :style="{ '--dot-color': statusToneColor(goal?.status) }" />
-        {{ statusMeta.label }}
-      </span>
+      <TooltipProvider v-if="goal" :delay-duration="120">
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <span class="runtime-section__status" :class="{ 'is-attention': isAttentionStatus(goal.status) }">
+              <span class="status-dot" :style="{ '--dot-color': statusToneColor(goal.status) }" />
+              <span v-if="isAttentionStatus(goal.status)" class="runtime-section__status-text">{{ statusMeta.label }}</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{{ statusMeta.label }}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <Button
         variant="ghost"
         size="icon-sm"
@@ -75,8 +82,12 @@
                 {{ step.description }}
               </span>
             </span>
-            <span class="goal-step__status" :style="{ color: statusToneColor(step.status) }">
-              {{ stepStatusLabel(step.status) }}
+            <span
+              class="goal-step__status"
+              :style="{ color: statusToneColor(step.status) }"
+              :title="stepStatusLabel(step.status)"
+            >
+              {{ isAttentionStatus(step.status) ? stepStatusLabel(step.status) : '' }}
             </span>
           </li>
         </ol>
@@ -115,9 +126,14 @@
 import { computed } from 'vue';
 import { Check, LoaderCircle, Pause, Play, RefreshCw, Target } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import EmptyState from '@/components/EmptyState.vue';
 import { cn } from '@/lib/utils';
 import { statusLabel, statusToneColor } from '@/utils/participantVisual.js';
+
+// 异常/需注意状态才常驻文字,其余只留色点(文字收 Tooltip),与侧栏哲学一致。
+const ATTENTION_STATUSES = new Set(['failed', 'blocked', 'interrupted']);
+const isAttentionStatus = (status) => ATTENTION_STATUSES.has(status);
 
 const props = defineProps({
   goalState: { type: Object, required: true },

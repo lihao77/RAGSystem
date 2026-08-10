@@ -82,90 +82,43 @@
             @user-input-submit="handleUserInputSubmit"
             @user-input-cancel="handleUserInputCancel"
           />
-          <div v-else-if="isRootParticipant" key="composer" class="bottom-dock" :class="{ 'bottom-dock--launching': newChatLaunching && hasMessages }">
-          <div
-            class="input-area-wrapper"
-            :class="{ 'input-area-wrapper--new-chat': !hasMessages }"
-          >
-          <TransitionGroup
-            v-if="pendingFollowupCandidates.length"
-            name="followup-candidate"
-            tag="div"
-            class="followup-candidate-area"
-            aria-live="polite"
-          >
-            <div
-              v-for="candidate in pendingFollowupCandidates"
-              :key="candidate.metadata?.request_id"
-              class="followup-candidate"
-              :class="{ 'is-failed': candidate.metadata?.persistence_status === 'failed' }"
-            >
-              <span class="followup-candidate-state">
-                {{ candidate.metadata?.persistence_status === 'failed' ? '发送失败' : '待确认' }}
-              </span>
-              <span class="followup-candidate-content">{{ candidate.content }}</span>
-            </div>
-          </TransitionGroup>
-          <ChatInput
-            ref="chatInputRef"
+          <ChatComposer
+            v-else-if="isRootParticipant"
+            key="composer"
+            ref="chatComposerRef"
             v-model="inputMessage"
             :attachments="pendingAttachments"
             :can-send="canSendMessage"
             :can-stop="canStopRun"
             :can-resume="canResumeRun"
             :can-attach="canAttachFiles"
+            :has-messages="hasMessages"
+            :new-chat-launching="newChatLaunching"
+            :followup-candidates="pendingFollowupCandidates"
+            :session-id="currentSessionId || ''"
+            :chat-sdk-client="chatSdkClient"
+            :context-usage="contextUsage"
+            :context-usage-pct="contextUsagePct"
+            :context-usage-class="contextUsageClass"
+            :is-compressing="isCompressing"
+            :team="currentSessionTeam"
+            :team-options="teamOptions"
+            :team-loading="teamLoading"
+            :entry-agent="pendingEntryAgent"
+            :workspace-root="pendingWorkspaceRoot"
+            :entry-agent-options="entryAgentOptions"
+            :entry-agent-loading="entryAgentLoading"
             @send="handleSend"
             @stop="handleStop"
             @resume="handleResume"
-            @openAttachments="() => openSessionFilesDrawer('composer')"
-            @removeAttachment="removePendingAttachment"
-            @pasteFiles="handleSessionFileSelect"
-          >
-            <template v-if="!hasMessages" #context>
-              <TaskLauncher
-                :team="currentSessionTeam"
-                :team-options="teamOptions"
-                :team-loading="teamLoading"
-                v-model:entry-agent="pendingEntryAgent"
-                v-model:workspace-root="pendingWorkspaceRoot"
-                :entry-agent-options="entryAgentOptions"
-                :entry-agent-loading="entryAgentLoading"
-                @update:team="setPendingTeam"
-              />
-            </template>
-            <template #footerMeta>
-              <div class="composer-run-controls" role="group" aria-label="本次发送设置">
-                <LLMSelector presentation="composer" />
-                <PermissionModeSelector v-if="currentSessionId" :session-id="currentSessionId" :chat-sdk-client="chatSdkClient" />
-              </div>
-            </template>
-            <template #rightActions>
-              <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="openCtxDrawer" title="点击查看上下文详情">
-                <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
-                  <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
-                  <circle
-                    cx="11"
-                    cy="11"
-                    r="9"
-                    fill="none"
-                    :stroke="contextUsageClass === 'danger' ? 'var(--ctx-ring-danger)' : contextUsageClass === 'warning' ? 'var(--ctx-ring-warning)' : 'var(--ctx-ring-success)'"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
-                    stroke-dashoffset="0"
-                    :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
-                  />
-                </svg>
-                <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
-                <span v-if="isCompressing" class="compressing-indicator">
-                  <span class="compressing-dot"></span>
-                  压缩中
-                </span>
-              </div>
-            </template>
-          </ChatInput>
-        </div>
-        </div>
+            @open-attachments="() => openSessionFilesDrawer('composer')"
+            @remove-attachment="removePendingAttachment"
+            @paste-files="handleSessionFileSelect"
+            @update:team="setPendingTeam"
+            @update:entry-agent="pendingEntryAgent = $event"
+            @update:workspace-root="pendingWorkspaceRoot = $event"
+            @open-context-drawer="openCtxDrawer"
+          />
         </Transition>
       </div>
       </div>
@@ -235,10 +188,8 @@ import { useChatMessageRuntime } from '../composables/useChatMessageRuntime';
 import { useMessageListView } from '../composables/useMessageListView';
 import { useRuntimeStatusView } from '../composables/useRuntimeStatusView';
 import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
-import ChatInput from '../components/ChatInput.vue';
-import LLMSelector from '../components/LLMSelector.vue';
-import PermissionModeSelector from '../components/PermissionModeSelector.vue';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
+import ChatComposer from '../components/chat/ChatComposer.vue';
 import FileChangesPanel from '../components/agent/FileChangesPanel.vue';
 import ImageLightbox from '../components/common/ImageLightbox.vue';
 import KnowledgeMdViewer from '../components/knowledge/KnowledgeMdViewer.vue';
@@ -256,7 +207,6 @@ import SessionParticipantNav from '../components/chat/SessionParticipantNav.vue'
 import ParticipantThreadEmpty from '../components/chat/ParticipantThreadEmpty.vue';
 import ChatInteractionHost from '../components/chat/ChatInteractionHost.vue';
 import RuntimeCenterHost from '../components/chat/RuntimeCenterHost.vue';
-import TaskLauncher from '../components/chat/TaskLauncher.vue';
 import { useSessionBackgroundTasks } from '../composables/useSessionBackgroundTasks.js';
 import { useSessionGoal } from '../composables/useSessionGoal.js';
 import { useSessionRuntimeCenter } from '../composables/useSessionRuntimeCenter.js';
@@ -337,7 +287,7 @@ const citationFile = reactive({ file_id: '', file_name: '', char_start: undefine
 function openCitation(citation) { citationFile.file_id = citation?.file_id || ''; citationFile.file_name = citation?.file_name || ''; citationFile.char_start = Number.isFinite(citation?.char_start) ? citation.char_start : undefined; citationFile.heading = citation?.heading || ''; showCitationViewer.value = Boolean(citationFile.file_id); }
 function openAttachmentImages(attachments, selected) { const items = (attachments || []).filter(item => item && (item.mime?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(item.original_name || item.stored_name || ''))).map(item => ({ src: getAttachmentPreviewUrl(item), alt: item.original_name || item.stored_name || '图片', source: item })); const index = Math.max(0, items.findIndex(item => item.source === selected)); imageLightbox.show(items, index); }
 const sessionFilesDrawerTarget = ref('composer');
-const chatInputRef = ref(null);
+const chatComposerRef = ref(null);
 const filePreviewDialogRef = ref(null);
 const toast = useToast();
 const ctxDrawerVisible = ref(false);
@@ -381,8 +331,8 @@ const {
 } = useSessionParticipants({ chatSdkClient, showToast });
 
 const focusInput = async () => {
-  if (chatInputRef.value?.focus) {
-    await chatInputRef.value.focus();
+  if (chatComposerRef.value?.focus) {
+    await chatComposerRef.value.focus();
   }
 };
 
@@ -859,59 +809,6 @@ onUnmounted(() => {
 
 <style src="../styles/chat-view.css"></style>
 <style>
-.followup-candidate-area {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin: 0 auto 8px;
-  width: min(100%, 920px);
-}
-
-.followup-candidate {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  padding: 7px 10px;
-  border-left: 2px solid var(--color-brand-accent);
-  background: var(--surface-shell);
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.followup-candidate.is-failed {
-  border-left-color: var(--color-error);
-}
-
-.followup-candidate-state {
-  flex: 0 0 auto;
-  color: var(--color-text-muted);
-  font-weight: 650;
-}
-
-.followup-candidate.is-failed .followup-candidate-state {
-  color: var(--color-error);
-}
-
-.followup-candidate-content {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.followup-candidate-enter-active,
-.followup-candidate-leave-active {
-  transition: opacity 160ms ease, transform 160ms ease;
-}
-
-.followup-candidate-enter-from,
-.followup-candidate-leave-to {
-  opacity: 0;
-  transform: translateY(5px);
-}
-
 .chat-surface-swap-enter-active,
 .chat-surface-swap-leave-active {
   transition:
@@ -1080,55 +977,6 @@ onUnmounted(() => {
   color: var(--color-text-muted);
 }
 
-.composer-run-controls {
-  display: flex;
-  min-width: 0;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 2px;
-}
-
-.context-usage-content {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  cursor: pointer;
-  padding: 4px;
-  margin: -4px;
-}
-
-.context-usage-label {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: 500;
-}
-
-.compressing-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--font-size-xs);
-  color: var(--color-brand-accent-light);
-  margin-left: 6px;
-}
-.compressing-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-brand-accent-light);
-  animation: compressing-pulse 1.2s ease-in-out infinite;
-}
-@keyframes compressing-pulse {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
-}
-
 .inline-chart-wrapper {
   margin: 12px 0;
   width: 100%;
@@ -1139,21 +987,6 @@ onUnmounted(() => {
   outline: 1px solid rgba(var(--color-active-rgb), 0.34);
   outline-offset: 4px;
   transition: outline-color 0.2s ease;
-}
-
-@media (max-width: 480px) {
-  .composer-run-controls {
-    max-width: 220px;
-  }
-
-  .context-usage-content {
-    flex: 0 0 auto;
-  }
-
-  .context-usage-label,
-  .compressing-indicator {
-    display: none;
-  }
 }
 
 /* ===== Scroll to Bottom Button ===== */

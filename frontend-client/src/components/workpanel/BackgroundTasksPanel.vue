@@ -88,7 +88,7 @@
           <div class="runtime-task__main">
             <p class="runtime-task__title">{{ task.description || task.kind || taskId(task) }}</p>
             <p class="runtime-task__meta">
-              <span>{{ statusLabel(task.status) }}</span>
+              <span v-if="isAttentionStatus(task.status)">{{ statusLabel(task.status) }}</span>
               <span v-if="task.kind" class="runtime-task__tag">{{ task.kind }}</span>
               <span v-if="task.run_id" class="runtime-task__tag" :title="task.run_id">Run {{ shortId(task.run_id) }}</span>
               <span v-if="task.error" class="runtime-task__error" role="alert">{{ task.error }}</span>
@@ -147,6 +147,10 @@ import EmptyState from '@/components/EmptyState.vue';
 import { backgroundTaskCancelReason, backgroundTaskId } from '@/composables/useSessionBackgroundTasks.js';
 import { cn } from '@/lib/utils';
 import { statusLabel, statusToneColor } from '@/utils/participantVisual.js';
+
+// 异常/需注意状态才常驻文字,其余只留色点(dot 的 title 已承载状态文字)。
+const ATTENTION_STATUSES = new Set(['failed', 'interrupted', 'cancelled']);
+const isAttentionStatus = (status) => ATTENTION_STATUSES.has(status);
 
 const props = defineProps({
   taskState: { type: Object, required: true },

@@ -301,24 +301,15 @@ function truncate(value, maxLength) {
 }
 
 .assistant-step-chevron {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 12px;
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
   color: var(--color-text-muted);
   transition: transform var(--transition-fast);
 }
 
 .assistant-step-chevron.open {
   transform: rotate(180deg);
-}
-
-.assistant-step-row:hover .assistant-step-icon,
-.assistant-step-row:hover .assistant-step-name {
-  color: var(--color-text-primary);
-}
-
-.assistant-step-row:hover .assistant-step-summary {
-  color: var(--color-text-secondary);
 }
 
 .assistant-step-row.status-running .assistant-step-icon,

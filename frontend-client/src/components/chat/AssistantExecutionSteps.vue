@@ -1,9 +1,7 @@
 <template>
   <div class="assistant-execution">
-    <Button
+    <button
       class="assistant-execution-toggle"
-      variant="ghost"
-      size="sm"
       type="button"
       :aria-expanded="expanded"
       :title="expanded ? '收起执行步骤' : '展开执行步骤'"
@@ -17,7 +15,7 @@
         :class="{ open: expanded }"
         aria-hidden="true"
       />
-    </Button>
+    </button>
 
     <div class="assistant-execution-list-outer" :class="{ 'is-open': expanded }">
       <div class="assistant-execution-list-clip">
@@ -136,15 +134,21 @@ function nodeKey(node, index) {
 
 .assistant-execution-toggle {
   align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
   width: auto;
   height: auto;
   min-height: 0;
   justify-content: flex-start;
   gap: 6px;
   padding: 2px 0;
+  border: 0;
+  background: transparent;
   color: var(--color-text-muted);
+  font: inherit;
   font-size: 12.5px;
   line-height: 1.5;
+  cursor: pointer;
 }
 
 .assistant-execution-label {
@@ -157,6 +161,9 @@ function nodeKey(node, index) {
 }
 
 .assistant-execution-chevron {
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
   transition: transform var(--transition-fast);
 }
 
