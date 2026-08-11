@@ -1078,10 +1078,9 @@ input[type='number'] {
   border-radius: var(--radius-md);
   background: var(--color-bg-elevated);
   box-shadow: none;
-  transition: box-shadow var(--transition-normal), background var(--transition-normal);
+  transition: background var(--transition-fast);
 }
 
 .adm-entity-row:hover {
-  background: var(--color-bg-tertiary);
-  box-shadow: var(--shadow-elevated);
+  background: var(--color-hover-overlay-md);
 }

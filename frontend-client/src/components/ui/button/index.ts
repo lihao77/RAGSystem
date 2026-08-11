@@ -8,18 +8,18 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         success:
-          "bg-success text-success-foreground shadow-sm hover:bg-success/90",
+          "bg-success text-success-foreground hover:bg-success/90",
         warning:
-          "bg-warning text-warning-foreground shadow-sm hover:bg-warning/90",
+          "bg-warning text-warning-foreground hover:bg-warning/90",
         outline:
-          "border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground",
+          "border border-input bg-transparent hover:bg-hover-overlay hover:text-accent-foreground",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "hover:bg-hover-overlay hover:text-accent-foreground",
         // bare:无 hover 背景的纯文字/图标按钮(折叠头、行内触发器);
         // 仍走 Button 以保留图标尺寸管控(行内图标=1em 跟字号),避免裸换原生 button 图标失控。
         bare: "rounded-none bg-transparent hover:bg-transparent text-muted-foreground [&_svg]:size-[1em]",

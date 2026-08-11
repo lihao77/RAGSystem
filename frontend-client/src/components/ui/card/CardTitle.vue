@@ -10,7 +10,7 @@ const props = defineProps<{
 <template>
   <h3
     :class="
-      cn('font-semibold leading-none tracking-tight', props.class)
+      cn('text-md font-medium leading-tight tracking-tight', props.class)
     "
   >
     <slot />
