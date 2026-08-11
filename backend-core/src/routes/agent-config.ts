@@ -63,34 +63,37 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     return ok(config, `智能体 "${request.params.agentName}" 配置`);
   });
 
-  app.put<{ Params: AgentParams }>("/configs/:agentName", async (request) => {
+  app.put<{ Params: AgentParams; Querystring: TeamQuery }>("/configs/:agentName", async (request) => {
+    const teamName = readTeamQuery(request.query);
     const payload = AgentConfigSchema.parse({
       ...(isRecord(request.body) ? request.body : {}),
       agent_name: request.params.agentName,
     });
-    const config = await request.container.agentConfig.replaceConfig(request.params.agentName, payload);
-    await emitActiveTeamChange(options, request);
+    const config = await request.container.agentConfig.replaceConfig(request.params.agentName, payload, { teamName });
+    await emitConfigWriteChange(options, request, teamName);
     return ok(config, `智能体 "${request.params.agentName}" 配置已更新`);
   });
 
-  app.patch<{ Params: AgentParams }>("/configs/:agentName", async (request) => {
+  app.patch<{ Params: AgentParams; Querystring: TeamQuery }>("/configs/:agentName", async (request) => {
     if (!isRecord(request.body)) {
       throw new HttpError(400, "invalid_request", "请求体必须是对象");
     }
-    const config = await request.container.agentConfig.patchConfig(request.params.agentName, request.body);
+    const teamName = readTeamQuery(request.query);
+    const config = await request.container.agentConfig.patchConfig(request.params.agentName, request.body, { teamName });
     if (!config) {
       throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
     }
-    await emitActiveTeamChange(options, request);
+    await emitConfigWriteChange(options, request, teamName);
     return ok(config, `智能体 "${request.params.agentName}" 配置已更新`);
   });
 
-  app.delete<{ Params: AgentParams }>("/configs/:agentName", async (request) => {
-    const deleted = await request.container.agentConfig.deleteConfig(request.params.agentName);
+  app.delete<{ Params: AgentParams; Querystring: TeamQuery }>("/configs/:agentName", async (request) => {
+    const teamName = readTeamQuery(request.query);
+    const deleted = await request.container.agentConfig.deleteConfig(request.params.agentName, { teamName });
     if (!deleted) {
       throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
     }
-    await emitActiveTeamChange(options, request);
+    await emitConfigWriteChange(options, request, teamName);
     return ok(undefined, `智能体 "${request.params.agentName}" 配置已删除`);
   });
 
@@ -241,6 +244,15 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
 };
+
+/** 配置写操作后按目标 team 发变更事件：显式 team 用其自身，否则回退当前激活 team。 */
+async function emitConfigWriteChange(options: RouteOptions, request: FastifyRequest, teamName: string | null): Promise<void> {
+  if (teamName) {
+    await emitAgentConfigChanged(options, request, { teamName });
+    return;
+  }
+  await emitActiveTeamChange(options, request);
+}
 
 async function emitActiveTeamChange(options: RouteOptions, request: FastifyRequest): Promise<void> {
   const { active_team: activeTeam } = await request.container.agentConfig.listTeams();

@@ -122,10 +122,11 @@ export class AgentConfigService {
     return config ? cloneConfig(config) : null;
   }
 
-  async createAgent(payload: CreateAgentRequest): Promise<AgentConfig> {
+  async createAgent(payload: CreateAgentRequest, options: { teamName?: string | null } = {}): Promise<AgentConfig> {
     await this.ensureInitialized();
     const agentName = normalizeAgentName(payload.agent_name);
-    if (this.getActiveConfigs().has(agentName)) {
+    const configs = this.getConfigsForWrite(options.teamName);
+    if (configs.has(agentName)) {
       throw new Error(`智能体 ${agentName} 已存在`);
     }
 
@@ -133,43 +134,46 @@ export class AgentConfigService {
       ...payload,
       agent_name: agentName,
     });
-    this.enforceSingleDefaultEntry(agentName, config.default_entry);
-    this.getActiveConfigs().set(agentName, config);
+    this.enforceSingleDefaultEntry(configs, agentName, config.default_entry);
+    configs.set(agentName, config);
     await this.saveAll();
     return cloneConfig(config);
   }
 
-  async replaceConfig(agentName: string, payload: AgentConfig): Promise<AgentConfig> {
+  async replaceConfig(agentName: string, payload: AgentConfig, options: { teamName?: string | null } = {}): Promise<AgentConfig> {
     await this.ensureInitialized();
+    const configs = this.getConfigsForWrite(options.teamName);
     const config = normalizeConfig({
       ...payload,
       agent_name: agentName,
     });
-    this.enforceSingleDefaultEntry(agentName, config.default_entry);
-    this.getActiveConfigs().set(agentName, config);
+    this.enforceSingleDefaultEntry(configs, agentName, config.default_entry);
+    configs.set(agentName, config);
     await this.saveAll();
     return cloneConfig(config);
   }
 
-  async patchConfig(agentName: string, patch: Record<string, unknown>): Promise<AgentConfig | null> {
+  async patchConfig(agentName: string, patch: Record<string, unknown>, options: { teamName?: string | null } = {}): Promise<AgentConfig | null> {
     await this.ensureInitialized();
-    const current = this.getActiveConfigs().get(agentName);
+    const configs = this.getConfigsForWrite(options.teamName);
+    const current = configs.get(agentName);
     if (!current) {
       return null;
     }
     const merged = normalizeConfig(deepMerge(cloneConfig(current), patch) as AgentConfig);
     merged.agent_name = agentName;
-    this.enforceSingleDefaultEntry(agentName, merged.default_entry);
-    this.getActiveConfigs().set(agentName, merged);
+    this.enforceSingleDefaultEntry(configs, agentName, merged.default_entry);
+    configs.set(agentName, merged);
     await this.saveAll();
     return cloneConfig(merged);
   }
 
-  async deleteConfig(agentName: string): Promise<boolean> {
+  async deleteConfig(agentName: string, options: { teamName?: string | null } = {}): Promise<boolean> {
     await this.ensureInitialized();
-    const deleted = this.getActiveConfigs().delete(agentName);
+    const configs = this.getConfigsForWrite(options.teamName);
+    const deleted = configs.delete(agentName);
     if (deleted) {
-      this.purgeAgentReferences(agentName);
+      this.purgeAgentReferences(configs, agentName);
       await this.saveAll();
     }
     return deleted;
@@ -234,25 +238,27 @@ export class AgentConfigService {
     const format = resolveImportFormat(options.formatName, options.contentType);
     const parsed = parseImportBody(body, format);
     const config = normalizeConfig(AgentConfigSchema.parse(parsed));
-    this.enforceSingleDefaultEntry(config.agent_name, config.default_entry);
-    this.getActiveConfigs().set(config.agent_name, config);
+    const configs = this.getActiveConfigs();
+    this.enforceSingleDefaultEntry(configs, config.agent_name, config.default_entry);
+    configs.set(config.agent_name, config);
     await this.saveAll();
     return cloneConfig(config);
   }
 
-  async deleteAgent(agentName: string): Promise<boolean> {
+  async deleteAgent(agentName: string, options: { teamName?: string | null } = {}): Promise<boolean> {
     await this.ensureInitialized();
     const normalized = normalizeAgentName(agentName);
-    const config = this.getActiveConfigs().get(normalized);
+    const configs = this.getConfigsForWrite(options.teamName);
+    const config = configs.get(normalized);
     if (!config) {
       return false;
     }
     if (config.default_entry || normalized === "orchestrator_agent") {
       throw new Error("系统核心智能体禁止删除");
     }
-    const deleted = this.getActiveConfigs().delete(normalized);
+    const deleted = configs.delete(normalized);
     if (deleted) {
-      this.purgeAgentReferences(normalized);
+      this.purgeAgentReferences(configs, normalized);
       await this.saveAll();
     }
     return deleted;
@@ -419,6 +425,16 @@ export class AgentConfigService {
     return this.getTeamConfigs(this.activeTeam);
   }
 
+  /**
+   * 写路径按 team 寻址：显式 teamName 时操作该 team，省略则回退当前激活 team。
+   * 与读路径 resolveConfigsForRead 的区别：写路径对不存在的 team 直接抛错（getTeamConfigs），
+   * 而不是静默返回 null，避免"配置写到了不存在的 team 却以为成功"。
+   */
+  private getConfigsForWrite(teamName?: string | null): TeamConfigs {
+    const normalized = teamName?.trim();
+    return normalized ? this.getTeamConfigs(normalized) : this.getActiveConfigs();
+  }
+
   private resolveConfigsForRead(teamName?: string | null): TeamConfigs | null {
     const normalized = teamName?.trim();
     if (!normalized) {
@@ -447,13 +463,13 @@ export class AgentConfigService {
     };
   }
 
-  private enforceSingleDefaultEntry(agentName: string, isDefaultEntry: boolean): void {
+  private enforceSingleDefaultEntry(configs: TeamConfigs, agentName: string, isDefaultEntry: boolean): void {
     if (!isDefaultEntry) {
       return;
     }
-    for (const [name, config] of this.getActiveConfigs()) {
+    for (const [name, config] of configs) {
       if (name !== agentName && config.default_entry) {
-        this.getActiveConfigs().set(name, {
+        configs.set(name, {
           ...config,
           default_entry: false,
         });
@@ -461,9 +477,8 @@ export class AgentConfigService {
     }
   }
 
-  /** 删除 agent 后，级联清理当前 team 内其余 agent 对它的委派引用，避免悬空 enabled_agents 条目。 */
-  private purgeAgentReferences(agentName: string): void {
-    const configs = this.getActiveConfigs();
+  /** 删除 agent 后，级联清理该 team 内其余 agent 对它的委派引用，避免悬空 enabled_agents 条目。 */
+  private purgeAgentReferences(configs: TeamConfigs, agentName: string): void {
     for (const [name, config] of configs) {
       if (name === agentName) continue;
       const enabledAgents = config.delegation?.enabled_agents;

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 编排工作台 · 原型 v4</title>
+<style>
+  :root{
+    --color-bg:#f7f7f8; --color-bg-elevated:#ffffff; --color-bg-secondary:#f0f0f2;
+    --color-border:#e4e4e7; --color-border-hover:#d4d4d8;
+    --color-text-primary:#18181b; --color-text-secondary:#52525b; --color-text-tertiary:#8a8a93; --color-text-muted:#a1a1aa;
+    --color-brand-accent:#3b82f6; --color-on-accent:#ffffff;
+    --color-success:#16a34a; --color-warning:#d97706; --color-danger:#dc2626;
+    --radius-sm:6px; --radius-md:10px; --radius-lg:14px;
+    --spacing-xs:4px; --spacing-sm:8px; --spacing-md:12px; --spacing-lg:16px; --spacing-xl:24px;
+    --font-size-xs:11px; --font-size-sm:12px; --font-size-md:13px; --font-size-lg:15px; --font-size-xl:17px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"Segoe UI","Inter",sans-serif;background:var(--color-bg);color:var(--color-text-primary);font-size:var(--font-size-md);height:100vh;overflow:hidden}
+  .app{display:flex;flex-direction:column;height:100vh}
+
+  .topbar{height:52px;display:flex;align-items:center;gap:var(--spacing-lg);padding:0 var(--spacing-lg);background:var(--color-bg-elevated);border-bottom:1px solid var(--color-border);flex-shrink:0}
+  .topbar .crumb{font-size:var(--font-size-lg);font-weight:600}
+  .topbar .spacer{flex:1}
+  .run-pill{display:flex;align-items:center;gap:6px;font-size:var(--font-size-sm);color:var(--color-text-secondary);background:var(--color-bg-secondary);border:1px solid var(--color-border);border-radius:999px;padding:4px 12px}
+  .run-pill .dot{width:7px;height:7px;border-radius:50%;background:var(--color-success)}
+  .btn{height:32px;padding:0 14px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-bg-elevated);color:var(--color-text-primary);font-size:var(--font-size-md);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .btn:hover{border-color:var(--color-border-hover);background:var(--color-bg-secondary)}
+  .btn.primary{background:var(--color-brand-accent);border-color:var(--color-brand-accent);color:var(--color-on-accent)}
+  .btn.primary:hover{filter:brightness(1.05)}
+  .btn.primary:disabled{opacity:.5;cursor:not-allowed}
+  .btn.ghost{border-color:transparent;background:transparent;color:var(--color-text-secondary)}
+  .btn.ghost:hover{background:var(--color-bg-secondary)}
+  .btn.sm{height:26px;padding:0 10px;font-size:var(--font-size-sm)}
+
+  .workbench{flex:1;display:grid;grid-template-columns:264px 1fr;min-height:0}
+
+  .nav{border-right:1px solid var(--color-border);background:var(--color-bg-elevated);display:flex;flex-direction:column;min-height:0}
+  .nav-head{padding:var(--spacing-md) var(--spacing-lg);border-bottom:1px solid var(--color-border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+  .nav-head h3{font-size:var(--font-size-sm);font-weight:600;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.04em}
+  .nav-body{flex:1;overflow-y:auto;padding:var(--spacing-sm)}
+  .team{margin-bottom:var(--spacing-xs)}
+  .team-head{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:var(--radius-sm);cursor:pointer;user-select:none}
+  .team-head:hover{background:var(--color-bg-secondary)}
+  .team-head .caret{color:var(--color-text-muted);font-size:10px;width:12px;flex-shrink:0;transition:transform .15s}
+  .team.closed .caret{transform:rotate(-90deg)}
+  .team-head .tname{font-weight:600;font-size:var(--font-size-md);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .badge{font-size:var(--font-size-xs);padding:1px 7px;border-radius:999px;border:1px solid var(--color-border);color:var(--color-text-secondary);background:var(--color-bg-elevated);flex-shrink:0}
+  .badge.success{color:var(--color-success);border-color:color-mix(in srgb,var(--color-success) 40%,transparent);background:color-mix(in srgb,var(--color-success) 8%,transparent)}
+  .badge.accent{color:var(--color-brand-accent);border-color:color-mix(in srgb,var(--color-brand-accent) 40%,transparent);background:color-mix(in srgb,var(--color-brand-accent) 8%,transparent)}
+  .team .count{font-size:var(--font-size-xs);color:var(--color-text-muted)}
+  .agent-list{overflow:hidden}
+  .team.closed .agent-list{display:none}
+  .agent{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 26px;border-radius:var(--radius-sm);cursor:pointer;border:1px solid transparent;margin:1px 0}
+  .agent:hover{background:var(--color-bg-secondary)}
+  .agent.sel{background:color-mix(in srgb,var(--color-brand-accent) 8%,transparent);border-color:color-mix(in srgb,var(--color-brand-accent) 35%,transparent)}
+  .agent .dot{width:6px;height:6px;border-radius:50%;background:var(--color-border-hover);flex-shrink:0}
+  .agent.sel .dot{background:var(--color-brand-accent)}
+  .agent .anm{font-size:var(--font-size-md);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  .agent.sel .anm{font-weight:600}
+  .agent .entry-tag{font-size:10px;color:var(--color-text-muted)}
+  .agent.add{color:var(--color-text-tertiary)}
+  .agent.add:hover{color:var(--color-brand-accent)}
+
+  .panel{background:var(--color-bg);display:flex;flex-direction:column;min-height:0}
+  .panel-head{padding:var(--spacing-lg) var(--spacing-xl);border-bottom:1px solid var(--color-border);background:var(--color-bg-elevated);display:flex;align-items:center;gap:var(--spacing-lg);flex-shrink:0}
+  .panel-head .title{font-size:var(--font-size-xl);font-weight:600}
+  .panel-head .scope{font-size:var(--font-size-sm);color:var(--color-text-tertiary);margin-top:2px}
+
+  .tabs{display:flex;align-items:center;gap:2px;padding:0 var(--spacing-xl);background:var(--color-bg-elevated);border-bottom:1px solid var(--color-border);flex-shrink:0}
+  .tab{position:relative;padding:10px 14px;font-size:var(--font-size-md);color:var(--color-text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:5px}
+  .tab:hover{color:var(--color-text-primary)}
+  .tab.on{color:var(--color-text-primary);border-bottom-color:var(--color-brand-accent);font-weight:600}
+  .tab .d{width:6px;height:6px;border-radius:50%;background:var(--color-warning);flex-shrink:0}
+  .tab-sep{width:1px;height:18px;background:var(--color-border);margin:0 8px;align-self:center}
+  .tab-group-label{font-size:10px;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:.05em;padding:0 6px 0 2px;align-self:center;user-select:none}
+
+  .panel-body{flex:1;overflow-y:auto;padding:var(--spacing-xl)}
+  .pane{display:none}
+  .pane.on{display:block}
+
+  /* 主配置 tab 内的分区（小标题式，不再用重卡片） */
+  .block{max-width:820px;margin-bottom:var(--spacing-xl)}
+  .block > .block-head{display:flex;align-items:baseline;gap:10px;margin-bottom:var(--spacing-md);padding-bottom:8px;border-bottom:1px solid var(--color-border)}
+  .block > .block-head h4{font-size:var(--font-size-lg);font-weight:600}
+  .block > .block-head span{font-size:var(--font-size-sm);color:var(--color-text-tertiary)}
+
+  .section{background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--spacing-xl);margin-bottom:var(--spacing-lg);max-width:820px}
+  .section h4{font-size:var(--font-size-lg);font-weight:600;margin-bottom:2px}
+  .section .desc{font-size:var(--font-size-sm);color:var(--color-text-tertiary);margin-bottom:var(--spacing-lg)}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--spacing-lg)}
+  .form-item{display:flex;flex-direction:column;gap:6px}
+  .form-item.full{grid-column:1/-1}
+  .form-item label{font-size:var(--font-size-sm);color:var(--color-text-secondary);font-weight:500}
+  .input,.select{height:34px;padding:0 11px;border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-bg-elevated);font-size:var(--font-size-md);color:var(--color-text-primary);width:100%}
+  .input:focus,.select:focus{outline:none;border-color:var(--color-brand-accent)}
+  textarea.input{height:auto;min-height:130px;padding:9px 11px;resize:vertical;font-family:inherit;line-height:1.55}
+
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;max-width:820px}
+  .switch{width:36px;height:20px;border-radius:999px;background:var(--color-border-hover);position:relative;cursor:pointer;border:none;flex-shrink:0}
+  .switch.on{background:var(--color-brand-accent)}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+  .switch.on::after{left:18px}
+
+  .chip-grid{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{padding:6px 12px;border-radius:999px;border:1px solid var(--color-border);background:var(--color-bg-elevated);font-size:var(--font-size-sm);cursor:pointer;color:var(--color-text-secondary);user-select:none}
+  .chip.on{background:color-mix(in srgb,var(--color-brand-accent) 8%,transparent);border-color:color-mix(in srgb,var(--color-brand-accent) 45%,transparent);color:var(--color-brand-accent);font-weight:500}
+
+  .tier{border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--spacing-lg);margin-bottom:var(--spacing-md);background:var(--color-bg-elevated)}
+  .tier .tier-head{display:flex;align-items:center;gap:8px;margin-bottom:var(--spacing-md)}
+  .tier .tier-head .tname{font-weight:600}
+  .tier .tier-head .req{font-size:var(--font-size-xs);color:var(--color-text-muted)}
+
+  .savebar{position:sticky;bottom:0;display:flex;align-items:center;gap:var(--spacing-md);padding:var(--spacing-md) 0;background:linear-gradient(transparent,var(--color-bg) 40%);max-width:820px}
+  .savebar .dirty{font-size:var(--font-size-sm);color:var(--color-warning);display:flex;align-items:center;gap:6px}
+  .savebar .saved{font-size:var(--font-size-sm);color:var(--color-success);display:none;align-items:center;gap:6px}
+  .savebar .spacer{flex:1}
+  .hint{background:color-mix(in srgb,var(--color-brand-accent) 6%,transparent);border:1px solid color-mix(in srgb,var(--color-brand-accent) 25%,transparent);border-radius:var(--radius-md);padding:10px 14px;font-size:var(--font-size-sm);color:var(--color-text-secondary);max-width:820px;margin-bottom:var(--spacing-lg)}
+  ::-webkit-scrollbar{width:9px}
+  ::-webkit-scrollbar-thumb{background:var(--color-border-hover);border-radius:99px;border:2px solid var(--color-bg-elevated)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="crumb">Agent 编排</div>
+    <div class="spacer"></div>
+    <div class="run-pill"><span class="dot"></span>运行时默认：<strong>客服团队</strong></div>
+    <button class="btn sm">设为运行时默认</button>
+  </div>
+
+  <div class="workbench">
+
+    <div class="nav">
+      <div class="nav-head"><h3>Team / Agent</h3><button class="btn ghost sm">＋ Team</button></div>
+      <div class="nav-body">
+        <div class="team">
+          <div class="team-head"><span class="caret">▼</span><span class="tname">客服团队</span><span class="badge success">默认</span><span class="count">4</span></div>
+          <div class="agent-list">
+            <div class="agent sel"><span class="dot"></span><span class="anm">接待编排</span><span class="entry-tag">入口</span></div>
+            <div class="agent"><span class="dot"></span><span class="anm">问答专员</span></div>
+            <div class="agent"><span class="dot"></span><span class="anm">订单查询</span></div>
+            <div class="agent"><span class="dot"></span><span class="anm">售后工单</span></div>
+            <div class="agent add"><span class="anm">＋ 新建 Agent</span></div>
+          </div>
+        </div>
+        <div class="team closed"><div class="team-head"><span class="caret">▼</span><span class="tname">数据分析组</span><span class="count">3</span></div><div class="agent-list"></div></div>
+        <div class="team closed"><div class="team-head"><span class="caret">▼</span><span class="tname">研发助手</span><span class="count">2</span></div><div class="agent-list"></div></div>
+        <div class="team closed"><div class="team-head"><span class="caret">▼</span><span class="tname">Agent Builder</span><span class="badge accent">系统</span></div><div class="agent-list"></div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="title">接待编排</div>
+          <div class="scope">客服团队 · orchestrator — 编辑不影响运行时默认</div>
+        </div>
+        <div style="flex:1"></div>
+        <button class="btn sm ghost">导出</button>
+        <button class="btn sm ghost" style="color:var(--color-danger)">删除</button>
+      </div>
+
+      <!-- 主配置 + 扩展插件 -->
+      <div class="tabs" id="tabs">
+        <div class="tab on" data-pane="config">配置<span class="d" hidden></span></div>
+        <span class="tab-sep"></span>
+        <span class="tab-group-label">扩展</span>
+        <div class="tab" data-pane="skills">技能<span class="d" hidden></span></div>
+        <div class="tab" data-pane="memory">记忆<span class="d" hidden></span></div>
+        <div class="tab" data-pane="mcp">MCP<span class="d" hidden></span></div>
+        <div class="tab" data-pane="delegate">委派<span class="d" hidden></span></div>
+      </div>
+
+      <div class="panel-body">
+
+        <!-- 主配置：基础/模型/提示词/工具 一体，一次保存 -->
+        <div class="pane on" data-pane="config">
+
+          <div class="block">
+            <div class="block-head"><h4>基础信息</h4><span>展示与启用状态</span></div>
+            <div class="form-grid">
+              <div class="form-item"><label>显示名称</label><input class="input dirty-watch" value="接待编排"></div>
+              <div class="form-item"><label>标识</label><input class="input" value="orchestrator" disabled></div>
+              <div class="form-item full"><label>描述</label><input class="input dirty-watch" value="接收用户请求并分发给对应专员"></div>
+            </div>
+            <div class="toggle-row"><span>启用该 Agent</span><button class="switch on"></button></div>
+            <div class="toggle-row"><span>设为 Team 默认入口</span><button class="switch on"></button></div>
+          </div>
+
+          <div class="block">
+            <div class="block-head"><h4>模型</h4><span>default 必配，fast / powerful 可选</span></div>
+            <div class="tier">
+              <div class="tier-head"><span class="tname">default</span><span class="req">必配主模型</span></div>
+              <div class="form-grid">
+                <div class="form-item"><label>Provider</label><select class="select"><option>OpenAI 兼容</option><option>Anthropic</option></select></div>
+                <div class="form-item"><label>模型</label><select class="select"><option>gpt-4o</option><option>claude-opus</option></select></div>
+                <div class="form-item"><label>Temperature</label><input class="input dirty-watch" value="0.7"></div>
+                <div class="form-item"><label>最大 Token</label><input class="input dirty-watch" value="4096"></div>
+              </div>
+            </div>
+            <div class="tier">
+              <div class="tier-head"><span class="tname">fast</span><span class="req">可选 · 轻量任务</span><div style="flex:1"></div><button class="switch"></button></div>
+            </div>
+          </div>
+
+          <div class="block">
+            <div class="block-head"><h4>系统提示词</h4><span>角色与行为边界</span></div>
+            <div class="form-item full">
+              <textarea class="input dirty-watch">你是客服团队的接待编排者，负责理解用户意图并分发给对应专员……</textarea>
+            </div>
+          </div>
+
+          <div class="block">
+            <div class="block-head"><h4>可用工具</h4><span>点选开启 / 关闭</span></div>
+            <div class="chip-grid">
+              <div class="chip on">read_file</div>
+              <div class="chip on">search</div>
+              <div class="chip">write_file</div>
+              <div class="chip on">query_order</div>
+              <div class="chip">run_shell</div>
+              <div class="chip on">create_ticket</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 扩展：各自独立保存 -->
+        <div class="pane" data-pane="skills">
+          <div class="hint">扩展是独立插件配置，单独保存，与主配置互不影响。</div>
+          <div class="section"><h4>技能</h4><div class="desc">挂载 Skill 库能力</div>
+            <div class="chip-grid"><div class="chip on">summarize</div><div class="chip">translate</div><div class="chip on">escalate</div></div>
+          </div>
+        </div>
+        <div class="pane" data-pane="memory">
+          <div class="hint">扩展是独立插件配置，单独保存，与主配置互不影响。</div>
+          <div class="section"><h4>记忆</h4><div class="desc">长期记忆读写策略</div>
+            <div class="toggle-row"><span>启用长期记忆</span><button class="switch on"></button></div>
+            <div class="form-item" style="max-width:220px"><label>容量上限</label><input class="input dirty-watch" value="200"></div>
+          </div>
+        </div>
+        <div class="pane" data-pane="mcp">
+          <div class="hint">扩展是独立插件配置，单独保存，与主配置互不影响。</div>
+          <div class="section"><h4>MCP 服务</h4><div class="desc">接入外部 MCP Server</div>
+            <div class="chip-grid"><div class="chip on">order-db</div><div class="chip">crm</div></div>
+          </div>
+        </div>
+        <div class="pane" data-pane="delegate">
+          <div class="hint">委派引用同 Team 其他 Agent，保存时校验目标存在。</div>
+          <div class="section"><h4>可委派 Agent</h4><div class="desc">本 Agent 可分派任务给：</div>
+            <div class="chip-grid"><div class="chip on">问答专员</div><div class="chip on">订单查询</div><div class="chip">售后工单</div></div>
+          </div>
+        </div>
+
+        <div class="savebar">
+          <span class="dirty" id="dirtyTag">● 本页有未保存修改</span>
+          <span class="saved" id="savedTag">✓ 已保存</span>
+          <span class="spacer"></span>
+          <button class="btn" id="discardBtn">放弃</button>
+          <button class="btn primary" id="saveBtn">保存</button>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const tabs=[...document.querySelectorAll('.tab')];
+  const panes=[...document.querySelectorAll('.pane')];
+  tabs.forEach(t=>t.addEventListener('click',()=>{
+    tabs.forEach(x=>x.classList.remove('on')); t.classList.add('on');
+    panes.forEach(p=>p.classList.toggle('on',p.dataset.pane===t.dataset.pane));
+    updateBar();
+  }));
+  document.querySelectorAll('.team-head').forEach(h=>h.addEventListener('click',()=>h.parentElement.classList.toggle('closed')));
+  document.querySelectorAll('.agent:not(.add)').forEach(a=>a.addEventListener('click',e=>{
+    e.stopPropagation();
+    document.querySelectorAll('.agent').forEach(x=>x.classList.remove('sel')); a.classList.add('sel');
+  }));
+  document.querySelectorAll('.switch').forEach(s=>s.addEventListener('click',()=>{s.classList.toggle('on');markDirty();}));
+  document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{c.classList.toggle('on');markDirty();}));
+  document.querySelectorAll('.dirty-watch').forEach(i=>i.addEventListener('input',markDirty));
+
+  const dirtyTag=document.getElementById('dirtyTag'), savedTag=document.getElementById('savedTag'), saveBtn=document.getElementById('saveBtn');
+  const dirtyPanes=new Set();
+  function currentTab(){return document.querySelector('.tab.on');}
+  function markDirty(){const t=currentTab(); dirtyPanes.add(t.dataset.pane); t.querySelector('.d').hidden=false; updateBar();}
+  function updateBar(){
+    const isDirty=dirtyPanes.has(currentTab().dataset.pane);
+    dirtyTag.style.display=isDirty?'flex':'none';
+    savedTag.style.display=isDirty?'none':'flex';
+    saveBtn.disabled=!isDirty;
+  }
+  saveBtn.addEventListener('click',()=>{const t=currentTab(); dirtyPanes.delete(t.dataset.pane); t.querySelector('.d').hidden=true; updateBar();});
+  document.getElementById('discardBtn').addEventListener('click',()=>{const t=currentTab(); dirtyPanes.delete(t.dataset.pane); t.querySelector('.d').hidden=true; updateBar();});
+  updateBar();
+</script>
+</body>
+</html>

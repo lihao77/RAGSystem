@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 
 import { CreateAgentRequestSchema } from "../../contracts/agent/agent-config.js";
 import { ok } from "../../contracts/common.js";
@@ -13,6 +13,28 @@ interface AgentParams {
   agentName: string;
 }
 
+interface TeamQuery {
+  team?: string;
+}
+
+function readTeamQuery(query: TeamQuery | undefined): string | null {
+  const team = typeof query?.team === "string" ? query.team.trim() : "";
+  return team || null;
+}
+
+async function emitTeamConfigChange(
+  options: RouteOptions,
+  request: FastifyRequest,
+  teamName: string | null,
+): Promise<void> {
+  const target = teamName ?? (await request.container.agentConfig.listTeams()).active_team;
+  await options.emitPluginEvent?.(AGENT_CONFIG_CHANGED_EVENT, {
+    tenantId: request.tenantId,
+    teamName: target,
+    change: "updated",
+  });
+}
+
 export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => { requireTenantMember(request); });
 
@@ -21,36 +43,28 @@ export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = a
     return ok(agents, `共有 ${agents.length} 个智能体`);
   });
 
-  app.post("/agents/create", async (request) => {
+  app.post<{ Querystring: TeamQuery }>("/agents/create", async (request) => {
     requireTenantAdmin(request);
+    const teamName = readTeamQuery(request.query);
     const payload = parseCreateAgentRequest(request.body);
     try {
-      const config = await request.container.agentConfig.createAgent(payload);
-      const { active_team: activeTeam } = await request.container.agentConfig.listTeams();
-      await options.emitPluginEvent?.(AGENT_CONFIG_CHANGED_EVENT, {
-        tenantId: request.tenantId,
-        teamName: activeTeam,
-        change: "updated",
-      });
+      const config = await request.container.agentConfig.createAgent(payload, { teamName });
+      await emitTeamConfigChange(options, request, teamName);
       return ok(config, `智能体 ${config.agent_name} 创建成功`);
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
     }
   });
 
-  app.delete<{ Params: AgentParams }>("/agents/delete/:agentName", async (request) => {
+  app.delete<{ Params: AgentParams; Querystring: TeamQuery }>("/agents/delete/:agentName", async (request) => {
     requireTenantAdmin(request);
+    const teamName = readTeamQuery(request.query);
     try {
-      const deleted = await request.container.agentConfig.deleteAgent(request.params.agentName);
+      const deleted = await request.container.agentConfig.deleteAgent(request.params.agentName, { teamName });
       if (!deleted) {
         throw new HttpError(404, "not_found", `智能体 ${request.params.agentName} 不存在`);
       }
-      const { active_team: activeTeam } = await request.container.agentConfig.listTeams();
-      await options.emitPluginEvent?.(AGENT_CONFIG_CHANGED_EVENT, {
-        tenantId: request.tenantId,
-        teamName: activeTeam,
-        change: "updated",
-      });
+      await emitTeamConfigChange(options, request, teamName);
       return ok(undefined, `智能体 ${request.params.agentName} 已删除`);
     } catch (error) {
       if (error instanceof HttpError) {

@@ -6,6 +6,11 @@ import { http } from './http.js';
 
 const API_BASE = '/api/agent-config';
 
+function teamQuery(teamName) {
+  const team = typeof teamName === 'string' ? teamName.trim() : '';
+  return team ? `?team=${encodeURIComponent(team)}` : '';
+}
+
 
 export async function getTeams() {
   try {
@@ -102,11 +107,12 @@ export async function getAllAgentConfigs(teamName) {
 /**
  * 获取单个智能体配置
  * @param {string} agentName - 智能体名称
+ * @param {string} [teamName] - 指定 team；省略则取当前激活 team
  * @returns {Promise<Object>} 智能体配置
  */
-export async function getAgentConfig(agentName) {
+export async function getAgentConfig(agentName, teamName) {
   try {
-    const result = await http.get(`${API_BASE}/configs/${encodeURIComponent(agentName)}`);
+    const result = await http.get(`${API_BASE}/configs/${encodeURIComponent(agentName)}${teamQuery(teamName)}`);
     return result.data || result;
   } catch (error) {
     console.error('Error fetching agent config:', error);
@@ -118,11 +124,12 @@ export async function getAgentConfig(agentName) {
  * 更新智能体配置
  * @param {string} agentName - 智能体名称
  * @param {Object} payload - 完整配置
+ * @param {string} [teamName] - 指定 team；省略则写入当前激活 team
  * @returns {Promise<Object>} 更新后的配置
  */
-export async function updateAgentConfig(agentName, payload) {
+export async function updateAgentConfig(agentName, payload, teamName) {
   try {
-    const result = await http.put(`${API_BASE}/configs/${encodeURIComponent(agentName)}`, payload);
+    const result = await http.put(`${API_BASE}/configs/${encodeURIComponent(agentName)}${teamQuery(teamName)}`, payload);
     return result.data || result;
   } catch (error) {
     console.error('Error updating agent config:', error);
@@ -133,10 +140,11 @@ export async function updateAgentConfig(agentName, payload) {
 /**
  * 删除智能体
  * @param {string} agentName - 智能体名称
+ * @param {string} [teamName] - 指定 team；省略则从当前激活 team 删除
  */
-export async function deleteAgent(agentName) {
+export async function deleteAgent(agentName, teamName) {
   try {
-    const result = await http.del(`/api/agent/agents/delete/${encodeURIComponent(agentName)}`);
+    const result = await http.del(`/api/agent/agents/delete/${encodeURIComponent(agentName)}${teamQuery(teamName)}`);
     return result;
   } catch (error) {
     console.error('Error deleting agent:', error);
@@ -176,11 +184,12 @@ export async function exportAgentConfig(agentName, { format = 'yaml' } = {}) {
 /**
  * 创建新智能体
  * @param {Object} payload - { agent_name, display_name?, description? }
+ * @param {string} [teamName] - 指定 team；省略则创建到当前激活 team
  * @returns {Promise<Object>} 新建的智能体配置
  */
-export async function createAgent(payload) {
+export async function createAgent(payload, teamName) {
   try {
-    const result = await http.post('/api/agent/agents/create', payload);
+    const result = await http.post(`/api/agent/agents/create${teamQuery(teamName)}`, payload);
     return result.data || result;
   } catch (error) {
     console.error('Error creating agent:', error);

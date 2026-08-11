@@ -181,6 +181,46 @@ textarea.form-control,
   font-size: var(--font-size-sm);
 }
 
+/* ===== 勾选项（替代胶囊的多选） ===== */
+.check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 2px;
+}
+
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: var(--control-radius);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.check-item:hover {
+  background: var(--color-hover-overlay-md);
+}
+
+.check-item input {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--color-brand-accent);
+  cursor: pointer;
+}
+
+.check-item__text {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ===== 响应式 ===== */
 @media (max-width: 900px) {
   .extra-param-content,

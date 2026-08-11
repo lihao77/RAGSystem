@@ -6,8 +6,7 @@ import { useAuthStore } from '../stores/auth.js';
 const ChatViewV2 = () => import('../views/ChatViewV2.vue');
 const AdminCenter = () => import('../views/AdminCenter.vue');
 const AgentMonitor = () => import('../views/AgentMonitor.vue');
-const AgentConfig = () => import('../views/AgentConfig.vue');
-const TeamBuilder = () => import('../views/TeamBuilder.vue');
+const AgentStudio = () => import('../views/AgentStudio.vue');
 const MCPManager = () => import('../views/MCPManager.vue');
 const KnowledgeBaseManager = () => import('../views/KnowledgeBaseManager.vue');
 const SkillLibrary = () => import('../views/SkillLibrary.vue');
@@ -54,8 +53,9 @@ const routes = [
       { path: 'admin', component: AdminCenter, meta: adminPageMeta('admin', 1, 1, 'admin') },
       { path: 'monitor', component: AgentMonitor, meta: adminPageMeta('monitor', 2, 5) },
       { path: 'agent-monitor', redirect: '/monitor' },
-      { path: 'team-builder', component: TeamBuilder, meta: adminPageMeta('team-builder', 2, 2) },
-      { path: 'agent-config', component: AgentConfig, meta: adminPageMeta('agent-config', 2, 3) },
+      { path: 'agent-studio', component: AgentStudio, meta: adminPageMeta('agent-studio', 2, 2) },
+      { path: 'team-builder', redirect: '/agent-studio' },
+      { path: 'agent-config', redirect: '/agent-studio' },
       { path: 'mcp', component: MCPManager, meta: adminPageMeta('mcp', 3, 4) },
       { path: 'knowledge-base', component: KnowledgeBaseManager, meta: adminPageMeta('knowledge-base', 4, 5) },
       { path: 'skill-library', component: SkillLibrary, meta: adminPageMeta('skill-library', 4, 6) },

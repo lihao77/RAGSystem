@@ -5,7 +5,7 @@ import { getProviders } from '../api/modelAdapter.js';
 
 /**
  * 字典单源：teams / agents / providers 的缓存与共享。
- * 替代各视图（Bots/AgentConfig/TeamBuilder/AdminCenter/KnowledgeBaseManager/MainLayout/
+ * 替代各视图（Bots/AgentStudio/AdminCenter/KnowledgeBaseManager/MainLayout/
  * useChatSessionController）原本各自 getTeams/getAllAgentConfigs/getProviders 的重复拉取。
  *
  * ensureXxx 返回结构与原 api 函数一致（teams → {active_team, teams}；agents → {agent_name: config}；
