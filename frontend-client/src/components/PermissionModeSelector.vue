@@ -2,7 +2,6 @@
   <DropdownMenuSub v-if="presentation === 'submenu'">
     <DropdownMenuSubTrigger
       class="data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
-      :disabled="!sessionId"
       :title="triggerTitle"
     >
       <component :is="modeIcon" :class="triggerToneClass" />
@@ -16,7 +15,7 @@
         <span class="flex flex-col gap-1">
           <span>会话权限</span>
           <span class="text-xs font-normal text-muted-foreground">
-            {{ canEdit ? '仅影响当前会话，修改后立即持久化。' : '当前会话归属其他身份，仅可查看。' }}
+            {{ sessionId ? '仅影响当前会话；本次选择也会作为新会话默认值。' : '当前设置会用于接下来创建的新会话。' }}
           </span>
         </span>
       </DropdownMenuLabel>
@@ -45,7 +44,6 @@
         variant="ghost"
         size="icon"
         :class="cn('permission-mode-trigger', triggerToneClass)"
-        :disabled="!sessionId"
         :title="triggerTitle"
         :aria-label="triggerTitle"
       >
@@ -57,7 +55,7 @@
         <span class="flex flex-col gap-1">
           <span>会话权限</span>
           <span class="text-xs font-normal text-muted-foreground">
-            {{ canEdit ? '仅影响当前会话，修改后立即持久化。' : '当前会话归属其他身份，仅可查看。' }}
+            {{ sessionId ? '仅影响当前会话；本次选择也会作为新会话默认值。' : '当前设置会用于接下来创建的新会话。' }}
           </span>
         </span>
       </DropdownMenuLabel>
@@ -100,6 +98,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
+import { getDefaultPermissionMode, setDefaultPermissionMode } from '../utils/permissionPresentation.js';
 
 const props = defineProps({
   sessionId: { type: String, default: '' },
@@ -132,14 +131,14 @@ const modeToneClasses = {
   dangerously_skip_permissions: 'tone-skip',
 };
 
-const currentMode = ref('standard');
-const canEdit = computed(() => Boolean(props.sessionId));
+const currentMode = ref(getDefaultPermissionMode());
+const canEdit = computed(() => true);
 const modeLabel = computed(() => modes.find(mode => mode.value === currentMode.value)?.label || '标准');
 const modeIcon = computed(() => modeIcons[currentMode.value] || Shield);
 const triggerToneClass = computed(() => modeToneClasses[currentMode.value] || 'tone-standard');
 const triggerTitle = computed(() => props.sessionId
   ? `当前会话权限：${modeLabel.value}`
-  : '当前无会话');
+  : `新会话默认权限：${modeLabel.value}`);
 
 const loadAction = useAsyncAction(async () => {
   if (!props.sessionId) return;
@@ -153,14 +152,24 @@ const updateAction = useAsyncAction(async mode => {
   if (!props.chatSdkClient) throw new Error('Chat SDK 未初始化');
   const result = await props.chatSdkClient.updateSessionPermissions(props.sessionId, mode);
   currentMode.value = result.data?.mode || mode;
+  setDefaultPermissionMode(currentMode.value);
 }, { successMessage: '会话权限已更新', errorPrefix: '更新会话权限失败' });
 
 function selectMode(mode) {
+  if (!modes.some(item => item.value === mode)) return;
+  if (!props.sessionId) {
+    currentMode.value = setDefaultPermissionMode(mode);
+    return;
+  }
+  if (mode === currentMode.value) {
+    setDefaultPermissionMode(mode);
+    return;
+  }
   void updateAction.run(mode);
 }
 
 watch(() => props.sessionId, sessionId => {
-  currentMode.value = 'standard';
+  currentMode.value = getDefaultPermissionMode();
   if (sessionId) void loadAction.run();
 }, { immediate: true });
 </script>

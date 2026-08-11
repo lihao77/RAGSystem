@@ -17,6 +17,26 @@ export const SKIP_ALL_APPROVALS_META = {
 };
 
 const KNOWN_PERMISSION_MODES = new Set(PERMISSION_MODE_OPTIONS.map((item) => item.value));
+const DEFAULT_PERMISSION_MODE_STORAGE_KEY = 'ragsystem:chat-default-permission-mode';
+
+export function getDefaultPermissionMode() {
+  try {
+    const stored = globalThis.localStorage?.getItem(DEFAULT_PERMISSION_MODE_STORAGE_KEY);
+    return KNOWN_PERMISSION_MODES.has(stored) ? stored : 'standard';
+  } catch {
+    return 'standard';
+  }
+}
+
+export function setDefaultPermissionMode(mode) {
+  if (!KNOWN_PERMISSION_MODES.has(mode)) return getDefaultPermissionMode();
+  try {
+    globalThis.localStorage?.setItem(DEFAULT_PERMISSION_MODE_STORAGE_KEY, mode);
+  } catch {
+    // localStorage may be unavailable in private browsing or embedded contexts.
+  }
+  return mode;
+}
 
 export function getPermissionModeMeta(mode) {
   return PERMISSION_MODE_OPTIONS.find((item) => item.value === mode) || null;

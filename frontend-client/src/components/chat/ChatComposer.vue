@@ -57,7 +57,7 @@
         <template #footerMeta>
           <div class="composer-run-controls" role="group" aria-label="本次发送设置">
             <LLMSelector presentation="composer" />
-            <PermissionModeSelector v-if="sessionId" :session-id="sessionId" :chat-sdk-client="chatSdkClient" />
+            <PermissionModeSelector :session-id="sessionId" :chat-sdk-client="chatSdkClient" />
           </div>
         </template>
         <template #rightActions>

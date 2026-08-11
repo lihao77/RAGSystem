@@ -767,7 +767,12 @@ onUnmounted(() => {
   margin: 0 0 var(--spacing-xs);
   padding-bottom: var(--spacing-sm);
 }
-.admin-nav-group { padding: var(--spacing-xs) 0; }
+.admin-nav-group { 
+  padding: var(--spacing-xs) 0;
+    gap: 1px;
+    display: flex;
+    flex-direction: column;
+ }
 .admin-nav-group + .admin-nav-group {
   border-top: 1px solid var(--color-border);
   margin-top: var(--spacing-xs);

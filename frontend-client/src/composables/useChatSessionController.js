@@ -5,6 +5,7 @@ import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '../stores/workspace.js';
+import { getDefaultPermissionMode } from '../utils/permissionPresentation.js';
 
 const stripWrappedQuotes = (value) => {
   const text = (value || '').trim();
@@ -294,6 +295,7 @@ export function useChatSessionController(deps) {
         : {};
     if (team) body.team_name = team;
     if (entryAgent) body.entry_agent_name = entryAgent;
+    body.permission_mode = getDefaultPermissionMode();
     const client = deps.chatSdkClient;
     if (!client) throw new Error('Chat SDK 未初始化');
     const result = await client.createSession(body);

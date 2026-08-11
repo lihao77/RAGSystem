@@ -114,3 +114,49 @@ test('late session detail cannot continue an obsolete route switch', async () =>
       'runtime:session-b',
     ]);
 });
+
+test('creating a new session carries the selected default permission mode', async () => {
+  const pinia = createPinia();
+  setActivePinia(pinia);
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: { template: '<div />' } }, { path: '/chat/:sessionId', component: { template: '<div />' } }],
+  });
+  const app = createApp({ template: '<div />' });
+  app.use(pinia);
+  app.use(router);
+  const bodies = [];
+  const deps = {
+    sessionFiles: ref([]),
+    sessionFilesDrawerVisible: ref(false),
+    sessionFilesDrawerTarget: ref('composer'),
+    connectSessionWS: () => {},
+    disconnectSessionWS: () => {},
+    invalidateActiveStream: () => {},
+    clearExecutionState: () => {},
+    clearComposerAttachments: () => {},
+    loadSessionFiles: async () => {},
+    loadSessionParticipants: async () => {},
+    showToast: () => {},
+    chatSdkClient: {
+      createSession: async body => {
+        bodies.push(body);
+        return { data: {
+          session_id: 'session-new',
+          origin: directOrigin,
+          workspace: null,
+          team_name: 'team-a',
+          entry_agent_name: 'agent-a',
+        } };
+      },
+    },
+  };
+  const controller = app.runWithContext(() => useChatSessionController(deps));
+  controller.currentSessionTeam.value = 'team-a';
+  localStorage.setItem('ragsystem:chat-default-permission-mode', 'relaxed');
+
+  await controller.ensureSession({ replaceRoute: true });
+
+  assert.equal(bodies[0].permission_mode, 'relaxed');
+  localStorage.removeItem('ragsystem:chat-default-permission-mode');
+});

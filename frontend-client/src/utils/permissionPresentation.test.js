@@ -5,13 +5,24 @@ import {
   createEmptyAutoAcceptPattern,
   getApprovalReasonLabels,
   getApprovalReasonText,
+  getDefaultPermissionMode,
   getPermissionModeLabel,
   getPermissionModeMeta,
   normalizePermissionPolicy,
   sanitizeAutoAcceptPatterns,
   serializePermissionPolicy,
+  setDefaultPermissionMode,
   SKIP_ALL_APPROVALS_META,
 } from './permissionPresentation.js';
+
+test('权限模式偏好可在无会话时持久化并供新会话读取', () => {
+  localStorage.removeItem('ragsystem:chat-default-permission-mode');
+  assert.equal(getDefaultPermissionMode(), 'standard');
+  assert.equal(setDefaultPermissionMode('relaxed'), 'relaxed');
+  assert.equal(getDefaultPermissionMode(), 'relaxed');
+  assert.equal(setDefaultPermissionMode('unknown'), 'relaxed');
+  localStorage.removeItem('ragsystem:chat-default-permission-mode');
+});
 
 test('dangerously_skip_permissions 显示为跳过审批', () => {
   assert.equal(getPermissionModeLabel('dangerously_skip_permissions'), '跳过审批');
