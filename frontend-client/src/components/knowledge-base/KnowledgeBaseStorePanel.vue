@@ -177,7 +177,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     padding: 10px 16px;
     border-radius: var(--radius-lg);
     border: 1px solid var(--color-border);
-    background: var(--color-bg-elevated);
+    background: transparent;
     font-size: var(--font-size-sm);
 }
 
@@ -250,18 +250,18 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     gap: var(--spacing-xs);
 }
 .data-table-wrapper {
-    border-radius: var(--radius-xl);
+    border-radius: var(--radius-lg);
     border: 1px solid var(--color-border);
-    background: var(--color-bg-elevated);
+    background: var(--color-bg-secondary);
     overflow: hidden;
 }
 .kb-table :deep(thead th) {
-    height: 38px;
+    height: 36px;
     padding: 0 var(--spacing-md);
-    background: var(--color-bg-secondary);
-    color: var(--color-text-secondary);
+    background: transparent;
+    color: var(--color-text-muted);
     font-size: var(--font-size-xs);
-    font-weight: 600;
+    font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
@@ -360,9 +360,9 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     white-space: nowrap;
 }
 .upload-zone {
-    border-radius: var(--radius-xl);
+    border-radius: var(--radius-lg);
     border: 2px dashed var(--color-border);
-    background: var(--color-bg-secondary);
+    background: transparent;
     padding: var(--spacing-xl);
     cursor: pointer;
     transition: all 0.2s;
@@ -371,7 +371,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
 
 .upload-zone:hover {
     border-color: var(--color-border-hover);
-    background: var(--color-bg-tertiary);
+    background: var(--color-hover-overlay-md);
 }
 
 .upload-content {

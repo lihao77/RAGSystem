@@ -865,8 +865,8 @@ onBeforeUnmount(() => cleanupProviderDrag());
 .provider-filter-count { color: var(--color-text-muted); font-size: 12px; white-space: nowrap; }
 .provider-filter-empty { padding: 32px 16px; text-align: center; color: var(--color-text-secondary); font-size: 13px; }
 
-.provider-list { position: relative; display: flex; flex-direction: column; gap: 8px; }
-.provider-row { position: relative; display: flex; flex-direction: column; padding: 10px 12px 10px 0; overflow: hidden; border-radius: var(--radius-md); }
+.provider-list { position: relative; display: flex; flex-direction: column; gap: 0; }
+.provider-row { position: relative; display: flex; flex-direction: column; padding: 10px 12px 10px 0; overflow: hidden; }
 .provider-row--dragging { opacity: 0; border-color: transparent; background: transparent; box-shadow: none; }
 .provider-row--dragging > * { visibility: hidden; }
 .provider-row-drag-image { opacity: 1; }

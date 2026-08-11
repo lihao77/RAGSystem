@@ -842,18 +842,18 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.add-service-panel { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-lg); border-radius: var(--radius-xl); border: 1px solid var(--color-border); background: var(--color-bg-secondary); box-shadow: none; scroll-margin-top: var(--spacing-md); }
+.add-service-panel { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-lg); border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-secondary); box-shadow: none; scroll-margin-top: var(--spacing-md); }
 .add-service-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-md); }
 .add-service-close { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: all var(--transition-fast); }
 .add-service-close:hover { border-color: var(--color-border-hover); background: var(--color-hover-overlay-md); color: var(--color-text-primary); }
 .add-subnav { display: flex; gap: var(--spacing-xs); padding: var(--spacing-xs); border-radius: var(--radius-md); background: transparent; border: 1px solid var(--color-border); width: fit-content; }
 .add-subnav-btn { display: inline-flex; align-items: center; gap: var(--spacing-sm); padding: 8px 14px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font: inherit; font-size: var(--font-size-sm); font-weight: 500; cursor: pointer; white-space: nowrap; transition: all var(--transition-fast); }
 .add-subnav-btn:hover { color: var(--color-text-primary); }
-.add-subnav-btn--active { background: var(--color-bg-tertiary); color: var(--color-text-primary); font-weight: 600; box-shadow: var(--shadow-sm); }
+.add-subnav-btn--active { background: var(--color-hover-overlay-md); color: var(--color-text-primary); font-weight: 600; box-shadow: none; }
 .add-pane { display: flex; flex-direction: column; gap: var(--spacing-md); }
 
-.server-grid { display: flex; flex-direction: column; gap: 8px; }
-.server-card { display: flex; flex-direction: column; gap: var(--spacing-xs); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-lg); }
+.server-grid { display: flex; flex-direction: column; gap: 0; }
+.server-card { display: flex; flex-direction: column; gap: var(--spacing-xs); padding: var(--spacing-sm) var(--spacing-md); }
 .server-card__main { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); }
 .server-card-head { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
 .server-card-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); flex-shrink: 0; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-secondary); }

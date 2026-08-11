@@ -1299,7 +1299,7 @@ function onMdNotify({ message, type }) {
 }
 
 .skill-navigator__tabs :deep([data-state='active']) {
-  background: var(--color-bg-tertiary);
+  background: var(--color-hover-overlay-md);
   box-shadow: none;
   color: var(--color-text-primary);
 }

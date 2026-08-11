@@ -385,7 +385,7 @@ const dailyHeatmapOption = computed(() => {
   gap: var(--spacing-xs);
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-md);
-  background: var(--color-bg-elevated);
+  background: var(--color-hover-overlay);
 }
 
 .status-item__label {

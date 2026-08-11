@@ -151,18 +151,18 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     gap: var(--spacing-xs);
 }
 .data-table-wrapper {
-    border-radius: var(--radius-xl);
+    border-radius: var(--radius-lg);
     border: 1px solid var(--color-border);
-    background: var(--color-bg-elevated);
+    background: var(--color-bg-secondary);
     overflow: hidden;
 }
 .kb-table :deep(thead th) {
-    height: 38px;
+    height: 36px;
     padding: 0 var(--spacing-md);
-    background: var(--color-bg-secondary);
-    color: var(--color-text-secondary);
+    background: transparent;
+    color: var(--color-text-muted);
     font-size: var(--font-size-xs);
-    font-weight: 600;
+    font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }

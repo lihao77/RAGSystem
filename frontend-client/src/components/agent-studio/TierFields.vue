@@ -22,7 +22,7 @@
           </Field>
           <Field>
             <FieldLabel>Provider Type</FieldLabel>
-            <Input :value="tier.provider_type || '未设置'" type="text" disabled />
+            <span class="form-static">{{ tier.provider_type || '未设置' }}</span>
           </Field>
           <Field>
             <FieldLabel>Model Name</FieldLabel>
@@ -104,7 +104,7 @@ function removeExtraParam(index) {
 .tier-card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  background: var(--color-bg-elevated);
+  background: var(--color-bg-secondary);
   margin-bottom: var(--spacing-md);
   overflow: hidden;
 }

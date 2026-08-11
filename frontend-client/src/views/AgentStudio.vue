@@ -3,6 +3,7 @@
     title="Agent 编排"
     subtitle="Team 与 Agent 配置"
     mobile-title="Agent 编排"
+    fill
     :embedded="embedded"
     :chat-return-path="chatReturnPath"
   >
@@ -10,32 +11,6 @@
       <span class="run-default-pill" title="当前对话实际运行的 Team">
         <span class="run-default-pill__dot"></span>运行时默认：<strong>{{ activeTeam || '—' }}</strong>
       </span>
-      <DropdownMenu>
-        <DropdownMenuTrigger as-child>
-          <Button variant="outline" size="sm">
-            <Settings2 data-icon="inline-start" />
-            管理 Team
-            <ChevronDown data-icon="inline-end" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" class="team-menu">
-          <DropdownMenuLabel>Team（{{ teams.length }}）</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <div v-for="team in teams" :key="`menu-${team.team_name}`" class="team-menu__item">
-            <span class="team-menu__name" :title="team.team_name">
-              {{ team.team_name === BUILDER_TEAM ? 'Agent Builder' : team.team_name }}
-              <Badge v-if="team.team_name === activeTeam" variant="success" class="team-menu__badge">默认</Badge>
-            </span>
-            <div class="team-menu__actions">
-              <Button v-if="team.team_name === 'default'" variant="ghost" size="sm" :disabled="teamBusy" @click="handleResetDefault">恢复默认</Button>
-              <Button v-if="team.team_name !== BUILDER_TEAM" variant="ghost" size="sm" :disabled="teamBusy || team.team_name === activeTeam || teams.length <= 1" @click="handleDeleteTeam(team.team_name)">删除</Button>
-            </div>
-          </div>
-          <template v-if="!teams.length">
-            <DropdownMenuItem disabled>暂无 Team</DropdownMenuItem>
-          </template>
-        </DropdownMenuContent>
-      </DropdownMenu>
       <Button variant="outline" size="sm" :disabled="loading" @click="loadAll(true)">
         <RefreshCw data-icon="inline-start" :class="{ 'animate-spin': loading }" />
         刷新
@@ -68,19 +43,48 @@
 
           <template v-else>
             <div v-for="team in teams" :key="team.team_name" class="navigator-group">
-              <div class="navigator-group__label">
+              <div
+                class="navigator-group__label"
+                :class="{ 'navigator-group__label--collapsible': team.team_name !== BUILDER_TEAM }"
+                @click="toggleTeamCollapse(team.team_name)"
+              >
+                <ChevronDown
+                  v-if="team.team_name !== BUILDER_TEAM"
+                  class="navigator-group__caret"
+                  :class="{ 'navigator-group__caret--collapsed': isTeamCollapsed(team.team_name) }"
+                />
                 <span class="navigator-group__name">{{ team.team_name === BUILDER_TEAM ? 'Agent Builder' : team.team_name }}</span>
                 <Badge v-if="team.team_name === BUILDER_TEAM" variant="secondary">系统</Badge>
-                <Badge v-else-if="team.team_name === activeTeam" variant="success">默认</Badge>
+                <Badge v-else-if="team.team_name === activeTeam" variant="success">运行时</Badge>
                 <span v-else class="navigator-group__count">{{ team.agents?.length || 0 }}</span>
-                <button
-                  v-if="team.team_name !== activeTeam && team.team_name !== BUILDER_TEAM"
-                  type="button"
-                  class="navigator-group__action"
-                  title="设为运行时默认"
-                  :disabled="teamBusy"
-                  @click="handleActivateTeam(team.team_name)"
-                >设为默认</button>
+                <DropdownMenu v-if="team.team_name !== BUILDER_TEAM">
+                  <DropdownMenuTrigger as-child>
+                    <button
+                      type="button"
+                      class="navigator-group__more"
+                      title="团队操作"
+                      aria-label="团队操作"
+                      :disabled="teamBusy"
+                      @click.stop
+                    ><MoreHorizontal :size="15" /></button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" :side-offset="4" class="min-w-[160px]">
+                    <DropdownMenuItem
+                      v-if="team.team_name !== activeTeam"
+                      @click="handleActivateTeam(team.team_name)"
+                    >设为运行时默认</DropdownMenuItem>
+                    <DropdownMenuItem
+                      v-if="team.team_name === 'default'"
+                      @click="handleResetDefault"
+                    >恢复默认配置</DropdownMenuItem>
+                    <DropdownMenuSeparator v-if="team.team_name !== activeTeam || team.team_name === 'default'" />
+                    <DropdownMenuItem
+                      class="navigator-group__menu-danger"
+                      :disabled="team.team_name === activeTeam || teams.length <= 1"
+                      @click="handleDeleteTeam(team.team_name)"
+                    >删除 Team</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
 
               <template v-if="team.team_name === BUILDER_TEAM">
@@ -89,23 +93,25 @@
                 </div>
               </template>
               <template v-else>
-                <button
-                  v-for="agent in team.agents || []"
-                  :key="`${team.team_name}-${agent}`"
-                  type="button"
-                  :class="['navigator-row', { 'navigator-row--active': selectedTeam === team.team_name && selectedAgent === agent }]"
-                  @click="onSelectAgent(team.team_name, agent)"
-                >
-                  <div class="navigator-row__title">
-                    <span class="navigator-row__name">{{ displayMap[agent] || agent }}</span>
-                    <span v-if="isEntryAgent(team.team_name, agent)" class="navigator-row__entry">入口</span>
-                  </div>
-                  <p v-if="displayMap[agent] && displayMap[agent] !== agent">{{ agent }}</p>
-                </button>
-                <button type="button" class="navigator-row navigator-row--add" @click="openCreateAgent(team.team_name)">
-                  <Plus :size="13" />
-                  <span>新建 Agent</span>
-                </button>
+                <div v-show="!isTeamCollapsed(team.team_name)" class="navigator-group__agents">
+                  <button
+                    v-for="agent in team.agents || []"
+                    :key="`${team.team_name}-${agent}`"
+                    type="button"
+                    :class="['navigator-row', { 'navigator-row--active': selectedTeam === team.team_name && selectedAgent === agent }]"
+                    @click="onSelectAgent(team.team_name, agent)"
+                  >
+                    <div class="navigator-row__title">
+                      <span class="navigator-row__name">{{ displayMap[agent] || agent }}</span>
+                      <span v-if="isEntryAgent(team.team_name, agent)" class="navigator-row__entry">入口</span>
+                    </div>
+                    <p v-if="displayMap[agent] && displayMap[agent] !== agent">{{ agent }}</p>
+                  </button>
+                  <button type="button" class="navigator-row navigator-row--add" @click="openCreateAgent(team.team_name)">
+                    <Plus :size="13" />
+                    <span>新建 Agent</span>
+                  </button>
+                </div>
               </template>
             </div>
           </template>
@@ -143,23 +149,25 @@
             </header>
 
             <div class="workspace-tabbar">
-              <Tabs v-model="activeTab" class="workspace-tabs">
+              <Tabs :model-value="activeTab" class="workspace-tabs" @update:model-value="handleTabChange">
                 <TabsList>
-                  <TabsTrigger value="config">配置</TabsTrigger>
-                  <TabsTrigger v-if="pluginAvailability.skills" value="skills">技能</TabsTrigger>
-                  <TabsTrigger v-if="pluginAvailability.memory" value="memory">记忆</TabsTrigger>
-                  <TabsTrigger v-if="pluginAvailability.mcp" value="mcp">MCP</TabsTrigger>
-                  <TabsTrigger v-if="pluginAvailability.knowledge" value="knowledge">知识库</TabsTrigger>
+                  <TabsTrigger value="config" class="workspace-tab">
+                    配置<span v-if="dirty.config" class="workspace-tab__dot" />
+                  </TabsTrigger>
+                  <TabsTrigger v-if="pluginAvailability.skills" value="skills" class="workspace-tab">
+                    技能<span v-if="dirty.skills" class="workspace-tab__dot" />
+                  </TabsTrigger>
+                  <TabsTrigger v-if="pluginAvailability.memory" value="memory" class="workspace-tab">
+                    记忆<span v-if="dirty.memory" class="workspace-tab__dot" />
+                  </TabsTrigger>
+                  <TabsTrigger v-if="pluginAvailability.mcp" value="mcp" class="workspace-tab">
+                    MCP<span v-if="dirty.mcp" class="workspace-tab__dot" />
+                  </TabsTrigger>
+                  <TabsTrigger v-if="pluginAvailability.knowledge" value="knowledge" class="workspace-tab">
+                    知识库<span v-if="dirty.knowledge" class="workspace-tab__dot" />
+                  </TabsTrigger>
                 </TabsList>
               </Tabs>
-              <div class="workspace-save">
-                <span v-if="dirty[activeTab]" class="workspace-save__dirty">● 未保存</span>
-                <Button size="sm" :disabled="!dirty[activeTab] || saving" @click="handleSave(activeTab)">
-                  <Spinner v-if="saving" data-icon="inline-start" />
-                  <Save v-else data-icon="inline-start" />
-                  保存
-                </Button>
-              </div>
             </div>
 
             <div class="workspace-body">
@@ -188,6 +196,18 @@
               <div v-show="activeTab === 'knowledge'" class="workspace-pane">
                 <KnowledgePanel :form="form" />
               </div>
+            </div>
+
+            <div class="workspace-savebar">
+              <span v-if="dirty[activeTab]" class="workspace-savebar__state workspace-savebar__state--dirty">● 本页有未保存修改</span>
+              <span v-else class="workspace-savebar__state workspace-savebar__state--saved">✓ 已保存</span>
+              <span class="workspace-savebar__spacer"></span>
+              <Button variant="outline" size="sm" :disabled="!dirty[activeTab] || saving" @click="resetTab(activeTab)">放弃</Button>
+              <Button size="sm" :disabled="!dirty[activeTab] || saving" @click="handleSave(activeTab)">
+                <Spinner v-if="saving" data-icon="inline-start" />
+                <Save v-else data-icon="inline-start" />
+                保存
+              </Button>
             </div>
           </template>
         </main>
@@ -255,14 +275,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { ChevronDown, Download, Plus, RefreshCw, Save, Settings2, Trash2 } from 'lucide-vue-next';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { ChevronDown, Download, MoreHorizontal, Plus, RefreshCw, Save, Trash2 } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { Empty, EmptyHeader, EmptyTitle } from '../components/ui/empty';
 import { Field, FieldGroup, FieldLabel } from '../components/ui/field';
 import { Input } from '../components/ui/input';
@@ -303,10 +323,10 @@ import {
   buildKnowledgePluginConfig,
   buildSkillsPluginConfig,
   buildMcpPluginConfig,
-  createEmptyForm,
   sanitizeAvailableTools,
   memoryScopeFallbackMeta,
 } from '../components/agent-studio/agentFormModel.js';
+import { useAgentForm } from '../components/agent-studio/useAgentForm.js';
 
 defineProps({
   embedded: { type: Boolean, default: false },
@@ -332,11 +352,7 @@ const selectedAgent = ref('');
 
 const detailLoading = ref(false);
 const saving = ref(false);
-const form = ref(createEmptyForm());
-const rawConfig = ref(createEmptyForm());
-const pristine = ref(null);
-const dirty = reactive({ config: false, skills: false, memory: false, mcp: false, knowledge: false });
-const activeTab = ref('config');
+const { form, rawConfig, dirty, activeTab, applyConfig, applyConfigInPlace, clearForm, resetTab } = useAgentForm();
 
 const tools = ref([]);
 const skills = ref([]);
@@ -360,6 +376,19 @@ const createAgentForm = reactive({ agentName: '', displayName: '', description: 
 
 function isEntryAgent(teamName, agent) {
   return !!configsByTeam[teamName]?.[agent]?.default_entry;
+}
+
+/* Team 折叠：状态存内存，Builder 恒展开 */
+const collapsedTeams = ref(new Set());
+function isTeamCollapsed(teamName) {
+  return collapsedTeams.value.has(teamName);
+}
+function toggleTeamCollapse(teamName) {
+  if (teamName === BUILDER_TEAM) return;
+  const next = new Set(collapsedTeams.value);
+  if (next.has(teamName)) next.delete(teamName);
+  else next.add(teamName);
+  collapsedTeams.value = next;
 }
 
 async function loadAll(force = false) {
@@ -407,12 +436,8 @@ async function loadAgentDetail() {
       loadPluginConfigs(),
     ]);
     const { form: f, raw } = applyConfigToForm(config, pluginConfigs);
-    form.value = f;
-    rawConfig.value = raw;
     await loadSupplementaryData(config?.custom_params?.workspace_root || '');
-    pristine.value = JSON.stringify(f);
-    resetDirty();
-    activeTab.value = 'config';
+    applyConfig(f, raw);
   } catch (err) {
     showToast(err?.message || '加载 Agent 详情失败');
   } finally {
@@ -458,28 +483,44 @@ async function loadSupplementaryData(workspaceRoot = '') {
     : memoryScopeFallbackMeta;
 }
 
-function onSelectAgent(team, agent) {
+function hasAnyDirty() {
+  return Object.values(dirty).some(Boolean);
+}
+
+/** 切 Agent 守卫：有未保存修改时先确认，确认则放弃改动并加载目标 Agent。 */
+async function onSelectAgent(team, agent) {
   if (team === selectedTeam.value && agent === selectedAgent.value) return;
+  if (hasAnyDirty()) {
+    const accepted = await confirm({
+      title: '放弃未保存的修改？',
+      message: `「${displayMap.value[selectedAgent.value] || selectedAgent.value}」有未保存的修改，切换 Agent 将丢弃这些修改。`,
+      confirmText: '放弃并切换',
+      cancelText: '留下',
+      danger: true,
+    });
+    if (!accepted) return;
+  }
   selectedTeam.value = team;
   selectedAgent.value = agent;
   loadAgentDetail();
 }
 
-function resetDirty() {
-  for (const k of Object.keys(dirty)) dirty[k] = false;
-}
+const TAB_LABELS = { config: '配置', skills: '技能', memory: '记忆', mcp: 'MCP', knowledge: '知识库' };
 
-watch(form, () => {
-  if (detailLoading.value || pristine.value === null) return;
-  const snap = JSON.parse(pristine.value);
-  dirty.skills = JSON.stringify(form.value.skills) !== JSON.stringify(snap.skills);
-  dirty.memory = JSON.stringify(form.value.memory) !== JSON.stringify(snap.memory);
-  dirty.mcp = JSON.stringify(form.value.mcp) !== JSON.stringify(snap.mcp);
-  dirty.knowledge = JSON.stringify(form.value.knowledge_base) !== JSON.stringify(snap.knowledge_base);
-  const { skills: _s, memory: _m, mcp: _mc, knowledge_base: _k, ...curMain } = form.value;
-  const { skills: _s2, memory: _m2, mcp: _mc2, knowledge_base: _k2, ...snapMain } = snap;
-  dirty.config = JSON.stringify(curMain) !== JSON.stringify(snapMain);
-}, { deep: true });
+/** 切 tab 守卫：离开有未保存修改的页时先确认，避免改完忘存。确认后保留脏标记只换页。 */
+async function handleTabChange(next) {
+  const from = activeTab.value;
+  if (next === from) return;
+  if (!dirty[from]) { activeTab.value = next; return; }
+  const accepted = await confirm({
+    title: '有未保存的修改',
+    message: `「${TAB_LABELS[from] || from}」页有未保存的修改，切换后仍保留，可随时回来保存。确认切换？`,
+    confirmText: '切换',
+    cancelText: '留下',
+    danger: false,
+  });
+  if (accepted) activeTab.value = next;
+}
 
 async function handleSave(tab) {
   if (saving.value) return;
@@ -515,10 +556,7 @@ async function refreshAfterSave() {
     loadPluginConfigs(),
   ]);
   const { form: f, raw } = applyConfigToForm(config, pluginConfigs);
-  form.value = f;
-  rawConfig.value = raw;
-  pristine.value = JSON.stringify(f);
-  resetDirty();
+  applyConfigInPlace(f, raw);
   displayMap.value = { ...displayMap.value, [selectedAgent.value]: f.display_name || selectedAgent.value };
 }
 
@@ -572,7 +610,7 @@ async function handleDeleteAgent() {
     const remaining = Object.keys(configs || {});
     selectedAgent.value = remaining[0] || '';
     if (selectedAgent.value) await loadAgentDetail();
-    else { form.value = createEmptyForm(); pristine.value = null; resetDirty(); }
+    else clearForm();
     showToast(`Agent "${name}" 已删除`, 'success');
   } catch (err) {
     showToast(err?.message || '删除 Agent 失败');
@@ -702,23 +740,25 @@ onMounted(() => { loadAll(); });
 
 <style scoped>
 .studio-workbench {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   align-items: stretch;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-elevated);
+  gap: var(--spacing-md);
   overflow: hidden;
 }
 
-/* ===== 左侧导航（内嵌面板，带右分割线） ===== */
+/* ===== 层次：画布(primary) → 工作区 Card(elevated) → 子项(tertiary) =====
+   左右两栏都抬成卡片浮在画布上，边框+圆角+ elevated 底色撑出层次，不再融成一片。 */
 .studio-nav-card {
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  border: none;
-  border-right: 1px solid var(--color-border);
-  border-radius: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   background: var(--color-bg-secondary);
 }
 .studio-nav__head {
@@ -738,7 +778,7 @@ onMounted(() => { loadAll(); });
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--spacing-sm) !important;
+  padding: var(--spacing-sm);
 }
 
 .navigator-group {
@@ -754,6 +794,29 @@ onMounted(() => { loadAll(); });
   align-items: center;
   gap: var(--spacing-xs);
   padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+.navigator-group__label--collapsible {
+  cursor: pointer;
+  user-select: none;
+}
+.navigator-group__label--collapsible:hover {
+  background: var(--color-hover-overlay-md);
+}
+.navigator-group__caret {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-muted);
+  transition: transform var(--transition-fast);
+}
+.navigator-group__caret--collapsed {
+  transform: rotate(-90deg);
+}
+.navigator-group__agents {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 .navigator-group__name {
   flex: 1;
@@ -770,26 +833,34 @@ onMounted(() => { loadAll(); });
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
 }
-.navigator-group__action {
+.navigator-group__more {
   flex-shrink: 0;
-  padding: 2px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
 }
-.navigator-group__label:hover .navigator-group__action {
+.navigator-group__label:hover .navigator-group__more,
+.navigator-group__more[data-state='open'] {
   opacity: 1;
 }
-.navigator-group__action:hover {
-  color: var(--color-brand-accent);
-  border-color: rgba(var(--color-brand-accent-rgb), 0.45);
+.navigator-group__more:hover {
+  background: var(--color-hover-overlay-md);
+  color: var(--color-text-primary);
+}
+.navigator-group__menu-danger {
+  color: var(--color-error);
 }
 .navigator-row {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -807,7 +878,21 @@ onMounted(() => { loadAll(); });
   background: var(--color-hover-overlay-md);
 }
 .navigator-row--active {
-  background: var(--color-active-bg);
+  background: transparent;
+}
+/* Linear 式选中：accent 左侧条，而非整块底色 */
+.navigator-row--active::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-brand-accent);
+}
+.navigator-row--active:hover {
+  background: var(--color-hover-overlay-md);
 }
 .navigator-row--static {
   cursor: default;
@@ -843,6 +928,7 @@ onMounted(() => { loadAll(); });
 }
 .navigator-row--active .navigator-row__name {
   font-weight: 500;
+  color: var(--color-brand-accent);
 }
 .navigator-row__entry {
   flex-shrink: 0;
@@ -877,55 +963,21 @@ onMounted(() => { loadAll(); });
 }
 
 /* Team 管理下拉 */
-.team-menu {
-  min-width: 280px;
-}
-.team-menu__item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-}
-.team-menu__item:hover {
-  background: var(--color-hover-overlay-md);
-}
-.team-menu__name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.team-menu__badge {
-  flex-shrink: 0;
-}
-.team-menu__actions {
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-/* ===== 右侧工作区（融进整面板） ===== */
+/* ===== 右侧工作区（app-shell：头/标签栏/保存条常驻，仅 body 滚动）；抬成 elevated 主卡片 ===== */
 .studio-panel-card {
   min-width: 0;
-  min-height: 560px;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
-  border: none;
-  border-radius: 0;
-  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
 }
 .studio-panel {
   display: flex;
   flex-direction: column;
-  min-height: 560px;
+  height: 100%;
+  min-height: 0;
 }
 .workspace-state {
   display: flex;
@@ -940,6 +992,7 @@ onMounted(() => { loadAll(); });
   flex: 1;
 }
 .workspace-header {
+  flex-shrink: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -974,6 +1027,7 @@ onMounted(() => { loadAll(); });
   flex-shrink: 0;
 }
 .workspace-tabbar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -990,6 +1044,9 @@ onMounted(() => { loadAll(); });
   height: auto;
   gap: var(--spacing-lg);
   border: none;
+}
+.workspace-tab {
+  position: relative;
 }
 .workspace-tabs :deep([role='tab']) {
   padding: 10px 2px;
@@ -1009,29 +1066,43 @@ onMounted(() => { loadAll(); });
   border-bottom-color: var(--color-brand-accent);
   box-shadow: none;
 }
-.workspace-save {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  flex-shrink: 0;
-}
-.workspace-save__dirty {
-  color: var(--color-warning);
-  font-size: 11px;
+.workspace-tab__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--color-warning);
+  vertical-align: middle;
 }
 .workspace-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
-/* 子组件 scoped 样式打不到，统一在这里兜底 */
-.workspace-pane .form-section { padding: 0; }
-.workspace-pane .form-section + .form-section { margin-top: 0; border-top: none; }
-.workspace-pane .section-head h2,
-.workspace-pane .section-head h3,
-.workspace-pane .section-head h4 { font-size: var(--font-size-md); }
 .workspace-pane {
   padding: var(--spacing-xl);
+}
+.workspace-savebar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-xl);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+}
+.workspace-savebar__state {
+  font-size: var(--font-size-xs);
+}
+.workspace-savebar__state--dirty {
+  color: var(--color-warning);
+}
+.workspace-savebar__state--saved {
+  color: var(--color-text-muted);
+}
+.workspace-savebar__spacer {
+  flex: 1;
 }
 
 .run-default-pill {

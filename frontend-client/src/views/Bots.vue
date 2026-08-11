@@ -631,9 +631,13 @@ onMounted(() => loadAction.run());
 <style scoped>
 .bots-layout { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: var(--spacing-lg); align-items: start; }
 .bot-list-card { position: sticky; top: var(--spacing-md); }
-.bot-list-content, .bot-list, .bot-detail, .cron-list, .dialog-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
-.bot-list-item { width: 100%; display: flex; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-elevated); color: var(--color-text-primary); text-align: left; cursor: pointer; transition: border-color var(--transition-fast), background var(--transition-fast); }
-.bot-list-item:hover, .bot-list-item.active { border-color: var(--color-brand-accent); background: var(--color-active-bg); }
+.bot-list-content, .bot-detail, .dialog-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
+.bot-list, .cron-list { display: flex; flex-direction: column; gap: 0; }
+/* 列表项 —— Linear 平铺：透明贴底、发丝分隔、hover/选中浮淡层 */
+.bot-list-item { width: 100%; display: flex; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-sm); border: none; border-bottom: 1px solid var(--color-border); border-radius: 0; background: transparent; color: var(--color-text-primary); text-align: left; cursor: pointer; transition: background var(--transition-fast); }
+.bot-list-item:last-child { border-bottom: none; }
+.bot-list-item:hover { background: var(--color-hover-overlay-md); }
+.bot-list-item.active { background: var(--color-active-bg); }
 .connection-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: var(--radius-full); background: var(--color-text-muted); }
 .connection-dot.connected { background: var(--color-success); box-shadow: 0 0 0 4px rgba(var(--color-success-rgb), 0.12); }
 .bot-list-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
@@ -649,14 +653,16 @@ onMounted(() => loadAction.run());
 .input-mono, .webhook-box code { font-family: var(--font-mono); }
 .webhook-box { justify-content: space-between; padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay-md); }
 .webhook-box code { min-width: 0; overflow-wrap: anywhere; color: var(--color-brand-accent); font-size: var(--font-size-xs); }
-.cron-item { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay); }
+.cron-item { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-sm) var(--spacing-md); border: none; border-bottom: 1px solid var(--color-border); border-radius: 0; background: transparent; transition: background var(--transition-fast); }
+.cron-item:last-child { border-bottom: none; }
+.cron-item:hover { background: var(--color-hover-overlay-md); }
 .cron-copy { min-width: 0; }
 .cron-copy p { margin: var(--spacing-xs) 0; color: var(--color-text-secondary); }
 .cron-copy small { color: var(--color-text-muted); }
 .debug-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
-.debug-panel { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay); }
-.debug-panel h3 { margin: 0; font-size: var(--font-size-sm); }
-.debug-output, .history-output { max-height: 320px; overflow: auto; white-space: pre-wrap; padding: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay-lg); color: var(--color-text-secondary); font-family: var(--font-mono); font-size: var(--font-size-xs); }
+.debug-panel { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; }
+.debug-panel h3 { margin: 0; font-size: var(--font-size-sm); font-weight: 600; }
+.debug-output, .history-output { max-height: 320px; overflow: auto; white-space: pre-wrap; padding: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay); color: var(--color-text-secondary); font-family: var(--font-mono); font-size: var(--font-size-xs); }
 .bot-placeholder { min-height: 180px; }
 @media (max-width: 960px) {
   .bots-layout { grid-template-columns: 1fr; }

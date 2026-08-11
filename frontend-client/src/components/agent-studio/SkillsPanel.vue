@@ -1,33 +1,22 @@
 <template>
-  <div class="panel-form"><section class="form-section">
-    <div class="section-head"><h2>技能</h2><span>管理领域知识与脚本能力注入</span></div>
-    <div class="section-body">
-      <div v-for="group in skillGroups" :key="group.key" class="skill-group">
-        <div class="skill-group__label">{{ group.title }}</div>
-        <p v-if="group.hint" class="skill-group__hint">{{ group.hint }}</p>
-        <div class="check-grid">
-          <label
-            v-for="skill in group.items"
-            :key="`${group.key}-${skill.name}`"
-            class="check-item"
-            :title="skill.description || skill.name"
-          >
-            <input
-              type="checkbox"
-              :checked="form.skills.enabled_skills.includes(skill.name)"
-              @change="toggle(skill.name)"
-            />
-            <span class="check-item__text">{{ skill.display_name || skill.name }}</span>
-          </label>
-        </div>
-      </div>
-      <p v-if="!skillGroups.length" class="form-empty">暂无可用技能。</p>
+  <PanelFormShell title="技能" subtitle="管理领域知识与脚本能力注入">
+    <div v-for="group in skillGroups" :key="group.key" class="skill-group">
+      <div class="skill-group__label">{{ group.title }}</div>
+      <p v-if="group.hint" class="skill-group__hint">{{ group.hint }}</p>
+      <CheckGrid
+        :items="group.items.map((s) => ({ key: s.name, label: s.display_name || s.name, title: s.description || s.name }))"
+        :selected="form.skills.enabled_skills"
+        @toggle="toggle"
+      />
     </div>
-  </section></div>
+    <p v-if="!skillGroups.length" class="panel-empty">暂无可用技能。</p>
+  </PanelFormShell>
 </template>
 
 <script setup>
 import { computed } from 'vue';
+import PanelFormShell from './PanelFormShell.vue';
+import CheckGrid from './CheckGrid.vue';
 
 const props = defineProps({
   form: { type: Object, required: true },
@@ -49,13 +38,8 @@ function toggle(name) {
 </script>
 
 <style scoped>
-.form-section { gap: var(--spacing-sm); padding: 0; }
-.section-head { padding-bottom: var(--spacing-sm); margin-bottom: 0; border-bottom: 1px solid var(--color-border); }
-.section-head h2, .section-head h4 { font-size: var(--font-size-md); }
-.section-body { gap: var(--spacing-md); }
 .skill-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: var(--spacing-md); }
 .skill-group:last-child { margin-bottom: 0; }
 .skill-group__label { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-secondary); }
 .skill-group__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); margin: 0; }
-.form-empty { color: var(--color-text-muted); font-size: var(--font-size-sm); margin: 0; }
 </style>

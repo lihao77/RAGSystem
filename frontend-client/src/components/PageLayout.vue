@@ -66,8 +66,8 @@
         <div v-else class="page-mobile-nav__spacer" />
       </div>
 
-      <div class="page-content-scroll">
-        <div class="page-content">
+      <div class="page-content-scroll" :class="{ 'page-content-scroll--fill': fill }">
+        <div class="page-content" :class="{ 'page-content--fill': fill }">
           <div v-if="subtitle || hasHeaderActions || hasHeaderMenu" class="page-content__topbar">
             <p v-if="subtitle" class="page-content__subtitle">{{ subtitle }}</p>
             <div v-if="hasHeaderActions || hasHeaderMenu" class="page-content__actions" :class="{ 'has-mobile-menu': hasMobileMenu }">
@@ -118,6 +118,9 @@ const props = defineProps({
   chatReturnPath: { type: String, default: '/' },
   contentPadding: { type: String, default: 'var(--spacing-xl)' },
   mobileContentPadding: { type: String, default: 'var(--spacing-xl) var(--spacing-md)' },
+  /* 整页填充模式：page-content 钉满视口高度、page-content-scroll 不再滚动，
+     由页面内部的 app-shell 自管滚动（如 AgentStudio 工作台）。 */
+  fill: { type: Boolean, default: false },
 });
 
 const slots = useSlots();
@@ -189,6 +192,17 @@ const openMobileSidebar = () => {
   display: flex;
   gap: var(--spacing-lg);
   flex-direction: column;
+}
+
+/* 整页填充：钉满视口、自管滚动，子级 app-shell 用 flex:1 填满。
+   只动高度，不动宽度——max-width/margin 居中沿用 .page-content 基线，
+   保证与 .page-header 同列对齐、和其他页面一致。 */
+.page-content-scroll--fill {
+  overflow: hidden;
+}
+.page-content--fill {
+  height: 100%;
+  min-height: 0;
 }
 
 /* 顶部条：subtitle + actions 一行（从 page-header 下移到 page-content） */
