@@ -69,7 +69,6 @@ export interface AgentInvocationChildInput extends AgentInvocationBase {
   childAgentId?: string | null;
   ownsRunLease?: boolean;
   userId?: string | null;
-  userMessageId?: string;
   sessionMaintenanceToken?: string;
   initialEnvelopes?: readonly Envelope[];
   rootTask?: string;

@@ -1,6 +1,7 @@
 export const REQUEST_USER_INPUT_TOOL_NAME = "request_user_input";
 export const AGENT_TOOL_NAME = "agent";
 export const LIST_CHILD_AGENTS_TOOL_NAME = "list_child_agents";
+export const CANCEL_AGENT_TOOL_NAME = "cancel_agent";
 export const GOAL_CREATE_TOOL_NAME = "goal_create";
 export const GOAL_GET_TOOL_NAME = "goal_get";
 export const GOAL_UPDATE_TOOL_NAME = "goal_update";

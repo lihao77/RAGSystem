@@ -99,9 +99,19 @@ export function readListChildAgentsArguments(value: Record<string, unknown> | un
 }
 
 function asMailboxKind(value: unknown): import("../../../contracts/storage/agent-mailbox-repository.js").AgentMailboxMessageKind | null {
-  return value === "progress" || value === "request" || value === "response" || value === "result" || value === "cancel"
+  return value === "progress" || value === "request" || value === "response" || value === "result"
     ? value
     : null;
+}
+
+export function readCancelAgentArguments(value: Record<string, unknown> | undefined): {
+  childAgentId?: string | null;
+  reason?: string | null;
+} {
+  return {
+    childAgentId: asString(value?.child_agent_id),
+    reason: asString(value?.reason),
+  };
 }
 
 export function errorResult(

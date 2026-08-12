@@ -1,6 +1,5 @@
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
-import type { Envelope, StateSyncPayload } from "../../../contracts/events.js";
-import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import type { Envelope } from "../../../contracts/events.js";
 import type { AgentMailboxMessage } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -44,10 +43,6 @@ export class AgentExecutionEventPublisher {
     private readonly clientEvents: ClientEventPublisher,
   ) {}
 
-  publishRunStarted(sessionId: string, runId: string, payload: { request_id?: string; task?: string; source?: string }): void {
-    this.publish(sessionId, this.buildRunStarted(sessionId, runId, payload));
-  }
-
   buildRunStarted(sessionId: string, runId: string, payload: { request_id?: string; task?: string; source?: string }): Envelope {
     return {
       type: "run_started",
@@ -55,41 +50,6 @@ export class AgentExecutionEventPublisher {
       run_id: runId,
       payload: { request_id: payload.request_id, task: payload.task, ...(payload.source ? { source: payload.source } : {}) },
     };
-  }
-
-  publishOutputMessageSaved(
-    sessionId: string,
-    runId: string | null | undefined,
-    payload: { message_id: string; seq?: number; role?: string; request_id?: string; round_index?: number; content_parts?: MessageContentPart[] },
-  ): void {
-    this.publish(sessionId, this.buildOutputMessageSaved(sessionId, runId, payload));
-  }
-
-  buildOutputMessageSaved(
-    sessionId: string,
-    runId: string | null | undefined,
-    payload: { message_id: string; seq?: number; role?: string; request_id?: string; round_index?: number; content_parts?: MessageContentPart[] },
-  ): Envelope {
-    return {
-      type: "state_sync",
-      session_id: sessionId,
-      ...(runId ? { run_id: runId } : {}),
-      payload: {
-        category: "message_saved",
-        ref: {
-          message_id: payload.message_id,
-          ...(payload.seq !== undefined ? { seq: payload.seq } : {}),
-          ...(payload.role ? { role: payload.role } : {}),
-          ...(payload.request_id ? { request_id: payload.request_id } : {}),
-          ...(payload.round_index !== undefined ? { round_index: payload.round_index } : {}),
-          ...(payload.content_parts ? { content_parts: payload.content_parts } : {}),
-        },
-      } satisfies StateSyncPayload,
-    };
-  }
-
-  publishRootAgentStart(input: ExecutionEventContext & { task: string }): void {
-    this.publish(input.sessionId, this.buildRootAgentStart(input));
   }
 
   buildRootAgentStart(input: ExecutionEventContext & { task: string }): Envelope {
@@ -112,15 +72,6 @@ export class AgentExecutionEventPublisher {
       session_id: sessionId,
       ...(status.run_id ? { run_id: status.run_id } : {}),
       payload: { scope: "run", reason },
-    }, false);
-  }
-
-  publishRunEnded(sessionId: string, runId: string, status: "interrupted" | "failed"): void {
-    this.publish(sessionId, {
-      type: "run_ended",
-      session_id: sessionId,
-      run_id: runId,
-      payload: { status },
     }, false);
   }
 

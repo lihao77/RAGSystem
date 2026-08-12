@@ -154,7 +154,7 @@ test("local Agent mailbox expires queued messages and reclaims expired leases", 
   const store = createStore();
   try {
     const mailbox = store.agentMailbox;
-    await mailbox.enqueue({ messageId: "message-expired", tenantId: "tnt_test", sessionId: "session-mailbox", targetThreadKey: "child-thread", kind: "cancel", expiresAt: "2026-01-01T00:00:01.000Z" });
+    await mailbox.enqueue({ messageId: "message-expired", tenantId: "tnt_test", sessionId: "session-mailbox", targetThreadKey: "child-thread", kind: "request", expiresAt: "2026-01-01T00:00:01.000Z" });
     assert.equal(await mailbox.expire({ now: "2026-01-01T00:00:02.000Z" }), 1);
     assert.equal((await mailbox.get("session-mailbox", "message-expired")).status, "expired");
 

@@ -431,7 +431,7 @@ test('state_sync(message_saved) 用服务端 canonical content_parts 校准乐�
     role: 'user',
     content: '/review src',
     content_parts: [{ type: 'text', text: '/review src' }],
-    metadata: { persistence_status: 'pending' },
+    metadata: { request_id: 'req-command', persistence_status: 'pending' },
     attachments: [],
   }, createAssistantMessage()];
   deps.activeRun.assistantMsgIndex = 1;
@@ -445,6 +445,7 @@ test('state_sync(message_saved) 用服务端 canonical content_parts 校准乐�
         message_id: 'msg-command',
         seq: 3,
         role: 'user',
+        request_id: 'req-command',
         content_parts: [{
           type: 'command_ref',
           invocation_id: 'cmd-1',

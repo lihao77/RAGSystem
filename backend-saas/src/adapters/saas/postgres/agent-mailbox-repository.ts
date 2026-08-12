@@ -194,16 +194,6 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
     add("target_agent_call_id", input.targetAgentCallId);
     add("target_thread_key", input.targetThreadKey);
     add("target_child_agent_id", input.targetChildAgentId);
-    if (input.kinds?.length) {
-      const kinds = input.kinds.filter((kind) => kind.trim().length > 0);
-      if (kinds.length) {
-        const placeholders = kinds.map((kind) => {
-          params.push(kind);
-          return `$${params.length}`;
-        });
-        clauses.push(`kind IN (${placeholders.join(",")})`);
-      }
-    }
     const limit = Math.max(1, Math.min(100, Math.floor(input.limit ?? 100)));
     params.push(limit);
     const result = await this.executor.query(

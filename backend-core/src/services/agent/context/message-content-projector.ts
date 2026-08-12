@@ -36,17 +36,6 @@ export function hasAgentVisibleMessageContent(
   });
 }
 
-export function resolveAgentTaskText(parts: readonly MessageContentPart[], fallback: string): string {
-  const rendered = parts.flatMap((part): string[] => {
-    if (part.type === "text") return [part.text];
-    if (part.type === "command_ref" && part.resolution.kind === "prompt") {
-      return [part.resolution.agent_text];
-    }
-    return [];
-  }).join("\n").trim();
-  return rendered || fallback;
-}
-
 async function projectParts(
   parts: readonly MessageContentPart[],
   role: MessageInfo["role"],

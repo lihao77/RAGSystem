@@ -22,11 +22,6 @@ import type {
   EnqueueAgentMailboxMessageInput,
 } from "./agent-mailbox-repository.js";
 
-/** @deprecated Import CreateRunInput from conversation-store directly. */
-export type RuntimeCreateRunInput = CreateRunInput;
-/** @deprecated Import CreatedRun from conversation-store directly. */
-export type RuntimeCreatedRun = CreatedRun;
-
 /** Tenant-bound conversation operations used by the shared execution core. */
 export interface RuntimeConversationStorage {
   createSession(input: SessionIdentity): Promise<void>;

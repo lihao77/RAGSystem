@@ -19,6 +19,7 @@ import type {
   AgentToolInput,
   AgentToolCall,
   ListChildAgentsCall,
+  CancelAgentCall,
   AgentMailboxWakeupHandler,
   ParticipantRunLifecyclePort,
   ParticipantRunRoute,
@@ -455,6 +456,92 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     return { ...result, toolName: "agent" };
   }
 
+  /** 取消是即时控制信号，走实时 abort 通道，不进 mailbox 队列。 */
+  async cancelAgent(call: CancelAgentCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
+    const toolName = "cancel_agent";
+    const sessionId = normalizeString(ctx.sessionId);
+    const childAgentId = normalizeString(call.input.childAgentId);
+    if (!sessionId) return errorResult("cancel_agent 缺少 session_id", toolName);
+    if (!childAgentId) return errorResult("cancel_agent 缺少 child_agent_id", toolName);
+    const child = await this.store.getChildAgent(sessionId, childAgentId);
+    if (!child) return errorResult(`子 Agent '${childAgentId}' 不存在`, toolName);
+    const callerParticipantId = normalizeString(ctx.currentChildAgentId);
+    if (child.parent_participant_id !== callerParticipantId) {
+      return errorResult(`子 Agent '${childAgentId}' 不是当前 Agent 的直接 child`, toolName);
+    }
+    const activeChildRoute = this.activeChildRuns.get(childAgentId) ?? null;
+    const lastRun = child.last_run_id ? await this.store.getRun(sessionId, child.last_run_id) : null;
+    const runningChildRoute = activeChildRoute ?? (lastRun?.status === "running" ? {
+      runId: lastRun.run_id,
+      agentCallId: lastRun.agent_call_id,
+      rootRunId: lastRun.lease_root_run_id,
+      parentRunId: lastRun.parent_run_id,
+      parentCallId: lastRun.parent_call_id,
+      lineageParentCallId: lastRun.lineage_parent_call_id,
+    } : null);
+    if (!runningChildRoute) {
+      if (!lastRun) {
+        return successResult({ child_agent_id: childAgentId, status: "no_active_run" }, {
+          summary: `子 Agent ${child.agent_name} 当前没有可取消的运行实例`,
+          outputType: "json",
+          metadata: { agent_name: child.agent_name, child_agent_id: childAgentId },
+          toolName,
+        });
+      }
+      if (["completed", "failed", "interrupted", "cancelled"].includes(lastRun.status)) {
+        return successResult({
+          child_agent_id: childAgentId,
+          target_run_id: lastRun.run_id,
+          status: "already_finished",
+          previous_status: lastRun.status,
+        }, {
+          summary: `子 Agent ${child.agent_name} 已处于终态，无需取消`,
+          outputType: "json",
+          metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: lastRun.run_id },
+          toolName,
+        });
+      }
+      return errorResult(`子 Agent '${childAgentId}' 当前没有可取消的运行实例`, toolName);
+    }
+    const cancellation = this.cancelLocalRun?.(runningChildRoute.runId, "agent_cancelled") ?? "no_active_run";
+    if (cancellation === "aborted") {
+      return successResult({
+        child_agent_id: childAgentId,
+        target_run_id: runningChildRoute.runId,
+        status: "cancelled",
+        cancellation: "local_abort",
+      }, {
+        summary: `已立即取消子 Agent ${child.agent_name} 的运行实例`,
+        outputType: "json",
+        metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: runningChildRoute.runId },
+        toolName,
+      });
+    }
+    if (cancellation === "already_aborted") {
+      return successResult({
+        child_agent_id: childAgentId,
+        target_run_id: runningChildRoute.runId,
+        status: "cancelled",
+        cancellation: "already_aborted",
+      }, {
+        summary: `子 Agent ${child.agent_name} 已在取消流程中`,
+        outputType: "json",
+        metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: runningChildRoute.runId },
+        toolName,
+      });
+    }
+    return successResult({
+      child_agent_id: childAgentId,
+      target_run_id: runningChildRoute.runId,
+      status: "no_active_run",
+    }, {
+      summary: `子 Agent ${child.agent_name} 当前运行不在本进程，无法立即取消`,
+      outputType: "json",
+      metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: runningChildRoute.runId },
+      toolName,
+    });
+  }
+
   private async createChild(call: CreateChildCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
     const { agent: parentAgent, teamName, input } = call;
     const toolName = "agent";
@@ -638,73 +725,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
         toolName,
       );
     }
-    if (!runningChildRoute && kind === "cancel" && !lastRun) {
-      return successResult({
-        child_agent_id: childAgentId,
-        status: "no_active_run",
-      }, {
-        summary: `子 Agent ${child.agent_name} 当前没有可取消的运行实例`,
-        outputType: "json",
-        metadata: { agent_name: child.agent_name, child_agent_id: childAgentId },
-        toolName,
-      });
-    }
-    if (!runningChildRoute && kind === "cancel" && lastRun) {
-      if (["completed", "failed", "interrupted", "cancelled"].includes(lastRun.status)) {
-        return successResult({
-          child_agent_id: childAgentId,
-          target_run_id: lastRun.run_id,
-          status: "already_finished",
-          previous_status: lastRun.status,
-        }, {
-          summary: `子 Agent ${child.agent_name} 已处于终态，无需取消`,
-          outputType: "json",
-          metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: lastRun.run_id },
-          toolName,
-        });
-      }
-      return errorResult(`子 Agent '${childAgentId}' 当前没有可取消的运行实例`, toolName);
-    }
     if (runningChildRoute) {
-      if (kind === "cancel") {
-        const cancellation = this.cancelLocalRun?.(runningChildRoute.runId, "agent_cancelled") ?? "no_active_run";
-        if (cancellation === "aborted") {
-          return successResult({
-            child_agent_id: childAgentId,
-            target_run_id: runningChildRoute.runId,
-            status: "cancelled",
-            cancellation: "local_abort",
-          }, {
-            summary: `已立即取消子 Agent ${child.agent_name} 的运行实例`,
-            outputType: "json",
-            metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: runningChildRoute.runId },
-            toolName,
-          });
-        }
-        if (cancellation === "already_aborted") {
-          return successResult({
-            child_agent_id: childAgentId,
-            target_run_id: runningChildRoute.runId,
-            status: "cancelled",
-            cancellation: "already_aborted",
-          }, {
-            summary: `子 Agent ${child.agent_name} 已在取消流程中`,
-            outputType: "json",
-            metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: runningChildRoute.runId },
-            toolName,
-          });
-        }
-        return successResult({
-          child_agent_id: childAgentId,
-          target_run_id: runningChildRoute.runId,
-          status: "no_active_run",
-        }, {
-          summary: `子 Agent ${child.agent_name} 当前运行不在本进程，无法立即取消`,
-          outputType: "json",
-          metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: runningChildRoute.runId },
-          toolName,
-        });
-      }
       if (!this.mailbox) {
         return errorResult("运行中的子 Agent 暂不支持消息投递（mailbox 未注入）", toolName);
       }
@@ -825,7 +846,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     }, ctx);
   }
 
-  /** Route a child-originated progress/request/response/cancel message to its exact parent run. */
+  /** Route a child-originated progress/request/response/result message to its exact parent run. */
   private async deliverMessageToParent(
     call: DeliverMessageCall,
     ctx: ToolExecContext,

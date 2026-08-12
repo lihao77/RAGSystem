@@ -108,7 +108,7 @@ const agentMessageLabel = computed(() => {
   const metadata = props.msg.metadata || {};
   const source = metadata.agent_message_source_agent_name || metadata.source_agent_name || '智能体';
   const kind = metadata.mailbox_kind;
-  const kindLabels = { progress: '进度', request: '请求', response: '回复', result: '结果', cancel: '取消' };
+  const kindLabels = { progress: '进度', request: '请求', response: '回复', result: '结果' };
   return `${source} · ${kindLabels[kind] || '消息'}`;
 });
 </script>

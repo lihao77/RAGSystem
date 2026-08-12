@@ -25,7 +25,6 @@ import type { Envelope } from "../../../contracts/events.js";
 import {
   toSessionIdentity,
   normalizeSessionTeamSnapshot,
-  type MessageInfo,
   type SessionIdentity,
 } from "../../../contracts/session/session.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
@@ -40,7 +39,6 @@ import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../runtime/event-outbox/executi
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
-import { resolveAgentTaskText } from "../context/message-content-projector.js";
 
 export interface AgentExecutionLogger {
   error(bindings: Record<string, unknown>, message: string): void;

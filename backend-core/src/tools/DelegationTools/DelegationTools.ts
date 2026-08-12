@@ -11,10 +11,12 @@ import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 import type { DelegationPort } from "../../services/agent/delegation/port.js";
 import {
   readAgentArguments,
+  readCancelAgentArguments,
   readListChildAgentsArguments,
 } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import {
   AGENT_TOOL_NAME,
+  CANCEL_AGENT_TOOL_NAME,
   LIST_CHILD_AGENTS_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import { toolError } from "../../services/agent/sdk/tool-results.js";
@@ -51,7 +53,7 @@ const agentSchema = z.object({
   child_agent_id: optionalString,
   message: z.string(),
   context_hint: optionalString,
-  kind: z.enum(["progress", "request", "response", "result", "cancel"]).optional(),
+  kind: z.enum(["progress", "request", "response", "result"]).optional(),
   correlation_id: z.string().optional(),
   reply_to_message_id: z.string().optional(),
   timeout_ms: optionalInteger,
@@ -70,6 +72,11 @@ const listChildAgentsSchema = z.object({
   limit: optionalInteger,
 }).strict();
 
+const cancelAgentSchema = z.object({
+  child_agent_id: z.string(),
+  reason: optionalString,
+}).strict();
+
 const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
   {
     name: AGENT_TOOL_NAME,
@@ -78,7 +85,7 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
     riskLevel: "low",
     allowed_callers: ["direct"],
     description:
-      "Create a child Agent with agent_name, continue an existing child with child_agent_id, or send a message to the direct parent from a child context. Existing-Agent message mode returns after durable enqueue; queued does not mean acknowledged, processed, or answered.",
+      "Create a child Agent with agent_name, continue an existing child with child_agent_id, or send a message to the direct parent from a child context. Existing-Agent message mode returns after durable enqueue; queued does not mean acknowledged, processed, or answered. To stop a running child, use the cancel_agent tool instead.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -101,7 +108,7 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
         },
         kind: {
           type: "string",
-          enum: ["progress", "request", "response", "result", "cancel"],
+          enum: ["progress", "request", "response", "result"],
           description: "Durable message semantic for an existing Agent. Defaults based on direction.",
         },
         correlation_id: {
@@ -145,6 +152,30 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
           minimum: 1,
           maximum: 100,
           description: "Maximum number of child Agents to return. Defaults to 20.",
+        },
+      },
+    },
+  },
+  {
+    name: CANCEL_AGENT_TOOL_NAME,
+    source: "agent_tool",
+    category: "agent_delegation",
+    riskLevel: "low",
+    allowed_callers: ["direct"],
+    description:
+      "Immediately cancel a running child Agent created by the current Agent. This is an instant control signal, not a queued message: it aborts the child run in place and does not wait for the child to consume a mailbox message.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["child_agent_id"],
+      properties: {
+        child_agent_id: {
+          type: "string",
+          description: "Existing child Agent id returned by a previous agent call.",
+        },
+        reason: {
+          type: "string",
+          description: "Optional cancellation reason recorded on the run.",
         },
       },
     },
@@ -209,6 +240,19 @@ export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
         return service
           ? service.listChildAgents({ agent, teamName, input: readListChildAgentsArguments(input) }, ctx)
           : toolError(LIST_CHILD_AGENTS_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
+      },
+    }));
+  if (hasChildDelegation) tools.push(buildTool({
+      ...metadataFrom(definitionByName.get(CANCEL_AGENT_TOOL_NAME)!),
+      inputSchema: cancelAgentSchema,
+      isConcurrencySafe: () => false,
+      concurrencyPolicy: "serial",
+      concurrencyKey: (input) => `agent:${readCancelAgentArguments(input).childAgentId ?? "unknown"}`,
+      call: (input, ctx: ToolExecContext) => {
+        const service = getAgentDelegation();
+        return service
+          ? service.cancelAgent({ agent, teamName, input: readCancelAgentArguments(input) }, ctx)
+          : toolError(CANCEL_AGENT_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
       },
     }));
   return tools;

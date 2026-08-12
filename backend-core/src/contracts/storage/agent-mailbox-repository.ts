@@ -5,8 +5,7 @@ export type AgentMailboxMessageKind =
   | "progress"
   | "request"
   | "response"
-  | "result"
-  | "cancel";
+  | "result";
 
 export type AgentMailboxInputType =
   | "user_message"
@@ -116,7 +115,6 @@ export interface ListPendingAgentMailboxInput {
   targetAgentCallId?: string | null;
   targetThreadKey?: string | null;
   targetChildAgentId?: string | null;
-  kinds?: readonly AgentMailboxMessageKind[];
   limit?: number;
   now?: string;
 }

@@ -104,22 +104,11 @@ export function createSessionEnvelopeDispatcher({
   /** @param {AnyRecord} eventData */
   const findUserMessageSavedTarget = (eventData) => {
     const requestId = eventData.request_id || null;
-    if (requestId) {
-      const byRequestId = messages.value.find(
-        /** @param {AnyRecord} message */
-        message => message?.role === 'user' && message.metadata?.request_id === requestId,
-      );
-      if (byRequestId) return byRequestId;
-    }
-    const pendingFollowup = messages.value.findLast?.(
+    if (!requestId) return null;
+    return messages.value.find(
       /** @param {AnyRecord} message */
-      message => message?.role === 'user'
-        && message.metadata?.execution_kind === 'session_followup'
-        && message.metadata?.persistence_status === 'pending',
-    );
-    if (pendingFollowup) return pendingFollowup;
-    const precedingMessage = messages.value[activeRun.assistantMsgIndex - 1] || null;
-    return precedingMessage?.role === 'user' ? precedingMessage : null;
+      message => message?.role === 'user' && message.metadata?.request_id === requestId,
+    ) || null;
   };
 
   /** @param {import('./sessionCoreTypes.js').SessionMessage} message */
@@ -202,11 +191,8 @@ export function createSessionEnvelopeDispatcher({
    * @param {import('./sessionCoreTypes.js').SessionMessage} candidate @param {AnyRecord} eventData
    */
   const commitFollowupCandidate = (candidate, eventData) => {
-    const expectedRunId = candidate.metadata?.run_id || null;
     const persistedRunId = eventData.run_id || null;
-    const confirmedInjection = eventData.source === 'running_session'
-      || (!eventData.execution_kind && expectedRunId && persistedRunId && expectedRunId === persistedRunId);
-    if (confirmedInjection) {
+    if (eventData.source === 'running_session') {
       const injection = asConfirmedRunInjection(candidate, eventData);
       messages.value.push(injection);
       return { message: injection, kind: 'run_injection' };

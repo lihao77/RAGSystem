@@ -25,7 +25,7 @@ import { createBackendTools } from "../../../tools/registry.js";
 import type { BackendToolFactory } from "../../../plugins/backend-plugin.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
-import { buildBackendAgentContext, filterHistoryMessages, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
+import { buildBackendAgentContext, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { RuntimeInputTokenTracker, type InputTokenTrackerIdentity } from "../context-compression/input-token-tracker.js";
 import { registerGateHook } from "./gate-hook.js";
@@ -74,7 +74,7 @@ export interface SdkExecuteRunInput {
   rootCallId: string;
   mailboxTargetRunId?: string | null;
   mailboxTargetAgentCallId?: string | null;
-  /** Run-engine-owned controller; mailbox cancel messages abort at the next round boundary. */
+  /** Run-engine-owned controller; aborted by the real-time cancel channel (statusTracker.cancelRun). */
   abortController?: AbortController;
   agent: AgentConfig;
   provider: ModelProviderConfig;
@@ -104,7 +104,6 @@ export interface SdkExecuteRunInput {
    * 投影点把 execution_kind / retry_of_* 等调用点元数据在这里打好（无值不影响默认）。
    */
   messageMetadata?: Record<string, unknown> | null;
-  userMessageId?: string;
   rootMailboxMessage?: {
     id: string;
     inputType: "user_message" | "system_notification" | "goal_continuation";
@@ -359,7 +358,6 @@ export async function executeRunWithSdk(
     if (message?.metadata?.agent_message === true) deliveredMailboxMessageIds.add(message.id);
   }
   const mailboxConsumerId = `${process.pid}:${input.runId}:${randomUUID()}`;
-  let mailboxCancelRequested = false;
   // Follow-ups are persisted atomically before their sender receives an ACK.
   // At each round boundary, read newer durable user messages into the SDK copy
   // so they cannot be inserted between a tool call and its result.
@@ -486,14 +484,9 @@ export async function executeRunWithSdk(
               messageId: mailboxMessage.message_id,
               claimId: mailboxMessage.claim_id ?? "",
             };
-            if (mailboxMessage.kind === "cancel") {
-              await mailbox.ack({ sessionId: sid, ...claim });
-              mailboxCancelRequested = true;
-            } else {
-              mailboxClaims.push(claim);
-              if (!deliveredMailboxMessageIds.has(mailboxMessage.message_id)) {
-                mailboxAcceptedIds.add(mailboxMessage.message_id);
-              }
+            mailboxClaims.push(claim);
+            if (!deliveredMailboxMessageIds.has(mailboxMessage.message_id)) {
+              mailboxAcceptedIds.add(mailboxMessage.message_id);
             }
           } catch (error) {
             await mailbox.release({
@@ -529,13 +522,6 @@ export async function executeRunWithSdk(
             }
           : {}),
       });
-      if (mailboxCancelRequested) {
-        await releaseMailboxClaims(new Error("cancelled before mailbox context refresh"));
-        input.abortController?.abort(new Error("agent_cancelled"));
-        const cancelError = new Error("agent_cancelled");
-        cancelError.name = "AbortError";
-        throw cancelError;
-      }
       try {
         const recent = await deps.storage.conversation.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
         const newerRaw = recent
@@ -719,7 +705,6 @@ export async function executeRunWithSdk(
     input.onStartDisposition?.(startDisposition);
     input.onRunPersisted?.();
     // User/system mailbox messages are claimed by the first round refresher.
-    // 首次用户消息由 startRun 原子落库，附件只会出现在上面的 startedContext 中。
     // 必须基于最终实际发送给模型的上下文生成 sandbox allowlist，不能使用落库前的预构建快照。
     baseExecCtx.attachmentFileIds = collectAttachmentFileIds(contextRawMessages);
     const startRound = resolveRunStartRound(contextRawMessages, input.runId);

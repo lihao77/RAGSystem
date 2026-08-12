@@ -248,15 +248,6 @@ export const useSessionRunStore = defineStore('session-run', () => {
     ];
   };
 
-  const bindUnassignedFollowupCandidates = (runId) => {
-    if (!runId) return;
-    for (const candidate of pendingFollowupCandidates.value) {
-      if (!candidate?.metadata?.run_id) {
-        candidate.metadata = { ...candidate.metadata, run_id: runId };
-      }
-    }
-  };
-
   const clearFollowupCandidates = () => {
     pendingFollowupCandidates.value = [];
   };
@@ -398,7 +389,6 @@ export const useSessionRunStore = defineStore('session-run', () => {
     enqueueFollowupCandidate,
     takeFollowupCandidate,
     markFollowupCandidateFailed,
-    bindUnassignedFollowupCandidates,
     clearFollowupCandidates,
     clearSessionContext,
     applySessionContext,

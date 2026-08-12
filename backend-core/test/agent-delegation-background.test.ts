@@ -807,15 +807,10 @@ describe("background child-agent delegation", () => {
     const invocation = vi.fn();
     service.setInvocationService({ invoke: invocation } as never);
 
-    const result = await invokeMessage(service, {
+    const result = await invokeCancel(service, {
       agent: parentAgent(false),
       teamName: null,
-      input: {
-        childAgentId: child.child_agent_id,
-        message: "stop",
-        kind: "cancel",
-        callId: "parent-tool-call",
-      },
+      input: { childAgentId: child.child_agent_id },
     }, context(new AbortController().signal));
 
     expect(result.success).toBe(true);
@@ -837,15 +832,10 @@ describe("background child-agent delegation", () => {
     const invocation = vi.fn();
     service.setInvocationService({ invoke: invocation } as never);
 
-    const result = await invokeMessage(service, {
+    const result = await invokeCancel(service, {
       agent: parentAgent(false),
       teamName: null,
-      input: {
-        childAgentId: child.child_agent_id,
-        message: "stop",
-        kind: "cancel",
-        callId: "parent-tool-call",
-      },
+      input: { childAgentId: child.child_agent_id },
     }, context(new AbortController().signal));
 
     expect(result.success).toBe(true);
@@ -877,10 +867,10 @@ describe("background child-agent delegation", () => {
     const cancelLocalRun = vi.fn(() => "aborted" as const);
     service.setLocalRunCanceller(cancelLocalRun);
 
-    const result = await invokeMessage(service, {
+    const result = await invokeCancel(service, {
       agent: parentAgent(false),
       teamName: null,
-      input: { childAgentId: child.child_agent_id, message: "stop", kind: "cancel", callId: "parent-tool-call" },
+      input: { childAgentId: child.child_agent_id },
     }, context(new AbortController().signal));
 
     expect(result.success).toBe(true);
@@ -912,10 +902,10 @@ describe("background child-agent delegation", () => {
     );
     service.setLocalRunCanceller(() => "no_active_run");
 
-    const result = await invokeMessage(service, {
+    const result = await invokeCancel(service, {
       agent: parentAgent(false),
       teamName: null,
-      input: { childAgentId: child.child_agent_id, message: "stop", kind: "cancel", callId: "parent-tool-call" },
+      input: { childAgentId: child.child_agent_id },
     }, context(new AbortController().signal));
 
     expect(result.success).toBe(true);
@@ -1808,12 +1798,21 @@ type MessageTestCall = {
     childAgentId?: string | null;
     toParent?: boolean | null;
     message: string;
-    kind?: "progress" | "request" | "response" | "result" | "cancel" | null;
+    kind?: "progress" | "request" | "response" | "result" | null;
     correlationId?: string | null;
     replyToMessageId?: string | null;
     timeoutMs?: number | null;
     runInBackground?: boolean | null;
     callId?: string | null;
+  };
+};
+
+type CancelTestCall = {
+  agent: AgentConfig;
+  teamName: string | null;
+  input: {
+    childAgentId?: string | null;
+    reason?: string | null;
   };
 };
 
@@ -1853,6 +1852,21 @@ function invokeMessage(
       timeoutMs: call.input.timeoutMs,
       runInBackground: call.input.runInBackground,
       callId: call.input.callId,
+    },
+  }, ctx);
+}
+
+function invokeCancel(
+  service: AgentDelegationService,
+  call: CancelTestCall,
+  ctx: AgentTestContext,
+) {
+  return service.cancelAgent({
+    agent: call.agent,
+    teamName: call.teamName,
+    input: {
+      ...(call.input.childAgentId ? { childAgentId: call.input.childAgentId } : {}),
+      ...(call.input.reason ? { reason: call.input.reason } : {}),
     },
   }, ctx);
 }

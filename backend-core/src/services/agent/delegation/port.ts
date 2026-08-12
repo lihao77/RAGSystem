@@ -35,6 +35,12 @@ export interface ListChildAgentsInput {
   limit?: number | null | undefined;
 }
 
+/** 取消子 Agent 是即时控制信号，不走 mailbox 队列。 */
+export interface CancelAgentInput {
+  childAgentId?: string | null | undefined;
+  reason?: string | null | undefined;
+}
+
 export interface AgentToolCall {
   agent: AgentConfig;
   teamName: string | null;
@@ -47,9 +53,16 @@ export interface ListChildAgentsCall {
   input: ListChildAgentsInput;
 }
 
+export interface CancelAgentCall {
+  agent: AgentConfig;
+  teamName: string | null;
+  input: CancelAgentInput;
+}
+
 export interface DelegationPort {
   agent(call: AgentToolCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;
   listChildAgents(call: ListChildAgentsCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;
+  cancelAgent(call: CancelAgentCall, ctx: ToolExecContext): Promise<ToolExecutionResult>;
 }
 
 export type AgentMailboxWakeupHandler = (target: AgentMailboxWakeupTarget) => void;

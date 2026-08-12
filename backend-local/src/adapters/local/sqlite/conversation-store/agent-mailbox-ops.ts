@@ -275,13 +275,6 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     add("target_agent_call_id", input.targetAgentCallId);
     add("target_thread_key", input.targetThreadKey);
     add("target_child_agent_id", input.targetChildAgentId);
-    if (input.kinds?.length) {
-      const kinds = input.kinds.filter((kind) => kind.trim().length > 0);
-      if (kinds.length) {
-        clauses.push(`kind IN (${kinds.map(() => "?").join(",")})`);
-        params.push(...kinds);
-      }
-    }
     const limit = Math.max(1, Math.min(100, Math.floor(input.limit ?? 100)));
     return this.db.prepare(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox WHERE ${clauses.join(" AND ")} ORDER BY COALESCE(sent_at, created_at), seq ASC LIMIT ?`)
       .all(...params, limit)
