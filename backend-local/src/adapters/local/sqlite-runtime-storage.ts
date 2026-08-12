@@ -9,8 +9,6 @@ import type {
   RuntimeClaimResumeInput,
   RuntimeClaimResumeResult,
   RuntimeClaimSessionMaintenanceResult,
-  RuntimeConsumePendingFollowupsInput,
-  RuntimeConsumePendingFollowupsResult,
   RuntimeFinalizeRunInput,
   RuntimeFinalizeRunResult,
   RuntimeInteractionResolution,
@@ -83,7 +81,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       recoverExpiredResumeClaims: (input) => this.recoverExpiredResumeClaims(input),
       getActiveRootRun: (sessionId) => this.getActiveRootRun(sessionId),
       getSessionRuntimeFacts: (sessionId) => this.getSessionRuntimeFacts(sessionId),
-      consumePendingFollowups: (input) => this.consumePendingFollowups(input),
       claimSessionMaintenance: (input) => this.claimSessionMaintenance(input),
       renewSessionMaintenance: (input) => this.renewSessionMaintenance(input),
       releaseSessionMaintenance: (input) => this.releaseSessionMaintenance(input),
@@ -140,39 +137,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         ownedByCurrentInstance: activeRootRun?.status === "running",
       };
     });
-  }
-
-  private consumePendingFollowups(
-    input: RuntimeConsumePendingFollowupsInput,
-  ): Promise<RuntimeConsumePendingFollowupsResult> {
-    return this.serial.run(() => this.store.runInTransaction((tx) => {
-      const active = tx.getRun(input.sessionId, input.rootRunId);
-      if (!active || active.parent_run_id !== null || active.status !== "running") {
-        throw new Error(`active root run not found while consuming followups: ${input.rootRunId}`);
-      }
-      const messages: MessageInfo[] = [];
-      for (const messageId of input.messageIds) {
-        const pending = tx.getMessageById(input.sessionId, messageId);
-        if (!pending || pending.role !== "user" || asRecord(pending.metadata).followup_pending !== true) continue;
-        const metadata = {
-          ...pending.metadata,
-          followup_pending: false,
-          run_id: input.rootRunId,
-          consumed_by_run_id: input.rootRunId,
-          followup_continuation_trigger: false,
-        };
-        if (!tx.updateMessage({
-          messageId,
-          sessionId: input.sessionId,
-          roleFilter: "user",
-          metadata,
-        })) {
-          throw new Error(`failed to consume pending followup: ${messageId}`);
-        }
-        messages.push({ ...pending, metadata });
-      }
-      return { messages };
-    }));
   }
 
   private claimSessionMaintenance(
@@ -400,9 +364,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
   private startRun(input: RuntimeStartRunInput): Promise<RuntimeStartRunResult> {
     return this.serial.run(() => {
       assertSessionId(input.run.sessionId, input.session.sessionId, "run");
-      if (input.initialUserMessage) {
-        assertSessionId(input.initialUserMessage.sessionId, input.session.sessionId, "initial user message");
-      }
       const initialRecords = input.initialRecords ?? [];
       for (const record of initialRecords) {
         assertRecordScope(record, input.session.sessionId, input.run.runId);
@@ -424,9 +385,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           }
         }
         const existingRun = tx.getRun(input.session.sessionId, input.run.runId);
-        const initialUserMessage = input.initialUserMessage
-          ? resolveDeterministicMessage(tx, input.initialUserMessage, "initial user message")
-          : null;
         let run: RuntimeStartRunResult["run"];
         if (existingRun) {
           assertRunScope(existingRun, input.run, this.tenantId);
@@ -442,7 +400,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           throw new Error("claimOwnLease is only valid for a child run");
         }
         const records = initialRecords.map((record) => recordEnvelope(tx, record));
-        return { run, initialUserMessage, records };
+        return { run, records };
       });
     });
   }
@@ -464,67 +422,26 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (activeRoots.length > 1) throw new Error(`session has multiple active root runs: ${input.session.sessionId}`);
         const activeRoot = activeRoots[0];
         if (activeRoot && activeRoot.run_id !== input.run.runId) {
-          if (activeRoot.status === "suspended") {
-            return { kind: "followup" as const, activeRunId: activeRoot.run_id, ownedByCurrentInstance: true };
-          }
-          if (input.pendingUserMessageId) {
-            return { kind: "followup" as const, activeRunId: activeRoot.run_id, ownedByCurrentInstance: true };
-          }
-          if (input.deferFollowup) {
-            return { kind: "followup" as const, activeRunId: activeRoot.run_id, ownedByCurrentInstance: true };
-          }
-          const roundIndex = tx.getRecentMessages(input.session.sessionId, 1000, "root").reduce((max, message) => {
-            const round = asRecord(message.metadata).round;
-            return typeof round === "number" && round > max ? round : max;
-          }, 0);
-          const followup = input.followupFactory({ activeRunId: activeRoot.run_id, roundIndex });
-          assertSessionId(followup.message.sessionId, input.session.sessionId, "followup message");
-          const message = resolveDeterministicMessage(tx, followup.message, "followup message");
-          const records = followup.recordFactory(message).map((record) => {
-            assertRecordScope(record, input.session.sessionId, activeRoot.run_id);
-            return recordEnvelope(tx, record);
-          });
-          return { kind: "followup", activeRunId: activeRoot.run_id, ownedByCurrentInstance: true, message, records };
-        }
-        const { followupFactory: _factory, ...start } = input;
-        const initialRecords = start.initialRecords ?? [];
-        for (const record of initialRecords) assertRecordScope(record, start.session.sessionId, start.run.runId);
-        let initialUserMessage = start.initialUserMessage ? resolveDeterministicMessage(tx, start.initialUserMessage, "initial user message") : null;
-        const pendingMessages = tx.getRecentMessages(start.session.sessionId, Number.MAX_SAFE_INTEGER, "root")
-          .filter((message) => message.role === "user" && asRecord(message.metadata).followup_pending === true);
-        if (start.pendingUserMessageId && initialUserMessage) {
-          throw new Error("pending followup continuation cannot insert another initial user message");
-        }
-        if (start.pendingUserMessageId && !pendingMessages.some((message) => message.id === start.pendingUserMessageId)) {
-          throw new Error(`pending followup is no longer available: ${start.pendingUserMessageId}`);
-        }
-        for (const pending of pendingMessages) {
-          const claimedMetadata = {
-            ...pending.metadata,
-            followup_pending: false,
-            run_id: start.run.runId,
-            consumed_by_run_id: start.run.runId,
-            followup_continuation_trigger: pending.id === start.pendingUserMessageId,
+          const mailboxMessage = input.followupPolicy === "queue"
+            ? tx.enqueueAgentMailboxMessage(input.mailboxMessage)
+            : null;
+          return {
+            kind: "followup" as const,
+            activeRunId: activeRoot.run_id,
+            ownedByCurrentInstance: true,
+            mailboxMessage,
           };
-          if (!tx.updateMessage({
-            messageId: pending.id,
-            sessionId: start.session.sessionId,
-            roleFilter: "user",
-            metadata: claimedMetadata,
-          })) {
-            throw new Error(`failed to claim pending followup: ${pending.id}`);
-          }
-          if (pending.id === start.pendingUserMessageId) {
-            initialUserMessage = { ...pending, metadata: claimedMetadata };
-          }
         }
-        const existingRun = tx.getRun(start.session.sessionId, start.run.runId);
-        const run = existingRun ? toCreatedRun(existingRun) : tx.createRun(start.run);
-        if (existingRun) assertRunScope(existingRun, start.run, this.tenantId);
+        const initialRecords = input.initialRecords ?? [];
+        for (const record of initialRecords) assertRecordScope(record, input.session.sessionId, input.run.runId);
+        const existingRun = tx.getRun(input.session.sessionId, input.run.runId);
+        const run = existingRun ? toCreatedRun(existingRun) : tx.createRun(input.run);
+        if (existingRun) assertRunScope(existingRun, input.run, this.tenantId);
         if (maintenance?.token === input.sessionMaintenanceToken) {
-          tx.updateSessionMetadata(start.session.sessionId, { runtime_maintenance: null });
+          tx.updateSessionMetadata(input.session.sessionId, { runtime_maintenance: null });
         }
-        return { kind: "started", run, initialUserMessage, records: initialRecords.map((record) => recordEnvelope(tx, record)) };
+        const mailboxMessage = tx.enqueueAgentMailboxMessage(input.mailboxMessage);
+        return { kind: "started", run, mailboxMessage, records: initialRecords.map((record) => recordEnvelope(tx, record)) };
       });
     });
   }

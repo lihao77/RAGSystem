@@ -207,7 +207,7 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
     const limit = Math.max(1, Math.min(100, Math.floor(input.limit ?? 100)));
     params.push(limit);
     const result = await this.executor.query(
-      `SELECT ${SELECT_COLUMNS} FROM agent_mailbox_messages WHERE ${clauses.join(" AND ")} ORDER BY seq ASC LIMIT $${params.length}`,
+      `SELECT ${SELECT_COLUMNS} FROM agent_mailbox_messages WHERE ${clauses.join(" AND ")} ORDER BY COALESCE(sent_at, created_at), seq ASC LIMIT $${params.length}`,
       params,
     );
     return result.rows.map(row);
@@ -282,7 +282,7 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
           SELECT seq,message_id FROM agent_mailbox_messages
           WHERE tenant_id=$1 AND session_id=$2 AND status='queued' AND available_at <= $3::timestamptz
             AND (expires_at IS NULL OR expires_at > $3::timestamptz) AND ${predicate}
-          ORDER BY seq ASC FOR UPDATE SKIP LOCKED LIMIT $${limitParam}
+          ORDER BY COALESCE(sent_at, created_at), seq ASC FOR UPDATE SKIP LOCKED LIMIT $${limitParam}
         )
         UPDATE agent_mailbox_messages AS message
         SET status='claimed',claim_id=$${limitParam + 1},claimed_by=$${limitParam + 2},claim_expires_at=$${limitParam + 3}::timestamptz,

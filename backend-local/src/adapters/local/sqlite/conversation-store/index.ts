@@ -80,6 +80,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     getRecentMessages: messages.getRecentMessages.bind(messages),
     putProviderContinuation: providerContinuations.putProviderContinuationInTransaction.bind(providerContinuations),
     deleteProviderContinuations: providerContinuations.deleteProviderContinuations.bind(providerContinuations),
+    enqueueAgentMailboxMessage: agentMailbox.enqueueInTransaction.bind(agentMailbox),
   });
 
   return {

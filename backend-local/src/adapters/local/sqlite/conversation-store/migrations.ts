@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 13;
+export const LATEST_SCHEMA_VERSION = 14;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 12) {
+  if (current >= 1 && current <= 13) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -58,6 +58,7 @@ export function runMigrations(db: MigrationDatabase): void {
       }
       if (current <= 11) migrateAgentMailboxTenantKey(db);
       ensureAgentMailboxInputColumns(db);
+      migratePendingUserMessagesToMailbox(db);
       if (current <= 10) ensureChildParticipantLineage(db);
       if (current <= 11) {
         const sessions = db.prepare("SELECT COUNT(*) AS count FROM sessions").get() as { count?: number } | undefined;
@@ -99,6 +100,33 @@ function ensureAgentMailboxInputColumns(db: MigrationDatabase): void {
   }
   if (!names.has("sent_at")) {
     db.exec("ALTER TABLE agent_mailbox ADD COLUMN sent_at TEXT");
+  }
+}
+
+function migratePendingUserMessagesToMailbox(db: MigrationDatabase): void {
+  const rows = db.prepare(`
+    SELECT message.id, session.tenant_id, message.session_id, message.content_parts,
+           message.metadata, message.created_at
+    FROM messages AS message
+    JOIN sessions AS session ON session.session_id=message.session_id
+    WHERE message.role='user'
+      AND json_extract(COALESCE(message.metadata, '{}'), '$.followup_pending')=1
+    ORDER BY message.seq
+  `).all() as unknown as Array<{ id: string; tenant_id: string; session_id: string; content_parts: string; metadata: string | null; created_at: string | null }>;
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO agent_mailbox (
+      message_id, tenant_id, session_id, target_thread_key, kind, input_type,
+      source_kind, visible_to_user, sent_at, content_parts, metadata, available_at
+    ) VALUES (?, ?, ?, 'root', 'request', 'user_message', 'user', 1, ?, ?, ?, ?)
+  `);
+  const update = db.prepare("UPDATE messages SET metadata=? WHERE id=? AND session_id=?");
+  for (const row of rows) {
+    const metadata = parseObject(row.metadata);
+    delete metadata.followup_pending;
+    delete metadata.followup_continuation_trigger;
+    const sentAt = row.created_at ?? new Date(0).toISOString();
+    insert.run(row.id, row.tenant_id, row.session_id, sentAt, row.content_parts, JSON.stringify(metadata), sentAt);
+    update.run(JSON.stringify(metadata), row.id, row.session_id);
   }
 }
 

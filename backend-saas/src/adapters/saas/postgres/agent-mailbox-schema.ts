@@ -64,4 +64,25 @@ export const POSTGRES_AGENT_MAILBOX_MIGRATIONS: PostgresAgentMailboxMigration[] 
     ALTER TABLE agent_mailbox_messages
       ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
   `,
+}, {
+  version: 3,
+  name: "migrate_pending_user_messages",
+  sql: `
+    INSERT INTO agent_mailbox_messages (
+      message_id, tenant_id, session_id, target_thread_key, kind, input_type,
+      source_kind, visible_to_user, sent_at, content_parts, metadata, available_at
+    )
+    SELECT message.id, session.tenant_id, message.session_id, 'root', 'request',
+           'user_message', 'user', true, message.created_at, message.content_parts,
+           message.metadata - 'followup_pending' - 'followup_continuation_trigger',
+           message.created_at
+    FROM conversation_messages AS message
+    JOIN conversation_sessions AS session ON session.session_id=message.session_id
+    WHERE message.role='user' AND message.metadata->>'followup_pending'='true'
+    ON CONFLICT (tenant_id, message_id) DO NOTHING;
+
+    UPDATE conversation_messages
+    SET metadata=metadata - 'followup_pending' - 'followup_continuation_trigger'
+    WHERE role='user' AND metadata->>'followup_pending'='true';
+  `,
 }];

@@ -67,7 +67,7 @@ function createKernel(
     protocol,
     tools: { executeRound: async () => [] },
     events: { emit: () => undefined },
-    refresher: { refresh: async () => [] },
+    refresher: { refresh: async () => ({ messages: [] }) },
     hooks,
   });
 }

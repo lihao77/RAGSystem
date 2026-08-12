@@ -9,8 +9,6 @@ import type {
   RuntimeClaimResumeInput,
   RuntimeClaimResumeResult,
   RuntimeClaimSessionMaintenanceResult,
-  RuntimeConsumePendingFollowupsInput,
-  RuntimeConsumePendingFollowupsResult,
   RuntimeConversationStorage,
   RuntimeFinalizeRunInput,
   RuntimeFinalizeRunResult,
@@ -67,6 +65,7 @@ import { PostgresOutboxRepository } from "./outbox-repository.js";
 import { PostgresPendingInteractionRepository } from "./pending-interaction-repository.js";
 import { PostgresProviderContinuationRepository } from "./provider-continuation-repository.js";
 import { PostgresRunRepository } from "./run-repository.js";
+import { PostgresAgentMailboxRepository } from "./agent-mailbox-repository.js";
 
 function createTransactionFacade(
   tenantId: TenantId,
@@ -77,6 +76,7 @@ function createTransactionFacade(
   const outboxRepository = new PostgresOutboxRepository(executor);
   const pendingInteractionRepository = new PostgresPendingInteractionRepository(executor);
   const providerContinuationRepository = new PostgresProviderContinuationRepository(executor);
+  const agentMailbox = new PostgresAgentMailboxRepository(tenantId, executor);
 
   const conversation: RuntimeConversationStorage = {
     createSession: (input) => conversationRepository.createSession({ tenantId, ...input }),
@@ -141,7 +141,7 @@ function createTransactionFacade(
     ),
   };
 
-  return { conversation, runs, outbox, pendingInteractions, providerContinuations };
+  return { conversation, runs, outbox, pendingInteractions, providerContinuations, agentMailbox };
 }
 
 export class PostgresRuntimeStorage implements RuntimeStorage {
@@ -170,7 +170,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       recoverExpiredRunLeases: (input) => this.recoverExpiredRunLeases(input),
       getActiveRootRun: (sessionId) => this.getActiveRootRun(sessionId),
       getSessionRuntimeFacts: (sessionId) => this.getSessionRuntimeFacts(sessionId),
-      consumePendingFollowups: (input) => this.consumePendingFollowups(input),
       claimSessionMaintenance: (input) => this.claimSessionMaintenance(input),
       renewSessionMaintenance: (input) => this.renewSessionMaintenance(input),
       releaseSessionMaintenance: (input) => this.releaseSessionMaintenance(input),
@@ -303,46 +302,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     });
   }
 
-  private async consumePendingFollowups(
-    input: RuntimeConsumePendingFollowupsInput,
-  ): Promise<RuntimeConsumePendingFollowupsResult> {
-    return this.executor.transaction(async (transactionExecutor) => {
-      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
-      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
-      await assertOwnedRunLeaseForRun(
-        transactionExecutor,
-        this.tenantId,
-        this.ownerInstanceId,
-        input.sessionId,
-        input.rootRunId,
-      );
-      const tx = createTransactionFacade(this.tenantId, transactionExecutor);
-      const messages: MessageInfo[] = [];
-      for (const messageId of input.messageIds) {
-        await lockAdvisoryKey(transactionExecutor, `message:${messageId}`);
-        const pending = await tx.conversation.getMessageById(input.sessionId, messageId);
-        if (!pending || pending.role !== "user" || jsonObject(pending.metadata).followup_pending !== true) continue;
-        const metadata = {
-          ...pending.metadata,
-          followup_pending: false,
-          run_id: input.rootRunId,
-          consumed_by_run_id: input.rootRunId,
-          followup_continuation_trigger: false,
-        };
-        const updated = await transactionExecutor.query(
-          `UPDATE conversation_messages
-           SET metadata=$1::jsonb
-           WHERE session_id=$2 AND id=$3 AND role='user'
-             AND metadata->>'followup_pending'='true'`,
-          [JSON.stringify(metadata), input.sessionId, messageId],
-        );
-        if (Number(updated.rowCount ?? 0) !== 1) continue;
-        messages.push({ ...pending, metadata });
-      }
-      return { messages };
-    });
-  }
-
   private async claimSessionMaintenance(
     input: RuntimeSessionMaintenanceInput,
   ): Promise<RuntimeClaimSessionMaintenanceResult> {
@@ -420,9 +379,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
 
   private async startRun(input: RuntimeStartRunInput): Promise<RuntimeStartRunResult> {
     assertSessionId(input.run.sessionId, input.session.sessionId, "run");
-    if (input.initialUserMessage) {
-      assertSessionId(input.initialUserMessage.sessionId, input.session.sessionId, "initial user message");
-    }
     const initialRecords = (input.initialRecords ?? []).map(normalizeRecord);
     for (const record of initialRecords) {
       assertRecordScope(record, input.session.sessionId, input.run.runId);
@@ -465,15 +421,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       await lockAdvisoryKey(transactionExecutor, `run:${this.tenantId}:${input.run.runId}`);
       const existingRun = await lockTenantRun(transactionExecutor, this.tenantId, input.run.runId);
       if (existingRun) assertRunScope(existingRun, input.run);
-      let initialUserMessage = null;
-      if (input.initialUserMessage) {
-        initialUserMessage = await getOrCreateMessage(
-          transactionExecutor,
-          tx,
-          input.initialUserMessage,
-          "initial user message",
-        );
-      }
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(input.run);
       if (input.claimOwnLease && input.run.parentRunId == null) {
         throw new Error("claimOwnLease is only valid for a child run");
@@ -495,7 +442,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           record,
         ));
       }
-      return { run, initialUserMessage, records };
+      return { run, records };
     });
   }
 
@@ -530,116 +477,39 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       const activeRunId = active.rows[0]?.run_id;
       const activeOwnedHere = active.rows[0]?.owner_instance_id === this.ownerInstanceId;
       if (activeRunId && activeRunId !== input.run.runId) {
-        if (active.rows[0]?.status === "suspended") {
-          return {
-            kind: "followup" as const,
-            activeRunId,
-            ownedByCurrentInstance: activeOwnedHere,
-            records: recovered.records,
-          };
-        }
-        if (input.pendingUserMessageId) {
-          return {
-            kind: "followup" as const,
-            activeRunId,
-            ownedByCurrentInstance: activeOwnedHere,
-            records: recovered.records,
-          };
-        }
-        if (input.deferFollowup) {
-          return {
-            kind: "followup" as const,
-            activeRunId,
-            ownedByCurrentInstance: activeOwnedHere,
-            records: recovered.records,
-          };
-        }
-        if (!activeOwnedHere) {
-          return {
-            kind: "followup" as const,
-            activeRunId,
-            ownedByCurrentInstance: false,
-            records: recovered.records,
-          };
-        }
-        const stepRows = await transactionExecutor.query<{ payload: unknown }>(
-          "SELECT payload FROM saas_run_steps WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3",
-          [this.tenantId, input.session.sessionId, activeRunId],
-        );
-        const roundIndex = stepRows.rows.reduce((max, row) => {
-          const round = jsonObject(jsonObject(row.payload).payload).round;
-          return typeof round === "number" && round > max ? round : max;
-        }, 0);
-        const followup = input.followupFactory({ activeRunId, roundIndex });
-        assertSessionId(followup.message.sessionId, input.session.sessionId, "followup message");
-        const message = await getOrCreateMessage(transactionExecutor, tx, followup.message, "followup message");
-        const records: RuntimeRecordEnvelopeResult[] = [];
-        for (const record of followup.recordFactory(message)) {
-          assertRecordScope(record, input.session.sessionId, activeRunId);
-          await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
-          records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalizeRecord(record)));
-        }
-        return { kind: "followup", activeRunId, ownedByCurrentInstance: activeOwnedHere, message, records: [...recovered.records, ...records] };
-      }
-      const { followupFactory: _factory, ...start } = input;
-      await lockAdvisoryKey(transactionExecutor, `run:${this.tenantId}:${start.run.runId}`);
-      const existingRun = await lockTenantRun(transactionExecutor, this.tenantId, start.run.runId);
-      if (existingRun) assertRunScope(existingRun, start.run);
-      let initialUserMessage = start.initialUserMessage ? await getOrCreateMessage(transactionExecutor, tx, start.initialUserMessage, "initial user message") : null;
-      if (start.pendingUserMessageId && initialUserMessage) {
-        throw new Error("pending followup continuation cannot insert another initial user message");
-      }
-      const pendingRows = await transactionExecutor.query<{ id: string }>(
-        `SELECT id FROM conversation_messages
-         WHERE session_id=$1 AND role='user' AND metadata->>'followup_pending'='true'
-         ORDER BY seq FOR UPDATE`,
-        [start.session.sessionId],
-      );
-      if (start.pendingUserMessageId && !pendingRows.rows.some((row) => row.id === start.pendingUserMessageId)) {
-        throw new Error(`pending followup is no longer available: ${start.pendingUserMessageId}`);
-      }
-      for (const row of pendingRows.rows) {
-        const pending = await tx.conversation.getMessageById(start.session.sessionId, row.id);
-        if (!pending) continue;
-        const claimedMetadata = {
-          ...pending.metadata,
-          followup_pending: false,
-          run_id: start.run.runId,
-          consumed_by_run_id: start.run.runId,
-          followup_continuation_trigger: pending.id === start.pendingUserMessageId,
+        const mailboxMessage = input.followupPolicy === "queue"
+          ? await tx.agentMailbox.enqueue(input.mailboxMessage)
+          : null;
+        return {
+          kind: "followup" as const,
+          activeRunId,
+          ownedByCurrentInstance: activeOwnedHere,
+          mailboxMessage,
+          records: recovered.records,
         };
-        const claimed = await transactionExecutor.query(
-          `UPDATE conversation_messages
-           SET metadata=$1::jsonb
-           WHERE session_id=$2 AND id=$3 AND role='user'
-             AND metadata->>'followup_pending'='true'`,
-          [JSON.stringify(claimedMetadata), start.session.sessionId, pending.id],
-        );
-        if (Number(claimed.rowCount ?? 0) !== 1) {
-          throw new Error(`failed to claim pending followup: ${pending.id}`);
-        }
-        if (pending.id === start.pendingUserMessageId) {
-          initialUserMessage = { ...pending, metadata: claimedMetadata };
-        }
       }
-      const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(start.run);
-      await this.claimRootRunLease(transactionExecutor, start.session.sessionId, start.run.runId);
+      await lockAdvisoryKey(transactionExecutor, `run:${this.tenantId}:${input.run.runId}`);
+      const existingRun = await lockTenantRun(transactionExecutor, this.tenantId, input.run.runId);
+      if (existingRun) assertRunScope(existingRun, input.run);
+      const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(input.run);
+      await this.claimRootRunLease(transactionExecutor, input.session.sessionId, input.run.runId);
       if (input.sessionMaintenanceToken) {
         await transactionExecutor.query(
           `UPDATE conversation_sessions
            SET metadata=COALESCE(metadata, '{}'::jsonb) - 'runtime_maintenance', updated_at=CURRENT_TIMESTAMP
            WHERE tenant_id=$1 AND session_id=$2
              AND metadata#>>'{runtime_maintenance,token}'=$3`,
-          [this.tenantId, start.session.sessionId, input.sessionMaintenanceToken],
+          [this.tenantId, input.session.sessionId, input.sessionMaintenanceToken],
         );
       }
       const records: RuntimeRecordEnvelopeResult[] = [...recovered.records];
-      for (const record of (start.initialRecords ?? []).map(normalizeRecord)) {
-        assertRecordScope(record, start.session.sessionId, start.run.runId);
+      for (const record of (input.initialRecords ?? []).map(normalizeRecord)) {
+        assertRecordScope(record, input.session.sessionId, input.run.runId);
         await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
         records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, record));
       }
-      return { kind: "started", run, initialUserMessage, records };
+      const mailboxMessage = await tx.agentMailbox.enqueue(input.mailboxMessage);
+      return { kind: "started", run, mailboxMessage, records };
     });
   }
 

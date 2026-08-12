@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
  * deployment-neutral persister 完成 message/run/step/outbox 写入，并翻译 KernelEvent 推送 Envelope。
  */
 import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, RecoverableInterrupt, resolveToolInstructionMode, throwIfAborted, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
-import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefresher, KernelResult } from "@ragsystem/agent-sdk";
+import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefreshResult, MessageRefresher, KernelResult } from "@ragsystem/agent-sdk";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import { translateKernelEvent, type WireTranslationContext } from "./event-translation.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
@@ -105,10 +105,16 @@ export interface SdkExecuteRunInput {
    */
   messageMetadata?: Record<string, unknown> | null;
   userMessageId?: string;
-  initialUserMessageContent?: string;
-  initialUserMessageContentParts?: MessageContentPart[];
-  initialUserMessageMetadata?: Record<string, unknown>;
-  pendingUserMessageId?: string;
+  rootMailboxMessage?: {
+    id: string;
+    inputType: "user_message" | "system_notification" | "goal_continuation";
+    sourceKind: "user" | "system";
+    visibleToUser: boolean;
+    sentAt: string;
+    contentParts: MessageContentPart[];
+    metadata?: Record<string, unknown>;
+  };
+  followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string;
   initialEnvelopes?: readonly Envelope[];
   onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
@@ -121,7 +127,6 @@ export interface SdkExecuteRunResult {
   success: boolean;
   suspended?: boolean;
   followup?: Extract<ExecutionStartDisposition, { kind: "followup" }>;
-  pendingFollowup?: MessageInfo;
   rootRunId?: string;
   runId?: string;
   parentRunId?: string | null;
@@ -364,7 +369,6 @@ export async function executeRunWithSdk(
       const tk = ctx.session.threadKey;
       const mailboxAcceptedIds = new Set<string>();
       const mailboxClaims: Array<{ messageId: string; claimId: string }> = [];
-      const duplicateMailboxClaims: Array<{ messageId: string; claimId: string }> = [];
       const refreshStartSeq = lastSeq;
       let mailboxMaxSeq = lastSeq;
       const mailbox = deps.storage.agentMailbox;
@@ -384,7 +388,10 @@ export async function executeRunWithSdk(
             const existing = await deps.storage.conversation.getMessageById(sid, mailboxMessage.message_id);
             let persisted = existing;
             if (!existing) {
-              const renderedContent = renderAgentMailboxMessage(mailboxMessage);
+              const isUserMessage = mailboxMessage.input_type === "user_message";
+              const renderedContent = isUserMessage
+                ? renderMailboxContent(mailboxMessage.content_parts)
+                : renderAgentMailboxMessage(mailboxMessage);
               const displayContent = renderMailboxContent(mailboxMessage.content_parts);
               const mailboxMetadata = mailboxMessage.metadata ?? {};
               persisted = await deps.storage.conversation.addMessage({
@@ -394,12 +401,12 @@ export async function executeRunWithSdk(
                 content: renderedContent,
                 // Keep the semantic envelope in the canonical history projection so
                 // the next model round cannot lose message kind/source metadata.
-                contentParts: [{ type: "text", text: renderedContent }],
+                contentParts: isUserMessage ? mailboxMessage.content_parts : [{ type: "text", text: renderedContent }],
                 threadKey: mailboxMessage.target_thread_key,
                 childAgentId: mailboxMessage.target_child_agent_id,
                 metadata: {
                   ...mailboxMetadata,
-                  agent_message: true,
+                  ...(isUserMessage ? {} : { agent_message: true }),
                   agent_message_display_content: displayContent,
                   agent_message_direction: mailboxMetadata.direction ?? null,
                   agent_message_source_agent_name: mailboxMetadata.source_agent_name ?? null,
@@ -414,12 +421,25 @@ export async function executeRunWithSdk(
                   mailbox_source_run_id: mailboxMessage.source_run_id,
                   mailbox_source_agent_call_id: mailboxMessage.source_agent_call_id,
                   conversation_scope: mailboxMessage.target_child_agent_id ? "child" : "agent",
-                  visible_to_user: false,
+                  consumed_by_run_id: input.runId,
+                  visible_to_user: mailboxMessage.visible_to_user,
+                  sent_at: mailboxMessage.sent_at,
                 },
               });
+            } else if (existing.metadata.consumed_by_run_id !== input.runId) {
+              const metadata = { ...existing.metadata, consumed_by_run_id: input.runId };
+              const updated = await deps.storage.conversation.updateMessageMetadata?.(sid, existing.id, metadata);
+              if (updated === false) {
+                throw new Error(`Agent mailbox history update failed: ${mailboxMessage.message_id}`);
+              }
+              persisted = { ...existing, metadata };
             }
             if (!persisted) throw new Error(`Agent mailbox history write returned no message: ${mailboxMessage.message_id}`);
             mailboxMaxSeq = Math.max(mailboxMaxSeq, persisted.seq);
+            if (mailboxMessage.input_type === "user_message") {
+              const attachmentIds = mailboxMessage.content_parts.flatMap((part) => part.type === "attachment_ref" ? [part.file_id] : []);
+              baseExecCtx.attachmentFileIds = [...new Set([...(baseExecCtx.attachmentFileIds ?? []), ...attachmentIds])];
+            }
             deps.eventPublisher.publishAgentMessage({
               sessionId: sid,
               runId: input.runId,
@@ -433,11 +453,11 @@ export async function executeRunWithSdk(
             if (mailboxMessage.kind === "cancel") {
               await mailbox.ack({ sessionId: sid, ...claim });
               mailboxCancelRequested = true;
-            } else if (deliveredMailboxMessageIds.has(mailboxMessage.message_id)) {
-              duplicateMailboxClaims.push(claim);
             } else {
-              mailboxAcceptedIds.add(mailboxMessage.message_id);
               mailboxClaims.push(claim);
+              if (!deliveredMailboxMessageIds.has(mailboxMessage.message_id)) {
+                mailboxAcceptedIds.add(mailboxMessage.message_id);
+              }
             }
           } catch (error) {
             await mailbox.release({
@@ -449,83 +469,66 @@ export async function executeRunWithSdk(
           }
         }
       }
-      if (mailboxCancelRequested) {
-        if (mailbox) {
-          for (const claim of mailboxClaims) {
-            await mailbox.release({
-              sessionId: sid,
-              ...claim,
-              lastError: "cancelled before mailbox context refresh",
-            });
-          }
+      const releaseMailboxClaims = async (error: unknown): Promise<void> => {
+        if (!mailbox) return;
+        for (const claim of mailboxClaims) {
+          await mailbox.release({
+            sessionId: sid,
+            ...claim,
+            lastError: error instanceof Error ? error.message : String(error),
+          });
         }
+      };
+      const createRefreshResult = (messages: ChatMessage[]): MessageRefreshResult => ({
+        messages,
+        ...(mailbox && mailboxClaims.length > 0
+          ? {
+              onInvokeSuccess: async () => {
+                for (const claim of mailboxClaims) {
+                  await mailbox.ack({ sessionId: sid, ...claim });
+                }
+                for (const messageId of mailboxAcceptedIds) deliveredMailboxMessageIds.add(messageId);
+              },
+              onInvokeFailure: releaseMailboxClaims,
+            }
+          : {}),
+      });
+      if (mailboxCancelRequested) {
+        await releaseMailboxClaims(new Error("cancelled before mailbox context refresh"));
         input.abortController?.abort(new Error("agent_cancelled"));
         const cancelError = new Error("agent_cancelled");
         cancelError.name = "AbortError";
         throw cancelError;
       }
-      const recent = await deps.storage.conversation.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
-      const newerRaw = recent
-        .filter((m) => typeof m.seq === "number" && m.seq > refreshStartSeq)
-        .sort((a, b) => (a.seq as number) - (b.seq as number));
-      const lastMsg = newerRaw.at(-1);
-      const newer = filterHistoryMessages(newerRaw)
-        .filter((message) => message.role === "user" && message.metadata.mailbox_message_id == null);
-      const pendingIds = newer
-        .filter((message) => message.metadata.followup_pending === true)
-        .map((message) => message.id);
-      const claimed = pendingIds.length > 0
-        ? await deps.storage.consumePendingFollowups({
-            sessionId: sid,
-            rootRunId: input.rootRunId ?? input.runId,
-            messageIds: pendingIds,
-          })
-        : [];
-      const claimedIds = new Set(claimed.map((message) => message.id));
-      const accepted = newer
-        .filter((message) => message.metadata.followup_pending !== true || claimedIds.has(message.id))
-        .map((message) => message.id);
-      if (lastMsg && typeof lastMsg.seq === "number") lastSeq = Math.max(lastSeq, lastMsg.seq);
-      lastSeq = Math.max(lastSeq, mailboxMaxSeq);
-      if (mailbox) {
-        for (const claim of duplicateMailboxClaims) {
-          await mailbox.ack({ sessionId: sid, ...claim });
-        }
-      }
-      if (accepted.length === 0 && mailboxAcceptedIds.size === 0) return [];
-      // Reuse the canonical history pipeline for follow-ups so command_ref, attachments,
-      // and metadata extensions have the exact same Agent projection as the first request.
-      let refreshed;
       try {
-        refreshed = await contextBuilder.buildContext({
+        const recent = await deps.storage.conversation.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
+        const newerRaw = recent
+          .filter((m) => typeof m.seq === "number" && m.seq > refreshStartSeq)
+          .sort((a, b) => (a.seq as number) - (b.seq as number));
+        const lastMsg = newerRaw.at(-1);
+        const accepted = newerRaw
+          .filter((message) => message.role === "user" && message.metadata.mailbox_message_id == null)
+          .map((message) => message.id);
+        if (lastMsg && typeof lastMsg.seq === "number") lastSeq = Math.max(lastSeq, lastMsg.seq);
+        lastSeq = Math.max(lastSeq, mailboxMaxSeq);
+        if (accepted.length === 0 && mailboxAcceptedIds.size === 0) return createRefreshResult([]);
+        // Reuse the canonical history pipeline for follow-ups so command_ref, attachments,
+        // and metadata extensions have the exact same Agent projection as the first request.
+        const refreshed = await contextBuilder.buildContext({
           sessionId: sid,
           threadKey: tk,
           microcompact: false,
         });
+        await sessionMetadata.flush();
+        const acceptedIds = new Set([...mailboxAcceptedIds, ...accepted]);
+        return createRefreshResult(refreshed.conversation.flatMap((message, index): ChatMessage[] => {
+          const raw = refreshed.rawMessages[index];
+          return raw?.role === "user" && acceptedIds.has(raw.id) ? [message] : [];
+        }));
       } catch (error) {
-        if (mailbox) {
-          for (const claim of mailboxClaims) {
-            await mailbox.release({
-              sessionId: sid,
-              ...claim,
-              lastError: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
+        await releaseMailboxClaims(error);
         throw error;
       }
-      if (mailbox) {
-        for (const claim of mailboxClaims) {
-          await mailbox.ack({ sessionId: sid, ...claim });
-        }
-      }
-      for (const messageId of mailboxAcceptedIds) deliveredMailboxMessageIds.add(messageId);
-      await sessionMetadata.flush();
-      const acceptedIds = new Set([...mailboxAcceptedIds, ...accepted]);
-      return refreshed.conversation.flatMap((message, index): ChatMessage[] => {
-        const raw = refreshed.rawMessages[index];
-        return raw?.role === "user" && acceptedIds.has(raw.id) ? [message] : [];
-      });
     },
   };
   // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。
@@ -663,30 +666,13 @@ export async function executeRunWithSdk(
     ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
     ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
     ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
-    ...(input.userMessageId && input.initialUserMessageMetadata ? {
-      initialUserMessage: {
-        id: input.userMessageId,
-        content: input.initialUserMessageContent ?? input.task,
-        contentParts: requireInitialUserMessageContentParts(input.initialUserMessageContentParts),
-        metadata: {
-          ...(input.initialUserMessageMetadata ?? {}),
-          agent: input.agent.agent_name,
-          run_id: input.runId,
-          task_id: input.taskId,
-          request_id: input.requestId,
-          execution_kind: input.executionKind ?? "agent_stream",
-        },
-      },
-    } : {}),
-    ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
+    ...(input.rootMailboxMessage ? { rootMailboxMessage: input.rootMailboxMessage } : {}),
+    ...(input.followupPolicy ? { followupPolicy: input.followupPolicy } : {}),
     ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
     ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
   });
   const startDisposition = await persister.startRun();
   if (startDisposition.kind === "followup") {
-    if (!input.initialUserMessageMetadata && !input.pendingUserMessageId) {
-      throw new Error("deferred followup requires an initial user message");
-    }
     input.onStartDisposition?.(startDisposition);
     return { content: "", success: true, followup: startDisposition, tokenUsage: { inputTokens: 0, outputTokens: 0 }, toolCalls: {} };
   }
@@ -696,22 +682,7 @@ export async function executeRunWithSdk(
   try {
     input.onStartDisposition?.(startDisposition);
     input.onRunPersisted?.();
-    if ((input.userMessageId && input.initialUserMessageMetadata) || input.pendingUserMessageId) {
-      // startRun atomically persists the initial user message. Rebuild after that
-      // commit so the first model request sees the same durable history as subsequent rounds.
-      const startedContext = await contextBuilder.buildContext({
-        sessionId: input.sessionId,
-        threadKey: input.threadKey,
-        microcompact: true,
-      });
-      await sessionMetadata.flush();
-      conversation = startedContext.conversation;
-      contextRawMessages = startedContext.rawMessages;
-      lastSeq = startedContext.rawMessages.reduce(
-        (max, message) => message && typeof message.seq === "number" && message.seq > max ? message.seq : max,
-        lastSeq,
-      );
-    }
+    // User/system mailbox messages are claimed by the first round refresher.
     // 首次用户消息由 startRun 原子落库，附件只会出现在上面的 startedContext 中。
     // 必须基于最终实际发送给模型的上下文生成 sandbox allowlist，不能使用落库前的预构建快照。
     baseExecCtx.attachmentFileIds = collectAttachmentFileIds(contextRawMessages);
@@ -793,15 +764,11 @@ export async function executeRunWithSdk(
       );
     }
     const message = terminalReason(interrupted ? "interrupted" : "failed", terminalError);
-    const pendingFollowup = isRootRun
-      ? await findPendingFollowup(deps.storage, input.sessionId, input.threadKey)
-      : null;
     return {
       content: message,
       success: false,
       tokenUsage,
       toolCalls,
-      ...(pendingFollowup ? { pendingFollowup } : {}),
     };
   }
 
@@ -821,21 +788,12 @@ export async function executeRunWithSdk(
       finalized.readyResumeInteractionIds,
     );
   }
-  const pendingFollowup = isRootRun
-    ? await findPendingFollowup(deps.storage, input.sessionId, input.threadKey)
-    : null;
   return {
     content: result.content,
     success: true,
     tokenUsage,
     toolCalls,
-    ...(pendingFollowup ? { pendingFollowup } : {}),
   };
-}
-
-function requireInitialUserMessageContentParts(parts: MessageContentPart[] | undefined): MessageContentPart[] {
-  if (!parts) throw new Error("initial user message requires canonical content parts");
-  return parts;
 }
 
 function collectAttachmentFileIds(messages: readonly (MessageInfo | null)[]): string[] {
@@ -848,16 +806,6 @@ function collectAttachmentFileIds(messages: readonly (MessageInfo | null)[]): st
   return [...ids];
 }
 
-async function findPendingFollowup(
-  storage: ExecutionStorage,
-  sessionId: string,
-  threadKey: string,
-): Promise<MessageInfo | null> {
-  const messages = await storage.conversation.getRecentMessages(sessionId, HISTORY_SCAN_LIMIT, threadKey);
-  return messages.find((message) =>
-    message.role === "user" && message.metadata.followup_pending === true
-  ) ?? null;
-}
 
 /**
  * 把前端委托工具声明构造为 SDK Tool（委托壳）。委托执行下沉到 Tool.call：

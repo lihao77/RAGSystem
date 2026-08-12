@@ -202,3 +202,10 @@ test("PostgreSQL Agent mailbox v2 migration adds the input envelope columns", ()
   assert.match(migration.sql, /ADD COLUMN IF NOT EXISTS visible_to_user BOOLEAN NOT NULL DEFAULT false/);
   assert.match(migration.sql, /ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ/);
 });
+
+test("PostgreSQL Agent mailbox v3 migrates pending user messages", () => {
+  const migration = POSTGRES_AGENT_MAILBOX_MIGRATIONS.find(item => item.version === 3);
+  assert.equal(migration?.name, "migrate_pending_user_messages");
+  assert.match(migration?.sql ?? "", /ON CONFLICT \(tenant_id, message_id\) DO NOTHING/);
+  assert.match(migration?.sql ?? "", /followup_pending/);
+});

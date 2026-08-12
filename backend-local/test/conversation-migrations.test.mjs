@@ -46,7 +46,7 @@ test("empty historical conversation databases receive a required Team snapshot c
     runMigrations(db);
 
     const column = db.prepare("PRAGMA table_info(sessions)").all().find(item => item.name === "team_snapshot");
-    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 13);
+    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 14);
     assert.equal(column?.notnull, 1);
     assert.equal(column?.dflt_value, null);
   } finally {
@@ -87,11 +87,42 @@ test("v12 conversation databases receive Agent mailbox input envelope defaults",
       SELECT input_type, source_kind, visible_to_user, sent_at
       FROM agent_mailbox WHERE message_id = ?
     `).get("message-1");
-    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 13);
+    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 14);
     assert.equal(message.input_type, "agent_message");
     assert.equal(message.source_kind, "agent");
     assert.equal(message.visible_to_user, 0);
     assert.equal(message.sent_at, null);
+  } finally {
+    db.close();
+  }
+});
+
+test("v13 pending user messages migrate idempotently to root mailbox", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(BASELINE_SCHEMA_SQL);
+    db.exec("PRAGMA user_version = 13");
+    db.prepare(`
+      INSERT INTO sessions (
+        session_id, tenant_id, owner_user_id, visibility, origin_type, origin_channel, team_snapshot
+      ) VALUES (?, ?, ?, 'private', 'direct', 'web', ?)
+    `).run("session-1", "tnt_test", "usr_test", "{}");
+    db.prepare(`
+      INSERT INTO messages (id, session_id, role, content, content_parts, metadata, thread_key)
+      VALUES (?, ?, 'user', ?, ?, ?, 'root')
+    `).run("pending-1", "session-1", "follow up", '[{"type":"text","text":"follow up"}]', '{"followup_pending":true,"request_id":"req-1"}');
+
+    runMigrations(db);
+    runMigrations(db);
+
+    const mailbox = db.prepare("SELECT * FROM agent_mailbox WHERE message_id=?").all("pending-1");
+    assert.equal(mailbox.length, 1);
+    assert.equal(mailbox[0].input_type, "user_message");
+    assert.equal(mailbox[0].source_kind, "user");
+    assert.equal(mailbox[0].visible_to_user, 1);
+    assert.equal(mailbox[0].target_thread_key, "root");
+    const message = db.prepare("SELECT metadata FROM messages WHERE id=?").get("pending-1");
+    assert.equal(JSON.parse(message.metadata).followup_pending, undefined);
   } finally {
     db.close();
   }

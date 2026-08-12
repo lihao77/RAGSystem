@@ -16,6 +16,11 @@ import type {
 import type { PermissionMode } from "../runtime/permissions.js";
 import type { MessageInfo, SessionIdentity, SessionInfo } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
+import type {
+  AgentMailboxMessage,
+  AgentMailboxStorePort,
+  EnqueueAgentMailboxMessageInput,
+} from "./agent-mailbox-repository.js";
 
 /** @deprecated Import CreateRunInput from conversation-store directly. */
 export type RuntimeCreateRunInput = CreateRunInput;
@@ -131,6 +136,7 @@ export interface RuntimeStorageRepositories {
   outbox: RuntimeOutboxStorage;
   pendingInteractions: RuntimePendingInteractionStorage;
   providerContinuations: RuntimeProviderContinuationStorage;
+  agentMailbox: AgentMailboxStorePort;
 }
 
 export interface RuntimeStartRunInput {
@@ -140,48 +146,30 @@ export interface RuntimeStartRunInput {
   leaseRootRunId?: string | null;
   /** This non-root run owns an independent lease instead of inheriting its execution-tree root lease. */
   claimOwnLease?: boolean;
-  /** Existing durable follow-up message claimed atomically when starting a continuation root. */
-  pendingUserMessageId?: string | null;
   /** Allows the maintenance owner to atomically replace its reservation with a new root run. */
   sessionMaintenanceToken?: string | null;
-  initialUserMessage?: AddMessageInput & { messageId: string };
-  /** Initial client envelopes committed atomically with the run and first user message. */
+  /** Initial client envelopes committed atomically with the run. */
   initialRecords?: readonly RuntimeRecordEnvelopeInput[];
 }
 
 export interface RuntimeStartRunResult {
   run: CreatedRun;
-  initialUserMessage: MessageInfo | null;
   records: RuntimeRecordEnvelopeResult[];
 }
 
-export interface RuntimeRootFollowupFactoryResult {
-  message: AddMessageInput & { messageId: string };
-  recordFactory(message: MessageInfo): readonly RuntimeRecordEnvelopeInput[];
-}
-
-/** Pure synchronous factory invoked under the session transaction fence. */
-export type RuntimeRootFollowupFactory = (input: { activeRunId: string; roundIndex: number }) => RuntimeRootFollowupFactoryResult;
-
 export interface RuntimeStartOrAppendRootInput extends RuntimeStartRunInput {
-  /**
-   * When set, an active root run is reported without writing a user message.
-   * The execution service queues the message and persists it at the next round boundary.
-   */
-  deferFollowup?: boolean;
-  followupFactory: RuntimeRootFollowupFactory;
+  mailboxMessage: EnqueueAgentMailboxMessageInput;
+  followupPolicy: "queue" | "reject";
 }
 
 export type RuntimeStartOrAppendRootResult =
-  | ({ kind: "started" } & RuntimeStartRunResult)
+  | ({ kind: "started"; mailboxMessage: AgentMailboxMessage } & RuntimeStartRunResult)
   | {
       kind: "followup";
       activeRunId: string;
       /** False when the active root is leased by another distributed instance. */
       ownedByCurrentInstance?: boolean;
-      /** Present for legacy callers that persist follow-ups inside the transaction. */
-      message?: MessageInfo;
-      /** Present for legacy callers that persist follow-ups inside the transaction. */
+      mailboxMessage: AgentMailboxMessage | null;
       records?: RuntimeRecordEnvelopeResult[];
     };
 
@@ -404,16 +392,6 @@ export interface RuntimeSessionFacts {
   ownedByCurrentInstance: boolean;
 }
 
-export interface RuntimeConsumePendingFollowupsInput {
-  sessionId: string;
-  rootRunId: string;
-  messageIds: readonly string[];
-}
-
-export interface RuntimeConsumePendingFollowupsResult {
-  messages: MessageInfo[];
-}
-
 export interface RuntimeSessionMaintenanceInput {
   sessionId: string;
   token: string;
@@ -448,8 +426,6 @@ export interface RuntimeAtomicOperations {
   getActiveRootRun?(sessionId: string): Promise<RuntimeGetActiveRootRunResult>;
   /** One authoritative read model for Session lifecycle projection and initial loading. */
   getSessionRuntimeFacts(sessionId: string): Promise<RuntimeSessionFacts>;
-  /** Claims durable follow-ups at a safe round boundary under the root lease fence. */
-  consumePendingFollowups(input: RuntimeConsumePendingFollowupsInput): Promise<RuntimeConsumePendingFollowupsResult>;
   claimSessionMaintenance(input: RuntimeSessionMaintenanceInput): Promise<RuntimeClaimSessionMaintenanceResult>;
   renewSessionMaintenance(input: Pick<RuntimeSessionMaintenanceInput, "sessionId" | "token" | "ttlMs">): Promise<boolean>;
   releaseSessionMaintenance(input: Pick<RuntimeSessionMaintenanceInput, "sessionId" | "token">): Promise<void>;

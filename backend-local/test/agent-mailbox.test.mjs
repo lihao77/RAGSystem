@@ -320,19 +320,20 @@ test("mailbox root wakeup and user start create only one active root across SQLi
     userStorage.operations.startOrAppendRoot({
       session,
       run: rootRun("user-root", "user-request"),
-      initialUserMessage: {
+      mailboxMessage: {
         messageId: "user-root:user",
+        tenantId: "tnt_test",
         sessionId: "session-mailbox",
-        role: "user",
-        content: "user message",
+        targetThreadKey: "root",
+        kind: "request",
+        inputType: "user_message",
+        sourceKind: "user",
+        visibleToUser: true,
+        sentAt: new Date().toISOString(),
         contentParts: [{ type: "text", text: "user message" }],
-        threadKey: "root",
         metadata: { run_id: "user-root" },
       },
-      deferFollowup: true,
-      followupFactory: () => {
-        throw new Error("deferred followup must not be materialized");
-      },
+      followupPolicy: "queue",
     }),
   ]);
 

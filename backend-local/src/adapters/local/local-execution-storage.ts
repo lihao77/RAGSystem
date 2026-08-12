@@ -21,6 +21,12 @@ export function createLocalExecutionStorage(input: {
       getSession: async (sessionId) => input.conversation.getSession(sessionId),
       updateSessionMetadata: async (sessionId, patch) => input.conversation.updateSessionMetadata(sessionId, patch),
       addMessage: async (message) => input.conversation.addMessage(message),
+      updateMessageMetadata: async (sessionId, messageId, metadata) => input.conversation.updateMessage({
+        sessionId,
+        messageId,
+        roleFilter: "user",
+        metadata,
+      }),
       insertCompressionMessage: async (message) => input.conversation.insertCompressionMessage(message),
     },
     providerContinuations: {
@@ -32,8 +38,6 @@ export function createLocalExecutionStorage(input: {
       getMessageById: async (sessionId, messageId) => input.conversation.getMessageById(sessionId, messageId),
       listRunSteps: async (query) => input.conversation.listRunSteps(query),
     },
-    consumePendingFollowups: async (followups) =>
-      (await input.runtimeStorage.operations.consumePendingFollowups(followups)).messages,
     createEventPersister: (context) => new AsyncKernelEventPersister(
       input.runtimeStorage,
       input.clientEvents,

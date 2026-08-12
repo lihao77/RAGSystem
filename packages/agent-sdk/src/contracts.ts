@@ -258,10 +258,22 @@ export interface EventSink {
   emit(event: KernelEvent): void;
 }
 
+/**
+ * 单轮消息增量及其处理结算回调。
+ *
+ * 内核只负责在模型调用成功后确认、在调用前或调用中失败时释放；回调背后的
+ * 持久化机制由宿主实现，SDK 不感知 mailbox 或数据库。
+ */
+export interface MessageRefreshResult {
+  messages: ChatMessage[];
+  onInvokeSuccess?: () => void | Promise<void>;
+  onInvokeFailure?: (error: unknown) => void | Promise<void>;
+}
+
 /** 消息增量补充端口：循环②步补后台通知 + followup。 */
 export interface MessageRefresher {
   /** Invoked at the start of each model round, before round.before hooks. */
-  refresh(ctx: KernelContext, round: number): Promise<ChatMessage[]>;
+  refresh(ctx: KernelContext, round: number): Promise<MessageRefreshResult>;
 }
 
 /* ============================================================

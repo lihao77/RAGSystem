@@ -467,24 +467,23 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
       leaseRootRunId: 'run-2',
       threadKey: 'root',
     },
-    initialUserMessage: {
+    mailboxMessage: {
       messageId: 'run-2:user',
+      tenantId: 'tnt_test',
       sessionId: 'session-1',
-      role: 'user',
-      content: '继续新任务',
+      targetThreadKey: 'root',
+      kind: 'request',
+      inputType: 'user_message',
+      sourceKind: 'user',
+      visibleToUser: true,
+      sentAt: new Date().toISOString(),
       contentParts: [{ type: 'text', text: '继续新任务' }],
-      threadKey: 'root',
       metadata: { run_id: 'run-2' },
     },
-    followupFactory: () => {
-      throw new Error('no active run should receive a followup');
-    },
+    followupPolicy: 'queue',
   });
   assert.equal(started.kind, 'started');
-  const history = store.getRecentMessages('session-1', 100, 'root');
-  const toolIndex = history.findIndex((message) => message.tool_call_id === 'call-provider-1');
-  const nextUserIndex = history.findIndex((message) => message.id === 'run-2:user');
-  assert.equal(toolIndex >= 0 && nextUserIndex > toolIndex, true);
+  assert.equal((await store.agentMailbox.get('session-1', 'run-2:user')).status, 'queued');
 });
 
 test('root 终态原子收敛共享 lease child，并保留独立 background child', async (t) => {

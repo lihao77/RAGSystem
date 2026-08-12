@@ -9,6 +9,7 @@
  *   扫描并重执行会话中未配对的 tool_use →
  *   throwIfAborted → appendMessages(refresher 增量) → round.before hook
  *   → context.buildMessages → protocol.invoke（问模型 + 边流边解析 + 发 delta + 修复重试，全在 invoke 内部）
+ *   → invoke 成功后确认 refresher 批次（此前失败则释放）
  *   → round.after hook → 若 tool_calls 则 tools.executeRound + appendAssistant
  *   + appendMessages(renderObservations) 再 continue；否则 setFinalAnswer + break。
  *
@@ -24,6 +25,7 @@ import type { ChatMessage, LlmRequest, TokenUsage } from "@ragsystem/agent-llm";
 import type {
   Context,
   EventSink,
+  KernelOutcome,
   KernelResult,
   KernelToolCall,
   MessageRefresher,
@@ -102,28 +104,36 @@ export class AgentKernel {
       }
       for (let round = startRound; ; round++) {
         ctx.throwIfAborted();
-        ctx.appendMessages(await this.refresher.refresh(ctx, round));
-        const roundBeforeOut = await this.hooks.emit("round.before", { ctx, round });
-        ctx.setRequestMessages(this.context.buildMessages(ctx));
-        // round.before hook 可注入 additionalContext：以 user role + 语义标签追加。
-        // 不进 system 段（避免进 system 缓存段、内容变化连带击穿 prompt+memory 的 KV cache）；
-        // Anthropic 路径由 buildAnthropicBody 合并进相邻 user 消息，规避 user/assistant 交替硬约束。
-        if (roundBeforeOut.additionalContext) {
-          ctx.requestMessages.push({
-            role: "user",
-            content: `<additional_context>\n${roundBeforeOut.additionalContext}\n</additional_context>`,
-          });
-        }
-        // Protocol buildRequest adds protocol instructions and native tool schemas. Estimate the
-        // final provider request rather than the pre-protocol message list.
+        const refreshed = await this.refresher.refresh(ctx, round);
         let requestContextUsage: ContextUsageSnapshot | null = null;
-        if (this.contextUsage) {
-          const providerRequest = this.protocol.buildRequest(ctx);
-          requestContextUsage = this.contextUsage(providerRequest.messages, session.profile, providerRequest);
-          this.events.emit({ type: "context_usage", agentName, round, source: "estimate", ...requestContextUsage });
+        let outcome: KernelOutcome;
+        try {
+          ctx.appendMessages(refreshed.messages);
+          const roundBeforeOut = await this.hooks.emit("round.before", { ctx, round });
+          ctx.setRequestMessages(this.context.buildMessages(ctx));
+          // round.before hook 可注入 additionalContext：以 user role + 语义标签追加。
+          // 不进 system 段（避免进 system 缓存段、内容变化连带击穿 prompt+memory 的 KV cache）；
+          // Anthropic 路径由 buildAnthropicBody 合并进相邻 user 消息，规避 user/assistant 交替硬约束。
+          if (roundBeforeOut.additionalContext) {
+            ctx.requestMessages.push({
+              role: "user",
+              content: `<additional_context>\n${roundBeforeOut.additionalContext}\n</additional_context>`,
+            });
+          }
+          // Protocol buildRequest adds protocol instructions and native tool schemas. Estimate the
+          // final provider request rather than the pre-protocol message list.
+          if (this.contextUsage) {
+            const providerRequest = this.protocol.buildRequest(ctx);
+            requestContextUsage = this.contextUsage(providerRequest.messages, session.profile, providerRequest);
+            this.events.emit({ type: "context_usage", agentName, round, source: "estimate", ...requestContextUsage });
+          }
+          this.events.emit({ type: "model_request", agentName, round });
+          outcome = await this.protocol.invoke(ctx, round);
+        } catch (error) {
+          await refreshed.onInvokeFailure?.(error);
+          throw error;
         }
-        this.events.emit({ type: "model_request", agentName, round });
-        const outcome = await this.protocol.invoke(ctx, round);
+        await refreshed.onInvokeSuccess?.();
         // 累计各轮 LLM 调用的 token 用量,run 结束时随 KernelResult 透出。
         if (outcome.usage) {
           tokenUsage = tokenUsage

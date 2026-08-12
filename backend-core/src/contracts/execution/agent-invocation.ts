@@ -39,8 +39,11 @@ export interface AgentInvocationRootInput extends AgentInvocationBase {
   persistUserMessage?: {
     metadata?: Record<string, unknown>;
     contentParts: MessageContentPart[];
+    inputType?: "user_message" | "system_notification" | "goal_continuation";
+    sourceKind?: "user" | "system";
+    visibleToUser?: boolean;
   };
-  pendingUserMessageId?: string;
+  followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string;
   awaitFollowupCompletion?: boolean;
   runStartExtra?: Record<string, unknown>;
@@ -67,10 +70,6 @@ export interface AgentInvocationChildInput extends AgentInvocationBase {
   ownsRunLease?: boolean;
   userId?: string | null;
   userMessageId?: string;
-  initialUserMessageContent?: string;
-  initialUserMessageContentParts?: MessageContentPart[];
-  initialUserMessageMetadata?: Record<string, unknown>;
-  pendingUserMessageId?: string;
   sessionMaintenanceToken?: string;
   initialEnvelopes?: readonly Envelope[];
   rootTask?: string;

@@ -12,6 +12,7 @@ import type {
   RuntimeStorage,
   RuntimeStartRunInput,
 } from "../../../contracts/storage/runtime-storage.js";
+import type { AgentMailboxInputType, AgentMailboxSourceKind } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
 import type { ClientEventPublisherPort } from "../../../contracts/runtime/core-runtime-ports.js";
@@ -47,8 +48,16 @@ export interface AsyncPersisterRunContext {
   /** Background child runs retain lineage but own their write lease. */
   ownsRunLease?: boolean;
   messageMetadata?: Record<string, unknown> | null;
-  initialUserMessage?: { id: string; content: string; contentParts: MessageContentPart[]; metadata?: Record<string, unknown> | null };
-  pendingUserMessageId?: string | null;
+  rootMailboxMessage?: {
+    id: string;
+    inputType: AgentMailboxInputType;
+    sourceKind: AgentMailboxSourceKind;
+    visibleToUser: boolean;
+    sentAt: string;
+    contentParts: MessageContentPart[];
+    metadata?: Record<string, unknown> | null;
+  };
+  followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string | null;
   initialEnvelopes?: readonly Envelope[];
 }
@@ -110,71 +119,30 @@ export class AsyncKernelEventPersister {
         ...(this.ctx.parentCallId !== undefined ? { parentCallId: this.ctx.parentCallId } : {}),
         ...(this.ctx.childAgentId !== undefined ? { childAgentId: this.ctx.childAgentId } : {}),
       },
-      ...(this.ctx.pendingUserMessageId ? { pendingUserMessageId: this.ctx.pendingUserMessageId } : {}),
       ...(this.ctx.sessionMaintenanceToken ? { sessionMaintenanceToken: this.ctx.sessionMaintenanceToken } : {}),
       ...(this.ctx.parentRunId != null && !this.ctx.ownsRunLease ? { leaseRootRunId: this.ctx.rootRunId ?? null } : {}),
       ...(this.ctx.ownsRunLease ? { claimOwnLease: true } : {}),
-      ...(this.ctx.initialUserMessage ? {
-        initialUserMessage: {
-          messageId: this.ctx.initialUserMessage.id,
-          sessionId: this.ctx.sessionId,
-          role: "user",
-          content: this.ctx.initialUserMessage.content,
-          contentParts: this.ctx.initialUserMessage.contentParts,
-          threadKey: this.ctx.threadKey,
-          metadata: this.ctx.initialUserMessage.metadata ?? {},
-        },
-      } : {}),
       ...(initialRecords.length > 0 ? { initialRecords } : {}),
     };
-    const result = this.ctx.parentRunId == null && (this.ctx.initialUserMessage || this.ctx.pendingUserMessageId)
+    const result = this.ctx.parentRunId == null && this.ctx.rootMailboxMessage
       ? await this.storage.operations.startOrAppendRoot({
           ...startInput,
-          followupFactory: ({ activeRunId, roundIndex }) => ({
-            message: {
-              messageId: this.ctx.initialUserMessage!.id,
-              sessionId: this.ctx.sessionId,
-              role: "user",
-              content: this.ctx.initialUserMessage!.content,
-              contentParts: this.ctx.initialUserMessage!.contentParts,
-              threadKey: this.ctx.threadKey,
-              metadata: {
-                ...(this.ctx.initialUserMessage!.metadata ?? {}),
-                agent: this.ctx.agentName,
-                run_id: activeRunId,
-                request_id: this.ctx.requestId ?? null,
-                execution_kind: "session_followup",
-                source: "running_session",
-                followup_pending: true,
-                round_index: roundIndex,
-              },
-            },
-            recordFactory: (message) => [{
-              ...this.clientEvents.prepare(this.ctx.sessionId, {
-                type: "state_sync",
-                session_id: this.ctx.sessionId,
-                run_id: activeRunId,
-                payload: {
-                  category: "message_saved",
-                  ref: {
-                    message_id: message.id,
-                    seq: message.seq,
-                    role: message.role,
-                    request_id: this.ctx.requestId ?? undefined,
-                    round_index: roundIndex,
-                    content_parts: this.ctx.initialUserMessage!.contentParts,
-                  },
-                },
-              }, {
-                eventId: `${message.id}:followup:state_sync`,
-                runId: activeRunId,
-                aggregateType: "run",
-                aggregateId: activeRunId,
-              }),
-            }],
-          }),
+          mailboxMessage: {
+            messageId: this.ctx.rootMailboxMessage.id,
+            tenantId: this.ctx.tenantId,
+            sessionId: this.ctx.sessionId,
+            targetThreadKey: "root",
+            kind: "request",
+            inputType: this.ctx.rootMailboxMessage.inputType,
+            sourceKind: this.ctx.rootMailboxMessage.sourceKind,
+            visibleToUser: this.ctx.rootMailboxMessage.visibleToUser,
+            sentAt: this.ctx.rootMailboxMessage.sentAt,
+            contentParts: this.ctx.rootMailboxMessage.contentParts,
+            metadata: this.ctx.rootMailboxMessage.metadata ?? {},
+          },
+          followupPolicy: this.ctx.followupPolicy ?? "queue",
         })
-      : { kind: "started" as const, ...await this.storage.operations.startRun(startInput) };
+      : { kind: "started" as const, mailboxMessage: null, ...await this.storage.operations.startRun(startInput) };
     // Delivery occurs after the atomic commit. A transport failure leaves the
     // rows pending for the dispatcher and must not roll back a durable start.
     const records = result.records ?? [];
@@ -185,8 +153,8 @@ export class AsyncKernelEventPersister {
       return {
         kind: "followup",
         activeRunId: result.activeRunId,
-        queueAccepted: result.message !== undefined || this.ctx.pendingUserMessageId != null,
-        ...(result.message ? { messageId: result.message.id, messageSeq: result.message.seq } : {}),
+        queueAccepted: result.mailboxMessage !== null,
+        messageId: result.mailboxMessage?.message_id ?? null,
       };
     }
     if (this.isRootRun() || this.ctx.ownsRunLease) this.startLeaseHeartbeat();

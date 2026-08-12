@@ -14,9 +14,8 @@ export type ExecutionStartDisposition =
   | {
       kind: "followup";
       activeRunId: string;
-      queueAccepted?: boolean;
-      messageId?: string;
-      messageSeq?: number;
+      queueAccepted: boolean;
+      messageId: string | null;
     };
 
 export interface ExecutionRunPersistenceContext {
@@ -41,8 +40,16 @@ export interface ExecutionRunPersistenceContext {
   /** Propagated cancellation signal; used only to preserve child terminal projection on parent abort. */
   signal?: AbortSignal;
   messageMetadata?: Record<string, unknown> | null;
-  initialUserMessage?: { id: string; content: string; contentParts: MessageContentPart[]; metadata?: Record<string, unknown> | null };
-  pendingUserMessageId?: string | null;
+  rootMailboxMessage?: {
+    id: string;
+    inputType: "user_message" | "system_notification" | "goal_continuation";
+    sourceKind: "user" | "system";
+    visibleToUser: boolean;
+    sentAt: string;
+    contentParts: MessageContentPart[];
+    metadata?: Record<string, unknown> | null;
+  };
+  followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string | null;
   initialEnvelopes?: readonly Envelope[];
 }
@@ -69,6 +76,7 @@ export interface DurableExecutionConversationPort {
     threadKey?: string;
     childAgentId?: string | null;
   }): Promise<MessageInfo>;
+  updateMessageMetadata(sessionId: string, messageId: string, metadata: Record<string, unknown>): Promise<boolean>;
   insertCompressionMessage(input: { sessionId: string; summaryContent: string; replacesUpToSeq?: number | null; threadKey?: string; childAgentId?: string | null; metadata?: Record<string, unknown> }): Promise<MessageInfo>;
 }
 
@@ -101,14 +109,8 @@ export interface DurableExecutionClientEventPort {
 export interface ExecutionStorage {
   tenantId: TenantId;
   conversation: DurableExecutionConversationPort;
-  /** Optional during adapter migration; present in Local and SaaS runtime containers. */
-  agentMailbox?: AgentMailboxStorePort;
+  agentMailbox: AgentMailboxStorePort;
   providerContinuations: ExecutionProviderContinuationPort;
   resultReader: ExecutionResultReader;
-  consumePendingFollowups(input: {
-    sessionId: string;
-    rootRunId: string;
-    messageIds: readonly string[];
-  }): Promise<MessageInfo[]>;
   createEventPersister(context: ExecutionRunPersistenceContext): ExecutionEventPersister;
 }

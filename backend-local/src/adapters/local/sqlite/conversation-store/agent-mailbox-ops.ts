@@ -157,6 +157,10 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     return this.enqueueSync(input);
   }
 
+  enqueueInTransaction(input: EnqueueAgentMailboxMessageInput): AgentMailboxMessage {
+    return this.enqueueSync(input, false);
+  }
+
   async get(sessionId: string, messageId: string): Promise<AgentMailboxMessage | null> {
     return this.getSync(required(sessionId, "sessionId"), required(messageId, "messageId"));
   }
@@ -185,7 +189,7 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     return this.expireSync(input);
   }
 
-  private enqueueSync(input: EnqueueAgentMailboxMessageInput): AgentMailboxMessage {
+  private enqueueSync(input: EnqueueAgentMailboxMessageInput, startTransaction = true): AgentMailboxMessage {
     const messageId = required(input.messageId, "messageId");
     const tenantId = required(input.tenantId, "tenantId");
     const sessionId = required(input.sessionId, "sessionId");
@@ -193,7 +197,7 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     const availableAt = asNow(input.availableAt);
     const expiresAt = input.expiresAt == null ? null : asNow(input.expiresAt);
     const sentAt = input.sentAt == null ? null : asNow(input.sentAt);
-    runInTransaction(this.db, () => {
+    const insert = (): void => {
       const existing = this.db.prepare(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox WHERE tenant_id=? AND message_id=?`).get(tenantId, messageId) as AgentMailboxRow | undefined;
       if (existing) {
         if (!sameMessageIdentity(existing, input, availableAt, expiresAt)) {
@@ -230,7 +234,9 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
         availableAt,
         expiresAt,
       );
-    });
+    };
+    if (startTransaction) runInTransaction(this.db, insert);
+    else insert();
     const created = this.getSync(sessionId, messageId);
     if (!created) throw new Error(`Agent mailbox insert failed: ${messageId}`);
     return created;
@@ -277,7 +283,7 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
       }
     }
     const limit = Math.max(1, Math.min(100, Math.floor(input.limit ?? 100)));
-    return this.db.prepare(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox WHERE ${clauses.join(" AND ")} ORDER BY seq ASC LIMIT ?`)
+    return this.db.prepare(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox WHERE ${clauses.join(" AND ")} ORDER BY COALESCE(sent_at, created_at), seq ASC LIMIT ?`)
       .all(...params, limit)
       .map((row) => mapRow(row as unknown as AgentMailboxRow));
   }
@@ -348,7 +354,7 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
           WHERE session_id=? AND status='queued' AND available_at <= ?
             AND (expires_at IS NULL OR expires_at > ?)
             AND ${targetPredicate}
-          ORDER BY seq ASC LIMIT ?
+          ORDER BY COALESCE(sent_at, created_at), seq ASC LIMIT ?
         )
       `).run(
         claimId,

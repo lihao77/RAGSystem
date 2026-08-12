@@ -64,6 +64,7 @@ interface UnifiedRunStartInput {
   traceMetadata?: Record<string, unknown>;
   sessionMaintenanceToken?: string;
   awaitFollowupCompletion?: boolean;
+  followupPolicy: "queue" | "reject";
   onInteractionRequired?: ExecuteRequest["onInteractionRequired"];
 }
 
@@ -262,6 +263,9 @@ class AgentLaunchers {
       persistUserMessage: {
         metadata: input.persistMetadata,
         contentParts: input.persistContentParts,
+        inputType: "user_message",
+        sourceKind: "user",
+        visibleToUser: true,
       },
       ...(input.traceMetadata
         ? {
@@ -273,6 +277,7 @@ class AgentLaunchers {
       ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
       ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
       ...(input.awaitFollowupCompletion ? { awaitFollowupCompletion: true } : {}),
+      followupPolicy: input.followupPolicy,
     });
     return { ok: true, agentName: ready.agent.agent_name, handle };
   }
@@ -407,6 +412,7 @@ class AgentLaunchers {
       ...(input.traceMetadata ? { traceMetadata: input.traceMetadata } : {}),
       ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
       ...(input.awaitFollowupCompletion ? { awaitFollowupCompletion: true } : {}),
+      followupPolicy: input.followupPolicy,
       ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
     });
     if (!started.ok) {
@@ -1130,6 +1136,33 @@ class AgentLaunchers {
       // stranded behind a result-only scan.
       const pendingMailbox = await this.mailbox?.listPending?.({ sessionId, limit: 1 }) ?? [];
       const firstMailbox = pendingMailbox[0];
+      if (firstMailbox?.input_type === "user_message" && firstMailbox.target_thread_key === "root") {
+        const existingSession = await this.sessions.getSession(sessionId);
+        if (!existingSession) return;
+        const sessionIdentity = toSessionIdentity(existingSession);
+        const ready = resolveReadyAgent(this.runtimeCore, {
+          agentName: sessionIdentity.teamSnapshot.entry_agent_name,
+          teamSnapshot: sessionIdentity.teamSnapshot,
+          selectedLlm: null,
+        });
+        if (!ready.ok) return;
+        const started = this.invocationService.invoke({
+          scope: "root",
+          mode: "create",
+          execution: "background",
+          sessionId,
+          sessionIdentity,
+          requestId: `session_followup_${firstMailbox.message_id}`,
+          task: "处理待接收的用户消息，并继续当前任务。",
+          executionKind: "session_followup",
+          agent: ready.agent,
+          provider: ready.provider,
+          modelName: ready.modelName,
+        });
+        void started.promise.finally(() => this.backgroundTasks?.scheduleAutoTrigger(sessionId)).catch(() => undefined);
+        await started.durableStarted;
+        return;
+      }
       if (firstMailbox?.target_run_id) {
         this.triggerAgentMailboxRun(toMailboxWakeupTarget(firstMailbox));
         return;
@@ -1225,6 +1258,9 @@ class AgentLaunchers {
         modelName: ready.modelName,
         persistUserMessage: {
           contentParts: [{ type: "text", text: task }],
+          inputType: claimedGoal ? "goal_continuation" : "system_notification",
+          sourceKind: "system",
+          visibleToUser: false,
           metadata: {
             source,
             ...(claimedGoal ? {

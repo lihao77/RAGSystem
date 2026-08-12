@@ -112,9 +112,11 @@ export class AgentRunEngine {
     persistUserMessage?: {
       metadata?: Record<string, unknown> | undefined;
       contentParts: MessageContentPart[];
+      inputType?: "user_message" | "system_notification" | "goal_continuation";
+      sourceKind?: "user" | "system";
+      visibleToUser?: boolean;
     } | undefined;
-    /** Durable follow-up already visible in history; claimed atomically with this continuation root. */
-    pendingUserMessageId?: string | undefined;
+    followupPolicy?: "queue" | "reject";
     sessionMaintenanceToken?: string | undefined;
     awaitFollowupCompletion?: boolean | undefined;
     runStartExtra?: Record<string, unknown> | undefined;
@@ -149,11 +151,18 @@ export class AgentRunEngine {
     });
 
     let userMessageSavedPayload: Record<string, unknown> | undefined;
-    let userMessageId: string | undefined;
-    let initialUserMessageMetadata: Record<string, unknown> | undefined;
+    let rootMailboxMessage: {
+      id: string;
+      inputType: "user_message" | "system_notification" | "goal_continuation";
+      sourceKind: "user" | "system";
+      visibleToUser: boolean;
+      sentAt: string;
+      contentParts: MessageContentPart[];
+      metadata: Record<string, unknown>;
+    } | undefined;
     if (!input.resume && input.persistUserMessage) {
-      userMessageId = randomUUID();
-      initialUserMessageMetadata = {
+      const userMessageId = randomUUID();
+      const metadata = {
         ...(input.persistUserMessage.metadata ?? {}),
         agent: input.agent.agent_name,
         run_id: runId,
@@ -165,6 +174,15 @@ export class AgentRunEngine {
         id: userMessageId,
         role: "user",
         content_parts: input.persistUserMessage.contentParts,
+      };
+      rootMailboxMessage = {
+        id: userMessageId,
+        inputType: input.persistUserMessage.inputType ?? "user_message",
+        sourceKind: input.persistUserMessage.sourceKind ?? "user",
+        visibleToUser: input.persistUserMessage.visibleToUser ?? true,
+        sentAt: new Date().toISOString(),
+        contentParts: input.persistUserMessage.contentParts,
+        metadata,
       };
     }
 
@@ -253,11 +271,8 @@ export class AgentRunEngine {
       parentRunId: null,
       childAgentId: null,
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
-      userMessageId,
-      initialUserMessageContent: input.task,
-      ...(input.persistUserMessage ? { initialUserMessageContentParts: input.persistUserMessage.contentParts } : {}),
-      ...(initialUserMessageMetadata ? { initialUserMessageMetadata } : {}),
-      ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
+      ...(rootMailboxMessage ? { rootMailboxMessage } : {}),
+      ...(input.followupPolicy ? { followupPolicy: input.followupPolicy } : {}),
       ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
       executionKind: input.executionKind,
       rootTask: input.task,
@@ -268,19 +283,11 @@ export class AgentRunEngine {
       onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
     });
     const promise = basePromise.then((outcome) => {
-      if (input.awaitFollowupCompletion && outcome.followup?.queueAccepted !== false && outcome.followup?.messageId) {
+      if (input.awaitFollowupCompletion && outcome.followup?.queueAccepted === true && outcome.followup.messageId) {
         return this.waitForFollowupCompletion(
           input.sessionId,
           outcome.followup.messageId,
           outcome.followup.activeRunId,
-          {
-            userId: input.userId ?? null,
-            sessionIdentity: input.sessionIdentity,
-            agent: input.agent,
-            provider: input.provider,
-            modelName: input.modelName,
-            selectedLlm: input.selectedLlm ?? null,
-          },
         );
       }
       return outcome;
@@ -454,11 +461,16 @@ export class AgentRunEngine {
     childAgentId?: string | null;
     ownsRunLease?: boolean;
     userId?: string | null;
-    userMessageId?: string | undefined;
-    initialUserMessageContent?: string | undefined;
-    initialUserMessageContentParts?: MessageContentPart[] | undefined;
-    initialUserMessageMetadata?: Record<string, unknown> | undefined;
-    pendingUserMessageId?: string | undefined;
+    rootMailboxMessage?: {
+      id: string;
+      inputType: "user_message" | "system_notification" | "goal_continuation";
+      sourceKind: "user" | "system";
+      visibleToUser: boolean;
+      sentAt: string;
+      contentParts: MessageContentPart[];
+      metadata?: Record<string, unknown>;
+    };
+    followupPolicy?: "queue" | "reject";
     sessionMaintenanceToken?: string | undefined;
     initialEnvelopes?: readonly Envelope[] | undefined;
     executionKind?: string | undefined;
@@ -516,9 +528,7 @@ export class AgentRunEngine {
         ? await this.sessions.resolveWorkspaceRoot(input.sessionId)
         : null;
       const executionKind = input.executionKind ?? "agent_stream";
-      // 后台任务完成通知落库为 user 消息（系统注入的上下文）；SDK 从 store 读取对话历史时一并看到，
-      // backend 不再组装消息数组传给 SDK。
-      await this.persistBackgroundNotifications(input.sessionId, input.threadKey);
+      await this.enqueueBackgroundNotifications(input.sessionId, input.threadKey);
 
       const result = await executeRunWithSdk(
        {
@@ -564,11 +574,8 @@ export class AgentRunEngine {
           ...(input.executionKind !== undefined ? { executionKind } : {}),
           ...(input.rootTask !== undefined ? { rootTask: input.rootTask } : {}),
           ...(input.userId !== undefined ? { userId: input.userId } : {}),
-          ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
-          ...(input.initialUserMessageContent ? { initialUserMessageContent: input.initialUserMessageContent } : {}),
-          ...(input.initialUserMessageContentParts ? { initialUserMessageContentParts: input.initialUserMessageContentParts } : {}),
-          ...(input.initialUserMessageMetadata ? { initialUserMessageMetadata: input.initialUserMessageMetadata } : {}),
-          ...(input.pendingUserMessageId ? { pendingUserMessageId: input.pendingUserMessageId } : {}),
+          ...(input.rootMailboxMessage ? { rootMailboxMessage: input.rootMailboxMessage } : {}),
+          ...(input.followupPolicy ? { followupPolicy: input.followupPolicy } : {}),
           ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
           ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
           ...(input.onStartDisposition ? { onStartDisposition: input.onStartDisposition } : {}),
@@ -616,34 +623,10 @@ export class AgentRunEngine {
           result.toolCalls,
           interrupted ? null : result.content || null,
         );
-        if (input.parentRunId == null && result.pendingFollowup) {
-          await this.startPendingFollowupContinuation({
-            sessionId: input.sessionId,
-            sessionIdentity,
-            userId: input.userId ?? null,
-            agent: input.agent,
-            provider: input.provider,
-            modelName: input.modelName,
-            selectedLlm: input.selectedLlm ?? null,
-            pending: result.pendingFollowup,
-          });
-        }
         input.onTerminal?.(interrupted ? "interrupted" : "failed");
         return result;
       }
       await recordMetric("completed", result.tokenUsage, result.toolCalls, null);
-      if (input.parentRunId == null && result.pendingFollowup) {
-        await this.startPendingFollowupContinuation({
-          sessionId: input.sessionId,
-          sessionIdentity,
-          userId: input.userId ?? null,
-          agent: input.agent,
-          provider: input.provider,
-          modelName: input.modelName,
-          selectedLlm: input.selectedLlm ?? null,
-          pending: result.pendingFollowup,
-        });
-      }
       input.onTerminal?.("completed");
       return result;
     } catch (error) {
@@ -675,71 +658,10 @@ export class AgentRunEngine {
     }
  }
 
-  private async startPendingFollowupContinuation(input: {
-    sessionId: string;
-    sessionIdentity: SessionIdentity;
-    userId: string | null;
-    agent: AgentConfig;
-    provider: ModelProviderConfig;
-    modelName: string;
-    selectedLlm: { provider: ModelProviderConfig; modelName: string } | null;
-    pending: MessageInfo;
-  }): Promise<{ activeRunId: string } | null> {
-    const pending = input.pending;
-    const requestId = typeof pending.metadata.request_id === "string"
-      ? pending.metadata.request_id
-      : randomUUID();
-    const modelTask = resolveAgentTaskText(pending.content_parts, pending.content);
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        const started = this.startRun({
-          sessionId: input.sessionId,
-          sessionIdentity: input.sessionIdentity,
-          userId: input.userId,
-          requestId,
-          task: pending.content,
-          ...(modelTask !== pending.content ? { modelTask } : {}),
-          executionKind: "session_followup",
-          agent: input.agent,
-          provider: input.provider,
-          modelName: input.modelName,
-          ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
-          pendingUserMessageId: pending.id,
-        });
-        const disposition = await started.durableStarted;
-        const activeRunId = disposition.kind === "followup" ? disposition.activeRunId : started.run_id;
-        if (!activeRunId) throw new Error("followup continuation did not expose a run id");
-        return { activeRunId };
-      } catch (error) {
-        this.logger?.error({
-          session_id: input.sessionId,
-          message_id: pending.id,
-          attempt,
-          error: error instanceof Error ? error.message : String(error),
-        }, "failed to start durable followup continuation");
-        if (attempt < 3) {
-          await new Promise<void>((resolve) => {
-            const timer = setTimeout(resolve, 100 * attempt);
-            timer.unref?.();
-          });
-        }
-      }
-    }
-    return null;
-  }
-
   private async waitForFollowupCompletion(
     sessionId: string,
     messageId: string,
     initiallyActiveRunId: string,
-    continuation: {
-      userId: string | null;
-      sessionIdentity: SessionIdentity;
-      agent: AgentConfig;
-      provider: ModelProviderConfig;
-      modelName: string;
-      selectedLlm: { provider: ModelProviderConfig; modelName: string } | null;
-    },
   ): Promise<{
     content: string;
     success: boolean;
@@ -750,8 +672,8 @@ export class AgentRunEngine {
   }> {
     let watchedRunId = initiallyActiveRunId;
     for (;;) {
-      const message = await this.storage.resultReader.getMessageById(sessionId, messageId);
-      if (!message) {
+      const mailboxMessage = await this.storage.agentMailbox.get(sessionId, messageId);
+      if (!mailboxMessage) {
         return {
           content: "queued followup message was removed",
           success: false,
@@ -759,73 +681,22 @@ export class AgentRunEngine {
           followupFailed: true,
         };
       }
-      const consumedRunId = typeof message.metadata.consumed_by_run_id === "string"
-        ? message.metadata.consumed_by_run_id
+      const conversationMessage = await this.storage.resultReader.getMessageById(sessionId, messageId);
+      const consumedRunId = typeof conversationMessage?.metadata.consumed_by_run_id === "string"
+        ? conversationMessage.metadata.consumed_by_run_id
         : null;
-      if (consumedRunId) {
-        const continuationTrigger = message.metadata.followup_continuation_trigger === true;
-        if (consumedRunId === initiallyActiveRunId || !continuationTrigger) {
-          return {
-            content: "消息已进入后续队列",
-            success: true,
-            runId: consumedRunId,
-            followupJoined: true,
-          };
-        }
-        const run = await this.storage.resultReader.getRun(sessionId, consumedRunId);
-        if (run?.status === "suspended") {
-          return {
-            content: "消息已进入后续队列，任务正在等待交互",
-            success: true,
-            runId: consumedRunId,
-            followupJoined: true,
-          };
-        }
-        if (run && run.status !== "running" && run.status !== "suspended") {
-          const finalMessage = run.final_message_id
-            ? await this.storage.resultReader.getMessageById(sessionId, run.final_message_id)
-            : null;
-          if (finalMessage) {
-            return {
-              content: finalMessage.content,
-              success: run.status === "completed",
-              runId: consumedRunId,
-              contentParts: finalMessage.content_parts,
-            };
-          }
-          return {
-            content: `followup run ended with status ${run.status}`,
-            success: false,
-            runId: consumedRunId,
-          };
-        }
-      } else {
-        const watchedRun = await this.storage.resultReader.getRun(sessionId, watchedRunId);
-        if (watchedRun?.status === "suspended") {
-          return {
-            content: "消息已进入后续队列，任务正在等待交互",
-            success: true,
-            runId: watchedRunId,
-            followupJoined: true,
-          };
-        }
-        if (!watchedRun || watchedRun.status !== "running") {
-          const started = await this.startPendingFollowupContinuation({
-            sessionId,
-            ...continuation,
-            pending: message,
-          });
-          if (!started) {
-            return {
-              content: "后续消息已持久化，但续跑启动失败",
-              success: false,
-              runId: initiallyActiveRunId,
-              followupFailed: true,
-            };
-          }
-          watchedRunId = started.activeRunId;
-          continue;
-        }
+      if (consumedRunId) watchedRunId = consumedRunId;
+      const run = await this.storage.resultReader.getRun(sessionId, watchedRunId);
+      if (run?.status === "suspended") {
+        return { content: "消息已进入后续队列，任务正在等待交互", success: true, runId: watchedRunId, followupJoined: true };
+      }
+      if (consumedRunId && run && run.status !== "running" && run.status !== "suspended") {
+        const finalMessage = run.final_message_id
+          ? await this.storage.resultReader.getMessageById(sessionId, run.final_message_id)
+          : null;
+        return finalMessage
+          ? { content: finalMessage.content, success: run.status === "completed", runId: watchedRunId, contentParts: finalMessage.content_parts }
+          : { content: `followup run ended with status ${run.status}`, success: false, runId: watchedRunId };
       }
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, 100);
@@ -834,19 +705,25 @@ export class AgentRunEngine {
     }
   }
 
-  private async persistBackgroundNotifications(sessionId: string, threadKey: string): Promise<void> {
+  private async enqueueBackgroundNotifications(sessionId: string, threadKey: string): Promise<void> {
     const payloads = this.notificationQueue.drain(sessionId, new Set());
     for (const payload of payloads) {
       const content = renderBackgroundNotification(payload);
       if (!content.trim()) {
         continue;
       }
-      await this.storage.conversation.addMessage({
+      const sentAt = new Date().toISOString();
+      await this.storage.agentMailbox.enqueue({
+        messageId: randomUUID(),
+        tenantId: this.tenantId,
         sessionId,
-        role: "user",
-        content,
+        targetThreadKey: threadKey,
+        kind: "request",
+        inputType: "system_notification",
+        sourceKind: "system",
+        visibleToUser: false,
+        sentAt,
         contentParts: [{ type: "text", text: content }],
-        threadKey,
         metadata: { source: "background_notification" },
       });
     }

@@ -183,8 +183,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
         getMessageById: (sessionId, messageId) => conversationRuntime.conversation.getMessageById(sessionId, messageId),
         listRunSteps: (input) => conversationRuntime.runs.listRunSteps({ tenantId, ...input }),
       },
-      consumePendingFollowups: async (followups) =>
-        (await runtimeStorage.operations.consumePendingFollowups(followups)).messages,
     }),
     pathAccessPolicyFactory: () => new PathApprovalService(),
     backgroundTasks,

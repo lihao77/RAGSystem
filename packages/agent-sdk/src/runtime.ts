@@ -166,7 +166,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         events: dispatcher,
         getTools: () => registry.listDefinitions(),
       });
-      const refresher: MessageRefresher = options.refresher ?? { refresh: async () => [] };
+      const refresher: MessageRefresher = options.refresher ?? { refresh: async () => ({ messages: [] }) };
 
       // per-run registry：每 run 新建;round.before 压缩由 backend handler 注册（A3 压缩外移）。
       const hooks = createHookRegistry();

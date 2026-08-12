@@ -107,4 +107,66 @@ describe("synchronous execution result", () => {
     expect(result.answer).toBe("follow-up complete");
     expect(result.content_parts).toEqual(followupParts);
   });
+
+  it("waits for the queued follow-up consumer when the previous run finishes first", async () => {
+    let followupReads = 0;
+    const engine = new AgentRunEngine(
+      "tenant-1" as never,
+      {} as never,
+      {
+        agentMailbox: {
+          get: async () => ({ status: "queued" }),
+        },
+        resultReader: {
+          getRun: async (_sessionId: string, runId: string) => ({
+            status: "completed",
+            final_message_id: runId === "consumer-run" ? "consumer-final" : "previous-final",
+          }),
+          getMessageById: async (_sessionId: string, messageId: string) => {
+            if (messageId === "followup-message") {
+              followupReads += 1;
+              return {
+                metadata: followupReads > 1 ? { consumed_by_run_id: "consumer-run" } : {},
+              };
+            }
+            return {
+              content: messageId === "consumer-final" ? "follow-up complete" : "previous run complete",
+              content_parts: [{ type: "text" as const, text: messageId }],
+              metadata: {},
+            };
+          },
+        },
+      } as never,
+      "",
+      null,
+      null,
+      () => [],
+      null,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      null,
+      null,
+    );
+
+    const result = await (engine as unknown as {
+      waitForFollowupCompletion(
+        sessionId: string,
+        messageId: string,
+        initiallyActiveRunId: string,
+      ): Promise<{ content: string; success: boolean; runId?: string }>;
+    }).waitForFollowupCompletion("session-1", "followup-message", "previous-run");
+
+    expect(followupReads).toBeGreaterThan(1);
+    expect(result).toMatchObject({
+      content: "follow-up complete",
+      success: true,
+      runId: "consumer-run",
+    });
+  });
 });

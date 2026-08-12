@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AgentKernel,
   createHookRegistry,
@@ -97,7 +97,7 @@ describe("durable run round continuation", () => {
       refresher: {
         refresh: async (_ctx, round) => {
           refreshedRounds.push(round);
-          return [];
+          return { messages: [] };
         },
       },
       hooks: createHookRegistry(),
@@ -156,4 +156,104 @@ describe("durable run round continuation", () => {
     expect(restoredResults).toEqual(new Map([[1, "durable content"]]));
     expect(emittedEvents).toContain("model_request");
   });
+
+  it("在 refresh 消息进入成功的模型调用后才确认批次", async () => {
+    const order: string[] = [];
+    const acknowledge = vi.fn(async () => { order.push("ack"); });
+    const release = vi.fn(async () => { order.push("release"); });
+    const kernel = new AgentKernel({
+      context: {
+        buildMessages: (ctx) => {
+          order.push("build");
+          expect(ctx.messages.at(-1)?.content).toBe("mailbox input");
+          return [...ctx.messages];
+        },
+      },
+      protocol: {
+        buildRequest: () => ({ messages: [] } as unknown as ReturnType<Protocol["buildRequest"]>),
+        invoke: async (ctx) => {
+          order.push("invoke");
+          expect(ctx.requestMessages.at(-1)?.content).toBe("mailbox input");
+          expect(acknowledge).not.toHaveBeenCalled();
+          return {
+            kind: "final",
+            finalAnswer: "done",
+            assistantMessage: { role: "assistant", content: "done" },
+            finishReason: "stop",
+            usage: undefined,
+          };
+        },
+        renderObservations: () => [],
+        toModelMessages: (messages) => messages,
+      },
+      tools: { executeRound: async () => [] },
+      events: { emit: () => undefined },
+      refresher: {
+        refresh: async () => {
+          order.push("refresh");
+          return {
+            messages: [{ role: "user", content: "mailbox input" }],
+            onInvokeSuccess: acknowledge,
+            onInvokeFailure: release,
+          };
+        },
+      },
+      hooks: createHookRegistry(),
+    });
+
+    await kernel.run(createKernelSession());
+
+    expect(order).toEqual(["refresh", "build", "invoke", "ack"]);
+    expect(acknowledge).toHaveBeenCalledOnce();
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it("模型调用异常时释放 refresh 批次而不确认", async () => {
+    const invokeError = new Error("provider failed");
+    const acknowledge = vi.fn(async () => undefined);
+    const release = vi.fn(async () => undefined);
+    const kernel = new AgentKernel({
+      context: { buildMessages: (ctx) => [...ctx.messages] },
+      protocol: {
+        buildRequest: () => ({ messages: [] } as unknown as ReturnType<Protocol["buildRequest"]>),
+        invoke: async () => { throw invokeError; },
+        renderObservations: () => [],
+        toModelMessages: (messages) => messages,
+      },
+      tools: { executeRound: async () => [] },
+      events: { emit: () => undefined },
+      refresher: {
+        refresh: async () => ({
+          messages: [{ role: "user", content: "retry me" }],
+          onInvokeSuccess: acknowledge,
+          onInvokeFailure: release,
+        }),
+      },
+      hooks: createHookRegistry(),
+    });
+
+    await expect(kernel.run(createKernelSession())).rejects.toBe(invokeError);
+
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledWith(invokeError);
+  });
 });
+
+function createKernelSession(): RuntimeSession {
+  return {
+    profile: { agentName: "agent" },
+    provider: { key: null, provider_type: "test" },
+    modelName: "model",
+    conversation: [],
+    sessionId: "session-1",
+    runId: "run-1",
+    taskId: null,
+    requestId: "request-1",
+    rootCallId: "root-call",
+    threadKey: "root",
+    parentCallId: null,
+    startRound: 0,
+    resumeToolResults: new Map(),
+  } as unknown as RuntimeSession;
+}
