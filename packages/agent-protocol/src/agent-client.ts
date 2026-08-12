@@ -159,7 +159,7 @@ export interface ExecutionRound {
 
 export interface ExecutionAgentMessage {
   messageId: string;
-  kind: "progress" | "request" | "response" | "result" | "cancel";
+  kind: "progress" | "request" | "response" | "result";
   content: string;
   sourceRunId?: string | null;
   sourceAgentCallId?: string | null;

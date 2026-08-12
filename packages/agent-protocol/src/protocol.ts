@@ -443,7 +443,7 @@ export const ToolResultPayloadSchema = z
   });
 
 export const AgentMessagePayloadSchema = z.object({
-  kind: z.enum(["progress", "request", "response", "result", "cancel"]),
+  kind: z.enum(["progress", "request", "response", "result"]),
   message_id: z.string().min(1),
   source_run_id: z.string().nullable().optional(),
   source_agent_call_id: z.string().nullable().optional(),

@@ -85,4 +85,15 @@ export const POSTGRES_AGENT_MAILBOX_MIGRATIONS: PostgresAgentMailboxMigration[] 
     SET metadata=metadata - 'followup_pending' - 'followup_continuation_trigger'
     WHERE role='user' AND metadata->>'followup_pending'='true';
   `,
+}, {
+  version: 4,
+  name: "drop_cancel_mailbox_kind",
+  sql: `
+    -- 取消已走实时 abort 通道，mailbox 不再承载 kind='cancel'；存量历史脏数据直接删除。
+    DELETE FROM agent_mailbox_messages WHERE kind='cancel';
+    ALTER TABLE agent_mailbox_messages DROP CONSTRAINT IF EXISTS agent_mailbox_messages_kind_check;
+    ALTER TABLE agent_mailbox_messages
+      ADD CONSTRAINT agent_mailbox_messages_kind_check
+      CHECK (kind IN ('progress','request','response','result'));
+  `,
 }];

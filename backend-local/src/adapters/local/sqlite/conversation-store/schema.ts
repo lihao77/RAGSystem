@@ -42,7 +42,7 @@ export const AGENT_MAILBOX_SCHEMA_SQL = `
       target_agent_call_id TEXT,
       target_thread_key TEXT NOT NULL,
       target_child_agent_id TEXT,
-      kind TEXT NOT NULL CHECK(kind IN ('progress', 'request', 'response', 'result', 'cancel')),
+      kind TEXT NOT NULL CHECK(kind IN ('progress', 'request', 'response', 'result')),
       input_type TEXT NOT NULL DEFAULT 'agent_message'
         CHECK(input_type IN ('user_message', 'agent_message', 'system_notification', 'goal_continuation')),
       source_kind TEXT NOT NULL DEFAULT 'agent'

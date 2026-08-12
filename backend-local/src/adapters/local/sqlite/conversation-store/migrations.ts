@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 14;
+export const LATEST_SCHEMA_VERSION = 15;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 13) {
+  if (current >= 1 && current <= 14) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -59,6 +59,7 @@ export function runMigrations(db: MigrationDatabase): void {
       if (current <= 11) migrateAgentMailboxTenantKey(db);
       ensureAgentMailboxInputColumns(db);
       migratePendingUserMessagesToMailbox(db);
+      if (current <= 14) migrateAgentMailboxKindCheck(db);
       if (current <= 10) ensureChildParticipantLineage(db);
       if (current <= 11) {
         const sessions = db.prepare("SELECT COUNT(*) AS count FROM sessions").get() as { count?: number } | undefined;
@@ -171,6 +172,46 @@ function migrateAgentMailboxTenantKey(db: MigrationDatabase): void {
     FROM agent_mailbox_pre_v10
   `);
   db.exec("DROP TABLE agent_mailbox_pre_v10");
+}
+
+/** v15: cancel 退出 mailbox kind，收紧 CHECK。先删存量 cancel 行，再重建表去掉 'cancel'。 */
+function migrateAgentMailboxKindCheck(db: MigrationDatabase): void {
+  const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_mailbox'").get() as { name?: string } | undefined;
+  if (!table?.name) {
+    db.exec(AGENT_MAILBOX_SCHEMA_SQL);
+    return;
+  }
+  // 存量 kind='cancel' 行无法通过收紧后的 CHECK；取消已走实时通道，这些历史脏数据直接删除。
+  db.exec("DELETE FROM agent_mailbox WHERE kind='cancel'");
+  for (const index of [
+    "idx_agent_mailbox_target_run",
+    "idx_agent_mailbox_target_thread",
+    "idx_agent_mailbox_claim_expiry",
+    "idx_agent_mailbox_correlation",
+  ]) {
+    db.exec(`DROP INDEX IF EXISTS ${index}`);
+  }
+  db.exec("ALTER TABLE agent_mailbox RENAME TO agent_mailbox_pre_v15");
+  db.exec(AGENT_MAILBOX_SCHEMA_SQL);
+  db.exec(`
+    INSERT INTO agent_mailbox (
+      seq, message_id, tenant_id, session_id, source_run_id, source_agent_call_id,
+      target_run_id, target_agent_call_id, target_thread_key, target_child_agent_id,
+      kind, input_type, source_kind, visible_to_user, sent_at, correlation_id,
+      reply_to_message_id, content_parts, metadata, status,
+      attempt_count, claim_id, claimed_by, claim_expires_at, available_at, expires_at,
+      last_error, created_at, updated_at, acked_at
+    )
+    SELECT
+      seq, message_id, tenant_id, session_id, source_run_id, source_agent_call_id,
+      target_run_id, target_agent_call_id, target_thread_key, target_child_agent_id,
+      kind, input_type, source_kind, visible_to_user, sent_at, correlation_id,
+      reply_to_message_id, content_parts, metadata, status,
+      attempt_count, claim_id, claimed_by, claim_expires_at, available_at, expires_at,
+      last_error, created_at, updated_at, acked_at
+    FROM agent_mailbox_pre_v15
+  `);
+  db.exec("DROP TABLE agent_mailbox_pre_v15");
 }
 
 function migrateCommandContent(db: MigrationDatabase): void {

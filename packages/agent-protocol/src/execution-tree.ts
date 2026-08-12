@@ -293,7 +293,7 @@ function applyAgentMessage(state: ExecutionTreeState, env: Envelope, payload: Re
     ...(parentCallId ? { parentCallId } : {}),
   });
   const kind = asString(payload.kind);
-  if (kind !== "progress" && kind !== "request" && kind !== "response" && kind !== "result" && kind !== "cancel") return;
+  if (kind !== "progress" && kind !== "request" && kind !== "response" && kind !== "result") return;
   const content = asString(payload.content) ?? "";
   const messages = agent.messages ?? (agent.messages = []);
   if (messages.some((message) => message.messageId === messageId)) return;
