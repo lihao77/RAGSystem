@@ -131,6 +131,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   });
   interactionCoordinator.bindResumeStarter(resumeExecutor);
   agentDelegation.setInvocationService(agentExecution.invocationService);
+  agentDelegation.setLocalRunCanceller((runId, reason) => agentExecution.cancelRun(runId, reason));
   agentDelegation.setMailboxWakeup((target) => agentExecution.triggerAgentMailboxRun(target));
   backgroundTasks.setOnTaskRecovered((task) => agentDelegation.recoverBackgroundTask(task));
   backgroundTasks.setOnTaskCompleted((sessionId) => agentExecution.triggerBgNotificationRun(sessionId));

@@ -853,6 +853,76 @@ describe("background child-agent delegation", () => {
     expect(invocation).not.toHaveBeenCalled();
   });
 
+  it("immediately aborts a locally active child without enqueueing a cancel message", async () => {
+    const child = { ...childAgent(), last_run_id: "child-run" };
+    const delegationStore = store(child);
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "child-run",
+      agent_call_id: "child-call",
+      lease_root_run_id: "child-run",
+      parent_run_id: "parent-run",
+      parent_call_id: "parent-call",
+      lineage_parent_call_id: "parent-call",
+      status: "running",
+    } as never);
+    const enqueue = vi.fn();
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), settle: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+    const cancelLocalRun = vi.fn(() => "aborted" as const);
+    service.setLocalRunCanceller(cancelLocalRun);
+
+    const result = await invokeMessage(service, {
+      agent: parentAgent(false),
+      teamName: null,
+      input: { childAgentId: child.child_agent_id, message: "stop", kind: "cancel", callId: "parent-tool-call" },
+    }, context(new AbortController().signal));
+
+    expect(result.success).toBe(true);
+    expect(result.content).toEqual(expect.objectContaining({ status: "cancelled", cancellation: "local_abort" }));
+    expect(cancelLocalRun).toHaveBeenCalledWith("child-run", "agent_cancelled");
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("reports no_active_run when the active child route is not local", async () => {
+    const child = { ...childAgent(), last_run_id: "remote-child-run" };
+    const delegationStore = store(child);
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "remote-child-run",
+      agent_call_id: "child-call",
+      lease_root_run_id: "remote-child-run",
+      parent_run_id: "parent-run",
+      parent_call_id: "parent-call",
+      lineage_parent_call_id: "parent-call",
+      status: "running",
+    } as never);
+    const enqueue = vi.fn();
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      null,
+      null,
+      { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), settle: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+    service.setLocalRunCanceller(() => "no_active_run");
+
+    const result = await invokeMessage(service, {
+      agent: parentAgent(false),
+      teamName: null,
+      input: { childAgentId: child.child_agent_id, message: "stop", kind: "cancel", callId: "parent-tool-call" },
+    }, context(new AbortController().signal));
+
+    expect(result.success).toBe(true);
+    expect(result.content).toEqual(expect.objectContaining({ status: "no_active_run", target_run_id: "remote-child-run" }));
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
   it("keeps a durable send successful when the in-process wakeup throws", async () => {
     const child = { ...childAgent(), last_run_id: "child-run" };
     const delegationStore = store(child);

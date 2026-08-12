@@ -9,7 +9,8 @@ import { copyToClipboard } from '../utils/clipboard.js';
  */
 const INJECTION_SOURCES = new Set(['running_session']);
 
-const isRunInjection = (message) => INJECTION_SOURCES.has(message?.metadata?.source || '');
+const isRunInjection = (message) => INJECTION_SOURCES.has(message?.metadata?.source || '')
+  && Boolean(message?.metadata?.consumed_by_run_id || message?.metadata?.run_id);
 
 export const findRetryMessage = (items, index, canReviseMessage = () => true) => {
   const nearestUserMessage = (Array.isArray(items) ? items : [])
@@ -23,7 +24,7 @@ const groupInjectionsByRunId = (items) => {
   const map = {};
   for (const message of items) {
     if (!isRunInjection(message)) continue;
-    const runId = message.metadata?.run_id;
+    const runId = message.metadata?.consumed_by_run_id || message.metadata?.run_id;
     if (!runId) continue;
     if (!map[runId]) map[runId] = [];
     map[runId].push(message);

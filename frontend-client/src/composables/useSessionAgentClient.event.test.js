@@ -370,7 +370,7 @@ test('子 Run 的终态 stream_output 即使缺少 lineage 也不会覆盖根回
   assert.equal(deps.messages.value[0].finished, false);
 });
 
-test('state_sync(message_saved) 会将确认的 run 内 followup 移入执行树注入列表', () => {
+test('agent_message 消费确认会将 run 内 followup 移入执行树注入列表', () => {
   const { deps, calls } = createDeps();
   deps.messages.value = [
     { role: 'user', content: '原始任务', metadata: {}, attachments: [] },
@@ -393,16 +393,21 @@ test('state_sync(message_saved) 会将确认的 run 内 followup 移入执行树
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
-    type: 'state_sync',
+    type: 'agent_message',
     run_id: 'run-1',
     payload: {
-      category: 'message_saved',
-      ref: {
-        message_id: 'msg-followup',
-        seq: 12,
-        role: 'user',
+      input_type: 'user_message',
+      message_id: 'msg-followup',
+      seq: 12,
+      content_parts: [{ type: 'text', text: '运行中补充' }],
+      metadata: {
+        mailbox_message_id: 'msg-followup',
+        agent_message: false,
+        visible_to_user: true,
         request_id: 'req-followup',
-        run_id: 'run-1',
+        execution_kind: 'session_followup',
+        source: 'running_session',
+        consumed_by_run_id: 'run-1',
         task_id: 'task-1',
         round_index: 4,
       },
@@ -509,7 +514,7 @@ test('旧 Run 的 assistant message_saved 不会覆盖当前 Run 消息', () => 
   assert.deepEqual(calls.cacheMessages, []);
 });
 
-test('run_started 后的 message_saved 只确认一次已结束 followup 的新 run 主消息', () => {
+test('新 run 消费 followup 后才转为正式主消息', () => {
   const { deps } = createDeps();
   deps.messages.value = [
     { role: 'user', content: '原始任务', metadata: {}, attachments: [] },
@@ -536,15 +541,20 @@ test('run_started 后的 message_saved 只确认一次已结束 followup 的新 
     payload: { request_id: 'req-new-run', task: '旧 run 结束后发送的补充' },
   }, 'session-1');
   stream.handleEnvelope({
-    type: 'state_sync',
+    type: 'agent_message',
     run_id: 'run-new',
     payload: {
-      category: 'message_saved',
-      ref: {
-        message_id: 'msg-new',
-        seq: 20,
-        role: 'user',
+      input_type: 'user_message',
+      message_id: 'msg-new',
+      seq: 20,
+      content_parts: [{ type: 'text', text: '旧 run 结束后发送的补充' }],
+      metadata: {
+        mailbox_message_id: 'msg-new',
+        agent_message: false,
+        visible_to_user: true,
         request_id: 'req-new-run',
+        execution_kind: 'agent_stream',
+        consumed_by_run_id: 'run-new',
       },
     },
   }, 'session-1');
@@ -566,6 +576,54 @@ test('run_started 后的 message_saved 只确认一次已结束 followup 的新 
   assert.equal(deps.messages.value[3].run_id, 'run-new');
   assert.equal(deps.activeRun.assistantMsgIndex, 3);
   assert.equal(deps.pendingFollowupCandidates.value.length, 0);
+});
+
+test('首发消息在 run_started 后由消费事件回填且不重复插入', () => {
+  const { deps } = createDeps();
+  deps.messages.value = [{
+    role: 'user',
+    content: '首发任务',
+    content_parts: [{ type: 'text', text: '首发任务' }],
+    metadata: { request_id: 'req-first', execution_kind: 'agent_stream' },
+    attachments: [],
+  }, createAssistantMessage()];
+  Object.assign(deps.activeRun, { active: true, assistantMsgIndex: 1, runId: null });
+  const stream = useSessionAgentClient(deps);
+
+  stream.handleEnvelope({
+    type: 'run_started',
+    run_id: 'run-first',
+    payload: { request_id: 'req-first', task: '首发任务', source: 'agent_stream' },
+  }, 'session-1');
+  assert.equal(deps.messages.value.length, 2);
+  assert.equal(deps.messages.value[0].id, undefined);
+
+  stream.handleEnvelope({
+    type: 'agent_message',
+    run_id: 'run-first',
+    payload: {
+      input_type: 'user_message',
+      message_id: 'msg-first',
+      seq: 1,
+      content_parts: [{ type: 'text', text: '首发任务' }],
+      metadata: {
+        mailbox_message_id: 'msg-first',
+        agent_message: false,
+        visible_to_user: true,
+        request_id: 'req-first',
+        execution_kind: 'agent_stream',
+        run_id: 'run-first',
+        consumed_by_run_id: 'run-first',
+      },
+    },
+  }, 'session-1');
+
+  assert.deepEqual(deps.messages.value.map(message => message.role), ['user', 'assistant']);
+  assert.equal(deps.messages.value[0].id, 'msg-first');
+  assert.equal(deps.messages.value[0].seq, 1);
+  assert.equal(deps.messages.value[0].metadata.run_id, 'run-first');
+  assert.equal(deps.messages.value[0].metadata.consumed_by_run_id, 'run-first');
+  assert.equal(deps.messages.value[1].run_id, 'run-first');
 });
 
 test('goal continuation 的 run_started 会立即插入可见通知，无需刷新消息列表', () => {

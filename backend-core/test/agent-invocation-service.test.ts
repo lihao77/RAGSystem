@@ -5,6 +5,7 @@ import type {
   AgentInvocationRootInput,
 } from "../src/contracts/execution/agent-invocation.js";
 import { AgentInvocationService } from "../src/services/agent/execution/invocation-service.js";
+import { AgentExecutionStatusTracker } from "../src/services/agent/execution/status-tracker.js";
 import { createTestTeamSnapshot } from "./session-team-fixture.js";
 
 const identity = {
@@ -153,5 +154,35 @@ describe("AgentInvocationService", () => {
 
     await expect(handle.promise).resolves.toMatchObject({ success: false, content: "timed out" });
     expect(executeRun.mock.calls[0]?.[0].abortController.signal.aborted).toBe(true);
+  });
+
+  it("registers a child controller for immediate run-id cancellation", async () => {
+    const statusTracker = new AgentExecutionStatusTracker();
+    const executeRun = vi.fn((input: { abortController: AbortController }) => new Promise<{ content: string; success: boolean }>((resolve) => {
+      input.abortController.signal.addEventListener("abort", () => resolve({ content: "cancelled", success: false }), { once: true });
+    }));
+    const service = new AgentInvocationService({ executeRun } as never, statusTracker);
+    const handle = service.invoke({
+      scope: "child",
+      mode: "create",
+      execution: "background",
+      sessionId: "session-1",
+      sessionIdentity: identity,
+      requestId: "request-cancel",
+      task: "long child run",
+      executionKind: "agent",
+      agent,
+      provider,
+      modelName: "model",
+      runId: "child-cancel",
+      taskId: "child-task",
+      rootCallId: "child-call",
+      startedAt: new Date(),
+      threadKey: "child:child-1",
+    });
+
+    expect(statusTracker.cancelRun("child-cancel", "agent_cancelled")).toBe("aborted");
+    await expect(handle.promise).resolves.toMatchObject({ content: "cancelled", success: false });
+    expect(statusTracker.cancelRun("child-cancel")).toBe("no_active_run");
   });
 });

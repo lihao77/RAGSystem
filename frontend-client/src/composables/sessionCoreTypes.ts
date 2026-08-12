@@ -93,7 +93,6 @@ export interface DispatcherOptions {
   onRuntimeSnapshot?: (sessionId: string, snapshot: OpenRecord) => void;
   getStop: () => () => Promise<void>;
   takeFollowupCandidate: (requestId: string) => SessionMessage | null;
-  bindUnassignedFollowupCandidates: (runId: string | null) => void;
 }
 
 export interface EventReducerOptions {

@@ -364,7 +364,7 @@ export async function executeRunWithSdk(
   // At each round boundary, read newer durable user messages into the SDK copy
   // so they cannot be inserted between a tool call and its result.
   const refresher: MessageRefresher = {
-    refresh: async (ctx) => {
+    refresh: async (ctx, round) => {
       const sid = ctx.session.sessionId;
       const tk = ctx.session.threadKey;
       const mailboxAcceptedIds = new Set<string>();
@@ -385,15 +385,58 @@ export async function executeRunWithSdk(
         });
         for (const mailboxMessage of claimed) {
           try {
+            const isUserMessage = mailboxMessage.input_type === "user_message";
+            const renderedContent = isUserMessage
+              ? renderMailboxContent(mailboxMessage.content_parts)
+              : renderAgentMailboxMessage(mailboxMessage);
+            const displayContent = renderMailboxContent(mailboxMessage.content_parts);
+            const mailboxMetadata = mailboxMessage.metadata ?? {};
+            const isQueuedUserFollowup = isUserMessage
+              && typeof mailboxMetadata.run_id === "string"
+              && mailboxMetadata.run_id !== input.runId;
+            const isContinuationSeed = input.executionKind === "session_followup"
+              && input.requestId === `session_followup_${mailboxMessage.message_id}`;
+            const isRunInjection = isQueuedUserFollowup && !isContinuationSeed;
+            const normalizedUserMetadata = (() => {
+              const {
+                source: _mailboxSource,
+                execution_kind: mailboxExecutionKind,
+                round_index: _mailboxRoundIndex,
+                ...messageMetadata
+              } = mailboxMetadata;
+              return {
+                ...messageMetadata,
+                execution_kind: isRunInjection
+                  ? "session_followup"
+                  : (isQueuedUserFollowup ? "agent_stream" : (mailboxExecutionKind ?? "agent_stream")),
+                run_id: input.runId,
+                ...(isRunInjection ? { source: "running_session", round_index: round } : {}),
+              };
+            })();
+            const canonicalMetadata = {
+              ...(isUserMessage ? normalizedUserMetadata : mailboxMetadata),
+              ...(isUserMessage ? {} : { agent_message: true }),
+              agent_message_display_content: displayContent,
+              agent_message_direction: mailboxMetadata.direction ?? null,
+              agent_message_source_agent_name: mailboxMetadata.source_agent_name ?? null,
+              agent_message_source_child_agent_id: mailboxMetadata.source_child_agent_id ?? mailboxMetadata.child_agent_id ?? null,
+              agent_message_target_agent_name: mailboxMetadata.target_agent_name ?? null,
+              agent_message_target_child_agent_id: mailboxMessage.target_child_agent_id,
+              agent_message_target_thread_key: mailboxMessage.target_thread_key,
+              mailbox_message_id: mailboxMessage.message_id,
+              mailbox_kind: mailboxMessage.kind,
+              mailbox_correlation_id: mailboxMessage.correlation_id,
+              mailbox_reply_to_message_id: mailboxMessage.reply_to_message_id,
+              mailbox_source_run_id: mailboxMessage.source_run_id,
+              mailbox_source_agent_call_id: mailboxMessage.source_agent_call_id,
+              conversation_scope: mailboxMessage.target_child_agent_id ? "child" : "agent",
+              consumed_by_run_id: input.runId,
+              visible_to_user: mailboxMessage.visible_to_user,
+              sent_at: mailboxMessage.sent_at,
+            };
             const existing = await deps.storage.conversation.getMessageById(sid, mailboxMessage.message_id);
             let persisted = existing;
             if (!existing) {
-              const isUserMessage = mailboxMessage.input_type === "user_message";
-              const renderedContent = isUserMessage
-                ? renderMailboxContent(mailboxMessage.content_parts)
-                : renderAgentMailboxMessage(mailboxMessage);
-              const displayContent = renderMailboxContent(mailboxMessage.content_parts);
-              const mailboxMetadata = mailboxMessage.metadata ?? {};
               persisted = await deps.storage.conversation.addMessage({
                 sessionId: sid,
                 messageId: mailboxMessage.message_id,
@@ -404,30 +447,16 @@ export async function executeRunWithSdk(
                 contentParts: isUserMessage ? mailboxMessage.content_parts : [{ type: "text", text: renderedContent }],
                 threadKey: mailboxMessage.target_thread_key,
                 childAgentId: mailboxMessage.target_child_agent_id,
-                metadata: {
-                  ...mailboxMetadata,
-                  ...(isUserMessage ? {} : { agent_message: true }),
-                  agent_message_display_content: displayContent,
-                  agent_message_direction: mailboxMetadata.direction ?? null,
-                  agent_message_source_agent_name: mailboxMetadata.source_agent_name ?? null,
-                  agent_message_source_child_agent_id: mailboxMetadata.source_child_agent_id ?? mailboxMetadata.child_agent_id ?? null,
-                  agent_message_target_agent_name: mailboxMetadata.target_agent_name ?? null,
-                  agent_message_target_child_agent_id: mailboxMessage.target_child_agent_id,
-                  agent_message_target_thread_key: mailboxMessage.target_thread_key,
-                  mailbox_message_id: mailboxMessage.message_id,
-                  mailbox_kind: mailboxMessage.kind,
-                  mailbox_correlation_id: mailboxMessage.correlation_id,
-                  mailbox_reply_to_message_id: mailboxMessage.reply_to_message_id,
-                  mailbox_source_run_id: mailboxMessage.source_run_id,
-                  mailbox_source_agent_call_id: mailboxMessage.source_agent_call_id,
-                  conversation_scope: mailboxMessage.target_child_agent_id ? "child" : "agent",
-                  consumed_by_run_id: input.runId,
-                  visible_to_user: mailboxMessage.visible_to_user,
-                  sent_at: mailboxMessage.sent_at,
-                },
+                metadata: canonicalMetadata,
               });
-            } else if (existing.metadata.consumed_by_run_id !== input.runId) {
-              const metadata = { ...existing.metadata, consumed_by_run_id: input.runId };
+            } else {
+              const {
+                source: _existingSource,
+                execution_kind: _existingExecutionKind,
+                round_index: _existingRoundIndex,
+                ...existingMetadata
+              } = existing.metadata;
+              const metadata = { ...existingMetadata, ...canonicalMetadata };
               const updated = await deps.storage.conversation.updateMessageMetadata?.(sid, existing.id, metadata);
               if (updated === false) {
                 throw new Error(`Agent mailbox history update failed: ${mailboxMessage.message_id}`);
@@ -444,7 +473,14 @@ export async function executeRunWithSdk(
               sessionId: sid,
               runId: input.runId,
               callId: input.rootCallId,
-              message: mailboxMessage,
+              message: {
+                ...mailboxMessage,
+                metadata: {
+                  ...(persisted.metadata ?? {}),
+                  mailbox_message_id: mailboxMessage.message_id,
+                  consumed_by_run_id: input.runId,
+                },
+              },
             });
             const claim = {
               messageId: mailboxMessage.message_id,

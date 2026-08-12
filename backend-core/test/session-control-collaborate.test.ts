@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createSessionControl } from "../src/services/agent/execution/session-control.js";
 import type { AgentExecuteResult, CollaborateRequest } from "../src/contracts/execution/execution.js";
+import { AgentExecutionStatusTracker } from "../src/services/agent/execution/status-tracker.js";
 
 function result(sessionId: string, task: string, success = true): AgentExecuteResult {
   return {
@@ -77,5 +78,37 @@ describe("collaborate fan-out", () => {
 
     expect(output.results.map((item) => item.answer)).toEqual(["one", null]);
     expect(executeSynchronously).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("session cancellation", () => {
+  it("stops the foreground root through the shared run-id canceller", async () => {
+    const statusTracker = new AgentExecutionStatusTracker();
+    const abortController = new AbortController();
+    statusTracker.registerRun("run-1", abortController);
+    statusTracker.register("task-1", "session-1", {
+      abortController,
+      promise: Promise.resolve(),
+      status: {
+        task_id: "task-1",
+        session_id: "session-1",
+        run_id: "run-1",
+        request_id: "request-1",
+        execution_kind: "agent_stream",
+        task: "work",
+        status: "running",
+        elapsed_seconds: null,
+        started_at: new Date().toISOString(),
+        finished_at: null,
+        thread_alive: true,
+      },
+    });
+    const publishUserInterrupt = vi.fn();
+    const control = createSessionControl({ statusTracker, eventPublisher: { publishUserInterrupt } } as never);
+
+    await expect(control.stopSession("session-1")).resolves.toBe(true);
+    expect(abortController.signal.aborted).toBe(true);
+    expect((abortController.signal.reason as Error).message).toBe("user_stop");
+    expect(publishUserInterrupt).toHaveBeenCalledOnce();
   });
 });

@@ -85,6 +85,7 @@ export interface AgentInvocationOutcome {
   content: string;
   success: boolean;
   runId: string;
+  interrupted?: boolean;
   contentParts?: MessageContentPart[];
   suspended?: boolean;
   interactionKind?: "approval" | "user_input";

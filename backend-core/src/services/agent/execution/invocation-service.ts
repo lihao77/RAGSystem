@@ -8,6 +8,7 @@ import type {
 } from "../../../contracts/execution/agent-invocation.js";
 import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
 import type { AgentRunEngine } from "./run-engine.js";
+import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 
 /**
  * Single adapter for root and child Agent invocations.
@@ -17,7 +18,10 @@ import type { AgentRunEngine } from "./run-engine.js";
  * The orchestration layer now depends on this contract instead of RunEngine.
  */
 export class AgentInvocationService implements AgentInvocationPort {
-  constructor(private readonly runEngine: AgentRunEngine) {}
+  constructor(
+    private readonly runEngine: AgentRunEngine,
+    private readonly statusTracker?: AgentExecutionStatusTracker,
+  ) {}
 
   invoke(input: AgentInvocationRequest): AgentInvocationHandle {
     return input.scope === "root"
@@ -45,6 +49,7 @@ export class AgentInvocationService implements AgentInvocationPort {
 
   private invokeChild(input: AgentInvocationChildInput): AgentInvocationHandle {
     const abortController = new AbortController();
+    this.statusTracker?.registerRun(input.runId, abortController);
     if (input.signal) {
       if (input.signal.aborted) {
         abortController.abort();
@@ -89,13 +94,14 @@ export class AgentInvocationService implements AgentInvocationPort {
       ...runInput,
       abortController,
       onStartDisposition,
-    }).then((outcome) => normalizeOutcome(outcome, input.runId)).catch((error) => {
+    }).then((outcome) => normalizeOutcome(outcome, input.runId, abortController.signal.aborted)).catch((error) => {
       if (!durableSettled) {
         durableSettled = true;
         rejectDurable(error);
       }
       throw error;
     }).finally(() => {
+      this.statusTracker?.unregisterRun(input.runId, abortController);
       if (timeout) clearTimeout(timeout);
     });
     return {
@@ -114,6 +120,7 @@ export class AgentInvocationService implements AgentInvocationPort {
 function normalizeOutcome(
   outcome: Awaited<ReturnType<AgentRunEngine["executeRun"]>> | Awaited<ReturnType<AgentRunEngine["startRun"]>["promise"]>,
   runId: string,
+  interrupted = false,
 ): AgentInvocationOutcome {
   const outcomeRunId = "runId" in outcome && typeof outcome.runId === "string"
     ? outcome.runId
@@ -122,6 +129,7 @@ function normalizeOutcome(
     content: outcome.content,
     success: outcome.success,
     runId: outcomeRunId,
+    ...(interrupted ? { interrupted: true } : {}),
     ...(("contentParts" in outcome && Array.isArray(outcome.contentParts)) ? { contentParts: outcome.contentParts } : {}),
     ...(outcome.suspended ? { suspended: true } : {}),
     ...(("interactionKind" in outcome && outcome.interactionKind) ? { interactionKind: outcome.interactionKind } : {}),

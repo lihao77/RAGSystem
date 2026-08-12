@@ -42,7 +42,6 @@ export function useSessionAgentClient(deps) {
     enqueueFollowupCandidate,
     takeFollowupCandidate,
     markFollowupCandidateFailed,
-    bindUnassignedFollowupCandidates,
     applySessionRuntime,
     clearSessionRuntime,
     beginOptimisticCommand,
@@ -190,7 +189,6 @@ export function useSessionAgentClient(deps) {
     onRuntimeSnapshot: resolveRuntimeWaiters,
     getStop: () => stop,
     takeFollowupCandidate,
-    bindUnassignedFollowupCandidates,
   });
   const { handleEnvelope, handleRunEvent, resetStreamSessionState } = envelopeDispatcher;
 

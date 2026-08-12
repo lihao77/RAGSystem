@@ -150,7 +150,6 @@ export class AgentRunEngine {
       startedAt,
     });
 
-    let userMessageSavedPayload: Record<string, unknown> | undefined;
     let rootMailboxMessage: {
       id: string;
       inputType: "user_message" | "system_notification" | "goal_continuation";
@@ -170,11 +169,6 @@ export class AgentRunEngine {
         request_id: input.requestId,
         execution_kind: input.executionKind,
       };
-      userMessageSavedPayload = {
-        id: userMessageId,
-        role: "user",
-        content_parts: input.persistUserMessage.contentParts,
-      };
       rootMailboxMessage = {
         id: userMessageId,
         inputType: input.persistUserMessage.inputType ?? "user_message",
@@ -193,17 +187,6 @@ export class AgentRunEngine {
         task: input.task,
         source: input.executionKind,
       }));
-      if (userMessageSavedPayload) {
-        initialEnvelopes.push(this.eventPublisher.buildOutputMessageSaved(input.sessionId, runId, {
-          message_id: typeof userMessageSavedPayload.id === "string" ? userMessageSavedPayload.id : "",
-          ...(typeof userMessageSavedPayload.seq === "number" ? { seq: userMessageSavedPayload.seq } : {}),
-          ...(typeof userMessageSavedPayload.role === "string" ? { role: userMessageSavedPayload.role } : {}),
-          ...(input.requestId ? { request_id: input.requestId } : {}),
-          ...(Array.isArray(userMessageSavedPayload.content_parts)
-            ? { content_parts: userMessageSavedPayload.content_parts as MessageContentPart[] }
-            : {}),
-        }));
-      }
       initialEnvelopes.push(this.eventPublisher.buildRootAgentStart({
         sessionId: input.sessionId,
         runId,
@@ -234,6 +217,7 @@ export class AgentRunEngine {
     const claimSessionHandle = (): void => {
       if (!shouldOwnSessionHandle || ownsSessionHandle || !handlePromise) return;
       ownsSessionHandle = true;
+      this.statusTracker.registerRun(runId, abortController);
       this.statusTracker.register(taskId, input.sessionId, {
         abortController,
         status,
@@ -308,6 +292,7 @@ export class AgentRunEngine {
       },
     );
     promise.finally(() => {
+      this.statusTracker.unregisterRun(runId, abortController);
       if (ownsSessionHandle) {
         this.statusTracker.unregister(taskId, input.sessionId);
       }

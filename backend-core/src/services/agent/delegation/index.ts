@@ -111,6 +111,8 @@ interface ActiveChildRunRoute {
   lineageParentCallId: string | null;
 }
 
+type LocalCancelResult = "aborted" | "already_aborted" | "no_active_run";
+
 interface CollaborationMessageFields {
   message: string;
   kind: AgentToolInput["kind"];
@@ -162,6 +164,7 @@ export interface AgentDelegationLogger {
 
 export class AgentDelegationService implements DelegationPort, ParticipantRunLifecyclePort {
   private invocationService: AgentInvocationPort | null = null;
+  private cancelLocalRun: ((runId: string, reason?: string) => LocalCancelResult) | null = null;
   private readonly activeChildRuns = new Map<string, ActiveChildRunRoute>();
   private mailboxWakeup: AgentMailboxWakeupHandler | null = null;
 
@@ -178,6 +181,10 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
 
   setInvocationService(service: AgentInvocationPort): void {
     this.invocationService = service;
+  }
+
+  setLocalRunCanceller(canceller: ((runId: string, reason?: string) => LocalCancelResult) | null): void {
+    this.cancelLocalRun = canceller;
   }
 
   setMailboxWakeup(handler: AgentMailboxWakeupHandler | null): void {
@@ -659,6 +666,45 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       return errorResult(`子 Agent '${childAgentId}' 当前没有可取消的运行实例`, toolName);
     }
     if (runningChildRoute) {
+      if (kind === "cancel") {
+        const cancellation = this.cancelLocalRun?.(runningChildRoute.runId, "agent_cancelled") ?? "no_active_run";
+        if (cancellation === "aborted") {
+          return successResult({
+            child_agent_id: childAgentId,
+            target_run_id: runningChildRoute.runId,
+            status: "cancelled",
+            cancellation: "local_abort",
+          }, {
+            summary: `已立即取消子 Agent ${child.agent_name} 的运行实例`,
+            outputType: "json",
+            metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: runningChildRoute.runId },
+            toolName,
+          });
+        }
+        if (cancellation === "already_aborted") {
+          return successResult({
+            child_agent_id: childAgentId,
+            target_run_id: runningChildRoute.runId,
+            status: "cancelled",
+            cancellation: "already_aborted",
+          }, {
+            summary: `子 Agent ${child.agent_name} 已在取消流程中`,
+            outputType: "json",
+            metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: runningChildRoute.runId },
+            toolName,
+          });
+        }
+        return successResult({
+          child_agent_id: childAgentId,
+          target_run_id: runningChildRoute.runId,
+          status: "no_active_run",
+        }, {
+          summary: `子 Agent ${child.agent_name} 当前运行不在本进程，无法立即取消`,
+          outputType: "json",
+          metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: runningChildRoute.runId },
+          toolName,
+        });
+      }
       if (!this.mailbox) {
         return errorResult("运行中的子 Agent 暂不支持消息投递（mailbox 未注入）", toolName);
       }
@@ -1211,6 +1257,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
 
     const result: DelegationRunResult = {
       success: outcome.success,
+      ...(outcome.interrupted ? { interrupted: true } : {}),
       content: outcome.content,
       summary: outcome.content.slice(0, 500),
       outputType: outcome.success ? "text" : "error",
@@ -1233,7 +1280,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     if (!parent) return result;
     const status = result.success
       ? "completed"
-      : input.signal?.aborted
+      : result.interrupted || input.signal?.aborted
         ? "interrupted"
         : "failed";
     const content = normalizeString(result.content)

@@ -70,6 +70,7 @@ export interface AgentExecutionServiceApi {
   triggerAgentMailboxRun(target: AgentMailboxWakeupTarget): void;
   completeAgentMailboxContinuation(input: AgentMailboxContinuationCompletionInput): Promise<void>;
   stopSession(sessionId: string): Promise<boolean>;
+  cancelRun(runId: string, reason?: string): "aborted" | "already_aborted" | "no_active_run";
   getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics;
   getTaskStatus(taskId: string): ScopedTaskStatus;
   getTaskExecutionDiagnostics(taskId: string): ScopedExecutionDiagnostics;
@@ -176,7 +177,7 @@ export function createAgentExecutionService(
     params.pluginTools ?? null,
     params.executionEnvironment ?? null,
   );
-  const invocationService = new AgentInvocationService(runEngine);
+  const invocationService = new AgentInvocationService(runEngine, statusTracker);
   const launchers = createLaunchers({
     tenantId: params.tenantId,
     sessions: params.sessions,
@@ -205,5 +206,11 @@ export function createAgentExecutionService(
     executeSynchronously: launchers.executeSynchronously,
   });
   const query = createExecutionQueryService(statusTracker);
-  return { ...launchers, ...sessionControl, ...query, invocationService };
+  return {
+    ...launchers,
+    ...sessionControl,
+    ...query,
+    invocationService,
+    cancelRun: (runId: string, reason?: string) => statusTracker.cancelRun(runId, reason),
+  };
 }

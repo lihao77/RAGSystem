@@ -70,7 +70,9 @@ export function createSessionControl(deps: SessionControlDeps): SessionControlAp
       // own a separate lease and therefore finish independently; when no
       // foreground handle remains, interruptSession closes every detached run.
       deps.eventPublisher.publishUserInterrupt(handle.status, "user_stop");
-      handle.abortController.abort();
+      const runId = handle.status.run_id;
+      if (runId) deps.statusTracker.cancelRun(runId, "user_stop");
+      else handle.abortController.abort(new Error("user_stop"));
       return true;
     },
     async collaborateSequentially(request, requestId) {

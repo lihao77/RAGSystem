@@ -354,7 +354,12 @@ export function useMessageExecution(deps) {
       || (event?.type === 'agent_message' ? event?.payload?.target_child_agent_id : null)
       || event?.child_agent_id
       || null;
-    if (event.type === 'agent_message') {
+    const metadata = event?.payload?.metadata || {};
+    const isConsumedUserMessage = event.type === 'agent_message'
+      && metadata.mailbox_message_id
+      && metadata.agent_message !== true
+      && metadata.visible_to_user !== false;
+    if (event.type === 'agent_message' && !isConsumedUserMessage) {
       const targetParticipantId = event?.payload?.target_child_agent_id || 'root';
       deps.syncParticipantMessage?.(
         targetParticipantId,

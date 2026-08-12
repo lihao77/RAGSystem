@@ -341,6 +341,89 @@ describe("executeRunWithSdk terminal convergence", () => {
       messageId: "user-mailbox-1",
       claimId: "claim-user-1",
     }));
+    expect(base.eventPublisher.publishAgentMessage).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "run-1",
+      message: expect.objectContaining({
+        metadata: expect.objectContaining({
+          execution_kind: "agent_stream",
+          run_id: "run-1",
+          consumed_by_run_id: "run-1",
+          visible_to_user: true,
+        }),
+      }),
+    }));
+  });
+
+  it("把活跃 run 消费的 queued user message 规范化为 execution injection", async () => {
+    runtimeMock.createRuntime.mockReset();
+    let history: any[] = [];
+    const message = mailboxMessage({
+      message_id: "followup-mailbox-1",
+      input_type: "user_message",
+      source_kind: "user",
+      visible_to_user: true,
+      target_thread_key: "root",
+      target_child_agent_id: null,
+      claim_id: "claim-followup-1",
+      content_parts: [{ type: "text", text: "more detail" }],
+      metadata: { request_id: "req-followup", run_id: "queued-run", execution_kind: "agent_stream" },
+    });
+    const mailbox: AgentMailboxStorePort = {
+      claim: vi.fn(async () => [message]),
+      ack: vi.fn(async () => true),
+      settle: vi.fn(async () => true),
+      release: vi.fn(async () => true),
+      enqueue: vi.fn(),
+      get: vi.fn(async () => null),
+      expire: vi.fn(async () => 0),
+    };
+    const base = deps(
+      vi.fn(async () => ({ finalMessage: null, records: [], readyResumeInteractionIds: [] })),
+      vi.fn(async () => ({ kind: "started", run: {} })),
+      vi.fn(async () => undefined),
+    );
+    base.storage.agentMailbox = mailbox;
+    base.storage.conversation.getRecentMessages = vi.fn(async () => history);
+    base.storage.conversation.getMessageById = vi.fn(async () => null);
+    base.storage.conversation.addMessage = vi.fn(async (inputMessage) => {
+      const created = {
+        seq: 9,
+        id: inputMessage.messageId ?? message.message_id,
+        session_id: inputMessage.sessionId,
+        role: inputMessage.role,
+        content: inputMessage.content,
+        content_parts: inputMessage.contentParts,
+        metadata: inputMessage.metadata ?? {},
+        thread_key: inputMessage.threadKey ?? "root",
+        child_agent_id: inputMessage.childAgentId ?? null,
+        created_at: new Date(0).toISOString(),
+      };
+      history = [created];
+      return created;
+    });
+    runtimeMock.createRuntime.mockImplementation((options: any) => ({
+      run: () => ({
+        runId: "run-1",
+        events: (async function* () {})(),
+        result: (async () => {
+          const refreshed = await options.refresher.refresh({ session: { sessionId: "session-1", threadKey: "root" } }, 4);
+          await refreshed.onInvokeSuccess?.();
+          return { content: "done", contentParts: [], finishReason: "stop", metadata: {} };
+        })(),
+      }),
+      close: vi.fn(),
+    }));
+
+    await expect(executeRunWithSdk(base, input())).resolves.toMatchObject({ success: true });
+    expect(base.storage.conversation.addMessage).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({
+        execution_kind: "session_followup",
+        source: "running_session",
+        run_id: "run-1",
+        consumed_by_run_id: "run-1",
+        round_index: 4,
+      }),
+    }));
   });
 
   it("invoke 失败时 release mailbox 消息回 queued 并可重试", async () => {

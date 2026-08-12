@@ -23,7 +23,6 @@ export function createSessionEnvelopeDispatcher({
   onRuntimeSnapshot,
   getStop,
   takeFollowupCandidate,
-  bindUnassignedFollowupCandidates,
 }) {
   const {
     currentSessionId,
@@ -153,6 +152,8 @@ export function createSessionEnvelopeDispatcher({
         ...(eventData.request_id ? { request_id: eventData.request_id } : {}),
         ...(eventData.run_id ? { run_id: eventData.run_id } : {}),
         ...(eventData.task_id ? { task_id: eventData.task_id } : {}),
+        ...(eventData.consumed_by_run_id ? { consumed_by_run_id: eventData.consumed_by_run_id } : {}),
+        ...(eventData.mailbox_message_id ? { mailbox_message_id: eventData.mailbox_message_id } : {}),
         ...(Number.isInteger(eventData.round_index) ? { round_index: eventData.round_index } : {}),
         execution_kind: 'session_followup',
         source: 'running_session',
@@ -203,7 +204,9 @@ export function createSessionEnvelopeDispatcher({
   const commitFollowupCandidate = (candidate, eventData) => {
     const expectedRunId = candidate.metadata?.run_id || null;
     const persistedRunId = eventData.run_id || null;
-    if (expectedRunId && persistedRunId && expectedRunId === persistedRunId) {
+    const confirmedInjection = eventData.source === 'running_session'
+      || (!eventData.execution_kind && expectedRunId && persistedRunId && expectedRunId === persistedRunId);
+    if (confirmedInjection) {
       const injection = asConfirmedRunInjection(candidate, eventData);
       messages.value.push(injection);
       return { message: injection, kind: 'run_injection' };
@@ -225,12 +228,66 @@ export function createSessionEnvelopeDispatcher({
     }
     target.metadata = {
       ...(target.metadata || {}),
+      ...(eventData.metadata && typeof eventData.metadata === 'object' ? eventData.metadata : {}),
       ...(eventData.request_id ? { request_id: eventData.request_id } : {}),
       ...(eventData.run_id ? { run_id: eventData.run_id } : {}),
       ...(eventData.task_id ? { task_id: eventData.task_id } : {}),
+      ...(eventData.consumed_by_run_id ? { consumed_by_run_id: eventData.consumed_by_run_id } : {}),
+      ...(eventData.mailbox_message_id ? { mailbox_message_id: eventData.mailbox_message_id } : {}),
     };
     if (target.metadata.persistence_status) delete target.metadata.persistence_status;
     deps.cacheMessages(sessionId, messages.value);
+  };
+
+  /** Mailbox user messages become visible only after the consumer persists them. */
+  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
+  const handleConsumedUserMessage = (event, sessionId) => {
+    const payload = event.payload || {};
+    const metadata = payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {};
+    const isConsumedUserMessage = Boolean(metadata.mailbox_message_id)
+      && metadata.agent_message !== true
+      && metadata.visible_to_user !== false;
+    if (!isConsumedUserMessage) return false;
+    const eventData = {
+      ...metadata,
+      message_id: payload.message_id || event.message_id || null,
+      seq: payload.seq,
+      role: 'user',
+      request_id: metadata.request_id || payload.request_id || null,
+      run_id: metadata.consumed_by_run_id || event.run_id || null,
+      task_id: metadata.task_id || null,
+      round_index: metadata.round_index,
+      content_parts: payload.content_parts,
+      metadata,
+    };
+    const requestId = eventData.request_id;
+    const candidate = requestId ? takeFollowupCandidate(requestId) : null;
+    let committed = candidate ? commitFollowupCandidate(candidate, eventData) : null;
+    let target = committed?.message || (requestId
+      ? messages.value.find(message => message?.role === 'user' && message.metadata?.request_id === requestId) || null
+      : null);
+    if (!target) {
+      const parts = normalizeMessageContentParts(payload.content_parts);
+      const content = parts.filter(part => part.type === 'text').map(part => part.text).join('');
+      const message = createUserMessage(content, [], {
+        ...metadata,
+        request_id: requestId,
+        run_id: eventData.run_id,
+        ...(metadata.source ? { source: metadata.source } : {}),
+        ...(metadata.consumed_by_run_id ? { consumed_by_run_id: metadata.consumed_by_run_id } : {}),
+      });
+      if (metadata.source === 'running_session' && metadata.consumed_by_run_id) {
+        committed = { message: { ...message, metadata: { ...message.metadata, source: 'running_session' } }, kind: 'run_injection' };
+        messages.value.push(committed.message);
+        target = committed.message;
+      } else {
+        insertNewRunUserMessage(message, eventData.run_id);
+        target = message;
+      }
+    }
+    applyMessageSaved(target, eventData, sessionId);
+    if (committed) deps.updateRecentSession(sessionId, target.content, new Date().toISOString());
+    return true;
   };
 
   const handleRunEvent = createSessionEventReducer({
@@ -358,6 +415,11 @@ export function createSessionEnvelopeDispatcher({
 
     if (runtime.handleInactiveDurableReplayEvent(event, sessionId)) return;
 
+    if (eventType === 'agent_message' && handleConsumedUserMessage(event, sessionId)) {
+      nextTick(() => deps.scrollToBottom(true));
+      return;
+    }
+
     if (eventType === 'ack') {
       const category = payload.category;
       if (category === 'send') {
@@ -408,7 +470,6 @@ export function createSessionEnvelopeDispatcher({
     if (eventType === 'run_started') {
       runtime.resetPendingReconciliation();
       const nextRunId = event.run_id || null;
-      bindUnassignedFollowupCandidates(nextRunId);
       let currentAssistantIndex = activeRun.assistantMsgIndex;
       let currentMsg = messages.value[currentAssistantIndex];
       // An idle runtime reconciliation resets the active-run index. Recover
@@ -435,18 +496,6 @@ export function createSessionEnvelopeDispatcher({
       const shouldStartNewMessage = !canReuseCurrentAssistant;
       if (shouldStartNewMessage) {
         if (currentMsg && !currentMsg.finished) currentMsg.finished = true;
-        const startedCandidate = payload.request_id
-          ? takeFollowupCandidate(payload.request_id)
-          : null;
-        if (startedCandidate) {
-          const userMessage = asNewRunUserMessage(startedCandidate, {
-            request_id: payload.request_id,
-            run_id: nextRunId,
-          });
-          insertNewRunUserMessage(userMessage, nextRunId);
-          deps.cacheMessages(sessionId, messages.value);
-          deps.updateRecentSession(sessionId, userMessage.content, new Date().toISOString());
-        }
         const systemUserMessageSource = event.payload?.source === 'system.bg_notification'
           ? 'background_notification'
           : event.payload?.source === 'system.goal_continuation'
@@ -486,10 +535,6 @@ export function createSessionEnvelopeDispatcher({
       if (category === 'message_saved') {
         const ref = { ...(payload.ref || {}), ...(event.run_id ? { run_id: event.run_id } : {}) };
         let currentMsg = messages.value[activeRun.assistantMsgIndex];
-        const candidate = ref.role === 'user' && ref.request_id
-          ? takeFollowupCandidate(ref.request_id)
-          : null;
-        const committedCandidate = candidate ? commitFollowupCandidate(candidate, ref) : null;
         const refMessageId = ref.message_id || ref.id || null;
         const refRunId = ref.run_id || null;
         const matchingAssistant = ref.role === 'assistant'
@@ -505,10 +550,9 @@ export function createSessionEnvelopeDispatcher({
           && !matchingAssistant) {
           return;
         }
-        let target = committedCandidate?.message
-          || (ref.role === 'user'
+        let target = ref.role === 'user'
             ? findUserMessageSavedTarget(ref)
-            : matchingAssistant || (refRunId && getMessageRunId(currentMsg) === refRunId ? currentMsg : null));
+            : matchingAssistant || (refRunId && getMessageRunId(currentMsg) === refRunId ? currentMsg : null);
         if (!target && ref.role === 'assistant' && Array.isArray(ref.content_parts)) {
           const contentParts = normalizeMessageContentParts(ref.content_parts);
           const content = contentParts
@@ -534,9 +578,6 @@ export function createSessionEnvelopeDispatcher({
         }
         applyMessageSaved(target, ref, sessionId);
         if (target?.role === 'assistant' && refRunId) target.has_execution = true;
-        if (committedCandidate) {
-          deps.updateRecentSession(sessionId, committedCandidate.message.content, new Date().toISOString());
-        }
         return;
       }
       if (category === 'session_updated') {

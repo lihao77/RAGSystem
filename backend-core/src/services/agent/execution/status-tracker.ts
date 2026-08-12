@@ -17,7 +17,26 @@ export interface ExecutionHandle {
 export class AgentExecutionStatusTracker {
   private readonly handlesByTask = new Map<string, ExecutionHandle>();
   private readonly taskBySession = new Map<string, string>();
+  private readonly controllersByRun = new Map<string, AbortController>();
   private readonly statusHistory = new Map<string, ExecutionTaskStatus>();
+
+  registerRun(runId: string, abortController: AbortController): void {
+    if (!runId) return;
+    this.controllersByRun.set(runId, abortController);
+  }
+
+  unregisterRun(runId: string, abortController?: AbortController): void {
+    const current = this.controllersByRun.get(runId);
+    if (current && (!abortController || current === abortController)) this.controllersByRun.delete(runId);
+  }
+
+  cancelRun(runId: string, reason = "cancelled"): "aborted" | "already_aborted" | "no_active_run" {
+    const controller = this.controllersByRun.get(runId);
+    if (!controller) return "no_active_run";
+    if (controller.signal.aborted) return "already_aborted";
+    controller.abort(new Error(reason));
+    return "aborted";
+  }
 
   register(taskId: string, sessionId: string, handle: ExecutionHandle): void {
     this.handlesByTask.set(taskId, handle);
