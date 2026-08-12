@@ -43,6 +43,12 @@ export const AGENT_MAILBOX_SCHEMA_SQL = `
       target_thread_key TEXT NOT NULL,
       target_child_agent_id TEXT,
       kind TEXT NOT NULL CHECK(kind IN ('progress', 'request', 'response', 'result', 'cancel')),
+      input_type TEXT NOT NULL DEFAULT 'agent_message'
+        CHECK(input_type IN ('user_message', 'agent_message', 'system_notification', 'goal_continuation')),
+      source_kind TEXT NOT NULL DEFAULT 'agent'
+        CHECK(source_kind IN ('user', 'agent', 'system')),
+      visible_to_user INTEGER NOT NULL DEFAULT 0 CHECK(visible_to_user IN (0, 1)),
+      sent_at TEXT,
       correlation_id TEXT,
       reply_to_message_id TEXT,
       content_parts TEXT NOT NULL DEFAULT '[]',

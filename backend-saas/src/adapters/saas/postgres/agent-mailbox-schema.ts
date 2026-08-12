@@ -49,4 +49,19 @@ export const POSTGRES_AGENT_MAILBOX_MIGRATIONS: PostgresAgentMailboxMigration[] 
     CREATE INDEX agent_mailbox_correlation_idx
       ON agent_mailbox_messages(tenant_id, session_id, correlation_id, seq);
   `,
+}, {
+  version: 2,
+  name: "agent_mailbox_input_envelope",
+  sql: `
+    ALTER TABLE agent_mailbox_messages
+      ADD COLUMN IF NOT EXISTS input_type TEXT NOT NULL DEFAULT 'agent_message'
+        CHECK (input_type IN ('user_message','agent_message','system_notification','goal_continuation'));
+    ALTER TABLE agent_mailbox_messages
+      ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'agent'
+        CHECK (source_kind IN ('user','agent','system'));
+    ALTER TABLE agent_mailbox_messages
+      ADD COLUMN IF NOT EXISTS visible_to_user BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE agent_mailbox_messages
+      ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+  `,
 }];

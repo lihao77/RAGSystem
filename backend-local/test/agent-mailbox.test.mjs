@@ -33,6 +33,53 @@ function createStore() {
   return store;
 }
 
+test("local Agent mailbox round-trips input envelope fields and applies defaults", async () => {
+  const store = createStore();
+  try {
+    const explicit = await store.agentMailbox.enqueue({
+      messageId: "message-envelope",
+      tenantId: "tnt_test",
+      sessionId: "session-mailbox",
+      targetThreadKey: "root",
+      kind: "request",
+      inputType: "user_message",
+      sourceKind: "user",
+      visibleToUser: true,
+      sentAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.equal(explicit.input_type, "user_message");
+    assert.equal(explicit.source_kind, "user");
+    assert.equal(explicit.visible_to_user, true);
+    assert.equal(explicit.sent_at, "2026-01-01T00:00:00.000Z");
+    assert.deepEqual(await store.agentMailbox.get("session-mailbox", "message-envelope"), explicit);
+    await assert.rejects(() => store.agentMailbox.enqueue({
+      messageId: "message-envelope",
+      tenantId: "tnt_test",
+      sessionId: "session-mailbox",
+      targetThreadKey: "root",
+      kind: "request",
+      inputType: "agent_message",
+      sourceKind: "user",
+      visibleToUser: true,
+      sentAt: "2026-01-01T00:00:00.000Z",
+    }), /another message/);
+
+    const defaults = await store.agentMailbox.enqueue({
+      messageId: "message-envelope-defaults",
+      tenantId: "tnt_test",
+      sessionId: "session-mailbox",
+      targetThreadKey: "root",
+      kind: "progress",
+    });
+    assert.equal(defaults.input_type, "agent_message");
+    assert.equal(defaults.source_kind, "agent");
+    assert.equal(defaults.visible_to_user, false);
+    assert.equal(defaults.sent_at, null);
+  } finally {
+    store.close();
+  }
+});
+
 test("local Agent mailbox is durable, FIFO, and fenced by claim id", async () => {
   const store = createStore();
   try {

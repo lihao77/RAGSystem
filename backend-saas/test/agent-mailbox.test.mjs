@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { PostgresAgentMailboxRepository } from "../dist/adapters/saas/postgres/agent-mailbox-repository.js";
+import { POSTGRES_AGENT_MAILBOX_MIGRATIONS } from "../dist/adapters/saas/postgres/agent-mailbox-schema.js";
 
 class FakeExecutor {
   constructor() {
     this.rows = [];
+    this.queries = [];
     this.nextSeq = 1;
     this.claimQueries = 0;
   }
@@ -15,6 +17,7 @@ class FakeExecutor {
   }
 
   async query(sql, params = []) {
+    this.queries.push({ sql, params });
     if (sql.includes("SELECT") && sql.includes("WHERE tenant_id=$1 AND session_id=$2 AND message_id=$3")) {
       const [tenantId, sessionId, messageId] = params;
       return { rows: this.rows.filter((row) => row.tenant_id === tenantId && row.session_id === sessionId && row.message_id === messageId) };
@@ -24,7 +27,7 @@ class FakeExecutor {
       return { rows: this.rows.filter((row) => row.tenant_id === tenantId && row.message_id === messageId) };
     }
     if (sql.includes("INSERT INTO agent_mailbox_messages")) {
-      const [messageId, tenantId, sessionId, sourceRunId, sourceCallId, targetRunId, targetCallId, targetThreadKey, targetChildAgentId, kind, correlationId, replyToMessageId, contentParts, metadata, availableAt, expiresAt] = params;
+      const [messageId, tenantId, sessionId, sourceRunId, sourceCallId, targetRunId, targetCallId, targetThreadKey, targetChildAgentId, kind, inputType, sourceKind, visibleToUser, sentAt, correlationId, replyToMessageId, contentParts, metadata, availableAt, expiresAt] = params;
       const existing = this.rows.find((row) => row.tenant_id === tenantId && row.message_id === messageId);
       if (!existing) {
         const now = new Date().toISOString();
@@ -33,7 +36,8 @@ class FakeExecutor {
           source_run_id: sourceRunId, source_agent_call_id: sourceCallId,
           target_run_id: targetRunId, target_agent_call_id: targetCallId,
           target_thread_key: targetThreadKey, target_child_agent_id: targetChildAgentId,
-          kind, correlation_id: correlationId, reply_to_message_id: replyToMessageId,
+          kind, input_type: inputType, source_kind: sourceKind, visible_to_user: visibleToUser,
+          sent_at: sentAt, correlation_id: correlationId, reply_to_message_id: replyToMessageId,
           content_parts: JSON.parse(contentParts), metadata: JSON.parse(metadata), status: "queued",
           attempt_count: 0, claim_id: null, claimed_by: null, claim_expires_at: null,
           available_at: availableAt, expires_at: expiresAt, last_error: null,
@@ -115,6 +119,10 @@ function messageInput(overrides = {}) {
     targetThreadKey: "child:worker",
     targetChildAgentId: "child-1",
     kind: "request",
+    inputType: "user_message",
+    sourceKind: "user",
+    visibleToUser: true,
+    sentAt: "2026-01-01T00:00:00.000Z",
     correlationId: "corr-1",
     contentParts: [{ type: "text", text: "hello" }],
     metadata: { source: "test" },
@@ -128,8 +136,17 @@ test("SaaS Agent mailbox fences tenant, target tuple, and claim retry", async ()
   const mailbox = new PostgresAgentMailboxRepository("tenant-1", executor);
 
   const created = await mailbox.enqueue(messageInput());
+  assert.equal(created.input_type, "user_message");
+  assert.equal(created.source_kind, "user");
+  assert.equal(created.visible_to_user, true);
+  assert.equal(created.sent_at, "2026-01-01T00:00:00.000Z");
+  const insertSql = executor.queries.find(query => query.sql.includes("INSERT INTO agent_mailbox_messages"))?.sql;
+  const selectSql = executor.queries.find(query => query.sql.includes("SELECT") && query.sql.includes("FROM agent_mailbox_messages"))?.sql;
+  assert.match(insertSql, /input_type,source_kind,visible_to_user,sent_at/);
+  assert.match(selectSql, /input_type,source_kind,visible_to_user,sent_at/);
   const duplicate = await mailbox.enqueue(messageInput());
   assert.equal(duplicate.message_id, created.message_id);
+  await assert.rejects(() => mailbox.enqueue(messageInput({ inputType: "agent_message" })), /conflict/);
   await assert.rejects(() => mailbox.enqueue(messageInput({ expiresAt: "2026-01-01T00:00:01.000Z" })), /conflict/);
   await assert.rejects(() => mailbox.enqueue(messageInput({ tenantId: "tenant-2" })), /tenant mismatch/);
   await assert.rejects(() => mailbox.enqueue(messageInput({ sessionId: "session-2" })), /conflict/);
@@ -157,4 +174,31 @@ test("SaaS Agent mailbox fences tenant, target tuple, and claim retry", async ()
   assert.equal(await mailbox.settle({ sessionId: "session-1", messageId: "message-1" }), true);
   assert.equal(await mailbox.settle({ sessionId: "session-1", messageId: "message-1" }), true);
   assert.equal((await mailbox.get("session-1", "message-1")).status, "acked");
+});
+
+test("SaaS Agent mailbox applies input envelope defaults", async () => {
+  const executor = new FakeExecutor();
+  const mailbox = new PostgresAgentMailboxRepository("tenant-1", executor);
+  const created = await mailbox.enqueue(messageInput({
+    messageId: "message-defaults",
+    inputType: undefined,
+    sourceKind: undefined,
+    visibleToUser: undefined,
+    sentAt: undefined,
+  }));
+
+  assert.equal(created.input_type, "agent_message");
+  assert.equal(created.source_kind, "agent");
+  assert.equal(created.visible_to_user, false);
+  assert.equal(created.sent_at, null);
+});
+
+test("PostgreSQL Agent mailbox v2 migration adds the input envelope columns", () => {
+  const migration = POSTGRES_AGENT_MAILBOX_MIGRATIONS.find(item => item.version === 2);
+  assert.ok(migration);
+  assert.equal(migration.name, "agent_mailbox_input_envelope");
+  assert.match(migration.sql, /ADD COLUMN IF NOT EXISTS input_type[\s\S]*DEFAULT 'agent_message'[\s\S]*CHECK/);
+  assert.match(migration.sql, /ADD COLUMN IF NOT EXISTS source_kind[\s\S]*DEFAULT 'agent'[\s\S]*CHECK/);
+  assert.match(migration.sql, /ADD COLUMN IF NOT EXISTS visible_to_user BOOLEAN NOT NULL DEFAULT false/);
+  assert.match(migration.sql, /ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ/);
 });

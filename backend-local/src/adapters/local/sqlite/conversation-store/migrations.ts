@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 12;
+export const LATEST_SCHEMA_VERSION = 13;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 11) {
+  if (current >= 1 && current <= 12) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -56,7 +56,8 @@ export function runMigrations(db: MigrationDatabase): void {
         `);
         db.exec(AGENT_MAILBOX_SCHEMA_SQL);
       }
-      migrateAgentMailboxTenantKey(db);
+      if (current <= 11) migrateAgentMailboxTenantKey(db);
+      ensureAgentMailboxInputColumns(db);
       if (current <= 10) ensureChildParticipantLineage(db);
       if (current <= 11) {
         const sessions = db.prepare("SELECT COUNT(*) AS count FROM sessions").get() as { count?: number } | undefined;
@@ -82,6 +83,23 @@ export function runMigrations(db: MigrationDatabase): void {
     db.exec(BASELINE_SCHEMA_SQL);
     db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
   });
+}
+
+function ensureAgentMailboxInputColumns(db: MigrationDatabase): void {
+  const columns = db.prepare("PRAGMA table_info(agent_mailbox)").all() as unknown as Array<{ name: string }>;
+  const names = new Set(columns.map((column) => column.name));
+  if (!names.has("input_type")) {
+    db.exec("ALTER TABLE agent_mailbox ADD COLUMN input_type TEXT NOT NULL DEFAULT 'agent_message' CHECK(input_type IN ('user_message', 'agent_message', 'system_notification', 'goal_continuation'))");
+  }
+  if (!names.has("source_kind")) {
+    db.exec("ALTER TABLE agent_mailbox ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'agent' CHECK(source_kind IN ('user', 'agent', 'system'))");
+  }
+  if (!names.has("visible_to_user")) {
+    db.exec("ALTER TABLE agent_mailbox ADD COLUMN visible_to_user INTEGER NOT NULL DEFAULT 0 CHECK(visible_to_user IN (0, 1))");
+  }
+  if (!names.has("sent_at")) {
+    db.exec("ALTER TABLE agent_mailbox ADD COLUMN sent_at TEXT");
+  }
 }
 
 function ensureChildParticipantLineage(db: MigrationDatabase): void {
@@ -260,7 +278,10 @@ function assertCurrentSchema(db: MigrationDatabase): void {
     throw new Error("Conversation database is missing canonical message content_parts");
   }
   const mailboxColumns = db.prepare("PRAGMA table_info(agent_mailbox)").all() as unknown as Array<{ name: string }>;
-  for (const name of ["message_id", "session_id", "target_thread_key", "kind", "status", "content_parts", "metadata"]) {
+  for (const name of [
+    "message_id", "session_id", "target_thread_key", "kind", "input_type", "source_kind",
+    "visible_to_user", "sent_at", "status", "content_parts", "metadata",
+  ]) {
     if (!mailboxColumns.some((column) => column.name === name)) {
       throw new Error(`Conversation database is missing Agent mailbox column ${name}`);
     }

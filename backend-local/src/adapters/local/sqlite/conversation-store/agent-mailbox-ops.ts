@@ -2,9 +2,11 @@ import { isDeepStrictEqual } from "node:util";
 import { MessageContentPartSchema } from "@ragsystem/agent-protocol";
 import type {
   AckAgentMailboxInput,
+  AgentMailboxInputType,
   AgentMailboxMessage,
   AgentMailboxMessageKind,
   AgentMailboxMessageStatus,
+  AgentMailboxSourceKind,
   AgentMailboxStorePort,
   ClaimAgentMailboxInput,
   EnqueueAgentMailboxMessageInput,
@@ -29,6 +31,10 @@ interface AgentMailboxRow {
   target_thread_key: string;
   target_child_agent_id: string | null;
   kind: AgentMailboxMessageKind;
+  input_type: AgentMailboxInputType;
+  source_kind: AgentMailboxSourceKind;
+  visible_to_user: number;
+  sent_at: string | null;
   correlation_id: string | null;
   reply_to_message_id: string | null;
   content_parts: string;
@@ -49,7 +55,8 @@ interface AgentMailboxRow {
 const SELECT_COLUMNS = `
   seq, message_id, tenant_id, session_id, source_run_id, source_agent_call_id,
   target_run_id, target_agent_call_id, target_thread_key, target_child_agent_id,
-  kind, correlation_id, reply_to_message_id, content_parts, metadata, status,
+  kind, input_type, source_kind, visible_to_user, sent_at, correlation_id,
+  reply_to_message_id, content_parts, metadata, status,
   attempt_count, claim_id, claimed_by, claim_expires_at, available_at, expires_at,
   last_error, created_at, updated_at, acked_at
 `;
@@ -83,6 +90,10 @@ function mapRow(row: AgentMailboxRow): AgentMailboxMessage {
     target_thread_key: row.target_thread_key,
     target_child_agent_id: row.target_child_agent_id,
     kind: row.kind,
+    input_type: row.input_type,
+    source_kind: row.source_kind,
+    visible_to_user: row.visible_to_user === 1,
+    sent_at: iso(row.sent_at),
     correlation_id: row.correlation_id,
     reply_to_message_id: row.reply_to_message_id,
     content_parts: parts.data,
@@ -126,6 +137,10 @@ function sameMessageIdentity(
     && existing.target_thread_key === input.targetThreadKey
     && existing.target_child_agent_id === (input.targetChildAgentId ?? null)
     && existing.kind === input.kind
+    && existing.input_type === (input.inputType ?? "agent_message")
+    && existing.source_kind === (input.sourceKind ?? "agent")
+    && (existing.visible_to_user === 1) === (input.visibleToUser ?? false)
+    && iso(existing.sent_at) === (input.sentAt == null ? null : asNow(input.sentAt))
     && existing.correlation_id === (input.correlationId ?? null)
     && existing.reply_to_message_id === (input.replyToMessageId ?? null)
     && isDeepStrictEqual(existingParts.data, input.contentParts ?? [])
@@ -177,6 +192,7 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     const targetThreadKey = required(input.targetThreadKey, "targetThreadKey");
     const availableAt = asNow(input.availableAt);
     const expiresAt = input.expiresAt == null ? null : asNow(input.expiresAt);
+    const sentAt = input.sentAt == null ? null : asNow(input.sentAt);
     runInTransaction(this.db, () => {
       const existing = this.db.prepare(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox WHERE tenant_id=? AND message_id=?`).get(tenantId, messageId) as AgentMailboxRow | undefined;
       if (existing) {
@@ -189,9 +205,9 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
         INSERT INTO agent_mailbox (
           message_id, tenant_id, session_id, source_run_id, source_agent_call_id,
           target_run_id, target_agent_call_id, target_thread_key, target_child_agent_id,
-          kind, correlation_id, reply_to_message_id, content_parts, metadata,
-          available_at, expires_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          kind, input_type, source_kind, visible_to_user, sent_at, correlation_id,
+          reply_to_message_id, content_parts, metadata, available_at, expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         messageId,
         tenantId,
@@ -203,6 +219,10 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
         targetThreadKey,
         input.targetChildAgentId ?? null,
         input.kind,
+        input.inputType ?? "agent_message",
+        input.sourceKind ?? "agent",
+        input.visibleToUser ? 1 : 0,
+        sentAt,
         input.correlationId ?? null,
         input.replyToMessageId ?? null,
         stringifyJson(input.contentParts ?? []),

@@ -8,6 +8,14 @@ export type AgentMailboxMessageKind =
   | "result"
   | "cancel";
 
+export type AgentMailboxInputType =
+  | "user_message"
+  | "agent_message"
+  | "system_notification"
+  | "goal_continuation";
+
+export type AgentMailboxSourceKind = "user" | "agent" | "system";
+
 export type AgentMailboxMessageStatus =
   | "queued"
   | "claimed"
@@ -26,6 +34,10 @@ export interface AgentMailboxMessage {
   target_thread_key: string;
   target_child_agent_id: string | null;
   kind: AgentMailboxMessageKind;
+  input_type: AgentMailboxInputType;
+  source_kind: AgentMailboxSourceKind;
+  visible_to_user: boolean;
+  sent_at: string | null;
   correlation_id: string | null;
   reply_to_message_id: string | null;
   content_parts: MessageContentPart[];
@@ -54,6 +66,10 @@ export interface EnqueueAgentMailboxMessageInput {
   targetThreadKey: string;
   targetChildAgentId?: string | null;
   kind: AgentMailboxMessageKind;
+  inputType?: AgentMailboxInputType;
+  sourceKind?: AgentMailboxSourceKind;
+  visibleToUser?: boolean;
+  sentAt?: string | null;
   correlationId?: string | null;
   replyToMessageId?: string | null;
   contentParts?: MessageContentPart[];

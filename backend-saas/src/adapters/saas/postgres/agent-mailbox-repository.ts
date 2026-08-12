@@ -16,7 +16,8 @@ import { isDeepStrictEqual } from "node:util";
 const SELECT_COLUMNS = `
   seq,message_id,tenant_id,session_id,source_run_id,source_agent_call_id,
   target_run_id,target_agent_call_id,target_thread_key,target_child_agent_id,
-  kind,correlation_id,reply_to_message_id,content_parts,metadata,status,
+  kind,input_type,source_kind,visible_to_user,sent_at,correlation_id,
+  reply_to_message_id,content_parts,metadata,status,
   attempt_count,claim_id,claimed_by,claim_expires_at,available_at,expires_at,
   last_error,created_at,updated_at,acked_at
 `;
@@ -52,6 +53,10 @@ function row(value: Record<string, unknown>): AgentMailboxMessage {
     target_thread_key: String(value.target_thread_key),
     target_child_agent_id: value.target_child_agent_id == null ? null : String(value.target_child_agent_id),
     kind: value.kind as AgentMailboxMessage["kind"],
+    input_type: value.input_type as AgentMailboxMessage["input_type"],
+    source_kind: value.source_kind as AgentMailboxMessage["source_kind"],
+    visible_to_user: value.visible_to_user === true,
+    sent_at: toIso(value.sent_at),
     correlation_id: value.correlation_id == null ? null : String(value.correlation_id),
     reply_to_message_id: value.reply_to_message_id == null ? null : String(value.reply_to_message_id),
     content_parts: parts.data,
@@ -92,6 +97,10 @@ function sameMessageIdentity(
     && existing.target_thread_key === input.targetThreadKey
     && existing.target_child_agent_id === (input.targetChildAgentId ?? null)
     && existing.kind === input.kind
+    && existing.input_type === (input.inputType ?? "agent_message")
+    && existing.source_kind === (input.sourceKind ?? "agent")
+    && existing.visible_to_user === (input.visibleToUser ?? false)
+    && existing.sent_at === (input.sentAt == null ? null : timestamp(input.sentAt))
     && existing.correlation_id === (input.correlationId ?? null)
     && existing.reply_to_message_id === (input.replyToMessageId ?? null)
     && isDeepStrictEqual(existing.content_parts, input.contentParts ?? [])
@@ -114,6 +123,7 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
     const targetThreadKey = required(input.targetThreadKey, "targetThreadKey");
     const availableAt = timestamp(input.availableAt);
     const expiresAt = input.expiresAt == null ? null : timestamp(input.expiresAt);
+    const sentAt = input.sentAt == null ? null : timestamp(input.sentAt);
     // message_id is unique per tenant, not per session. Resolve the existing
     // row without a session filter so a cross-session reuse is reported as an
     // identity conflict instead of a misleading insert failure.
@@ -126,13 +136,15 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
       INSERT INTO agent_mailbox_messages (
         message_id,tenant_id,session_id,source_run_id,source_agent_call_id,
         target_run_id,target_agent_call_id,target_thread_key,target_child_agent_id,
-        kind,correlation_id,reply_to_message_id,content_parts,metadata,available_at,expires_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15::timestamptz,$16::timestamptz)
+        kind,input_type,source_kind,visible_to_user,sent_at,correlation_id,
+        reply_to_message_id,content_parts,metadata,available_at,expires_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::timestamptz,$15,$16,$17::jsonb,$18::jsonb,$19::timestamptz,$20::timestamptz)
       ON CONFLICT (tenant_id,message_id) DO NOTHING
     `, [
       messageId, tenantId, sessionId, input.sourceRunId ?? null, input.sourceAgentCallId ?? null,
       input.targetRunId ?? null, input.targetAgentCallId ?? null, targetThreadKey, input.targetChildAgentId ?? null,
-      input.kind, input.correlationId ?? null, input.replyToMessageId ?? null,
+      input.kind, input.inputType ?? "agent_message", input.sourceKind ?? "agent", input.visibleToUser ?? false,
+      sentAt, input.correlationId ?? null, input.replyToMessageId ?? null,
       JSON.stringify(input.contentParts ?? []), JSON.stringify(input.metadata ?? {}), availableAt,
       expiresAt,
     ]);
