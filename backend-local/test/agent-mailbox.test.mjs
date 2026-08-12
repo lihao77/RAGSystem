@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { createConversationStore } from "../dist/adapters/local/sqlite/conversation-store/index.js";
+import { SqliteRuntimeStorage } from "../dist/adapters/local/sqlite-runtime-storage.js";
 import { computeSessionTeamRevision } from "@ragsystem/backend-core/contracts/session/session.js";
 
 const agents = { orchestrator_agent: { agent_name: "orchestrator_agent" } };
@@ -224,4 +225,74 @@ test("local Agent mailbox claim is single-owner across SQLite store instances", 
   });
   assert.equal(retry.length, 1);
   assert.equal(retry[0].attempt_count, 1);
+});
+
+test("mailbox root wakeup and user start create only one active root across SQLite stores", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "ragsystem-mailbox-root-race-"));
+  const dbPath = join(dir, "conversation.db");
+  const first = createConversationStore({ dbPath, dataRoot: dir });
+  const second = createConversationStore({ dbPath, dataRoot: dir });
+  const mailboxStorage = new SqliteRuntimeStorage("tnt_test", first);
+  const userStorage = new SqliteRuntimeStorage("tnt_test", second);
+  t.after(async () => {
+    first.close();
+    second.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+  createSession(first);
+  const session = {
+    sessionId: "session-mailbox",
+    ownerUserId: "usr_test",
+    visibility: "private",
+    originType: "direct",
+    originId: null,
+    originChannel: "web",
+    workspaceId: null,
+    teamSnapshot,
+    metadata: {},
+  };
+  const rootRun = (runId, requestId) => ({
+    runId,
+    sessionId: "session-mailbox",
+    status: "running",
+    taskSummary: runId,
+    requestId,
+    agentName: "orchestrator_agent",
+    agentCallId: `${runId}:call`,
+    lineageParentCallId: null,
+    agentDisplayName: "Orchestrator",
+    leaseRootRunId: runId,
+    threadKey: "root",
+  });
+
+  const [mailboxResult, userResult] = await Promise.allSettled([
+    mailboxStorage.operations.startRun({
+      session,
+      run: rootRun("mailbox-root", "mailbox-request"),
+    }),
+    userStorage.operations.startOrAppendRoot({
+      session,
+      run: rootRun("user-root", "user-request"),
+      initialUserMessage: {
+        messageId: "user-root:user",
+        sessionId: "session-mailbox",
+        role: "user",
+        content: "user message",
+        contentParts: [{ type: "text", text: "user message" }],
+        threadKey: "root",
+        metadata: { run_id: "user-root" },
+      },
+      deferFollowup: true,
+      followupFactory: () => {
+        throw new Error("deferred followup must not be materialized");
+      },
+    }),
+  ]);
+
+  assert.equal(first.listActiveRootRuns("session-mailbox", 2).length, 1);
+  assert.equal(userResult.status, "fulfilled");
+  if (mailboxResult.status === "rejected") {
+    assert.match(String(mailboxResult.reason), /session already has an active root run/);
+  }
+  assert.equal(["started", "followup"].includes(userResult.value.kind), true);
 });

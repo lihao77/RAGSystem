@@ -188,6 +188,75 @@ async function createResumeClaim(store, storage) {
   return claim;
 }
 
+test('Local 双实例并发 resume 只有一个 durable claim 成功', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'ragsystem-resume-race-'));
+  const dbPath = join(root, 'runtime.db');
+  const first = createConversationStore({ dbPath, dataRoot: root });
+  const second = createConversationStore({ dbPath, dataRoot: root });
+  const firstStorage = new SqliteRuntimeStorage(tenantId, first);
+  const secondStorage = new SqliteRuntimeStorage(tenantId, second);
+  t.after(async () => {
+    first.close();
+    second.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  first.createSession({
+    tenantId,
+    sessionId: 'session-1',
+    ownerUserId: 'usr_test',
+    visibility: 'private',
+    originType: 'direct',
+    originId: null,
+    originChannel: 'web',
+    workspaceId: null,
+    teamSnapshot,
+    metadata: {},
+  });
+  first.createRun({
+    runId: 'run-1',
+    sessionId: 'session-1',
+    entrypoint: 'agent_stream',
+    status: 'suspended',
+    taskSummary: 'task',
+    requestId: 'req-1',
+    agentName: 'root',
+    agentCallId: 'root-call-1',
+    lineageParentCallId: null,
+    agentDisplayName: 'Root',
+    leaseRootRunId: 'run-1',
+    threadKey: 'root',
+  });
+  createInteraction(first);
+  first.updatePendingInteractionStatus({
+    sessionId: 'session-1',
+    interactionId: 'interaction-1',
+    from: ['waiting'],
+    status: 'resolved',
+    resolution: { kind: 'approval', approved: true, message: '' },
+  });
+
+  const claims = await Promise.all([
+    firstStorage.operations.claimResume({
+      sessionId: 'session-1',
+      interactionId: 'interaction-1',
+      claimId: 'claim-left',
+      leaseMs: 60_000,
+    }),
+    secondStorage.operations.claimResume({
+      sessionId: 'session-1',
+      interactionId: 'interaction-1',
+      claimId: 'claim-right',
+      leaseMs: 60_000,
+    }),
+  ]);
+
+  assert.equal(claims.filter((claim) => claim.claimed).length, 1);
+  assert.deepEqual(
+    claims.filter((claim) => !claim.claimed).map((claim) => claim.reason),
+    ['already_claimed'],
+  );
+});
+
 test('Local 崩溃恢复会把等待交互的 running run 收敛为 suspended', async (t) => {
   const { store, storage, runtime } = await createHarness(t);
   createInteraction(store);

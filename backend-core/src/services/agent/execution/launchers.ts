@@ -920,7 +920,12 @@ class AgentLaunchers {
             scope: "root",
             rootCallId,
           });
-      await started.durableStarted;
+      try {
+        await started.durableStarted;
+      } catch (error) {
+        if (!targetsChild && isActiveRootRunConflict(error)) return "deferred";
+        throw error;
+      }
       const outcome = await started.promise;
       if (targetsChild && !outcome.suspended) {
         completedChildTarget = {
@@ -1246,6 +1251,11 @@ class AgentLaunchers {
     }
   }
 
+}
+
+function isActiveRootRunConflict(error: unknown): boolean {
+  return error instanceof Error
+    && error.message.startsWith("session already has an active root run: ");
 }
 
 function toMailboxWakeupTarget(message: AgentMailboxMessage): AgentMailboxWakeupTarget {

@@ -416,6 +416,13 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           tenantId: this.tenantId,
           ...input.session,
         });
+        if (input.run.parentRunId == null) {
+          const competingRoot = tx.listActiveRootRuns(input.session.sessionId, 2)
+            .find((run) => run.run_id !== input.run.runId);
+          if (competingRoot) {
+            throw new Error(`session already has an active root run: ${input.session.sessionId}`);
+          }
+        }
         const existingRun = tx.getRun(input.session.sessionId, input.run.runId);
         const initialUserMessage = input.initialUserMessage
           ? resolveDeterministicMessage(tx, input.initialUserMessage, "initial user message")

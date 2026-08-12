@@ -494,6 +494,117 @@ describe("Agent mailbox continuation launcher", () => {
     expect(participantRuns.registerParticipantRun).toHaveBeenCalledTimes(3);
   });
 
+  it("defers a root mailbox continuation when durable start finds an active root", async () => {
+    const session = {
+      session_id: "session-1",
+      tenant_id: "tenant-1",
+      owner_user_id: null,
+      visibility: "private",
+      origin_type: "direct",
+      origin_id: null,
+      origin_channel: "api",
+      workspace_id: null,
+      team_snapshot: createTestTeamSnapshot("parent", [parentAgent]),
+      permission_mode: null,
+      metadata: {},
+      created_at: new Date(0).toISOString(),
+      updated_at: new Date(0).toISOString(),
+    };
+    const terminalRoot = {
+      session_id: "session-1",
+      run_id: "parent-run",
+      status: "completed",
+      agent_call_id: "parent-call",
+      agent_name: "parent",
+      agent_display_name: "Parent",
+      lease_root_run_id: "parent-run",
+      thread_key: "root",
+      child_agent_id: null,
+      parent_run_id: null,
+      parent_call_id: null,
+      lineage_parent_call_id: null,
+    };
+    const message = {
+      message_id: "request-1",
+      session_id: "session-1",
+      status: "queued",
+      target_run_id: "parent-run",
+      target_agent_call_id: "parent-call",
+      target_thread_key: "root",
+      target_child_agent_id: null,
+      correlation_id: "corr-1",
+      metadata: {
+        target_agent_name: "parent",
+        target_root_run_id: "parent-run",
+        target_parent_run_id: null,
+        target_parent_call_id: null,
+        target_lineage_parent_call_id: null,
+      },
+    };
+    const invoke = vi.fn(() => ({
+      started: true,
+      session_id: "session-1",
+      run_id: "mailbox-run",
+      task_id: "mailbox-task",
+      request_id: "agent_result:request-1",
+      kind: "agent_run" as const,
+      durableStarted: Promise.reject(new Error("session already has an active root run: session-1")),
+      promise: Promise.resolve({ content: "unused", success: true, runId: "mailbox-run" }),
+    }));
+    const getActiveRootRun = vi.fn(async () => ({ runId: null }));
+    const scheduleAutoTrigger = vi.fn();
+    const get = vi.fn(async () => message);
+    const launchers = createLaunchers({
+      tenantId: "tenant-1" as never,
+      sessions: { getSession: vi.fn(async () => session) } as never,
+      runtimeCore: {
+        resolveExecutionConfig: vi.fn(() => ({
+          readiness: { configuration_ready: true, requirements: [] },
+          agent: parentAgent,
+          provider: { key: "provider", name: "Provider", provider_type: "openai" },
+          modelName: "model",
+        })),
+      } as never,
+      slashCommandHandler: {} as never,
+      attachmentResolver: {} as never,
+      statusTracker: { getStatusBySession: vi.fn(() => ({ status: "idle" })) } as never,
+      eventPublisher: {} as never,
+      runEngine: {} as never,
+      invocationService: { invoke } as never,
+      notificationQueue: {} as never,
+      backgroundTasks: {
+        hasRunningTasksDurable: vi.fn(async () => false),
+        scheduleAutoTrigger,
+      } as never,
+      goalStore: null,
+      runtimeStorage: { operations: { getActiveRootRun } } as never,
+      clientEvents: {} as never,
+      mailbox: { get, listPending: vi.fn(async () => []) } as never,
+      runReader: { getRun: vi.fn(async () => terminalRoot) } as never,
+      participantRuns: {} as never,
+    });
+
+    launchers.triggerAgentMailboxRun({
+      sessionId: "session-1",
+      targetRunId: "parent-run",
+      targetAgentCallId: "parent-call",
+      targetThreadKey: "root",
+      targetChildAgentId: null,
+      targetAgentName: "parent",
+      targetRootRunId: "parent-run",
+      targetParentRunId: null,
+      targetParentCallId: null,
+      targetLineageParentCallId: null,
+      sourceMessageId: "request-1",
+      correlationId: "corr-1",
+    });
+    await waitFor(() => scheduleAutoTrigger.mock.calls.length === 1);
+
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith("session-1", "request-1");
+    expect(message.status).toBe("queued");
+  });
+
   it("recovers durable request correlation when a resumed child reports completion", async () => {
     const parentRun = {
       run_id: "parent-run",

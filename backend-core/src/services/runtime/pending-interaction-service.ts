@@ -183,6 +183,25 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
   async resumeAsync(sessionId: string, interactionId: string): Promise<"none" | "started" | "deferred" | "already_started"> {
     return this.tryResume(sessionId, interactionId);
   }
+  private resolveLiveWaiter(interactionId: string, resolution: RuntimeInteractionResolution): boolean {
+    const waiter = this.liveWaiters.get(interactionId);
+    if (!waiter) return false;
+    this.liveWaiters.delete(interactionId);
+    waiter.abort?.();
+    waiter.resolve(resolution.kind === "approval"
+      ? {
+          approvalId: interactionId,
+          approved: resolution.approved,
+          message: resolution.message,
+          respondedAt: new Date().toISOString(),
+        }
+      : {
+          inputId: interactionId,
+          value: resolution.value,
+          respondedAt: new Date().toISOString(),
+        });
+    return true;
+  }
   private async respondAsync(sessionId: string, interactionId: string, resolution: RuntimeInteractionResolution, callbacks?: InteractionResumeCallbacks): Promise<PendingInteractionRespondResult> {
     let result;
     try {
@@ -213,11 +232,19 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
         resumeDisposition,
       };
     }
-    const waiter = this.liveWaiters.get(interactionId);
-    if (waiter) { this.liveWaiters.delete(interactionId); waiter.abort?.(); waiter.resolve(resolution.kind === "approval" ? { approvalId: interactionId, approved: resolution.approved, message: resolution.message, respondedAt: new Date().toISOString() } : { inputId: interactionId, value: resolution.value, respondedAt: new Date().toISOString() }); return { resolved: true, needsResume: false, kind: resolution.kind, interactionId, rootRunId: meta.rootRunId, toolCallId: meta.toolCallId }; }
+    if (!result.batchReady && this.resolveLiveWaiter(interactionId, resolution)) {
+      return { resolved: true, needsResume: false, kind: resolution.kind, interactionId, rootRunId: meta.rootRunId, toolCallId: meta.toolCallId };
+    }
+    let resolvedLive = false;
     const resumeDisposition = result.batchReady
-      ? await this.tryResume(sessionId, interactionId, callbacks)
+      ? await this.tryResume(sessionId, interactionId, callbacks, () => {
+          resolvedLive = this.resolveLiveWaiter(interactionId, resolution);
+          return resolvedLive;
+        })
       : "none" as const;
+    if (resolvedLive) {
+      return { resolved: true, needsResume: false, kind: resolution.kind, interactionId, rootRunId: meta.rootRunId, toolCallId: meta.toolCallId };
+    }
     return {
       resolved: true,
       needsResume: resumeDisposition !== "none",
@@ -229,7 +256,12 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
     };
   }
 
-  private async tryResume(sessionId: string, interactionId: string, callbacks?: InteractionResumeCallbacks): Promise<"none" | "started" | "deferred" | "already_started"> {
+  private async tryResume(
+    sessionId: string,
+    interactionId: string,
+    callbacks?: InteractionResumeCallbacks,
+    resolveLive?: () => boolean,
+  ): Promise<"none" | "started" | "deferred" | "already_started"> {
     if (!this.resumeStarter) return "none";
     const recovered = await this.runtimeStorage.operations.recoverExpiredResumeClaims({ sessionId });
     if (recovered.recoveredClaimIds.length > 0 || recovered.suspendedRootRunIds.length > 0) {
@@ -243,6 +275,7 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
     });
     if (!claim.claimed) {
       if (claim.reason === "root_not_suspended") {
+        if (resolveLive?.()) return "none";
         const rootRunId = this.pendingMeta.get(interactionId)?.rootRunId;
         if (rootRunId) {
           const key = `${sessionId}:${rootRunId}`;

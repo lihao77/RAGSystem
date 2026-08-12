@@ -451,6 +451,17 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         );
       }
       await tx.conversation.createSession(input.session);
+      if (input.run.parentRunId == null) {
+        const competingRoot = await transactionExecutor.query<{ run_id: string }>(
+          `SELECT run_id FROM saas_runs
+           WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL
+             AND status IN ('running','suspended') AND run_id<>$3 LIMIT 1`,
+          [this.tenantId, input.session.sessionId, input.run.runId],
+        );
+        if (competingRoot.rows[0]) {
+          throw new Error(`session already has an active root run: ${input.session.sessionId}`);
+        }
+      }
       await lockAdvisoryKey(transactionExecutor, `run:${this.tenantId}:${input.run.runId}`);
       const existingRun = await lockTenantRun(transactionExecutor, this.tenantId, input.run.runId);
       if (existingRun) assertRunScope(existingRun, input.run);
