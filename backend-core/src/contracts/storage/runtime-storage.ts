@@ -59,12 +59,8 @@ export interface RuntimeRunStorage {
     terminalReason?: string | null,
   ): Promise<boolean>;
   getRun(sessionId: string, runId: string): Promise<RunInfo | null>;
+  ensureInitialRunMessageBoundary(sessionId: string, runId: string, messageId: string): Promise<void>;
   addRunStep(input: AddRunStepInput): Promise<RunStepRecord>;
-  updateRunStepsMessageId(
-    sessionId: string,
-    runId: string,
-    messageId: string,
-  ): Promise<number>;
 }
 
 /** Outbox mutations used while recording execution events. */
@@ -191,7 +187,6 @@ export interface RuntimeFinalizeRunInput {
   /** Root lease that must still belong to this storage instance in the finalization transaction. */
   leaseRootRunId?: string | null;
   finalMessage?: (AddMessageInput & { messageId: string }) | null;
-  attachStepsToFinalMessage?: boolean;
   /** Present only when finalizing the root run; applies the root interaction status matrix atomically. */
   interactionRootRunId?: string | null;
   closeDanglingToolCalls?: {

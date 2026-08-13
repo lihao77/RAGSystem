@@ -356,7 +356,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     "/sessions/:sessionId/messages/:messageId/run-steps",
     async (request) => {
       const sessions = await resolveSessionApplication(options, request);
-    await loadReadableSession(request, request.params.sessionId, sessions);
+      await loadReadableSession(request, request.params.sessionId, sessions);
       try {
         const query = request.query as { limit?: string; offset?: string; participant_id?: string };
         const participant = await resolveSessionParticipant(request, request.params.sessionId, query.participant_id);
@@ -371,9 +371,6 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
         return validateResponse(SessionMessageRunStepsResponseSchema, ok(data, "获取执行步骤成功"));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (message.includes("仅 assistant")) {
-          throw new HttpError(400, "invalid_request", message);
-        }
         throw new HttpError(404, "not_found", message);
       }
     },

@@ -1,93 +1,43 @@
 // @ts-check
 import { nextTick, ref } from 'vue';
-
-import { createAssistantMessage } from './useMessageExecution.js';
 import { createUserContentParts } from '../utils/messageContentParts.js';
 
 /** @typedef {Record<string, any>} AnyRecord */
 /** @param {unknown} error */
 const errorMessage = error => error instanceof Error ? error.message : String(error);
 
-/** @param {AnyRecord} activeRun @param {number} assistantMsgIndex */
-export const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
-  Object.assign(activeRun, {
-    assistantMsgIndex,
-    runId: null,
-    rootCallId: null,
-    lastSeenSeq: 0,
-    isReplaying: false,
-    phase: 'starting_agent',
-    runningToolCalls: {},
-    runningModelCalls: {},
-    runStartedAt: Date.now() / 1000,
-    firstTokenAt: null,
-    firstTokenLatencyMs: null,
-    latestLlmFirstTokenAt: null,
-    lastChunkAt: null,
-    outputCharCount: 0,
-  });
-};
-
-/** @param {AnyRecord} activeRun */
-const resetActiveRunAfterSendError = (activeRun) => {
-  Object.assign(activeRun, {
-    phase: 'idle',
-    rootCallId: null,
-    runningToolCalls: {},
-    runningModelCalls: {},
-    runStartedAt: null,
-    firstTokenAt: null,
-    firstTokenLatencyMs: null,
-    latestLlmFirstTokenAt: null,
-    lastChunkAt: null,
-    outputCharCount: 0,
-  });
-};
-
 /** @param {AnyRecord} attachment */
 export const serializeAttachmentForSend = ({ file_id }) => ({ file_id });
 
-const createRequestId = () => globalThis.crypto?.randomUUID?.()
+export const createRequestId = () => globalThis.crypto?.randomUUID?.()
   || `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-/** @param {string} content @param {AnyRecord[]} attachments @param {AnyRecord} [metadata] */
+/** @param {string} content @param {AnyRecord[]} attachments @param {AnyRecord} [metadata] @returns {import('./sessionCoreTypes.js').SessionMessage} */
 export const createUserMessage = (content, attachments, metadata = {}) => ({
   role: 'user',
   content,
   content_parts: createUserContentParts(content, attachments),
   attachments,
+  finished: true,
+  has_execution: false,
+  executionTree: { root: null, steps: [] },
+  executionStepsLoaded: false,
+  executionStepsLoading: false,
+  executionStepsLoadError: '',
+  _execState: null,
   metadata: { ...metadata },
-});
-
-/** @param {string} requestId */
-const createAgentStreamMetadata = requestId => ({
-  request_id: requestId,
-  execution_kind: 'agent_stream',
-});
-
-/** @param {string} requestId @param {AnyRecord} activeRun @param {string | null} [fallbackRunId] */
-const createFollowupMetadata = (requestId, activeRun, fallbackRunId = null) => ({
-  request_id: requestId,
-  execution_kind: 'session_followup',
-  source: 'running_session',
-  persistence_status: 'pending',
-  ...(activeRun.runId || fallbackRunId ? { run_id: activeRun.runId || fallbackRunId } : {}),
 });
 
 /** @param {import('./sessionCoreTypes.js').SessionCommandControllerOptions} options */
 export function createSessionCommandController({
   deps,
   currentSessionId,
-  messages,
   isLoading,
-  activeRun,
   allowsRuntimeAction,
   getSessionRuntime,
-  beginOptimisticCommand,
-  finishOptimisticCommand,
+  beginPendingCommand,
+  finishPendingCommand,
   scheduleCommandFallback,
-  enqueueFollowupCandidate,
-  markFollowupCandidateFailed,
   sendViaSdk,
   stopViaSdk,
 }) {
@@ -130,45 +80,23 @@ export function createSessionCommandController({
 
     const startsDraftSession = !currentSessionId.value;
     const requestId = createRequestId();
-    const runtimeRunId = getSessionRuntime?.()?.active_run?.run_id || null;
-    let userMetadata = isRunningFollowup
-      ? createFollowupMetadata(requestId, activeRun, runtimeRunId)
-      : createAgentStreamMetadata(requestId);
     let sessionId = currentSessionId.value;
-    let assistantMsgIndex = -1;
-    let userMsgIndex = -1;
     let attachments = draftAttachments;
 
     if (startsDraftSession) {
-      userMsgIndex = messages.value.push(createUserMessage(content, draftAttachments, userMetadata)) - 1;
+      lastFailedSendContent.value = content;
       deps.inputMessage.value = '';
       deps.clearComposerAttachments();
-      deps.stickToBottom();
-      assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
-      resetActiveRunForSend(activeRun, assistantMsgIndex);
-      activeRun.phase = 'creating_session';
-      beginOptimisticCommand('send');
+      beginPendingCommand('send', requestId);
     }
 
     try {
       sessionId = await deps.ensureSession({ replaceRoute: startsDraftSession });
     } catch (error) {
       console.error('Error creating session:', error);
-      if (startsDraftSession) {
-        const currentMessage = messages.value[assistantMsgIndex];
-        if (currentMessage) {
-          currentMessage.content += `\n\n[System Error: ${errorMessage(error) || '创建会话失败'}]`;
-          currentMessage.finished = true;
-        }
-        resetActiveRunAfterSendError(activeRun);
-        finishOptimisticCommand();
-      }
+      if (startsDraftSession) finishPendingCommand(requestId);
       deps.showToast('会话创建失败');
       return;
-    }
-
-    if (startsDraftSession && activeRun.active) {
-      activeRun.phase = draftAttachments.length ? 'preparing_attachments' : 'starting_agent';
     }
 
     try {
@@ -176,52 +104,17 @@ export function createSessionCommandController({
         ? []
         : await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
     } catch (error) {
-      if (startsDraftSession) {
-        const currentMessage = messages.value[assistantMsgIndex];
-        if (currentMessage) {
-          currentMessage.content += `\n\n[System Error: ${errorMessage(error) || '附件准备失败'}]`;
-          currentMessage.finished = true;
-        }
-        resetActiveRunAfterSendError(activeRun);
-        finishOptimisticCommand();
-      }
+      finishPendingCommand(requestId);
       deps.showToast(errorMessage(error) || '附件准备失败');
       return;
     }
 
-    if (startsDraftSession && activeRun.active) activeRun.phase = 'starting_agent';
-
-    if (startsDraftSession) {
-      const userMessage = messages.value[userMsgIndex];
-      if (userMessage) {
-        userMessage.attachments = attachments;
-        userMessage.content_parts = createUserContentParts(content, attachments);
-        userMessage.metadata = { ...userMetadata };
-      }
-      deps.cacheMessages(sessionId, messages.value);
-    } else if (isRunningFollowup) {
-      const rounds = messages.value[activeRun.assistantMsgIndex]?.executionTree?.root?.rounds;
-      const roundIndex = Array.isArray(rounds) && rounds.length ? rounds.at(-1).round : null;
-      enqueueFollowupCandidate(createUserMessage(content, [], {
-        ...userMetadata,
-        ...(roundIndex != null ? { round_index: roundIndex } : {}),
-      }));
+    if (!startsDraftSession) beginPendingCommand(isRunningFollowup ? 'followup' : 'send', requestId);
+    if (!startsDraftSession) {
+      lastFailedSendContent.value = content;
       deps.inputMessage.value = '';
       deps.clearComposerAttachments();
-    } else {
-      messages.value.push(createUserMessage(content, attachments, userMetadata));
-      deps.inputMessage.value = '';
-      deps.clearComposerAttachments();
-      deps.stickToBottom();
     }
-    // 运行中补充先留在候选区，等服务端落库确认后再更新会话摘要。
-    if (!isRunningFollowup) deps.updateRecentSession(sessionId, content, new Date().toISOString());
-
-    if (!startsDraftSession && !isRunningFollowup) {
-      assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
-      resetActiveRunForSend(activeRun, assistantMsgIndex);
-    }
-    if (!isRunningFollowup && !startsDraftSession) beginOptimisticCommand('send');
 
     try {
       /** @type {AnyRecord} */
@@ -242,26 +135,15 @@ export function createSessionCommandController({
       const result = sdkResponse?.data || sdkResponse || {};
       if (!result.started) {
         if (result.kind === 'command') {
-          scheduleCommandFallback(sessionId, assistantMsgIndex);
+          scheduleCommandFallback(sessionId);
           return;
         }
         throw new Error(result.error || '启动执行失败');
       }
-      if (result.run_id || result.runId) activeRun.runId = result.run_id || result.runId;
-      if (result.kind === 'command') scheduleCommandFallback(sessionId, assistantMsgIndex, 60000);
+      if (result.kind === 'command') scheduleCommandFallback(sessionId, 60000);
     } catch (error) {
       console.error('Error sending message:', error);
-      if (isRunningFollowup) {
-        markFollowupCandidateFailed(requestId, errorMessage(error));
-      } else {
-        const currentMessage = messages.value[assistantMsgIndex];
-        if (currentMessage) {
-          currentMessage.content += `\n\n[System Error: ${errorMessage(error) || 'Request failed'}]`;
-          currentMessage.finished = true;
-        }
-        resetActiveRunAfterSendError(activeRun);
-        finishOptimisticCommand();
-      }
+      finishPendingCommand(requestId);
       deps.showToast('消息发送失败', async () => {
         if (!lastFailedSendContent.value) return;
         deps.inputMessage.value = lastFailedSendContent.value;

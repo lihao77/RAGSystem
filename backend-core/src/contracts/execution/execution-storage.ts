@@ -90,9 +90,9 @@ export interface ExecutionProviderContinuationPort {
 
 export interface ExecutionRunStepQuery {
   runId?: string | null;
-  messageId?: string | null;
   sessionId?: string | null;
   limit?: number;
+  offset?: number;
 }
 
 export interface ExecutionResultReader {

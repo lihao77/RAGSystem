@@ -4,26 +4,6 @@
       class="input-area-wrapper"
       :class="{ 'input-area-wrapper--new-chat': !hasMessages }"
     >
-      <TransitionGroup
-        v-if="followupCandidates.length"
-        name="followup-candidate"
-        tag="div"
-        class="followup-candidate-area"
-        aria-live="polite"
-      >
-        <div
-          v-for="candidate in followupCandidates"
-          :key="candidate.metadata?.request_id"
-          class="followup-candidate"
-          :class="{ 'is-failed': candidate.metadata?.persistence_status === 'failed' }"
-        >
-          <span class="followup-candidate-state">
-            {{ candidate.metadata?.persistence_status === 'failed' ? '发送失败' : '待确认' }}
-          </span>
-          <span class="followup-candidate-content">{{ candidate.content }}</span>
-        </div>
-      </TransitionGroup>
-
       <ChatInput
         ref="chatInputRef"
         :model-value="modelValue"
@@ -105,7 +85,6 @@ defineProps({
   canAttach: { type: Boolean, default: false },
   hasMessages: { type: Boolean, default: false },
   newChatLaunching: { type: Boolean, default: false },
-  followupCandidates: { type: Array, default: () => [] },
   sessionId: { type: String, default: '' },
   chatSdkClient: { type: Object, default: null },
   contextUsage: { type: Object, default: null },
@@ -145,59 +124,6 @@ defineExpose({ focus });
 </script>
 
 <style scoped>
-.followup-candidate-area {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin: 0 auto 8px;
-  width: min(100%, 920px);
-}
-
-.followup-candidate {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  padding: 7px 10px;
-  border-left: 2px solid var(--color-brand-accent);
-  background: var(--surface-shell);
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.followup-candidate.is-failed {
-  border-left-color: var(--color-error);
-}
-
-.followup-candidate-state {
-  flex: 0 0 auto;
-  color: var(--color-text-muted);
-  font-weight: 650;
-}
-
-.followup-candidate.is-failed .followup-candidate-state {
-  color: var(--color-error);
-}
-
-.followup-candidate-content {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.followup-candidate-enter-active,
-.followup-candidate-leave-active {
-  transition: opacity 160ms ease, transform 160ms ease;
-}
-
-.followup-candidate-enter-from,
-.followup-candidate-leave-to {
-  opacity: 0;
-  transform: translateY(5px);
-}
-
 .composer-run-controls {
   display: flex;
   min-width: 0;

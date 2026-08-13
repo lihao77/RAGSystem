@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
  * deployment-neutral persister 完成 message/run/step/outbox 写入，并翻译 KernelEvent 推送 Envelope。
  */
 import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, RecoverableInterrupt, resolveToolInstructionMode, throwIfAborted, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
-import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefreshResult, MessageRefresher, KernelResult } from "@ragsystem/agent-sdk";
+import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefreshResult, MessageRefresher, KernelResult, KernelEvent } from "@ragsystem/agent-sdk";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import { translateKernelEvent, type WireTranslationContext } from "./event-translation.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
@@ -138,6 +138,33 @@ export interface SdkExecuteRunResult {
   toolCalls: Record<string, number>;
 }
 
+/** Per-run FIFO for every mutation that changes the durable execution timeline. */
+export class RuntimeJournal {
+  private tail: Promise<void> = Promise.resolve();
+  private failure: unknown = null;
+
+  submit<T>(commit: () => T | Promise<T>): Promise<T> {
+    const scheduled = this.tail.then(async () => {
+      if (this.failure) throw this.failure;
+      try {
+        return await commit();
+      } catch (error) {
+        this.failure = error;
+        throw error;
+      }
+    });
+    this.tail = scheduled.then(() => undefined, () => undefined);
+    return scheduled;
+  }
+
+  /** Terminal convergence must still run after a prior journal item failed. */
+  recover<T>(commit: () => T | Promise<T>): Promise<T> {
+    const scheduled = this.tail.then(commit);
+    this.tail = scheduled.then(() => undefined, () => undefined);
+    return scheduled;
+  }
+}
+
 interface DelegateCallInput {
   toolCallId: string;
   toolName: string;
@@ -154,28 +181,28 @@ export class OrderedDelegateCallPublisher {
   private readonly pending = new Map<string, DelegateCallInput>();
   private readonly published = new Set<string>();
 
-  constructor(private readonly publish: (input: DelegateCallInput) => void) {}
+  constructor(private readonly publish: (input: DelegateCallInput) => void | Promise<void>) {}
 
   emit(input: DelegateCallInput): void {
     if (this.published.has(input.toolCallId)) return;
     if (this.readyToolCalls.delete(input.toolCallId)) {
       this.published.add(input.toolCallId);
-      this.publish(input);
+      void Promise.resolve(this.publish(input)).catch(() => undefined);
       return;
     }
     this.pending.set(input.toolCallId, input);
   }
 
-  markToolCallPublished(toolCallId: string): void {
-    if (this.published.has(toolCallId)) return;
+  markToolCallPublished(toolCallId: string): DelegateCallInput | null {
+    if (this.published.has(toolCallId)) return null;
     const pending = this.pending.get(toolCallId);
     if (!pending) {
       this.readyToolCalls.add(toolCallId);
-      return;
+      return null;
     }
     this.pending.delete(toolCallId);
     this.published.add(toolCallId);
-    this.publish(pending);
+    return pending;
   }
 }
 
@@ -315,8 +342,8 @@ export async function executeRunWithSdk(
       })
     : undefined;
 
-  const orderedDelegateCalls = new OrderedDelegateCallPublisher((sdkInput) => {
-    deps.eventPublisher.publishDelegateCall({
+  const journal = new RuntimeJournal();
+  const commitDelegateCall = (sdkInput: DelegateCallInput) => deps.eventPublisher.commitDelegateCall({
       sessionId: input.sessionId,
       runId: input.runId,
       callId: sdkInput.toolCallId,
@@ -325,7 +352,8 @@ export async function executeRunWithSdk(
       arguments: sdkInput.arguments,
       parentCallId: input.rootCallId,
     });
-  });
+  const orderedDelegateCalls = new OrderedDelegateCallPublisher((sdkInput) =>
+    journal.submit(() => commitDelegateCall(sdkInput)));
 
   // backend 组装内建 context，插件可通过 hooks 追加上下文。
   // historyPort 组合 ConversationHistoryPort + SessionMetadataPort：recent source 读历史 + microcompact 缓存指纹，
@@ -358,15 +386,15 @@ export async function executeRunWithSdk(
     if (message?.metadata?.agent_message === true) deliveredMailboxMessageIds.add(message.id);
   }
   const mailboxConsumerId = `${process.pid}:${input.runId}:${randomUUID()}`;
-  // Follow-ups are persisted atomically before their sender receives an ACK.
-  // At each round boundary, read newer durable user messages into the SDK copy
-  // so they cannot be inserted between a tool call and its result.
+  const eventCommits = new WeakMap<object, Promise<void>>();
+  let commitKernelEvent: ((event: KernelEvent) => Promise<void>) | null = null;
+  // Inputs, their durable boundary, and the ACK commit as one journal item.
+  // This keeps a follow-up behind every event emitted by the preceding round.
   const refresher: MessageRefresher = {
-    refresh: async (ctx, round) => {
+    refresh: (ctx, round) => journal.submit(async () => {
       const sid = ctx.session.sessionId;
       const tk = ctx.session.threadKey;
       const mailboxAcceptedIds = new Set<string>();
-      const mailboxClaims: Array<{ messageId: string; claimId: string }> = [];
       const refreshStartSeq = lastSeq;
       let mailboxMaxSeq = lastSeq;
       const mailbox = deps.storage.agentMailbox;
@@ -467,7 +495,7 @@ export async function executeRunWithSdk(
               const attachmentIds = mailboxMessage.content_parts.flatMap((part) => part.type === "attachment_ref" ? [part.file_id] : []);
               baseExecCtx.attachmentFileIds = [...new Set([...(baseExecCtx.attachmentFileIds ?? []), ...attachmentIds])];
             }
-            deps.eventPublisher.publishAgentMessage({
+            await deps.eventPublisher.commitAgentMessage({
               sessionId: sid,
               runId: input.runId,
               callId: input.rootCallId,
@@ -484,10 +512,14 @@ export async function executeRunWithSdk(
               messageId: mailboxMessage.message_id,
               claimId: mailboxMessage.claim_id ?? "",
             };
-            mailboxClaims.push(claim);
             if (!deliveredMailboxMessageIds.has(mailboxMessage.message_id)) {
               mailboxAcceptedIds.add(mailboxMessage.message_id);
             }
+            // Canonical history and the run boundary are already durable. A later
+            // provider failure belongs to this run and must not enqueue the same
+            // message into a second follow-up run.
+            await mailbox.ack({ sessionId: sid, ...claim });
+            deliveredMailboxMessageIds.add(mailboxMessage.message_id);
           } catch (error) {
             await mailbox.release({
               sessionId: sid,
@@ -495,33 +527,11 @@ export async function executeRunWithSdk(
               claimId: mailboxMessage.claim_id ?? "",
               lastError: error instanceof Error ? error.message : String(error),
             });
+            throw error;
           }
         }
       }
-      const releaseMailboxClaims = async (error: unknown): Promise<void> => {
-        if (!mailbox) return;
-        for (const claim of mailboxClaims) {
-          await mailbox.release({
-            sessionId: sid,
-            ...claim,
-            lastError: error instanceof Error ? error.message : String(error),
-          });
-        }
-      };
-      const createRefreshResult = (messages: ChatMessage[]): MessageRefreshResult => ({
-        messages,
-        ...(mailbox && mailboxClaims.length > 0
-          ? {
-              onInvokeSuccess: async () => {
-                for (const claim of mailboxClaims) {
-                  await mailbox.ack({ sessionId: sid, ...claim });
-                }
-                for (const messageId of mailboxAcceptedIds) deliveredMailboxMessageIds.add(messageId);
-              },
-              onInvokeFailure: releaseMailboxClaims,
-            }
-          : {}),
-      });
+      const createRefreshResult = (messages: ChatMessage[]): MessageRefreshResult => ({ messages });
       try {
         const recent = await deps.storage.conversation.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
         const newerRaw = recent
@@ -548,10 +558,9 @@ export async function executeRunWithSdk(
           return raw?.role === "user" && acceptedIds.has(raw.id) ? [message] : [];
         }));
       } catch (error) {
-        await releaseMailboxClaims(error);
         throw error;
       }
-    },
+    }),
   };
   // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。
   const tokenUsage = { inputTokens: 0, outputTokens: 0 };
@@ -651,6 +660,14 @@ export async function executeRunWithSdk(
     ...(waitForToolResult ? { waitForToolResult } : {}),
     emitDelegateCall: (sdkInput) => orderedDelegateCalls.emit(sdkInput),
     refresher,
+    onEvent: (event) => {
+      const committed = journal.submit(async () => {
+        if (!commitKernelEvent) throw new Error("Runtime journal event committer is not initialized");
+        await commitKernelEvent(event);
+      });
+      void committed.catch(() => undefined);
+      eventCommits.set(event, committed);
+    },
   };
 
   // 翻译上下文：root call + lineage。
@@ -693,7 +710,17 @@ export async function executeRunWithSdk(
     ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
     ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
   });
-  const startDisposition = await persister.startRun();
+  commitKernelEvent = async (event) => {
+    await persister.persist(event);
+    for (const envelope of translateKernelEvent(event, wireCtx)) {
+      await deps.eventPublisher.commitEnvelope(envelope);
+    }
+    if (event.type === "tool_call") {
+      const delegateCall = orderedDelegateCalls.markToolCallPublished(event.toolCallId);
+      if (delegateCall) await commitDelegateCall(delegateCall);
+    }
+  };
+  const startDisposition = await journal.submit(() => persister.startRun());
   if (startDisposition.kind === "followup") {
     input.onStartDisposition?.(startDisposition);
     return { content: "", success: true, followup: startDisposition, tokenUsage: { inputTokens: 0, outputTokens: 0 }, toolCalls: {} };
@@ -726,15 +753,11 @@ export async function executeRunWithSdk(
     // 事件循环：增量落库（KernelEventPersister）+ 翻译推流（translateKernelEvent → envelope → outbox）。
     consumeEvents = (async () => {
       for await (const event of handle.events) {
+        const committed = eventCommits.get(event as object)
+          ?? journal.submit(() => commitKernelEvent!(event));
+        await committed;
         if (event.type === "tool_call") {
           toolCalls[event.toolName] = (toolCalls[event.toolName] ?? 0) + 1;
-        }
-        await persister.persist(event);
-        for (const envelope of translateKernelEvent(event, wireCtx)) {
-          deps.eventPublisher.publishEnvelope(envelope);
-        }
-        if (event.type === "tool_call") {
-          orderedDelegateCalls.markToolCallPublished(event.toolCallId);
         }
       }
     })();
@@ -746,7 +769,7 @@ export async function executeRunWithSdk(
     await consumeEvents?.catch(() => undefined);
     runtime?.close();
     if (error instanceof RecoverableInterrupt) {
-      const finalized = await persister.finalize("suspended", null, error);
+      const finalized = await journal.recover(() => persister.finalize("suspended", null, error));
       if (isInteractionRoot) {
         await deps.pendingInteractions.onRootFinalized(
           input.sessionId,
@@ -775,7 +798,7 @@ export async function executeRunWithSdk(
     const interrupted = input.signal.aborted || (error instanceof Error && error.name === "AbortError");
     // 终态合一落库：failed/interrupted 更新 run 状态并补齐本 run 的悬空 tool observation。
     const terminalError = interrupted ? new Error("session_stopped") : error;
-    const finalized = await persister.finalize(interrupted ? "interrupted" : "failed", null, terminalError);
+    const finalized = await journal.recover(() => persister.finalize(interrupted ? "interrupted" : "failed", null, terminalError));
     if (isInteractionRoot) {
       await deps.pendingInteractions.onRootFinalized(
         input.sessionId,
@@ -797,10 +820,10 @@ export async function executeRunWithSdk(
   runtime?.close();
 
   // completed：终态合一落库（最终 assistant message + Envelope 关联 + updateRunStatus）。
-  const finalized = await persister.finalize("completed", {
+  const finalized = await journal.submit(() => persister.finalize("completed", {
     content: result.content,
     contentParts: result.contentParts,
-  });
+  }));
   if (isInteractionRoot) {
     await deps.pendingInteractions.onRootFinalized(
       input.sessionId,

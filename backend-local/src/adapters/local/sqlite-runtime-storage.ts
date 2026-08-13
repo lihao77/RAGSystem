@@ -304,7 +304,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
                   }),
                   "terminal message",
                 );
-                tx.updateRunStepsMessageId(session.session_id, run.run_id, finalMessage.id);
               }
               if (!tx.updateRunStatus(
                 run.run_id,
@@ -437,6 +436,11 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         const existingRun = tx.getRun(input.session.sessionId, input.run.runId);
         const run = existingRun ? toCreatedRun(existingRun) : tx.createRun(input.run);
         if (existingRun) assertRunScope(existingRun, input.run, this.tenantId);
+        tx.ensureInitialRunMessageBoundary(
+          input.session.sessionId,
+          input.run.runId,
+          input.mailboxMessage.messageId,
+        );
         if (maintenance?.token === input.sessionMaintenanceToken) {
           tx.updateSessionMetadata(input.session.sessionId, { runtime_maintenance: null });
         }
@@ -763,7 +767,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           assertRecordScope(terminalRecord, input.sessionId, run.run_id);
           records.push(recordEnvelope(tx, terminalRecord));
         }
-        tx.updateRunStepsMessageId(input.sessionId, run.run_id, finalMessage.id);
       }
       return { interruptedRuns, cancelledInteractions, records };
     }));
@@ -914,9 +917,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
               },
             }), "terminal message");
           if (isRequestedRun) rootFinalMessage = finalMessage;
-          if (finalMessage && input.attachStepsToFinalMessage !== false) {
-            tx.updateRunStepsMessageId(input.sessionId, run.run_id, finalMessage.id);
-          }
           for (const terminalRecord of buildRunTerminalRecords({
             run: {
               sessionId: input.sessionId,

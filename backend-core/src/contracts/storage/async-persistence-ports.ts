@@ -42,7 +42,12 @@ export interface AsyncConversationRepository {
   listMessagesAfterSeq(sessionId: string, seq: number, limit?: number): Promise<MessageInfo[]>;
   listMessagesBeforeOrAtSeq(sessionId: string, seq: number, limit?: number): Promise<MessageInfo[]>;
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
-  deleteMessagesAfter(sessionId: string, input: { afterSeq?: number | null; afterMessageId?: string | null }): Promise<number>;
+  deleteMessagesAfter(sessionId: string, input: {
+    afterSeq?: number | null;
+    afterMessageId?: string | null;
+    tenantId?: string | null;
+    truncateRunSteps?: { runId: string; fromStepOrder: number } | null;
+  }): Promise<number>;
   updateMessage(input: { messageId: string; content?: string | null; metadata?: Record<string, unknown> | null; sessionId?: string | null; roleFilter?: MessageInfo["role"] | null }): Promise<boolean>;
   insertCompressionMessage(input: { sessionId: string; summaryContent: string; replacesUpToSeq?: number | null; threadKey?: string; childAgentId?: string | null; metadata?: Record<string, unknown> }): Promise<MessageInfo>;
 }
@@ -54,9 +59,18 @@ export interface AsyncRunStore {
   listRuns(tenantId: string, sessionId: string, limit?: number): Promise<{ items: RunInfo[]; total: number }>;
   listParticipantRuns(tenantId: string, sessionId: string, participantId: string, limit: number, offset: number): Promise<{ items: RunInfo[]; total: number }>;
   interruptSuspendedRuns(tenantId: string, sessionId: string): Promise<RunInfo[]>;
+  ensureInitialRunMessageBoundary(tenantId: string, sessionId: string, runId: string, messageId: string): Promise<void>;
   addRunStep(input: AddRunStepInput & { tenantId: string }): Promise<RunStepRecord>;
-  updateRunStepsMessageId(tenantId: string, sessionId: string, runId: string, messageId: string): Promise<number>;
-  listRunSteps(input: { tenantId: string; runId?: string | null; messageId?: string | null; sessionId?: string | null; limit?: number }): Promise<RunStepInfo[]>;
+  getRunMessageBoundary(tenantId: string, sessionId: string, runId: string, messageId: string): Promise<number | null>;
+  listMessageRunSteps(input: {
+    tenantId: string;
+    sessionId: string;
+    runId: string;
+    messageId: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: RunStepInfo[]; total: number }>;
+  listRunSteps(input: { tenantId: string; runId?: string | null; sessionId?: string | null; limit?: number; offset?: number }): Promise<RunStepInfo[]>;
   getTenantRun(tenantId: string, runId: string): Promise<RunInfo | null>;
   listTenantRuns(tenantId: string, activeOnly: boolean): Promise<RunInfo[]>;
 }

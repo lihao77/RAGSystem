@@ -60,8 +60,8 @@ export function createConversationStore(options: ConversationStoreOptions) {
     listActiveRootRuns: runs.listActiveRootRuns.bind(runs),
     getLatestTerminalRootRun: runs.getLatestTerminalRootRun.bind(runs),
     getRunStepByEventId: runs.getRunStepByEventId.bind(runs),
+    ensureInitialRunMessageBoundary: runs.ensureInitialRunMessageBoundary.bind(runs),
     addRunStep: runs.addRunStepInTransaction.bind(runs),
-    updateRunStepsMessageId: runs.updateRunStepsMessageId.bind(runs),
     updateRunStatus: runs.updateRunStatus.bind(runs),
     suspendPendingInteractions: pendingInteractions.suspendPendingInteractions.bind(pendingInteractions),
     createPendingInteraction: pendingInteractions.createPendingInteraction.bind(pendingInteractions),
@@ -133,8 +133,10 @@ export function createConversationStore(options: ConversationStoreOptions) {
     listParticipantRuns: runs.listParticipantRuns.bind(runs),
     listActiveRootRuns: runs.listActiveRootRuns.bind(runs),
     getLatestTerminalRootRun: runs.getLatestTerminalRootRun.bind(runs),
+    ensureInitialRunMessageBoundary: runs.ensureInitialRunMessageBoundary.bind(runs),
     addRunStep: runs.addRunStep.bind(runs),
-    updateRunStepsMessageId: runs.updateRunStepsMessageId.bind(runs),
+    getRunMessageBoundary: runs.getRunMessageBoundary.bind(runs),
+    listMessageRunSteps: runs.listMessageRunSteps.bind(runs),
     listRunSteps: runs.listRunSteps.bind(runs),
 
     // child_agents

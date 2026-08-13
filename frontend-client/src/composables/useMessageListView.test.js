@@ -4,7 +4,7 @@ import { ref } from 'vue';
 
 import { findRetryMessage, useMessageListView } from './useMessageListView.js';
 
-test('同一 run 的 followup 仅作为执行树注入，不出现在主消息列表', () => {
+test('同一 run 的 followup 作为独立消息边界出现在主消息列表', () => {
   const original = { role: 'user', content: '第一条', seq: 1, metadata: {} };
   const second = followup('第二条', 2);
   const third = followup('第三条', 3);
@@ -19,24 +19,21 @@ test('同一 run 的 followup 仅作为执行树注入，不出现在主消息�
 
   assert.deepEqual(
     view.visibleMessages.value.map(message => message.content),
-    ['第一条', '回复'],
+    ['第一条', '第二条', '第三条', '回复'],
   );
-  assert.deepEqual(view.injectionsByRunId.value['run-1'], [second, third]);
 });
 
-test('历史 followup 优先按 consumed_by_run_id 归入实际消费 run', () => {
+test('历史 followup 在实际消费 run 中仍作为可见消息边界', () => {
   const injection = followup('后来消费', 2);
   injection.metadata.run_id = 'enqueue-run';
   injection.metadata.consumed_by_run_id = 'consumer-run';
   const messages = ref([injection]);
   const view = useMessageListView({ messages, showToast: () => {} });
 
-  assert.deepEqual(view.visibleMessages.value, []);
-  assert.deepEqual(view.injectionsByRunId.value['consumer-run'], [injection]);
-  assert.equal(view.injectionsByRunId.value['enqueue-run'], undefined);
+  assert.deepEqual(view.visibleMessages.value, [injection]);
 });
 
-test('候选 followup 不写入 messages，因此不污染主消息列表', () => {
+test('未持久化的 followup 不写入 messages，因此不污染主消息列表', () => {
   const messages = ref([
     { role: 'user', content: '第一条', metadata: {} },
     { role: 'assistant', content: '回复中', metadata: { run_id: 'run-1' } },

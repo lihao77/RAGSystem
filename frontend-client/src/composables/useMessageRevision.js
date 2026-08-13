@@ -1,8 +1,7 @@
 import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
-import { createAssistantMessage } from './useMessageExecution.js';
-import { resetActiveRunForSend, serializeAttachmentForSend } from './useSessionAgentClient.js';
+import { createRequestId, serializeAttachmentForSend } from './useSessionAgentClient.js';
 
 /**
  * 构造 rollback-and-retry 的锚点：指向被编辑/重试的用户消息本身（messages[index]）。
@@ -29,93 +28,15 @@ export function useMessageRevision(deps) {
   const editingAttachmentsDraft = ref([]);
   const editingSubmitting = ref(false);
 
-  const reloadMessagesAfterRetryFailure = async (sessionId) => {
+  const reloadCanonicalMessages = async (sessionId) => {
     if (typeof deps.reloadSessionMessages !== 'function') {
-      sessionRunStore.finishOptimisticCommand();
       return;
     }
     try {
-      await deps.reloadSessionMessages(sessionId);
+      await deps.reloadSessionMessages(sessionId, { preserveStream: true });
     } catch (reloadError) {
-      console.warn('重试失败后刷新会话消息失败:', reloadError);
-    } finally {
-      // The optimistic placeholder is created before the request so live
-      // events have a target. A rejected rollback must release that command
-      // state even when the runtime snapshot is still idle.
-      sessionRunStore.finishOptimisticCommand();
+      console.warn('刷新回滚后的会话消息失败:', reloadError);
     }
-  };
-
-  const projectRetriedRun = ({
-    sessionId,
-    index,
-    content,
-    attachments,
-    result = {},
-    retrySource,
-    preserveExisting = false,
-  }) => {
-    const retryMetadata = {
-      execution_kind: 'rollback_and_retry',
-      ...(result.request_id ? { request_id: result.request_id } : {}),
-      ...(result.run_id ? { run_id: result.run_id } : {}),
-      ...(retrySource?.seq != null ? { retry_of_seq: retrySource.seq } : {}),
-      ...(retrySource?.id ? { retry_of_message_id: retrySource.id } : {}),
-    };
-
-    // The rollback endpoint can acknowledge durable start after run_started and
-    // initial stream events have already reached the browser. Keep that
-    // optimistic assistant (and its execution tree) when the HTTP response
-    // arrives; replacing messages here would discard the live projection.
-    const existingUser = messages.value[index];
-    const activeAssistant = messages.value[deps.activeRun.assistantMsgIndex];
-    const existingAssistant = activeAssistant?.role === 'assistant'
-      ? activeAssistant
-      : messages.value
-        .slice(Math.max(0, index + 1))
-        .findLast?.(item => item?.role === 'assistant')
-        || null;
-    if (
-      preserveExisting
-      && existingUser?.role === 'user'
-      && existingUser.metadata?.execution_kind === 'rollback_and_retry'
-      && existingAssistant?.role === 'assistant'
-    ) {
-      existingUser.content = content;
-      existingUser.attachments = attachments;
-      existingUser.metadata = { ...(existingUser.metadata || {}), ...retryMetadata };
-      if (result.run_id) {
-        existingAssistant.run_id = result.run_id;
-        existingAssistant.metadata = {
-          ...(existingAssistant.metadata || {}),
-          run_id: result.run_id,
-        };
-        deps.activeRun.runId = result.run_id;
-      }
-      const assistantMsgIndex = messages.value.findIndex(item => item === existingAssistant);
-      if (assistantMsgIndex >= 0) deps.activeRun.assistantMsgIndex = assistantMsgIndex;
-      deps.cacheMessages(sessionId, messages.value);
-      deps.stickToBottom?.();
-      return;
-    }
-
-    const retriedUserMessage = {
-      role: 'user',
-      content,
-      attachments,
-      metadata: retryMetadata,
-    };
-    messages.value = [
-      ...messages.value.slice(0, index),
-      retriedUserMessage,
-      createAssistantMessage({ run_id: result.run_id }),
-    ];
-    const assistantMsgIndex = messages.value.length - 1;
-    resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
-    deps.activeRun.runId = result.run_id;
-    sessionRunStore.beginOptimisticCommand('send');
-    deps.cacheMessages(sessionId, messages.value);
-    deps.stickToBottom?.();
   };
 
   const editingMessage = computed(() => {
@@ -207,38 +128,25 @@ export function useMessageRevision(deps) {
         ...(selectedLlm ? { selected_llm: selectedLlm } : {}),
       };
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
-      projectRetriedRun({
+      const requestId = createRequestId();
+      sessionRunStore.beginPendingCommand('rollback', requestId);
+      const resp = await deps.chatSdkClient.rollbackAndRetrySession(
         sessionId,
-        index,
-        content,
-        attachments: materialized,
-        retrySource: msg,
-      });
-      const resp = await deps.chatSdkClient.rollbackAndRetrySession(sessionId, retryBody);
+        retryBody,
+        { requestId },
+      );
       const result = resp.data || {};
       if (!result.started) {
         throw new Error(result.error || '操作失败');
       }
 
-      if (result.kind === 'command') {
-        await deps.reloadSessionMessages?.(sessionId);
-        sessionRunStore.finishOptimisticCommand();
-        resetEditingState();
-        return;
-      }
-      projectRetriedRun({
-        sessionId,
-        index,
-        content,
-        attachments: materialized,
-        result,
-        retrySource: msg,
-        preserveExisting: true,
-      });
+      await reloadCanonicalMessages(sessionId);
+      sessionRunStore.finishPendingCommand(requestId);
       resetEditingState();
     } catch (error) {
       editingSubmitting.value = false;
-      await reloadMessagesAfterRetryFailure(sessionId);
+      sessionRunStore.finishPendingCommand();
+      await reloadCanonicalMessages(sessionId);
       deps.showToast(error.message || '操作失败');
     }
   };
@@ -269,34 +177,22 @@ export function useMessageRevision(deps) {
     try {
       // 原样重试：不传 modify_user_message/attachments，后端用原消息内容与原附件
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
-      projectRetriedRun({
+      const requestId = createRequestId();
+      sessionRunStore.beginPendingCommand('rollback', requestId);
+      const resp = await deps.chatSdkClient.rollbackAndRetrySession(
         sessionId,
-        index,
-        content: msg.content || '',
-        attachments: Array.isArray(msg.attachments) ? msg.attachments : [],
-        retrySource: msg,
-      });
-      const resp = await deps.chatSdkClient.rollbackAndRetrySession(sessionId, anchor);
+        anchor,
+        { requestId },
+      );
       const result = resp.data || {};
       if (!result.started) {
         throw new Error(result.error || '重试失败');
       }
-      if (result.kind === 'command') {
-        await deps.reloadSessionMessages?.(sessionId);
-        sessionRunStore.finishOptimisticCommand();
-        return;
-      }
-      projectRetriedRun({
-        sessionId,
-        index,
-        content: msg.content || '',
-        attachments: Array.isArray(msg.attachments) ? msg.attachments : [],
-        result,
-        retrySource: msg,
-        preserveExisting: true,
-      });
+      await reloadCanonicalMessages(sessionId);
+      sessionRunStore.finishPendingCommand(requestId);
     } catch (error) {
-      await reloadMessagesAfterRetryFailure(sessionId);
+      sessionRunStore.finishPendingCommand();
+      await reloadCanonicalMessages(sessionId);
       deps.showToast(error.message || '重试失败');
     }
   };

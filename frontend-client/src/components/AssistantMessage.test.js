@@ -2,13 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('运行中的 assistant 把执行步骤渲染在消息流中，无步骤时才显示状态提示', async () => {
+test('消息项按正文、操作按钮、执行步骤排列，正文组件不再夹带执行步骤', async () => {
   const source = await readFile(new URL('./chat/AssistantMessage.vue', import.meta.url), 'utf8');
+  const userSource = await readFile(new URL('./chat/UserMessage.vue', import.meta.url), 'utf8');
+  const itemSource = await readFile(new URL('./chat/ChatMessageItem.vue', import.meta.url), 'utf8');
 
-  assert.equal(source.includes('<AssistantExecutionSteps'), true);
-  assert.equal(source.includes('v-if="showExecutionSteps"'), true);
+  assert.equal(source.includes('<AssistantExecutionSteps'), false);
+  assert.equal(userSource.includes('<AssistantExecutionSteps'), false);
+  assert.equal(itemSource.indexOf('<AssistantExecutionSteps') > itemSource.indexOf('<MessageActions'), true);
   assert.equal(source.includes('v-if="showLoadingIndicator"'), true);
-  assert.equal(source.includes('!props.msg.content && !props.msg.finished && !showExecutionSteps.value'), true);
+  assert.equal(source.includes('!props.msg.content && !props.msg.finished'), true);
   assert.equal(source.includes('getAssistantRuntimeStatusText(msg)'), true);
   assert.equal(source.includes('<Spinner aria-hidden="true"'), true);
   assert.equal(source.includes('role="status"'), true);
@@ -25,6 +28,15 @@ test('执行步骤中的 intent 使用 final 相同的 Markdown 渲染，并在 
   assert.equal(source.includes('watch(finalVisible'), true);
   assert.equal(source.includes('expanded.value = false'), true);
   assert.equal(source.includes('ensureExecutionStepsLoaded'), true);
+});
+
+test('用户和智能体消息由消息项共用执行步骤，最终 assistant 不显示入口', async () => {
+  const source = await readFile(new URL('./chat/ChatMessageItem.vue', import.meta.url), 'utf8');
+
+  assert.equal(source.includes('<AssistantExecutionSteps'), true);
+  assert.equal(source.includes(':msg="msg"'), true);
+  assert.equal(source.includes("props.msg.role === 'user'"), true);
+  assert.equal(source.includes("props.msg.role === 'user' || props.msg.role === 'assistant'"), false);
 });
 
 test('消息列表复用 Widget 的紧凑气泡和工具调用视觉结构', async () => {

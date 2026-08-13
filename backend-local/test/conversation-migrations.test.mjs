@@ -15,6 +15,15 @@ const withoutMailboxInputEnvelope = sql => sql
 const withLegacyCancelKind = sql => sql
   .replace("CHECK(kind IN ('progress', 'request', 'response', 'result'))", "CHECK(kind IN ('progress', 'request', 'response', 'result', 'cancel'))");
 
+const withoutRunStepBoundaries = sql => sql
+  .replace("      next_step_order INTEGER NOT NULL DEFAULT 1,\n", "")
+  .replace(/    CREATE TABLE IF NOT EXISTS run_message_boundaries \([\s\S]*?\n    \);\n\n/, "")
+  .replace(
+    "    CREATE UNIQUE INDEX IF NOT EXISTS idx_run_steps_session_run_order ON run_steps(session_id, run_id, step_order);",
+    "    CREATE INDEX IF NOT EXISTS idx_run_steps_session_run ON run_steps(session_id, run_id);",
+  )
+  .replace(/    CREATE INDEX IF NOT EXISTS idx_run_message_boundaries_order\n      ON run_message_boundaries\(session_id, run_id, start_after_step_order\);\n/, "");
+
 test("conversation migration refuses historical sessions without a Team snapshot", () => {
   const db = new DatabaseSync(":memory:");
   try {
@@ -162,6 +171,45 @@ test("v13 pending user messages migrate idempotently to root mailbox", () => {
     assert.equal(mailbox[0].target_thread_key, "root");
     const message = db.prepare("SELECT metadata FROM messages WHERE id=?").get("pending-1");
     assert.equal(JSON.parse(message.metadata).followup_pending, undefined);
+  } finally {
+    db.close();
+  }
+});
+
+test("v16 run steps receive durable per-run ordering and message boundaries", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(withoutRunStepBoundaries(BASELINE_SCHEMA_SQL));
+    db.exec("PRAGMA user_version = 16");
+    db.prepare(`
+      INSERT INTO sessions (
+        session_id, tenant_id, owner_user_id, visibility, origin_type, origin_channel, team_snapshot
+      ) VALUES (?, ?, ?, 'private', 'direct', 'web', ?)
+    `).run("session-1", "tnt_test", "usr_test", "{}");
+    db.prepare(`
+      INSERT INTO runs (
+        run_id, session_id, tenant_id, status, agent_call_id,
+        agent_display_name, lease_root_run_id, thread_key
+      ) VALUES (?, ?, ?, 'completed', ?, ?, ?, 'root')
+    `).run("root-run", "session-1", "tnt_test", "root-call", "assistant", "root-run");
+    const insertStep = db.prepare(`
+      INSERT INTO run_steps (run_id, session_id, event_id, step_order, step_type, payload)
+      VALUES (?, ?, ?, ?, 'protocol.envelope.v1', '{}')
+    `);
+    insertStep.run("root-run", "session-1", "event-1", 1);
+    insertStep.run("root-run", "session-1", "event-2", 2);
+
+    runMigrations(db);
+
+    assert.equal(db.prepare("PRAGMA user_version").get().user_version, LATEST_SCHEMA_VERSION);
+    assert.equal(db.prepare("SELECT next_step_order FROM runs WHERE run_id='root-run'").get().next_step_order, 3);
+    assert.equal(
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='run_message_boundaries'").get().name,
+      "run_message_boundaries",
+    );
+    const index = db.prepare("PRAGMA index_list(run_steps)").all()
+      .find(item => item.name === "idx_run_steps_session_run_order");
+    assert.equal(index?.unique, 1);
   } finally {
     db.close();
   }

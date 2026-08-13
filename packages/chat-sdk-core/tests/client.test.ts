@@ -475,7 +475,7 @@ describe("RagChatClient", () => {
     });
 
     await client.getContextSnapshot("s-1", { selectedLlm: "model-a" });
-    await client.rollbackAndRetrySession("s-1", { after_seq: 3 });
+    await client.rollbackAndRetrySession("s-1", { after_seq: 3 }, { requestId: "retry-request-1" });
     const exported = await client.exportSession("s-1");
     expect(await exported.text()).toBe("{}");
 
@@ -486,7 +486,11 @@ describe("RagChatClient", () => {
     ]);
     expect(calls[1]?.init).toEqual(expect.objectContaining({
       method: "POST",
-      headers: { authorization: "Bearer jwt-1", "content-type": "application/json" },
+      headers: {
+        authorization: "Bearer jwt-1",
+        "content-type": "application/json",
+        "x-request-id": "retry-request-1",
+      },
       body: JSON.stringify({ after_seq: 3 }),
     }));
   });

@@ -159,6 +159,14 @@ export function useSessionMessages(deps) {
             seq: item.seq,
             content,
             content_parts: agentMessage ? [{ type: 'text', text: content }] : contentParts,
+            finished: true,
+            has_execution: Boolean(item.has_execution),
+            executionTree: { root: null, steps: [] },
+            executionStepsLoaded: false,
+            executionStepsLoading: false,
+            executionStepsLoadError: '',
+            run_id: metadata.consumed_by_run_id || metadata.run_id || null,
+            _execState: null,
             metadata: agentMessage
               ? { ...metadata, agent_message_display_content: content }
               : metadata,

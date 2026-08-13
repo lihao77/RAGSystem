@@ -80,7 +80,12 @@ export class AgentExecutionEventPublisher {
    * protocol.envelope.v1 归档与 outbox 写入，再投递到 WS。
    */
   publishEnvelope(envelope: Envelope): void {
-    this.publish(typeof envelope.session_id === "string" ? envelope.session_id : "", envelope);
+    void this.commitEnvelope(envelope).catch(() => undefined);
+  }
+
+  /** Durable journal path: resolves only after outbox/Run Step commit. */
+  commitEnvelope(envelope: Envelope): Promise<void> {
+    return this.commit(typeof envelope.session_id === "string" ? envelope.session_id : "", envelope);
   }
 
   /**
@@ -97,7 +102,19 @@ export class AgentExecutionEventPublisher {
     arguments: Record<string, unknown>;
     parentCallId?: string | null;
   }): void {
-    this.publishEnvelope({
+    void this.commitDelegateCall(input).catch(() => undefined);
+  }
+
+  commitDelegateCall(input: {
+    sessionId: string;
+    runId: string;
+    callId: string;
+    agentId: string;
+    tool: string;
+    arguments: Record<string, unknown>;
+    parentCallId?: string | null;
+  }): Promise<void> {
+    return this.commitEnvelope({
       type: "delegate_call",
       session_id: input.sessionId,
       run_id: input.runId,
@@ -118,6 +135,16 @@ export class AgentExecutionEventPublisher {
     callId?: string | null;
     message: AgentMailboxMessage;
   }): void {
+    void this.commitAgentMessage(input).catch(() => undefined);
+  }
+
+  /** Durable journal path for mailbox inputs and their message boundary. */
+  commitAgentMessage(input: {
+    sessionId: string;
+    runId: string;
+    callId?: string | null;
+    message: AgentMailboxMessage;
+  }): Promise<void> {
     const message = input.message;
     const metadata = message.metadata ?? {};
     const targetParentCallId = typeof metadata.target_parent_call_id === "string"
@@ -141,7 +168,7 @@ export class AgentExecutionEventPublisher {
     const direction = metadata.direction === "parent_to_child" || metadata.direction === "child_to_parent"
       ? metadata.direction
       : null;
-    this.publishEnvelope({
+    return this.commitEnvelope({
       type: "agent_message",
       session_id: input.sessionId,
       run_id: input.runId,
@@ -177,16 +204,16 @@ export class AgentExecutionEventPublisher {
 
 
   private publish(sessionId: string, event: Envelope, requireRunLease = true): void {
-    try {
-      void Promise.resolve(this.clientEvents.publish(sessionId, event, {
+    void this.commit(sessionId, event, requireRunLease).catch(() => undefined);
+  }
+
+  private async commit(sessionId: string, event: Envelope, requireRunLease = true): Promise<void> {
+    await this.clientEvents.publish(sessionId, event, {
         runId: typeof event.run_id === "string" ? event.run_id : null,
         aggregateType: typeof event.run_id === "string" ? "run" : "session",
         aggregateId: typeof event.run_id === "string" ? event.run_id : sessionId,
         ...(requireRunLease && typeof event.run_id === "string" ? { requireRunLease: true } : {}),
-      })).catch(() => undefined);
-    } catch {
-      // Event delivery is best-effort here; durable replay covers reconnects.
-    }
+      });
   }
 
 }

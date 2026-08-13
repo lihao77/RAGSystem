@@ -3,7 +3,7 @@ import type { PaginatedResult } from "@ragsystem/backend-core/contracts/common.j
 import type { MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
-import { stringifyJson } from "./helpers.js";
+import { parseJsonObject, stringifyJson } from "./helpers.js";
 import { decodeChatFields, encodeChatFields } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import { rowToMessage } from "./mappers.js";
 import type { AddMessageInput } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
@@ -235,7 +235,12 @@ export class MessageOps {
     return this.listMessages(sessionId, limit, 0, threadKey).items;
   }
 
-  deleteMessagesAfter(sessionId: string, input: { afterSeq?: number | null; afterMessageId?: string | null }): number {
+  deleteMessagesAfter(sessionId: string, input: {
+    afterSeq?: number | null;
+    afterMessageId?: string | null;
+    tenantId?: string | null;
+    truncateRunSteps?: { runId: string; fromStepOrder: number } | null;
+  }): number {
     let afterSeq = input.afterSeq ?? null;
     if (input.afterMessageId) {
       const row = this.db
@@ -251,15 +256,67 @@ export class MessageOps {
     }
 
     return runInTransaction(this.db, () => {
+      const truncation = input.truncateRunSteps;
+      if (truncation) {
+        this.db.prepare(`
+          DELETE FROM run_message_boundaries
+          WHERE session_id=? AND run_id=?
+            AND (start_after_step_order>=? OR boundary_step_order>=?)
+        `).run(
+          sessionId,
+          truncation.runId,
+          truncation.fromStepOrder,
+          truncation.fromStepOrder,
+        );
+        this.db.prepare(`
+          DELETE FROM step_resources
+          WHERE step_id IN (
+            SELECT id FROM run_steps
+            WHERE session_id=? AND run_id=? AND step_order>=?
+          )
+        `).run(sessionId, truncation.runId, truncation.fromStepOrder);
+        this.db
+          .prepare("DELETE FROM run_steps WHERE session_id=? AND run_id=? AND step_order>=?")
+          .run(sessionId, truncation.runId, truncation.fromStepOrder);
+      }
       const rows = this.db
-        .prepare("SELECT id FROM messages WHERE session_id=? AND seq > ?")
-        .all(sessionId, afterSeq) as Array<{ id: string }>;
+        .prepare("SELECT id, metadata FROM messages WHERE session_id=? AND seq > ?")
+        .all(sessionId, afterSeq) as Array<{ id: string; metadata: string }>;
       if (rows.length === 0) {
         return 0;
       }
-      const messageIds = rows.map((row) => row.id);
-      const placeholders = messageIds.map(() => "?").join(",");
-      this.db.prepare(`DELETE FROM run_steps WHERE message_id IN (${placeholders})`).run(...messageIds);
+      const survivingRunIds = new Set((this.db.prepare(`
+        SELECT DISTINCT COALESCE(
+          NULLIF(json_extract(metadata, '$.consumed_by_run_id'), ''),
+          NULLIF(json_extract(metadata, '$.run_id'), '')
+        ) AS run_id
+        FROM messages
+        WHERE session_id=? AND seq<=?
+      `).all(sessionId, afterSeq) as Array<{ run_id: string | null }>)
+        .flatMap((row) => typeof row.run_id === "string" && row.run_id.trim() ? [row.run_id.trim()] : []));
+      const deletedRunIds = [...new Set(rows.flatMap((row) => {
+        const metadata = parseJsonObject(row.metadata);
+        const runId = metadata.consumed_by_run_id ?? metadata.run_id;
+        return typeof runId === "string" && runId.trim() ? [runId.trim()] : [];
+      }))].filter((runId) => runId !== truncation?.runId && !survivingRunIds.has(runId));
+      if (deletedRunIds.length > 0) {
+        const runPlaceholders = deletedRunIds.map(() => "?").join(",");
+        this.db.prepare(`
+          DELETE FROM run_message_boundaries
+          WHERE session_id=? AND run_id IN (${runPlaceholders})
+        `).run(sessionId, ...deletedRunIds);
+        this.db.prepare(`
+          DELETE FROM step_resources
+          WHERE step_id IN (
+            SELECT id FROM run_steps
+            WHERE session_id=? AND run_id IN (${runPlaceholders})
+          )
+        `).run(sessionId, ...deletedRunIds);
+        this.db.prepare(`
+          DELETE FROM run_steps
+          WHERE session_id=? AND run_id IN (${runPlaceholders})
+        `).run(sessionId, ...deletedRunIds);
+      }
       this.db.prepare("DELETE FROM messages WHERE session_id=? AND seq > ?").run(sessionId, afterSeq);
       this.db
         .prepare("DELETE FROM child_agents WHERE session_id=? AND created_seq IS NOT NULL AND created_seq > ?")

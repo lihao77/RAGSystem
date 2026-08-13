@@ -16,7 +16,12 @@ import { AsyncQueue } from "./async-queue.js";
 export class Dispatcher implements EventSink {
   readonly events = new AsyncQueue<KernelEvent>();
 
+  constructor(private readonly onEvent?: (event: KernelEvent) => void) {}
+
   emit(event: KernelEvent): void {
+    // Notify the host synchronously so it can reserve the event's durable
+    // journal position before the kernel advances to a refresher/input.
+    this.onEvent?.(event);
     this.events.push(event);
   }
 

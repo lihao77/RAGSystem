@@ -125,7 +125,6 @@ export function rowToRunStep(row: RunStepRow, resourceRefs: Array<{ resource_id:
     run_id: row.run_id,
     ...(row.event_id ? { event_id: row.event_id } : {}),
     session_id: row.session_id,
-    message_id: row.message_id,
     step_order: row.step_order,
     step_type: row.step_type,
     payload,

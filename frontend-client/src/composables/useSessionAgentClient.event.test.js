@@ -91,9 +91,8 @@ function createDeps(overrides = {}) {
     isCompressing,
     contextUsage,
     sessionRuntime,
-    optimisticCommand,
+    pendingCommands,
     llmRetryState,
-    pendingFollowupCandidates,
   } = storeToRefs(sessionRunStore);
   currentSessionId.value = 'session-1';
   contextUsage.value = null;
@@ -149,10 +148,9 @@ function createDeps(overrides = {}) {
     isCompressing,
     contextUsage,
     sessionRuntime,
-    optimisticCommand,
+    pendingCommands,
     activeRun: sessionRunStore.activeRun,
     llmRetryState,
-    pendingFollowupCandidates,
     getWS: () => null,
     createAssistantMessage,
     clearSessionResumeRecovery: () => {},
@@ -191,52 +189,49 @@ function withMock(setup, run) {
     .finally(() => { mock.restore(); });
 }
 
-test('ack(send) 启动失败时会结束当前 assistant 占位并标记失败', () => {
-  const { deps, sessionRunStore } = createDeps();
-  deps.messages.value = [createAssistantMessage()];
-  sessionRunStore.beginOptimisticCommand('send');
-  deps.activeRun.assistantMsgIndex = 0;
+test('ack(send) 启动失败时只结束请求态，不创建或修改消息', () => {
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.beginPendingCommand('send', 'request-failed');
 
   const stream = useSessionAgentClient(deps);
-  stream.handleEnvelope({ type: 'ack', payload: { category: 'send', ok: false, error: 'boom' } }, 'session-1');
+  stream.handleEnvelope({
+    type: 'ack',
+    payload: { category: 'send', request_id: 'request-failed', ok: false, error: 'boom' },
+  }, 'session-1');
 
-  assert.match(deps.messages.value[0].content, /boom/);
-  assert.equal(deps.messages.value[0].finished, true);
+  assert.deepEqual(deps.messages.value, []);
   assert.equal(deps.sessionRuntime.value.state, 'idle');
-  assert.equal(deps.optimisticCommand.value, null);
+  assert.deepEqual(deps.pendingCommands.value, []);
   assert.equal(deps.activeRun.active, false);
   assert.equal(deps.isLoading.value, false);
+  assert.equal(calls.showToast[0][0], 'boom');
 });
 
-test('state_sync(command_result) 会补建 assistant 消息并触发静默刷新', async () => {
+test('state_sync(command_result) 不补建消息，只触发 canonical 历史刷新', async () => {
   const { deps, calls, sessionRunStore } = createDeps();
-  deps.messages.value = [{ role: 'user', content: '/foo' }];
-  sessionRunStore.beginOptimisticCommand('send');
+  sessionRunStore.beginPendingCommand('send', 'request-command');
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
     type: 'state_sync',
     payload: {
       category: 'command_result',
-      detail: { content: '命令完成', command: 'foo', invocation_id: 'cmd-1', success: true },
+      detail: {
+        request_id: 'request-command',
+        content: '命令完成',
+        command: 'foo',
+        invocation_id: 'cmd-1',
+        success: true,
+      },
     },
   }, 'session-1');
   await nextTick();
 
-  assert.equal(deps.messages.value.length, 2);
-  assert.equal(deps.messages.value[1].role, 'assistant');
-  assert.equal(deps.messages.value[1].content, '命令完成');
-  assert.deepEqual(deps.messages.value[1].content_parts, [{
-    type: 'command_result',
-    invocation_id: 'cmd-1',
-    name: 'foo',
-    success: true,
-    text: '命令完成',
-  }]);
-  assert.equal(deps.messages.value[1].finished, true);
+  assert.deepEqual(deps.messages.value, []);
+  assert.deepEqual(deps.pendingCommands.value, []);
+  assert.deepEqual(calls.loadSessionMessages, [['session-1', { silent: true }]]);
   assert.equal(deps.isLoading.value, false);
   assert.deepEqual(calls.deleteMessageCache, [['session-1']]);
-  assert.deepEqual(calls.loadSessionMessages, [['session-1', { silent: true }]]);
   assert.deepEqual(calls.scrollToBottom, [[true]]);
 });
 
@@ -370,24 +365,13 @@ test('子 Run 的终态 stream_output 即使缺少 lineage 也不会覆盖根回
   assert.equal(deps.messages.value[0].finished, false);
 });
 
-test('agent_message 消费确认会将 run 内 followup 移入执行树注入列表', () => {
-  const { deps, calls } = createDeps();
+test('agent_message 消费确认从 canonical 数据创建 run 内 followup', () => {
+  const { deps, calls, sessionRunStore } = createDeps();
   deps.messages.value = [
     { role: 'user', content: '原始任务', metadata: {}, attachments: [] },
     createAssistantMessage({ content: 'partial answer' }),
   ];
-  deps.pendingFollowupCandidates.value = [{
-    role: 'user',
-    content: '运行中补充',
-    metadata: {
-      request_id: 'req-followup',
-      execution_kind: 'session_followup',
-      source: 'running_session',
-      persistence_status: 'pending',
-      run_id: 'run-1',
-    },
-    attachments: [],
-  }];
+  sessionRunStore.beginPendingCommand('followup', 'req-followup');
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 1;
 
@@ -415,26 +399,20 @@ test('agent_message 消费确认会将 run 内 followup 移入执行树注入列
   }, 'session-1');
 
   assert.equal(deps.messages.value[0].id, undefined);
-  assert.equal(deps.messages.value[2].id, 'msg-followup');
-  assert.equal(deps.messages.value[2].seq, 12);
-  assert.equal(deps.messages.value[2].metadata.persistence_status, undefined);
-  assert.equal(deps.messages.value[2].metadata.run_id, 'run-1');
-  assert.equal(deps.messages.value[2].metadata.task_id, 'task-1');
-  assert.equal(deps.messages.value[2].metadata.round_index, 4);
-  assert.equal(deps.pendingFollowupCandidates.value.length, 0);
+  assert.equal(deps.messages.value[1].id, 'msg-followup');
+  assert.equal(deps.messages.value[1].seq, 12);
+  assert.equal(deps.messages.value[1].content, '运行中补充');
+  assert.equal(deps.messages.value[1].metadata.run_id, 'run-1');
+  assert.equal(deps.messages.value[1].metadata.task_id, 'task-1');
+  assert.equal(deps.messages.value[1].metadata.round_index, 4);
+  assert.equal(deps.messages.value[2].role, 'assistant');
+  assert.deepEqual(deps.pendingCommands.value, []);
   assert.deepEqual(calls.cacheMessages, [['session-1', deps.messages.value]]);
 });
 
-test('state_sync(message_saved) 用服务端 canonical content_parts 校准乐观用户消息', () => {
-  const { deps } = createDeps();
-  deps.messages.value = [{
-    role: 'user',
-    content: '/review src',
-    content_parts: [{ type: 'text', text: '/review src' }],
-    metadata: { request_id: 'req-command', persistence_status: 'pending' },
-    attachments: [],
-  }, createAssistantMessage()];
-  deps.activeRun.assistantMsgIndex = 1;
+test('state_sync(message_saved) 从服务端 canonical content_parts 创建用户消息', () => {
+  const { deps, sessionRunStore } = createDeps();
+  sessionRunStore.beginPendingCommand('send', 'req-command');
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
@@ -471,7 +449,9 @@ test('state_sync(message_saved) 用服务端 canonical content_parts 校准乐�
     },
   }, 'session-1');
 
+  assert.equal(deps.messages.value.length, 1);
   assert.equal(deps.messages.value[0].id, 'msg-command');
+  assert.equal(deps.messages.value[0].content, '/review src');
   assert.equal(deps.messages.value[0].content_parts[0].type, 'command_ref');
   assert.deepEqual(deps.messages.value[0].attachments, [{
     file_id: 'file-1',
@@ -482,6 +462,7 @@ test('state_sync(message_saved) 用服务端 canonical content_parts 校准乐�
     kind: 'file',
     source: 'session',
   }]);
+  assert.deepEqual(deps.pendingCommands.value, []);
 });
 
 test('旧 Run 的 assistant message_saved 不会覆盖当前 Run 消息', () => {
@@ -515,24 +496,13 @@ test('旧 Run 的 assistant message_saved 不会覆盖当前 Run 消息', () => 
   assert.deepEqual(calls.cacheMessages, []);
 });
 
-test('新 run 消费 followup 后才转为正式主消息', () => {
-  const { deps } = createDeps();
+test('followup 被新 run 消费后由 canonical 事件创建正式主消息', () => {
+  const { deps, sessionRunStore } = createDeps();
   deps.messages.value = [
     { role: 'user', content: '原始任务', metadata: {}, attachments: [] },
     createAssistantMessage({ content: '旧 run 输出', metadata: { run_id: 'run-old' } }),
   ];
-  deps.pendingFollowupCandidates.value = [{
-    role: 'user',
-    content: '旧 run 结束后发送的补充',
-    metadata: {
-      request_id: 'req-new-run',
-      execution_kind: 'session_followup',
-      source: 'running_session',
-      persistence_status: 'pending',
-      run_id: 'run-old',
-    },
-    attachments: [],
-  }];
+  sessionRunStore.beginPendingCommand('followup', 'req-new-run');
   Object.assign(deps.activeRun, { active: true, assistantMsgIndex: 1, runId: 'run-old' });
 
   const stream = useSessionAgentClient(deps);
@@ -576,7 +546,7 @@ test('新 run 消费 followup 后才转为正式主消息', () => {
   assert.equal(deps.messages.value.filter(message => message.role === 'assistant' && message.run_id === 'run-new').length, 1);
   assert.equal(deps.messages.value[3].run_id, 'run-new');
   assert.equal(deps.activeRun.assistantMsgIndex, 3);
-  assert.equal(deps.pendingFollowupCandidates.value.length, 0);
+  assert.deepEqual(deps.pendingCommands.value, []);
 });
 
 test('首发消息在 run_started 后由消费事件回填且不重复插入', () => {
@@ -624,7 +594,74 @@ test('首发消息在 run_started 后由消费事件回填且不重复插入', (
   assert.equal(deps.messages.value[0].seq, 1);
   assert.equal(deps.messages.value[0].metadata.run_id, 'run-first');
   assert.equal(deps.messages.value[0].metadata.consumed_by_run_id, 'run-first');
+  assert.equal(deps.messages.value[0].has_execution, true);
   assert.equal(deps.messages.value[1].run_id, 'run-first');
+});
+
+test('边界事件不会搬运 active assistant 的实时执行树', () => {
+  const { deps } = createDeps();
+  const carrier = createAssistantMessage({ content: '已有工具输出' });
+  carrier.executionTree = { root: { callId: 'root-call' }, steps: [] };
+  deps.messages.value = [carrier];
+  Object.assign(deps.activeRun, { active: true, assistantMsgIndex: 0, runId: 'run-1' });
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'agent_message',
+    run_id: 'run-1',
+    payload: {
+      message_id: 'stop-message',
+      content_parts: [{ type: 'text', text: '停止工具调用' }],
+      metadata: {
+        mailbox_message_id: 'stop-message',
+        agent_message: false,
+        visible_to_user: true,
+        source: 'running_session',
+        execution_kind: 'session_followup',
+        run_id: 'run-1',
+      },
+    },
+  }, 'session-1');
+
+  assert.equal(carrier.executionTree.root.callId, 'root-call');
+  const boundary = deps.messages.value.find(message => message.id === 'stop-message');
+  assert.equal(boundary.has_execution, true);
+  assert.equal(boundary.executionTree.root, null);
+});
+
+test('followup 消费确认在 assistant 尚未绑定 run_id 时仍插入到 assistant 之前', () => {
+  const { deps } = createDeps();
+  const assistant = createAssistantMessage({ content: '处理中' });
+  deps.messages.value = [
+    { role: 'user', content: '原始任务', metadata: {}, attachments: [] },
+    assistant,
+  ];
+  Object.assign(deps.activeRun, { active: true, assistantMsgIndex: 1, runId: 'run-1' });
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'agent_message',
+    run_id: 'run-1',
+    payload: {
+      message_id: 'followup-before-run-bind',
+      seq: 2,
+      content_parts: [{ type: 'text', text: '停止工具调用' }],
+      metadata: {
+        mailbox_message_id: 'followup-before-run-bind',
+        agent_message: false,
+        visible_to_user: true,
+        source: 'running_session',
+        execution_kind: 'session_followup',
+        consumed_by_run_id: 'run-1',
+      },
+    },
+  }, 'session-1');
+
+  assert.deepEqual(deps.messages.value.map(message => message.content), [
+    '原始任务',
+    '停止工具调用',
+    '处理中',
+  ]);
 });
 
 test('goal continuation 的 run_started 会立即插入可见通知，无需刷新消息列表', () => {
@@ -721,7 +758,12 @@ test('连续 Goal 自动续跑后，消息内执行步骤仍用 assistant messag
 
     const execution = useMessageExecution({
       currentSessionId: deps.currentSessionId,
-      chatSdkClient: deps.chatSdkClient,
+      chatSdkClient: {
+        getMessageRunSteps: async (sessionId, messageId) => {
+          requestedUrls.push(`/api/agent/sessions/${sessionId}/messages/${messageId}/run-steps`);
+          return { data: { items: [] } };
+        },
+      },
       showToast: () => {},
     });
     previousAssistant.executionStepsLoaded = false;
@@ -1087,15 +1129,15 @@ test('run_started 只确认 Agent 已进入处理态，不猜测模型请求已�
   assert.equal(deps.isLoading.value, true);
 });
 
-test('idle runtime 在 run_started 前到达时复用乐观 assistant 占位', () => {
+test('idle runtime 在 run_started 前到达时复用已有未完成 assistant', () => {
   const { deps, sessionRunStore } = createDeps();
   deps.messages.value = [
     { role: 'user', content: '新任务', metadata: {}, attachments: [] },
     createAssistantMessage(),
   ];
   deps.activeRun.assistantMsgIndex = 1;
-  // Connection bootstrap may reconcile the optimistic command to idle before
-  // the server publishes run_started.
+  // Connection bootstrap may reconcile to idle before a later durable
+  // run_started event arrives.
   sessionRunStore.applySessionRuntime(runtimeSnapshot('idle'));
 
   const stream = useSessionAgentClient(deps);

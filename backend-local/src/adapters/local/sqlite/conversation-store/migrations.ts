@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 15;
+export const LATEST_SCHEMA_VERSION = 17;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 14) {
+  if (current >= 1 && current <= 16) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -68,6 +68,14 @@ export function runMigrations(db: MigrationDatabase): void {
         }
         db.exec("ALTER TABLE sessions ADD COLUMN team_snapshot TEXT NOT NULL");
       }
+      if (current <= 15) {
+        db.exec("DROP INDEX IF EXISTS idx_run_steps_message_id");
+        const runStepColumns = db.prepare("PRAGMA table_info(run_steps)").all() as unknown as Array<{ name: string }>;
+        if (runStepColumns.some((column) => column.name === "message_id")) {
+          db.exec("ALTER TABLE run_steps DROP COLUMN message_id");
+        }
+      }
+      ensureRunStepOrderingAndBoundaries(db);
       db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
     });
     assertCurrentSchema(db);
@@ -102,6 +110,38 @@ function ensureAgentMailboxInputColumns(db: MigrationDatabase): void {
   if (!names.has("sent_at")) {
     db.exec("ALTER TABLE agent_mailbox ADD COLUMN sent_at TEXT");
   }
+}
+
+function ensureRunStepOrderingAndBoundaries(db: MigrationDatabase): void {
+  const runColumns = db.prepare("PRAGMA table_info(runs)").all() as unknown as Array<{ name: string }>;
+  if (!runColumns.some((column) => column.name === "next_step_order")) {
+    db.exec("ALTER TABLE runs ADD COLUMN next_step_order INTEGER NOT NULL DEFAULT 1");
+  }
+  db.exec(`
+    UPDATE runs
+    SET next_step_order=COALESCE((
+      SELECT MAX(step.step_order)+1
+      FROM run_steps AS step
+      WHERE step.session_id=runs.session_id AND step.run_id=runs.run_id
+    ), 1);
+    CREATE TABLE IF NOT EXISTS run_message_boundaries (
+      session_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      start_after_step_order INTEGER NOT NULL,
+      boundary_step_order INTEGER,
+      boundary_kind TEXT NOT NULL CHECK(boundary_kind IN ('carrier', 'terminal')),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(session_id, run_id, message_id),
+      FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
+      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+    );
+    DROP INDEX IF EXISTS idx_run_steps_session_run;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_run_steps_session_run_order
+      ON run_steps(session_id, run_id, step_order);
+    CREATE INDEX IF NOT EXISTS idx_run_message_boundaries_order
+      ON run_message_boundaries(session_id, run_id, start_after_step_order);
+  `);
 }
 
 function migratePendingUserMessagesToMailbox(db: MigrationDatabase): void {
@@ -333,6 +373,9 @@ function assertCurrentSchema(db: MigrationDatabase): void {
       throw new Error(`Conversation database is missing run lifecycle column ${name}`);
     }
   }
+  if (runColumns.find((column) => column.name === "next_step_order")?.notnull !== 1) {
+    throw new Error("Conversation database is missing required runs.next_step_order");
+  }
   for (const name of ["agent_call_id", "agent_display_name", "lease_root_run_id"]) {
     if (runColumns.find((column) => column.name === name)?.notnull !== 1) {
       throw new Error(`Conversation database run lifecycle column ${name} must be NOT NULL`);
@@ -345,6 +388,20 @@ function assertCurrentSchema(db: MigrationDatabase): void {
   const messageColumns = db.prepare("PRAGMA table_info(messages)").all() as unknown as Array<{ name: string }>;
   if (!messageColumns.some((column) => column.name === "content_parts")) {
     throw new Error("Conversation database is missing canonical message content_parts");
+  }
+  const runStepColumns = db.prepare("PRAGMA table_info(run_steps)").all() as unknown as Array<{ name: string }>;
+  if (runStepColumns.some((column) => column.name === "message_id")) {
+    throw new Error("Conversation database contains obsolete run_steps.message_id");
+  }
+  const boundaryColumns = db.prepare("PRAGMA table_info(run_message_boundaries)").all() as unknown as Array<{ name: string }>;
+  for (const name of ["session_id", "run_id", "message_id", "start_after_step_order", "boundary_step_order", "boundary_kind"]) {
+    if (!boundaryColumns.some((column) => column.name === name)) {
+      throw new Error(`Conversation database is missing run message boundary column ${name}`);
+    }
+  }
+  const runStepIndexes = db.prepare("PRAGMA index_list(run_steps)").all() as unknown as Array<{ name: string; unique: number }>;
+  if (!runStepIndexes.some((index) => index.name === "idx_run_steps_session_run_order" && index.unique === 1)) {
+    throw new Error("Conversation database is missing unique run step order index");
   }
   const mailboxColumns = db.prepare("PRAGMA table_info(agent_mailbox)").all() as unknown as Array<{ name: string }>;
   for (const name of [

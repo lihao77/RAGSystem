@@ -1,5 +1,6 @@
 import { PROTOCOL_VERSION, type Envelope } from "@ragsystem/agent-protocol";
 import type { AddRunStepInput } from "../../../contracts/conversation-store/index.js";
+import { executionEnvelopeMessageBoundary } from "../../../contracts/storage/run-step-boundary.js";
 
 export const EXECUTION_ENVELOPE_STEP_TYPE = "protocol.envelope.v1";
 
@@ -14,6 +15,7 @@ const EXECUTION_ENVELOPE_TYPES = new Set<Envelope["type"]>([
   "stream_output",
   "tool_call",
   "tool_result",
+  "agent_message",
 ]);
 
 export function buildExecutionEnvelopeRunStep(
@@ -31,6 +33,7 @@ export function buildExecutionEnvelopeRunStep(
     runId,
     eventId,
     stepType: EXECUTION_ENVELOPE_STEP_TYPE,
+    ...executionEnvelopeMessageBoundary(envelope),
     payload: {
       ...envelope,
       protocol_version: envelope.protocol_version ?? PROTOCOL_VERSION,

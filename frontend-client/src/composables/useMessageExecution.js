@@ -42,7 +42,7 @@ const getAgentMessageEventContent = (payload = {}) => {
   }).filter(Boolean).join('\n').trim();
 };
 
-const createAgentMessageFromEvent = (event, participantId) => {
+const createAgentMessageFromEvent = (event, participantId, consumedUserMessage = false) => {
   const payload = event?.payload || {};
   const content = getAgentMessageEventContent(payload);
   const metadata = payload.metadata || {};
@@ -52,11 +52,18 @@ const createAgentMessageFromEvent = (event, participantId) => {
     run_id: event?.run_id || null,
     content,
     content_parts: [{ type: 'text', text: content }],
+    finished: true,
+    has_execution: Boolean(event?.run_id || metadata.run_id || metadata.consumed_by_run_id),
+    executionTree: { root: null, steps: [] },
+    executionStepsLoaded: false,
+    executionStepsLoading: false,
+    executionStepsLoadError: '',
+    _execState: null,
     thread_key: payload.target_thread_key || metadata.target_thread_key,
     child_agent_id: participantId === 'root' ? null : participantId,
     metadata: {
       ...metadata,
-      agent_message: true,
+      ...(consumedUserMessage ? {} : { agent_message: true }),
       run_id: event?.run_id || metadata.run_id || null,
       agent_message_display_content: content,
       mailbox_kind: payload.kind || metadata.mailbox_kind,
@@ -66,7 +73,7 @@ const createAgentMessageFromEvent = (event, participantId) => {
       agent_message_target_agent_name: payload.target_agent_name || metadata.target_agent_name || null,
       agent_message_target_child_agent_id: payload.target_child_agent_id || null,
       agent_message_target_thread_key: payload.target_thread_key || metadata.target_thread_key || null,
-      visible_to_user: false,
+      visible_to_user: consumedUserMessage ? metadata.visible_to_user !== false : false,
     },
   };
 };
@@ -217,7 +224,7 @@ export function useMessageExecution(deps) {
 
   const ensureExecutionStepsLoaded = async (msg) => {
     const participantId = msg?.executionParticipantId || null;
-    if (!msg || msg.role !== 'assistant' || (!msg.id && !participantId) || !deps.currentSessionId.value || msg.executionStepsLoaded || msg.executionStepsLoading || !msg.has_execution) {
+    if (!msg || (!msg.id && !participantId) || !deps.currentSessionId.value || msg.executionStepsLoaded || msg.executionStepsLoading || !msg.has_execution) {
       return;
     }
     msg.executionStepsLoading = true;
@@ -363,7 +370,7 @@ export function useMessageExecution(deps) {
       const targetParticipantId = event?.payload?.target_child_agent_id || 'root';
       deps.syncParticipantMessage?.(
         targetParticipantId,
-        createAgentMessageFromEvent(event, targetParticipantId),
+        createAgentMessageFromEvent(event, targetParticipantId, isConsumedUserMessage),
       );
     }
     const msg = participantId
@@ -371,7 +378,7 @@ export function useMessageExecution(deps) {
         || getOrCreateParticipantRunMessage(participantId, { run_id: runId, status: 'running' })
       : [...participantRunMessages.entries()].find(([key]) => key.startsWith(`${sessionId}:`) && key.endsWith(`:${runId}`))?.[1];
     if (!msg) return;
-    if (liveExecutionEventTypes.has(event.type)) applyEnvelopeToMessage(msg, event);
+    if (liveExecutionEventTypes.has(event.type) && event.type !== 'agent_message') applyEnvelopeToMessage(msg, event);
     if (event.type === 'stream_output') applyStreamOutputToMessage(msg, event.payload);
     if (event.type === 'run_ended') {
       const status = event.payload?.status || 'completed';

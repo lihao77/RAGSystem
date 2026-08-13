@@ -30,7 +30,6 @@ export interface RunStepInfo {
   /** Stable id shared with the durable outbox row when the step is an archived envelope. */
   event_id?: string | null;
   session_id: string;
-  message_id: string | null;
   step_order: number;
   step_type: string;
   payload: Record<string, unknown>;

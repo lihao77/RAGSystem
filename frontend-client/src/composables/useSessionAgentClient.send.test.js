@@ -71,9 +71,8 @@ function createDeps(overrides = {}) {
     messages,
     isLoading,
     sessionRuntime,
-    optimisticCommand,
+    pendingCommands,
     contextUsage,
-    pendingFollowupCandidates,
   } = storeToRefs(sessionRunStore);
   currentSessionId.value = 'session-1';
   sessionRunStore.applySessionRuntime(runtimeSnapshot('idle'));
@@ -114,9 +113,8 @@ function createDeps(overrides = {}) {
     messages,
     isLoading,
     sessionRuntime,
-    optimisticCommand,
+    pendingCommands,
     contextUsage,
-    pendingFollowupCandidates,
     activeRun: sessionRunStore.activeRun,
     ensureSession: async () => deps.currentSessionId.value,
     chatSdkClient,
@@ -139,7 +137,7 @@ function createDeps(overrides = {}) {
   return { deps, calls, sessionRunStore };
 }
 
-test('running 快照允许发送 followup，并等待服务端确认后再进入消息投影', async (t) => {
+test('running 快照允许发送 followup，但确认前不写入消息投影', async (t) => {
   installBrowserGlobals(t);
   const assistant = createAssistantMessage({ content: '正在处理', finished: false });
   const { deps, calls, sessionRunStore } = createDeps();
@@ -160,16 +158,12 @@ test('running 快照允许发送 followup，并等待服务端确认后再进入
   await sender.send({ content: '补充：优先处理 A', attachments: [] });
 
   assert.equal(deps.messages.value.length, 2);
-  assert.equal(deps.pendingFollowupCandidates.value.length, 1);
-  const candidate = deps.pendingFollowupCandidates.value[0];
-  assert.equal(candidate.content, '补充：优先处理 A');
-  assert.equal(candidate.metadata.execution_kind, 'session_followup');
-  assert.equal(candidate.metadata.run_id, 'run-1');
-  assert.equal(candidate.metadata.persistence_status, 'pending');
+  assert.equal(deps.pendingCommands.value.length, 1);
+  assert.equal(deps.pendingCommands.value[0].kind, 'followup');
   assert.equal(deps.isLoading.value, true);
   assert.deepEqual(calls.materializeAttachmentsForSend, []);
   assert.equal(calls.wsSend.length, 1);
-  assert.equal(calls.wsSend[0].payload.request_id, candidate.metadata.request_id);
+  assert.equal(calls.wsSend[0].payload.request_id, deps.pendingCommands.value[0].request_id);
 });
 
 test('followup 只依赖权威 runtime，即使本地 activeRun 投影丢失仍绑定服务端 run', async (t) => {
@@ -190,28 +184,28 @@ test('followup 只依赖权威 runtime，即使本地 activeRun 投影丢失仍�
   await sender.send({ content: '后台仍在跑时补充', attachments: [] });
 
   assert.equal(deps.messages.value.length, 2);
-  assert.equal(deps.pendingFollowupCandidates.value.length, 1);
-  const candidate = deps.pendingFollowupCandidates.value[0];
-  assert.equal(candidate.metadata.run_id, 'run-from-runtime');
+  assert.equal(deps.pendingCommands.value.length, 1);
+  assert.equal(deps.pendingCommands.value[0].kind, 'followup');
   assert.equal(deps.isLoading.value, true);
   assert.equal(calls.wsSend.length, 1);
 });
 
-test('idle 快照允许普通发送，并只创建乐观命令而不伪造 runtime 状态', async (t) => {
+test('idle 快照允许普通发送，但服务端确认前消息和 runtime 投影都不变', async (t) => {
   installBrowserGlobals(t);
   const { deps, calls } = createDeps();
   const sender = useSessionAgentClient(deps);
   await sender.send({ content: '执行新任务', attachments: [] });
   sender.clearCommandFallback();
 
-  assert.deepEqual(deps.messages.value.map(message => message.role), ['user', 'assistant']);
-  assert.equal(deps.messages.value[0].metadata.execution_kind, 'agent_stream');
-  assert.equal(deps.activeRun.assistantMsgIndex, 1);
+  assert.deepEqual(deps.messages.value, []);
+  assert.equal(deps.activeRun.assistantMsgIndex, -1);
+  assert.equal(deps.activeRun.runId, null);
+  assert.equal(deps.activeRun.active, false);
   assert.equal(deps.isLoading.value, true);
   assert.equal(deps.sessionRuntime.value.state, 'idle');
-  assert.equal(deps.optimisticCommand.value.kind, 'send');
+  assert.equal(deps.pendingCommands.value[0].kind, 'send');
   assert.equal(calls.materializeAttachmentsForSend.length, 1);
-  assert.equal(calls.wsSend[0].payload.request_id, deps.messages.value[0].metadata.request_id);
+  assert.equal(calls.wsSend[0].payload.request_id, deps.pendingCommands.value[0].request_id);
 });
 
 test('运行快照到达前不会把连续发送擅自升级为 followup', async (t) => {
@@ -224,11 +218,8 @@ test('运行快照到达前不会把连续发送擅自升级为 followup', async
   await Promise.all([first, second]);
   sender.clearCommandFallback();
 
-  assert.deepEqual(deps.messages.value.map(message => [message.role, message.content]), [
-    ['user', '第一条'],
-    ['assistant', ''],
-  ]);
-  assert.equal(deps.pendingFollowupCandidates.value.length, 0);
+  assert.deepEqual(deps.messages.value, []);
+  assert.equal(deps.pendingCommands.value.length, 1);
   assert.deepEqual(calls.wsSend.map(event => event.payload.task), ['第一条']);
 });
 
@@ -258,6 +249,7 @@ test('注入 chat SDK 后发送由 SDK 接管并保留 requestId、LLM 与附件
   assert.equal(sdkCalls[0].task, '通过 SDK 发送');
   assert.equal(sdkCalls[0].selectedLlm, 'openai/gpt-test');
   assert.deepEqual(sdkCalls[0].attachments, [{ file_id: 'file-1' }]);
-  assert.equal(sdkCalls[0].requestId, deps.messages.value[0].metadata.request_id);
-  assert.equal(deps.activeRun.runId, 'run-sdk');
+  assert.equal(sdkCalls[0].requestId, deps.pendingCommands.value[0].request_id);
+  assert.equal(deps.activeRun.runId, null);
+  assert.deepEqual(deps.messages.value, []);
 });

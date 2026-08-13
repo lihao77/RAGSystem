@@ -73,6 +73,12 @@ export interface CreateRuntimeOptions {
    * 不传则不补充(默认空,preview 不受影响)。
    */
   refresher?: MessageRefresher;
+  /**
+   * Synchronous event handoff used by hosts that serialize every durable
+   * mutation through one journal. The callback must reserve ordering before
+   * returning; the actual commit may remain asynchronous.
+   */
+  onEvent?: (event: KernelEvent) => void;
 }
 
 export interface RunInput {
@@ -157,7 +163,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         throw new Error(`startRound must be a non-negative safe integer: ${String(input.startRound)}`);
       }
 
-    const dispatcher = new Dispatcher();
+    const dispatcher = new Dispatcher(options.onEvent);
 
       // run 的 protocol：events=dispatcher（发事件）；buildRequest 与实例级 preview 协议同源。
       const { protocol } = createProtocol({

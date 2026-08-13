@@ -66,6 +66,7 @@ type RequestOptions = {
   signal?: AbortSignal;
   query?: URLSearchParams;
   context?: Record<string, unknown>;
+  headers?: Record<string, string>;
 };
 
 /**
@@ -267,11 +268,17 @@ export class RagChatClient {
     });
   }
 
-  async rollbackAndRetrySession(sessionId: string, body: unknown): Promise<unknown> {
+  async rollbackAndRetrySession(
+    sessionId: string,
+    body: unknown,
+    options: { requestId?: string; signal?: AbortSignal } = {},
+  ): Promise<unknown> {
     return this.request("rollbackAndRetrySession", {
       method: "POST",
       body,
       context: { sessionId },
+      ...(options.requestId ? { headers: { "x-request-id": options.requestId } } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
     });
   }
 
@@ -638,6 +645,7 @@ export class RagChatClient {
       headers: {
         ...(options.formData || options.body === undefined ? {} : { "content-type": "application/json" }),
         ...headers,
+        ...(options.headers ?? {}),
       },
       ...(options.formData ? { body: options.formData } : options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
       ...(options.signal ? { signal: options.signal } : {}),

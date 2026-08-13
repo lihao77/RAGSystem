@@ -270,19 +270,26 @@ test('所有操作权限只读取 allowed_actions，不能由 state 或 executio
   assert.equal(store.allowsRuntimeAction('send_message'), false);
 });
 
-test('乐观发送不改 runtime，并在权威快照到达时自动清除', () => {
+test('待确认请求不改消息或 runtime，并按 request_id 精确结束', () => {
   setActivePinia(createPinia());
   const store = useSessionRunStore();
   store.applySessionRuntime(snapshot('idle', {
     allowed_actions: ['send_message'],
   }));
 
-  store.beginOptimisticCommand('send');
+  store.beginPendingCommand('send', 'request-1');
+  store.beginPendingCommand('followup', 'request-2');
   assert.equal(store.sessionRuntime.state, 'idle');
-  assert.equal(store.optimisticCommand.kind, 'send');
+  assert.equal(store.activeRun.active, false);
+  assert.deepEqual(store.pendingCommands.map(item => item.request_id), ['request-1', 'request-2']);
   assert.equal(store.isLoading, true);
 
   store.applySessionRuntime(snapshot('running'));
-  assert.equal(store.optimisticCommand, null);
+  assert.deepEqual(store.pendingCommands.map(item => item.request_id), ['request-1', 'request-2']);
   assert.equal(store.sessionRuntime.state, 'running');
+
+  store.finishPendingCommand('request-1');
+  assert.deepEqual(store.pendingCommands.map(item => item.request_id), ['request-2']);
+  store.finishPendingCommand('request-2');
+  assert.deepEqual(store.pendingCommands, []);
 });

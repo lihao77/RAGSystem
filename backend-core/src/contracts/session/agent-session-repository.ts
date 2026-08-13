@@ -64,17 +64,30 @@ export interface AgentSessionRepositoryPort {
   listMessagesBeforeOrAtSeq(sessionId: string, seq: number, limit: number): Promise<MessageInfo[]>;
   deleteMessagesAfter(
     sessionId: string,
-    input: { afterSeq?: number | null; afterMessageId?: string | null },
+    input: {
+      afterSeq?: number | null;
+      afterMessageId?: string | null;
+      tenantId?: string | null;
+      truncateRunSteps?: { runId: string; fromStepOrder: number } | null;
+    },
   ): Promise<number>;
   updateMessage(input: AgentSessionMessageUpdate): Promise<boolean>;
 
   listRuns(sessionId: string, limit: number): Promise<{ items: AgentSessionRunRecord[]; total: number }>;
   listParticipantRuns(sessionId: string, participantId: string, limit: number, offset: number): Promise<{ items: AgentSessionRunRecord[]; total: number }>;
   getRun(sessionId: string, runId: string): Promise<AgentSessionRunRecord | null>;
+  getRunMessageBoundary(sessionId: string, runId: string, messageId: string): Promise<number | null>;
+  listMessageRunSteps(input: {
+    sessionId: string;
+    runId: string;
+    messageId: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: RunStepInfo[]; total: number }>;
   listRunSteps(input: {
     runId?: string | null;
-    messageId?: string | null;
     sessionId?: string | null;
     limit?: number;
+    offset?: number;
   }): Promise<RunStepInfo[]>;
 }

@@ -9,16 +9,15 @@ const delegate = {
 };
 
 describe("OrderedDelegateCallPublisher", () => {
-  it("holds an early delegate until its tool_call has been published", () => {
+  it("returns an early delegate so the tool_call journal item can commit it in place", () => {
     const publish = vi.fn();
     const subject = new OrderedDelegateCallPublisher(publish);
 
     subject.emit(delegate);
     expect(publish).not.toHaveBeenCalled();
 
-    subject.markToolCallPublished(delegate.toolCallId);
-    expect(publish).toHaveBeenCalledOnce();
-    expect(publish).toHaveBeenCalledWith(delegate);
+    expect(subject.markToolCallPublished(delegate.toolCallId)).toEqual(delegate);
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it("publishes immediately when tool_call was already published", () => {

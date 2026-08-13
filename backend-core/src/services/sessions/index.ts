@@ -82,14 +82,10 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   }): Promise<SessionMessageListSnapshot> {
     const threadKey = input.threadKey?.trim() || "root";
     const data = await this.repository.listVisibleMessages(input.sessionId, threadKey, input.limit ?? 20, input.offset ?? 0);
-    data.items = data.items.map((item) =>
-        item.role === "assistant"
-          ? {
-              ...item,
-              has_execution: Boolean(item.metadata.run_id) && item.metadata.execution_history_discarded !== true,
-            }
-          : item,
-      );
+    data.items = data.items.map((item) => ({
+      ...item,
+      has_execution: shouldExposeExecutionCarrier(item) && item.metadata.execution_history_discarded !== true,
+    }));
     return data;
   }
 
@@ -101,33 +97,31 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     threadKey?: string | null;
   }): Promise<{ message_id: string; items: Envelope[]; total: number; limit: number; offset: number; has_more: boolean }> {
     const threadKey = input.threadKey?.trim() || "root";
-    const data = await this.repository.listMessages(input.sessionId, 1000, 0, threadKey);
-    const message = data.items.find((item) => item.id === input.messageId
-      && isParticipantConversationMessageVisible(item, threadKey));
-    if (!message) {
+    const message = await this.repository.getMessageById(input.sessionId, input.messageId);
+    if (!message || !isParticipantConversationMessageVisible(message, threadKey)) {
       throw new Error(`消息不存在: ${input.messageId}`);
     }
-    if (message.role !== "assistant") {
-      throw new Error("仅 assistant 消息支持查询 execution steps");
-    }
-
     const limit = input.limit ?? 500;
     const offset = input.offset ?? 0;
-    const rootRunId = message.metadata.run_id ? String(message.metadata.run_id) : null;
-    const envelopes = await this.collectRunTreeExecutionEnvelopes(
-      input.sessionId,
-      rootRunId,
-      limit + offset,
-      input.messageId,
-    );
+    const runId = executionRunId(message);
+    const page = runId
+      ? await this.repository.listMessageRunSteps({
+          sessionId: input.sessionId,
+          runId,
+          messageId: message.id,
+          limit,
+          offset,
+        })
+      : { items: [], total: 0 };
+    const envelopes = page.items.map((step) => parseArchivedEnvelope(step.payload));
 
     return {
       message_id: input.messageId,
-      items: envelopes.slice(offset, offset + limit),
-      total: envelopes.length,
+      items: envelopes,
+      total: page.total,
       limit,
       offset,
-      has_more: offset + limit < envelopes.length,
+      has_more: offset + envelopes.length < page.total,
     };
   }
 
@@ -174,11 +168,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     if (!run || !this.isParticipantRun(run, input.participantId)) {
       throw new Error(`Run 不存在: ${input.runId}`);
     }
-    const envelopes = await this.collectRunTreeExecutionEnvelopes(
-      input.sessionId,
-      input.runId,
-      limit + offset,
-    );
+    const envelopes = await this.collectRunExecutionEnvelopes(input.sessionId, input.runId);
     return {
       run_id: input.runId,
       items: envelopes.slice(offset, offset + limit),
@@ -196,56 +186,34 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   }
 
   /**
-   * 聚合 root/child run 的持久化 Envelope。系统只支持 protocol.envelope.v1，
-   * 数据库 v5 迁移会一次性删除旧 execution.step。
+   * 读取单个 Run 的持久化 Envelope。父子 Run 的关系只用于运行时生命周期，
+   * 不参与会话执行过程展示。
    */
-  private async collectRunTreeExecutionEnvelopes(
+  private async collectRunExecutionEnvelopes(
     sessionId: string,
-    rootRunId: string | null,
-    perRunLimit: number,
-    fallbackMessageId?: string | null,
+    runId: string,
   ): Promise<Envelope[]> {
-    if (!rootRunId) {
-      const steps = await this.repository.listRunSteps({
-        messageId: fallbackMessageId ?? null,
-        sessionId,
-        limit: perRunLimit,
-      });
-      const archived = steps
-        .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
-        .map((step) => parseArchivedEnvelope(step.payload));
-      return archived;
-    }
-
-    const allRuns = (await this.repository.listRuns(sessionId, 1000)).items;
-    const runIds = this.collectRunTreeRunIds(allRuns, rootRunId);
-    const steps: RunStepInfo[] = [];
-    for (const runId of runIds) {
-      steps.push(...await this.repository.listRunSteps({ runId, sessionId, limit: perRunLimit }));
-    }
+    const steps = await this.listRunStepsAll({
+      runId,
+      sessionId,
+    });
     const archived = steps
       .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
       .map((step) => parseArchivedEnvelope(step.payload));
     return archived;
   }
 
-  /** root + 递归子孙 run_id;rootRunId 始终首位,子孙按 created_at 升序(父先于子,applyStep 依赖此序)。 */
-  private collectRunTreeRunIds(allRuns: AgentSessionRunRecord[], rootRunId: string): string[] {
-    const idSet = new Set<string>([rootRunId]);
-    for (let changed = true; changed; ) {
-      changed = false;
-      for (const run of allRuns) {
-        if (run.parent_run_id && idSet.has(run.parent_run_id) && !idSet.has(run.run_id)) {
-          idSet.add(run.run_id);
-          changed = true;
-        }
-      }
+  private async listRunStepsAll(input: {
+    runId?: string | null;
+    sessionId?: string | null;
+  }): Promise<RunStepInfo[]> {
+    const pageSize = 500;
+    const steps: RunStepInfo[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await this.repository.listRunSteps({ ...input, limit: pageSize, offset });
+      steps.push(...page);
+      if (page.length < pageSize) return steps;
     }
-    const descendants = allRuns
-      .filter((run) => idSet.has(run.run_id) && run.run_id !== rootRunId)
-      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
-      .map((run) => run.run_id);
-    return [rootRunId, ...descendants];
   }
 
   async addMessage(input: {
@@ -319,7 +287,37 @@ export class AgentSessionApplication implements ExecutionSessionPort {
       payload.afterMessageId = input.afterMessageId;
     }
     await this.rollbackFileSnapshot(input.sessionId, input.afterSeq, input.afterMessageId);
-    return this.repository.deleteMessagesAfter(input.sessionId, payload);
+    const truncateRunSteps = await this.resolveRollbackRunStepTruncation(
+      input.sessionId,
+      input.afterSeq,
+      input.afterMessageId,
+    );
+    return this.repository.deleteMessagesAfter(input.sessionId, {
+      ...payload,
+      ...(truncateRunSteps ? { truncateRunSteps } : {}),
+    });
+  }
+
+  private async resolveRollbackRunStepTruncation(
+    sessionId: string,
+    afterSeq?: number | null,
+    afterMessageId?: string | null,
+  ): Promise<{ runId: string; fromStepOrder: number } | null> {
+    let boundarySeq = afterSeq ?? null;
+    if (boundarySeq == null && afterMessageId?.trim()) {
+      boundarySeq = (await this.repository.getMessageById(sessionId, afterMessageId.trim()))?.seq ?? null;
+    }
+    if (boundarySeq == null) return null;
+    const firstDeleted = await this.repository.getFirstMessageAfterSeq(sessionId, boundarySeq);
+    if (!firstDeleted || !isRunFollowupMessage(firstDeleted)) return null;
+    const runId = executionRunId(firstDeleted);
+    if (!runId) return null;
+    const boundaryStepOrder = await this.repository.getRunMessageBoundary(
+      sessionId,
+      runId,
+      firstDeleted.id,
+    );
+    return boundaryStepOrder == null ? null : { runId, fromStepOrder: boundaryStepOrder };
   }
 
   async exportSession(sessionId: string): Promise<{
@@ -353,10 +351,9 @@ export class AgentSessionApplication implements ExecutionSessionPort {
       }
       exportedMessages.push({
         ...message,
-        execution_events: await this.collectRunTreeExecutionEnvelopes(
+        execution_events: await this.collectRunExecutionEnvelopes(
           sessionId,
           String(message.metadata.run_id),
-          500,
         ),
       });
     }
@@ -440,6 +437,23 @@ function isVisibleRootMessage(item: MessageInfo): boolean {
 
 function isVisibleParticipantMessage(item: MessageInfo, threadKey: string): boolean {
   return isParticipantConversationMessageVisible(item, threadKey);
+}
+
+function executionRunId(message: Pick<MessageInfo, "metadata">): string | null {
+  const metadata = message.metadata ?? {};
+  const runId = metadata.consumed_by_run_id ?? metadata.run_id;
+  return typeof runId === "string" && runId.trim() ? runId : null;
+}
+
+function shouldExposeExecutionCarrier(message: MessageInfo): boolean {
+  return (message.role === "user" || message.role === "assistant")
+    && executionRunId(message) != null;
+}
+
+function isRunFollowupMessage(message: MessageInfo): boolean {
+  return message.role === "user"
+    && (message.metadata.source === "running_session"
+      || message.metadata.execution_kind === "session_followup");
 }
 
 function parseArchivedEnvelope(payload: Record<string, unknown>): Envelope {

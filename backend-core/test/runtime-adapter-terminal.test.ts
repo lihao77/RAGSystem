@@ -101,8 +101,11 @@ function deps(
     taskTools: null,
     eventPublisher: {
       publishEnvelope: vi.fn(),
+      commitEnvelope: vi.fn(async () => undefined),
       publishDelegateCall: vi.fn(),
+      commitDelegateCall: vi.fn(async () => undefined),
       publishAgentMessage: vi.fn(),
+      commitAgentMessage: vi.fn(async () => undefined),
     },
     providers: [{
       key: "provider",
@@ -236,7 +239,7 @@ describe("executeRunWithSdk terminal convergence", () => {
           expect(refreshed.messages).toHaveLength(1);
           expect(refreshed.messages[0]?.content).toContain("[agent-message kind=request id=mailbox-1");
           expect(refreshed.messages[0]?.content).toContain("please continue");
-          expect(mailbox.ack).not.toHaveBeenCalled();
+          expect(mailbox.ack).toHaveBeenCalledOnce();
           await refreshed.onInvokeSuccess?.();
           const retried = await options.refresher.refresh({ session: { sessionId: "session-1", threadKey: "child-thread" } }, 0);
           expect(retried.messages).toHaveLength(0);
@@ -322,7 +325,7 @@ describe("executeRunWithSdk terminal convergence", () => {
             session: { sessionId: "session-1", threadKey: "root" },
           }, 0);
           expect(refreshed.messages).toHaveLength(1);
-          expect(mailbox.ack).not.toHaveBeenCalled();
+          expect(mailbox.ack).toHaveBeenCalledOnce();
           await refreshed.onInvokeSuccess?.();
           return { content: "done", contentParts: [], finishReason: "stop", metadata: {} };
         })(),
@@ -341,7 +344,7 @@ describe("executeRunWithSdk terminal convergence", () => {
       messageId: "user-mailbox-1",
       claimId: "claim-user-1",
     }));
-    expect(base.eventPublisher.publishAgentMessage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(base.eventPublisher.commitAgentMessage).toHaveBeenCalledWith(expect.objectContaining({
       runId: "run-1",
       message: expect.objectContaining({
         metadata: expect.objectContaining({
@@ -426,7 +429,101 @@ describe("executeRunWithSdk terminal convergence", () => {
     }));
   });
 
-  it("invoke 失败时 release mailbox 消息回 queued 并可重试", async () => {
+  it("在上一轮全部事件提交后才允许 followup 写入 canonical history", async () => {
+    runtimeMock.createRuntime.mockReset();
+    const order: string[] = [];
+    let releaseSecondResult!: () => void;
+    const secondResultGate = new Promise<void>((resolve) => { releaseSecondResult = resolve; });
+    const message = mailboxMessage({
+      message_id: "followup-after-tools",
+      input_type: "user_message",
+      source_kind: "user",
+      visible_to_user: true,
+      target_thread_key: "root",
+      target_child_agent_id: null,
+      claim_id: "claim-after-tools",
+      content_parts: [{ type: "text", text: "stop" }],
+      metadata: { run_id: "queued-run" },
+    });
+    let history: any[] = [];
+    const mailbox: AgentMailboxStorePort = {
+      claim: vi.fn(async () => [message]),
+      ack: vi.fn(async () => true),
+      settle: vi.fn(async () => true),
+      release: vi.fn(async () => true),
+      enqueue: vi.fn(),
+      get: vi.fn(async () => null),
+      expire: vi.fn(async () => 0),
+    };
+    const persist = vi.fn(async (event: any) => {
+      if (event.type !== "tool_result") return;
+      order.push(`persist:${event.toolCallId}:start`);
+      if (event.toolCallId === "tool-2") await secondResultGate;
+      order.push(`persist:${event.toolCallId}:end`);
+    });
+    const base = deps(
+      vi.fn(async () => ({ finalMessage: null, records: [], readyResumeInteractionIds: [] })),
+      vi.fn(async () => ({ kind: "started", run: {} })),
+      persist,
+    );
+    base.storage.agentMailbox = mailbox;
+    base.storage.conversation.getRecentMessages = vi.fn(async () => history);
+    base.storage.conversation.getMessageById = vi.fn(async () => null);
+    base.storage.conversation.addMessage = vi.fn(async (inputMessage) => {
+      order.push("followup:write");
+      const created = {
+        seq: 1,
+        id: inputMessage.messageId ?? message.message_id,
+        session_id: inputMessage.sessionId,
+        role: inputMessage.role,
+        content: inputMessage.content,
+        content_parts: inputMessage.contentParts,
+        metadata: inputMessage.metadata ?? {},
+        thread_key: inputMessage.threadKey ?? "root",
+        child_agent_id: inputMessage.childAgentId ?? null,
+        created_at: new Date(0).toISOString(),
+      };
+      history = [created];
+      return created;
+    });
+    (base.eventPublisher as any).commitEnvelope = vi.fn(async () => undefined);
+    (base.eventPublisher as any).commitAgentMessage = vi.fn(async () => { order.push("followup:boundary"); });
+
+    runtimeMock.createRuntime.mockImplementation((options: any) => ({
+      run: () => {
+        const events = [
+          { type: "tool_result", toolCallId: "tool-1", toolName: "read", metadata: {}, referenceResult: {}, observation: "one", success: true, summary: "one", elapsedTime: 0, agentName: "test-agent", round: 0, order: 1, roundIndex: 1 },
+          { type: "tool_result", toolCallId: "tool-2", toolName: "read", metadata: {}, referenceResult: {}, observation: "two", success: true, summary: "two", elapsedTime: 0, agentName: "test-agent", round: 0, order: 2, roundIndex: 2 },
+        ];
+        for (const event of events) options.onEvent(event);
+        return {
+          runId: "run-1",
+          events: (async function* () { yield* events; })(),
+          result: (async () => {
+            const refreshedPromise = options.refresher.refresh({
+              session: { sessionId: "session-1", threadKey: "root" },
+            }, 1);
+            await vi.waitFor(() => expect(order).toContain("persist:tool-2:start"));
+            expect(order).not.toContain("followup:write");
+            releaseSecondResult();
+            const refreshed = await refreshedPromise;
+            expect(refreshed.messages).toHaveLength(1);
+            return { content: "done", contentParts: [], finishReason: "stop", metadata: {} };
+          })(),
+        };
+      },
+      close: vi.fn(),
+    }));
+
+    const result = await executeRunWithSdk(base, input());
+
+    expect(result.success).toBe(true);
+    expect(order.indexOf("persist:tool-2:end")).toBeLessThan(order.indexOf("followup:write"));
+    expect(order.indexOf("followup:write")).toBeLessThan(order.indexOf("followup:boundary"));
+    expect(mailbox.ack).toHaveBeenCalledOnce();
+  });
+
+  it("消息已进入 canonical history 后即使 invoke 失败也 ACK，避免生成第二个 follow-up run", async () => {
     runtimeMock.createRuntime.mockReset();
     let history: any[] = [];
     let status: AgentMailboxMessage["status"] = "queued";
@@ -483,8 +580,8 @@ describe("executeRunWithSdk terminal convergence", () => {
           const refreshed = await options.refresher.refresh({
             session: { sessionId: "session-1", threadKey: "child-thread" },
           }, 0);
-          expect(status).toBe("claimed");
-          expect(mailbox.ack).not.toHaveBeenCalled();
+          expect(status).toBe("acked");
+          expect(mailbox.ack).toHaveBeenCalledOnce();
           await refreshed.onInvokeFailure?.(invokeError);
           throw invokeError;
         })(),
@@ -495,13 +592,12 @@ describe("executeRunWithSdk terminal convergence", () => {
     const result = await executeRunWithSdk(base, input({ threadKey: "child-thread", childAgentId: "child-1" }));
 
     expect(result.success).toBe(false);
-    expect(status).toBe("queued");
-    expect(mailbox.ack).not.toHaveBeenCalled();
-    expect(mailbox.release).toHaveBeenCalledWith(expect.objectContaining({
+    expect(status).toBe("acked");
+    expect(mailbox.ack).toHaveBeenCalledWith(expect.objectContaining({
       messageId: "mailbox-retryable",
       claimId: "claim-retryable",
-      lastError: "provider failed",
     }));
+    expect(mailbox.release).not.toHaveBeenCalled();
     const retried = await mailbox.claim({
       sessionId: "session-1",
       targetRunId: "run-1",
@@ -511,8 +607,7 @@ describe("executeRunWithSdk terminal convergence", () => {
       claimId: "claim-retry-2",
       consumerId: "worker-2",
     });
-    expect(retried).toHaveLength(1);
-    expect(retried[0]?.message_id).toBe("mailbox-retryable");
+    expect(retried).toHaveLength(0);
   });
 
   it("重领已经进入初始上下文的 mailbox 消息时只 ACK 不重复追加", async () => {
@@ -583,7 +678,7 @@ describe("executeRunWithSdk terminal convergence", () => {
             session: { sessionId: "session-1", threadKey: "child-thread" },
           }, 0);
           expect(refreshed.messages).toHaveLength(0);
-          expect(mailbox.ack).not.toHaveBeenCalled();
+          expect(mailbox.ack).toHaveBeenCalledOnce();
           await refreshed.onInvokeSuccess?.();
           return { content: "done", contentParts: [], finishReason: "stop", metadata: {} };
         })(),

@@ -92,7 +92,7 @@ const sortParticipantMessages = (items) => items
  * llmRetryState(带定时器) 有行为，留阶段 2.3b。
  *
  * 各消费 composable 直接 useSessionRunStore() 取，不再走 deps 透传。Session 生命周期只接受
- * 后端 session.runtime 快照；本 store 只持有数据、乐观命令和纯投影。
+ * 后端 session.runtime 快照；本 store 只持有数据、待确认请求和纯投影。
  */
 export const useSessionRunStore = defineStore('session-run', () => {
   const currentSessionId = ref(null);
@@ -117,21 +117,20 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const participantsLoading = ref(false);
   const isCompressing = ref(false);
   const sessionRuntime = ref(null);
-  const optimisticCommand = ref(null);
+  // 只表示客户端请求尚未被服务端事实事件确认，不参与消息或 Run 投影。
+  const pendingCommands = ref([]);
   // The source is intentionally kept with the value so the UI can distinguish
   // a snapshot/estimate from a provider measurement or a prediction.
   const contextUsage = ref({ used: 0, max: 0, source: 'none' });
   const activeRun = reactive(createActiveRunState());
   const llmRetryState = ref(null);
-  // 正在等待服务端 message_saved 确认的运行中补充消息。它们不属于主消息列表。
-  const pendingFollowupCandidates = ref([]);
   // 会话上下文：已有 session 取 detail.metadata / workspace；新会话是创建前的 pending 选择
   const currentSessionTeam = ref('');
   const pendingWorkspaceRoot = ref('');
   const pendingEntryAgent = ref('');
   const sessionWorkspaceDisplay = ref('');
 
-  const isLoading = computed(() => Boolean(optimisticCommand.value)
+  const isLoading = computed(() => pendingCommands.value.length > 0
     || Boolean(sessionRuntime.value && sessionRuntime.value.state !== 'idle'));
   const runtimeObservability = computed(() => {
     const run = sessionRuntime.value?.active_run || sessionRuntime.value?.last_run;
@@ -169,12 +168,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
       ? parseRuntimeTimestampSeconds(snapshot.active_run.started_at)
       : null;
     if (!hasActiveRun) {
-      // An idle snapshot is authoritative once a run was already attached.
-      // Only keep the active presentation while a send/rollback is still
-      // waiting for its first durable runtime snapshot.
-      const active = Boolean(optimisticCommand.value);
       resetActiveRunState(activeRun);
-      activeRun.active = active;
     } else if (snapshot.state === 'waiting_interaction') {
       activeRun.phase = 'approval_waiting';
     } else if (snapshot.state === 'suspended') {
@@ -198,59 +192,31 @@ export const useSessionRunStore = defineStore('session-run', () => {
                 ? 'model_failed'
                 : models.length > 0 ? 'model_waiting' : 'processing';
     }
-    if (snapshot?.state !== 'idle') optimisticCommand.value = null;
+    const activeRequestId = snapshot?.active_run?.request_id;
+    if (activeRequestId) finishPendingCommand(activeRequestId);
   };
 
   const clearSessionRuntime = () => {
     sessionRuntime.value = null;
-    optimisticCommand.value = null;
+    pendingCommands.value = [];
     activeRun.active = false;
     resetActiveRunState(activeRun);
   };
 
-  const beginOptimisticCommand = (kind = 'send') => {
-    optimisticCommand.value = { kind, started_at: new Date().toISOString() };
-    if (kind === 'send') activeRun.active = true;
+  const beginPendingCommand = (kind = 'send', requestId = null) => {
+    if (requestId && pendingCommands.value.some(item => item.request_id === requestId)) return;
+    pendingCommands.value.push({ kind, request_id: requestId, started_at: new Date().toISOString() });
   };
 
-  const finishOptimisticCommand = () => {
-    optimisticCommand.value = null;
-    activeRun.active = Boolean(sessionRuntime.value?.active_run);
+  const finishPendingCommand = (requestId = null) => {
+    if (requestId) {
+      pendingCommands.value = pendingCommands.value.filter(item => item.request_id !== requestId);
+      return;
+    }
+    pendingCommands.value = [];
   };
 
   const allowsRuntimeAction = action => Boolean(sessionRuntime.value?.allowed_actions?.includes(action));
-
-  const enqueueFollowupCandidate = (candidate) => {
-    const requestId = candidate?.metadata?.request_id;
-    if (requestId && pendingFollowupCandidates.value.some(
-      item => item?.metadata?.request_id === requestId,
-    )) return;
-    pendingFollowupCandidates.value.push(candidate);
-  };
-
-  const takeFollowupCandidate = (requestId) => {
-    const index = pendingFollowupCandidates.value.findIndex(
-      item => item?.metadata?.request_id === requestId,
-    );
-    if (index < 0) return null;
-    return pendingFollowupCandidates.value.splice(index, 1)[0] || null;
-  };
-
-  const markFollowupCandidateFailed = (requestId, error) => {
-    const candidate = pendingFollowupCandidates.value.find(
-      item => item?.metadata?.request_id === requestId,
-    );
-    if (!candidate) return;
-    candidate.metadata = { ...candidate.metadata, persistence_status: 'failed' };
-    candidate.status = [
-      ...(candidate.status || []),
-      { type: 'error', content: error || '补充说明发送失败' },
-    ];
-  };
-
-  const clearFollowupCandidates = () => {
-    pendingFollowupCandidates.value = [];
-  };
 
   const clearSessionContext = () => {
     currentSessionTeam.value = '';
@@ -370,11 +336,10 @@ export const useSessionRunStore = defineStore('session-run', () => {
     isCompressing,
     sessionRuntime,
     runtimeObservability,
-    optimisticCommand,
+    pendingCommands,
     contextUsage,
     activeRun,
     llmRetryState,
-    pendingFollowupCandidates,
     currentSessionTeam,
     pendingWorkspaceRoot,
     pendingEntryAgent,
@@ -383,13 +348,9 @@ export const useSessionRunStore = defineStore('session-run', () => {
     resetActiveRun,
     applySessionRuntime,
     clearSessionRuntime,
-    beginOptimisticCommand,
-    finishOptimisticCommand,
+    beginPendingCommand,
+    finishPendingCommand,
     allowsRuntimeAction,
-    enqueueFollowupCandidate,
-    takeFollowupCandidate,
-    markFollowupCandidateFailed,
-    clearFollowupCandidates,
     clearSessionContext,
     applySessionContext,
     resetSessionParticipants,

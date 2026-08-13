@@ -27,3 +27,34 @@ test("visible message SQL compares JSONB flags as native booleans", async () => 
   assert.match(sql, /metadata->'agent_message' = 'true'::jsonb/);
   assert.doesNotMatch(sql, /metadata->>'(?:react_intermediate|hidden|visible_to_user|agent_message)'/);
 });
+
+test("followup rollback truncates tenant-scoped run steps before deleting messages", async () => {
+  const queries = [];
+  const executor = {
+    async query(sql, params = []) {
+      queries.push({ sql, params });
+      if (/WITH deleted_runs AS/.test(sql)) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: /DELETE FROM conversation_messages/.test(sql) ? 2 : 1 };
+    },
+    async transaction(fn) {
+      return fn(this);
+    },
+  };
+  const repository = new PostgresConversationRepository(executor);
+
+  const deleted = await repository.deleteMessagesAfter("session-1", {
+    afterSeq: 1,
+    tenantId: "tnt_test",
+    truncateRunSteps: { runId: "root-run", fromStepOrder: 3 },
+  });
+
+  assert.equal(deleted, 2);
+  assert.match(queries[0].sql, /WITH deleted_runs AS/);
+  assert.match(queries[0].sql, /NOT EXISTS/);
+  assert.match(queries[1].sql, /DELETE FROM saas_run_message_boundaries/);
+  assert.deepEqual(queries[1].params, ["tnt_test", "session-1", "root-run", 3]);
+  assert.match(queries[2].sql, /DELETE FROM saas_run_steps/);
+  assert.deepEqual(queries[2].params, ["tnt_test", "session-1", "root-run", 3]);
+  assert.match(queries[3].sql, /DELETE FROM conversation_messages/);
+  assert.deepEqual(queries[3].params, ["session-1", 1]);
+});

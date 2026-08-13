@@ -12,7 +12,8 @@ import type {
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import type { RunRow, RunStepRow } from "./types.js";
 
-const RUN_STEP_SELECT_COLUMNS = "id, run_id, session_id, message_id, event_id, step_order, step_type, payload, created_at";
+const RUN_STEP_SELECT_COLUMNS = "id, run_id, session_id, event_id, step_order, step_type, payload, created_at";
+const ALIASED_RUN_STEP_SELECT_COLUMNS = "step.id, step.run_id, step.session_id, step.event_id, step.step_order, step.step_type, step.payload, step.created_at";
 
 interface IdempotentRunStepRow {
   id: number;
@@ -24,7 +25,6 @@ interface IdempotentRunStepRow {
 }
 
 interface IdempotentRunStepDbRow extends IdempotentRunStepRow {
-  message_id: string | null;
   payload: string;
 }
 
@@ -191,6 +191,15 @@ export class RunOps {
     return runInTransaction(this.db, () => this.addRunStepInTransaction(input));
   }
 
+  ensureInitialRunMessageBoundary(sessionId: string, runId: string, messageId: string): void {
+    this.db.prepare(`
+      INSERT INTO run_message_boundaries (
+        session_id, run_id, message_id, start_after_step_order, boundary_step_order, boundary_kind
+      ) VALUES (?, ?, ?, 0, NULL, 'carrier')
+      ON CONFLICT(session_id, run_id, message_id) DO NOTHING
+    `).run(sessionId, runId, messageId);
+  }
+
   /** 事务内变体（供 ConversationStoreTransaction facade 调用，故 public）。 */
   addRunStepInTransaction(input: AddRunStepInput): RunStepRecord {
     const eventId = normalizeEventId(input.eventId);
@@ -204,27 +213,48 @@ export class RunOps {
         .get(eventId) as IdempotentRunStepRow | undefined;
       if (existing) {
         assertEventRunScope(existing, input.sessionId, input.runId, eventId);
+        if (input.boundaryMessageId && input.boundaryKind) {
+          this.upsertRunMessageBoundary(
+            input.sessionId,
+            input.runId,
+            input.boundaryMessageId,
+            Number(existing.step_order),
+            input.boundaryKind,
+          );
+        }
         return toRunStepRecord(existing);
       }
     }
-    const row = this.db
-      .prepare("SELECT COALESCE(MAX(step_order), 0) + 1 AS next_order FROM run_steps WHERE session_id=? AND run_id=?")
-      .get(input.sessionId, input.runId) as { next_order: number };
-    const stepOrder = Number(row.next_order) || 1;
+    const orderRow = this.db.prepare(`
+      UPDATE runs
+      SET next_step_order=next_step_order+1
+      WHERE session_id=? AND run_id=?
+      RETURNING next_step_order-1 AS step_order
+    `).get(input.sessionId, input.runId) as { step_order: number } | undefined;
+    if (!orderRow) throw new Error(`run not found: ${input.runId}`);
+    const stepOrder = Number(orderRow.step_order);
     const result = this.db
       .prepare(`
-        INSERT INTO run_steps (run_id, session_id, message_id, event_id, step_order, step_type, payload)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO run_steps (run_id, session_id, event_id, step_order, step_type, payload)
+        VALUES (?, ?, ?, ?, ?, ?)
       `)
       .run(
         input.runId,
         input.sessionId,
-        input.messageId ?? null,
         eventId,
         stepOrder,
         input.stepType,
         stringifyJson(input.payload),
       );
+    if (input.boundaryMessageId && input.boundaryKind) {
+      this.upsertRunMessageBoundary(
+        input.sessionId,
+        input.runId,
+        input.boundaryMessageId,
+        stepOrder,
+        input.boundaryKind,
+      );
+    }
     return {
       id: Number(result.lastInsertRowid),
       run_id: input.runId,
@@ -234,10 +264,104 @@ export class RunOps {
     };
   }
 
+  getRunMessageBoundary(sessionId: string, runId: string, messageId: string): number | null {
+    const row = this.db.prepare(`
+      SELECT boundary_step_order
+      FROM run_message_boundaries
+      WHERE session_id=? AND run_id=? AND message_id=?
+    `).get(sessionId, runId, messageId) as { boundary_step_order: number | null } | undefined;
+    return row?.boundary_step_order ?? null;
+  }
+
+  listMessageRunSteps(input: {
+    sessionId: string;
+    runId: string;
+    messageId: string;
+    limit: number;
+    offset: number;
+  }): { items: RunStepInfo[]; total: number } {
+    const boundary = this.db.prepare(`
+      SELECT start_after_step_order, boundary_kind
+      FROM run_message_boundaries
+      WHERE session_id=? AND run_id=? AND message_id=?
+    `).get(input.sessionId, input.runId, input.messageId) as {
+      start_after_step_order: number;
+      boundary_kind: "carrier" | "terminal";
+    } | undefined;
+    if (!boundary || boundary.boundary_kind === "terminal") return { items: [], total: 0 };
+    const endRow = this.db.prepare(`
+      SELECT MIN(start_after_step_order) AS end_order
+      FROM run_message_boundaries
+      WHERE session_id=? AND run_id=? AND start_after_step_order>?
+    `).get(input.sessionId, input.runId, boundary.start_after_step_order) as { end_order: number | null };
+    const endOrder = endRow.end_order ?? Number.MAX_SAFE_INTEGER;
+    const params = [input.sessionId, input.runId, boundary.start_after_step_order, endOrder] as const;
+    const where = `step.session_id=? AND step.run_id=?
+      AND step.step_order>? AND step.step_order<?
+      AND step.step_type='protocol.envelope.v1'
+      AND NOT EXISTS (
+        SELECT 1 FROM run_message_boundaries AS boundary
+        WHERE boundary.session_id=step.session_id AND boundary.run_id=step.run_id
+          AND boundary.boundary_step_order=step.step_order
+      )`;
+    const totalRow = this.db.prepare(`SELECT COUNT(*) AS total FROM run_steps AS step WHERE ${where}`)
+      .get(...params) as { total: number };
+    const rows = this.db.prepare(`
+      SELECT ${ALIASED_RUN_STEP_SELECT_COLUMNS}
+      FROM run_steps AS step
+      WHERE ${where}
+      ORDER BY step.step_order ASC
+      LIMIT ? OFFSET ?
+    `).all(...params, Math.max(1, Math.trunc(input.limit)), Math.max(0, Math.trunc(input.offset))) as unknown as RunStepRow[];
+    const resourceRefsByStep = this.loadResourceRefs(rows.map((row) => row.id));
+    return {
+      items: rows.map((row) => rowToRunStep(row, resourceRefsByStep.get(row.id) ?? [])),
+      total: Number(totalRow.total),
+    };
+  }
+
+  private upsertRunMessageBoundary(
+    sessionId: string,
+    runId: string,
+    messageId: string,
+    stepOrder: number,
+    kind: "carrier" | "terminal",
+  ): void {
+    const existing = this.db.prepare(`
+      SELECT start_after_step_order, boundary_step_order, boundary_kind
+      FROM run_message_boundaries
+      WHERE session_id=? AND run_id=? AND message_id=?
+    `).get(sessionId, runId, messageId) as {
+      start_after_step_order: number;
+      boundary_step_order: number | null;
+      boundary_kind: "carrier" | "terminal";
+    } | undefined;
+    if (existing?.boundary_step_order != null && existing.boundary_step_order !== stepOrder) {
+      throw new Error(`run message boundary conflict: ${messageId}`);
+    }
+    if (existing) {
+      this.db.prepare(`
+        UPDATE run_message_boundaries
+        SET boundary_step_order=?, boundary_kind=?
+        WHERE session_id=? AND run_id=? AND message_id=?
+      `).run(stepOrder, kind, sessionId, runId, messageId);
+      return;
+    }
+    const hasBoundary = this.db.prepare(`
+      SELECT 1 FROM run_message_boundaries WHERE session_id=? AND run_id=? LIMIT 1
+    `).get(sessionId, runId);
+    const startAfter = kind === "carrier" && !hasBoundary ? 0 : stepOrder;
+    this.db.prepare(`
+      INSERT INTO run_message_boundaries (
+        session_id, run_id, message_id, start_after_step_order, boundary_step_order, boundary_kind
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(sessionId, runId, messageId, startAfter, stepOrder, kind);
+  }
+
   getRunStepByEventId(eventId: string) {
     const row = this.db
       .prepare(`
-        SELECT id, run_id, session_id, message_id, event_id, step_order, step_type, payload
+          SELECT id, run_id, session_id, event_id, step_order, step_type, payload
         FROM run_steps
         WHERE event_id=?
       `)
@@ -245,18 +369,11 @@ export class RunOps {
     return row ? { ...row, payload: parseJsonObject(row.payload) } : null;
   }
 
-  updateRunStepsMessageId(sessionId: string, runId: string, messageId: string): number {
-    const result = this.db
-      .prepare("UPDATE run_steps SET message_id=? WHERE session_id=? AND run_id=?")
-      .run(messageId, sessionId, runId);
-    return Number(result.changes);
-  }
-
   listRunSteps(input: {
     runId?: string | null;
-    messageId?: string | null;
     sessionId?: string | null;
     limit?: number;
+    offset?: number;
   }): RunStepInfo[] {
     const rows = this.loadRunStepRows(input);
     const resourceRefsByStep = this.loadResourceRefs(rows.map((row) => row.id));
@@ -265,34 +382,12 @@ export class RunOps {
 
   private loadRunStepRows(input: {
     runId?: string | null;
-    messageId?: string | null;
     sessionId?: string | null;
     limit?: number;
+    offset?: number;
   }): RunStepRow[] {
     const limit = input.limit ?? 500;
-    if (input.messageId) {
-      if (input.sessionId) {
-        return this.db
-          .prepare(`
-            SELECT ${RUN_STEP_SELECT_COLUMNS}
-            FROM run_steps
-            WHERE message_id=? AND session_id=?
-            ORDER BY step_order ASC
-            LIMIT ?
-          `)
-          .all(input.messageId, input.sessionId, limit) as unknown as RunStepRow[];
-      }
-      return this.db
-        .prepare(`
-          SELECT ${RUN_STEP_SELECT_COLUMNS}
-          FROM run_steps
-          WHERE message_id=?
-          ORDER BY step_order ASC
-          LIMIT ?
-        `)
-        .all(input.messageId, limit) as unknown as RunStepRow[];
-    }
-
+    const offset = Math.max(0, Math.trunc(input.offset ?? 0));
     if (input.runId) {
       if (input.sessionId) {
         return this.db
@@ -301,9 +396,9 @@ export class RunOps {
             FROM run_steps
             WHERE run_id=? AND session_id=?
             ORDER BY step_order ASC
-            LIMIT ?
+            LIMIT ? OFFSET ?
           `)
-          .all(input.runId, input.sessionId, limit) as unknown as RunStepRow[];
+          .all(input.runId, input.sessionId, limit, offset) as unknown as RunStepRow[];
       }
       return this.db
         .prepare(`
@@ -311,9 +406,9 @@ export class RunOps {
           FROM run_steps
           WHERE run_id=?
           ORDER BY step_order ASC
-          LIMIT ?
+          LIMIT ? OFFSET ?
         `)
-        .all(input.runId, limit) as unknown as RunStepRow[];
+        .all(input.runId, limit, offset) as unknown as RunStepRow[];
     }
 
     return [];

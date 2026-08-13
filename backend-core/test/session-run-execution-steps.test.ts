@@ -35,7 +35,6 @@ function executionStep(runId: string, callId: string, order: number): RunStepInf
     run_id: runId,
     event_id: `${runId}:${order}`,
     session_id: "session-1",
-    message_id: null,
     step_order: order,
     step_type: EXECUTION_ENVELOPE_STEP_TYPE,
     payload: {
@@ -50,7 +49,68 @@ function executionStep(runId: string, callId: string, order: number): RunStepInf
   };
 }
 
+function boundaryStep(runId: string, messageId: string, order: number): RunStepInfo {
+  return {
+    ...executionStep(runId, `boundary-call-${order}`, order),
+    payload: {
+      type: "agent_message",
+      session_id: "session-1",
+      run_id: runId,
+      call_id: `boundary-call-${order}`,
+      payload: {
+        kind: "request",
+        message_id: messageId,
+        content: messageId,
+      },
+    },
+  };
+}
+
+function assistantBoundaryStep(runId: string, messageId: string, order: number): RunStepInfo {
+  return {
+    ...executionStep(runId, `assistant-call-${order}`, order),
+    payload: {
+      type: "stream_output",
+      session_id: "session-1",
+      run_id: runId,
+      message_id: messageId,
+      call_id: `assistant-call-${order}`,
+      payload: { phase: "final", content: "done" },
+    },
+  };
+}
+
 describe("AgentSessionApplication participant Run steps", () => {
+  it("exposes every visible user or assistant message that belongs to a Run", async () => {
+    const messages = [
+      { id: "initial", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run", execution_kind: "agent_stream" } },
+      { id: "followup-source", role: "user", metadata: { run_id: "root-run", source: "running_session" } },
+      { id: "followup-kind", role: "user", metadata: { run_id: "root-run", execution_kind: "session_followup" } },
+      { id: "agent-message", role: "user", metadata: { run_id: "root-run", agent_message: true } },
+      { id: "assistant", role: "assistant", metadata: { run_id: "root-run" } },
+    ];
+    const repository = {
+      listVisibleMessages: vi.fn(async () => ({
+        items: messages,
+        total: messages.length,
+        limit: 20,
+        offset: 0,
+        has_more: false,
+      })),
+    } as unknown as AgentSessionRepositoryPort;
+    const sessions = new AgentSessionApplication(repository);
+
+    const result = await sessions.listMessages({ sessionId: "session-1" });
+
+    expect(result.items.map((item) => [item.id, item.has_execution])).toEqual([
+      ["initial", true],
+      ["followup-source", true],
+      ["followup-kind", true],
+      ["agent-message", true],
+      ["assistant", true],
+    ]);
+  });
+
   it("lists every Run owned by the selected participant", async () => {
     const repository = {
       listParticipantRuns: vi.fn(async () => ({
@@ -74,7 +134,7 @@ describe("AgentSessionApplication participant Run steps", () => {
     expect(repository.listParticipantRuns).toHaveBeenCalledWith("session-1", "child-1", 1, 1);
   });
 
-  it("aggregates the selected Run tree and paginates the execution envelopes", async () => {
+  it("lists only the selected Run and paginates its execution envelopes", async () => {
     const steps = new Map([
       ["child-run", [executionStep("child-run", "child-call", 1)]],
       ["grandchild-run", [executionStep("grandchild-run", "grandchild-call", 2)]],
@@ -102,9 +162,9 @@ describe("AgentSessionApplication participant Run steps", () => {
       offset: 1,
     });
 
-    expect(result).toMatchObject({ run_id: "child-run", total: 2, limit: 1, offset: 1, has_more: false });
-    expect(result.items[0]?.call_id).toBe("grandchild-call");
-    expect(listRunSteps.mock.calls.map(([input]) => input.runId)).toEqual(["child-run", "grandchild-run"]);
+    expect(result).toMatchObject({ run_id: "child-run", total: 1, limit: 1, offset: 1, has_more: false });
+    expect(result.items).toEqual([]);
+    expect(listRunSteps.mock.calls.map(([input]) => input.runId)).toEqual(["child-run"]);
   });
 
   it("rejects a Run owned by another participant", async () => {
@@ -118,5 +178,87 @@ describe("AgentSessionApplication participant Run steps", () => {
       participantId: "child-1",
       runId: "other-run",
     })).rejects.toThrow("Run 不存在: other-run");
+  });
+
+  it("slices a Run from each visible message to the next message boundary", async () => {
+    const messages = [
+      { id: "initial", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run" }, thread_key: "root", child_agent_id: null, seq: 1 },
+      { id: "followup-1", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run", source: "running_session" }, thread_key: "root", child_agent_id: null, seq: 2 },
+      { id: "agent-1", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run", agent_message: true }, thread_key: "root", child_agent_id: null, seq: 3 },
+      { id: "assistant", role: "assistant", metadata: { run_id: "root-run" }, thread_key: "root", child_agent_id: null, seq: 4 },
+    ];
+    const steps = [
+      executionStep("root-run", "call-1", 1),
+      executionStep("root-run", "call-2", 2),
+      boundaryStep("root-run", "followup-1", 3),
+      executionStep("root-run", "call-3", 4),
+      boundaryStep("root-run", "agent-1", 5),
+      executionStep("root-run", "call-4", 6),
+      assistantBoundaryStep("root-run", "assistant", 7),
+    ];
+    const segments = new Map<string, RunStepInfo[]>([
+      ["initial", steps.slice(0, 2)],
+      ["followup-1", steps.slice(3, 4)],
+      ["agent-1", steps.slice(5, 6)],
+      ["assistant", []],
+    ]);
+    const listMessageRunSteps = vi.fn(async ({
+      messageId,
+      offset,
+      limit,
+    }: { messageId: string; offset: number; limit: number }) => {
+      const items = segments.get(messageId) ?? [];
+      return { items: items.slice(offset, offset + limit), total: items.length };
+    });
+    const repository = {
+      getMessageById: vi.fn(async (_sessionId: string, messageId: string) => (
+        messages.find((message) => message.id === messageId) ?? null
+      )),
+      listMessageRunSteps,
+    } as unknown as AgentSessionRepositoryPort;
+    const sessions = new AgentSessionApplication(repository);
+
+    const initial = await sessions.listMessageRunSteps({ sessionId: "session-1", messageId: "initial", limit: 50 });
+    const followup = await sessions.listMessageRunSteps({ sessionId: "session-1", messageId: "followup-1", limit: 50 });
+    const agentMessage = await sessions.listMessageRunSteps({ sessionId: "session-1", messageId: "agent-1", limit: 50 });
+    const final = await sessions.listMessageRunSteps({ sessionId: "session-1", messageId: "assistant", limit: 50 });
+
+    expect(initial.items.map((item) => item.call_id)).toEqual(["call-1", "call-2"]);
+    expect(followup.items.map((item) => item.call_id)).toEqual(["call-3"]);
+    expect(agentMessage.items.map((item) => item.call_id)).toEqual(["call-4"]);
+    expect(final.items).toEqual([]);
+    expect(listMessageRunSteps).toHaveBeenCalledTimes(4);
+    expect(listMessageRunSteps).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      runId: "root-run",
+      messageId: "followup-1",
+      limit: 50,
+      offset: 0,
+    });
+  });
+
+  it("truncates the original Run from a rolled-back followup boundary", async () => {
+    const messages = [
+      { id: "initial", role: "user", metadata: { run_id: "root-run" }, thread_key: "root", child_agent_id: null, seq: 1 },
+      { id: "followup-1", role: "user", metadata: { run_id: "root-run", source: "running_session", execution_kind: "session_followup" }, thread_key: "root", child_agent_id: null, seq: 2 },
+      { id: "assistant", role: "assistant", metadata: { run_id: "root-run" }, thread_key: "root", child_agent_id: null, seq: 3 },
+    ];
+    const deleteMessagesAfter = vi.fn(async () => 2);
+    const getRunMessageBoundary = vi.fn(async () => 2);
+    const repository = {
+      getFirstMessageAfterSeq: vi.fn(async () => messages[1]),
+      getRunMessageBoundary,
+      deleteMessagesAfter,
+    } as unknown as AgentSessionRepositoryPort;
+    const sessions = new AgentSessionApplication(repository);
+
+    const deleted = await sessions.rollbackMessages({ sessionId: "session-1", afterSeq: 1 });
+
+    expect(deleted).toBe(2);
+    expect(deleteMessagesAfter).toHaveBeenCalledWith("session-1", {
+      afterSeq: 1,
+      truncateRunSteps: { runId: "root-run", fromStepOrder: 2 },
+    });
+    expect(getRunMessageBoundary).toHaveBeenCalledWith("session-1", "root-run", "followup-1");
   });
 });

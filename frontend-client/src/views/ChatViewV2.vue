@@ -94,7 +94,6 @@
             :can-attach="canAttachFiles"
             :has-messages="hasMessages"
             :new-chat-launching="newChatLaunching"
-            :followup-candidates="pendingFollowupCandidates"
             :session-id="currentSessionId || ''"
             :chat-sdk-client="chatSdkClient"
             :context-usage="contextUsage"
@@ -235,7 +234,7 @@ const {
   sessionRuntime,
   runtimeObservability,
   contextUsage,
-  pendingFollowupCandidates,
+  pendingCommands,
   selectedParticipantId,
 } = storeToRefs(sessionRunStore);
 
@@ -315,7 +314,7 @@ function openCtxDrawer() {
   ctxDrawerVisible.value = true;
 }
 
-const { activeRun: _activeRun, resetActiveRun, clearFollowupCandidates } = sessionRunStore;
+const { activeRun: _activeRun, resetActiveRun } = sessionRunStore;
 
 // 被下方 composable deps 引用的工具函数前置定义，消除延迟闭包。
 const showToast = (message, actionOrType = null, actionLabel = '重试') => {
@@ -472,9 +471,11 @@ const chatApprovalQueue = computed(() => {
     : approvalQueue.value.slice(0, firstFilePreviewIndex);
 });
 const runtimeActions = computed(() => new Set(sessionRuntime.value?.allowed_actions || []));
-const canSendMessage = computed(() => !currentSessionId.value
-  || runtimeActions.value.has('send_message')
-  || runtimeActions.value.has('send_followup'));
+const canSendMessage = computed(() => {
+  if (runtimeActions.value.has('send_followup')) return true;
+  if (pendingCommands.value.length > 0) return false;
+  return !currentSessionId.value || runtimeActions.value.has('send_message');
+});
 const canStopRun = computed(() => runtimeActions.value.has('stop_run'));
 const canResumeRun = computed(() => runtimeActions.value.has('resume_run'));
 const canRespondInteraction = computed(() => runtimeActions.value.has('respond_interaction'));
@@ -581,7 +582,7 @@ const {
   activeRun: _activeRun,
   materializeAttachmentsForSend,
   getCurrentSelectedLlm,
-  reloadSessionMessages: (sessionId) => loadSessionMessages(sessionId),
+  reloadSessionMessages: (sessionId, options) => loadSessionMessages(sessionId, options),
   stickToBottom,
   chatSdkClient,
 });
@@ -593,7 +594,6 @@ const clearExecutionState = (opts) => {
   _clearExecutionStateBase(opts);
   resetStreamSessionState();
   resetActiveRun();
-  clearFollowupCandidates();
   isCompressing.value = false;
 };
 

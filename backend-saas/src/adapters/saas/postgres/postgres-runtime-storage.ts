@@ -100,13 +100,10 @@ function createTransactionFacade(
       terminalReason,
     ),
     getRun: (sessionId, runId) => runRepository.getRun(tenantId, sessionId, runId),
-    addRunStep: (input) => runRepository.addRunStep({ ...input, tenantId }),
-    updateRunStepsMessageId: (sessionId, runId, messageId) => runRepository.updateRunStepsMessageId(
-      tenantId,
-      sessionId,
-      runId,
-      messageId,
+    ensureInitialRunMessageBoundary: (sessionId, runId, messageId) => (
+      runRepository.ensureInitialRunMessageBoundary(tenantId, sessionId, runId, messageId)
     ),
+    addRunStep: (input) => runRepository.addRunStep({ ...input, tenantId }),
   };
 
   const outbox: RuntimeOutboxStorage = {
@@ -493,6 +490,11 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (existingRun) assertRunScope(existingRun, input.run);
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(input.run);
       await this.claimRootRunLease(transactionExecutor, input.session.sessionId, input.run.runId);
+      await tx.runs.ensureInitialRunMessageBoundary(
+        input.session.sessionId,
+        input.run.runId,
+        input.mailboxMessage.messageId,
+      );
       if (input.sessionMaintenanceToken) {
         await transactionExecutor.query(
           `UPDATE conversation_sessions
@@ -673,7 +675,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
             }),
             "terminal message",
           );
-          await tx.runs.updateRunStepsMessageId(sessionId, runId, finalMessage.id);
           for (const terminalRecord of buildRunTerminalRecords({
             run: {
               sessionId,
@@ -1269,7 +1270,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
           records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalized));
         }
-        await tx.runs.updateRunStepsMessageId(input.sessionId, runId, finalMessage.id);
       }
       return { interruptedRuns, cancelledInteractions, records };
     });
@@ -1496,9 +1496,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           assertRecordScope(normalized, input.sessionId, scopedRun.run_id);
           await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
           records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalized));
-        }
-        if (finalMessage && input.attachStepsToFinalMessage !== false) {
-          await tx.runs.updateRunStepsMessageId(input.sessionId, scopedRun.run_id, finalMessage.id);
         }
         if (scopedRun.status === "running" || scopedRun.status === "suspended") {
           if (!await tx.runs.updateRunStatus(scopedRun.run_id, input.sessionId, runStatus, finalMessage?.id ?? null, runReason)) {

@@ -25,6 +25,7 @@ const tenantScopedRunSchema = `
         parent_call_id TEXT,
         child_agent_id TEXT,
         final_message_id TEXT,
+        next_step_order INTEGER NOT NULL DEFAULT 1,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (tenant_id, run_id),
@@ -47,7 +48,6 @@ const tenantScopedRunSchema = `
         tenant_id TEXT NOT NULL,
         run_id TEXT NOT NULL,
         session_id TEXT NOT NULL,
-        message_id TEXT,
         step_order INTEGER NOT NULL,
         step_type TEXT NOT NULL,
         payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -60,8 +60,24 @@ const tenantScopedRunSchema = `
       );
       CREATE INDEX IF NOT EXISTS saas_run_steps_run_idx
         ON saas_run_steps(tenant_id, session_id, run_id, step_order);
-      CREATE INDEX IF NOT EXISTS saas_run_steps_message_idx
-        ON saas_run_steps(tenant_id, session_id, message_id);
+
+      CREATE TABLE IF NOT EXISTS saas_run_message_boundaries (
+        tenant_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        start_after_step_order INTEGER NOT NULL,
+        boundary_step_order INTEGER,
+        boundary_kind TEXT NOT NULL CHECK (boundary_kind IN ('carrier', 'terminal')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (tenant_id, session_id, run_id, message_id),
+        FOREIGN KEY (tenant_id, run_id)
+          REFERENCES saas_runs(tenant_id, run_id) ON DELETE CASCADE,
+        FOREIGN KEY (tenant_id, session_id)
+          REFERENCES conversation_sessions(tenant_id, session_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS saas_run_message_boundaries_order_idx
+        ON saas_run_message_boundaries(tenant_id, session_id, run_id, start_after_step_order);
 `;
 
 export const POSTGRES_RUN_MIGRATIONS: readonly PostgresRunMigration[] = [
@@ -74,6 +90,7 @@ export const POSTGRES_RUN_MIGRATIONS: readonly PostgresRunMigration[] = [
     version: 2,
     name: "tenant-scoped-run-state-rebuild",
     sql: `
+      DROP TABLE IF EXISTS saas_run_message_boundaries;
       DROP TABLE IF EXISTS saas_run_steps;
       DROP TABLE IF EXISTS saas_runs;
       ${tenantScopedRunSchema}
@@ -185,6 +202,44 @@ export const POSTGRES_RUN_MIGRATIONS: readonly PostgresRunMigration[] = [
         ON saas_runs(tenant_id, session_id, agent_call_id);
       CREATE INDEX IF NOT EXISTS saas_runs_lease_root_status_idx
         ON saas_runs(tenant_id, session_id, lease_root_run_id, status);
+    `,
+  },
+  {
+    version: 8,
+    name: "remove-run-step-message-link",
+    sql: `
+      DROP INDEX IF EXISTS saas_run_steps_message_idx;
+      ALTER TABLE saas_run_steps DROP COLUMN IF EXISTS message_id;
+    `,
+  },
+  {
+    version: 9,
+    name: "run-step-order-and-message-boundaries",
+    sql: `
+      ALTER TABLE saas_runs ADD COLUMN IF NOT EXISTS next_step_order INTEGER NOT NULL DEFAULT 1;
+      UPDATE saas_runs AS run
+      SET next_step_order = COALESCE((
+        SELECT MAX(step.step_order) + 1
+        FROM saas_run_steps AS step
+        WHERE step.tenant_id = run.tenant_id AND step.run_id = run.run_id
+      ), 1);
+      CREATE TABLE IF NOT EXISTS saas_run_message_boundaries (
+        tenant_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        start_after_step_order INTEGER NOT NULL,
+        boundary_step_order INTEGER,
+        boundary_kind TEXT NOT NULL CHECK (boundary_kind IN ('carrier', 'terminal')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (tenant_id, session_id, run_id, message_id),
+        FOREIGN KEY (tenant_id, run_id)
+          REFERENCES saas_runs(tenant_id, run_id) ON DELETE CASCADE,
+        FOREIGN KEY (tenant_id, session_id)
+          REFERENCES conversation_sessions(tenant_id, session_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS saas_run_message_boundaries_order_idx
+        ON saas_run_message_boundaries(tenant_id, session_id, run_id, start_after_step_order);
     `,
   },
 ];

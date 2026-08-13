@@ -7,7 +7,7 @@ import { createSessionRunRecovery } from './sessionRunRecovery.js';
 import { createSessionCommandController } from './sessionCommandController.js';
 import { createSessionEnvelopeDispatcher } from './sessionEnvelopeDispatcher.js';
 
-export { resetActiveRunForSend, serializeAttachmentForSend } from './sessionCommandController.js';
+export { createRequestId, serializeAttachmentForSend } from './sessionCommandController.js';
 
 /**
  * 会话 AgentClient（对标 packages/agent-widget/src/adapter/widget-agent-client.ts 的 WidgetAgentClient）。
@@ -39,13 +39,10 @@ export function useSessionAgentClient(deps) {
   } = storeToRefs(sessionRunStore);
   const activeRun = sessionRunStore.activeRun;
   const {
-    enqueueFollowupCandidate,
-    takeFollowupCandidate,
-    markFollowupCandidateFailed,
     applySessionRuntime,
     clearSessionRuntime,
-    beginOptimisticCommand,
-    finishOptimisticCommand,
+    beginPendingCommand,
+    finishPendingCommand,
     allowsRuntimeAction,
   } = sessionRunStore;
 
@@ -55,11 +52,10 @@ export function useSessionAgentClient(deps) {
 
   const recovery = createSessionRunRecovery({
     activeRun,
-    messages,
     isLoading,
     deleteMessageCache: deps.deleteMessageCache,
     loadSessionMessages: deps.loadSessionMessages,
-    finishOptimisticCommand,
+    finishPendingCommand,
   });
   const invalidateActiveStream = recovery.invalidateActiveStream;
   const scheduleCommandFallback = recovery.scheduleCommandFallback;
@@ -148,17 +144,12 @@ export function useSessionAgentClient(deps) {
   const commandController = createSessionCommandController({
     deps,
     currentSessionId,
-    messages,
     isLoading,
-    contextUsage,
-    activeRun,
     allowsRuntimeAction,
     getSessionRuntime: () => sessionRuntime.value,
-    beginOptimisticCommand,
-    finishOptimisticCommand,
+    beginPendingCommand,
+    finishPendingCommand,
     scheduleCommandFallback,
-    enqueueFollowupCandidate,
-    markFollowupCandidateFailed,
     sendViaSdk: (input, requestId) => sdk.send({
       task: input.task,
       requestId,
@@ -185,10 +176,9 @@ export function useSessionAgentClient(deps) {
     recovery,
     interaction: interactionController,
     applySessionRuntime,
-    finishOptimisticCommand,
+    finishPendingCommand,
     onRuntimeSnapshot: resolveRuntimeWaiters,
     getStop: () => stop,
-    takeFollowupCandidate,
   });
   const { handleEnvelope, handleRunEvent, resetStreamSessionState } = envelopeDispatcher;
 

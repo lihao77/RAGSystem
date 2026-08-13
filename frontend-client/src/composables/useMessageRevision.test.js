@@ -67,15 +67,28 @@ function withMock(setup, run) {
 
 test('confirmEditAndResend 锚定旧消息并将编辑内容交给统一发送入口', async () => {
   let capturedBody = null;
-  await withMock((mock) => {
-    mock.onPost(/\/rollback-and-retry$/).reply((config) => {
-      assert.equal(config.url, '/api/agent/sessions/session-1/rollback-and-retry');
-      capturedBody = JSON.parse(config.data);
-      return [200, { data: { started: true, session_id: 'session-1', request_id: 'req-new', run_id: 'run-new', task_id: 'task-new', deleted: 2 } }];
-    });
-  }, async () => {
+  let capturedOptions = null;
+  const canonicalMessages = [
+    { role: 'user', id: 'msg-1', content: 'first' },
+    { role: 'user', id: 'msg-new', seq: 2, content: 'updated', metadata: { request_id: 'req-new' } },
+  ];
+  {
     const attachment = { id: 'file-2', original_name: 'draft.txt', mime: 'text/plain', size: 12 };
-    const { deps, activeRun, sessionRunStore } = createDeps();
+    const { deps, sessionRunStore } = createDeps({
+      chatSdkClient: {
+        rollbackAndRetrySession: async (_sessionId, body, options) => {
+          capturedBody = body;
+          capturedOptions = options;
+          assert.deepEqual(deps.messages.value.map(item => item.id), ['msg-1', 'msg-2', 'msg-3']);
+          return { data: { started: true, request_id: options.requestId, run_id: 'run-new' } };
+        },
+      },
+      reloadSessionMessages: async (sessionId, options) => {
+        assert.equal(sessionId, 'session-1');
+        assert.deepEqual(options, { preserveStream: true });
+        deps.messages.value = canonicalMessages;
+      },
+    });
     deps.messages.value = [
       { role: 'user', id: 'msg-1', content: 'first' },
       { role: 'user', id: 'msg-2', content: 'draft', attachments: [attachment] },
@@ -92,31 +105,25 @@ test('confirmEditAndResend 锚定旧消息并将编辑内容交给统一发送�
     assert.equal(capturedBody.after_message_id, 'msg-2');
     assert.equal(capturedBody.modify_user_message, 'updated');
     assert.equal(capturedBody.attachments[0].file_id, 'file-2');
-
-    // 本地投影与后端一致：旧锚点被删除，新 user 消息等待 message_saved 回填新 id/seq。
-    assert.equal(deps.messages.value.length, 3);
-    assert.equal(deps.messages.value[1].role, 'user');
-    assert.equal(deps.messages.value[1].id, undefined);
-    assert.equal(deps.messages.value[1].content, 'updated');
-    assert.equal(deps.messages.value[1].metadata.request_id, 'req-new');
-    assert.equal(deps.messages.value[1].metadata.retry_of_message_id, 'msg-2');
-    assert.equal(deps.messages.value[2].role, 'assistant');
-    assert.equal(activeRun.active, true);
-    assert.equal(activeRun.runId, 'run-new');
-    assert.equal(sessionRunStore.isLoading, true);
-    assert.equal(sessionRunStore.optimisticCommand.kind, 'send');
+    assert.equal(typeof capturedOptions.requestId, 'string');
+    assert.deepEqual(deps.messages.value, canonicalMessages);
+    assert.equal(sessionRunStore.activeRun.active, false);
+    assert.equal(sessionRunStore.activeRun.runId, null);
+    assert.deepEqual(sessionRunStore.pendingCommands, []);
     assert.equal(revision.editingMessage.value, null);
-  });
+  }
 });
 
 test('rollbackAndRetry 失败时重新加载服务端消息并提示错误', async () => {
-  await withMock((mock) => {
-    mock.onPost(/\/rollback-and-retry$/).reply(400, { message: '重试失败啦' });
-  }, async () => {
+  {
     const serverMessages = [{ role: 'user', seq: 1, id: 'msg-server', content: 'server state' }];
     const { deps, toasts, reloadCalls, sessionRunStore } = createDeps({
-      reloadSessionMessages: async (sessionId) => {
+      chatSdkClient: {
+        rollbackAndRetrySession: async () => { throw new Error('重试失败啦'); },
+      },
+      reloadSessionMessages: async (sessionId, options) => {
         reloadCalls.push(sessionId);
+        assert.deepEqual(options, { preserveStream: true });
         deps.messages.value = serverMessages;
       },
     });
@@ -132,25 +139,29 @@ test('rollbackAndRetry 失败时重新加载服务端消息并提示错误', asy
     assert.deepEqual(deps.messages.value, serverMessages);
     assert.deepEqual(reloadCalls, ['session-1']);
     assert.deepEqual(toasts, ['重试失败啦']);
-    assert.equal(sessionRunStore.optimisticCommand, null);
+    assert.deepEqual(sessionRunStore.pendingCommands, []);
     assert.equal(sessionRunStore.isLoading, false);
-  });
+  }
 });
 
 test('回滚接口返回前已收到流式事件时保留执行树投影', async () => {
   let streamedAssistant = null;
-  const { deps, activeRun } = createDeps({
+  const { deps, activeRun, sessionRunStore } = createDeps({
     chatSdkClient: {
-      rollbackAndRetrySession: async () => {
-        streamedAssistant = deps.messages.value.at(-1);
+      rollbackAndRetrySession: async (_sessionId, _body, options) => {
+        assert.deepEqual(deps.messages.value.map(item => item.id), ['msg-1', 'msg-2']);
+        streamedAssistant = { role: 'assistant', content: 'partial output', run_id: 'run-retry', finished: false };
         streamedAssistant.content = 'partial output';
         streamedAssistant.executionTree = {
           root: { callId: 'call-root', status: 'running' },
           steps: [{ type: 'tool_call', callId: 'call-tool' }],
         };
-        // A compression summary may be inserted before the assistant while
-        // the rollback HTTP request is still pending.
-        deps.messages.value.splice(1, 0, { role: 'system', content: 'summary' });
+        deps.messages.value = [
+          { role: 'user', id: 'msg-retry', seq: 1, content: 'question', metadata: { request_id: options.requestId } },
+          { role: 'system', content: 'summary' },
+          streamedAssistant,
+        ];
+        Object.assign(activeRun, { active: true, assistantMsgIndex: 2, runId: 'run-retry' });
         return {
           data: {
             started: true,
@@ -159,6 +170,9 @@ test('回滚接口返回前已收到流式事件时保留执行树投影', async
           },
         };
       },
+    },
+    reloadSessionMessages: async (_sessionId, options) => {
+      assert.deepEqual(options, { preserveStream: true });
     },
   });
   deps.messages.value = [
@@ -170,26 +184,31 @@ test('回滚接口返回前已收到流式事件时保留执行树投影', async
   await revision.rollbackAndRetry(deps.messages.value[0]);
 
   assert.ok(streamedAssistant);
-  assert.equal(deps.messages.value.at(-1), streamedAssistant);
-  assert.equal(streamedAssistant.content, 'partial output');
-  assert.deepEqual(streamedAssistant.executionTree.steps, [{ type: 'tool_call', callId: 'call-tool' }]);
-  assert.equal(streamedAssistant.run_id, 'run-retry');
-  assert.equal(deps.messages.value[0].metadata.request_id, 'req-retry');
+  const projectedAssistant = deps.messages.value.at(-1);
+  assert.equal(projectedAssistant.content, 'partial output');
+  assert.deepEqual(projectedAssistant.executionTree.steps, [{ type: 'tool_call', callId: 'call-tool' }]);
+  assert.equal(projectedAssistant.run_id, 'run-retry');
   assert.equal(activeRun.runId, 'run-retry');
   assert.equal(activeRun.active, true);
+  assert.deepEqual(sessionRunStore.pendingCommands, []);
 });
 
 test('回滚 run 在接口响应前结束时不会重新进入 loading', async () => {
   const { deps, activeRun, sessionRunStore } = createDeps({
     chatSdkClient: {
-      rollbackAndRetrySession: async () => {
-        const assistant = deps.messages.value.at(-1);
-        assistant.content = 'done';
-        assistant.finished = true;
-        sessionRunStore.finishOptimisticCommand();
+      rollbackAndRetrySession: async (_sessionId, _body, options) => {
+        deps.messages.value = [{
+          role: 'assistant',
+          id: 'assistant-done',
+          run_id: 'run-done',
+          content: 'done',
+          finished: true,
+        }];
+        sessionRunStore.finishPendingCommand(options.requestId);
         return { data: { started: true, run_id: 'run-done' } };
       },
     },
+    reloadSessionMessages: async () => {},
   });
   deps.messages.value = [{ role: 'user', id: 'msg-1', seq: 1, content: 'question' }];
 
@@ -197,7 +216,7 @@ test('回滚 run 在接口响应前结束时不会重新进入 loading', async (
   await revision.rollbackAndRetry(deps.messages.value[0]);
 
   assert.equal(activeRun.active, false);
-  assert.equal(sessionRunStore.optimisticCommand, null);
+  assert.deepEqual(sessionRunStore.pendingCommands, []);
   assert.equal(sessionRunStore.isLoading, false);
   assert.equal(deps.messages.value.at(-1).finished, true);
 });

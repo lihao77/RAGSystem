@@ -1,11 +1,4 @@
 <template>
-  <AssistantExecutionSteps
-    v-if="showExecutionSteps"
-    :msg="msg"
-    @notify="emit('notify', $event)"
-    @citation-click="emit('citation-click', $event)"
-  />
-
   <div
     v-if="showLoadingIndicator"
     class="loading-indicator"
@@ -37,12 +30,10 @@
 </template>
 
 <script setup>
-import AssistantExecutionSteps from './AssistantExecutionSteps.vue';
 import MarkdownContent from './MarkdownContent.vue';
 import MessageContentParts from './MessageContentParts.vue';
 import { Spinner } from '@/components/ui/spinner';
 import { inject, computed } from 'vue';
-import { hasExecutionContent } from '../../utils/message-render.js';
 
 const props = defineProps({
   msg: { type: Object, required: true },
@@ -54,7 +45,6 @@ const messageContext = inject('messageContext');
 // 流式中（未停止且未结束）→ 显示呼吸光标
 const isStreaming = computed(() => !props.msg.finished && !props.msg.stopped);
 const hasContentParts = computed(() => Array.isArray(props.msg.content_parts) && props.msg.content_parts.length > 0);
-const showExecutionSteps = computed(() => hasExecutionContent(props.msg));
-const showLoadingIndicator = computed(() => !props.msg.content && !props.msg.finished && !showExecutionSteps.value);
+const showLoadingIndicator = computed(() => !props.msg.content && !props.msg.finished);
 
 </script>

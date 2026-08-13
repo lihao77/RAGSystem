@@ -3,6 +3,7 @@ import { MSG_TYPE } from "../message-kinds.js";
 import type { MessageInfo } from "../session/session.js";
 import { PROTOCOL_VERSION, type AssistantContentPart, type Envelope } from "@ragsystem/agent-protocol";
 import type { RuntimeRecordEnvelopeInput } from "./runtime-storage.js";
+import { executionEnvelopeMessageBoundary } from "./run-step-boundary.js";
 
 export type TerminalAssistantStatus = "failed" | "interrupted";
 export type TerminalRunStatus = "completed" | TerminalAssistantStatus;
@@ -148,6 +149,7 @@ export function buildRunTerminalRecords(input: {
       type: "stream_output",
       session_id: run.sessionId,
       run_id: run.runId,
+      message_id: finalMessage.id,
       call_id: run.agentCallId,
       agent_id: run.agentName,
       payload: {
@@ -236,6 +238,7 @@ function terminalEnvelopeRecord(
       runId: run.runId,
       eventId,
       stepType: "protocol.envelope.v1",
+      ...executionEnvelopeMessageBoundary(event),
       payload: {
         ...event,
         protocol_version: event.protocol_version ?? PROTOCOL_VERSION,

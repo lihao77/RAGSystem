@@ -45,7 +45,12 @@ export class LocalAgentSessionRepository implements AgentSessionRepositoryPort {
   }
   async deleteMessagesAfter(
     sessionId: string,
-    input: { afterSeq?: number | null; afterMessageId?: string | null },
+    input: {
+      afterSeq?: number | null;
+      afterMessageId?: string | null;
+      tenantId?: string | null;
+      truncateRunSteps?: { runId: string; fromStepOrder: number } | null;
+    },
   ) {
     return this.store.deleteMessagesAfter(sessionId, input);
   }
@@ -56,11 +61,23 @@ export class LocalAgentSessionRepository implements AgentSessionRepositoryPort {
     return this.store.listParticipantRuns(sessionId, participantId, limit, offset);
   }
   async getRun(sessionId: string, runId: string) { return this.store.getRun(sessionId, runId); }
+  async getRunMessageBoundary(sessionId: string, runId: string, messageId: string) {
+    return this.store.getRunMessageBoundary(sessionId, runId, messageId);
+  }
+  async listMessageRunSteps(input: {
+    sessionId: string;
+    runId: string;
+    messageId: string;
+    limit: number;
+    offset: number;
+  }) {
+    return this.store.listMessageRunSteps(input);
+  }
   async listRunSteps(input: {
     runId?: string | null;
-    messageId?: string | null;
     sessionId?: string | null;
     limit?: number;
+    offset?: number;
   }) {
     return this.store.listRunSteps(input);
   }

@@ -43,12 +43,20 @@
       :visible="actionsVisible || messageContext.editingMessage === msg"
       :retry-message="retryMessage"
     />
+
+    <AssistantExecutionSteps
+      v-if="showExecutionSteps"
+      :msg="msg"
+      @notify="emit('notify', $event)"
+      @citation-click="emit('citation-click', $event)"
+    />
   </div>
 </template>
 
 <script setup>
 import CommandResultMessage from '../CommandResultMessage.vue';
 import AssistantMessage from './AssistantMessage.vue';
+import AssistantExecutionSteps from './AssistantExecutionSteps.vue';
 import MessageActions from './MessageActions.vue';
 import UserMessage from './UserMessage.vue';
 import { computed, inject } from 'vue';
@@ -65,6 +73,10 @@ const props = defineProps({
 const emit = defineEmits(['hover', 'update:editingDraft', 'notify', 'citation-click']);
 const messageContext = inject('messageContext');
 const commandResult = computed(() => getMessageCommandResult(props.msg));
+const showExecutionSteps = computed(() => (
+  props.msg.role === 'user'
+  && (Boolean(props.msg.has_execution) || Boolean(props.msg.executionTree?.root))
+));
 
 // Message Extension 渲染编排:按 slot 分组(above=content 上方 / below=下方)。
 const renderableExts = computed(() => getMessageExtensions(props.msg).filter((e) => RENDERERS[e.kind]));

@@ -63,7 +63,6 @@ export interface RunStepRow {
   run_id: string;
   event_id?: string | null;
   session_id: string;
-  message_id: string | null;
   step_order: number;
   step_type: string;
   payload: string | null;

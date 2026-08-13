@@ -83,11 +83,10 @@ const hasFinalAnswer = computed(() => Boolean(
   )),
 ));
 const finalVisible = computed(() => Boolean(props.msg.finished && hasFinalAnswer.value));
-const expanded = ref(!finalVisible.value);
+const expanded = ref(false);
 const running = computed(() => !props.msg.finished && !props.msg.stopped);
 const msgIsUnloadedHistory = computed(() => Boolean(
-  props.msg.finished
-  && props.msg.has_execution
+  props.msg.has_execution
   && !props.msg.executionTree?.root
   && !props.msg.executionStepsLoaded,
 ));
@@ -101,7 +100,7 @@ watch(finalVisible, (visible, wasVisible) => {
 });
 
 watch(() => props.msg.run_id || props.msg.id, () => {
-  expanded.value = !finalVisible.value;
+  expanded.value = false;
 });
 
 async function toggleExpanded() {
@@ -127,6 +126,8 @@ function nodeKey(node, index) {
 <style scoped>
 .assistant-execution {
   display: flex;
+  align-self: flex-start;
+  width: 100%;
   min-width: 0;
   flex-direction: column;
   gap: 2px;

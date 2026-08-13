@@ -215,7 +215,6 @@ export class AsyncKernelEventPersister {
       ...(status === "failed" || status === "interrupted" ? { reason: terminalReason(status, error) } : {}),
       leaseRootRunId: this.leaseRunId(),
       finalMessage: persistedFinal,
-      ...(persistedFinal ? { attachStepsToFinalMessage: true } : {}),
       ...(isInteractionRoot ? { interactionRootRunId: this.ctx.runId } : {}),
       ...(status === "failed" || status === "interrupted" ? {
         closeDanglingToolCalls: {

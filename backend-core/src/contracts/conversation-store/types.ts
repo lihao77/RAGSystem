@@ -188,7 +188,8 @@ export const AddRunStepInputSchema = z.object({
   eventId: z.string().trim().min(1).optional(),
   stepType: z.string(),
   payload: z.record(z.unknown()),
-  messageId: z.string().nullable().optional(),
+  boundaryMessageId: z.string().trim().min(1).optional(),
+  boundaryKind: z.enum(["carrier", "terminal"]).optional(),
 });
 export type AddRunStepInput = z.infer<typeof AddRunStepInputSchema>;
 

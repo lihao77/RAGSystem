@@ -56,7 +56,7 @@ export interface RunRuntimeContext extends OpenRecord {
 
 export interface RunRecoveryContext {
   invalidateActiveStream: () => void;
-  scheduleCommandFallback: (sessionId: string, messageIndex: number, timeout?: number) => void;
+  scheduleCommandFallback: (sessionId: string, timeout?: number) => void;
   clearCommandFallback: () => void;
 }
 
@@ -89,10 +89,9 @@ export interface DispatcherOptions {
   recovery: RunRecoveryContext;
   interaction: InteractionContext;
   applySessionRuntime: (snapshot: OpenRecord) => void;
-  finishOptimisticCommand: () => void;
+  finishPendingCommand: (requestId?: string | null) => void;
   onRuntimeSnapshot?: (sessionId: string, snapshot: OpenRecord) => void;
   getStop: () => () => Promise<void>;
-  takeFollowupCandidate: (requestId: string) => SessionMessage | null;
 }
 
 export interface EventReducerOptions {
@@ -110,28 +109,22 @@ export interface EventReducerOptions {
 export interface SessionCommandControllerOptions extends OpenRecord {
   deps: SessionClientDeps;
   currentSessionId: RefLike<string | null>;
-  messages: RefLike<SessionMessage[]>;
   isLoading: RefLike<boolean>;
-  contextUsage: RefLike<OpenRecord>;
-  activeRun: ActiveRunState;
   allowsRuntimeAction: (action: string) => boolean;
   getSessionRuntime: () => OpenRecord | null;
-  beginOptimisticCommand: (kind?: string) => void;
-  finishOptimisticCommand: () => void;
-  scheduleCommandFallback: (sessionId: string, messageIndex: number, timeout?: number) => void;
-  enqueueFollowupCandidate: (candidate: SessionMessage) => void;
-  markFollowupCandidateFailed: (requestId: string, error: string) => void;
+  beginPendingCommand: (kind?: string, requestId?: string | null) => void;
+  finishPendingCommand: (requestId?: string | null) => void;
+  scheduleCommandFallback: (sessionId: string, timeout?: number) => void;
   sendViaSdk: (input: OpenRecord, requestId: string) => Promise<OpenRecord>;
   stopViaSdk: (sessionId: string) => Promise<void>;
 }
 
 export interface SessionRunRecoveryOptions extends OpenRecord {
   activeRun: ActiveRunState;
-  messages: RefLike<SessionMessage[]>;
   isLoading: RefLike<boolean>;
   deleteMessageCache: (sessionId: string) => void;
   loadSessionMessages: (sessionId: string, options?: OpenRecord) => any;
-  finishOptimisticCommand: () => void;
+  finishPendingCommand: (requestId?: string | null) => void;
 }
 
 export interface SessionInteractionControllerOptions {

@@ -19,10 +19,9 @@ export function createSessionEnvelopeDispatcher({
   recovery,
   interaction,
   applySessionRuntime,
-  finishOptimisticCommand,
+  finishPendingCommand,
   onRuntimeSnapshot,
   getStop,
-  takeFollowupCandidate,
 }) {
   const {
     currentSessionId,
@@ -111,8 +110,23 @@ export function createSessionEnvelopeDispatcher({
     ) || null;
   };
 
+  /** @param {AnyRecord[]} parts */
+  const getCanonicalUserContent = (parts) => parts.flatMap((part) => {
+    if (part?.type === 'text' && typeof part.text === 'string') return [part.text];
+    if (part?.type === 'command_ref' && typeof part.raw_text === 'string') return [part.raw_text];
+    return [];
+  }).join('');
+
+  /** @param {string | null | undefined} requestId */
+  const finishRequest = (requestId) => {
+    if (requestId) finishPendingCommand(requestId);
+  };
+
   /** @param {import('./sessionCoreTypes.js').SessionMessage} message */
-  const getMessageRunId = message => message?.run_id || message?.metadata?.run_id || null;
+  const getMessageRunId = message => message?.run_id
+    || message?.metadata?.consumed_by_run_id
+    || message?.metadata?.run_id
+    || null;
 
   /** @param {import('./sessionCoreTypes.js').SessionMessage | null | undefined} message */
   const getMessageExecutionRunIds = message => Array.isArray(message?.metadata?.execution_run_ids)
@@ -120,8 +134,10 @@ export function createSessionEnvelopeDispatcher({
     : [];
 
   /** @param {string | null | undefined} runId */
-  const findExecutionMessage = runId => !runId ? null : messages.value.find(message => message?.role === 'assistant'
-    && (getMessageRunId(message) === runId || getMessageExecutionRunIds(message).includes(runId))) || null;
+  const findExecutionMessage = runId => !runId ? null : messages.value.find(message => (
+    message?.role === 'assistant'
+      && (getMessageRunId(message) === runId || getMessageExecutionRunIds(message).includes(runId))
+  )) || null;
 
   /** @param {import('./sessionCoreTypes.js').SessionMessage} message @param {string} runId */
   const bindExecutionRun = (message, runId) => {
@@ -130,52 +146,17 @@ export function createSessionEnvelopeDispatcher({
     message.metadata = { ...(message.metadata || {}), execution_run_ids: [...runIds] };
   };
 
-  /** @param {import('./sessionCoreTypes.js').SessionMessage} candidate @param {AnyRecord} eventData @returns {import('./sessionCoreTypes.js').SessionMessage} */
-  const asConfirmedRunInjection = (candidate, eventData) => {
-    const { persistence_status: _persistenceStatus, ...metadata } = candidate.metadata || {};
-    return {
-      ...candidate,
-      status: [],
-      metadata: {
-        ...metadata,
-        ...(eventData.request_id ? { request_id: eventData.request_id } : {}),
-        ...(eventData.run_id ? { run_id: eventData.run_id } : {}),
-        ...(eventData.task_id ? { task_id: eventData.task_id } : {}),
-        ...(eventData.consumed_by_run_id ? { consumed_by_run_id: eventData.consumed_by_run_id } : {}),
-        ...(eventData.mailbox_message_id ? { mailbox_message_id: eventData.mailbox_message_id } : {}),
-        ...(Number.isInteger(eventData.round_index) ? { round_index: eventData.round_index } : {}),
-        execution_kind: 'session_followup',
-        source: 'running_session',
-      },
-    };
-  };
-
-  /** @param {import('./sessionCoreTypes.js').SessionMessage} candidate @param {AnyRecord} eventData @returns {import('./sessionCoreTypes.js').SessionMessage} */
-  const asNewRunUserMessage = (candidate, eventData) => {
-    const {
-      persistence_status: _persistenceStatus,
-      source: _source,
-      round_index: _roundIndex,
-      ...metadata
-    } = candidate.metadata || {};
-    return {
-      ...candidate,
-      status: [],
-      metadata: {
-        ...metadata,
-        ...(eventData.request_id ? { request_id: eventData.request_id } : {}),
-        ...(eventData.run_id ? { run_id: eventData.run_id } : {}),
-        ...(eventData.task_id ? { task_id: eventData.task_id } : {}),
-        execution_kind: 'agent_stream',
-      },
-    };
-  };
-
   /** @param {import('./sessionCoreTypes.js').SessionMessage} message @param {string | null | undefined} runId @returns {import('./sessionCoreTypes.js').SessionMessage} */
   const insertNewRunUserMessage = (message, runId) => {
-    const assistantIndex = messages.value.findIndex(
+    let assistantIndex = messages.value.findIndex(
       item => item?.role === 'assistant' && getMessageRunId(item) === runId,
     );
+    if (assistantIndex < 0 && activeRun.assistantMsgIndex >= 0) {
+      const activeAssistant = messages.value[activeRun.assistantMsgIndex];
+      if (activeAssistant?.role === 'assistant' && activeAssistant.finished !== true) {
+        assistantIndex = activeRun.assistantMsgIndex;
+      }
+    }
     if (assistantIndex < 0) {
       messages.value.push(message);
       return message;
@@ -183,23 +164,6 @@ export function createSessionEnvelopeDispatcher({
     messages.value.splice(assistantIndex, 0, message);
     if (activeRun.assistantMsgIndex >= assistantIndex) activeRun.assistantMsgIndex += 1;
     return message;
-  };
-
-  /**
-   * 服务端以实际落库时是否仍有活跃 root run 决定 followup 或新 run。
-   * 相同 run_id 表示并入既有 run；不同 run_id 表示旧 run 已结束，需按普通用户消息展示。
-   * @param {import('./sessionCoreTypes.js').SessionMessage} candidate @param {AnyRecord} eventData
-   */
-  const commitFollowupCandidate = (candidate, eventData) => {
-    const persistedRunId = eventData.run_id || null;
-    if (eventData.source === 'running_session') {
-      const injection = asConfirmedRunInjection(candidate, eventData);
-      messages.value.push(injection);
-      return { message: injection, kind: 'run_injection' };
-    }
-    const userMessage = asNewRunUserMessage(candidate, eventData);
-    insertNewRunUserMessage(userMessage, persistedRunId);
-    return { message: userMessage, kind: 'new_run' };
   };
 
   /** @param {AnyRecord | null | undefined} target @param {AnyRecord} eventData @param {string} sessionId */
@@ -221,7 +185,13 @@ export function createSessionEnvelopeDispatcher({
       ...(eventData.consumed_by_run_id ? { consumed_by_run_id: eventData.consumed_by_run_id } : {}),
       ...(eventData.mailbox_message_id ? { mailbox_message_id: eventData.mailbox_message_id } : {}),
     };
-    if (target.metadata.persistence_status) delete target.metadata.persistence_status;
+    if ((target.role === 'user' || target.role === 'assistant')
+      && (target.run_id || target.metadata?.run_id || target.metadata?.consumed_by_run_id)) {
+      target.has_execution = true;
+    } else {
+      target.has_execution = false;
+    }
+    if (target.role === 'user') target.finished = true;
     deps.cacheMessages(sessionId, messages.value);
   };
 
@@ -247,14 +217,15 @@ export function createSessionEnvelopeDispatcher({
       metadata,
     };
     const requestId = eventData.request_id;
-    const candidate = requestId ? takeFollowupCandidate(requestId) : null;
-    let committed = candidate ? commitFollowupCandidate(candidate, eventData) : null;
-    let target = committed?.message || (requestId
+    let target = requestId
       ? messages.value.find(message => message?.role === 'user' && message.metadata?.request_id === requestId) || null
-      : null);
+      : null;
+    if (!target && eventData.message_id) {
+      target = messages.value.find(message => message?.role === 'user' && message.id === eventData.message_id) || null;
+    }
     if (!target) {
       const parts = normalizeMessageContentParts(payload.content_parts);
-      const content = parts.filter(part => part.type === 'text').map(part => part.text).join('');
+      const content = getCanonicalUserContent(parts);
       const message = createUserMessage(content, [], {
         ...metadata,
         request_id: requestId,
@@ -262,22 +233,53 @@ export function createSessionEnvelopeDispatcher({
         ...(metadata.source ? { source: metadata.source } : {}),
         ...(metadata.consumed_by_run_id ? { consumed_by_run_id: metadata.consumed_by_run_id } : {}),
       });
-      if (metadata.source === 'running_session' && metadata.consumed_by_run_id) {
-        committed = { message: { ...message, metadata: { ...message.metadata, source: 'running_session' } }, kind: 'run_injection' };
-        messages.value.push(committed.message);
-        target = committed.message;
-      } else {
-        insertNewRunUserMessage(message, eventData.run_id);
-        target = message;
-      }
+      insertNewRunUserMessage(message, eventData.run_id);
+      target = message;
     }
     applyMessageSaved(target, eventData, sessionId);
-    if (committed) deps.updateRecentSession(sessionId, target.content, new Date().toISOString());
+    finishRequest(requestId);
+    deps.updateRecentSession(sessionId, target.content, new Date().toISOString());
     return true;
   };
 
+  /** Execution is displayed under the latest conversation boundary before the assistant carrier. */
+  /** @param {import('./sessionCoreTypes.js').SessionMessage} carrier @param {string | null | undefined} runId */
+  const findExecutionBoundaryMessage = (carrier, runId) => {
+    const carrierIndex = messages.value.indexOf(carrier);
+    const endIndex = carrierIndex >= 0 ? carrierIndex : messages.value.length;
+    for (let index = endIndex - 1; index >= 0; index -= 1) {
+      const message = messages.value[index];
+      if (message?.role !== 'user') continue;
+      const messageRunId = getMessageRunId(message);
+      if (runId && messageRunId && messageRunId !== runId) continue;
+      if (runId && !messageRunId) {
+        const isPendingRunBoundary = message.metadata?.execution_kind === 'agent_stream'
+          || message.metadata?.execution_kind === 'session_followup'
+          || message.metadata?.source === 'running_session';
+        if (!isPendingRunBoundary) continue;
+        message.run_id = runId;
+        message.metadata = { ...(message.metadata || {}), run_id: runId };
+      }
+      message.finished = true;
+      message.has_execution = true;
+      return message;
+    }
+    return carrier;
+  };
+
+  /** @param {import('./sessionCoreTypes.js').SessionMessage} carrier @param {import('./sessionCoreTypes.js').SessionEnvelope} event */
+  const applyEnvelopeToBoundaryMessage = (carrier, event) => {
+    const boundary = findExecutionBoundaryMessage(carrier, event.run_id || getMessageRunId(carrier));
+    deps.applyEnvelopeToMessage(boundary, event);
+  };
+
+  const eventReducerDeps = Object.create(deps);
+  Object.defineProperty(eventReducerDeps, 'applyEnvelopeToMessage', {
+    value: applyEnvelopeToBoundaryMessage,
+  });
+
   const handleRunEvent = createSessionEventReducer({
-    deps,
+    deps: eventReducerDeps,
     runtime,
     activeRun,
     messages,
@@ -405,18 +407,18 @@ export function createSessionEnvelopeDispatcher({
       nextTick(() => deps.scrollToBottom(true));
       return;
     }
+    if (eventType === 'agent_message') {
+      nextTick(() => deps.scrollToBottom(true));
+      return;
+    }
 
     if (eventType === 'ack') {
       const category = payload.category;
       if (category === 'send') {
         clearCommandFallback();
         if (!payload.ok) {
-          const currentMsg = messages.value[activeRun.assistantMsgIndex];
-          if (currentMsg) {
-            currentMsg.content = `\n\n[System Error: ${payload.error || '启动执行失败'}]`;
-            currentMsg.finished = true;
-          }
-          finishOptimisticCommand();
+          finishRequest(payload.request_id);
+          deps.showToast(payload.error || '启动执行失败');
           runtime.resetActiveRunRuntime();
           return;
         }
@@ -458,8 +460,6 @@ export function createSessionEnvelopeDispatcher({
       const nextRunId = event.run_id || null;
       let currentAssistantIndex = activeRun.assistantMsgIndex;
       let currentMsg = messages.value[currentAssistantIndex];
-      // An idle runtime reconciliation resets the active-run index. Recover
-      // the optimistic unfinished assistant that was just added by send().
       if (currentMsg?.role !== 'assistant' || currentMsg.finished) {
         currentAssistantIndex = -1;
         for (let index = messages.value.length - 1; index >= 0; index -= 1) {
@@ -472,9 +472,6 @@ export function createSessionEnvelopeDispatcher({
         }
       }
       const currentMsgRunId = getMessageRunId(currentMsg);
-      // The connection handshake can deliver an idle runtime snapshot between
-      // the optimistic assistant placeholder and run_started. Reuse that
-      // unfinished placeholder instead of appending a second assistant.
       const canReuseCurrentAssistant = currentMsg?.role === 'assistant'
         && !currentMsg.finished
         && (!activeRun.runId || !nextRunId || activeRun.runId === nextRunId)
@@ -539,6 +536,20 @@ export function createSessionEnvelopeDispatcher({
         let target = ref.role === 'user'
             ? findUserMessageSavedTarget(ref)
             : matchingAssistant || (refRunId && getMessageRunId(currentMsg) === refRunId ? currentMsg : null);
+        if (!target && ref.role === 'user' && refMessageId) {
+          target = messages.value.find(message => message?.role === 'user' && message.id === refMessageId) || null;
+        }
+        if (!target && ref.role === 'user' && Array.isArray(ref.content_parts)) {
+          const contentParts = normalizeMessageContentParts(ref.content_parts);
+          const content = getCanonicalUserContent(contentParts);
+          target = createUserMessage(content, getMessageAttachments({ content_parts: contentParts }), {
+            ...(ref.metadata && typeof ref.metadata === 'object' ? ref.metadata : {}),
+            ...(ref.request_id ? { request_id: ref.request_id } : {}),
+            ...(refRunId ? { run_id: refRunId } : {}),
+          });
+          target.content_parts = contentParts;
+          insertNewRunUserMessage(target, refRunId);
+        }
         if (!target && ref.role === 'assistant' && Array.isArray(ref.content_parts)) {
           const contentParts = normalizeMessageContentParts(ref.content_parts);
           const content = contentParts
@@ -563,6 +574,10 @@ export function createSessionEnvelopeDispatcher({
           target = created;
         }
         applyMessageSaved(target, ref, sessionId);
+        if (ref.role === 'user') {
+          finishRequest(ref.request_id);
+          if (target) deps.updateRecentSession(sessionId, target.content, new Date().toISOString());
+        }
         if (target?.role === 'assistant' && refRunId) target.has_execution = true;
         return;
       }
@@ -584,26 +599,12 @@ export function createSessionEnvelopeDispatcher({
       if (category === 'command_result') {
         const detail = payload.detail || {};
         if (detail.type === 'command.started') {
-          scheduleCommandFallback(sessionId, activeRun.assistantMsgIndex, 120000);
+          scheduleCommandFallback(sessionId, 120000);
           return;
         }
         clearCommandFallback();
-        let targetMsg = messages.value[messages.value.length - 1];
-        if (!targetMsg || targetMsg.role !== 'assistant' || targetMsg.finished) {
-          messages.value.push(deps.createAssistantMessage());
-          targetMsg = messages.value[messages.value.length - 1];
-        }
-        targetMsg.content = detail.content || '';
-        targetMsg.content_parts = [{
-          type: 'command_result',
-          invocation_id: detail.invocation_id || 'pending-command',
-          name: detail.command || 'unknown',
-          success: detail.success !== false,
-          text: detail.content || '',
-          ...(detail.error ? { error: detail.error } : {}),
-        }];
-        targetMsg.finished = true;
-        finishOptimisticCommand();
+        if (detail.request_id) finishRequest(detail.request_id);
+        else finishPendingCommand();
         deps.deleteMessageCache(sessionId);
         deps.loadSessionMessages(sessionId, { silent: true });
         nextTick(() => deps.scrollToBottom(true));
