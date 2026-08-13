@@ -37,6 +37,33 @@ const getAgentMessageEventContent = (payload = {}) => {
   }).filter(Boolean).join('\n').trim();
 };
 
+const createAssistantMessageFromSavedEvent = (event, participantId) => {
+  const ref = event?.payload?.ref || {};
+  const contentParts = Array.isArray(ref.content_parts) ? ref.content_parts : [];
+  const content = contentParts
+    .filter(part => part?.type === 'text' && typeof part.text === 'string')
+    .map(part => part.text)
+    .join('');
+  const runId = event?.run_id || null;
+  return createAssistantMessage({
+    id: ref.message_id || ref.id || null,
+    seq: Number.isSafeInteger(ref.seq) ? ref.seq : undefined,
+    content,
+    content_parts: contentParts,
+    finished: true,
+    has_execution: false,
+    run_id: runId,
+    thread_key: `child:${participantId}`,
+    child_agent_id: participantId,
+    metadata: {
+      ...(ref.metadata && typeof ref.metadata === 'object' ? ref.metadata : {}),
+      run_id: runId,
+      thread_key: `child:${participantId}`,
+      child_agent_id: participantId,
+    },
+  });
+};
+
 const createAgentMessageFromEvent = (event, participantId, consumedUserMessage = false) => {
   const payload = event?.payload || {};
   const content = getAgentMessageEventContent(payload);
@@ -258,7 +285,7 @@ export function useMessageExecution(deps) {
       message.run_failed = status === 'failed';
       message.stopped = status === 'interrupted';
       message.metadata = { ...(message.metadata || {}), terminal_status: status };
-    } else if (event.type !== 'agent_message') {
+    } else if (event.type !== 'agent_message' && message.role === 'assistant') {
       message.finished = false;
     }
   };
@@ -299,6 +326,17 @@ export function useMessageExecution(deps) {
         createAgentMessageFromEvent(event, targetParticipantId, isConsumedUserMessage),
       );
       flushParticipantRun(sessionId, targetParticipantId, runId);
+      return;
+    }
+    if (event.type === 'state_sync'
+      && event.payload?.category === 'message_saved'
+      && event.payload?.ref?.role === 'assistant'
+      && participantId
+      && participantId !== 'root') {
+      deps.syncParticipantMessage?.(
+        participantId,
+        createAssistantMessageFromSavedEvent(event, participantId),
+      );
       return;
     }
     if (!participantId || participantId === 'root') return;

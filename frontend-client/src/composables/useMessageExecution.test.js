@@ -148,6 +148,39 @@ test('child envelopes wait for the durable message and project onto that exact o
   assert.equal(durableMessage.executionTree.root.rounds[0].toolCalls[0].callId, 'tool-1');
 });
 
+test('child execution events keep a durable user boundary finished like the root path', () => {
+  const handlers = new Set();
+  const boundary = reactive({
+    role: 'user',
+    id: 'child-message',
+    run_id: 'child-run',
+    child_agent_id: 'child-1',
+    finished: true,
+    has_execution: true,
+    executionTree: { root: null, steps: [] },
+  });
+  useMessageExecution({
+    currentSessionId: ref('session-1'),
+    selectedParticipantId: ref('child-1'),
+    participantMessages: ref({ 'child-1': [boundary] }),
+    activeRun: { runId: 'root-run', rootCallId: 'root-call' },
+    chatSdkClient: {
+      on(name, handler) {
+        if (name === 'event') handlers.add(handler);
+        return () => handlers.delete(handler);
+      },
+    },
+  });
+
+  for (const handler of handlers) {
+    handler(childStarted({ boundary_message_id: 'child-message' }));
+    handler({ ...childToolCall(), boundary_message_id: 'child-message' });
+  }
+
+  assert.equal(boundary.finished, true);
+  assert.equal(boundary.executionTree.root.rounds[0].toolCalls[0].status, 'running');
+});
+
 test('child projection removes only the external parent of its Run root', async () => {
   const message = {
     role: 'user',
@@ -272,6 +305,50 @@ test('agent_message creates only its real conversation message', () => {
   assert.equal(synced[0].message.seq, 17);
   assert.equal(synced[0].message.run_id, null);
   assert.equal(synced[0].message.has_execution, false);
+});
+
+test('child final message_saved creates the assistant bubble while the root Run is still active', () => {
+  const handlers = new Set();
+  const synced = [];
+  useMessageExecution({
+    currentSessionId: ref('session-1'),
+    selectedParticipantId: ref('child-1'),
+    participantMessages: ref({ 'child-1': [] }),
+    activeRun: { runId: 'root-run', rootCallId: 'root-call' },
+    syncParticipantMessage(participantId, message) { synced.push({ participantId, message }); },
+    chatSdkClient: {
+      on(name, handler) {
+        if (name === 'event') handlers.add(handler);
+        return () => handlers.delete(handler);
+      },
+    },
+  });
+
+  for (const handler of handlers) {
+    handler(childStarted());
+    handler({
+      type: 'state_sync',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      payload: {
+        category: 'message_saved',
+        lineage: { parent_call_id: 'root-call' },
+        ref: {
+          id: 'child-terminal',
+          seq: 3,
+          role: 'assistant',
+          content_parts: [{ type: 'text', text: '子智能体最终答案' }],
+        },
+      },
+    });
+  }
+
+  assert.equal(synced.length, 1);
+  assert.equal(synced[0].participantId, 'child-1');
+  assert.equal(synced[0].message.role, 'assistant');
+  assert.equal(synced[0].message.id, 'child-terminal');
+  assert.equal(synced[0].message.content, '子智能体最终答案');
+  assert.equal(synced[0].message.finished, true);
 });
 
 test('root-targeted agent messages upsert a realtime root conversation message', () => {
