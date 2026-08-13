@@ -23,7 +23,8 @@ export function writeFileArguments(value: Record<string, unknown> | undefined) {
 export function editFileArguments(value: Record<string, unknown> | undefined) {
   return {
     filePath: asString(value?.file_path) ?? asString(value?.filePath) ?? "",
-    oldString: asString(value?.old_string) ?? asString(value?.oldString) ?? "",
+    // old_string 是精确匹配目标，前导/尾部空白（缩进、换行）具有语义，不能 trim。
+    oldString: asStringPreservingWhitespace(value?.old_string) ?? asStringPreservingWhitespace(value?.oldString) ?? "",
     newString: typeof value?.new_string === "string"
       ? value.new_string
       : typeof value?.newString === "string"
@@ -37,6 +38,11 @@ export function editFileArguments(value: Record<string, unknown> | undefined) {
         : null,
     filePathSpace: asString(value?.file_path_space) ?? asString(value?.filePathSpace),
   };
+}
+
+/** 原样保留空白字符串（仅校验类型，不做 trim）——用于需要精确匹配的字段。 */
+function asStringPreservingWhitespace(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
 }
 
 export function previewDataStructureArguments(value: Record<string, unknown> | undefined) {

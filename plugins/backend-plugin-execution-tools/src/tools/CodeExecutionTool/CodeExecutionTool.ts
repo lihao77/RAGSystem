@@ -43,14 +43,14 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
     buildTool({
       name: EXECUTE_CODE_TOOL_NAME,
       description:
-        "Execute Python code in an Agent-selected working directory for data processing and tool orchestration. Set result as the final output.",
+        "Execute Python code in an Agent-selected working directory for data processing and tool orchestration.",
       source: "execution",
       category: "execution",
       riskLevel: "high",
       allowedCallers: ["direct"],
       extendedUsage: `### 模块与全局变量
 
-- \`result\` — 必须赋值为最终输出
+- 返回值为代码打印到 stdout 的内容
 - \`call_tool(tool_name, arguments)\` — 调用其他工具（仅限 \`allowed_callers\` 包含 \`code_execution\` 的工具）
 - Local 阶段使用标准 Python 运行时：可正常导入标准库（例如 \`html\`、\`os\`），\`os.getcwd()\` 等于本次调用传入的 cwd；未传 cwd 时才是共享 workspace
 - 相对路径默认相对当前 cwd；可通过 \`os.environ["SESSION_WORKSPACE_DIR"]\` 和 \`os.environ["SESSION_UPLOADS_DIR"]\` 访问受管目录
@@ -65,7 +65,7 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
         properties: {
           code: {
             type: "string",
-            description: "Python code. Must assign the final output to the result variable.",
+            description: "Python code. Printed stdout is returned as the tool result, like execute_bash.",
           },
           cwd: {
             type: "string",

@@ -225,17 +225,20 @@ test("execute_code uses standard Python and the shared workspace", async () => {
     const result = await service.executeCode({
       code: [
         "import html",
+        "import json",
         "import os",
         "from path_ops import SESSION_WORKSPACE_DIR",
         "with open('code-output.txt', 'w', encoding='utf-8') as handle: handle.write('code')",
-        "result = {\"cwd\": os.getcwd(), \"escaped\": html.escape('<ok>'), \"workspace\": os.environ['SESSION_WORKSPACE_DIR'], \"path_ops_workspace\": SESSION_WORKSPACE_DIR}",
+        "print(json.dumps({'cwd': os.getcwd(), 'escaped': html.escape('<ok>'), 'workspace': os.environ['SESSION_WORKSPACE_DIR'], 'path_ops_workspace': SESSION_WORKSPACE_DIR}, ensure_ascii=False))",
       ].join("\n"),
     }, context);
     assert.equal(result.success, true, result.summary);
-    assert.equal(result.content.cwd, result.metadata.execution_paths.workspace);
-    assert.equal(result.content.workspace, result.metadata.execution_paths.workspace);
-    assert.equal(result.content.path_ops_workspace, result.metadata.execution_paths.workspace);
-    assert.equal(result.content.escaped, "&lt;ok&gt;");
+    // execute_code 与 execute_bash 一致：返回 stdout 内容，不依赖 result 变量。
+    const content = JSON.parse(result.content);
+    assert.equal(content.cwd, result.metadata.execution_paths.workspace);
+    assert.equal(content.workspace, result.metadata.execution_paths.workspace);
+    assert.equal(content.path_ops_workspace, result.metadata.execution_paths.workspace);
+    assert.equal(content.escaped, "&lt;ok&gt;");
     assert.equal(fs.readFileSync(path.join(result.metadata.execution_paths.workspace, "code-output.txt"), "utf8"), "code");
 
     const search = new LocalSearchToolService({ dataRoot });
