@@ -432,7 +432,42 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
             callId: command.callId,
           },
         }, ctx);
-    return { ...result, toolName: "agent" };
+    const resultMetadata = result.metadata ?? {};
+    const operationType = command.type === "create_child"
+      ? resultMetadata.mode === "resume" ? "resume_child" : "create_child"
+      : command.type === "message_child" && resultMetadata.mode === "resume"
+        ? "resume_child"
+        : command.type;
+    const agentOperation = {
+      type: operationType,
+      ...(normalizeString(resultMetadata.agent_name) ?? (command.type === "create_child" ? command.agentName : null)
+        ? { agent_name: normalizeString(resultMetadata.agent_name) ?? (command.type === "create_child" ? command.agentName : undefined) }
+        : {}),
+      ...(normalizeString(resultMetadata.child_agent_id) ?? (command.type === "message_child" ? command.childAgentId : null)
+        ? { child_agent_id: normalizeString(resultMetadata.child_agent_id) ?? (command.type === "message_child" ? command.childAgentId : undefined) }
+        : {}),
+      ...(normalizeString(resultMetadata.run_id) ?? normalizeString(resultMetadata.target_run_id)
+        ? { run_id: normalizeString(resultMetadata.run_id) ?? normalizeString(resultMetadata.target_run_id) ?? undefined }
+        : {}),
+      ...(normalizeString(resultMetadata.background_task_id)
+        ? { background_task_id: normalizeString(resultMetadata.background_task_id) ?? undefined }
+        : {}),
+      ...(normalizeString(resultMetadata.message_id)
+        ? { message_id: normalizeString(resultMetadata.message_id) ?? undefined }
+        : {}),
+      ...(resultMetadata.mailbox_kind === "progress"
+        || resultMetadata.mailbox_kind === "request"
+        || resultMetadata.mailbox_kind === "response"
+        || resultMetadata.mailbox_kind === "result"
+        ? { message_kind: resultMetadata.mailbox_kind }
+        : {}),
+      ...(resultMetadata.mailbox_queued === true ? { delivery_status: "queued" as const } : {}),
+    };
+    return {
+      ...result,
+      toolName: "agent",
+      metadata: { ...resultMetadata, agent_operation: agentOperation },
+    };
   }
 
   /** 取消是即时控制信号，走实时 abort 通道，不进 mailbox 队列。 */

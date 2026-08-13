@@ -274,6 +274,32 @@ function applyToolResult(state: ExecutionTreeState, env: Envelope, payload: Reco
   }
   const elapsed = asNumber(payload.elapsed_ms);
   if (elapsed !== undefined) tool.elapsedMs = elapsed;
+  const agentOperation = asRecord(payload.agent_operation);
+  const operationType = asString(agentOperation.type);
+  if (
+    operationType === "create_child"
+    || operationType === "resume_child"
+    || operationType === "message_child"
+    || operationType === "message_parent"
+  ) {
+    tool.agentOperation = {
+      type: operationType,
+      ...(asString(agentOperation.agent_name) ? { agent_name: asString(agentOperation.agent_name)! } : {}),
+      ...(asString(agentOperation.child_agent_id) ? { child_agent_id: asString(agentOperation.child_agent_id)! } : {}),
+      ...(asString(agentOperation.run_id) ? { run_id: asString(agentOperation.run_id)! } : {}),
+      ...(asString(agentOperation.background_task_id) ? { background_task_id: asString(agentOperation.background_task_id)! } : {}),
+      ...(asString(agentOperation.message_id) ? { message_id: asString(agentOperation.message_id)! } : {}),
+      ...(
+        agentOperation.message_kind === "progress"
+        || agentOperation.message_kind === "request"
+        || agentOperation.message_kind === "response"
+        || agentOperation.message_kind === "result"
+          ? { message_kind: agentOperation.message_kind }
+          : {}
+      ),
+      ...(agentOperation.delivery_status === "queued" ? { delivery_status: "queued" } : {}),
+    };
+  }
   const approval = asRecord(payload.approval);
   const approvalStatus = asString(approval.status);
   if (approvalStatus === "pending" || approvalStatus === "granted" || approvalStatus === "denied") {

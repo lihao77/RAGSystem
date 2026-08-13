@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildExecutionTree } from './executionTreeBuilder.js';
+import { buildExecutionTree, getAgentOperationTitle } from './executionTreeBuilder.js';
 
 const tool = (callId, toolName, argumentsValue = {}) => ({
   callId,
@@ -31,7 +31,7 @@ const treeWith = (toolCalls, children) => ({
   steps: [],
 });
 
-test('matches repeated same-name agent calls by invocation call id', () => {
+test('keeps repeated delegation tools and links children by invocation call id', () => {
   const tree = treeWith(
     [
       tool('tool-first', 'agent', { agent_name: 'worker', message: 'first task' }),
@@ -44,8 +44,12 @@ test('matches repeated same-name agent calls by invocation call id', () => {
   );
 
   const [thought] = buildExecutionTree(tree);
-  assert.deepEqual(thought.children.map((node) => node.task_id), ['agent-first', 'agent-second']);
-  assert.deepEqual(thought.children.map((node) => node.description), ['first task', 'second task']);
+  assert.deepEqual(thought.children.map((node) => node.call_id), ['tool-first', 'tool-second']);
+  assert.deepEqual(thought.children.map((node) => node.type), ['tool_call', 'tool_call']);
+  assert.deepEqual(
+    thought.children.map((node) => node.linked_agent_call.task_id),
+    ['agent-first', 'agent-second'],
+  );
 });
 
 test('matches an existing child agent without relying on agent_name arguments', () => {
@@ -55,8 +59,9 @@ test('matches an existing child agent without relying on agent_name arguments', 
   );
 
   const [thought] = buildExecutionTree(tree);
-  assert.equal(thought.children[0].type, 'agent_call');
-  assert.equal(thought.children[0].task_id, 'agent-resume');
+  assert.equal(thought.children[0].type, 'tool_call');
+  assert.equal(thought.children[0].agent_operation.type, 'resume_child');
+  assert.equal(thought.children[0].linked_agent_call.task_id, 'agent-resume');
 });
 
 test('keeps ambiguous legacy child separate instead of guessing by name', () => {
@@ -100,10 +105,40 @@ test('keeps child execution as a reference instead of nesting its full tree', ()
   tree.root.children[0].participantId = 'child-worker';
 
   const node = buildExecutionTree(tree)[0].children[0];
-  assert.equal(node.type, 'agent_call');
-  assert.equal(node.is_reference, true);
-  assert.equal(node.participant_id, 'child-worker');
-  assert.deepEqual(node.children, []);
+  assert.equal(node.type, 'tool_call');
+  assert.equal(node.linked_agent_call.participant_id, 'child-worker');
+  assert.equal(node.agent_operation.type, 'create_child');
+});
+
+test('projects all agent operations as explicit tool facts with stable titles', () => {
+  const operationTools = [
+    tool('create', 'agent', { agent_name: 'worker', message: 'inspect' }),
+    tool('resume', 'agent', { child_agent_id: 'child-1', message: 'continue' }),
+    tool('message-child', 'agent', { child_agent_id: 'child-2', message: 'status' }),
+    tool('message-parent', 'agent', { message: 'done' }),
+  ];
+  operationTools[1].agentOperation = { type: 'resume_child', agent_name: 'Worker' };
+  operationTools[2].agentOperation = { type: 'message_child', child_agent_id: 'child-2', delivery_status: 'queued' };
+  operationTools[3].agentOperation = { type: 'message_parent', delivery_status: 'queued' };
+  const tree = treeWith(operationTools, [child('worker-call', 'create', 'inspect', 'worker')]);
+
+  const nodes = buildExecutionTree(tree)[0].children;
+
+  assert.deepEqual(nodes.map(node => node.type), ['tool_call', 'tool_call', 'tool_call', 'tool_call']);
+  assert.deepEqual(nodes.map(getAgentOperationTitle), [
+    '委派给 worker',
+    '继续 Worker',
+    '向 child-2 发送消息',
+    '回复主智能体',
+  ]);
+  assert.equal(nodes[0].linked_agent_call.task_id, 'worker-call');
+});
+
+test('does not mislabel an ambiguous legacy agent failure as a parent reply', () => {
+  const tree = treeWith([tool('invalid', 'agent', { message: 'missing target' })], []);
+  const node = buildExecutionTree(tree)[0].children[0];
+
+  assert.equal(getAgentOperationTitle(node), '智能体操作');
 });
 
 test('preserves intent completion so inline rendering only streams the active intent', () => {

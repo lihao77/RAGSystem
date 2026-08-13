@@ -63,6 +63,40 @@ describe("kernel event wire translation", () => {
     expect(event?.payload).toMatchObject({ files: [{ path: "results/map.png", media_type: "image/png" }] });
   });
 
+  it("projects explicit agent operation metadata onto the wire result", () => {
+    const [event] = translateKernelEvent({
+      type: "tool_result",
+      agentName: "agent",
+      toolCallId: "tool-agent",
+      toolName: "agent",
+      success: true,
+      summary: "queued",
+      observation: "queued",
+      metadata: {
+        agent_operation: {
+          type: "message_parent",
+          message_id: "message-1",
+          message_kind: "response",
+          delivery_status: "queued",
+        },
+      },
+      referenceResult: {},
+      elapsedTime: 0.1,
+      round: 0,
+      order: 0,
+      roundIndex: 0,
+    }, context);
+
+    expect(event?.payload).toMatchObject({
+      agent_operation: {
+        type: "message_parent",
+        message_id: "message-1",
+        message_kind: "response",
+        delivery_status: "queued",
+      },
+    });
+  });
+
   it("projects model_request as an explicit root model lifecycle event", () => {
     const events = translateKernelEvent(
       { type: "model_request", agentName: "agent", round: 3 },

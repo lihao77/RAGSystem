@@ -197,6 +197,49 @@ test('child projection removes only the external parent of its Run root', async 
   assert.equal(message.executionTree.root.rounds[0].toolCalls[0].callId, 'tool-1');
 });
 
+test('child message boundary beginning at model_request does not create an external parent node', async () => {
+  const message = {
+    role: 'user',
+    id: 'stop-message',
+    run_id: 'child-run',
+    child_agent_id: 'child-1',
+    has_execution: true,
+    executionTree: { root: null, steps: [] },
+  };
+  const execution = useMessageExecution({
+    currentSessionId: ref('session-1'),
+    selectedParticipantId: ref('child-1'),
+    participantMessages: ref({ 'child-1': [message] }),
+    activeRun: { runId: 'root-run', rootCallId: 'root-call' },
+    chatSdkClient: {
+      async getMessageRunSteps() {
+        return { data: { items: [
+          {
+            type: 'model_request',
+            run_id: 'child-run',
+            call_id: 'child-call',
+            agent_id: 'worker',
+            payload: { phase: 'start', round: 3, lineage: { parent_call_id: 'root-call' } },
+          },
+          {
+            type: 'stream_output',
+            run_id: 'child-run',
+            call_id: 'child-call',
+            agent_id: 'worker',
+            payload: { phase: 'delta', content: '已收到停止指令', lineage: { parent_call_id: 'root-call' } },
+          },
+        ], has_more: false } };
+      },
+    },
+  });
+
+  await execution.ensureExecutionStepsLoaded(message);
+
+  assert.equal(message.executionTree.root.callId, 'child-call');
+  assert.equal(message.executionTree.root.parentCallId, undefined);
+  assert.equal(message.executionTree.root.children.length, 0);
+});
+
 test('agent_message creates only its real conversation message', () => {
   const handlers = new Set();
   const synced = [];

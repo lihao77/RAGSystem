@@ -50,7 +50,7 @@ export const TOOL_GROUP_MIN = 3
 export function getToolGroupKey(node) {
   if (!node || node.type !== 'tool_call') return null
   // 交互型工具(等待用户输入)必须始终独立成行,绝不折叠。
-  if (node.tool_name === 'request_user_input') return null
+  if (node.tool_name === 'request_user_input' || node.tool_name === 'agent') return null
   return getToolIconKind(node.tool_name)
 }
 

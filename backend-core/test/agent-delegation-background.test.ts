@@ -1395,6 +1395,7 @@ describe("background child-agent delegation", () => {
       input: { agentName: "worker", message: "inspect this", timeoutMs: 1234, callId: "tool-create" },
     }, runContext);
     expect(created.toolName).toBe("agent");
+    expect(created.metadata.agent_operation).toMatchObject({ type: "create_child", agent_name: "worker" });
     expect(createChild).toHaveBeenCalledWith(expect.objectContaining({
       input: expect.objectContaining({ agentName: "worker", task: "inspect this", timeoutMs: 1234 }),
     }), runContext);
@@ -1405,12 +1406,13 @@ describe("background child-agent delegation", () => {
       input: { childAgentId: "child-worker", message: "continue", callId: "tool-followup" },
     }, runContext);
     expect(existing.toolName).toBe("agent");
+    expect(existing.metadata.agent_operation).toMatchObject({ type: "message_child", child_agent_id: "child-worker" });
     expect(deliverMessage).toHaveBeenCalledWith(expect.objectContaining({
       input: expect.objectContaining({ childAgentId: "child-worker", message: "continue", toParent: false }),
     }), runContext);
 
     const childContext = { ...runContext, parentRunId: "parent-run", currentChildAgentId: "child-worker" };
-    await service.agent({
+    const parentMessage = await service.agent({
       agent: workerAgent(),
       teamName: null,
       input: { message: "progress", callId: "tool-parent" },
@@ -1418,6 +1420,7 @@ describe("background child-agent delegation", () => {
     expect(deliverMessage).toHaveBeenLastCalledWith(expect.objectContaining({
       input: expect.objectContaining({ message: "progress", toParent: true }),
     }), childContext);
+    expect(parentMessage.metadata.agent_operation).toMatchObject({ type: "message_parent" });
 
     const rootWithoutTarget = await service.agent({
       agent: parent,

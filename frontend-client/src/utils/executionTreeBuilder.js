@@ -7,8 +7,8 @@
  * core 模型：agent 是父 agent 某 round 的 toolCall，child agent 是父 agent 的 children（分开）。
  * 主执行树只保留 child 的 delegation reference；child 的完整 rounds/messages
  * 通过 Participant thread 查看，避免在 root 时间线递归展开整棵子树。
- * 遇到 agent toolCall 时，仍按 invocationCallId 精确匹配 child；
- * 匹配不到则保留普通 tool_call，未匹配的 child 作为独立 agent_call 追加，不按名称猜测。
+ * agent toolCall 始终保留为工具事实；按 invocationCallId 精确匹配到 child 时，
+ * 只把 child 引用附加到工具节点。未匹配的 child 作为独立 agent_call 追加，不按名称猜测。
  */
 
 import { parseTaskNotificationContent } from './message-render.js';
@@ -20,7 +20,26 @@ const mapStatus = (status) => {
   return status || 'running';
 };
 
-const createToolNode = (toolCall) => ({
+const inferAgentOperation = (toolCall, linkedAgent = null) => {
+  if (toolCall.agentOperation?.type) return toolCall.agentOperation;
+  const args = toolCall.arguments || {};
+  if (linkedAgent) {
+    return {
+      type: args.child_agent_id || args.childAgentId ? 'resume_child' : 'create_child',
+      agent_name: linkedAgent.agentId || args.agent_name || args.agentName,
+      child_agent_id: linkedAgent.participantId || args.child_agent_id || args.childAgentId,
+    };
+  }
+  if (args.agent_name || args.agentName) {
+    return { type: 'create_child', agent_name: args.agent_name || args.agentName };
+  }
+  if (args.child_agent_id || args.childAgentId) {
+    return { type: 'message_child', child_agent_id: args.child_agent_id || args.childAgentId };
+  }
+  return {};
+};
+
+const createToolNode = (toolCall, linkedAgent = null) => ({
   type: 'tool_call',
   call_id: toolCall.callId,
   tool_name: toolCall.toolName,
@@ -30,6 +49,18 @@ const createToolNode = (toolCall) => ({
   result_preview: toolCall.observation || toolCall.summary || '',
   approval_message: toolCall.approval?.message || '',
   elapsed_time: typeof toolCall.elapsedMs === 'number' ? toolCall.elapsedMs / 1000 : null,
+  ...(toolCall.toolName === 'agent' ? {
+    agent_operation: inferAgentOperation(toolCall, linkedAgent),
+    linked_agent_call: linkedAgent ? {
+      task_id: linkedAgent.callId,
+      agent_name: linkedAgent.agentId,
+      agent_display_name: linkedAgent.displayName || linkedAgent.agentId,
+      participant_id: linkedAgent.participantId || null,
+      description: linkedAgent.task || '',
+      result_summary: linkedAgent.output || linkedAgent.result || '',
+      status: mapStatus(linkedAgent.status),
+    } : null,
+  } : {}),
   expanded: false,
 });
 
@@ -86,6 +117,20 @@ const createAgentCallNode = (agent, toolCall = null) => ({
 
 const isDelegateTool = (toolName) => toolName === 'agent';
 
+export function getAgentOperationTitle(node) {
+  const operation = node?.agent_operation || {};
+  const target = operation.agent_name
+    || node?.linked_agent_call?.agent_display_name
+    || node?.linked_agent_call?.agent_name
+    || operation.child_agent_id
+    || '子智能体';
+  if (operation.type === 'create_child') return `委派给 ${target}`;
+  if (operation.type === 'resume_child') return `继续 ${target}`;
+  if (operation.type === 'message_child') return `向 ${target} 发送消息`;
+  if (operation.type === 'message_parent') return '回复主智能体';
+  return '智能体操作';
+}
+
 /**
  * 构建一个 agent 的子节点：rounds → thought(intent) + tool_call/agent_call；未消费 children → agent_call。
  * consumedChildIds 追踪当前 agent.children 的消费（避免 agent 合并后重复出现）。
@@ -107,10 +152,8 @@ function buildAgentChildren(agent, consumedChildIds, injections = []) {
         const child = childByInvocationCallId.get(toolCall.callId);
         if (child && !consumedChildIds.has(child.callId)) {
           consumedChildIds.add(child.callId);
-          roundChildren.push(createAgentCallNode(child, toolCall));
-        } else {
-          roundChildren.push(createToolNode(toolCall));
         }
+        roundChildren.push(createToolNode(toolCall, child || null));
       } else {
         roundChildren.push(createToolNode(toolCall));
       }

@@ -396,6 +396,48 @@ describe("agent-protocol envelope compatibility", () => {
     expect(parsed.payload).toMatchObject({ files: [{ path: "results/map.png" }] });
   });
 
+  it("保留智能体工具的明确操作语义", () => {
+    const state = createExecutionTreeState();
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "tool_call",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "tool-agent",
+      payload: {
+        tool: "agent",
+        phase: "start",
+        input: { child_agent_id: "child-1", message: "继续" },
+      },
+    }));
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "tool_result",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "tool-agent",
+      payload: {
+        tool: "agent",
+        phase: "end",
+        ok: true,
+        status: "succeeded",
+        agent_operation: {
+          type: "message_child",
+          child_agent_id: "child-1",
+          message_id: "message-1",
+          message_kind: "request",
+          delivery_status: "queued",
+        },
+      },
+    }));
+
+    expect(getExecutionTree(state).root?.rounds[0]?.toolCalls[0]?.agentOperation).toEqual({
+      type: "message_child",
+      child_agent_id: "child-1",
+      message_id: "message-1",
+      message_kind: "request",
+      delivery_status: "queued",
+    });
+  });
+
   it("接受后端权威的模型请求开始事件", () => {
     const parsed = ServerToClientEnvelopeSchema.parse({
       type: "model_request",

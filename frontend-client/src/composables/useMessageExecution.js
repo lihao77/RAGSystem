@@ -153,9 +153,21 @@ export function useMessageExecution(deps) {
     const participantId = participantIdFromMessage(msg);
     const messageRunId = getMessageRunId(msg);
     if (!participantId || !messageRunId || envelope?.run_id !== messageRunId) return envelope;
-    if (!msg._executionRootCallId && envelope.type === 'agent_started') {
+    // 历史消息的边界可能从 model_request/stream_output 开始，不包含
+    // agent_started。子线程的 lineage.parent_call_id 是外部父 run，不能
+    // 让 core 在当前消息里创建一个假的父节点；用首个 agent 级事件补识别
+    // 当前 run 的 root call，再统一剥离外部 lineage。
+    const canIdentifyRootCall = envelope.type === 'agent_started'
+      || envelope.type === 'model_request'
+      || envelope.type === 'model_attempt_started'
+      || envelope.type === 'model_attempt_completed'
+      || envelope.type === 'stream_output'
+      || envelope.type === 'agent_ended';
+    if (!msg._executionRootCallId && canIdentifyRootCall && envelope.call_id) {
       const eventParticipantId = envelope.payload?.child_agent_id;
-      if (!eventParticipantId || eventParticipantId === participantId) {
+      if (envelope.type !== 'agent_started'
+        || !eventParticipantId
+        || eventParticipantId === participantId) {
         msg._executionRootCallId = envelope.call_id || null;
       }
     }

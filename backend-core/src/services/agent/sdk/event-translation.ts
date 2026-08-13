@@ -239,6 +239,8 @@ function onToolResult(event: ToolResultEvent, ctx: WireTranslationContext): Enve
     summary: event.summary,
     lineage: toolLineage(ctx),
   };
+  const agentOperation = translateAgentOperation(event.metadata.agent_operation);
+  if (agentOperation) base.agent_operation = agentOperation;
   const files = translateToolFiles(event.referenceResult.files);
   if (files.length > 0) base.files = files;
   if (typeof event.elapsedTime === "number") {
@@ -254,6 +256,27 @@ function onToolResult(event: ToolResultEvent, ctx: WireTranslationContext): Enve
     call_id: event.toolCallId,
     agent_id: ctx.agentId,
     payload: base,
+  };
+}
+
+function translateAgentOperation(value: unknown): ToolResultPayload["agent_operation"] {
+  if (!isRecord(value)) return undefined;
+  const type = asString(value.type);
+  if (type !== "create_child" && type !== "resume_child" && type !== "message_child" && type !== "message_parent") {
+    return undefined;
+  }
+  const messageKind = asString(value.message_kind);
+  return {
+    type,
+    ...(asString(value.agent_name) ? { agent_name: asString(value.agent_name)! } : {}),
+    ...(asString(value.child_agent_id) ? { child_agent_id: asString(value.child_agent_id)! } : {}),
+    ...(asString(value.run_id) ? { run_id: asString(value.run_id)! } : {}),
+    ...(asString(value.background_task_id) ? { background_task_id: asString(value.background_task_id)! } : {}),
+    ...(asString(value.message_id) ? { message_id: asString(value.message_id)! } : {}),
+    ...(messageKind === "progress" || messageKind === "request" || messageKind === "response" || messageKind === "result"
+      ? { message_kind: messageKind }
+      : {}),
+    ...(value.delivery_status === "queued" ? { delivery_status: "queued" } : {}),
   };
 }
 

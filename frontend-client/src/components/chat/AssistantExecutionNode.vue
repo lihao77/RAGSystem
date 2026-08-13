@@ -26,8 +26,8 @@
       <button
         type="button"
         class="assistant-step-row"
-        :class="[`status-${status}`, { 'is-agent': node.type === 'agent_call' }]"
-        :style="[indentStyle, node.type === 'agent_call' ? { '--agent-accent': agentAccent } : null]"
+        :class="[`status-${status}`, { 'is-agent': isAgentNode }]"
+        :style="[indentStyle, isAgentNode ? { '--agent-accent': agentAccent } : null]"
         :aria-expanded="expandable ? expanded : undefined"
         @click="toggleExpanded"
       >
@@ -107,6 +107,7 @@ import {
   getExecutionNodeKey,
   normalizeExecutionStatus,
 } from '../../utils/executionTreePresentation.js';
+import { getAgentOperationTitle } from '../../utils/executionTreeBuilder.js';
 import { agentNodeAccentColor } from '../../utils/participantVisual.js';
 import MarkdownContent from './MarkdownContent.vue';
 
@@ -121,6 +122,8 @@ const props = defineProps({
 const emit = defineEmits(['notify', 'citation-click']);
 const expanded = ref(false);
 const status = computed(() => normalizeExecutionStatus(props.node.status));
+const isAgentOperation = computed(() => props.node.type === 'tool_call' && props.node.tool_name === 'agent');
+const isAgentNode = computed(() => props.node.type === 'agent_call' || isAgentOperation.value);
 const hasChildren = computed(() => Array.isArray(props.node.children) && props.node.children.length > 0);
 const detailTask = computed(() => {
   if (props.node.type === 'agent_call') return cleanText(props.node.description || '');
@@ -142,19 +145,27 @@ const hasDetails = computed(() => Boolean(
 ));
 const expandable = computed(() => hasDetails.value || hasChildren.value);
 const agentAccent = computed(() => (
-  props.node.type === 'agent_call' ? agentNodeAccentColor(props.node) : ''
+  isAgentNode.value ? agentNodeAccentColor({
+    ...props.node,
+    participant_id: props.node.participant_id
+      || props.node.linked_agent_call?.participant_id
+      || props.node.agent_operation?.child_agent_id,
+    agent_name: props.node.agent_name
+      || props.node.linked_agent_call?.agent_name
+      || props.node.agent_operation?.agent_name,
+  }) : ''
 ));
 const indentStyle = computed(() => ({ paddingLeft: `${props.depth * 22}px` }));
 const detailIndentStyle = computed(() => ({ marginLeft: `${props.depth * 22 + 22}px` }));
 
 const iconKind = computed(() => {
-  if (props.node.type === 'agent_call') return 'agent';
+  if (isAgentNode.value) return 'agent';
   if (props.node.type === 'agent_message' || props.node.type === 'injection') return 'input';
   if (props.node.type === 'tool_call') return getToolIconKind(props.node.tool_name);
   return 'step';
 });
 const iconLabel = computed(() => {
-  if (props.node.type === 'agent_call') return 'Agent';
+  if (isAgentNode.value) return 'Agent';
   if (props.node.type === 'agent_message') return 'Agent 消息';
   if (props.node.type === 'injection') return '用户补充';
   return '工具';
@@ -163,6 +174,7 @@ const titleText = computed(() => {
   if (props.node.type === 'agent_call') {
     return props.node.agent_display_name || props.node.agent_name || 'Agent';
   }
+  if (isAgentOperation.value) return getAgentOperationTitle(props.node);
   if (props.node.type === 'agent_message') return props.node.message_kind || 'Agent 消息';
   if (props.node.type === 'injection') return '用户补充';
   if (props.node.type === 'tool_call') return getToolDisplayName(props.node);
@@ -173,6 +185,10 @@ const summaryText = computed(() => {
   if (status.value === 'error') return '失败';
   if (status.value === 'stopped') return '已中断';
   if (props.node.type === 'tool_call') {
+    if (isAgentOperation.value) {
+      if (props.node.agent_operation?.delivery_status === 'queued') return '消息已入队';
+      return truncate(cleanText(props.node.linked_agent_call?.result_summary || props.node.result_preview || props.node.result || ''), 42);
+    }
     return truncate(getToolSubtitle(props.node) || cleanText(props.node.result_preview || props.node.result || ''), 42);
   }
   if (props.node.type === 'agent_call') return truncate(cleanText(props.node.result_summary || ''), 42);

@@ -128,6 +128,7 @@ export type StateSyncPayload = z.infer<typeof StateSyncPayloadSchema>;
 /* —— 工具帧（投影通知，后端本地执行） —— */
 export type ToolCallPayload = z.infer<typeof ToolCallPayloadSchema>;
 export type ToolResultPayload = z.infer<typeof ToolResultPayloadSchema>;
+export type AgentOperation = z.infer<typeof AgentOperationSchema>;
 export type AgentMessagePayload = z.infer<typeof AgentMessagePayloadSchema>;
 export type ToolFileRef = z.infer<typeof ToolFileRefSchema>;
 
@@ -411,6 +412,17 @@ export const ToolFileRefSchema = z.object({
   metadata: z.record(z.unknown()),
 }).strict();
 
+export const AgentOperationSchema = z.object({
+  type: z.enum(["create_child", "resume_child", "message_child", "message_parent"]),
+  agent_name: z.string().min(1).optional(),
+  child_agent_id: z.string().min(1).optional(),
+  run_id: z.string().min(1).optional(),
+  background_task_id: z.string().min(1).optional(),
+  message_id: z.string().min(1).optional(),
+  message_kind: z.enum(["progress", "request", "response", "result"]).optional(),
+  delivery_status: z.enum(["queued"]).optional(),
+}).strict();
+
 export const ToolResultPayloadSchema = z
   .object({
     tool: z.string().min(1),
@@ -420,6 +432,7 @@ export const ToolResultPayloadSchema = z
     observation: z.string().optional(),
     summary: z.string().optional(),
     files: z.array(ToolFileRefSchema).optional(),
+    agent_operation: AgentOperationSchema.optional(),
     elapsed_ms: z.number().nonnegative().optional(),
     approval: z
       .object({

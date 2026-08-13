@@ -147,6 +147,7 @@ export interface ExecutionToolCall {
   rawResultRef?: string;
   approval?: { status: "pending" | "granted" | "denied" };
   elapsedMs?: number;
+  agentOperation?: import("./protocol.js").AgentOperation;
 }
 
 /** ReAct 单轮：一段 intent（思考文本）+ 该轮发起的工具调用。 */

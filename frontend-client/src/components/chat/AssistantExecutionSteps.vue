@@ -74,7 +74,12 @@ const emit = defineEmits(['notify', 'citation-click']);
 const messageContext = inject('messageContext');
 const nodes = computed(() => buildExecutionTree(props.msg.executionTree));
 const flatNodes = computed(() => flattenExecutionNodes(nodes.value));
-const toolCount = computed(() => flatNodes.value.filter(node => node.type === 'tool_call').length);
+const agentOperationCount = computed(() => flatNodes.value.filter(node => (
+  node.type === 'tool_call' && node.tool_name === 'agent'
+)).length);
+const toolCount = computed(() => flatNodes.value.filter(node => (
+  node.type === 'tool_call' && node.tool_name !== 'agent'
+)).length);
 const hasFinalAnswer = computed(() => Boolean(
   props.msg.content?.trim()
   || props.msg.content_parts?.some(part => (
@@ -92,7 +97,10 @@ const msgIsUnloadedHistory = computed(() => Boolean(
 ));
 const headerLabel = computed(() => {
   if (msgIsUnloadedHistory.value || !flatNodes.value.length) return '执行步骤';
-  return `${toolCount.value} 个工具调用`;
+  const labels = [];
+  if (toolCount.value) labels.push(`${toolCount.value} 个工具调用`);
+  if (agentOperationCount.value) labels.push(`${agentOperationCount.value} 个智能体操作`);
+  return labels.join(' · ') || '执行步骤';
 });
 
 watch(finalVisible, (visible, wasVisible) => {

@@ -23,6 +23,7 @@ test('getToolGroupKey 只对 tool_call 返回分组键,且排除交互型工具'
   assert.equal(getToolGroupKey(tool('a', 'read_file')), 'file');
   assert.equal(getToolGroupKey(tool('b', 'grep')), 'search');
   assert.equal(getToolGroupKey(tool('c', 'request_user_input')), null);
+  assert.equal(getToolGroupKey(tool('d', 'agent')), null);
   assert.equal(getToolGroupKey(thought(0)), null);
   assert.equal(getToolGroupKey(null), null);
 });
