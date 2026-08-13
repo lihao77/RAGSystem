@@ -8,6 +8,7 @@ import { useSessionAgentClient } from './useSessionAgentClient.js';
 import { useMessageExecution } from './useMessageExecution.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { httpClient } from '../api/http.js';
+import { buildExecutionTree } from '../utils/executionTreeBuilder.js';
 
 function createAssistantMessage(overrides = {}) {
   return {
@@ -980,6 +981,93 @@ test('根 Run 中断后迟到的子 Agent 终态仍会更新执行树状态', ()
   assert.equal(deps.activeRun.active, false);
   assert.equal(child.status, 'interrupted');
   assert.equal(child.result, '本次运行已中断');
+});
+
+test('子线程边界的 Agent 生命周期按委派 call_id 合并，不生成孤立回复节点', () => {
+  const { deps, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
+  const execution = useMessageExecution({
+    currentSessionId: deps.currentSessionId,
+    chatSdkClient: deps.chatSdkClient,
+    activeRun: deps.activeRun,
+  });
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
+  deps.isRootEvent = execution.isRootEvent;
+  deps.isMasterEvent = execution.isMasterEvent;
+  deps.messages.value = [{
+    role: 'user',
+    id: 'root-user',
+    content: '委派任务',
+    run_id: 'root-run',
+    metadata: { run_id: 'root-run' },
+    finished: true,
+  }, execution.createAssistantMessage({ run_id: 'root-run', metadata: { run_id: 'root-run' } })];
+  Object.assign(deps.activeRun, { active: true, assistantMsgIndex: 0, runId: 'root-run' });
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'agent_started', run_id: 'root-run', call_id: 'root-call', agent_id: 'orchestrator',
+    boundary_message_id: 'root-user',
+    payload: { phase: 'start', task: '委派任务' },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'tool_call', run_id: 'root-run', call_id: 'delegate-call', agent_id: 'orchestrator',
+    payload: {
+      phase: 'start', status: 'running', tool: 'agent', round: 0,
+      input: { agent_name: 'explor_agent', run_in_background: true },
+      lineage: { parent_call_id: 'root-call' },
+    },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'tool_result', run_id: 'root-run', call_id: 'delegate-call', agent_id: 'orchestrator',
+    payload: {
+      phase: 'end', ok: true, status: 'succeeded', tool: 'agent',
+      summary: '子 Agent 已在后台启动',
+      lineage: { parent_call_id: 'root-call' },
+    },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'agent_started', run_id: 'child-run', call_id: 'child-call', agent_id: 'explor_agent',
+    boundary_message_id: 'child-thread-user',
+    payload: {
+      phase: 'start', task: '子任务', child_agent_id: 'child-1',
+      invocation_call_id: 'delegate-call',
+      lineage: { parent_call_id: 'root-call' },
+    },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'agent_ended', run_id: 'child-run', call_id: 'child-call', agent_id: 'explor_agent',
+    payload: {
+      phase: 'end', success: true, status: 'succeeded', result: '已停止并回复',
+      lineage: { parent_call_id: 'root-call' },
+    },
+  }, 'session-1');
+  stream.handleEnvelope({
+    type: 'agent_message', run_id: 'root-run', call_id: 'root-call',
+    payload: {
+      kind: 'result', message_id: 'child-run:terminal_result',
+      source_run_id: 'child-run', source_agent_call_id: 'child-call',
+      source_agent_name: 'explor_agent', target_agent_call_id: 'root-call',
+      target_thread_key: 'root', direction: 'child_to_parent',
+      correlation_id: 'delegate-call', content: '已停止并回复',
+      metadata: { agent_message: true, visible_to_user: false },
+    },
+  }, 'session-1');
+
+  const root = deps.messages.value[0].executionTree.root;
+  const delegate = root.rounds[0].toolCalls[0];
+  assert.equal(root.children.length, 1);
+  assert.equal(root.children[0].invocationCallId, 'delegate-call');
+  assert.equal(root.children[0].result, '已停止并回复');
+  assert.equal(delegate.callId, 'delegate-call');
+  const rows = buildExecutionTree(deps.messages.value[0].executionTree);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].type, 'tool_call');
+  assert.equal(rows[0].call_id, 'delegate-call');
+  assert.equal(rows[0].linked_agent_call.task_id, 'child-call');
+  assert.equal(rows[0].result_preview, '子 Agent 已在后台启动');
+  assert.equal(rows[0].linked_agent_call.result_summary, '');
+  assert.equal(rows[0].status, 'success');
 });
 
 test('Run A 结束并启动 Run B 后，Run A child 的迟到终态只更新 Run A', () => {

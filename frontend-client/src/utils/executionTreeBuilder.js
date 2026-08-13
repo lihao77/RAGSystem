@@ -39,30 +39,35 @@ const inferAgentOperation = (toolCall, linkedAgent = null) => {
   return {};
 };
 
-const createToolNode = (toolCall, linkedAgent = null) => ({
-  type: 'tool_call',
-  call_id: toolCall.callId,
-  tool_name: toolCall.toolName,
-  arguments: toolCall.arguments || {},
-  status: mapStatus(toolCall.status),
-  result: toolCall.observation || toolCall.summary || '',
-  result_preview: toolCall.observation || toolCall.summary || '',
-  approval_message: toolCall.approval?.message || '',
-  elapsed_time: typeof toolCall.elapsedMs === 'number' ? toolCall.elapsedMs / 1000 : null,
-  ...(toolCall.toolName === 'agent' ? {
-    agent_operation: inferAgentOperation(toolCall, linkedAgent),
-    linked_agent_call: linkedAgent ? {
-      task_id: linkedAgent.callId,
-      agent_name: linkedAgent.agentId,
-      agent_display_name: linkedAgent.displayName || linkedAgent.agentId,
-      participant_id: linkedAgent.participantId || null,
-      description: linkedAgent.task || '',
-      result_summary: linkedAgent.output || linkedAgent.result || '',
-      status: mapStatus(linkedAgent.status),
-    } : null,
-  } : {}),
-  expanded: false,
-});
+const createToolNode = (toolCall, linkedAgent = null) => {
+  const runsInBackground = toolCall.arguments?.run_in_background === true;
+  return {
+    type: 'tool_call',
+    call_id: toolCall.callId,
+    tool_name: toolCall.toolName,
+    arguments: toolCall.arguments || {},
+    status: mapStatus(toolCall.status),
+    result: toolCall.observation || toolCall.summary || '',
+    result_preview: toolCall.observation || toolCall.summary || '',
+    approval_message: toolCall.approval?.message || '',
+    elapsed_time: typeof toolCall.elapsedMs === 'number' ? toolCall.elapsedMs / 1000 : null,
+    ...(toolCall.toolName === 'agent' ? {
+      agent_operation: inferAgentOperation(toolCall, linkedAgent),
+      linked_agent_call: linkedAgent ? {
+        task_id: linkedAgent.callId,
+        agent_name: linkedAgent.agentId,
+        agent_display_name: linkedAgent.displayName || linkedAgent.agentId,
+        participant_id: linkedAgent.participantId || null,
+        description: linkedAgent.task || '',
+        // A background delegation is complete when the child starts. Its later
+        // terminal result is a separate agent_message, not this tool's result.
+        result_summary: runsInBackground ? '' : linkedAgent.output || linkedAgent.result || '',
+        status: runsInBackground ? mapStatus(toolCall.status) : mapStatus(linkedAgent.status),
+      } : null,
+    } : {}),
+    expanded: false,
+  };
+};
 
 // 注入节点：run 进行中到达的 followup(用户插话)。
 // 非协议事件,不进 core execution-tree；仅前端 TreeNode 层呈现,挂 root agent children 末尾(final answer 之前)。

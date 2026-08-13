@@ -110,6 +110,46 @@ test('keeps child execution as a reference instead of nesting its full tree', ()
   assert.equal(node.agent_operation.type, 'create_child');
 });
 
+test('keeps a background delegation result separate from the child terminal reply', () => {
+  const delegate = tool('delegate', 'agent', {
+    agent_name: 'worker',
+    message: 'delegate',
+    run_in_background: true,
+  });
+  delegate.summary = '子 Agent 已在后台启动';
+  const worker = child('worker-run', 'delegate', 'delegate', 'worker');
+  worker.participantId = 'child-worker';
+  worker.output = '子智能体最终回复';
+  worker.status = 'failed';
+  const tree = treeWith([delegate], [worker]);
+
+  const [thought] = buildExecutionTree(tree);
+  const [node] = thought.children;
+
+  assert.equal(thought.children.length, 1);
+  assert.equal(node.type, 'tool_call');
+  assert.equal(node.call_id, 'delegate');
+  assert.equal(node.status, 'success');
+  assert.equal(node.result_preview, '子 Agent 已在后台启动');
+  assert.equal(node.linked_agent_call.task_id, 'worker-run');
+  assert.equal(node.linked_agent_call.participant_id, 'child-worker');
+  assert.equal(node.linked_agent_call.result_summary, '');
+  assert.equal(node.linked_agent_call.status, 'success');
+});
+
+test('keeps synchronous delegation coupled to the child terminal result', () => {
+  const delegate = tool('delegate', 'agent', { agent_name: 'worker', message: 'delegate' });
+  delegate.summary = '委派完成';
+  const worker = child('worker-run', 'delegate', 'delegate', 'worker');
+  worker.output = '同步子智能体回复';
+  worker.status = 'failed';
+
+  const node = buildExecutionTree(treeWith([delegate], [worker]))[0].children[0];
+
+  assert.equal(node.linked_agent_call.result_summary, '同步子智能体回复');
+  assert.equal(node.linked_agent_call.status, 'error');
+});
+
 test('projects all agent operations as explicit tool facts with stable titles', () => {
   const operationTools = [
     tool('create', 'agent', { agent_name: 'worker', message: 'inspect' }),

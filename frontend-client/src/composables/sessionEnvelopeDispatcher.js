@@ -301,9 +301,29 @@ export function createSessionEnvelopeDispatcher({
 
   /** @param {import('./sessionCoreTypes.js').SessionMessage} carrier @param {import('./sessionCoreTypes.js').SessionEnvelope} event */
   const applyEnvelopeToBoundaryMessage = (carrier, event) => {
-    const boundary = event?.boundary_message_id
+    const explicitBoundary = event?.boundary_message_id
       ? messages.value.find(message => message?.role === 'user' && message.id === event.boundary_message_id)
-      : findExecutionBoundaryMessage(carrier, event.run_id || getMessageRunId(carrier));
+      : null;
+    let boundary = explicitBoundary;
+    if (!boundary && event?.boundary_message_id) {
+      const state = carrier?._execState;
+      const invocationCallId = event.payload?.invocation_call_id || null;
+      const lineageParentCallId = event.payload?.lineage?.parent_call_id || null;
+      // Child lifecycle events carry a boundary from the child thread. That id
+      // is intentionally absent from the root message list. Fall back to the
+      // already identified parent carrier only when the child start carries a
+      // delegation invocation id and points to an agent already in that
+      // carrier. The tool start may arrive slightly later, and the projection
+      // will still match it by invocation_call_id. Never attach an arbitrary
+      // missing root boundary to the latest message.
+      const isLinkedChildStart = event.type === 'agent_started'
+        && Boolean(invocationCallId)
+        && Boolean(lineageParentCallId)
+        && state?.agentsByCallId?.has?.(lineageParentCallId);
+      if (isLinkedChildStart) boundary = carrier;
+    } else if (!boundary) {
+      boundary = findExecutionBoundaryMessage(carrier, event.run_id || getMessageRunId(carrier));
+    }
     if (boundary) {
       deps.applyEnvelopeToMessage(boundary, event);
       return;
