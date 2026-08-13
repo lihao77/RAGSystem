@@ -21,10 +21,10 @@ test("message run steps continue through the terminal boundary and terminal mess
         return { rows: [{ end_order: null }], rowCount: 1 };
       }
       if (/SELECT COUNT\(\*\)::text AS total/.test(sql)) {
-        return { rows: [{ total: "4" }], rowCount: 1 };
+        return { rows: [{ total: "2" }], rowCount: 1 };
       }
       if (/SELECT step\.id/.test(sql)) {
-        const eventTypes = ["stream_output", "state_sync", "agent_ended", "run_ended"];
+        const eventTypes = ["agent_ended", "run_ended"];
         return {
           rows: eventTypes.map((type, index) => ({
             id: index + 1,
@@ -56,10 +56,8 @@ test("message run steps continue through the terminal boundary and terminal mess
     offset: 0,
   });
 
-  assert.equal(carrier.total, 4);
+  assert.equal(carrier.total, 2);
   assert.deepEqual(carrier.items.map(step => step.payload.type), [
-    "stream_output",
-    "state_sync",
     "agent_ended",
     "run_ended",
   ]);

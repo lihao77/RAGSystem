@@ -10,8 +10,6 @@ import { useSessionRunStore } from '../stores/session-run.js';
 export function useChatMessageRuntime({
   activeRun,
   chatSdkClient,
-  selectedParticipantId,
-  reloadParticipantMessages,
 }) {
   const sessionRunStore = useSessionRunStore();
   const { currentSessionId, participantMessages } = storeToRefs(sessionRunStore);
@@ -19,10 +17,8 @@ export function useChatMessageRuntime({
     currentSessionId,
     chatSdkClient,
     activeRun,
-    selectedParticipantId,
     participantMessages,
     syncParticipantMessage: sessionRunStore.upsertParticipantMessage,
-    reloadParticipantMessages,
   });
 
   const notifications = useTaskNotifications();

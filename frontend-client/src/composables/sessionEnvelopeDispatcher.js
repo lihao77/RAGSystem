@@ -39,7 +39,6 @@ export function createSessionEnvelopeDispatcher({
   } = recovery;
   const presentedInteractions = new Map();
   const pendingBoundaryEvents = new Map();
-  const boundaryReloads = new Map();
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event */
   const getEventInteractionId = event => event?.call_id || '';
 
@@ -72,7 +71,6 @@ export function createSessionEnvelopeDispatcher({
     interaction.reset();
     presentedInteractions.clear();
     pendingBoundaryEvents.clear();
-    boundaryReloads.clear();
   };
 
   const resetInteractionPresentation = () => {
@@ -301,29 +299,6 @@ export function createSessionEnvelopeDispatcher({
     for (const event of pending) deps.applyEnvelopeToMessage(boundary, event);
   };
 
-  /** Recover a canonical boundary after reconnect/event loss without inventing a client message. */
-  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
-  const reloadMissingBoundary = (event, sessionId) => {
-    const boundaryMessageId = event?.boundary_message_id || null;
-    const runId = event?.run_id || null;
-    if (!boundaryMessageId || !runId || typeof deps.loadSessionMessages !== 'function') return;
-    if (messages.value.some(message => message?.role === 'user' && message.id === boundaryMessageId)) return;
-    const key = `${sessionId}\u0000${boundaryMessageId}`;
-    if (boundaryReloads.has(key)) return;
-    const pending = Promise.resolve(deps.loadSessionMessages(sessionId, {
-      silent: true,
-      participantId: 'root',
-      preserveStream: true,
-      bypassCache: true,
-      reconcileMode: 'live',
-    })).then(() => {
-      if (currentSessionId.value === sessionId) flushBoundaryEvents(runId);
-    }).catch(() => /** @type {void} */ (undefined)).finally(() => {
-      if (boundaryReloads.get(key) === pending) boundaryReloads.delete(key);
-    });
-    boundaryReloads.set(key, pending);
-  };
-
   /** @param {import('./sessionCoreTypes.js').SessionMessage} carrier @param {import('./sessionCoreTypes.js').SessionEnvelope} event */
   const applyEnvelopeToBoundaryMessage = (carrier, event) => {
     const boundary = event?.boundary_message_id
@@ -477,11 +452,6 @@ export function createSessionEnvelopeDispatcher({
     }
 
     if (runtime.handleInactiveDurableReplayEvent(event, sessionId)) return;
-
-    if (!(eventType === 'state_sync' && payload.category === 'message_saved')
-      && eventType !== 'agent_message') {
-      reloadMissingBoundary(event, sessionId);
-    }
 
     if (eventType === 'agent_message' && handleConsumedUserMessage(event, sessionId)) {
       nextTick(() => deps.scrollToBottom(true));

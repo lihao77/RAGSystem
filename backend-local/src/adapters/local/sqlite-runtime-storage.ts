@@ -1087,7 +1087,14 @@ function recordEnvelope(
   if (!input.outbox.eventId?.trim()) throw new Error("execution outbox requires a stable eventId");
   const existingStep = tx.getRunStepByEventId(input.outbox.eventId);
   if (existingStep) {
-    if (!input.step) throw new Error(`incomplete execution event record: ${input.outbox.eventId}`);
+    // A terminal stream event may have been archived by an older build. Keep
+    // idempotent retries valid after the archive policy changes.
+    if (!input.step) {
+      if (!isLegacyUnarchivedStreamStep(existingStep.payload)) {
+        throw new Error(`incomplete execution event record: ${input.outbox.eventId}`);
+      }
+      return { step: existingStep, outbox: tx.appendOutbox(input.outbox) };
+    }
     const conflicts = existingStep.session_id !== input.step.sessionId
       || existingStep.run_id !== input.step.runId
       || existingStep.step_type !== input.step.stepType
@@ -1097,6 +1104,13 @@ function recordEnvelope(
   const step = input.step ? tx.addRunStep({ ...input.step, eventId: input.outbox.eventId }) : null;
   const outbox = tx.appendOutbox(input.outbox);
   return { step, outbox };
+}
+
+function isLegacyUnarchivedStreamStep(payload: Record<string, unknown>): boolean {
+  if (payload.type !== "stream_output") return false;
+  const inner = payload.payload;
+  if (!inner || typeof inner !== "object" || Array.isArray(inner)) return true;
+  return (inner as Record<string, unknown>).phase !== "intent_complete";
 }
 
 function assertRecordScope(

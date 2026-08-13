@@ -28,15 +28,21 @@ export function useMessageRevision(deps) {
   const editingAttachmentsDraft = ref([]);
   const editingSubmitting = ref(false);
 
-  const reloadCanonicalMessages = async (sessionId) => {
-    if (typeof deps.reloadSessionMessages !== 'function') {
-      return;
-    }
-    try {
-      await deps.reloadSessionMessages(sessionId, { preserveStream: true });
-    } catch (reloadError) {
-      console.warn('刷新回滚后的会话消息失败:', reloadError);
-    }
+  const reloadCanonicalSessionState = async (sessionId) => {
+    deps.deleteMessageCache?.(sessionId);
+    sessionRunStore.clearChildParticipantMessages();
+    const reloads = [
+      [deps.reloadSessionMessages, [sessionId, { preserveStream: true }], '会话消息'],
+      [deps.reloadSessionParticipants, [sessionId, { silent: true }], '智能体列表'],
+    ];
+    await Promise.all(reloads.map(async ([reload, args, label]) => {
+      if (typeof reload !== 'function') return;
+      try {
+        await reload(...args);
+      } catch (reloadError) {
+        console.warn(`刷新回滚后的${label}失败:`, reloadError);
+      }
+    }));
   };
 
   const editingMessage = computed(() => {
@@ -117,6 +123,7 @@ export function useMessageRevision(deps) {
     }
 
     editingSubmitting.value = true;
+    let rollbackRequested = false;
     try {
       // 先物化附件（上传本地文件拿 file_id），再交给后端执行“回滚 -> 统一发送”。
       const materialized = await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
@@ -130,6 +137,7 @@ export function useMessageRevision(deps) {
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
       const requestId = createRequestId();
       sessionRunStore.beginPendingCommand('rollback', requestId);
+      rollbackRequested = true;
       const resp = await deps.chatSdkClient.rollbackAndRetrySession(
         sessionId,
         retryBody,
@@ -140,13 +148,13 @@ export function useMessageRevision(deps) {
         throw new Error(result.error || '操作失败');
       }
 
-      await reloadCanonicalMessages(sessionId);
+      await reloadCanonicalSessionState(sessionId);
       sessionRunStore.finishPendingCommand(requestId);
       resetEditingState();
     } catch (error) {
       editingSubmitting.value = false;
+      if (rollbackRequested) await reloadCanonicalSessionState(sessionId);
       sessionRunStore.finishPendingCommand();
-      await reloadCanonicalMessages(sessionId);
       deps.showToast(error.message || '操作失败');
     }
   };
@@ -174,11 +182,13 @@ export function useMessageRevision(deps) {
       return;
     }
 
+    let rollbackRequested = false;
     try {
       // 原样重试：不传 modify_user_message/attachments，后端用原消息内容与原附件
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
       const requestId = createRequestId();
       sessionRunStore.beginPendingCommand('rollback', requestId);
+      rollbackRequested = true;
       const resp = await deps.chatSdkClient.rollbackAndRetrySession(
         sessionId,
         anchor,
@@ -188,11 +198,11 @@ export function useMessageRevision(deps) {
       if (!result.started) {
         throw new Error(result.error || '重试失败');
       }
-      await reloadCanonicalMessages(sessionId);
+      await reloadCanonicalSessionState(sessionId);
       sessionRunStore.finishPendingCommand(requestId);
     } catch (error) {
+      if (rollbackRequested) await reloadCanonicalSessionState(sessionId);
       sessionRunStore.finishPendingCommand();
-      await reloadCanonicalMessages(sessionId);
       deps.showToast(error.message || '重试失败');
     }
   };

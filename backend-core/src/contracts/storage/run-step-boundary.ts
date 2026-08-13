@@ -14,6 +14,8 @@ export function executionEnvelopeMessageBoundary(
   if (envelope.type === "agent_message") {
     return { boundaryMessageId: messageId, boundaryKind: "carrier" };
   }
+  // Compatibility for terminal steps written before terminal boundaries were
+  // attached to the structural agent_ended record.
   const payload = envelope.payload as Record<string, unknown> | undefined;
   if (envelope.type === "stream_output" && payload?.phase === "final") {
     return { boundaryMessageId: messageId, boundaryKind: "terminal" };

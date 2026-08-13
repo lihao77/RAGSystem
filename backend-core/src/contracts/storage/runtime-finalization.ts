@@ -158,7 +158,7 @@ export function buildRunTerminalRecords(input: {
         content_parts: toAssistantContentParts(finalMessage),
         ...lineage,
       },
-    }));
+    }, { archiveStep: false }));
     records.push(terminalEnvelopeRecord(run, `${run.runId}:terminal:state_sync`, {
       type: "state_sync",
       session_id: run.sessionId,
@@ -173,7 +173,7 @@ export function buildRunTerminalRecords(input: {
         },
         ...lineage,
       },
-    }));
+    }, { archiveStep: false }));
   }
   const toolStatus = status === "interrupted" ? "interrupted" as const : "failed" as const;
   const toolSummary = status === "interrupted" ? "工具执行被中断" : "工具执行因 Run 失败而终止";
@@ -213,7 +213,9 @@ export function buildRunTerminalRecords(input: {
       status: agentStatus,
       ...lineage,
     },
-  }));
+  }, finalMessage
+    ? { boundaryMessageId: finalMessage.id, boundaryKind: "terminal" }
+    : undefined));
   records.push(terminalEnvelopeRecord(run, `${run.runId}:terminal:run_ended`, {
     type: "run_ended",
     session_id: run.sessionId,
@@ -231,14 +233,25 @@ function terminalEnvelopeRecord(
   run: TerminalRunIdentity,
   eventId: string,
   event: Envelope,
+  options: {
+    archiveStep?: boolean;
+    boundaryMessageId?: string;
+    boundaryKind?: "carrier" | "terminal";
+  } = {},
 ): RuntimeRecordEnvelopeInput {
   return {
-    step: {
+    step: options.archiveStep === false ? null : {
       sessionId: run.sessionId,
       runId: run.runId,
       eventId,
       stepType: "protocol.envelope.v1",
       ...executionEnvelopeMessageBoundary(event),
+      ...(options.boundaryMessageId && options.boundaryKind
+        ? {
+            boundaryMessageId: options.boundaryMessageId,
+            boundaryKind: options.boundaryKind,
+          }
+        : {}),
       payload: {
         ...event,
         protocol_version: event.protocol_version ?? PROTOCOL_VERSION,

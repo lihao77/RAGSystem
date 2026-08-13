@@ -19,6 +19,8 @@ function createDeps(overrides = {}) {
   const cacheCalls = [];
   const materializeCalls = [];
   const reloadCalls = [];
+  const participantReloadCalls = [];
+  const cacheDeleteCalls = [];
   const activeRun = sessionRunStore.activeRun;
   sessionRunStore.applySessionRuntime({
     state: 'idle',
@@ -43,6 +45,8 @@ function createDeps(overrides = {}) {
     activeRun,
     materializeAttachmentsForSend: async (attachments) => { materializeCalls.push(attachments); return attachments; },
     reloadSessionMessages: async (sessionId) => { reloadCalls.push(sessionId); },
+    reloadSessionParticipants: async (sessionId) => { participantReloadCalls.push(sessionId); },
+    deleteMessageCache: (sessionId) => { cacheDeleteCalls.push(sessionId); },
     getCurrentSelectedLlm: () => null,
     stickToBottom: () => {},
     chatSdkClient: {
@@ -54,7 +58,17 @@ function createDeps(overrides = {}) {
     ...overrides,
   };
 
-  return { deps, toasts, cacheCalls, materializeCalls, reloadCalls, activeRun, sessionRunStore };
+  return {
+    deps,
+    toasts,
+    cacheCalls,
+    materializeCalls,
+    reloadCalls,
+    participantReloadCalls,
+    cacheDeleteCalls,
+    activeRun,
+    sessionRunStore,
+  };
 }
 
 function withMock(setup, run) {
@@ -74,7 +88,12 @@ test('confirmEditAndResend 锚定旧消息并将编辑内容交给统一发送�
   ];
   {
     const attachment = { id: 'file-2', original_name: 'draft.txt', mime: 'text/plain', size: 12 };
-    const { deps, sessionRunStore } = createDeps({
+    const {
+      deps,
+      participantReloadCalls,
+      cacheDeleteCalls,
+      sessionRunStore,
+    } = createDeps({
       chatSdkClient: {
         rollbackAndRetrySession: async (_sessionId, body, options) => {
           capturedBody = body;
@@ -110,6 +129,8 @@ test('confirmEditAndResend 锚定旧消息并将编辑内容交给统一发送�
     assert.equal(sessionRunStore.activeRun.active, false);
     assert.equal(sessionRunStore.activeRun.runId, null);
     assert.deepEqual(sessionRunStore.pendingCommands, []);
+    assert.deepEqual(participantReloadCalls, ['session-1']);
+    assert.deepEqual(cacheDeleteCalls, ['session-1']);
     assert.equal(revision.editingMessage.value, null);
   }
 });
@@ -117,7 +138,14 @@ test('confirmEditAndResend 锚定旧消息并将编辑内容交给统一发送�
 test('rollbackAndRetry 失败时重新加载服务端消息并提示错误', async () => {
   {
     const serverMessages = [{ role: 'user', seq: 1, id: 'msg-server', content: 'server state' }];
-    const { deps, toasts, reloadCalls, sessionRunStore } = createDeps({
+    const {
+      deps,
+      toasts,
+      reloadCalls,
+      participantReloadCalls,
+      cacheDeleteCalls,
+      sessionRunStore,
+    } = createDeps({
       chatSdkClient: {
         rollbackAndRetrySession: async () => { throw new Error('重试失败啦'); },
       },
@@ -132,12 +160,18 @@ test('rollbackAndRetry 失败时重新加载服务端消息并提示错误', asy
       { role: 'assistant', seq: 2, id: 'msg-2', content: 'answer', finished: true },
     ];
     deps.messages.value = originalMessages;
+    sessionRunStore.setParticipantMessages('child-1', [
+      { role: 'assistant', id: 'child-old', content: 'stale child state' },
+    ]);
 
     const revision = useMessageRevision(deps);
     await revision.rollbackAndRetry(deps.messages.value[0]);
 
     assert.deepEqual(deps.messages.value, serverMessages);
     assert.deepEqual(reloadCalls, ['session-1']);
+    assert.deepEqual(participantReloadCalls, ['session-1']);
+    assert.deepEqual(cacheDeleteCalls, ['session-1']);
+    assert.deepEqual(Object.keys(sessionRunStore.participantMessages), ['root']);
     assert.deepEqual(toasts, ['重试失败啦']);
     assert.deepEqual(sessionRunStore.pendingCommands, []);
     assert.equal(sessionRunStore.isLoading, false);

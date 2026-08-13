@@ -1,4 +1,4 @@
-import { computed, getCurrentScope, onScopeDispose, ref, unref, watch } from 'vue';
+import { computed, ref, unref, watch } from 'vue';
 import {
   cancelSessionBackgroundTask,
   cancelSessionBackgroundTasks,
@@ -31,7 +31,7 @@ export function backgroundTaskCancelReason(task) {
     || (task?.status !== RUNNING_STATUS ? '任务已结束' : '当前执行实例无法取消');
 }
 
-export function useSessionBackgroundTasks(sessionId, { pollIntervalMs = 3000 } = {}) {
+export function useSessionBackgroundTasks(sessionId) {
   const tasks = ref([]);
   const filter = ref('running');
   const selectedTaskIds = ref([]);
@@ -40,7 +40,6 @@ export function useSessionBackgroundTasks(sessionId, { pollIntervalMs = 3000 } =
   const error = ref('');
   let requestGeneration = 0;
   let actionGeneration = 0;
-  let pollTimer = null;
   const lifecycleOverrides = new Map();
 
   const currentSessionId = () => String(unref(sessionId) || '').trim();
@@ -155,7 +154,6 @@ export function useSessionBackgroundTasks(sessionId, { pollIntervalMs = 3000 } =
       const taskId = backgroundTaskId(detail.task);
       if (taskId) lifecycleOverrides.set(taskId, { task: detail.task, updatedAt: Date.now() });
     }
-    void loadTasks({ silent: true });
     return true;
   }
 
@@ -222,18 +220,6 @@ export function useSessionBackgroundTasks(sessionId, { pollIntervalMs = 3000 } =
     }
   }
 
-  function stopPolling() {
-    if (!pollTimer) return;
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-
-  function syncPolling() {
-    stopPolling();
-    if (!currentSessionId() || runningCount.value <= 0) return;
-    pollTimer = setInterval(() => { void loadTasks({ silent: true }); }, pollIntervalMs);
-  }
-
   watch(() => currentSessionId(), () => {
     actionGeneration += 1;
     cancelling.value = false;
@@ -242,8 +228,6 @@ export function useSessionBackgroundTasks(sessionId, { pollIntervalMs = 3000 } =
     selectedTaskIds.value = [];
     void loadTasks();
   }, { immediate: true });
-  watch(runningCount, syncPolling);
-  if (getCurrentScope()) onScopeDispose(stopPolling);
 
   return {
     tasks,
@@ -262,6 +246,5 @@ export function useSessionBackgroundTasks(sessionId, { pollIntervalMs = 3000 } =
     toggleTaskSelection,
     cancelTask,
     cancelSelected,
-    stopPolling,
   };
 }

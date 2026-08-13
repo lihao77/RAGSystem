@@ -256,6 +256,26 @@ test('state_sync(session_updated) 在 active run 期间不重拉消息', () => {
   assert.deepEqual(calls.loadSessionMessages, []);
 });
 
+test('缺失的执行边界只暂存事件，不在运行期间请求消息列表', async () => {
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
+  const stream = useSessionAgentClient(deps);
+  const event = {
+    session_id: 'session-1',
+    run_id: 'run-1',
+    boundary_message_id: 'missing-user-message',
+    call_id: 'call-1',
+    agent_id: 'assistant',
+  };
+
+  stream.handleEnvelope({ ...event, type: 'model_request', payload: { phase: 'start' } }, 'session-1');
+  stream.handleEnvelope({ ...event, type: 'model_attempt_started', payload: { phase: 'start' } }, 'session-1');
+  stream.handleEnvelope({ ...event, type: 'stream_output', payload: { phase: 'delta', content: 'x' } }, 'session-1');
+  await nextTick();
+
+  assert.deepEqual(calls.loadSessionMessages, []);
+});
+
 test('后台任务 lifecycle 事件只更新运行中心，不重拉消息列表', () => {
   const lifecycle = [];
   const { deps, calls } = createDeps({

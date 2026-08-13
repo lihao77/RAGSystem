@@ -341,9 +341,6 @@ const focusInput = async () => {
   }
 };
 
-let reloadParticipantMessagesImpl = async () => null;
-const reloadParticipantMessages = (...args) => reloadParticipantMessagesImpl(...args);
-
 // ── Composables ─────────────────────────────────────────────────────────
 // 仍存在少量前向循环引用（如 Connection↔RunStream 的 onMessage/finalize、
 // Revision↔Send 的 handleSend/resetEditingState）以闭包延迟解析，其余直接传引用。
@@ -367,8 +364,6 @@ const {
 } = useChatMessageRuntime({
   activeRun: _activeRun,
   chatSdkClient,
-  selectedParticipantId,
-  reloadParticipantMessages,
 });
 
 const {
@@ -392,13 +387,6 @@ const {
   beginInitialScrollRestore,
   endInitialScrollRestore,
 });
-reloadParticipantMessagesImpl = (sessionId, participantId) => loadSessionMessages(sessionId, {
-  silent: true,
-  participantId,
-  preserveStream: true,
-  bypassCache: true,
-});
-
 const selectParticipant = async (participantId) => {
   const next = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
   if (!currentSessionId.value || !participants.value.some(item => item?.participant_id === next)) return;
@@ -592,7 +580,9 @@ const {
   activeRun: _activeRun,
   materializeAttachmentsForSend,
   getCurrentSelectedLlm,
+  deleteMessageCache,
   reloadSessionMessages: (sessionId, options) => loadSessionMessages(sessionId, options),
+  reloadSessionParticipants: (sessionId, options) => loadSessionParticipants(sessionId, options),
   stickToBottom,
   chatSdkClient,
 });

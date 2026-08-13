@@ -443,7 +443,7 @@ test("rollback derives run-step truncation from every deleted message boundary",
     assert.deepEqual(
       store.listMessageRunSteps({ sessionId: "session-1", runId: "root-run", messageId: "followup-1", limit: 50, offset: 0 })
         .items.map(step => step.payload.type),
-      ["tool_call", "stream_output", "agent_ended", "run_ended"],
+      ["tool_call", "agent_ended", "run_ended"],
     );
     assert.equal(
       store.listMessageRunSteps({ sessionId: "session-1", runId: "root-run", messageId: "assistant-1", limit: 50, offset: 0 }).total,

@@ -189,6 +189,48 @@ describe("buildTerminalAssistantMessage", () => {
   });
 });
 
+describe("buildRunTerminalRecords", () => {
+  it("keeps final delivery in the outbox while archiving only structural terminal steps", () => {
+    const finalMessage = {
+      id: "assistant-final",
+      seq: 2,
+      session_id: "session-1",
+      role: "assistant",
+      content: "done",
+      content_parts: [{ type: "text", text: "done" }],
+      metadata: { run_id: "run-1" },
+      created_at: "2026-01-01T00:00:00.000Z",
+      thread_key: "root",
+      child_agent_id: null,
+    } as MessageInfo;
+
+    const records = buildRunTerminalRecords({
+      run: {
+        sessionId: "session-1",
+        runId: "run-1",
+        agentCallId: "agent-call-1",
+        lineageParentCallId: null,
+        agentName: "assistant",
+        agentDisplayName: "Assistant",
+      },
+      status: "completed",
+      finalMessage,
+    });
+    const byType = new Map(records.map(record => [
+      (record.outbox.payload.client_event as { type: string }).type,
+      record,
+    ]));
+
+    expect(byType.get("stream_output")?.step).toBeNull();
+    expect(byType.get("state_sync")?.step).toBeNull();
+    expect(byType.get("agent_ended")?.step).toMatchObject({
+      boundaryMessageId: "assistant-final",
+      boundaryKind: "terminal",
+    });
+    expect(byType.get("run_ended")?.step).not.toBeNull();
+  });
+});
+
 describe("AsyncKernelEventPersister terminal cleanup", () => {
   it("persists canonical content_parts and publishes the same final content parts", async () => {
     const tenantId = createTenantId("tnt_test");

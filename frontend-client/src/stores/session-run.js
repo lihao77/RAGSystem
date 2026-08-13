@@ -346,6 +346,11 @@ export const useSessionRunStore = defineStore('session-run', () => {
     participantMessages.value = { root: [] };
   };
 
+  const clearChildParticipantMessages = () => {
+    participantMessages.value = { root: participantMessages.value.root || [] };
+    if (selectedParticipantId.value !== 'root') selectedParticipantId.value = 'root';
+  };
+
   const applySessionContext = ({
     team = '',
     entryAgent = '',
@@ -395,5 +400,6 @@ export const useSessionRunStore = defineStore('session-run', () => {
     upsertParticipantMessage,
     reorderParticipantMessages,
     clearParticipantMessages,
+    clearChildParticipantMessages,
   };
 });

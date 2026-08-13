@@ -100,7 +100,6 @@ export const normalizeAssistantExecutionState = (msg) => {
 export function useMessageExecution(deps) {
   const participantByRun = new Map();
   const pendingEnvelopesByRun = new Map();
-  const participantReloads = new Map();
   const seenEnvelopeIds = new Map();
 
   const runKey = (sessionId, runId) => `${sessionId}\u0000${runId}`;
@@ -273,29 +272,6 @@ export function useMessageExecution(deps) {
     for (const event of pending) applyParticipantEnvelope(message, event);
     pendingEnvelopesByRun.delete(key);
   };
-  const reloadParticipantBoundary = (sessionId, participantId, runId) => {
-    if (!deps.reloadParticipantMessages) return;
-    const key = runKey(sessionId, runId);
-    if (participantReloads.has(key)) return;
-    const entry = { attempts: 0, timer: null, cancelled: false };
-    const run = async () => {
-      if (entry.cancelled || sessionId !== deps.currentSessionId.value) return;
-      entry.attempts += 1;
-      try {
-        await deps.reloadParticipantMessages(sessionId, participantId, { reconcileMode: 'live' });
-        if (!entry.cancelled) flushParticipantRun(sessionId, participantId, runId);
-        if (!pendingEnvelopesByRun.has(key) || entry.cancelled) participantReloads.delete(key);
-      } catch (error) {
-        if (entry.cancelled || entry.attempts >= 4 || sessionId !== deps.currentSessionId.value) {
-          participantReloads.delete(key);
-          return;
-        }
-        entry.timer = setTimeout(() => { entry.timer = null; void run(); }, 250 * (2 ** (entry.attempts - 1)));
-      }
-    };
-    participantReloads.set(key, entry);
-    void run();
-  };
   const unsubscribe = deps.chatSdkClient?.on?.('event', (event) => {
     const runId = event?.run_id;
     const sessionId = event?.session_id || deps.chatSdkClient?.sessionId || deps.currentSessionId.value;
@@ -332,7 +308,6 @@ export function useMessageExecution(deps) {
     else {
       const key = runKey(sessionId, runId);
       pendingEnvelopesByRun.set(key, [...(pendingEnvelopesByRun.get(key) || []), event]);
-      reloadParticipantBoundary(sessionId, participantId, runId);
     }
   });
   if (deps.participantMessages) {
@@ -350,20 +325,10 @@ export function useMessageExecution(deps) {
   watch(deps.currentSessionId, () => {
     participantByRun.clear();
     pendingEnvelopesByRun.clear();
-    for (const entry of participantReloads.values()) {
-      entry.cancelled = true;
-      if (entry.timer) clearTimeout(entry.timer);
-    }
-    participantReloads.clear();
     seenEnvelopeIds.clear();
   });
   if (getCurrentScope()) onScopeDispose(() => {
     unsubscribe?.();
-    for (const entry of participantReloads.values()) {
-      entry.cancelled = true;
-      if (entry.timer) clearTimeout(entry.timer);
-    }
-    participantReloads.clear();
   });
 
   const createAssistantMessageFromHistory = (item) => {

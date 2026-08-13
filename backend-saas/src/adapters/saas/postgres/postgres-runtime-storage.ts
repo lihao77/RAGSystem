@@ -1868,7 +1868,9 @@ function assertExistingRecord(
   step: ExistingEventStep | null,
   outbox: OutboxRow | null,
 ): void {
-  if (!outbox || Boolean(step) !== Boolean(expected.step)) {
+  const compatibleLegacyStream = !expected.step && Boolean(step)
+    && isLegacyUnarchivedStreamStep(step?.payload ?? {});
+  if (!outbox || (Boolean(step) !== Boolean(expected.step) && !compatibleLegacyStream)) {
     throw new Error(`incomplete execution event record: ${expected.outbox.eventId}`);
   }
   const outboxMatches = outbox.session_id === expected.outbox.sessionId
@@ -1886,6 +1888,13 @@ function assertExistingRecord(
   if (!outboxMatches || !stepMatches) {
     throw new Error(`execution event idempotency conflict: ${expected.outbox.eventId}`);
   }
+}
+
+function isLegacyUnarchivedStreamStep(payload: Record<string, unknown>): boolean {
+  if (payload.type !== "stream_output") return false;
+  const inner = payload.payload;
+  if (!inner || typeof inner !== "object" || Array.isArray(inner)) return true;
+  return (inner as Record<string, unknown>).phase !== "intent_complete";
 }
 
 function assertEventId(eventId: string): void {

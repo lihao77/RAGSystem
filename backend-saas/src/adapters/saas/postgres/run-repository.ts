@@ -220,6 +220,11 @@ export class PostgresRunRepository implements AsyncRunStore {
     const where = `step.tenant_id=$1 AND step.session_id=$2 AND step.run_id=$3
       AND step.step_order>$4 AND step.step_order<$5
       AND step.step_type='protocol.envelope.v1'
+      AND COALESCE(step.payload->>'type', '')<>'state_sync'
+      AND NOT (
+        step.payload->>'type'='stream_output'
+        AND COALESCE(step.payload->'payload'->>'phase', '')<>'intent_complete'
+      )
       AND NOT EXISTS (
         SELECT 1 FROM saas_run_message_boundaries AS boundary
         WHERE boundary.tenant_id=step.tenant_id AND boundary.session_id=step.session_id
@@ -243,7 +248,11 @@ export class PostgresRunRepository implements AsyncRunStore {
   }
 
   async listRunSteps(input: { tenantId: string; runId?: string | null; sessionId?: string | null; limit?: number; offset?: number }): Promise<RunStepInfo[]> {
-    const clauses: string[] = ["tenant_id = $1"]; const params: unknown[] = [input.tenantId];
+    const clauses: string[] = [
+      "tenant_id = $1",
+      "COALESCE(payload->>'type', '')<>'state_sync'",
+      "NOT (payload->>'type'='stream_output' AND COALESCE(payload->'payload'->>'phase', '')<>'intent_complete')",
+    ]; const params: unknown[] = [input.tenantId];
     const add = (sql: string, value: unknown): void => { params.push(value); clauses.push(sql.replace("?", `$${params.length}`)); };
     if (input.runId) add("run_id = ?", input.runId);
     if (input.sessionId) add("session_id = ?", input.sessionId);

@@ -111,8 +111,6 @@ test('root agent result uses its target thread instead of source child metadata'
 test('child envelopes wait for the durable message and project onto that exact object', async () => {
   const handlers = new Set();
   const participantMessages = ref({ 'child-1': [] });
-  const reloads = [];
-  let releaseReload;
   useMessageExecution({
     currentSessionId: ref('session-1'),
     selectedParticipantId: ref('child-1'),
@@ -120,10 +118,6 @@ test('child envelopes wait for the durable message and project onto that exact o
     activeRun: { runId: 'root-run', rootCallId: 'root-call' },
     syncParticipantMessage() {
       assert.fail('execution envelopes must not create a virtual message');
-    },
-    reloadParticipantMessages(sessionId, participantId) {
-      reloads.push({ sessionId, participantId });
-      return new Promise(resolve => { releaseReload = resolve; });
     },
     chatSdkClient: {
       on(name, handler) {
@@ -137,7 +131,6 @@ test('child envelopes wait for the durable message and project onto that exact o
     handler(childStarted());
     handler(childToolCall());
   }
-  assert.deepEqual(reloads, [{ sessionId: 'session-1', participantId: 'child-1' }]);
   assert.deepEqual(participantMessages.value['child-1'], []);
 
   const durableMessage = reactive({
@@ -149,8 +142,6 @@ test('child envelopes wait for the durable message and project onto that exact o
     executionTree: { root: null, steps: [] },
   });
   participantMessages.value = { 'child-1': [durableMessage] };
-  await nextTick();
-  releaseReload();
   await nextTick();
 
   assert.equal(participantMessages.value['child-1'][0], durableMessage);

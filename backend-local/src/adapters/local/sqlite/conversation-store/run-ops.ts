@@ -299,6 +299,11 @@ export class RunOps {
     const where = `step.session_id=? AND step.run_id=?
       AND step.step_order>? AND step.step_order<?
       AND step.step_type='protocol.envelope.v1'
+      AND COALESCE(json_extract(step.payload, '$.type'), '')<>'state_sync'
+      AND NOT (
+        json_extract(step.payload, '$.type')='stream_output'
+        AND COALESCE(json_extract(step.payload, '$.payload.phase'), '')<>'intent_complete'
+      )
       AND NOT EXISTS (
         SELECT 1 FROM run_message_boundaries AS boundary
         WHERE boundary.session_id=step.session_id AND boundary.run_id=step.run_id
@@ -396,6 +401,11 @@ export class RunOps {
             SELECT ${RUN_STEP_SELECT_COLUMNS}
             FROM run_steps
             WHERE run_id=? AND session_id=?
+              AND COALESCE(json_extract(payload, '$.type'), '')<>'state_sync'
+              AND NOT (
+                json_extract(payload, '$.type')='stream_output'
+                AND COALESCE(json_extract(payload, '$.payload.phase'), '')<>'intent_complete'
+              )
             ORDER BY step_order ASC
             LIMIT ? OFFSET ?
           `)
@@ -406,6 +416,11 @@ export class RunOps {
           SELECT ${RUN_STEP_SELECT_COLUMNS}
           FROM run_steps
           WHERE run_id=?
+            AND COALESCE(json_extract(payload, '$.type'), '')<>'state_sync'
+            AND NOT (
+              json_extract(payload, '$.type')='stream_output'
+              AND COALESCE(json_extract(payload, '$.payload.phase'), '')<>'intent_complete'
+            )
           ORDER BY step_order ASC
           LIMIT ? OFFSET ?
         `)

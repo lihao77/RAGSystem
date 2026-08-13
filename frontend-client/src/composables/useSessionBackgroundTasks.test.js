@@ -31,7 +31,7 @@ test('background task state filters running tasks and only selects cancel_availa
       { task_id: 'done', status: 'completed', cancel_available: false },
     ] } });
   }, async () => {
-    const state = useSessionBackgroundTasks(ref('session-1'), { pollIntervalMs: 60000 });
+    const state = useSessionBackgroundTasks(ref('session-1'));
     await state.loadTasks();
 
     assert.equal(state.runningCount.value, 2);
@@ -41,11 +41,10 @@ test('background task state filters running tasks and only selects cancel_availa
     assert.deepEqual(state.selectedTaskIds.value, ['running-cancellable']);
     assert.equal(backgroundTaskCancelReason(state.tasks.value[1]), '任务由其他运行实例持有，当前实例无法取消');
     assert.equal(backgroundTaskCancelReason({ status: 'completed', cancel_available: false, cancel_unavailable_reason: 'already_finished' }), '任务已结束');
-    state.stopPolling();
   });
 });
 
-test('background lifecycle events merge immediately and trigger a silent refresh', async () => {
+test('background lifecycle events merge immediately without another request', async () => {
   let requests = 0;
   await withMock((mock) => {
     mock.onGet('/api/agent/sessions/session-1/background-tasks').reply(() => {
@@ -53,8 +52,9 @@ test('background lifecycle events merge immediately and trigger a silent refresh
       return [200, { data: { tasks: [{ task_id: 'task-1', status: requests > 1 ? 'completed' : 'running', cancel_available: requests === 1 }] } }];
     });
   }, async () => {
-    const state = useSessionBackgroundTasks(ref('session-1'), { pollIntervalMs: 60000 });
+    const state = useSessionBackgroundTasks(ref('session-1'));
     await state.loadTasks();
+    const requestsBeforeEvent = requests;
     const handled = state.handleLifecycleEvent({
       entity: 'background_task',
       action: 'completed',
@@ -64,8 +64,7 @@ test('background lifecycle events merge immediately and trigger a silent refresh
 
     assert.equal(handled, true);
     assert.equal(state.tasks.value[0].status, 'completed');
-    assert.ok(requests >= 2);
-    state.stopPolling();
+    assert.equal(requests, requestsBeforeEvent);
   });
 });
 
@@ -79,7 +78,7 @@ test('batch cancel uses only selected cancel_available tasks', async () => {
       data: { results: [{ task_id: 'a', status: 'cancelled', cancel_available: false }] },
     });
   }, async () => {
-    const state = useSessionBackgroundTasks(ref('session-1'), { pollIntervalMs: 60000 });
+    const state = useSessionBackgroundTasks(ref('session-1'));
     await state.loadTasks();
     state.toggleTaskSelection(state.tasks.value.find((task) => task.task_id === 'a'));
     const results = await state.cancelSelected();
@@ -92,7 +91,6 @@ test('batch cancel uses only selected cancel_available tasks', async () => {
       cancel_available: false,
       cancel_unavailable_reason: 'already_finished',
     });
-    state.stopPolling();
   });
 });
 
@@ -108,7 +106,7 @@ test('a late cancel response cannot mutate the newly selected session', async ()
     mock.onPost('/api/agent/sessions/session-1/background-tasks/old-task/cancel').reply(() => cancelResponse.promise);
   }, async () => {
     const sessionId = ref('session-1');
-    const state = useSessionBackgroundTasks(sessionId, { pollIntervalMs: 60000 });
+    const state = useSessionBackgroundTasks(sessionId);
     await state.loadTasks();
     const pendingCancel = state.cancelTask(state.tasks.value.find((task) => task.task_id === 'old-task'));
 
@@ -120,6 +118,5 @@ test('a late cancel response cannot mutate the newly selected session', async ()
 
     assert.deepEqual(state.tasks.value.map((task) => task.task_id), ['new-task']);
     assert.equal(state.error.value, '');
-    state.stopPolling();
   });
 });
