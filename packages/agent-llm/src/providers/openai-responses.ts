@@ -8,9 +8,9 @@ import { readSse } from "../internal/sse.js";
 import {
   bearerHeaders,
   extractErrorMessage,
-  fetchProvider,
+  consumeProviderStream,
+  executeProviderCall,
   providerTimeoutMs,
-  readProviderStream,
   requestInit,
   requireApiKey,
   requireOkJson,
@@ -25,24 +25,23 @@ interface ResponseToolAccumulator {
 
 export class OpenAiResponsesAdapter implements LlmProviderAdapter {
   async complete(request: LlmRequest): Promise<LlmResult> {
-    const response = await this.fetch(request, false);
-    return parseResponse(await requireOkJson(response, request), request);
+    return this.call(request, false, async (response) => parseResponse(await requireOkJson(response, request), request));
   }
 
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
-    const response = await this.fetch(request, true);
-    if (!response.ok) {
-      await requireOkJson(response, request);
-    }
-    return readProviderStream(request, response, () => parseResponseStream(response, request, onChunk));
+    return this.call(request, true, async (response) => {
+      if (!response.ok) await requireOkJson(response, request);
+      return consumeProviderStream(onChunk, (guardedOnChunk) => parseResponseStream(response, request, guardedOnChunk));
+    });
   }
 
-  private fetch(request: LlmRequest, stream: boolean): Promise<Response> {
+  private call<T>(request: LlmRequest, stream: boolean, consume: (response: Response) => Promise<T>): Promise<T> {
     const apiKey = requireApiKey(request.provider);
-    return fetchProvider(
+    return executeProviderCall(
       request,
       resolveEndpoint(request.provider, "responses"),
       requestInit(request, bearerHeaders(apiKey), buildResponsesBody(request, stream)),
+      consume,
     );
   }
 }

@@ -15,9 +15,9 @@ import { readSse } from "../internal/sse.js";
 import {
   anthropicHeaders,
   extractErrorMessage,
-  fetchProvider,
+  consumeProviderStream,
+  executeProviderCall,
   providerTimeoutMs,
-  readProviderStream,
   requestInit,
   requireApiKey,
   requireOkJson,
@@ -37,24 +37,23 @@ type ThinkingAccumulator = { type: "thinking"; thinking: string; signature: stri
 
 export class AnthropicAdapter implements LlmProviderAdapter {
   async complete(request: LlmRequest): Promise<LlmResult> {
-    const response = await this.fetch(request, false);
-    return parseAnthropicResponse(await requireOkJson(response, request));
+    return this.call(request, false, async (response) => parseAnthropicResponse(await requireOkJson(response, request)));
   }
 
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
-    const response = await this.fetch(request, true);
-    if (!response.ok) {
-      await requireOkJson(response, request);
-    }
-    return readProviderStream(request, response, () => parseAnthropicStream(response, request, onChunk));
+    return this.call(request, true, async (response) => {
+      if (!response.ok) await requireOkJson(response, request);
+      return consumeProviderStream(onChunk, (guardedOnChunk) => parseAnthropicStream(response, request, guardedOnChunk));
+    });
   }
 
-  private fetch(request: LlmRequest, stream: boolean): Promise<Response> {
+  private call<T>(request: LlmRequest, stream: boolean, consume: (response: Response) => Promise<T>): Promise<T> {
     const apiKey = requireApiKey(request.provider);
-    return fetchProvider(
+    return executeProviderCall(
       request,
       resolveEndpoint(request.provider, "anthropic"),
       requestInit(request, anthropicHeaders(apiKey), buildAnthropicBody(request, stream)),
+      consume,
     );
   }
 }

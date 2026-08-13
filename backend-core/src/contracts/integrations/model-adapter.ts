@@ -32,6 +32,9 @@ export interface ProviderConfigField {
   default: string | number | boolean | null;
   help: string;
   options: ProviderConfigFieldOption[];
+  min?: number;
+  max?: number;
+  step?: number;
 }
 
 export interface ProviderTypeInfo {
@@ -63,7 +66,7 @@ export interface ModelProviderConfig {
   max_context_tokens?: number;
   thinking_budget_tokens?: number;
   reasoning_effort?: string;
-  /** Provider request and stream idle timeout, in seconds. */
+  /** Provider connection/first-response and stream idle timeout, in seconds. */
   timeout?: number;
   retry_attempts?: number;
   retry_delay?: number;

@@ -7,9 +7,9 @@ import { readSse } from "../internal/sse.js";
 import {
   bearerHeaders,
   extractErrorMessage,
-  fetchProvider,
+  consumeProviderStream,
+  executeProviderCall,
   providerTimeoutMs,
-  readProviderStream,
   requestInit,
   requireApiKey,
   requireOkJson,
@@ -24,27 +24,27 @@ interface ToolAccumulator {
 
 export class OpenAiChatAdapter implements LlmProviderAdapter {
   async complete(request: LlmRequest): Promise<LlmResult> {
-    const response = await this.fetch(request, false);
-    const body = await requireOkJson(response, request);
-    return parseCompletion(body);
+    return this.call(request, false, async (response) => parseCompletion(await requireOkJson(response, request)));
   }
 
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
-    const response = await this.fetch(request, true);
-    if (!response.ok) {
-      const body = await requireOkJson(response, request);
-      throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
-    }
-    return readProviderStream(request, response, () => parseStream(response, request, onChunk));
+    return this.call(request, true, async (response) => {
+      if (!response.ok) {
+        const body = await requireOkJson(response, request);
+        throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
+      }
+      return consumeProviderStream(onChunk, (guardedOnChunk) => parseStream(response, request, guardedOnChunk));
+    });
   }
 
-  private fetch(request: LlmRequest, stream: boolean): Promise<Response> {
+  private call<T>(request: LlmRequest, stream: boolean, consume: (response: Response) => Promise<T>): Promise<T> {
     const endpoint = resolveEndpoint(request.provider, "chat");
     const apiKey = requireApiKey(request.provider);
-    return fetchProvider(
+    return executeProviderCall(
       request,
       endpoint,
       requestInit(request, bearerHeaders(apiKey), buildChatBody(request, stream)),
+      consume,
     );
   }
 }

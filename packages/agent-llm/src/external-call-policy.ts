@@ -28,6 +28,8 @@ export interface ExternalCallOptions<T> extends ExternalCallPolicy {
   key: string;
   operation: (context: { attempt: number; signal: AbortSignal }) => Promise<T>;
   signal?: AbortSignal;
+  /** Null lets the operation manage phase-specific timeouts while preserving retry/circuit handling. */
+  operationTimeoutMs?: number | null;
   shouldRetry?: (error: unknown) => boolean;
   onAttemptStarted?: (context: { attempt: number; maxAttempts: number }) => void;
   onAttemptFailed?: (context: {
@@ -82,7 +84,14 @@ export class ExternalCallPolicyRegistry {
       for (let attempt = 1; ; attempt += 1) {
         options.onAttemptStarted?.({ attempt, maxAttempts });
         try {
-          const result = await runWithTimeout(options.operation, attempt, options.timeoutMs, options.signal);
+          const result = options.operationTimeoutMs === null
+            ? await runWithoutTimeout(options.operation, attempt, options.signal)
+            : await runWithTimeout(
+                options.operation,
+                attempt,
+                options.operationTimeoutMs ?? options.timeoutMs,
+                options.signal,
+              );
           if (!options.deferSuccess) {
             circuit.successes += 1;
             this.close(circuit);
@@ -214,6 +223,11 @@ export class ExternalCallPolicyRegistry {
 
 export const externalCallPolicy = new ExternalCallPolicyRegistry();
 
+export const DEFAULT_PROVIDER_TIMEOUT_SECONDS = 120;
+export const DEFAULT_PROVIDER_RETRY_ATTEMPTS = 2;
+export const DEFAULT_PROVIDER_RETRY_DELAY_SECONDS = 1;
+export const DEFAULT_PROVIDER_RETRY_BACKOFF_FACTOR = 2;
+
 export function isRetryableHttpStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
@@ -225,13 +239,13 @@ export function isRetryableExternalError(error: unknown): boolean {
 }
 
 export function providerCallPolicy(provider: Record<string, unknown>): ExternalCallPolicy {
-  const timeoutSeconds = positiveNumber(provider.timeout, 60);
-  const retries = clampInteger(positiveNumber(provider.retry_attempts, 0), 0, 9);
+  const timeoutSeconds = positiveNumber(provider.timeout, DEFAULT_PROVIDER_TIMEOUT_SECONDS);
+  const retries = clampInteger(positiveNumber(provider.retry_attempts, DEFAULT_PROVIDER_RETRY_ATTEMPTS), 0, 9);
   return {
     timeoutMs: timeoutSeconds * 1000,
     maxAttempts: retries + 1,
-    baseDelayMs: positiveNumber(provider.retry_delay, 1) * 1000,
-    backoffFactor: positiveNumber(provider.retry_backoff_factor, 2),
+    baseDelayMs: positiveNumber(provider.retry_delay, DEFAULT_PROVIDER_RETRY_DELAY_SECONDS) * 1000,
+    backoffFactor: positiveNumber(provider.retry_backoff_factor, DEFAULT_PROVIDER_RETRY_BACKOFF_FACTOR),
   };
 }
 
@@ -260,6 +274,17 @@ async function runWithTimeout<T>(
     clearTimeout(timer);
     parentSignal?.removeEventListener("abort", abortParent);
   }
+}
+
+function runWithoutTimeout<T>(
+  operation: ExternalCallOptions<T>["operation"],
+  attempt: number,
+  parentSignal?: AbortSignal,
+): Promise<T> {
+  if (parentSignal?.aborted) {
+    return Promise.reject(parentSignal.reason ?? new DOMException("Aborted", "AbortError"));
+  }
+  return operation({ attempt, signal: parentSignal ?? new AbortController().signal });
 }
 
 function retryDelay(policy: ExternalCallPolicy, attempt: number): number {

@@ -14,6 +14,10 @@ import type {
   TestProviderRequest,
 } from "../../contracts/integrations/model-adapter.js";
 import {
+  DEFAULT_PROVIDER_RETRY_ATTEMPTS,
+  DEFAULT_PROVIDER_RETRY_BACKOFF_FACTOR,
+  DEFAULT_PROVIDER_RETRY_DELAY_SECONDS,
+  DEFAULT_PROVIDER_TIMEOUT_SECONDS,
   externalCallPolicy,
   OpenAiCompatibleClient,
   type ExternalCallMetrics,
@@ -26,6 +30,7 @@ import { OpenAiCompatibleRerankClient, type RerankerEndpointConfig } from "./rer
 const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "providers.yaml");
 
 const UPDATE_FIELDS = [
+  "provider_type",
   "api_key",
   "temperature",
   "max_tokens",
@@ -173,6 +178,10 @@ export class ModelAdapterService {
     }
 
     rebuildModelsFromModelMap(config);
+    config.provider_type = canonicalizeProviderType(config.provider_type, undefined);
+    if (!PROVIDER_TYPE_SET.has(config.provider_type)) {
+      throw new ModelAdapterServiceError(`不支持的 Provider 类型: ${config.provider_type}`, 400);
+    }
     this.ensureProviderRuntimeShape(config);
     return { key: providerKey, config };
   }
@@ -584,27 +593,39 @@ function labelProviderType(providerType: string): string {
 function providerConfigFields(providerType: string): ProviderTypeInfo["config_fields"] {
   const fields: ProviderTypeInfo["config_fields"] = [
     {
-      key: "retry_attempts",
-      label: "重试次数",
+      key: "timeout",
+      label: "响应超时（秒）",
       type: "number",
-      default: 2,
-      help: "可重试错误发生后的最大重试次数。",
+      default: DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+      help: "",
+      min: 5,
+      options: [],
+    },
+    {
+      key: "retry_attempts",
+      label: "最大重试次数",
+      type: "number",
+      default: DEFAULT_PROVIDER_RETRY_ATTEMPTS,
+      help: "",
+      min: 0,
       options: [],
     },
     {
       key: "retry_delay",
-      label: "初始重试延迟 (s)",
+      label: "首次重试间隔（秒）",
       type: "number",
-      default: 0.5,
-      help: "第一次重试前的等待时间。",
+      default: DEFAULT_PROVIDER_RETRY_DELAY_SECONDS,
+      help: "",
+      min: 0,
       options: [],
     },
     {
       key: "retry_backoff_factor",
-      label: "退避倍率",
+      label: "重试间隔倍数",
       type: "number",
-      default: 2,
-      help: "后续重试等待时间的指数退避倍率。",
+      default: DEFAULT_PROVIDER_RETRY_BACKOFF_FACTOR,
+      help: "",
+      min: 1,
       options: [],
     },
   ];
@@ -736,6 +757,9 @@ function uniqueModelsFromMap(modelMap: ModelMap): string[] {
 
 function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_FIELDS)[number], value: unknown): void {
   switch (field) {
+    case "provider_type":
+      config.provider_type = canonicalizeProviderType(value, undefined);
+      break;
     case "api_key":
       if (value === undefined) {
         delete config.api_key;

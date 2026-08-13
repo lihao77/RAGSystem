@@ -172,9 +172,7 @@
       <DialogContent class="max-w-[720px]">
         <DialogHeader>
           <DialogTitle>{{ dialog.mode === 'create' ? '添加 Provider' : '编辑 Provider' }}</DialogTitle>
-          <DialogDescription>
-            {{ dialog.mode === 'create' ? '配置接入信息、运行参数和任务模型映射。' : `更新 ${editingKey} 的接入配置；API Key 留空时保持原值。` }}
-          </DialogDescription>
+          <DialogDescription v-if="dialog.mode === 'create'">配置接入信息、运行参数和任务模型映射。</DialogDescription>
         </DialogHeader>
         <div class="dialog-form">
         <section class="dialog-form-section">
@@ -186,7 +184,7 @@
               <FieldDescription>保存后生成 Key：<span class="mono">{{ providerKeyPreview || '填写名称并选择类型后显示' }}</span></FieldDescription>
               <FieldError v-if="formErrors.name">{{ formErrors.name }}</FieldError>
             </Field>
-            <Field v-if="dialog.mode === 'create'" :data-invalid="!!formErrors.provider_type">
+            <Field :data-invalid="!!formErrors.provider_type">
               <FieldLabel>Provider 类型 <span class="required">*</span></FieldLabel>
               <CustomSelect :model-value="form.provider_type" :options="providerTypeOptions" placeholder="-- 请选择 --" @update:model-value="handleProviderTypeChange" />
               <FieldError v-if="formErrors.provider_type">{{ formErrors.provider_type }}</FieldError>
@@ -207,12 +205,11 @@
         </section>
 
         <section v-if="form.provider_type !== 'rerank_api'" class="dialog-form-section">
-          <div class="dialog-form-section__head"><h3>运行参数</h3><p>配置温度、token 上限与超时时间等运行时参数。</p></div>
+          <div class="dialog-form-section__head"><h3>运行参数</h3><p>配置温度与 token 上限等模型运行参数。</p></div>
           <FieldGroup class="dialog-form-grid form-grid">
             <Field><FieldLabel for="provider-temperature">温度</FieldLabel><Input id="provider-temperature" v-model.number="form.temperature" type="number" step="0.1" min="0" max="2" placeholder="0.7" /></Field>
             <Field><FieldLabel for="provider-completion-tokens">Max Completion Tokens</FieldLabel><Input id="provider-completion-tokens" v-model.number="form.max_completion_tokens" type="number" step="256" min="256" placeholder="4096" /></Field>
             <Field><FieldLabel for="provider-context-tokens">Max Context Tokens</FieldLabel><Input id="provider-context-tokens" v-model.number="form.max_context_tokens" type="number" step="1024" min="1024" placeholder="128000" /></Field>
-            <Field><FieldLabel for="provider-timeout">Timeout (s)</FieldLabel><Input id="provider-timeout" v-model.number="form.timeout" type="number" step="5" min="5" placeholder="60" /></Field>
           </FieldGroup>
           <FieldSet>
             <FieldLegend variant="label">模型能力</FieldLegend>
@@ -235,10 +232,10 @@
 
         <section class="dialog-form-section">
           <div class="dialog-form-section__head"><h3>模型与扩展</h3><p>管理 Provider 的扩展字段与任务模型映射。</p></div>
-          <template v-if="activeProviderConfigFields.length > 0">
-            <div class="form-section-title">Provider 扩展配置</div>
+          <template v-if="resilienceProviderConfigFields.length > 0">
+            <div class="form-section-title">超时与重试</div>
             <FieldGroup class="dialog-form-grid form-grid">
-              <Field v-for="field in activeProviderConfigFields" :key="field.key" :orientation="field.type === 'boolean' ? 'horizontal' : 'vertical'">
+              <Field v-for="field in resilienceProviderConfigFields" :key="field.key" :orientation="field.type === 'boolean' ? 'horizontal' : 'vertical'">
                 <FieldLabel v-if="field.type !== 'boolean'" :for="`provider-extra-${field.key}`">{{ field.label }}</FieldLabel>
                 <template v-if="field.type === 'boolean'">
                   <FieldLabel>
@@ -247,7 +244,25 @@
                   </FieldLabel>
                 </template>
                 <CustomSelect v-else-if="field.type === 'select'" :model-value="form[field.key] ?? ''" :options="field.options || []" :placeholder="field.placeholder || '-- 请选择 --'" @update:model-value="form[field.key] = $event" />
-                <Input v-else-if="field.type === 'number'" :id="`provider-extra-${field.key}`" v-model.number="form[field.key]" type="number" :step="field.step || (field.key === 'retry_delay' ? 0.1 : 1)" :min="field.min" :max="field.max" :placeholder="field.placeholder || ''" />
+                <Input v-else-if="field.type === 'number'" :id="`provider-extra-${field.key}`" v-model.number="form[field.key]" type="number" :step="field.step || (field.key === 'retry_delay' ? 0.1 : field.key === 'timeout' ? 5 : 1)" :min="field.min" :max="field.max" :placeholder="field.placeholder || ''" />
+                <Input v-else :id="`provider-extra-${field.key}`" v-model="form[field.key]" :type="field.type === 'password' ? 'password' : 'text'" :placeholder="field.placeholder || ''" />
+                <FieldDescription v-if="field.help && field.type !== 'boolean'">{{ field.help }}</FieldDescription>
+              </Field>
+            </FieldGroup>
+          </template>
+          <template v-if="extensionProviderConfigFields.length > 0">
+            <div class="form-section-title">Provider 扩展配置</div>
+            <FieldGroup class="dialog-form-grid form-grid">
+              <Field v-for="field in extensionProviderConfigFields" :key="field.key" :orientation="field.type === 'boolean' ? 'horizontal' : 'vertical'">
+                <FieldLabel v-if="field.type !== 'boolean'" :for="`provider-extra-${field.key}`">{{ field.label }}</FieldLabel>
+                <template v-if="field.type === 'boolean'">
+                  <FieldLabel>
+                    <Switch v-model:checked="form[field.key]" />
+                    <FieldContent><FieldTitle>{{ field.label }}</FieldTitle><FieldDescription v-if="field.help">{{ field.help }}</FieldDescription></FieldContent>
+                  </FieldLabel>
+                </template>
+                <CustomSelect v-else-if="field.type === 'select'" :model-value="form[field.key] ?? ''" :options="field.options || []" :placeholder="field.placeholder || '-- 请选择 --'" @update:model-value="form[field.key] = $event" />
+                <Input v-else-if="field.type === 'number'" :id="`provider-extra-${field.key}`" v-model.number="form[field.key]" type="number" :step="field.step || 1" :min="field.min" :max="field.max" :placeholder="field.placeholder || ''" />
                 <Input v-else :id="`provider-extra-${field.key}`" v-model="form[field.key]" :type="field.type === 'password' ? 'password' : 'text'" :placeholder="field.placeholder || ''" />
                 <FieldDescription v-if="field.help && field.type !== 'boolean'">{{ field.help }}</FieldDescription>
               </Field>
@@ -365,9 +380,10 @@ const providerTypeMeta = ref({});
 const providerTypeOptions = ref([]);
 
 const COMMON_PROVIDER_FIELDS = [
-  { key: 'retry_attempts', label: '重试次数', type: 'number', default: 2, help: '可重试错误发生后的最大重试次数。', options: [] },
-  { key: 'retry_delay', label: '初始重试延迟 (s)', type: 'number', default: 0.5, help: '第一次重试前的等待时间。', options: [] },
-  { key: 'retry_backoff_factor', label: '退避倍率', type: 'number', default: 2, help: '后续重试等待时间的指数退避倍率。', options: [] },
+  { key: 'timeout', label: '响应超时（秒）', type: 'number', default: 120, min: 5, help: '', options: [] },
+  { key: 'retry_attempts', label: '最大重试次数', type: 'number', default: 2, min: 0, help: '', options: [] },
+  { key: 'retry_delay', label: '首次重试间隔（秒）', type: 'number', default: 1, min: 0, help: '', options: [] },
+  { key: 'retry_backoff_factor', label: '重试间隔倍数', type: 'number', default: 2, min: 1, help: '', options: [] },
 ];
 const OPENAI_REASONING_FIELD = {
   key: 'reasoning_effort', label: '推理强度', type: 'select', default: '', help: '仅对支持 reasoning_effort 的 OpenAI 推理模型生效。',
@@ -683,6 +699,9 @@ const apiEndpointPlaceholder = computed(() => {
   return providerTypeMeta.value[providerType]?.default_endpoint || '由后端返回默认 API Endpoint';
 });
 const activeProviderConfigFields = computed(() => providerTypeMeta.value[form.value.provider_type]?.config_fields || []);
+const RESILIENCE_FIELD_KEYS = new Set(['timeout', 'retry_attempts', 'retry_delay', 'retry_backoff_factor']);
+const resilienceProviderConfigFields = computed(() => activeProviderConfigFields.value.filter((field) => RESILIENCE_FIELD_KEYS.has(field.key)));
+const extensionProviderConfigFields = computed(() => activeProviderConfigFields.value.filter((field) => !RESILIENCE_FIELD_KEYS.has(field.key)));
 const providerKeyPreview = computed(() => {
   const name = String(form.value.name || '').trim().toLowerCase().replace(/\s+/g, '_');
   const providerType = String(form.value.provider_type || '').trim().toLowerCase();
@@ -690,7 +709,7 @@ const providerKeyPreview = computed(() => {
 });
 
 function buildFormDefaults() {
-  return { name: '', provider_type: '', api_key: '', api_endpoint: '', temperature: 0.7, max_completion_tokens: 4096, max_context_tokens: 128000, timeout: 60, supports_function_calling: false, supports_vision: false };
+  return { name: '', provider_type: '', api_key: '', api_endpoint: '', temperature: 0.7, max_completion_tokens: 4096, max_context_tokens: 128000, timeout: 120, supports_function_calling: false, supports_vision: false };
 }
 function openCreateDialog() {
   form.value = buildFormDefaults();
@@ -709,7 +728,7 @@ function openEditDialog(provider) {
   const nextForm = {
     provider_type: provider.provider_type || '', api_key: '', api_endpoint: provider.api_endpoint || '',
     temperature: provider.temperature ?? 0.7, max_completion_tokens: provider.max_completion_tokens || 4096,
-    max_context_tokens: provider.max_context_tokens || 128000, timeout: provider.timeout || 60,
+    max_context_tokens: provider.max_context_tokens || 128000, timeout: provider.timeout || 120,
     supports_function_calling: provider.supports_function_calling ?? false, supports_vision: provider.supports_vision ?? false,
   };
   for (const field of getProviderConfigFields(nextForm.provider_type)) nextForm[field.key] = provider[field.key] ?? field.default ?? '';
@@ -720,13 +739,10 @@ function openEditDialog(provider) {
 }
 function handleProviderTypeChange(providerType) {
   const previousType = form.value.provider_type;
-  const previousDefault = providerTypeMeta.value[previousType]?.default_endpoint || '';
-  const nextDefault = providerTypeMeta.value[providerType]?.default_endpoint || '';
   const previousFields = getProviderConfigFields(previousType);
   const nextFields = getProviderConfigFields(providerType);
   form.value.provider_type = providerType;
   formErrors.value = { ...formErrors.value, provider_type: '' };
-  if (!form.value.api_endpoint || form.value.api_endpoint === previousDefault) form.value.api_endpoint = nextDefault;
   for (const field of previousFields) { if (!nextFields.some((item) => item.key === field.key)) delete form.value[field.key]; }
   for (const field of nextFields) {
     const prevDef = previousFields.find((item) => item.key === field.key)?.default;
@@ -766,9 +782,9 @@ function normalizeProviderPayload(payload) {
 function validateProviderForm() {
   const errors = {};
   const mm = buildModelMap();
+  if (!form.value.provider_type) errors.provider_type = '请选择 Provider 类型';
   if (dialog.value.mode === 'create') {
     if (!form.value.name?.trim()) errors.name = '请填写 Provider 名称';
-    if (!form.value.provider_type) errors.provider_type = '请选择 Provider 类型';
     if (!form.value.api_key?.trim()) errors.api_key = '请填写 API Key 或环境变量引用';
   }
   const endpoint = String(form.value.api_endpoint || '').trim();
@@ -786,9 +802,9 @@ function validateProviderForm() {
 const { run: runSubmit, loading: saving } = useAsyncAction(
   async () => {
     const mm = buildModelMap();
+    if (!form.value.provider_type) throw new Error('请选择 Provider 类型');
     if (dialog.value.mode === 'create') {
       if (!form.value.name?.trim()) throw new Error('请填写名称');
-      if (!form.value.provider_type) throw new Error('请选择 Provider 类型');
       if (!form.value.api_key?.trim()) throw new Error('请填写 API Key');
     }
     if (Object.keys(mm).length === 0) throw new Error('请至少配置一个任务模型');

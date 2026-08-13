@@ -186,6 +186,94 @@ test("provider attempt lifecycle follows physical retries and full stream consum
   assert.equal(streamAttempts[1].willRetry, false);
 });
 
+test("provider retries stalled response bodies and streams only before output starts", async (t) => {
+  const calls = { completion: 0, beforeOutput: 0, afterOutput: 0 };
+  const server = http.createServer(async (request, response) => {
+    const body = JSON.parse(await readBody(request));
+    const content = String(body.messages?.at(-1)?.content ?? "");
+    if (content === "completion-body-timeout") {
+      calls.completion += 1;
+      response.writeHead(200, { "content-type": "application/json" });
+      if (calls.completion === 1) {
+        response.flushHeaders();
+        setTimeout(() => response.destroy(), 250);
+        return;
+      }
+      response.end(JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "completion recovered" }, finish_reason: "stop" }],
+      }));
+      return;
+    }
+    if (content === "stream-before-output") {
+      calls.beforeOutput += 1;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      if (calls.beforeOutput === 1) {
+        response.flushHeaders();
+        setTimeout(() => response.destroy(), 250);
+        return;
+      }
+      response.end('data: {"choices":[{"delta":{"content":"stream recovered"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+      return;
+    }
+    if (content === "stream-after-output") {
+      calls.afterOutput += 1;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write('data: {"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\n');
+      setTimeout(() => response.destroy(), 250);
+      return;
+    }
+    response.writeHead(400).end();
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  t.after(() => {
+    server.closeAllConnections();
+    return close(server);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const endpoint = `http://127.0.0.1:${address.port}`;
+  const client = new OpenAiCompatibleClient();
+  const request = (key, content) => ({
+    provider: {
+      key,
+      name: key,
+      provider_type: "openai_proxy",
+      api_endpoint: endpoint,
+      api_key: "placeholder",
+      timeout: 0.05,
+      retry_attempts: 1,
+      retry_delay: 0,
+    },
+    model: "planning-default",
+    messages: [{ role: "user", content }],
+  });
+
+  const completion = await client.complete(request("body-timeout", "completion-body-timeout"));
+  assert.equal(completion.content, "completion recovered");
+  assert.equal(calls.completion, 2);
+
+  const beforeChunks = [];
+  const beforeOutput = await client.stream(request("stream-before", "stream-before-output"), async (chunk) => {
+    beforeChunks.push(chunk.content);
+  });
+  assert.equal(beforeOutput.content, "stream recovered");
+  assert.deepEqual(beforeChunks, ["stream recovered"]);
+  assert.equal(calls.beforeOutput, 2);
+
+  const afterChunks = [];
+  await assert.rejects(
+    client.stream(request("stream-after", "stream-after-output"), async (chunk) => {
+      afterChunks.push(chunk.content);
+    }),
+    /stream interrupted after output started/,
+  );
+  assert.deepEqual(afterChunks, ["partial"]);
+  assert.equal(calls.afterOutput, 1);
+});
+
 function llmRequest(key, socketEnv, content, signal) {
   return {
     provider: {
