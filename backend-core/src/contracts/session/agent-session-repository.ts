@@ -68,7 +68,6 @@ export interface AgentSessionRepositoryPort {
       afterSeq?: number | null;
       afterMessageId?: string | null;
       tenantId?: string | null;
-      truncateRunSteps?: { runId: string; fromStepOrder: number } | null;
     },
   ): Promise<number>;
   updateMessage(input: AgentSessionMessageUpdate): Promise<boolean>;

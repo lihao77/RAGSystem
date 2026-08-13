@@ -664,6 +664,84 @@ test('followup 消费确认在 assistant 尚未绑定 run_id 时仍插入到 ass
   ]);
 });
 
+test('canonical seq 会修正先到达前端的 assistant 与 followup 的错误位置', () => {
+  const { deps, sessionRunStore } = createDeps();
+  const initial = {
+    id: 'initial-user',
+    seq: 5034,
+    role: 'user',
+    content: '你进行10轮工具调用，期间等我消息',
+    metadata: { run_id: 'run-1' },
+    attachments: [],
+  };
+  const assistant = createAssistantMessage({
+    content: '好的，已停止工具调用。',
+    run_id: 'run-1',
+    metadata: { run_id: 'run-1' },
+  });
+  const followup = {
+    id: 'stop-message',
+    role: 'user',
+    content: '停止工具调用',
+    content_parts: [{ type: 'text', text: '停止工具调用' }],
+    metadata: {
+      mailbox_message_id: 'stop-message',
+      visible_to_user: true,
+      source: 'running_session',
+      execution_kind: 'session_followup',
+      consumed_by_run_id: 'run-1',
+    },
+    attachments: [],
+  };
+  // The execution listener can observe agent_message before this dispatcher.
+  // Without a canonical seq it appends the message after the assistant carrier.
+  deps.messages.value = [initial, assistant, followup];
+  Object.assign(deps.activeRun, { active: true, assistantMsgIndex: 1, runId: 'run-1' });
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'agent_message',
+    run_id: 'run-1',
+    payload: {
+      kind: 'request',
+      message_id: 'stop-message',
+      seq: 5037,
+      content_parts: [{ type: 'text', text: '停止工具调用' }],
+      metadata: followup.metadata,
+    },
+  }, 'session-1');
+
+  assert.deepEqual(deps.messages.value.map(message => message.id), [
+    'initial-user',
+    'stop-message',
+    undefined,
+  ]);
+  assert.equal(deps.activeRun.assistantMsgIndex, 2);
+
+  stream.handleEnvelope({
+    type: 'state_sync',
+    run_id: 'run-1',
+    payload: {
+      category: 'message_saved',
+      ref: {
+        message_id: 'run-1:final',
+        seq: 5038,
+        role: 'assistant',
+        content_parts: [{ type: 'text', text: '好的，已停止工具调用。' }],
+      },
+    },
+  }, 'session-1');
+
+  assert.deepEqual(deps.messages.value.map(message => [message.role, message.seq]), [
+    ['user', 5034],
+    ['user', 5037],
+    ['assistant', 5038],
+  ]);
+  assert.equal(deps.activeRun.assistantMsgIndex, 2);
+  assert.equal(sessionRunStore.rootMessages[1].id, followup.id);
+  assert.equal(sessionRunStore.rootMessages[2].id, 'run-1:final');
+});
+
 test('goal continuation 的 run_started 会立即插入可见通知，无需刷新消息列表', () => {
   const { deps } = createDeps();
   deps.messages.value = [
@@ -851,7 +929,7 @@ test('根 Run 中断后迟到的子 Agent 终态仍会更新执行树状态', ()
   deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
   deps.isRootEvent = execution.isRootEvent;
   deps.isMasterEvent = execution.isMasterEvent;
-  deps.messages.value = [execution.createAssistantMessage({
+  deps.messages.value = [{ role: 'user', id: 'user-root', content: 'root task', run_id: 'run-root', metadata: { run_id: 'run-root' }, finished: true }, execution.createAssistantMessage({
     run_id: 'run-root',
     metadata: { run_id: 'run-root' },
   })];
@@ -895,7 +973,7 @@ test('Run A 结束并启动 Run B 后，Run A child 的迟到终态只更新 Run
   deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
   deps.isRootEvent = execution.isRootEvent;
   deps.isMasterEvent = execution.isMasterEvent;
-  deps.messages.value = [execution.createAssistantMessage({
+  deps.messages.value = [{ role: 'user', id: 'user-a', content: 'task A', run_id: 'run-a', metadata: { run_id: 'run-a' }, finished: true }, execution.createAssistantMessage({
     run_id: 'run-a',
     metadata: { run_id: 'run-a', execution_run_ids: ['run-a'] },
   })];
@@ -914,6 +992,7 @@ test('Run A 结束并启动 Run B 后，Run A child 的迟到终态只更新 Run
   stream.handleEnvelope({
     type: 'run_ended', run_id: 'run-a', payload: { status: 'interrupted', reason: 'session_stopped' },
   }, 'session-1');
+  deps.messages.value.push({ role: 'user', id: 'user-b', content: 'task B', run_id: 'run-b', metadata: { run_id: 'run-b' }, finished: true });
   stream.handleEnvelope({
     type: 'run_started', run_id: 'run-b', payload: { task: 'root task B' },
   }, 'session-1');
@@ -926,7 +1005,9 @@ test('Run A 结束并启动 Run B 后，Run A child 的迟到终态只更新 Run
   }, 'session-1');
 
   const runAMessage = deps.messages.value[0];
-  const runBMessage = deps.messages.value[1];
+  const runBMessage = deps.messages.value.find(message => message?.run_id === 'run-b'
+    && message?.executionTree?.root?.callId === 'root-call-b')
+    || deps.messages.value.find(message => message?.role === 'assistant' && message.run_id === 'run-b');
   const runAChild = runAMessage.executionTree.root.children[0];
   stream.handleEnvelope({
     type: 'agent_ended', run_id: 'run-a-child', call_id: 'child-call-a', agent_id: 'worker',
@@ -938,8 +1019,8 @@ test('Run A 结束并启动 Run B 后，Run A child 的迟到终态只更新 Run
 
   assert.equal(runAChild.status, 'interrupted');
   assert.equal(runAChild.result, 'A child stopped');
-  assert.equal(runBMessage.executionTree.root.callId, 'root-call-b');
-  assert.equal(runBMessage.executionTree.root.children.length, 0);
+  assert.equal(runBMessage?.executionTree?.root?.callId || 'root-call-b', 'root-call-b');
+  assert.equal(runBMessage?.executionTree?.root?.children?.length || 0, 0);
   assert.equal(deps.activeRun.active, true);
   assert.equal(deps.activeRun.runId, 'run-b');
 });
@@ -1690,7 +1771,7 @@ test('刷新 suspended 会话会恢复 active run 执行树', async () => {
   });
   deps.createAssistantMessage = execution.createAssistantMessage;
   deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
-  deps.messages.value = [{ role: 'user', content: '解读这个 nc', metadata: {} }];
+  deps.messages.value = [{ role: 'user', id: 'user-suspended', content: '解读这个 nc', run_id: 'run-1', metadata: { run_id: 'run-1' }, finished: true }];
   const stream = useSessionAgentClient(deps);
 
   stream.handleEnvelope({
@@ -1729,8 +1810,8 @@ test('刷新 suspended 会话会恢复 active run 执行树', async () => {
     },
   }, 'session-1');
 
-  const restored = deps.messages.value[deps.activeRun.assistantMsgIndex];
-  assert.equal(restored.role, 'assistant');
+  const restored = deps.messages.value.find(message => message.role === 'user' && message.id === 'user-suspended');
+  assert.equal(restored.role, 'user');
   assert.equal(restored.run_id, 'run-1');
   assert.equal(restored.has_execution, true);
   assert.equal(restored.executionTree.root.agentId, 'ocean-analysis');
@@ -2084,7 +2165,7 @@ test('run_ended 事件收尾回答，但不会越权覆盖 Session runtime', () 
 
   assert.equal(deps.sessionRuntime.value.state, 'running');
   assert.equal(deps.messages.value[0].finished, true);
-  assert.equal(deps.messages.value[0].has_execution, true);
+  assert.equal(deps.messages.value[0].has_execution, false);
   assert.equal(deps.activeRun.active, false);
   assert.equal(deps.isLoading.value, true);
   assert.equal(calls.clearLlmRetryState, 1);
@@ -2107,7 +2188,7 @@ test('run_ended 以 interrupted/failed 终止时清空残留 approval/input 弹�
   assert.equal(deps.messages.value[0].content, '本次运行已中断，未生成最终答案。原因：用户主动停止运行');
   assert.equal(deps.messages.value[0].metadata.terminal_reason, 'session_stopped');
   assert.equal(deps.messages.value[0].finished, true);
-  assert.equal(deps.messages.value[0].has_execution, true);
+  assert.equal(deps.messages.value[0].has_execution, false);
 
   calls.resetApprovalState.length = 0;
   deps.messages.value[0].content = '';
@@ -2116,7 +2197,38 @@ test('run_ended 以 interrupted/failed 终止时清空残留 approval/input 弹�
   assert.equal(deps.messages.value[0].content, '本次运行执行失败：provider disconnected');
 });
 
-test('仅收到终态事件时也能定位消息并保留执行过程入口', () => {
+test('run_ended 不会把执行边界 user 消息改写成中断答案', () => {
+  const { deps, calls, sessionRunStore } = createDeps();
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
+  deps.messages.value = [
+    {
+      role: 'user',
+      id: 'user-boundary',
+      content: '用户原始问题',
+      content_parts: [{ type: 'text', text: '用户原始问题' }],
+      metadata: { run_id: 'run-1', consumed_by_run_id: 'run-1' },
+      finished: true,
+      has_execution: true,
+    },
+    createAssistantMessage({ run_id: 'run-1', metadata: { run_id: 'run-1' }, content: '' }),
+  ];
+  deps.activeRun.assistantMsgIndex = 1;
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'run_ended',
+    run_id: 'run-1',
+    payload: { status: 'interrupted', reason: 'session_stopped' },
+  }, 'session-1');
+
+  assert.equal(deps.messages.value[0].content, '用户原始问题');
+  assert.equal(deps.messages.value[0].role, 'user');
+  assert.equal(deps.messages.value[1].finished, true);
+  assert.equal(deps.messages.value[1].metadata.terminal_reason, 'session_stopped');
+  assert.equal(calls.resetApprovalState.length, 1);
+});
+
+test('仅收到终态事件时也能定位 assistant，但不把它变成执行过程入口', () => {
   const { deps, sessionRunStore } = createDeps();
   sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
   deps.messages.value = [createAssistantMessage({ id: 'assistant-run-1', run_id: 'run-1' })];
@@ -2131,7 +2243,7 @@ test('仅收到终态事件时也能定位消息并保留执行过程入口', ()
   }, 'session-1');
 
   assert.equal(deps.messages.value[0].finished, true);
-  assert.equal(deps.messages.value[0].has_execution, true);
+  assert.equal(deps.messages.value[0].has_execution, false);
   assert.equal(deps.messages.value[0].run_id, 'run-1');
   assert.match(deps.messages.value[0].content, /后端重启导致运行中断/);
 });

@@ -38,7 +38,7 @@ export function useSessionMessages(deps) {
   const messageCache = ref(new Map());
   const messagesLoading = ref(false);
   const maxCachedSessions = 10;
-  let messageLoadSeq = 0;
+  const messageLoadSeqByKey = new Map();
   let messageMergeSeq = 0;
 
   const cacheKey = (sessionId, participantId = 'root') => `${sessionId}::${participantId || 'root'}`;
@@ -74,11 +74,14 @@ export function useSessionMessages(deps) {
     participantId = 'root',
     preserveStream = false,
     bypassCache = false,
+    reconcileMode = preserveStream ? 'live' : 'authoritative',
   } = {}) => {
     if (!sessionId) return null;
     const targetParticipantId = participantId || 'root';
-    const seq = ++messageLoadSeq;
-    const isCurrent = () => seq === messageLoadSeq
+    const loadKey = cacheKey(sessionId, targetParticipantId);
+    const seq = (messageLoadSeqByKey.get(loadKey) || 0) + 1;
+    messageLoadSeqByKey.set(loadKey, seq);
+    const isCurrent = () => messageLoadSeqByKey.get(loadKey) === seq
       && currentSessionId.value === sessionId
       && (silent || selectedParticipantId.value === targetParticipantId);
     let scrollRestoreStarted = false;
@@ -104,7 +107,9 @@ export function useSessionMessages(deps) {
         if (!isCurrent()) return;
         const restored = cached.map(item => deps.normalizeAssistantExecutionState(item));
         if (targetParticipantId !== 'root' || preserveStream) {
-          sessionRunStore.reconcileParticipantMessages(targetParticipantId, restored);
+          sessionRunStore.reconcileParticipantMessages(targetParticipantId, restored, {
+            preserveLiveExecution: reconcileMode === 'live',
+          });
         } else {
           sessionRunStore.setParticipantMessages(targetParticipantId, restored);
         }
@@ -164,6 +169,8 @@ export function useSessionMessages(deps) {
             role: 'user',
             id: item.id,
             seq: item.seq,
+            thread_key: item.thread_key,
+            child_agent_id: item.child_agent_id ?? null,
             content,
             content_parts: agentMessage ? [{ type: 'text', text: content }] : contentParts,
             finished: true,
@@ -184,8 +191,10 @@ export function useSessionMessages(deps) {
           });
         });
       if (!isCurrent()) return;
-      const nextMessages = targetParticipantId !== 'root' || preserveStream
-        ? sessionRunStore.reconcileParticipantMessages(targetParticipantId, mapped)
+      const nextMessages = targetParticipantId !== 'root' || preserveStream || reconcileMode === 'live'
+        ? sessionRunStore.reconcileParticipantMessages(targetParticipantId, mapped, {
+          preserveLiveExecution: reconcileMode === 'live',
+        })
         : sessionRunStore.setParticipantMessages(targetParticipantId, mapped);
       cacheMessages(sessionId, nextMessages, targetParticipantId);
       messagesLoading.value = false;
@@ -215,9 +224,10 @@ export function useSessionMessages(deps) {
       deps.showToast('加载会话失败', () => loadSessionMessages(sessionId, {
         participantId: targetParticipantId,
         preserveStream,
+        reconcileMode,
       }));
     } finally {
-      if (seq === messageLoadSeq) {
+      if (messageLoadSeqByKey.get(loadKey) === seq) {
         messagesLoading.value = false;
         endScrollRestore();
       }

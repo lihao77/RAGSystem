@@ -24,6 +24,11 @@ const withoutRunStepBoundaries = sql => sql
   )
   .replace(/    CREATE INDEX IF NOT EXISTS idx_run_message_boundaries_order\n      ON run_message_boundaries\(session_id, run_id, start_after_step_order\);\n/, "");
 
+const withLegacyRunStepMessageLinks = sql => withoutRunStepBoundaries(sql).replace(
+  /(CREATE TABLE IF NOT EXISTS run_steps \{?[\s\S]*?      session_id TEXT NOT NULL,\n)/,
+  "$1      message_id TEXT,\n",
+).replace("CREATE TABLE IF NOT EXISTS run_steps {", "CREATE TABLE IF NOT EXISTS run_steps (");
+
 test("conversation migration refuses historical sessions without a Team snapshot", () => {
   const db = new DatabaseSync(":memory:");
   try {
@@ -210,6 +215,74 @@ test("v16 run steps receive durable per-run ordering and message boundaries", ()
     const index = db.prepare("PRAGMA index_list(run_steps)").all()
       .find(item => item.name === "idx_run_steps_session_run_order");
     assert.equal(index?.unique, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test("legacy SQLite run step message links are backfilled before the column is dropped", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(withLegacyRunStepMessageLinks(BASELINE_SCHEMA_SQL));
+    db.exec("PRAGMA user_version = 15");
+    db.prepare(`INSERT INTO sessions (
+      session_id, tenant_id, owner_user_id, visibility, origin_type, origin_channel, team_snapshot
+    ) VALUES (?, ?, ?, 'private', 'direct', 'web', ?)`)
+      .run("session-legacy", "tnt_test", "usr_test", "{}");
+    db.prepare(`INSERT INTO runs (
+      run_id, session_id, tenant_id, status, agent_call_id,
+      agent_display_name, lease_root_run_id, thread_key
+    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, 'root')`)
+      .run("legacy-run", "session-legacy", "tnt_test", "legacy-call", "assistant", "legacy-run");
+    db.prepare(`INSERT INTO messages (
+      id, session_id, role, content, content_parts, metadata, thread_key
+    ) VALUES (?, ?, 'assistant', 'done', '[]', ?, 'root')`)
+      .run("legacy-message", "session-legacy", '{"run_id":"legacy-run"}');
+    db.prepare(`INSERT INTO run_steps (
+      run_id, session_id, message_id, event_id, step_order, step_type, payload
+    ) VALUES (?, ?, ?, ?, 1, 'protocol.envelope.v1', '{}')`)
+      .run("legacy-run", "session-legacy", "legacy-message", "legacy-event");
+
+    runMigrations(db);
+
+    assert.equal(db.prepare("PRAGMA table_info(run_steps)").all().some(column => column.name === "message_id"), false);
+    const boundary = db.prepare(`SELECT message_id, start_after_step_order, boundary_step_order, boundary_kind
+      FROM run_message_boundaries WHERE session_id='session-legacy' AND run_id='legacy-run'`).get();
+    assert.equal(boundary.message_id, "legacy-message");
+    assert.equal(boundary.start_after_step_order, 0);
+    assert.equal(boundary.boundary_step_order, null);
+    assert.equal(boundary.boundary_kind, "carrier");
+  } finally {
+    db.close();
+  }
+});
+
+test("v17 SQLite databases compensate missing boundaries from canonical Run messages", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(BASELINE_SCHEMA_SQL);
+    db.exec("PRAGMA user_version = 17");
+    db.prepare(`INSERT INTO sessions (
+      session_id, tenant_id, owner_user_id, visibility, origin_type, origin_channel, team_snapshot
+    ) VALUES (?, ?, ?, 'private', 'direct', 'web', ?)`)
+      .run("session-v17", "tnt_test", "usr_test", "{}");
+    db.prepare(`INSERT INTO runs (
+      run_id, session_id, tenant_id, status, agent_call_id,
+      agent_display_name, lease_root_run_id, thread_key
+    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, 'root')`)
+      .run("v17-run", "session-v17", "tnt_test", "v17-call", "assistant", "v17-run");
+    db.prepare(`INSERT INTO messages (
+      id, session_id, role, content, content_parts, metadata, thread_key
+    ) VALUES (?, ?, 'user', 'start', '[]', ?, 'root')`)
+      .run("v17-message", "session-v17", '{"run_id":"v17-run"}');
+
+    runMigrations(db);
+
+    assert.equal(db.prepare("PRAGMA user_version").get().user_version, LATEST_SCHEMA_VERSION);
+    assert.equal(
+      db.prepare("SELECT message_id FROM run_message_boundaries WHERE run_id='v17-run'").get().message_id,
+      "v17-message",
+    );
   } finally {
     db.close();
   }

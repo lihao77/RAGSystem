@@ -292,7 +292,7 @@ export class RunOps {
     const endRow = this.db.prepare(`
       SELECT MIN(start_after_step_order) AS end_order
       FROM run_message_boundaries
-      WHERE session_id=? AND run_id=? AND start_after_step_order>?
+      WHERE session_id=? AND run_id=? AND boundary_kind='carrier' AND start_after_step_order>?
     `).get(input.sessionId, input.runId, boundary.start_after_step_order) as { end_order: number | null };
     const endOrder = endRow.end_order ?? Number.MAX_SAFE_INTEGER;
     const params = [input.sessionId, input.runId, boundary.start_after_step_order, endOrder] as const;
@@ -302,6 +302,7 @@ export class RunOps {
       AND NOT EXISTS (
         SELECT 1 FROM run_message_boundaries AS boundary
         WHERE boundary.session_id=step.session_id AND boundary.run_id=step.run_id
+          AND boundary.boundary_kind='carrier'
           AND boundary.boundary_step_order=step.step_order
       )`;
     const totalRow = this.db.prepare(`SELECT COUNT(*) AS total FROM run_steps AS step WHERE ${where}`)

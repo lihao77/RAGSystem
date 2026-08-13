@@ -46,8 +46,8 @@ export interface AgentInvocationRootInput extends AgentInvocationBase {
   /** Existing durable mailbox input that canonically starts this root Run. */
   rootMailboxMessage?: {
     id: string;
-    inputType: "user_message" | "system_notification" | "goal_continuation";
-    sourceKind: "user" | "system";
+    inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
+    sourceKind: "user" | "agent" | "system";
     visibleToUser: boolean;
     sentAt: string;
     contentParts: MessageContentPart[];
@@ -84,6 +84,9 @@ export interface AgentInvocationChildInput extends AgentInvocationBase {
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
   };
+  /** Expected durable participant pointer replaced by this newly-created Run. */
+  participantExpectedLastRunId?: string | null;
+  initialMailboxMessageId?: string | null;
   ownsRunLease?: boolean;
   userId?: string | null;
   sessionMaintenanceToken?: string;

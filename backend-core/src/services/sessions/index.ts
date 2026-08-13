@@ -287,37 +287,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
       payload.afterMessageId = input.afterMessageId;
     }
     await this.rollbackFileSnapshot(input.sessionId, input.afterSeq, input.afterMessageId);
-    const truncateRunSteps = await this.resolveRollbackRunStepTruncation(
-      input.sessionId,
-      input.afterSeq,
-      input.afterMessageId,
-    );
-    return this.repository.deleteMessagesAfter(input.sessionId, {
-      ...payload,
-      ...(truncateRunSteps ? { truncateRunSteps } : {}),
-    });
-  }
-
-  private async resolveRollbackRunStepTruncation(
-    sessionId: string,
-    afterSeq?: number | null,
-    afterMessageId?: string | null,
-  ): Promise<{ runId: string; fromStepOrder: number } | null> {
-    let boundarySeq = afterSeq ?? null;
-    if (boundarySeq == null && afterMessageId?.trim()) {
-      boundarySeq = (await this.repository.getMessageById(sessionId, afterMessageId.trim()))?.seq ?? null;
-    }
-    if (boundarySeq == null) return null;
-    const firstDeleted = await this.repository.getFirstMessageAfterSeq(sessionId, boundarySeq);
-    if (!firstDeleted || !isRunFollowupMessage(firstDeleted)) return null;
-    const runId = executionRunId(firstDeleted);
-    if (!runId) return null;
-    const boundaryStepOrder = await this.repository.getRunMessageBoundary(
-      sessionId,
-      runId,
-      firstDeleted.id,
-    );
-    return boundaryStepOrder == null ? null : { runId, fromStepOrder: boundaryStepOrder };
+    return this.repository.deleteMessagesAfter(input.sessionId, payload);
   }
 
   async exportSession(sessionId: string): Promise<{
@@ -446,14 +416,7 @@ function executionRunId(message: Pick<MessageInfo, "metadata">): string | null {
 }
 
 function shouldExposeExecutionCarrier(message: MessageInfo): boolean {
-  return (message.role === "user" || message.role === "assistant")
-    && executionRunId(message) != null;
-}
-
-function isRunFollowupMessage(message: MessageInfo): boolean {
-  return message.role === "user"
-    && (message.metadata.source === "running_session"
-      || message.metadata.execution_kind === "session_followup");
+  return message.role === "user" && executionRunId(message) != null;
 }
 
 function parseArchivedEnvelope(payload: Record<string, unknown>): Envelope {

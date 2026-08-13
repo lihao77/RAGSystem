@@ -81,7 +81,7 @@ function assistantBoundaryStep(runId: string, messageId: string, order: number):
 }
 
 describe("AgentSessionApplication participant Run steps", () => {
-  it("exposes every visible user or assistant message that belongs to a Run", async () => {
+  it("exposes visible input boundaries but not the terminal assistant as execution carriers", async () => {
     const messages = [
       { id: "initial", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run", execution_kind: "agent_stream" } },
       { id: "followup-source", role: "user", metadata: { run_id: "root-run", source: "running_session" } },
@@ -107,7 +107,7 @@ describe("AgentSessionApplication participant Run steps", () => {
       ["followup-source", true],
       ["followup-kind", true],
       ["agent-message", true],
-      ["assistant", true],
+      ["assistant", false],
     ]);
   });
 
@@ -237,17 +237,9 @@ describe("AgentSessionApplication participant Run steps", () => {
     });
   });
 
-  it("truncates the original Run from a rolled-back followup boundary", async () => {
-    const messages = [
-      { id: "initial", role: "user", metadata: { run_id: "root-run" }, thread_key: "root", child_agent_id: null, seq: 1 },
-      { id: "followup-1", role: "user", metadata: { run_id: "root-run", source: "running_session", execution_kind: "session_followup" }, thread_key: "root", child_agent_id: null, seq: 2 },
-      { id: "assistant", role: "assistant", metadata: { run_id: "root-run" }, thread_key: "root", child_agent_id: null, seq: 3 },
-    ];
+  it("delegates rollback truncation to the repository transaction", async () => {
     const deleteMessagesAfter = vi.fn(async () => 2);
-    const getRunMessageBoundary = vi.fn(async () => 2);
     const repository = {
-      getFirstMessageAfterSeq: vi.fn(async () => messages[1]),
-      getRunMessageBoundary,
       deleteMessagesAfter,
     } as unknown as AgentSessionRepositoryPort;
     const sessions = new AgentSessionApplication(repository);
@@ -257,8 +249,6 @@ describe("AgentSessionApplication participant Run steps", () => {
     expect(deleted).toBe(2);
     expect(deleteMessagesAfter).toHaveBeenCalledWith("session-1", {
       afterSeq: 1,
-      truncateRunSteps: { runId: "root-run", fromStepOrder: 2 },
     });
-    expect(getRunMessageBoundary).toHaveBeenCalledWith("session-1", "root-run", "followup-1");
   });
 });

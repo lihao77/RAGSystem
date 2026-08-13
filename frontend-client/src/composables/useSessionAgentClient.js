@@ -44,6 +44,7 @@ export function useSessionAgentClient(deps) {
     beginPendingCommand,
     finishPendingCommand,
     allowsRuntimeAction,
+    reorderParticipantMessages,
   } = sessionRunStore;
 
   // run 运行态机只负责 phase/timing/seq gap/durable replay/finalize 展示投影；
@@ -177,6 +178,7 @@ export function useSessionAgentClient(deps) {
     interaction: interactionController,
     applySessionRuntime,
     finishPendingCommand,
+    reorderMessages: () => reorderParticipantMessages('root'),
     onRuntimeSnapshot: resolveRuntimeWaiters,
     getStop: () => stop,
   });

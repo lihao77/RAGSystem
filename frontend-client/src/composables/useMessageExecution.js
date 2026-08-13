@@ -47,6 +47,7 @@ const createAgentMessageFromEvent = (event, participantId, consumedUserMessage =
   return {
     role: 'user',
     id: payload.message_id || event?.message_id,
+    seq: Number.isSafeInteger(payload.seq) ? payload.seq : undefined,
     run_id: consumedRunId,
     content,
     content_parts: [{ type: 'text', text: content }],
@@ -100,17 +101,44 @@ export function useMessageExecution(deps) {
   const participantByRun = new Map();
   const pendingEnvelopesByRun = new Map();
   const participantReloads = new Map();
+  const seenEnvelopeIds = new Map();
 
   const runKey = (sessionId, runId) => `${sessionId}\u0000${runId}`;
+  const boundaryIdFromEnvelope = (event) => event?.boundary_message_id
+    || event?.payload?.boundary_message_id
+    || event?.payload?.metadata?.boundary_message_id
+    || null;
   const getMessageRunId = message => message?.run_id
     || message?.metadata?.consumed_by_run_id
     || message?.metadata?.run_id
     || null;
+  const participantIdFromMessage = (message) => {
+    const threadKey = message?.thread_key
+      || message?.metadata?.thread_key
+      || message?.metadata?.target_thread_key
+      || message?.metadata?.agent_message_target_thread_key;
+    if (typeof threadKey === 'string') {
+      if (threadKey === 'root') return 'root';
+      if (threadKey.startsWith('child:')) {
+        return threadKey.slice('child:'.length).split(':')[0] || 'root';
+      }
+    }
+    const explicit = message?.child_agent_id || message?.metadata?.child_agent_id;
+    return explicit || 'root';
+  };
   const findParticipantBoundary = (participantId, runId) => {
     const list = deps.participantMessages?.value?.[participantId] || [];
     return list.findLast(message => (
       message?.role === 'user' && getMessageRunId(message) === runId
     )) || null;
+  };
+  const findBoundaryForEnvelope = (participantId, runId, event) => {
+    const boundaryId = boundaryIdFromEnvelope(event);
+    const list = deps.participantMessages?.value?.[participantId] || [];
+    if (boundaryId) {
+      return list.find(message => message?.role === 'user' && message.id === boundaryId) || null;
+    }
+    return findParticipantBoundary(participantId, runId);
   };
 
   // core ExecutionTreeState（增量投影状态机）懒挂在 msg._execState。
@@ -122,7 +150,7 @@ export function useMessageExecution(deps) {
   };
 
   const projectEnvelopeForMessage = (msg, envelope) => {
-    const participantId = msg?.child_agent_id || msg?.metadata?.child_agent_id || null;
+    const participantId = participantIdFromMessage(msg);
     const messageRunId = getMessageRunId(msg);
     if (!participantId || !messageRunId || envelope?.run_id !== messageRunId) return envelope;
     if (!msg._executionRootCallId && envelope.type === 'agent_started') {
@@ -161,6 +189,7 @@ export function useMessageExecution(deps) {
     try {
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
       const sessionId = deps.currentSessionId.value;
+      const messageParticipantId = participantIdFromMessage(msg);
       const envelopes = [];
       let offset = 0;
       let hasMore = false;
@@ -171,8 +200,8 @@ export function useMessageExecution(deps) {
           {
             limit: 500,
             offset,
-            ...(deps.selectedParticipantId?.value && deps.selectedParticipantId.value !== 'root'
-              ? { participantId: deps.selectedParticipantId.value }
+            ...(messageParticipantId && messageParticipantId !== 'root'
+              ? { participantId: messageParticipantId }
               : {}),
           },
         );
@@ -183,9 +212,10 @@ export function useMessageExecution(deps) {
         offset += pageItems.length;
         hasMore = Boolean(payload?.has_more) && pageItems.length > 0;
       } while (hasMore);
-      const state = ensureExecutionTreeState(msg);
+      const state = createExecutionTreeState();
       for (const env of envelopes) applyEnvelope(state, projectEnvelopeForMessage(msg, env));
       msg.executionTree = getExecutionTree(state);
+      msg._execState = state;
       msg.executionStepsLoaded = true;
     } catch (error) {
       msg.executionStepsLoadError = error?.message || '加载执行过程失败';
@@ -224,7 +254,9 @@ export function useMessageExecution(deps) {
   const flushParticipantRun = (sessionId, participantId, runId) => {
     const key = runKey(sessionId, runId);
     const pending = pendingEnvelopesByRun.get(key);
-    const message = findParticipantBoundary(participantId, runId);
+    const message = pending?.length
+      ? findBoundaryForEnvelope(participantId, runId, pending[0])
+      : null;
     if (!message || !pending?.length) return;
     for (const event of pending) applyParticipantEnvelope(message, event);
     pendingEnvelopesByRun.delete(key);
@@ -233,16 +265,33 @@ export function useMessageExecution(deps) {
     if (!deps.reloadParticipantMessages) return;
     const key = runKey(sessionId, runId);
     if (participantReloads.has(key)) return;
-    const reload = Promise.resolve(deps.reloadParticipantMessages(sessionId, participantId))
-      .then(() => flushParticipantRun(sessionId, participantId, runId))
-      .finally(() => participantReloads.delete(key));
-    participantReloads.set(key, reload);
-    void reload.catch(() => undefined);
+    const entry = { attempts: 0, timer: null, cancelled: false };
+    const run = async () => {
+      if (entry.cancelled || sessionId !== deps.currentSessionId.value) return;
+      entry.attempts += 1;
+      try {
+        await deps.reloadParticipantMessages(sessionId, participantId, { reconcileMode: 'live' });
+        if (!entry.cancelled) flushParticipantRun(sessionId, participantId, runId);
+        if (!pendingEnvelopesByRun.has(key) || entry.cancelled) participantReloads.delete(key);
+      } catch (error) {
+        if (entry.cancelled || entry.attempts >= 4 || sessionId !== deps.currentSessionId.value) {
+          participantReloads.delete(key);
+          return;
+        }
+        entry.timer = setTimeout(() => { entry.timer = null; void run(); }, 250 * (2 ** (entry.attempts - 1)));
+      }
+    };
+    participantReloads.set(key, entry);
+    void run();
   };
   const unsubscribe = deps.chatSdkClient?.on?.('event', (event) => {
     const runId = event?.run_id;
     const sessionId = event?.session_id || deps.chatSdkClient?.sessionId || deps.currentSessionId.value;
     if (!runId || !sessionId || sessionId !== deps.currentSessionId.value) return;
+    const eventIdentity = event?.event_id || event?.id || (event?.seq == null ? null : `${event.type}:${event.seq}`);
+    const seenKey = eventIdentity == null ? null : runKey(sessionId, `${runId}\u0000${eventIdentity}`);
+    if (seenKey && seenEnvelopeIds.has(seenKey)) return;
+    if (seenKey) seenEnvelopeIds.set(seenKey, true);
     const participantId = event?.payload?.child_agent_id
       || event?.payload?.participant_id
       || (event?.type === 'agent_message' ? event?.payload?.target_child_agent_id : null)
@@ -256,6 +305,7 @@ export function useMessageExecution(deps) {
       && metadata.visible_to_user !== false;
     if (event.type === 'agent_message') {
       const targetParticipantId = event?.payload?.target_child_agent_id || 'root';
+      participantByRun.set(runKey(sessionId, runId), targetParticipantId);
       deps.syncParticipantMessage?.(
         targetParticipantId,
         createAgentMessageFromEvent(event, targetParticipantId, isConsumedUserMessage),
@@ -265,7 +315,7 @@ export function useMessageExecution(deps) {
     }
     if (!participantId || participantId === 'root') return;
     participantByRun.set(runKey(sessionId, runId), participantId);
-    const message = findParticipantBoundary(participantId, runId);
+    const message = findBoundaryForEnvelope(participantId, runId, event);
     if (message) applyParticipantEnvelope(message, event);
     else {
       const key = runKey(sessionId, runId);
@@ -288,9 +338,21 @@ export function useMessageExecution(deps) {
   watch(deps.currentSessionId, () => {
     participantByRun.clear();
     pendingEnvelopesByRun.clear();
+    for (const entry of participantReloads.values()) {
+      entry.cancelled = true;
+      if (entry.timer) clearTimeout(entry.timer);
+    }
+    participantReloads.clear();
+    seenEnvelopeIds.clear();
+  });
+  if (getCurrentScope()) onScopeDispose(() => {
+    unsubscribe?.();
+    for (const entry of participantReloads.values()) {
+      entry.cancelled = true;
+      if (entry.timer) clearTimeout(entry.timer);
+    }
     participantReloads.clear();
   });
-  if (getCurrentScope()) onScopeDispose(() => unsubscribe?.());
 
   const createAssistantMessageFromHistory = (item) => {
     const terminalStatus = item.metadata?.terminal_status || null;
@@ -306,11 +368,13 @@ export function useMessageExecution(deps) {
       finished: true,
       stopped: interrupted,
       run_failed: failed,
-      has_execution: Boolean(item.has_execution || item.metadata?.run_id),
+      has_execution: false,
       executionStepsLoaded: false,
       executionStepsLoading: false,
       executionStepsLoadError: '',
       run_id: item.metadata?.run_id || null,
+      thread_key: item.thread_key,
+      child_agent_id: item.child_agent_id ?? null,
       metadata: item.metadata || {},
       _execState: null,
     });

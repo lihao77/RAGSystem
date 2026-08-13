@@ -285,7 +285,7 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
   }
 
   async ack(input: AckAgentMailboxInput): Promise<boolean> {
-    const result = await this.executor.query("UPDATE agent_mailbox_messages SET status='acked',acked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND session_id=$2 AND message_id=$3 AND status='claimed' AND claim_id=$4", [this.tenant(), required(input.sessionId, "sessionId"), required(input.messageId, "messageId"), required(input.claimId, "claimId")]);
+    const result = await this.executor.query("UPDATE agent_mailbox_messages SET status='acked',acked_at=COALESCE(acked_at,CURRENT_TIMESTAMP),claim_id=NULL,claimed_by=NULL,claim_expires_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND session_id=$2 AND message_id=$3 AND status='claimed' AND claim_id=$4", [this.tenant(), required(input.sessionId, "sessionId"), required(input.messageId, "messageId"), required(input.claimId, "claimId")]);
     return Number(result.rowCount ?? 0) > 0;
   }
 

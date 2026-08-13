@@ -208,27 +208,6 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       lineageParentCallId: route.lineageParentCallId,
     };
     this.activeChildRuns.set(route.childAgentId, activeRoute);
-    try {
-      const replacesRunId = route.replacesRunId?.trim() || null;
-      if (child.last_run_id !== route.runId && child.last_run_id !== replacesRunId) {
-        throw new Error(`child Agent latest Run changed before continuation start: ${route.childAgentId}`);
-      }
-      if (child.last_run_id !== route.runId && !replacesRunId) {
-        throw new Error(`child Agent continuation requires an expected previous Run: ${route.childAgentId}`);
-      }
-      const updated = child.last_run_id === route.runId || await this.store.updateChildAgentLastRun({
-        sessionId: route.sessionId,
-        childAgentId: route.childAgentId,
-        lastRunId: route.runId,
-        expectedLastRunId: replacesRunId,
-      });
-      if (!updated) throw new Error(`failed to update child Agent latest Run: ${route.childAgentId}`);
-    } catch (error) {
-      if (this.activeChildRuns.get(route.childAgentId) === activeRoute) {
-        this.activeChildRuns.delete(route.childAgentId);
-      }
-      throw error;
-    }
   }
 
   releaseParticipantRun(input: { childAgentId: string; runId: string }): void {
@@ -1209,16 +1188,6 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     // 子 run 复用 root 的 executeRun 执行核心：prepare/kernel/事件/recorder 全部统一，
     // 靠 threadKey=child:xxx + parent_run_id/parent_call_id/child_agent_id 区分归属。
     // observation 落子 thread、step 落子 run_id，续聊 prepare 重建完整上下文、工作栏按 parent_call_id 展示。
-    // 在执行前记录 last_run_id，确保子 run 挂起抛异常时仍可由原 agent 调用找回。
-    const registered = input.childAgent.last_run_id === childRunId || await this.store.updateChildAgentLastRun({
-      sessionId: input.sessionId,
-      childAgentId: input.childAgent.child_agent_id,
-      lastRunId: childRunId,
-      expectedLastRunId: input.childAgent.last_run_id,
-    });
-    if (!registered) {
-      throw new Error(`child Agent latest Run changed before invocation start: ${input.childAgent.child_agent_id}`);
-    }
     throwIfAborted(input.signal);
 
     const handle = invocationService.invoke({
@@ -1245,6 +1214,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       parentRunId: input.parentRunId,
       childAgentId: input.childAgent.child_agent_id,
       ...(initialMessage ? { initialMessage } : {}),
+      ...(!input.resumeRunId ? { participantExpectedLastRunId: input.childAgent.last_run_id } : {}),
       ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
       ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
       executionKind: input.executionKind,

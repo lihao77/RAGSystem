@@ -3,6 +3,8 @@ import type { Envelope } from "../../../contracts/events.js";
 import type { AgentMailboxMessage } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
+import type { OutboxRow } from "../../../contracts/conversation-store/index.js";
+import type { RuntimeRecordEnvelopeInput } from "../../../contracts/storage/runtime-storage.js";
 
 interface ExecutionEventContext {
   sessionId: string;
@@ -145,6 +147,15 @@ export class AgentExecutionEventPublisher {
     callId?: string | null;
     message: AgentMailboxMessage;
   }): Promise<void> {
+    return this.commitEnvelope(this.buildAgentMessage(input));
+  }
+
+  buildAgentMessage(input: {
+    sessionId: string;
+    runId: string;
+    callId?: string | null;
+    message: AgentMailboxMessage;
+  }): Envelope {
     const message = input.message;
     const metadata = message.metadata ?? {};
     const targetParentCallId = typeof metadata.target_parent_call_id === "string"
@@ -168,7 +179,7 @@ export class AgentExecutionEventPublisher {
     const direction = metadata.direction === "parent_to_child" || metadata.direction === "child_to_parent"
       ? metadata.direction
       : null;
-    return this.commitEnvelope({
+    return {
       type: "agent_message",
       session_id: input.sessionId,
       run_id: input.runId,
@@ -199,7 +210,21 @@ export class AgentExecutionEventPublisher {
         content_parts: message.content_parts,
         metadata: message.metadata,
       },
+    };
+  }
+
+  prepareEnvelope(envelope: Envelope, eventId: string): RuntimeRecordEnvelopeInput {
+    return this.clientEvents.prepare(envelope.session_id, envelope, {
+      eventId,
+      runId: envelope.run_id ?? null,
+      aggregateType: envelope.run_id ? "run" : "session",
+      aggregateId: envelope.run_id ?? envelope.session_id,
+      requireRunLease: Boolean(envelope.run_id),
     });
+  }
+
+  deliver(rows: OutboxRow[]): Promise<void> {
+    return this.clientEvents.deliver(rows);
   }
 
 

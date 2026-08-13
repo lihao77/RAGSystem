@@ -20,6 +20,7 @@ export function createSessionEnvelopeDispatcher({
   interaction,
   applySessionRuntime,
   finishPendingCommand,
+  reorderMessages,
   onRuntimeSnapshot,
   getStop,
 }) {
@@ -37,6 +38,8 @@ export function createSessionEnvelopeDispatcher({
     scheduleCommandFallback,
   } = recovery;
   const presentedInteractions = new Map();
+  const pendingBoundaryEvents = new Map();
+  const boundaryReloads = new Map();
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event */
   const getEventInteractionId = event => event?.call_id || '';
 
@@ -68,6 +71,8 @@ export function createSessionEnvelopeDispatcher({
     runtime.resetInternal();
     interaction.reset();
     presentedInteractions.clear();
+    pendingBoundaryEvents.clear();
+    boundaryReloads.clear();
   };
 
   const resetInteractionPresentation = () => {
@@ -134,10 +139,17 @@ export function createSessionEnvelopeDispatcher({
     : [];
 
   /** @param {string | null | undefined} runId */
-  const findExecutionMessage = runId => !runId ? null : messages.value.find(message => (
-    message?.role === 'assistant'
-      && (getMessageRunId(message) === runId || getMessageExecutionRunIds(message).includes(runId))
-  )) || null;
+  const findExecutionMessage = runId => {
+    if (!runId) return null;
+    const matches = messages.value.filter(message => (
+      (message?.role === 'assistant' || message?.role === 'user')
+        && (getMessageRunId(message) === runId || getMessageExecutionRunIds(message).includes(runId))
+    ));
+    // A Run's final answer is always the assistant message. The user message
+    // is its execution boundary and must remain immutable when run_ended
+    // arrives after the canonical user message event.
+    return matches.find(message => message?.role === 'assistant') || matches[0] || null;
+  };
 
   /** @param {import('./sessionCoreTypes.js').SessionMessage} message @param {string} runId */
   const bindExecutionRun = (message, runId) => {
@@ -185,13 +197,14 @@ export function createSessionEnvelopeDispatcher({
       ...(eventData.consumed_by_run_id ? { consumed_by_run_id: eventData.consumed_by_run_id } : {}),
       ...(eventData.mailbox_message_id ? { mailbox_message_id: eventData.mailbox_message_id } : {}),
     };
-    if ((target.role === 'user' || target.role === 'assistant')
+    if (target.role === 'user'
       && (target.run_id || target.metadata?.run_id || target.metadata?.consumed_by_run_id)) {
       target.has_execution = true;
     } else {
       target.has_execution = false;
     }
     if (target.role === 'user') target.finished = true;
+    if (Number.isSafeInteger(target.seq)) reorderMessages();
     deps.cacheMessages(sessionId, messages.value);
   };
 
@@ -237,6 +250,7 @@ export function createSessionEnvelopeDispatcher({
       target = message;
     }
     applyMessageSaved(target, eventData, sessionId);
+    flushBoundaryEvents(eventData.run_id);
     finishRequest(requestId);
     deps.updateRecentSession(sessionId, target.content, new Date().toISOString());
     return true;
@@ -245,13 +259,22 @@ export function createSessionEnvelopeDispatcher({
   /** Execution is displayed under the latest conversation boundary before the assistant carrier. */
   /** @param {import('./sessionCoreTypes.js').SessionMessage} carrier @param {string | null | undefined} runId */
   const findExecutionBoundaryMessage = (carrier, runId) => {
+    const boundaryMessageId = carrier?.__boundaryMessageId || null;
+    if (boundaryMessageId) {
+      const explicit = messages.value.find(message => message?.role === 'user' && message.id === boundaryMessageId);
+      if (explicit) return explicit;
+    }
     const carrierIndex = messages.value.indexOf(carrier);
     const endIndex = carrierIndex >= 0 ? carrierIndex : messages.value.length;
     for (let index = endIndex - 1; index >= 0; index -= 1) {
       const message = messages.value[index];
       if (message?.role !== 'user') continue;
       const messageRunId = getMessageRunId(message);
-      if (runId && messageRunId && messageRunId !== runId) continue;
+      // Child Runs share the parent conversation boundary. An explicit
+      // boundary_message_id is preferred; otherwise the nearest real user
+      // message before the carrier is authoritative even when its run_id is
+      // the parent/root Run rather than the child Run.
+      if (runId && messageRunId && messageRunId !== runId && carrier?.role === 'user') continue;
       if (runId && !messageRunId) {
         const isPendingRunBoundary = message.metadata?.execution_kind === 'agent_stream'
           || message.metadata?.execution_kind === 'session_followup'
@@ -264,13 +287,58 @@ export function createSessionEnvelopeDispatcher({
       message.has_execution = true;
       return message;
     }
-    return carrier;
+    return carrier?.role === 'user' ? carrier : null;
+  };
+
+  /** @param {string | null | undefined} runId */
+  const flushBoundaryEvents = (runId) => {
+    if (!runId) return;
+    const pending = pendingBoundaryEvents.get(runId);
+    if (!pending?.length) return;
+    const boundary = findExecutionBoundaryMessage(null, runId);
+    if (!boundary) return;
+    pendingBoundaryEvents.delete(runId);
+    for (const event of pending) deps.applyEnvelopeToMessage(boundary, event);
+  };
+
+  /** Recover a canonical boundary after reconnect/event loss without inventing a client message. */
+  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
+  const reloadMissingBoundary = (event, sessionId) => {
+    const boundaryMessageId = event?.boundary_message_id || null;
+    const runId = event?.run_id || null;
+    if (!boundaryMessageId || !runId || typeof deps.loadSessionMessages !== 'function') return;
+    if (messages.value.some(message => message?.role === 'user' && message.id === boundaryMessageId)) return;
+    const key = `${sessionId}\u0000${boundaryMessageId}`;
+    if (boundaryReloads.has(key)) return;
+    const pending = Promise.resolve(deps.loadSessionMessages(sessionId, {
+      silent: true,
+      participantId: 'root',
+      preserveStream: true,
+      bypassCache: true,
+      reconcileMode: 'live',
+    })).then(() => {
+      if (currentSessionId.value === sessionId) flushBoundaryEvents(runId);
+    }).catch(() => /** @type {void} */ (undefined)).finally(() => {
+      if (boundaryReloads.get(key) === pending) boundaryReloads.delete(key);
+    });
+    boundaryReloads.set(key, pending);
   };
 
   /** @param {import('./sessionCoreTypes.js').SessionMessage} carrier @param {import('./sessionCoreTypes.js').SessionEnvelope} event */
   const applyEnvelopeToBoundaryMessage = (carrier, event) => {
-    const boundary = findExecutionBoundaryMessage(carrier, event.run_id || getMessageRunId(carrier));
-    deps.applyEnvelopeToMessage(boundary, event);
+    const boundary = event?.boundary_message_id
+      ? messages.value.find(message => message?.role === 'user' && message.id === event.boundary_message_id)
+      : findExecutionBoundaryMessage(carrier, event.run_id || getMessageRunId(carrier));
+    if (boundary) {
+      deps.applyEnvelopeToMessage(boundary, event);
+      return;
+    }
+    const runId = event?.run_id || getMessageRunId(carrier);
+    if (runId) {
+      const pending = pendingBoundaryEvents.get(runId) || [];
+      pending.push(event);
+      pendingBoundaryEvents.set(runId, pending);
+    }
   };
 
   const eventReducerDeps = Object.create(deps);
@@ -349,9 +417,16 @@ export function createSessionEnvelopeDispatcher({
     }
     if (!snapshot.active_run || !sessionLoadStrategyRestoresActiveRun(snapshot.load_strategy)) return;
     const runId = snapshot.active_run.run_id;
+    const boundary = messages.value.find(message => message?.role === 'user'
+      && getMessageRunId(message) === runId);
     let assistantMsgIndex = messages.value.findIndex(message => message?.role === 'assistant'
       && (message?.run_id === runId || message?.metadata?.run_id === runId)
       && message.finished !== true);
+    if (assistantMsgIndex < 0 && boundary) {
+      const nextAssistant = messages.value.findIndex(message => message?.role === 'assistant'
+        && !message.finished && messages.value.indexOf(message) > messages.value.indexOf(boundary));
+      if (nextAssistant >= 0) assistantMsgIndex = nextAssistant;
+    }
     if (assistantMsgIndex < 0) {
       const lastMessage = messages.value[messages.value.length - 1];
       if (lastMessage?.role === 'assistant' && !lastMessage.finished) {
@@ -402,6 +477,11 @@ export function createSessionEnvelopeDispatcher({
     }
 
     if (runtime.handleInactiveDurableReplayEvent(event, sessionId)) return;
+
+    if (!(eventType === 'state_sync' && payload.category === 'message_saved')
+      && eventType !== 'agent_message') {
+      reloadMissingBoundary(event, sessionId);
+    }
 
     if (eventType === 'agent_message' && handleConsumedUserMessage(event, sessionId)) {
       nextTick(() => deps.scrollToBottom(true));
@@ -562,7 +642,7 @@ export function createSessionEnvelopeDispatcher({
             content,
             content_parts: contentParts,
             finished: true,
-            has_execution: true,
+            has_execution: false,
             run_id: refRunId,
             metadata: { run_id: refRunId },
           });
@@ -577,8 +657,8 @@ export function createSessionEnvelopeDispatcher({
         if (ref.role === 'user') {
           finishRequest(ref.request_id);
           if (target) deps.updateRecentSession(sessionId, target.content, new Date().toISOString());
+          flushBoundaryEvents(refRunId || getMessageRunId(target));
         }
-        if (target?.role === 'assistant' && refRunId) target.has_execution = true;
         return;
       }
       if (category === 'session_updated') {
@@ -626,20 +706,24 @@ export function createSessionEnvelopeDispatcher({
       const targetRootRunId = getMessageRunId(currentMsg);
       // Child delegation runs have their own terminal event. They must not
       // finalize the parent assistant message while the root run continues.
-      if (eventRunId && targetRootRunId && eventRunId !== targetRootRunId) {
+      if (eventRunId && targetRootRunId && eventRunId !== targetRootRunId
+        && !currentMsg?._execState?.agentsByCallId?.has?.(event.call_id)) {
         return;
       }
       const terminalStatus = runtime.terminalStatusFromEvent(event);
       if (terminalStatus === 'suspended') return;
       if (currentMsg) {
         currentMsg.finished = true;
-        currentMsg.has_execution = true;
+        currentMsg.has_execution = currentMsg.role === 'user';
         if (eventRunId) {
           currentMsg.run_id = eventRunId;
           currentMsg.metadata = { ...(currentMsg.metadata || {}), run_id: eventRunId };
         }
         const reason = typeof payload.reason === 'string' ? payload.reason.trim() : '';
-        if (terminalStatus === 'interrupted') {
+        // User messages own the execution tree but never own terminal answer
+        // text. A terminal assistant message is persisted by the backend and
+        // will arrive through its canonical message_saved event.
+        if (currentMsg.role !== 'user' && terminalStatus === 'interrupted') {
           const displayReason = {
             session_stopped: '用户主动停止运行',
             backend_restarted: '后端重启导致运行中断',
@@ -654,7 +738,7 @@ export function createSessionEnvelopeDispatcher({
           currentMsg.content = `本次运行已中断，未生成最终答案。原因：${displayReason}`;
           currentMsg.content_parts = [{ type: 'text', text: currentMsg.content }];
         }
-        if (terminalStatus === 'failed') {
+        if (currentMsg.role !== 'user' && terminalStatus === 'failed') {
           currentMsg.run_failed = true;
           currentMsg.metadata = {
             ...(currentMsg.metadata || {}),
@@ -677,7 +761,7 @@ export function createSessionEnvelopeDispatcher({
     const lineageParentCallId = event.payload?.lineage?.parent_call_id || null;
     const identityCallIds = [event.call_id, lineageParentCallId].filter(Boolean);
     if (!currentMsg && identityCallIds.length > 0) {
-      currentMsg = messages.value.find(message => message?.role === 'assistant'
+      currentMsg = messages.value.find(message => (message?.role === 'assistant' || message?.role === 'user')
         && identityCallIds.some(callId => message._execState?.agentsByCallId?.has?.(callId)
           || message._execState?.toolsByCallId?.has?.(callId))) || null;
       if (currentMsg && eventRunId) bindExecutionRun(currentMsg, eventRunId);
@@ -699,6 +783,19 @@ export function createSessionEnvelopeDispatcher({
     }
     if (currentMsg) {
       handleRunEvent(event, currentMsg, sessionId);
+    } else if (eventRunId) {
+      // Runtime phase still follows durable events while the canonical user
+      // boundary is being loaded. The detached carrier is never inserted or
+      // used for rendering; execution projection remains queued above.
+      handleRunEvent(event, {
+        role: 'assistant',
+        content: '',
+        content_parts: [],
+        finished: false,
+        status: [],
+        metadata: {},
+        executionTree: { root: null, steps: [] },
+      }, sessionId);
     }
   };
 

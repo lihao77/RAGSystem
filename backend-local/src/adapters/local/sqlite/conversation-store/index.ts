@@ -81,6 +81,10 @@ export function createConversationStore(options: ConversationStoreOptions) {
     putProviderContinuation: providerContinuations.putProviderContinuationInTransaction.bind(providerContinuations),
     deleteProviderContinuations: providerContinuations.deleteProviderContinuations.bind(providerContinuations),
     enqueueAgentMailboxMessage: agentMailbox.enqueueInTransaction.bind(agentMailbox),
+    ackAgentMailboxMessage: agentMailbox.ackInTransaction.bind(agentMailbox),
+    getAgentMailboxMessage: agentMailbox.getInTransaction.bind(agentMailbox),
+    updateChildAgentLastRun: childAgents.updateChildAgentLastRun.bind(childAgents),
+    settleAgentMailboxMessage: agentMailbox.settleInTransaction.bind(agentMailbox),
   });
 
   return {

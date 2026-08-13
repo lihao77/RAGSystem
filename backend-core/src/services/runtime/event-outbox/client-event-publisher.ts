@@ -31,25 +31,11 @@ export class DurableClientEventPublisher implements ClientEventPublisherPort {
 
   async publish(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): Promise<OutboxRow> {
     const input = this.toRecordInput(sessionId, event, withStableEventId(options));
-    const previous = this.sessionTails.get(sessionId) ?? Promise.resolve();
-    const operation = previous.then(async () => {
+    return this.enqueueSessionOperation(sessionId, async () => {
       const { outbox: row } = await this.storage.operations.recordEnvelope(input);
       if (row.status === "pending") await this.dispatchPendingRows([row]);
       return row;
     });
-    const tail = operation.then(
-      () => undefined,
-      (error) => {
-        if (!this.sessionFailures.has(sessionId)) this.sessionFailures.set(sessionId, error);
-      },
-    );
-    this.sessionTails.set(sessionId, tail);
-    void tail.then(() => {
-      if (this.sessionTails.get(sessionId) === tail && !this.sessionFailures.has(sessionId)) {
-        this.sessionTails.delete(sessionId);
-      }
-    });
-    return operation;
   }
 
   async record(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): Promise<OutboxRow> {
@@ -78,7 +64,39 @@ export class DurableClientEventPublisher implements ClientEventPublisherPort {
 
   async deliver(rows: OutboxRow[]): Promise<void> {
     const pending = rows.filter((row) => row.status === "pending");
-    if (pending.length > 0) await this.dispatchPendingRows(pending);
+    const bySession = new Map<string, OutboxRow[]>();
+    for (const row of pending) {
+      const sessionRows = bySession.get(row.session_id) ?? [];
+      sessionRows.push(row);
+      bySession.set(row.session_id, sessionRows);
+    }
+    await Promise.all([...bySession].map(([sessionId, sessionRows]) =>
+      this.enqueueSessionOperation(sessionId, () => this.dispatchPendingRows(sessionRows), false)
+    ));
+  }
+
+  private enqueueSessionOperation<T>(
+    sessionId: string,
+    execute: () => Promise<T>,
+    recordFailure = true,
+  ): Promise<T> {
+    const previous = this.sessionTails.get(sessionId) ?? Promise.resolve();
+    const operation = previous.then(execute);
+    const tail = operation.then(
+      () => undefined,
+      (error) => {
+        if (recordFailure && !this.sessionFailures.has(sessionId)) {
+          this.sessionFailures.set(sessionId, error);
+        }
+      },
+    );
+    this.sessionTails.set(sessionId, tail);
+    void tail.then(() => {
+      if (this.sessionTails.get(sessionId) === tail && !this.sessionFailures.has(sessionId)) {
+        this.sessionTails.delete(sessionId);
+      }
+    });
+    return operation;
   }
 
   private async dispatchPendingRows(rows: OutboxRow[]): Promise<void> {

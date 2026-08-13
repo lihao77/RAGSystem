@@ -18,6 +18,7 @@ export function createPostgresExecutionStorage(input: {
   createEventPersister(context: ExecutionRunPersistenceContext): ExecutionEventPersister;
   resultReader: ExecutionStorage["resultReader"];
   agentMailbox?: ExecutionStorage["agentMailbox"];
+  commitRunInput: ExecutionStorage["commitRunInput"];
 }): ExecutionStorage {
   return {
     tenantId: input.tenantId,
@@ -40,6 +41,7 @@ export function createPostgresExecutionStorage(input: {
     providerContinuations: { getProviderContinuation: (sessionId, messageId) => input.providerContinuations.getProviderContinuation(input.tenantId, sessionId, messageId) },
     resultReader: input.resultReader,
     agentMailbox: input.agentMailbox!,
+    commitRunInput: input.commitRunInput,
     createEventPersister: input.createEventPersister,
   };
 }

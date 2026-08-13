@@ -49,7 +49,6 @@ export class LocalAgentSessionRepository implements AgentSessionRepositoryPort {
       afterSeq?: number | null;
       afterMessageId?: string | null;
       tenantId?: string | null;
-      truncateRunSteps?: { runId: string; fromStepOrder: number } | null;
     },
   ) {
     return this.store.deleteMessagesAfter(sessionId, input);

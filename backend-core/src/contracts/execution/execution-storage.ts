@@ -3,6 +3,10 @@ import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import type { AssistantContentPart, KernelEvent } from "@ragsystem/agent-sdk";
 
 import type { AddMessageInput, RunInfo } from "../conversation-store/index.js";
+import type {
+  RuntimeCommitRunInputInput,
+  RuntimeCommitRunInputResult,
+} from "../storage/runtime-storage.js";
 import type { RunStepInfo } from "../common.js";
 import type { Envelope } from "../events.js";
 import type { MessageInfo, SessionIdentity, SessionInfo } from "../session/session.js";
@@ -42,8 +46,8 @@ export interface ExecutionRunPersistenceContext {
   messageMetadata?: Record<string, unknown> | null;
   rootMailboxMessage?: {
     id: string;
-    inputType: "user_message" | "system_notification" | "goal_continuation";
-    sourceKind: "user" | "system";
+    inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
+    sourceKind: "user" | "agent" | "system";
     visibleToUser: boolean;
     sentAt: string;
     contentParts: MessageContentPart[];
@@ -51,6 +55,8 @@ export interface ExecutionRunPersistenceContext {
   };
   /** Canonical input message for a newly-created root or child Run. */
   initialMessage?: AddMessageInput & { messageId: string };
+  participantExpectedLastRunId?: string | null;
+  initialMailboxMessageId?: string | null;
   followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string | null;
   initialEnvelopes?: readonly Envelope[];
@@ -114,5 +120,6 @@ export interface ExecutionStorage {
   agentMailbox: AgentMailboxStorePort;
   providerContinuations: ExecutionProviderContinuationPort;
   resultReader: ExecutionResultReader;
+  commitRunInput(input: RuntimeCommitRunInputInput): Promise<RuntimeCommitRunInputResult>;
   createEventPersister(context: ExecutionRunPersistenceContext): ExecutionEventPersister;
 }

@@ -385,6 +385,8 @@ export const StateSyncPayloadSchema = z.object({
       round_index: z.number().int().nonnegative().optional(),
       /** Canonical persisted message content, used to reconcile optimistic client state. */
       content_parts: z.array(MessageContentPartSchema).optional(),
+      /** Canonical message metadata used to bind the visible input to its consuming Run. */
+      metadata: z.record(z.unknown()).optional(),
     })
     .optional(),
   metrics: z.record(z.number()).optional(),
@@ -445,6 +447,8 @@ export const ToolResultPayloadSchema = z
 export const AgentMessagePayloadSchema = z.object({
   kind: z.enum(["progress", "request", "response", "result"]),
   message_id: z.string().min(1),
+  /** Canonical messages.seq; distinct from mailbox and envelope delivery sequences. */
+  seq: z.number().int().nonnegative().optional(),
   source_run_id: z.string().nullable().optional(),
   source_agent_call_id: z.string().nullable().optional(),
   source_agent_name: z.string().min(1).optional(),
@@ -721,6 +725,7 @@ export const ProtocolEnvelopeSchema = z.object({
   agent_id: z.string().optional(),
   seq: z.number().int().nonnegative().optional(),
   message_id: z.string().optional(),
+  boundary_message_id: z.string().optional(),
   timestamp: z.union([z.number().int(), z.string().datetime()]).optional(),
   payload: z.unknown().optional(),
 });

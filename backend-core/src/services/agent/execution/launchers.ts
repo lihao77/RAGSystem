@@ -966,12 +966,23 @@ class AgentLaunchers {
             lineageParentCallId: target.targetLineageParentCallId,
             childAgentId: target.targetChildAgentId,
             initialMessage: mailboxContinuationInitialMessage(sourceMessage, runId),
+            participantExpectedLastRunId: target.targetRunId,
+            initialMailboxMessageId: sourceMessage.message_id,
             ownsRunLease: true,
           })
         : this.invocationService.invoke({
             ...base,
             scope: "root",
             rootCallId,
+            rootMailboxMessage: {
+              id: sourceMessage.message_id,
+              inputType: sourceMessage.input_type,
+              sourceKind: sourceMessage.source_kind,
+              visibleToUser: sourceMessage.visible_to_user,
+              sentAt: sourceMessage.sent_at ?? sourceMessage.created_at,
+              contentParts: sourceMessage.content_parts,
+              metadata: sourceMessage.metadata,
+            },
           });
       try {
         await started.durableStarted;

@@ -49,9 +49,9 @@ const participantMessagesMatch = (current, incoming) => Boolean(
   )
 );
 
-const mergeParticipantMessage = (current, incoming) => {
+const mergeParticipantMessage = (current, incoming, { preserveLiveExecution = true } = {}) => {
   if (current === incoming) return current;
-  const preservesExecution = current?.role === incoming?.role
+  const preservesExecution = preserveLiveExecution && current?.role === incoming?.role
     && (current?.role === 'assistant' || current?.role === 'user');
   const liveExecution = preservesExecution ? {
     _execState: current._execState,
@@ -68,17 +68,41 @@ const mergeParticipantMessage = (current, incoming) => {
   return current;
 };
 
-const sortParticipantMessages = (items) => items
-  .map((message, index) => ({ message, index }))
-  .sort((left, right) => {
-    const leftSeq = Number.isSafeInteger(left.message?.seq) ? left.message.seq : null;
-    const rightSeq = Number.isSafeInteger(right.message?.seq) ? right.message.seq : null;
-    if (leftSeq !== null && rightSeq !== null) return leftSeq - rightSeq;
-    if (leftSeq !== null) return -1;
-    if (rightSeq !== null) return 1;
-    return left.index - right.index;
-  })
-  .map(item => item.message);
+const sortParticipantMessages = (items) => {
+  const canonical = items
+    .filter(message => Number.isSafeInteger(message?.seq))
+    .sort((left, right) => left.seq - right.seq);
+  let canonicalIndex = 0;
+  const next = items.map(message => (
+    Number.isSafeInteger(message?.seq) ? canonical[canonicalIndex++] : message
+  ));
+
+  // A streaming assistant is the only non-canonical conversation item. It is
+  // a carrier placeholder, so every persisted user boundary for that Run must
+  // precede it even when the agent_message listener observed the input first.
+  for (const assistant of next.filter(message => (
+    message?.role === 'assistant'
+      && !Number.isSafeInteger(message?.seq)
+      && getMessageRunId(message)
+  ))) {
+    const runId = getMessageRunId(assistant);
+    const assistantIndex = next.indexOf(assistant);
+    const lastBoundaryIndex = next.findLastIndex(message => (
+      message?.role === 'user'
+        && Number.isSafeInteger(message?.seq)
+        && getMessageRunId(message) === runId
+    ));
+    if (assistantIndex < 0 || lastBoundaryIndex < assistantIndex) continue;
+    next.splice(assistantIndex, 1);
+    const relocatedBoundaryIndex = next.findLastIndex(message => (
+      message?.role === 'user'
+        && Number.isSafeInteger(message?.seq)
+        && getMessageRunId(message) === runId
+    ));
+    next.splice(relocatedBoundaryIndex + 1, 0, assistant);
+  }
+  return next;
+};
 
 /**
  * 当前会话运行态单源。
@@ -256,7 +280,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
     return next;
   };
 
-  const reconcileParticipantMessages = (participantId, value) => {
+  const reconcileParticipantMessages = (participantId, value, { preserveLiveExecution = true } = {}) => {
     const id = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
     const current = participantMessages.value[id] || [];
     const claimed = new Set();
@@ -266,7 +290,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
       ));
       if (index < 0) return incoming;
       claimed.add(index);
-      return mergeParticipantMessage(current[index], incoming);
+      return mergeParticipantMessage(current[index], incoming, { preserveLiveExecution });
     });
     const live = current.filter((message, index) => !claimed.has(index) && !Number.isSafeInteger(message?.seq));
     const next = sortParticipantMessages([...durable, ...live]);
@@ -297,6 +321,18 @@ export const useSessionRunStore = defineStore('session-run', () => {
     const sorted = sortParticipantMessages(next);
     participantMessages.value = { ...participantMessages.value, [id]: sorted };
     if (activeAssistant) activeRun.assistantMsgIndex = sorted.indexOf(activeAssistant);
+  };
+
+  const reorderParticipantMessages = (participantId = 'root') => {
+    const id = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
+    const current = participantMessages.value[id] || [];
+    const activeAssistant = id === 'root' && activeRun.assistantMsgIndex >= 0
+      ? current[activeRun.assistantMsgIndex]
+      : null;
+    const sorted = sortParticipantMessages(current);
+    participantMessages.value = { ...participantMessages.value, [id]: sorted };
+    if (activeAssistant) activeRun.assistantMsgIndex = sorted.indexOf(activeAssistant);
+    return sorted;
   };
 
   const clearParticipantMessages = (participantId = null) => {
@@ -357,6 +393,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
     setParticipantMessages,
     reconcileParticipantMessages,
     upsertParticipantMessage,
+    reorderParticipantMessages,
     clearParticipantMessages,
   };
 });

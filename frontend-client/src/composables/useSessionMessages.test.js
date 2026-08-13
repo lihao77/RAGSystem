@@ -100,6 +100,41 @@ test('agent mailbox messages are visible with clean display content while other 
   assert.equal(messages.value[1].id, 'string-hidden');
 });
 
+test('historical messages retain canonical participant ownership fields', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const { currentSessionId, messages } = storeToRefs(store);
+  currentSessionId.value = 'session-1';
+  const chatSdkClient = { async listMessages() { return {
+    data: {
+      items: [{
+        id: 'child-run:terminal_result',
+        seq: 9,
+        role: 'user',
+        content: 'child result',
+        thread_key: 'root',
+        child_agent_id: null,
+        has_execution: true,
+        metadata: {
+          agent_message: true,
+          child_agent_id: 'child-1',
+          source_child_agent_id: 'child-1',
+          target_thread_key: 'root',
+          consumed_by_run_id: 'root-run',
+        },
+      }],
+      outbox_watermark: 20,
+    },
+  }; } };
+
+  const sessionMessages = useSessionMessages(createDeps({ chatSdkClient }));
+  await sessionMessages.loadSessionMessages('session-1');
+
+  assert.equal(messages.value[0].thread_key, 'root');
+  assert.equal(messages.value[0].child_agent_id, null);
+  assert.equal(messages.value[0].metadata.child_agent_id, 'child-1');
+});
+
 test('active run 消息重载完成后重新请求历史执行快照', async () => {
   setActivePinia(createPinia());
   const store = useSessionRunStore();

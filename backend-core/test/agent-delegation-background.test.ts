@@ -509,9 +509,6 @@ describe("background child-agent delegation", () => {
       agent_call_id: "completed-child-call",
       status: "completed",
     } as never);
-    let releaseLastRunWrite!: (value: boolean) => void;
-    const lastRunWrite = new Promise<boolean>((resolve) => { releaseLastRunWrite = resolve; });
-    vi.mocked(delegationStore.updateChildAgentLastRun).mockImplementation(() => lastRunWrite);
     const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
       message_id: input.messageId,
       kind: input.kind,
@@ -526,8 +523,13 @@ describe("background child-agent delegation", () => {
       null,
       { enqueue, get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
     );
+    let releaseContinuation!: () => void;
+    const continuationDone = new Promise<void>(resolve => { releaseContinuation = resolve; });
     service.setInvocationService(new AgentInvocationService({
-      executeRun: vi.fn(async () => ({ success: true, content: "continued" })),
+      executeRun: vi.fn(async () => {
+        await continuationDone;
+        return { success: true, content: "continued" };
+      }),
     } as never));
     const runContext = context(new AbortController().signal);
 
@@ -536,7 +538,7 @@ describe("background child-agent delegation", () => {
       teamName: null,
       input: { childAgentId: child.child_agent_id, message: "resume", callId: "resume-tool-call" },
     }, runContext);
-    await waitFor(() => vi.mocked(delegationStore.updateChildAgentLastRun).mock.calls.length === 1);
+    await waitFor(() => (service as any).activeChildRuns.has(child.child_agent_id));
     const activeRoute = (service as any).activeChildRuns.get(child.child_agent_id) as {
       runId: string;
       agentCallId: string;
@@ -555,7 +557,7 @@ describe("background child-agent delegation", () => {
       targetRunId: activeRoute.runId,
       targetAgentCallId: activeRoute.agentCallId,
     }));
-    releaseLastRunWrite(true);
+    releaseContinuation();
     await continuation;
     expect((service as any).activeChildRuns.has(child.child_agent_id)).toBe(false);
   });
@@ -571,9 +573,6 @@ describe("background child-agent delegation", () => {
       agent_call_id: "completed-child-call",
       status: "completed",
     } as never);
-    let releaseLastRunWrite!: (value: boolean) => void;
-    const lastRunWrite = new Promise<boolean>((resolve) => { releaseLastRunWrite = resolve; });
-    vi.mocked(delegationStore.updateChildAgentLastRun).mockImplementation(() => lastRunWrite);
     const enqueue = vi.fn(async (input: Record<string, unknown>) => ({
       message_id: input.messageId,
       kind: input.kind,
@@ -607,7 +606,7 @@ describe("background child-agent delegation", () => {
       lineageParentCallId: "parent-call",
       replacesRunId: "completed-child-run",
     });
-    await waitFor(() => vi.mocked(delegationStore.updateChildAgentLastRun).mock.calls.length === 1);
+    await waitFor(() => (service as any).activeChildRuns.get(child.child_agent_id)?.runId === "mailbox-continuation-run");
 
     const followup = await invokeMessage(service, {
       agent: parentAgent(false),
@@ -620,14 +619,8 @@ describe("background child-agent delegation", () => {
       targetRunId: "mailbox-continuation-run",
       targetAgentCallId: "mailbox-continuation-call",
     }));
-    releaseLastRunWrite(true);
     await registration;
-    expect(delegationStore.updateChildAgentLastRun).toHaveBeenCalledWith({
-      sessionId: "session-1",
-      childAgentId: child.child_agent_id,
-      lastRunId: "mailbox-continuation-run",
-      expectedLastRunId: "completed-child-run",
-    });
+    expect(delegationStore.updateChildAgentLastRun).not.toHaveBeenCalled();
 
     service.releaseParticipantRun({ childAgentId: child.child_agent_id, runId: "completed-child-run" });
     expect((service as any).activeChildRuns.has(child.child_agent_id)).toBe(true);
@@ -637,7 +630,7 @@ describe("background child-agent delegation", () => {
     expect((service as any).activeChildRuns.has(child.child_agent_id)).toBe(false);
   });
 
-  it("allows only one durable participant continuation to replace the same latest Run", async () => {
+  it("allows registration to remain an in-memory routing operation", async () => {
     let latestRunId = "completed-child-run";
     const sharedChild = { ...childAgent(), last_run_id: latestRunId };
     const createStore = () => {
@@ -680,12 +673,12 @@ describe("background child-agent delegation", () => {
       }),
     ]);
 
-    expect(registrations.filter(result => result.status === "fulfilled")).toHaveLength(1);
-    expect(registrations.filter(result => result.status === "rejected")).toHaveLength(1);
-    expect(["continuation-a", "continuation-b"]).toContain(latestRunId);
+    expect(registrations.filter(result => result.status === "fulfilled")).toHaveLength(2);
+    expect(registrations.filter(result => result.status === "rejected")).toHaveLength(0);
+    expect(latestRunId).toBe("completed-child-run");
   });
 
-  it("rejects a stale continuation after another instance already advanced the latest Run", async () => {
+  it("does not perform a durable CAS while registering a stale continuation route", async () => {
     let latestRunId = "completed-child-run";
     const sharedChild = { ...childAgent(), last_run_id: latestRunId };
     const createStore = () => {
@@ -718,30 +711,37 @@ describe("background child-agent delegation", () => {
       ...route,
       runId: "continuation-b",
       rootRunId: "continuation-b",
-    })).rejects.toThrow("latest Run changed");
+    })).resolves.toBeUndefined();
 
-    expect(latestRunId).toBe("continuation-a");
+    expect(latestRunId).toBe("completed-child-run");
   });
 
-  it("does not invoke a child when its latest Run CAS registration loses", async () => {
+  it("passes the expected participant pointer into child invocation", async () => {
     const child = childAgent();
     const delegationStore = store(child);
     vi.mocked(delegationStore.updateChildAgentLastRun).mockResolvedValue(false);
-    const invoke = vi.fn();
+    const invoke = vi.fn(() => ({
+      started: true,
+      session_id: "session-1",
+      run_id: "child-run",
+      task_id: "task",
+      request_id: "request-1",
+      kind: "agent_run",
+      durableStarted: Promise.resolve({ kind: "started" }),
+      promise: Promise.resolve({ success: true, content: "done", runId: "child-run" }),
+    }));
     const service = new AgentDelegationService(delegationStore, runtimeCore(workerAgent()));
     service.setInvocationService({ invoke } as never);
 
-    await expect(invokeCreate(service, {
+    await invokeCreate(service, {
       agent: parentAgent(false),
       teamName: null,
       input: { agentName: "worker", task: "do work", callId: "parent-call" },
-    }, context(new AbortController().signal))).rejects.toThrow("latest Run changed");
+    }, context(new AbortController().signal));
 
-    expect(delegationStore.updateChildAgentLastRun).toHaveBeenCalledWith(expect.objectContaining({
-      childAgentId: child.child_agent_id,
-      expectedLastRunId: null,
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({
+      participantExpectedLastRunId: null,
     }));
-    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("does not fork a suspended child when sending a follow-up", async () => {

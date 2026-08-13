@@ -165,6 +165,10 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     return this.getSync(required(sessionId, "sessionId"), required(messageId, "messageId"));
   }
 
+  getInTransaction(sessionId: string, messageId: string): AgentMailboxMessage | null {
+    return this.getSync(required(sessionId, "sessionId"), required(messageId, "messageId"));
+  }
+
   async claim(input: ClaimAgentMailboxInput): Promise<AgentMailboxMessage[]> {
     return this.claimSync(input);
   }
@@ -177,7 +181,15 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     return this.ackSync(input);
   }
 
+  ackInTransaction(input: AckAgentMailboxInput): boolean {
+    return this.ackSync(input);
+  }
+
   async settle(input: SettleAgentMailboxInput): Promise<boolean> {
+    return this.settleSync(input);
+  }
+
+  settleInTransaction(input: SettleAgentMailboxInput): boolean {
     return this.settleSync(input);
   }
 

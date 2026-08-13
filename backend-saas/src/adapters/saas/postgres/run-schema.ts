@@ -242,6 +242,38 @@ export const POSTGRES_RUN_MIGRATIONS: readonly PostgresRunMigration[] = [
         ON saas_run_message_boundaries(tenant_id, session_id, run_id, start_after_step_order);
     `,
   },
+  {
+    version: 10,
+    name: "backfill-canonical-run-message-boundaries",
+    sql: `
+      INSERT INTO saas_run_message_boundaries (
+        tenant_id, session_id, run_id, message_id,
+        start_after_step_order, boundary_step_order, boundary_kind
+      )
+      SELECT run.tenant_id, run.session_id, run.run_id, canonical.id,
+             0, NULL, 'carrier'
+      FROM saas_runs AS run
+      JOIN LATERAL (
+        SELECT message.id
+        FROM conversation_messages AS message
+        WHERE message.session_id=run.session_id
+          AND COALESCE(
+            NULLIF(message.metadata->>'consumed_by_run_id', ''),
+            NULLIF(message.metadata->>'run_id', '')
+          )=run.run_id
+        ORDER BY message.seq ASC
+        LIMIT 1
+      ) AS canonical ON TRUE
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM saas_run_message_boundaries AS boundary
+        WHERE boundary.tenant_id=run.tenant_id
+          AND boundary.session_id=run.session_id
+          AND boundary.run_id=run.run_id
+      )
+      ON CONFLICT (tenant_id, session_id, run_id, message_id) DO NOTHING;
+    `,
+  },
 ];
 
 export function getPendingPostgresRunMigrations(appliedVersion: number): readonly PostgresRunMigration[] {

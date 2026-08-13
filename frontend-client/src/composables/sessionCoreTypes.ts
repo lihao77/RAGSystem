@@ -90,6 +90,7 @@ export interface DispatcherOptions {
   interaction: InteractionContext;
   applySessionRuntime: (snapshot: OpenRecord) => void;
   finishPendingCommand: (requestId?: string | null) => void;
+  reorderMessages: () => SessionMessage[];
   onRuntimeSnapshot?: (sessionId: string, snapshot: OpenRecord) => void;
   getStop: () => () => Promise<void>;
 }

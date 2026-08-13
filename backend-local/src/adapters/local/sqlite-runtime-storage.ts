@@ -4,6 +4,7 @@ import type { ConversationStore, ConversationStoreTransaction } from "./sqlite/c
 import {
   rootMailboxInitialMessage,
   RuntimeInteractionUnavailableError,
+  withCanonicalMessageSequence,
 } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import type {
   RuntimeAtomicOperations,
@@ -12,6 +13,8 @@ import type {
   RuntimeClaimResumeInput,
   RuntimeClaimResumeResult,
   RuntimeClaimSessionMaintenanceResult,
+  RuntimeCommitRunInputInput,
+  RuntimeCommitRunInputResult,
   RuntimeFinalizeRunInput,
   RuntimeFinalizeRunResult,
   RuntimeInteractionResolution,
@@ -74,6 +77,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       startRun: (input) => this.startRun(input),
       startOrAppendRoot: (input) => this.startOrAppendRoot(input),
       persistMessage: (input) => this.persistMessage(input),
+      commitRunInput: (input) => this.commitRunInput(input),
       recordEnvelope: (input) => this.recordEnvelope(input),
       recordInteraction: (input) => this.recordInteraction(input),
       resolveInteraction: (input) => this.resolveInteraction(input),
@@ -390,6 +394,10 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         let run: RuntimeStartRunResult["run"];
         if (existingRun) {
           assertRunScope(existingRun, input.run, this.tenantId);
+          if (input.initialMessage) {
+            const initialMessage = resolveDeterministicMessage(tx, input.initialMessage, "initial message");
+            tx.ensureInitialRunMessageBoundary(input.session.sessionId, input.run.runId, initialMessage.id);
+          }
           run = toCreatedRun(existingRun);
         } else {
           if (!input.initialMessage) {
@@ -403,6 +411,22 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
               input.run.runId,
               initialMessage.id,
             );
+            if (input.participantRun) {
+              const participantUpdated = tx.updateChildAgentLastRun({
+                sessionId: input.session.sessionId,
+                childAgentId: input.participantRun.childAgentId,
+                lastRunId: input.run.runId,
+                expectedLastRunId: input.participantRun.expectedLastRunId,
+              });
+              if (!participantUpdated) throw new Error(`child Agent latest Run changed before invocation start: ${input.participantRun.childAgentId}`);
+            }
+            if (input.initialMailboxMessageId) {
+              const settled = tx.settleAgentMailboxMessage({
+                sessionId: input.session.sessionId,
+                messageId: input.initialMailboxMessageId,
+              });
+              if (!settled) throw new Error(`initial mailbox message not found: ${input.initialMailboxMessageId}`);
+            }
           } catch (error) {
             throw new Error(`run scope conflict: ${input.run.runId}`, { cause: error });
           }
@@ -410,7 +434,13 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (input.claimOwnLease && input.run.parentRunId == null) {
           throw new Error("claimOwnLease is only valid for a child run");
         }
-        const records = initialRecords.map((record) => recordEnvelope(tx, record));
+        const canonicalInitialMessage = input.initialMessage
+          ? tx.getMessageById(input.session.sessionId, input.initialMessage.messageId)
+          : null;
+        const records = initialRecords.map((record) => recordEnvelope(
+          tx,
+          canonicalInitialMessage ? withCanonicalMessageSequence(record, canonicalInitialMessage) : record,
+        ));
         return { run, records };
       });
     });
@@ -462,7 +492,22 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           tx.updateSessionMetadata(input.session.sessionId, { runtime_maintenance: null });
         }
         const mailboxMessage = tx.enqueueAgentMailboxMessage(input.mailboxMessage);
-        return { kind: "started", run, mailboxMessage, records: initialRecords.map((record) => recordEnvelope(tx, record)) };
+        const settled = tx.settleAgentMailboxMessage({
+          sessionId: input.session.sessionId,
+          messageId: mailboxMessage.message_id,
+        });
+        if (!settled) throw new Error(`initial mailbox message not found: ${mailboxMessage.message_id}`);
+        const canonicalInitialMessage = initialMessage
+          ?? tx.getMessageById(input.session.sessionId, input.mailboxMessage.messageId);
+        return {
+          kind: "started",
+          run,
+          mailboxMessage,
+          records: initialRecords.map((record) => recordEnvelope(
+            tx,
+            canonicalInitialMessage ? withCanonicalMessageSequence(record, canonicalInitialMessage) : record,
+          )),
+        };
       });
     });
   }
@@ -471,6 +516,29 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
     return this.serial.run(() => {
       assertRecordScope(input);
       return this.store.runInTransaction((tx) => recordEnvelope(tx, input));
+    });
+  }
+
+  private commitRunInput(input: RuntimeCommitRunInputInput): Promise<RuntimeCommitRunInputResult> {
+    return this.serial.run(() => {
+      assertSessionId(input.message.sessionId, input.sessionId, "run input message");
+      assertRecordScope(input.record, input.sessionId, input.runId);
+      if (input.mailboxAck.sessionId !== input.sessionId || input.mailboxAck.messageId !== input.message.messageId) {
+        throw new Error("run input mailbox scope mismatch");
+      }
+      return this.store.runInTransaction((tx) => {
+        assertTenantSession(tx, this.tenantId, input.sessionId);
+        const run = tx.getRun(input.sessionId, input.runId);
+        if (!run) throw new Error(`run not found: ${input.runId}`);
+        const message = resolveDeterministicMessage(tx, input.message, "run input message");
+        const record = recordEnvelope(tx, withCanonicalMessageSequence(input.record, message));
+        const mailboxAcked = tx.ackAgentMailboxMessage(input.mailboxAck);
+        if (!mailboxAcked) {
+          const mailbox = tx.getAgentMailboxMessage(input.sessionId, input.mailboxAck.messageId);
+          if (mailbox?.status !== "acked") throw new Error(`mailbox ACK failed: ${input.mailboxAck.messageId}`);
+        }
+        return { message, record, mailboxAcked: true };
+      });
     });
   }
 

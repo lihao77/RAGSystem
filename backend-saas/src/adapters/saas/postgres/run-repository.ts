@@ -212,7 +212,8 @@ export class PostgresRunRepository implements AsyncRunStore {
     const end = await this.executor.query<{ end_order: number | string | null }>(`
       SELECT MIN(start_after_step_order) AS end_order
       FROM saas_run_message_boundaries
-      WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3 AND start_after_step_order>$4
+      WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
+        AND boundary_kind='carrier' AND start_after_step_order>$4
     `, [input.tenantId, input.sessionId, input.runId, startOrder]);
     const endOrder = end.rows[0]?.end_order == null ? Number.MAX_SAFE_INTEGER : Number(end.rows[0].end_order);
     const identityParams = [input.tenantId, input.sessionId, input.runId, startOrder, endOrder] as const;
@@ -222,7 +223,8 @@ export class PostgresRunRepository implements AsyncRunStore {
       AND NOT EXISTS (
         SELECT 1 FROM saas_run_message_boundaries AS boundary
         WHERE boundary.tenant_id=step.tenant_id AND boundary.session_id=step.session_id
-          AND boundary.run_id=step.run_id AND boundary.boundary_step_order=step.step_order
+          AND boundary.run_id=step.run_id AND boundary.boundary_kind='carrier'
+          AND boundary.boundary_step_order=step.step_order
       )`;
     const boundedLimit = Math.max(1, Math.min(2000, Math.trunc(input.limit)));
     const boundedOffset = Math.max(0, Math.trunc(input.offset));

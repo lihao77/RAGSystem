@@ -46,7 +46,6 @@ export interface AsyncConversationRepository {
     afterSeq?: number | null;
     afterMessageId?: string | null;
     tenantId?: string | null;
-    truncateRunSteps?: { runId: string; fromStepOrder: number } | null;
   }): Promise<number>;
   updateMessage(input: { messageId: string; content?: string | null; metadata?: Record<string, unknown> | null; sessionId?: string | null; roleFilter?: MessageInfo["role"] | null }): Promise<boolean>;
   insertCompressionMessage(input: { sessionId: string; summaryContent: string; replacesUpToSeq?: number | null; threadKey?: string; childAgentId?: string | null; metadata?: Record<string, unknown> }): Promise<MessageInfo>;

@@ -12,6 +12,7 @@ import type {
   RuntimeStorage,
   RuntimeStartRunInput,
 } from "../../../contracts/storage/runtime-storage.js";
+import { rootMailboxConversationMessage } from "../../../contracts/storage/runtime-storage.js";
 import type { AgentMailboxInputType, AgentMailboxSourceKind } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
@@ -58,6 +59,8 @@ export interface AsyncPersisterRunContext {
     metadata?: Record<string, unknown> | null;
   };
   initialMessage?: AddMessageInput & { messageId: string };
+  participantExpectedLastRunId?: string | null;
+  initialMailboxMessageId?: string | null;
   followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string | null;
   initialEnvelopes?: readonly Envelope[];
@@ -90,16 +93,29 @@ export class AsyncKernelEventPersister {
 
   async startRun(): Promise<ExecutionStartDisposition> {
     if (this.ctx.parentRunId != null && !this.ctx.ownsRunLease) await this.ensureRunLease();
-    const initialRecords = (this.ctx.initialEnvelopes ?? []).map((event, index) => this.clientEvents.prepare(
-      this.ctx.sessionId,
-      event,
-      {
-        eventId: `${this.ctx.runId}:initial:${index}:${event.type}`,
-        runId: this.ctx.runId,
-        aggregateType: "run",
-        aggregateId: this.ctx.runId,
-      },
-    ));
+    const initialBoundaryMessageId = this.ctx.initialMessage?.messageId ?? this.ctx.rootMailboxMessage?.id ?? null;
+    const messageSaved = this.initialMessageSavedEnvelope();
+    const prepareInitial = (event: Envelope, eventId: string) => this.clientEvents.prepare(
+        this.ctx.sessionId,
+        initialBoundaryMessageId && !event.boundary_message_id
+          ? { ...event, boundary_message_id: initialBoundaryMessageId }
+          : event,
+        {
+          eventId,
+          runId: this.ctx.runId,
+          aggregateType: "run",
+          aggregateId: this.ctx.runId,
+        },
+      );
+    const initialRecords = [
+      ...(messageSaved
+        ? [prepareInitial(messageSaved, `${this.ctx.runId}:initial:message_saved`)]
+        : []),
+      ...(this.ctx.initialEnvelopes ?? []).map((event, index) => prepareInitial(
+        event,
+        `${this.ctx.runId}:initial:${index}:${event.type}`,
+      )),
+    ];
     const startInput: RuntimeStartRunInput = {
       session: this.ctx.sessionIdentity,
       run: {
@@ -125,6 +141,13 @@ export class AsyncKernelEventPersister {
       ...(this.ctx.ownsRunLease ? { claimOwnLease: true } : {}),
       ...(initialRecords.length > 0 ? { initialRecords } : {}),
       ...(this.ctx.initialMessage ? { initialMessage: this.ctx.initialMessage } : {}),
+      ...(this.ctx.childAgentId && this.ctx.participantExpectedLastRunId !== undefined ? {
+        participantRun: {
+          childAgentId: this.ctx.childAgentId,
+          expectedLastRunId: this.ctx.participantExpectedLastRunId,
+        },
+      } : {}),
+      ...(this.ctx.initialMailboxMessageId ? { initialMailboxMessageId: this.ctx.initialMailboxMessageId } : {}),
     };
     const result = this.ctx.parentRunId == null && this.ctx.rootMailboxMessage
       ? await this.storage.operations.startOrAppendRoot({
@@ -161,6 +184,46 @@ export class AsyncKernelEventPersister {
     }
     if (this.isRootRun() || this.ctx.ownsRunLease) this.startLeaseHeartbeat();
     return { kind: "started" };
+  }
+
+  private initialMessageSavedEnvelope(): Envelope | null {
+    if (this.ctx.parentRunId != null || !this.ctx.rootMailboxMessage) return null;
+    const mailbox = this.ctx.rootMailboxMessage;
+    const canonical = rootMailboxConversationMessage({
+      sessionId: this.ctx.sessionId,
+      runId: this.ctx.runId,
+      mailboxMessage: {
+        messageId: mailbox.id,
+        tenantId: this.ctx.tenantId,
+        sessionId: this.ctx.sessionId,
+        targetThreadKey: "root",
+        kind: "request",
+        inputType: mailbox.inputType,
+        sourceKind: mailbox.sourceKind,
+        visibleToUser: mailbox.visibleToUser,
+        sentAt: mailbox.sentAt,
+        contentParts: mailbox.contentParts,
+        metadata: mailbox.metadata ?? {},
+      },
+    });
+    return {
+      type: "state_sync",
+      session_id: this.ctx.sessionId,
+      run_id: this.ctx.runId,
+      boundary_message_id: canonical.messageId,
+      payload: {
+        category: "message_saved",
+        ref: {
+          message_id: canonical.messageId,
+          role: "user",
+          request_id: typeof canonical.metadata?.request_id === "string"
+            ? canonical.metadata.request_id
+            : undefined,
+          content_parts: canonical.contentParts ?? [],
+          metadata: canonical.metadata ?? {},
+        },
+      },
+    };
   }
 
   async persist(event: KernelEvent): Promise<void> {

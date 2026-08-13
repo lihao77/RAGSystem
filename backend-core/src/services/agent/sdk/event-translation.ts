@@ -34,6 +34,7 @@ export interface WireTranslationContext {
   requestId: string;
   agentId: string;
   parentCallId?: string | null;
+  boundaryMessageId?: string | null;
 }
 
 /** Translate one SDK event into the envelopes visible to this backend's clients. */
@@ -80,8 +81,15 @@ function topMarkers(ctx: WireTranslationContext): {
   run_id: string;
   call_id: string;
   agent_id: string;
+  boundary_message_id?: string;
 } {
-  return { session_id: ctx.sessionId, run_id: ctx.runId, call_id: ctx.rootCallId, agent_id: ctx.agentId };
+  return {
+    session_id: ctx.sessionId,
+    run_id: ctx.runId,
+    call_id: ctx.rootCallId,
+    agent_id: ctx.agentId,
+    ...(ctx.boundaryMessageId ? { boundary_message_id: ctx.boundaryMessageId } : {}),
+  };
 }
 
 function toolLineage(ctx: WireTranslationContext): { parent_call_id?: string } {

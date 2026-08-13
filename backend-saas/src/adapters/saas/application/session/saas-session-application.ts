@@ -320,41 +320,11 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
         await fileHistory.rewind(input.sessionId, targetSeq);
       }
     }
-    const truncateRunSteps = await this.resolveRollbackRunStepTruncation(
-      input.sessionId,
-      input.afterSeq,
-      input.afterMessageId,
-    );
     return this.repository.deleteMessagesAfter(input.sessionId, {
       afterSeq: input.afterSeq ?? null,
       afterMessageId: input.afterMessageId ?? null,
       tenantId: this.tenantId,
-      ...(truncateRunSteps ? { truncateRunSteps } : {}),
     });
-  }
-
-  private async resolveRollbackRunStepTruncation(
-    sessionId: string,
-    afterSeq?: number | null,
-    afterMessageId?: string | null,
-  ): Promise<{ runId: string; fromStepOrder: number } | null> {
-    if (!this.runs) return null;
-    let boundarySeq = afterSeq ?? null;
-    if (boundarySeq == null && afterMessageId?.trim()) {
-      boundarySeq = (await this.repository.getMessageById(sessionId, afterMessageId.trim()))?.seq ?? null;
-    }
-    if (boundarySeq == null) return null;
-    const firstDeleted = await this.repository.getFirstMessageAfterSeq(sessionId, boundarySeq);
-    if (!firstDeleted || !isRunFollowupMessage(firstDeleted)) return null;
-    const runId = executionRunId(firstDeleted);
-    if (!runId) return null;
-    const boundaryStepOrder = await this.runs.getRunMessageBoundary(
-      this.tenantId,
-      sessionId,
-      runId,
-      firstDeleted.id,
-    );
-    return boundaryStepOrder == null ? null : { runId, fromStepOrder: boundaryStepOrder };
   }
 }
 
@@ -383,11 +353,6 @@ function shouldExposeExecutionCarrier(message: MessageInfo): boolean {
     && executionRunId(message) != null;
 }
 
-function isRunFollowupMessage(message: MessageInfo): boolean {
-  return message.role === "user"
-    && (message.metadata.source === "running_session"
-      || message.metadata.execution_kind === "session_followup");
-}
 
 interface StoredExecutionEnvelope {
   eventId: string | null;

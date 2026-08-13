@@ -8,6 +8,7 @@ export type RunStepMessageBoundary = {
 export function executionEnvelopeMessageBoundary(
   envelope: Envelope,
 ): RunStepMessageBoundary | Record<string, never> {
+  // boundary_message_id targets live rendering; only canonical messages split durable step ranges.
   const messageId = envelopeMessageId(envelope);
   if (!messageId) return {};
   if (envelope.type === "agent_message") {

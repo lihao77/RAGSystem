@@ -28,11 +28,17 @@ test("visible message SQL compares JSONB flags as native booleans", async () => 
   assert.doesNotMatch(sql, /metadata->>'(?:react_intermediate|hidden|visible_to_user|agent_message)'/);
 });
 
-test("followup rollback truncates tenant-scoped run steps before deleting messages", async () => {
+test("rollback discovers and truncates every tenant-scoped run boundary before deleting messages", async () => {
   const queries = [];
   const executor = {
     async query(sql, params = []) {
       queries.push({ sql, params });
+      if (/MIN\(boundary\.boundary_step_order\)/.test(sql)) {
+        return { rows: [
+          { run_id: "root-run", from_step_order: 3 },
+          { run_id: "child-run", from_step_order: 7 },
+        ], rowCount: 2 };
+      }
       if (/WITH deleted_runs AS/.test(sql)) return { rows: [], rowCount: 0 };
       return { rows: [], rowCount: /DELETE FROM conversation_messages/.test(sql) ? 2 : 1 };
     },
@@ -45,16 +51,20 @@ test("followup rollback truncates tenant-scoped run steps before deleting messag
   const deleted = await repository.deleteMessagesAfter("session-1", {
     afterSeq: 1,
     tenantId: "tnt_test",
-    truncateRunSteps: { runId: "root-run", fromStepOrder: 3 },
   });
 
   assert.equal(deleted, 2);
-  assert.match(queries[0].sql, /WITH deleted_runs AS/);
-  assert.match(queries[0].sql, /NOT EXISTS/);
-  assert.match(queries[1].sql, /DELETE FROM saas_run_message_boundaries/);
-  assert.deepEqual(queries[1].params, ["tnt_test", "session-1", "root-run", 3]);
-  assert.match(queries[2].sql, /DELETE FROM saas_run_steps/);
-  assert.deepEqual(queries[2].params, ["tnt_test", "session-1", "root-run", 3]);
-  assert.match(queries[3].sql, /DELETE FROM conversation_messages/);
-  assert.deepEqual(queries[3].params, ["session-1", 1]);
+  assert.match(queries[0].sql, /JOIN conversation_messages/);
+  assert.match(queries[0].sql, /GROUP BY boundary.run_id/);
+  assert.match(queries[1].sql, /WITH deleted_runs AS/);
+  assert.match(queries[1].sql, /NOT EXISTS/);
+  assert.deepEqual(
+    queries.filter(item => /DELETE FROM saas_run_steps/.test(item.sql)).map(item => item.params),
+    [
+      ["tnt_test", "session-1", "root-run", 3],
+      ["tnt_test", "session-1", "child-run", 7],
+    ],
+  );
+  assert.match(queries.at(-1).sql, /DELETE FROM conversation_messages/);
+  assert.deepEqual(queries.at(-1).params, ["session-1", 1]);
 });

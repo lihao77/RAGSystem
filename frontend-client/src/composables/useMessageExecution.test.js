@@ -68,6 +68,46 @@ test('historical child execution loads by its real message boundary', async () =
   assert.equal(message.executionStepsLoaded, true);
 });
 
+test('root agent result uses its target thread instead of source child metadata', async () => {
+  const calls = [];
+  const message = {
+    role: 'user',
+    id: 'child-run:terminal_result',
+    run_id: 'root-run',
+    thread_key: 'root',
+    child_agent_id: null,
+    metadata: {
+      child_agent_id: 'child-1',
+      source_child_agent_id: 'child-1',
+      target_thread_key: 'root',
+      consumed_by_run_id: 'root-run',
+    },
+    has_execution: true,
+    executionTree: { root: null, steps: [] },
+  };
+  const execution = useMessageExecution({
+    currentSessionId: ref('session-1'),
+    selectedParticipantId: ref('root'),
+    participantMessages: ref({ root: [message] }),
+    activeRun: { runId: 'root-run', rootCallId: 'root-call' },
+    chatSdkClient: {
+      on() { return () => {}; },
+      async getMessageRunSteps(sessionId, messageId, options) {
+        calls.push({ sessionId, messageId, options });
+        return { data: { items: [], has_more: false } };
+      },
+    },
+  });
+
+  await execution.ensureExecutionStepsLoaded(message);
+
+  assert.deepEqual(calls, [{
+    sessionId: 'session-1',
+    messageId: 'child-run:terminal_result',
+    options: { limit: 500, offset: 0 },
+  }]);
+});
+
 test('child envelopes wait for the durable message and project onto that exact object', async () => {
   const handlers = new Set();
   const participantMessages = ref({ 'child-1': [] });
@@ -182,6 +222,7 @@ test('agent_message creates only its real conversation message', () => {
     payload: {
       kind: 'request',
       message_id: 'mailbox-1',
+      seq: 17,
       source_agent_name: 'Coordinator',
       target_child_agent_id: 'child-1',
       target_thread_key: 'child:child-1',
@@ -194,6 +235,7 @@ test('agent_message creates only its real conversation message', () => {
   assert.equal(synced[0].participantId, 'child-1');
   assert.equal(synced[0].message.role, 'user');
   assert.equal(synced[0].message.id, 'mailbox-1');
+  assert.equal(synced[0].message.seq, 17);
   assert.equal(synced[0].message.run_id, null);
   assert.equal(synced[0].message.has_execution, false);
 });

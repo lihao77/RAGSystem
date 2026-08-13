@@ -116,8 +116,8 @@ export class AgentRunEngine {
     } | undefined;
     rootMailboxMessage?: {
       id: string;
-      inputType: "user_message" | "system_notification" | "goal_continuation";
-      sourceKind: "user" | "system";
+      inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
+      sourceKind: "user" | "agent" | "system";
       visibleToUser: boolean;
       sentAt: string;
       contentParts: MessageContentPart[];
@@ -159,8 +159,8 @@ export class AgentRunEngine {
 
     let rootMailboxMessage: {
       id: string;
-      inputType: "user_message" | "system_notification" | "goal_continuation";
-      sourceKind: "user" | "system";
+      inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
+      sourceKind: "user" | "agent" | "system";
       visibleToUser: boolean;
       sentAt: string;
       contentParts: MessageContentPart[];
@@ -460,12 +460,14 @@ export class AgentRunEngine {
       contentParts: MessageContentPart[];
       metadata?: Record<string, unknown>;
     };
+    participantExpectedLastRunId?: string | null;
+    initialMailboxMessageId?: string | null;
     ownsRunLease?: boolean;
     userId?: string | null;
     rootMailboxMessage?: {
       id: string;
-      inputType: "user_message" | "system_notification" | "goal_continuation";
-      sourceKind: "user" | "system";
+      inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
+      sourceKind: "user" | "agent" | "system";
       visibleToUser: boolean;
       sentAt: string;
       contentParts: MessageContentPart[];
@@ -577,6 +579,10 @@ export class AgentRunEngine {
           ...(input.userId !== undefined ? { userId: input.userId } : {}),
           ...(input.rootMailboxMessage ? { rootMailboxMessage: input.rootMailboxMessage } : {}),
           ...(input.initialMessage ? { initialMessage: input.initialMessage } : {}),
+          ...(input.participantExpectedLastRunId !== undefined ? {
+            participantExpectedLastRunId: input.participantExpectedLastRunId,
+          } : {}),
+          ...(input.initialMailboxMessageId ? { initialMailboxMessageId: input.initialMailboxMessageId } : {}),
           ...(input.followupPolicy ? { followupPolicy: input.followupPolicy } : {}),
           ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
           ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),

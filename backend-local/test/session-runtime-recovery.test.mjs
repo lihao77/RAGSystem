@@ -483,7 +483,7 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
     followupPolicy: 'queue',
   });
   assert.equal(started.kind, 'started');
-  assert.equal((await store.agentMailbox.get('session-1', 'run-2:user')).status, 'queued');
+  assert.equal((await store.agentMailbox.get('session-1', 'run-2:user')).status, 'acked');
   const nextMessage = store.getMessageById('session-1', 'run-2:user');
   assert.equal(nextMessage.metadata.run_id, 'run-2');
   assert.equal(nextMessage.metadata.consumed_by_run_id, 'run-2');

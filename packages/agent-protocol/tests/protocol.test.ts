@@ -19,6 +19,22 @@ import {
 } from "../src/execution-tree.js";
 
 describe("agent-protocol envelope compatibility", () => {
+  it("preserves the canonical conversation sequence on agent messages", () => {
+    const parsed = ServerToClientEnvelopeSchema.parse({
+      type: "agent_message",
+      session_id: "session-1",
+      run_id: "run-1",
+      message_id: "message-1",
+      payload: {
+        kind: "request",
+        message_id: "message-1",
+        seq: 42,
+      },
+    });
+
+    expect(parsed.payload.seq).toBe(42);
+  });
+
   it("preserves child participant identity through wire parsing", () => {
     const state = createExecutionTreeState();
     const event = ServerToClientEnvelopeSchema.parse({

@@ -106,8 +106,8 @@ export interface SdkExecuteRunInput {
   messageMetadata?: Record<string, unknown> | null;
   rootMailboxMessage?: {
     id: string;
-    inputType: "user_message" | "system_notification" | "goal_continuation";
-    sourceKind: "user" | "system";
+    inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
+    sourceKind: "user" | "agent" | "system";
     visibleToUser: boolean;
     sentAt: string;
     contentParts: MessageContentPart[];
@@ -119,6 +119,8 @@ export interface SdkExecuteRunInput {
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
   };
+  participantExpectedLastRunId?: string | null;
+  initialMailboxMessageId?: string | null;
   followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string;
   initialEnvelopes?: readonly Envelope[];
@@ -367,6 +369,7 @@ export async function executeRunWithSdk(
     rootCallId: input.rootCallId,
     requestId: input.requestId,
     agentId: input.agent.agent_name,
+    boundaryMessageId: input.initialMessage?.id ?? input.rootMailboxMessage?.id ?? null,
   };
   if (input.lineageParentCallId !== undefined && input.lineageParentCallId !== null) {
     wireCtx.parentCallId = input.lineageParentCallId;
@@ -406,6 +409,10 @@ export async function executeRunWithSdk(
         childAgentId: input.childAgentId ?? null,
       },
     } : {}),
+    ...(input.participantExpectedLastRunId !== undefined ? {
+      participantExpectedLastRunId: input.participantExpectedLastRunId,
+    } : {}),
+    ...(input.initialMailboxMessageId ? { initialMailboxMessageId: input.initialMailboxMessageId } : {}),
     ...(input.followupPolicy ? { followupPolicy: input.followupPolicy } : {}),
     ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
     ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
@@ -537,65 +544,54 @@ export async function executeRunWithSdk(
               visible_to_user: mailboxMessage.visible_to_user,
               sent_at: mailboxMessage.sent_at,
             };
-            const existing = await deps.storage.conversation.getMessageById(sid, mailboxMessage.message_id);
-            let persisted = existing;
-            if (!existing) {
-              persisted = await deps.storage.conversation.addMessage({
+            const envelope = deps.eventPublisher.buildAgentMessage({
+              sessionId: sid,
+              runId: input.runId,
+              callId: input.rootCallId,
+              message: { ...mailboxMessage, metadata: canonicalMetadata },
+            });
+            const committed = await deps.storage.commitRunInput({
+              sessionId: sid,
+              runId: input.runId,
+              message: {
                 sessionId: sid,
                 messageId: mailboxMessage.message_id,
                 role: "user",
                 content: renderedContent,
-                // Keep the semantic envelope in the canonical history projection so
-                // the next model round cannot lose message kind/source metadata.
                 contentParts: isUserMessage ? mailboxMessage.content_parts : [{ type: "text", text: renderedContent }],
                 threadKey: mailboxMessage.target_thread_key,
                 childAgentId: mailboxMessage.target_child_agent_id,
                 metadata: canonicalMetadata,
-              });
-            } else {
-              const {
-                source: _existingSource,
-                execution_kind: _existingExecutionKind,
-                round_index: _existingRoundIndex,
-                ...existingMetadata
-              } = existing.metadata;
-              const metadata = { ...existingMetadata, ...canonicalMetadata };
-              const updated = await deps.storage.conversation.updateMessageMetadata?.(sid, existing.id, metadata);
-              if (updated === false) {
-                throw new Error(`Agent mailbox history update failed: ${mailboxMessage.message_id}`);
-              }
-              persisted = { ...existing, metadata };
-            }
-            if (!persisted) throw new Error(`Agent mailbox history write returned no message: ${mailboxMessage.message_id}`);
-            mailboxMaxSeq = Math.max(mailboxMaxSeq, persisted.seq);
+              },
+              record: deps.eventPublisher.prepareEnvelope(
+                envelope,
+                `${input.runId}:input:${mailboxMessage.message_id}`,
+              ),
+              mailboxAck: {
+                sessionId: sid,
+                messageId: mailboxMessage.message_id,
+                claimId: mailboxMessage.claim_id ?? "",
+              },
+              leaseRootRunId: interactionRootRunId,
+            });
+            const persisted = committed.message;
+            wireCtx.boundaryMessageId = persisted?.id ?? mailboxMessage.message_id;
+            const outbox = committed.record?.outbox;
+            // The input, boundary, outbox, and ACK are already committed. A
+            // live delivery failure leaves the outbox pending for retry and
+            // must not turn durable input consumption into a Run failure.
+            if (outbox) void deps.eventPublisher.deliver([outbox]).catch(() => undefined);
+            mailboxMaxSeq = Math.max(mailboxMaxSeq, persisted?.seq ?? mailboxMessage.seq);
             if (mailboxMessage.input_type === "user_message") {
               const attachmentIds = mailboxMessage.content_parts.flatMap((part) => part.type === "attachment_ref" ? [part.file_id] : []);
               baseExecCtx.attachmentFileIds = [...new Set([...(baseExecCtx.attachmentFileIds ?? []), ...attachmentIds])];
             }
-            await deps.eventPublisher.commitAgentMessage({
-              sessionId: sid,
-              runId: input.runId,
-              callId: input.rootCallId,
-              message: {
-                ...mailboxMessage,
-                metadata: {
-                  ...(persisted.metadata ?? {}),
-                  mailbox_message_id: mailboxMessage.message_id,
-                  consumed_by_run_id: input.runId,
-                },
-              },
-            });
-            const claim = {
-              messageId: mailboxMessage.message_id,
-              claimId: mailboxMessage.claim_id ?? "",
-            };
             if (!deliveredMailboxMessageIds.has(mailboxMessage.message_id)) {
               mailboxAcceptedIds.add(mailboxMessage.message_id);
             }
             // Canonical history and the run boundary are already durable. A later
             // provider failure belongs to this run and must not enqueue the same
             // message into a second follow-up run.
-            await mailbox.ack({ sessionId: sid, ...claim });
             deliveredMailboxMessageIds.add(mailboxMessage.message_id);
           } catch (error) {
             await mailbox.release({

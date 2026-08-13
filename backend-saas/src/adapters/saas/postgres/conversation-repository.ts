@@ -307,7 +307,6 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     afterSeq?: number | null;
     afterMessageId?: string | null;
     tenantId?: string | null;
-    truncateRunSteps?: { runId: string; fromStepOrder: number } | null;
   }): Promise<number> {
     return this.executor.transaction(async (executor) => {
       let seq = input.afterSeq ?? null;
@@ -316,6 +315,16 @@ export class PostgresConversationRepository implements AsyncConversationReposito
         seq = boundary.rows[0] ? Number(boundary.rows[0].seq) : null;
       }
       if (seq == null) return 0;
+      const tenantId = input.tenantId?.trim() || null;
+      const truncations = await executor.query<{ run_id: string; from_step_order: number | string }>(`
+        SELECT boundary.run_id, MIN(boundary.boundary_step_order) AS from_step_order
+        FROM saas_run_message_boundaries AS boundary
+        JOIN conversation_messages AS message
+          ON message.session_id=boundary.session_id AND message.id=boundary.message_id
+        WHERE boundary.tenant_id=$1 AND message.session_id=$2 AND message.seq>$3
+          AND boundary.boundary_step_order IS NOT NULL
+        GROUP BY boundary.run_id
+      `, [tenantId, sessionId, seq]);
       const deletedRuns = await executor.query<{ run_id: string }>(`
         WITH deleted_runs AS (
           SELECT DISTINCT COALESCE(
@@ -328,6 +337,12 @@ export class PostgresConversationRepository implements AsyncConversationReposito
               NULLIF(metadata->>'consumed_by_run_id', ''),
               NULLIF(metadata->>'run_id', '')
             ) IS NOT NULL
+          UNION
+          SELECT DISTINCT boundary.run_id
+          FROM saas_run_message_boundaries AS boundary
+          JOIN conversation_messages AS message
+            ON message.session_id=boundary.session_id AND message.id=boundary.message_id
+          WHERE boundary.tenant_id=$3 AND message.session_id=$1 AND message.seq>$2
         )
         SELECT deleted.run_id
         FROM deleted_runs AS deleted
@@ -339,37 +354,42 @@ export class PostgresConversationRepository implements AsyncConversationReposito
               NULLIF(surviving.metadata->>'run_id', '')
             )=deleted.run_id
         )
-      `, [sessionId, seq]);
-      const tenantId = input.tenantId?.trim() || null;
-      if (deletedRuns.rows.length > 0 && !tenantId) {
+          AND NOT EXISTS (
+            SELECT 1
+            FROM saas_run_message_boundaries AS boundary
+            JOIN conversation_messages AS surviving
+              ON surviving.session_id=boundary.session_id AND surviving.id=boundary.message_id
+            WHERE boundary.tenant_id=$3 AND surviving.session_id=$1
+              AND surviving.seq<=$2 AND boundary.run_id=deleted.run_id
+          )
+      `, [sessionId, seq, tenantId]);
+      if ((deletedRuns.rows.length > 0 || truncations.rows.length > 0) && !tenantId) {
         throw new Error("tenantId is required to delete SaaS run steps");
       }
-      if (input.truncateRunSteps) {
-        if (!tenantId) {
-          throw new Error("tenantId is required to truncate SaaS run steps");
-        }
+      const fullyDeletedRunIds = deletedRuns.rows.map((row) => String(row.run_id));
+      const fullyDeletedRunIdSet = new Set(fullyDeletedRunIds);
+      for (const truncation of truncations.rows) {
+        if (fullyDeletedRunIdSet.has(truncation.run_id)) continue;
+        const fromStepOrder = Number(truncation.from_step_order);
         await executor.query(
           `DELETE FROM saas_run_message_boundaries
            WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
              AND (start_after_step_order>=$4 OR boundary_step_order>=$4)`,
-          [tenantId, sessionId, input.truncateRunSteps.runId, input.truncateRunSteps.fromStepOrder],
+          [tenantId, sessionId, truncation.run_id, fromStepOrder],
         );
         await executor.query(
           "DELETE FROM saas_run_steps WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3 AND step_order>=$4",
-          [tenantId, sessionId, input.truncateRunSteps.runId, input.truncateRunSteps.fromStepOrder],
+          [tenantId, sessionId, truncation.run_id, fromStepOrder],
         );
       }
-      const deletedRunIds = deletedRuns.rows
-        .map((row) => String(row.run_id))
-        .filter((runId) => runId !== input.truncateRunSteps?.runId);
-      if (deletedRunIds.length > 0) {
+      if (fullyDeletedRunIds.length > 0) {
         await executor.query(
           "DELETE FROM saas_run_message_boundaries WHERE tenant_id=$1 AND session_id=$2 AND run_id=ANY($3::text[])",
-          [tenantId, sessionId, deletedRunIds],
+          [tenantId, sessionId, fullyDeletedRunIds],
         );
         await executor.query(
           "DELETE FROM saas_run_steps WHERE tenant_id=$1 AND session_id=$2 AND run_id=ANY($3::text[])",
-          [tenantId, sessionId, deletedRunIds],
+          [tenantId, sessionId, fullyDeletedRunIds],
         );
       }
       const result = await executor.query("DELETE FROM conversation_messages WHERE session_id=$1 AND seq>$2", [sessionId, seq]);

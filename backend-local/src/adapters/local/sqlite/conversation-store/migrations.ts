@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 17;
+export const LATEST_SCHEMA_VERSION = 18;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -23,7 +23,7 @@ function getUserVersion(db: MigrationDatabase): number {
   return Number(row?.user_version ?? 0);
 }
 
-/** Applies explicit schema versions only; historical session data is never repaired here. */
+/** Applies explicit schema versions and narrowly scoped, idempotent data backfills. */
 export function runMigrations(db: MigrationDatabase): void {
   const current = getUserVersion(db);
   if (current > LATEST_SCHEMA_VERSION) {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 16) {
+  if (current >= 1 && current <= 17) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -69,6 +69,8 @@ export function runMigrations(db: MigrationDatabase): void {
         db.exec("ALTER TABLE sessions ADD COLUMN team_snapshot TEXT NOT NULL");
       }
       if (current <= 15) {
+        ensureRunStepOrderingAndBoundaries(db);
+        backfillLegacyRunStepBoundaries(db);
         db.exec("DROP INDEX IF EXISTS idx_run_steps_message_id");
         const runStepColumns = db.prepare("PRAGMA table_info(run_steps)").all() as unknown as Array<{ name: string }>;
         if (runStepColumns.some((column) => column.name === "message_id")) {
@@ -76,6 +78,7 @@ export function runMigrations(db: MigrationDatabase): void {
         }
       }
       ensureRunStepOrderingAndBoundaries(db);
+      backfillCanonicalRunMessageBoundaries(db);
       db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
     });
     assertCurrentSchema(db);
@@ -141,6 +144,53 @@ function ensureRunStepOrderingAndBoundaries(db: MigrationDatabase): void {
       ON run_steps(session_id, run_id, step_order);
     CREATE INDEX IF NOT EXISTS idx_run_message_boundaries_order
       ON run_message_boundaries(session_id, run_id, start_after_step_order);
+  `);
+}
+
+function backfillLegacyRunStepBoundaries(db: MigrationDatabase): void {
+  const columns = db.prepare("PRAGMA table_info(run_steps)").all() as unknown as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "message_id")) return;
+  db.exec(`
+    INSERT OR IGNORE INTO run_message_boundaries (
+      session_id, run_id, message_id,
+      start_after_step_order, boundary_step_order, boundary_kind
+    )
+    SELECT step.session_id, step.run_id, step.message_id,
+           MAX(0, MIN(step.step_order) - 1), NULL, 'carrier'
+    FROM run_steps AS step
+    JOIN messages AS message
+      ON message.session_id=step.session_id AND message.id=step.message_id
+    JOIN runs AS run
+      ON run.session_id=step.session_id AND run.run_id=step.run_id
+    WHERE step.message_id IS NOT NULL AND trim(step.message_id)<>''
+    GROUP BY step.session_id, step.run_id, step.message_id;
+  `);
+}
+
+function backfillCanonicalRunMessageBoundaries(db: MigrationDatabase): void {
+  db.exec(`
+    INSERT OR IGNORE INTO run_message_boundaries (
+      session_id, run_id, message_id,
+      start_after_step_order, boundary_step_order, boundary_kind
+    )
+    SELECT run.session_id, run.run_id, message.id,
+           0, NULL, 'carrier'
+    FROM runs AS run
+    JOIN messages AS message
+      ON message.session_id=run.session_id
+      AND message.seq=(
+        SELECT MIN(candidate.seq)
+        FROM messages AS candidate
+        WHERE candidate.session_id=run.session_id
+          AND COALESCE(
+            NULLIF(json_extract(candidate.metadata, '$.consumed_by_run_id'), ''),
+            NULLIF(json_extract(candidate.metadata, '$.run_id'), '')
+          )=run.run_id
+      )
+    WHERE NOT EXISTS (
+      SELECT 1 FROM run_message_boundaries AS boundary
+      WHERE boundary.session_id=run.session_id AND boundary.run_id=run.run_id
+    );
   `);
 }
 

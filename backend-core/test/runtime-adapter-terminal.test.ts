@@ -34,7 +34,7 @@ const sessionIdentity: SessionIdentity = {
 };
 
 function input(overrides: Partial<Parameters<typeof executeRunWithSdk>[1]> = {}) {
-  return {
+  const result = {
     sessionId: "session-1",
     runId: "run-1",
     taskId: "task-1",
@@ -56,6 +56,7 @@ function input(overrides: Partial<Parameters<typeof executeRunWithSdk>[1]> = {})
     signal: new AbortController().signal,
     ...overrides,
   };
+  return result;
 }
 
 function deps(
@@ -78,8 +79,7 @@ function deps(
     created_at: new Date(0).toISOString(),
     updated_at: new Date(0).toISOString(),
   } as const;
-  return {
-    storage: {
+  const storage = {
       tenantId: "tenant-1",
       conversation: {
         getSession: vi.fn(async () => session),
@@ -92,21 +92,53 @@ function deps(
         persist,
         finalize,
       })),
-    },
+  } as any;
+  const eventPublisher = {
+    publishEnvelope: vi.fn(),
+    commitEnvelope: vi.fn(async () => undefined),
+    publishDelegateCall: vi.fn(),
+    commitDelegateCall: vi.fn(async () => undefined),
+    publishAgentMessage: vi.fn(),
+    commitAgentMessage: vi.fn(async () => undefined),
+    buildAgentMessage: vi.fn((eventInput: any) => ({
+      type: "agent_message",
+      session_id: eventInput.sessionId,
+      run_id: eventInput.runId,
+      call_id: eventInput.callId,
+      message_id: eventInput.message.message_id,
+      payload: { message_id: eventInput.message.message_id, metadata: eventInput.message.metadata },
+    })),
+    prepareEnvelope: vi.fn((envelope: any, eventId: string) => ({
+      step: {
+        sessionId: envelope.session_id,
+        runId: envelope.run_id,
+        eventId,
+        stepType: "protocol.envelope.v1",
+        boundaryMessageId: envelope.message_id,
+        boundaryKind: "carrier",
+        payload: envelope,
+      },
+      outbox: {
+        sessionId: envelope.session_id,
+        runId: envelope.run_id,
+        eventId,
+        eventType: "client.agent_message",
+        aggregateType: "run",
+        aggregateId: envelope.run_id,
+        payload: { client_event: envelope },
+      },
+    })),
+    deliver: vi.fn(async () => undefined),
+  };
+  const result = {
+    storage,
     toolsDeps: {
       pendingInteractions: null,
       taskTools: null,
       getAgentDelegation: () => null,
     },
     taskTools: null,
-    eventPublisher: {
-      publishEnvelope: vi.fn(),
-      commitEnvelope: vi.fn(async () => undefined),
-      publishDelegateCall: vi.fn(),
-      commitDelegateCall: vi.fn(async () => undefined),
-      publishAgentMessage: vi.fn(),
-      commitAgentMessage: vi.fn(async () => undefined),
-    },
+    eventPublisher,
     providers: [{
       key: "provider",
       name: "provider",
@@ -125,6 +157,18 @@ function deps(
     hostToolRegistry: { get: vi.fn(() => []) },
     delegationPending: {},
   } as unknown as SdkRuntimeAdapterDeps;
+  result.storage.commitRunInput = vi.fn(async (commitInput: any) => {
+    const existing = await result.storage.conversation.getMessageById?.(commitInput.sessionId, commitInput.message.messageId);
+    const message = existing ?? await result.storage.conversation.addMessage!(commitInput.message);
+    const acked = await result.storage.agentMailbox.ack(commitInput.mailboxAck);
+    if (!acked) throw new Error("mailbox ACK failed");
+    return {
+      message,
+      record: { step: { step_order: 1 }, outbox: { status: "pending" } },
+      mailboxAcked: true,
+    } as never;
+  });
+  return result;
 }
 
 function mailboxMessage(overrides: Partial<AgentMailboxMessage> = {}): AgentMailboxMessage {
@@ -344,9 +388,10 @@ describe("executeRunWithSdk terminal convergence", () => {
       messageId: "user-mailbox-1",
       claimId: "claim-user-1",
     }));
-    expect(base.eventPublisher.commitAgentMessage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(base.storage.commitRunInput).toHaveBeenCalledWith(expect.objectContaining({
       runId: "run-1",
       message: expect.objectContaining({
+        messageId: "user-mailbox-1",
         metadata: expect.objectContaining({
           execution_kind: "agent_stream",
           run_id: "run-1",
@@ -354,7 +399,86 @@ describe("executeRunWithSdk terminal convergence", () => {
           visible_to_user: true,
         }),
       }),
+      mailboxAck: expect.objectContaining({
+        messageId: "user-mailbox-1",
+        claimId: "claim-user-1",
+      }),
+      record: expect.objectContaining({
+        outbox: expect.objectContaining({ eventId: "run-1:input:user-mailbox-1" }),
+      }),
     }));
+  });
+
+  it("mailbox input 已原子提交后实时投递失败不释放消息或终止 Run", async () => {
+    runtimeMock.createRuntime.mockReset();
+    let history: any[] = [];
+    const message = mailboxMessage({
+      message_id: "followup-delivery-failure",
+      input_type: "user_message",
+      source_kind: "user",
+      visible_to_user: true,
+      target_thread_key: "root",
+      target_child_agent_id: null,
+      claim_id: "claim-delivery-failure",
+      content_parts: [{ type: "text", text: "still consume me" }],
+    });
+    const mailbox: AgentMailboxStorePort = {
+      claim: vi.fn(async () => [message]),
+      ack: vi.fn(async () => true),
+      settle: vi.fn(async () => true),
+      release: vi.fn(async () => true),
+      enqueue: vi.fn(),
+      get: vi.fn(async () => null),
+      expire: vi.fn(async () => 0),
+    };
+    const base = deps(
+      vi.fn(async () => ({ finalMessage: null, records: [], readyResumeInteractionIds: [] })),
+      vi.fn(async () => ({ kind: "started", run: {} })),
+      vi.fn(async () => undefined),
+    );
+    base.storage.agentMailbox = mailbox;
+    base.storage.conversation.getRecentMessages = vi.fn(async () => history);
+    base.storage.conversation.getMessageById = vi.fn(async () => history[0] ?? null);
+    base.storage.conversation.addMessage = vi.fn(async (inputMessage) => {
+      const created = {
+        seq: 1,
+        id: inputMessage.messageId ?? message.message_id,
+        session_id: inputMessage.sessionId,
+        role: inputMessage.role,
+        content: inputMessage.content,
+        content_parts: inputMessage.contentParts,
+        metadata: inputMessage.metadata ?? {},
+        thread_key: inputMessage.threadKey ?? "root",
+        child_agent_id: inputMessage.childAgentId ?? null,
+        created_at: new Date(0).toISOString(),
+      };
+      history = [created];
+      return created;
+    });
+    (base.eventPublisher as any).deliver = vi.fn(async () => {
+      throw new Error("dispatcher unavailable");
+    });
+    runtimeMock.createRuntime.mockImplementation((options: any) => ({
+      run: () => ({
+        runId: "run-1",
+        events: (async function* () {})(),
+        result: (async () => {
+          const refreshed = await options.refresher.refresh({
+            session: { sessionId: "session-1", threadKey: "root" },
+          }, 0);
+          expect(refreshed.messages).toHaveLength(1);
+          return { content: "done", contentParts: [], finishReason: "stop", metadata: {} };
+        })(),
+      }),
+      close: vi.fn(),
+    }));
+
+    const result = await executeRunWithSdk(base, input());
+
+    expect(result.success).toBe(true);
+    expect(mailbox.ack).toHaveBeenCalledOnce();
+    expect(mailbox.release).not.toHaveBeenCalled();
+    expect(base.eventPublisher.deliver).toHaveBeenCalledOnce();
   });
 
   it("把活跃 run 消费的 queued user message 规范化为 execution injection", async () => {
@@ -487,7 +611,7 @@ describe("executeRunWithSdk terminal convergence", () => {
       return created;
     });
     (base.eventPublisher as any).commitEnvelope = vi.fn(async () => undefined);
-    (base.eventPublisher as any).commitAgentMessage = vi.fn(async () => { order.push("followup:boundary"); });
+    (base.eventPublisher as any).deliver = vi.fn(async () => { order.push("followup:boundary"); });
 
     runtimeMock.createRuntime.mockImplementation((options: any) => ({
       run: () => {
@@ -668,7 +792,7 @@ describe("executeRunWithSdk terminal convergence", () => {
     base.storage.agentMailbox = mailbox;
     base.storage.conversation.getRecentMessages = vi.fn(async () => [historyMessage]);
     base.storage.conversation.getMessageById = vi.fn(async () => historyMessage);
-    base.storage.conversation.addMessage = vi.fn();
+    base.storage.conversation.addMessage = vi.fn(async () => historyMessage);
     runtimeMock.createRuntime.mockImplementation((options: any) => ({
       run: () => ({
         runId: "run-1",

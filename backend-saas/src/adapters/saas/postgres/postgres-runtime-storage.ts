@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   rootMailboxInitialMessage,
   RuntimeInteractionUnavailableError,
+  withCanonicalMessageSequence,
 } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import type {
   RuntimeAtomicOperations,
@@ -12,6 +13,8 @@ import type {
   RuntimeClaimResumeInput,
   RuntimeClaimResumeResult,
   RuntimeClaimSessionMaintenanceResult,
+  RuntimeCommitRunInputInput,
+  RuntimeCommitRunInputResult,
   RuntimeConversationStorage,
   RuntimeFinalizeRunInput,
   RuntimeFinalizeRunResult,
@@ -69,6 +72,7 @@ import { PostgresPendingInteractionRepository } from "./pending-interaction-repo
 import { PostgresProviderContinuationRepository } from "./provider-continuation-repository.js";
 import { PostgresRunRepository } from "./run-repository.js";
 import { PostgresAgentMailboxRepository } from "./agent-mailbox-repository.js";
+import { PostgresChildAgentRepository } from "./child-agent-repository.js";
 
 function createTransactionFacade(
   tenantId: TenantId,
@@ -80,6 +84,7 @@ function createTransactionFacade(
   const pendingInteractionRepository = new PostgresPendingInteractionRepository(executor);
   const providerContinuationRepository = new PostgresProviderContinuationRepository(executor);
   const agentMailbox = new PostgresAgentMailboxRepository(tenantId, executor);
+  const childAgents = new PostgresChildAgentRepository(executor);
 
   const conversation: RuntimeConversationStorage = {
     createSession: (input) => conversationRepository.createSession({ tenantId, ...input }),
@@ -141,7 +146,12 @@ function createTransactionFacade(
     ),
   };
 
-  return { conversation, runs, outbox, pendingInteractions, providerContinuations, agentMailbox };
+  const participants = {
+    updateChildAgentLastRun: (input: Parameters<PostgresChildAgentRepository["updateChildAgentLastRun"]>[1]) => (
+      childAgents.updateChildAgentLastRun(tenantId, input)
+    ),
+  };
+  return { conversation, runs, outbox, pendingInteractions, providerContinuations, agentMailbox, participants };
 }
 
 export class PostgresRuntimeStorage implements RuntimeStorage {
@@ -158,6 +168,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       startRun: (input) => this.startRun(input),
       startOrAppendRoot: (input) => this.startOrAppendRoot(input),
       persistMessage: (input) => this.persistMessage(input),
+      commitRunInput: (input) => this.commitRunInput(input),
       recordEnvelope: (input) => this.recordEnvelope(input),
       recordInteraction: (input) => this.recordInteraction(input),
       resolveInteraction: (input) => this.resolveInteraction(input),
@@ -435,6 +446,22 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           initialMessage.id,
         );
       }
+      if (!existingRun && input.participantRun) {
+        const participantUpdated = await tx.participants.updateChildAgentLastRun({
+          sessionId: input.session.sessionId,
+          childAgentId: input.participantRun.childAgentId,
+          lastRunId: input.run.runId,
+          expectedLastRunId: input.participantRun.expectedLastRunId,
+        });
+        if (!participantUpdated) throw new Error(`child Agent latest Run changed before invocation start: ${input.participantRun.childAgentId}`);
+      }
+      if (!existingRun && input.initialMailboxMessageId) {
+        const settled = await tx.agentMailbox.settle({
+          sessionId: input.session.sessionId,
+          messageId: input.initialMailboxMessageId,
+        });
+        if (!settled) throw new Error(`initial mailbox message not found: ${input.initialMailboxMessageId}`);
+      }
       if (input.claimOwnLease && input.run.parentRunId == null) {
         throw new Error("claimOwnLease is only valid for a child run");
       }
@@ -452,7 +479,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           tx,
           transactionExecutor,
           this.tenantId,
-          record,
+          initialMessage ? withCanonicalMessageSequence(record, initialMessage) : record,
         ));
       }
       return { run, records };
@@ -531,12 +558,24 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         );
       }
       const records: RuntimeRecordEnvelopeResult[] = [...recovered.records];
+      const canonicalInitialMessage = initialMessage
+        ?? await tx.conversation.getMessageById(input.session.sessionId, input.mailboxMessage.messageId);
       for (const record of (input.initialRecords ?? []).map(normalizeRecord)) {
         assertRecordScope(record, input.session.sessionId, input.run.runId);
         await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${record.outbox.eventId}`);
-        records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, record));
+        records.push(await recordEnvelope(
+          tx,
+          transactionExecutor,
+          this.tenantId,
+          canonicalInitialMessage ? withCanonicalMessageSequence(record, canonicalInitialMessage) : record,
+        ));
       }
       const mailboxMessage = await tx.agentMailbox.enqueue(input.mailboxMessage);
+      const settled = await tx.agentMailbox.settle({
+        sessionId: input.session.sessionId,
+        messageId: mailboxMessage.message_id,
+      });
+      if (!settled) throw new Error(`initial mailbox message not found: ${mailboxMessage.message_id}`);
       return { kind: "started", run, mailboxMessage, records };
     });
   }
@@ -823,6 +862,44 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         ? await tx.providerContinuations.putProviderContinuation(input.providerContinuation)
         : null;
       return { message, deletedProviderContinuations, providerContinuation };
+    });
+  }
+
+  private async commitRunInput(input: RuntimeCommitRunInputInput): Promise<RuntimeCommitRunInputResult> {
+    assertSessionId(input.message.sessionId, input.sessionId, "run input message");
+    const normalized = normalizeRecord(input.record);
+    assertRecordScope(normalized, input.sessionId, input.runId);
+    if (input.mailboxAck.sessionId !== input.sessionId || input.mailboxAck.messageId !== input.message.messageId) {
+      throw new Error("run input mailbox scope mismatch");
+    }
+    return this.executor.transaction(async (transactionExecutor) => {
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      await assertOwnedRunLeaseForRun(
+        transactionExecutor,
+        this.tenantId,
+        this.ownerInstanceId,
+        input.sessionId,
+        input.leaseRootRunId ?? input.runId,
+      );
+      const run = await lockTenantRun(transactionExecutor, this.tenantId, input.runId);
+      if (!run || run.session_id !== input.sessionId) throw new Error(`run not found: ${input.runId}`);
+      await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
+      const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+      const message = await getOrCreateMessage(transactionExecutor, tx, input.message, "run input message");
+      const record = await recordEnvelope(
+        tx,
+        transactionExecutor,
+        this.tenantId,
+        withCanonicalMessageSequence(normalized, message),
+      );
+      let mailboxAcked = await tx.agentMailbox.ack(input.mailboxAck);
+      if (!mailboxAcked) {
+        const mailbox = await tx.agentMailbox.get(input.sessionId, input.mailboxAck.messageId);
+        mailboxAcked = mailbox?.status === "acked";
+      }
+      if (!mailboxAcked) throw new Error(`mailbox ACK failed: ${input.mailboxAck.messageId}`);
+      return { message, record, mailboxAcked: true };
     });
   }
 

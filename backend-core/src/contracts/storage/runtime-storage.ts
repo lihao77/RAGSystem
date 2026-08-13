@@ -12,6 +12,7 @@ import type {
   PutProviderContinuationInput,
   RunInfo,
   RunStepRecord,
+  UpdateChildAgentLastRunInput,
 } from "../conversation-store/index.js";
 import type { PermissionMode } from "../runtime/permissions.js";
 import type { MessageInfo, SessionIdentity, SessionInfo } from "../session/session.js";
@@ -19,6 +20,7 @@ import type { TenantId } from "../../identity/types.js";
 import type {
   AgentMailboxMessage,
   AgentMailboxStorePort,
+  AckAgentMailboxInput,
   EnqueueAgentMailboxMessageInput,
 } from "./agent-mailbox-repository.js";
 
@@ -120,6 +122,10 @@ export interface RuntimeProviderContinuationStorage {
   deleteProviderContinuations(sessionId: string, threadKey: string): Promise<number>;
 }
 
+export interface RuntimeParticipantStorage {
+  updateChildAgentLastRun(input: UpdateChildAgentLastRunInput): Promise<boolean>;
+}
+
 /** Adapter-internal repository bundle used to implement the fixed atomic operations. */
 export interface RuntimeStorageRepositories {
   conversation: RuntimeConversationStorage;
@@ -128,6 +134,7 @@ export interface RuntimeStorageRepositories {
   pendingInteractions: RuntimePendingInteractionStorage;
   providerContinuations: RuntimeProviderContinuationStorage;
   agentMailbox: AgentMailboxStorePort;
+  participants: RuntimeParticipantStorage;
 }
 
 export interface RuntimeStartRunInput {
@@ -139,6 +146,13 @@ export interface RuntimeStartRunInput {
    * an already-persisted Run.
    */
   initialMessage?: AddMessageInput & { messageId: string };
+  /** Atomically advances the child participant's durable latest-Run pointer. */
+  participantRun?: {
+    childAgentId: string;
+    expectedLastRunId: string | null;
+  };
+  /** Queued mailbox seed settled in the same transaction as a newly-created Run. */
+  initialMailboxMessageId?: string | null;
   /** Existing root lease required when creating or resuming a child run. */
   leaseRootRunId?: string | null;
   /** This non-root run owns an independent lease instead of inheriting its execution-tree root lease. */
@@ -163,21 +177,41 @@ export interface RuntimeStartOrAppendRootInput extends Omit<RuntimeStartRunInput
 export function rootMailboxInitialMessage(
   input: RuntimeStartOrAppendRootInput,
 ): AddMessageInput & { messageId: string } {
-  const message = input.mailboxMessage;
-  return {
+  return rootMailboxConversationMessage({
     sessionId: input.session.sessionId,
+    runId: input.run.runId,
+    mailboxMessage: input.mailboxMessage,
+  });
+}
+
+export function rootMailboxConversationMessage(input: {
+  sessionId: string;
+  runId: string;
+  mailboxMessage: EnqueueAgentMailboxMessageInput;
+}): AddMessageInput & { messageId: string } {
+  const message = input.mailboxMessage;
+  const displayContent = (message.contentParts ?? []).flatMap((part) => {
+    if (part.type === "text") return [part.text];
+    if (part.type === "command_ref") return [part.raw_text];
+    return [];
+  }).join("\n").trim();
+  const content = message.inputType === "agent_message"
+    ? `[agent-message kind=${message.kind} id=${message.messageId}]\n${displayContent}\n[/agent-message]`
+    : displayContent;
+  return {
+    sessionId: input.sessionId,
     messageId: message.messageId,
     role: "user",
-    content: (message.contentParts ?? []).flatMap((part) => {
-      if (part.type === "text") return [part.text];
-      if (part.type === "command_ref") return [part.raw_text];
-      return [];
-    }).join(""),
-    contentParts: message.contentParts ?? [],
+    content,
+    contentParts: message.inputType === "agent_message"
+      ? [{ type: "text", text: content }]
+      : message.contentParts ?? [],
     metadata: {
       ...(message.metadata ?? {}),
-      run_id: input.run.runId,
-      consumed_by_run_id: input.run.runId,
+      ...(message.inputType === "agent_message" ? { agent_message: true } : {}),
+      mailbox_message_id: message.messageId,
+      run_id: input.runId,
+      consumed_by_run_id: input.runId,
     },
     threadKey: "root",
     childAgentId: null,
@@ -205,6 +239,76 @@ export interface RuntimeRecordEnvelopeInput {
 export interface RuntimeRecordEnvelopeResult {
   step: RunStepRecord | null;
   outbox: OutboxRow;
+}
+
+/**
+ * Attach the canonical conversation sequence to an envelope committed in the
+ * same transaction as the message. The mailbox sequence and outbox sequence
+ * describe different journals and must never be used to order chat messages.
+ */
+export function withCanonicalMessageSequence(
+  record: RuntimeRecordEnvelopeInput,
+  message: Pick<MessageInfo, "id" | "seq">,
+): RuntimeRecordEnvelopeInput {
+  const attach = (value: unknown): unknown => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    const envelope = value as Record<string, unknown>;
+    const payload = envelope.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return value;
+    const payloadRecord = payload as Record<string, unknown>;
+    if (envelope.type === "agent_message"
+      && (envelope.message_id === message.id || payloadRecord.message_id === message.id)) {
+      return { ...envelope, payload: { ...payloadRecord, seq: message.seq } };
+    }
+    const ref = payloadRecord.ref;
+    if (envelope.type === "state_sync"
+      && payloadRecord.category === "message_saved"
+      && ref && typeof ref === "object" && !Array.isArray(ref)
+      && (ref as Record<string, unknown>).message_id === message.id) {
+      return {
+        ...envelope,
+        payload: {
+          ...payloadRecord,
+          ref: { ...(ref as Record<string, unknown>), seq: message.seq },
+        },
+      };
+    }
+    return value;
+  };
+  const outboxPayload = record.outbox.payload;
+  const clientEvent = outboxPayload && typeof outboxPayload === "object" && !Array.isArray(outboxPayload)
+    ? (outboxPayload as Record<string, unknown>).client_event
+    : null;
+  const nextClientEvent = attach(clientEvent);
+  const nextStepPayload = record.step ? attach(record.step.payload) : null;
+  if (nextClientEvent === clientEvent && (!record.step || nextStepPayload === record.step.payload)) return record;
+  return {
+    ...record,
+    ...(record.step ? { step: { ...record.step, payload: nextStepPayload as Record<string, unknown> } } : {}),
+    outbox: {
+      ...record.outbox,
+      payload: {
+        ...(outboxPayload as Record<string, unknown>),
+        client_event: nextClientEvent,
+      },
+    },
+  };
+}
+
+/** One durable input boundary consumed by an already-running Run. */
+export interface RuntimeCommitRunInputInput {
+  runId: string;
+  sessionId: string;
+  message: AddMessageInput & { messageId: string };
+  record: RuntimeRecordEnvelopeInput;
+  mailboxAck: AckAgentMailboxInput;
+  leaseRootRunId?: string | null;
+}
+
+export interface RuntimeCommitRunInputResult {
+  message: MessageInfo;
+  record: RuntimeRecordEnvelopeResult;
+  mailboxAcked: boolean;
 }
 
 export type RuntimeFinalizeStatus = "completed" | "failed" | "interrupted" | "suspended";
@@ -429,6 +533,8 @@ export interface RuntimeAtomicOperations {
   startRun(input: RuntimeStartRunInput): Promise<RuntimeStartRunResult>;
   startOrAppendRoot(input: RuntimeStartOrAppendRootInput): Promise<RuntimeStartOrAppendRootResult>;
   persistMessage(input: RuntimePersistMessageInput): Promise<RuntimePersistMessageResult>;
+  /** Canonical message, Run-Step boundary, outbox, and mailbox ACK commit together. */
+  commitRunInput(input: RuntimeCommitRunInputInput): Promise<RuntimeCommitRunInputResult>;
   /** `outbox.eventId` is the shared idempotency key for the outbox row and optional run step. */
   recordEnvelope(input: RuntimeRecordEnvelopeInput): Promise<RuntimeRecordEnvelopeResult>;
   recordInteraction(input: RuntimeRecordInteractionInput): Promise<RuntimeRecordInteractionResult>;
