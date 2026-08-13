@@ -154,7 +154,7 @@ test('a late response from the previous session cannot overwrite current message
     assert.equal(sessionMessages.messageCache.value.has('session-a'), false);
 });
 
-test('participant history reconciliation preserves live message identity and insertion order', async () => {
+test('participant history reconciliation preserves a real user execution boundary', async () => {
   setActivePinia(createPinia());
   const store = useSessionRunStore();
   const { currentSessionId, messages } = storeToRefs(store);
@@ -171,38 +171,39 @@ test('participant history reconciliation preserves live message identity and ins
     participantId: 'child-1',
     preserveStream: true,
   });
-  const bubble = reactive({
+  const boundary = reactive({
     role: 'user',
-    id: 'mailbox-live',
-    content: '继续处理',
-    metadata: { agent_message: true },
-  });
-  const carrier = reactive({
-    role: 'assistant',
+    id: 'task-1',
     run_id: 'child-run-live',
-    content: '实时结果',
-    metadata: { run_id: 'child-run-live' },
+    content: '继续处理',
+    has_execution: true,
+    executionTree: { root: { agentId: 'worker', rounds: [] }, steps: [] },
+    _execState: { live: true },
+    metadata: { run_id: 'child-run-live', child_agent_id: 'child-1' },
   });
-  store.upsertParticipantMessage('child-1', bubble);
-  store.upsertParticipantMessage('child-1', carrier);
+  store.upsertParticipantMessage('child-1', boundary);
 
   resolveMessages({
     data: {
-      items: [{ id: 'task-1', seq: 1, role: 'user', content: '初始任务', metadata: {} }],
+      items: [{
+        id: 'task-1',
+        seq: 1,
+        role: 'user',
+        content: '初始任务',
+        has_execution: true,
+        metadata: { run_id: 'child-run-live', child_agent_id: 'child-1' },
+      }],
       outbox_watermark: 12,
     },
   });
   await loading;
 
-  assert.deepEqual(messages.value.map(message => message.id || message.run_id), [
-    'task-1',
-    'mailbox-live',
-    'child-run-live',
-  ]);
-  assert.equal(messages.value[2], carrier);
+  assert.deepEqual(messages.value.map(message => message.id), ['task-1']);
+  assert.equal(messages.value[0], boundary);
+  assert.equal(messages.value[0].executionTree.root.agentId, 'worker');
   assert.deepEqual(
-    sessionMessages.messageCache.value.get('session-1::child-1').map(message => message.id || message.run_id),
-    ['task-1', 'mailbox-live', 'child-run-live'],
+    sessionMessages.messageCache.value.get('session-1::child-1').map(message => message.id),
+    ['task-1'],
   );
 });
 

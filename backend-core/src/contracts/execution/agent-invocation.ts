@@ -43,6 +43,16 @@ export interface AgentInvocationRootInput extends AgentInvocationBase {
     sourceKind?: "user" | "system";
     visibleToUser?: boolean;
   };
+  /** Existing durable mailbox input that canonically starts this root Run. */
+  rootMailboxMessage?: {
+    id: string;
+    inputType: "user_message" | "system_notification" | "goal_continuation";
+    sourceKind: "user" | "system";
+    visibleToUser: boolean;
+    sentAt: string;
+    contentParts: MessageContentPart[];
+    metadata?: Record<string, unknown>;
+  };
   followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string;
   awaitFollowupCompletion?: boolean;
@@ -67,6 +77,13 @@ export interface AgentInvocationChildInput extends AgentInvocationBase {
   parentRunId?: string | null;
   parentCallId?: string | null;
   childAgentId?: string | null;
+  /** Canonical message that starts a newly-created child Run. */
+  initialMessage?: {
+    id: string;
+    content: string;
+    contentParts: MessageContentPart[];
+    metadata?: Record<string, unknown>;
+  };
   ownsRunLease?: boolean;
   userId?: string | null;
   sessionMaintenanceToken?: string;

@@ -341,6 +341,9 @@ const focusInput = async () => {
   }
 };
 
+let reloadParticipantMessagesImpl = async () => null;
+const reloadParticipantMessages = (...args) => reloadParticipantMessagesImpl(...args);
+
 // ── Composables ─────────────────────────────────────────────────────────
 // 仍存在少量前向循环引用（如 Connection↔RunStream 的 onMessage/finalize、
 // Revision↔Send 的 handleSend/resetEditingState）以闭包延迟解析，其余直接传引用。
@@ -365,6 +368,7 @@ const {
   activeRun: _activeRun,
   chatSdkClient,
   selectedParticipantId,
+  reloadParticipantMessages,
 });
 
 const {
@@ -387,6 +391,12 @@ const {
   replayActiveRun: (sessionId) => reconnectSessionWS(sessionId, { historySnapshot: true }),
   beginInitialScrollRestore,
   endInitialScrollRestore,
+});
+reloadParticipantMessagesImpl = (sessionId, participantId) => loadSessionMessages(sessionId, {
+  silent: true,
+  participantId,
+  preserveStream: true,
+  bypassCache: true,
 });
 
 const selectParticipant = async (participantId) => {

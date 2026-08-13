@@ -57,6 +57,7 @@ export interface AsyncPersisterRunContext {
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown> | null;
   };
+  initialMessage?: AddMessageInput & { messageId: string };
   followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string | null;
   initialEnvelopes?: readonly Envelope[];
@@ -123,6 +124,7 @@ export class AsyncKernelEventPersister {
       ...(this.ctx.parentRunId != null && !this.ctx.ownsRunLease ? { leaseRootRunId: this.ctx.rootRunId ?? null } : {}),
       ...(this.ctx.ownsRunLease ? { claimOwnLease: true } : {}),
       ...(initialRecords.length > 0 ? { initialRecords } : {}),
+      ...(this.ctx.initialMessage ? { initialMessage: this.ctx.initialMessage } : {}),
     };
     const result = this.ctx.parentRunId == null && this.ctx.rootMailboxMessage
       ? await this.storage.operations.startOrAppendRoot({

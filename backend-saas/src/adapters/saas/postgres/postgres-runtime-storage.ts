@@ -1,7 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 
-import { RuntimeInteractionUnavailableError } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
+import {
+  rootMailboxInitialMessage,
+  RuntimeInteractionUnavailableError,
+} from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import type {
   RuntimeAtomicOperations,
   RuntimeAttachResumeInput,
@@ -418,7 +421,20 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       await lockAdvisoryKey(transactionExecutor, `run:${this.tenantId}:${input.run.runId}`);
       const existingRun = await lockTenantRun(transactionExecutor, this.tenantId, input.run.runId);
       if (existingRun) assertRunScope(existingRun, input.run);
+      if (!existingRun && !input.initialMessage) {
+        throw new Error(`new run requires an initial message: ${input.run.runId}`);
+      }
+      const initialMessage = input.initialMessage
+        ? await getOrCreateMessage(transactionExecutor, tx, input.initialMessage, "initial message")
+        : null;
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(input.run);
+      if (initialMessage) {
+        await tx.runs.ensureInitialRunMessageBoundary(
+          input.session.sessionId,
+          input.run.runId,
+          initialMessage.id,
+        );
+      }
       if (input.claimOwnLease && input.run.parentRunId == null) {
         throw new Error("claimOwnLease is only valid for a child run");
       }
@@ -488,13 +504,23 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       await lockAdvisoryKey(transactionExecutor, `run:${this.tenantId}:${input.run.runId}`);
       const existingRun = await lockTenantRun(transactionExecutor, this.tenantId, input.run.runId);
       if (existingRun) assertRunScope(existingRun, input.run);
+      const initialMessage = existingRun
+        ? null
+        : await getOrCreateMessage(
+            transactionExecutor,
+            tx,
+            rootMailboxInitialMessage(input),
+            "initial message",
+          );
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(input.run);
       await this.claimRootRunLease(transactionExecutor, input.session.sessionId, input.run.runId);
-      await tx.runs.ensureInitialRunMessageBoundary(
-        input.session.sessionId,
-        input.run.runId,
-        input.mailboxMessage.messageId,
-      );
+      if (initialMessage) {
+        await tx.runs.ensureInitialRunMessageBoundary(
+          input.session.sessionId,
+          input.run.runId,
+          initialMessage.id,
+        );
+      }
       if (input.sessionMaintenanceToken) {
         await transactionExecutor.query(
           `UPDATE conversation_sessions

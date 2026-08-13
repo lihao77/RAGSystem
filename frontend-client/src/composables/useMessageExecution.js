@@ -1,10 +1,5 @@
 import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-protocol';
-import { getCurrentScope, onScopeDispose, reactive, ref, watch } from 'vue';
-import {
-  applyMessageContentPart,
-  applyMessageContentTextDelta,
-  reconcileMessageContentParts,
-} from '../utils/messageContentParts.js';
+import { getCurrentScope, onScopeDispose, watch } from 'vue';
 import {
   getMessageExecutionTimeText,
   getMessageExecutionTimeTitle,
@@ -46,14 +41,17 @@ const createAgentMessageFromEvent = (event, participantId, consumedUserMessage =
   const payload = event?.payload || {};
   const content = getAgentMessageEventContent(payload);
   const metadata = payload.metadata || {};
+  const consumedRunId = typeof metadata.consumed_by_run_id === 'string'
+    ? metadata.consumed_by_run_id
+    : null;
   return {
     role: 'user',
     id: payload.message_id || event?.message_id,
-    run_id: event?.run_id || null,
+    run_id: consumedRunId,
     content,
     content_parts: [{ type: 'text', text: content }],
     finished: true,
-    has_execution: Boolean(event?.run_id || metadata.run_id || metadata.consumed_by_run_id),
+    has_execution: Boolean(consumedRunId),
     executionTree: { root: null, steps: [] },
     executionStepsLoaded: false,
     executionStepsLoading: false,
@@ -64,7 +62,7 @@ const createAgentMessageFromEvent = (event, participantId, consumedUserMessage =
     metadata: {
       ...metadata,
       ...(consumedUserMessage ? {} : { agent_message: true }),
-      run_id: event?.run_id || metadata.run_id || null,
+      ...(consumedRunId ? { run_id: consumedRunId } : {}),
       agent_message_display_content: content,
       mailbox_kind: payload.kind || metadata.mailbox_kind,
       agent_message_direction: payload.direction || metadata.direction || null,
@@ -81,7 +79,7 @@ const createAgentMessageFromEvent = (event, participantId, consumedUserMessage =
 const executionTreeHasContent = (executionTree) => Boolean(executionTree?.root);
 
 export const normalizeAssistantExecutionState = (msg) => {
-  if (!msg || msg.role !== 'assistant') return msg;
+  if (!msg || (msg.role !== 'assistant' && msg.role !== 'user')) return msg;
   const metadata = msg.metadata || {};
   if (!msg.executionTree) msg.executionTree = { root: null, steps: [] };
   if (msg._execState === undefined) msg._execState = null;
@@ -99,88 +97,20 @@ export const normalizeAssistantExecutionState = (msg) => {
 };
 
 export function useMessageExecution(deps) {
-  const participantRunMessages = new Map();
-  const participantRunOrder = new Map();
-  const participantRunsLoaded = new Set();
-  const participantRunsLoading = new Map();
-  const participantRunRevision = ref(0);
+  const participantByRun = new Map();
+  const pendingEnvelopesByRun = new Map();
+  const participantReloads = new Map();
 
-  const participantKey = (participantId) => (
-    participantId && deps.currentSessionId.value
-      ? `${deps.currentSessionId.value}:${participantId}`
-      : ''
-  );
-
-  const participantRunKey = (participantId, runId) => (
-    participantId && runId && deps.currentSessionId.value
-      ? `${deps.currentSessionId.value}:${participantId}:${runId}`
-      : ''
-  );
-
-  const registerParticipantRunMessage = (participantId, runId, message) => {
-    const key = participantRunKey(participantId, runId);
-    if (!key) return message;
-    const existing = participantRunMessages.get(key);
-    if (!existing) {
-      const carrier = reactive(message);
-      participantRunMessages.set(key, carrier);
-      return carrier;
-    }
-    if (existing === message) return existing;
-
-    const executionState = existing._execState;
-    const executionTree = existing.executionTree;
-    const executionStepsLoaded = existing.executionStepsLoaded;
-    const executionStepsLoading = existing.executionStepsLoading;
-    const executionRootCallId = existing._executionRootCallId;
-    const metadata = { ...(existing.metadata || {}), ...(message.metadata || {}) };
-    Object.assign(existing, message, {
-      executionParticipantId: participantId,
-      _execState: executionState,
-      executionTree,
-      executionStepsLoaded,
-      executionStepsLoading,
-      _executionRootCallId: executionRootCallId,
-      metadata,
-      run_failed: Boolean(existing.run_failed || message.run_failed),
-      stopped: Boolean(existing.stopped || message.stopped),
-      has_execution: Boolean(existing.has_execution || message.has_execution),
-    });
-    return existing;
-  };
-
-  const getOrCreateParticipantRunMessage = (participantId, run) => {
-    const runId = run?.run_id;
-    if (!participantId || participantId === 'root' || !runId) return null;
-    const key = participantRunKey(participantId, runId);
-    let msg = participantRunMessages.get(key);
-    if (!msg) {
-      msg = reactive(createAssistantMessage({
-        run_id: runId,
-        has_execution: true,
-        executionParticipantId: participantId,
-        metadata: {
-          run_id: runId,
-          participant_id: participantId,
-          execution_anchor: true,
-        },
-      }));
-      participantRunMessages.set(key, msg);
-    }
-    const status = run.status || '';
-    msg.finished = status !== 'running' && status !== 'suspended';
-    msg.run_failed = status === 'failed';
-    msg.stopped = status === 'interrupted';
-    msg.metadata = {
-      ...(msg.metadata || {}),
-      run_id: runId,
-      participant_id: participantId,
-      execution_anchor: true,
-      ...(run.task_summary ? { task_summary: run.task_summary } : {}),
-      ...(run.created_at ? { run_created_at: run.created_at } : {}),
-      ...(status ? { terminal_status: status } : {}),
-    };
-    return msg;
+  const runKey = (sessionId, runId) => `${sessionId}\u0000${runId}`;
+  const getMessageRunId = message => message?.run_id
+    || message?.metadata?.consumed_by_run_id
+    || message?.metadata?.run_id
+    || null;
+  const findParticipantBoundary = (participantId, runId) => {
+    const list = deps.participantMessages?.value?.[participantId] || [];
+    return list.findLast(message => (
+      message?.role === 'user' && getMessageRunId(message) === runId
+    )) || null;
   };
 
   // core ExecutionTreeState（增量投影状态机）懒挂在 msg._execState。
@@ -192,8 +122,8 @@ export function useMessageExecution(deps) {
   };
 
   const projectEnvelopeForMessage = (msg, envelope) => {
-    const participantId = msg?.executionParticipantId;
-    const messageRunId = msg?.run_id || msg?.metadata?.run_id;
+    const participantId = msg?.child_agent_id || msg?.metadata?.child_agent_id || null;
+    const messageRunId = getMessageRunId(msg);
     if (!participantId || !messageRunId || envelope?.run_id !== messageRunId) return envelope;
     if (!msg._executionRootCallId && envelope.type === 'agent_started') {
       const eventParticipantId = envelope.payload?.child_agent_id;
@@ -223,8 +153,7 @@ export function useMessageExecution(deps) {
   };
 
   const ensureExecutionStepsLoaded = async (msg) => {
-    const participantId = msg?.executionParticipantId || null;
-    if (!msg || (!msg.id && !participantId) || !deps.currentSessionId.value || msg.executionStepsLoaded || msg.executionStepsLoading || !msg.has_execution) {
+    if (!msg?.id || !deps.currentSessionId.value || msg.executionStepsLoaded || msg.executionStepsLoading || !msg.has_execution) {
       return;
     }
     msg.executionStepsLoading = true;
@@ -236,24 +165,17 @@ export function useMessageExecution(deps) {
       let offset = 0;
       let hasMore = false;
       do {
-        const result = participantId
-          ? await deps.chatSdkClient.getParticipantRunSteps(
-              sessionId,
-              participantId,
-              msg.run_id || msg.metadata?.run_id,
-              { limit: 500, offset },
-            )
-          : await deps.chatSdkClient.getMessageRunSteps(
-              sessionId,
-              msg.id,
-              {
-                limit: 500,
-                offset,
-                ...(deps.selectedParticipantId?.value && deps.selectedParticipantId.value !== 'root'
-                  ? { participantId: deps.selectedParticipantId.value }
-                  : {}),
-              },
-            );
+        const result = await deps.chatSdkClient.getMessageRunSteps(
+          sessionId,
+          msg.id,
+          {
+            limit: 500,
+            offset,
+            ...(deps.selectedParticipantId?.value && deps.selectedParticipantId.value !== 'root'
+              ? { participantId: deps.selectedParticipantId.value }
+              : {}),
+          },
+        );
         if (deps.currentSessionId.value !== sessionId) return;
         const payload = result?.data || result;
         const pageItems = Array.isArray(payload?.items) ? payload.items : [];
@@ -273,60 +195,6 @@ export function useMessageExecution(deps) {
     }
   };
 
-  const getParticipantRunExecutionMessage = (participant) => {
-    const participantId = participant?.participant_id;
-    const runId = participant?.last_run_id;
-    if (!participantId || participantId === 'root' || !runId) return null;
-    const status = participant.last_run_status || participant.lifecycle_status || '';
-    return getOrCreateParticipantRunMessage(participantId, { run_id: runId, status });
-  };
-
-  const ensureParticipantRunsLoaded = async (participant) => {
-    const participantId = participant?.participant_id;
-    const key = participantKey(participantId);
-    if (!key || participantId === 'root' || participantRunsLoaded.has(key)) return;
-    if (participantRunsLoading.has(key)) return participantRunsLoading.get(key);
-    const sessionId = deps.currentSessionId.value;
-    const request = (async () => {
-      if (!deps.chatSdkClient?.listSessionParticipantRuns) throw new Error('Chat SDK 不支持 Participant Run 列表');
-      const items = [];
-      let offset = 0;
-      let hasMore = false;
-      do {
-        const result = await deps.chatSdkClient.listSessionParticipantRuns(
-          sessionId,
-          participantId,
-          { limit: 500, offset },
-        );
-        if (deps.currentSessionId.value !== sessionId) return;
-        const pageItems = Array.isArray(result?.data?.items) ? result.data.items : [];
-        items.push(...pageItems);
-        offset += pageItems.length;
-        hasMore = Boolean(result?.data?.has_more) && pageItems.length > 0;
-      } while (hasMore);
-      const chronological = [...items].reverse();
-      participantRunOrder.set(key, chronological.map(item => item.run_id));
-      for (const item of chronological) getOrCreateParticipantRunMessage(participantId, item);
-      participantRunsLoaded.add(key);
-      participantRunRevision.value += 1;
-    })().finally(() => participantRunsLoading.delete(key));
-    participantRunsLoading.set(key, request);
-    return request;
-  };
-
-  const getParticipantRunExecutionMessages = (participant) => {
-    participantRunRevision.value;
-    const participantId = participant?.participant_id;
-    if (!participantId || participantId === 'root') return [];
-    const latest = getParticipantRunExecutionMessage(participant);
-    const order = participantRunOrder.get(participantKey(participantId)) || [];
-    const messages = order
-      .map(runId => participantRunMessages.get(participantRunKey(participantId, runId)))
-      .filter(Boolean);
-    if (latest && !messages.includes(latest)) messages.push(latest);
-    return messages;
-  };
-
   const liveExecutionEventTypes = new Set([
     'agent_started',
     'agent_ended',
@@ -339,18 +207,37 @@ export function useMessageExecution(deps) {
     'tool_result',
     'agent_message',
   ]);
-  const applyStreamOutputToMessage = (msg, payload = {}) => {
-    if (payload.phase === 'delta') {
-      const delta = payload.content || '';
-      msg.content += delta;
-      applyMessageContentTextDelta(msg, payload.part_index, delta);
-    } else if (payload.phase === 'part_added') {
-      applyMessageContentPart(msg, payload.part_index, payload.part);
-    } else if (payload.phase === 'final') {
-      if (typeof payload.content === 'string') msg.content = payload.content;
-      reconcileMessageContentParts(msg, payload.content_parts);
-      msg.finished = true;
+  const applyParticipantEnvelope = (message, event) => {
+    if (liveExecutionEventTypes.has(event.type) && event.type !== 'agent_message') {
+      applyEnvelopeToMessage(message, event);
     }
+    if (event.type === 'run_ended') {
+      const status = event.payload?.status || 'completed';
+      message.finished = status !== 'suspended';
+      message.run_failed = status === 'failed';
+      message.stopped = status === 'interrupted';
+      message.metadata = { ...(message.metadata || {}), terminal_status: status };
+    } else if (event.type !== 'agent_message') {
+      message.finished = false;
+    }
+  };
+  const flushParticipantRun = (sessionId, participantId, runId) => {
+    const key = runKey(sessionId, runId);
+    const pending = pendingEnvelopesByRun.get(key);
+    const message = findParticipantBoundary(participantId, runId);
+    if (!message || !pending?.length) return;
+    for (const event of pending) applyParticipantEnvelope(message, event);
+    pendingEnvelopesByRun.delete(key);
+  };
+  const reloadParticipantBoundary = (sessionId, participantId, runId) => {
+    if (!deps.reloadParticipantMessages) return;
+    const key = runKey(sessionId, runId);
+    if (participantReloads.has(key)) return;
+    const reload = Promise.resolve(deps.reloadParticipantMessages(sessionId, participantId))
+      .then(() => flushParticipantRun(sessionId, participantId, runId))
+      .finally(() => participantReloads.delete(key));
+    participantReloads.set(key, reload);
+    void reload.catch(() => undefined);
   };
   const unsubscribe = deps.chatSdkClient?.on?.('event', (event) => {
     const runId = event?.run_id;
@@ -360,41 +247,48 @@ export function useMessageExecution(deps) {
       || event?.payload?.participant_id
       || (event?.type === 'agent_message' ? event?.payload?.target_child_agent_id : null)
       || event?.child_agent_id
+      || participantByRun.get(runKey(sessionId, runId))
       || null;
     const metadata = event?.payload?.metadata || {};
     const isConsumedUserMessage = event.type === 'agent_message'
       && metadata.mailbox_message_id
       && metadata.agent_message !== true
       && metadata.visible_to_user !== false;
-    if (event.type === 'agent_message' && !isConsumedUserMessage) {
+    if (event.type === 'agent_message') {
       const targetParticipantId = event?.payload?.target_child_agent_id || 'root';
       deps.syncParticipantMessage?.(
         targetParticipantId,
         createAgentMessageFromEvent(event, targetParticipantId, isConsumedUserMessage),
       );
+      flushParticipantRun(sessionId, targetParticipantId, runId);
+      return;
     }
-    const msg = participantId
-      ? participantRunMessages.get(`${sessionId}:${participantId}:${runId}`)
-        || getOrCreateParticipantRunMessage(participantId, { run_id: runId, status: 'running' })
-      : [...participantRunMessages.entries()].find(([key]) => key.startsWith(`${sessionId}:`) && key.endsWith(`:${runId}`))?.[1];
-    if (!msg) return;
-    if (liveExecutionEventTypes.has(event.type) && event.type !== 'agent_message') applyEnvelopeToMessage(msg, event);
-    if (event.type === 'stream_output') applyStreamOutputToMessage(msg, event.payload);
-    if (event.type === 'run_ended') {
-      const status = event.payload?.status || 'completed';
-      msg.finished = status !== 'suspended';
-      msg.run_failed = status === 'failed';
-      msg.stopped = status === 'interrupted';
-      msg.metadata = { ...(msg.metadata || {}), terminal_status: status };
+    if (!participantId || participantId === 'root') return;
+    participantByRun.set(runKey(sessionId, runId), participantId);
+    const message = findParticipantBoundary(participantId, runId);
+    if (message) applyParticipantEnvelope(message, event);
+    else {
+      const key = runKey(sessionId, runId);
+      pendingEnvelopesByRun.set(key, [...(pendingEnvelopesByRun.get(key) || []), event]);
+      reloadParticipantBoundary(sessionId, participantId, runId);
     }
-    if (participantId) deps.syncParticipantMessage?.(participantId, msg);
   });
+  if (deps.participantMessages) {
+    watch(deps.participantMessages, (allMessages) => {
+      const sessionId = deps.currentSessionId.value;
+      if (!sessionId) return;
+      for (const [participantId, list] of Object.entries(allMessages || {})) {
+        for (const message of list || []) {
+          const runId = getMessageRunId(message);
+          if (participantId !== 'root' && runId) flushParticipantRun(sessionId, participantId, runId);
+        }
+      }
+    }, { deep: false });
+  }
   watch(deps.currentSessionId, () => {
-    participantRunMessages.clear();
-    participantRunOrder.clear();
-    participantRunsLoaded.clear();
-    participantRunsLoading.clear();
-    participantRunRevision.value += 1;
+    participantByRun.clear();
+    pendingEnvelopesByRun.clear();
+    participantReloads.clear();
   });
   if (getCurrentScope()) onScopeDispose(() => unsubscribe?.());
 
@@ -420,13 +314,7 @@ export function useMessageExecution(deps) {
       metadata: item.metadata || {},
       _execState: null,
     });
-    const threadKey = item.thread_key || item.metadata?.thread_key || '';
-    const participantId = item.child_agent_id
-      || item.metadata?.child_agent_id
-      || (threadKey.startsWith('child:') ? threadKey.slice('child:'.length) : null);
-    return participantId
-      ? registerParticipantRunMessage(participantId, message.run_id, message)
-      : message;
+    return message;
   };
 
   // root/master 判定：先按 root run_id 隔离 child run。工具事件的 lineage
@@ -468,9 +356,6 @@ export function useMessageExecution(deps) {
     ensureExecutionTreeState,
     applyEnvelopeToMessage,
     ensureExecutionStepsLoaded,
-    getParticipantRunExecutionMessage,
-    getParticipantRunExecutionMessages,
-    ensureParticipantRunsLoaded,
     createAssistantMessageFromHistory,
     isRootEvent,
     isMasterEvent,

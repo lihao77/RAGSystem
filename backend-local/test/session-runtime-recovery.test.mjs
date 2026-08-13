@@ -484,6 +484,9 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
   });
   assert.equal(started.kind, 'started');
   assert.equal((await store.agentMailbox.get('session-1', 'run-2:user')).status, 'queued');
+  const nextMessage = store.getMessageById('session-1', 'run-2:user');
+  assert.equal(nextMessage.metadata.run_id, 'run-2');
+  assert.equal(nextMessage.metadata.consumed_by_run_id, 'run-2');
 });
 
 test('root 终态原子收敛共享 lease child，并保留独立 background child', async (t) => {

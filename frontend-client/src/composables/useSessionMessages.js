@@ -69,7 +69,12 @@ export function useSessionMessages(deps) {
    * 只负责消息列表与缓存，不负责 Session 生命周期。
    * 进入/切换会话时由 WebSocket 首帧 session.runtime 决定后续加载策略。
    */
-  const loadSessionMessages = async (sessionId, { silent = false, participantId = 'root', preserveStream = false } = {}) => {
+  const loadSessionMessages = async (sessionId, {
+    silent = false,
+    participantId = 'root',
+    preserveStream = false,
+    bypassCache = false,
+  } = {}) => {
     if (!sessionId) return null;
     const targetParticipantId = participantId || 'root';
     const seq = ++messageLoadSeq;
@@ -92,7 +97,9 @@ export function useSessionMessages(deps) {
     }
     try {
       // 非静默加载（路由切换/手动刷新）始终绕过缓存，确保拿到最新数据
-      const cached = silent ? messageCache.value.get(cacheKey(sessionId, targetParticipantId)) : null;
+      const cached = silent && !bypassCache
+        ? messageCache.value.get(cacheKey(sessionId, targetParticipantId))
+        : null;
       if (cached) {
         if (!isCurrent()) return;
         const restored = cached.map(item => deps.normalizeAssistantExecutionState(item));
@@ -171,7 +178,10 @@ export function useSessionMessages(deps) {
               ? { ...metadata, agent_message_display_content: content }
               : metadata,
           };
-          return { ...message, attachments: getMessageAttachments(message) };
+          return deps.normalizeAssistantExecutionState({
+            ...message,
+            attachments: getMessageAttachments(message),
+          });
         });
       if (!isCurrent()) return;
       const nextMessages = targetParticipantId !== 'root' || preserveStream

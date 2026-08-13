@@ -316,6 +316,16 @@ test("mailbox root wakeup and user start create only one active root across SQLi
     mailboxStorage.operations.startRun({
       session,
       run: rootRun("mailbox-root", "mailbox-request"),
+      initialMessage: {
+        sessionId: "session-mailbox",
+        messageId: "mailbox-root:user",
+        role: "user",
+        content: "mailbox wakeup",
+        contentParts: [{ type: "text", text: "mailbox wakeup" }],
+        metadata: { run_id: "mailbox-root" },
+        threadKey: "root",
+        childAgentId: null,
+      },
     }),
     userStorage.operations.startOrAppendRoot({
       session,

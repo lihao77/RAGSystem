@@ -114,6 +114,15 @@ export class AgentRunEngine {
       sourceKind?: "user" | "system";
       visibleToUser?: boolean;
     } | undefined;
+    rootMailboxMessage?: {
+      id: string;
+      inputType: "user_message" | "system_notification" | "goal_continuation";
+      sourceKind: "user" | "system";
+      visibleToUser: boolean;
+      sentAt: string;
+      contentParts: MessageContentPart[];
+      metadata?: Record<string, unknown>;
+    } | undefined;
     followupPolicy?: "queue" | "reject";
     sessionMaintenanceToken?: string | undefined;
     awaitFollowupCompletion?: boolean | undefined;
@@ -155,8 +164,11 @@ export class AgentRunEngine {
       visibleToUser: boolean;
       sentAt: string;
       contentParts: MessageContentPart[];
-      metadata: Record<string, unknown>;
-    } | undefined;
+      metadata?: Record<string, unknown>;
+    } | undefined = input.resume ? undefined : input.rootMailboxMessage;
+    if (rootMailboxMessage && input.persistUserMessage) {
+      throw new Error("root Run cannot start from both an existing mailbox message and a new user message");
+    }
     if (!input.resume && input.persistUserMessage) {
       const userMessageId = randomUUID();
       const metadata = {
@@ -442,6 +454,12 @@ export class AgentRunEngine {
     parentRunId?: string | null;
     parentCallId?: string | null | undefined;
     childAgentId?: string | null;
+    initialMessage?: {
+      id: string;
+      content: string;
+      contentParts: MessageContentPart[];
+      metadata?: Record<string, unknown>;
+    };
     ownsRunLease?: boolean;
     userId?: string | null;
     rootMailboxMessage?: {
@@ -558,6 +576,7 @@ export class AgentRunEngine {
           ...(input.rootTask !== undefined ? { rootTask: input.rootTask } : {}),
           ...(input.userId !== undefined ? { userId: input.userId } : {}),
           ...(input.rootMailboxMessage ? { rootMailboxMessage: input.rootMailboxMessage } : {}),
+          ...(input.initialMessage ? { initialMessage: input.initialMessage } : {}),
           ...(input.followupPolicy ? { followupPolicy: input.followupPolicy } : {}),
           ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
           ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),

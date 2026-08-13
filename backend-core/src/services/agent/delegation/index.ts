@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
-import type { AgentInvocationPort } from "../../../contracts/execution/agent-invocation.js";
+import type { AgentInvocationChildInput, AgentInvocationPort } from "../../../contracts/execution/agent-invocation.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ChildAgentInfo, RunInfo } from "../../../contracts/conversation-store/index.js";
 import type { SessionParticipant, SessionParticipantListData } from "@ragsystem/api-contracts";
@@ -1169,13 +1169,14 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     const session = await this.store.getSession(input.sessionId);
     if (!session) throw new Error(`delegation session not found: ${input.sessionId}`);
     throwIfAborted(input.signal);
+    let initialMessage: AgentInvocationChildInput["initialMessage"];
     if (input.resumeRunId) {
       await this.store.updateRunStatus(childRunId, input.sessionId, "running", null);
     } else {
-      // 首次调用才写入任务消息；恢复时直接复用 child thread 中的悬空 tool_use。
-      await this.store.addMessage({
-        sessionId: input.sessionId,
-        role: "user",
+      // The storage start transaction persists this message together with the Run
+      // and its initial execution boundary. Resume reuses the existing boundary.
+      initialMessage = {
+        id: randomUUID(),
         content: input.task,
         contentParts: [{ type: "text", text: input.task }],
         metadata: {
@@ -1186,9 +1187,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
           source: input.source,
           child_agent_id: input.childAgent.child_agent_id,
         },
-        threadKey: input.childAgent.thread_key,
-        childAgentId: input.childAgent.child_agent_id,
-      });
+      };
     }
     throwIfAborted(input.signal);
 
@@ -1245,6 +1244,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       rootRunId: input.rootRunId ?? input.parentRunId ?? childRunId,
       parentRunId: input.parentRunId,
       childAgentId: input.childAgent.child_agent_id,
+      ...(initialMessage ? { initialMessage } : {}),
       ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
       ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
       executionKind: input.executionKind,

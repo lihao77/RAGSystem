@@ -2,7 +2,7 @@ import type { ProviderContinuationState } from "@ragsystem/agent-llm";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import type { AssistantContentPart, KernelEvent } from "@ragsystem/agent-sdk";
 
-import type { RunInfo } from "../conversation-store/index.js";
+import type { AddMessageInput, RunInfo } from "../conversation-store/index.js";
 import type { RunStepInfo } from "../common.js";
 import type { Envelope } from "../events.js";
 import type { MessageInfo, SessionIdentity, SessionInfo } from "../session/session.js";
@@ -49,6 +49,8 @@ export interface ExecutionRunPersistenceContext {
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown> | null;
   };
+  /** Canonical input message for a newly-created root or child Run. */
+  initialMessage?: AddMessageInput & { messageId: string };
   followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string | null;
   initialEnvelopes?: readonly Envelope[];

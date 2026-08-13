@@ -133,6 +133,12 @@ export interface RuntimeStorageRepositories {
 export interface RuntimeStartRunInput {
   session: SessionIdentity;
   run: CreateRunInput;
+  /**
+   * Canonical input message that owns the Run's first execution segment.
+   * Storage requires this when creating a Run and omits it only when resuming
+   * an already-persisted Run.
+   */
+  initialMessage?: AddMessageInput & { messageId: string };
   /** Existing root lease required when creating or resuming a child run. */
   leaseRootRunId?: string | null;
   /** This non-root run owns an independent lease instead of inheriting its execution-tree root lease. */
@@ -148,9 +154,34 @@ export interface RuntimeStartRunResult {
   records: RuntimeRecordEnvelopeResult[];
 }
 
-export interface RuntimeStartOrAppendRootInput extends RuntimeStartRunInput {
+export interface RuntimeStartOrAppendRootInput extends Omit<RuntimeStartRunInput, "initialMessage"> {
   mailboxMessage: EnqueueAgentMailboxMessageInput;
   followupPolicy: "queue" | "reject";
+}
+
+/** Derive the canonical root conversation message from its single durable mailbox input. */
+export function rootMailboxInitialMessage(
+  input: RuntimeStartOrAppendRootInput,
+): AddMessageInput & { messageId: string } {
+  const message = input.mailboxMessage;
+  return {
+    sessionId: input.session.sessionId,
+    messageId: message.messageId,
+    role: "user",
+    content: (message.contentParts ?? []).flatMap((part) => {
+      if (part.type === "text") return [part.text];
+      if (part.type === "command_ref") return [part.raw_text];
+      return [];
+    }).join(""),
+    contentParts: message.contentParts ?? [],
+    metadata: {
+      ...(message.metadata ?? {}),
+      run_id: input.run.runId,
+      consumed_by_run_id: input.run.runId,
+    },
+    threadKey: "root",
+    childAgentId: null,
+  };
 }
 
 export type RuntimeStartOrAppendRootResult =

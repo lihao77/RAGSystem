@@ -113,6 +113,12 @@ export interface SdkExecuteRunInput {
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
   };
+  initialMessage?: {
+    id: string;
+    content: string;
+    contentParts: MessageContentPart[];
+    metadata?: Record<string, unknown>;
+  };
   followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string;
   initialEnvelopes?: readonly Envelope[];
@@ -355,6 +361,78 @@ export async function executeRunWithSdk(
   const orderedDelegateCalls = new OrderedDelegateCallPublisher((sdkInput) =>
     journal.submit(() => commitDelegateCall(sdkInput)));
 
+  const wireCtx: WireTranslationContext = {
+    sessionId: input.sessionId,
+    runId: input.runId,
+    rootCallId: input.rootCallId,
+    requestId: input.requestId,
+    agentId: input.agent.agent_name,
+  };
+  if (input.lineageParentCallId !== undefined && input.lineageParentCallId !== null) {
+    wireCtx.parentCallId = input.lineageParentCallId;
+  }
+  const persister: ExecutionEventPersister = deps.storage.createEventPersister({
+    tenantId: deps.storage.tenantId,
+    sessionId: input.sessionId,
+    runId: input.runId,
+    threadKey: input.threadKey,
+    agentName: input.agent.agent_name,
+    agentDisplayName: input.agent.display_name ?? input.agent.agent_name,
+    rootCallId: input.rootCallId,
+    rootRunId: interactionRootRunId,
+    taskId: input.taskId,
+    ...(input.provider.provider_type ? { providerType: input.provider.provider_type } : {}),
+    ...(input.executionKind ? { executionKind: input.executionKind } : {}),
+    taskSummary: input.task.slice(0, 200),
+    ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+    ...(input.userId !== undefined ? { userId: input.userId } : {}),
+    sessionIdentity: input.sessionIdentity,
+    ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
+    ...(input.parentCallId !== undefined ? { parentCallId: input.parentCallId } : {}),
+    ...(input.lineageParentCallId !== undefined ? { lineageParentCallId: input.lineageParentCallId } : {}),
+    ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
+    ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
+    ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
+    ...(input.rootMailboxMessage ? { rootMailboxMessage: input.rootMailboxMessage } : {}),
+    ...(input.initialMessage ? {
+      initialMessage: {
+        sessionId: input.sessionId,
+        messageId: input.initialMessage.id,
+        role: "user",
+        content: input.initialMessage.content,
+        contentParts: input.initialMessage.contentParts,
+        metadata: input.initialMessage.metadata ?? {},
+        threadKey: input.threadKey,
+        childAgentId: input.childAgentId ?? null,
+      },
+    } : {}),
+    ...(input.followupPolicy ? { followupPolicy: input.followupPolicy } : {}),
+    ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
+    ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
+  });
+  const commitKernelEvent = async (event: KernelEvent): Promise<void> => {
+    await persister.persist(event);
+    for (const envelope of translateKernelEvent(event, wireCtx)) {
+      await deps.eventPublisher.commitEnvelope(envelope);
+    }
+    if (event.type === "tool_call") {
+      const delegateCall = orderedDelegateCalls.markToolCallPublished(event.toolCallId);
+      if (delegateCall) await commitDelegateCall(delegateCall);
+    }
+  };
+  const startDisposition = await journal.submit(() => persister.startRun());
+  if (startDisposition.kind === "followup") {
+    input.onStartDisposition?.(startDisposition);
+    return { content: "", success: true, followup: startDisposition, tokenUsage: { inputTokens: 0, outputTokens: 0 }, toolCalls: {} };
+  }
+
+  let runtime: ReturnType<typeof createRuntime> | null = null;
+  let consumeEvents: Promise<void> | null = null;
+  let result: KernelResult | null = null;
+  const tokenUsage = { inputTokens: 0, outputTokens: 0 };
+  const toolCalls: Record<string, number> = {};
+  try {
+
   // backend 组装内建 context，插件可通过 hooks 追加上下文。
   // historyPort 组合 ConversationHistoryPort + SessionMetadataPort：recent source 读历史 + microcompact 缓存指纹，
   // context source 读取 session metadata 解析运行上下文。
@@ -387,7 +465,6 @@ export async function executeRunWithSdk(
   }
   const mailboxConsumerId = `${process.pid}:${input.runId}:${randomUUID()}`;
   const eventCommits = new WeakMap<object, Promise<void>>();
-  let commitKernelEvent: ((event: KernelEvent) => Promise<void>) | null = null;
   // Inputs, their durable boundary, and the ACK commit as one journal item.
   // This keeps a follow-up behind every event emitted by the preceding round.
   const refresher: MessageRefresher = {
@@ -563,7 +640,6 @@ export async function executeRunWithSdk(
     }),
   };
   // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。
-  const tokenUsage = { inputTokens: 0, outputTokens: 0 };
   const inputTokenTracker = new RuntimeInputTokenTracker();
   const inputTokenIdentity: InputTokenTrackerIdentity = {
     threadKey: input.threadKey,
@@ -575,7 +651,6 @@ export async function executeRunWithSdk(
     sessionMetadata.getSession(input.sessionId)?.metadata ?? {},
     inputTokenIdentity,
   );
-  const toolCalls: Record<string, number> = {};
   const runtimeOpts: CreateRuntimeOptions = {
     profile,
     tools: registry,
@@ -662,7 +737,6 @@ export async function executeRunWithSdk(
     refresher,
     onEvent: (event) => {
       const committed = journal.submit(async () => {
-        if (!commitKernelEvent) throw new Error("Runtime journal event committer is not initialized");
         await commitKernelEvent(event);
       });
       void committed.catch(() => undefined);
@@ -670,65 +744,6 @@ export async function executeRunWithSdk(
     },
   };
 
-  // 翻译上下文：root call + lineage。
-  const wireCtx: WireTranslationContext = {
-    sessionId: input.sessionId,
-    runId: input.runId,
-    rootCallId: input.rootCallId,
-    requestId: input.requestId,
-    agentId: input.agent.agent_name,
-  };
-  if (input.lineageParentCallId !== undefined && input.lineageParentCallId !== null) {
-    wireCtx.parentCallId = input.lineageParentCallId;
-  }
-
-  // KernelEvent 落库（B1：从 SDK Dispatcher 迁回 backend）：createRun + 增量事件落库 + 终态合一全在此。
-  const persister: ExecutionEventPersister = deps.storage.createEventPersister({
-    tenantId: deps.storage.tenantId,
-    sessionId: input.sessionId,
-    runId: input.runId,
-    threadKey: input.threadKey,
-    agentName: input.agent.agent_name,
-    agentDisplayName: input.agent.display_name ?? input.agent.agent_name,
-    rootCallId: input.rootCallId,
-    rootRunId: interactionRootRunId,
-    taskId: input.taskId,
-    ...(input.provider.provider_type ? { providerType: input.provider.provider_type } : {}),
-    ...(input.executionKind ? { executionKind: input.executionKind } : {}),
-    taskSummary: input.task.slice(0, 200),
-    ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
-    ...(input.userId !== undefined ? { userId: input.userId } : {}),
-    sessionIdentity: input.sessionIdentity,
-    ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
-    ...(input.parentCallId !== undefined ? { parentCallId: input.parentCallId } : {}),
-    ...(input.lineageParentCallId !== undefined ? { lineageParentCallId: input.lineageParentCallId } : {}),
-    ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
-    ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
-    ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
-    ...(input.rootMailboxMessage ? { rootMailboxMessage: input.rootMailboxMessage } : {}),
-    ...(input.followupPolicy ? { followupPolicy: input.followupPolicy } : {}),
-    ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
-    ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
-  });
-  commitKernelEvent = async (event) => {
-    await persister.persist(event);
-    for (const envelope of translateKernelEvent(event, wireCtx)) {
-      await deps.eventPublisher.commitEnvelope(envelope);
-    }
-    if (event.type === "tool_call") {
-      const delegateCall = orderedDelegateCalls.markToolCallPublished(event.toolCallId);
-      if (delegateCall) await commitDelegateCall(delegateCall);
-    }
-  };
-  const startDisposition = await journal.submit(() => persister.startRun());
-  if (startDisposition.kind === "followup") {
-    input.onStartDisposition?.(startDisposition);
-    return { content: "", success: true, followup: startDisposition, tokenUsage: { inputTokens: 0, outputTokens: 0 }, toolCalls: {} };
-  }
-  let runtime: ReturnType<typeof createRuntime> | null = null;
-  let consumeEvents: Promise<void> | null = null;
-  let result: KernelResult | null = null;
-  try {
     input.onStartDisposition?.(startDisposition);
     input.onRunPersisted?.();
     // User/system mailbox messages are claimed by the first round refresher.

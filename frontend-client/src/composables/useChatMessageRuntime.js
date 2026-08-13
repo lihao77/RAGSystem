@@ -11,15 +11,18 @@ export function useChatMessageRuntime({
   activeRun,
   chatSdkClient,
   selectedParticipantId,
+  reloadParticipantMessages,
 }) {
   const sessionRunStore = useSessionRunStore();
-  const { currentSessionId } = storeToRefs(sessionRunStore);
+  const { currentSessionId, participantMessages } = storeToRefs(sessionRunStore);
   const execution = useMessageExecution({
     currentSessionId,
     chatSdkClient,
     activeRun,
     selectedParticipantId,
+    participantMessages,
     syncParticipantMessage: sessionRunStore.upsertParticipantMessage,
+    reloadParticipantMessages,
   });
 
   const notifications = useTaskNotifications();

@@ -32,6 +32,9 @@ import type { Goal, GoalContinuationReason, GoalStore } from "../../../contracts
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { ExecutionResultReader } from "../../../contracts/execution/execution-storage.js";
 import type {
+  AgentInvocationChildInput,
+} from "../../../contracts/execution/agent-invocation.js";
+import type {
   AgentMailboxMessage,
   AgentMailboxStorePort,
   AgentMailboxWakeupTarget,
@@ -181,6 +184,49 @@ function mailboxContinuationIds(target: AgentMailboxWakeupTarget): {
     runId: `mailbox_${digest}`,
     taskId: `mailbox_task_${digest}`,
     rootCallId: `call_mailbox_${digest}`,
+  };
+}
+
+function renderMailboxContentParts(parts: AgentMailboxMessage["content_parts"]): string {
+  return parts.flatMap((part) => {
+    if (part.type === "text") return [part.text];
+    if (part.type === "command_ref" && part.resolution.kind === "prompt") {
+      return [part.resolution.agent_text];
+    }
+    return [];
+  }).join("\n").trim();
+}
+
+function mailboxContinuationInitialMessage(
+  message: AgentMailboxMessage,
+  runId: string,
+): NonNullable<AgentInvocationChildInput["initialMessage"]> {
+  const displayContent = renderMailboxContentParts(message.content_parts);
+  const content = message.input_type === "user_message"
+    ? displayContent
+    : `[agent-message kind=${message.kind} id=${message.message_id}]\n${displayContent}\n[/agent-message]`;
+  return {
+    id: message.message_id,
+    content,
+    contentParts: message.input_type === "user_message"
+      ? message.content_parts
+      : [{ type: "text", text: content }],
+    metadata: {
+      ...message.metadata,
+      ...(message.input_type === "user_message" ? {} : { agent_message: true }),
+      agent_message_display_content: displayContent,
+      mailbox_message_id: message.message_id,
+      mailbox_kind: message.kind,
+      mailbox_correlation_id: message.correlation_id,
+      mailbox_reply_to_message_id: message.reply_to_message_id,
+      mailbox_source_run_id: message.source_run_id,
+      mailbox_source_agent_call_id: message.source_agent_call_id,
+      conversation_scope: message.target_child_agent_id ? "child" : "agent",
+      consumed_by_run_id: runId,
+      run_id: runId,
+      visible_to_user: message.visible_to_user,
+      sent_at: message.sent_at,
+    },
   };
 }
 
@@ -919,6 +965,7 @@ class AgentLaunchers {
             parentCallId: target.targetParentCallId,
             lineageParentCallId: target.targetLineageParentCallId,
             childAgentId: target.targetChildAgentId,
+            initialMessage: mailboxContinuationInitialMessage(sourceMessage, runId),
             ownsRunLease: true,
           })
         : this.invocationService.invoke({
@@ -1158,6 +1205,15 @@ class AgentLaunchers {
           agent: ready.agent,
           provider: ready.provider,
           modelName: ready.modelName,
+          rootMailboxMessage: {
+            id: firstMailbox.message_id,
+            inputType: firstMailbox.input_type,
+            sourceKind: "user",
+            visibleToUser: firstMailbox.visible_to_user,
+            sentAt: firstMailbox.sent_at ?? firstMailbox.created_at,
+            contentParts: firstMailbox.content_parts,
+            metadata: firstMailbox.metadata,
+          },
         });
         void started.promise.finally(() => this.backgroundTasks?.scheduleAutoTrigger(sessionId)).catch(() => undefined);
         await started.durableStarted;

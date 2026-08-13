@@ -51,20 +51,18 @@ const participantMessagesMatch = (current, incoming) => Boolean(
 
 const mergeParticipantMessage = (current, incoming) => {
   if (current === incoming) return current;
-  if (current?.role !== 'assistant' || incoming?.role !== 'assistant') {
-    Object.assign(current, incoming);
-    return current;
-  }
-  const liveExecution = {
+  const preservesExecution = current?.role === incoming?.role
+    && (current?.role === 'assistant' || current?.role === 'user');
+  const liveExecution = preservesExecution ? {
     _execState: current._execState,
     _executionRootCallId: current._executionRootCallId,
     executionTree: current.executionTree,
     executionStepsLoaded: current.executionStepsLoaded,
     executionStepsLoading: current.executionStepsLoading,
     executionStepsLoadError: current.executionStepsLoadError,
-  };
+  } : null;
   Object.assign(current, incoming);
-  for (const [key, value] of Object.entries(liveExecution)) {
+  for (const [key, value] of Object.entries(liveExecution || {})) {
     if (value !== undefined && value !== null) current[key] = value;
   }
   return current;

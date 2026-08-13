@@ -1,7 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
 
 import type { ConversationStore, ConversationStoreTransaction } from "./sqlite/conversation-store/index.js";
-import { RuntimeInteractionUnavailableError } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
+import {
+  rootMailboxInitialMessage,
+  RuntimeInteractionUnavailableError,
+} from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import type {
   RuntimeAtomicOperations,
   RuntimeAttachResumeInput,
@@ -389,8 +392,17 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           assertRunScope(existingRun, input.run, this.tenantId);
           run = toCreatedRun(existingRun);
         } else {
+          if (!input.initialMessage) {
+            throw new Error(`new run requires an initial message: ${input.run.runId}`);
+          }
           try {
+            const initialMessage = resolveDeterministicMessage(tx, input.initialMessage, "initial message");
             run = tx.createRun(input.run);
+            tx.ensureInitialRunMessageBoundary(
+              input.session.sessionId,
+              input.run.runId,
+              initialMessage.id,
+            );
           } catch (error) {
             throw new Error(`run scope conflict: ${input.run.runId}`, { cause: error });
           }
@@ -434,13 +446,18 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         const initialRecords = input.initialRecords ?? [];
         for (const record of initialRecords) assertRecordScope(record, input.session.sessionId, input.run.runId);
         const existingRun = tx.getRun(input.session.sessionId, input.run.runId);
+        const initialMessage = existingRun
+          ? null
+          : resolveDeterministicMessage(tx, rootMailboxInitialMessage(input), "initial message");
         const run = existingRun ? toCreatedRun(existingRun) : tx.createRun(input.run);
         if (existingRun) assertRunScope(existingRun, input.run, this.tenantId);
-        tx.ensureInitialRunMessageBoundary(
-          input.session.sessionId,
-          input.run.runId,
-          input.mailboxMessage.messageId,
-        );
+        if (initialMessage) {
+          tx.ensureInitialRunMessageBoundary(
+            input.session.sessionId,
+            input.run.runId,
+            initialMessage.id,
+          );
+        }
         if (maintenance?.token === input.sessionMaintenanceToken) {
           tx.updateSessionMetadata(input.session.sessionId, { runtime_maintenance: null });
         }
