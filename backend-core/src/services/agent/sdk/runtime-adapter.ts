@@ -284,6 +284,8 @@ export async function executeRunWithSdk(
     pathAccessPolicy: pathService,
     ...(deps.systemConfig ? { systemConfig: deps.systemConfig } : {}),
     providers: deps.providers,
+    // 供宿主按插件构建 pluginEvents（plugin_event 下行帧）；run 内工具可推进度/通知。
+    clientEvents: deps.eventPublisher.clientEventPort,
     // 与上下文投影层同源（同一 profile，含运行时 selectedLlm 覆盖）：
     // 视觉主模型无需辅助描述，插件可据此跳过冗余的视觉调用。
     mainModelSupportsVision: profile.llmTiers.default?.provider.supports_vision === true,

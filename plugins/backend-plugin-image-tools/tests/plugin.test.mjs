@@ -302,3 +302,125 @@ test("view_image rejects images larger than 10 MB", async () => {
   assert.equal(result.success, false);
   assert.match(result.summary, /10 MB/);
 });
+
+/* ── 插件下行事件（plugin_event 进度帧） ── */
+
+function recordingPublisher() {
+  const calls = [];
+  const publisher = {
+    publish: (sessionId, event, data, options) => {
+      calls.push({ sessionId, event, data, options });
+      return Promise.resolve();
+    },
+  };
+  return { calls, publisher };
+}
+
+test("transformer emits describe lifecycle events as ephemeral session frames", async () => {
+  const { calls, publisher } = recordingPublisher();
+  const input = transformerInput({
+    systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
+    contentParts: [textPart("look"), imagePart("file-1", "a.png"), imagePart("file-2", "b.png")],
+    pluginEvents: publisher,
+  });
+
+  const result = await describeUserMessageImagesWithHelper(input, () => stubHelper("desc"));
+
+  assert.ok(result);
+  assert.deepEqual(
+    calls.map((call) => call.event),
+    ["image.describe_started", "image.describe_progress", "image.describe_progress", "image.describe_completed"],
+  );
+  for (const call of calls) {
+    assert.equal(call.sessionId, "session-1");
+    assert.equal(call.options.delivery, "ephemeral");
+    assert.equal(call.data.source, "message");
+  }
+  assert.deepEqual(calls[0].data.files, ["a.png", "b.png"]);
+  assert.equal(calls[0].data.total, 2);
+  assert.equal(calls[1].data.ok, true);
+  assert.equal(calls[1].data.file_id, "file-1");
+  assert.equal(calls[3].data.described, 2);
+  assert.equal(calls[3].data.failed, 0);
+  assert.equal(typeof calls[3].data.duration_ms, "number");
+});
+
+test("transformer marks per-image failures in progress and completed events", async () => {
+  const { calls, publisher } = recordingPublisher();
+  const input = transformerInput({
+    systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
+    contentParts: [imagePart("file-1", "a.png"), imagePart("file-2", "b.png")],
+    pluginEvents: publisher,
+  });
+  let describeCalls = 0;
+  await describeUserMessageImagesWithHelper(input, async () => ({
+    describeImage: async () => (++describeCalls === 1 ? null : "desc"),
+  }));
+
+  const progress = calls.filter((call) => call.event === "image.describe_progress");
+  assert.deepEqual(progress.map((call) => call.data.ok), [false, true]);
+  const completed = calls.find((call) => call.event === "image.describe_completed");
+  assert.equal(completed.data.described, 1);
+  assert.equal(completed.data.failed, 1);
+});
+
+test("transformer works without an event publisher (events are best-effort)", async () => {
+  const input = transformerInput({
+    systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
+  });
+  const result = await describeUserMessageImagesWithHelper(input, () => stubHelper("desc"));
+  assert.ok(result);
+  assert.equal(result.some((part) => part.type === "image_description"), true);
+});
+
+test("view_image describe emits run-scoped events with call lineage", async () => {
+  const { calls, publisher } = recordingPublisher();
+  const context = {
+    mainModelSupportsVision: false,
+    systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
+    providers: [visionProvider],
+    pluginEvents: publisher,
+  };
+
+  const description = await describeImageIfConfiguredWithHelper(
+    context,
+    new Uint8Array([1, 2, 3]),
+    "image/png",
+    { tenantId: "tenant-1", sessionId: "session-9", runId: "run-7", currentCallId: "call-3", signal: null },
+    () => stubHelper("图中有一只猫。"),
+  );
+
+  assert.equal(description, "图中有一只猫。");
+  assert.deepEqual(
+    calls.map((call) => call.event),
+    ["image.describe_started", "image.describe_progress", "image.describe_completed"],
+  );
+  for (const call of calls) {
+    assert.equal(call.sessionId, "session-9");
+    assert.equal(call.options.delivery, "ephemeral");
+    assert.equal(call.options.runId, "run-7");
+    assert.equal(call.options.callId, "call-3");
+    assert.equal(call.data.source, "view_image");
+  }
+});
+
+test("view_image describe emits nothing when the helper is not configured", async () => {
+  const { calls, publisher } = recordingPublisher();
+  const context = {
+    mainModelSupportsVision: false,
+    systemConfig: systemConfigWith(), // 未启用视觉辅助
+    providers: [visionProvider],
+    pluginEvents: publisher,
+  };
+
+  const description = await describeImageIfConfiguredWithHelper(
+    context,
+    new Uint8Array([1, 2, 3]),
+    "image/png",
+    { tenantId: "tenant-1", sessionId: "session-9", signal: null },
+    () => stubHelper("desc"),
+  );
+
+  assert.equal(description, null);
+  assert.deepEqual(calls, []);
+});

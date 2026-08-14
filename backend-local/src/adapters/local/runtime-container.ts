@@ -71,6 +71,11 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     ?? new SqliteRuntimeStorage(options.tenantId, conversationStore);
   const localClientEvents = new DurableClientEventPublisher(runtimeStorage, {
     dispatchRows: (rows) => outboxDispatcher.dispatchRows(rows),
+    // ephemeral 帧（插件进度等）：绕过 outbox 直接实时扇出，不落库不回放。
+    dispatchEphemeral: (sessionId, event) => {
+      realtimeEvents.publish(sessionId, event);
+      return Promise.resolve();
+    },
   });
   if (runtimeStorage instanceof SqliteRuntimeStorage) {
     const recovered = await runtimeStorage.recoverOrphanedRuns();

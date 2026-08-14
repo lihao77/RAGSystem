@@ -1,8 +1,8 @@
 /**
  * 后端事件契约：统一为 agent-protocol 的 Envelope 协议。
  *
- * 后端产出/消费的下行事件一律为 agent-protocol `Envelope`（17 种协议语义词 type + payload），
- * 旧 ClientEvent/ClientEventType/ClientToServerMessage 已彻底移除。上行（host→runtime）
+ * 后端产出/消费的下行事件一律为 agent-protocol `Envelope`（协议语义词 type + payload，
+ * 含插件扩展帧 plugin_event），旧 ClientEvent/ClientEventType/ClientToServerMessage 已彻底移除。上行（host→runtime）
  * 的合法帧由 ClientToServerEnvelopeSchema 校验（user_driven_change / abort / interaction(responded)）。
  *
  * 类型与运行时 schema 自 agent-protocol re-export，后端零重复定义；agent-protocol 保持零后端依赖。
@@ -39,6 +39,8 @@ import {
   type ErrorPayload,
   type CapabilityManifestPayload,
   type HelloPayload,
+  type PluginEventPayload,
+  type PluginEventDelivery,
   type InteractionKind,
   type RiskLevel,
   type AttachmentRef,
@@ -79,6 +81,8 @@ export type {
   ErrorPayload,
   CapabilityManifestPayload,
   HelloPayload,
+  PluginEventPayload,
+  PluginEventDelivery,
   InteractionKind,
   RiskLevel,
   AttachmentRef,

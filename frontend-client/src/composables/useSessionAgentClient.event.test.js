@@ -2366,3 +2366,28 @@ test('run_ended 正常完成时不清 approval（应已 resolved）', () => {
   stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
   assert.equal(calls.resetApprovalState.length, 0);
 });
+
+test('error 帧带 request_id 时 toast 补偿（send 前置 ACK 后的异步失败）', () => {
+  const { deps, calls } = createDeps();
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'error',
+    payload: { code: 'send_failed', message: '附件解析失败', request_id: 'request-1' },
+  }, 'session-1');
+
+  assert.equal(calls.showToast.length, 1);
+  assert.equal(calls.showToast[0][0], '附件解析失败');
+});
+
+test('error 帧不带 request_id 时不 toast（run 内错误只落消息状态）', () => {
+  const { deps, calls } = createDeps();
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'error',
+    payload: { code: 'run_failed', message: '模型调用失败' },
+  }, 'session-1');
+
+  assert.equal(calls.showToast.length, 0);
+});

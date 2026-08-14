@@ -3,6 +3,7 @@ import { nextTick } from 'vue';
 import { sessionLoadStrategyRestoresActiveRun } from '@ragsystem/agent-protocol';
 import { createSessionEventReducer } from './sessionEventReducer.js';
 import { createUserMessage } from './sessionCommandController.js';
+import { handlePluginEventPayload } from './usePluginEvents.js';
 import { getMessageAttachments, normalizeMessageContentParts } from '../utils/messageContentParts.js';
 
 const startupPhases = new Set(['creating_session', 'preparing_attachments', 'starting_agent']);
@@ -473,6 +474,12 @@ export function createSessionEnvelopeDispatcher({
 
     if (runtime.handleInactiveDurableReplayEvent(event, sessionId)) return;
 
+    // 插件扩展帧：交给插件事件状态中心（image-tools 识别进度等），默认不参与消息投影。
+    if (eventType === 'plugin_event') {
+      handlePluginEventPayload(payload);
+      return;
+    }
+
     if (eventType === 'agent_message' && handleConsumedUserMessage(event, sessionId)) {
       nextTick(() => deps.scrollToBottom(true));
       return;
@@ -514,6 +521,10 @@ export function createSessionEnvelopeDispatcher({
     if (eventType === 'error') {
       const currentMsg = messages.value[activeRun.assistantMsgIndex];
       if (currentMsg) currentMsg.status.push({ type: 'error', content: payload.message || '' });
+      // send 前置 ACK（phase=received）后的异步失败补偿：带 request_id 的 error 帧 → toast。
+      if (payload.request_id) {
+        deps.showToast(payload.message || '发送失败', 'warning');
+      }
       return;
     }
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SessionAgentClient } from "../src/session-client.js";
+import { SEND_ACK_TIMEOUT_MS, SessionAgentClient } from "../src/session-client.js";
 
 class ControlledWebSocket {
   readonly readyState = 1;
@@ -88,7 +88,12 @@ describe("SessionAgentClient ACK correlation", () => {
     });
 
     const first = client.send({ task: "first", requestId: "request-1" });
-    await vi.advanceTimersByTimeAsync(5_000);
+    // 慢 ACK 期间连接靠心跳保活（生产：后端 20s 心跳、视觉描述最长约 60s）——
+    // 分片推进虚拟时间并喂心跳帧，否则会先撞 60s 心跳判死重连（测试环境假 socket 不发心跳）。
+    for (let elapsed = 0; elapsed < SEND_ACK_TIMEOUT_MS; elapsed += 20_000) {
+      await vi.advanceTimersByTimeAsync(20_000);
+      deliver(socket, { type: "heartbeat", session_id: "session-1", payload: { last_seq: 0 } });
+    }
     await expect(first).resolves.toMatchObject({ started: false, requestId: "request-1" });
 
     const second = client.send({ task: "second", requestId: "request-2" });

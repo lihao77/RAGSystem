@@ -26,7 +26,7 @@ export class DurableClientEventPublisher implements ClientEventPublisherPort {
   constructor(
     private readonly storage: RuntimeStorage,
     private readonly dispatcher: Pick<RuntimeEventDispatcherPort, "dispatchRows"> &
-      Partial<Pick<RuntimeEventDispatcherPort, "dispatchPendingRows">>,
+      Partial<Pick<RuntimeEventDispatcherPort, "dispatchPendingRows" | "dispatchEphemeral">>,
   ) {}
 
   async publish(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): Promise<OutboxRow> {
@@ -60,6 +60,18 @@ export class DurableClientEventPublisher implements ClientEventPublisherPort {
       if (!tail || this.sessionTails.get(sessionId) === tail) this.sessionTails.delete(sessionId);
       throw failure;
     }
+  }
+
+  /**
+   * 实时直发：绕过 outbox 与 session 串行队列（ephemeral 帧不要求与 durable 帧保序）。
+   * 部署无实时通道时降级 durable publish，保证不丢帧。
+   */
+  async publishEphemeral(sessionId: string, event: Envelope): Promise<void> {
+    if (this.dispatcher.dispatchEphemeral) {
+      await this.dispatcher.dispatchEphemeral(sessionId, event);
+      return;
+    }
+    await this.publish(sessionId, event);
   }
 
   async deliver(rows: OutboxRow[]): Promise<void> {

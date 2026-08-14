@@ -8,6 +8,8 @@ import type {
   BackendPlugin,
   BackendToolDescriptor,
   BackendToolFactoryContext,
+  PluginClientEventPublisher,
+  PluginClientEventPublishOptions,
   UserMessageTransformInput,
   UserMessageTransformer,
 } from "@ragsystem/backend-core/plugins/backend-plugin.js";
@@ -25,6 +27,30 @@ import { OpenAiVisionHelper, type VisionHelper } from "./vision-client.js";
 
 export const IMAGE_TOOLS_PLUGIN_ID = "@ragsystem/backend-plugin-image-tools";
 export const VIEW_IMAGE_TOOL_NAME = "view_image";
+
+/**
+ * 插件下行事件名（plugin_event payload.event；前端按 plugin_id + event 消费）。
+ * 全部为 ephemeral 进度帧：描述中 → 单图完成 → 全部完成。
+ */
+export const IMAGE_DESCRIBE_EVENTS = {
+  started: "image.describe_started",
+  progress: "image.describe_progress",
+  completed: "image.describe_completed",
+} as const;
+
+export type ImageDescribeSource = "message" | "view_image";
+
+/** 进度帧尽力而为：发布失败绝不能影响主流程（transformer 失败会丢弃全部描述结果）。 */
+function emitImageEvent(
+  publisher: PluginClientEventPublisher | undefined,
+  sessionId: string | null | undefined,
+  event: string,
+  data: Record<string, unknown>,
+  options?: PluginClientEventPublishOptions,
+): void {
+  if (!publisher || !sessionId) return;
+  void publisher.publish(sessionId, event, data, { delivery: "ephemeral", ...options }).catch(() => undefined);
+}
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 const IMAGE_MIME_BY_EXT: Readonly<Record<string, ToolResultMedia["mimeType"]>> = {
@@ -86,33 +112,55 @@ export async function describeUserMessageImagesWithHelper(
   if (!provider) return null;
   const helper = await createHelper(provider, config);
 
-  // 多图并行读取与描述（互不依赖，串行会让最后一张图最坏 N×超时 才落库）；
-  // 结果按下标对齐，保证描述 part 仍紧跟各自 attachment_ref 持久化。
-  const descriptions = await Promise.all(imageParts.map(async (part) => {
-    const bytes = await input.readAttachment(part.file_id);
-    if (!bytes || bytes.length === 0) return null;
-    return helper.describeImage({ bytes, mime: part.mime, signal: input.signal ?? null });
-  }));
-
-  const parts: MessageContentPart[] = [];
-  let imageCursor = 0;
-  for (const part of input.contentParts) {
-    parts.push(part);
-    if (part.type !== "attachment_ref" || part.kind !== "image") continue;
-    const description = descriptions[imageCursor];
-    imageCursor += 1;
-    if (description) {
-      // 描述以结构化 part（image_description）紧跟 attachment_ref 持久化：
-      // LLM 投影按主模型视觉能力决定注入（非视觉读文本/视觉跳过），展示层按类型挂附件角标。
-      parts.push({
-        type: "image_description",
+  const total = imageParts.length;
+  const emit = (event: string, data: Record<string, unknown>) =>
+    emitImageEvent(input.pluginEvents, input.sessionId, event, { source: "message" satisfies ImageDescribeSource, ...data });
+  const startedAt = Date.now();
+  let described = 0;
+  let failed = 0;
+  emit(IMAGE_DESCRIBE_EVENTS.started, { total, files: imageParts.map((part) => part.original_name) });
+  try {
+    // 多图并行读取与描述（互不依赖，串行会让最后一张图最坏 N×超时 才落库）；
+    // 结果按下标对齐，保证描述 part 仍紧跟各自 attachment_ref 持久化。
+    const descriptions = await Promise.all(imageParts.map(async (part, index) => {
+      const bytes = await input.readAttachment(part.file_id);
+      const text = bytes && bytes.length > 0
+        ? await helper.describeImage({ bytes, mime: part.mime, signal: input.signal ?? null })
+        : null;
+      if (text) described += 1;
+      else failed += 1;
+      emit(IMAGE_DESCRIBE_EVENTS.progress, {
         file_id: part.file_id,
-        original_name: part.original_name,
-        text: description,
+        name: part.original_name,
+        index,
+        total,
+        ok: Boolean(text),
       });
+      return text;
+    }));
+
+    const parts: MessageContentPart[] = [];
+    let imageCursor = 0;
+    for (const part of input.contentParts) {
+      parts.push(part);
+      if (part.type !== "attachment_ref" || part.kind !== "image") continue;
+      const description = descriptions[imageCursor];
+      imageCursor += 1;
+      if (description) {
+        // 描述以结构化 part（image_description）紧跟 attachment_ref 持久化：
+        // LLM 投影按主模型视觉能力决定注入（非视觉读文本/视觉跳过），展示层按类型挂附件角标。
+        parts.push({
+          type: "image_description",
+          file_id: part.file_id,
+          original_name: part.original_name,
+          text: description,
+        });
+      }
     }
+    return parts;
+  } finally {
+    emit(IMAGE_DESCRIBE_EVENTS.completed, { total, described, failed, duration_ms: Date.now() - startedAt });
   }
-  return parts;
 }
 
 /* ── view_image 工具（模型主动查看工作区图片） ── */
@@ -218,7 +266,22 @@ export async function describeImageIfConfiguredWithHelper(
   const provider = findConfiguredProviderFromList(context.providers, config);
   if (!provider) return null;
   const helper = await createHelper(provider, config);
-  return helper.describeImage({ bytes, mime, signal: ctx.signal ?? null });
+
+  // run 内进度帧：带 run/call 标记，前端可据此挂到执行树节点。
+  const emit = (event: string, data: Record<string, unknown>) =>
+    emitImageEvent(context.pluginEvents, ctx.sessionId, event, { source: "view_image" satisfies ImageDescribeSource, ...data }, {
+      runId: ctx.runId ?? null,
+      callId: ctx.currentCallId ?? ctx.rootCallId ?? null,
+    });
+  const startedAt = Date.now();
+  emit(IMAGE_DESCRIBE_EVENTS.started, { total: 1, files: [] });
+  try {
+    const description = await helper.describeImage({ bytes, mime, signal: ctx.signal ?? null });
+    emit(IMAGE_DESCRIBE_EVENTS.progress, { index: 0, total: 1, ok: Boolean(description) });
+    return description;
+  } finally {
+    emit(IMAGE_DESCRIBE_EVENTS.completed, { total: 1, duration_ms: Date.now() - startedAt });
+  }
 }
 
 /* ── 共享辅助 ── */

@@ -45,6 +45,11 @@ export class AgentExecutionEventPublisher {
     private readonly clientEvents: ClientEventPublisher,
   ) {}
 
+  /** 底层 client-event 端口：插件工具上下文等组装场景需要原始端口（非翻译后 Envelope 发布面）。 */
+  get clientEventPort(): ClientEventPublisher {
+    return this.clientEvents;
+  }
+
   buildRunStarted(sessionId: string, runId: string, payload: { request_id?: string; task?: string; source?: string }): Envelope {
     return {
       type: "run_started",

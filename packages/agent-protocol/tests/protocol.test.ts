@@ -748,3 +748,86 @@ describe("Session runtime snapshot invariants", () => {
     ]));
   });
 });
+
+describe("agent-protocol plugin_event extension frame", () => {
+  it("接受插件扩展帧并保留投递语义与自定义负载", () => {
+    const parsed = ServerToClientEnvelopeSchema.parse({
+      type: "plugin_event",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "call-1",
+      payload: {
+        plugin_id: "image-tools",
+        event: "vision.progress",
+        data: { percent: 40 },
+        delivery: "ephemeral",
+      },
+    });
+
+    expect(parsed.type).toBe("plugin_event");
+    expect(parsed.run_id).toBe("run-1");
+    const payload = parsed.payload as { plugin_id: string; event: string; data: unknown; delivery?: string };
+    expect(payload.plugin_id).toBe("image-tools");
+    expect(payload.event).toBe("vision.progress");
+    expect(payload.data).toEqual({ percent: 40 });
+    expect(payload.delivery).toBe("ephemeral");
+  });
+
+  it("拒绝缺 plugin_id 或事件名的 plugin_event", () => {
+    expect(() => ServerToClientEnvelopeSchema.parse({
+      type: "plugin_event",
+      session_id: "session-1",
+      payload: { event: "vision.progress" },
+    })).toThrow();
+    expect(() => ServerToClientEnvelopeSchema.parse({
+      type: "plugin_event",
+      session_id: "session-1",
+      payload: { plugin_id: "image-tools", event: "" },
+    })).toThrow();
+    expect(() => ServerToClientEnvelopeSchema.parse({
+      type: "plugin_event",
+      session_id: "session-1",
+      payload: { plugin_id: "image-tools", event: "x", delivery: "sometimes" },
+    })).toThrow();
+  });
+
+  it("拒绝 plugin_event 出现在上行方向", () => {
+    expect(() => ClientToServerEnvelopeSchema.parse({
+      type: "plugin_event",
+      session_id: "session-1",
+      payload: { plugin_id: "image-tools", event: "vision.progress" },
+    })).toThrow();
+  });
+
+  it("执行树忽略 plugin_event（不污染 ReAct 投影）", () => {
+    const state = createExecutionTreeState();
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "plugin_event",
+      session_id: "session-1",
+      run_id: "run-1",
+      payload: { plugin_id: "image-tools", event: "vision.progress", data: { percent: 40 } },
+    }));
+    expect(getExecutionTree(state).root).toBeNull();
+    expect(getExecutionTree(state).steps).toHaveLength(1);
+  });
+});
+
+describe("agent-protocol ack/error 扩展字段", () => {
+  it("ack 支持 phase=received（send 前置确认语义）", () => {
+    const parsed = ServerToClientEnvelopeSchema.parse({
+      type: "ack",
+      session_id: "session-1",
+      payload: { category: "send", ok: true, request_id: "request-1", phase: "received" },
+    });
+    expect((parsed.payload as { phase?: string }).phase).toBe("received");
+  });
+
+  it("error 帧支持 request_id（前置 ACK 后的异步失败补偿关联）", () => {
+    const parsed = ServerToClientEnvelopeSchema.parse({
+      type: "error",
+      session_id: "session-1",
+      payload: { code: "send_failed", message: "附件解析失败", request_id: "request-1" },
+    });
+    expect((parsed.payload as { request_id?: string }).request_id).toBe("request-1");
+  });
+});

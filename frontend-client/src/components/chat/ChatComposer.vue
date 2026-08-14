@@ -3,7 +3,7 @@
     <Transition name="image-recognition-fade">
       <div v-if="imageRecognitionPending" class="image-recognition-hint" role="status">
         <span class="image-recognition-spinner" aria-hidden="true"></span>
-        正在识别图片…
+        正在识别图片…<template v-if="imageRecognitionProgress">（{{ imageRecognitionProgress.done }}/{{ imageRecognitionProgress.total }}）</template>
       </div>
     </Transition>
     <div
@@ -92,6 +92,8 @@ defineProps({
   hasMessages: { type: Boolean, default: false },
   newChatLaunching: { type: Boolean, default: false },
   imageRecognitionPending: { type: Boolean, default: false },
+  // 多图识别进度（{ done, total }，仅进行中且总数 >1 时传入）。
+  imageRecognitionProgress: { type: Object, default: null },
   sessionId: { type: String, default: '' },
   chatSdkClient: { type: Object, default: null },
   contextUsage: { type: Object, default: null },

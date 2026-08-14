@@ -6,7 +6,9 @@ import type {
   BackendPlugin,
   BackendPluginResourceContribution,
   BackendPluginRuntimeContext,
+  PluginClientEventPublisher,
 } from "../src/plugins/backend-plugin.js";
+import type { Envelope } from "../src/contracts/events.js";
 import { createCapability, provideCapability } from "../src/plugins/capability-registry.js";
 import { BackendPluginManager } from "../src/plugins/plugin-manager.js";
 import { createBackendResourceToken, provideBackendResource } from "../src/plugins/resource-registry.js";
@@ -188,6 +190,98 @@ describe("BackendPluginManager", () => {
       "stop:plugin",
       "dispose:application",
     ]);
+  });
+
+  it("stamps per-plugin identity onto injected plugin event publishers", async () => {
+    const runtimePublishers = new Map<string, PluginClientEventPublisher | undefined>();
+    const toolPublishers = new Map<string, PluginClientEventPublisher | undefined>();
+    const eventfulPlugin = (id: string): BackendPlugin => ({
+      manifest: { id, version: "1.0.0" },
+      register(context) {
+        context.runtimes.register((runtimeContext) => {
+          runtimePublishers.set(id, runtimeContext.pluginEvents);
+          return {};
+        });
+        context.tools.register((toolContext) => {
+          toolPublishers.set(id, toolContext.pluginEvents);
+          return [];
+        });
+      },
+    });
+    const manager = new BackendPluginManager([eventfulPlugin("alpha"), eventfulPlugin("beta")]);
+    await manager.register();
+
+    const published: Envelope[] = [];
+    const clientEvents = {
+      publish: async (_sessionId: string, event: Envelope) => {
+        published.push(event);
+        return {} as never;
+      },
+    } as never;
+    const contributions = manager.runtimeContributions();
+    const runtime = await contributions.createRuntime({ clientEvents } as unknown as BackendPluginRuntimeContext);
+    await contributions.createTools({ clientEvents } as unknown as Parameters<typeof contributions.createTools>[0]);
+
+    await runtimePublishers.get("alpha")?.publish("session-1", "vision.progress", { percent: 1 });
+    await runtimePublishers.get("beta")?.publish("session-1", "vision.progress");
+    await toolPublishers.get("alpha")?.publish("session-1", "tool.notice", "hi", { delivery: "ephemeral" });
+
+    expect(published.map((event) => (event.payload as { plugin_id: string }).plugin_id))
+      .toEqual(["alpha", "beta", "alpha"]);
+    // 端口无 publishEphemeral：ephemeral 降级 durable，帧上保留插件声明的投递意图。
+    expect((published[2]?.payload as { delivery?: string }).delivery).toBe("ephemeral");
+    runtime.dispose();
+  });
+
+  it("omits plugin event publishers when the context carries no client event port", async () => {
+    let received: unknown = "unset";
+    const manager = new BackendPluginManager([{
+      manifest: { id: "alpha", version: "1.0.0" },
+      register(context) {
+        context.runtimes.register((runtimeContext) => {
+          received = runtimeContext.pluginEvents;
+          return {};
+        });
+      },
+    }]);
+    await manager.register();
+
+    const runtime = await manager.runtimeContributions().createRuntime({} as BackendPluginRuntimeContext);
+    expect(received).toBeUndefined();
+    runtime.dispose();
+  });
+
+  it("stamps plugin identity onto transformer plugin event publishers", async () => {
+    const manager = new BackendPluginManager([{
+      manifest: { id: "vision", version: "1.0.0" },
+      register(context) {
+        context.transformers.register(async (input) => {
+          await input.pluginEvents?.publish("session-1", "image.describe_started", { total: 1 });
+          return null;
+        });
+      },
+    }]);
+    await manager.register();
+
+    const published: Envelope[] = [];
+    const clientEvents = {
+      publish: async (_sessionId: string, event: Envelope) => {
+        published.push(event);
+        return {} as never;
+      },
+    } as never;
+    const result = await manager.runtimeContributions().transformUserMessage({
+      sessionId: "session-1",
+      tenantId: "tenant-1",
+      contentParts: [],
+      attachments: [],
+      clientEvents,
+    } as unknown as Parameters<ReturnType<typeof manager.runtimeContributions>["transformUserMessage"]>[0]);
+
+    expect(result).toBeNull();
+    expect(published).toHaveLength(1);
+    expect(published[0]?.type).toBe("plugin_event");
+    expect((published[0]?.payload as { plugin_id: string }).plugin_id).toBe("vision");
   });
 });
 

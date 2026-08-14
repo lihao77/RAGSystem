@@ -168,7 +168,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
         const sendAck = (
           category: "send" | "stop" | "interaction" | "resume" | "tool_delegate",
           ok: boolean,
-          extra: { ref_call_id?: string; request_id?: string; kind?: "agent_run" | "command"; error?: string } = {},
+          extra: { ref_call_id?: string; request_id?: string; kind?: "agent_run" | "command"; error?: string; phase?: "received" } = {},
         ): void => {
           send({ type: "ack", session_id: sessionId, payload: { category, ok, ...extra } });
         };
@@ -339,6 +339,11 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
               case "user_driven_change": {
                 const payload = message.payload;
                 const requestId = payload.request_id ?? randomUUID();
+                // ACK 前置：onAccepted 在基础校验后、耗时处理（附件/变换/落库/启动）前触发——
+                // 确认耗时与插件变换解耦。每个请求只回一次 ACK：
+                // onAccepted 未触发（前置校验失败）→ 维持同步 NACK；
+                // 已 ACK 后的异步失败 → error 帧补偿（携带 request_id，前端 toast）。
+                let sendAckSent = false;
                 applications.execution.startStream(
                     {
                       task: payload.task,
@@ -349,19 +354,45 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
                       ui_context: payload.ui_context,
                     },
                     requestId,
+                    {
+                      onAccepted: (notice) => {
+                        sendAckSent = true;
+                        sendAck("send", true, {
+                          request_id: requestId,
+                          phase: "received",
+                          ...(notice.kind ? { kind: notice.kind } : {}),
+                        });
+                      },
+                    },
                   )
                   .then((result) => {
                     const accepted = result.started || result.kind === "command";
-                    sendAck("send", accepted, {
-                      request_id: requestId,
-                      ...(result.kind ? { kind: result.kind } : {}),
-                      ...(!accepted ? { error: result.error ?? "Agent stream 未启动" } : {}),
-                    });
+                    if (!sendAckSent) {
+                      sendAck("send", accepted, {
+                        request_id: requestId,
+                        ...(result.kind ? { kind: result.kind } : {}),
+                        ...(!accepted ? { error: result.error ?? "Agent stream 未启动" } : {}),
+                      });
+                      return;
+                    }
+                    if (!accepted) {
+                      send({
+                        type: "error",
+                        session_id: sessionId,
+                        payload: { code: "send_failed", message: result.error ?? "Agent stream 未启动", request_id: requestId },
+                      });
+                    }
                   })
                   .catch((error) => {
-                    sendAck("send", false, {
-                      request_id: requestId,
-                      error: error instanceof Error ? error.message : "Agent stream execution failed",
+                    const message = error instanceof Error ? error.message : "Agent stream execution failed";
+                    if (!sendAckSent) {
+                      sendAck("send", false, { request_id: requestId, error: message });
+                      return;
+                    }
+                    send({
+                      type: "error",
+                      session_id: sessionId,
+                      payload: { code: "send_failed", message, request_id: requestId },
                     });
                   });
                 break;

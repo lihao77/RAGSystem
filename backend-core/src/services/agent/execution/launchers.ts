@@ -40,7 +40,7 @@ import type {
   AgentMailboxWakeupTarget,
 } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
-import type { ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
+import type { ExecutionAcceptedNotice, ExecutionStartOptions } from "../../../contracts/execution/execution-application.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import type { RunInfo } from "../../../contracts/conversation-store/index.js";
 import type {
@@ -52,41 +52,10 @@ import type { ParticipantRunLifecyclePort } from "../delegation/port.js";
 import type { UserMessageTransformInput } from "../../../plugins/backend-plugin.js";
 import { terminalReasonDisplay } from "../../../contracts/storage/runtime-finalization.js";
 
-/** 用户消息持久化前变换管道（由容器组装闭包，注入 readAttachment/modelAdapter/systemConfig）。 */
+/** 用户消息持久化前变换管道（由容器组装闭包，注入 readAttachment/modelAdapter/systemConfig/clientEvents）。 */
 export type UserMessageTransformRunner = (
-  input: Omit<UserMessageTransformInput, "readAttachment" | "modelAdapter" | "systemConfig">,
+  input: Omit<UserMessageTransformInput, "readAttachment" | "modelAdapter" | "systemConfig" | "clientEvents" | "pluginEvents">,
 ) => Promise<MessageContentPart[] | null>;
-
-/**
- * 用户消息变换管道的最长等待。变换是"尽力而为"的富化（如图片视觉描述），
- * 超过该时限回退原始 contentParts 并 abort 在途调用（视觉 HTTP 请求随之取消）。
- * 该时限必须小于 chat-sdk 客户端的 send ACK 窗口（5s），否则后端先回 ACK 前
- * 客户端已超时报"发送超时，未收到确认"（尽管 run 随后仍会启动）。
- */
-const USER_MESSAGE_TRANSFORM_DEADLINE_MS = 4000;
-
-export async function runUserMessageTransformWithDeadline(
-  transform: UserMessageTransformRunner,
-  input: Parameters<UserMessageTransformRunner>[0],
-): Promise<MessageContentPart[] | null> {
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const deadline = new Promise<null>((resolve) => {
-    timer = setTimeout(() => {
-      controller.abort();
-      resolve(null);
-    }, USER_MESSAGE_TRANSFORM_DEADLINE_MS);
-    timer.unref?.();
-  });
-  try {
-    const pending = transform({ ...input, signal: controller.signal });
-    // deadline 已决后 transformer 的迟到 rejection 不应变成 unhandled rejection。
-    pending.catch(() => undefined);
-    return await Promise.race([pending, deadline]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
 
 interface UnifiedRunStartInput {
   sessionId: string;
@@ -130,6 +99,8 @@ interface SendUserMessageInput {
   awaitFollowupCompletion?: boolean;
   followupPolicy: "queue" | "reject";
   onInteractionRequired?: ExecuteRequest["onInteractionRequired"];
+  /** 提前确认（ExecutionStartOptions.onAccepted 透传）：耗时处理前恰好触发一次。 */
+  onAccepted?: (notice: ExecutionAcceptedNotice) => void;
 }
 
 type SendUserMessageResult =
@@ -415,6 +386,8 @@ class AgentLaunchers {
         ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
       });
       if (commandResult) {
+        // 命令路径不涉及插件变换：确认时机与原来一致（命令处理完成后）。
+        input.onAccepted?.({ kind: "command" });
         return {
           kind: "command",
           sessionId,
@@ -453,6 +426,11 @@ class AgentLaunchers {
       }
     }
 
+    // 提前确认点：基础校验已通过，其后的附件解析/插件变换/落库/启动均为耗时处理——
+    // realtime 通道经 onAccepted 立即回 phase=received 的 ACK，与插件变换耗时解耦；
+    // 此点之后的失败由调用方以 error 帧补偿（携带 request_id）。
+    input.onAccepted?.({});
+
     const attachmentResolution = await this.attachmentResolver.resolve(sessionId, input.attachments);
     if (attachmentResolution.error) {
       return { kind: "error", sessionId, error: attachmentResolution.error };
@@ -479,9 +457,10 @@ class AgentLaunchers {
     ];
 
     // 持久化前变换：插件管道可在写入前改写 contentParts（如为图片附件追加视觉描述）。
-    // 变换有截止时限：超时回退原始 contentParts，避免阻塞 WS send ACK。
+    // ACK 已在此前前置（onAccepted），变换耗时不阻塞确认；单图耗时由插件自身超时约束
+    // （image_tools.timeout_seconds 默认 60s）；失败回退原始 parts。
     const persistedContentParts = this.transformUserMessage
-      ? (await runUserMessageTransformWithDeadline(this.transformUserMessage, {
+      ? (await this.transformUserMessage({
           sessionId,
           tenantId: this.tenantId,
           contentParts,
@@ -533,6 +512,7 @@ class AgentLaunchers {
       selectedLlm: request.selected_llm ?? "",
       ...(request.ui_context !== undefined ? { uiContext: request.ui_context } : {}),
       followupPolicy: options.followupPolicy ?? "queue",
+      ...(options.onAccepted ? { onAccepted: options.onAccepted } : {}),
     });
     if (submitted.kind === "error") {
       return { started: false, session_id: submitted.sessionId, error: submitted.error };

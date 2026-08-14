@@ -38,6 +38,12 @@ import { buildSessionWebSocketUrl, extractCursor } from "./websocket-url.js";
 import type { AguiEvent, AguiRunHandle, AguiRunInput } from "./agui.js";
 
 /**
+ * 发送 ACK 最长等待。ACK 已前置（后端基础校验后即回 phase=received，毫秒级），
+ * 该窗口只是服务端完全无响应时的最后防线——60s 心跳判死通常先触发重连并冲刷 pending sends。
+ */
+export const SEND_ACK_TIMEOUT_MS = 75_000;
+
+/**
  * 单个 Session 的 headless AgentClient 实现。
  *
  * 组合 ChatWebSocketTransport（字节层）+ 协议层投影（execution-tree / runStatus / pendingInteractions
@@ -397,7 +403,7 @@ export class SessionAgentClient implements AgentClient {
     const result = await Promise.race([
       ackPromise,
       new Promise<{ ok: false; error: string; timedOut: true }>((resolve) => {
-        timer = setTimeout(() => resolve({ ok: false, error: "发送超时，未收到确认", timedOut: true }), 5000);
+        timer = setTimeout(() => resolve({ ok: false, error: "发送超时，未收到确认", timedOut: true }), SEND_ACK_TIMEOUT_MS);
       }),
     ]);
     if (timer) clearTimeout(timer);

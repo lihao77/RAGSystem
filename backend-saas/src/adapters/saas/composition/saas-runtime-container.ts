@@ -56,7 +56,16 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   // Fast-path publisher: claim+deliver newly written rows via the shared process dispatcher.
   // Recovery polling is owned by conversationRuntime.sharedOutboxDispatcher (one per process).
   const outboxDispatcher = conversationRuntime.sharedOutboxDispatcher;
-  const clientEvents = new DurableClientEventPublisher(runtimeStorage, outboxDispatcher);
+  const clientEvents = new DurableClientEventPublisher(runtimeStorage, {
+    dispatchRows: (rows) => outboxDispatcher.dispatchRows(rows),
+    dispatchPendingRows: (rows) => outboxDispatcher.dispatchPendingRows(rows),
+    // ephemeral 帧：仅本进程扇出（跨实例广播依赖 outbox+NOTIFY，ephemeral 不落库故为 best-effort，
+    // 只有连到执行实例的客户端能收到——进度类帧可接受；需要可靠送达请用 durable）。
+    dispatchEphemeral: (sessionId, event) => {
+      realtimeEvents.publish(sessionId, event);
+      return Promise.resolve();
+    },
+  });
   const fileHistory = conversationRuntime.createFileHistoryStorage(tenantId);
   const sessionFiles = conversationRuntime.createSessionFileStorage(tenantId);
   const agentConfig = new AgentConfigService(conversationRuntime.createAgentConfigTeamStore(tenantId));

@@ -6,6 +6,7 @@
  *   • session.hello 握手锁定 protocol_version + protocol/capabilities 两个独立扩展点。
  *   • 投影用 tool_call/tool_result（纯通知，落 outbox 回放）；委托用 delegate_call/delegate_result（执行指令/回传，realtime 不回放）。
  *   • 交互收敛为单一 interaction type；legacy 双发由 adapter 层屏蔽（协议不复制债务）。
+ *   • plugin_event 是唯一插件扩展帧：payload.plugin_id 宿主盖章；durable 落 outbox 回放，ephemeral 仅实时直发。
  *
  * backend-ts/contracts/events.ts re-export 本包 Envelope（后端零重复定义）；后端 kernel 产 runtime.* 事件经 event-publisher 翻译为 Envelope。
  * 本文件不 import backend-ts/contracts —— agent-protocol 保持零后端依赖。
@@ -47,6 +48,7 @@ export const EnvelopeTypeSchema = z.enum([
   "abort",
   "capability_manifest",
   "ack",
+  "plugin_event",
 ]);
 export type EnvelopeType = z.infer<typeof EnvelopeTypeSchema>;
 
@@ -149,6 +151,10 @@ export type UserDrivenChangePayload = z.infer<typeof UserDrivenChangePayloadSche
 export type AbortPayload = z.infer<typeof AbortPayloadSchema>;
 export type CapabilityManifestPayload = z.infer<typeof CapabilityManifestPayloadSchema>;
 
+/* —— 插件扩展帧（payload.plugin_id 由宿主盖章） —— */
+export type PluginEventPayload = z.infer<typeof PluginEventPayloadSchema>;
+export type PluginEventDelivery = z.infer<typeof PluginEventDeliverySchema>;
+
 /* ============================================================
  * 五、zod validator
  * ========================================================== */
@@ -221,6 +227,8 @@ export const ErrorPayloadSchema = z.object({
   code: z.string().min(1),
   message: z.string(),
   ref_call_id: z.string().optional(),
+  /** 关联上行请求：send 前置 ACK（phase=received）后的异步失败补偿据此定位请求。 */
+  request_id: z.string().optional(),
 });
 
 export const AckPayloadSchema = z.object({
@@ -231,6 +239,11 @@ export const AckPayloadSchema = z.object({
   ok: z.boolean(),
   kind: z.enum(["agent_run", "command"]).optional(),
   error: z.string().optional(),
+  /**
+   * received：已接收待处理——附件解析/插件变换/落库/启动异步完成，失败以 error 帧补偿。
+   * 缺省为终态 ACK（兼容旧语义：ok 即启动结果）。
+   */
+  phase: z.enum(["received"]).optional(),
 });
 
 export const RunStartedPayloadSchema = z.object({
@@ -729,6 +742,26 @@ export const CapabilityManifestPayloadSchema = z.object({
 });
 
 /**
+ * durable（默认）：落 outbox、重连回放；ephemeral：仅实时直发，不落库不回放。
+ * 帧上携带的是插件声明的投递意图——无实时通道的部署会降级 durable 送达，以实际投递为准。
+ */
+export const PluginEventDeliverySchema = z.enum(["durable", "ephemeral"]);
+
+/**
+ * 插件自定义下行事件 payload（plugin_event 帧）。
+ *
+ * 协议唯一的插件扩展点：plugin_id 由宿主按注册插件盖章（插件不可伪造），
+ * event 为插件内命名（建议 'namespace.action'），data 为插件自定义负载——
+ * 消费端一律按不可信数据处理（禁 innerHTML 直渲）。
+ */
+export const PluginEventPayloadSchema = z.object({
+  plugin_id: z.string().min(1),
+  event: z.string().min(1),
+  data: z.unknown().optional(),
+  delivery: PluginEventDeliverySchema.optional(),
+});
+
+/**
  * 顶层基础形状（纯 ZodObject，供 HelloEnvelopeSchema 等 extend 复用）。
  *
  * 维护提醒：本对象（zod 运行时校验）与上方 ProtocolEnvelope（TS 静态接口）是
@@ -827,6 +860,7 @@ export const ServerToClientEnvelopeSchema = z.discriminatedUnion("type", [
   typed({ type: z.literal("abort"), session_id: z.string().min(1), payload: AbortPayloadSchema }),
   typed({ type: z.literal("capability_manifest"), session_id: z.string().min(1), payload: CapabilityManifestPayloadSchema }),
   typed({ type: z.literal("ack"), session_id: z.string().min(1), payload: AckPayloadSchema }),
+  typed({ type: z.literal("plugin_event"), session_id: z.string().min(1), payload: PluginEventPayloadSchema }),
 ]);
 
 export type ServerToClientEnvelope = z.infer<typeof ServerToClientEnvelopeSchema>;

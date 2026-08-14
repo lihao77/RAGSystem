@@ -38,12 +38,19 @@ export interface ClientEventPublisherPort {
   prepare(sessionId: string, event: Envelope, options?: ClientEventPublishOptions): RuntimeRecordEnvelopeInput;
   flush(sessionId: string): Promise<void>;
   deliver(rows: OutboxRow[]): Promise<void>;
+  /**
+   * 实时直发（可选）：不落 outbox、不参与重连回放，供 ephemeral 类事件（如插件进度帧）使用。
+   * 实现方无实时直发通道时应降级为 durable publish——宁可落库也不静默丢帧。
+   */
+  publishEphemeral?(sessionId: string, event: Envelope): Promise<void>;
 }
 
 /** Deployment-neutral, Promise-only durable event delivery surface. */
 export interface RuntimeEventDispatcherPort {
   dispatchRows(rows: OutboxRow[]): Promise<Envelope[]>;
   dispatchPendingRows?(rows: OutboxRow[]): Promise<Envelope[]>;
+  /** 实时扇出单帧（无 outbox 行）；无实时通道的部署可不实现（调用方降级 durable）。 */
+  dispatchEphemeral?(sessionId: string, event: Envelope): Promise<void>;
 }
 
 /** Persistence required by the dispatcher; targeted claiming is a multi-instance capability. */

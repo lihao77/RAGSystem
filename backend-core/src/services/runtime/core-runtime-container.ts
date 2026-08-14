@@ -121,12 +121,14 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     ...(dependencies.plugins ? {
       pluginTools: createPluginTools,
       // 用户消息持久化前变换：注入 readAttachment（会话文件字节读取）、modelAdapter 与
-      // systemConfig（插件视觉模型查询与配置读取；transformer 每次执行实时读配置）。
+      // systemConfig（插件视觉模型查询与配置读取；transformer 每次执行实时读配置）；
+      // clientEvents 供宿主按插件构建 pluginEvents（变换进度推 plugin_event 帧）。
       userMessageTransformers: async (input) =>
         dependencies.plugins?.transformUserMessage({
           ...input,
           modelAdapter,
           systemConfig,
+          clientEvents,
           readAttachment: async (fileId) => {
             const record = sessionFiles ? await sessionFiles.read(input.sessionId, fileId) : null;
             return record?.body ?? null;

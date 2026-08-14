@@ -31,6 +31,7 @@ import type {
   UserMessageTransformer,
 } from "./backend-plugin.js";
 import { CapabilityRegistry, provideCapability, type CapabilityProvider } from "./capability-registry.js";
+import { createPluginClientEventPublisher } from "./plugin-event-publisher.js";
 import type { BackendResourceToken } from "./resource-registry.js";
 
 class BackendRouteRegistry {
@@ -193,7 +194,11 @@ class BackendToolContributionRegistry {
   async create(context: BackendToolFactoryContext): Promise<readonly Tool[]> {
     const tools: Tool[] = [];
     for (const contribution of this.contributions) {
-      const created = await contribution.factory(context);
+      // 有 clientEvents 时按插件盖章注入 pluginEvents（工具可向会话推 plugin_event 帧）。
+      const scopedContext = context.clientEvents
+        ? { ...context, pluginEvents: createPluginClientEventPublisher(contribution.pluginId, context.clientEvents) }
+        : context;
+      const created = await contribution.factory(scopedContext);
       tools.push(...(Array.isArray(created) ? created : [created as Tool]));
     }
     return tools;
@@ -238,7 +243,11 @@ class BackendUserMessageTransformerRegistry {
     for (const contribution of this.contributions) {
       try {
         const current = contentParts ?? [...input.contentParts];
-        const result = await contribution.transformer({ ...input, contentParts: current });
+        // 有 clientEvents 时按插件盖章注入 pluginEvents（变换期间可推 plugin_event 进度帧）。
+        const scopedInput = input.clientEvents
+          ? { ...input, contentParts: current, pluginEvents: createPluginClientEventPublisher(contribution.pluginId, input.clientEvents) }
+          : { ...input, contentParts: current };
+        const result = await contribution.transformer(scopedInput);
         if (result) contentParts = result;
       } catch {
         // 单个 transformer 失败不影响消息发送与其余管道（保持当前内容不变）。
@@ -280,7 +289,12 @@ class BackendRuntimeFactoryRegistry {
     const runtimes: BackendPluginRuntimeContribution[] = [];
     try {
       for (const contribution of this.contributions) {
-        const runtime = await contribution.factory(context);
+        // 有 clientEvents 时按插件盖章注入 pluginEvents：plugin_id 取自注册 contribution，插件不可伪造。
+        const runtime = await contribution.factory(
+          context.clientEvents
+            ? { ...context, pluginEvents: createPluginClientEventPublisher(contribution.pluginId, context.clientEvents) }
+            : context,
+        );
         runtimes.push(runtime);
         for (const provider of runtime.capabilities ?? []) {
           capabilities.push(provideCapability(provider.token, provider.value, contribution.pluginId));

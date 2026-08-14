@@ -3,6 +3,7 @@ export {
   createImageToolsPlugin,
   describeImageIfConfiguredWithHelper,
   describeUserMessageImagesWithHelper,
+  IMAGE_DESCRIBE_EVENTS,
   IMAGE_TOOLS_PLUGIN_ID,
   VIEW_IMAGE_TOOL_NAME,
 } from "./plugin.js";

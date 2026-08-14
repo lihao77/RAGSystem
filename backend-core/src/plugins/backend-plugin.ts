@@ -25,6 +25,37 @@ export interface BackendRouteInstallContext {
   readonly emitPluginEvent?: BackendPluginEventPublisher;
 }
 
+/* ============================================================
+ * 插件下行事件（protocol plugin_event 帧）
+ * ========================================================== */
+
+/** durable（默认）：落 outbox、重连回放；ephemeral：仅实时直发，不落库不回放（适合进度类高频帧）。 */
+export type PluginEventDelivery = "durable" | "ephemeral";
+
+export interface PluginClientEventPublishOptions {
+  /** 关联 run（durable 时按 run 聚合落 outbox）；会话级事件留空。 */
+  readonly runId?: string | null;
+  /** 关联调用（前端按 call_id 归位到执行树节点时使用）。 */
+  readonly callId?: string | null;
+  readonly delivery?: PluginEventDelivery;
+}
+
+/**
+ * 插件作用域的下行事件发布器。
+ *
+ * 由宿主按注册插件注入（runtime context / tool factory context）：plugin_id 宿主盖章、
+ * 插件不可伪造；帧统一走 client-event 管线，前端 dispatcher 默认忽略未知 plugin_event，
+ * 需要展示时按 payload.plugin_id + event 自行消费（data 按不可信数据处理）。
+ */
+export interface PluginClientEventPublisher {
+  publish(
+    sessionId: string,
+    event: string,
+    data?: unknown,
+    options?: PluginClientEventPublishOptions,
+  ): Promise<void>;
+}
+
 export type BackendRouteInstaller = (
   app: FastifyInstance,
   context: BackendRouteInstallContext,
@@ -71,6 +102,10 @@ export interface BackendToolFactoryContext {
    * 与上下文投影层的 supportsVision 同源——工具可据此跳过对视觉模型的冗余描述。
    */
   readonly mainModelSupportsVision?: boolean;
+  /** 宿主按插件注入的下行事件发布器：工具可在执行中向会话推 plugin_event 帧（进度/通知）。 */
+  readonly pluginEvents?: PluginClientEventPublisher;
+  /** 底层 client-event 端口（宿主按插件构建 pluginEvents 用）；插件代码应优先使用 pluginEvents。 */
+  readonly clientEvents?: ClientEventPublisherPort | null;
   readonly callTool?: (
     toolName: string,
     args: Record<string, unknown>,
@@ -110,6 +145,10 @@ export interface UserMessageTransformInput {
   readonly modelAdapter: ModelProviderCatalogPort;
   /** 本租户系统配置（transformer 每次执行实时读取，保证配置修改即时生效）。 */
   readonly systemConfig: SystemConfigPort;
+  /** 宿主按插件注入的下行事件发布器：变换期间可向会话推 plugin_event 进度帧（如图片解析中）。 */
+  readonly pluginEvents?: PluginClientEventPublisher;
+  /** 底层 client-event 端口（宿主按插件构建 pluginEvents 用）；插件代码应优先使用 pluginEvents。 */
+  readonly clientEvents?: ClientEventPublisherPort | null;
   readonly signal?: AbortSignal | null;
 }
 
@@ -132,6 +171,8 @@ export interface BackendPluginRuntimeContext {
   readonly sessions: SessionApplication;
   readonly backgroundTasks: BackgroundTaskPort;
   readonly clientEvents: ClientEventPublisherPort;
+  /** 宿主在调用各插件 runtime factory 前按插件注入（plugin_id 盖章）；插件推下行事件用它，勿直接用 clientEvents 裸发语义帧。 */
+  readonly pluginEvents?: PluginClientEventPublisher;
   readonly resources?: readonly BackendPluginResourceContribution[];
   /** Tool descriptors registered by all installed plugins, for runtime control-plane consumers. */
   readonly listPluginTools?: () => readonly BackendToolDescriptor[];
