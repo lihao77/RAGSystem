@@ -14,6 +14,7 @@
         ref="chatInputRef"
         :model-value="modelValue"
         :attachments="attachments"
+        :session-id="sessionId"
         :can-send="canSend"
         :can-stop="canStop"
         :can-resume="canResume"

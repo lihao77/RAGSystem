@@ -12,19 +12,23 @@
 
       <div class="ctx-drawer-body">
         <section class="ctx-section">
-          <div class="ctx-actions-row">
-            <input ref="fileInputRef" type="file" multiple style="display:none" @change="onFileChange" />
-            <Button variant="default" :disabled="uploading" @click="fileInputRef?.click()">
-              <IconPlus :size="15" />
-              <span>{{ uploading ? '处理中...' : '选择图片或文件' }}</span>
-            </Button>
-            <Button v-if="sessionId" variant="ghost" :disabled="loading" @click="emit('refresh')">
+          <input ref="fileInputRef" type="file" multiple style="display:none" @change="onFileChange" />
+          <button type="button" class="ctx-dropzone" :disabled="uploading" @click="fileInputRef?.click()">
+            <span class="ctx-dropzone-icon" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </span>
+            <span class="ctx-dropzone-title">{{ uploading ? '处理中...' : '点击选择图片或文件' }}</span>
+            <span class="ctx-dropzone-sub">支持多选，也可直接拖拽文件到窗口任意位置</span>
+          </button>
+          <div v-if="sessionId" class="ctx-toolbar">
+            <Button variant="ghost" size="sm" :disabled="loading" @click="emit('refresh')">
               <IconRefresh :size="14" />
               <span>刷新会话文件</span>
             </Button>
-          </div>
-          <div class="ctx-dropzone-hint">
-            也可拖拽文件到窗口添加
           </div>
         </section>
 
@@ -33,17 +37,25 @@
           <div class="ctx-section-title">{{ pendingTitle }}</div>
           <div class="ctx-file-list">
             <div v-for="file in pendingFiles" :key="file.local_id || file.file_id || file.id" class="ctx-file-item ctx-file-item--pending">
+              <button
+                v-if="isImageAttachment(file) && getPreviewUrl(file)"
+                type="button"
+                class="ctx-file-thumb-btn"
+                title="预览图片"
+                @click="openImages(pendingFiles, file)"
+              >
+                <AuthenticatedImage :src="getPreviewUrl(file)" :alt="file.original_name || file.stored_name" class="ctx-file-thumb" />
+              </button>
+              <div v-else class="ctx-file-icon"><IconFile :size="18" /></div>
               <div class="ctx-file-main">
-                <button v-if="isImageAttachment(file)" class="ctx-thumb-btn" @click="openImages(pendingFiles, file)"><AuthenticatedImage :src="getPreviewUrl(file)" :alt="file.original_name || file.stored_name" class="ctx-thumb" /></button>
                 <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
                 <div class="ctx-file-meta">
                   <span>{{ formatAttachmentSize(file.size) }}</span>
-                  <span v-if="file.mime">{{ file.mime }}</span>
-                  <span>{{ isImageAttachment(file) ? '图片' : '文件' }}</span>
+                  <span class="ctx-file-kind">{{ isImageAttachment(file) ? '图片' : '文件' }}</span>
                 </div>
               </div>
               <div class="ctx-file-actions ctx-file-actions--visible">
-                <Button variant="action-danger" size="action" @click="emit('removePending', file)">移除</Button>
+                <Button variant="ghost" size="icon-sm" title="移除" aria-label="移除" @click="emit('removePending', file)"><IconClose :size="14" /></Button>
               </div>
             </div>
           </div>
@@ -54,6 +66,16 @@
           <div class="ctx-section-title">当前会话文件</div>
           <div class="ctx-file-list">
             <div v-for="file in files" :key="file.id" class="ctx-file-item">
+              <button
+                v-if="isImageAttachment(file) && getPreviewUrl(file)"
+                type="button"
+                class="ctx-file-thumb-btn"
+                title="预览图片"
+                @click="openImages(files, file)"
+              >
+                <AuthenticatedImage :src="getPreviewUrl(file)" :alt="file.original_name || file.stored_name" class="ctx-file-thumb" />
+              </button>
+              <div v-else class="ctx-file-icon"><IconFile :size="18" /></div>
               <div class="ctx-file-main">
                 <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
                 <div class="ctx-file-meta">
@@ -62,10 +84,11 @@
                 </div>
               </div>
               <div class="ctx-file-actions">
-                <Button variant="action-neutral" size="action" @click="emit('download', file)">下载</Button>
-                <Button variant="action-neutral" size="action" @click="emit('reuse', file)">{{ reuseButtonText }}</Button>
-                <Button variant="action-danger" size="action" :disabled="deletingFileId === file.id" @click="emit('delete', file)">
-                  {{ deletingFileId === file.id ? '删除中...' : '删除' }}
+                <Button variant="ghost" size="icon-sm" title="下载" aria-label="下载" @click="emit('download', file)"><IconDownload :size="15" /></Button>
+                <Button variant="ghost" size="icon-sm" :title="reuseButtonText" :aria-label="reuseButtonText" @click="emit('reuse', file)"><IconPlus :size="15" /></Button>
+                <Button variant="ghost" size="icon-sm" class="ctx-action-danger" title="删除" aria-label="删除" :disabled="deletingFileId === file.id" @click="emit('delete', file)">
+                  <span v-if="deletingFileId === file.id" class="g-spinner g-spinner--sm"></span>
+                  <IconTrash v-else :size="15" />
                 </Button>
               </div>
             </div>
@@ -83,8 +106,11 @@ import { computed, ref } from 'vue';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 import EmptyState from './EmptyState.vue';
 import { formatAttachmentSize, getSessionFileDownloadUrl, isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
-import IconPlus from './icons/IconPlus.vue';
+import IconFile from './icons/IconFile.vue';
 import IconClose from './icons/IconClose.vue';
+import IconPlus from './icons/IconPlus.vue';
+import IconTrash from './icons/IconTrash.vue';
+import IconDownload from './icons/IconDownload.vue';
 import IconRefresh from './icons/IconRefresh.vue';
 import { Button } from './ui/button';
 import ImageLightbox from './common/ImageLightbox.vue';
@@ -161,30 +187,76 @@ const onFileChange = (event) => {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.ctx-actions-row { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 8px; }
-.ctx-dropzone-hint {
-  margin: 10px 8px 0;
-  padding: 10px 12px;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
+.ctx-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 22px 16px;
+  border: 1.5px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.ctx-dropzone:hover:not(:disabled) {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.5);
+  background: rgba(var(--color-brand-accent-rgb), 0.05);
+}
+.ctx-dropzone:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.ctx-dropzone-icon {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(var(--color-brand-accent-rgb), 0.12);
+  color: var(--color-brand-accent);
+}
+.ctx-dropzone-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.ctx-dropzone-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.ctx-dropzone-sub {
+  font-size: 11px;
   color: var(--color-text-muted);
-  text-align: center;
-  transition: all 0.2s ease;
+}
+.ctx-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding: 0 8px;
 }
 
 .ctx-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 36px 20px; font-size: 13px; color: var(--color-text-muted); }
 
-.ctx-file-list { display: flex; flex-direction: column; }
+.ctx-file-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  padding: 0 var(--spacing-sm);
+}
 .ctx-file-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px var(--spacing-sm);
-  margin: 0 var(--spacing-sm) 6px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-bg-secondary);
   transition: all 0.2s;
   position: relative;
+  min-width: 0;
 }
 .ctx-file-item--pending {
   background: rgba(var(--color-brand-accent-rgb), 0.08);
@@ -197,43 +269,70 @@ const onFileChange = (event) => {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ctx-file-meta {
-  display: flex; gap: 8px; margin-top: 2px;
+  display: flex; align-items: center; gap: 8px; margin-top: 3px;
   font-size: 11px; color: var(--color-text-muted);
   flex-wrap: wrap;
 }
+.ctx-file-kind {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
+  color: var(--color-brand-accent);
+  font-size: 10px;
+  line-height: 1.5;
+}
 
 .ctx-file-actions {
-  display: flex; gap: 4px;
+  display: flex; gap: 2px;
   opacity: 0;
   transition: opacity 0.2s;
+  flex-shrink: 0;
 }
 .ctx-file-item:hover .ctx-file-actions,
 .ctx-file-item:focus-within .ctx-file-actions { opacity: 1; }
 .ctx-file-actions--visible { opacity: 1; }
+.ctx-action-danger {
+  color: var(--color-error);
+}
+.ctx-action-danger:hover:not(:disabled) {
+  background: rgba(var(--color-error-rgb), 0.1);
+  color: var(--color-error);
+}
 @media (hover: none) {
   .ctx-file-actions { opacity: 1; }
 }
 
-.ctx-thumb-btn {
-  display: block;
-  margin-bottom: 8px;
+.ctx-file-thumb-btn {
   padding: 0;
   border: none;
   background: none;
-  cursor: pointer;
+  cursor: zoom-in;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
 }
-.ctx-thumb {
-  width: 100%;
-  max-width: 220px;
-  height: 128px;
+.ctx-file-thumb {
+  display: block;
+  width: 44px;
+  height: 44px;
   object-fit: cover;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
-.ctx-thumb:hover {
-  transform: scale(1.02);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+.ctx-file-thumb-btn:hover .ctx-file-thumb {
+  transform: scale(1.04);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+}
+.ctx-file-icon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--color-brand-accent-rgb), 0.08);
+  color: var(--color-brand-accent);
 }
 
 </style>

@@ -11,16 +11,37 @@
         <slot name="context" />
       </div>
       <div v-if="attachments.length" class="attachment-preview-list">
-        <div v-for="attachment in attachments" :key="attachment.local_id || attachment.file_id || attachment.id || attachment.stored_name" class="attachment-preview-chip">
-          <span class="attachment-preview-name">{{ attachment.original_name || attachment.stored_name }}</span>
+        <div
+          v-for="attachment in attachments"
+          :key="attachment.local_id || attachment.file_id || attachment.id || attachment.stored_name"
+          class="attachment-preview-card"
+        >
+          <AuthenticatedImage
+            v-if="hasImagePreview(attachment)"
+            :src="attachmentPreviewUrl(attachment)"
+            :alt="attachment.original_name || attachment.stored_name"
+            class="attachment-preview-thumb"
+          />
+          <div v-else class="attachment-preview-file-icon">
+            <IconFile :size="16" />
+          </div>
+          <div class="attachment-preview-info">
+            <span class="attachment-preview-name" :title="attachment.original_name || attachment.stored_name">
+              {{ attachment.original_name || attachment.stored_name }}
+            </span>
+            <span class="attachment-preview-meta">
+              {{ formatAttachmentSize(attachment.size) }}<template v-if="isImageAttachment(attachment)"> · 图片</template>
+            </span>
+          </div>
           <button
             type="button"
             class="attachment-preview-remove"
+            title="移除附件"
             @click="emit('removeAttachment', attachment)"
             :disabled="!canAttach"
             aria-label="移除附件"
           >
-            <IconClose :size="14" />
+            <IconClose :size="13" />
           </button>
         </div>
       </div>
@@ -120,6 +141,9 @@ import IconStop from './icons/IconStop.vue';
 import IconSend from './icons/IconSend.vue';
 import IconClose from './icons/IconClose.vue';
 import IconPlay from './icons/IconPlay.vue';
+import IconFile from './icons/IconFile.vue';
+import AuthenticatedImage from './common/AuthenticatedImage.vue';
+import { formatAttachmentSize, getSessionFileDownloadUrl, isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
 import { Button } from './ui/button';
 
 const props = defineProps({
@@ -146,6 +170,10 @@ const props = defineProps({
   attachments: {
     type: Array,
     default: () => []
+  },
+  sessionId: {
+    type: String,
+    default: ''
   }
 });
 
@@ -176,6 +204,14 @@ const adjustTextareaHeight = async () => {
     textareaRef.value.style.height = Math.min(textareaRef.value.scrollHeight, 200) + 'px';
   }
 };
+
+const attachmentPreviewUrl = (attachment) => {
+  if (isLocalAttachment(attachment)) return attachment.preview_url || '';
+  const fileId = attachment?.file_id || attachment?.id;
+  return props.sessionId && fileId ? getSessionFileDownloadUrl(props.sessionId, fileId) : '';
+};
+
+const hasImagePreview = (attachment) => isImageAttachment(attachment) && Boolean(attachmentPreviewUrl(attachment));
 
 const extractClipboardFiles = (clipboardData) => {
   const items = Array.from(clipboardData?.items || []);
@@ -386,34 +422,78 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 6px 6px 10px;
+  padding: 8px 8px 10px;
 }
 
-.attachment-preview-chip {
+.attachment-preview-card {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   max-width: 100%;
-  padding: 8px 14px;
-  border-radius: 999px;
+  padding: 5px 8px 5px 5px;
+  border-radius: 12px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   color: var(--color-text-primary);
   font-size: 0.82rem;
-  transition: all 0.3s;
   box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  animation: attachment-in 0.18s ease;
 }
 
-.attachment-preview-chip:hover {
+@keyframes attachment-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+.attachment-preview-card:hover {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.35);
   box-shadow: var(--shadow-md);
   transform: translateY(-1px);
 }
 
+.attachment-preview-thumb {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+  display: block;
+}
+
+.attachment-preview-file-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
+  color: var(--color-brand-accent);
+  flex-shrink: 0;
+}
+
+.attachment-preview-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
 .attachment-preview-name {
-  max-width: 240px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.attachment-preview-meta {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  line-height: 1.2;
 }
 
 .attachment-preview-remove {
@@ -422,6 +502,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   color: var(--color-text-secondary);
   cursor: pointer;
   padding: 0;
+  margin-left: 2px;
   transition: all 0.3s;
   border-radius: 50%;
   width: 20px;
@@ -429,6 +510,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .attachment-preview-remove:hover {
