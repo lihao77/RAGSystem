@@ -23,6 +23,7 @@ import type { InteractionRequiredNotice, PendingInteractionPort } from "../../..
 import type { BackendToolsDeps } from "../../../tools/registry.js";
 import { createBackendTools } from "../../../tools/registry.js";
 import type { BackendToolFactory } from "../../../plugins/backend-plugin.js";
+import type { SystemConfigPort } from "../../../contracts/runtime/system-config.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
 import { buildBackendAgentContext, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
@@ -54,6 +55,8 @@ export interface SdkRuntimeAdapterDeps {
   pathAccessPolicyFactory: () => PathAccessPolicy;
   /** 审批交互服务（SDK 审批编排阻塞等待端口用）。 */
   pendingInteractions: PendingInteractionPort;
+  /** 本租户系统配置（注入插件工具 factory context）。 */
+  systemConfig?: SystemConfigPort;
   /** 前端委托工具声明注册表（per-session）；命中前端工具时构造 source=host 转发壳 Tool。 */
   hostToolRegistry: HostToolRegistry;
   /** 委托工具调用等待器（转发壳 Tool.call 注册等待 + 前端 tool_result 回传 resolve）。 */
@@ -279,6 +282,11 @@ export async function executeRunWithSdk(
     teamName,
     agent: input.agent,
     pathAccessPolicy: pathService,
+    ...(deps.systemConfig ? { systemConfig: deps.systemConfig } : {}),
+    providers: deps.providers,
+    // 与上下文投影层同源（同一 profile，含运行时 selectedLlm 覆盖）：
+    // 视觉主模型无需辅助描述，插件可据此跳过冗余的视觉调用。
+    mainModelSupportsVision: profile.llmTiers.default?.provider.supports_vision === true,
     callTool: async (toolName, args, callerCtx) => {
       if (!registry) throw new Error("Tool registry is not initialized");
       const ctx: ToolExecContext = { ...baseExecCtx, ...callerCtx };

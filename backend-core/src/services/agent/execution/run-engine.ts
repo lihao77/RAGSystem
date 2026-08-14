@@ -39,6 +39,7 @@ import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../runtime/event-outbox/executi
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import type { SystemConfigPort } from "../../../contracts/runtime/system-config.js";
 
 export interface AgentExecutionLogger {
   error(bindings: Record<string, unknown>, message: string): void;
@@ -81,6 +82,7 @@ export class AgentRunEngine {
     private readonly sessionFiles: SessionFileLookupPort | null = null,
     private readonly pluginTools: BackendToolFactory | null = null,
     private readonly executionEnvironment: ExecutionEnvironmentCapability | null = null,
+    private readonly systemConfig: SystemConfigPort | null = null,
   ) {}
 
   startRun(input: {
@@ -551,6 +553,7 @@ export class AgentRunEngine {
           ...(this.compressionService ? { compressionService: this.compressionService } : {}),
           sessionFiles: this.sessionFiles,
           executionEnvironment: this.executionEnvironment,
+          ...(this.systemConfig ? { systemConfig: this.systemConfig } : {}),
         },
         {
           sessionId: input.sessionId,

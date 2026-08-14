@@ -44,14 +44,16 @@ import {
   createLaunchers,
   type AgentMailboxContinuationCompletionInput,
   type RollbackRetryInput,
+  type UserMessageTransformRunner,
 } from "./launchers.js";
 import { createSessionControl } from "./session-control.js";
 import { createExecutionQueryService } from "./query.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
+import type { SystemConfigPort } from "../../../contracts/runtime/system-config.js";
 import type { ParticipantRunLifecyclePort } from "../delegation/port.js";
 
 export type { AgentExecutionLogger } from "./run-engine.js";
-export type { RollbackRetryInput } from "./launchers.js";
+export type { RollbackRetryInput, UserMessageTransformRunner } from "./launchers.js";
 
 export interface AgentExecutionServiceApi {
   startStream(request: StreamExecuteRequest, requestId: string, options?: ExecutionStartOptions): Promise<AgentRunStartResult>;
@@ -119,6 +121,10 @@ export interface AgentExecutionServiceParams {
   runtimeStorage: RuntimeStorage;
   executionEnvironment?: ExecutionEnvironmentCapability | null;
   participantRuns: ParticipantRunLifecyclePort;
+  /** 本租户系统配置（注入插件工具 factory context）。 */
+  systemConfig?: SystemConfigPort | null;
+  /** 用户消息持久化前变换管道（插件注册）；容器组装闭包注入 readAttachment/modelAdapter。 */
+  userMessageTransformers?: UserMessageTransformRunner | null;
 }
 
 /**
@@ -176,6 +182,7 @@ export function createAgentExecutionService(
     params.sessionFiles ?? null,
     params.pluginTools ?? null,
     params.executionEnvironment ?? null,
+    params.systemConfig ?? null,
   );
   const invocationService = new AgentInvocationService(runEngine, statusTracker);
   const launchers = createLaunchers({
@@ -196,6 +203,7 @@ export function createAgentExecutionService(
     mailbox: params.executionStorage?.agentMailbox ?? null,
     runReader: params.executionStorage?.resultReader,
     participantRuns: params.participantRuns,
+    transformUserMessage: params.userMessageTransformers ?? null,
   });
   const sessionControl = createSessionControl({
     statusTracker,

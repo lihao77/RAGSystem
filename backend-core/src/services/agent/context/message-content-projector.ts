@@ -80,6 +80,12 @@ async function projectParts(
         image_url: { url: `data:${mime};base64,${Buffer.from(source.body).toString("base64")}`, detail: "auto" },
       });
     }
+    if (part.type === "image_description") {
+      // 图片理解插件生成的描述：视觉模型直接看图，跳过描述（省 token）；
+      // 非视觉模型以文本形式注入上下文（描述随用户消息持久化，重建上下文同样可读）。
+      if (options.supportsVision) continue;
+      renderedText.push(`[图片描述：${part.original_name}]\n${part.text}`);
+    }
   }
 
   const text = renderedText.join("\n");

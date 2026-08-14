@@ -330,6 +330,13 @@ export const MessageContentPartSchema = z.discriminatedUnion("type", [
     file_path: z.string().min(1).optional(),
     file_path_space: z.enum(["uploads", "absolute"]).optional(),
   }).strict(),
+  /** 图片理解插件生成的图片文字描述：跟随 attachment_ref（kind=image），展示层以附件角标收纳，不进入正文文本流。 */
+  z.object({
+    type: z.literal("image_description"),
+    file_id: z.string().min(1),
+    original_name: z.string().min(1),
+    text: z.string(),
+  }).strict(),
   z.object({
     type: z.literal("command_ref"),
     invocation_id: z.string().min(1),

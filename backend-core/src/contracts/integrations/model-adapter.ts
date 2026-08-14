@@ -91,6 +91,8 @@ export interface ModelProviderConfig {
 export interface ModelProviderCatalogPort {
   hasProvider(providerKey: string): boolean;
   getProvider(providerKey: string): ModelProviderConfig | null;
+  /** 全部已加载 provider（只读克隆；插件按 key/name 匹配模型用）。 */
+  listProviders(): ModelProviderConfig[];
   createEmbeddingClient(): EmbeddingClientPort;
   createRerankClient(): RerankClientPort;
 }

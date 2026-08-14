@@ -94,6 +94,7 @@
             :can-attach="canAttachFiles"
             :has-messages="hasMessages"
             :new-chat-launching="newChatLaunching"
+            :image-recognition-pending="imageRecognitionPending"
             :session-id="currentSessionId || ''"
             :chat-sdk-client="chatSdkClient"
             :context-usage="contextUsage"
@@ -188,6 +189,8 @@ import { useChatMessageRuntime } from '../composables/useChatMessageRuntime';
 import { useMessageListView } from '../composables/useMessageListView';
 import { useRuntimeStatusView } from '../composables/useRuntimeStatusView';
 import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
+import { isImageAttachment } from '../utils/sessionAttachments';
+import { getUserDisplayText } from '../utils/messageContentParts';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import ChatComposer from '../components/chat/ChatComposer.vue';
 import FileChangesPanel from '../components/agent/FileChangesPanel.vue';
@@ -245,8 +248,8 @@ const currentSessionTitle = computed(() => {
   const session = sessionListStore.getById(currentSessionId.value);
   const storedTitle = String(session?.title || '').trim();
   if (storedTitle && !['New Conversation', '新会话', '新聊天'].includes(storedTitle)) return storedTitle;
-  const firstUserMessage = rootMessages.value.find(message => message?.role === 'user' && String(message.content || '').trim());
-  const messageTitle = String(firstUserMessage?.content || '').replace(/\s+/g, ' ').trim();
+  const firstUserMessage = rootMessages.value.find(message => message?.role === 'user' && getUserDisplayText(message));
+  const messageTitle = getUserDisplayText(firstUserMessage).replace(/\s+/g, ' ').trim();
   return messageTitle ? messageTitle.slice(0, 60) : '未命名会话';
 });
 
@@ -289,6 +292,11 @@ function openAttachmentImages(attachments, selected) { const items = (attachment
 const sessionFilesDrawerTarget = ref('composer');
 const chatComposerRef = ref(null);
 const filePreviewDialogRef = ref(null);
+/** 发送带图消息后、用户消息持久化完成（视觉描述生成）前的反馈状态。 */
+const imageRecognitionPending = ref(false);
+let imageRecognitionTimer = null;
+// 提示条最长等待：后端默认单次视觉调用超时 60s（多图并行，总等待 ≈ 单次超时）+ 15s 缓冲。
+const IMAGE_RECOGNITION_MAX_WAIT_MS = 75 * 1000;
 const toast = useToast();
 const ctxDrawerVisible = ref(false);
 const ctxDrawerSelectedLlm = ref('');
@@ -679,14 +687,42 @@ const handleSend = async (payload = null) => {
     beginNewChatLaunch();
   }
 
+  // 带图片发送时，后端会在持久化前同步调用视觉模型生成描述（期间消息未落库），
+  // 用提示条覆盖这段空窗；等新用户消息出现、发送失败或超时后清除。
+  const sendAttachments = Array.isArray(payload?.attachments) ? payload.attachments : pendingAttachments.value;
+  if (sendAttachments.some(isImageAttachment)) {
+    imageRecognitionPending.value = true;
+    clearTimeout(imageRecognitionTimer);
+    imageRecognitionTimer = setTimeout(() => {
+      imageRecognitionPending.value = false;
+    }, IMAGE_RECOGNITION_MAX_WAIT_MS);
+  }
+
   try {
-    await sendSessionMessage(payload);
+    const started = await sendSessionMessage(payload);
+    if (!started) {
+      // 发送失败（会话创建/附件准备/启动失败等）：消息不会落库，立即清除提示条，
+      // 避免残留到超时才消失。
+      imageRecognitionPending.value = false;
+      clearTimeout(imageRecognitionTimer);
+    }
   } finally {
     if (startsFromNewChat) {
       finishNewChatLaunchSoon(messages.value.length > 0 ? 620 : 220);
     }
   }
 };
+
+// 图片识别提示：新用户消息出现（持久化完成）即清除。
+watch(
+  () => messages.value.filter(message => message?.role === 'user' && !message.metadata?.agent_message).length,
+  (count, previousCount) => {
+    if (imageRecognitionPending.value && count > previousCount) {
+      imageRecognitionPending.value = false;
+      clearTimeout(imageRecognitionTimer);
+    }
+  },
+);
 
 watch(
   () => route.params.id || null,

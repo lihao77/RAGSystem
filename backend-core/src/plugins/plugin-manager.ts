@@ -1,4 +1,5 @@
 import type { HookEvent, HookHandler, HookRegistry, Tool } from "@ragsystem/agent-sdk";
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 
 import type {
   BackendPlugin,
@@ -25,6 +26,9 @@ import type {
   PluginRuntimeRegistrar,
   PluginResourceRegistrar,
   PluginToolRegistrar,
+  PluginUserMessageTransformerRegistrar,
+  UserMessageTransformInput,
+  UserMessageTransformer,
 } from "./backend-plugin.js";
 import { CapabilityRegistry, provideCapability, type CapabilityProvider } from "./capability-registry.js";
 import type { BackendResourceToken } from "./resource-registry.js";
@@ -202,6 +206,54 @@ class BackendToolContributionRegistry {
   }
 }
 
+interface BackendUserMessageTransformerContribution {
+  readonly pluginId: string;
+  readonly transformer: UserMessageTransformer;
+}
+
+/**
+ * 用户消息持久化前变换管道。
+ *
+ * 顺序 await 所有 transformer，后一个接收前一个的输出（contentParts 更新后的输入）；
+ * 单个 transformer 返回 null/undefined 表示不变；单个 handler 异常 catch 不阻断管道。
+ */
+class BackendUserMessageTransformerRegistry {
+  private readonly contributions: BackendUserMessageTransformerContribution[] = [];
+
+  forPlugin(pluginId: string): PluginUserMessageTransformerRegistrar {
+    return {
+      register: (transformer) => {
+        const contribution = { pluginId, transformer };
+        this.contributions.push(contribution);
+        return () => {
+          const index = this.contributions.indexOf(contribution);
+          if (index >= 0) this.contributions.splice(index, 1);
+        };
+      },
+    };
+  }
+
+  async transform(input: UserMessageTransformInput): Promise<MessageContentPart[] | null> {
+    let contentParts: MessageContentPart[] | null = null;
+    for (const contribution of this.contributions) {
+      try {
+        const current = contentParts ?? [...input.contentParts];
+        const result = await contribution.transformer({ ...input, contentParts: current });
+        if (result) contentParts = result;
+      } catch {
+        // 单个 transformer 失败不影响消息发送与其余管道（保持当前内容不变）。
+      }
+    }
+    return contentParts;
+  }
+
+  removePlugin(pluginId: string): void {
+    for (let index = this.contributions.length - 1; index >= 0; index -= 1) {
+      if (this.contributions[index]?.pluginId === pluginId) this.contributions.splice(index, 1);
+    }
+  }
+}
+
 interface BackendRuntimeFactoryContribution {
   readonly pluginId: string;
   readonly factory: BackendPluginRuntimeFactory;
@@ -339,6 +391,7 @@ export class BackendPluginManager {
   private readonly runtimeFactoryRegistry = new BackendRuntimeFactoryRegistry();
   private readonly applicationFactoryRegistry = new BackendApplicationFactoryRegistry();
   private readonly applicationEventRegistry = new BackendApplicationEventRegistry();
+  private readonly userMessageTransformerRegistry = new BackendUserMessageTransformerRegistry();
   private registered = false;
   private startedPlugins: BackendPlugin[] = [];
   private applicationRuntime: BackendPluginApplicationRuntimeHandle | null = null;
@@ -364,6 +417,7 @@ export class BackendPluginManager {
         tools: this.toolRegistry.forPlugin(plugin.manifest.id),
         applications: this.applicationFactoryRegistry.forPlugin(plugin.manifest.id),
         events: this.applicationEventRegistry.forPlugin(plugin.manifest.id),
+        transformers: this.userMessageTransformerRegistry.forPlugin(plugin.manifest.id),
       };
       await plugin.register(context);
     }
@@ -384,6 +438,11 @@ export class BackendPluginManager {
   emit(event: string, payload: unknown): Promise<void> {
     if (!this.registered) throw new Error("Plugins must be registered before application events are emitted");
     return this.applicationEventRegistry.emit(event, payload);
+  }
+
+  transformUserMessage(input: UserMessageTransformInput): Promise<MessageContentPart[] | null> {
+    if (!this.registered) throw new Error("Plugins must be registered before user messages are transformed");
+    return this.userMessageTransformerRegistry.transform(input);
   }
 
   routes(scope: BackendRouteScope): readonly BackendRouteContribution[] {
@@ -413,6 +472,7 @@ export class BackendPluginManager {
       }),
       createTools: (context) => manager.toolRegistry.create(context),
       listTools: () => manager.toolRegistry.list(),
+      transformUserMessage: (input) => manager.transformUserMessage(input),
     };
   }
 
@@ -447,6 +507,7 @@ export class BackendPluginManager {
         this.toolRegistry.removePlugin(plugin.manifest.id);
         this.applicationFactoryRegistry.removePlugin(plugin.manifest.id);
         this.applicationEventRegistry.removePlugin(plugin.manifest.id);
+        this.userMessageTransformerRegistry.removePlugin(plugin.manifest.id);
       }
     }
     try {

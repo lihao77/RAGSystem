@@ -1,5 +1,11 @@
 <template>
   <div class="bottom-dock" :class="{ 'bottom-dock--launching': newChatLaunching && hasMessages }">
+    <Transition name="image-recognition-fade">
+      <div v-if="imageRecognitionPending" class="image-recognition-hint" role="status">
+        <span class="image-recognition-spinner" aria-hidden="true"></span>
+        正在识别图片…
+      </div>
+    </Transition>
     <div
       class="input-area-wrapper"
       :class="{ 'input-area-wrapper--new-chat': !hasMessages }"
@@ -85,6 +91,7 @@ defineProps({
   canAttach: { type: Boolean, default: false },
   hasMessages: { type: Boolean, default: false },
   newChatLaunching: { type: Boolean, default: false },
+  imageRecognitionPending: { type: Boolean, default: false },
   sessionId: { type: String, default: '' },
   chatSdkClient: { type: Object, default: null },
   contextUsage: { type: Object, default: null },
@@ -130,6 +137,41 @@ defineExpose({ focus });
   flex: 0 1 auto;
   align-items: center;
   gap: 2px;
+}
+
+.image-recognition-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 auto 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #444);
+  background: var(--color-bg-elevated, #222);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs, 12px);
+}
+
+.image-recognition-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border-strong, #666);
+  border-top-color: var(--color-brand-accent, #4f8cff);
+  animation: image-recognition-spin 0.8s linear infinite;
+}
+
+@keyframes image-recognition-spin {
+  to { transform: rotate(360deg); }
+}
+
+.image-recognition-fade-enter-active,
+.image-recognition-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.image-recognition-fade-enter-from,
+.image-recognition-fade-leave-to {
+  opacity: 0;
 }
 
 .context-usage-content {

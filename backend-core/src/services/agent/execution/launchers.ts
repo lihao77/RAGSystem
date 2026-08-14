@@ -49,7 +49,44 @@ import type {
   AgentInvocationPort,
 } from "../../../contracts/execution/agent-invocation.js";
 import type { ParticipantRunLifecyclePort } from "../delegation/port.js";
+import type { UserMessageTransformInput } from "../../../plugins/backend-plugin.js";
 import { terminalReasonDisplay } from "../../../contracts/storage/runtime-finalization.js";
+
+/** 用户消息持久化前变换管道（由容器组装闭包，注入 readAttachment/modelAdapter/systemConfig）。 */
+export type UserMessageTransformRunner = (
+  input: Omit<UserMessageTransformInput, "readAttachment" | "modelAdapter" | "systemConfig">,
+) => Promise<MessageContentPart[] | null>;
+
+/**
+ * 用户消息变换管道的最长等待。变换是"尽力而为"的富化（如图片视觉描述），
+ * 超过该时限回退原始 contentParts 并 abort 在途调用（视觉 HTTP 请求随之取消）。
+ * 该时限必须小于 chat-sdk 客户端的 send ACK 窗口（5s），否则后端先回 ACK 前
+ * 客户端已超时报"发送超时，未收到确认"（尽管 run 随后仍会启动）。
+ */
+const USER_MESSAGE_TRANSFORM_DEADLINE_MS = 4000;
+
+export async function runUserMessageTransformWithDeadline(
+  transform: UserMessageTransformRunner,
+  input: Parameters<UserMessageTransformRunner>[0],
+): Promise<MessageContentPart[] | null> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(null);
+    }, USER_MESSAGE_TRANSFORM_DEADLINE_MS);
+    timer.unref?.();
+  });
+  try {
+    const pending = transform({ ...input, signal: controller.signal });
+    // deadline 已决后 transformer 的迟到 rejection 不应变成 unhandled rejection。
+    pending.catch(() => undefined);
+    return await Promise.race([pending, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 interface UnifiedRunStartInput {
   sessionId: string;
@@ -152,6 +189,7 @@ export interface LauncherDeps {
   mailbox?: AgentMailboxStorePort | null;
   runReader?: Pick<ExecutionResultReader, "getRun"> & Partial<Pick<ExecutionResultReader, "getMessageById" | "listRuns">>;
   participantRuns: ParticipantRunLifecyclePort;
+  transformUserMessage?: UserMessageTransformRunner | null;
 }
 
 interface MailboxLaunchState {
@@ -269,6 +307,7 @@ class AgentLaunchers {
     private readonly mailbox: AgentMailboxStorePort | null,
     private readonly runReader: (Pick<ExecutionResultReader, "getRun"> & Partial<Pick<ExecutionResultReader, "getMessageById" | "listRuns">>) | null,
     private readonly participantRuns: ParticipantRunLifecyclePort,
+    private readonly transformUserMessage: UserMessageTransformRunner | null,
   ) {}
 
   private async durableActiveRunId(sessionId: string): Promise<string | null> {
@@ -439,6 +478,17 @@ class AgentLaunchers {
       })),
     ];
 
+    // 持久化前变换：插件管道可在写入前改写 contentParts（如为图片附件追加视觉描述）。
+    // 变换有截止时限：超时回退原始 contentParts，避免阻塞 WS send ACK。
+    const persistedContentParts = this.transformUserMessage
+      ? (await runUserMessageTransformWithDeadline(this.transformUserMessage, {
+          sessionId,
+          tenantId: this.tenantId,
+          contentParts,
+          attachments: attachmentResolution.attachments,
+        })) ?? contentParts
+      : contentParts;
+
     const started = this.launchRun({
       sessionId,
       sessionIdentity,
@@ -454,7 +504,7 @@ class AgentLaunchers {
         ...(input.messageMetadata ?? {}),
         ...(extensions.length ? { extensions } : {}),
       },
-      persistContentParts: contentParts,
+      persistContentParts: persistedContentParts,
       ...(input.traceMetadata ? { traceMetadata: input.traceMetadata } : {}),
       ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
       ...(input.awaitFollowupCompletion ? { awaitFollowupCompletion: true } : {}),
@@ -1446,6 +1496,7 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.mailbox ?? null,
     deps.runReader ?? null,
     deps.participantRuns,
+    deps.transformUserMessage ?? null,
   );
   return {
     startStream: impl.startStream.bind(impl),

@@ -34,21 +34,40 @@
 
   <div v-else-if="messageContext.editingMessage !== msg" class="user-bubble-wrapper message-view-mode">
     <div v-if="isAgentMessage" class="agent-message-label">{{ agentMessageLabel }}</div>
-    <div class="user-text">{{ msg.content }}</div>
+    <div v-if="displayText" class="user-text">{{ displayText }}</div>
     <div v-if="msg.attachments?.length" class="user-attachments">
       <div v-if="imageAttachments.length" class="user-attachment-images">
-        <button
+        <div
           v-for="attachment in imageAttachments"
           :key="attachment.file_id || attachment.id || attachment.local_id || attachment.stored_name"
-          class="user-attachment-thumb-btn"
-          @click="messageContext.openAttachmentImages(msg.attachments, attachment)"
+          class="user-attachment-thumb-slot"
         >
-          <AuthenticatedImage
-            :src="messageContext.getAttachmentPreviewUrl(attachment)"
-            :alt="attachment.original_name || attachment.stored_name"
-            class="user-attachment-thumb"
-          />
-        </button>
+          <button
+            class="user-attachment-thumb-btn"
+            @click="messageContext.openAttachmentImages(msg.attachments, attachment)"
+          >
+            <AuthenticatedImage
+              :src="messageContext.getAttachmentPreviewUrl(attachment)"
+              :alt="attachment.original_name || attachment.stored_name"
+              class="user-attachment-thumb"
+            />
+          </button>
+          <Popover v-if="imageDescriptionFor(attachment)">
+            <PopoverTrigger as-child>
+              <button
+                type="button"
+                class="image-desc-badge"
+                :aria-label="`查看${attachment.original_name || '图片'}的 AI 描述`"
+                title="查看图片描述"
+              >
+                <ScanText :size="12" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="top" align="start" class="max-h-[340px] max-w-[360px] overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed">
+              {{ imageDescriptionFor(attachment) }}
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
       <div
         v-for="attachment in fileAttachments"
@@ -93,7 +112,10 @@ import MessageEditBox from '../MessageEditBox.vue';
 import AuthenticatedImage from '../common/AuthenticatedImage.vue';
 import { formatAttachmentMeta, isImageAttachment } from '../../utils/sessionAttachments.js';
 import { parseTaskNotifications } from '../../utils/message-render.js';
+import { getImageDescriptionMap, getUserDisplayText } from '../../utils/messageContentParts.js';
 import { computed, inject } from 'vue';
+import { ScanText } from 'lucide-vue-next';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover/index';
 
 const props = defineProps({
   msg: { type: Object, required: true },
@@ -111,4 +133,48 @@ const agentMessageLabel = computed(() => {
   const kindLabels = { progress: '进度', request: '请求', response: '回复', result: '结果' };
   return `${source} · ${kindLabels[kind] || '消息'}`;
 });
+/** 正文展示文本：排除图片描述 part（描述以缩略图角标收纳）。 */
+const displayText = computed(() => getUserDisplayText(props.msg));
+/** 图片 file_id → 描述文本（来自 content_parts 中紧跟 attachment_ref 的描述 part）。 */
+const imageDescriptions = computed(() => getImageDescriptionMap(props.msg));
+function attachmentKey(attachment) {
+  return attachment.file_id || attachment.id || '';
+}
+function imageDescriptionFor(attachment) {
+  const fileId = attachmentKey(attachment);
+  return fileId ? (imageDescriptions.value[fileId] || '') : '';
+}
 </script>
+
+<style scoped>
+.user-attachment-thumb-slot {
+  position: relative;
+}
+
+.user-attachment-thumb-btn {
+  position: relative;
+}
+
+.image-desc-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  cursor: pointer;
+}
+
+.image-desc-badge:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+</style>

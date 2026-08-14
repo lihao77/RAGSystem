@@ -57,7 +57,12 @@ export function createSessionCommandController({
     }
   };
 
-  /** @param {{ content?: string, attachments?: AnyRecord[] } | null} [payload] */
+  /**
+   * 发送一条用户消息。返回 true 表示已成功启动（消息将落库）；
+   * 返回 false 表示未发送（状态不允许 / 会话创建失败 / 附件准备失败 / 启动失败），调用方可据此清理发送中状态。
+   * @param {{ content?: string, attachments?: AnyRecord[] } | null} [payload]
+   * @returns {Promise<boolean>}
+   */
   const sendNow = async (payload = null) => {
     const content = (payload?.content ?? deps.inputMessage.value).trim();
     const draftAttachments = Array.isArray(payload?.attachments)
@@ -70,12 +75,12 @@ export function createSessionCommandController({
       deps.showToast(state === 'suspended'
         ? '会话已挂起，请先处理待确认交互或停止当前任务'
         : '当前会话状态不允许发送消息', 'warning');
-      return;
+      return false;
     }
-    if ((!content && !draftAttachments.length) || (isLoading.value && !isRunningFollowup)) return;
+    if ((!content && !draftAttachments.length) || (isLoading.value && !isRunningFollowup)) return false;
     if (isRunningFollowup && draftAttachments.length) {
       deps.showToast('运行中补充暂不支持附件', 'warning');
-      return;
+      return false;
     }
 
     const startsDraftSession = !currentSessionId.value;
@@ -96,7 +101,7 @@ export function createSessionCommandController({
       console.error('Error creating session:', error);
       if (startsDraftSession) finishPendingCommand(requestId);
       deps.showToast('会话创建失败');
-      return;
+      return false;
     }
 
     try {
@@ -106,7 +111,7 @@ export function createSessionCommandController({
     } catch (error) {
       finishPendingCommand(requestId);
       deps.showToast(errorMessage(error) || '附件准备失败');
-      return;
+      return false;
     }
 
     if (!startsDraftSession) beginPendingCommand(isRunningFollowup ? 'followup' : 'send', requestId);
@@ -136,11 +141,12 @@ export function createSessionCommandController({
       if (!result.started) {
         if (result.kind === 'command') {
           scheduleCommandFallback(sessionId);
-          return;
+          return false;
         }
         throw new Error(result.error || '启动执行失败');
       }
       if (result.kind === 'command') scheduleCommandFallback(sessionId, 60000);
+      return true;
     } catch (error) {
       console.error('Error sending message:', error);
       finishPendingCommand(requestId);
@@ -150,10 +156,11 @@ export function createSessionCommandController({
         await nextTick();
         send();
       });
+      return false;
     }
   };
 
-  /** @param {{ content?: string, attachments?: AnyRecord[] } | null} [payload] @returns {Promise<void>} */
+  /** @param {{ content?: string, attachments?: AnyRecord[] } | null} [payload] @returns {Promise<boolean>} */
   const send = (payload = null) => {
     const pending = sendQueue.then(() => sendNow(payload));
     sendQueue = pending.then(settleSendQueue, settleSendQueue);

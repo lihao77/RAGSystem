@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { createRequestId, serializeAttachmentForSend } from './useSessionAgentClient.js';
+import { getUserDisplayText } from '../utils/messageContentParts.js';
 
 /**
  * 构造 rollback-and-retry 的锚点：指向被编辑/重试的用户消息本身（messages[index]）。
@@ -78,7 +79,7 @@ export function useMessageRevision(deps) {
       participantId: selectedParticipantId.value,
       messageId: msg.id,
     };
-    editingDraft.value = msg.content || '';
+    editingDraft.value = getUserDisplayText(msg);
     editingAttachmentsDraft.value = Array.isArray(msg.attachments)
       ? msg.attachments.map(deps.normalizeAttachment).filter(Boolean)
       : [];

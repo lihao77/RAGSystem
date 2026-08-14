@@ -43,6 +43,19 @@ export function normalizeMessageContentParts(parts) {
         ...(['uploads', 'absolute'].includes(part.file_path_space) ? { file_path_space: part.file_path_space } : {}),
       }];
     }
+    if (part?.type === 'image_description'
+      && typeof part.file_id === 'string'
+      && part.file_id
+      && typeof part.original_name === 'string'
+      && part.original_name
+      && typeof part.text === 'string') {
+      return [{
+        type: 'image_description',
+        file_id: part.file_id,
+        original_name: part.original_name,
+        text: part.text,
+      }];
+    }
     if (part?.type === 'command_ref'
       && typeof part.invocation_id === 'string'
       && part.invocation_id
@@ -91,6 +104,44 @@ export function normalizeMessageContentParts(parts) {
     }
     return [];
   });
+}
+
+/** 图片理解插件生成的描述 part 类型（结构化，紧跟 image attachment_ref 之后）。 */
+const IMAGE_DESCRIPTION_TYPE = 'image_description';
+
+function isImageDescriptionPart(part) {
+  return part?.type === IMAGE_DESCRIPTION_TYPE;
+}
+
+/**
+ * 用户消息在对话列表中的展示文本：排除图片描述 part（描述以附件角标收纳，不进入正文）。
+ * content_parts 不可用时回退为聚合 content（结构化描述不写入聚合列，无需剥离）。
+ */
+export function getUserDisplayText(message) {
+  const parts = normalizeMessageContentParts(message?.content_parts);
+  const textParts = parts.filter((part) => part.type === 'text' && !isImageDescriptionPart(part));
+  if (textParts.length > 0) {
+    return textParts.map((part) => part.text).join('\n').trim();
+  }
+  return typeof message?.content === 'string' ? message.content.trim() : '';
+}
+
+/**
+ * 解析用户消息 content_parts，把紧跟图片 attachment_ref 之后的描述 part
+ * 按 file_id 收集，供附件角标展示使用。
+ * @returns {Record<string, string>}
+ */
+export function getImageDescriptionMap(message) {
+  const parts = normalizeMessageContentParts(message?.content_parts);
+  const result = {};
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (part?.type !== 'attachment_ref' || part.kind !== 'image') continue;
+    const next = parts[index + 1];
+    if (next?.type !== IMAGE_DESCRIPTION_TYPE) continue;
+    result[part.file_id] = next.text;
+  }
+  return result;
 }
 
 export function createUserContentParts(content, attachments) {
