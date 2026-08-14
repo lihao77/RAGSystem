@@ -293,6 +293,51 @@ const shots = [
       { type: 'expectVisible', selector: '[aria-label="打开运行中心"]' },
     ],
   },
+  {
+    name: 'chat-pending-image-recognizing-desktop',
+    path: '/?__smoke=pending-image',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectVisible', selector: '.pending-image-message--recognizing' },
+      { type: 'expectText', selector: '.pending-image-status', text: '正在识别图片…（已完成 1/2）' },
+      { type: 'expectVisible', selector: '.pending-image-thumb-badge--ok' },
+      { type: 'expectVisible', selector: '.pending-image-thumb-overlay' },
+    ],
+  },
+  {
+    name: 'chat-pending-image-done-desktop',
+    path: '/?__smoke=pending-image&__phase=done',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectVisible', selector: '.pending-image-message--done' },
+      { type: 'expectText', selector: '.pending-image-status', text: '识别完成' },
+    ],
+  },
+  {
+    name: 'chat-pending-image-sending-mobile',
+    path: '/?__smoke=pending-image&__phase=sending',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'expectVisible', selector: '.pending-image-message--sending' },
+      { type: 'expectText', selector: '.pending-image-status', text: '正在发送…' },
+    ],
+  },
+  {
+    name: 'chat-pending-image-newchat-desktop',
+    path: '/?__smoke=pending-image-newchat',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectVisible', selector: '.pending-image-message--recognizing' },
+      { type: 'expectText', selector: '.pending-image-status', text: '正在识别图片…（已完成 1/2）' },
+      // 幽灵气泡激活即视为对话开始：composer 沉底（has-messages 相位），不停留居中启动态
+      { type: 'expectVisible', selector: '.chat-main.has-messages .pending-image-message' },
+    ],
+  },
   { name: 'admin-mobile', path: '/admin', width: 390, height: 844 },
   { name: 'admin-desktop', path: '/admin', width: 1440, height: 900 },
   {

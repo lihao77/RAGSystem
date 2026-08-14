@@ -110,3 +110,42 @@ test('会话切换重置全部插件事件状态', () => {
   assert.equal(pluginEventState.latest.size, 0);
   assert.equal(pluginEventState.imageDescribe.lastOutcome, null);
 });
+
+test('message 来源的 progress 按 index 记录逐张结果（幽灵气泡缩略图进度）', () => {
+  handlePluginEventPayload(imageEvent('image.describe_started', { source: 'message', total: 3 }));
+  handlePluginEventPayload(imageEvent('image.describe_progress', { source: 'message', index: 0, total: 3, ok: true }));
+  handlePluginEventPayload(imageEvent('image.describe_progress', { source: 'message', index: 2, total: 3, ok: false }));
+
+  const items = pluginEventState.imageDescribe.items;
+  assert.equal(items.get(0), 'ok');
+  assert.equal(items.get(2), 'failed');
+  assert.equal(items.has(1), false);
+});
+
+test('view_image 来源的 progress 不污染逐张结果', () => {
+  handlePluginEventPayload(imageEvent('image.describe_started', { source: 'view_image', total: 1 }));
+  handlePluginEventPayload(imageEvent('image.describe_progress', { source: 'view_image', index: 0, total: 1, ok: true }));
+
+  assert.equal(pluginEventState.imageDescribe.items.size, 0);
+});
+
+test('completed 后逐张结果保留（完成态展示），reset 时清空', () => {
+  handlePluginEventPayload(imageEvent('image.describe_started', { source: 'message', total: 2 }));
+  handlePluginEventPayload(imageEvent('image.describe_progress', { source: 'message', index: 0, total: 2, ok: true }));
+  handlePluginEventPayload(imageEvent('image.describe_completed', { source: 'message', total: 2, described: 2, failed: 0 }));
+
+  assert.equal(pluginEventState.imageDescribe.items.get(0), 'ok');
+
+  resetPluginEventsState();
+  assert.equal(pluginEventState.imageDescribe.items.size, 0);
+});
+
+test('缺 index 的 progress 按完成序兜底记录', () => {
+  handlePluginEventPayload(imageEvent('image.describe_started', { source: 'message', total: 2 }));
+  handlePluginEventPayload(imageEvent('image.describe_progress', { source: 'message', total: 2, ok: true }));
+  handlePluginEventPayload(imageEvent('image.describe_progress', { source: 'message', total: 2, ok: false }));
+
+  const items = pluginEventState.imageDescribe.items;
+  assert.equal(items.get(0), 'ok');
+  assert.equal(items.get(1), 'failed');
+});

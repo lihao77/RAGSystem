@@ -39,6 +39,12 @@ export const pluginEventState = reactive({
     total: 0,
     done: 0,
     failed: 0,
+    /**
+     * 逐张图片的识别结果（key: progress 事件的 index，与发送时图片附件顺序一致）。
+     * 仅记录 source === 'message' 的帧；completed 后保留（幽灵气泡完成态展示），reset 时清空。
+     * @type {Map<number, 'ok' | 'failed'>}
+     */
+    items: new Map(),
     /** @type {string | null} 最近一次的来源（message / view_image）。 */
     source: /** @type {string | null} */ (null),
     /** @type {ImageDescribeOutcome | null} 最近一次 completed 的权威结果（失败提示用）。 */
@@ -69,6 +75,7 @@ export const resetImageDescribe = () => {
   pluginEventState.imageDescribe.total = 0;
   pluginEventState.imageDescribe.done = 0;
   pluginEventState.imageDescribe.failed = 0;
+  pluginEventState.imageDescribe.items.clear();
   pluginEventState.imageDescribe.source = null;
 };
 
@@ -86,6 +93,12 @@ const asRecord = data => (data && typeof data === 'object' && !Array.isArray(dat
 const asCount = value => {
   const num = Number(value);
   return Number.isSafeInteger(num) && num >= 0 ? num : 0;
+};
+
+/** @param {unknown} value @returns {number} 非法时返回 -1（区别于合法的 0）。 */
+const asIndex = value => {
+  const num = Number(value);
+  return Number.isSafeInteger(num) && num >= 0 ? num : -1;
 };
 
 /**
@@ -107,6 +120,11 @@ const applyImageDescribeEvent = (event, rawData) => {
     if (state.activeOps === 0) return; // 无 started 的迟到帧（断连期间的漏帧）直接忽略
     state.done += 1;
     if (data.ok !== true) state.failed += 1;
+    if (state.source === 'message') {
+      // 逐张结果按 index 对齐发送时图片附件顺序（幽灵气泡缩略图进度用）；缺 index 时按完成序兜底。
+      const index = asIndex(data.index);
+      state.items.set(index >= 0 ? index : state.done - 1, data.ok === true ? 'ok' : 'failed');
+    }
     armImageDescribeStaleTimer();
     return;
   }

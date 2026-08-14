@@ -45,6 +45,7 @@
           :messages-loading="messagesLoading"
           :messages="messages"
           :visible-messages="visibleMessages"
+          :tail-active="pendingImageSendState.active"
           @update:editing-draft="editingDraft = $event"
           @notify="({ message, type }) => showToast(message, type)"
           @citation-click="openCitation"
@@ -52,6 +53,11 @@
           <template #empty>
             <ChatEmptyState v-if="isRootParticipant" />
             <ParticipantThreadEmpty v-else :participant="selectedParticipant" />
+          </template>
+          <template #tail>
+            <Transition name="pending-image-fade">
+              <PendingImageMessage v-if="pendingImageSendState.active" />
+            </Transition>
           </template>
         </ChatMessageList>
       <div
@@ -193,6 +199,7 @@ import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/
 import { getUserDisplayText } from '../utils/messageContentParts';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import ChatComposer from '../components/chat/ChatComposer.vue';
+import PendingImageMessage from '../components/chat/PendingImageMessage.vue';
 import FileChangesPanel from '../components/agent/FileChangesPanel.vue';
 import ImageLightbox from '../components/common/ImageLightbox.vue';
 import KnowledgeMdViewer from '../components/knowledge/KnowledgeMdViewer.vue';
@@ -204,6 +211,11 @@ import {
   resetImageDescribe,
   resetPluginEventsState,
 } from '../composables/usePluginEvents.js';
+import {
+  capturePendingImageSend,
+  clearPendingImageSend,
+  pendingImageSendState,
+} from '../composables/usePendingImageSend.js';
 
 import LiquidGlass from '../components/LiquidGlass.vue';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
@@ -299,9 +311,11 @@ function openAttachmentImages(attachments, selected) { const items = (attachment
 const sessionFilesDrawerTarget = ref('composer');
 const chatComposerRef = ref(null);
 const filePreviewDialogRef = ref(null);
-// 图片识别提示条完全由后端 plugin_event 驱动（image-tools 的 describe started/progress/completed），
+// 图片识别提示完全由后端 plugin_event 驱动（image-tools 的 describe started/progress/completed），
 // 取代此前"带图发送即盲显 + 超时清除"的启发式：视觉辅助未启用时不再误显示。
-const imageRecognitionPending = imageDescribeActive;
+// 带图发送的识别进度由消息列表底部的幽灵气泡（PendingImageMessage）承载；
+// composer 提示条只在无活跃快照时显示（run 内 view_image 等场景），避免双重提示。
+const imageRecognitionPending = computed(() => imageDescribeActive.value && !pendingImageSendState.active);
 const imageRecognitionProgress = imageDescribeProgress;
 const toast = useToast();
 const ctxDrawerVisible = ref(false);
@@ -472,7 +486,10 @@ const {
   showToast,
 });
 
-const hasMessages = computed(() => messages.value.length > 0);
+// 幽灵气泡（带图发送待落库）视为对话已开始：composer 立即沉底进入会话布局，
+// 不再停留居中启动态（否则新聊天首发带图时气泡在上、输入框悬在中间，视觉割裂）。
+// 发送失败/快照清理后自动回到启动态。
+const hasMessages = computed(() => messages.value.length > 0 || pendingImageSendState.active);
 // 大文件读取确认使用专用预览对话框；阻止其后的审批越过队列提前显示。
 const chatApprovalQueue = computed(() => {
   const firstFilePreviewIndex = approvalQueue.value.findIndex(
@@ -693,11 +710,24 @@ const handleSend = async (payload = null) => {
     beginNewChatLaunch();
   }
 
+  // 发送前捕获带图消息快照（消息列表底部幽灵气泡）：取值优先级与 sendNow 保持一致。
+  // 无图片附件时 capture 内部直接返回 false，不影响现有状态。
+  const capturedImageSnapshot = capturePendingImageSend({
+    content: (typeof payload?.content === 'string' ? payload.content : inputMessage.value).trim(),
+    attachments: Array.isArray(payload?.attachments) ? payload.attachments : pendingAttachments.value,
+    getAttachmentPreviewUrl,
+  });
+
   try {
     const started = await sendSessionMessage(payload);
     if (!started) {
       // 发送失败（会话创建/附件准备/启动失败等）：消息不会落库，清理可能已开始的识别提示。
       resetImageDescribe();
+      if (capturedImageSnapshot) clearPendingImageSend();
+    } else if (capturedImageSnapshot) {
+      // 幽灵气泡上屏后跟随到消息流底部。
+      await nextTick();
+      scrollToBottom(true);
     }
   } finally {
     if (startsFromNewChat) {
@@ -710,8 +740,13 @@ const handleSend = async (payload = null) => {
 watch(
   () => messages.value.filter(message => message?.role === 'user' && !message.metadata?.agent_message).length,
   (count, previousCount) => {
-    if (imageRecognitionPending.value && count > previousCount) {
+    if (count <= previousCount) return;
+    if (imageDescribeActive.value) {
       resetImageDescribe();
+    }
+    // 消息落库：幽灵气泡由正式消息无缝替换。
+    if (pendingImageSendState.active) {
+      clearPendingImageSend();
     }
   },
 );
@@ -754,6 +789,39 @@ watch(
       return;
     }
 
+    if (import.meta.env.DEV && route.query?.__smoke === 'pending-image') {
+      const { createSmokePendingImageMessages, armSmokePendingImageSend } = await import('../utils/smokeFixtures');
+      disconnectSessionWS();
+      invalidateActiveStream();
+      clearExecutionState();
+      currentSessionId.value = 'smoke-pending-image-session';
+      messages.value = createSmokePendingImageMessages();
+      contextUsage.value = { used: 1840, max: 8192 };
+      await nextTick();
+      // 幽灵气泡冒烟：?__phase=sending|recognizing|done 控制注入的识别阶段
+      await armSmokePendingImageSend(String(route.query?.__phase || 'recognizing'));
+      await nextTick();
+      scrollToBottom(true);
+      return;
+    }
+
+    if (import.meta.env.DEV && route.query?.__smoke === 'pending-image-newchat') {
+      const { armSmokePendingImageSend } = await import('../utils/smokeFixtures');
+      disconnectSessionWS();
+      invalidateActiveStream();
+      clearExecutionState();
+      // 保持草稿态（无会话、无消息）：验证新聊天首发带图的幽灵气泡（消息流尾部挂点 + 居中 composer 布局）。
+      currentSessionId.value = null;
+      messages.value = [];
+      contextUsage.value = null;
+      await nextTick();
+      resetScrollPosition(false);
+      await armSmokePendingImageSend(String(route.query?.__phase || 'recognizing'));
+      await nextTick();
+      scrollToBottom(true);
+      return;
+    }
+
     const nextSessionId = typeof routeSessionId === 'string' ? decodeURIComponent(routeSessionId) : null;
     const wasSessionChat = typeof previousRouteSessionId === 'string';
     const isEnteringBlankChat = !nextSessionId && wasSessionChat;
@@ -777,10 +845,15 @@ watch(
   },
 );
 
-watch(currentSessionId, () => {
+watch(currentSessionId, (nextSessionId, previousSessionId) => {
   closeRuntimeCenter();
+  // 草稿会话落实（null → 新 id，ensureSession 回填）是本次发送的延续而非切换：
+  // 幽灵气泡快照与图片识别状态必须保留到消息落库。
+  if (!previousSessionId && nextSessionId) return;
   // 会话切换：清空插件事件状态（进行中的图片识别提示随之收尾）。
   resetPluginEventsState();
+  // 幽灵气泡快照（含自有的 object URLs）一并清理。
+  clearPendingImageSend();
 });
 
 onMounted(() => {
@@ -833,6 +906,20 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) {
   .chat-surface-swap-enter-active,
   .chat-surface-swap-leave-active {
+    transition-duration: 1ms;
+  }
+}
+
+/* 带图发送的幽灵气泡（待落库 pending 消息）进入过渡：仅淡入，离开即被正式消息替换 */
+.pending-image-fade-enter-active {
+  transition: opacity 180ms ease, transform 220ms var(--ease-out-expo);
+}
+.pending-image-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pending-image-fade-enter-active {
     transition-duration: 1ms;
   }
 }

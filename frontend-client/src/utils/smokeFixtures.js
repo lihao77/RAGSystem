@@ -182,3 +182,102 @@ export function createSmokeArtifactMessages() {
     assistant,
   ];
 }
+
+/**
+ * pending-image 冒烟：带图发送后待落库的"幽灵气泡"（图片识别进度展示）。
+ * 历史消息 fixture；附件与识别事件由 armSmokePendingImageSend 装配。
+ */
+export function createSmokePendingImageMessages() {
+  return [
+    {
+      role: 'user',
+      id: 'smoke-pending-user-1',
+      seq: 1,
+      content: '这是我们的监测点位布设方案，先熟悉一下。',
+      attachments: [],
+      metadata: {},
+    },
+    {
+      role: 'assistant',
+      id: 'smoke-pending-assistant-1',
+      seq: 2,
+      content: '已了解布设方案。后续把现场照片发我即可，我会结合方案做对比分析。',
+      content_parts: [{ type: 'text', text: '已了解布设方案。后续把现场照片发我即可，我会结合方案做对比分析。' }],
+      executionTree: { root: null, steps: [] },
+      status: [],
+      finished: true,
+      stopped: false,
+      has_execution: false,
+      executionStepsLoaded: false,
+      executionStepsLoading: false,
+      executionStepsLoadError: '',
+      metadata: {},
+      _execState: null,
+    },
+  ];
+}
+
+/** 生成两张 canvas 本地图片附件（幽灵气泡缩略图用，颜色区分）。 */
+export async function createSmokePendingImageAttachments() {
+  const makeFile = async (name, color, label) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = 200;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.font = '24px sans-serif';
+    ctx.fillText(label, 20, 104);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    return new File([blob], name, { type: 'image/png' });
+  };
+  const specs = [
+    ['现场照片-上游.png', '#4f8cff', '上游断面'],
+    ['现场照片-下游.png', '#22a05a', '下游断面'],
+  ];
+  const attachments = [];
+  for (const [name, color, label] of specs) {
+    const file = await makeFile(name, color, label);
+    attachments.push({
+      source: 'local',
+      local_id: `smoke-pending-${name}`,
+      file,
+      original_name: name,
+      stored_name: name,
+      mime: 'image/png',
+      size: file.size,
+      kind: 'image',
+      preview_url: '',
+    });
+  }
+  return attachments;
+}
+
+/**
+ * 注入带图发送待落库的幽灵气泡与识别进度事件（__smoke=pending-image）。
+ * @param {'sending' | 'recognizing' | 'done'} phase
+ *   sending：仅捕获快照；recognizing：识别中且第一张已完成；done：识别完成待落库。
+ */
+export async function armSmokePendingImageSend(phase = 'recognizing') {
+  const [{ capturePendingImageSend }, { handlePluginEventPayload }] = await Promise.all([
+    import('../composables/usePendingImageSend.js'),
+    import('../composables/usePluginEvents.js'),
+  ]);
+  const attachments = await createSmokePendingImageAttachments();
+  capturePendingImageSend({ content: '帮我对比这两张现场照片的水位变化', attachments });
+  if (phase === 'sending') return;
+
+  const emit = (event, data) => handlePluginEventPayload({
+    plugin_id: '@ragsystem/backend-plugin-image-tools',
+    event,
+    data,
+    delivery: 'ephemeral',
+  });
+  emit('image.describe_started', { source: 'message', total: 2, files: ['现场照片-上游.png', '现场照片-下游.png'] });
+  emit('image.describe_progress', { source: 'message', file_id: 'smoke-f1', name: '现场照片-上游.png', index: 0, total: 2, ok: true });
+  if (phase === 'done') {
+    emit('image.describe_progress', { source: 'message', file_id: 'smoke-f2', name: '现场照片-下游.png', index: 1, total: 2, ok: true });
+    emit('image.describe_completed', { source: 'message', total: 2, described: 2, failed: 0, duration_ms: 1600 });
+  }
+}

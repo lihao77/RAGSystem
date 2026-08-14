@@ -82,7 +82,7 @@ router.beforeEach(async (to) => {
   const bootstrapStore = useBootstrapStore();
   const authStore = useAuthStore();
 
-  if (import.meta.env.DEV && ['empty', 'artifact'].includes(String(to.query?.__smoke || ''))) {
+  if (import.meta.env.DEV && ['empty', 'artifact', 'pending-image', 'pending-image-newchat'].includes(String(to.query?.__smoke || ''))) {
     bootstrapStore.$patch({
       profile: { auth: 'local', ui: 'local', deployment: 'local' },
       capabilities: {},
