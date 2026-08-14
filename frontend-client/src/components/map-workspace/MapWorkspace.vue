@@ -532,27 +532,28 @@ defineExpose({
 
 :deep(.maplibregl-ctrl-group) {
   overflow: hidden;
-  border: 1px solid hsl(var(--border));
-  border-radius: 0.5rem;
-  background: hsl(var(--background));
-  box-shadow: 0 1px 3px hsl(var(--foreground) / 0.12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-md);
 }
 
 :deep(.maplibregl-ctrl-group button) {
-  background-color: hsl(var(--background));
+  background-color: var(--color-bg-elevated);
 }
 
 :deep(.maplibregl-ctrl-group button:hover) {
-  background-color: hsl(var(--accent));
+  background-color: var(--color-bg-tertiary);
 }
 
+/* maplibre 图标为黑色 sprite，深色主题需反色（token 在 main.css 按主题定义） */
 :deep(.maplibregl-ctrl-icon) {
-  filter: none;
+  filter: var(--map-ctrl-icon-filter, none);
 }
 
 :deep(.maplibregl-ctrl-scale) {
-  border-color: hsl(var(--foreground));
-  background: hsl(var(--background) / 0.78);
-  color: hsl(var(--foreground));
+  border-color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg-elevated) 78%, transparent);
+  color: var(--color-text-primary);
 }
 </style>

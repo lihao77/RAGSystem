@@ -99,6 +99,8 @@
     --color-map-overlay-point-stroke: #ffffff;
     /* 风险圈/范围圈 —— 暖橙,深炭下用低饱和 agent-orange */
     --color-map-circle: var(--color-agent-orange);
+    /* maplibre 控件图标为黑色 sprite，深色下反色显示（亮色主题在下方重置为 none） */
+    --map-ctrl-icon-filter: invert(1);
     --color-risk-badge-text: var(--color-on-color);
     --color-risk-badge-ring: rgba(255, 255, 255, 0.8);
     --color-result-text: var(--color-accent-hover);
@@ -369,6 +371,7 @@
     --color-map-overlay-border: rgba(17, 17, 17, 0.22);
     --color-map-overlay-point-stroke: #111111;
     --color-map-circle: var(--color-agent-orange);
+    --map-ctrl-icon-filter: none;
     --color-risk-badge-text: var(--color-on-color-strong);
     --color-risk-badge-ring: rgba(17, 17, 17, 0.16);
     --color-result-text: var(--color-accent);

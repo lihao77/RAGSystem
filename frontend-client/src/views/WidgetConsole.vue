@@ -1,31 +1,138 @@
 <template>
   <PageLayout title="Widget 凭证控制台" subtitle="管理浏览器嵌入 key、服务端 secret 与来源白名单">
-    <template #header-actions><Button size="sm" @click="openCreate">创建应用</Button></template>
+    <template #header-actions>
+      <Button size="sm" @click="openCreate"><Plus :size="14" />创建应用</Button>
+    </template>
+
     <KpiCards :items="kpis" />
-    <details class="guide"><summary>publishable key 集成指引</summary><pre>{{ integrationExample('wid_pk_你的key') }}</pre></details>
-    <EntityListLayout title="Widget 应用" description="publishable key 可公开放在宿主页；secret 只在创建或轮换后展示一次。" :loading="loading" :error="error" :empty="apps.length === 0" empty-title="暂无 Widget 应用" empty-hint="创建应用后即可按 Origin 白名单嵌入" @retry="refresh">
+
+    <details class="guide">
+      <summary><ChevronRight :size="13" class="guide__chevron" /><BookOpen :size="14" />publishable key 集成指引</summary>
+      <div class="guide__body">
+        <pre>{{ integrationExample('wid_pk_你的key') }}</pre>
+      </div>
+    </details>
+
+    <EntityListLayout
+      title="Widget 应用"
+      description="publishable key 可公开放在宿主页；secret 只在创建或轮换后展示一次。"
+      :loading="loading"
+      :error="error"
+      :empty="apps.length === 0"
+      empty-title="暂无 Widget 应用"
+      empty-hint="创建应用后即可按 Origin 白名单嵌入"
+      @retry="refresh"
+    >
       <div class="app-list">
-        <article v-for="item in apps" :key="item.app_key" class="app-card">
-          <div><strong>{{ item.display_name }}</strong><span class="status">{{ item.revoked_at ? '已吊销' : '活跃' }}</span></div>
-          <div class="key-line"><code>{{ item.app_key }}</code><Button variant="ghost" size="sm" title="前端嵌入用这个，可公开" @click="copy(item.app_key)">复制</Button></div>
-          <p>{{ item.allowed_origins.length ? item.allowed_origins.join('、') : '未配置 Origin，publishable key 请求将被拒绝' }}</p>
-          <div class="actions"><Button variant="outline" size="sm" :disabled="!!item.revoked_at" @click="openEdit(item)">编辑</Button><Button variant="outline" size="sm" :disabled="!!item.revoked_at" @click="rotate(item)">轮换 secret</Button><Button variant="outline" size="sm" @click="openAudit(item)">审计</Button><Button variant="destructive" size="sm" :disabled="!!item.revoked_at" @click="revoke(item)">吊销</Button></div>
+        <article
+          v-for="(item, index) in apps"
+          :key="item.app_key"
+          class="app-card"
+          :class="{ 'app-card--revoked': item.revoked_at }"
+          :style="{ '--i': index }"
+        >
+          <header class="app-card__header">
+            <strong>{{ item.display_name }}</strong>
+            <Badge :variant="item.revoked_at ? 'outline' : 'success'">{{ item.revoked_at ? '已吊销' : '活跃' }}</Badge>
+          </header>
+
+          <div class="key-line">
+            <KeyRound :size="13" class="key-line__icon" />
+            <code class="key-chip">{{ item.app_key }}</code>
+            <Button variant="ghost" size="sm" class="copy-btn" :class="{ 'copy-btn--done': copiedKey === item.app_key }" title="前端嵌入用这个，可公开" @click="copy(item.app_key)">
+              <component :is="copiedKey === item.app_key ? Check : Copy" :size="13" />{{ copiedKey === item.app_key ? '已复制' : '复制' }}
+            </Button>
+          </div>
+
+          <div class="origins">
+            <template v-if="item.allowed_origins.length">
+              <p v-for="origin in item.allowed_origins" :key="origin" class="meta-row">
+                <Globe :size="13" />{{ origin }}
+              </p>
+            </template>
+            <p v-else class="meta-row meta-row--warning">
+              <TriangleAlert :size="13" />未配置 Origin，publishable key 请求将被拒绝
+            </p>
+          </div>
+
+          <div class="actions">
+            <Button variant="outline" size="sm" :disabled="!!item.revoked_at" @click="openEdit(item)">编辑</Button>
+            <Button variant="outline" size="sm" :disabled="!!item.revoked_at" @click="rotate(item)">轮换 secret</Button>
+            <Button variant="outline" size="sm" @click="openAudit(item)">审计</Button>
+            <Button variant="destructive" size="sm" :disabled="!!item.revoked_at" @click="revoke(item)">吊销</Button>
+          </div>
         </article>
       </div>
     </EntityListLayout>
 
-    <Dialog :open="formOpen" @update:open="formOpen = $event"><DialogContent><DialogHeader><DialogTitle>{{ editing ? '编辑应用' : '创建应用' }}</DialogTitle><DialogDescription>每行填写一个完整 Origin，例如 https://example.com。</DialogDescription></DialogHeader><label>名称</label><Input v-model="form.display_name" /><label>允许的 Origins</label><Textarea v-model="form.origins" rows="6" /><p v-if="formError" class="error">{{ formError }}</p><DialogFooter><Button variant="outline" @click="formOpen=false">取消</Button><Button :disabled="saving" @click="submit">保存</Button></DialogFooter></DialogContent></Dialog>
-    <Dialog :open="!!secretResult" @update:open="v => { if (!v) secretResult = null }"><DialogContent><DialogHeader><DialogTitle>请立即保存 secret</DialogTitle><DialogDescription>明文只展示这一次，关闭后无法找回。</DialogDescription></DialogHeader><label>app_key</label><div class="key-line"><code>{{ secretResult?.app_key }}</code><Button variant="ghost" size="sm" @click="copy(secretResult?.app_key)">复制</Button></div><label>secret</label><div class="key-line"><code>{{ secretResult?.secret }}</code><Button variant="ghost" size="sm" @click="copy(secretResult?.secret)">复制</Button></div><pre>{{ secretResult ? integrationExample(secretResult.app_key) : '' }}</pre></DialogContent></Dialog>
-    <Sheet :open="auditOpen" @update:open="auditOpen = $event"><SheetContent><SheetHeader><SheetTitle>审计时间线</SheetTitle><SheetDescription>{{ auditApp?.display_name }}</SheetDescription></SheetHeader><ol class="timeline"><li v-for="entry in audit" :key="entry.id"><strong>{{ entry.action }}</strong><span>{{ entry.created_at }} · {{ entry.actor }}</span><pre v-if="entry.detail">{{ JSON.stringify(entry.detail, null, 2) }}</pre></li></ol></SheetContent></Sheet>
+    <Dialog :open="formOpen" @update:open="formOpen = $event">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{{ editing ? '编辑应用' : '创建应用' }}</DialogTitle>
+          <DialogDescription>每行填写一个完整 Origin，例如 https://example.com。</DialogDescription>
+        </DialogHeader>
+        <label>名称</label>
+        <Input v-model="form.display_name" />
+        <label>允许的 Origins</label>
+        <Textarea v-model="form.origins" rows="6" />
+        <p v-if="formError" class="error">{{ formError }}</p>
+        <DialogFooter>
+          <Button variant="outline" @click="formOpen = false">取消</Button>
+          <Button :disabled="saving" @click="submit">保存</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog :open="!!secretResult" @update:open="v => { if (!v) secretResult = null }">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>请立即保存 secret</DialogTitle>
+          <DialogDescription>明文只展示这一次，关闭后无法找回。</DialogDescription>
+        </DialogHeader>
+        <label>app_key</label>
+        <div class="key-line">
+          <code class="key-chip">{{ secretResult?.app_key }}</code>
+          <Button variant="ghost" size="sm" class="copy-btn" :class="{ 'copy-btn--done': copiedKey === secretResult?.app_key }" @click="copy(secretResult?.app_key)">
+            <component :is="copiedKey === secretResult?.app_key ? Check : Copy" :size="13" />{{ copiedKey === secretResult?.app_key ? '已复制' : '复制' }}
+          </Button>
+        </div>
+        <label>secret</label>
+        <div class="key-line">
+          <code class="key-chip">{{ secretResult?.secret }}</code>
+          <Button variant="ghost" size="sm" class="copy-btn" :class="{ 'copy-btn--done': copiedKey === secretResult?.secret }" @click="copy(secretResult?.secret)">
+            <component :is="copiedKey === secretResult?.secret ? Check : Copy" :size="13" />{{ copiedKey === secretResult?.secret ? '已复制' : '复制' }}
+          </Button>
+        </div>
+        <pre>{{ secretResult ? integrationExample(secretResult.app_key) : '' }}</pre>
+      </DialogContent>
+    </Dialog>
+
+    <Sheet :open="auditOpen" @update:open="auditOpen = $event">
+      <SheetContent>
+        <SheetHeader>
+          <SheetTitle>审计时间线</SheetTitle>
+          <SheetDescription>{{ auditApp?.display_name }}</SheetDescription>
+        </SheetHeader>
+        <ol class="timeline">
+          <li v-for="entry in audit" :key="entry.id">
+            <strong>{{ entry.action }}</strong>
+            <span>{{ entry.created_at }} · {{ entry.actor }}</span>
+            <pre v-if="entry.detail">{{ JSON.stringify(entry.detail, null, 2) }}</pre>
+          </li>
+        </ol>
+      </SheetContent>
+    </Sheet>
   </PageLayout>
 </template>
 
 <script setup>
 import { computed, reactive, ref } from 'vue';
+import { BookOpen, Check, ChevronRight, CircleCheck, CircleSlash, Copy, Globe, History, KeyRound, LayoutGrid, Plus, TriangleAlert } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
@@ -36,9 +143,16 @@ import { createWidgetApp, listWidgetApps, updateWidgetApp, rotateWidgetSecret, r
 
 const { items: apps, loading, error, refresh } = useEntityList(listWidgetApps);
 const formOpen = ref(false), editing = ref(null), secretResult = ref(null), formError = ref(''), auditOpen = ref(false), auditApp = ref(null), audit = ref([]);
+const copiedKey = ref('');
+let copiedTimer = 0;
 const form = reactive({ display_name: '', origins: '' });
 const { run: save, loading: saving } = useAsyncAction(async () => { const allowed_origins = parseOrigins(form.origins); return editing.value ? updateWidgetApp(editing.value.app_key, { display_name: form.display_name, allowed_origins }) : createWidgetApp({ display_name: form.display_name, allowed_origins }); }, { successMessage: '保存成功' });
-const kpis = computed(() => { const week = Date.now() - 7 * 86400000; return [{ label: '应用总数', value: apps.value.length }, { label: '活跃', value: apps.value.filter(x => !x.revoked_at).length }, { label: '吊销', value: apps.value.filter(x => x.revoked_at).length }, { label: '本周操作', value: audit.value.filter(x => Date.parse(x.created_at) >= week).length }]; });
+const kpis = computed(() => { const week = Date.now() - 7 * 86400000; return [
+  { key: 'total', label: '应用总数', value: apps.value.length, icon: LayoutGrid },
+  { key: 'active', label: '活跃', value: apps.value.filter(x => !x.revoked_at).length, icon: CircleCheck },
+  { key: 'revoked', label: '吊销', value: apps.value.filter(x => x.revoked_at).length, icon: CircleSlash },
+  { key: 'week', label: '本周操作', value: audit.value.filter(x => Date.parse(x.created_at) >= week).length, icon: History },
+]; });
 function openCreate(){ editing.value=null; Object.assign(form,{display_name:'',origins:''}); formError.value=''; formOpen.value=true; }
 function openEdit(item){ editing.value=item; Object.assign(form,{display_name:item.display_name,origins:item.allowed_origins.join('\n')}); formError.value=''; formOpen.value=true; }
 function parseOrigins(text){ const values=text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean); const invalid=values.find(x=>!/^https?:\/\/[^/]+(?::\d+)?$/.test(x)); if(invalid) throw new Error(`Origin 格式无效：${invalid}`); return values; }
@@ -46,10 +160,202 @@ async function submit(){ formError.value=''; try { if(!form.display_name.trim())
 async function rotate(item){ const result=await rotateWidgetSecret(item.app_key); secretResult.value=result; await refresh(); }
 async function revoke(item){ if(!confirm(`确认吊销 ${item.display_name}？`))return; await revokeWidgetApp(item.app_key); await refresh(); }
 async function openAudit(item){ auditApp.value=item; audit.value=await listWidgetAudit(item.app_key); auditOpen.value=true; }
-async function copy(value){ if(value) await navigator.clipboard.writeText(value); }
+async function copy(value){ if(!value) return; await navigator.clipboard.writeText(value); copiedKey.value=value; clearTimeout(copiedTimer); copiedTimer=setTimeout(()=>{ copiedKey.value=''; },1400); }
 function integrationExample(key){ return `RagSystemWidget.mount({\n  backendBase: 'https://api.example.com',\n  publishableKey: '${key}'\n})`; }
 </script>
 
 <style scoped>
-.guide,.app-card{border:1px solid var(--border);border-radius:var(--radius);padding:1rem}.guide{margin-bottom:1rem}.app-list{display:grid;gap:.75rem}.app-card{display:grid;gap:.75rem}.app-card>div:first-child{display:flex;justify-content:space-between}.key-line,.actions{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}.key-line code{overflow-wrap:anywhere}.status{color:var(--muted-foreground)}pre{overflow:auto;background:var(--muted);padding:.75rem;border-radius:var(--radius)}.error{color:var(--destructive)}.timeline{display:grid;gap:1rem;padding:1rem}.timeline li{display:grid;gap:.25rem}.timeline span{color:var(--muted-foreground);font-size:.875rem}
+/* ---- 集成指引：淡 accent 底 disclosure，grid-rows 实现平滑展开 ---- */
+.guide {
+  display: grid;
+  grid-template-rows: auto 0fr;
+  border: 1px solid var(--color-accent-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-bg);
+  padding: var(--spacing-sm) var(--spacing-md);
+  transition: grid-template-rows var(--transition-normal);
+}
+
+.guide[open] {
+  grid-template-rows: auto 1fr;
+}
+
+/* 覆盖 UA 对未展开 details 子元素的隐藏，使收起过程也能过渡 */
+.guide__body {
+  display: block;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.guide summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.guide summary::-webkit-details-marker {
+  display: none;
+}
+
+.guide summary:hover {
+  color: var(--color-text-primary);
+}
+
+.guide__chevron {
+  transition: transform var(--transition-fast);
+}
+
+.guide[open] .guide__chevron {
+  transform: rotate(90deg);
+}
+
+.guide pre {
+  margin-top: var(--spacing-sm);
+}
+
+/* ---- 应用卡片 ---- */
+.app-list {
+  display: grid;
+  gap: var(--spacing-md);
+}
+
+.app-card {
+  display: grid;
+  gap: var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  animation: widget-card-in var(--duration-base) var(--ease-out-expo) backwards;
+  animation-delay: calc(var(--i, 0) * 55ms);
+  transition: border-color var(--transition-fast);
+}
+
+@keyframes widget-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.app-card:hover {
+  border-color: var(--color-border-hover);
+}
+
+.app-card--revoked {
+  opacity: 0.62;
+}
+
+.app-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-base);
+}
+
+/* ---- 密钥行：等宽 chip + 复制 ---- */
+.key-line {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.key-line__icon {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.key-chip {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* ---- 元信息行（origin / 警告） ---- */
+.origins {
+  display: grid;
+  gap: var(--spacing-xs);
+}
+
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.meta-row--warning {
+  color: var(--color-warning);
+}
+
+/* ---- 复制按钮：成功态绿色 ---- */
+.copy-btn {
+  transition: color var(--transition-fast);
+}
+
+.copy-btn--done {
+  color: var(--color-success);
+}
+
+.copy-btn--done:hover {
+  color: var(--color-success);
+}
+
+/* ---- 操作区：顶部分隔，独立成行 ---- */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--spacing-sm);
+}
+
+/* ---- 代码块 / 错误 / 时间线 ---- */
+pre {
+  overflow: auto;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+}
+
+.error {
+  color: var(--color-error);
+}
+
+.timeline {
+  display: grid;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+}
+
+.timeline li {
+  display: grid;
+  gap: var(--spacing-xs);
+}
+
+.timeline span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
 </style>
