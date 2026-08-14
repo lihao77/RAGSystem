@@ -12,6 +12,7 @@
 <script setup>
 import PanelFormShell from './PanelFormShell.vue';
 import CheckGrid from './CheckGrid.vue';
+import { toggleListItem } from '../../utils/listToggle.js';
 
 const props = defineProps({
   form: { type: Object, required: true },
@@ -19,9 +20,6 @@ const props = defineProps({
 });
 
 function toggle(name) {
-  const list = props.form.mcp.enabled_servers;
-  const i = list.indexOf(name);
-  if (i >= 0) list.splice(i, 1);
-  else list.push(name);
+  toggleListItem(props.form.mcp.enabled_servers, name);
 }
 </script>

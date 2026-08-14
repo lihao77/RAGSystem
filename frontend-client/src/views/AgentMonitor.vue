@@ -80,7 +80,7 @@
                   @click="selectTask(task.task_id)"
                 >
                   <div class="running-task-main">
-                    <span class="badge">{{ task.execution_kind }}</span>
+                    <Badge variant="outline">{{ task.execution_kind }}</Badge>
                     <span class="running-task-title">{{ task.task || task.task_id }}</span>
                   </div>
                   <div class="running-task-meta">
@@ -141,8 +141,8 @@
             <div class="agent-card__head">
               <span class="agent-name">{{ agent.agent_name }}</span>
               <div class="badge-group">
-                <span class="badge badge--success">成功率 {{ formatPercent(agent.success_rate) }}</span>
-                <span class="badge">调用 {{ agent.total_calls }} 次</span>
+                <Badge variant="success">成功率 {{ formatPercent(agent.success_rate) }}</Badge>
+                <Badge variant="secondary">调用 {{ agent.total_calls }} 次</Badge>
               </div>
             </div>
 
@@ -188,6 +188,7 @@ import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconCheck from '../components/icons/IconCheck.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
+import { Badge } from '../components/ui/badge';
 import KpiCards from '../components/admin/KpiCards.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import { Button } from '../components/ui/button';
@@ -410,8 +411,6 @@ onUnmounted(() => { stopAutoRefresh(); });
 .agent-name { font-size: var(--font-size-base); font-weight: 600; color: var(--color-text-primary); font-family: var(--font-mono); }
 
 .badge-group { display: flex; gap: var(--spacing-xs); flex-wrap: wrap; }
-.badge { padding: 3px 10px; border-radius: 20px; font-size: var(--font-size-xs); font-weight: 500; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-secondary); }
-.badge--success { border-color: rgba(var(--color-success-rgb), 0.35); background: rgba(var(--color-success-rgb), 0.1); color: var(--color-success); }
 
 .agent-metrics { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: var(--spacing-md); border-radius: var(--radius-md); overflow: hidden; background: var(--color-bg-elevated); }
 .metric-item { flex: 1 1 160px; display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-right: 1px solid var(--color-border); }
@@ -424,7 +423,7 @@ onUnmounted(() => { stopAutoRefresh(); });
 
 .running-task-list { display: flex; flex-direction: column; gap: var(--spacing-sm); }
 .running-task-item { display: flex; justify-content: space-between; gap: var(--spacing-md); padding: 12px 14px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay); width: 100%; text-align: left; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
-.running-task-item:hover, .running-task-item.is-active { border-color: rgba(var(--color-brand-accent-rgb), 0.35); background: rgba(var(--color-brand-accent-rgb), 0.08); }
+.running-task-item:hover, .running-task-item.is-active { border-color: var(--color-accent-border); background: var(--color-active-bg); }
 .running-task-main { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
 .running-task-title { color: var(--color-text-primary); font-weight: 600; word-break: break-all; }
 .running-task-meta { display: flex; align-items: center; gap: var(--spacing-sm); color: var(--color-text-secondary); font-size: var(--font-size-xs); flex-wrap: wrap; justify-content: flex-end; }
@@ -432,7 +431,7 @@ onUnmounted(() => { stopAutoRefresh(); });
 .detail-inline-head { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm); }
 .btn-inline { border: none; background: transparent; color: var(--color-brand-accent-light); cursor: pointer; font-size: var(--font-size-xs); font-weight: 600; }
 .inline-state { padding: 12px 14px; border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-secondary); }
-.inline-state--error { border-color: rgba(var(--color-error-rgb), 0.35); color: var(--color-error); }
+.inline-state--error { border-color: color-mix(in srgb, var(--color-error) 35%, transparent); color: var(--color-error); }
 
 .task-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
 .task-detail-card { padding: 14px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay); }
@@ -446,11 +445,11 @@ onUnmounted(() => { stopAutoRefresh(); });
 .tool-item { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; gap: 4px 8px; align-items: center; }
 .tool-name { font-size: var(--font-size-xs); color: var(--color-text-primary); font-family: var(--font-mono); grid-column: 1; grid-row: 1; }
 .tool-count { font-size: var(--font-size-xs); color: var(--color-text-secondary); grid-column: 2; grid-row: 1; white-space: nowrap; }
-.tool-bar { grid-column: 1 / -1; grid-row: 2; height: 3px; background: var(--color-border); border-radius: 2px; overflow: hidden; }
-.tool-bar__fill { height: 100%; background: var(--color-brand-accent-light); border-radius: 2px; transition: width 0.4s ease; }
+.tool-bar { grid-column: 1 / -1; grid-row: 2; height: 3px; background: var(--color-bg-tertiary); border-radius: var(--radius-full); overflow: hidden; }
+.tool-bar__fill { height: 100%; background: var(--color-brand-accent-light); border-radius: var(--radius-full); transition: width 0.4s ease; }
 
 .error-list { display: flex; flex-direction: column; gap: 4px; }
-.error-item { display: flex; justify-content: space-between; padding: 6px 10px; background: rgba(var(--color-error-rgb), 0.07); border-left: 2px solid var(--color-error); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: var(--font-size-xs); }
+.error-item { display: flex; justify-content: space-between; padding: 6px 10px; background: var(--color-error-bg); border-left: 2px solid var(--color-error); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: var(--font-size-xs); }
 .error-type { color: var(--color-error); font-weight: 500; }
 .error-count { color: var(--color-text-secondary); }
 

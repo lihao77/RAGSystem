@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/no-mutating-props -- 表单模型由父级 useAgentForm 持有，面板直接改写共享 form/tier 对象（有意的表单模型架构） -->
 <template>
   <PanelFormShell title="记忆" subtitle="记忆索引注入与 scope 权限；scope 定位由运行时推导">
     <div class="switch-list">

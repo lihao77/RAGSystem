@@ -2,7 +2,6 @@ import { computed, h, onMounted, reactive, ref } from 'vue';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { normalizeModelList } from '../utils/modelList.js';
 import { parseKnowledgeSearchFilters } from '../utils/knowledgeSearch.js';
-import { showToast as showToastMessage } from '../utils/toast.js';
 import {
     activateVectorizer,
     activateReranker,
@@ -21,11 +20,10 @@ import {
     searchVectors,
     uploadFiles,
 } from '../api/knowledgeBase';
-import { useToast } from '../composables/useToast.js';
+import { showToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 
 export function useKnowledgeBaseManager() {
-  const toast = useToast();
   const { confirm } = useConfirm();
   const dictStore = useDictionariesStore();
 
@@ -35,7 +33,6 @@ export function useKnowledgeBaseManager() {
   const IconVectorizers = () => h('svg', SVG, [h('ellipse', { cx: 12, cy: 5, rx: 9, ry: 3 }), h('path', { d: 'M21 12c0 1.66-4 3-9 3s-9-1.34-9-3' }), h('path', { d: 'M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5' })]);
   const IconRerankers = () => h('svg', SVG, [h('line', { x1: 4, y1: 9, x2: 20, y2: 9 }), h('line', { x1: 4, y1: 15, x2: 20, y2: 15 }), h('line', { x1: 10, y1: 3, x2: 8, y2: 21 }), h('line', { x1: 16, y1: 3, x2: 14, y2: 21 })]);
 
-  const showToast = (message, type = 'error') => showToastMessage(toast, message, type);
 
   // ── Tab ───────────────────────────────────────────────────
   const activeTab = ref('store');

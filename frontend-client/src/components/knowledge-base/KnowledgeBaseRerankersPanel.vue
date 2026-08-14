@@ -61,21 +61,21 @@
                                     :class="{ 'row-active': r.is_active }">
                                     <TableCell class="font-mono">{{ r.reranker_key }}</TableCell>
                                     <TableCell>
-                                        <UiBadge size="sm" :tone="r.mode === 'model' ? 'info' : r.mode === 'lexical' ? 'warning' : 'neutral'">
+                                        <Badge :variant="r.mode === 'model' ? 'info' : r.mode === 'lexical' ? 'warning' : 'secondary'">
                                             {{ r.mode === 'model' ? '模型' : r.mode === 'lexical' ? '本地' : '无' }}
-                                        </UiBadge>
+                                        </Badge>
                                     </TableCell>
                                     <TableCell>
                                         <span class="reranker-provider-cell">
                                             <span>{{ r.provider_key || '-' }}</span>
-                                            <UiBadge v-if="r.provider_managed" size="sm" tone="info">Provider 托管</UiBadge>
-                                            <UiBadge v-if="r.provider_managed && !r.provider_available" size="sm" tone="error">不可用</UiBadge>
+                                            <Badge v-if="r.provider_managed" variant="info">Provider 托管</Badge>
+                                            <Badge v-if="r.provider_managed && !r.provider_available" variant="destructive">不可用</Badge>
                                         </span>
                                     </TableCell>
                                     <TableCell>{{ r.model_name || '-' }}</TableCell>
                                     <TableCell class="font-mono cell-endpoint" :title="r.api_endpoint || ''">{{ r.api_endpoint || '-' }}</TableCell>
                                     <TableCell class="text-center">
-                                        <UiBadge v-if="r.is_active" class="status-badge" size="sm" tone="success">当前</UiBadge>
+                                        <Badge v-if="r.is_active" class="status-badge" variant="success">当前</Badge>
                                         <Button v-else variant="link"
                                             :disabled="activatingReranker === r.reranker_key || (r.provider_managed && !r.provider_available)"
                                             :title="r.provider_managed && !r.provider_available ? '请先修复对应 Model Provider 配置' : '激活重排序器'"
@@ -115,7 +115,7 @@ import EmptyState from '../EmptyState.vue';
 import KpiCards from '../admin/KpiCards.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import CustomSelect from '../ui/CustomSelect.vue';
-import { UiBadge } from '../ui';
+import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';

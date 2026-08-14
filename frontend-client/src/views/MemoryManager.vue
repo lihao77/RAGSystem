@@ -3,7 +3,17 @@
     <div class="memory-manager">
       <div class="section-toolbar">
         <div class="toolbar-left">
-          <UiTabs v-model="activeView" :tabs="views" />
+          <ToggleGroup
+            type="single"
+            variant="segment"
+            size="segment"
+            :model-value="activeView"
+            class="segmented-track"
+            aria-label="Memory 视图"
+            @update:model-value="(v) => { if (v) activeView = v; }"
+          >
+            <ToggleGroupItem v-for="view in views" :key="view.key" :value="view.key">{{ view.label }}</ToggleGroupItem>
+          </ToggleGroup>
         </div>
         <div class="toolbar-right">
           <Input v-model="searchQuery" class="memory-search-input" placeholder="搜索名称或内容" aria-label="搜索 Memory" />
@@ -55,16 +65,16 @@
                   <div class="flex flex-col gap-1">
                     <div class="flex items-center gap-2">
                       <span class="truncate font-medium" :title="item.name">{{ item.name || '未命名 Memory' }}</span>
-                      <UiBadge v-if="isCandidate(item)" size="sm" tone="neutral">{{ operationLabel(item.operation) }}</UiBadge>
+                      <Badge v-if="isCandidate(item)" variant="secondary">{{ operationLabel(item.operation) }}</Badge>
                     </div>
                     <span class="memory-description" :title="item.description || item.content">
                       {{ item.description || item.content || '-' }}
                     </span>
                   </div>
                 </TableCell>
-                <TableCell><UiBadge size="sm" :tone="scopeTone(scopeOf(item))">{{ scopeOf(item) }}</UiBadge></TableCell>
+                <TableCell><Badge :variant="scopeTone(scopeOf(item))">{{ scopeOf(item) }}</Badge></TableCell>
                 <TableCell>{{ typeLabel(item.memory_type) }}</TableCell>
-                <TableCell><UiBadge class="status-badge" size="sm" :tone="statusTone(item.status)">{{ statusLabel(item.status) }}</UiBadge></TableCell>
+                <TableCell><Badge class="status-badge" :variant="statusTone(item.status)">{{ statusLabel(item.status) }}</Badge></TableCell>
                 <TableCell class="cell-secondary memory-time-cell">{{ formatDate(item.updated_at || item.created_at) }}</TableCell>
                 <TableCell v-if="showActions" class="cell-actions">
                   <div class="row-actions">
@@ -228,7 +238,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { Archive, Check, ClipboardCheck, Eye, Pencil, RefreshCw, Undo2, X } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import EmptyState from '../components/EmptyState.vue';
-import { UiBadge, UiTabs } from '../components/ui';
+import { Badge } from '../components/ui/badge';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
@@ -338,14 +349,14 @@ function operationLabel(operation) {
 }
 
 function scopeTone(scope) {
-  return sharedScopes.has(scope) ? 'info' : 'neutral';
+  return sharedScopes.has(scope) ? 'info' : 'secondary';
 }
 
 function statusTone(status) {
   if (status === 'active' || status === 'approved') return 'success';
   if (status === 'candidate') return 'warning';
-  if (status === 'rejected') return 'error';
-  return 'neutral';
+  if (status === 'rejected') return 'destructive';
+  return 'secondary';
 }
 
 function formatDate(value) {
@@ -546,19 +557,7 @@ onMounted(loadCurrentView);
   overflow: hidden;
 }
 
-.memory-table :deep(thead th) {
-  height: 36px;
-  padding: 0 var(--spacing-md);
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
 .memory-table :deep(tbody td) {
-  padding: var(--spacing-sm) var(--spacing-md);
   vertical-align: middle;
 }
 
@@ -624,11 +623,6 @@ onMounted(loadCurrentView);
   .memory-search-input {
     flex: 1 1 220px;
   }
-
-  .memory-table :deep(thead th),
-  .memory-table :deep(tbody td) {
-    padding: 8px 10px;
-  }
 }
 
 @media (max-width: 480px) {
@@ -646,12 +640,6 @@ onMounted(loadCurrentView);
 
   .memory-search-input {
     grid-column: 1 / -1;
-  }
-
-  .memory-table :deep(thead th),
-  .memory-table :deep(tbody td) {
-    padding: 6px 8px;
-    font-size: 12px;
   }
 }
 </style>

@@ -106,6 +106,17 @@ export default {
         '3xl': ['var(--font-size-3xl)', { lineHeight: '1.2' }],
         '4xl': ['var(--font-size-4xl)', { lineHeight: '1.1' }],
       },
+      // 8px 网格 token 刻度（与 main.css --spacing-* 对齐），与默认 0.25rem 刻度并存：
+      // 语义间距用 p-sm/gap-md/p-lg 等，细碎微调仍可用数字刻度。
+      spacing: {
+        xs: 'var(--spacing-xs)',
+        sm: 'var(--spacing-sm)',
+        md: 'var(--spacing-md)',
+        lg: 'var(--spacing-lg)',
+        xl: 'var(--spacing-xl)',
+        '2xl': 'var(--spacing-2xl)',
+        '3xl': 'var(--spacing-3xl)',
+      },
       height: {
         'control-sm': 'var(--control-height-sm)',
         'control-compact': 'var(--control-height-compact)',

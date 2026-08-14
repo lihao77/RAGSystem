@@ -6,7 +6,7 @@
           <CardTitle>检索工作台</CardTitle>
           <CardDescription>用同一条查询验证召回、融合与重排序效果，并查看实际执行链路。</CardDescription>
         </div>
-        <UiBadge size="sm" tone="info">{{ activeSearchModeLabel }}</UiBadge>
+        <Badge variant="info">{{ activeSearchModeLabel }}</Badge>
       </CardHeader>
 
       <CardContent class="flex flex-col gap-5">
@@ -83,7 +83,7 @@
             <Button variant="ghost" size="sm" @click="advancedFiltersOpen = !advancedFiltersOpen">
               <SlidersHorizontalIcon data-icon="inline-start" />
               {{ advancedFiltersOpen ? '收起过滤' : '配置过滤' }}
-              <UiBadge v-if="hasSearchFilters" size="sm" tone="success">已设置</UiBadge>
+              <Badge v-if="hasSearchFilters" variant="success">已设置</Badge>
             </Button>
           </div>
 
@@ -102,32 +102,31 @@
       <CardFooter v-if="searchResponse" class="flex-col items-stretch gap-3 border-t pt-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-wrap items-center gap-2">
-            <UiBadge size="sm" tone="info">
+            <Badge variant="info">
               {{ searchResponse.collection_scope === 'all' ? '全部集合' : searchResponse.collection_name }}
-            </UiBadge>
-            <UiBadge size="sm">向量 {{ searchResponse.diagnostics?.vector_candidate_count ?? 0 }}</UiBadge>
-            <UiBadge v-if="searchResponse.search_mode === 'hybrid'" size="sm">
+            </Badge>
+            <Badge variant="secondary">向量 {{ searchResponse.diagnostics?.vector_candidate_count ?? 0 }}</Badge>
+            <Badge variant="secondary" v-if="searchResponse.search_mode === 'hybrid'">
               关键词 {{ searchResponse.diagnostics?.keyword_candidate_count ?? 0 }}
-            </UiBadge>
-            <UiBadge v-if="searchResponse.diagnostics?.fusion" size="sm" tone="info">
+            </Badge>
+            <Badge v-if="searchResponse.diagnostics?.fusion" variant="info">
               RRF k={{ searchResponse.diagnostics.fusion.rrf_k }}
-            </UiBadge>
-            <UiBadge v-if="searchResponse.search_mode === 'hybrid'" size="sm">
+            </Badge>
+            <Badge variant="secondary" v-if="searchResponse.search_mode === 'hybrid'">
               融合池 {{ searchResponse.diagnostics?.fused_candidate_count ?? 0 }}
-            </UiBadge>
-            <UiBadge size="sm">
+            </Badge>
+            <Badge variant="secondary">
               {{ searchResponse.rerank_mode !== 'none' ? '入排' : '候选' }} {{ searchResponse.diagnostics?.candidate_count ?? 0 }}
-            </UiBadge>
-            <UiBadge v-if="searchResponse.diagnostics?.vectorizer" size="sm">
+            </Badge>
+            <Badge variant="secondary" v-if="searchResponse.diagnostics?.vectorizer">
               Embedding · {{ searchResponse.diagnostics.vectorizer.model_name }}
-            </UiBadge>
-            <UiBadge
+            </Badge>
+            <Badge
               v-if="searchResponse.rerank_mode !== 'none'"
-              size="sm"
-              :tone="searchResponse.rerank_mode === 'degraded' ? 'warning' : 'success'"
+              :variant="searchResponse.rerank_mode === 'degraded' ? 'warning' : 'success'"
             >
               Rerank · {{ searchResponse.rerank_mode }}
-            </UiBadge>
+            </Badge>
           </div>
           <span class="text-sm text-muted-foreground">
             总耗时 {{ formatScore(searchResponse.diagnostics?.timings_ms?.total) }} ms
@@ -135,7 +134,7 @@
         </div>
 
         <div v-if="searchResponse.rerank_error" class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <UiBadge size="sm" tone="warning">重排序未完成</UiBadge>
+          <Badge variant="warning">重排序未完成</Badge>
           <span>{{ searchResponse.rerank_error }}</span>
         </div>
       </CardFooter>
@@ -147,7 +146,7 @@
           <h3 class="text-base font-semibold">检索结果</h3>
           <p class="text-sm text-muted-foreground">主得分已按向量、融合或重排阶段明确标注。</p>
         </div>
-        <UiBadge size="sm" tone="info">{{ searchResults.length }} 条</UiBadge>
+        <Badge variant="info">{{ searchResults.length }} 条</Badge>
       </div>
 
       <Card
@@ -166,31 +165,31 @@
             </CardDescription>
           </div>
           <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            <UiBadge size="sm">#{{ result.final_rank || index + 1 }}</UiBadge>
-            <UiBadge size="sm" :tone="resultScoreTone(resultSimilarity(result))">
+            <Badge variant="secondary">#{{ result.final_rank || index + 1 }}</Badge>
+            <Badge :variant="resultScoreTone(resultSimilarity(result))">
               {{ resultSimilarityLabel(result) }}
-            </UiBadge>
+            </Badge>
           </div>
         </CardHeader>
 
         <CardContent class="flex flex-col gap-4">
           <div class="flex flex-wrap gap-2">
-            <UiBadge v-if="hasKnowledgeRetrievalSource(result, 'vector') && result.vector_score != null" size="sm">
+            <Badge variant="secondary" v-if="hasKnowledgeRetrievalSource(result, 'vector') && result.vector_score != null">
               Vector {{ formatScore(result.vector_score) }}
-            </UiBadge>
-            <UiBadge v-if="hasKnowledgeRetrievalSource(result, 'keyword') && result.keyword_score != null" size="sm">
+            </Badge>
+            <Badge variant="secondary" v-if="hasKnowledgeRetrievalSource(result, 'keyword') && result.keyword_score != null">
               Keyword {{ formatScore(result.keyword_score) }}
-            </UiBadge>
-            <UiBadge v-if="searchResponse.search_mode === 'hybrid' && result.hybrid_score != null" size="sm">
+            </Badge>
+            <Badge variant="secondary" v-if="searchResponse.search_mode === 'hybrid' && result.hybrid_score != null">
               RRF {{ formatScore(result.hybrid_score) }}
-            </UiBadge>
-            <UiBadge v-if="result.rerank_score != null" size="sm" tone="info">Rerank {{ formatScore(result.rerank_score) }}</UiBadge>
-            <UiBadge v-if="result.vector_rank != null" size="sm">Vector #{{ result.vector_rank }}</UiBadge>
-            <UiBadge v-if="result.keyword_rank != null" size="sm">Keyword #{{ result.keyword_rank }}</UiBadge>
-            <UiBadge v-if="result.rerank_rank != null" size="sm">Rerank #{{ result.rerank_rank }}</UiBadge>
-            <UiBadge v-for="source in (result.retrieval_sources || [])" :key="source" size="sm" tone="info">
+            </Badge>
+            <Badge v-if="result.rerank_score != null" variant="info">Rerank {{ formatScore(result.rerank_score) }}</Badge>
+            <Badge variant="secondary" v-if="result.vector_rank != null">Vector #{{ result.vector_rank }}</Badge>
+            <Badge variant="secondary" v-if="result.keyword_rank != null">Keyword #{{ result.keyword_rank }}</Badge>
+            <Badge variant="secondary" v-if="result.rerank_rank != null">Rerank #{{ result.rerank_rank }}</Badge>
+            <Badge v-for="source in (result.retrieval_sources || [])" :key="source" variant="info">
               召回 · {{ source }}
-            </UiBadge>
+            </Badge>
           </div>
 
           <div class="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-4 text-sm leading-7">
@@ -220,7 +219,7 @@ import { hasKnowledgeRetrievalSource } from '../../utils/knowledgeSearch.js';
 
 import EmptyState from '../EmptyState.vue';
 import CustomSelect from '../ui/CustomSelect.vue';
-import { UiBadge } from '../ui';
+import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import {
   Card,
@@ -279,7 +278,7 @@ function resultSource(result) {
 }
 
 function resultScoreTone(score) {
-  if (score == null) return 'neutral';
+  if (score == null) return 'secondary';
   if (score >= 0.75) return 'success';
   if (score >= 0.45) return 'info';
   return 'warning';

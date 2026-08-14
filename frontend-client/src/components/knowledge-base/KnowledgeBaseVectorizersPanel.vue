@@ -53,7 +53,7 @@
                                     <TableCell class="text-center cell-secondary">{{ v.vector_dimension ?? '-' }}</TableCell>
                                     <TableCell class="text-center cell-secondary">{{ v.vector_count ?? '-' }}</TableCell>
                                     <TableCell class="text-center">
-                                        <UiBadge v-if="v.is_active" class="status-badge" size="sm" tone="success">当前</UiBadge>
+                                        <Badge v-if="v.is_active" class="status-badge" variant="success">当前</Badge>
                                         <Button v-else variant="link"
                                             :disabled="activatingVectorizer === v.vectorizer_key"
                                             @click="handleActivateVectorizer(v.vectorizer_key)">
@@ -102,7 +102,7 @@ import EmptyState from '../EmptyState.vue';
 import KpiCards from '../admin/KpiCards.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import CustomSelect from '../ui/CustomSelect.vue';
-import { UiBadge } from '../ui';
+import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';

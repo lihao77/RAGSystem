@@ -80,8 +80,7 @@ import {
   parseExtraParamsInput,
 } from '../utils/modelList.js';
 import { Button } from '../components/ui/button';
-import { useToast } from '../composables/useToast.js';
-import { showToast as showToastMessage } from '../utils/toast.js';
+import { showToast } from '../composables/useToast.js';
 import {
   getSystemConfigSchema,
   getSystemConfig,
@@ -102,10 +101,8 @@ const extraParamTypeOptions = [
 const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
-const toast = useToast();
 const configSchema = computed(() => enrichSchemaWithProviderSelection(baseConfigSchema.value, configData.value));
 
-const showToast = (message, type = 'error') => showToastMessage(toast, message, type);
 
 async function loadData() {
   loading.value = true;

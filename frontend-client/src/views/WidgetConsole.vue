@@ -25,10 +25,13 @@ import { computed, reactive, ref } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
-import { Button } from '../components/ui/button'; import { Input } from '../components/ui/input'; import { Textarea } from '../components/ui/textarea';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../components/ui/sheet';
-import { useAsyncAction } from '../composables/useAsyncAction.js'; import { useEntityList } from '../composables/useEntityList.js';
+import { useAsyncAction } from '../composables/useAsyncAction.js';
+import { useEntityList } from '../composables/useEntityList.js';
 import { createWidgetApp, listWidgetApps, updateWidgetApp, rotateWidgetSecret, revokeWidgetApp, listWidgetAudit } from '../api/widgetApps.js';
 
 const { items: apps, loading, error, refresh } = useEntityList(listWidgetApps);

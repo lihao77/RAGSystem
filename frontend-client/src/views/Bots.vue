@@ -22,8 +22,8 @@
       </button>
     </template>
 
-    <div class="bots-layout">
-      <Card class="bot-list-card">
+    <div class="wb-workbench">
+      <Card class="wb-workbench__nav">
         <CardHeader>
           <CardTitle>我的机器人</CardTitle>
           <CardDescription>每个机器人拥有独立身份、飞书连接与定时任务。</CardDescription>
@@ -44,7 +44,7 @@
               :class="{ active: bot.id === selectedBotId }"
               @click="selectBot(bot.id)"
             >
-              <span class="connection-dot" :class="connectionClass(bot.config)" />
+              <StatusDot :tone="connectionTone(bot.config)" :label="connectionTone(bot.config) === 'success' ? '已连接' : '未连接'" />
               <span class="bot-list-copy">
                 <strong>{{ bot.displayName }}</strong>
                 <small>{{ connectionLabel(bot.config) }}</small>
@@ -607,8 +607,8 @@ function connectionLabel(config) {
   return config.feishu.receive_mode === 'long_connection' ? '飞书长连接' : '飞书 Webhook';
 }
 
-function connectionClass(config) {
-  return config?.enabled && config?.feishu?.enabled ? 'connected' : 'disconnected';
+function connectionTone(config) {
+  return config?.enabled && config?.feishu?.enabled ? 'success' : 'muted';
 }
 
 function formatRunTime(unixSeconds) {
@@ -629,8 +629,6 @@ onMounted(() => loadAction.run());
 </script>
 
 <style scoped>
-.bots-layout { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: var(--spacing-lg); align-items: start; }
-.bot-list-card { position: sticky; top: var(--spacing-md); }
 .bot-list-content, .bot-detail, .dialog-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .bot-list, .cron-list { display: flex; flex-direction: column; gap: 0; }
 /* 列表项 —— Linear 平铺：透明贴底、发丝分隔、hover/选中浮淡层 */
@@ -638,14 +636,11 @@ onMounted(() => loadAction.run());
 .bot-list-item:last-child { border-bottom: none; }
 .bot-list-item:hover { background: var(--color-hover-overlay-md); }
 .bot-list-item.active { background: var(--color-active-bg); }
-.connection-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: var(--radius-full); background: var(--color-text-muted); }
-.connection-dot.connected { background: var(--color-success); box-shadow: 0 0 0 4px rgba(var(--color-success-rgb), 0.12); }
 .bot-list-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
 .bot-list-copy strong, .bot-list-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bot-list-copy small { color: var(--color-text-muted); }
 .card-heading-row, .header-actions, .switch-field, .cron-title-row, .cron-actions, .webhook-box { display: flex; align-items: center; gap: var(--spacing-sm); }
 .card-heading-row { justify-content: space-between; align-items: flex-start; }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
 .form-item { display: flex; flex-direction: column; gap: var(--spacing-xs); min-width: 0; }
 .form-item.full { grid-column: 1 / -1; }
 .form-item label, .dialog-form label { color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: 600; }
@@ -664,12 +659,8 @@ onMounted(() => loadAction.run());
 .debug-panel h3 { margin: 0; font-size: var(--font-size-sm); font-weight: 600; }
 .debug-output, .history-output { max-height: 320px; overflow: auto; white-space: pre-wrap; padding: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay); color: var(--color-text-secondary); font-family: var(--font-mono); font-size: var(--font-size-xs); }
 .bot-placeholder { min-height: 180px; }
-@media (max-width: 960px) {
-  .bots-layout { grid-template-columns: 1fr; }
-  .bot-list-card { position: static; }
-}
 @media (max-width: 720px) {
-  .form-grid, .debug-grid { grid-template-columns: 1fr; }
+  .debug-grid { grid-template-columns: 1fr; }
   .form-item.full { grid-column: auto; }
   .card-heading-row, .cron-item { flex-direction: column; align-items: stretch; }
   .header-actions, .cron-actions { flex-wrap: wrap; }

@@ -63,9 +63,9 @@
               </div>
             </div>
             <div class="server-card-badges">
-              <span class="status-dot" :class="`status-dot--${server.status || 'unknown'}`" :title="server.status || 'unknown'"></span>
-              <UiBadge class="badge" size="sm" :tone="statusBadgeTone(server.status)">{{ server.status || 'unknown' }}</UiBadge>
-              <UiBadge v-if="server.trusted === false" class="badge" size="sm" tone="warning" title="未受信任:annotations 不驱动并发,工具保守串行">未信任</UiBadge>
+              <StatusDot :tone="statusDotTone(server.status)" :pulse="server.status === 'connecting'" :label="server.status || 'unknown'" />
+              <Badge :variant="statusBadgeVariant(server.status)">{{ server.status || 'unknown' }}</Badge>
+              <Badge v-if="server.trusted === false" variant="warning" title="未受信任:annotations 不驱动并发,工具保守串行">未信任</Badge>
             </div>
           </div>
 
@@ -113,341 +113,102 @@
       </div>
     </EntityListLayout>
 
-    <section v-if="addServiceVisible" class="add-service-panel">
-      <div class="add-service-head">
-        <div class="modal-title-block">
-          <h3>添加 MCP 服务</h3>
-          <p>从 Registry 搜索安装，或手动填写连接参数。</p>
-        </div>
-        <Button class="add-service-close" variant="ghost" size="icon" aria-label="收起" @click="addServiceVisible = false">
-          <IconClose :size="16" />
-        </Button>
-      </div>
-      <!-- 注：.add-subnav 是「添加服务」面板内的次级方式切换（手动 vs Registry），
-           不是页面级 Tab；用局部 pill 切换更贴合折叠面板语境，故不复用 .adm-tabs。 -->
-      <div class="add-subnav">
-        <button type="button" class="add-subnav-btn" :class="{ 'add-subnav-btn--active': addMode === 'manual' }" @click="addMode = 'manual'">
-          <IconPlus :size="15" />
-          手动配置
-        </button>
-        <button type="button" class="add-subnav-btn" :class="{ 'add-subnav-btn--active': addMode === 'registry' }" @click="addMode = 'registry'">
-          <IconSearch :size="15" />
-          从 Registry 搜索
-        </button>
-      </div>
-      <div v-if="addMode === 'manual'" class="add-pane">
-        <div class="manual-install-form">
-        <div class="form-grid two-col">
-          <label class="field"><span>服务名称<em>*</em></span><Input v-model.trim="installForm.server_name" type="text" placeholder="唯一标识，如 my_server" /></label>
-          <label class="field"><span>显示名称</span><Input v-model.trim="installForm.display_name" type="text" placeholder="前端展示名称" /></label>
-        </div>
-        <div class="field"><span>传输方式</span><CustomSelect :model-value="installForm.transport" :options="transportOptions" @update:model-value="installForm.transport = $event" /></div>
-        <div v-if="installForm.transport === 'stdio'" class="form-grid">
-          <label class="field"><span>命令<em>*</em></span><Input v-model.trim="installForm.command" type="text" placeholder="npx / uvx / python / node" /><small>启动 MCP 服务的可执行命令</small></label>
-          <label class="field"><span>参数</span><Textarea v-model="installForm.argsJson" rows="4" class="font-mono-input" placeholder='["-y", "@scope/package"]'></Textarea><small>JSON 数组格式</small></label>
-          <label class="field"><span>环境变量</span><Textarea v-model="installForm.envJson" rows="4" class="font-mono-input" placeholder='{"API_KEY": "..."}'></Textarea><small>JSON 对象，合并到 MCP 进程环境</small></label>
-        </div>
-        <div v-else class="form-grid">
-          <label class="field"><span>URL<em>*</em></span><Input v-model.trim="installForm.url" type="url" placeholder="https://example.com/mcp" /><small>远程 MCP 服务端点</small></label>
-          <label class="field"><span>Headers</span><Textarea v-model="installForm.headersJson" rows="4" class="font-mono-input" placeholder='{"Authorization": "Bearer ..."}'></Textarea><small>JSON 对象，作为请求头发送</small></label>
-        </div>
-        <div class="form-divider"></div>
-        <div class="form-section-label">高级设置</div>
-        <div class="form-grid two-col">
-          <label class="field"><span>超时秒数</span><NumberInput :model-value="installForm.timeout" :min="1" :max="300" @update:model-value="installForm.timeout = $event" /></label>
-          <label class="field"><span>风险等级</span><CustomSelect :model-value="installForm.risk_level" :options="riskOptions" @update:model-value="installForm.risk_level = $event" /></label>
-        </div>
-        <p class="form-hint">工具级风险覆盖:连接后在「工具」列表里按工具单独调整。</p>
-        <div class="toggle-row">
-          <label class="toggle-field"><Switch v-model:checked="installForm.enabled" /><span>启用服务</span></label>
-          <label class="toggle-field"><Switch v-model:checked="installForm.auto_connect" /><span>自动连接</span></label>
-          <label class="toggle-field"><Switch v-model:checked="installForm.trusted" /><span>受信任</span></label>
-        </div>
-        <div class="form-actions">
-          <Button variant="ghost" size="sm" @click="resetInstallForm">重置</Button>
-          <Button variant="default" size="sm" :disabled="installing" @click="submitManualInstall">
-            <IconDownload v-if="!installing" :size="15" />
-            <div v-else class="g-spinner g-spinner--sm"></div>
-            <span>{{ installing ? '安装中...' : '安装服务' }}</span>
-          </Button>
-        </div>
-        </div>
-      </div>
+    <McpAddServicePanel
+      v-if="addServiceVisible"
+      v-model:add-mode="addMode"
+      :install-form="installForm"
+      :transport-options="transportOptions"
+      :risk-options="riskOptions"
+      :installing="installing"
+      :registry-search="registrySearch"
+      :loading-registry-results="loadingRegistryResults"
+      :registry-results="registryResults"
+      :installing-registry="installingRegistry"
+      :registry-next-cursor="registryNextCursor"
+      :loading-more-registry="loadingMoreRegistry"
+      :reset-install-form="resetInstallForm"
+      :submit-manual-install="submitManualInstall"
+      :search-registry-servers="searchRegistryServers"
+      :load-more-registry-servers="loadMoreRegistryServers"
+      :handle-registry-install="handleRegistryInstall"
+      :open-registry-install-dialog="openRegistryInstallDialog"
+      :quick-install-button-text="quickInstallButtonText"
+      :first-unsupported-reason="firstUnsupportedReason"
+      :open-external-link="openExternalLink"
+      @close="addServiceVisible = false"
+    />
 
-      <div v-else class="add-pane">
-        <div class="registry-search-bar">
-        <div class="search-input-wrap">
-          <IconSearch :size="16" />
-          <input v-model.trim="registrySearch.query" type="text" placeholder="搜索服务名称，如 github / filesystem / mysql ..." class="registry-search-input" @keyup.enter="searchRegistryServers" />
-        </div>
-        <label class="toggle-field toggle-field--inline"><Switch v-model:checked="registrySearch.latest_only" /><span>仅最新版本</span></label>
-        <Button variant="secondary" :disabled="loadingRegistryResults" @click="searchRegistryServers">{{ loadingRegistryResults ? '搜索中...' : '搜索' }}</Button>
-      </div>
+    <McpRegistryInstallDialog
+      :open="registryInstallDialogVisible"
+      :server="selectedRegistryServer"
+      :form="registryInstallForm"
+      :selected-option="selectedRegistryOption"
+      :fields="selectedRegistryFields"
+      :risk-options="riskOptions"
+      :installing="installingRegistry"
+      @close="closeRegistryInstallDialog"
+      @submit="submitRegistryInstall()"
+      @option-change="handleRegistryOptionChange"
+    />
 
-      <EntityListLayout
-        v-if="loadingRegistryResults || !registryResults.length"
-        title="Registry 结果"
-        :loading="loadingRegistryResults"
-        loading-text="正在搜索 Registry..."
-        empty-title="暂无搜索结果"
-        empty-hint="尝试输入关键词后点击搜索"
-      />
-      <div v-else class="registry-grid">
-        <article v-for="item in registryResults" :key="`${item.name}-${item.version}`" class="registry-card">
-          <div class="registry-card-head">
-            <div class="registry-card-title">
-              <h3>{{ item.display_name || item.name }}</h3>
-              <div class="registry-card-meta"><code>{{ item.name }}</code><span class="version-tag">v{{ item.version }}</span><span v-if="item.latest" class="badge badge-success">Latest</span></div>
-            </div>
-          </div>
-          <p class="registry-desc">{{ item.description || '暂无描述' }}</p>
-          <div v-if="item.install_options?.length" class="install-options-row">
-            <span v-for="option in item.install_options" :key="option.id" class="option-chip" :class="option.supported ? 'option-chip--ok' : 'option-chip--no'" :title="option.supported ? option.label : option.unsupported_reason">
-              <IconCheck v-if="option.supported" :size="11" :stroke-width="2.5" />
-              <IconClose v-else :size="11" :stroke-width="2.5" />
-              {{ option.label }}
-            </span>
-          </div>
-          <div v-if="firstUnsupportedReason(item)" class="inline-warning">
-            <IconWarning :size="13" />
-            {{ firstUnsupportedReason(item) }}
-          </div>
-          <div class="registry-card-actions">
-            <Button size="sm" variant="default" :disabled="!item.installable || installingRegistry" @click="handleRegistryInstall(item)">{{ quickInstallButtonText(item) }}</Button>
-            <Button size="sm" variant="secondary" :disabled="!item.install_options?.length" @click="openRegistryInstallDialog(item)">配置安装</Button>
-            <div class="registry-links">
-              <a v-if="item.website_url" class="ext-link" @click.prevent="openExternalLink(item.website_url)" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>官网</a>
-              <a v-if="item.repository_url" class="ext-link" @click.prevent="openExternalLink(item.repository_url)" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7 3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>源码</a>
-            </div>
-          </div>
-        </article>
-      </div>
-      <div v-if="registryNextCursor" class="load-more-row">
-        <Button variant="secondary" :disabled="loadingMoreRegistry" @click="loadMoreRegistryServers">{{ loadingMoreRegistry ? '加载中...' : '加载更多结果' }}</Button>
-      </div>
-      </div>
-    </section>
+    <McpServerEditDialog
+      :open="editDialogVisible"
+      :form="editForm"
+      :transport-options="transportOptions"
+      :risk-options="riskOptions"
+      :saving="savingEdit"
+      @close="closeEditDialog"
+      @submit="saveEdit"
+    />
 
-    <Dialog :open="registryInstallDialogVisible" @update:open="(v) => { if (!v) closeRegistryInstallDialog() }">
-      <DialogContent class="max-w-[860px]">
-        <DialogHeader>
-          <DialogTitle class="sr-only">配置安装</DialogTitle>
-          <div class="modal-title-block">
-          <h3>配置安装</h3>
-          <p>{{ selectedRegistryServer?.display_name || selectedRegistryServer?.name }}</p>
-        </div>
-        </DialogHeader>
-      <div class="adm-modal-form">
-        <div class="form-grid">
-          <label class="field">
-            <span>安装方式</span>
-            <CustomSelect :model-value="registryInstallForm.option_id" :options="[{ value: '', label: '请选择安装方式' }, ...(selectedRegistryServer?.install_options || []).map(o => ({ value: o.id, label: o.supported ? o.label : `${o.label}（暂不支持）`, disabled: !o.supported }))]" placeholder="请选择安装方式" @update:model-value="registryInstallForm.option_id = $event; handleRegistryOptionChange($event)" />
-            <small v-if="selectedRegistryOption?.command_preview">命令：{{ selectedRegistryOption.command_preview }}</small>
-            <small v-if="selectedRegistryOption?.url_preview">地址：{{ selectedRegistryOption.url_preview }}</small>
-            <small v-if="selectedRegistryOption?.unsupported_reason" class="text-warning">{{ selectedRegistryOption.unsupported_reason }}</small>
-          </label>
-        </div>
-        <div class="form-grid two-col">
-          <label class="field"><span>服务名称</span><Input v-model.trim="registryInstallForm.server_name" type="text" placeholder="本地唯一标识" /></label>
-          <label class="field"><span>显示名称</span><Input v-model.trim="registryInstallForm.display_name" type="text" placeholder="页面展示名称" /></label>
-        </div>
-        <div v-if="selectedRegistryFields.length" class="form-grid two-col">
-          <label v-for="field in selectedRegistryFields" :key="field.key" class="field">
-            <span>{{ field.label }}<em v-if="field.required">*</em></span>
-            <CustomSelect v-if="field.format === 'select'" :model-value="registryInstallForm.input_values[field.key]" :options="field.options || []" :placeholder="field.placeholder || ''" @update:model-value="registryInstallForm.input_values[field.key] = $event" />
-            <Textarea v-else-if="field.format === 'textarea'" v-model="registryInstallForm.input_values[field.key]" rows="4" class="font-mono-input" :placeholder="field.placeholder || ''" />
-            <Input v-else-if="field.format !== 'boolean'" v-model="registryInstallForm.input_values[field.key]" :type="field.secret ? 'password' : field.format === 'number' ? 'number' : 'text'" :placeholder="field.placeholder || ''" />
-            <label v-else class="toggle-field toggle-field--inner"><Switch v-model:checked="registryInstallForm.input_values[field.key]" /><span>启用</span></label>
-            <small v-if="field.description">{{ field.description }}</small>
-            <small v-if="field.repeated">多值请用英文逗号分隔</small>
-          </label>
-        </div>
-        <div class="form-divider"></div>
-        <div class="form-grid two-col">
-          <label class="field"><span>超时秒数</span><NumberInput :model-value="registryInstallForm.timeout" :min="1" :max="300" @update:model-value="registryInstallForm.timeout = $event" /></label>
-          <label class="field"><span>风险等级</span><CustomSelect :model-value="registryInstallForm.risk_level" :options="riskOptions" @update:model-value="registryInstallForm.risk_level = $event" /></label>
-        </div>
-        <div class="toggle-row">
-          <label class="toggle-field"><Switch v-model:checked="registryInstallForm.enabled" /><span>启用服务</span></label>
-          <label class="toggle-field"><Switch v-model:checked="registryInstallForm.auto_connect" /><span>自动连接</span></label>
-        </div>
-      </div>
-      <DialogFooter>
-        <Button size="sm" @click="closeRegistryInstallDialog">取消</Button>
-        <Button size="sm" variant="default" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">{{ installingRegistry ? '安装中...' : '安装服务' }}</Button>
-      </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <McpToolsDialog
+      :open="toolsDialogVisible"
+      :server-name="activeToolsServerName"
+      :tools="serverTools"
+      :risk-options="riskOptions"
+      :get-tool-metrics="getToolMetrics"
+      :tool-parameters="toolParameters"
+      @close="closeToolsDialog"
+      @update-risk="updateToolRisk"
+    />
 
-    <Dialog v-if="editForm" :open="editDialogVisible" @update:open="(v) => { if (!v) closeEditDialog() }">
-      <DialogContent class="max-w-[860px]">
-        <DialogHeader>
-          <DialogTitle class="sr-only">编辑 MCP 服务</DialogTitle>
-          <div class="modal-title-block">
-          <h3>编辑 MCP 服务</h3>
-          <p class="font-mono">{{ editForm.name }}</p>
-        </div>
-        </DialogHeader>
-      <div class="adm-modal-form">
-        <div class="form-grid two-col">
-          <label class="field"><span>显示名称</span><Input v-model="editForm.display_name" type="text" /></label>
-          <div class="field"><span>传输方式</span><CustomSelect :model-value="editForm.transport" :options="transportOptions" @update:model-value="editForm.transport = $event" /></div>
-        </div>
-        <div v-if="editForm.transport === 'stdio'" class="form-grid">
-          <label class="field"><span>命令</span><Input v-model="editForm.command" type="text" placeholder="如 npx / node / python" /></label>
-          <label class="field"><span>参数列表 (JSON Array)</span><Textarea v-model="editForm.argsJson" rows="4" class="font-mono-input"></Textarea></label>
-          <label class="field"><span>环境变量 (JSON Object)</span><Textarea v-model="editForm.envJson" rows="4" class="font-mono-input"></Textarea></label>
-        </div>
-        <div v-else class="form-grid">
-          <label class="field"><span>URL</span><Input v-model="editForm.url" type="url" placeholder="http://localhost:8080/mcp" /></label>
-          <label class="field"><span>Headers (JSON Object)</span><Textarea v-model="editForm.headersJson" rows="4" class="font-mono-input"></Textarea></label>
-        </div>
-        <div class="form-divider"></div>
-        <div class="form-grid two-col">
-          <div class="field"><span>超时秒数</span><NumberInput :model-value="editForm.timeout" :min="1" :max="300" @update:model-value="editForm.timeout = $event" /></div>
-          <div class="field"><span>风险等级</span><CustomSelect :model-value="editForm.risk_level" :options="riskOptions" @update:model-value="editForm.risk_level = $event" /></div>
-        </div>
-        <p class="form-hint">工具级风险覆盖:连接后在「工具」列表里按工具单独调整。</p>
-        <div class="toggle-row">
-          <label class="toggle-field"><Switch v-model:checked="editForm.enabled" /><span>启用服务</span></label>
-          <label class="toggle-field"><Switch v-model:checked="editForm.auto_connect" /><span>自动连接</span></label>
-          <label class="toggle-field"><Switch v-model:checked="editForm.trusted" /><span>受信任</span></label>
-        </div>
-      </div>
-      <DialogFooter>
-        <Button size="sm" @click="closeEditDialog">取消</Button>
-        <Button size="sm" variant="default" :disabled="savingEdit" @click="saveEdit">{{ savingEdit ? '保存中...' : '保存更改' }}</Button>
-      </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <McpResourcesDialog
+      :open="resourcesDialogVisible"
+      :server="activeResourcesServer"
+      :resources="serverResources"
+      @close="closeResourcesDialog"
+      @toggle-resource="toggleResource"
+    />
 
-    <Dialog :open="toolsDialogVisible" @update:open="(v) => { if (!v) closeToolsDialog() }">
-      <DialogContent class="max-w-[560px]">
-        <DialogHeader>
-          <div class="modal-title-block">
-          <DialogTitle>工具列表</DialogTitle>
-          <p>{{ activeToolsServerName }}</p>
-        </div>
-        </DialogHeader>
-      <EntityListLayout
-        v-if="!serverTools.length"
-        title="工具列表"
-        empty-title="暂无工具"
-        empty-hint="服务未声明任何工具，或连接未成功"
-      />
-      <ul v-else class="tool-list">
-        <li v-for="(tool, idx) in serverTools" :key="tool.function?.name || idx" class="tool-item">
-          <div class="tool-item-head">
-            <code class="tool-name">{{ tool.function?.original_tool_name || tool.function?.name || '-' }}</code>
-            <div class="tool-risk-select">
-              <span class="tool-risk-label">风险</span>
-              <CustomSelect :model-value="tool.function?.risk_level || 'medium'" :options="riskOptions" @update:model-value="updateToolRisk(tool, $event)" />
-            </div>
-          </div>
-          <p class="tool-desc">{{ tool.function?.description || '暂无描述' }}</p>
-          <div v-if="tool.function?.annotations" class="tool-annotations">
-            <span v-if="tool.function.annotations.readOnlyHint" class="anno-chip">只读</span>
-            <span v-if="tool.function.annotations.destructiveHint" class="anno-chip anno-chip--warn">破坏性</span>
-            <span v-if="tool.function.annotations.idempotentHint" class="anno-chip">幂等</span>
-          </div>
-          <div v-if="getToolMetrics(tool)" class="tool-metrics">
-            调用 {{ getToolMetrics(tool).calls }} 次<span v-if="getToolMetrics(tool).failures"> · 失败 {{ getToolMetrics(tool).failures }}</span> · 平均 {{ Math.round(getToolMetrics(tool).total_duration_ms / getToolMetrics(tool).calls) }}ms
-          </div>
-          <div v-if="toolParameters(tool).length" class="tool-params">
-            <div class="tool-params-label">参数</div>
-            <div v-for="param in toolParameters(tool)" :key="param.name" class="param-row">
-              <code class="param-name">{{ param.name }}</code>
-              <span class="param-type">{{ param.type }}</span>
-              <span v-if="param.required" class="param-required">必填</span>
-              <span v-if="param.description" class="param-desc">{{ param.description }}</span>
-            </div>
-          </div>
-        </li>
-      </ul>
-      </DialogContent>
-    </Dialog>
-
-    <Dialog :open="resourcesDialogVisible" @update:open="(v) => { if (!v) closeResourcesDialog() }">
-      <DialogContent class="max-w-[640px]">
-        <DialogHeader>
-          <div class="modal-title-block">
-          <DialogTitle>资源列表</DialogTitle>
-          <p>{{ activeResourcesServer?.display_name || activeResourcesServer?.name }}</p>
-        </div>
-        </DialogHeader>
-      <EntityListLayout
-        v-if="!serverResources.length"
-        title="资源列表"
-        empty-title="暂无资源"
-        empty-hint="服务未声明 resources 能力面，或连接未成功"
-      />
-      <ul v-else class="tool-list">
-        <li v-for="(resource, idx) in serverResources" :key="resource.uri || idx" class="tool-item">
-          <div class="tool-item-head"><code class="tool-name">{{ resource.name }}</code><code class="tool-desc">{{ resource.uri }}</code></div>
-          <p v-if="resource.description" class="tool-desc">{{ resource.description }}</p>
-          <button class="adm-btn adm-btn--sm" @click="toggleResource(resource)">{{ resource.expanded ? '收起' : (resource.loading ? '读取中...' : '读取内容') }}</button>
-          <pre v-if="resource.expanded && resource.content" class="detail-code">{{ JSON.stringify(resource.content, null, 2) }}</pre>
-        </li>
-      </ul>
-      </DialogContent>
-    </Dialog>
-
-    <Dialog :open="promptsDialogVisible" @update:open="(v) => { if (!v) closePromptsDialog() }">
-      <DialogContent class="max-w-[560px]">
-        <DialogHeader>
-          <div class="modal-title-block">
-          <DialogTitle>提示词列表</DialogTitle>
-          <p>{{ activePromptsServer?.display_name || activePromptsServer?.name }}</p>
-        </div>
-        </DialogHeader>
-      <EntityListLayout
-        v-if="!serverPrompts.length"
-        title="提示词列表"
-        empty-title="暂无提示词"
-        empty-hint="服务未声明 prompts 能力面，或连接未成功"
-      />
-      <ul v-else class="tool-list">
-        <li v-for="(prompt, idx) in serverPrompts" :key="prompt.name || idx" class="tool-item">
-          <div class="tool-item-head"><code class="tool-name">{{ prompt.name }}</code></div>
-          <p class="tool-desc">{{ prompt.description || '暂无描述' }}</p>
-          <div v-if="prompt.arguments?.length" class="tool-params">
-            <div class="tool-params-label">参数</div>
-            <div v-for="arg in prompt.arguments" :key="arg.name" class="param-row">
-              <code class="param-name">{{ arg.name }}</code>
-              <span v-if="arg.required" class="param-required">必填</span>
-              <span v-if="arg.description" class="param-desc">{{ arg.description }}</span>
-            </div>
-          </div>
-        </li>
-      </ul>
-      </DialogContent>
-    </Dialog>
+    <McpPromptsDialog
+      :open="promptsDialogVisible"
+      :server="activePromptsServer"
+      :prompts="serverPrompts"
+      @close="closePromptsDialog"
+    />
   </PageLayout>
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, h } from 'vue';
-import CustomSelect from '../components/ui/CustomSelect.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
-import NumberInput from '../components/NumberInput.vue';
-import { Switch } from '../components/ui/switch';
+import StatusDot from '../components/admin/StatusDot.vue';
+import McpAddServicePanel from '../components/mcp/McpAddServicePanel.vue';
+import McpPromptsDialog from '../components/mcp/McpPromptsDialog.vue';
+import McpRegistryInstallDialog from '../components/mcp/McpRegistryInstallDialog.vue';
+import McpResourcesDialog from '../components/mcp/McpResourcesDialog.vue';
+import McpServerEditDialog from '../components/mcp/McpServerEditDialog.vue';
+import McpToolsDialog from '../components/mcp/McpToolsDialog.vue';
+import '../components/mcp/mcp-dialogs.css';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
-import IconCheck from '../components/icons/IconCheck.vue';
-import IconClose from '../components/icons/IconClose.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
-import IconDownload from '../components/icons/IconDownload.vue';
 import IconEdit from '../components/icons/IconEdit.vue';
-import IconSearch from '../components/icons/IconSearch.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
-import IconWarning from '../components/icons/IconWarning.vue';
 import IconInfo from '../components/icons/IconInfo.vue';
-import { UiBadge } from '../components/ui';
+import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Textarea } from '../components/ui/textarea';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
@@ -522,11 +283,17 @@ const selectedRegistryOption = computed(() => selectedRegistryServer.value?.inst
 const selectedRegistryFields = computed(() => selectedRegistryOption.value?.form_fields || []);
 
 function openExternalLink(url) { window.open(url, '_blank', 'noopener,noreferrer'); }
-function statusBadgeTone(status) {
+function statusBadgeVariant(status) {
+  if (status === 'connected') return 'success';
+  if (status === 'connecting') return 'warning';
+  if (status === 'error') return 'destructive';
+  return 'secondary';
+}
+function statusDotTone(status) {
   if (status === 'connected') return 'success';
   if (status === 'connecting') return 'warning';
   if (status === 'error') return 'error';
-  return 'neutral';
+  return 'muted';
 }
 function formatArgs(args) { return Array.isArray(args) && args.length ? args.join(' ') : ''; }
 function resetInstallForm() {
@@ -842,16 +609,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.add-service-panel { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-lg); border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-secondary); box-shadow: none; scroll-margin-top: var(--spacing-md); }
-.add-service-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-md); }
-.add-service-close { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: all var(--transition-fast); }
-.add-service-close:hover { border-color: var(--color-border-hover); background: var(--color-hover-overlay-md); color: var(--color-text-primary); }
-.add-subnav { display: flex; gap: var(--spacing-xs); padding: var(--spacing-xs); border-radius: var(--radius-md); background: transparent; border: 1px solid var(--color-border); width: fit-content; }
-.add-subnav-btn { display: inline-flex; align-items: center; gap: var(--spacing-sm); padding: 8px 14px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font: inherit; font-size: var(--font-size-sm); font-weight: 500; cursor: pointer; white-space: nowrap; transition: all var(--transition-fast); }
-.add-subnav-btn:hover { color: var(--color-text-primary); }
-.add-subnav-btn--active { background: var(--color-hover-overlay-md); color: var(--color-text-primary); font-weight: 600; box-shadow: none; }
-.add-pane { display: flex; flex-direction: column; gap: var(--spacing-md); }
-
+/* 页面专属：服务列表卡片。添加服务面板与各弹窗样式见 components/mcp/mcp-dialogs.css */
 .server-grid { display: flex; flex-direction: column; gap: 0; }
 .server-card { display: flex; flex-direction: column; gap: var(--spacing-xs); padding: var(--spacing-sm) var(--spacing-md); }
 .server-card__main { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); }
@@ -864,13 +622,6 @@ onMounted(() => {
 .server-card-id { color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); flex-shrink: 0; }
 .server-card-conn { color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .server-card-badges { display: flex; align-items: center; gap: var(--spacing-xs); flex-shrink: 0; }
-
-.status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.status-dot--connected { background: var(--color-success); box-shadow: none; }
-.status-dot--connecting { background: var(--color-warning); animation: pulse-dot 1s ease-in-out infinite; }
-.status-dot--error { background: var(--color-error); }
-.status-dot--unknown { background: var(--color-text-muted); }
-@keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 .server-meta-row { display: flex; flex-wrap: wrap; gap: var(--spacing-xs); min-width: 0; }
 .meta-chip { display: inline-flex; align-items: center; gap: var(--spacing-xs); padding: 4px 10px; border-radius: var(--radius-sm); background: var(--color-hover-overlay-md); color: var(--color-text-secondary); font-size: var(--font-size-xs); font-weight: 600; line-height: 1.2; }
@@ -886,90 +637,10 @@ onMounted(() => {
 .server-connection-info { background: var(--color-bg-secondary); border-radius: var(--radius-sm); padding: 7px 10px; min-width: 0; }
 .connection-code { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-secondary); word-break: break-all; display: block; }
 
-.error-banner { display: flex; align-items: flex-start; gap: var(--spacing-xs); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-md); background: rgba(var(--color-error-rgb), 0.08); border: 1px solid rgba(var(--color-error-rgb), 0.2); color: var(--color-error); font-size: var(--font-size-xs); }
+.error-banner { display: flex; align-items: flex-start; gap: var(--spacing-xs); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-md); background: var(--color-error-bg); color: var(--color-error); font-size: var(--font-size-xs); }
 .server-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; padding-top: var(--spacing-sm); border-top: 1px solid var(--color-border); }
 
-.manual-install-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
-.form-divider { height: 1px; background: var(--color-border); margin: var(--spacing-xs) 0; }
-.form-section-label { font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
-.adm-modal-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
-
-.form-grid { display: grid; gap: var(--spacing-md); }
-.form-grid.two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.field { display: flex; flex-direction: column; gap: var(--spacing-xs); }
-.field > span, .field > label { font-size: var(--font-size-xs); color: var(--color-text-secondary); letter-spacing: 0.02em; }
-.field em { color: var(--color-error); font-style: normal; margin-left: 3px; }
-.field small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.font-mono-input { font-family: var(--font-mono); font-size: var(--font-size-xs); }
-.font-mono { font-family: var(--font-mono); }
-
-.toggle-field { display: inline-flex; align-items: center; gap: var(--spacing-sm); cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-secondary); user-select: none; }
-.toggle-field--inline { align-self: flex-end; padding-bottom: 9px; }
-.toggle-field--inner { padding-top: 6px; }
-.toggle-row { display: flex; flex-wrap: wrap; gap: var(--spacing-lg); padding: 2px 0; }
-.form-actions { display: flex; justify-content: flex-end; gap: var(--spacing-sm); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border); margin-top: auto; }
-
-.registry-search-bar { display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--color-border); background: transparent; }
-.search-input-wrap { flex: 1; display: flex; align-items: center; gap: var(--spacing-sm); color: var(--color-text-muted); }
-.registry-search-input { flex: 1; background: transparent; border: none; outline: none; color: var(--color-text-primary); font: inherit; font-size: var(--font-size-sm); }
-.registry-search-input::placeholder { color: var(--color-text-muted); }
-
-.registry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--spacing-md); }
-.registry-card { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-secondary); transition: border-color var(--transition-fast), background var(--transition-fast); }
-.registry-card:hover { border-color: var(--color-border-hover); background: var(--color-hover-overlay-md); }
-.registry-card-head { display: flex; align-items: flex-start; gap: var(--spacing-md); }
-.registry-card-title { flex: 1; min-width: 0; }
-.registry-card-title h3 { font-size: var(--font-size-base); font-weight: 600; margin: 0 0 4px; }
-.registry-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-xs); font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.registry-card-meta code { font-family: var(--font-mono); }
-.version-tag { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--color-bg-secondary); border: 1px solid var(--color-border); font-family: var(--font-mono); color: var(--color-text-secondary); }
-.registry-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.install-options-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.option-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: var(--radius-full); font-size: 11px; border: 1px solid transparent; }
-.option-chip--ok { background: rgba(var(--color-success-rgb), 0.1); border-color: rgba(var(--color-success-rgb), 0.25); color: var(--color-success); }
-.option-chip--no { background: rgba(var(--color-error-rgb), 0.07); border-color: rgba(var(--color-error-rgb), 0.15); color: var(--color-text-muted); }
-.inline-warning { display: flex; align-items: flex-start; gap: var(--spacing-xs); color: var(--color-warning); font-size: var(--font-size-xs); }
-.registry-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-xs); padding-top: var(--spacing-xs); border-top: 1px solid var(--color-border); margin-top: auto; }
-.registry-links { display: flex; gap: var(--spacing-xs); margin-left: auto; }
-.ext-link { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: var(--radius-md); font-size: var(--font-size-xs); color: var(--color-text-muted); text-decoration: none; border: 1px solid transparent; transition: all 0.2s; cursor: pointer; }
-.ext-link:hover { color: var(--color-text-primary); border-color: var(--color-border); background: var(--color-hover-overlay); }
-.load-more-row { display: flex; justify-content: center; }
-
-.badge { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-full); padding: 3px 9px; font-size: 11px; font-weight: 500; border: 1px solid transparent; }
-.badge-success { background: rgba(var(--color-success-rgb), 0.12); color: var(--color-success); border-color: rgba(var(--color-success-rgb), 0.25); }
-.text-warning { color: var(--color-warning); }
-
-.modal-title-block :is(h2, h3) { font-size: var(--font-size-lg); margin: 0 0 2px; }
-.modal-title-block p { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
-
-.tool-list { display: flex; flex-direction: column; gap: var(--spacing-sm); list-style: none; margin: 0; padding: 0; }
-.tool-item { padding: var(--spacing-md); border-radius: var(--radius-lg); background: var(--color-bg-secondary); border: 1px solid var(--color-border); }
-.tool-item:hover { border-color: var(--color-border); }
-.tool-item-head { margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm); flex-wrap: wrap; }
-.tool-name { font-family: var(--font-mono); font-size: var(--font-size-sm); color: var(--color-brand-accent-light); background: rgba(var(--color-brand-accent-rgb), 0.1); padding: 2px 8px; border-radius: var(--radius-sm); }
-.tool-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
-.tool-risk-select { display: flex; align-items: center; gap: 6px; width: 150px; flex-shrink: 0; }
-.tool-risk-label { font-size: var(--font-size-sm); color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
-.tool-risk-select :deep(.custom-select) { flex: 1; min-width: 0; }
-.tool-risk-select :deep(.select-trigger:hover:not(.disabled)) { border-color: var(--color-border); }
-.tool-annotations { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.tool-metrics { margin-top: 4px; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
-.anno-chip { font-size: var(--font-size-sm); padding: 1px 6px; border-radius: var(--radius-sm); background: var(--color-bg-secondary); color: var(--color-text-secondary); border: 1px solid var(--color-border); }
-.anno-chip--warn { color: var(--color-warning); border-color: var(--color-warning); }
-.tool-params { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--color-border); }
-.tool-params-label { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-bottom: 4px; }
-.param-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-sm); margin-bottom: 2px; }
-.param-name { font-family: var(--font-mono); color: var(--color-text-primary, var(--color-text-secondary)); }
-.param-type { color: var(--color-text-secondary); font-style: italic; }
-.param-required { color: var(--color-error); font-size: 11px; padding: 0 4px; border: 1px solid var(--color-error); border-radius: var(--radius-sm); }
-.param-desc { color: var(--color-text-secondary); }
-.form-hint { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin: 4px 0 0; }
-
 @media (max-width: 720px) {
-  .registry-grid { grid-template-columns: 1fr; }
-  .form-grid.two-col { grid-template-columns: 1fr; }
-  .registry-search-bar { flex-wrap: wrap; }
   .section-toolbar { flex-direction: column; align-items: stretch; }
-  .form-actions { flex-wrap: wrap; justify-content: flex-start; }
 }
 </style>

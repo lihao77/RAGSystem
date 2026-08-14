@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/no-mutating-props -- 表单模型由父级 useAgentForm 持有，面板直接改写共享 form/tier 对象（有意的表单模型架构） -->
 <template>
   <div class="tier-card" :class="{ 'tier-card--on': !collapsible || enabled }">
     <div class="tier-card__head">
@@ -68,6 +69,7 @@
 </template>
 
 <script setup>
+/* eslint-disable vue/no-mutating-props -- 同上：tier 为 useAgentForm 表单模型的层级子对象，脚本内改写属有意架构 */
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';

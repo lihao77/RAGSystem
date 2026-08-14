@@ -212,7 +212,7 @@ import KpiCards from '../admin/KpiCards.vue';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '../ui/field';
 import CustomSelect from '../ui/CustomSelect.vue';
-import { UiBadge } from '../ui';
+import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';

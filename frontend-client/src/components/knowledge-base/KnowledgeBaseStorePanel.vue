@@ -104,7 +104,7 @@
                                             variant="action-neutral" size="action"
                                             :title="`已索引到 ${row.vectorizer_status[v.vectorizer_key].collections.length} 个集合，点击测试检索`"
                                             @click="openSearchTest(row.vectorizer_status[v.vectorizer_key].collections[0])">
-                                            <UiBadge class="status-badge" size="sm" tone="success">已索引<span v-if="row.vectorizer_status[v.vectorizer_key].collections.length > 1"> · {{ row.vectorizer_status[v.vectorizer_key].collections.length }}</span></UiBadge>
+                                            <Badge class="status-badge" variant="success">已索引<span v-if="row.vectorizer_status[v.vectorizer_key].collections.length > 1"> · {{ row.vectorizer_status[v.vectorizer_key].collections.length }}</span></Badge>
                                         </Button>
                                         <Button v-else variant="action-neutral" size="action"
                                             :disabled="indexingFileKey === row.file_id + ':' + v.vectorizer_key"
@@ -153,7 +153,7 @@ import EmptyState from '../EmptyState.vue';
 import KpiCards from '../admin/KpiCards.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import CustomSelect from '../ui/CustomSelect.vue';
-import { UiBadge } from '../ui';
+import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Textarea } from '../ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';

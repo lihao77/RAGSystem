@@ -55,3 +55,13 @@ function warning(message) {
 export function useToast() {
   return { state, show, hide, success, error, warning };
 }
+
+/**
+ * 带类型参数的便捷弹窗：showToast('已保存', 'success')。
+ * 收敛了各视图过去重复的 `showToastMessage(toast, message, type)` 本地包装。
+ */
+export function showToast(message, type = 'error') {
+  if (type === 'success') success(message);
+  else if (type === 'warning') warning(message);
+  else error(message);
+}

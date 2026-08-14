@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/no-mutating-props -- 表单模型由父级 useAgentForm 持有，面板直接改写共享 form/tier 对象（有意的表单模型架构） -->
 <template>
   <div class="agent-form">
     <!-- 基础信息 -->
@@ -67,7 +68,7 @@
       <CheckGrid
         :items="tools.map((t) => ({ key: t.name, label: t.display_name || t.name, title: t.description || t.name }))"
         :selected="form.tools.enabled_tools"
-        @toggle="(name) => toggleInList(form.tools.enabled_tools, name)"
+        @toggle="(name) => toggleListItem(form.tools.enabled_tools, name)"
       />
     </PanelFormShell>
 
@@ -95,7 +96,7 @@
         :items="peerAgents.map((a) => ({ key: a, label: displayMap[a] || a, title: a }))"
         :selected="form.delegation.enabled_agents"
         empty-text="当前 Team 没有可委派的其他 Agent。"
-        @toggle="(name) => toggleInList(form.delegation.enabled_agents, name)"
+        @toggle="(name) => toggleListItem(form.delegation.enabled_agents, name)"
       />
     </PanelFormShell>
   </div>
@@ -110,32 +111,28 @@ import PanelFormShell from './PanelFormShell.vue';
 import SwitchRow from './SwitchRow.vue';
 import CheckGrid from './CheckGrid.vue';
 import { createEmptyLLM } from './agentFormModel.js';
+import { useTierModels } from '../../composables/agent-studio/useTierModels.js';
+import { toggleListItem } from '../../utils/listToggle.js';
 
-defineProps({
+const props = defineProps({
   form: { type: Object, required: true },
   agentName: { type: String, default: '' },
   tools: { type: Array, default: () => [] },
   peerAgents: { type: Array, default: () => [] },
   displayMap: { type: Object, default: () => ({}) },
   providerOptions: { type: Array, default: () => [] },
-  getTierProviderKey: { type: Function, required: true },
-  getTierModelOptions: { type: Function, required: true },
-  handleTierProviderChange: { type: Function, required: true },
+  providers: { type: Array, default: () => [] },
 });
 
-function toggleInList(list, name) {
-  const i = list.indexOf(name);
-  if (i >= 0) list.splice(i, 1);
-  else list.push(name);
-}
+// form/providers 用 getter 传入：applyConfig 会整体替换 form 对象，需每次取最新引用
+const { getTierProviderKey, getTierModelOptions, handleTierProviderChange } = useTierModels({
+  form: () => props.form,
+  providers: () => props.providers,
+});
 </script>
 
 <style scoped>
 .agent-form { display: flex; flex-direction: column; gap: var(--spacing-xl); }
-.agent-form .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
 .system-prompt-input { min-height: 180px; resize: vertical; font-family: var(--font-mono); font-size: var(--font-size-sm); line-height: 1.6; }
 .description-input { min-height: 64px; resize: vertical; }
-@media (max-width: 900px) {
-  .agent-form .form-grid { grid-template-columns: 1fr; }
-}
 </style>

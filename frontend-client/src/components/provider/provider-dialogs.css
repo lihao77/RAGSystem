@@ -1,0 +1,25 @@
+/* Provider 弹窗（编辑/删除）共享样式 —— 由 ModelProviderManager.vue 引入一次。 */
+
+.dialog-form { display: flex; flex-direction: column; gap: 18px; }
+.dialog-form-section { display: flex; flex-direction: column; gap: 14px; padding: 0 0 18px; border-bottom: 1px solid var(--color-border); }
+.dialog-form-section:last-of-type { padding-bottom: 0; border-bottom: 0; }
+.dialog-form-section__head { display: flex; flex-direction: column; gap: 4px; }
+.dialog-form-section__head h3 { margin: 0; font-size: 15px; color: var(--color-text-primary); }
+.dialog-form-section__head p { margin: 0; font-size: var(--font-size-xs); line-height: 1.6; color: var(--color-text-secondary); }
+.provider-dialog-footer { position: sticky; bottom: -24px; margin: 0 -24px -24px; padding: 14px 24px 24px; border-top: 1px solid var(--color-border); background: var(--color-bg-elevated); }
+.required { color: var(--color-error); }
+.capability-fields { gap: 10px; }
+.form-section-title { font-size: 0.83rem; font-weight: 700; color: var(--color-text-primary); border-bottom: 1px solid var(--color-border); padding-bottom: 6px; }
+.model-map-editor { display: flex; flex-direction: column; gap: 10px; }
+.model-map-row { display: grid; grid-template-columns: minmax(130px, 0.6fr) auto minmax(180px, 1fr) auto; align-items: center; gap: var(--spacing-sm); }
+.map-arrow { color: var(--color-text-muted); flex-shrink: 0; }
+.delete-confirm-msg { margin: 0; color: var(--color-text-secondary); line-height: 1.7; }
+.delete-usage-loading { margin: 0; color: var(--color-text-secondary); font-size: 13px; }
+.delete-usage-list { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-warning-bg); font-size: 13px; }
+.delete-usage-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 8px; align-items: center; }
+.delete-usage-item small { grid-column: 2; color: var(--color-text-secondary); }
+.spin { animation: g-spin 0.8s linear infinite; }
+
+@media (max-width: 640px) {
+  .model-map-row { grid-template-columns: minmax(100px, 0.7fr) auto minmax(120px, 1fr) auto; gap: 6px; }
+}

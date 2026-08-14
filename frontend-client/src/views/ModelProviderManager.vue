@@ -104,7 +104,7 @@
                 <Badge :variant="provider.api_key_configured ? 'secondary' : 'destructive'">
                   {{ provider.api_key_configured ? 'Key 已配置' : '缺少 Key' }}
                 </Badge>
-                <span class="provider-endpoint mono" :title="provider.api_endpoint || ''">{{ provider.api_endpoint || '使用默认 Endpoint' }}</span>
+                <span class="provider-endpoint font-mono" :title="provider.api_endpoint || ''">{{ provider.api_endpoint || '使用默认 Endpoint' }}</span>
               </div>
               <div class="provider-models" :aria-label="`${provider.name || provider.key} 的模型映射`">
                 <Badge v-for="entry in visibleModelEntries(provider)" :key="`${entry.task}:${entry.model}`" variant="outline">
@@ -168,158 +168,36 @@
       </TransitionGroup>
     </EntityListLayout>
 
-    <Dialog :open="dialog.visible" @update:open="(v) => { if (!v) closeDialog() }">
-      <DialogContent class="max-w-[720px]">
-        <DialogHeader>
-          <DialogTitle>{{ dialog.mode === 'create' ? '添加 Provider' : '编辑 Provider' }}</DialogTitle>
-          <DialogDescription v-if="dialog.mode === 'create'">配置接入信息、运行参数和任务模型映射。</DialogDescription>
-        </DialogHeader>
-        <div class="dialog-form">
-        <section class="dialog-form-section">
-          <div class="dialog-form-section__head"><h3>基础配置</h3><p>填写 Provider 标识、鉴权信息与基础接入地址。</p></div>
-          <FieldGroup class="dialog-form-grid form-grid">
-            <Field v-if="dialog.mode === 'create'" :data-invalid="!!formErrors.name">
-              <FieldLabel for="provider-name">名称 <span class="required">*</span></FieldLabel>
-              <Input id="provider-name" v-model="form.name" :aria-invalid="!!formErrors.name" placeholder="例如：生产环境 OpenAI" />
-              <FieldDescription>保存后生成 Key：<span class="mono">{{ providerKeyPreview || '填写名称并选择类型后显示' }}</span></FieldDescription>
-              <FieldError v-if="formErrors.name">{{ formErrors.name }}</FieldError>
-            </Field>
-            <Field :data-invalid="!!formErrors.provider_type">
-              <FieldLabel>Provider 类型 <span class="required">*</span></FieldLabel>
-              <CustomSelect :model-value="form.provider_type" :options="providerTypeOptions" placeholder="-- 请选择 --" @update:model-value="handleProviderTypeChange" />
-              <FieldError v-if="formErrors.provider_type">{{ formErrors.provider_type }}</FieldError>
-            </Field>
-            <Field class="dialog-form-grid__full form-grid__full" :data-invalid="!!formErrors.api_key">
-              <FieldLabel for="provider-api-key">API Key <span v-if="dialog.mode === 'create'" class="required">*</span></FieldLabel>
-              <Input id="provider-api-key" v-model="form.api_key" type="password" :aria-invalid="!!formErrors.api_key" :placeholder="dialog.mode === 'create' ? 'sk-... 或 ${ENV_VAR}' : '留空则保持当前 API Key'" autocomplete="new-password" />
-              <FieldDescription>{{ dialog.mode === 'create' ? '支持 ${ENV_VAR} 形式引用环境变量；列表接口不会回传明文。' : '仅在需要替换密钥时填写；留空表示保持当前值。' }}</FieldDescription>
-              <FieldError v-if="formErrors.api_key">{{ formErrors.api_key }}</FieldError>
-            </Field>
-            <Field class="dialog-form-grid__full form-grid__full" :data-invalid="!!formErrors.api_endpoint">
-              <FieldLabel for="provider-api-endpoint">API Endpoint</FieldLabel>
-              <Input id="provider-api-endpoint" v-model="form.api_endpoint" :aria-invalid="!!formErrors.api_endpoint" :placeholder="apiEndpointPlaceholder" />
-              <FieldDescription>留空时使用该 Provider 类型的默认 Endpoint。</FieldDescription>
-              <FieldError v-if="formErrors.api_endpoint">{{ formErrors.api_endpoint }}</FieldError>
-            </Field>
-          </FieldGroup>
-        </section>
+    <ProviderFormDialog
+      :dialog="dialog"
+      :form="form"
+      :form-errors="formErrors"
+      :provider-type-options="providerTypeOptions"
+      :api-endpoint-placeholder="apiEndpointPlaceholder"
+      :provider-key-preview="providerKeyPreview"
+      :resilience-provider-config-fields="resilienceProviderConfigFields"
+      :extension-provider-config-fields="extensionProviderConfigFields"
+      :model-map-entries="modelMapEntries"
+      :model-task-options="modelTaskOptions"
+      :saving="saving"
+      @close="closeDialog"
+      @submit="handleSubmit"
+      @provider-type-change="handleProviderTypeChange"
+      @add-model-map-entry="addModelMapEntry"
+      @remove-model-map-entry="removeModelMapEntry"
+    />
 
-        <section v-if="form.provider_type !== 'rerank_api'" class="dialog-form-section">
-          <div class="dialog-form-section__head"><h3>运行参数</h3><p>配置温度与 token 上限等模型运行参数。</p></div>
-          <FieldGroup class="dialog-form-grid form-grid">
-            <Field><FieldLabel for="provider-temperature">温度</FieldLabel><Input id="provider-temperature" v-model.number="form.temperature" type="number" step="0.1" min="0" max="2" placeholder="0.7" /></Field>
-            <Field><FieldLabel for="provider-completion-tokens">Max Completion Tokens</FieldLabel><Input id="provider-completion-tokens" v-model.number="form.max_completion_tokens" type="number" step="256" min="256" placeholder="4096" /></Field>
-            <Field><FieldLabel for="provider-context-tokens">Max Context Tokens</FieldLabel><Input id="provider-context-tokens" v-model.number="form.max_context_tokens" type="number" step="1024" min="1024" placeholder="128000" /></Field>
-          </FieldGroup>
-          <FieldSet>
-            <FieldLegend variant="label">模型能力</FieldLegend>
-            <FieldGroup class="capability-fields">
-              <Field orientation="horizontal">
-                <FieldLabel>
-                  <Switch v-model:checked="form.supports_function_calling" />
-                  <FieldContent><FieldTitle>原生 Function Calling</FieldTitle><FieldDescription>OpenAI 兼容模型启用厂商原生工具调用；Anthropic 自动使用 tool_use。</FieldDescription></FieldContent>
-                </FieldLabel>
-              </Field>
-              <Field orientation="horizontal">
-                <FieldLabel>
-                  <Switch v-model:checked="form.supports_vision" />
-                  <FieldContent><FieldTitle>图片输入（Vision）</FieldTitle><FieldDescription>标记此 Provider 的 Chat 模型能够识别图片。</FieldDescription></FieldContent>
-                </FieldLabel>
-              </Field>
-            </FieldGroup>
-          </FieldSet>
-        </section>
-
-        <section class="dialog-form-section">
-          <div class="dialog-form-section__head"><h3>模型与扩展</h3><p>管理 Provider 的扩展字段与任务模型映射。</p></div>
-          <template v-if="resilienceProviderConfigFields.length > 0">
-            <div class="form-section-title">超时与重试</div>
-            <FieldGroup class="dialog-form-grid form-grid">
-              <Field v-for="field in resilienceProviderConfigFields" :key="field.key" :orientation="field.type === 'boolean' ? 'horizontal' : 'vertical'">
-                <FieldLabel v-if="field.type !== 'boolean'" :for="`provider-extra-${field.key}`">{{ field.label }}</FieldLabel>
-                <template v-if="field.type === 'boolean'">
-                  <FieldLabel>
-                    <Switch v-model:checked="form[field.key]" />
-                    <FieldContent><FieldTitle>{{ field.label }}</FieldTitle><FieldDescription v-if="field.help">{{ field.help }}</FieldDescription></FieldContent>
-                  </FieldLabel>
-                </template>
-                <CustomSelect v-else-if="field.type === 'select'" :model-value="form[field.key] ?? ''" :options="field.options || []" :placeholder="field.placeholder || '-- 请选择 --'" @update:model-value="form[field.key] = $event" />
-                <Input v-else-if="field.type === 'number'" :id="`provider-extra-${field.key}`" v-model.number="form[field.key]" type="number" :step="field.step || (field.key === 'retry_delay' ? 0.1 : field.key === 'timeout' ? 5 : 1)" :min="field.min" :max="field.max" :placeholder="field.placeholder || ''" />
-                <Input v-else :id="`provider-extra-${field.key}`" v-model="form[field.key]" :type="field.type === 'password' ? 'password' : 'text'" :placeholder="field.placeholder || ''" />
-                <FieldDescription v-if="field.help && field.type !== 'boolean'">{{ field.help }}</FieldDescription>
-              </Field>
-            </FieldGroup>
-          </template>
-          <template v-if="extensionProviderConfigFields.length > 0">
-            <div class="form-section-title">Provider 扩展配置</div>
-            <FieldGroup class="dialog-form-grid form-grid">
-              <Field v-for="field in extensionProviderConfigFields" :key="field.key" :orientation="field.type === 'boolean' ? 'horizontal' : 'vertical'">
-                <FieldLabel v-if="field.type !== 'boolean'" :for="`provider-extra-${field.key}`">{{ field.label }}</FieldLabel>
-                <template v-if="field.type === 'boolean'">
-                  <FieldLabel>
-                    <Switch v-model:checked="form[field.key]" />
-                    <FieldContent><FieldTitle>{{ field.label }}</FieldTitle><FieldDescription v-if="field.help">{{ field.help }}</FieldDescription></FieldContent>
-                  </FieldLabel>
-                </template>
-                <CustomSelect v-else-if="field.type === 'select'" :model-value="form[field.key] ?? ''" :options="field.options || []" :placeholder="field.placeholder || '-- 请选择 --'" @update:model-value="form[field.key] = $event" />
-                <Input v-else-if="field.type === 'number'" :id="`provider-extra-${field.key}`" v-model.number="form[field.key]" type="number" :step="field.step || 1" :min="field.min" :max="field.max" :placeholder="field.placeholder || ''" />
-                <Input v-else :id="`provider-extra-${field.key}`" v-model="form[field.key]" :type="field.type === 'password' ? 'password' : 'text'" :placeholder="field.placeholder || ''" />
-                <FieldDescription v-if="field.help && field.type !== 'boolean'">{{ field.help }}</FieldDescription>
-              </Field>
-            </FieldGroup>
-          </template>
-          <FieldSet :data-invalid="!!formErrors.model_map">
-            <FieldLegend variant="label">模型映射 (model_map)</FieldLegend>
-            <FieldDescription>按 Chat、Embedding、Rerank 任务分别配置真实模型名；同一任务可添加多个模型。</FieldDescription>
-            <div class="model-map-editor">
-              <div v-for="(entry, idx) in modelMapEntries" :key="idx" class="model-map-row">
-                <CustomSelect v-model="entry.task" :options="modelTaskOptions" placeholder="任务类型" />
-                <span class="map-arrow"><IconChevronRight /></span>
-                <Input v-model="entry.model" :aria-label="`${entry.task || '任务'} 模型名`" placeholder="例如：gpt-4.1" />
-                <Button variant="ghost" size="icon" aria-label="删除映射" title="删除映射" :disabled="modelMapEntries.length === 1" @click="removeModelMapEntry(idx)">
-                  <IconClose />
-                </Button>
-              </div>
-              <Button variant="outline" class="w-full" @click="addModelMapEntry"><IconPlus data-icon="inline-start" />添加映射</Button>
-              <FieldError v-if="formErrors.model_map">{{ formErrors.model_map }}</FieldError>
-            </div>
-          </FieldSet>
-        </section>
-
-        <FieldError v-if="dialog.error">{{ dialog.error }}</FieldError>
-      </div>
-      <DialogFooter class="provider-dialog-footer">
-        <Button size="sm" variant="outline" :disabled="saving" @click="closeDialog">取消</Button>
-        <Button class="provider-dialog-submit" size="sm" variant="default" :disabled="saving" @click="handleSubmit"><IconRefresh v-if="saving" data-icon="inline-start" class="spin" />{{ saving ? '保存中...' : '保存' }}</Button>
-      </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
-    <Dialog :open="!!deleteTarget" @update:open="(v) => { if (!v) deleteTarget = null }">
-      <DialogContent class="max-w-[420px]">
-        <DialogHeader>
-          <DialogTitle>确认删除</DialogTitle>
-          <DialogDescription>删除后，引用该 Provider 的 Agent 或知识库配置可能无法运行。</DialogDescription>
-        </DialogHeader>
-        <p class="delete-confirm-msg">确定要删除 Provider <strong>{{ deleteTarget ? getProviderKey(deleteTarget) : '' }}</strong> 吗？此操作不可撤销。</p>
-        <p v-if="deleteUsageLoading" class="delete-usage-loading">正在检查引用关系...</p>
-        <FieldError v-else-if="deleteUsageError">{{ deleteUsageError }}</FieldError>
-        <div v-else-if="deleteUsages.length > 0" class="delete-usage-list">
-          <strong>请先解除以下 {{ deleteUsages.length }} 个引用：</strong>
-          <div v-for="usage in deleteUsages" :key="`${usage.kind}:${usage.key}:${usage.detail}`" class="delete-usage-item">
-            <Badge variant="warning">{{ usageKindLabel(usage.kind) }}</Badge>
-            <span>{{ usage.label }}</span>
-            <small>{{ usage.detail }}</small>
-          </div>
-        </div>
-        <DialogFooter>
-        <Button size="sm" variant="outline" @click="deleteTarget = null">取消</Button>
-        <Button size="sm" variant="destructive" :disabled="deleting || deleteUsageLoading || !!deleteUsageError || deleteUsages.length > 0" @click="doDelete">
-          {{ deleting ? '删除中...' : deleteUsages.length > 0 ? '存在引用，无法删除' : '确认删除' }}
-        </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ProviderDeleteDialog
+      :delete-target="deleteTarget"
+      :delete-usage-loading="deleteUsageLoading"
+      :delete-usage-error="deleteUsageError"
+      :delete-usages="deleteUsages"
+      :deleting="deleting"
+      :get-provider-key="getProviderKey"
+      :usage-kind-label="usageKindLabel"
+      @close="deleteTarget = null"
+      @confirm="doDelete"
+    />
   </PageLayout>
 </template>
 
@@ -333,10 +211,8 @@ import {
   summarizeProviderTestResult,
 } from '../utils/providerTestTargets.js';
 import CustomSelect from '../components/ui/CustomSelect.vue';
-import { Switch } from '../components/ui/switch';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import { Badge } from '../components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -345,18 +221,16 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
-import {
-  Field, FieldContent, FieldDescription, FieldError, FieldGroup,
-  FieldLabel, FieldLegend, FieldSet, FieldTitle,
-} from '../components/ui/field';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconClose from '../components/icons/IconClose.vue';
 import IconCheck from '../components/icons/IconCheck.vue';
-import IconChevronRight from '../components/icons/IconChevronRight.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import IconEdit from '../components/icons/IconEdit.vue';
+import ProviderFormDialog from '../components/provider/ProviderFormDialog.vue';
+import ProviderDeleteDialog from '../components/provider/ProviderDeleteDialog.vue';
+import '../components/provider/provider-dialogs.css';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { useToast } from '../composables/useToast.js';
@@ -877,7 +751,7 @@ onBeforeUnmount(() => cleanupProviderDrag());
 .provider-list-section { min-height: 200px; }
 .reorder-status { font-size: 12px; color: var(--color-text-secondary); }
 .reorder-status--error { color: var(--color-error); }
-.provider-toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(180px, 220px) auto; gap: 10px; align-items: center; margin-bottom: 14px; }
+.provider-toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(180px, 220px) auto; gap: var(--spacing-sm); align-items: center; margin-bottom: var(--spacing-md); }
 .provider-filter-count { color: var(--color-text-muted); font-size: 12px; white-space: nowrap; }
 .provider-filter-empty { padding: 32px 16px; text-align: center; color: var(--color-text-secondary); font-size: 13px; }
 
@@ -909,44 +783,20 @@ onBeforeUnmount(() => cleanupProviderDrag());
 .provider-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; flex-wrap: nowrap; }
 .test-task-option { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .test-task-option small { max-width: 220px; overflow: hidden; color: var(--color-text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 
-.provider-test-result { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 0 60px; padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; font-size: 12px; line-height: 1.5; word-break: break-word; }
+.provider-test-result { display: flex; align-items: flex-start; gap: var(--spacing-sm); margin: 8px 0 0 60px; padding: 8px 10px; border-radius: var(--radius-lg); border: 1px solid transparent; font-size: var(--font-size-xs); line-height: 1.5; word-break: break-word; }
 .result--ok { background: var(--color-success-bg); border-color: rgba(var(--color-success-rgb), 0.18); color: var(--color-success); }
 .result--err { background: var(--color-error-bg); border-color: rgba(var(--color-error-rgb), 0.18); color: var(--color-error); }
 .result-icon { flex-shrink: 0; }
 .result-msg { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
 
-.dialog-form { display: flex; flex-direction: column; gap: 18px; }
-.dialog-form-section { display: flex; flex-direction: column; gap: 14px; padding: 0 0 18px; border-bottom: 1px solid var(--color-border); }
-.dialog-form-section:last-of-type { padding-bottom: 0; border-bottom: 0; }
-.dialog-form-section__head { display: flex; flex-direction: column; gap: 4px; }
-.dialog-form-section__head h3 { margin: 0; font-size: 15px; color: var(--color-text-primary); }
-.dialog-form-section__head p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--color-text-secondary); }
-.dialog-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.dialog-form-grid__full { grid-column: 1 / -1; }
-.provider-dialog-footer { position: sticky; bottom: -24px; margin: 0 -24px -24px; padding: 14px 24px 24px; border-top: 1px solid var(--color-border); background: var(--color-bg-elevated); }
-.required { color: var(--color-error); }
-.capability-fields { gap: 10px; }
-.form-section-title { font-size: 0.83rem; font-weight: 700; color: var(--color-text-primary); border-bottom: 1px solid var(--color-border); padding-bottom: 6px; }
-.model-map-editor { display: flex; flex-direction: column; gap: 10px; }
-.model-map-row { display: grid; grid-template-columns: minmax(130px, 0.6fr) auto minmax(180px, 1fr) auto; align-items: center; gap: 8px; }
-.map-arrow { color: var(--color-text-muted); flex-shrink: 0; }
-.delete-confirm-msg { margin: 0; color: var(--color-text-secondary); line-height: 1.7; }
-.delete-usage-loading { margin: 0; color: var(--color-text-secondary); font-size: 13px; }
-.delete-usage-list { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-warning-bg); font-size: 13px; }
-.delete-usage-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 8px; align-items: center; }
-.delete-usage-item small { grid-column: 2; color: var(--color-text-secondary); }
-.spin { animation: g-spin 0.8s linear infinite; }
 
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .provider-toolbar { grid-template-columns: minmax(0, 1fr) minmax(160px, 220px); }
   .provider-filter-count { grid-column: 1 / -1; }
   .provider-row-main { grid-template-columns: 48px minmax(0, 1fr); }
   .provider-row-actions { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; }
   .provider-test-result { margin-left: 60px; }
-  .dialog-form-grid { grid-template-columns: 1fr; }
-  .dialog-form-grid__full { grid-column: 1; }
 }
 @media (max-width: 640px) {
   .provider-summary-bar { align-items: flex-start; }
@@ -959,6 +809,5 @@ onBeforeUnmount(() => cleanupProviderDrag());
   .provider-row-actions { flex-wrap: wrap; }
   .provider-test-result { margin: 8px 0 0; }
   .provider-endpoint { max-width: 100%; }
-  .model-map-row { grid-template-columns: minmax(100px, 0.7fr) auto minmax(120px, 1fr) auto; gap: 6px; }
 }
 </style>

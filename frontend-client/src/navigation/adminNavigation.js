@@ -1,32 +1,21 @@
-import { h } from 'vue';
-import { BrainCircuit } from 'lucide-vue-next';
+import {
+  Activity,
+  Book,
+  BrainCircuit,
+  Database,
+  Landmark,
+  Layers,
+  LayoutGrid,
+  Plug,
+  Radio,
+  Settings,
+  SquarePlus,
+  UserRound,
+  Users,
+  Workflow,
+} from 'lucide-vue-next';
 
-const createAdminIcon = (children) => ({
-  render() {
-    return h(
-      'svg',
-      {
-        xmlns: 'http://www.w3.org/2000/svg',
-        width: '22',
-        height: '22',
-        viewBox: '0 0 24 24',
-        fill: 'none',
-        stroke: 'currentColor',
-        'stroke-width': '2',
-        'stroke-linecap': 'round',
-        'stroke-linejoin': 'round',
-      },
-      children.map(({ tag, attrs }) => h(tag, attrs))
-    );
-  },
-});
-
-export const IconAdminCenter = createAdminIcon([
-  { tag: 'rect', attrs: { x: '3', y: '3', width: '7', height: '7', rx: '1.5' } },
-  { tag: 'rect', attrs: { x: '14', y: '3', width: '7', height: '7', rx: '1.5' } },
-  { tag: 'rect', attrs: { x: '3', y: '14', width: '7', height: '7', rx: '1.5' } },
-  { tag: 'rect', attrs: { x: '14', y: '14', width: '7', height: '7', rx: '1.5' } },
-]);
+export const IconAdminCenter = LayoutGrid;
 
 export const adminNavGroups = [
   {
@@ -55,12 +44,12 @@ export const managementNavItems = [
   {
     key: 'platform-tenants', mainView: 'platform-tenants', path: '/platform/tenants', label: '租户治理',
     title: '平台租户治理', description: '跨租户查看状态，并暂停或恢复租户。', group: 'platform', requiresPlatformAdmin: true,
-    icon: createAdminIcon([{ tag: 'path', attrs: { d: 'M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6' } }]),
+    icon: Landmark,
   },
   {
     key: 'platform-users', mainView: 'platform-users', path: '/platform/users', label: '用户治理',
     title: '平台用户治理', description: '跨租户禁用用户，并授予或撤销平台管理员。', group: 'platform', requiresPlatformAdmin: true,
-    icon: createAdminIcon([{ tag: 'circle', attrs: { cx: '12', cy: '8', r: '4' } }, { tag: 'path', attrs: { d: 'M4 21a8 8 0 0 1 16 0' } }]),
+    icon: UserRound,
   },
   {
     key: 'members',
@@ -71,19 +60,14 @@ export const managementNavItems = [
     description: '查看租户成员，并按当前角色邀请、调整角色或移除成员。',
     group: 'infrastructure',
     requireTenantRole: 'admin',
-    icon: createAdminIcon([
-      { tag: 'path', attrs: { d: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' } },
-      { tag: 'circle', attrs: { cx: '9', cy: '7', r: '4' } },
-      { tag: 'path', attrs: { d: 'M22 21v-2a4 4 0 0 0-3-3.87' } },
-      { tag: 'path', attrs: { d: 'M16 3.13a4 4 0 0 1 0 7.75' } },
-    ]),
+    icon: Users,
   },
   {
     key: 'widget-credentials', mainView: 'widget-credentials', path: '/widget-credentials', label: 'Widget 凭证',
     title: 'Widget 凭证控制台', description: '管理 publishable key、secret、来源白名单与审计记录。', group: 'infrastructure',
     capability: 'widget',
     requireTenantRole: 'owner',
-    icon: createAdminIcon([{ tag: 'rect', attrs: { x: '3', y: '5', width: '18', height: '14', rx: '2' } }, { tag: 'path', attrs: { d: 'M8 12h8M12 8v8' } }]),
+    icon: SquarePlus,
   },
   {
     key: 'model-providers',
@@ -94,11 +78,7 @@ export const managementNavItems = [
     description: '配置 Provider 实例、模型映射、默认参数，并测试连通性。',
     group: 'infrastructure',
     requireTenantRole: 'admin',
-    icon: createAdminIcon([
-      { tag: 'circle', attrs: { cx: '12', cy: '12', r: '3' } },
-      { tag: 'path', attrs: { d: 'M19.07 4.93a10 10 0 0 1 0 14.14' } },
-      { tag: 'path', attrs: { d: 'M4.93 4.93a10 10 0 0 0 0 14.14' } },
-    ]),
+    icon: Radio,
   },
   {
     key: 'agent-studio',
@@ -109,13 +89,7 @@ export const managementNavItems = [
     description: '在一个工作台内管理 Team、编排 Agent，并维护模型、工具、技能与委派。',
     group: 'agent-runtime',
     requireTenantRole: 'admin',
-    icon: createAdminIcon([
-      { tag: 'rect', attrs: { x: '3', y: '4', width: '7', height: '7', rx: '1' } },
-      { tag: 'rect', attrs: { x: '14', y: '4', width: '7', height: '7', rx: '1' } },
-      { tag: 'rect', attrs: { x: '14', y: '15', width: '7', height: '7', rx: '1' } },
-      { tag: 'path', attrs: { d: 'M10 7h4' } },
-      { tag: 'path', attrs: { d: 'M17.5 11v4' } },
-    ]),
+    icon: Workflow,
   },
   {
     key: 'mcp',
@@ -126,12 +100,7 @@ export const managementNavItems = [
     description: '安装、连接、测试 MCP 工具服务，并查看可用工具。',
     group: 'infrastructure',
     requireTenantRole: 'admin',
-    icon: createAdminIcon([
-      { tag: 'path', attrs: { d: 'M12 22v-5' } },
-      { tag: 'rect', attrs: { x: '6', y: '9', width: '12', height: '6', rx: '2' } },
-      { tag: 'path', attrs: { d: 'M10 9V2' } },
-      { tag: 'path', attrs: { d: 'M14 9V2' } },
-    ]),
+    icon: Plug,
   },
   {
     key: 'knowledge-base',
@@ -142,11 +111,7 @@ export const managementNavItems = [
     description: '管理知识库、文档索引、检索测试和知识注入。',
     group: 'infrastructure',
     requireTenantRole: 'admin',
-    icon: createAdminIcon([
-      { tag: 'ellipse', attrs: { cx: '12', cy: '5', rx: '9', ry: '3' } },
-      { tag: 'path', attrs: { d: 'M21 12c0 1.66-4 3-9 3s-9-1.34-9-3' } },
-      { tag: 'path', attrs: { d: 'M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5' } },
-    ]),
+    icon: Database,
   },
   {
     key: 'skill-library',
@@ -157,10 +122,7 @@ export const managementNavItems = [
     description: '管理领域技能：查看正文与脚本，新建、编辑、上传与删除用户全局 Skill。',
     group: 'infrastructure',
     requireTenantRole: 'admin',
-    icon: createAdminIcon([
-      { tag: 'path', attrs: { d: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20' } },
-      { tag: 'path', attrs: { d: 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' } },
-    ]),
+    icon: Book,
   },
   {
     key: 'monitor',
@@ -171,9 +133,7 @@ export const managementNavItems = [
     description: '查看 Agent 性能、任务状态、运行指标和诊断数据。',
     group: 'operations',
     requireTenantRole: 'admin',
-    icon: createAdminIcon([
-      { tag: 'polyline', attrs: { points: '22 12 18 12 15 21 9 3 6 12 2 12' } },
-    ]),
+    icon: Activity,
   },
   {
     key: 'bots',
@@ -184,11 +144,7 @@ export const managementNavItems = [
     description: '管理私有 Bot 身份、飞书连接、会话策略和定时任务。',
     group: 'operations',
     requireTenantRole: 'member',
-    icon: createAdminIcon([
-      { tag: 'path', attrs: { d: 'M12 2L2 7l10 5 10-5-10-5z' } },
-      { tag: 'path', attrs: { d: 'M2 17l10 5 10-5' } },
-      { tag: 'path', attrs: { d: 'M2 12l10 5 10-5' } },
-    ]),
+    icon: Layers,
   },
   {
     key: 'memory',
@@ -210,10 +166,7 @@ export const managementNavItems = [
     description: '管理记忆、工具限制与上下文预算等系统级参数。',
     group: 'operations',
     requireTenantRole: 'owner',
-    icon: createAdminIcon([
-      { tag: 'circle', attrs: { cx: '12', cy: '12', r: '3' } },
-      { tag: 'path', attrs: { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z' } },
-    ]),
+    icon: Settings,
   },
 ];
 

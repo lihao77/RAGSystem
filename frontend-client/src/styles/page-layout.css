@@ -1,44 +1,9 @@
 /* ===================================================================
    page-layout.css — 管理页面公共原子样式
-   配合 PageLayout.vue 使用：状态面板、移动菜单项、内容卡片
+   配合 PageLayout.vue 使用：移动菜单项、内容卡片
    极简重构：去边框 + 留白 + 发丝分隔 + 悬浮分层阴影
+   （状态面板统一用 main.css 的 .adm-state* 族，本文件不再重复定义）
 =================================================================== */
-
-/* ===== 状态面板 ===== */
-.pl-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-2xl);
-  border: none;
-  border-radius: var(--radius-lg);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.pl-state--error {
-  color: var(--color-error);
-}
-
-/* Spinner — 复用全局 .g-spinner--lg */
-.pl-spinner {
-  /* alias → .g-spinner--lg */
-}
-
-.pl-spin {
-  animation: g-spin 0.8s linear infinite;
-}
-
-/* 空状态 */
-.pl-empty {
-  padding: var(--spacing-2xl);
-  text-align: center;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-}
 
 /* ===== 移动端菜单项（供 slot="mobile-menu" 使用） ===== */
 .pl-menu-item {

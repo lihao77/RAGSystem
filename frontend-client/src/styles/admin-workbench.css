@@ -1,0 +1,423 @@
+/* ===================================================================
+   admin-workbench.css — 管理中心工作台共享骨架
+   供 SkillLibrary / AgentStudio 等「左导航 + 右工作区」管理页使用，
+   替代两页各自 scoped 重写的 navigator-row / workspace-header / tabbar。
+   规约（与 main.css 头部一致）：
+   · 选中态整行浮起：accent 底色(--color-active-bg) + accent 描边(--color-accent-border)
+   · hover 一律 --color-hover-overlay*；间距用 --spacing-* token
+   · 双栏在 1024px 以下折叠为单栏（管理页统一断点，勿再自造 720/900/960）
+=================================================================== */
+
+/* ===== 双栏工作台 ===== */
+.wb-workbench {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--spacing-lg);
+}
+
+/* app-shell 模式：充满 PageLayout fill 高度，头/底常驻，仅 body 滚动 */
+.wb-workbench--fill {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+  gap: var(--spacing-md);
+  overflow: hidden;
+}
+
+.wb-workbench__nav {
+  position: sticky;
+  top: var(--spacing-md);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.wb-workbench--fill .wb-workbench__nav {
+  position: static;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.wb-workbench__main {
+  min-width: 0;
+  overflow: hidden;
+  /* 主工作区抬为 elevated 浮层，与导航卡(secondary)拉开层次 */
+  background: var(--color-bg-elevated);
+}
+
+.wb-workbench--fill .wb-workbench__main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+@media (max-width: 1024px) {
+  .wb-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .wb-workbench__nav {
+    position: static;
+  }
+
+  /* fill 模式折叠后整体滚动，避免双栏挤在定高容器里 */
+  .wb-workbench--fill {
+    overflow-y: auto;
+  }
+
+  .wb-workbench--fill .wb-workbench__nav {
+    flex: none;
+    max-height: 320px;
+  }
+
+  .wb-workbench--fill .wb-workbench__main {
+    flex: 1 0 560px;
+    height: auto;
+  }
+}
+
+/* ===== 导航分组 ===== */
+.wb-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wb-nav-group + .wb-nav-group {
+  margin-top: var(--spacing-md);
+}
+
+.wb-nav-group__label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.wb-nav-group__label--collapsible {
+  cursor: pointer;
+  user-select: none;
+}
+
+.wb-nav-group__label--collapsible:hover {
+  background: var(--color-hover-overlay-md);
+}
+
+.wb-nav-group__caret {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-muted);
+  transition: transform var(--transition-fast);
+}
+
+.wb-nav-group__caret--collapsed {
+  transform: rotate(-90deg);
+}
+
+.wb-nav-group__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 次级小字分组头（如 Skill 库按来源分组） */
+.wb-nav-group__name--caps {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wb-nav-group__count {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* 分组行右侧 hover 显现的操作按钮（如 Team 下拉） */
+.wb-nav-group__more {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+}
+
+.wb-nav-group__label:hover .wb-nav-group__more,
+.wb-nav-group__more[data-state='open'] {
+  opacity: 1;
+}
+
+.wb-nav-group__more:hover {
+  background: var(--color-hover-overlay-md);
+  color: var(--color-text-primary);
+}
+
+.wb-nav-group__menu-danger {
+  color: var(--color-error);
+}
+
+.wb-nav-group__items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* ===== 导航行（选中态全管理页统一：整行浮起） ===== */
+.wb-nav-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.wb-nav-row:hover {
+  background: var(--color-hover-overlay-md);
+}
+
+.wb-nav-row--active {
+  border-color: var(--color-accent-border);
+  background: var(--color-active-bg);
+}
+
+.wb-nav-row--active .wb-nav-row__name {
+  color: var(--color-brand-accent);
+}
+
+.wb-nav-row__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xs);
+}
+
+.wb-nav-row__name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-nav-row__desc {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.wb-nav-row__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xs);
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.wb-nav-row--static {
+  cursor: default;
+}
+
+.wb-nav-row--static:hover {
+  background: transparent;
+}
+
+/* 「新建…」虚位行 */
+.wb-nav-row--add {
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.wb-nav-row--add:hover {
+  background: var(--color-hover-overlay-md);
+  color: var(--color-brand-accent);
+}
+
+/* 行内小标签（如「入口」标记） */
+.wb-nav-row__tag {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* ===== 工作区头部（卡片浮层化：分区实底 bg-tertiary） ===== */
+.wb-workspace-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  margin: var(--spacing-md) var(--spacing-md) 0;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-tertiary);
+}
+
+.wb-workspace-header__identity {
+  min-width: 0;
+}
+
+.wb-workspace-header__title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.wb-workspace-header__title-row h2 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 650;
+}
+
+.wb-workspace-header__desc {
+  margin: 4px 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.wb-workspace-header__sub {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.wb-workspace-header__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+/* ===== 工作区 tabbar（内部放胶囊分段控件） ===== */
+.wb-workspace-tabbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-md) 0;
+}
+
+/* 胶囊分段控件轨道：项样式由 ToggleGroup variant="segment" 承载 */
+.segmented-track {
+  width: max-content;
+  max-width: 100%;
+  gap: 0;
+  padding: 2px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background-color: var(--color-hover-overlay-md);
+}
+
+/* ===== 面板小节标题 ===== */
+.wb-pane-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xs);
+}
+
+.wb-pane-heading__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.wb-pane-heading__text h3 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.wb-pane-heading__text p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.wb-pane-heading__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+/* 栏式变体：带底部分隔线的区块标题栏 */
+.wb-pane-heading--bar {
+  min-height: 44px;
+  padding: 0 var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* ===== 状态点（替代各页自造 .status-dot） ===== */
+.status-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+
+.status-dot--sm {
+  width: 6px;
+  height: 6px;
+}
+
+.status-dot--success { background: var(--color-success); }
+.status-dot--warning { background: var(--color-warning); }
+.status-dot--error { background: var(--color-error); }
+.status-dot--active { background: var(--color-active); }
+.status-dot--muted { background: var(--color-text-muted); }
+
+.status-dot--pulse {
+  animation: wb-pulse-dot 1s ease-in-out infinite;
+}
+
+@keyframes wb-pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

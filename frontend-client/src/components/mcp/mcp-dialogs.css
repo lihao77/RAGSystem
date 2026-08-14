@@ -1,0 +1,89 @@
+/* MCP 弹窗（工具/资源/提示词列表）共享样式 —— 由 MCPManager.vue 引入一次。
+   这些类只出现在 components/mcp/ 的弹窗组件内。 */
+
+.modal-title-block :is(h2, h3) { font-size: var(--font-size-lg); margin: 0 0 2px; }
+.modal-title-block p { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
+
+.tool-list { display: flex; flex-direction: column; gap: var(--spacing-sm); list-style: none; margin: 0; padding: 0; }
+.tool-item { padding: var(--spacing-md); border-radius: var(--radius-lg); background: var(--color-bg-secondary); border: 1px solid var(--color-border); }
+.tool-item:hover { border-color: var(--color-border); }
+.tool-item-head { margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm); flex-wrap: wrap; }
+.tool-name { font-family: var(--font-mono); font-size: var(--font-size-sm); color: var(--color-brand-accent-light); background: rgba(var(--color-brand-accent-rgb), 0.1); padding: 2px 8px; border-radius: var(--radius-sm); }
+.tool-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
+.tool-risk-select { display: flex; align-items: center; gap: 6px; width: 150px; flex-shrink: 0; }
+.tool-risk-label { font-size: var(--font-size-sm); color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
+.tool-risk-select .custom-select { flex: 1; min-width: 0; }
+.tool-risk-select .select-trigger:hover:not(.disabled) { border-color: var(--color-border); }
+.tool-annotations { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tool-metrics { margin-top: 4px; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.anno-chip { font-size: var(--font-size-sm); padding: 1px 6px; border-radius: var(--radius-sm); background: var(--color-bg-secondary); color: var(--color-text-secondary); border: 1px solid var(--color-border); }
+.anno-chip--warn { color: var(--color-warning); border-color: var(--color-warning); }
+.tool-params { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--color-border); }
+.tool-params-label { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-bottom: 4px; }
+.param-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-sm); margin-bottom: 2px; }
+.param-name { font-family: var(--font-mono); color: var(--color-text-primary, var(--color-text-secondary)); }
+.param-type { color: var(--color-text-secondary); font-style: italic; }
+.param-required { color: var(--color-error); font-size: 11px; padding: 0 4px; border: 1px solid var(--color-error); border-radius: var(--radius-sm); }
+.param-desc { color: var(--color-text-secondary); }
+
+/* ===== 添加服务面板 + 安装/编辑弹窗（原 MCPManager scoped，随组件拆出） ===== */
+.add-service-panel { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-lg); border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-secondary); box-shadow: none; scroll-margin-top: var(--spacing-md); }
+.add-service-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-md); }
+.add-service-close { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: all var(--transition-fast); }
+.add-service-close:hover { border-color: var(--color-border-hover); background: var(--color-hover-overlay-md); color: var(--color-text-primary); }
+.add-subnav { display: flex; gap: var(--spacing-xs); padding: var(--spacing-xs); border-radius: var(--radius-md); background: transparent; border: 1px solid var(--color-border); width: fit-content; }
+.add-subnav-btn { display: inline-flex; align-items: center; gap: var(--spacing-sm); padding: 8px 14px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font: inherit; font-size: var(--font-size-sm); font-weight: 500; cursor: pointer; white-space: nowrap; transition: all var(--transition-fast); }
+.add-subnav-btn:hover { color: var(--color-text-primary); }
+.add-subnav-btn--active { background: var(--color-hover-overlay-md); color: var(--color-text-primary); font-weight: 600; box-shadow: none; }
+.add-pane { display: flex; flex-direction: column; gap: var(--spacing-md); }
+
+.manual-install-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
+.form-divider { height: 1px; background: var(--color-border); margin: var(--spacing-xs) 0; }
+.form-section-label { font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
+.adm-modal-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
+
+.field { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+.field > span, .field > label { font-size: var(--font-size-xs); color: var(--color-text-secondary); letter-spacing: 0.02em; }
+.field em { color: var(--color-error); font-style: normal; margin-left: 3px; }
+.field small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.font-mono-input { font-family: var(--font-mono); font-size: var(--font-size-xs); }
+
+.toggle-field { display: inline-flex; align-items: center; gap: var(--spacing-sm); cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-secondary); user-select: none; }
+.toggle-field--inline { align-self: flex-end; padding-bottom: 9px; }
+.toggle-field--inner { padding-top: 6px; }
+.toggle-row { display: flex; flex-wrap: wrap; gap: var(--spacing-lg); padding: 2px 0; }
+.form-actions { display: flex; justify-content: flex-end; gap: var(--spacing-sm); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border); margin-top: auto; }
+
+.registry-search-bar { display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--color-border); background: transparent; }
+.search-input-wrap { flex: 1; display: flex; align-items: center; gap: var(--spacing-sm); color: var(--color-text-muted); }
+.registry-search-input { flex: 1; background: transparent; border: none; outline: none; color: var(--color-text-primary); font: inherit; font-size: var(--font-size-sm); }
+.registry-search-input::placeholder { color: var(--color-text-muted); }
+
+.registry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--spacing-md); }
+.registry-card { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-secondary); transition: border-color var(--transition-fast), background var(--transition-fast); }
+.registry-card:hover { border-color: var(--color-border-hover); background: var(--color-hover-overlay-md); }
+.registry-card-head { display: flex; align-items: flex-start; gap: var(--spacing-md); }
+.registry-card-title { flex: 1; min-width: 0; }
+.registry-card-title h3 { font-size: var(--font-size-base); font-weight: 600; margin: 0 0 4px; }
+.registry-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-xs); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.registry-card-meta code { font-family: var(--font-mono); }
+.version-tag { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--color-bg-secondary); border: 1px solid var(--color-border); font-family: var(--font-mono); color: var(--color-text-secondary); }
+.registry-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.install-options-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.option-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: var(--radius-full); font-size: 11px; border: 1px solid transparent; }
+.option-chip--ok { background: rgba(var(--color-success-rgb), 0.1); border-color: rgba(var(--color-success-rgb), 0.25); color: var(--color-success); }
+.option-chip--no { background: rgba(var(--color-error-rgb), 0.07); border-color: rgba(var(--color-error-rgb), 0.15); color: var(--color-text-muted); }
+.inline-warning { display: flex; align-items: flex-start; gap: var(--spacing-xs); color: var(--color-warning); font-size: var(--font-size-xs); }
+.registry-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-xs); padding-top: var(--spacing-xs); border-top: 1px solid var(--color-border); margin-top: auto; }
+.registry-links { display: flex; gap: var(--spacing-xs); margin-left: auto; }
+.ext-link { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: var(--radius-md); font-size: var(--font-size-xs); color: var(--color-text-muted); text-decoration: none; border: 1px solid transparent; transition: all 0.2s; cursor: pointer; }
+.ext-link:hover { color: var(--color-text-primary); border-color: var(--color-border); background: var(--color-hover-overlay); }
+.load-more-row { display: flex; justify-content: center; }
+
+.text-warning { color: var(--color-warning); }
+
+@media (max-width: 720px) {
+  .registry-grid { grid-template-columns: 1fr; }
+  .registry-search-bar { flex-wrap: wrap; }
+  .form-actions { flex-wrap: wrap; justify-content: flex-start; }
+}

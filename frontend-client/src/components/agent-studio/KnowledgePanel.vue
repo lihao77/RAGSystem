@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/no-mutating-props -- 表单模型由父级 useAgentForm 持有，面板直接改写共享 form/tier 对象（有意的表单模型架构） -->
 <template>
   <PanelFormShell title="知识库" subtitle="启用后 Agent 可使用 search_knowledge_base 工具">
     <div class="switch-list">

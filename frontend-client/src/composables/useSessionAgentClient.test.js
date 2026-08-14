@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ref } from 'vue';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
 import { useSessionAgentClient } from './useSessionAgentClient.js';
