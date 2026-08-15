@@ -100,7 +100,6 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     usage_contract: [
       "读取已有文件内容优先用 read_file，而非 execute_bash 的 cat 或 execute_code。",
       "read_file 默认只返回前 2000 行；大文件请用 metadata.next_offset 继续分页。",
-      "可用 offset/limit 指定行号区间。",
       "返回内容为文件原始文本内容，不附带行号。",
       "file_path 必须是真实路径字符串，不是变量名文本。",
       "数据文件已有路径时，优先用 preview_data_structure 确认结构。",
@@ -108,7 +107,6 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     examples: [
       {
         input: { file_path: "tmp.txt" },
-        xml_attrs: { file_path: { space: "workspace" } },
         result_hint: { content: "temporary text" },
       },
       {
@@ -175,7 +173,6 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     examples: [
       {
         input: { content: "temporary text", file_path: "tmp.txt" },
-        xml_attrs: { file_path: { space: "workspace" } },
         result_hint: { display_path: "<absolute workspace path>/tmp.txt" },
       },
     ],

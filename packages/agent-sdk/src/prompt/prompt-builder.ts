@@ -12,11 +12,10 @@ import { collectSections, normalizeString } from "./types.js";
 import {
   buildDataFileRulesSection,
   buildExecutionPathsSection,
-  buildPromptActionsSection,
-  buildPromptDoingTasksSection,
+  buildPromptCorePrinciplesSection,
+  buildPromptExecutionPrinciplesSection,
   buildPromptGoalSection,
-  buildPromptPrinciplesSection,
-  buildPromptRulesSection,
+  buildPromptOutputEfficiencySection,
   buildPromptSystemSection,
   buildPromptToolsSection,
 } from "./sections.js";
@@ -38,17 +37,25 @@ export function getAgentBaseSystemPrompt(profile: PromptProfile): string {
   return normalizeString(profile.behavior.systemPrompt) ?? "";
 }
 
+/**
+ * Agent 角色提示词独立成段并放在动态部分最前（紧跟 System 段）：
+ * 先声明"你是谁、负责什么"，再接通用执行约束，避免角色定义被框架规则淹没。
+ */
+function buildAgentRoleSection(profile: PromptProfile): string {
+  const base = getAgentBaseSystemPrompt(profile);
+  return base ? `## Agent 角色\n\n${base}` : "";
+}
+
 function buildDynamicSystemPrompt(profile: PromptProfile, context: AgentPromptContext, mode: ToolInstructionMode): string {
   const tools = context.tools ?? [];
   return collectSections([
+    buildAgentRoleSection(profile),
     buildPromptGoalSection(),
-    buildPromptDoingTasksSection(),
-    buildPromptPrinciplesSection(mode),
-    buildPromptActionsSection(mode),
-    getAgentBaseSystemPrompt(profile),
+    buildPromptCorePrinciplesSection(),
+    buildPromptExecutionPrinciplesSection(mode),
+    buildPromptOutputEfficiencySection(mode),
     buildExecutionPathsSection(context.executionPaths),
     buildPromptToolsSection(tools, mode),
-    buildPromptRulesSection(mode),
     buildDataFileRulesSection(),
   ]).join("\n\n");
 }

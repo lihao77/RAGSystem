@@ -55,7 +55,7 @@ export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
       agent_name: "plan_agent",
       display_name: "Plan Agent",
       description: "系统默认规划 Agent，负责方案设计、任务拆解和实现路径规划。",
-      system_prompt: "你负责阅读上下文后给出精炼、可执行的实现计划，明确改动点、验证路径和边界。",
+      system_prompt: "你负责阅读上下文后给出精炼、可执行的实现计划，明确改动点、验证路径和边界；缺少的信息先委派探索或执行 Agent 补齐，不要基于假设规划。",
       delegation: ["explor_agent", "general_agent"],
     }),
     explor_agent: buildSystemAgentConfig({
@@ -77,7 +77,7 @@ export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
       agent_name: "review_agent",
       display_name: "Review Agent",
       description: "系统默认评审 Agent，负责检查改动质量、复用性和潜在问题。",
-      system_prompt: "你负责审查当前改动，聚焦正确性、复用性、一致性和不必要复杂度。",
+      system_prompt: "你负责审查当前改动，聚焦正确性、复用性、一致性和不必要复杂度；以只读方式检查，输出问题清单和修复建议，不直接改动文件。",
       tools: ["read_file", "preview_data_structure", "execute_bash", "glob", "grep"],
     }),
     test_agent: buildSystemAgentConfig({

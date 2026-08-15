@@ -164,6 +164,7 @@ export function renderMemoryPrefixBlock(input: {
       `- 可读取 scope: ${allowedScopes.length ? allowedScopes.join(", ") : "无"}`,
       `- 可写入 scope: ${writeScopes.length ? writeScopes.join(", ") : "无"}`,
       `- 可归档 scope: ${archiveScopes.length ? archiveScopes.join(", ") : "无"}`,
+      "- 本块由 runtime 注入，属于 runtime contract；与工具 schema 不一致时以本块为准",
       "- 执行 memory 工具前，必须先确认目标 scope 在对应权限列表内，避免误操作",
     ].join("\n"));
   }

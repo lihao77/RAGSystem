@@ -116,11 +116,7 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
     description:
       "Execute a Skill utility script in an Agent-selected working directory. Relative cwd values resolve from the current workspace; external directories require path approval.",
     usage_contract: [
-      "arguments 是 argv token 数组，每个 token 一个数组项，不要合并成单个字符串或 JSON 对象。",
-      "用 cwd 决定脚本执行和输出目录；相对 cwd 从 workspace 解析，未传时使用 workspace 根目录。",
-      "workspace 外的 cwd 会进入路径审批，批准后脚本才会执行。",
-      "脚本可通过 SESSION_WORKSPACE_DIR、SESSION_UPLOADS_DIR 访问受管路径；返回 cwd 下的相对路径供后续工具使用。",
-      "transient 或 workspace 外的脚本输出不能直接作为最终 file_ref；需要交付时先写入 workspace，再引用真实 workspace 相对路径。",
+      "脚本输出中的文件路径是 cwd 下的相对路径，可直接用于后续工具调用。",
     ],
     parameters: {
       type: "object",

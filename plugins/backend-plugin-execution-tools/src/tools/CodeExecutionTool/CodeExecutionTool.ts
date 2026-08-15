@@ -48,14 +48,12 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
       category: "execution",
       riskLevel: "high",
       allowedCallers: ["direct"],
-      extendedUsage: `### 模块与全局变量
+      extendedUsage: `#### 模块与全局变量
 
-- 返回值为代码打印到 stdout 的内容
 - \`call_tool(tool_name, arguments)\` — 调用其他工具（仅限 \`allowed_callers\` 包含 \`code_execution\` 的工具）
-- Local 阶段使用标准 Python 运行时：可正常导入标准库（例如 \`html\`、\`os\`），\`os.getcwd()\` 等于本次调用传入的 cwd；未传 cwd 时才是共享 workspace
-- 相对路径默认相对当前 cwd；可通过 \`os.environ["SESSION_WORKSPACE_DIR"]\` 和 \`os.environ["SESSION_UPLOADS_DIR"]\` 访问受管目录
+- 可正常导入标准库（例如 \`html\`、\`os\`）；\`os.getcwd()\` 等于本次调用传入的 cwd，未传 cwd 时才是共享 workspace
+- 通过 \`os.environ["SESSION_WORKSPACE_DIR"]\` 和 \`os.environ["SESSION_UPLOADS_DIR"]\` 访问受管目录
 - \`path_ops\` 提供 workspace/uploads 路径操作；Local 当前是宿主机直执行，不提供 OS 级隔离
-- cwd 下的输出可以是 transient 或外部中间产物；需要在最终答案中引用时，先将文件写入 workspace 并使用真实 workspace 相对路径
 
 只在需要程序化处理、批量转换或工具编排时使用 execute_code。`,
       parameters: {

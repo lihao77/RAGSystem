@@ -25,8 +25,8 @@ export function renderRuntimeXmlProtocolInstruction(tools: RuntimeToolDefinition
     '<tool_calls><tool name="tool_name"><![CDATA[{ "param1": value1, "param2": value2 }]]></tool></tool_calls>',
     "The JSON object must conform to the tool's parameter schema. Array/object/number types are preserved as-is by JSON parsing.",
     "Use CDATA when the JSON contains XML-sensitive characters (<, >, &) to avoid breaking the tool tag.",
-    "Multiple independent tool calls can be placed in the same <tool_calls> block.",
-    "Within a single round, reference the Nth tool's result with {result_N} (1-based) to chain calls.",
+    "Multiple independent tool calls can be placed in the same <tool_calls> block; calls are numbered by position within the block (1-based).",
+    "A later call may chain an earlier call's result with {result_N} or {result_N.path}; the runtime runs a dependent call after the call it references, so keep the referenced call above it. Never reference a result defined later in the block.",
   ].join("\n");
 
   return [

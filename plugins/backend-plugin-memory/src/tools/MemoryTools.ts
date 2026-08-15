@@ -17,6 +17,7 @@ import {
   type ToolExecContext,
 } from "@ragsystem/agent-sdk";
 import { metadataFrom, optionalString } from "@ragsystem/backend-core/tools/schema-helpers.js";
+import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 interface MemoryToolDeps {
   memoryTools: MemoryToolOperations;
@@ -187,7 +188,7 @@ const WRITE_MEMORY_TOOL: RuntimeToolDefinition = {
   category: "memory",
   riskLevel: "low",
   allowed_callers: ["direct"],
-  description: "Save one memory entry in an allowed scope. Session, user, and workspace memories publish immediately; team and agent memories remain private to the current user until approved for sharing.",
+  description: "Save one memory entry in an allowed scope. The scope enum lists exactly the scopes this Agent may write.",
   returns: {
     description: "返回保存状态和目标 scope；个人 scope 直接发布，team/agent 保存为等待共享审核的私人候选。",
     shape: {
@@ -197,13 +198,9 @@ const WRITE_MEMORY_TOOL: RuntimeToolDefinition = {
       },
     },
   },
-  usage_contract: [
-    "写入记忆前应确保 scope 允许写入。",
-    "team、session、agent、workspace、user 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
-    "team 和 agent scope 的保存结果仅对当前用户生效，不代表已经发布为租户共享记忆。",
-    "session、user 和 workspace scope 直接发布，不需要租户管理员审核。",
-    "不要根据保存结果声称 team/agent memory 已对其他用户生效。",
-  ],
+    usage_contract: [
+      "定位信息（session、agent、team 等）由运行时上下文自动注入，Agent 不应手工构造。",
+    ],
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -277,7 +274,7 @@ const ARCHIVE_MEMORY_TOOL: RuntimeToolDefinition = {
   category: "memory",
   riskLevel: "low",
   allowed_callers: ["direct"],
-  description: "Archive one personal memory entry, or submit a private administrator-reviewed archive request for team and agent memory.",
+  description: "Archive one memory entry in an allowed scope. The scope enum lists exactly the scopes this Agent may archive.",
   returns: {
     description: "个人 scope 返回归档状态；team/agent 返回已保存归档申请，不会立即影响共享记忆。",
     shape: {
@@ -288,12 +285,10 @@ const ARCHIVE_MEMORY_TOOL: RuntimeToolDefinition = {
       },
     },
   },
-  usage_contract: [
-    "归档前应确保 scope 允许归档。",
-    "team、session、agent、workspace、user 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
-    "team 和 agent scope 只提交当前用户的归档申请，管理员批准前共享记忆保持不变。",
-    "该工具只处理单条记忆，不做批量操作。",
-  ],
+    usage_contract: [
+      "定位信息（session、agent、team 等）由运行时上下文自动注入，Agent 不应手工构造。",
+      "该工具只处理单条记忆，不做批量操作。",
+    ],
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -336,13 +331,27 @@ export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
   const { memoryTools, agent, config: memory } = deps;
   if (!memory.enabled) return [];
   const readOnlyDefinitions = new Map(READ_ONLY_MEMORY_TOOLS.map((definition) => [definition.name, definition]));
+  // scope 枚举与 zod 守卫按配置白名单收敛（对齐 archive 的 configuredArchiveSchema 先例），
+  // 保证工具 schema 与注入的 [Memory Scope Capabilities] 一致，不依赖优先级条款事后仲裁。
+  const configuredListSchema = listMemoryIndexSchema.refine(
+    (input) => memory.allowed_scopes.includes(input.scope),
+    "当前 Agent 不允许读取该 memory scope",
+  );
+  const configuredReadSchema = readMemoryEntrySchema.refine(
+    (input) => memory.allowed_scopes.includes(input.scope),
+    "当前 Agent 不允许读取该 memory scope",
+  );
+  const configuredWriteSchema = writeMemorySchema.refine(
+    (input) => memory.write_scopes.includes(input.scope),
+    "当前 Agent 不允许写入该 memory scope",
+  );
   const tools: Tool[] = [];
 
   if (memory.allowed_scopes.length) {
     tools.push(
       buildTool({
-        ...metadataFrom(readOnlyDefinitions.get("list_memory_index")!),
-        inputSchema: listMemoryIndexSchema,
+        ...metadataFrom(withScopeAllowlist(readOnlyDefinitions.get("list_memory_index")!, memory.allowed_scopes)),
+        inputSchema: configuredListSchema,
         isReadOnly: () => true,
         isConcurrencySafe: () => true,
         checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
@@ -351,8 +360,8 @@ export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
           memoryTools.listMemoryIndex(readListMemoryIndexArguments(input), toMemoryRuntimeContext(agent, memory, ctx)),
       }),
       buildTool({
-        ...metadataFrom(readOnlyDefinitions.get("read_memory_entry")!),
-        inputSchema: readMemoryEntrySchema,
+        ...metadataFrom(withScopeAllowlist(readOnlyDefinitions.get("read_memory_entry")!, memory.allowed_scopes)),
+        inputSchema: configuredReadSchema,
         isReadOnly: () => true,
         isConcurrencySafe: () => true,
         checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
@@ -366,8 +375,8 @@ export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
   if (memory.write_scopes.length) {
     tools.push(
       buildTool({
-        ...metadataFrom(WRITE_MEMORY_TOOL),
-        inputSchema: writeMemorySchema,
+        ...metadataFrom(writeMemoryDefinition(memory.write_scopes)),
+        inputSchema: configuredWriteSchema,
         checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
           memoryTools.checkMemoryScopeAccess(readWriteMemoryArguments(input), toMemoryRuntimeContext(agent, memory, ctx), "write"),
         call: (input, ctx: ToolExecContext) =>
@@ -384,7 +393,7 @@ export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
     );
     tools.push(
       buildTool({
-        ...metadataFrom(ARCHIVE_MEMORY_TOOL),
+        ...metadataFrom(archiveMemoryDefinition(actionableArchiveScopes)),
         inputSchema: configuredArchiveSchema,
         checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
           memoryTools.checkMemoryScopeAccess(readArchiveMemoryArguments(input), toMemoryRuntimeContext(agent, memory, ctx), "archive"),
@@ -395,6 +404,40 @@ export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
   }
 
   return tools;
+}
+
+/** scope 枚举按白名单收敛（对齐 skill/delegation 的 enum 注入模式），schema 与注入的权限列表保持一致。 */
+function withScopeAllowlist(definition: RuntimeToolDefinition, scopes: string[]): RuntimeToolDefinition {
+  const parameters = definition.parameters;
+  const properties = isRecord(parameters.properties) ? { ...parameters.properties } : {};
+  const rawScope = isRecord(properties.scope) ? { ...properties.scope } : { type: "string" };
+  properties.scope = { ...rawScope, enum: scopes };
+  return { ...definition, parameters: { ...parameters, properties } };
+}
+
+/** 发布/审核语义只描述实际开放的 scope，避免契约声明未开放 scope 的行为。 */
+function writeMemoryDefinition(writeScopes: string[]): RuntimeToolDefinition {
+  const direct = writeScopes.filter((scope) => scope !== "team" && scope !== "agent");
+  const reviewed = writeScopes.filter((scope) => scope === "team" || scope === "agent");
+  return withScopeAllowlist({
+    ...WRITE_MEMORY_TOOL,
+    usage_contract: [
+      ...WRITE_MEMORY_TOOL.usage_contract ?? [],
+      ...(direct.length ? [`${direct.join("、")} scope 保存后直接发布，不需要租户管理员审核。`] : []),
+      ...(reviewed.length ? [`${reviewed.join("、")} scope 的保存结果仅对当前用户生效，需管理员批准后才成为共享记忆；不要据此声称已对其他用户生效。`] : []),
+    ],
+  }, writeScopes);
+}
+
+function archiveMemoryDefinition(archiveScopes: string[]): RuntimeToolDefinition {
+  const reviewed = archiveScopes.filter((scope) => scope === "team" || scope === "agent");
+  return withScopeAllowlist({
+    ...ARCHIVE_MEMORY_TOOL,
+    usage_contract: [
+      ...ARCHIVE_MEMORY_TOOL.usage_contract ?? [],
+      ...(reviewed.length ? ["team 和 agent scope 只提交当前用户的归档申请，管理员批准前共享记忆保持不变。"] : []),
+    ],
+  }, archiveScopes);
 }
 
 function toMemoryRuntimeContext(agent: AgentConfig, memory: MemoryAgentConfig, ctx: ToolExecContext) {

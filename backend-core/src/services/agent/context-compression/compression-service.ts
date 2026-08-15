@@ -23,8 +23,9 @@ import { resolveContextCompressionSettings, type ContextCompressionSettings } fr
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 
 const COMPACT_SUMMARY_PREFIX = "本次会话从之前的对话继续，以下是该对话早期内容的摘要。\n\n";
-const NO_TOOLS_PREAMBLE = "你正在生成上下文压缩摘要。不要调用工具，不要输出工具调用协议，只输出摘要文本。\n\n";
-const NO_TOOLS_TRAILER = "\n\n再次提醒：不要调用工具，只输出 <summary> 中的摘要内容或纯文本摘要。";
+// 输出格式三处统一为"<summary> 块"（formatCompactResponse 优先解析 <summary>，纯文本仅作解析兜底）。
+const NO_TOOLS_PREAMBLE = "你正在生成上下文压缩摘要。不要调用工具，不要输出工具调用协议。\n\n";
+const NO_TOOLS_TRAILER = "\n\n再次提醒：不要调用工具；只输出一个 <summary>…</summary> 块，不要输出其他内容。";
 const COMPACT_PROMPT_BODY = `<summary>
 1. 主要目标：[用户要完成什么]
 2. 已完成内容：[已经完成的关键工作]
@@ -315,7 +316,7 @@ function buildSummaryMessages(segment: ReadonlyArray<MessageInfo>, existingSumma
   const conversationText =
     segment.map((m) => `${m.role}: ${extractText(m.content).trim()}`).filter((line) => line.trim()).join("\n") || "（无内容）";
   return [
-    { role: "system", content: "你是一名专业的对话摘要助手。你的任务是将对话压缩为结构化摘要，以便后续会话继续进行。不要调用任何工具，只输出文本。" },
+    { role: "system", content: "你是一名专业的对话摘要助手。你的任务是将对话压缩为结构化摘要，以便后续会话继续进行。不要调用任何工具；只输出一个 <summary>…</summary> 块。" },
     { role: "user", content: `${NO_TOOLS_PREAMBLE}${COMPACT_PROMPT_BODY}${existingSection}\n\n---待压缩对话内容---\n${conversationText}\n---end---${NO_TOOLS_TRAILER}` },
   ];
 }

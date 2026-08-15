@@ -44,17 +44,16 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
       category: "execution",
       riskLevel: "high",
       allowedCallers: ["direct"],
-      extendedUsage: `### 适用场景
+      extendedUsage: `#### 适用场景
 
 仅在确实需要 shell/系统命令、且没有专用工具（read_file/edit_file/write_file/glob/grep 等）适用时使用 execute_bash；文件读写与搜索请优先用专用工具。
 
- ### 工作目录说明
+#### 运行时环境
 
- 本次 run 的默认工作目录是 workspace。相对路径只按当前 workspace 解析；不会在多个目录之间搜索或自动切换。
+- 工具运行时会注入 \`SESSION_WORKSPACE_DIR\` 和 \`SESSION_UPLOADS_DIR\` 环境变量。
+- 返回 metadata 会包含本次 run 的共享 workspace/uploads 路径。
 
- - 需要其他目录时，请传入该目录的绝对路径；workspace 外的路径会进入统一审批。
- - 工具运行时会注入 \`SESSION_WORKSPACE_DIR\` 和 \`SESSION_UPLOADS_DIR\` 环境变量。
- - 返回 metadata 会包含本次 run 的共享 workspace/uploads 路径。`,
+路径解析与审批规则见上方"当前执行目录"，此处不重复。`,
       parameters: {
         type: "object",
         additionalProperties: false,

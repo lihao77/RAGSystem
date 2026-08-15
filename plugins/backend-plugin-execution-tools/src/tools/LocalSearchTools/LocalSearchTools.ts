@@ -67,9 +67,7 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
     description: "Find files in the managed workspace using glob patterns such as **/*.ts.",
     usage_contract: [
       "查找文件优先用 glob，而非 execute_bash 的 find。",
-      "Read-only operation.",
-      "Limited to 250 results by default to prevent token overflow.",
-      "Requires glob pattern relative to the search root.",
+      "默认最多返回 200 条结果以防 token 超限；需要更多时用 max_results 调整。",
     ],
     parameters: {
       type: "object",
@@ -106,9 +104,8 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
     description: "Search text in managed workspace files and return matching lines.",
     usage_contract: [
       "搜索文本优先用 grep，而非 execute_bash 的 grep/rg。",
-      "Read-only operation.",
-      "Automatically excludes .git, .svn, .hg, node_modules, __pycache__.",
-      "Limited to 250 results by default to prevent token overflow.",
+      "自动排除 .git、.svn、.hg、node_modules、__pycache__ 目录。",
+      "默认最多返回 200 条匹配以防 token 超限；需要更多时用 max_results 调整。",
     ],
     parameters: {
       type: "object",
