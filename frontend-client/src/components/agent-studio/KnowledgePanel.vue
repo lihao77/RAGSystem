@@ -3,6 +3,7 @@
   <PanelFormShell title="知识库" subtitle="启用后 Agent 可使用 search_knowledge_base 工具">
     <div class="switch-list">
       <SwitchRow
+        icon="BookOpen"
         label="启用知识库检索"
         hint="启用后会向当前 Agent 暴露 search_knowledge_base 工具。"
         :checked="form.knowledge_base.enabled"
@@ -32,6 +33,7 @@
 
         <div class="switch-list">
           <SwitchRow
+            icon="RefreshCw"
             label="默认启用重排序"
             hint="对召回结果重新排序，优先保留更贴近问题的片段。"
             :checked="form.knowledge_base.default_rerank"

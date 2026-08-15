@@ -4,6 +4,7 @@
       <div class="skill-group__label">{{ group.title }}</div>
       <p v-if="group.hint" class="skill-group__hint">{{ group.hint }}</p>
       <CheckGrid
+        icon="Zap"
         :items="group.items.map((s) => ({ key: s.name, label: s.display_name || s.name, title: s.description || s.name }))"
         :selected="form.skills.enabled_skills"
         @toggle="toggle"

@@ -103,7 +103,6 @@ import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useThemeStore } from '../stores/theme.js';
 import { listMCPServers } from '../api/mcpService';
 import { listSkills } from '../api/skillLibrary';
-import { getExecutionOverview } from '../api/monitoring';
 import { getTokenTrend, getModelUsage, getActivityHeatmap, getDailyActivity } from '../api/analytics';
 
 defineProps({
@@ -113,8 +112,7 @@ defineProps({
 
 const dictStore = useDictionariesStore();
 const themeStore = useThemeStore();
-const counts = ref({ agents: null, providers: null, mcp: null, skills: null });
-const overview = ref(null);
+const counts = ref({ teams: null, providers: null, mcp: null, skills: null });
 const loadError = ref('');
 
 // 数据分析:token 趋势 / 模型用量 / 活跃热力图
@@ -135,50 +133,34 @@ const len = (v) => {
   if (Array.isArray(v)) return v.length;
   if (v && Array.isArray(v.servers)) return v.servers.length;
   if (v && Array.isArray(v.data)) return v.data.length;
+  // Agent 配置是 { name: config } 对象映射，按 key 计数
+  if (v && typeof v === 'object') return Object.keys(v).length;
   return null;
 };
 
-const activeSessions = computed(() => {
-  const o = overview.value;
-  if (!o) return '—';
-  return o.active_sessions ?? o.activeSessions ?? o.summary?.active_sessions ?? '—';
-});
-const runningTasks = computed(() => {
-  const o = overview.value;
-  if (!o) return '—';
-  const rt = o.running_tasks ?? o.runningTasks;
-  if (typeof rt === 'number') return rt;
-  if (Array.isArray(rt)) return rt.length;
-  return o.summary?.running_tasks ?? '—';
-});
-
-// 资源存量 + 执行平面实时状态合并为一组 KPI，避免单列状态卡重复展示
+// 资源存量 KPI：Team / Provider / MCP / Skill
 const kpiItems = computed(() => [
-  { key: 'agents', label: 'Agent', value: counts.value.agents ?? '—' },
+  { key: 'teams', label: 'Team', value: counts.value.teams ?? '—' },
   { key: 'providers', label: '模型 Provider', value: counts.value.providers ?? '—' },
   { key: 'mcp', label: 'MCP 服务', value: counts.value.mcp ?? '—' },
   { key: 'skills', label: 'Skill', value: counts.value.skills ?? '—' },
-  { key: 'sessions', label: '活跃会话', value: activeSessions.value },
-  { key: 'tasks', label: '运行中任务', value: runningTasks.value },
 ]);
 onMounted(async () => {
   const results = await Promise.allSettled([
-    dictStore.ensureAgents(),
+    dictStore.ensureTeams(),
     dictStore.ensureProviders(),
     listMCPServers(),
     listSkills(),
-    getExecutionOverview(),
   ]);
-  const [agents, providers, mcp, skills, ov] = results;
+  const [teams, providers, mcp, skills] = results;
   const failed = results.filter((r) => r.status === 'rejected').map((r) => r.reason?.message).filter(Boolean);
 
   counts.value = {
-    agents: agents.status === 'fulfilled' ? len(agents.value) : null,
+    teams: teams.status === 'fulfilled' ? len(teams.value?.teams) : null,
     providers: providers.status === 'fulfilled' ? len(providers.value) : null,
     mcp: mcp.status === 'fulfilled' ? len(mcp.value) : null,
     skills: skills.status === 'fulfilled' ? (skills.value?.data?.length ?? len(skills.value)) : null,
   };
-  overview.value = ov.status === 'fulfilled' ? ov.value : null;
   loadError.value = failed.length ? failed.join('; ') : '';
 
   reloadAnalytics();

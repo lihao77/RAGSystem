@@ -66,6 +66,7 @@
     <!-- 工具 -->
     <PanelFormShell title="工具" subtitle="选择当前 Agent 可使用的工具能力">
       <CheckGrid
+        icon="Wrench"
         :items="tools.map((t) => ({ key: t.name, label: t.display_name || t.name, title: t.description || t.name }))"
         :selected="form.tools.enabled_tools"
         @toggle="(name) => toggleListItem(form.tools.enabled_tools, name)"
@@ -76,12 +77,14 @@
     <PanelFormShell title="Goal / 后台任务" subtitle="Goal 与后台任务能力">
       <div class="switch-list">
         <SwitchRow
+          icon="Goal"
           label="goal mode"
           hint="暴露 goal_create / goal_get / goal_update / goal_list，用于持久目标编排与状态追踪"
           :checked="form.goals.enabled"
           @update:checked="form.goals.enabled = $event"
         />
         <SwitchRow
+          icon="Layers"
           label="background"
           hint="暴露 task_output / task_stop，用于后台任务查询、显式等待与停止"
           :checked="form.tasks.background"
@@ -93,6 +96,7 @@
     <!-- 委派 -->
     <PanelFormShell title="委派" subtitle="当前 Agent 可委派给同 Team 的其他 Agent">
       <CheckGrid
+        icon="Users"
         :items="peerAgents.map((a) => ({ key: a, label: displayMap[a] || a, title: a }))"
         :selected="form.delegation.enabled_agents"
         empty-text="当前 Team 没有可委派的其他 Agent。"

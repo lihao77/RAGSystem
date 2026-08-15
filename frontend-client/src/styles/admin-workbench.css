@@ -3,7 +3,7 @@
    供 SkillLibrary / AgentStudio 等「左导航 + 右工作区」管理页使用，
    替代两页各自 scoped 重写的 navigator-row / workspace-header / tabbar。
    规约（与 main.css 头部一致）：
-   · 选中态整行浮起：accent 底色(--color-active-bg) + accent 描边(--color-accent-border)
+   · 侧边栏选中态：仅用 accent 底色(--color-active-bg)，不加描边，保持轻盈
    · hover 一律 --color-hover-overlay*；间距用 --spacing-* token
    · 双栏在 1024px 以下折叠为单栏（管理页统一断点，勿再自造 720/900/960）
 =================================================================== */
@@ -213,7 +213,6 @@
 }
 
 .wb-nav-row--active {
-  border-color: var(--color-accent-border);
   background: var(--color-active-bg);
 }
 

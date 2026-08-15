@@ -2,8 +2,8 @@
 <template>
   <PanelFormShell title="记忆" subtitle="记忆索引注入与 scope 权限；scope 定位由运行时推导">
     <div class="switch-list">
-      <SwitchRow label="启用记忆插件" :checked="form.memory.enabled" @update:checked="form.memory.enabled = $event" />
-      <SwitchRow v-if="form.memory.enabled" label="自动注入记忆索引" :checked="form.memory.auto_inject" @update:checked="form.memory.auto_inject = $event" />
+      <SwitchRow icon="Database" label="启用记忆插件" :checked="form.memory.enabled" @update:checked="form.memory.enabled = $event" />
+      <SwitchRow v-if="form.memory.enabled" icon="RefreshCw" label="自动注入记忆索引" :checked="form.memory.auto_inject" @update:checked="form.memory.auto_inject = $event" />
     </div>
 
     <template v-if="form.memory.enabled">
@@ -15,16 +15,19 @@
             <span class="scope-card__desc">{{ scope.description }}</span>
           </div>
           <div class="scope-card__perms">
-            <label class="scope-perm">
+            <label class="scope-perm" :class="{ 'scope-perm--on': form.memory.allowed_scopes.includes(scope.name) }">
               <input :checked="form.memory.allowed_scopes.includes(scope.name)" type="checkbox" @change="toggleScope('allowed_scopes', scope.name, $event.target.checked)" />
+              <span class="scope-perm__tick"><Check :size="11" /></span>
               <span>读取</span>
             </label>
-            <label class="scope-perm">
+            <label class="scope-perm" :class="{ 'scope-perm--on': form.memory.write_scopes.includes(scope.name) }">
               <input :checked="form.memory.write_scopes.includes(scope.name)" type="checkbox" @change="toggleScope('write_scopes', scope.name, $event.target.checked)" />
+              <span class="scope-perm__tick"><Check :size="11" /></span>
               <span>写入</span>
             </label>
-            <label class="scope-perm">
+            <label class="scope-perm" :class="{ 'scope-perm--on': form.memory.archive_scopes.includes(scope.name) }">
               <input :checked="form.memory.archive_scopes.includes(scope.name)" type="checkbox" @change="toggleScope('archive_scopes', scope.name, $event.target.checked)" />
+              <span class="scope-perm__tick"><Check :size="11" /></span>
               <span>归档</span>
             </label>
           </div>
@@ -35,6 +38,8 @@
 </template>
 
 <script setup>
+import { Check } from 'lucide-vue-next';
+
 import PanelFormShell from './PanelFormShell.vue';
 import SwitchRow from './SwitchRow.vue';
 
@@ -68,5 +73,23 @@ function toggleScope(field, scope, checked) {
 .scope-card__desc { font-size: var(--font-size-xs); color: var(--color-text-muted); line-height: 1.45; }
 .scope-card__perms { display: flex; flex-wrap: wrap; gap: 8px; }
 .scope-perm { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-size-xs); color: var(--color-text-secondary); cursor: pointer; }
-.scope-perm input { accent-color: var(--color-brand-accent); width: 14px; height: 14px; cursor: pointer; }
+.scope-perm input { position: absolute; opacity: 0; pointer-events: none; }
+.scope-perm__tick {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  color: transparent;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+.scope-perm--on .scope-perm__tick {
+  background: var(--color-brand-accent);
+  border-color: var(--color-brand-accent);
+  color: var(--color-accent-fg);
+}
+.scope-perm:hover .scope-perm__tick { border-color: var(--color-border-hover); }
 </style>

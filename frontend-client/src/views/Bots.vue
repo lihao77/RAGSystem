@@ -239,23 +239,45 @@
           </CardHeader>
           <CardContent class="debug-grid">
             <div class="debug-panel">
-              <h3>测试执行</h3>
-              <Input v-model="testForm.chat_id" placeholder="测试 chat_id" />
-              <Textarea v-model="testForm.content" rows="4" placeholder="输入测试任务" />
-              <Button :disabled="testAction.loading.value" @click="testAction.run()">
-                <IconPlay data-icon="inline-start" />
-                {{ testAction.loading.value ? '执行中…' : '执行测试' }}
-              </Button>
+              <div class="debug-panel__head">
+                <h3>测试执行</h3>
+                <span class="debug-panel__sub">用当前机器人配置跑一次 Agent</span>
+              </div>
+              <div class="debug-field">
+                <label for="test-chat-id">chat_id</label>
+                <Input id="test-chat-id" v-model="testForm.chat_id" placeholder="留空使用 test_user" />
+              </div>
+              <div class="debug-field">
+                <label for="test-content">测试内容</label>
+                <Textarea id="test-content" v-model="testForm.content" rows="4" placeholder="输入测试任务" />
+              </div>
+              <div class="debug-panel__foot">
+                <Button size="sm" :disabled="testAction.loading.value" @click="testAction.run()">
+                  <IconPlay data-icon="inline-start" />
+                  {{ testAction.loading.value ? '执行中…' : '执行测试' }}
+                </Button>
+              </div>
               <pre v-if="testResult" class="debug-output">{{ testResult }}</pre>
             </div>
             <div class="debug-panel">
-              <h3>发送飞书消息</h3>
-              <Input v-model="sendForm.chat_id" placeholder="目标 chat_id" />
-              <Textarea v-model="sendForm.content" rows="4" placeholder="消息内容" />
-              <Button :disabled="sendAction.loading.value" @click="sendAction.run()">
-                <IconSend data-icon="inline-start" />
-                {{ sendAction.loading.value ? '发送中…' : '发送消息' }}
-              </Button>
+              <div class="debug-panel__head">
+                <h3>发送飞书消息</h3>
+                <span class="debug-panel__sub">通过当前机器人主动向会话推送文本</span>
+              </div>
+              <div class="debug-field">
+                <label for="send-chat-id">目标 chat_id</label>
+                <Input id="send-chat-id" v-model="sendForm.chat_id" placeholder="飞书会话 ID" />
+              </div>
+              <div class="debug-field">
+                <label for="send-content">消息内容</label>
+                <Textarea id="send-content" v-model="sendForm.content" rows="4" placeholder="消息内容" />
+              </div>
+              <div class="debug-panel__foot">
+                <Button size="sm" :disabled="sendAction.loading.value" @click="sendAction.run()">
+                  <IconSend data-icon="inline-start" />
+                  {{ sendAction.loading.value ? '发送中…' : '发送消息' }}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -681,12 +703,12 @@ onMounted(() => loadAction.run());
 
 <style scoped>
 .bot-list-content, .bot-detail, .dialog-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
-.bot-list, .cron-list { display: flex; flex-direction: column; gap: 0; }
-/* 列表项 —— Linear 平铺：透明贴底、发丝分隔、hover/选中浮淡层 */
-.bot-list-item { width: 100%; display: flex; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-sm); border: none; border-bottom: 1px solid var(--color-border); border-radius: 0; background: transparent; color: var(--color-text-primary); text-align: left; cursor: pointer; transition: background var(--transition-fast); }
-.bot-list-item:last-child { border-bottom: none; }
+.bot-list, .cron-list { display: flex; flex-direction: column; gap: 1px; }
+/* 列表项 —— 圆角行：hover/选中浮淡层，与全站导航选中态一致 */
+.bot-list-item { width: 100%; display: flex; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-sm) var(--spacing-md); border: none; border-radius: var(--radius-md); background: transparent; color: var(--color-text-primary); text-align: left; cursor: pointer; transition: background var(--transition-fast); }
 .bot-list-item:hover { background: var(--color-hover-overlay-md); }
 .bot-list-item.active { background: var(--color-active-bg); }
+.bot-list-item.active .bot-list-copy strong { color: var(--color-brand-accent); }
 .bot-list-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
 .bot-list-copy strong, .bot-list-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bot-list-copy small { color: var(--color-text-muted); }
@@ -709,10 +731,15 @@ onMounted(() => loadAction.run());
 .cron-copy { min-width: 0; }
 .cron-copy p { margin: var(--spacing-xs) 0; color: var(--color-text-secondary); }
 .cron-copy small { color: var(--color-text-muted); }
-.debug-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
-.debug-panel { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; }
-.debug-panel h3 { margin: 0; font-size: var(--font-size-sm); font-weight: 600; }
-.debug-output, .history-output { max-height: 320px; overflow: auto; white-space: pre-wrap; padding: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay); color: var(--color-text-secondary); font-family: var(--font-mono); font-size: var(--font-size-xs); }
+.debug-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-lg); }
+.debug-panel { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; }
+.debug-panel__head { display: flex; flex-direction: column; gap: 2px; padding-bottom: var(--spacing-sm); border-bottom: 1px solid var(--color-border); }
+.debug-panel__head h3 { margin: 0; font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-primary); }
+.debug-panel__sub { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.debug-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.debug-field label { font-size: var(--font-size-xs); color: var(--color-text-secondary); font-weight: 500; }
+.debug-panel__foot { display: flex; justify-content: flex-end; padding-top: 2px; }
+.debug-output, .history-output { max-height: 320px; overflow: auto; white-space: pre-wrap; padding: var(--spacing-sm) var(--spacing-md); border: none; border-left: 2px solid var(--color-border); border-radius: 0; background: transparent; color: var(--color-text-secondary); font-family: var(--font-mono); font-size: var(--font-size-xs); }
 .bot-placeholder { min-height: 180px; }
 @media (max-width: 720px) {
   .debug-grid { grid-template-columns: 1fr; }

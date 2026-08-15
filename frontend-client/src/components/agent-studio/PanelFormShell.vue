@@ -23,17 +23,19 @@ defineProps({
 .studio-panel .panel-form {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: 12px;
   max-width: 860px;
 }
 .studio-panel .panel-form__head {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
 }
 .studio-panel .panel-form__title {
   margin: 0;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -52,16 +54,39 @@ defineProps({
   gap: var(--spacing-md);
 }
 
-/* 开关行：label + hint 左、开关右 */
-.studio-panel .switch-list { display: flex; flex-direction: column; gap: 2px; }
+/* 开关行：卡片化整行，启用时底色/描边变为 accent 淡色（无左侧竖线） */
+.studio-panel .switch-list { display: flex; flex-direction: column; gap: 4px; }
 .studio-panel .switch-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  padding: 6px 0;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
-.studio-panel .switch-row__copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.studio-panel .switch-row--on {
+  background: var(--color-active-bg);
+  border-color: transparent;
+}
+.studio-panel .switch-row--disabled { opacity: 0.5; }
+.studio-panel .switch-row__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-muted);
+  transition: color var(--transition-fast);
+}
+.studio-panel .switch-row--on .switch-row__icon { color: var(--color-brand-accent); }
+.studio-panel .switch-row__copy { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .studio-panel .switch-row__label { font-size: var(--font-size-sm); color: var(--color-text-primary); font-weight: 500; }
 .studio-panel .switch-row__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); line-height: 1.45; }
 
