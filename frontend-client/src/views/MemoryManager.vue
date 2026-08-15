@@ -3,17 +3,7 @@
     <div class="memory-manager">
       <div class="section-toolbar">
         <div class="toolbar-left">
-          <ToggleGroup
-            type="single"
-            variant="segment"
-            size="segment"
-            :model-value="activeView"
-            class="segmented-track"
-            aria-label="Memory 视图"
-            @update:model-value="(v) => { if (v) activeView = v; }"
-          >
-            <ToggleGroupItem v-for="view in views" :key="view.key" :value="view.key">{{ view.label }}</ToggleGroupItem>
-          </ToggleGroup>
+          <SegmentedControl v-model="activeView" :options="views" aria-label="Memory 视图" />
         </div>
         <div class="toolbar-right">
           <Input v-model="searchQuery" class="memory-search-input" placeholder="搜索名称或内容" aria-label="搜索 Memory" />
@@ -238,8 +228,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { Archive, Check, ClipboardCheck, Eye, Pencil, RefreshCw, Undo2, X } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import EmptyState from '../components/EmptyState.vue';
+import SegmentedControl from '../components/SegmentedControl.vue';
 import { Badge } from '../components/ui/badge';
-import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
@@ -266,10 +256,10 @@ const toast = useToast();
 const { confirm } = useConfirm();
 
 const views = [
-  { key: 'mine', label: '我的记忆' },
-  { key: 'shared', label: '共享记忆' },
-  { key: 'pending', label: '待审核' },
-  { key: 'history', label: '历史' },
+  { value: 'mine', label: '我的记忆' },
+  { value: 'shared', label: '共享记忆' },
+  { value: 'pending', label: '待审核' },
+  { value: 'history', label: '历史' },
 ];
 const scopeOptions = [
   { value: 'all', label: '全部 Scope' },

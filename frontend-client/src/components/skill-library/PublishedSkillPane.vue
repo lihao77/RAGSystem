@@ -27,18 +27,12 @@
 
   <div class="published-pane">
     <div class="published-tabbar">
-      <ToggleGroup
-        type="single"
-        variant="segment"
-        size="segment"
+      <SegmentedControl
         :model-value="state.publishedTab.value"
-        class="segmented-track"
+        :options="publishedTabOptions"
         aria-label="已发布 Skill 视图"
         @update:model-value="changePublishedTab"
-      >
-        <ToggleGroupItem value="overview">说明</ToggleGroupItem>
-        <ToggleGroupItem value="files">文件 <span class="published-tabs__count">{{ state.publishedFileCount.value }}</span></ToggleGroupItem>
-      </ToggleGroup>
+      />
     </div>
     <section v-if="state.publishedTab.value === 'overview'" class="published-content">
       <PaneHeading class="wb-pane-heading--bar" title="SKILL.md" subtitle="已发布正文" />
@@ -59,27 +53,33 @@
 
 <script setup>
 // 已发布 Skill 只读视图：头部动作（编辑 Draft/删除）+ 说明/文件两个 pane。
+import { computed } from 'vue';
 import { FilePenLine, Trash2 } from 'lucide-vue-next';
 
 import PaneHeading from '../admin/PaneHeading.vue';
 import MarkdownContent from '../chat/MarkdownContent.vue';
+import SegmentedControl from '../SegmentedControl.vue';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Spinner } from '../ui/spinner';
-import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group';
 import SkillFileTree from './SkillFileTree.vue';
 import { getSkillFileUrl } from '../../api/skillLibrary.js';
 import { useToast } from '../../composables/useToast.js';
 import { renderMarkdown } from '../../utils/markdown';
 import { sourceLabel } from '../../utils/skillPresentation.js';
 
-defineProps({
+const props = defineProps({
   state: { type: Object, required: true },
   editPublishedSkill: { type: Function, required: true },
   deletePublishedSkill: { type: Function, required: true },
   changePublishedTab: { type: Function, required: true },
   togglePublishedDirectory: { type: Function, required: true },
 });
+
+const publishedTabOptions = computed(() => [
+  { value: 'overview', label: '说明' },
+  { value: 'files', label: '文件', badge: props.state.publishedFileCount.value },
+]);
 
 const toast = useToast();
 function onMdNotify({ message, type }) {
@@ -112,11 +112,6 @@ function onMdNotify({ message, type }) {
 
 .published-tabbar {
   padding: var(--spacing-md) var(--spacing-lg) 0;
-}
-
-.published-tabs__count {
-  color: var(--color-text-muted);
-  font-size: 11px;
 }
 
 .published-content {

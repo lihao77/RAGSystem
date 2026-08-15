@@ -5,18 +5,12 @@
         <CardTitle>Skill 管理</CardTitle>
         <CardDescription>选择 Draft 编辑，或查看系统可用 Skill。</CardDescription>
       </div>
-      <ToggleGroup
-        type="single"
-        variant="segment"
-        size="segment"
+      <SegmentedControl
         :model-value="state.navigatorTab.value"
-        class="segmented-track w-full [&>*]:flex-1"
+        :options="navigatorTabOptions"
         aria-label="Skill 列表类型"
         @update:model-value="changeNavigatorTab"
-      >
-        <ToggleGroupItem value="drafts">Draft</ToggleGroupItem>
-        <ToggleGroupItem value="library">Skill 库</ToggleGroupItem>
-      </ToggleGroup>
+      />
       <Input
         :model-value="state.searchQuery.value"
         class="skill-navigator__search"
@@ -94,14 +88,19 @@
 // Skill 库左栏导航：列表类型切换、搜索、Draft/已发布分组列表。
 // state 为 composables/skill-library/state.js 产出的共享响应式状态。
 import NavigatorRow from '../admin/NavigatorRow.vue';
+import SegmentedControl from '../SegmentedControl.vue';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Empty, EmptyHeader, EmptyTitle } from '../ui/empty';
 import { Input } from '../ui/input';
 import { Spinner } from '../ui/spinner';
-import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group';
 import { formatCompactDate, draftStatusLabel, draftStatusVariant, sourceLabel } from '../../utils/skillPresentation.js';
+
+const navigatorTabOptions = [
+  { value: 'drafts', label: 'Draft' },
+  { value: 'library', label: 'Skill 库' },
+];
 
 defineProps({
   state: { type: Object, required: true },

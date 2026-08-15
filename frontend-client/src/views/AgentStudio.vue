@@ -52,31 +52,12 @@
             </header>
 
             <div class="wb-workspace-tabbar">
-              <ToggleGroup
-                type="single"
-                variant="segment"
-                size="segment"
+              <SegmentedControl
                 :model-value="activeTab"
-                class="segmented-track"
+                :options="tabOptions"
                 aria-label="Agent 配置分区"
                 @update:model-value="handleTabChange"
-              >
-                <ToggleGroupItem value="config">
-                  配置<StatusDot v-if="dirty.config" tone="warning" size="sm" />
-                </ToggleGroupItem>
-                <ToggleGroupItem v-if="pluginAvailability.skills" value="skills">
-                  技能<StatusDot v-if="dirty.skills" tone="warning" size="sm" />
-                </ToggleGroupItem>
-                <ToggleGroupItem v-if="pluginAvailability.memory" value="memory">
-                  记忆<StatusDot v-if="dirty.memory" tone="warning" size="sm" />
-                </ToggleGroupItem>
-                <ToggleGroupItem v-if="pluginAvailability.mcp" value="mcp">
-                  MCP<StatusDot v-if="dirty.mcp" tone="warning" size="sm" />
-                </ToggleGroupItem>
-                <ToggleGroupItem v-if="pluginAvailability.knowledge" value="knowledge">
-                  知识库<StatusDot v-if="dirty.knowledge" tone="warning" size="sm" />
-                </ToggleGroupItem>
-              </ToggleGroup>
+              />
             </div>
 
             <div class="workspace-body">
@@ -185,12 +166,13 @@
  * 状态与逻辑：composables/agent-studio/（core + teamAdmin + agentAdmin + tierModels）
  * UI 区块：components/agent-studio/（StudioNavigator + 各 panel）
  */
-import { onMounted } from 'vue';
+import { computed, onMounted } from 'vue';
 import { Download, RefreshCw, Save, Trash2 } from 'lucide-vue-next';
 
 import PageLayout from '../components/PageLayout.vue';
 import FormDialog from '../components/admin/FormDialog.vue';
 import StatusDot from '../components/admin/StatusDot.vue';
+import SegmentedControl from '../components/SegmentedControl.vue';
 import MainConfigForm from '../components/agent-studio/MainConfigForm.vue';
 import SkillsPanel from '../components/agent-studio/SkillsPanel.vue';
 import MemoryPanel from '../components/agent-studio/MemoryPanel.vue';
@@ -204,7 +186,6 @@ import { Empty, EmptyHeader, EmptyTitle } from '../components/ui/empty';
 import { Field, FieldGroup, FieldLabel } from '../components/ui/field';
 import { Input } from '../components/ui/input';
 import { Spinner } from '../components/ui/spinner';
-import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
 import { useAgentAdmin } from '../composables/agent-studio/useAgentAdmin.js';
 import { useAgentStudioCore } from '../composables/agent-studio/useAgentStudioCore.js';
 import { useTeamAdmin } from '../composables/agent-studio/useTeamAdmin.js';
@@ -230,6 +211,15 @@ const {
   providerOptions, peerAgents,
   loadAll, handleTabChange, handleSave,
 } = core;
+
+// 配置分区切换项：插件不可用时隐藏对应分区；dot 为该分区存在未保存修改。
+const tabOptions = computed(() => [
+  { value: 'config', label: '配置', dot: dirty.config },
+  ...(pluginAvailability.skills ? [{ value: 'skills', label: '技能', dot: dirty.skills }] : []),
+  ...(pluginAvailability.memory ? [{ value: 'memory', label: '记忆', dot: dirty.memory }] : []),
+  ...(pluginAvailability.mcp ? [{ value: 'mcp', label: 'MCP', dot: dirty.mcp }] : []),
+  ...(pluginAvailability.knowledge ? [{ value: 'knowledge', label: '知识库', dot: dirty.knowledge }] : []),
+]);
 
 const { teamBusy, createTeamDialogOpen, createTeamForm, handleCreateTeam, teamCopySources } = teamAdmin;
 const { agentBusy, createVisible, createAgentForm, handleCreateAgent, handleDeleteAgent, handleExport } = agentAdmin;

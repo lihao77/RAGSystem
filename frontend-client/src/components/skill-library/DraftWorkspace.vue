@@ -51,31 +51,19 @@
   </div>
 
   <div class="wb-workspace-tabbar">
-    <ToggleGroup
-      type="single"
-      variant="segment"
-      size="segment"
+    <SegmentedControl
       :model-value="state.workspaceTab.value"
-      class="segmented-track"
+      :options="workspaceTabOptions"
       aria-label="Draft 工作区"
       @update:model-value="changeWorkspaceTab"
-    >
-      <ToggleGroupItem value="overview">基本信息</ToggleGroupItem>
-      <ToggleGroupItem value="files">Bundle 文件</ToggleGroupItem>
-    </ToggleGroup>
-    <ToggleGroup
+    />
+    <SegmentedControl
       v-if="state.workspaceTab.value === 'overview'"
-      type="single"
-      variant="segment"
-      size="segment"
       :model-value="state.overviewMode.value"
-      class="segmented-track"
+      :options="overviewModeOptions"
       aria-label="基本信息模式"
       @update:model-value="changeOverviewMode"
-    >
-      <ToggleGroupItem value="edit">编辑</ToggleGroupItem>
-      <ToggleGroupItem value="preview">预览</ToggleGroupItem>
-    </ToggleGroup>
+    />
   </div>
 
   <DraftOverviewPane v-if="state.workspaceTab.value === 'overview'" :state="state" :update-draft-form="updateDraftForm" />
@@ -97,13 +85,22 @@
 // Draft 工作区：头部（标题/动作）+ 分段 tabbar + overview/bundle 两个 pane。
 import { Save, Send, Trash2 } from 'lucide-vue-next';
 
+import SegmentedControl from '../SegmentedControl.vue';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Spinner } from '../ui/spinner';
-import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group';
 import BundleFilesPane from './BundleFilesPane.vue';
 import DraftOverviewPane from './DraftOverviewPane.vue';
 import { draftStatusLabel, draftStatusVariant, draftOrigin, formatDraftDate } from '../../utils/skillPresentation.js';
+
+const workspaceTabOptions = [
+  { value: 'overview', label: '基本信息' },
+  { value: 'files', label: 'Bundle 文件' },
+];
+const overviewModeOptions = [
+  { value: 'edit', label: '编辑' },
+  { value: 'preview', label: '预览' },
+];
 
 defineProps({
   state: { type: Object, required: true },

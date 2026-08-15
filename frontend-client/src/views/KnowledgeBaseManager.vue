@@ -23,17 +23,8 @@
             <!-- ── 统计卡片 ───────────────────────────────────── -->
             <KpiCards :items="kpiItems" />
 
-            <!-- ── Tab 导航 ──────────────────────────────────── -->
-            <nav class="flex flex-wrap items-center gap-1 border-b border-border">
-                <button v-for="tab in tabs" :key="tab.id"
-                    class="inline-flex items-center gap-2 border-b-2 -mb-px px-3 py-2 text-sm font-medium transition-colors"
-                    :class="activeTab === tab.id ? 'border-brand-accent text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
-                    @click="activeTab = tab.id">
-                    <span v-html="tab.icon" />
-                    <span>{{ tab.label }}</span>
-                    <span v-if="tab.badge">{{ tab.badge }}</span>
-                </button>
-            </nav>
+            <!-- ── Tab 导航（全项目统一的胶囊分段控件）────────────── -->
+            <SegmentedControl v-model="activeTab" :options="tabs" aria-label="知识库分区" />
 
             <!-- ── Tab 内容 ──────────────────────────────────── -->
             <section class="tab-content">
@@ -52,6 +43,7 @@
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
+import SegmentedControl from '../components/SegmentedControl.vue';
 import { Button } from '../components/ui/button';
 import { useKnowledgeBaseManager } from '../composables/useKnowledgeBaseManager.js';
 import KnowledgeBaseStorePanel from '../components/knowledge-base/KnowledgeBaseStorePanel.vue';
@@ -70,57 +62,6 @@ const { globalLoading, refreshAll, kpiItems, tabs, activeTab } = context;
 </script>
 
 <style scoped>
-
-
-/* ─── Tab 导航（复用 .adm-tabs/.adm-tab，下划线式特化）──── */
-/* .adm-tabs 默认是 pill/滑块容器；知识库页保留下划线式观感，故覆盖容器背景，并用下划线指示 active。 */
-.vl-tabs.vl-tabs {
-    gap: var(--spacing-xs);
-    padding: 0;
-    background: transparent;
-    border-bottom: 1px solid var(--color-border);
-    border-radius: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-}
-.vl-tabs.vl-tabs::before { display: none; }
-.vl-tabs :deep(.adm-tab) {
-    min-height: 38px;
-    padding: 0 14px;
-    border-radius: 0;
-}
-.vl-tabs :deep(.adm-tab)::after {
-    content: '';
-    position: absolute;
-    left: 8px;
-    right: 8px;
-    bottom: -1px;
-    height: 2px;
-    border-radius: 2px;
-    background: transparent;
-    transition: background var(--transition-fast);
-    pointer-events: none;
-}
-.vl-tabs :deep(.adm-tab--active)::after { background: var(--color-brand-accent); }
-.vl-tab-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: var(--radius-full);
-    background: transparent;
-    color: var(--color-text-secondary);
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1;
-}
-.adm-tab--active .vl-tab-badge {
-    background: rgba(var(--color-brand-accent-rgb), 0.18);
-    color: var(--color-brand-accent-light);
-}
-
 /* ─── Tab 内容 ──────────────────────────────────────────── */
 .tab-content {
     display: flex;
@@ -230,23 +171,6 @@ const { globalLoading, refreshAll, kpiItems, tabs, activeTab } = context;
 }
 
 /* ─── 加载 & 空状态 ─────────────────────────────────────── */
-
-/* ─── 索引模式选项卡 ────────────────────────────────────── */
-
-.mode-tab--active {
-    background: var(--color-bg-secondary);
-    color: var(--color-text-primary);
-    font-weight: 500;
-    box-shadow: var(--shadow-sm);
-}
-
-/* ─── 迷你上传区 ────────────────────────────────────────── */
-
-.mini-upload-zone--has {
-    border-style: solid;
-    border-color: var(--color-success);
-    color: var(--color-text-primary);
-}
 
 /* ─── 表单 ──────────────────────────────────────────────── */
 

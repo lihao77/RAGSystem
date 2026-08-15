@@ -1,4 +1,5 @@
 import { computed, h, onMounted, reactive, ref } from 'vue';
+import { Database, Hash, Layers, Search } from 'lucide-vue-next';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { normalizeModelList } from '../utils/modelList.js';
 import { parseKnowledgeSearchFilters } from '../utils/knowledgeSearch.js';
@@ -41,26 +42,12 @@ export function useKnowledgeBaseManager() {
   const previewAnchor = ref({ char_start: undefined, heading: '' });
   const globalLoading = ref(false);
 
+  // 顶部视图切换项（SegmentedControl options；icon 为 lucide 组件）
   const tabs = computed(() => [
-      {
-          id: 'store', label: '文件与索引',
-          badge: uploadedFiles.value.length || null,
-          icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>`,
-      },
-      {
-          id: 'vectorizers', label: '向量化器',
-          badge: vectorizers.value.length || null,
-          icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`,
-      },
-      {
-          id: 'rerankers', label: '重排序器',
-          badge: rerankers.value.length || null,
-          icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>`,
-      },
-      {
-          id: 'search', label: '搜索测试',
-          icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
-      },
+      { value: 'store', label: '文件与索引', badge: uploadedFiles.value.length || null, icon: Layers },
+      { value: 'vectorizers', label: '向量化器', badge: vectorizers.value.length || null, icon: Database },
+      { value: 'rerankers', label: '重排序器', badge: rerankers.value.length || null, icon: Hash },
+      { value: 'search', label: '搜索测试', icon: Search },
   ]);
 
   // ── 统计 ──────────────────────────────────────────────────
@@ -293,9 +280,9 @@ export function useKnowledgeBaseManager() {
   const indexing = ref(false);
   const indexMode = ref('select');
   const indexModes = [
-      { id: 'select', label: '📂 选择已上传文件' },
-      { id: 'upload', label: '📁 上传新文件' },
-      { id: 'text', label: '✏️ 直接输入文本' },
+      { value: 'select', label: '📂 选择已上传文件' },
+      { value: 'upload', label: '📁 上传新文件' },
+      { value: 'text', label: '✏️ 直接输入文本' },
   ];
   const indexUploadFile = ref(null);
   const indexFileInputRef = ref(null);

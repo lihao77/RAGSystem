@@ -113,8 +113,8 @@
       </div>
     </EntityListLayout>
 
-    <McpAddServicePanel
-      v-if="addServiceVisible"
+    <McpAddServiceDialog
+      :open="addServiceVisible"
       v-model:add-mode="addMode"
       :install-form="installForm"
       :transport-options="transportOptions"
@@ -135,7 +135,7 @@
       :quick-install-button-text="quickInstallButtonText"
       :first-unsupported-reason="firstUnsupportedReason"
       :open-external-link="openExternalLink"
-      @close="addServiceVisible = false"
+      @update:open="addServiceVisible = $event"
     />
 
     <McpRegistryInstallDialog
@@ -190,12 +190,12 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { CheckCircle2, Clock, Database, Globe, MessageSquare, Monitor, Terminal, Wifi, WifiOff, Wrench } from 'lucide-vue-next';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import StatusDot from '../components/admin/StatusDot.vue';
-import McpAddServicePanel from '../components/mcp/McpAddServicePanel.vue';
+import McpAddServiceDialog from '../components/mcp/McpAddServiceDialog.vue';
 import McpPromptsDialog from '../components/mcp/McpPromptsDialog.vue';
 import McpRegistryInstallDialog from '../components/mcp/McpRegistryInstallDialog.vue';
 import McpResourcesDialog from '../components/mcp/McpResourcesDialog.vue';
@@ -359,9 +359,6 @@ function closeEditDialog() { editDialogVisible.value = false; editForm.value = n
 function closeToolsDialog() { toolsDialogVisible.value = false; }
 function openAddService() {
   addServiceVisible.value = true;
-  nextTick(() => {
-    document.querySelector('.add-service-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
 }
 
 const { run: runLoadServers, loading: loadingServers } = useAsyncAction(

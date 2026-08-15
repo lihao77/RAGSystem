@@ -5,11 +5,7 @@
             <DialogHeader>
               <DialogTitle>索引新文档</DialogTitle>
             </DialogHeader>
-                    <div class="index-mode-tabs">
-                        <button v-for="m in indexModes" :key="m.id" class="mode-tab"
-                            :class="{ 'mode-tab--active': indexMode === m.id }" @click="indexMode = m.id">{{ m.label
-                            }}</button>
-                    </div>
+                    <SegmentedControl v-model="indexMode" :options="indexModes" aria-label="索引方式" />
 
                     <div class="form-grid" style="margin-top: var(--spacing-md)">
                             <template v-if="indexMode === 'upload'">
@@ -217,6 +213,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import SegmentedControl from '../SegmentedControl.vue';
 
 const props = defineProps({ context: { type: Object, required: true } });
 const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoading, tabs, kpiItems, activeVectorizerDisplay, isDragOver, fileInputRef, handleFileDrop, triggerFileInput, handleFileSelect, mergedFilesLoading, refreshFilesAndStatus, filterCollection, collectionSelectOptions, showIndexDialog, fileStatusVectorizers, uploadedFiles, mergedFileList, formatFileSize, formatTime, openMarkdownPreview, openSearchTest, indexingFileKey, handleIndexFileWithVectorizer, downloadFile, handleDeleteMergedFile, searchCollection, searchResults, searchQuery, handleSearch, searchLoading, searchTopK, searchMode, searchModeOptions, searchRerank, searchRerankerOptions, searchRerankSelection, resultSimilarity, scoreClass, resultSimilarityLabel, searchPerformed, vectorizersLoading, vectorizers, openAddVectorizerDialog, handleActivateVectorizer, activatingVectorizer, openMigrateDialog, deletingVectorizer, handleDeleteVectorizer, rerankersLoading, rerankers, openAddRerankerDialog, activeRerankerDisplay, activatingReranker, deletingReranker, handleActivateReranker, handleDeleteReranker, indexModes, indexMode, indexUploadFile, indexFileInputRef, triggerIndexFileInput, handleIndexFileSelect, handleIndexFileDrop, indexForm, uploadedFileSelectOptions, loadUploadedFilesIfEmpty, autoSetCollectionName, documentTypeOptions, indexing, handleIndexDocument, showAddVectorizerDialog, addVectorizerForm, availableProviderSelectOptions, onAddFormProviderChange, addFormRecommendedModel, addFormModelList, addingVectorizer, showMigrateDialog, migrateFromKey, migrateToKey, migrateTargetOptions, migrating, handleMigrate, showAddRerankerDialog, addRerankerForm, rerankerModeSelectOptions, availableRerankProviderSelectOptions, selectedRerankProvider, selectedRerankModel, hasReadyRerankProviders, addRerankerFormValid, addingReranker, handleAddReranker, handleMarkdownNotify, handlePreviewCitation, showToast, handleAddVectorizer } = props.context;
@@ -224,30 +221,6 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
 
 <style scoped>
 
-.index-mode-tabs {
-    display: flex;
-    gap: 2px;
-    padding: 3px;
-    background: var(--color-bg-tertiary);
-    border-radius: var(--radius-lg);
-    width: fit-content;
-}
-
-.mode-tab {
-    padding: 7px 14px;
-    border-radius: var(--radius-md);
-    border: none;
-    background: transparent;
-    color: var(--color-text-secondary);
-    font: inherit;
-    font-size: var(--font-size-sm);
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.mode-tab:hover {
-    color: var(--color-text-primary);
-}
 .mini-upload-zone {
     display: flex;
     align-items: center;
