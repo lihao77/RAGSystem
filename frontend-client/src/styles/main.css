@@ -37,11 +37,15 @@
     /* === 风格色 accent 组 —— 换主题改这里 ===
        单变量 + color-mix 自动衍生。换风格只改 --color-accent / -rgb 两行，
        所有 accent/primary/ring/active/result/link/地图标记自动跟随。 */
-    --color-accent: #5e6ad2;
-    --color-accent-rgb: 94, 106, 210;
+    --color-accent: #fafafa;
+    --color-accent-rgb: 250, 250, 250;
+    /* 第二品牌色：与 accent 组成环境光（黑白体系：白→中性灰） */
+    --color-accent-2: #a3a3a3;
+    --color-accent-2-rgb: 163, 163, 163;
     --color-accent-hover: color-mix(in srgb, var(--color-accent) 14%, #ffffff);
     --color-accent-active: color-mix(in srgb, var(--color-accent) 14%, #000000);
-    --color-accent-fg: #ffffff;
+    /* accent 为白，按钮文字用近黑 */
+    --color-accent-fg: #0a0a0a;
     --color-accent-bg: color-mix(in srgb, var(--color-accent) 14%, transparent);
     --color-accent-border: color-mix(in srgb, var(--color-accent) 30%, transparent);
     /* 派生语义（向后兼容旧名） */
@@ -128,7 +132,7 @@
     --color-brand-primary: var(--color-accent);
 
     /* 链接 —— 风格色派生 */
-    --color-link: var(--color-accent-hover);
+    --color-link: var(--color-text-primary);
     --color-link-hover: color-mix(in srgb, var(--color-accent) 30%, #ffffff);
 
     /* 智能体语义色 —— 收敛为低饱和（仅功能性区分，非装饰） */
@@ -185,11 +189,12 @@
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);
 
-    /* 环境光背景 —— neutral 灰径向 + 极淡 accent glow（accent 可换风格） */
+    /* 环境光背景 —— 黑白同色系微妙光晕 */
     --ambient-bg:
-        radial-gradient(120% 120% at 0% 0%, rgba(var(--color-accent-rgb), 0.05) 0%, transparent 42%),
+        radial-gradient(120% 120% at 0% 0%, rgba(255, 255, 255, 0.05) 0%, transparent 42%),
+        radial-gradient(100% 100% at 100% 0%, rgba(255, 255, 255, 0.03) 0%, transparent 38%),
         radial-gradient(140% 140% at 50% 0%, #0a0a0a 0%, #080808 60%, #050505 100%);
-    --ambient-glow-color: rgba(var(--color-accent-rgb), 0.07);
+    --ambient-glow-color: rgba(255, 255, 255, 0.05);
 
     /* 阴影分层 —— 物理环境光遮蔽（暗版加深底色） */
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.18);
@@ -199,6 +204,8 @@
     --shadow-xl: 0 12px 28px rgba(0, 0, 0, 0.36);
     /* 悬浮分层阴影（hover/浮层）：紧实线 + 大范围弥散 */
     --shadow-elevated: 0 1px 2px rgba(0, 0, 0, 0.16), 0 10px 40px -10px rgba(0, 0, 0, 0.42);
+    /* 光感 —— 品牌按钮 hover 辉光（白光的克制弥散） */
+    --shadow-glow: 0 0 20px rgba(255, 255, 255, 0.22);
 
     /* 间距 —— 8px 网格 */
     --spacing-xs: 4px;
@@ -315,6 +322,12 @@
    ────────────────────────────────────────────────────────── */
 :root[data-theme="light"] {
     /* 风格色 accent —— 亮底 hover/active 加深（与暗底提亮相反，保证对比） */
+    --color-accent: #171717;
+    --color-accent-rgb: 23, 23, 23;
+    /* 黑白体系：近黑→深灰（收紧避免文字发虚） */
+    --color-accent-2: #404040;
+    --color-accent-2-rgb: 64, 64, 64;
+    --color-accent-fg: #fafafa;
     --color-accent-hover: color-mix(in srgb, var(--color-accent) 14%, #000000);
     --color-accent-active: color-mix(in srgb, var(--color-accent) 22%, #000000);
     /* 派生（向后兼容） */
@@ -453,11 +466,12 @@
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);
 
-    /* 环境光背景 —— neutral 灰径向 + 极淡 accent glow */
+    /* 环境光背景 —— 黑白同色系，亮底极克制 */
     --ambient-bg:
-        radial-gradient(120% 120% at 0% 0%, rgba(var(--color-accent-rgb), 0.06) 0%, transparent 42%),
+        radial-gradient(120% 120% at 0% 0%, rgba(0, 0, 0, 0.03) 0%, transparent 42%),
+        radial-gradient(100% 100% at 100% 0%, rgba(0, 0, 0, 0.02) 0%, transparent 38%),
         radial-gradient(140% 140% at 50% 0%, #ffffff 0%, #fafafa 55%, #f0f0f0 100%);
-    --ambient-glow-color: rgba(var(--color-accent-rgb), 0.09);
+    --ambient-glow-color: rgba(0, 0, 0, 0.04);
 
     /* 阴影分层 —— 极浅弥散 + 紧实线 */
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.02);
@@ -467,6 +481,8 @@
     --shadow-xl: 0 12px 28px rgba(0, 0, 0, 0.08);
     /* 悬浮分层阴影（hover/浮层）：紧实线 + 大范围弥散 */
     --shadow-elevated: 0 1px 2px rgba(0, 0, 0, 0.02), 0 10px 40px -10px rgba(0, 0, 0, 0.08);
+    /* 光感 —— 品牌按钮 hover 辉光（黑底按钮的柔和投影） */
+    --shadow-glow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
 /* ===== 全局重置 ===== */
@@ -778,6 +794,7 @@ input[type='number'] {
     font-size: var(--font-size-sm);
     font-weight: 600;
     text-decoration: none;
+    box-shadow: var(--shadow-glow);
     transition: top var(--transition-fast);
 }
 .skip-link:focus {

@@ -1,11 +1,12 @@
 <template>
   <PageLayout title="系统配置" subtitle="记忆与系统运行参数">
     <template #header-actions>
-      <Button variant="ghost" size="icon-sm" :disabled="loading || saving" aria-label="重新加载" title="重新加载" @click="handleReload">
+      <span v-if="isDirty" class="unsaved-hint">未保存</span>
+      <Button variant="ghost" size="icon-sm" :disabled="loading || saving" aria-label="重新加载" :title="isDirty ? '重新加载（将丢弃未保存的修改）' : '重新加载'" @click="handleReload">
         <IconRefresh :size="16" />
       </Button>
-      <Button variant="ghost" size="icon-sm" :disabled="loading || saving" :aria-label="saving ? '保存中' : '保存配置'" :title="saving ? '保存中' : '保存配置'" @click="handleSave">
-        <IconSave :size="16" />
+      <Button variant="ghost" size="icon-sm" :disabled="loading || saving" :aria-label="saving ? '保存中' : '保存配置'" :title="saving ? '保存中' : isDirty ? '保存配置（有未保存修改）' : '保存配置'" @click="handleSave">
+        <IconSave :size="16" :class="{ 'save-icon--dirty': isDirty }" />
       </Button>
     </template>
 
@@ -45,7 +46,9 @@
                     <Input v-model.trim="entry.key" type="text" placeholder="key" />
                     <CustomSelect :model-value="entry.type" :options="extraParamTypeOptions" placeholder="type" @update:model-value="entry.type = $event" />
                     <Input v-model="entry.value" type="text" placeholder="value" />
-                    <Button type="button" size="sm" variant="destructive" class="extra-param-delete-button" @click="removeExtraParam(index)">删除</Button>
+                    <Button type="button" variant="ghost" size="icon-sm" class="extra-param-delete-button" aria-label="删除该参数" title="删除该参数" @click="removeExtraParam(index)">
+                      <IconTrash :size="14" />
+                    </Button>
                   </div>
                 </div>
                 <div v-else class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
@@ -67,6 +70,7 @@ import { ref, computed, onMounted } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconSave from '../components/icons/IconSave.vue';
+import IconTrash from '../components/icons/IconTrash.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import SchemaForm from '../components/SchemaForm.vue';
 import { getProviders } from '../api/modelAdapter.js';
@@ -81,6 +85,7 @@ import {
 } from '../utils/modelList.js';
 import { Button } from '../components/ui/button';
 import { showToast } from '../composables/useToast.js';
+import { useConfirm } from '../composables/useConfirm.js';
 import {
   getSystemConfigSchema,
   getSystemConfig,
@@ -101,7 +106,16 @@ const extraParamTypeOptions = [
 const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
+const { confirm } = useConfirm();
 const configSchema = computed(() => enrichSchemaWithProviderSelection(baseConfigSchema.value, configData.value));
+
+// 脏检查：加载/保存成功后打快照，表单或额外参数有改动即标记未保存
+const savedSnapshot = ref('');
+function takeSnapshot() {
+  savedSnapshot.value = JSON.stringify([configData.value, extraParamEntries.value]);
+}
+const isDirty = computed(() => Boolean(savedSnapshot.value)
+  && JSON.stringify([configData.value, extraParamEntries.value]) !== savedSnapshot.value);
 
 
 async function loadData() {
@@ -117,6 +131,7 @@ async function loadData() {
     configData.value = config;
     extraParamEntries.value = parseExtraParamEntries(config?.llm?.extra_params);
     baseConfigSchema.value = schema;
+    takeSnapshot();
   } catch (e) {
     error.value = e.message || '加载配置失败';
   } finally {
@@ -247,6 +262,7 @@ async function handleSave() {
     const updated = await updateSystemConfig(payload);
     configData.value = updated;
     extraParamEntries.value = parseExtraParamEntries(updated?.llm?.extra_params);
+    takeSnapshot();
     showToast('系统配置已保存', 'success');
   } catch (e) {
     showToast(e.message || '保存失败');
@@ -256,6 +272,14 @@ async function handleSave() {
 }
 
 async function handleReload() {
+  if (isDirty.value) {
+    const ok = await confirm({
+      message: '当前有未保存的配置修改，重新加载将丢弃这些修改。',
+      confirmText: '丢弃并重新加载',
+      danger: true,
+    });
+    if (!ok) return;
+  }
   try {
     await reloadSystemConfig();
     await loadData();
@@ -269,6 +293,18 @@ onMounted(loadData);
 </script>
 
 <style scoped>
+.unsaved-hint {
+  align-self: center;
+  color: var(--color-warning);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.save-icon--dirty {
+  color: var(--color-warning);
+}
+
 .config-form {
   max-width: 1100px;
   margin: 0 auto;

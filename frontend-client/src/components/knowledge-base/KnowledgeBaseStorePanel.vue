@@ -325,10 +325,13 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     font-size: var(--font-size-xs);
     font-weight: 600;
     color: var(--color-text-primary);
-    max-width: 140px;
+    max-width: 200px;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.3;
 }
 
 .vc-tags {

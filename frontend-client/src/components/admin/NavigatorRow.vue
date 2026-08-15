@@ -7,6 +7,7 @@
       'wb-nav-row--active': active,
       'wb-nav-row--static': variant === 'static',
       'wb-nav-row--add': variant === 'add',
+      'wb-nav-row--has-leading': !!slots.leading,
     }"
     :disabled="variant === 'static' ? null : disabled"
     @click="emit('click', $event)"
@@ -16,6 +17,7 @@
     </template>
     <template v-else>
       <span class="wb-nav-row__title">
+        <span v-if="slots.leading" class="wb-nav-row__leading"><slot name="leading" /></span>
         <span class="wb-nav-row__name">{{ title }}</span>
         <slot name="title-trailing" />
       </span>
@@ -31,6 +33,9 @@
 
 <script setup>
 // 管理页左栏导航行：样式见 styles/admin-workbench.css（.wb-nav-row）
+// leading 插槽：标题行最左的图标位（Agent 头像等），有内容时描述文本自动对齐缩进
+import { useSlots } from 'vue';
+
 defineProps({
   title: { type: String, default: '' },
   description: { type: String, default: '' },
@@ -44,4 +49,5 @@ defineProps({
 });
 
 const emit = defineEmits(['click']);
+const slots = useSlots();
 </script>

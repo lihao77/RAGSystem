@@ -13,6 +13,7 @@
         :model-value="String(days)"
         :options="dayOptions"
         aria-label="数据分析时间范围"
+        title="时间范围作用于 Token 趋势与模型分布；热力图与日历图为固定窗口"
         @update:model-value="onDaysChange"
       />
       <Button as-child variant="ghost" size="icon-sm" class="admin-header-link" aria-label="返回工作台" title="返回工作台">
@@ -22,28 +23,7 @@
 
     <KpiCards :items="kpiItems" />
 
-    <div class="admin-overview">
-      <Card>
-        <CardHeader>
-          <CardTitle>系统状态</CardTitle>
-          <CardDescription>Agent 执行平面实时状态</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div class="status-grid">
-          <div class="status-item">
-            <span class="status-item__label">活跃会话</span>
-            <span class="status-item__value">{{ activeSessions }}</span>
-          </div>
-          <div class="status-item">
-            <span class="status-item__label">运行中任务</span>
-            <span class="status-item__value">{{ runningTasks }}</span>
-          </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <p v-if="loadError" class="admin-overview__error">部分指标加载失败：{{ loadError }}</p>
-    </div>
+    <p v-if="loadError" class="admin-overview__error">部分指标加载失败：{{ loadError }}</p>
 
     <div class="analytics-section">
       <div class="analytics-row analytics-row--duo">
@@ -54,7 +34,10 @@
           </CardHeader>
           <CardContent>
             <EChart v-if="tokenTrend.length" :option="tokenTrendOption" height="260px" />
-            <p v-else class="analytics-empty">{{ analyticsLoading ? '加载中…' : '暂无 Token 数据' }}</p>
+            <div v-else-if="analyticsLoading" class="analytics-empty" aria-busy="true">
+              <span class="g-spinner" aria-hidden="true"></span>加载中…
+            </div>
+            <p v-else class="analytics-empty">暂无 Token 数据</p>
           </CardContent>
         </Card>
 
@@ -65,7 +48,10 @@
           </CardHeader>
           <CardContent>
             <EChart v-if="modelUsage.length" :option="modelUsageOption" height="260px" />
-            <p v-else class="analytics-empty">{{ analyticsLoading ? '加载中…' : '暂无模型用量' }}</p>
+            <div v-else-if="analyticsLoading" class="analytics-empty" aria-busy="true">
+              <span class="g-spinner" aria-hidden="true"></span>加载中…
+            </div>
+            <p v-else class="analytics-empty">暂无模型用量</p>
           </CardContent>
         </Card>
       </div>
@@ -77,7 +63,10 @@
         </CardHeader>
         <CardContent>
           <EChart v-if="heatmap.length" :option="heatmapOption" height="300px" />
-          <p v-else class="analytics-empty">{{ analyticsLoading ? '加载中…' : '暂无活跃数据' }}</p>
+          <div v-else-if="analyticsLoading" class="analytics-empty" aria-busy="true">
+            <span class="g-spinner" aria-hidden="true"></span>加载中…
+          </div>
+          <p v-else class="analytics-empty">暂无活跃数据</p>
         </CardContent>
       </Card>
 
@@ -88,7 +77,10 @@
         </CardHeader>
         <CardContent>
           <EChart v-if="dailyActivity.length" :option="dailyHeatmapOption" height="260px" />
-          <p v-else class="analytics-empty">{{ analyticsLoading ? '加载中…' : '暂无活跃数据' }}</p>
+          <div v-else-if="analyticsLoading" class="analytics-empty" aria-busy="true">
+            <span class="g-spinner" aria-hidden="true"></span>加载中…
+          </div>
+          <p v-else class="analytics-empty">暂无活跃数据</p>
         </CardContent>
       </Card>
 
@@ -146,13 +138,6 @@ const len = (v) => {
   return null;
 };
 
-const kpiItems = computed(() => [
-  { key: 'agents', label: 'Agent', value: counts.value.agents ?? '—' },
-  { key: 'providers', label: '模型 Provider', value: counts.value.providers ?? '—' },
-  { key: 'mcp', label: 'MCP 服务', value: counts.value.mcp ?? '—' },
-  { key: 'skills', label: 'Skill', value: counts.value.skills ?? '—' },
-]);
-
 const activeSessions = computed(() => {
   const o = overview.value;
   if (!o) return '—';
@@ -166,6 +151,16 @@ const runningTasks = computed(() => {
   if (Array.isArray(rt)) return rt.length;
   return o.summary?.running_tasks ?? '—';
 });
+
+// 资源存量 + 执行平面实时状态合并为一组 KPI，避免单列状态卡重复展示
+const kpiItems = computed(() => [
+  { key: 'agents', label: 'Agent', value: counts.value.agents ?? '—' },
+  { key: 'providers', label: '模型 Provider', value: counts.value.providers ?? '—' },
+  { key: 'mcp', label: 'MCP 服务', value: counts.value.mcp ?? '—' },
+  { key: 'skills', label: 'Skill', value: counts.value.skills ?? '—' },
+  { key: 'sessions', label: '活跃会话', value: activeSessions.value },
+  { key: 'tasks', label: '运行中任务', value: runningTasks.value },
+]);
 onMounted(async () => {
   const results = await Promise.allSettled([
     dictStore.ensureAgents(),
@@ -367,50 +362,6 @@ const dailyHeatmapOption = computed(() => {
   text-decoration: none;
 }
 
-.admin-overview {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.status-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: var(--spacing-sm);
-}
-
-.status-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius-md);
-  background: var(--color-hover-overlay);
-}
-
-.status-item__label {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.status-item__value {
-  color: var(--color-text-primary);
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.status-item__value--ok {
-  color: var(--color-success);
-}
-
-.status-item__value--off {
-  color: var(--color-text-muted);
-}
-
 .admin-overview__error {
   margin: 0;
   padding: var(--spacing-sm) var(--spacing-md);
@@ -441,6 +392,7 @@ const dailyHeatmapOption = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: var(--spacing-sm);
   height: 260px;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);

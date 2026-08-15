@@ -55,7 +55,7 @@
         </div>
       </template>
       <template #empty-icon>
-        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+        <Clock :size="48" :stroke-width="1.5" />
       </template>
 
       <div class="provider-toolbar">
@@ -88,7 +88,7 @@
               @keydown.down.prevent="moveProviderByKeyboard(provider, 1)"
             >
               <span class="order-index">{{ providerOrder(provider) }}</span>
-              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+              <GripVertical :size="15" />
             </button>
 
             <div class="provider-identity" :title="getProviderKey(provider)">
@@ -163,6 +163,9 @@
               <strong>{{ testResults[getProviderKey(provider)].taskLabel }} · {{ testResults[getProviderKey(provider)].model }}</strong>
               {{ testResults[getProviderKey(provider)].msg }}
             </span>
+            <button type="button" class="result-dismiss" aria-label="关闭测试结果" title="关闭" @click="dismissTestResult(provider)">
+              <IconClose :size="12" />
+            </button>
           </div>
         </article>
       </TransitionGroup>
@@ -203,7 +206,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
-import { ChevronDown, Play } from 'lucide-vue-next';
+import { ChevronDown, Clock, GripVertical, Play } from 'lucide-vue-next';
 import { normalizeModelList } from '../utils/modelList.js';
 import {
   getProviderTestTargets,
@@ -349,6 +352,25 @@ function visibleModelEntries(provider) { return providerModelEntries(provider).s
 function hiddenModelCount(provider) { return Math.max(0, providerModelEntries(provider).length - 5); }
 function isTesting(provider) { return testingKeys.value.has(getProviderKey(provider)); }
 function providerTestTargets(provider) { return getProviderTestTargets(provider); }
+const testResultTimers = new Map();
+function dismissTestResult(provider) {
+  const key = getProviderKey(provider);
+  clearTimeout(testResultTimers.get(key));
+  testResultTimers.delete(key);
+  const next = { ...testResults.value };
+  delete next[key];
+  testResults.value = next;
+}
+// 成功结果 10s 后自动消退，失败结果保留待手动关闭
+function scheduleTestResultDismiss(key) {
+  clearTimeout(testResultTimers.get(key));
+  testResultTimers.set(key, setTimeout(() => {
+    testResultTimers.delete(key);
+    const next = { ...testResults.value };
+    delete next[key];
+    testResults.value = next;
+  }, 10000));
+}
 function providerStatus(provider) {
   const key = getProviderKey(provider);
   if (availabilityLoadingKeys.value.has(key)) return { label: '检查中', detail: '正在检查配置完整性', variant: 'secondary' };
@@ -536,6 +558,7 @@ async function quickTest(provider, target) {
       ...testResults.value,
       [key]: { ok: true, msg: message, taskLabel: providerTestTaskLabel(target.task), model: target.model },
     };
+    scheduleTestResultDismiss(key);
     toast.success(`${provider.name || key} 真实调用成功`);
   } catch (e) {
     const message = e?.message || '测试失败';
@@ -741,7 +764,11 @@ const { run: runDelete, loading: deleting } = useAsyncAction(
 function doDelete() { runDelete(); }
 
 onMounted(() => { Promise.all([loadProviderTypes(), loadProviders()]); });
-onBeforeUnmount(() => cleanupProviderDrag());
+onBeforeUnmount(() => {
+  cleanupProviderDrag();
+  for (const timer of testResultTimers.values()) clearTimeout(timer);
+  testResultTimers.clear();
+});
 </script>
 
 <style scoped>
@@ -788,7 +815,9 @@ onBeforeUnmount(() => cleanupProviderDrag());
 .result--ok { background: var(--color-success-bg); border-color: rgba(var(--color-success-rgb), 0.18); color: var(--color-success); }
 .result--err { background: var(--color-error-bg); border-color: rgba(var(--color-error-rgb), 0.18); color: var(--color-error); }
 .result-icon { flex-shrink: 0; }
-.result-msg { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.result-msg { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.result-dismiss { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: none; border-radius: var(--radius-sm); background: transparent; color: inherit; opacity: 0.6; cursor: pointer; transition: opacity var(--transition-fast); }
+.result-dismiss:hover { opacity: 1; }
 
 
 @media (max-width: 1024px) {

@@ -43,7 +43,7 @@
         </Button>
       </template>
       <template #empty-icon>
-        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <Monitor :size="40" :stroke-width="1.5" />
       </template>
 
       <div class="server-grid adm-entity-list">
@@ -51,8 +51,8 @@
           <div class="server-card__main">
             <div class="server-card-head">
               <div class="server-card-icon" :class="`server-icon--${server.transport || 'stdio'}`">
-                <svg v-if="(server.transport || 'stdio') === 'stdio'" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-                <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                <Terminal v-if="(server.transport || 'stdio') === 'stdio'" :size="18" />
+                <Globe v-else :size="18" />
               </div>
               <div class="server-card-info">
                 <div class="server-card-name">{{ server.display_name || server.name }}</div>
@@ -85,22 +85,22 @@
 
           <div class="server-actions">
             <Button variant="action-success" size="action" :disabled="!server.enabled || server.status === 'connected'" @click="handleConnect(server)" title="连接">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>连接
+              <Wifi />连接
             </Button>
             <Button variant="action-warning" size="action" :disabled="server.status !== 'connected'" @click="handleDisconnect(server)" title="断开">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>断开
+              <WifiOff />断开
             </Button>
             <Button variant="action-neutral" size="action" @click="handleTest(server)" title="测试连接">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>测试
+              <Clock />测试
             </Button>
             <Button variant="action-neutral" size="action" @click="showTools(server)" title="查看工具">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>工具 <span v-if="server.tool_count" class="adm-action-badge">{{ server.tool_count }}</span>
+              <Wrench />工具 <span v-if="server.tool_count" class="adm-action-badge">{{ server.tool_count }}</span>
             </Button>
             <Button v-if="server.capability_faces?.resources" variant="action-neutral" size="action" @click="showResources(server)" title="查看资源">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/></svg>资源 <span v-if="server.resource_count" class="adm-action-badge">{{ server.resource_count }}</span>
+              <Database />资源 <span v-if="server.resource_count" class="adm-action-badge">{{ server.resource_count }}</span>
             </Button>
             <Button v-if="server.capability_faces?.prompts" variant="action-neutral" size="action" @click="showPrompts(server)" title="查看提示词">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>提示词 <span v-if="server.prompt_count" class="adm-action-badge">{{ server.prompt_count }}</span>
+              <MessageSquare />提示词 <span v-if="server.prompt_count" class="adm-action-badge">{{ server.prompt_count }}</span>
             </Button>
             <Button variant="action-neutral" size="action" @click="openEditDialog(server)" title="编辑配置">
               <IconEdit :size="14" />编辑
@@ -190,7 +190,8 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, h } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+import { CheckCircle2, Clock, Database, Globe, MessageSquare, Monitor, Terminal, Wifi, WifiOff, Wrench } from 'lucide-vue-next';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import StatusDot from '../components/admin/StatusDot.vue';
@@ -227,12 +228,6 @@ defineProps({
 
 const toast = useToast();
 const { confirm } = useConfirm();
-
-const SVG = { xmlns: 'http://www.w3.org/2000/svg', width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
-const IconTotal = () => h('svg', SVG, [h('rect', { x: 2, y: 3, width: 20, height: 14, rx: 2 }), h('line', { x1: 8, y1: 21, x2: 16, y2: 21 }), h('line', { x1: 12, y1: 17, x2: 12, y2: 21 })]);
-const IconConnected = () => h('svg', SVG, [h('path', { d: 'M5 12.55a11 11 0 0 1 14.08 0' }), h('path', { d: 'M1.42 9a16 16 0 0 1 21.16 0' }), h('path', { d: 'M8.53 16.11a6 6 0 0 1 6.95 0' }), h('line', { x1: 12, y1: 20, x2: 12.01, y2: 20 })]);
-const IconEnabled = () => h('svg', SVG, [h('path', { d: 'M22 11.08V12a10 10 0 1 1-5.93-9.14' }), h('polyline', { points: '22 4 12 14.01 9 11.01' })]);
-const IconTools = () => h('svg', SVG, [h('path', { d: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z' })]);
 
 const addServiceVisible = ref(false);
 const addMode = ref('manual');
@@ -274,10 +269,10 @@ const summary = computed(() => ({
   tools: servers.value.reduce((sum, s) => sum + (s.tool_count || 0), 0),
 }));
 const kpiItems = computed(() => [
-  { key: 'total', label: '服务总数', value: summary.value.total, icon: IconTotal },
-  { key: 'connected', label: '已连接', value: summary.value.connected, icon: IconConnected },
-  { key: 'enabled', label: '已启用', value: summary.value.enabled, icon: IconEnabled },
-  { key: 'tools', label: '可用工具', value: summary.value.tools, icon: IconTools },
+  { key: 'total', label: '服务总数', value: summary.value.total, icon: Monitor },
+  { key: 'connected', label: '已连接', value: summary.value.connected, icon: Wifi },
+  { key: 'enabled', label: '已启用', value: summary.value.enabled, icon: CheckCircle2 },
+  { key: 'tools', label: '可用工具', value: summary.value.tools, icon: Wrench },
 ]);
 const selectedRegistryOption = computed(() => selectedRegistryServer.value?.install_options?.find((o) => o.id === registryInstallForm.option_id) || null);
 const selectedRegistryFields = computed(() => selectedRegistryOption.value?.form_fields || []);

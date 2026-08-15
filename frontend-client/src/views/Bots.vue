@@ -29,7 +29,14 @@
           <CardDescription>每个机器人拥有独立身份、飞书连接与定时任务。</CardDescription>
         </CardHeader>
         <CardContent class="bot-list-content">
-          <EmptyState v-if="loadAction.loading.value" title="正在加载机器人…" />
+          <div v-if="loadAction.loading.value" class="g-skeleton-rows" aria-busy="true" aria-live="polite">
+            <span class="sr-only">正在加载机器人…</span>
+            <div v-for="n in 4" :key="n" class="g-skeleton-row">
+              <div class="g-skeleton-bar g-skeleton-bar--avatar" aria-hidden="true"></div>
+              <div class="g-skeleton-bar g-skeleton-bar--title" aria-hidden="true"></div>
+              <div class="g-skeleton-bar g-skeleton-bar--sub" aria-hidden="true"></div>
+            </div>
+          </div>
           <EmptyState v-else-if="bots.length === 0" title="尚未创建机器人">
             <Button variant="outline" size="sm" @click="createDialogOpen = true">
               <IconPlus data-icon="inline-start" />
@@ -44,7 +51,7 @@
               :class="{ active: bot.id === selectedBotId }"
               @click="selectBot(bot.id)"
             >
-              <StatusDot :tone="connectionTone(bot.config)" :label="connectionTone(bot.config) === 'success' ? '已连接' : '未连接'" />
+              <StatusDot :tone="connectionTone(bot.config)" :label="connectionTone(bot.config) === 'success' ? '飞书已启用' : '飞书未启用'" />
               <span class="bot-list-copy">
                 <strong>{{ bot.displayName }}</strong>
                 <small>{{ connectionLabel(bot.config) }}</small>
@@ -63,6 +70,7 @@
                 <CardDescription>机器人名称、执行入口与会话派生策略。</CardDescription>
               </div>
               <div class="header-actions">
+                <Badge v-if="isDirty" variant="warning">未保存</Badge>
                 <Button variant="outline" size="sm" @click="deleteDialogOpen = true">
                   <IconTrash data-icon="inline-start" />
                   删除
@@ -82,7 +90,7 @@
             <div class="form-item">
               <label>机器人状态</label>
               <div class="switch-field">
-                <Badge :variant="form.enabled ? 'default' : 'secondary'">{{ form.enabled ? '已启用' : '已停用' }}</Badge>
+                <Badge :variant="form.enabled ? 'success' : 'secondary'">{{ form.enabled ? '已启用' : '已停用' }}</Badge>
                 <Switch v-model:checked="form.enabled" aria-label="机器人总开关" />
               </div>
             </div>
@@ -130,7 +138,7 @@
                 <CardDescription>配置机器人对应的飞书应用与消息接收方式。</CardDescription>
               </div>
               <div class="switch-field">
-                <Badge :variant="form.feishu.enabled ? 'default' : 'secondary'">{{ form.feishu.enabled ? '已接入' : '未启用' }}</Badge>
+                <Badge :variant="form.feishu.enabled ? 'success' : 'secondary'">{{ form.feishu.enabled ? '已接入' : '未启用' }}</Badge>
                 <Switch v-model:checked="form.feishu.enabled" aria-label="飞书连接开关" />
               </div>
             </div>
@@ -142,15 +150,33 @@
             </div>
             <div class="form-item">
               <label for="feishu-app-secret">App Secret</label>
-              <Input id="feishu-app-secret" v-model="form.feishu.app_secret" type="password" placeholder="已配置时留空可保留" />
+              <div class="password-field">
+                <Input id="feishu-app-secret" v-model="form.feishu.app_secret" :type="showSecrets.app_secret ? 'text' : 'password'" placeholder="已配置时留空可保留" />
+                <button type="button" class="password-toggle" :aria-label="showSecrets.app_secret ? '隐藏 App Secret' : '显示 App Secret'" :title="showSecrets.app_secret ? '隐藏' : '显示'" @click="showSecrets.app_secret = !showSecrets.app_secret">
+                  <EyeOff v-if="showSecrets.app_secret" :size="14" />
+                  <Eye v-else :size="14" />
+                </button>
+              </div>
             </div>
             <div class="form-item">
               <label for="feishu-token">Verification Token</label>
-              <Input id="feishu-token" v-model="form.feishu.token" type="password" placeholder="已配置时留空可保留" />
+              <div class="password-field">
+                <Input id="feishu-token" v-model="form.feishu.token" :type="showSecrets.token ? 'text' : 'password'" placeholder="已配置时留空可保留" />
+                <button type="button" class="password-toggle" :aria-label="showSecrets.token ? '隐藏 Verification Token' : '显示 Verification Token'" :title="showSecrets.token ? '隐藏' : '显示'" @click="showSecrets.token = !showSecrets.token">
+                  <EyeOff v-if="showSecrets.token" :size="14" />
+                  <Eye v-else :size="14" />
+                </button>
+              </div>
             </div>
             <div class="form-item">
               <label for="feishu-encrypt-key">Encoding AES Key</label>
-              <Input id="feishu-encrypt-key" v-model="form.feishu.encoding_aes_key" type="password" placeholder="已配置时留空可保留" />
+              <div class="password-field">
+                <Input id="feishu-encrypt-key" v-model="form.feishu.encoding_aes_key" :type="showSecrets.encoding_aes_key ? 'text' : 'password'" placeholder="已配置时留空可保留" />
+                <button type="button" class="password-toggle" :aria-label="showSecrets.encoding_aes_key ? '隐藏 Encoding AES Key' : '显示 Encoding AES Key'" :title="showSecrets.encoding_aes_key ? '隐藏' : '显示'" @click="showSecrets.encoding_aes_key = !showSecrets.encoding_aes_key">
+                  <EyeOff v-if="showSecrets.encoding_aes_key" :size="14" />
+                  <Eye v-else :size="14" />
+                </button>
+              </div>
             </div>
             <div class="form-item full">
               <label>接收模式</label>
@@ -196,10 +222,10 @@
                   <small>下次运行：{{ formatRunTime(task.next_run) || '未计划' }} · 最近结果：{{ task.last_result || '暂无' }}</small>
                 </div>
                 <div class="cron-actions">
-                  <Button variant="ghost" size="icon-sm" title="编辑" aria-label="编辑" @click="openCronDialog(task)"><IconEdit /></Button>
-                  <Button variant="ghost" size="icon-sm" title="立即触发" aria-label="立即触发" @click="triggerAction.run(task.task_id)"><IconPlay /></Button>
-                  <Button variant="ghost" size="icon-sm" title="历史" aria-label="历史" @click="historyAction.run(task.task_id)">H</Button>
-                  <Button variant="ghost" size="icon-sm" title="删除" aria-label="删除" @click="removeCronAction.run(task.task_id)"><IconTrash /></Button>
+                  <Button variant="action-neutral" size="icon-sm" title="编辑" aria-label="编辑" @click="openCronDialog(task)"><IconEdit /></Button>
+                  <Button variant="action-success" size="icon-sm" title="立即触发" aria-label="立即触发" @click="triggerAction.run(task.task_id)"><IconPlay /></Button>
+                  <Button variant="action-neutral" size="icon-sm" title="历史" aria-label="历史" @click="historyAction.run(task.task_id)"><History :size="16" /></Button>
+                  <Button variant="action-danger" size="icon-sm" title="删除" aria-label="删除" @click="removeCronAction.run(task.task_id)"><IconTrash /></Button>
                 </div>
               </div>
             </div>
@@ -308,6 +334,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
+import { Eye, EyeOff, History } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import EmptyState from '../components/EmptyState.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
@@ -329,10 +356,12 @@ import { Switch } from '../components/ui/switch';
 import { Textarea } from '../components/ui/textarea';
 import * as botApi from '../api/bots.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
+import { useConfirm } from '../composables/useConfirm.js';
 import { useToast } from '../composables/useToast.js';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 
 const toast = useToast();
+const { confirm } = useConfirm();
 const dictStore = useDictionariesStore();
 const bots = ref([]);
 const selectedBotId = ref('');
@@ -355,6 +384,19 @@ const form = reactive(emptyForm());
 const cronForm = reactive(emptyCronForm());
 const testForm = reactive({ chat_id: '', content: '你好，请介绍一下自己。' });
 const sendForm = reactive({ chat_id: '', content: 'RAGSystem 飞书消息测试' });
+const showSecrets = reactive({ app_secret: false, token: false, encoding_aes_key: false });
+
+// 表单脏检查：快照对比，切换机器人或关闭页面前提示未保存修改
+const savedSnapshot = ref('');
+function snapshotForm() {
+  return JSON.stringify({
+    displayName: form.displayName, enabled: form.enabled, team: form.team,
+    entry_agent: form.entry_agent, session_id: form.session_id,
+    default_session_ttl: form.default_session_ttl, permission_mode: form.permission_mode,
+    feishu: { ...form.feishu, app_secret: undefined, token: undefined, encoding_aes_key: undefined },
+  });
+}
+const isDirty = computed(() => Boolean(savedSnapshot.value) && snapshotForm() !== savedSnapshot.value);
 
 const selectedBot = computed(() => bots.value.find(bot => bot.id === selectedBotId.value) || null);
 const selectedConfig = computed(() => selectedBot.value?.config || null);
@@ -527,9 +569,18 @@ function applySelectedBot() {
   });
   cronTasks.value = config?.cron_tasks || [];
   testResult.value = '';
+  savedSnapshot.value = snapshotForm();
 }
 
 async function selectBot(botId) {
+  if (botId !== selectedBotId.value && isDirty.value) {
+    const ok = await confirm({
+      message: '当前机器人有未保存的配置修改，切换后将丢弃这些修改。',
+      confirmText: '丢弃并切换',
+      danger: true,
+    });
+    if (!ok) return;
+  }
   selectedBotId.value = botId;
   applySelectedBot();
   await Promise.all([loadCronTasks(), loadAgentsForTeam(form.team)]);
@@ -646,6 +697,10 @@ onMounted(() => loadAction.run());
 .form-item label, .dialog-form label { color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: 600; }
 .form-item small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .input-mono, .webhook-box code { font-family: var(--font-mono); }
+.password-field { position: relative; }
+.password-field :deep(input) { padding-right: 34px; }
+.password-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); cursor: pointer; transition: color var(--transition-fast), background var(--transition-fast); }
+.password-toggle:hover { color: var(--color-text-primary); background: var(--color-hover-overlay-md); }
 .webhook-box { justify-content: space-between; padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay-md); }
 .webhook-box code { min-width: 0; overflow-wrap: anywhere; color: var(--color-brand-accent); font-size: var(--font-size-xs); }
 .cron-item { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-sm) var(--spacing-md); border: none; border-bottom: 1px solid var(--color-border); border-radius: 0; background: transparent; transition: background var(--transition-fast); }

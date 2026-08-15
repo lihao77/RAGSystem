@@ -42,7 +42,7 @@
                     <div class="flex flex-col gap-1">
                       <span class="font-medium">{{ member.user?.displayName || member.user?.username || member.userId }}</span>
                       <span class="text-xs text-muted-foreground">{{ member.userId }}</span>
-                      <span v-if="member.userId === authStore.user?.id" class="text-xs text-muted-foreground">当前用户</span>
+                      <Badge v-if="member.userId === authStore.user?.id" variant="info" class="self-start">当前用户</Badge>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -98,8 +98,8 @@
                     <div class="text-xs text-muted-foreground">{{ bot.id }}</div>
                   </TableCell>
                   <TableCell>{{ bot.ownerName }}</TableCell>
-                  <TableCell><Badge :variant="bot.status === 'active' ? 'secondary' : 'outline'">{{ bot.status === 'active' ? '正常' : '已禁用' }}</Badge></TableCell>
-                  <TableCell><Badge :variant="bot.feishuEnabled ? 'secondary' : 'outline'">{{ feishuLabel(bot) }}</Badge></TableCell>
+                  <TableCell><Badge :variant="bot.status === 'active' ? 'success' : 'outline'">{{ bot.status === 'active' ? '正常' : '已禁用' }}</Badge></TableCell>
+                  <TableCell><Badge :variant="bot.feishuEnabled ? 'success' : 'outline'">{{ feishuLabel(bot) }}</Badge></TableCell>
                   <TableCell><Badge :variant="bot.enabled ? 'default' : 'outline'">{{ bot.enabled ? '已启用' : '已停用' }}</Badge></TableCell>
                   <TableCell>{{ formatDateTime(bot.createdAt) }}</TableCell>
                 </TableRow>
@@ -128,7 +128,19 @@
           </div>
           <div class="flex flex-col gap-2">
             <label for="member-password" class="text-sm font-medium">密码</label>
-            <Input id="member-password" v-model="inviteForm.password" type="password" minlength="8" autocomplete="new-password" required />
+            <div class="relative">
+              <Input id="member-password" v-model="inviteForm.password" :type="showInvitePassword ? 'text' : 'password'" minlength="8" autocomplete="new-password" required class="pr-9" />
+              <button
+                type="button"
+                class="absolute right-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground"
+                :aria-label="showInvitePassword ? '隐藏密码' : '显示密码'"
+                :title="showInvitePassword ? '隐藏密码' : '显示密码'"
+                @click="showInvitePassword = !showInvitePassword"
+              >
+                <EyeOff v-if="showInvitePassword" :size="14" />
+                <Eye v-else :size="14" />
+              </button>
+            </div>
           </div>
           <div class="flex flex-col gap-2">
             <label class="text-sm font-medium">角色</label>
@@ -207,6 +219,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { Eye, EyeOff } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import { useAuthStore } from '../stores/auth.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
@@ -237,6 +250,7 @@ const roleTarget = ref(null);
 const removeTarget = ref(null);
 const selectedRole = ref('member');
 const inviteForm = reactive({ username: '', displayName: '', password: '', role: 'member' });
+const showInvitePassword = ref(false);
 
 const roleLabels = { owner: '所有者', admin: '管理员', member: '成员' };
 const ownerRoleOptions = [
@@ -316,6 +330,7 @@ function resetInviteForm() {
   inviteForm.displayName = '';
   inviteForm.password = '';
   inviteForm.role = 'member';
+  showInvitePassword.value = false;
 }
 
 function openInviteDialog() {

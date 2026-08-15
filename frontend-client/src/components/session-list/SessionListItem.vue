@@ -24,8 +24,8 @@
         </span>
       </span>
 
-      <!-- 右：未读 + 时间，与左侧内容块垂直居中 -->
-      <Badge v-if="item.unread_count > 0" class="shrink-0">
+      <!-- 右：未读 + 时间，与左侧内容块垂直居中；未读用 info 变体保持提醒强调 -->
+      <Badge v-if="item.unread_count > 0" variant="info" class="shrink-0">
         {{ item.unread_count }}
       </Badge>
       <span class="session-time shrink-0 text-xs leading-5 text-muted-foreground">

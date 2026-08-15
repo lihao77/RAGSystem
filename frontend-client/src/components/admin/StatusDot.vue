@@ -3,7 +3,9 @@
     class="status-dot"
     :class="[`status-dot--${tone}`, { 'status-dot--sm': size === 'sm', 'status-dot--pulse': pulse }]"
     :title="label || null"
-    aria-hidden="true"
+    :role="label ? 'img' : null"
+    :aria-label="label || null"
+    :aria-hidden="label ? null : 'true'"
   />
 </template>
 

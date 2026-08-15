@@ -11,6 +11,7 @@
     </CardHeader>
     <CardContent>
       <div v-if="loading" class="g-skeleton-rows" aria-busy="true" aria-live="polite">
+        <span class="sr-only">{{ loadingText }}</span>
         <div v-for="n in 6" :key="n" class="g-skeleton-row">
           <div class="g-skeleton-bar g-skeleton-bar--avatar" aria-hidden="true"></div>
           <div class="g-skeleton-bar g-skeleton-bar--title" aria-hidden="true"></div>

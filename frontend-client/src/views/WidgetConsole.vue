@@ -56,10 +56,10 @@
           </div>
 
           <div class="actions">
-            <Button variant="outline" size="sm" :disabled="!!item.revoked_at" @click="openEdit(item)">编辑</Button>
-            <Button variant="outline" size="sm" :disabled="!!item.revoked_at" @click="rotate(item)">轮换 secret</Button>
+            <Button variant="outline" size="sm" :disabled="!!item.revoked_at" :title="item.revoked_at ? '已吊销的应用不可编辑' : '编辑'" @click="openEdit(item)">编辑</Button>
+            <Button variant="outline" size="sm" :disabled="!!item.revoked_at" :title="item.revoked_at ? '已吊销的应用不可轮换' : '轮换 secret'" @click="requestRotate(item)">轮换 secret</Button>
             <Button variant="outline" size="sm" @click="openAudit(item)">审计</Button>
-            <Button variant="destructive" size="sm" :disabled="!!item.revoked_at" @click="revoke(item)">吊销</Button>
+            <Button variant="destructive" size="sm" :disabled="!!item.revoked_at" :title="item.revoked_at ? '应用已吊销' : '吊销'" @click="requestRevoke(item)">吊销</Button>
           </div>
         </article>
       </div>
@@ -116,18 +116,40 @@
         <ol class="timeline">
           <li v-for="entry in audit" :key="entry.id">
             <strong>{{ entry.action }}</strong>
-            <span>{{ entry.created_at }} · {{ entry.actor }}</span>
+            <span>{{ formatAuditTime(entry.created_at) }} · {{ entry.actor }}</span>
             <pre v-if="entry.detail">{{ JSON.stringify(entry.detail, null, 2) }}</pre>
           </li>
         </ol>
       </SheetContent>
     </Sheet>
+
+    <AlertDialog :open="!!confirmState" @update:open="v => { if (!v) confirmState = null }">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{{ confirmState?.action === 'revoke' ? '吊销应用' : '轮换 secret' }}</AlertDialogTitle>
+          <AlertDialogDescription>
+            <template v-if="confirmState?.action === 'revoke'">
+              吊销后 {{ confirmState?.app?.display_name }} 的 publishable key 与 secret 将立即失效，嵌入的 Widget 会停止工作。此操作不可撤销。
+            </template>
+            <template v-else>
+              轮换后 {{ confirmState?.app?.display_name }} 的旧 secret 立即失效，使用旧 secret 的服务端调用将失败。新 secret 只展示一次。
+            </template>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="confirmBusy">取消</AlertDialogCancel>
+          <AlertDialogAction :disabled="confirmBusy" @click="runConfirm">
+            {{ confirmState?.action === 'revoke' ? '确认吊销' : '确认轮换' }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </PageLayout>
 </template>
 
 <script setup>
 import { computed, reactive, ref } from 'vue';
-import { BookOpen, Check, ChevronRight, CircleCheck, CircleSlash, Copy, Globe, History, KeyRound, LayoutGrid, Plus, TriangleAlert } from 'lucide-vue-next';
+import { BookOpen, Check, ChevronRight, CircleCheck, CircleSlash, Copy, Globe, KeyRound, LayoutGrid, Plus, TriangleAlert } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
@@ -137,31 +159,58 @@ import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../components/ui/sheet';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/alert-dialog';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { useEntityList } from '../composables/useEntityList.js';
+import { useToast } from '../composables/useToast.js';
 import { createWidgetApp, listWidgetApps, updateWidgetApp, rotateWidgetSecret, revokeWidgetApp, listWidgetAudit } from '../api/widgetApps.js';
 
 const { items: apps, loading, error, refresh } = useEntityList(listWidgetApps);
+const toast = useToast();
 const formOpen = ref(false), editing = ref(null), secretResult = ref(null), formError = ref(''), auditOpen = ref(false), auditApp = ref(null), audit = ref([]);
 const copiedKey = ref('');
 let copiedTimer = 0;
 const form = reactive({ display_name: '', origins: '' });
+const confirmState = ref(null); // { action: 'rotate' | 'revoke', app }
+const confirmBusy = ref(false);
 const { run: save, loading: saving } = useAsyncAction(async () => { const allowed_origins = parseOrigins(form.origins); return editing.value ? updateWidgetApp(editing.value.app_key, { display_name: form.display_name, allowed_origins }) : createWidgetApp({ display_name: form.display_name, allowed_origins }); }, { successMessage: '保存成功' });
-const kpis = computed(() => { const week = Date.now() - 7 * 86400000; return [
+const kpis = computed(() => [
   { key: 'total', label: '应用总数', value: apps.value.length, icon: LayoutGrid },
   { key: 'active', label: '活跃', value: apps.value.filter(x => !x.revoked_at).length, icon: CircleCheck },
-  { key: 'revoked', label: '吊销', value: apps.value.filter(x => x.revoked_at).length, icon: CircleSlash },
-  { key: 'week', label: '本周操作', value: audit.value.filter(x => Date.parse(x.created_at) >= week).length, icon: History },
-]; });
+  { key: 'revoked', label: '已吊销', value: apps.value.filter(x => x.revoked_at).length, icon: CircleSlash },
+  { key: 'no-origin', label: '缺 Origin 白名单', value: apps.value.filter(x => !x.revoked_at && !x.allowed_origins?.length).length, icon: TriangleAlert, tone: 'warning' },
+]);
 function openCreate(){ editing.value=null; Object.assign(form,{display_name:'',origins:''}); formError.value=''; formOpen.value=true; }
 function openEdit(item){ editing.value=item; Object.assign(form,{display_name:item.display_name,origins:item.allowed_origins.join('\n')}); formError.value=''; formOpen.value=true; }
 function parseOrigins(text){ const values=text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean); const invalid=values.find(x=>!/^https?:\/\/[^/]+(?::\d+)?$/.test(x)); if(invalid) throw new Error(`Origin 格式无效：${invalid}`); return values; }
 async function submit(){ formError.value=''; try { if(!form.display_name.trim()) throw new Error('名称不能为空'); const result=await save(); if(!result)return; formOpen.value=false; if(!editing.value) secretResult.value=result; await refresh(); } catch(e){ formError.value=e.message; } }
-async function rotate(item){ const result=await rotateWidgetSecret(item.app_key); secretResult.value=result; await refresh(); }
-async function revoke(item){ if(!confirm(`确认吊销 ${item.display_name}？`))return; await revokeWidgetApp(item.app_key); await refresh(); }
+function requestRotate(item){ confirmState.value = { action: 'rotate', app: item }; }
+function requestRevoke(item){ confirmState.value = { action: 'revoke', app: item }; }
+async function runConfirm(){
+  const state = confirmState.value;
+  if (!state || confirmBusy.value) return;
+  confirmBusy.value = true;
+  try {
+    if (state.action === 'revoke') {
+      await revokeWidgetApp(state.app.app_key);
+      toast.success(`已吊销 ${state.app.display_name}`);
+    } else {
+      const result = await rotateWidgetSecret(state.app.app_key);
+      secretResult.value = result;
+      toast.success('secret 已轮换，请立即保存新值');
+    }
+    confirmState.value = null;
+    await refresh();
+  } catch (e) {
+    toast.error(e?.message || '操作失败');
+  } finally {
+    confirmBusy.value = false;
+  }
+}
 async function openAudit(item){ auditApp.value=item; audit.value=await listWidgetAudit(item.app_key); auditOpen.value=true; }
 async function copy(value){ if(!value) return; await navigator.clipboard.writeText(value); copiedKey.value=value; clearTimeout(copiedTimer); copiedTimer=setTimeout(()=>{ copiedKey.value=''; },1400); }
 function integrationExample(key){ return `RagSystemWidget.mount({\n  backendBase: 'https://api.example.com',\n  publishableKey: '${key}'\n})`; }
+function formatAuditTime(value){ const d = new Date(value); return Number.isNaN(d.getTime()) ? value : d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }); }
 </script>
 
 <style scoped>

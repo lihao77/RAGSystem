@@ -32,7 +32,7 @@ const greeting = computed(() => {
 
 .new-chat-start h1 {
   margin: 0;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   font-size: 30px;
   line-height: 1.3;
   font-weight: 500;

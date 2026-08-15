@@ -415,7 +415,7 @@ defineExpose({ show, hide, toggleCollapsed });
 .btn-send {
   flex: 1;
   background: var(--color-active);
-  color: var(--color-on-color);
+  color: var(--color-text-inverse);
   box-shadow: 0 2px 12px rgba(var(--color-active-rgb), 0.3);
 }
 

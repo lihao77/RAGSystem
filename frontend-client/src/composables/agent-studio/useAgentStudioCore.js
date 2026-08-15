@@ -46,13 +46,12 @@ export function useAgentStudioCore({ confirm, showToast }) {
   ]);
   const peerAgents = computed(() => Object.keys(configsByTeam[selectedTeam.value] || {}).filter((a) => a !== selectedAgent.value));
 
-  /* Team 折叠：状态存内存，Builder 恒展开 */
+  /* Team 折叠：状态存内存 */
   const collapsedTeams = ref(new Set());
   function isTeamCollapsed(teamName) {
     return collapsedTeams.value.has(teamName);
   }
   function toggleTeamCollapse(teamName) {
-    if (teamName === BUILDER_TEAM) return;
     const next = new Set(collapsedTeams.value);
     if (next.has(teamName)) next.delete(teamName);
     else next.add(teamName);
@@ -71,7 +70,6 @@ export function useAgentStudioCore({ confirm, showToast }) {
       activeTeam.value = summary.active_team || '';
       const entries = await Promise.all(
         teams.value
-          .filter((t) => t.team_name !== BUILDER_TEAM)
           .map(async (t) => [t.team_name, await dictStore.ensureAgents(force, t.team_name).catch(() => ({}))])
       );
       for (const [team, configs] of entries) configsByTeam[team] = configs || {};

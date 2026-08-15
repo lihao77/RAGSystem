@@ -10,9 +10,19 @@
   >
     <template #header-actions>
       <p class="page-hint">
-        <span>自动刷新 {{ autoRefreshSeconds }}s</span>
+        <span>{{ autoRefreshPaused ? '自动刷新已暂停' : `自动刷新 ${autoRefreshSeconds}s` }}</span>
         <span v-if="lastUpdatedAt">最近更新 {{ formatRefreshTime(lastUpdatedAt) }}</span>
       </p>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        :aria-label="autoRefreshPaused ? '恢复自动刷新' : '暂停自动刷新'"
+        :title="autoRefreshPaused ? '恢复自动刷新' : '暂停自动刷新'"
+        @click="toggleAutoRefresh"
+      >
+        <IconPlay v-if="autoRefreshPaused" :size="16" />
+        <IconPause v-else :size="16" />
+      </Button>
       <CustomSelect
         class="monitor-agent-select"
         :model-value="selectedAgent"
@@ -41,6 +51,11 @@
         <span :style="selectedAgent !== opt.value ? 'padding-left: 22px' : ''">{{ opt.label }}</span>
       </button>
       <div class="pl-menu-divider"></div>
+      <button class="pl-menu-item" @click="toggleAutoRefresh(); close()">
+        <IconPlay v-if="autoRefreshPaused" :size="16" />
+        <IconPause v-else :size="16" />
+        {{ autoRefreshPaused ? '恢复自动刷新' : '暂停自动刷新' }}
+      </button>
       <button class="pl-menu-item" :disabled="loading" @click="loadMetrics(); close()">
         <IconRefresh :size="16" />
         刷新
@@ -84,8 +99,8 @@
                     <span class="running-task-title">{{ task.task || task.task_id }}</span>
                   </div>
                   <div class="running-task-meta">
-                    <span>{{ task.session_id || '无会话' }}</span>
-                    <span>{{ task.run_id }}</span>
+                    <span :title="task.session_id || '无会话'">{{ task.session_id || '无会话' }}</span>
+                    <span :title="task.run_id">{{ task.run_id }}</span>
                     <span>{{ task.elapsed_seconds }}s</span>
                   </div>
                 </button>
@@ -182,10 +197,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, h } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { Activity, Check, Clock, Code, Monitor, Radio, Users } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconCheck from '../components/icons/IconCheck.vue';
+import IconPause from '../components/icons/IconPause.vue';
+import IconPlay from '../components/icons/IconPlay.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import { Badge } from '../components/ui/badge';
@@ -206,16 +224,6 @@ defineProps({
 
 const { confirm } = useConfirm();
 
-const SVG = { xmlns: 'http://www.w3.org/2000/svg', width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
-const IconRunning = () => h('svg', SVG, [h('polyline', { points: '16 18 22 12 16 6' }), h('polyline', { points: '8 6 2 12 8 18' })]);
-const IconSession = () => h('svg', SVG, [h('path', { d: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' }), h('circle', { cx: 9, cy: 7, r: 4 }), h('path', { d: 'M23 21v-2a4 4 0 0 0-3-3.87' }), h('path', { d: 'M16 3.13a4 4 0 0 1 0 7.75' })]);
-const IconAgentExec = () => h('svg', SVG, [h('rect', { x: 2, y: 3, width: 20, height: 14, rx: 2 }), h('line', { x1: 8, y1: 21, x2: 16, y2: 21 }), h('line', { x1: 12, y1: 17, x2: 12, y2: 21 })]);
-const IconMcp = () => h('svg', SVG, [h('circle', { cx: 12, cy: 12, r: 3 }), h('path', { d: 'M19.07 4.93a10 10 0 0 1 0 14.14' }), h('path', { d: 'M4.93 4.93a10 10 0 0 0 0 14.14' })]);
-const IconAgents = () => h('svg', SVG, [h('path', { d: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' }), h('circle', { cx: 9, cy: 7, r: 4 }), h('path', { d: 'M23 21v-2a4 4 0 0 0-3-3.87' }), h('path', { d: 'M16 3.13a4 4 0 0 1 0 7.75' })]);
-const IconCalls = () => h('svg', SVG, [h('polyline', { points: '22 12 18 12 15 21 9 3 6 12 2 12' })]);
-const IconDuration = () => h('svg', SVG, [h('circle', { cx: 12, cy: 12, r: 10 }), h('polyline', { points: '12 6 12 12 16 14' })]);
-const IconSuccess = () => h('svg', SVG, [h('polyline', { points: '20 6 9 17 4 12' })]);
-
 const loading = ref(false);
 const error = ref('');
 const selectedAgent = ref('');
@@ -230,6 +238,7 @@ const taskDetailError = ref('');
 const lastUpdatedAt = ref(null);
 
 const autoRefreshSeconds = 10;
+const autoRefreshPaused = ref(false);
 let refreshTimer = null;
 
 const systemMetrics = computed(() => {
@@ -253,19 +262,21 @@ const agentList = computed(() => {
 const executionKpis = computed(() => {
   const ov = executionOverview.value || {};
   return [
-    { key: 'running', label: '运行中任务', value: ov.count ?? 0, icon: IconRunning },
-    { key: 'sessions', label: '活跃会话', value: ov.sessions?.length ?? 0, icon: IconSession },
-    { key: 'agent-stream', label: 'Agent 执行', value: ov.by_execution_kind?.agent_stream ?? 0, icon: IconAgentExec },
-    { key: 'mcp', label: 'MCP 调用', value: ov.by_execution_kind?.mcp_tool_call ?? 0, icon: IconMcp },
+    { key: 'running', label: '运行中任务', value: ov.count ?? 0, icon: Code },
+    { key: 'sessions', label: '活跃会话', value: ov.sessions?.length ?? 0, icon: Users },
+    { key: 'agent-stream', label: 'Agent 执行', value: ov.by_execution_kind?.agent_stream ?? 0, icon: Monitor },
+    { key: 'mcp', label: 'MCP 调用', value: ov.by_execution_kind?.mcp_tool_call ?? 0, icon: Radio },
   ];
 });
 const systemKpis = computed(() => {
   const sm = systemMetrics.value || {};
+  const ratePct = toPercent(sm.overall_success_rate);
+  const successTone = ratePct == null ? undefined : ratePct >= 95 ? 'success' : ratePct >= 85 ? 'warning' : 'error';
   return [
-    { key: 'agents', label: '智能体总数', value: sm.total_agents ?? 0, icon: IconAgents },
-    { key: 'calls', label: '总调用次数', value: sm.total_calls ?? 0, icon: IconCalls },
-    { key: 'duration', label: '平均耗时', value: formatDuration(sm.avg_duration_ms), icon: IconDuration },
-    { key: 'success', label: '总体成功率', value: formatPercent(sm.overall_success_rate), icon: IconSuccess },
+    { key: 'agents', label: '智能体总数', value: sm.total_agents ?? 0, icon: Users },
+    { key: 'calls', label: '总调用次数', value: sm.total_calls ?? 0, icon: Activity },
+    { key: 'duration', label: '平均耗时', value: formatDuration(sm.avg_duration_ms), icon: Clock },
+    { key: 'success', label: '总体成功率', value: formatPercent(sm.overall_success_rate), icon: Check, tone: successTone },
   ];
 });
 
@@ -352,9 +363,15 @@ function formatDuration(ms) {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
 }
+// 成功率口径归一：后端可能返回 0-1 小数或 0-100 百分数，统一转成 0-100
+function toPercent(value) {
+  if (value == null || Number.isNaN(Number(value))) return null;
+  const n = Number(value);
+  return n > 1 ? n : n * 100;
+}
 function formatPercent(value) {
-  if (value == null) return '0%';
-  return `${(value * 100).toFixed(1)}%`;
+  const pct = toPercent(value);
+  return pct == null ? '—' : `${pct.toFixed(1)}%`;
 }
 function formatTime(timeStr) {
   if (!timeStr) return '-';
@@ -383,6 +400,15 @@ function startAutoRefresh() {
 }
 function stopAutoRefresh() {
   if (refreshTimer) { window.clearInterval(refreshTimer); refreshTimer = null; }
+}
+function toggleAutoRefresh() {
+  autoRefreshPaused.value = !autoRefreshPaused.value;
+  if (autoRefreshPaused.value) {
+    stopAutoRefresh();
+  } else {
+    loadMetrics({ silent: true });
+    startAutoRefresh();
+  }
 }
 
 onMounted(() => { loadMetrics(); startAutoRefresh(); });
@@ -427,9 +453,9 @@ onUnmounted(() => { stopAutoRefresh(); });
 .running-task-main { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
 .running-task-title { color: var(--color-text-primary); font-weight: 600; word-break: break-all; }
 .running-task-meta { display: flex; align-items: center; gap: var(--spacing-sm); color: var(--color-text-secondary); font-size: var(--font-size-xs); flex-wrap: wrap; justify-content: flex-end; }
+.running-task-meta span { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .detail-inline-head { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm); }
-.btn-inline { border: none; background: transparent; color: var(--color-brand-accent-light); cursor: pointer; font-size: var(--font-size-xs); font-weight: 600; }
 .inline-state { padding: 12px 14px; border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-secondary); }
 .inline-state--error { border-color: color-mix(in srgb, var(--color-error) 35%, transparent); color: var(--color-error); }
 
@@ -446,7 +472,7 @@ onUnmounted(() => { stopAutoRefresh(); });
 .tool-name { font-size: var(--font-size-xs); color: var(--color-text-primary); font-family: var(--font-mono); grid-column: 1; grid-row: 1; }
 .tool-count { font-size: var(--font-size-xs); color: var(--color-text-secondary); grid-column: 2; grid-row: 1; white-space: nowrap; }
 .tool-bar { grid-column: 1 / -1; grid-row: 2; height: 3px; background: var(--color-bg-tertiary); border-radius: var(--radius-full); overflow: hidden; }
-.tool-bar__fill { height: 100%; background: var(--color-brand-accent-light); border-radius: var(--radius-full); transition: width 0.4s ease; }
+.tool-bar__fill { height: 100%; background: var(--color-brand-accent); border-radius: var(--radius-full); transition: width 0.4s ease; }
 
 .error-list { display: flex; flex-direction: column; gap: 4px; }
 .error-item { display: flex; justify-content: space-between; padding: 6px 10px; background: var(--color-error-bg); border-left: 2px solid var(--color-error); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: var(--font-size-xs); }

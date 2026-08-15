@@ -143,29 +143,32 @@
   font-size: var(--font-size-xs);
 }
 
-/* 分组行右侧 hover 显现的操作按钮（如 Team 下拉） */
-.wb-nav-group__more {
+/* 分组行名称前的实体图标（Team/Builder 等） */
+.wb-nav-group__icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-muted);
+}
+
+/* 分组行右侧操作按钮（新建 Agent、Team 下拉等）：常态显示 */
+.wb-nav-group__action {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.wb-nav-group__label:hover .wb-nav-group__more,
-.wb-nav-group__more[data-state='open'] {
-  opacity: 1;
-}
-
-.wb-nav-group__more:hover {
+.wb-nav-group__action:hover,
+.wb-nav-group__action[data-state='open'] {
   background: var(--color-hover-overlay-md);
   color: var(--color-text-primary);
 }
@@ -178,6 +181,13 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+/* 树状层级引导线：行列表视觉上嵌套在分组头之下（对齐分组图标中线） */
+.wb-nav-group__items--guide {
+  margin-left: 15px;
+  padding-left: var(--spacing-sm);
+  border-left: 1px solid var(--color-border);
 }
 
 /* ===== 导航行（选中态全管理页统一：整行浮起） ===== */
@@ -216,6 +226,27 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-xs);
+}
+
+/* 行首图标位（leading 插槽）：active 时随名称变 accent 色 */
+.wb-nav-row__leading {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+}
+
+.wb-nav-row--active .wb-nav-row__leading {
+  color: var(--color-brand-accent);
+}
+
+/* 有行首图标时，描述/元信息缩进与名称列对齐（16px 图标 + 6px 间距） */
+.wb-nav-row--has-leading .wb-nav-row__desc,
+.wb-nav-row--has-leading .wb-nav-row__meta {
+  padding-left: 22px;
 }
 
 .wb-nav-row__name {
@@ -269,13 +300,6 @@
 .wb-nav-row--add:hover {
   background: var(--color-hover-overlay-md);
   color: var(--color-brand-accent);
-}
-
-/* 行内小标签（如「入口」标记） */
-.wb-nav-row__tag {
-  flex-shrink: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
 }
 
 /* ===== 工作区头部（卡片浮层化：分区实底 bg-tertiary） ===== */

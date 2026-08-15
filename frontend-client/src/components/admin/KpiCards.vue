@@ -12,7 +12,7 @@
         </span>
         <span class="kpi-label truncate">{{ item.label }}</span>
       </div>
-      <strong class="kpi-value block truncate">{{ displayed[index] ?? item.value }}</strong>
+      <strong class="kpi-value block truncate" :class="item.tone ? `kpi-value--${item.tone}` : ''">{{ displayed[index] ?? item.value }}</strong>
     </Card>
   </div>
 </template>
@@ -22,8 +22,9 @@ import { onBeforeUnmount, ref, watch } from 'vue';
 import { Card } from '../ui/card';
 /**
  * 管理端 KPI 统计卡片组。每张卡片用 shadcn Card。
- * items 每项: { key?, label, value, icon? }
+ * items 每项: { key?, label, value, icon?, tone? }
  * value 为整数时带 count-up 动画（尊重 prefers-reduced-motion），其余原样显示。
+ * tone: 'success' | 'warning' | 'error' —— 数值语义着色（成功率、错误数等）。
  */
 const props = defineProps({
   items: { type: Array, required: true },
@@ -114,6 +115,10 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId));
   font-variant-numeric: tabular-nums;
   color: var(--color-text-primary);
 }
+
+.kpi-value--success { color: var(--color-success); }
+.kpi-value--warning { color: var(--color-warning); }
+.kpi-value--error { color: var(--color-error); }
 
 @keyframes kpi-card-in {
   from {
