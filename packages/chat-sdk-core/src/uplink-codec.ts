@@ -18,6 +18,8 @@ export interface SendUplink {
     request_id?: string;
     /** 前端组件状态快照(对齐后端 events.ts task_submit 的 ui_context)。 */
     ui_context?: Record<string, unknown>;
+    /** 请求级思考档位(off/low/medium/high);缺省 = 跟随 provider 配置。 */
+    thinking_level?: "off" | "low" | "medium" | "high";
   };
 }
 
@@ -91,6 +93,7 @@ export function encodeSend(sessionId: string, input: {
   attachments?: AttachmentRef[];
   requestId?: string;
   uiContext?: Record<string, unknown>;
+  thinkingLevel?: "off" | "low" | "medium" | "high";
 }): SendUplink {
   const payload: SendUplink["payload"] = {
     category: "task_submit",
@@ -105,6 +108,9 @@ export function encodeSend(sessionId: string, input: {
   }
   if (input.uiContext) {
     payload.ui_context = input.uiContext;
+  }
+  if (input.thinkingLevel) {
+    payload.thinking_level = input.thinkingLevel;
   }
   return { type: "user_driven_change", session_id: sessionId, payload };
 }

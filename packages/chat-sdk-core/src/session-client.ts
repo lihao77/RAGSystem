@@ -360,6 +360,7 @@ export class SessionAgentClient implements AgentClient {
             messages: [{ role: "user", content: options.task }],
             ...(options.attachments?.length ? { attachments: options.attachments.map(({ file_id }) => ({ file_id })) } : {}),
             ...(options.selectedLlm ? { selectedLlm: options.selectedLlm } : {}),
+            ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
             ...(options.uiContext ? { forwardedProps: { uiContext: options.uiContext } } : {}),
             ...(this.hostTools.size > 0 ? { tools: this.aguiToolDeclarations() } : {}),
           };
@@ -398,6 +399,7 @@ export class SessionAgentClient implements AgentClient {
       ...(options.attachments ? { attachments: options.attachments } : {}),
       requestId,
       ...(options.uiContext ? { uiContext: options.uiContext } : {}),
+      ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
     }));
     let timer: ReturnType<typeof setTimeout> | null = null;
     const result = await Promise.race([

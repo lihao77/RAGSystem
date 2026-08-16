@@ -8,6 +8,8 @@
  * LLM 层不做 agent tier 解析（产品逻辑）。
  */
 
+import type { ThinkingLevel } from "./thinking.js";
+
 /** 文本内容片段。 */
 export interface TextPart {
   type: "text";
@@ -149,6 +151,11 @@ export interface LlmRequest {
   signal?: AbortSignal;
   temperature?: number | null;
   maxCompletionTokens?: number | null;
+  /**
+   * 请求级思考档位（off/low/medium/high）；优先于 provider 的 reasoning_effort /
+   * thinking_budget_tokens 配置。不传 → 跟随 provider 配置（现状行为不变）。
+   */
+  thinkingLevel?: ThinkingLevel | null;
   tools?: ChatToolDefinition[];
   toolChoice?: "auto" | "none";
   allowEmptyStream?: boolean;

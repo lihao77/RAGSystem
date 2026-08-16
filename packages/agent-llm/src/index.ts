@@ -5,6 +5,7 @@
  */
 export * from "./types.js";
 export * from "./provider-registry.js";
+export * from "./thinking.js";
 export { compactRecord } from "./record-utils.js";
 export * from "./content-parts.js";
 export * from "./external-call-policy.js";

@@ -40,6 +40,8 @@ export interface AguiRunInput {
   reconnect?: { runId: string; afterSeq?: number };
   attachments?: Array<{ file_id: string }>;
   selectedLlm?: string;
+  /** 请求级思考档位(off/low/medium/high);缺省 = 跟随 provider 配置。 */
+  thinkingLevel?: "off" | "low" | "medium" | "high";
 }
 
 export interface AguiRunHandle {

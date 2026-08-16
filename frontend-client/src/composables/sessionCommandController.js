@@ -130,12 +130,15 @@ export function createSessionCommandController({
       };
       const selectedLlm = deps.getCurrentSelectedLlm();
       if (selectedLlm) body.selected_llm = selectedLlm;
+      const thinkingLevel = deps.getCurrentThinkingLevel?.();
+      if (thinkingLevel) body.thinking_level = thinkingLevel;
 
       if (!sendViaSdk) throw new Error('Chat SDK 未初始化');
       const sdkResponse = await sendViaSdk({
         task: body.task,
         attachments: body.attachments,
         ...(body.selected_llm ? { selectedLlm: body.selected_llm } : {}),
+        ...(body.thinking_level ? { thinkingLevel: body.thinking_level } : {}),
       }, requestId);
       const result = sdkResponse?.data || sdkResponse || {};
       if (!result.started) {

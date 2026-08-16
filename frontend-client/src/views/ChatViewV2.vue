@@ -236,6 +236,7 @@ import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { useLlmStore } from '../stores/llm.js';
+import { useThinkingStore } from '../stores/thinking.js';
 import { sessionLoadStrategyRestoresActiveRun } from '@ragsystem/agent-protocol';
 
 // Emits
@@ -246,6 +247,7 @@ const inputMessage = ref('');
 const sessionRunStore = useSessionRunStore();
 const sessionListStore = useSessionListStore();
 const llmStore = useLlmStore();
+const thinkingStore = useThinkingStore();
 const chatSdkClient = getFrontendChatSdk();
 const {
   messages,
@@ -335,6 +337,10 @@ const {
 
 function getCurrentSelectedLlm() {
   return llmStore.selectedLLM || '';
+}
+
+function getCurrentThinkingLevel() {
+  return thinkingStore.thinkingLevel || '';
 }
 
 function openCtxDrawer() {
@@ -550,6 +556,7 @@ const {
   inputMessage,
   get pendingAttachments() { return pendingAttachments; },
   getCurrentSelectedLlm,
+  getCurrentThinkingLevel,
   ensureSession: (...a) => ensureSession(...a),
   materializeAttachmentsForSend: (...a) => materializeAttachmentsForSend(...a),
   clearComposerAttachments: () => clearComposerAttachments(),
@@ -611,6 +618,7 @@ const {
   activeRun: _activeRun,
   materializeAttachmentsForSend,
   getCurrentSelectedLlm,
+  getCurrentThinkingLevel,
   deleteMessageCache,
   reloadSessionMessages: (sessionId, options) => loadSessionMessages(sessionId, options),
   reloadSessionParticipants: (sessionId, options) => loadSessionParticipants(sessionId, options),

@@ -34,6 +34,11 @@ export interface ProjectionInput {
     provider: ModelProviderConfig;
     modelName: string;
   } | null;
+  /**
+   * 请求级思考档位（off/low/medium/high；前端 thinking_level 透传）。
+   * undefined = 跟随 provider 配置（现状行为不变）。
+   */
+  thinkingLevel?: "off" | "low" | "medium" | "high";
 }
 
 /**
@@ -50,6 +55,7 @@ export function projectAgentProfile(input: ProjectionInput): AgentProfile {
     agentName: input.agent.agent_name,
     llmTiers: tiers,
     behavior,
+    ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
   };
   // custom_params 其余字段透传（behavior 已单独提取，不重复）。
   const customParams = stripBehaviorFromCustomParams(input.agent.custom_params);

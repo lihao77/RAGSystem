@@ -722,6 +722,8 @@ export const UserDrivenChangePayloadSchema = z.object({
   attachments: z.array(AttachmentRefSchema).optional(),
   request_id: z.string().optional(),
   ui_context: z.record(z.string(), z.unknown()).nullish(),
+  // 请求级思考档位（off/low/medium/high）；缺省 = 跟随 provider 配置。
+  thinking_level: z.enum(["off", "low", "medium", "high"]).nullish(),
 });
 
 export const AbortPayloadSchema = z.object({

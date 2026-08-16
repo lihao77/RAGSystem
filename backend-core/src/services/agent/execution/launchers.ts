@@ -65,6 +65,8 @@ interface UnifiedRunStartInput {
   task: string;
   executionKind: string;
   selectedLlm: string;
+  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
+  thinkingLevel?: "off" | "low" | "medium" | "high";
   agentName?: string | null;
   modelTask?: string;
   entrypoint?: string;
@@ -88,6 +90,8 @@ interface SendUserMessageInput {
   task: string;
   attachments: AttachmentRef[];
   selectedLlm: string;
+  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
+  thinkingLevel?: "off" | "low" | "medium" | "high";
   executionKind: string;
   originChannel: SessionOriginChannel;
   uiContext?: Record<string, unknown> | null;
@@ -116,6 +120,8 @@ export interface RollbackRetryInput {
   afterMessageId?: string | null;
   modifyUserMessage?: string | null;
   selectedLlm?: string | null;
+  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
+  thinkingLevel?: "off" | "low" | "medium" | "high" | null;
   attachments?: AttachmentRef[] | null;
   uiContext?: Record<string, unknown> | null;
 }
@@ -316,6 +322,7 @@ class AgentLaunchers {
       ...(input.selectedLlm
         ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } }
         : {}),
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
       persistUserMessage: {
         metadata: input.persistMetadata,
         contentParts: input.persistContentParts,
@@ -477,6 +484,7 @@ class AgentLaunchers {
       ...(slashCommand?.mode === "prompt" ? { modelTask: slashCommand.agentText } : {}),
       executionKind: input.executionKind,
       selectedLlm: input.selectedLlm,
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
       ...(input.agentName ? { agentName: input.agentName } : {}),
       ...(input.entrypoint ? { entrypoint: input.entrypoint } : {}),
       persistMetadata: {
@@ -510,6 +518,7 @@ class AgentLaunchers {
       executionKind: "agent_stream",
       originChannel: "web",
       selectedLlm: request.selected_llm ?? "",
+      ...(request.thinking_level ? { thinkingLevel: request.thinking_level } : {}),
       ...(request.ui_context !== undefined ? { uiContext: request.ui_context } : {}),
       followupPolicy: options.followupPolicy ?? "queue",
       ...(options.onAccepted ? { onAccepted: options.onAccepted } : {}),
@@ -565,6 +574,7 @@ class AgentLaunchers {
       executionKind,
       originChannel: "api",
       selectedLlm: request.selected_llm ?? "",
+      ...(request.thinking_level ? { thinkingLevel: request.thinking_level } : {}),
       ...(request.agent ? { agentName: request.agent } : {}),
       entrypoint: "execute",
       followupPolicy: "queue",
@@ -755,6 +765,7 @@ class AgentLaunchers {
         task,
         attachments,
         selectedLlm: input.selectedLlm ?? "",
+        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
         executionKind: "rollback_and_retry",
         originChannel: "web",
         entrypoint: "rollback_and_retry",

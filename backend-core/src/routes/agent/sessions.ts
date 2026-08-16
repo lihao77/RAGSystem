@@ -428,6 +428,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
         afterMessageId?: string | null;
         modifyUserMessage?: string | null;
         selectedLlm?: string | null;
+        thinkingLevel?: "off" | "low" | "medium" | "high";
         attachments?: AttachmentRef[] | null;
         uiContext?: Record<string, unknown> | null;
       } = {
@@ -444,6 +445,9 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       }
       if (payload.modify_user_message !== undefined) {
         retryInput.modifyUserMessage = payload.modify_user_message;
+      }
+      if (payload.thinking_level) {
+        retryInput.thinkingLevel = payload.thinking_level;
       }
       if (payload.attachments && payload.attachments.length) {
         retryInput.attachments = payload.attachments;

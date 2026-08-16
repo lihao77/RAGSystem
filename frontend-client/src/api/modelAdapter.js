@@ -94,6 +94,25 @@ export function findProviderModelByValue(value) {
   return { provider, provider_type, model }
 }
 
+/**
+ * 取指定模型（"provider|type|model" 值）对应 provider 的思考能力 descriptor。
+ * 后端在 /providers 响应里注入 thinking 字段（agent-llm 注册表 + thinking_kind 覆盖）；
+ * 旧后端/无值 → kind 'none'（调用方应隐藏选择器）。
+ */
+export async function describeThinkingForModel(selectedValue) {
+  const { provider: providerName } = findProviderModelByValue(selectedValue)
+  if (!providerName) return { kind: 'none', levels: [] }
+  try {
+    const providers = await getProviders()
+    const provider = providers.find(item => (item.name || item.key) === providerName)
+    const thinking = provider && provider.thinking && typeof provider.thinking === 'object' ? provider.thinking : null
+    if (!thinking || thinking.kind === 'none') return { kind: 'none', levels: [] }
+    return { kind: thinking.kind, levels: Array.isArray(thinking.levels) ? thinking.levels : [] }
+  } catch {
+    return { kind: 'none', levels: [] }
+  }
+}
+
 export async function createProvider(data) {
   return http.post(`${API_BASE}/providers`, data)
 }

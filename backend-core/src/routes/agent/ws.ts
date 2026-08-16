@@ -352,6 +352,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
                       selected_llm: payload.selected_llm,
                       attachments: payload.attachments,
                       ui_context: payload.ui_context,
+                      thinking_level: payload.thinking_level ?? undefined,
                     },
                     requestId,
                     {

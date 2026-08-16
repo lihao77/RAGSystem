@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 
+import { describeThinking } from "@ragsystem/agent-llm";
 import {
   ProviderPayloadSchema,
   ReorderProvidersRequestSchema,
@@ -31,7 +32,8 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
 
   app.get("/providers", async (request) => {
     const providers = (await (await ensureRequestApplications(request, options)).providers.listProviders())
-      .map(redactProviderSecrets);
+      .map(redactProviderSecrets)
+      .map(withThinkingDescriptor);
     return {
       ...ok(providers, "Provider 列表获取成功"),
       providers,
@@ -163,6 +165,15 @@ function redactProviderSecrets<T extends Record<string, unknown>>(provider: T): 
     ...visible,
     api_key_configured: Boolean(String(apiKey ?? "").trim()),
   };
+}
+
+/** 注入思考能力 descriptor（agent-llm 注册表 + provider thinking_kind 覆盖），前端选择器据此渲染。 */
+function withThinkingDescriptor<T extends Record<string, unknown>>(provider: T): T & { thinking: { kind: string; levels: string[] } } {
+  const capability = describeThinking(
+    String(provider.provider_type ?? ""),
+    provider.thinking_kind,
+  );
+  return { ...provider, thinking: { kind: capability.kind, levels: [...capability.levels] } };
 }
 
 async function collectProviderUsages(

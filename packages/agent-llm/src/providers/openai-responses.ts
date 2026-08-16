@@ -2,6 +2,7 @@ import type { ChatMessage, ChatToolCall, LlmRequest, LlmResult, LlmStreamHandler
 import type { LlmProviderAdapter } from "./adapter.js";
 import { extractText, toResponsesContent } from "../content-parts.js";
 import { compactRecord } from "../record-utils.js";
+import { effectiveReasoningEffort } from "../thinking.js";
 import { isRecord } from "../internal/records.js";
 import { extractOpenAiUsage } from "../internal/usage.js";
 import { readSse } from "../internal/sse.js";
@@ -58,14 +59,15 @@ export function buildResponsesBody(request: LlmRequest, stream = false): Record<
   const injectionIndex = anchorIndex >= 0 ? anchorIndex : (activeContinuation?.index ?? -1);
   const input = request.messages.flatMap((message, index) =>
     mapInputMessage(message, index === injectionIndex ? activeContinuation?.state : undefined));
+  const reasoningEffort = effectiveReasoningEffort(request.provider, request.thinkingLevel);
   return {
     ...compactRecord(request.extraParams),
     model: request.model,
     input,
     instructions,
-    temperature: request.provider.reasoning_effort ? undefined : (request.temperature ?? undefined),
+    temperature: reasoningEffort ? undefined : (request.temperature ?? undefined),
     max_output_tokens: request.maxCompletionTokens ?? undefined,
-    reasoning: request.provider.reasoning_effort ? { effort: request.provider.reasoning_effort } : undefined,
+    reasoning: reasoningEffort ? { effort: reasoningEffort } : undefined,
     prompt_cache_key: request.provider.supports_prompt_caching !== false ? request.promptCacheKey : undefined,
     tools: request.tools?.length
       ? request.tools.map((tool) => ({

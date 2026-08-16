@@ -109,6 +109,8 @@ export class AgentRunEngine {
      *（保留 tier 的 max_context_tokens 等配置，budget 据此计算）。
      */
     selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
+    /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
+    thinkingLevel?: "off" | "low" | "medium" | "high";
     persistUserMessage?: {
       metadata?: Record<string, unknown> | undefined;
       contentParts: MessageContentPart[];
@@ -260,6 +262,7 @@ export class AgentRunEngine {
       provider: input.provider,
       modelName: input.modelName,
       ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
       threadKey: "root",
        rootRunId: runId,
        ...(input.mailboxTargetRunId ? { mailboxTargetRunId: input.mailboxTargetRunId } : {}),
@@ -444,6 +447,8 @@ export class AgentRunEngine {
      * 不传（如 child delegation run）→ null → projection 走 agent.default tier。
      */
     selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
+    /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
+    thinkingLevel?: "off" | "low" | "medium" | "high";
     // run 自己的归属：root run threadKey="root"、parent=null；child run threadKey="child:<id>"、
     // parent_run_id/child_agent_id 指向父。执行链路据此统一落库，无 root/child 分支。
     threadKey: string;
@@ -593,6 +598,7 @@ export class AgentRunEngine {
           abortController: input.abortController,
           signal: input.abortController.signal,
           selectedLlm: input.selectedLlm ?? null,
+          ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
           // 最终 assistant 消息的调用点元数据：execution_kind + finalMetadataExtra（retry_of_* 等）。
           messageMetadata: { execution_kind: executionKind, ...(input.finalMetadataExtra ?? {}) },
           ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),

@@ -59,6 +59,11 @@ export interface AgentProfile {
  /** 全量已决的扁平 tier 表（投影算死，内核零兜底）。 */
   llmTiers: TierMap;
   behavior: AgentBehavior;
+  /**
+   * 请求级思考档位（off/low/medium/high；投影层从前端 thinking_level 透传）。
+   * undefined = 跟随 provider 配置；协议层 buildRequest 时落到 LlmRequest.thinkingLevel。
+   */
+  thinkingLevel?: "off" | "low" | "medium" | "high";
   /** custom_params 其余透传。 */
   customParams?: Record<string, unknown>;
 }

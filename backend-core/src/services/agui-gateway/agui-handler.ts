@@ -355,6 +355,7 @@ export class AguiGateway {
           ? { ui_context: input.forwardedProps.uiContext as Record<string, unknown> }
           : {}),
         ...(input.selectedLlm ? { selected_llm: input.selectedLlm } : {}),
+        ...(input.thinkingLevel ? { thinking_level: input.thinkingLevel } : {}),
       },
       externalRunId,
       { followupPolicy: "reject" },

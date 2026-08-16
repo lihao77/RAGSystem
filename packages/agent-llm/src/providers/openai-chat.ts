@@ -1,6 +1,7 @@
 import type { ChatToolCall, LlmRequest, LlmResult, LlmStreamHandler, TokenUsage } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
 import { compactRecord } from "../record-utils.js";
+import { effectiveReasoningEffort } from "../thinking.js";
 import { isRecord } from "../internal/records.js";
 import { extractOpenAiUsage } from "../internal/usage.js";
 import { readSse } from "../internal/sse.js";
@@ -50,7 +51,7 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
 }
 
 export function buildChatBody(request: LlmRequest, stream = false): Record<string, unknown> {
-  const reasoningEffort = request.provider.reasoning_effort;
+  const reasoningEffort = effectiveReasoningEffort(request.provider, request.thinkingLevel);
   const usesModernTokenField = request.provider.provider_type === "openai_chat" && Boolean(reasoningEffort);
   return {
     ...compactRecord(request.extraParams),

@@ -15,6 +15,8 @@ export const StreamExecuteRequestSchema = z.object({
   attachments: z.array(AttachmentRefSchema).optional().default([]),
   // 前端组件状态快照(ui_context extension 的 data):backend 透传 + 投影,结构由前端定义。
   ui_context: z.record(z.string(), z.unknown()).nullish(),
+  // 请求级思考档位；缺省 = 跟随 provider 配置（现状行为不变）。
+  thinking_level: z.enum(["off", "low", "medium", "high"]).nullish(),
 }).strict();
 
 // /execute(同步执行)不支持附件/ui_context:executeSynchronously 不解析附件也不投影 ui_context。

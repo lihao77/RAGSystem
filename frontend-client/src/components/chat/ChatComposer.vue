@@ -44,6 +44,7 @@
         <template #footerMeta>
           <div class="composer-run-controls" role="group" aria-label="本次发送设置">
             <LLMSelector presentation="composer" />
+            <ThinkingLevelSelector />
             <PermissionModeSelector :session-id="sessionId" :chat-sdk-client="chatSdkClient" />
           </div>
         </template>
@@ -80,6 +81,7 @@
 import { ref } from 'vue';
 import ChatInput from '../ChatInput.vue';
 import LLMSelector from '../LLMSelector.vue';
+import ThinkingLevelSelector from '../ThinkingLevelSelector.vue';
 import PermissionModeSelector from '../PermissionModeSelector.vue';
 import TaskLauncher from './TaskLauncher.vue';
 

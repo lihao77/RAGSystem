@@ -20,6 +20,8 @@ interface AgentInvocationBase {
   provider: ModelProviderConfig;
   modelName: string;
   selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
+  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
+  thinkingLevel?: "off" | "low" | "medium" | "high";
   /** Existing run/call used to claim durable agent messages during an idle continuation. */
   mailboxTargetRunId?: string | null;
   mailboxTargetAgentCallId?: string | null;

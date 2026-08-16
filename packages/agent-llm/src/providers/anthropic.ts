@@ -9,6 +9,7 @@ import type {
 import type { LlmProviderAdapter } from "./adapter.js";
 import { extractText, toAnthropicContent } from "../content-parts.js";
 import { compactRecord } from "../record-utils.js";
+import { effectiveThinkingBudget } from "../thinking.js";
 import { isRecord } from "../internal/records.js";
 import { extractAnthropicUsage } from "../internal/usage.js";
 import { readSse } from "../internal/sse.js";
@@ -83,7 +84,7 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
     : undefined;
   if (cacheEnabled && tools?.length) tools[tools.length - 1]!.cache_control = { type: "ephemeral" };
 
-  const budget = request.provider.thinking_budget_tokens;
+  const budget = effectiveThinkingBudget(request.provider, request.thinkingLevel);
   const thinking = typeof budget === "number" && Number.isFinite(budget) && budget > 0
     ? { type: "enabled", budget_tokens: Math.floor(budget) }
     : undefined;

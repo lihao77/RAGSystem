@@ -129,11 +129,13 @@ export function useMessageRevision(deps) {
       // 先物化附件（上传本地文件拿 file_id），再交给后端执行“回滚 -> 统一发送”。
       const materialized = await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
       const selectedLlm = deps.getCurrentSelectedLlm?.();
+      const thinkingLevel = deps.getCurrentThinkingLevel?.();
       const retryBody = {
         ...anchor,
         modify_user_message: content,
         attachments: materialized.map(serializeAttachmentForSend),
         ...(selectedLlm ? { selected_llm: selectedLlm } : {}),
+        ...(thinkingLevel ? { thinking_level: thinkingLevel } : {}),
       };
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
       const requestId = createRequestId();

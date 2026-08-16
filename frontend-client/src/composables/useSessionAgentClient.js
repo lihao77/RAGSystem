@@ -155,6 +155,7 @@ export function useSessionAgentClient(deps) {
       task: input.task,
       requestId,
       ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
       ...(input.attachments ? { attachments: input.attachments } : {}),
     }),
     stopViaSdk: async () => { sdk.stop(); },
