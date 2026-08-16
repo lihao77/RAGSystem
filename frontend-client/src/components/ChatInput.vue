@@ -68,14 +68,13 @@
             <Button
               variant="ghost"
               size="icon"
+              class="h-7 w-7"
               aria-label="添加图片或文件"
               title="添加图片或文件"
               :disabled="!canAttach"
               @click="emit('openAttachments')"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="attachment-icon">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.82l8.49-8.48" />
-              </svg>
+              <IconPlus :size="14" class="attachment-icon" />
             </Button>
 
             <div v-if="$slots.footerMeta" class="input-footer-meta">
@@ -89,11 +88,12 @@
               v-if="canResume && canStop"
               variant="destructive"
               size="icon"
+              class="h-7 w-7"
               aria-label="结束挂起任务"
               title="结束挂起任务"
               @click="handleStop"
             >
-              <IconStop aria-hidden="true" :size="18" />
+              <IconStop aria-hidden="true" :size="14" />
             </Button>
             <Button
               v-if="canResume"
@@ -111,22 +111,24 @@
               v-else-if="canStop && sendDisabled"
               variant="destructive"
               size="icon"
+              class="h-7 w-7"
               aria-label="停止生成"
               title="停止生成"
               @click="handleStop"
             >
-              <IconStop aria-hidden="true" :size="18" />
+              <IconStop aria-hidden="true" :size="14" />
             </Button>
             <Button
               v-else
               variant="default"
               size="icon"
+              class="h-7 w-7"
               aria-label="发送消息"
               title="发送消息"
               :disabled="sendDisabled"
               @click="handleSend"
             >
-              <IconSend :size="18" />
+              <IconSend :size="14" />
             </Button>
           </div>
         </div>
@@ -142,6 +144,7 @@ import IconSend from './icons/IconSend.vue';
 import IconClose from './icons/IconClose.vue';
 import IconPlay from './icons/IconPlay.vue';
 import IconFile from './icons/IconFile.vue';
+import IconPlus from './icons/IconPlus.vue';
 import AuthenticatedImage from './common/AuthenticatedImage.vue';
 import { formatAttachmentSize, getSessionFileDownloadUrl, isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
 import { Button } from './ui/button';

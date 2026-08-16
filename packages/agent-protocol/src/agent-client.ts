@@ -237,7 +237,7 @@ export interface SendOptions {
   /** 前端组件状态快照(对齐 events.ts task_submit 的 ui_context);widget 采集宿主状态用。 */
   uiContext?: Record<string, unknown>;
   /** 请求级思考档位(off/low/medium/high);缺省 = 跟随 provider 配置。 */
-  thinkingLevel?: "off" | "low" | "medium" | "high";
+  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "on";
 }
 
 /** send 结果，对齐 AgentRunStartResult（contracts/execution.ts）。 */

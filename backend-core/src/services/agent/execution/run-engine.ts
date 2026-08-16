@@ -27,6 +27,7 @@ import {
   normalizeSessionTeamSnapshot,
   type SessionIdentity,
 } from "../../../contracts/session/session.js";
+import type { ThinkingLevel } from "@ragsystem/agent-llm";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
@@ -109,8 +110,8 @@ export class AgentRunEngine {
      *（保留 tier 的 max_context_tokens 等配置，budget 据此计算）。
      */
     selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
-    /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
-    thinkingLevel?: "off" | "low" | "medium" | "high";
+    /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 agent tier 默认档位。 */
+    thinkingLevel?: ThinkingLevel;
     persistUserMessage?: {
       metadata?: Record<string, unknown> | undefined;
       contentParts: MessageContentPart[];
@@ -447,8 +448,8 @@ export class AgentRunEngine {
      * 不传（如 child delegation run）→ null → projection 走 agent.default tier。
      */
     selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
-    /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
-    thinkingLevel?: "off" | "low" | "medium" | "high";
+    /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 agent tier 默认档位。 */
+    thinkingLevel?: ThinkingLevel;
     // run 自己的归属：root run threadKey="root"、parent=null；child run threadKey="child:<id>"、
     // parent_run_id/child_agent_id 指向父。执行链路据此统一落库，无 root/child 分支。
     threadKey: string;

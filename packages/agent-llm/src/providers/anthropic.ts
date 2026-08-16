@@ -88,13 +88,23 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
   const thinking = typeof budget === "number" && Number.isFinite(budget) && budget > 0
     ? { type: "enabled", budget_tokens: Math.floor(budget) }
     : undefined;
+  const configuredMaxTokens = request.maxCompletionTokens ?? request.provider.max_completion_tokens ?? request.provider.max_tokens;
+  let maxTokens = configuredMaxTokens ?? 4096;
+  if (thinking) {
+    if (configuredMaxTokens == null) {
+      // Anthropic 要求 budget_tokens 严格小于 max_tokens：默认上限不足以容纳档位预算时抬高。
+      maxTokens = Math.max(maxTokens, thinking.budget_tokens + 1024);
+    } else {
+      thinking.budget_tokens = Math.min(thinking.budget_tokens, maxTokens - 1);
+    }
+  }
   return {
     ...compactRecord(request.extraParams),
     model: request.model,
     messages,
     system: system.length ? system : undefined,
     temperature: thinking ? undefined : (request.temperature ?? undefined),
-    max_tokens: request.maxCompletionTokens ?? request.provider.max_completion_tokens ?? request.provider.max_tokens ?? 4096,
+    max_tokens: maxTokens,
     tools,
     tool_choice: request.tools?.length ? mapAnthropicToolChoice(request.toolChoice) : undefined,
     ...(thinking ? { thinking } : {}),

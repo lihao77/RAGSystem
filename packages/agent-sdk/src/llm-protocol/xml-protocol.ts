@@ -90,7 +90,7 @@ export class XmlProtocol implements Protocol {
       maxCompletionTokens: llmParams.maxCompletionTokens,
       extraParams: llmParams.extraParams,
       promptCacheKey: buildPromptCacheKey(session),
-      ...(session.profile.thinkingLevel ? { thinkingLevel: session.profile.thinkingLevel } : {}),
+      thinkingLevel: session.profile.thinkingLevel ?? llmParams.thinkingLevel ?? null,
     };
     if (session.signal) {
       request.signal = session.signal;

@@ -121,8 +121,8 @@ export const RollbackAndRetryRequestSchema = RollbackRequestSchema.extend({
   selected_llm: z.string().nullable().optional(),
   attachments: z.array(AttachmentRefSchema).optional().default([]),
   ui_context: z.record(z.string(), z.unknown()).nullish(),
-  // 请求级思考档位；缺省 = 跟随 provider 配置。
-  thinking_level: z.enum(["off", "low", "medium", "high"]).nullish(),
+  // 请求级思考档位；缺省 = 跟随 agent tier 默认档位。
+  thinking_level: z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max", "on"]).nullish(),
 }).strict();
 
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;

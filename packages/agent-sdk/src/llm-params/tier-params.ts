@@ -13,7 +13,7 @@ import type { TierMap } from "../types.js";
 /**
  * 读 tiers[tier] 的生成参数；tier 缺档时回落 default。
  *
- * 标量字段（temperature / maxCompletionTokens）：场景 tier → default 逐级 ??（两级）。
+ * 标量字段（temperature / maxCompletionTokens / thinkingLevel）：场景 tier → default 逐级 ??（两级）。
  * extraParams：场景 tier → default 合并（后者覆盖前者同名 key），空值过滤。
  */
 export function readTierParams(tiers: TierMap, tier: string): RequestLlmParams {
@@ -24,6 +24,7 @@ export function readTierParams(tiers: TierMap, tier: string): RequestLlmParams {
     temperature: tierEntry?.temperature ?? defaultEntry?.temperature ?? null,
     maxCompletionTokens: tierEntry?.maxCompletionTokens ?? defaultEntry?.maxCompletionTokens ?? null,
     extraParams: compactRecord(defaultEntry?.extraParams, tierEntry?.extraParams),
+    thinkingLevel: tierEntry?.thinkingLevel ?? defaultEntry?.thinkingLevel ?? null,
   };
 }
 

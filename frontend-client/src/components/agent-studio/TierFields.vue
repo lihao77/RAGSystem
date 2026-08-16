@@ -46,6 +46,16 @@
             <FieldLabel>Max Context Tokens</FieldLabel>
             <NumberInput :model-value="tier.max_context_tokens" :min="1" :step="1" @update:model-value="tier.max_context_tokens = $event" />
           </Field>
+          <Field>
+            <FieldLabel>思考档位</FieldLabel>
+            <CustomSelect
+              :model-value="tier.thinking_level || ''"
+              :options="thinkingOptions"
+              placeholder="模型默认"
+              @update:model-value="tier.thinking_level = $event"
+            />
+            <p class="field-hint">该 tier 的默认思考档位；聊天时选择器"跟随配置"即使用此档位</p>
+          </Field>
         </div>
 
         <div class="extra-params">
@@ -70,6 +80,7 @@
 
 <script setup>
 /* eslint-disable vue/no-mutating-props -- 同上：tier 为 useAgentForm 表单模型的层级子对象，脚本内改写属有意架构 */
+import { computed } from 'vue';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
@@ -78,6 +89,7 @@ import CustomSelect from '../ui/CustomSelect.vue';
 import NumberInput from '../NumberInput.vue';
 import { createExtraParamEntry } from '../../utils/modelList.js';
 import { extraParamTypeOptions } from './agentFormModel.js';
+import { thinkingOptionsFor } from '../../utils/thinkingLevels.js';
 
 const props = defineProps({
   tier: { type: Object, default: null },
@@ -92,6 +104,9 @@ const props = defineProps({
 });
 
 defineEmits(['provider-change', 'toggle']);
+
+/** 按当前 tier 的 provider_type 给出可选思考档位（provider 变化时自动联动）。 */
+const thinkingOptions = computed(() => thinkingOptionsFor(props.tier?.provider_type));
 
 function addExtraParam() {
   if (!props.tier.extra_params_entries) props.tier.extra_params_entries = [];
@@ -149,4 +164,5 @@ function removeExtraParam(index) {
   align-items: center;
 }
 .extra-params__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); margin: 0; }
+.field-hint { font-size: var(--font-size-xs); color: var(--color-text-muted); margin: 4px 0 0; }
 </style>

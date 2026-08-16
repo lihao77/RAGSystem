@@ -4,34 +4,28 @@
       class="data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
       :title="triggerTitle"
     >
-      <component :is="modeIcon" :class="triggerToneClass" />
+      <component :is="modeIcon" :size="14" :class="triggerToneClass" />
       <span class="flex min-w-0 flex-1 items-center justify-between gap-3">
         <span>会话权限</span>
         <span class="text-xs text-muted-foreground">{{ modeLabel }}</span>
       </span>
     </DropdownMenuSubTrigger>
     <DropdownMenuSubContent class="w-72">
-      <DropdownMenuLabel>
-        <span class="flex flex-col gap-1">
-          <span>会话权限</span>
-          <span class="text-xs font-normal text-muted-foreground">
-            {{ sessionId ? '仅影响当前会话；本次选择也会作为新会话默认值。' : '当前设置会用于接下来创建的新会话。' }}
-          </span>
-        </span>
-      </DropdownMenuLabel>
-      <DropdownMenuSeparator />
       <DropdownMenuGroup>
         <DropdownMenuRadioGroup :model-value="currentMode" @update:model-value="selectMode">
           <DropdownMenuRadioItem
             v-for="mode in modes"
             :key="mode.value"
             :value="mode.value"
+            class="permission-option pl-2 gap-2.5"
             :disabled="!canEdit || updateAction.loading.value"
           >
-            <span class="flex flex-col gap-0.5">
+            <component :is="modeIcons[mode.value]" :size="15" class="mode-option-icon" />
+            <span class="flex min-w-0 flex-1 flex-col gap-0.5">
               <span>{{ mode.label }}</span>
               <span class="text-xs text-muted-foreground">{{ mode.description }}</span>
             </span>
+            <IconCheck v-if="currentMode === mode.value" class="check-icon" :size="15" :stroke-width="2.5" />
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
       </DropdownMenuGroup>
@@ -43,35 +37,29 @@
       <Button
         variant="ghost"
         size="icon"
-        :class="cn('permission-mode-trigger', triggerToneClass)"
+        :class="cn('permission-mode-trigger h-7 w-7', triggerToneClass)"
         :title="triggerTitle"
         :aria-label="triggerTitle"
       >
-        <component :is="modeIcon" />
+        <component :is="modeIcon" :size="14" />
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" class="w-72">
-      <DropdownMenuLabel>
-        <span class="flex flex-col gap-1">
-          <span>会话权限</span>
-          <span class="text-xs font-normal text-muted-foreground">
-            {{ sessionId ? '仅影响当前会话；本次选择也会作为新会话默认值。' : '当前设置会用于接下来创建的新会话。' }}
-          </span>
-        </span>
-      </DropdownMenuLabel>
-      <DropdownMenuSeparator />
       <DropdownMenuGroup>
         <DropdownMenuRadioGroup :model-value="currentMode" @update:model-value="selectMode">
           <DropdownMenuRadioItem
             v-for="mode in modes"
             :key="mode.value"
             :value="mode.value"
+            class="permission-option pl-2 gap-2.5"
             :disabled="!canEdit || updateAction.loading.value"
           >
-            <span class="flex flex-col gap-0.5">
+            <component :is="modeIcons[mode.value]" :size="15" class="mode-option-icon" />
+            <span class="flex min-w-0 flex-1 flex-col gap-0.5">
               <span>{{ mode.label }}</span>
               <span class="text-xs text-muted-foreground">{{ mode.description }}</span>
             </span>
+            <IconCheck v-if="currentMode === mode.value" class="check-icon" :size="15" :stroke-width="2.5" />
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
       </DropdownMenuGroup>
@@ -84,14 +72,13 @@ import { computed, ref, watch } from 'vue';
 import { Shield, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-vue-next';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
+import IconCheck from './icons/IconCheck.vue';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -193,5 +180,28 @@ watch(() => props.sessionId, sessionId => {
 .permission-mode-trigger.tone-skip,
 .tone-skip {
   color: var(--color-error);
+}
+
+.mode-option-icon {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
+.check-icon {
+  flex-shrink: 0;
+  color: var(--color-success);
+}
+</style>
+
+<style>
+/* DropdownMenuRadioItem 渲染在 Portal（body 下），scoped 样式无法命中；permission-option 类名全局唯一。 */
+/* 隐藏默认 radio 圆圈指示器（shadcn 外层 span），选中/高亮样式对齐 LLMSelector / ThinkingLevelSelector。 */
+.permission-option > span:first-child {
+  display: none;
+}
+
+.permission-option[data-state="checked"],
+.permission-option[data-highlighted] {
+  background: var(--color-interactive-hover);
 }
 </style>

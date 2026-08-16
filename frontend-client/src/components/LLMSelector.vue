@@ -12,12 +12,12 @@
           :aria-expanded="open"
         >
           <span class="selected-text">{{ displayText }}</span>
-          <IconChevronDown class="arrow-icon" :class="{ rotate: open }" :size="16" />
+          <IconChevronDown class="arrow-icon" :class="{ rotate: open }" :size="14" />
           <div v-if="loading" class="loading-spinner"></div>
         </button>
       </PopoverTrigger>
       <PopoverContent
-        class="llm-popover"
+        class="llm-popover p-0"
         align="start"
         :side="presentation === 'composer' ? 'top' : 'bottom'"
         :side-offset="8"
@@ -27,7 +27,7 @@
           <CommandList>
             <CommandEmpty>No models found</CommandEmpty>
             <CommandGroup>
-              <CommandItem class="llm-option rounded-md px-3.5 py-2.5 data-[highlighted]:bg-[var(--color-interactive-hover)]" value="__default__" @select="() => selectModel('')">
+              <CommandItem class="llm-option rounded-md px-3 py-1.5 data-[highlighted]:bg-[var(--color-interactive-hover)]" value="__default__" @select="() => selectModel('')">
                 <span class="option-copy">
                   <span class="option-label">默认</span>
                   <span class="option-sub">使用智能体配置</span>
@@ -38,7 +38,7 @@
               <CommandItem
                 v-for="m in models"
                 :key="m.value"
-                class="llm-option rounded-md px-3.5 py-2.5 data-[highlighted]:bg-[var(--color-interactive-hover)]"
+                class="llm-option rounded-md px-3 py-1.5 data-[highlighted]:bg-[var(--color-interactive-hover)]"
                 :value="m.value"
                 @select="() => selectModel(m.value)"
               >
@@ -183,7 +183,7 @@ defineExpose({ getSelection });
   width: auto;
   min-width: 0;
   max-width: 160px;
-  height: 32px;
+  height: 28px;
   padding: 0 30px 0 10px;
   border-color: transparent;
   border-radius: var(--control-radius);

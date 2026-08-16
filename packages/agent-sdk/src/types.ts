@@ -5,7 +5,7 @@
  * 负责把 agent.llm_tiers 解析成全量已决的 ResolvedTier 表、selectLlm 替换 default、字段回落算死。
  * SDK 内核零兜底，只读这些已决值。
  */
-import type { ContentPart, ProviderConfig } from "@ragsystem/agent-llm";
+import type { ContentPart, ProviderConfig, ThinkingLevel } from "@ragsystem/agent-llm";
 
 /**
  * 全量已决的 tier 档：provider 已内联（非引用字符串）、参数已填、缺档已补齐。
@@ -23,6 +23,8 @@ export interface ResolvedTier {
   maxContextTokens: number | null;
   /** extra_params merge 完。 */
   extraParams: Record<string, unknown>;
+  /** tier 默认思考档位（agent 配置）；请求级 thinkingLevel 优先于它。 */
+  thinkingLevel?: ThinkingLevel | null;
 }
 
 /** tier 名 → 已决档。至少含 default（tier 解析的最后一道真相）。 */
@@ -60,10 +62,10 @@ export interface AgentProfile {
   llmTiers: TierMap;
   behavior: AgentBehavior;
   /**
-   * 请求级思考档位（off/low/medium/high；投影层从前端 thinking_level 透传）。
+   * 请求级思考档位（厂商枚举子集，见 agent-llm ThinkingLevel；投影层从前端 thinking_level 透传）。
    * undefined = 跟随 provider 配置；协议层 buildRequest 时落到 LlmRequest.thinkingLevel。
    */
-  thinkingLevel?: "off" | "low" | "medium" | "high";
+  thinkingLevel?: ThinkingLevel;
   /** custom_params 其余透传。 */
   customParams?: Record<string, unknown>;
 }

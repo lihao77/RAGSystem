@@ -7,6 +7,8 @@ export const AgentLlmConfigSchema = z.object({
   temperature: z.number().min(0).max(2).nullable().optional(),
   max_completion_tokens: z.number().int().positive().nullable().optional(),
   max_context_tokens: z.number().int().positive().nullable().optional(),
+  /** tier 默认思考档位（agent 配置；档位枚举由 llm 层校验，非法值在投影时丢弃）。 */
+  thinking_level: z.string().nullable().optional(),
   extra_params: z.record(z.unknown()).optional().default({}),
 });
 

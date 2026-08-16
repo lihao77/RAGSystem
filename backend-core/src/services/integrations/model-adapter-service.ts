@@ -36,8 +36,6 @@ const UPDATE_FIELDS = [
   "max_tokens",
   "max_completion_tokens",
   "max_context_tokens",
-  "thinking_budget_tokens",
-  "reasoning_effort",
   "timeout",
   "retry_attempts",
   "retry_delay",
@@ -630,35 +628,9 @@ function providerConfigFields(providerType: string): ProviderTypeInfo["config_fi
     },
   ];
 
-  if (providerType === "openai_resp") {
-    fields.unshift({
-      key: "reasoning_effort",
-      label: "推理强度",
-      type: "select",
-      default: "",
-      help: "仅对支持 reasoning_effort 的 OpenAI 推理模型生效。",
-      options: [
-        { value: "", label: "模型默认" },
-        { value: "none", label: "None" },
-        { value: "minimal", label: "Minimal" },
-        { value: "low", label: "Low" },
-        { value: "medium", label: "Medium" },
-        { value: "high", label: "High" },
-        { value: "xhigh", label: "XHigh" },
-      ],
-    });
-  }
-
+  // 思考档位不归 provider 配置（在 agent llm_tiers 配置），表单不再暴露思考相关字段。
   if (providerType === "anthropic") {
     fields.unshift(
-      {
-        key: "thinking_budget_tokens",
-        label: "Thinking Budget Tokens",
-        type: "number",
-        default: 0,
-        help: "Anthropic 扩展思考预算；0 表示使用模型默认行为。",
-        options: [],
-      },
       {
         key: "supports_prompt_caching",
         label: "启用 Prompt Cache",
@@ -779,16 +751,6 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
     case "max_context_tokens":
       setNumberField(config, "max_context_tokens", value);
       break;
-    case "thinking_budget_tokens":
-      setNumberField(config, "thinking_budget_tokens", value);
-      break;
-    case "reasoning_effort":
-      if (value === undefined) {
-        delete config.reasoning_effort;
-      } else {
-        config.reasoning_effort = String(value ?? "");
-      }
-      break;
     case "timeout":
       setNumberField(config, "timeout", value);
       break;
@@ -837,7 +799,6 @@ function setNumberField(
     | "max_tokens"
     | "max_completion_tokens"
     | "max_context_tokens"
-    | "thinking_budget_tokens"
     | "timeout"
     | "retry_attempts"
     | "retry_delay"

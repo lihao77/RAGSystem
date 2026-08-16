@@ -71,6 +71,7 @@ export function createEmptyLLM() {
     temperature: 0.7,
     max_completion_tokens: 4096,
     max_context_tokens: 128000,
+    thinking_level: '',
     extra_params_entries: [],
   };
 }
@@ -117,6 +118,7 @@ function parseTierLLM(tier) {
     temperature: tier.temperature ?? 0.7,
     max_completion_tokens: tier.max_completion_tokens ?? 4096,
     max_context_tokens: tier.max_context_tokens ?? 128000,
+    thinking_level: tier.thinking_level || '',
     extra_params_entries: parseExtraParamEntries(tier.extra_params),
   };
 }
@@ -188,6 +190,7 @@ function buildTier(tier, tierName) {
     temperature: tier.temperature === '' ? null : Number(tier.temperature),
     max_completion_tokens: tier.max_completion_tokens === '' ? null : Number(tier.max_completion_tokens),
     max_context_tokens: tier.max_context_tokens === '' ? null : Number(tier.max_context_tokens),
+    thinking_level: tier.thinking_level || null,
     extra_params: parseExtraParamsInput(tier.extra_params_entries, `${tierName} 层级`),
   };
 }

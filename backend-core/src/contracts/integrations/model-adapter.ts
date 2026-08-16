@@ -64,8 +64,6 @@ export interface ModelProviderConfig {
   max_tokens?: number;
   max_completion_tokens?: number;
   max_context_tokens?: number;
-  thinking_budget_tokens?: number;
-  reasoning_effort?: string;
   /** Provider connection/first-response and stream idle timeout, in seconds. */
   timeout?: number;
   retry_attempts?: number;

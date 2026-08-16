@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
  */
 import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, RecoverableInterrupt, resolveToolInstructionMode, throwIfAborted, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefreshResult, MessageRefresher, KernelResult, KernelEvent } from "@ragsystem/agent-sdk";
-import type { ChatMessage } from "@ragsystem/agent-llm";
+import type { ChatMessage, ThinkingLevel } from "@ragsystem/agent-llm";
 import { translateKernelEvent, type WireTranslationContext } from "./event-translation.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { MessageInfo, SessionIdentity } from "../../../contracts/session/session.js";
@@ -102,8 +102,8 @@ export interface SdkExecuteRunInput {
   signal: AbortSignal;
   /** selectLlm 解析结果（前端选定的 provider+model，整体替换 default 档）。 */
   selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
-  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
-  thinkingLevel?: "off" | "low" | "medium" | "high";
+  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 agent tier 默认档位。 */
+  thinkingLevel?: ThinkingLevel;
   /**
    * run 级附加消息元数据：透传给 KernelEventPersister，合并到最终 assistant 消息。
    * 投影点把 execution_kind / retry_of_* 等调用点元数据在这里打好（无值不影响默认）。

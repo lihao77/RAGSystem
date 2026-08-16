@@ -262,19 +262,14 @@ const COMMON_PROVIDER_FIELDS = [
   { key: 'retry_delay', label: '首次重试间隔（秒）', type: 'number', default: 1, min: 0, help: '', options: [] },
   { key: 'retry_backoff_factor', label: '重试间隔倍数', type: 'number', default: 2, min: 1, help: '', options: [] },
 ];
-const OPENAI_REASONING_FIELD = {
-  key: 'reasoning_effort', label: '推理强度', type: 'select', default: '', help: '仅对支持 reasoning_effort 的 OpenAI 推理模型生效。',
-  options: [{ value: '', label: '模型默认' }, { value: 'none', label: 'None' }, { value: 'minimal', label: 'Minimal' }, { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'xhigh', label: 'XHigh' }],
-};
 const ANTHROPIC_FIELDS = [
-  { key: 'thinking_budget_tokens', label: 'Thinking Budget Tokens', type: 'number', default: 0, help: 'Anthropic 扩展思考预算；0 表示使用模型默认行为。', options: [] },
   { key: 'supports_prompt_caching', label: '启用 Prompt Cache', type: 'boolean', default: true, help: '控制 Anthropic prompt cache 标记与缓存复用。', options: [] },
   { key: 'cache_ttl_seconds', label: 'Cache TTL (s)', type: 'number', default: 300, help: 'Provider KV cache 的滑动失效阈值。', options: [] },
 ];
 
+// 思考档位不归 provider 配置（在 agent llm_tiers 配置），表单不暴露思考相关字段。
 function fallbackConfigFields(providerType) {
   const fields = [...COMMON_PROVIDER_FIELDS];
-  if (providerType === 'openai_resp') fields.unshift(OPENAI_REASONING_FIELD);
   if (providerType === 'anthropic') fields.unshift(...ANTHROPIC_FIELDS);
   return fields;
 }

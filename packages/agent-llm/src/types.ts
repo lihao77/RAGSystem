@@ -110,10 +110,6 @@ export interface ProviderConfig {
   max_completion_tokens?: number | null;
   max_tokens?: number | null;
   temperature?: number | null;
-  /** Anthropic extended thinking 预算；正数时发送 thinking.enabled。 */
-  thinking_budget_tokens?: number | null;
-  /** OpenAI/o-series 及兼容服务的推理强度。 */
-  reasoning_effort?: string | null;
   /** 厂商扩展参数（extra_params 等）原样透传给请求 body。 */
   [extra: string]: unknown;
 }
@@ -152,8 +148,8 @@ export interface LlmRequest {
   temperature?: number | null;
   maxCompletionTokens?: number | null;
   /**
-   * 请求级思考档位（off/low/medium/high）；优先于 provider 的 reasoning_effort /
-   * thinking_budget_tokens 配置。不传 → 跟随 provider 配置（现状行为不变）。
+   * 请求级思考档位（off/minimal/low/medium/high/xhigh/max/on；厂商枚举子集由 thinking.ts 判定）。
+   * 优先于 agent tier 默认档位。不传 → 由协议层以 tier 档位兜底，均无 → 不发送思考参数（模型默认）。
    */
   thinkingLevel?: ThinkingLevel | null;
   tools?: ChatToolDefinition[];
@@ -225,4 +221,6 @@ export interface RequestLlmParams {
   temperature: number | null;
   maxCompletionTokens: number | null;
   extraParams: Record<string, unknown>;
+  /** tier 默认思考档位（agent 配置）；请求级 thinkingLevel 优先于它。 */
+  thinkingLevel?: ThinkingLevel | null;
 }

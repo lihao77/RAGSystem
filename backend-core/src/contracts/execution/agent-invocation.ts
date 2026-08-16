@@ -1,4 +1,5 @@
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import type { ThinkingLevel } from "@ragsystem/agent-llm";
 
 import type { AgentConfig } from "../agent/agent-config.js";
 import type { Envelope } from "../events.js";
@@ -20,8 +21,8 @@ interface AgentInvocationBase {
   provider: ModelProviderConfig;
   modelName: string;
   selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
-  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
-  thinkingLevel?: "off" | "low" | "medium" | "high";
+  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 agent tier 默认档位。 */
+  thinkingLevel?: ThinkingLevel;
   /** Existing run/call used to claim durable agent messages during an idle continuation. */
   mailboxTargetRunId?: string | null;
   mailboxTargetAgentCallId?: string | null;

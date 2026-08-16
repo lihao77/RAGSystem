@@ -19,6 +19,7 @@ import {
   type SessionListFacets,
   type SessionListItem,
 } from "@ragsystem/api-contracts";
+import type { ThinkingLevel } from "@ragsystem/agent-llm";
 import { WorkspaceListResponseSchema } from "@ragsystem/api-contracts";
 
 import { ok, validateResponse } from "../../contracts/common.js";
@@ -428,7 +429,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
         afterMessageId?: string | null;
         modifyUserMessage?: string | null;
         selectedLlm?: string | null;
-        thinkingLevel?: "off" | "low" | "medium" | "high";
+        thinkingLevel?: ThinkingLevel;
         attachments?: AttachmentRef[] | null;
         uiContext?: Record<string, unknown> | null;
       } = {

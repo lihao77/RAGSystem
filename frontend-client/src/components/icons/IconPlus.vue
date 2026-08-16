@@ -7,8 +7,8 @@
     xmlns="http://www.w3.org/2000/svg"
     class="icon-plus"
   >
-    <line x1="12" y1="5" x2="12" y2="19" :stroke="color" :stroke-width="strokeWidth" stroke-linecap="round" stroke-linejoin="round" />
-    <line x1="5" y1="12" x2="19" y2="12" :stroke="color" :stroke-width="strokeWidth" stroke-linecap="round" stroke-linejoin="round" />
+    <line x1="12" y1="6.5" x2="12" y2="17.5" :stroke="color" :stroke-width="strokeWidth" stroke-linecap="round" stroke-linejoin="round" />
+    <line x1="6.5" y1="12" x2="17.5" y2="12" :stroke="color" :stroke-width="strokeWidth" stroke-linecap="round" stroke-linejoin="round" />
   </svg>
 </template>
 

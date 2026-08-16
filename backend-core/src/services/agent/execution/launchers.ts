@@ -8,6 +8,7 @@ import type {
   RollbackRetryStartResult,
   StreamExecuteRequest,
 } from "../../../contracts/execution/execution.js";
+import type { ThinkingLevel } from "@ragsystem/agent-llm";
 import {
   toSessionIdentity,
   type MessageInfo,
@@ -65,8 +66,8 @@ interface UnifiedRunStartInput {
   task: string;
   executionKind: string;
   selectedLlm: string;
-  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
-  thinkingLevel?: "off" | "low" | "medium" | "high";
+  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 agent tier 默认档位。 */
+  thinkingLevel?: ThinkingLevel;
   agentName?: string | null;
   modelTask?: string;
   entrypoint?: string;
@@ -90,8 +91,8 @@ interface SendUserMessageInput {
   task: string;
   attachments: AttachmentRef[];
   selectedLlm: string;
-  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
-  thinkingLevel?: "off" | "low" | "medium" | "high";
+  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 agent tier 默认档位。 */
+  thinkingLevel?: ThinkingLevel;
   executionKind: string;
   originChannel: SessionOriginChannel;
   uiContext?: Record<string, unknown> | null;
@@ -120,8 +121,8 @@ export interface RollbackRetryInput {
   afterMessageId?: string | null;
   modifyUserMessage?: string | null;
   selectedLlm?: string | null;
-  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 provider 配置。 */
-  thinkingLevel?: "off" | "low" | "medium" | "high" | null;
+  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 agent tier 默认档位。 */
+  thinkingLevel?: ThinkingLevel | null;
   attachments?: AttachmentRef[] | null;
   uiContext?: Record<string, unknown> | null;
 }

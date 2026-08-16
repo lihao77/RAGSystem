@@ -16,7 +16,7 @@ import { asRecord, normalizeString } from "../../../utils/guards.js";
  *     resolved.tiers.default 永远是最终真相，readTierParams 只做两级回落
  */
 import type { AgentProfile, CompressionBudgetConfig, ResolvedTier, TierMap } from "@ragsystem/agent-sdk";
-import type { ProviderConfig } from "@ragsystem/agent-llm";
+import { ALL_THINKING_LEVELS, type ProviderConfig, type ThinkingLevel } from "@ragsystem/agent-llm";
 import type { AgentConfig, AgentLlmConfig } from "../../../contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import { findProviderByRef } from "../../runtime/provider-lookup.js";
@@ -35,10 +35,10 @@ export interface ProjectionInput {
     modelName: string;
   } | null;
   /**
-   * 请求级思考档位（off/low/medium/high；前端 thinking_level 透传）。
-   * undefined = 跟随 provider 配置（现状行为不变）。
+   * 请求级思考档位（前端 thinking_level 透传）；优先于 tier 默认档位。
+   * undefined = 用 agent tier 配置的默认档位。
    */
-  thinkingLevel?: "off" | "low" | "medium" | "high";
+  thinkingLevel?: ThinkingLevel;
 }
 
 /**
@@ -128,6 +128,7 @@ function resolveScenarioTier(
     maxCompletionTokens: pickNumber(rawTier.max_completion_tokens, base.maxCompletionTokens),
     maxContextTokens: pickNumber(rawTier.max_context_tokens, base.maxContextTokens),
     extraParams: compactRecord(defaultEntry?.extraParams, rawTier.extra_params),
+    thinkingLevel: normalizeThinkingLevel(rawTier.thinking_level) ?? base.thinkingLevel ?? null,
   };
 }
 
@@ -156,6 +157,7 @@ function resolveTierWithProviderRef(
     maxCompletionTokens: pickNumber(rawTier.max_completion_tokens, built.maxCompletionTokens),
    maxContextTokens: pickNumber(rawTier.max_context_tokens, built.maxContextTokens),
    extraParams: compactRecord(built.extraParams, rawTier.extra_params),
+   thinkingLevel: normalizeThinkingLevel(rawTier.thinking_level),
  };
 }
 
@@ -237,4 +239,11 @@ function requireNumber(primary: unknown, fallback: number): number {
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** tier.thinking_level 合法性校验；非法值（含空串）返回 null = 不设默认档位。 */
+function normalizeThinkingLevel(value: unknown): ThinkingLevel | null {
+  return typeof value === "string" && (ALL_THINKING_LEVELS as readonly string[]).includes(value)
+    ? (value as ThinkingLevel)
+    : null;
 }

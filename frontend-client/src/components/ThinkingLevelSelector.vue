@@ -11,14 +11,10 @@
         >
           <IconBrain :size="14" class="brain-icon" :class="{ active: isOverride }" />
           <span class="trigger-label">{{ displayText }}</span>
-          <IconChevronDown class="arrow-icon" :class="{ rotate: open }" :size="12" />
+          <IconChevronDown class="arrow-icon" :class="{ rotate: open }" :size="14" />
         </button>
       </PopoverTrigger>
-      <PopoverContent class="thinking-popover" align="start" side="top" :side-offset="8">
-        <div class="thinking-header">
-          <span>思考等级</span>
-          <span class="thinking-sub">{{ capabilitySubtitle }}</span>
-        </div>
+      <PopoverContent class="thinking-popover p-0" align="start" side="top" :side-offset="8">
         <div role="radiogroup" aria-label="思考等级" class="thinking-options">
           <button
             type="button"
@@ -71,9 +67,13 @@ const IconBrain = Brain;
 
 const LEVEL_META = {
   off: { label: '关闭', description: '不进行扩展思考，响应最快' },
+  minimal: { label: '最低', description: '最小限度思考，速度优先' },
   low: { label: '低', description: '轻度思考，速度与质量均衡' },
   medium: { label: '中', description: '适度思考，适合常规复杂任务' },
   high: { label: '高', description: '深度思考，适合复杂推理任务' },
+  xhigh: { label: '最高', description: '超深度思考，适合高难度推理任务' },
+  max: { label: '最大', description: '最大强度思考，适合极限复杂任务' },
+  on: { label: '开启', description: '开启思考（该模型无强度分级）' },
 };
 
 const llmStore = useLlmStore();
@@ -84,13 +84,7 @@ const { thinkingLevel } = storeToRefs(thinkingStore);
 const capability = ref({ kind: 'none', levels: [] });
 const open = ref(false);
 
-const displayText = computed(() => (thinkingLevel.value ? `思考: ${labelFor(thinkingLevel.value)}` : '思考: 跟随'));
-
-const capabilitySubtitle = computed(() => {
-  if (capability.value.kind === 'budget') return '当前模型按 token 预算控制思考深度';
-  if (capability.value.kind === 'effort') return '当前模型按推理强度控制思考深度';
-  return '';
-});
+const displayText = computed(() => (thinkingLevel.value ? labelFor(thinkingLevel.value) : '跟随'));
 
 const triggerTitle = computed(() => {
   const target = selectedLLM.value ? findProviderModelByValue(selectedLLM.value).model : '默认模型';
@@ -123,8 +117,8 @@ watch(selectedLLM, loadCapability);
 }
 
 .thinking-trigger {
-  height: 32px;
-  padding: 0 26px 0 8px;
+  height: 28px;
+  padding: 0 30px 0 10px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -190,22 +184,6 @@ watch(selectedLLM, loadCapability);
   box-shadow: var(--shadow-lg);
 }
 
-.thinking-header {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 12px 14px 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.thinking-sub {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--color-text-muted);
-}
-
 .thinking-options {
   display: flex;
   flex-direction: column;
@@ -219,7 +197,7 @@ watch(selectedLLM, loadCapability);
   justify-content: space-between;
   gap: 10px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border: none;
   border-radius: var(--radius-md, 8px);
   background: transparent;

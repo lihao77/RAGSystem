@@ -1,7 +1,7 @@
 import type { ChatToolCall, LlmRequest, LlmResult, LlmStreamHandler, TokenUsage } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
 import { compactRecord } from "../record-utils.js";
-import { effectiveReasoningEffort } from "../thinking.js";
+import { buildThinkingParams } from "../thinking.js";
 import { isRecord } from "../internal/records.js";
 import { extractOpenAiUsage } from "../internal/usage.js";
 import { readSse } from "../internal/sse.js";
@@ -51,8 +51,8 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
 }
 
 export function buildChatBody(request: LlmRequest, stream = false): Record<string, unknown> {
-  const reasoningEffort = effectiveReasoningEffort(request.provider, request.thinkingLevel);
-  const usesModernTokenField = request.provider.provider_type === "openai_chat" && Boolean(reasoningEffort);
+  const thinkingParams = buildThinkingParams(request.provider, request.thinkingLevel);
+  const usesModernTokenField = request.provider.provider_type === "openai_chat" && Boolean(thinkingParams?.reasoning_effort);
   return {
     ...compactRecord(request.extraParams),
     model: request.model,
@@ -61,7 +61,7 @@ export function buildChatBody(request: LlmRequest, stream = false): Record<strin
     ...(usesModernTokenField
       ? { max_completion_tokens: request.maxCompletionTokens ?? undefined }
       : { max_tokens: request.maxCompletionTokens ?? undefined }),
-    reasoning_effort: reasoningEffort ?? undefined,
+    ...(thinkingParams ?? {}),
     tools: request.tools && request.tools.length > 0 ? request.tools : undefined,
     tool_choice: request.tools && request.tools.length > 0 ? (request.toolChoice ?? "auto") : undefined,
     stream: stream ? true : undefined,

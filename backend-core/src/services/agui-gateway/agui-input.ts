@@ -1,5 +1,6 @@
 import type { DelegatedToolDeclarationWire } from "../../contracts/events.js";
 import { AttachmentRefSchema, type AttachmentRef } from "@ragsystem/agent-protocol";
+import { ALL_THINKING_LEVELS, type ThinkingLevel } from "@ragsystem/agent-llm";
 
 /** AG-UI client-defined tool 声明（上行 RunAgentInput.tools 元素）。 */
 export interface AguiClientTool {
@@ -49,8 +50,8 @@ export interface RunAgentInput {
   attachments?: AttachmentRef[];
   /** RAGSystem extension: preserve the selected model used by the native chat client. */
   selectedLlm?: string;
-  /** RAGSystem extension: 请求级思考档位（off/low/medium/high）。 */
-  thinkingLevel?: "off" | "low" | "medium" | "high";
+  /** RAGSystem extension: 请求级思考档位（8 档，见 agent-llm ALL_THINKING_LEVELS）。 */
+  thinkingLevel?: ThinkingLevel;
 }
 
 /**
@@ -118,8 +119,8 @@ export function parseRunAgentInput(body: unknown): RunAgentInput {
   }
   if (Array.isArray(raw.attachments)) input.attachments = raw.attachments.map((item) => AttachmentRefSchema.parse(item));
   if (typeof raw.selectedLlm === "string" && raw.selectedLlm.trim()) input.selectedLlm = raw.selectedLlm;
-  if (raw.thinkingLevel === "off" || raw.thinkingLevel === "low" || raw.thinkingLevel === "medium" || raw.thinkingLevel === "high") {
-    input.thinkingLevel = raw.thinkingLevel;
+  if (typeof raw.thinkingLevel === "string" && (ALL_THINKING_LEVELS as readonly string[]).includes(raw.thinkingLevel)) {
+    input.thinkingLevel = raw.thinkingLevel as ThinkingLevel;
   }
   if (raw.state !== null && typeof raw.state === "object") input.state = raw.state as Record<string, unknown>;
   return input;

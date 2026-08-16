@@ -50,7 +50,7 @@
         </template>
         <template #rightActions>
           <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="emit('openContextDrawer')" title="点击查看上下文详情">
-            <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
+            <svg width="16" height="16" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
               <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
               <circle
                 cx="11"
