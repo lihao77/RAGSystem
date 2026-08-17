@@ -2,7 +2,7 @@
  * @ragsystem/agent-llm —— LLM 通信基金层类型。
  *
  * 与厂商解耦的纯类型 + LlmClient 端口。零内部依赖、可独立使用（不绑 agent 循环）：
- * 消费者可直接用 OpenAiCompatibleClient 调模型（complete/stream），无需 agent-sdk。
+ * 消费者可直接用 LlmProviderClient 调模型（complete/stream），无需 agent-sdk。
  *
  * agent-sdk 依赖本包，import 这些类型。LlmRequest 不含 agent——生成参数由消费者解析后传入，
  * LLM 层不做 agent tier 解析（产品逻辑）。
@@ -62,6 +62,18 @@ export type ProviderContinuationState =
       /** First function call after the user turn; reasoning items must be replayed before it. */
       anchorCallId: string;
       reasoningItems: Record<string, unknown>[];
+    }
+  | {
+      protocol: "gemini_generate_content";
+      toolCallIds: string[];
+      /** Candidate parts must be replayed verbatim, including thoughtSignature fields. */
+      parts: Record<string, unknown>[];
+    }
+  | {
+      protocol: "openai_chat";
+      toolCallIds: string[];
+      /** Provider-specific reasoning fields that must be replayed with the assistant tool call. */
+      assistantFields: Record<string, unknown>;
     };
 
 /** 结构化工具调用（厂商 function calling 产物 / XML 解析重建）。 */
@@ -211,7 +223,7 @@ export type LlmStreamHandler = (
 
 /**
  * LLM 客户端端口。complete 非流式；stream 可选流式。
- * 基金层提供 OpenAiCompatibleClient 默认实现（OpenAI/Anthropic/openai_resp）。
+ * 基金层提供 LlmProviderClient 默认实现（OpenAI/Anthropic/Gemini 等协议）。
  */
 export interface LlmClient {
   complete(request: LlmRequest): Promise<LlmResult>;

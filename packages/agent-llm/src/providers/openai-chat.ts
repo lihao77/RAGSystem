@@ -1,10 +1,11 @@
-import type { ChatToolCall, LlmRequest, LlmResult, LlmStreamHandler, TokenUsage } from "../types.js";
+import type { ChatToolCall, LlmRequest, LlmResult, LlmStreamHandler, ProviderContinuationState, TokenUsage } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
 import { compactRecord } from "../record-utils.js";
 import { buildThinkingParams } from "../thinking.js";
 import { isRecord } from "../internal/records.js";
 import { extractOpenAiUsage } from "../internal/usage.js";
 import { readSse } from "../internal/sse.js";
+import { providerTypeSpec } from "../provider-registry.js";
 import {
   bearerHeaders,
   extractErrorMessage,
@@ -67,22 +68,25 @@ export function buildChatBody(request: LlmRequest, stream = false): Record<strin
     tools: request.tools && request.tools.length > 0 ? request.tools.map(stripInternalToolFields) : undefined,
     tool_choice: request.tools && request.tools.length > 0 ? (request.toolChoice ?? "auto") : undefined,
     stream: stream ? true : undefined,
-    stream_options: stream ? { include_usage: true } : undefined,
+    ...(stream && (providerTypeSpec(request.provider.provider_type)?.supportsStreamUsageOptions ?? true)
+      ? { stream_options: { include_usage: true } }
+      : {}),
   };
 }
 
 function buildPromptCacheParams(request: LlmRequest): Record<string, unknown> {
   if (request.provider.supports_prompt_caching === false) return {};
-  if (request.provider.provider_type === "openrouter") {
-    return {
-      ...(request.promptCacheKey ? { prompt_cache_key: request.promptCacheKey } : {}),
-      cache_control: { type: "ephemeral" },
-    };
+  const capabilities = providerTypeSpec(request.provider.provider_type);
+  if (!capabilities || capabilities.promptCacheMode === "none") return {};
+  const params: Record<string, unknown> = {};
+  if (capabilities.promptCacheMode === "explicit_blocks") {
+    params.cache_control = { type: "ephemeral" };
   }
-  if (request.provider.provider_type === "openai_chat" && request.promptCacheKey && supportsOpenAiPromptCacheKey(request)) {
-    return { prompt_cache_key: request.promptCacheKey };
+  if (capabilities.supportsPromptCacheKey && request.promptCacheKey) {
+    const isOpenRouter = capabilities.promptCacheMode === "explicit_blocks";
+    if (isOpenRouter || supportsOpenAiPromptCacheKey(request)) params.prompt_cache_key = request.promptCacheKey;
   }
-  return {};
+  return params;
 }
 
 function supportsOpenAiPromptCacheKey(request: LlmRequest): boolean {
@@ -99,9 +103,13 @@ function supportsOpenAiPromptCacheKey(request: LlmRequest): boolean {
 function stripInternalMessageFields(message: LlmRequest["messages"][number]): Record<string, unknown> {
   const {
     reasoning_blocks: _reasoningBlocks,
-    provider_continuation: _providerContinuation,
+    provider_continuation,
     ...wireMessage
   } = message;
+  const assistantFields = message.role === "assistant" && provider_continuation?.protocol === "openai_chat"
+    ? provider_continuation.assistantFields
+    : null;
+  if (assistantFields) return { ...copyOpenAiChatAssistantFields(assistantFields), ...wireMessage };
   return wireMessage;
 }
 
@@ -125,6 +133,9 @@ function parseCompletion(body: Record<string, unknown>): LlmResult {
   const result: LlmResult = { content, raw: body, finishReason };
   if (reasoning) result.reasoning = reasoning;
   if (toolCalls.length > 0) result.toolCalls = toolCalls;
+  const assistantFields = message ? copyOpenAiChatAssistantFields(message) : {};
+  const continuation = buildOpenAiChatContinuation(toolCalls, assistantFields);
+  if (continuation) result.providerContinuation = continuation;
   const usage = extractOpenAiUsage(body);
   if (usage) result.usage = usage;
   return result;
@@ -137,6 +148,7 @@ async function parseStream(response: Response, request: LlmRequest, onChunk: Llm
   let usage: TokenUsage | null = null;
   let stopped = false;
   const tools = new Map<number, ToolAccumulator>();
+  const assistantFields: Record<string, unknown> = {};
 
   await readSse(response, providerTimeoutMs(request), async (event) => {
     const data = event.data.trim();
@@ -156,6 +168,7 @@ async function parseStream(response: Response, request: LlmRequest, onChunk: Llm
     if (typeof choice.finish_reason === "string") finishReason = choice.finish_reason;
     const delta = isRecord(choice.delta) ? choice.delta : choice;
     accumulateToolCalls(delta.tool_calls, tools);
+    accumulateOpenAiChatAssistantFields(delta, assistantFields);
     reasoning += extractReasoning(delta);
     const text = extractTextContent(delta.content) || extractTextContent(choice.text);
     if (text) {
@@ -177,6 +190,8 @@ async function parseStream(response: Response, request: LlmRequest, onChunk: Llm
   const result: LlmResult = { content, finishReason };
   if (reasoning) result.reasoning = reasoning;
   if (toolCalls.length > 0) result.toolCalls = toolCalls;
+  const continuation = buildOpenAiChatContinuation(toolCalls, assistantFields);
+  if (continuation) result.providerContinuation = continuation;
   if (usage) result.usage = usage;
   return result;
 }
@@ -208,6 +223,68 @@ function extractReasoning(value: Record<string, unknown>): string {
     if (typeof detail.content === "string") return detail.content;
     return "";
   }).join("");
+}
+
+function copyOpenAiChatAssistantFields(value: Record<string, unknown>): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  if (typeof value.reasoning_content === "string") fields.reasoning_content = value.reasoning_content;
+  if (typeof value.reasoning === "string") fields.reasoning = value.reasoning;
+  if (Array.isArray(value.reasoning_details)) {
+    fields.reasoning_details = value.reasoning_details.filter(isRecord).map((item) => ({ ...item }));
+  }
+  return fields;
+}
+
+function accumulateOpenAiChatAssistantFields(delta: Record<string, unknown>, target: Record<string, unknown>): void {
+  for (const key of ["reasoning_content", "reasoning"] as const) {
+    if (typeof delta[key] === "string") target[key] = `${typeof target[key] === "string" ? target[key] : ""}${delta[key]}`;
+  }
+  if (Array.isArray(delta.reasoning_details)) {
+    target.reasoning_details = mergeReasoningDetails(target.reasoning_details, delta.reasoning_details);
+  }
+}
+
+function mergeReasoningDetails(previous: unknown, next: unknown[]): Record<string, unknown>[] {
+  const output = Array.isArray(previous) ? previous.filter(isRecord).map((item) => ({ ...item })) : [];
+  for (const item of next) {
+    if (!isRecord(item)) continue;
+    const key = reasoningDetailKey(item);
+    const existingIndex = key ? output.findIndex((candidate) => reasoningDetailKey(candidate) === key) : -1;
+    if (existingIndex < 0) {
+      output.push({ ...item });
+      continue;
+    }
+    output[existingIndex] = mergeReasoningDetail(output[existingIndex] ?? {}, item);
+  }
+  return output;
+}
+
+function reasoningDetailKey(value: Record<string, unknown>): string | null {
+  if (typeof value.index === "number") return `index:${value.index}`;
+  if (typeof value.id === "string" && value.id) return `id:${value.id}`;
+  return null;
+}
+
+function mergeReasoningDetail(previous: Record<string, unknown>, next: Record<string, unknown>): Record<string, unknown> {
+  const merged = { ...previous };
+  for (const [key, value] of Object.entries(next)) {
+    if (["text", "content", "data", "summary", "encrypted_content"].includes(key)
+      && typeof value === "string" && typeof merged[key] === "string") {
+      merged[key] = `${merged[key]}${value}`;
+    } else {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+function buildOpenAiChatContinuation(toolCalls: ChatToolCall[], assistantFields: Record<string, unknown>): ProviderContinuationState | undefined {
+  if (toolCalls.length === 0 || Object.keys(assistantFields).length === 0) return undefined;
+  return {
+    protocol: "openai_chat",
+    toolCallIds: toolCalls.map((call) => call.id),
+    assistantFields,
+  };
 }
 
 function parseToolCalls(value: unknown): ChatToolCall[] {

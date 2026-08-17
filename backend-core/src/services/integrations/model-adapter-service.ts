@@ -19,11 +19,11 @@ import {
   DEFAULT_PROVIDER_RETRY_DELAY_SECONDS,
   DEFAULT_PROVIDER_TIMEOUT_SECONDS,
   externalCallPolicy,
-  OpenAiCompatibleClient,
+  LlmProviderClient,
   type ExternalCallMetrics,
   type ProviderConfig,
 } from "@ragsystem/agent-llm";
-import { DEFAULT_ENDPOINTS, PROVIDER_TYPES, PROVIDER_TYPE_SET } from "@ragsystem/agent-llm";
+import { DEFAULT_ENDPOINTS, PROVIDER_TYPES, PROVIDER_TYPE_SET, providerTypeSpec } from "@ragsystem/agent-llm";
 import { OpenAiCompatibleEmbeddingClient } from "./embedding-client.js";
 import { OpenAiCompatibleRerankClient, type RerankerEndpointConfig } from "./reranker-client.js";
 
@@ -75,6 +75,8 @@ export class ModelAdapterService {
       value: providerType,
       label: labelProviderType(providerType),
       default_endpoint: DEFAULT_ENDPOINTS[providerType] ?? "",
+      supports_embedding: providerTypeSpec(providerType)?.supportsEmbedding ?? false,
+      supports_rerank: providerTypeSpec(providerType)?.supportsRerank ?? false,
       config_fields: providerConfigFields(providerType),
     }));
   }
@@ -281,14 +283,18 @@ export class ModelAdapterService {
     if (!provider) {
       throw new ModelAdapterServiceError(`Provider 不存在: ${providerKey}`, 404);
     }
+    const supportsEmbedding = providerTypeSpec(provider.provider_type)?.supportsEmbedding ?? false;
+    const supportsRerank = providerTypeSpec(provider.provider_type)?.supportsRerank ?? false;
     const checks = {
       provider_exists: true,
       provider_type_supported: PROVIDER_TYPE_SET.has(provider.provider_type),
       api_key_configured: Boolean(String(provider.api_key ?? "").trim()),
       endpoint_configured: provider.provider_type !== "rerank_api" || Boolean(String(provider.api_endpoint ?? "").trim()),
       chat_model_configured: Boolean(firstModelForTask(provider, "chat")),
-      embedding_model_configured: Boolean(firstModelForTask(provider, "embedding")),
-      rerank_model_configured: Boolean(firstModelForTask(provider, "rerank")),
+      embedding_supported: supportsEmbedding,
+      embedding_model_configured: supportsEmbedding && Boolean(firstModelForTask(provider, "embedding")),
+      rerank_supported: supportsRerank,
+      rerank_model_configured: supportsRerank && Boolean(firstModelForTask(provider, "rerank")),
     };
     const taskReady =
       provider.provider_type === "rerank_api"
@@ -311,6 +317,12 @@ export class ModelAdapterService {
     this.validateTestProviderRequest(data);
     const provider = this.resolveProviderForTest(data);
     const task = data.task ?? "chat";
+    if (task === "embedding" && providerTypeSpec(provider.provider_type)?.supportsEmbedding !== true) {
+      throw new ModelAdapterServiceError(`Provider 类型 ${provider.provider_type} 不支持 Embedding`, 400);
+    }
+    if (task === "rerank" && providerTypeSpec(provider.provider_type)?.supportsRerank !== true) {
+      throw new ModelAdapterServiceError(`Provider 类型 ${provider.provider_type} 不支持 Rerank`, 400);
+    }
     const model = firstModelFromValue(data.model) ?? firstModelForTask(provider, task);
     if (!model) {
       throw new ModelAdapterServiceError(`Provider 未配置 ${task} 模型`, 400);
@@ -319,8 +331,8 @@ export class ModelAdapterService {
     if (task === "chat") {
       const startedAt = Date.now();
       try {
-        // 测连通性用真实 agent-llm client（OpenAiCompatibleClient 无状态）；mock 假响应无意义。
-        const response = await new OpenAiCompatibleClient().complete({
+        // 测连通性用真实 agent-llm client（LlmProviderClient 无状态）；mock 假响应无意义。
+        const response = await new LlmProviderClient().complete({
           messages: [{ role: "user", content: data.prompt ?? "" }],
           model,
           provider: provider as unknown as ProviderConfig,
@@ -478,6 +490,12 @@ export class ModelAdapterService {
   }
 
   private ensureProviderRuntimeShape(config: ModelProviderConfig): void {
+    if (normalizeModelValue(config.model_map.embedding) && providerTypeSpec(config.provider_type)?.supportsEmbedding !== true) {
+      throw new ModelAdapterServiceError(`Provider 类型 ${config.provider_type} 不支持 model_map.embedding`, 400);
+    }
+    if (normalizeModelValue(config.model_map.rerank) && providerTypeSpec(config.provider_type)?.supportsRerank !== true) {
+      throw new ModelAdapterServiceError(`Provider 类型 ${config.provider_type} 不支持 model_map.rerank`, 400);
+    }
     if (config.provider_type !== "rerank_api") {
       return;
     }
@@ -583,6 +601,10 @@ function labelProviderType(providerType: string): string {
     openai_resp: "OpenAI Responses",
     openai_chat: "OpenAI Chat",
     openai_proxy: "OpenAI Compatible",
+    gemini: "Google Gemini",
+    mistral: "Mistral AI",
+    groq: "Groq",
+    qwen: "Alibaba Qwen",
     rerank_api: "Rerank API",
   };
   return labels[providerType] ?? providerType.charAt(0).toUpperCase() + providerType.slice(1);
@@ -628,17 +650,20 @@ function providerConfigFields(providerType: string): ProviderTypeInfo["config_fi
     },
   ];
 
-  if (["anthropic", "openai_chat", "openai_resp", "openrouter"].includes(providerType)) {
+  const capabilities = providerTypeSpec(providerType);
+  if (capabilities?.exposesPromptCacheToggle) {
     fields.unshift({
       key: "supports_prompt_caching",
       label: "启用 Prompt Cache",
       type: "boolean",
       default: true,
-      help: "控制当前 Provider 支持的 cache_control 或 prompt_cache_key 缓存参数。",
+      help: capabilities.promptCacheMode === "automatic_prefix"
+        ? "允许当前 Provider 使用并统计自动前缀缓存；不会发送未支持的缓存字段。"
+        : "控制当前 Provider 支持的 cache_control 或 prompt_cache_key 缓存参数。",
       options: [],
     });
   }
-  if (providerType === "anthropic") {
+  if (capabilities?.supportsPromptCacheTtl) {
     fields.splice(1, 0,
       {
         key: "cache_ttl_seconds",
@@ -892,7 +917,7 @@ function providerAsStoredReranker(provider: ModelProviderConfig, model: string):
   return {
     reranker_key: providerKey,
     model_name: model,
-    api_endpoint: String(provider.api_endpoint ?? ""),
+    api_endpoint: String(provider.api_endpoint ?? DEFAULT_ENDPOINTS[provider.provider_type] ?? ""),
     api_key: provider.api_key == null ? null : String(provider.api_key),
   };
 }

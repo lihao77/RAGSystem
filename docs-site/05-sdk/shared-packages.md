@@ -79,7 +79,7 @@ Agent 运行时的内核实现，被 `backend-ts` 的 `services/agent/sdk/` 层�
 | 模块 | 职责 |
 |------|------|
 | `provider-registry.ts` | Provider 注册表 |
-| `openai-compatible-client.ts` | OpenAI 兼容客户端 |
+| `llm-client.ts` | Provider-agnostic LLM client facade；`openai-compatible-client.ts` 仅保留旧名称兼容导出 |
 | `content-parts.ts` | 内容块处理 |
 | `record-utils.ts` | 记录工具 |
 | `types.ts` | 类型定义 |

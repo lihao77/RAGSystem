@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { buildChatBody } from "../dist/providers/openai-chat.js";
 
-const build = (providerType, providerExtra = {}) => buildChatBody({
+const request = (providerType, providerExtra = {}) => ({
   provider: {
     key: "test",
     name: "test",
@@ -15,6 +15,8 @@ const build = (providerType, providerExtra = {}) => buildChatBody({
   messages: [{ role: "user", content: "hello" }],
   promptCacheKey: "stable-thread-key",
 });
+
+const build = (providerType, providerExtra = {}) => buildChatBody(request(providerType, providerExtra));
 
 test("OpenAI Chat 下发稳定 prompt cache key", () => {
   const body = build("openai_chat");
@@ -40,11 +42,17 @@ test("OpenRouter 下发稳定 key 并启用自动尾部缓存", () => {
 });
 
 test("DeepSeek 和通用兼容 provider 不接收未知缓存字段", () => {
-  for (const providerType of ["deepseek", "modelscope", "openai_proxy"]) {
+  for (const providerType of ["deepseek", "modelscope", "openai_proxy", "mistral", "groq", "qwen"]) {
     const body = build(providerType);
     assert.equal(body.prompt_cache_key, undefined);
     assert.equal(body.cache_control, undefined);
   }
+});
+
+test("Mistral 不发送不兼容的 stream_options，Groq/Qwen 保留 usage 选项", () => {
+  assert.equal(buildChatBody(request("mistral"), true).stream_options, undefined);
+  assert.deepEqual(buildChatBody(request("groq"), true).stream_options, { include_usage: true });
+  assert.deepEqual(buildChatBody(request("qwen"), true).stream_options, { include_usage: true });
 });
 
 test("关闭 prompt caching 后 OpenAI Chat 和 OpenRouter 均不下发缓存字段", () => {

@@ -27,6 +27,9 @@ test("档位集合按厂商枚举返回（describeThinking）", () => {
   assert.deepEqual(describeThinking("openrouter").levels, ["off", "minimal", "low", "medium", "high", "xhigh"]);
   assert.deepEqual(describeThinking("anthropic").levels, ["off", "low", "medium", "high"]);
   assert.deepEqual(describeThinking("modelscope").levels, ["off", "on"]);
+  assert.deepEqual(describeThinking("qwen").levels, ["off", "on"]);
+  assert.deepEqual(describeThinking("mistral").levels, ["off", "minimal", "low", "medium", "high", "xhigh"]);
+  assert.deepEqual(describeThinking("groq").levels, ["off", "on", "low", "medium", "high"]);
   assert.deepEqual(describeThinking("rerank_api").levels, []);
 });
 
@@ -70,6 +73,19 @@ test("modelscope 仅开关（toggle），on 开启 / off 关闭", () => {
   assert.deepEqual(buildThinkingParams(provider("modelscope"), "on"), { enable_thinking: true });
   assert.deepEqual(buildThinkingParams(provider("modelscope"), "off"), { enable_thinking: false });
   assert.equal(buildThinkingParams(provider("modelscope")), null);
+});
+
+test("Qwen 仅开关思考，Groq 支持 default/low/high", () => {
+  assert.deepEqual(buildThinkingParams(provider("qwen"), "on"), { enable_thinking: true });
+  assert.deepEqual(buildThinkingParams(provider("qwen"), "off"), { enable_thinking: false });
+  assert.deepEqual(buildThinkingParams(provider("groq"), "on"), { reasoning_effort: "default" });
+  assert.deepEqual(buildThinkingParams(provider("groq"), "high"), { reasoning_effort: "high" });
+  assert.throws(() => buildThinkingParams(provider("groq"), "xhigh"), /not supported/);
+});
+
+test("Mistral follows the OpenAI-compatible reasoning_effort shape", () => {
+  assert.deepEqual(buildThinkingParams(provider("mistral"), "minimal"), { reasoning_effort: "minimal" });
+  assert.deepEqual(buildThinkingParams(provider("mistral"), "off"), { reasoning_effort: "none" });
 });
 
 test("openai_chat 顶层 reasoning_effort 直通档位（minimal/off），越界档位拒绝", () => {

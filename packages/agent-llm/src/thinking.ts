@@ -25,7 +25,7 @@ export const ALL_THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", 
  * 思考参数落到请求的方式：
  * effort — 推理强度枚举（OpenAI 顶层 reasoning_effort；deepseek 包在 thinking map；openrouter 包在 reasoning map）；
  * budget — Anthropic token 预算（由 anthropic 适配器单独消费，buildThinkingParams 不产出）；
- * toggle — 仅开关无分级（ModelScope qwen 系 enable_thinking）；
+ * toggle — 仅开关无分级（ModelScope/Qwen 系 enable_thinking）；
  * none — 不支持。
  */
 export type ThinkingParamKind = "effort" | "budget" | "toggle" | "none";
@@ -57,13 +57,16 @@ const BUDGET_BY_LEVEL: Readonly<Partial<Record<ThinkingLevel, number>>> = {
 /**
  * provider_type 默认思考能力。openai 系三家走 effort；anthropic 走 budget；
  * deepseek 官方 API 用 thinking map 包 effort（off 显式 disabled）；openrouter 用 reasoning map；
- * modelscope qwen 系仅 enable_thinking 开关。rerank_api 无 chat 能力。
+ * modelscope/qwen 系仅 enable_thinking 开关。rerank_api 无 chat 能力。
  */
 const THINKING_KIND_BY_PROVIDER_TYPE: Readonly<Record<string, ThinkingParamKind>> = {
   openai_resp: "effort",
   openai_chat: "effort",
   openai_proxy: "effort",
   anthropic: "budget",
+  mistral: "effort",
+  groq: "effort",
+  qwen: "toggle",
   deepseek: "effort",
   openrouter: "effort",
   modelscope: "toggle",
@@ -91,6 +94,9 @@ const THINKING_LEVELS_BY_PROVIDER_TYPE: Readonly<Record<string, readonly Thinkin
   openai_chat: OPENAI_LEVELS,
   openai_proxy: OPENAI_LEVELS,
   anthropic: ANTHROPIC_LEVELS,
+  mistral: ["off", "minimal", "low", "medium", "high", "xhigh"],
+  groq: ["off", "on", "low", "medium", "high"],
+  qwen: TOGGLE_LEVELS,
   deepseek: DEEPSEEK_LEVELS,
   openrouter: OPENROUTER_LEVELS,
   modelscope: TOGGLE_LEVELS,
@@ -130,6 +136,7 @@ export function resolveThinkingParams(
   if (kind === "none") return null;
   requireSupportedLevel(level, levels, providerType);
   if (kind === "effort") {
+    if (providerType === "groq" && level === "on") return { reasoning_effort: "default" };
     return { reasoning_effort: level === "off" ? "none" : EFFORT_BY_LEVEL[level as Exclude<ThinkingLevel, "off" | "on">] };
   }
   const budget = BUDGET_BY_LEVEL[level];
@@ -158,6 +165,9 @@ export function buildThinkingParams(
   const providerType = provider.provider_type;
   if (kind === "toggle") {
     return { enable_thinking: level !== "off" };
+  }
+  if (providerType === "groq" && level === "on") {
+    return { reasoning_effort: "default" };
   }
   if (level === "off") {
     if (providerType === "deepseek") return { thinking: { type: "disabled" } };

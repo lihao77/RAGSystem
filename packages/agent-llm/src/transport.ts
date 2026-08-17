@@ -39,6 +39,10 @@ export function anthropicHeaders(apiKey: string): Record<string, string> {
   return { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" };
 }
 
+export function geminiHeaders(apiKey: string): Record<string, string> {
+  return { "content-type": "application/json", "x-goog-api-key": apiKey };
+}
+
 export function requestInit(request: LlmRequest, headers: Record<string, string>, body: unknown): RequestInit {
   const init: RequestInit = { method: "POST", headers, body: JSON.stringify(body) };
   if (request.signal) init.signal = request.signal;

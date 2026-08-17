@@ -5,11 +5,11 @@
  * - 摘要 tier 候选/参数:SDK llm-params 纯函数（resolveSummaryTierCandidates/readTierParams,通用基金,不依赖 store）
  * - budget/settings:backend context-compression/index.ts（AgentConfig + systemConfig）
  * - 压缩视图:backend context/history-view（resolveCompressionView）
- * - LLM 调用:agent-llm OpenAiCompatibleClient（无状态,直接 new）
+ * - LLM 调用:agent-llm LlmProviderClient（无状态,直接 new）
  *
  * run 内压缩（round.before 触发,compressIfNeeded）+ /compact（forceCompact）共用本服务。
  */
-import { OpenAiCompatibleClient, extractText, type ChatMessage, type LlmClient, type LlmRequest } from "@ragsystem/agent-llm";
+import { LlmProviderClient, extractText, type ChatMessage, type LlmClient, type LlmRequest } from "@ragsystem/agent-llm";
 import { countMessagesTokens, readTierParams, resolveContextBudget, resolveSummaryTierCandidates } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
@@ -81,7 +81,7 @@ export class AgentCompressionService {
     private readonly systemConfig: SystemConfigService,
     llm?: LlmClient,
   ) {
-    this.llm = llm ?? new OpenAiCompatibleClient();
+    this.llm = llm ?? new LlmProviderClient();
   }
 
   /** 阈值门控压缩（run 内 round.before 触发）。 */

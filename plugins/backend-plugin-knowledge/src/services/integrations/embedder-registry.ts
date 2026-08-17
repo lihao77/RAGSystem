@@ -27,10 +27,11 @@ export function registerEmbedder(providerType: string, factory: EmbedderFactory)
 const OPENAI_COMPATIBLE_EMBEDDER_TYPES = [
   "openai_chat",
   "openai_proxy",
-  "deepseek",
   "openrouter",
   "modelscope",
   "openai_resp",
+  "mistral",
+  "qwen",
 ];
 
 for (const providerType of OPENAI_COMPATIBLE_EMBEDDER_TYPES) {

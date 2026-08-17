@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { DocumentExtractDispatcher } from "../dist/services/knowledge/document-extract/dispatcher.js";
+import { EMBEDDER_REGISTRY } from "../dist/services/integrations/embedder-registry.js";
 import {
   keywordOverlapScore,
   reciprocalRankFusionScore,
@@ -26,6 +27,13 @@ test("Knowledge scoring supports mixed Chinese and Latin queries", () => {
   assert.equal(tokens.includes("flood-risk"), true);
   assert.equal(keywordOverlapScore("广西 洪水", "广西发生洪水预警"), 1);
   assert.equal(keywordOverlapScore("unrelated", "广西发生洪水预警"), 0);
+});
+
+test("Knowledge embedding registry includes supported providers but not Groq or DeepSeek", () => {
+  assert.equal(EMBEDDER_REGISTRY.has("mistral"), true);
+  assert.equal(EMBEDDER_REGISTRY.has("qwen"), true);
+  assert.equal(EMBEDDER_REGISTRY.has("groq"), false);
+  assert.equal(EMBEDDER_REGISTRY.has("deepseek"), false);
 });
 
 test("normalized reciprocal-rank fusion stays bounded and rewards both sources", () => {

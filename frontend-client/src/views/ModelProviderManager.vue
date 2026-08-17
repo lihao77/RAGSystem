@@ -262,36 +262,43 @@ const COMMON_PROVIDER_FIELDS = [
   { key: 'retry_delay', label: '首次重试间隔（秒）', type: 'number', default: 1, min: 0, help: '', options: [] },
   { key: 'retry_backoff_factor', label: '重试间隔倍数', type: 'number', default: 2, min: 1, help: '', options: [] },
 ];
+const PROMPT_CACHE_FIELD =
+  { key: 'supports_prompt_caching', label: '启用 Prompt Cache', type: 'boolean', default: true, help: '启用当前 Provider 支持的 Prompt Cache 能力。', options: [] };
 const ANTHROPIC_FIELDS = [
-  { key: 'supports_prompt_caching', label: '启用 Prompt Cache', type: 'boolean', default: true, help: '控制 Anthropic prompt cache 标记与缓存复用。', options: [] },
   { key: 'cache_ttl_seconds', label: 'Cache TTL (s)', type: 'number', default: 300, help: 'Provider KV cache 的滑动失效阈值。', options: [] },
 ];
+const PROMPT_CACHE_PROVIDER_TYPES = new Set(['anthropic', 'openrouter']);
 
 // 思考档位不归 provider 配置（在 agent llm_tiers 配置），表单不暴露思考相关字段。
 function fallbackConfigFields(providerType) {
   const fields = [...COMMON_PROVIDER_FIELDS];
   if (providerType === 'anthropic') fields.unshift(...ANTHROPIC_FIELDS);
+  if (PROMPT_CACHE_PROVIDER_TYPES.has(providerType)) fields.unshift(PROMPT_CACHE_FIELD);
   return fields;
 }
 
 const FALLBACK_PROVIDER_TYPES = [
-  { value: 'openai_resp', label: 'OpenAI Responses', default_endpoint: 'https://api.openai.com/v1' },
-  { value: 'openai_chat', label: 'OpenAI Chat', default_endpoint: 'https://api.openai.com/v1' },
-  { value: 'openai_proxy', label: 'OpenAI Compatible', default_endpoint: 'https://api.openai.com/v1' },
-  { value: 'anthropic', label: 'Anthropic', default_endpoint: 'https://api.anthropic.com' },
-  { value: 'deepseek', label: 'DeepSeek', default_endpoint: 'https://api.deepseek.com/v1' },
-  { value: 'openrouter', label: 'OpenRouter', default_endpoint: 'https://openrouter.ai/api/v1' },
-  { value: 'modelscope', label: 'ModelScope', default_endpoint: 'https://api-inference.modelscope.cn/v1' },
-  { value: 'rerank_api', label: 'Rerank API', default_endpoint: '' },
+  { value: 'openai_resp', label: 'OpenAI Responses', default_endpoint: 'https://api.openai.com/v1', supports_embedding: true, supports_rerank: false },
+  { value: 'openai_chat', label: 'OpenAI Chat', default_endpoint: 'https://api.openai.com/v1', supports_embedding: true, supports_rerank: false },
+  { value: 'openai_proxy', label: 'OpenAI Compatible', default_endpoint: 'https://api.openai.com/v1', supports_embedding: true, supports_rerank: false },
+  { value: 'anthropic', label: 'Anthropic', default_endpoint: 'https://api.anthropic.com', supports_embedding: false, supports_rerank: false },
+  { value: 'gemini', label: 'Google Gemini', default_endpoint: 'https://generativelanguage.googleapis.com/v1beta', supports_embedding: false, supports_rerank: false },
+  { value: 'mistral', label: 'Mistral AI', default_endpoint: 'https://api.mistral.ai/v1', supports_embedding: true, supports_rerank: false },
+  { value: 'groq', label: 'Groq', default_endpoint: 'https://api.groq.com/openai/v1', supports_embedding: false, supports_rerank: false },
+  { value: 'qwen', label: 'Alibaba Qwen', default_endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', supports_embedding: true, supports_rerank: false },
+  { value: 'deepseek', label: 'DeepSeek', default_endpoint: 'https://api.deepseek.com/v1', supports_embedding: false, supports_rerank: false },
+  { value: 'openrouter', label: 'OpenRouter', default_endpoint: 'https://openrouter.ai/api/v1', supports_embedding: true, supports_rerank: true },
+  { value: 'modelscope', label: 'ModelScope', default_endpoint: 'https://api-inference.modelscope.cn/v1', supports_embedding: true, supports_rerank: false },
+  { value: 'rerank_api', label: 'Rerank API', default_endpoint: '', supports_embedding: false, supports_rerank: true },
 ].map((item) => ({ ...item, config_fields: fallbackConfigFields(item.value) }));
 
 async function loadProviderTypes() {
   try {
     const types = await getProviderTypes();
-    providerTypeMeta.value = Object.fromEntries(types.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint || '', config_fields: t.config_fields || [] }]));
+    providerTypeMeta.value = Object.fromEntries(types.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint || '', supports_embedding: t.supports_embedding === true, supports_rerank: t.supports_rerank === true, config_fields: t.config_fields || [] }]));
     providerTypeOptions.value = types.map((t) => ({ value: t.value, label: t.label }));
   } catch {
-    providerTypeMeta.value = Object.fromEntries(FALLBACK_PROVIDER_TYPES.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint, config_fields: t.config_fields || [] }]));
+    providerTypeMeta.value = Object.fromEntries(FALLBACK_PROVIDER_TYPES.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint, supports_embedding: t.supports_embedding, supports_rerank: t.supports_rerank, config_fields: t.config_fields || [] }]));
     providerTypeOptions.value = FALLBACK_PROVIDER_TYPES.map((t) => ({ value: t.value, label: t.label }));
   }
 }
@@ -579,11 +586,22 @@ const editingKey = ref('');
 const form = ref({});
 const modelMapEntries = ref([]);
 const formErrors = ref({});
-const modelTaskOptions = [
+const allModelTaskOptions = [
   { value: 'chat', label: 'Chat' },
   { value: 'embedding', label: 'Embedding' },
   { value: 'rerank', label: 'Rerank' },
 ];
+const modelTaskOptions = computed(() => {
+  const providerType = form.value.provider_type;
+  if (!providerType) return allModelTaskOptions;
+  if (providerType === 'rerank_api') return allModelTaskOptions.filter((option) => option.value === 'rerank');
+  const metadata = providerTypeMeta.value[providerType];
+  return allModelTaskOptions.filter((option) => (
+    option.value !== 'embedding' || metadata?.supports_embedding === true
+  ) && (
+    option.value !== 'rerank' || metadata?.supports_rerank === true
+  ));
+});
 
 const apiEndpointPlaceholder = computed(() => {
   const providerType = form.value.provider_type;
@@ -648,6 +666,15 @@ function handleProviderTypeChange(providerType) {
   } else if (previousType === 'rerank_api' && modelMapEntries.value.length === 1 && modelMapEntries.value[0].task === 'rerank' && !modelMapEntries.value[0].model) {
     modelMapEntries.value = [{ task: 'chat', model: '' }];
   }
+  if (providerType !== 'rerank_api') {
+    const metadata = providerTypeMeta.value[providerType];
+    modelMapEntries.value = modelMapEntries.value.filter((entry) => (
+      entry.task !== 'embedding' || metadata?.supports_embedding === true
+    ) && (
+      entry.task !== 'rerank' || metadata?.supports_rerank === true
+    ));
+    if (modelMapEntries.value.length === 0) modelMapEntries.value = [{ task: 'chat', model: '' }];
+  }
 }
 function closeDialog() { dialog.value.visible = false; formErrors.value = {}; }
 function addModelMapEntry() { modelMapEntries.value.push({ task: '', model: '' }); }
@@ -688,6 +715,8 @@ function validateProviderForm() {
   if (hasIncompleteRow) errors.model_map = '每条模型映射都需要同时选择任务并填写模型名';
   else if (Object.keys(mm).length === 0) errors.model_map = '至少配置一个任务模型';
   else if (form.value.provider_type === 'rerank_api' && !mm.rerank) errors.model_map = 'Rerank API 必须配置 Rerank 模型';
+  else if (mm.embedding && providerTypeMeta.value[form.value.provider_type]?.supports_embedding !== true) errors.model_map = '当前 Provider 类型不支持 Embedding';
+  else if (mm.rerank && providerTypeMeta.value[form.value.provider_type]?.supports_rerank !== true) errors.model_map = '当前 Provider 类型不支持 Rerank';
   return errors;
 }
 

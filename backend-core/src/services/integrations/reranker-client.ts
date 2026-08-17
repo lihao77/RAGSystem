@@ -42,7 +42,7 @@ function resolveRerankEndpoint(reranker: RerankerEndpointConfig): string {
   const raw = resolveEnvPlaceholder(reranker.api_endpoint).trim();
   if (!raw) throw new Error(`Reranker '${reranker.reranker_key}' is missing api_endpoint`);
   const normalized = raw.replace(/\/+$/, "");
-  return normalized.endsWith("/rerank") ? normalized : `${normalized}/rerank`;
+  return normalized.endsWith("/rerank") || normalized.endsWith("/reranks") ? normalized : `${normalized}/rerank`;
 }
 
 function resolveApiKey(reranker: RerankerEndpointConfig): string {
@@ -58,10 +58,11 @@ async function readJsonResponseBody(response: Response): Promise<unknown> {
 }
 
 function extractScores(body: unknown, count: number): number[] {
-  if (!isRecord(body) || !Array.isArray(body.results)) throw new Error("Rerank response missing results array");
-  if (body.results.length !== count) throw new Error(`Rerank response count mismatch: expected ${count}, got ${body.results.length}`);
+  const payload = isRecord(body) && isRecord(body.output) ? body.output : body;
+  if (!isRecord(payload) || !Array.isArray(payload.results)) throw new Error("Rerank response missing results array");
+  if (payload.results.length !== count) throw new Error(`Rerank response count mismatch: expected ${count}, got ${payload.results.length}`);
   const scores = Array.from({ length: count }, () => Number.NaN);
-  for (const item of body.results) {
+  for (const item of payload.results) {
     if (!isRecord(item) || typeof item.index !== "number" || !Number.isInteger(item.index) || item.index < 0 || item.index >= count) throw new Error("Rerank response item has invalid index");
     const rawScore = item.relevance_score ?? item.score;
     if (typeof rawScore !== "number" || !Number.isFinite(rawScore)) throw new Error("Rerank response item missing score");

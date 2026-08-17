@@ -34,7 +34,7 @@
 | `retry_attempts` / `retry_delay` / `retry_backoff_factor` | number | 重试策略 |
 | `supports_function_calling` | boolean | 是否支持函数调用 |
 | `supports_vision` | boolean | 是否支持视觉 |
-| `supports_prompt_caching` | boolean | Anthropic prompt cache 总开关（默认开） |
+| `supports_prompt_caching` | boolean | 当前 Provider 的 Prompt Cache 能力开关（默认开） |
 | `cache_ttl_seconds` | number | KV cache 有效期（秒，memory 前缀快照失效阈值，默认 300） |
 | `is_loaded` / `is_available` | boolean | 运行时状态 |
 
@@ -47,11 +47,34 @@ interface ProviderTypeInfo {
   value: string;          // 类型标识
   label: string;          // 显示名
   default_endpoint: string;
+  supports_embedding: boolean;             // 是否支持 Embedding
+  supports_rerank: boolean;                // 是否支持 Rerank
   config_fields: ProviderConfigField[];  // 表单字段定义
 }
 ```
 
 每个 `ProviderConfigField` 含 `key`/`label`/`type`/`default`/`help`/`options`，前端据此动态渲染配置表单。
+
+当前内置 Chat Provider 类型包括：
+
+| Provider 类型 | 协议路径 | Embedding | Rerank |
+|------|------|------|------|
+| `openai_resp` | OpenAI Responses | 支持 | 不支持 |
+| `openai_chat` / `openai_proxy` | OpenAI Chat Completions | 支持 | 不支持 |
+| `anthropic` | Anthropic Messages | 不支持 | 不支持 |
+| `gemini` | Gemini GenerateContent | 不支持 | 不支持 |
+| `mistral` | OpenAI-compatible Chat | 支持 | 不支持 |
+| `groq` | OpenAI-compatible Chat | 不支持 | 不支持 |
+| `qwen` | DashScope OpenAI-compatible Chat | 支持 | 不支持（当前统一适配器） |
+| `deepseek` | OpenAI-compatible Chat | 不支持 | 不支持 |
+| `openrouter` | OpenAI-compatible Chat | 支持（取决于所选 embedding 模型） | 支持（取决于所选 rerank 模型） |
+| `modelscope` | OpenAI-compatible Chat | 支持（取决于所选 embedding 模型） | 不支持（当前统一适配器） |
+
+`rerank_api` 仅用于 Rerank，不具备 Chat 能力；它可以配置 Jina、Cohere、OpenRouter 等兼容 `/rerank` 的服务。
+
+阿里云 DashScope/Qwen 官方提供 Rerank API，但当前接口路径和请求结构不是统一适配器默认的 `/rerank` 兼容格式；如需使用，应通过 `rerank_api` 配置对应的专用 Endpoint，或后续增加原生 DashScope Rerank 适配器。
+
+自动前缀缓存由供应商控制，管理界面不会为这类 Provider 显示“启用 Prompt Cache”开关；`supports_prompt_caching` 只对协议支持显式缓存块或缓存键的 Provider 暴露。
 
 ## 管理 API（路由前缀 `/api/model-adapter`）
 
@@ -96,7 +119,7 @@ Provider 列表接口不会返回 API Key 明文或掩码值。管理端通过 `
 
 - `agentExecution` 通过 `providersProvider: () => modelAdapter.listProviders()` 获取可用 provider
 - `AgentCompressionService`（上下文压缩）也复用 `() => modelAdapter.listProviders()`
-- provider 的 `supports_prompt_caching` / `cache_ttl_seconds` 影响 Anthropic 路径的历史滚动 cache_control 断点与 memory 前缀快照失效
+- provider 的 capability matrix 决定协议分派、原生工具调用、Prompt Cache、usage 解析和 Embedding 默认入口
 
 ## 与共享包的关系
 

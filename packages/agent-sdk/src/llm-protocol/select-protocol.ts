@@ -8,7 +8,7 @@
  *
  * toolInstructionMode 随协议形态产出，由 createRuntime 绑进 Context（prompt 按模式注入不同说明）。
  */
-import { OPENAI_COMPATIBLE_TYPES } from "@ragsystem/agent-llm";
+import { providerUsesNativeFunctionCalling } from "@ragsystem/agent-llm";
 import type { ProviderConfig } from "@ragsystem/agent-llm";
 import type { LlmClient } from "@ragsystem/agent-llm";
 import type { EventSink, Protocol, ToolInstructionMode } from "../contracts.js";
@@ -36,13 +36,7 @@ export function resolveToolInstructionMode(provider: ProviderConfig | null | und
   if (!provider) {
     return "xml";
   }
-  if (provider.provider_type === "anthropic") {
-    return "native";
-  }
-  if (provider.provider_type === "openai_resp" && provider.supports_function_calling === true) {
-    return "native";
-  }
-  if (OPENAI_COMPATIBLE_TYPES.has(provider.provider_type) && provider.supports_function_calling === true) {
+  if (providerUsesNativeFunctionCalling(provider.provider_type, provider.supports_function_calling)) {
     return "native";
   }
   return "xml";

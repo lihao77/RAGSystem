@@ -10,30 +10,103 @@ export type ProviderType =
   | "openai_chat"
   | "openai_proxy"
   | "anthropic"
+  | "gemini"
+  | "mistral"
+  | "groq"
+  | "qwen"
   | "deepseek"
   | "openrouter"
   | "modelscope"
   | "rerank_api";
 
-/** chat 请求分发种类：专有响应 API / Anthropic Messages / OpenAI 兼容；无 chat 能力为 null。 */
-export type ChatDispatchKind = "openai_responses" | "anthropic" | "openai_compatible" | null;
+/** Chat request dispatch kind; null means the provider has no chat capability. */
+export type ChatDispatchKind = "openai_responses" | "anthropic" | "gemini" | "openai_compatible" | null;
+
+/** Prompt cache protocol shape; named_content is reserved for managed cache resources. */
+export type PromptCacheMode = "none" | "automatic_prefix" | "explicit_blocks" | "named_content";
+
+/** Provider usage response format. */
+export type UsageFormat = "openai" | "anthropic" | "deepseek" | "gemini" | "none";
+
+/** Whether native function calling is unavailable, configurable, or always selected. */
+export type NativeFunctionCallingMode = "none" | "configurable" | "always";
 
 export interface ProviderTypeSpec {
   type: ProviderType;
   defaultEndpoint: string;
   chatKind: ChatDispatchKind;
   supportsEmbedding: boolean;
+  supportsRerank: boolean;
+  promptCacheMode: PromptCacheMode;
+  usageFormat: UsageFormat;
+  supportsPromptCacheKey: boolean;
+  supportsPromptCacheTtl: boolean;
+  exposesPromptCacheToggle: boolean;
+  supportsStreamUsageOptions: boolean;
+  nativeFunctionCalling: NativeFunctionCallingMode;
 }
 
 export const PROVIDER_TYPE_SPECS: readonly ProviderTypeSpec[] = [
-  { type: "openai_resp", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_responses", supportsEmbedding: true },
-  { type: "openai_chat", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_compatible", supportsEmbedding: true },
-  { type: "openai_proxy", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_compatible", supportsEmbedding: true },
-  { type: "anthropic", defaultEndpoint: "https://api.anthropic.com", chatKind: "anthropic", supportsEmbedding: false },
-  { type: "deepseek", defaultEndpoint: "https://api.deepseek.com/v1", chatKind: "openai_compatible", supportsEmbedding: true },
-  { type: "openrouter", defaultEndpoint: "https://openrouter.ai/api/v1", chatKind: "openai_compatible", supportsEmbedding: true },
-  { type: "modelscope", defaultEndpoint: "https://api-inference.modelscope.cn/v1", chatKind: "openai_compatible", supportsEmbedding: true },
-  { type: "rerank_api", defaultEndpoint: "", chatKind: null, supportsEmbedding: false },
+  {
+    type: "openai_resp", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_responses", supportsEmbedding: true, supportsRerank: false,
+    promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: true,
+    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
+  },
+  {
+    type: "openai_chat", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: false,
+    promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: true,
+    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
+  },
+  {
+    type: "openai_proxy", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: false,
+    promptCacheMode: "none", usageFormat: "openai", supportsPromptCacheKey: false,
+    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
+  },
+  {
+    type: "anthropic", defaultEndpoint: "https://api.anthropic.com", chatKind: "anthropic", supportsEmbedding: false, supportsRerank: false,
+    promptCacheMode: "explicit_blocks", usageFormat: "anthropic", supportsPromptCacheKey: false,
+    supportsPromptCacheTtl: true, exposesPromptCacheToggle: true, supportsStreamUsageOptions: false, nativeFunctionCalling: "always",
+  },
+  {
+    type: "gemini", defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta", chatKind: "gemini", supportsEmbedding: false, supportsRerank: false,
+    promptCacheMode: "automatic_prefix", usageFormat: "gemini", supportsPromptCacheKey: false,
+    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: false, nativeFunctionCalling: "configurable",
+  },
+  {
+    type: "mistral", defaultEndpoint: "https://api.mistral.ai/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: false,
+    promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: false,
+    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: false, nativeFunctionCalling: "configurable",
+  },
+  {
+    type: "groq", defaultEndpoint: "https://api.groq.com/openai/v1", chatKind: "openai_compatible", supportsEmbedding: false, supportsRerank: false,
+    promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: false,
+    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
+  },
+  {
+    type: "qwen", defaultEndpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: false,
+    promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: false,
+    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
+  },
+  {
+    type: "deepseek", defaultEndpoint: "https://api.deepseek.com/v1", chatKind: "openai_compatible", supportsEmbedding: false, supportsRerank: false,
+    promptCacheMode: "automatic_prefix", usageFormat: "deepseek", supportsPromptCacheKey: false,
+    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
+  },
+  {
+    type: "openrouter", defaultEndpoint: "https://openrouter.ai/api/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: true,
+    promptCacheMode: "explicit_blocks", usageFormat: "openai", supportsPromptCacheKey: true,
+    supportsPromptCacheTtl: false, exposesPromptCacheToggle: true, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
+  },
+  {
+    type: "modelscope", defaultEndpoint: "https://api-inference.modelscope.cn/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: false,
+    promptCacheMode: "none", usageFormat: "openai", supportsPromptCacheKey: false,
+    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
+  },
+  {
+    type: "rerank_api", defaultEndpoint: "", chatKind: null, supportsEmbedding: false, supportsRerank: true,
+    promptCacheMode: "none", usageFormat: "none", supportsPromptCacheKey: false,
+    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: false, nativeFunctionCalling: "none",
+  },
 ];
 
 const SPEC_BY_TYPE = new Map<string, ProviderTypeSpec>(PROVIDER_TYPE_SPECS.map((spec) => [spec.type, spec]));
@@ -60,4 +133,15 @@ export function providerDefaultEndpoint(providerType: string): string {
 export function providerEmbeddingDefaultEndpoint(providerType: string): string {
   const spec = SPEC_BY_TYPE.get(providerType);
   return spec?.supportsEmbedding ? spec.defaultEndpoint : "";
+}
+
+/** provider_type -> complete capability description; unknown types return null. */
+export function providerTypeSpec(providerType: string): ProviderTypeSpec | null {
+  return SPEC_BY_TYPE.get(providerType) ?? null;
+}
+
+/** Whether this provider configuration should use the native function-calling protocol. */
+export function providerUsesNativeFunctionCalling(providerType: string, enabled: boolean | null | undefined): boolean {
+  const mode = SPEC_BY_TYPE.get(providerType)?.nativeFunctionCalling ?? "none";
+  return mode === "always" || (mode === "configurable" && enabled === true);
 }

@@ -20,6 +20,26 @@ export function parseProviderContinuationState(value: unknown): ProviderContinua
       };
     }
   }
+  if (value.protocol === "gemini_generate_content" && Array.isArray(value.parts)) {
+    const parts = value.parts.filter(isRecord);
+    if (parts.length === value.parts.length && parts.some((part) => isRecord(part.functionCall))) {
+      return {
+        protocol: "gemini_generate_content",
+        toolCallIds: [...value.toolCallIds],
+        parts,
+      };
+    }
+  }
+  if (value.protocol === "openai_chat" && isRecord(value.assistantFields)) {
+    const assistantFields = parseOpenAiChatAssistantFields(value.assistantFields);
+    if (Object.keys(assistantFields).length > 0) {
+      return {
+        protocol: "openai_chat",
+        toolCallIds: [...value.toolCallIds],
+        assistantFields,
+      };
+    }
+  }
   return null;
 }
 
@@ -36,4 +56,12 @@ function parseReasoningBlock(value: unknown): ReasoningBlock | null {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.length > 0);
+}
+
+function parseOpenAiChatAssistantFields(value: Record<string, unknown>): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  if (typeof value.reasoning_content === "string") fields.reasoning_content = value.reasoning_content;
+  if (typeof value.reasoning === "string") fields.reasoning = value.reasoning;
+  if (Array.isArray(value.reasoning_details)) fields.reasoning_details = value.reasoning_details.filter(isRecord).map((item) => ({ ...item }));
+  return fields;
 }

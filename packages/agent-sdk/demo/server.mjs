@@ -126,7 +126,7 @@ const tools = [
  * ========================================================== */
 
 function buildProfile(config) {
-  // profile.llmTiers.default.provider 内联完整 ProviderConfig（index.html 已构造，SDK 自建 OpenAiCompatibleClient 据此调用）。
+  // profile.llmTiers.default.provider 内联完整 ProviderConfig（index.html 已构造，SDK 自建 LlmProviderClient 据此调用）。
   return {
     agentName: "demo-agent",
     llmTiers: {

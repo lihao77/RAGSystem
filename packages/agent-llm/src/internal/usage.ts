@@ -21,7 +21,9 @@ export function extractOpenAiUsage(body: unknown): TokenUsage | null {
       : null;
   const cachedInputTokens = (promptDetails ? nonNegativeNumber(promptDetails.cached_tokens) : null)
     ?? deepSeekCacheHit;
-  const cacheCreationInputTokens = promptDetails ? nonNegativeNumber(promptDetails.cache_write_tokens) : null;
+  const cacheCreationInputTokens = promptDetails
+    ? nonNegativeNumber(promptDetails.cache_write_tokens) ?? nonNegativeNumber(promptDetails.cache_creation_input_tokens)
+    : null;
   return {
     inputTokens,
     outputTokens,
@@ -50,6 +52,26 @@ export function extractAnthropicUsage(body: unknown): TokenUsage | null {
     totalTokens: inputTokens + outputTokens,
     ...(cachedInputTokens !== null ? { cachedInputTokens } : {}),
     ...(cacheCreationInputTokens !== null ? { cacheCreationInputTokens } : {}),
+  };
+}
+
+export function extractGeminiUsage(body: unknown): TokenUsage | null {
+  if (!isRecord(body) || !isRecord(body.usageMetadata)) return null;
+  const input = nonNegativeNumber(body.usageMetadata.promptTokenCount);
+  const total = nonNegativeNumber(body.usageMetadata.totalTokenCount);
+  const candidates = nonNegativeNumber(body.usageMetadata.candidatesTokenCount);
+  const thoughts = nonNegativeNumber(body.usageMetadata.thoughtsTokenCount);
+  const cachedInputTokens = nonNegativeNumber(body.usageMetadata.cachedContentTokenCount);
+  if (input === null && total === null && candidates === null && thoughts === null && cachedInputTokens === null) return null;
+  const inputTokens = input ?? 0;
+  const outputTokens = total !== null
+    ? Math.max(0, total - inputTokens)
+    : (candidates ?? 0) + (thoughts ?? 0);
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: total ?? inputTokens + outputTokens,
+    ...(cachedInputTokens !== null ? { cachedInputTokens } : {}),
   };
 }
 

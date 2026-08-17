@@ -6,10 +6,17 @@ import process from "node:process";
 
 import YAML from "yaml";
 
-import { OpenAiCompatibleClient } from "../packages/agent-llm/dist/index.js";
+import { LlmProviderClient } from "../packages/agent-llm/dist/index.js";
 import { buildAnthropicBody } from "../packages/agent-llm/dist/providers/anthropic.js";
+import { buildGeminiBody } from "../packages/agent-llm/dist/providers/gemini.js";
 import { buildChatBody } from "../packages/agent-llm/dist/providers/openai-chat.js";
 import { buildResponsesBody } from "../packages/agent-llm/dist/providers/openai-responses.js";
+import {
+  analyzeRoundCache,
+  analyzeTransitions,
+  summarizeProviderResults,
+  summarizeRounds,
+} from "./cache-hit-rate-analysis.mjs";
 
 const options = parseArgs(process.argv.slice(2));
 if (options.help) {
@@ -74,8 +81,9 @@ await fsp.rm(path.join(outputDir, "report.partial.json"), { force: true });
 process.stdout.write(`\n[cache-live] report: ${path.join(outputDir, "report.md")}\n`);
 for (const provider of report.providers) {
   process.stdout.write(
-    `[cache-live] ${provider.providerKey}: warm=${formatRate(provider.summary.warmHitRate)} `
-      + `nonzero=${formatRate(provider.summary.nonZeroHitRate)} status=${provider.status}\n`,
+    `[cache-live] ${provider.providerKey}: reported=${formatRate(provider.summary.reportedHitRate)} `
+      + `warm=${formatRate(provider.summary.warmHitRate)} conditional=${formatRate(provider.summary.nonZeroConditionalHitRate)} `
+      + `unreported=${provider.summary.unreportedRounds.length} status=${provider.status}\n`,
   );
 }
 
@@ -86,7 +94,7 @@ if (options.strict && providerResults.some((result) => result.status !== "ok")) 
 }
 
 async function runProviderBenchmark(selected, context) {
-  const client = new OpenAiCompatibleClient();
+  const client = new LlmProviderClient();
   const stablePrefix = buildPayload(
     context.stableBytes,
     `RAGSYSTEM CACHE PROBE STABLE PREFIX ${context.runId} ${selected.key} ${selected.model}`,
@@ -326,6 +334,7 @@ function chooseChatModel(models) {
 
 function buildWireBody(request) {
   if (request.provider.provider_type === "anthropic") return buildAnthropicBody(request, false);
+  if (request.provider.provider_type === "gemini") return buildGeminiBody(request);
   if (request.provider.provider_type === "openai_resp") return buildResponsesBody(request, false);
   return buildChatBody(request, false);
 }
@@ -374,94 +383,12 @@ function collectCacheMarkers(value, currentPath = "$", output = []) {
   return output;
 }
 
-function analyzeRoundCache(usage, rawUsage) {
-  if (!usage) return { classification: "no_usage", metricsReported: false };
-  const inputTokens = nonNegativeNumber(usage.inputTokens) ?? 0;
-  const cachedInputTokens = nonNegativeNumber(usage.cachedInputTokens);
-  const cacheCreationInputTokens = nonNegativeNumber(usage.cacheCreationInputTokens);
-  const deepSeekMissTokens = nonNegativeNumber(rawUsage?.prompt_cache_miss_tokens);
-  const cached = cachedInputTokens ?? 0;
-  const created = cacheCreationInputTokens ?? 0;
-  const uncached = deepSeekMissTokens ?? Math.max(0, inputTokens - cached - created);
-  const metricsReported = cachedInputTokens !== null || cacheCreationInputTokens !== null || deepSeekMissTokens !== null;
-  let classification = "no_cache_metrics";
-  if (metricsReported && cached > 0 && created > 0) classification = "hit_and_write";
-  else if (metricsReported && cached > 0) classification = "hit";
-  else if (metricsReported && created > 0) classification = "cold_write";
-  else if (metricsReported) classification = "miss";
-  return {
-    classification,
-    metricsReported,
-    inputTokens,
-    cachedInputTokens: cached,
-    cacheCreationInputTokens: created,
-    uncachedInputTokens: uncached,
-    hitRate: inputTokens > 0 ? cached / inputTokens : null,
-    accountedRate: inputTokens > 0 ? Math.min(1, (cached + created) / inputTokens) : null,
-  };
-}
-
-function summarizeRounds(rounds) {
-  const successful = rounds.filter((round) => round.status === "ok" && round.cache?.inputTokens > 0);
-  const warm = successful.filter((round) => round.round > 1);
-  const nonZero = successful.filter((round) => round.cache.cachedInputTokens > 0);
-  return {
-    successfulRounds: successful.length,
-    totalRounds: rounds.length,
-    overallHitRate: aggregateRate(successful),
-    warmHitRate: aggregateRate(warm),
-    nonZeroHitRate: aggregateRate(nonZero),
-    postToolHitRate: aggregateRate(successful.filter((round) => round.round >= 3)),
-    totalInputTokens: sum(successful, (round) => round.cache.inputTokens),
-    totalCachedInputTokens: sum(successful, (round) => round.cache.cachedInputTokens),
-    totalCacheCreationInputTokens: sum(successful, (round) => round.cache.cacheCreationInputTokens),
-    metricsReportedRounds: successful.filter((round) => round.cache.metricsReported).length,
-    zeroHitWarmRounds: warm.filter((round) => round.cache.cachedInputTokens === 0).map((round) => round.round),
-    cacheDropRounds: warm.filter((round) => round.round >= 3 && round.cache.cachedInputTokens === 0).map((round) => round.round),
-  };
-}
-
-function analyzeTransitions(rounds) {
-  const round1 = rounds.find((round) => round.round === 1 && round.status === "ok");
-  const round2 = rounds.find((round) => round.round === 2 && round.status === "ok");
-  const round3 = rounds.find((round) => round.round === 3 && round.status === "ok");
-  if (!round1 || !round2 || !round3) return { conclusion: "insufficient_rounds" };
-  if (!round2.cache?.metricsReported && !round3.cache?.metricsReported) return { conclusion: "provider_did_not_report_cache_metrics" };
-  const round2Hit = round2.cache.cachedInputTokens ?? 0;
-  const round2Write = round2.cache.cacheCreationInputTokens ?? 0;
-  const round3Hit = round3.cache.cachedInputTokens ?? 0;
-  let conclusion = "cache_transition_unclear";
-  if (round2Hit > 0 && round3Hit > round2Hit) conclusion = "round2_reused_old_prefix_and_round3_reused_tool_result_prefix";
-  else if (round2Hit === 0 && round2Write > 0 && round3Hit > 0) conclusion = "round2_wrote_tool_result_and_round3_first_read_it";
-  else if (round2Hit > 0 && round3Hit > 0) conclusion = "cache_hit_present_but_tool_result_growth_not_visible";
-  else if (round3Hit === 0) conclusion = "tool_result_prefix_not_reused_by_round3";
-  return {
-    conclusion,
-    round1: round1.cache,
-    round2: round2.cache,
-    round3: round3.cache,
-  };
-}
-
 function buildReport(config, providers) {
   return {
     ...config,
     completedAt: new Date().toISOString(),
     providers,
     overall: summarizeProviderResults(providers),
-  };
-}
-
-function summarizeProviderResults(providers) {
-  const successful = providers.filter((provider) => provider.summary.successfulRounds > 0);
-  const rounds = successful.flatMap((provider) => provider.rounds)
-    .filter((round) => round.status === "ok" && round.cache?.inputTokens > 0);
-  return {
-    providerCount: providers.length,
-    providersWithUsage: successful.length,
-    overallHitRate: aggregateRate(rounds),
-    warmHitRate: aggregateRate(rounds.filter((round) => round.round > 1)),
-    nonZeroHitRate: aggregateRate(rounds.filter((round) => round.cache.cachedInputTokens > 0)),
   };
 }
 
@@ -475,15 +402,16 @@ function renderMarkdown(report) {
     `- Stable prefix: ${report.stableBytes} bytes`,
     `- Tool result: ${report.toolResultBytes} bytes`,
     `- Overall warm hit rate: ${formatRate(report.overall.warmHitRate)}`,
-    `- Hit rate excluding zero-hit rounds: ${formatRate(report.overall.nonZeroHitRate)}`,
+    `- Reported hit rate: ${formatRate(report.overall.reportedHitRate)}`,
+    `- Conditional hit rate excluding zero-hit rounds: ${formatRate(report.overall.nonZeroConditionalHitRate)}`,
     "",
     "## Provider Summary",
     "",
-    "| Provider | Type | Model | Status | Overall | Warm | Non-zero | Post-tool | Drop rounds |",
-    "|---|---|---|---:|---:|---:|---:|---:|---|",
+    "| Provider | Type | Model | Status | Reported | Warm | Conditional | Post-tool | Unreported | Drop rounds |",
+    "|---|---|---|---:|---:|---:|---:|---:|---:|---|",
   ];
   for (const provider of report.providers) {
-    lines.push(`| ${provider.providerKey} | ${provider.providerType} | ${provider.model} | ${provider.status} | ${formatRate(provider.summary.overallHitRate)} | ${formatRate(provider.summary.warmHitRate)} | ${formatRate(provider.summary.nonZeroHitRate)} | ${formatRate(provider.summary.postToolHitRate)} | ${provider.summary.cacheDropRounds.join(", ") || "-"} |`);
+    lines.push(`| ${provider.providerKey} | ${provider.providerType} | ${provider.model} | ${provider.status} | ${formatRate(provider.summary.reportedHitRate)} | ${formatRate(provider.summary.warmHitRate)} | ${formatRate(provider.summary.nonZeroConditionalHitRate)} | ${formatRate(provider.summary.postToolHitRate)} | ${provider.summary.unreportedRounds.join(", ") || "-"} | ${provider.summary.cacheDropRounds.join(", ") || "-"} |`);
   }
   for (const provider of report.providers) {
     lines.push("", `## ${provider.providerKey}`, "");
@@ -497,7 +425,9 @@ function renderMarkdown(report) {
     "- Round 1 is a deliberate cold request.",
     "- Round 2 appends a new read_file tool result. The new tool result cannot be a cache read in that same request; it can only be written while the older prefix may be read.",
     "- Round 3 is the first request where the Round 2 tool result can be part of a cache read.",
-    "- `Warm` excludes Round 1. `Non-zero` excludes every round whose provider-reported cached token count is zero.",
+    "- `Warm` excludes Round 1 and only includes rounds with provider-reported cache metrics.",
+    "- `Conditional` excludes every reported round whose cached token count is zero; it is not the overall hit rate.",
+    "- `Unreported` rounds are excluded from all cache-rate denominators and drop-round diagnostics.",
     "");
   return `${lines.join("\n")}\n`;
 }
@@ -584,20 +514,6 @@ function nonNegativeInteger(value, name) {
   const number = Number.parseInt(value, 10);
   if (!Number.isInteger(number) || number < 0) throw new Error(`${name} 必须是非负整数`);
   return number;
-}
-
-function nonNegativeNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
-}
-
-function aggregateRate(rounds) {
-  const input = sum(rounds, (round) => round.cache.inputTokens);
-  const cached = sum(rounds, (round) => round.cache.cachedInputTokens);
-  return input > 0 ? cached / input : null;
-}
-
-function sum(items, selector) {
-  return items.reduce((total, item) => total + (selector(item) ?? 0), 0);
 }
 
 function sha256(value) {

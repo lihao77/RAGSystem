@@ -50,6 +50,26 @@ test("DeepSeek usage maps cache hit and miss tokens", () => {
   });
 });
 
+test("Qwen-compatible usage maps cache creation tokens when reported", () => {
+  assert.deepEqual(extractOpenAiUsage({
+    usage: {
+      prompt_tokens: 1200,
+      completion_tokens: 80,
+      total_tokens: 1280,
+      prompt_tokens_details: {
+        cached_tokens: 1100,
+        cache_creation_input_tokens: 100,
+      },
+    },
+  }), {
+    inputTokens: 1200,
+    outputTokens: 80,
+    totalTokens: 1280,
+    cachedInputTokens: 1100,
+    cacheCreationInputTokens: 100,
+  });
+});
+
 test("Anthropic usage sums uncached, cache-write, and cache-read input", () => {
   assert.deepEqual(extractAnthropicUsage({
     usage: {

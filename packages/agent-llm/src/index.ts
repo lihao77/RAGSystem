@@ -10,4 +10,6 @@ export { compactRecord } from "./record-utils.js";
 export * from "./content-parts.js";
 export * from "./external-call-policy.js";
 export * from "./provider-continuation.js";
-export { OpenAiCompatibleClient, buildAnthropicBody } from "./openai-compatible-client.js";
+export { LlmProviderClient, OpenAiCompatibleClient } from "./llm-client.js";
+export { buildAnthropicBody } from "./providers/anthropic.js";
+export { GeminiAdapter, buildGeminiBody, extractGeminiUsage, resolveGeminiEndpoint } from "./providers/gemini.js";

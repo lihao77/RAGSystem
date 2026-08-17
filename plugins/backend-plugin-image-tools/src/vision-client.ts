@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { OpenAiCompatibleClient, type ProviderConfig } from "@ragsystem/agent-llm";
+import { LlmProviderClient, type ProviderConfig } from "@ragsystem/agent-llm";
 import type { ModelProviderConfig } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
 
 const DESCRIBE_IMAGE_PROMPT =
@@ -27,7 +27,7 @@ export interface VisionHelperDeps {
   maxCompletionTokens: number;
   timeoutSeconds: number;
   cacheEnabled: boolean;
-  client?: OpenAiCompatibleClient;
+  client?: LlmProviderClient;
   /** 外部共享缓存（可跨 helper 实例复用；key 含 namespace/provider/model/图片哈希）。 */
   cache?: Map<string, string>;
   /** 缓存命名空间（如租户 id），避免跨实例 key 冲突。 */
@@ -37,7 +37,7 @@ export interface VisionHelperDeps {
 /** 调用系统模型中配置的视觉模型生成图片文字描述；失败/超时返回 null（不阻塞消息）。 */
 export class OpenAiVisionHelper implements VisionHelper {
   private readonly cache: Map<string, string>;
-  private readonly client: OpenAiCompatibleClient;
+  private readonly client: LlmProviderClient;
   private readonly provider: ProviderConfig;
   private readonly modelName: string;
   private readonly maxCompletionTokens: number;
@@ -46,7 +46,7 @@ export class OpenAiVisionHelper implements VisionHelper {
   private readonly cacheNamespace: string;
 
   constructor(deps: VisionHelperDeps) {
-    this.client = deps.client ?? new OpenAiCompatibleClient();
+    this.client = deps.client ?? new LlmProviderClient();
     this.provider = toProviderConfig(deps.provider);
     this.modelName = deps.modelName;
     this.maxCompletionTokens = deps.maxCompletionTokens;

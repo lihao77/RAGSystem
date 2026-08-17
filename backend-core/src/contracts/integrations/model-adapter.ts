@@ -41,6 +41,8 @@ export interface ProviderTypeInfo {
   value: string;
   label: string;
   default_endpoint: string;
+  supports_embedding: boolean;
+  supports_rerank: boolean;
   config_fields: ProviderConfigField[];
 }
 

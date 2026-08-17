@@ -133,7 +133,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
 
   // default tier 可缺：preview 不调 LLM、不需 tier；run 在闭包内守卫 default 必填（调 LLM 必须有 tier）。
   const defaultTier = profile.llmTiers.default;
-  // LLM 客户端 SDK 内部自建（agent-llm OpenAiCompatibleClient 单例）：消费端不再注入，
+  // LLM 客户端 SDK 内部自建（agent-llm LlmProviderClient 单例）：消费端不再注入，
   // SDK 据 profile.llmTiers.default.provider 自带的 ProviderConfig 自行调用。
   const llm = getDefaultLlmClient();
 
