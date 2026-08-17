@@ -40,7 +40,7 @@ ToolExecutionResult
 - 📝 **Markdown 格式**，适合 LLM 理解
 - 🎯 **上下文优化**：根据预算决定 inline 还是 artifact_ref
 - 📊 **结构化信息**：包含数据结构预览、样本、提示
-- 💡 **指导性**：告诉 Agent 如何使用结果（如"后续工具可直接使用此文件路径"）
+- 💡 **指导性**：告诉 Agent 如何使用结果（如"用 read_file 读取，参数为 file_path"）
 
 **示例**（大结果落盘）：
 ```markdown
@@ -48,7 +48,7 @@ ToolExecutionResult
 
 📁 数据已存储: /path/to/data_abc123.json
 📊 List: 1000 条记录 | 字段: id, name, value 等 10 个字段
-💡 后续工具可直接使用此文件路径作为 data 参数；需要处理数据时用 execute_code 读取此文件
+💡 需要查看内容或结构时，用 read_file 或 preview_data_structure 读取（file_path 参数）
 📝 样本: [{"id": 1, "name": "test", ...}]
 🔍 数据结构:
 ```json
@@ -146,7 +146,7 @@ Agent 需要根据上下文预算决定：
 
 **Observation（指导性）**：
 ```markdown
-💡 后续工具可直接使用此文件路径作为 data 参数
+💡 需要查看内容或结构时，用 read_file 或 preview_data_structure 读取（file_path 参数）
 💡 如需后续内容，请继续调用 read_file(file_path='demo.txt', offset=100)
 ```
 

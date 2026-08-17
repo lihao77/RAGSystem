@@ -310,7 +310,7 @@ function renderLargePayloadReference(input: { result: ToolExecutionResult; file:
   if (approvalMessage) { parts.push(`用户批注: ${approvalMessage}\n`); }
   parts.push(`数据已写入临时文件: ${input.file.path}`);
   parts.push(renderLargePayloadMetaInfo(input.result, input.estimatedSize));
-  parts.push("后续工具可直接使用此文件路径作为 data 参数；需要处理数据时用 execute_code 读取此文件");
+  parts.push("需要查看内容或结构时，用 read_file 或 preview_data_structure 读取（file_path 参数）");
   if (metadata.sample !== undefined) { parts.push(`样本: ${stringifyJsonCompact(metadata.sample)}`); }
   const preview = buildStructuredPreview(input.result.content);
   if (preview) { parts.push(preview); }
