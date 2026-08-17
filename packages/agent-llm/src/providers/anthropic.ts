@@ -73,7 +73,7 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
       .filter(({ message }) => message.role !== "system")
       .map(({ message, index }) => mapAnthropicMessage(message, index === activeContinuationIndex)),
   );
-  if (cacheEnabled) markLastAssistantCacheBreakpoint(messages);
+  if (cacheEnabled) markLatestMessageCacheBreakpoint(messages);
 
   const tools: CacheableTool[] | undefined = request.tools?.length
     ? request.tools.map((tool) => ({
@@ -179,20 +179,25 @@ function coalesceConsecutiveUserMessages(messages: Record<string, unknown>[]): R
   return output;
 }
 
-function markLastAssistantCacheBreakpoint(messages: Record<string, unknown>[]): void {
+function markLatestMessageCacheBreakpoint(messages: Record<string, unknown>[]): void {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message?.role !== "assistant") continue;
+    if (!message) continue;
     const blocks = asArray(message.content);
     for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
       const block = blocks[blockIndex];
       if (!isRecord(block)) continue;
-      if (block.type === "tool_use" || (block.type === "text" && block.text !== "")) {
+      if (isCacheableMessageBlock(block)) {
         block.cache_control = { type: "ephemeral" };
         return;
       }
     }
   }
+}
+
+function isCacheableMessageBlock(block: Record<string, unknown>): boolean {
+  if (block.type === "tool_result" || block.type === "tool_use" || block.type === "image") return true;
+  return block.type === "text" && typeof block.text === "string" && block.text.length > 0;
 }
 
 function mapAnthropicToolChoice(choice: "auto" | "none" | undefined): Record<string, unknown> {

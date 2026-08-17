@@ -53,6 +53,7 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
 export function buildChatBody(request: LlmRequest, stream = false): Record<string, unknown> {
   const thinkingParams = buildThinkingParams(request.provider, request.thinkingLevel);
   const usesModernTokenField = request.provider.provider_type === "openai_chat" && Boolean(thinkingParams?.reasoning_effort);
+  const promptCacheParams = buildPromptCacheParams(request);
   return {
     ...compactRecord(request.extraParams),
     model: request.model,
@@ -62,11 +63,37 @@ export function buildChatBody(request: LlmRequest, stream = false): Record<strin
       ? { max_completion_tokens: request.maxCompletionTokens ?? undefined }
       : { max_tokens: request.maxCompletionTokens ?? undefined }),
     ...(thinkingParams ?? {}),
+    ...promptCacheParams,
     tools: request.tools && request.tools.length > 0 ? request.tools.map(stripInternalToolFields) : undefined,
     tool_choice: request.tools && request.tools.length > 0 ? (request.toolChoice ?? "auto") : undefined,
     stream: stream ? true : undefined,
     stream_options: stream ? { include_usage: true } : undefined,
   };
+}
+
+function buildPromptCacheParams(request: LlmRequest): Record<string, unknown> {
+  if (request.provider.supports_prompt_caching === false) return {};
+  if (request.provider.provider_type === "openrouter") {
+    return {
+      ...(request.promptCacheKey ? { prompt_cache_key: request.promptCacheKey } : {}),
+      cache_control: { type: "ephemeral" },
+    };
+  }
+  if (request.provider.provider_type === "openai_chat" && request.promptCacheKey && supportsOpenAiPromptCacheKey(request)) {
+    return { prompt_cache_key: request.promptCacheKey };
+  }
+  return {};
+}
+
+function supportsOpenAiPromptCacheKey(request: LlmRequest): boolean {
+  if (request.provider.supports_prompt_caching === true) return true;
+  const endpoint = typeof request.provider.api_endpoint === "string" ? request.provider.api_endpoint.trim() : "";
+  if (!endpoint) return true;
+  try {
+    return new URL(endpoint).hostname.toLowerCase() === "api.openai.com";
+  } catch {
+    return false;
+  }
 }
 
 function stripInternalMessageFields(message: LlmRequest["messages"][number]): Record<string, unknown> {

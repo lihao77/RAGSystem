@@ -17,6 +17,20 @@ const existing: ModelProviderConfig = {
 };
 
 describe("ModelAdapterService provider type updates", () => {
+  it("exposes prompt cache controls only for protocols with supported request fields", () => {
+    const types = new ModelAdapterService().listProviderTypes();
+    const fields = (providerType: string) => types.find((item) => item.value === providerType)?.config_fields ?? [];
+
+    for (const providerType of ["anthropic", "openai_chat", "openai_resp", "openrouter"]) {
+      expect(fields(providerType).some((field) => field.key === "supports_prompt_caching")).toBe(true);
+    }
+    for (const providerType of ["deepseek", "modelscope", "openai_proxy"]) {
+      expect(fields(providerType).some((field) => field.key === "supports_prompt_caching")).toBe(false);
+    }
+    expect(fields("anthropic").some((field) => field.key === "cache_ttl_seconds")).toBe(true);
+    expect(fields("openai_chat").some((field) => field.key === "cache_ttl_seconds")).toBe(false);
+  });
+
   it("changes provider type while preserving the stable provider key", () => {
     const service = new ModelAdapterService();
     const result = service.buildUpdateProvider("stable-provider-key", existing, {

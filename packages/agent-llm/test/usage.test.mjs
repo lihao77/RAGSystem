@@ -19,6 +19,37 @@ test("OpenAI usage preserves logical input and exposes cached input details", ()
   });
 });
 
+test("OpenAI-compatible usage exposes cache writes when reported", () => {
+  assert.deepEqual(extractOpenAiUsage({
+    usage: {
+      prompt_tokens: 150,
+      completion_tokens: 5,
+      prompt_tokens_details: { cached_tokens: 100, cache_write_tokens: 30 },
+    },
+  }), {
+    inputTokens: 150,
+    outputTokens: 5,
+    totalTokens: 155,
+    cachedInputTokens: 100,
+    cacheCreationInputTokens: 30,
+  });
+});
+
+test("DeepSeek usage maps cache hit and miss tokens", () => {
+  assert.deepEqual(extractOpenAiUsage({
+    usage: {
+      prompt_cache_hit_tokens: 90,
+      prompt_cache_miss_tokens: 10,
+      completion_tokens: 4,
+    },
+  }), {
+    inputTokens: 100,
+    outputTokens: 4,
+    totalTokens: 104,
+    cachedInputTokens: 90,
+  });
+});
+
 test("Anthropic usage sums uncached, cache-write, and cache-read input", () => {
   assert.deepEqual(extractAnthropicUsage({
     usage: {

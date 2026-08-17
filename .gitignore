@@ -79,6 +79,7 @@ packages/api-contracts/tests/*
 backend_start.*.log
 
 # Root-level personal and temporary files
+.tmp/cache-benchmarks/
 /agent_dev_resume (1).html
 /agent_dev_resume.docx
 /硕士学位论文.docx

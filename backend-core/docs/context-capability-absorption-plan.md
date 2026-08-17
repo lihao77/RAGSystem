@@ -70,7 +70,7 @@ TS 现役上下文子系统（`AgentContextService` 门面 + `beforeModel` 压�
 - **现状**：稳定前缀已有，但发给 provider 的 payload **从不带 `cache_control`**（全代码 grep 零命中），稳定性白白浪费。
 - **做法**：在 `llm-chat-client.ts` 的 `buildAnthropicBody`（`:183`）里，对稳定前缀消息（system / 记忆索引块 / 压缩摘要）尾部打 `cache_control` 标注。**按 `provider_type` 分流**：
   - `anthropic`：打标。
-  - OpenAI 类（`openai_chat/openai_resp/openai_proxy/deepseek/openrouter/modelscope`）：**不打、也无此字段**——其缓存为自动前缀缓存，只需前缀稳定（已具备），无需任何动作（可选传 `prompt_cache_key` 提命中，本阶段不做）。
+  - OpenAI 类按协议分流：`openai_resp` 与官方/显式启用的 `openai_chat` 下发稳定 `prompt_cache_key`；`openrouter` 下发稳定 key 与网关级自动尾部 `cache_control`；`deepseek/modelscope/openai_proxy` 保持供应商自动前缀缓存，不发送未知字段。
 - **落点**：`llm-chat-client.ts`（`buildAnthropicBody`）；稳定前缀边界由现成的记忆快照 / stable-prefix fingerprint 提供。
 - **验收**：anthropic 请求 payload 带 `cache_control`；OpenAI 类 payload 无变化、无报错；前缀逐字稳定性不回归。
 

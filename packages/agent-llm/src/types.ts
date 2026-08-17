@@ -105,7 +105,7 @@ export interface ProviderConfig {
   } | null;
   supports_function_calling?: boolean | null;
   supports_vision?: boolean | null;
-  /** Provider prompt cache switch. Defaults on; Anthropic uses cache_control, OpenAI Responses uses prompt_cache_key. */
+  /** Provider prompt cache switch. Defaults on; each adapter emits only fields supported by its protocol. */
   supports_prompt_caching?: boolean | null;
   /** provider KV cache 有效期(秒);memory 前缀快照 sliding 失效阈值用。 */
   cache_ttl_seconds?: number | null;

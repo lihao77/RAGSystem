@@ -628,17 +628,18 @@ function providerConfigFields(providerType: string): ProviderTypeInfo["config_fi
     },
   ];
 
-  // 思考档位不归 provider 配置（在 agent llm_tiers 配置），表单不再暴露思考相关字段。
+  if (["anthropic", "openai_chat", "openai_resp", "openrouter"].includes(providerType)) {
+    fields.unshift({
+      key: "supports_prompt_caching",
+      label: "启用 Prompt Cache",
+      type: "boolean",
+      default: true,
+      help: "控制当前 Provider 支持的 cache_control 或 prompt_cache_key 缓存参数。",
+      options: [],
+    });
+  }
   if (providerType === "anthropic") {
-    fields.unshift(
-      {
-        key: "supports_prompt_caching",
-        label: "启用 Prompt Cache",
-        type: "boolean",
-        default: true,
-        help: "控制 Anthropic prompt cache 标记与缓存复用。",
-        options: [],
-      },
+    fields.splice(1, 0,
       {
         key: "cache_ttl_seconds",
         label: "Cache TTL (s)",

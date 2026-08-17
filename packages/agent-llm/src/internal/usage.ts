@@ -3,7 +3,13 @@ import { finiteNumber, isRecord } from "./records.js";
 
 export function extractOpenAiUsage(body: unknown): TokenUsage | null {
   if (!isRecord(body) || !isRecord(body.usage)) return null;
-  const input = finiteNumber(body.usage.prompt_tokens) ?? finiteNumber(body.usage.input_tokens);
+  const deepSeekCacheHit = nonNegativeNumber(body.usage.prompt_cache_hit_tokens);
+  const deepSeekCacheMiss = nonNegativeNumber(body.usage.prompt_cache_miss_tokens);
+  const input = finiteNumber(body.usage.prompt_tokens)
+    ?? finiteNumber(body.usage.input_tokens)
+    ?? (deepSeekCacheHit !== null || deepSeekCacheMiss !== null
+      ? (deepSeekCacheHit ?? 0) + (deepSeekCacheMiss ?? 0)
+      : null);
   const output = finiteNumber(body.usage.completion_tokens) ?? finiteNumber(body.usage.output_tokens);
   if (input === null && output === null) return null;
   const inputTokens = input ?? 0;
@@ -13,12 +19,15 @@ export function extractOpenAiUsage(body: unknown): TokenUsage | null {
     : isRecord(body.usage.input_tokens_details)
       ? body.usage.input_tokens_details
       : null;
-  const cachedInputTokens = promptDetails ? nonNegativeNumber(promptDetails.cached_tokens) : null;
+  const cachedInputTokens = (promptDetails ? nonNegativeNumber(promptDetails.cached_tokens) : null)
+    ?? deepSeekCacheHit;
+  const cacheCreationInputTokens = promptDetails ? nonNegativeNumber(promptDetails.cache_write_tokens) : null;
   return {
     inputTokens,
     outputTokens,
     totalTokens: finiteNumber(body.usage.total_tokens) ?? inputTokens + outputTokens,
     ...(cachedInputTokens !== null ? { cachedInputTokens } : {}),
+    ...(cacheCreationInputTokens !== null ? { cacheCreationInputTokens } : {}),
   };
 }
 
