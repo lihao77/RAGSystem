@@ -952,7 +952,7 @@ function errorResult(
 }
 
 function resolvePythonExecutable(): string {
-  return process.env.RAGSYSTEM_PYTHON ?? process.env.PYTHON ?? "python";
+  return process.env.RAGSYSTEM_PYTHON?.trim() || process.env.PYTHON?.trim() || "python";
 }
 
 function resolveDefaultIsolationMode(): SkillIsolationMode {

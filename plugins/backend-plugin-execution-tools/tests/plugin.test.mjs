@@ -249,6 +249,35 @@ test("execute_code uses standard Python and the shared workspace", async () => {
   }
 });
 
+test("execute_code ignores a blank RAGSYSTEM_PYTHON and falls back to PYTHON", async () => {
+  const previousRagSystemPython = process.env.RAGSYSTEM_PYTHON;
+  const previousPython = process.env.PYTHON;
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-code-resolver-"));
+  try {
+    process.env.RAGSYSTEM_PYTHON = "";
+    process.env.PYTHON = "python";
+    const service = new CodeExecutionToolService({ dataRoot });
+    const result = await service.executeCode(
+      { code: "print('python_resolver_ok')" },
+      { sessionId: "session-resolver" },
+    );
+    assert.equal(result.success, true, result.summary);
+    assert.match(result.content, /python_resolver_ok/);
+  } finally {
+    if (previousRagSystemPython === undefined) {
+      delete process.env.RAGSYSTEM_PYTHON;
+    } else {
+      process.env.RAGSYSTEM_PYTHON = previousRagSystemPython;
+    }
+    if (previousPython === undefined) {
+      delete process.env.PYTHON;
+    } else {
+      process.env.PYTHON = previousPython;
+    }
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
 test("execute_bash writes into the same workspace seen by glob", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-bash-workspace-"));
   try {
