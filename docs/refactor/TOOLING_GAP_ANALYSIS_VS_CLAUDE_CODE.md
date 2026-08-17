@@ -461,6 +461,15 @@ class PermissionDecision:
 - 在 agent_config 级别做 LRU 缓存（注意 MCP 工具动态性）
 - 参考 Claude Code 的 `isConcurrencySafe` 机制补工具并发能力
 
+#### P7：权限决策扩展点（可扩展性，自 REMAINING_GAPS 并入）
+
+- `PermissionDecision` 增加 `metadata` 扩展字段，便于未来携带 hook 来源、classifier 结果等权限元数据
+
+#### P8：工程增强（自 REMAINING_GAPS 并入）
+
+- 工具执行流程补 Mermaid 流程图，降低新人理解成本（历史参考：`docs/archive/refactor/TOOL_WORKFLOW.md`）
+- 补端到端工具执行、MCP 工具、审批流程的集成测试覆盖
+
 ## 8. 与主规划文档的关系
 
 本文档负责回答两个问题：

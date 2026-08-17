@@ -4,11 +4,16 @@
 
 ## 当前专题文档
 
+### Agent 体验与工具体系
+
 - `ADAPTIVE_AGENT_EXPERIENCE_PLAN.md`
   - AutoDream 记忆治理方案（2026-05-26 修订）
   - 三个 Phase：Memory candidate 状态 → AutoDream MVP（只读扫描 + Dream 报告 + 索引重建）→ Dream 工厂页面（治理入口 + 记忆浏览）
-  - 工程约束：成本控制（fast tier）、增量式数据迁移、协程并发安全（asyncio.Lock）
+  - 工程约束：成本控制（fast tier）、增量式数据迁移、进程内并发安全
   - 后续演进：反馈闭环、Skill 化、执行语义、评测集、权限调优、专用 Team
+
+- `AGENT_SUBAGENT_REFACTOR.md`
+  - 子 Agent 重构的当前实现、消息协议、恢复边界、阶段提交和验收命令（2026-08-09）
 
 - `CLAUDE_CODE_ALIGNMENT_PLAN.md`
   - Claude Code 对标演进路线图
@@ -17,23 +22,26 @@
 - `TOOLING_GAP_ANALYSIS_VS_CLAUDE_CODE.md`
   - 当前项目工具体系与 Claude Code 的差异分析
   - 聚焦工具注册、执行上下文、权限、hooks、结果协议与大结果回读的差异诊断
+  - 已并入原 `REMAINING_GAPS.md` 的有效残余（权限扩展点、流程可视化、集成测试）
 
-- `RUNTIME_EXECUTION_GAPS_AND_ROADMAP.md`
-  - 运行时缺陷分析与实施路线（2026-04-14，2026-04-16 已校正状态）
-  - D1 工具并行、D2 后台任务自动注入、D3 文件变更回退（git snapshot）、D4 日志治理均已完成；子 Agent 重构已完成统一 invocation、durable mailbox、双向消息、并行聚合和前端投影。子 Agent 当前统一复用父 workspace，不启用 worktree 隔离。
+- `TS_TOOL_SYSTEM_REFACTOR_PLAN.md`
+  - TS 端智能体工具体系重构方案（Tool-centric · Zod · 输入校验/并发调度/权限三层合议）
 
-- `AGENT_SUBAGENT_REFACTOR.md`
-  - 子 Agent 重构的当前实现、消息协议、恢复边界、阶段提交和验收命令（2026-08-09）
+- `OBSERVATION_VS_PREVIEW.md`
+  - observation（面向 LLM）与 preview（面向前端）两个结果视角的概念区分
 
-- `TS_EVENT_ARCHITECTURE_PLAN.md`
-  - TS 后端事件架构落地方案 V1（2026-06-07）
-  - 当前事件关系、目标架构、Recorder + Outbox + Dispatcher + Projection 分层、分阶段迁移和验收标准
-  
+- `RENDERING_CONTRACT_NOTES.md`
+  - 前端渲染边界契约：chart.echarts 呈现、Artifact V2 空间资产、`map_*` host tool 约定
+
+### 事件与运行时架构
+
+- `SESSION_LIST_ORIGIN_WORKSPACE_PLAN.md`
+  - 会话列表来源、时间排序与 Workspace 升级方案（Clean Break）
+
 - `TS_EVENT_ARCHITECTURE_PLAN_V2.md` ⭐ **推荐**
   - TS 后端事件架构落地方案 V2（2026-06-07，基于实际代码约束修订）
   - 关键优化：补齐事务 facade、`event_seq`/`stream_seq` 分离、terminal path 事件矩阵、dispatcher shadow 模式、5 个渐进式 Phase
-  - 相比 V1：首期范围更聚焦，实施前置风险更清晰，回滚和验收标准更具体
-  
+
 - `TS_EVENT_ARCHITECTURE_OPTIMIZATION_SUMMARY.md`
   - V1→V2 方案优化总结
   - 代码诊断过程、关键技术决策、V2 修订点、实施建议
@@ -44,9 +52,16 @@
 
 ## 历史归档入口
 
-- `../archive/refactor/AGENT_FIRST_REFACTOR_PLAN.md`
-  - 历史重构方案
-  - 已不再作为当前主线规划文档维护，仅保留参考价值
+以下文档已迁移至 `../archive/refactor/`，仅保留参考价值：
+
+- `AGENT_FIRST_REFACTOR_PLAN.md` — 历史重构方案
+- `TS_EVENT_ARCHITECTURE_PLAN.md` — 事件架构落地方案 V1（已被 V2 取代）
+- `RUNTIME_EXECUTION_GAPS_AND_ROADMAP.md` — 运行时缺陷修复路线（D1–D4 均已完成）
+- `TS_BACKEND_FULL_MIGRATION_PLAN.md` — Python→TS 后端全量迁移计划（迁移已完成）
+- `TASK_TODO_TOOLS_MIGRATION.md` — Task/Todo 工具移植方案（已落地）
+- `RUNTIME_REFACTOR_SUMMARY.md` / `TOOL_WORKFLOW.md` / `TOOL_WORKFLOW_COMPARISON.md` / `TOOL_PROMPT_REFACTOR.md` — Python 后端时代的工具运行时文档
+- `REMAINING_GAPS.md` — 工具体系剩余差距清单（有效残余已并入 TOOLING_GAP_ANALYSIS）
+- `EVENT_BUS_OPTIMIZATION_PLAN.md` — Event Bus 优化计划（针对已移除的 Python 后端事件总线）
 
 ## 维护原则
 

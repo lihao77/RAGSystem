@@ -1,8 +1,10 @@
 # TS 端智能体工具体系重构（Tool-centric · Zod · 输入校验/并发调度/权限三层合议）
 
-> 状态：已批准，待实施
+> 状态：主体方向已落地（2026-08-17 核对）；残留差异见下注
 > 范围：`backend-ts` 智能体工具体系与调用体系
 > 参考：`D:\python\claude-code-source-code-main`（Claude Code 工具体系设计）
+
+> **落地核对注记**：Tool-centric 富模型已在 `packages/agent-sdk/src/tools/tool.ts` 实现（Tool 接口、`inputSchema` 输入校验 `validation.ts`、三态权限 `ToolAccessDecision`、并发策略 `ToolConcurrencyPolicy`、hooks registry）。与方案的差异：SDK 刻意不依赖 Zod 包，`InputSchema` 采用鸭子类型兼容 Zod 的 `safeParse` 形状。下文为原始方案，细节以 `packages/agent-sdk` 代码为准。
 
 ## Context（为什么做这次重构）
 

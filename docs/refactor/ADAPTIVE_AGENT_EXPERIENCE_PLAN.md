@@ -2,8 +2,10 @@
 
 > 创建时间：2026-05-26
 > 修订时间：2026-05-26
-> 状态：方案文档，未进入代码实施
+> 状态：方案文档，未进入代码实施（2026-08-17 核对：AutoDream/Dream 在代码中仍不存在，状态声明准确）
 > 范围：聚焦 Dream 记忆治理（Memory candidate + AutoDream + Dream 工厂页面）
+
+> **时效性注记**：本文"当前系统基础"章节基于已移除的 Python 后端（`services/memory_store.py`、`backend-fastapi/`、`daemon/scheduler/engine.py` 等路径均已不存在），仅作历史背景；当前记忆系统实现位于 `plugins/backend-plugin-memory/`。方案部分（三态 status、AutoDream 闭环、Dream 工厂）仍为有效设计参考。
 
 ## 目标
 
@@ -366,9 +368,9 @@ AutoDream 运行方式：手动触发 / Cron 自动 / 只扫描不修改（MVP �
 
 **MVP 阶段**：AutoDream 扫描为只读操作，不存在写冲突。通过 Daemon 调度在空闲时段执行，Dream 报告写入独立目录。
 
-**后续全量阶段**：AutoDream 引入写操作时需要保护。由于 AutoDream 与前台 Agent 在同一 FastAPI 进程的不同协程中运行，文件级 advisory lock（`fcntl.flock()` / `msvcrt.locking()`）**无法互斥协程**。正确策略：
+**后续全量阶段**：AutoDream 引入写操作时需要保护。由于 AutoDream 与前台 Agent 在同一 Node.js 进程内并发运行，文件级 advisory lock **无法互斥进程内并发任务**。正确策略：
 
-- 进程内 `asyncio.Lock`，按 `(scope, file_name)` 建 lock 字典。
+- 进程内互斥锁，按 `(scope, file_name)` 建 lock 字典。
 - 锁粒度：单个 memory 文件，不锁整个 scope。
 - 超时：获取锁超时（5 秒）则跳过该文件，不阻塞扫描。
 

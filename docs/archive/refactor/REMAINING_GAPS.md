@@ -273,7 +273,7 @@ graph TD
 ```
 
 **参考文件**：
-- 当前系统：`docs/refactor/TOOL_WORKFLOW.md`
+- 当前系统（Python 时代，历史参考）：`docs/archive/refactor/TOOL_WORKFLOW.md`
 
 ---
 

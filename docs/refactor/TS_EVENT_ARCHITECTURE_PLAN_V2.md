@@ -1,8 +1,10 @@
 # TS 后端事件架构落地方案 V2
 
 > 创建时间：2026-06-07  
-> 修订状态：已补齐评审阻塞项
+> 修订状态：已补齐评审阻塞项；主体已落地（2026-08-17 核对）
 > 范围：`backend-ts` runtime-core、agent execution、WebSocket realtime、conversation persistence
+
+> **落地核对注记**：Recorder→Outbox→Dispatcher→Projection 分层已在 `backend-core/src/services/runtime/event-outbox/` 实现，Local/SaaS 双侧 outbox 表与运维 API（`routes/agent/monitoring.ts`）齐备。与本文的两处命名差异：① `ExecutionRecorder` 职责由 `DurableClientEventPublisher` 承担；② WS durable replay 序号经 outbox 的 `session_seq/event_seq` 投影，未按 Phase 4 命名 `last_event_seq` 字段。
 
 ## 结论
 

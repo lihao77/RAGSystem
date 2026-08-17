@@ -1,5 +1,7 @@
 # 会话列表来源、时间排序与 Workspace 升级方案（Clean Break）
 
+> **落地核对注记**（2026-08-17）：本方案主体已实施——`workspaces` 表、`session_list_projection` 读模型、cursor 分页 API（`routes/agent/sessions.ts`）均按方案落地。**一处未完全符合 Clean Break**：`backend-core/src/services/agent/delegation/helpers.ts:27` 仍读取 `child.metadata.workspace_root` 作为 workspace 解析回退，与第 1 节"不解析旧 metadata.workspace_root"的原则相悖，属待清理残留。
+
 ## 1. 实施原则
 
 系统仍处于开发阶段，本方案采用一次性 clean break：

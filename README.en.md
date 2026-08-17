@@ -28,7 +28,7 @@ The primary navigation exposes a TeamBuilder entry (`/team-builder`) for generat
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshots/desktop-knowledge-base.png" alt="Desktop vector library page" width="450">
+  <img src="docs/assets/screenshots/desktop-knowledge-base.png" alt="Desktop knowledge base page" width="450">
   <img src="docs/assets/screenshots/desktop-mcp-manager.png" alt="Desktop MCP service management page" width="450">
 </p>
 

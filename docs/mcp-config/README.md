@@ -17,22 +17,24 @@
 前端 ──自定义 WS──────────────────> /ws
 ```
 
-## 本文件夹内容
+## 相关代码位置
+
+本文档只保留接入配置说明，代码与产物均在仓库主线工程中维护：
 
 ```
-mcp-config/
-├── README.md                                ← 本文件：三方接入配置总览
-├── ragsystem-mcp-client.umd.cjs             ← 前端 WS 客户端（全局 `RagMcpClient`）
-└── host-tool-mcp-server/                    ← MCP server 源码（可独立 build & start）
-    ├── WORKFLOW.md                          ← 原始工作流时序图
-    ├── package.json / tsconfig.json
-    ├── config/
-    │   └── tools.yaml                       ← 工具清单（决定 tools/list 返回什么）
-    └── src/                                 ← main / mcp-face / ws-face / router / config
+仓库根目录/
+├── host-tool-mcp-server/                    ← MCP server 工程（npm workspace，可独立 build & start）
+│   ├── WORKFLOW.md                          ← 原始工作流时序图
+│   ├── package.json / tsconfig.json
+│   ├── config/
+│   │   └── tools.yaml                       ← 工具清单（决定 tools/list 返回什么）
+│   └── src/                                 ← main / mcp-face / ws-face / router / config
+└── packages/agent-widget/dist/
+    └── ragsystem-mcp-client.umd.cjs         ← 前端 WS 客户端构建产物（全局 `RagMcpClient`）
 ```
 
-> server 子目录是自包含的 TS 工程，`cd host-tool-mcp-server && npm install && npm run build` 即可跑起。
-> 运行所需依赖清单与启动步骤见下文「一、MCP Server 配置」。
+> server 是自包含的 TS 工程（根 npm workspace 成员），`cd host-tool-mcp-server && npm install && npm run build` 即可跑起。
+> 前端客户端通过构建 agent-widget 产出，不要手工复制旧产物。运行所需依赖清单与启动步骤见下文「一、MCP Server 配置」。
 
 ---
 
@@ -41,7 +43,7 @@ mcp-config/
 ### 1.1 启动
 
 ```bash
-cd host-tool-mcp-server      # 进入本文件夹下的 server 子目录
+cd host-tool-mcp-server      # 仓库根目录下的 server 工程
 npm install                  # 安装依赖（首次）
 npm run build                # 编译 TS → dist/
 npm start                    # 默认 127.0.0.1:8787
@@ -139,14 +141,14 @@ observation 里是提示文本，**不抛异常**——按普通 tool result 回
 
 前端是**执行端**：连一条 WS，登记能跑哪些工具，收到调用执行后回传结果。
 
-已有现成客户端（本文件夹根目录的 `ragsystem-mcp-client.umd.cjs`，全局 `RagMcpClient`），WS 协议、重连、invoke 分派、result 回传全包了。
+已有现成客户端（构建产物 `packages/agent-widget/dist/ragsystem-mcp-client.umd.cjs`，全局 `RagMcpClient`），WS 协议、重连、invoke 分派、result 回传全包了。
 前端只需准备三样：**构造参数、工具实现、生命周期调用**。
 
 ### 3.1 引入客户端
 
 ```html
 <script src="./ragsystem-mcp-client.umd.cjs"></script>
-<!-- 暴露全局 window.RagMcpClient -->
+<!-- 从 packages/agent-widget/dist/ 复制构建产物到页面可访问目录；暴露全局 window.RagMcpClient -->
 ```
 
 ### 3.2 构造：`{ url, sessionId }`
@@ -258,11 +260,11 @@ MCP server → 后端：MCP result（content 文本 = observation）
 
 详见 `host-tool-mcp-server/WORKFLOW.md`（含启动握手、会话切换、session_id 全链路数据流）。
 
+---
 
+## 附录：结果回传契约（参考）
 
-
-
-
+以下接口摘自前端 adapter 实现，供对照查阅。
 
 ```ts
 /**
@@ -311,5 +313,5 @@ interface DelegateResultUplink {
 | `ok`                 | `ok`                              | 直传                                  |
 | `observation`        | `observation`                     | 直传，仅 `!== undefined` 时带         |
 | `error`              | `error`                           | 直传，仅 `!== undefined` 时带         |
-| `elapsedMs`          | `elapsed_ms`                      | 驼峰转下划线；未给时 adapter 自动兜底 |                          |
+| `elapsedMs`          | `elapsed_ms`                      | 驼峰转下划线；未给时 adapter 自动兜底 |
 | —                    | `phase: "result"`                 | adapter 固定补                        |

@@ -1,7 +1,7 @@
 # TS 后端事件架构方案评估
 
 > 评估时间：2026-06-07
-> 评估对象：`TS_EVENT_ARCHITECTURE_PLAN.md` 与修订后的 `TS_EVENT_ARCHITECTURE_PLAN_V2.md`
+> 评估对象：`TS_EVENT_ARCHITECTURE_PLAN.md`（已归档至 `docs/archive/refactor/`）与修订后的 `TS_EVENT_ARCHITECTURE_PLAN_V2.md`
 
 ## 评估结论
 
