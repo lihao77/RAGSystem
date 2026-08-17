@@ -15,12 +15,35 @@ export function useSessionRuntimeStatus({ clearLlmRetryState, chatSdkClient }) {
       const tokenStats = json.data?.token_stats;
       if (tokenStats && typeof tokenStats.total_tokens === 'number'
         && typeof tokenStats.budget_tokens === 'number') {
+        const isProvider = tokenStats.token_source === 'provider';
+        const systemPromptTokens = typeof tokenStats.system_prompt_tokens === 'number'
+          ? tokenStats.system_prompt_tokens
+          : null;
+        const sessionCached = typeof tokenStats.session_cached_input_tokens === 'number'
+          ? tokenStats.session_cached_input_tokens : 0;
+        const sessionCreation = typeof tokenStats.session_cache_creation_input_tokens === 'number'
+          ? tokenStats.session_cache_creation_input_tokens : 0;
+        const sessionInput = typeof tokenStats.session_input_tokens === 'number'
+          ? tokenStats.session_input_tokens : 0;
         contextUsage.value = {
-          used: tokenStats.token_source === 'provider' ? tokenStats.total_tokens : 0,
-          max: tokenStats.token_source === 'provider' ? tokenStats.budget_tokens : 0,
-          source: tokenStats.token_source === 'provider' ? 'provider' : 'unavailable',
-          ...(tokenStats.token_source === 'provider'
-            ? { providerUsed: tokenStats.total_tokens }
+          used: isProvider ? tokenStats.total_tokens : 0,
+          max: isProvider ? tokenStats.budget_tokens : 0,
+          source: isProvider ? 'provider' : 'unavailable',
+          ...(isProvider ? { providerUsed: tokenStats.total_tokens } : {}),
+          // 会话级缓存命中累计（全部 run 之和）；命中或写入 >0 才携带，命中率 >0 才显示。
+          ...(isProvider && sessionInput > 0 && (sessionCached > 0 || sessionCreation > 0)
+            ? {
+                cachedInputTokens: sessionCached,
+                ...(sessionCreation > 0 ? { cacheCreationInputTokens: sessionCreation } : {}),
+                inputTokens: sessionInput,
+              }
+            : {}),
+          // 快照口径构成占比：进入会话后 hover 不依赖实时事件也能展示消息/系统提示词。
+          ...(isProvider && systemPromptTokens !== null
+            ? {
+                systemPromptTokens,
+                historyTokens: Math.max(0, tokenStats.total_tokens - systemPromptTokens),
+              }
             : {}),
         };
       }

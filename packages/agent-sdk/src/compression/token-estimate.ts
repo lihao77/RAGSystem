@@ -18,6 +18,12 @@ export interface EstimatedRequestTokenUsage {
   systemPromptTokens: number;
   historyTokens: number;
   totalTokens: number;
+  /** 工具 schema 总 token（含 framing；systemPromptTokens 已含此项，构成占比展示用）。 */
+  toolSchemaTokens: number;
+  /** source=mcp 的工具 schema token（不含 framing，近似）。 */
+  mcpToolTokens: number;
+  /** source=knowledge 的工具 schema token（技能工具，不含 framing，近似）。 */
+  knowledgeToolTokens: number;
 }
 
 export function estimateTokens(content: string | ContentPart[]): number {
@@ -76,12 +82,25 @@ export function estimateRequestTokenUsage(
     if (message.role === "system") systemPromptTokens += tokens;
     else historyTokens += tokens;
   }
+  let toolSchemaTokens = 0;
+  let mcpToolTokens = 0;
+  let knowledgeToolTokens = 0;
   if (request.tools?.length) {
-    systemPromptTokens += TOOL_SCHEMA_FRAMING_TOKENS + estimateTokens(JSON.stringify(request.tools));
+    toolSchemaTokens = TOOL_SCHEMA_FRAMING_TOKENS + estimateTokens(JSON.stringify(request.tools));
+    systemPromptTokens += toolSchemaTokens;
+    // 构成占比细分：per-tool 估算并按来源归类（仅用于展示，不参与预算计算，故不含 framing）。
+    for (const tool of request.tools) {
+      const tokens = estimateTokens(JSON.stringify(tool));
+      if (tool.source === "mcp") mcpToolTokens += tokens;
+      else if (tool.source === "knowledge") knowledgeToolTokens += tokens;
+    }
   }
   return {
     systemPromptTokens,
     historyTokens,
     totalTokens: systemPromptTokens + historyTokens,
+    toolSchemaTokens,
+    mcpToolTokens,
+    knowledgeToolTokens,
   };
 }

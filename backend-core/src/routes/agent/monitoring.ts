@@ -21,7 +21,7 @@ import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
 import { assertSessionReadable } from "../session-owner.js";
 import { isRecord, normalizeString } from "../../utils/guards.js";
 import { EXECUTION_ENVIRONMENT_CAPABILITY } from "../../contracts/execution/execution-environment.js";
-import { readPersistedSessionContextTokenUsage } from "../../services/agent/context-compression/input-token-tracker.js";
+import { readPersistedSessionCacheTotals, readPersistedSessionContextTokenUsage } from "../../services/agent/context-compression/input-token-tracker.js";
 
 interface ContextSnapshotQuery {
   session_id?: string;
@@ -230,6 +230,9 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const persistedTokenUsage = sessionId
       ? readPersistedSessionContextTokenUsage(sessionMetadata, threadKey || "root")
       : null;
+    const sessionCacheTotals = sessionId
+      ? readPersistedSessionCacheTotals(sessionMetadata)
+      : null;
 
     const data = {
       // preview.systemPrompt 仅是基础 prompt；XML 协议会在首条 system message 追加
@@ -243,6 +246,21 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         token_source: persistedTokenUsage ? "provider" : "unavailable",
         provider_input_tokens: persistedTokenUsage?.providerInputTokens ?? 0,
         provider_output_tokens: persistedTokenUsage?.providerOutputTokens ?? 0,
+        ...(persistedTokenUsage?.cachedInputTokens !== undefined
+          ? { cached_input_tokens: persistedTokenUsage.cachedInputTokens }
+          : {}),
+        ...(persistedTokenUsage?.cacheCreationInputTokens !== undefined
+          ? { cache_creation_input_tokens: persistedTokenUsage.cacheCreationInputTokens }
+          : {}),
+        system_prompt_tokens: persistedTokenUsage?.systemPromptTokens ?? 0,
+        // 会话级缓存命中累计（全部 run 之和；每次 LLM 调用后并入 session metadata）。
+        ...(sessionCacheTotals
+          ? {
+              session_cached_input_tokens: sessionCacheTotals.cachedInputTokens,
+              session_cache_creation_input_tokens: sessionCacheTotals.cacheCreationInputTokens,
+              session_input_tokens: sessionCacheTotals.inputTokens,
+            }
+          : {}),
       },
       config: {
         agent_name: agent.agent_name,

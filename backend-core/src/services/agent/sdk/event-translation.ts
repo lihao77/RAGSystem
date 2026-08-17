@@ -325,6 +325,24 @@ function onContextUsage(event: ContextUsageEvent, ctx: WireTranslationContext): 
       compressing: event.compressing,
       token_source: event.source ?? "estimate",
       request_id: ctx.requestId,
+      // 上下文构成占比（估算，仅展示用）。
+      ...(event.toolSchemaTokens !== undefined
+        ? {
+            tool_schema_tokens: event.toolSchemaTokens,
+            mcp_tool_tokens: event.mcpToolTokens ?? 0,
+            skill_tool_tokens: event.knowledgeToolTokens ?? 0,
+          }
+        : {}),
+      // 本 run 累计缓存命中（provider 实测；未命中时不携带）。
+      ...(event.cachedInputTokens !== undefined && event.inputTokens !== undefined
+        ? {
+            cached_input_tokens: event.cachedInputTokens,
+            input_tokens: event.inputTokens,
+            ...(event.cacheCreationInputTokens !== undefined
+              ? { cache_creation_input_tokens: event.cacheCreationInputTokens }
+              : {}),
+          }
+        : {}),
     },
   };
   return {

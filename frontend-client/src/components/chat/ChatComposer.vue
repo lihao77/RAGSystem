@@ -49,28 +49,81 @@
           </div>
         </template>
         <template #rightActions>
-          <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="emit('openContextDrawer')" title="点击查看上下文详情">
-            <svg width="16" height="16" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
-              <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
-              <circle
-                cx="11"
-                cy="11"
-                r="9"
-                fill="none"
-                :stroke="contextUsageClass === 'danger' ? 'var(--ctx-ring-danger)' : contextUsageClass === 'warning' ? 'var(--ctx-ring-warning)' : 'var(--ctx-ring-success)'"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
-                stroke-dashoffset="0"
-                :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
-              />
-            </svg>
-            <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
-            <span v-if="isCompressing" class="compressing-indicator">
-              <span class="compressing-dot"></span>
-              压缩中
-            </span>
-          </div>
+          <Popover v-model:open="contextPopoverOpen">
+            <!-- 用 Anchor 而非 Trigger：Trigger 的点击 toggle 不查 defaultPrevented，
+                 会与"点击打开抽屉"叠加出悬挂弹层；open 完全交给 hover 控制。 -->
+            <PopoverAnchor as-child>
+              <div
+                v-if="contextUsage && contextUsage.max > 0"
+                class="context-usage-content"
+                @click="emit('openContextDrawer')"
+                title="点击查看上下文详情"
+                @mouseenter="openContextPopover()"
+                @mouseleave="scheduleContextPopoverClose()"
+              >
+                <svg width="16" height="16" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${formatTokenCount(contextUsage.used)} / ${formatTokenCount(contextUsage.max)} tokens`">
+                  <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
+                  <circle
+                    cx="11"
+                    cy="11"
+                    r="9"
+                    fill="none"
+                    :stroke="contextUsageClass === 'danger' ? 'var(--ctx-ring-danger)' : contextUsageClass === 'warning' ? 'var(--ctx-ring-warning)' : 'var(--ctx-ring-success)'"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
+                    stroke-dashoffset="0"
+                    :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
+                  />
+                </svg>
+                <span class="context-usage-label">{{ formatTokenCount(contextUsage.used) }} / {{ formatTokenCount(contextUsage.max) }} tokens</span>
+                <span v-if="isCompressing" class="compressing-indicator">
+                  <span class="compressing-dot"></span>
+                  压缩中
+                </span>
+              </div>
+            </PopoverAnchor>
+            <PopoverContent
+              side="top"
+              align="end"
+              :side-offset="6"
+              class="context-usage-popover"
+              @mouseenter="cancelContextPopoverClose()"
+              @mouseleave="scheduleContextPopoverClose()"
+            >
+              <div class="context-usage-popover-inner">
+                <template v-if="contextCacheHit !== null || contextCacheDetail">
+                  <div v-if="contextCacheHit !== null" class="cu-popover-cache">
+                    <span class="cu-popover-cache-label">缓存命中</span>
+                    <span class="cu-popover-cache-rate">{{ contextCacheHit }}%</span>
+                  </div>
+                  <div v-if="contextCacheDetail" class="cu-popover-cache-detail">{{ contextCacheDetail }}</div>
+                </template>
+                <template v-if="contextComposition.length">
+                  <div class="cu-popover-composition-title">上下文构成 · 共 {{ formatTokenCount(contextUsage.used) }} tokens</div>
+                  <div class="cu-popover-bar">
+                    <div
+                      v-for="item in contextComposition"
+                      :key="item.key"
+                      class="cu-popover-bar-seg"
+                      :class="`cu-popover-bar-seg--${item.key}`"
+                      :style="{ width: `${compositionPct(item)}%` }"
+                    ></div>
+                  </div>
+                  <ul class="cu-popover-legend">
+                    <li v-for="item in contextComposition" :key="item.key" class="cu-popover-legend-item">
+                      <span class="cu-popover-legend-dot" :class="`cu-popover-legend-dot--${item.key}`"></span>
+                      <span class="cu-popover-legend-label">{{ item.label }}</span>
+                      <span class="cu-popover-legend-tokens">{{ compositionPct(item) }}%</span>
+                    </li>
+                  </ul>
+                </template>
+                <div v-if="contextCacheHit === null && !contextCacheDetail && !contextComposition.length" class="cu-popover-empty">
+                  暂无上下文用量明细
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </template>
       </ChatInput>
     </div>
@@ -78,14 +131,16 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 import ChatInput from '../ChatInput.vue';
 import LLMSelector from '../LLMSelector.vue';
 import ThinkingLevelSelector from '../ThinkingLevelSelector.vue';
 import PermissionModeSelector from '../PermissionModeSelector.vue';
 import TaskLauncher from './TaskLauncher.vue';
+import { Popover, PopoverAnchor, PopoverContent } from '../ui/popover/index';
+import { formatTokenCount } from '../../utils/format.js';
 
-defineProps({
+const props = defineProps({
   modelValue: { type: String, default: '' },
   attachments: { type: Array, default: () => [] },
   canSend: { type: Boolean, default: false },
@@ -133,6 +188,72 @@ const focus = async () => {
 };
 
 defineExpose({ focus });
+
+// ── 上下文用量 hover 明细 ──
+const contextPopoverOpen = ref(false);
+let contextPopoverCloseTimer = null;
+const openContextPopover = () => {
+  if (contextPopoverCloseTimer) {
+    clearTimeout(contextPopoverCloseTimer);
+    contextPopoverCloseTimer = null;
+  }
+  contextPopoverOpen.value = true;
+};
+// 延迟关闭：鼠标从 trigger 移向 popover 内容时留出过渡窗口。
+const scheduleContextPopoverClose = () => {
+  if (contextPopoverCloseTimer) clearTimeout(contextPopoverCloseTimer);
+  contextPopoverCloseTimer = setTimeout(() => { contextPopoverOpen.value = false; }, 150);
+};
+const cancelContextPopoverClose = () => {
+  if (contextPopoverCloseTimer) {
+    clearTimeout(contextPopoverCloseTimer);
+    contextPopoverCloseTimer = null;
+  }
+};
+onUnmounted(() => {
+  if (contextPopoverCloseTimer) clearTimeout(contextPopoverCloseTimer);
+});
+
+// 本 run 累计缓存命中率（provider 实测；命中率 >0 才显示，保留一位小数）。
+const contextCacheHit = computed(() => {
+  const cu = props.contextUsage;
+  if (!cu?.cachedInputTokens || !cu?.inputTokens) return null;
+  const rate = cu.cachedInputTokens / cu.inputTokens;
+  return rate > 0 ? Number((rate * 100).toFixed(1)) : null;
+});
+
+// 缓存明细行：读取/写入任一 >0 即展示（首轮可能只有写入没有命中，写入量应独立可见）。
+const contextCacheDetail = computed(() => {
+  const cu = props.contextUsage;
+  if (!cu) return '';
+  const parts = [];
+  if (cu.cachedInputTokens > 0) parts.push(`读取 ${formatTokenCount(cu.cachedInputTokens)} tokens`);
+  if (cu.cacheCreationInputTokens > 0) parts.push(`写入 ${formatTokenCount(cu.cacheCreationInputTokens)} tokens`);
+  return parts.join(' · ');
+});
+
+// 上下文构成占比（估算快照）：系统提示词 = system 消息 - 工具 schema；系统工具 = 其余工具。
+const contextComposition = computed(() => {
+  const cu = props.contextUsage;
+  if (!cu) return [];
+  const systemTokens = Math.max(0, (cu.systemPromptTokens || 0) - (cu.toolSchemaTokens || 0));
+  const builtinToolTokens = Math.max(0, (cu.toolSchemaTokens || 0) - (cu.mcpToolTokens || 0) - (cu.skillToolTokens || 0));
+  const items = [
+    { key: 'history', label: '消息', tokens: cu.historyTokens || 0 },
+    { key: 'system', label: '系统提示词', tokens: systemTokens },
+    { key: 'tools', label: '系统工具', tokens: builtinToolTokens },
+    ...(cu.skillToolTokens ? [{ key: 'skill', label: '技能', tokens: cu.skillToolTokens }] : []),
+    ...(cu.mcpToolTokens ? [{ key: 'mcp', label: 'MCP', tokens: cu.mcpToolTokens }] : []),
+  ];
+  return items.filter((item) => item.tokens > 0);
+});
+
+const contextCompositionTotal = computed(() =>
+  contextComposition.value.reduce((sum, item) => sum + item.tokens, 0));
+
+const compositionPct = (item) => contextCompositionTotal.value > 0
+  ? Math.round((item.tokens / contextCompositionTotal.value) * 100)
+  : 0;
 </script>
 
 <style scoped>
@@ -220,6 +341,117 @@ defineExpose({ focus });
 @keyframes compressing-pulse {
   0%, 100% { opacity: 0.3; }
   50% { opacity: 1; }
+}
+
+/* ── 上下文用量 hover 明细 ── */
+.context-usage-popover {
+  width: 280px;
+  max-height: 320px;
+  padding: 10px 12px;
+  overflow-y: auto;
+}
+
+.context-usage-popover-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--font-size-xs);
+}
+
+.cu-popover-cache {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cu-popover-cache-label {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.cu-popover-cache-rate {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-brand-accent-light);
+}
+
+.cu-popover-cache-detail {
+  color: var(--color-text-muted);
+}
+
+.cu-popover-composition-title {
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.cu-popover-bar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-bg-elevated);
+}
+
+.cu-popover-bar-seg {
+  height: 100%;
+  min-width: 2px;
+}
+
+.cu-popover-bar-seg--history { background: var(--color-brand-accent, #4f8cff); }
+.cu-popover-bar-seg--system { background: var(--color-success, #4caf7d); }
+.cu-popover-bar-seg--tools { background: var(--color-warning, #e0a13c); }
+.cu-popover-bar-seg--skill { background: #9b7bf0; }
+.cu-popover-bar-seg--mcp { background: #e06f9a; }
+
+.cu-popover-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cu-popover-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cu-popover-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.cu-popover-legend-dot--history { background: var(--color-brand-accent, #4f8cff); }
+.cu-popover-legend-dot--system { background: var(--color-success, #4caf7d); }
+.cu-popover-legend-dot--tools { background: var(--color-warning, #e0a13c); }
+.cu-popover-legend-dot--skill { background: #9b7bf0; }
+.cu-popover-legend-dot--mcp { background: #e06f9a; }
+
+.cu-popover-legend-label {
+  color: var(--color-text-secondary);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cu-popover-legend-tokens {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.cu-popover-empty {
+  color: var(--color-text-muted);
 }
 
 @media (max-width: 480px) {

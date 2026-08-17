@@ -64,6 +64,11 @@ export function createSessionEventReducer({
     }
   };
 
+  // 各 run 的缓存累计基线（run_id → 累计值）：context_usage 事件携带的是单个 run 的累计值，
+  // 与基线 diff 出每轮增量后并入会话级累计。root/child 的累计不同源，必须按 run 独立基线。
+  const RUN_BASELINE_EMPTY = { cached: 0, creation: 0, input: 0 };
+  const runCacheBaselines = new Map();
+
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {import('./sessionCoreTypes.js').SessionMessage} currentMsg @param {string} sessionId */
   return (event, currentMsg, sessionId) => {
     const eventType = event.type;
@@ -79,17 +84,75 @@ export function createSessionEventReducer({
         // changes after a provider has reported this round's real input and output.
         if (detail.token_source !== 'provider') return;
         if (!Number.isFinite(detail.used_tokens) || !Number.isFinite(detail.budget_tokens)) return;
-        const ctx = {
+        // 实时增量并入 session 累计：detail 是单个 run 的累计值，与该 run 的独立基线 diff 出本轮新增。
+        const cu = contextUsage.value || {};
+        const runCached = Number.isFinite(detail.cached_input_tokens) ? detail.cached_input_tokens : 0;
+        const runCreation = Number.isFinite(detail.cache_creation_input_tokens) ? detail.cache_creation_input_tokens : 0;
+        const runInput = Number.isFinite(detail.input_tokens) ? detail.input_tokens : 0;
+        const runKey = typeof event.run_id === 'string' && event.run_id
+          ? event.run_id
+          : (isRoot ? 'root' : `child:${event.agent_id || 'unknown'}`);
+        const baseline = runCacheBaselines.get(runKey) || RUN_BASELINE_EMPTY;
+        // 回放（刷新/断线重连进行中的 run；active_run_snapshot 与 durable_outbox 两种模式都经
+        // session.reconnect 括号把 isReplaying 置 true）只推进基线、不做累计：进会话时快照已载入
+        // persisted 累计（含进行中 run 已完成轮次），再加一遍会把命中量放大到约两倍。回放结束后
+        // 基线与 run 累计对齐，后续实时事件正常 diff（快照读取到回放结束之间完成的轮次会漏算，
+        // 有界且下次进会话自愈，优于确定性的翻倍）。
+        const isReplay = Boolean(activeRun.isReplaying)
+          || (typeof runtime.isDurableReplayActive === 'function' && runtime.isDurableReplayActive());
+        const deltaCached = !isReplay && runInput > 0 ? Math.max(0, runCached - baseline.cached) : 0;
+        const deltaCreation = !isReplay && runInput > 0 ? Math.max(0, runCreation - baseline.creation) : 0;
+        const deltaInput = !isReplay && runInput > 0 ? Math.max(0, runInput - baseline.input) : 0;
+        runCacheBaselines.set(runKey, { cached: runCached, creation: runCreation, input: runInput });
+        const sessionCached = (cu.cachedInputTokens || 0) + deltaCached;
+        const sessionCreation = (cu.cacheCreationInputTokens || 0) + deltaCreation;
+        const sessionInput = (cu.inputTokens || 0) + deltaInput;
+        // 会话级缓存累计（命中或写入 >0 才携带，命中率 >0 才显示）。
+        const sessionCacheFields = sessionInput > 0 && (sessionCached > 0 || sessionCreation > 0)
+          ? {
+              cachedInputTokens: sessionCached,
+              ...(sessionCreation > 0 ? { cacheCreationInputTokens: sessionCreation } : {}),
+              inputTokens: sessionInput,
+            }
+          : {};
+        const baseCtx = {
           used: detail.used_tokens,
           max: detail.budget_tokens,
           source: 'provider',
           providerUsed: detail.used_tokens,
+          ...(Number.isFinite(detail.system_prompt_tokens) ? { systemPromptTokens: detail.system_prompt_tokens } : {}),
+          ...(Number.isFinite(detail.history_tokens) ? { historyTokens: detail.history_tokens } : {}),
+          // 上下文构成占比（本轮请求估算，仅展示用）。
+          ...(Number.isFinite(detail.tool_schema_tokens)
+            ? {
+                toolSchemaTokens: detail.tool_schema_tokens,
+                mcpToolTokens: detail.mcp_tool_tokens ?? 0,
+                skillToolTokens: detail.skill_tool_tokens ?? 0,
+              }
+            : {}),
         };
         if (isRoot) {
-          contextUsage.value = ctx;
+          contextUsage.value = { ...baseCtx, ...sessionCacheFields };
         } else {
+          // 子 agent：used/max/构成是各自 run 的上下文，只挂 agent.ctx；会话级缓存增量折入
+          // root 的 contextUsage（与后端落库口径一致：root+child 全部 run），但不碰 used/max
+          // 等 root 展示态。无增量时不写，避免响应式抖动。
           const agent = deps.findRunningExecutionAgentByAgentId(currentMsg.executionTree, event.agent_id);
-          if (agent) agent.ctx = ctx;
+          if (agent) {
+            agent.ctx = {
+              ...baseCtx,
+              ...(runInput > 0 && (runCached > 0 || runCreation > 0)
+                ? {
+                    cachedInputTokens: runCached,
+                    ...(runCreation > 0 ? { cacheCreationInputTokens: runCreation } : {}),
+                    inputTokens: runInput,
+                  }
+                : {}),
+            };
+          }
+          if (deltaCached > 0 || deltaCreation > 0 || deltaInput > 0) {
+            contextUsage.value = { ...(contextUsage.value || {}), ...sessionCacheFields };
+          }
         }
       } else if (category === 'compression') {
         const detail = payload.detail || {};
@@ -187,10 +250,14 @@ export function createSessionEventReducer({
       deps.applyEnvelopeToMessage(currentMsg, event);
     } else if (eventType === 'agent_started') {
       deps.applyEnvelopeToMessage(currentMsg, event);
-      if (deps.isMasterEvent(event)) runtime.markRootAgentStarted(event);
+      if (deps.isMasterEvent(event)) {
+        runtime.markRootAgentStarted(event);
+      }
     } else if (eventType === 'agent_ended') {
       deps.applyEnvelopeToMessage(currentMsg, event);
       runtime.markAgentFinished(event);
+      // run 结束后基线不再使用（新 run 有新的 run_id，天然从零开始），及时清理避免积压。
+      if (typeof event.run_id === 'string' && event.run_id) runCacheBaselines.delete(event.run_id);
       syncLlmRetryState();
       if (deps.isMasterEvent(event) && !currentMsg.finished) {
         currentMsg.finished = true;

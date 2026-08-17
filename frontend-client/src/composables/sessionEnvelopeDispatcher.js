@@ -575,7 +575,9 @@ export function createSessionEnvelopeDispatcher({
         messages.value.push(deps.createAssistantMessage({ run_id: nextRunId }));
         activeRun.assistantMsgIndex = messages.value.length - 1;
         activeRun.lastSeenSeq = 0;
-        activeRun.isReplaying = runtime.isDurableReplayActive();
+        // Preserve the reconnect replay window for active_run_snapshot as well as
+        // durable_outbox. A run_started event can arrive while either replay is active.
+        activeRun.isReplaying = Boolean(activeRun.isReplaying) || runtime.isDurableReplayActive();
         runtime.startActiveRunRuntime(event);
       } else {
         activeRun.assistantMsgIndex = currentAssistantIndex;

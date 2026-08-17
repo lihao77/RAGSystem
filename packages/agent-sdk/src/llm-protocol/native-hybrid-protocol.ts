@@ -347,6 +347,7 @@ function toChatToolDefinition(tool: RuntimeToolDefinition): ChatToolDefinition {
       description: tool.description,
       parameters: tool.parameters,
     },
+    ...(tool.source ? { source: tool.source } : {}),
   };
 }
 

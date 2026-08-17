@@ -141,6 +141,12 @@ export class AgentKernel {
                 inputTokens: tokenUsage.inputTokens + outcome.usage.inputTokens,
                 outputTokens: tokenUsage.outputTokens + outcome.usage.outputTokens,
                 totalTokens: tokenUsage.totalTokens + outcome.usage.totalTokens,
+                ...(tokenUsage.cachedInputTokens || outcome.usage.cachedInputTokens
+                  ? { cachedInputTokens: (tokenUsage.cachedInputTokens ?? 0) + (outcome.usage.cachedInputTokens ?? 0) }
+                  : {}),
+                ...(tokenUsage.cacheCreationInputTokens || outcome.usage.cacheCreationInputTokens
+                  ? { cacheCreationInputTokens: (tokenUsage.cacheCreationInputTokens ?? 0) + (outcome.usage.cacheCreationInputTokens ?? 0) }
+                  : {}),
               }
             : { ...outcome.usage };
         }
@@ -169,6 +175,23 @@ export class AgentKernel {
             totalTokens: postRoundContextTokens,
             budgetTokens: requestContextUsage.budgetTokens,
             compressing: false,
+            // 上下文构成占比（本轮请求估算快照，仅展示用）。
+            ...(requestContextUsage.toolSchemaTokens !== undefined
+              ? {
+                  toolSchemaTokens: requestContextUsage.toolSchemaTokens,
+                  mcpToolTokens: requestContextUsage.mcpToolTokens ?? 0,
+                  knowledgeToolTokens: requestContextUsage.knowledgeToolTokens ?? 0,
+                }
+              : {}),
+            // 本 run 累计缓存命中（provider 实测；cache 未启用/未命中时为 0，不携带）。
+            // 注意首轮可能只有 cache 写入没有读取（cached=0, creation>0），两个条件任一满足即携带。
+            ...(tokenUsage?.cachedInputTokens || tokenUsage?.cacheCreationInputTokens
+              ? {
+                  cachedInputTokens: tokenUsage.cachedInputTokens ?? 0,
+                  cacheCreationInputTokens: tokenUsage.cacheCreationInputTokens ?? 0,
+                  inputTokens: tokenUsage.inputTokens,
+                }
+              : {}),
           });
         }
 

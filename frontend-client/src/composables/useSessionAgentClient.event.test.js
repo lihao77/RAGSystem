@@ -1964,6 +1964,61 @@ test('active run 快照断线重放前会重置半截执行投影', () => {
   assert.equal(message.has_execution, false);
 });
 
+test('active_run_snapshot replay keeps the cache guard through run_started', () => {
+  const { deps } = createDeps();
+  deps.contextUsage.value = {
+    used: 5400,
+    max: 8000,
+    source: 'provider',
+    providerUsed: 5400,
+    cachedInputTokens: 1400,
+    inputTokens: 5400,
+  };
+  const stream = useSessionAgentClient(deps);
+
+  stream.handleEnvelope({
+    type: 'session.reconnect',
+    run_id: 'run-1',
+    payload: { phase: 'start', replay_count: 1, replay_source: 'active_run_snapshot' },
+  }, 'session-1');
+  assert.equal(deps.activeRun.isReplaying, true);
+
+  // No pre-existing assistant is required here: run_started must not clear the
+  // active_run_snapshot replay guard when it creates the replay carrier.
+  stream.handleEnvelope({
+    type: 'run_started',
+    run_id: 'run-1',
+    payload: {},
+  }, 'session-1');
+  assert.equal(deps.activeRun.isReplaying, true);
+
+  const contextUsageEvent = (cached, input) => ({
+    type: 'state_sync',
+    run_id: 'run-1',
+    payload: { category: 'context_usage', detail: {
+      used_tokens: input,
+      budget_tokens: 8000,
+      token_source: 'provider',
+      cached_input_tokens: cached,
+      input_tokens: input,
+    } },
+  });
+  stream.handleEnvelope(contextUsageEvent(1400, 5400), 'session-1');
+  assert.equal(deps.contextUsage.value.cachedInputTokens, 1400);
+  assert.equal(deps.contextUsage.value.inputTokens, 5400);
+
+  stream.handleEnvelope({
+    type: 'session.reconnect',
+    run_id: 'run-1',
+    payload: { phase: 'end', replay_count: 1, replay_source: 'active_run_snapshot' },
+  }, 'session-1');
+  assert.equal(deps.activeRun.isReplaying, false);
+
+  stream.handleEnvelope(contextUsageEvent(1600, 5800), 'session-1');
+  assert.equal(deps.contextUsage.value.cachedInputTokens, 1600);
+  assert.equal(deps.contextUsage.value.inputTokens, 5800);
+});
+
 test('resume_run 使用 durable interaction 恢复，并对重复点击去重', async () => {
   let resumeRequests = 0;
   const { deps } = createDeps();

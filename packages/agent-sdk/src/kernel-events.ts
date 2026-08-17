@@ -118,6 +118,18 @@ export interface ContextUsageSnapshot {
   totalTokens: number;
   budgetTokens: number;
   compressing: boolean;
+  /** 工具 schema 总 token（native tools；systemPromptTokens 已含此项）。 */
+  toolSchemaTokens?: number;
+  /** source=mcp 的工具 schema token（估算，构成占比展示用）。 */
+  mcpToolTokens?: number;
+  /** source=knowledge 的工具 schema token（技能工具，估算）。 */
+  knowledgeToolTokens?: number;
+  /** 本 run 累计缓存读取 token（provider 实测，仅 provider 事件携带）。 */
+  cachedInputTokens?: number;
+  /** 本 run 累计缓存写入 token（provider 实测，仅 provider 事件携带）。 */
+  cacheCreationInputTokens?: number;
+  /** 本 run 累计输入 token（含缓存部分，provider 实测）。 */
+  inputTokens?: number;
 }
 
 export interface ContextUsageEvent extends ContextUsageSnapshot {

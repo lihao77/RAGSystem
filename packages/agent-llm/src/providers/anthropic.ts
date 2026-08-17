@@ -233,6 +233,8 @@ async function parseAnthropicStream(
   let finishReason: string | null = null;
   let inputTokens = 0;
   let outputTokens = 0;
+  let cachedInputTokens: number | null = null;
+  let cacheCreationInputTokens: number | null = null;
   let hasUsage = false;
   let stopped = false;
   const tools = new Map<number, ToolAccumulator>();
@@ -269,6 +271,8 @@ async function parseAnthropicStream(
       if (usage) {
         inputTokens = usage.inputTokens;
         outputTokens = usage.outputTokens;
+        cachedInputTokens = usage.cachedInputTokens ?? cachedInputTokens;
+        cacheCreationInputTokens = usage.cacheCreationInputTokens ?? cacheCreationInputTokens;
         hasUsage = true;
       }
     } else if (type === "content_block_start") {
@@ -326,6 +330,8 @@ async function parseAnthropicStream(
       const usage = extractAnthropicUsage(body);
       if (usage) {
         outputTokens = usage.outputTokens;
+        cachedInputTokens = usage.cachedInputTokens ?? cachedInputTokens;
+        cacheCreationInputTokens = usage.cacheCreationInputTokens ?? cacheCreationInputTokens;
         hasUsage = true;
       }
     } else if (type === "message_stop") {
@@ -351,7 +357,15 @@ async function parseAnthropicStream(
       blocks: reasoningBlocks,
     };
   }
-  if (hasUsage) result.usage = { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
+  if (hasUsage) {
+    result.usage = {
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      ...(cachedInputTokens !== null ? { cachedInputTokens } : {}),
+      ...(cacheCreationInputTokens !== null ? { cacheCreationInputTokens } : {}),
+    };
+  }
   return result;
 }
 

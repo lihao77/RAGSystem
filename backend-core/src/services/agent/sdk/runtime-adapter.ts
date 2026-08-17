@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
  */
 import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, RecoverableInterrupt, resolveToolInstructionMode, throwIfAborted, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefreshResult, MessageRefresher, KernelResult, KernelEvent } from "@ragsystem/agent-sdk";
-import type { ChatMessage, ThinkingLevel } from "@ragsystem/agent-llm";
+import type { ChatMessage, ThinkingLevel, TokenUsage } from "@ragsystem/agent-llm";
 import { translateKernelEvent, type WireTranslationContext } from "./event-translation.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { MessageInfo, SessionIdentity } from "../../../contracts/session/session.js";
@@ -28,7 +28,7 @@ import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js"
 import { projectAgentProfile } from "./projection.js";
 import { buildBackendAgentContext, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
-import { RuntimeInputTokenTracker, type InputTokenTrackerIdentity } from "../context-compression/input-token-tracker.js";
+import { readPersistedSessionCacheTotals, RuntimeInputTokenTracker, SESSION_CACHE_TOTALS_METADATA_KEY, type InputTokenTrackerIdentity } from "../context-compression/input-token-tracker.js";
 import { registerGateHook } from "./gate-hook.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
@@ -146,9 +146,55 @@ export interface SdkExecuteRunResult {
   toolCallId?: string;
   interactionKind?: "approval" | "user_input";
   /** 本 run 各轮 LLM 调用累计的 token 用量(provider 未返回则为 0)。 */
-  tokenUsage: { inputTokens: number; outputTokens: number };
+  tokenUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+    cacheCreationInputTokens?: number;
+  };
   /** 本 run 的工具调用次数分布(toolName → count)。 */
   toolCalls: Record<string, number>;
+}
+
+/**
+ * 会话级缓存命中累计（_cache_session_totals）：每次 LLM 调用后并入，读-改-写经 per-session
+ * 队列串行，避免 root/child 并行 run 交错丢累加。写入失败仅丢一次遥测，不失败 run。
+ */
+const sessionCacheTotalsQueues = new Map<string, Promise<unknown>>();
+
+function serializeSessionMutation<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
+  const prev = sessionCacheTotalsQueues.get(sessionId) ?? Promise.resolve();
+  const next = prev.then(task, task);
+  sessionCacheTotalsQueues.set(sessionId, next);
+  const cleanup = () => {
+    if (sessionCacheTotalsQueues.get(sessionId) === next) sessionCacheTotalsQueues.delete(sessionId);
+  };
+  // 不用 next.finally(cleanup)：其派生 promise 在 next reject 时同样 reject 且无 handler，
+  // 会触发 unhandledRejection（Node 默认终止进程），违背"写入失败仅丢遥测"的意图。
+  void next.then(cleanup, cleanup);
+  return next;
+}
+
+async function accumulateSessionCacheTotals(
+  storage: ExecutionStorage,
+  sessionId: string,
+  usage: TokenUsage,
+): Promise<void> {
+  const deltaCached = usage.cachedInputTokens ?? 0;
+  const deltaCreation = usage.cacheCreationInputTokens ?? 0;
+  const deltaInput = usage.inputTokens;
+  if (deltaCached <= 0 && deltaCreation <= 0 && deltaInput <= 0) return;
+  await serializeSessionMutation(sessionId, async () => {
+    const session = await storage.conversation.getSession(sessionId);
+    const prev = session ? readPersistedSessionCacheTotals(session.metadata ?? {}) : null;
+    await storage.conversation.updateSessionMetadata(sessionId, {
+      [SESSION_CACHE_TOTALS_METADATA_KEY]: {
+        cached_input_tokens: (prev?.cachedInputTokens ?? 0) + deltaCached,
+        cache_creation_input_tokens: (prev?.cacheCreationInputTokens ?? 0) + deltaCreation,
+        input_tokens: (prev?.inputTokens ?? 0) + deltaInput,
+      },
+    });
+  });
 }
 
 /** Per-run FIFO for every mutation that changes the durable execution timeline. */
@@ -449,7 +495,12 @@ export async function executeRunWithSdk(
   let runtime: ReturnType<typeof createRuntime> | null = null;
   let consumeEvents: Promise<void> | null = null;
   let result: KernelResult | null = null;
-  const tokenUsage = { inputTokens: 0, outputTokens: 0 };
+  const tokenUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+    cacheCreationInputTokens?: number;
+  } = { inputTokens: 0, outputTokens: 0 };
   const toolCalls: Record<string, number> = {};
   try {
 
@@ -727,6 +778,14 @@ export async function executeRunWithSdk(
           );
           tokenUsage.inputTokens += usage.inputTokens;
           tokenUsage.outputTokens += usage.outputTokens;
+          if (usage.cachedInputTokens) {
+            tokenUsage.cachedInputTokens = (tokenUsage.cachedInputTokens ?? 0) + usage.cachedInputTokens;
+          }
+          if (usage.cacheCreationInputTokens) {
+            tokenUsage.cacheCreationInputTokens = (tokenUsage.cacheCreationInputTokens ?? 0) + usage.cacheCreationInputTokens;
+          }
+          // 会话级缓存累计：每次调用后并入 session metadata（同"记录用量"模式，仅覆盖累加键）。
+          void accumulateSessionCacheTotals(deps.storage, input.sessionId, usage).catch(() => undefined);
           if (observed) {
             const patch = inputTokenTracker.metadataPatch(inputTokenIdentity);
             if (patch) {

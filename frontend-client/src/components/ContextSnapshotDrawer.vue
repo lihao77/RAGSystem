@@ -17,7 +17,11 @@
               <div class="ctx-token-fill" :style="{ width: tokenPct + '%' }"
                 :class="tokenPct >= 90 ? 'danger' : tokenPct >= 70 ? 'warning' : ''"></div>
             </div>
-            <span class="ctx-token-text">{{ data.token_stats.total_tokens.toLocaleString() }} / {{ data.token_stats.budget_tokens.toLocaleString() }} tokens</span>
+            <span class="ctx-token-text">{{ formatTokenCount(data.token_stats.total_tokens) }} / {{ formatTokenCount(data.token_stats.budget_tokens) }} tokens</span>
+          </div>
+          <div v-if="cacheHitRate !== null || cacheDetailText" class="ctx-cache-hit">
+            <span v-if="cacheHitRate !== null" class="ctx-cache-hit-rate">缓存命中 {{ cacheHitRate }}%</span>
+            <span class="ctx-cache-hit-detail">{{ cacheDetailText }}</span>
           </div>
         </section>
 
@@ -140,6 +144,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { Sheet, SheetContent, SheetTitle } from './ui/sheet';
+import { formatTokenCount } from '../utils/format.js';
 
 const props = defineProps({
   visible: Boolean,
@@ -165,6 +170,24 @@ function onOpenChange(open) {
 const tokenPct = computed(() => {
   if (!data.value?.token_stats?.budget_tokens) return 0;
   return Math.min(100, Math.round(data.value.token_stats.total_tokens / data.value.token_stats.budget_tokens * 100));
+});
+
+// 缓存命中率（会话级累计：全部 run 的缓存命中之和；命中率 >0 才显示，保留一位小数）。
+const cacheHitRate = computed(() => {
+  const stats = data.value?.token_stats;
+  if (!stats?.session_cached_input_tokens || !stats?.session_input_tokens) return null;
+  const rate = stats.session_cached_input_tokens / stats.session_input_tokens;
+  return rate > 0 ? Number((rate * 100).toFixed(1)) : null;
+});
+
+// 缓存明细（读取/写入任一 >0 即展示；仅写入未命中时命中率不显示，但写入量应可见）。
+const cacheDetailText = computed(() => {
+  const stats = data.value?.token_stats;
+  if (!stats) return '';
+  const parts = [];
+  if (stats.session_cached_input_tokens > 0) parts.push(`读取 ${formatTokenCount(stats.session_cached_input_tokens)} tokens`);
+  if (stats.session_cache_creation_input_tokens > 0) parts.push(`写入 ${formatTokenCount(stats.session_cache_creation_input_tokens)} tokens`);
+  return parts.join(' · ');
 });
 
 function msgLabel(msg) {
@@ -213,6 +236,9 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-token-bar { flex: 1; height: 8px; background: var(--color-bg-tertiary, #f0f0f0); border-radius: 4px; overflow: hidden; }
 .ctx-token-fill { height: 100%; background: var(--color-success); border-radius: 4px; transition: width .3s; }
 .ctx-token-fill.warning { background: var(--color-warning); }
+.ctx-cache-hit { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
+.ctx-cache-hit-rate { font-size: var(--font-size-xs); font-weight: 600; color: var(--color-brand-accent-light, #4f8cff); }
+.ctx-cache-hit-detail { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .ctx-token-fill.danger { background: var(--color-error); }
 .ctx-token-text { font-size: var(--font-size-xs); white-space: nowrap; color: var(--color-text-secondary); }
 .ctx-kv-list { display: flex; flex-wrap: wrap; gap: 6px 16px; }

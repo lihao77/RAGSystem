@@ -82,6 +82,8 @@ export interface ChatToolDefinition {
     description?: string;
     parameters: Record<string, unknown>;
   };
+  /** 工具来源标记（runtime_builtin/memory/document/execution/agent_tool/knowledge/mcp），用于上下文构成估算与展示。 */
+  source?: string;
 }
 
 /**

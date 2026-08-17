@@ -62,7 +62,7 @@ export function buildChatBody(request: LlmRequest, stream = false): Record<strin
       ? { max_completion_tokens: request.maxCompletionTokens ?? undefined }
       : { max_tokens: request.maxCompletionTokens ?? undefined }),
     ...(thinkingParams ?? {}),
-    tools: request.tools && request.tools.length > 0 ? request.tools : undefined,
+    tools: request.tools && request.tools.length > 0 ? request.tools.map(stripInternalToolFields) : undefined,
     tool_choice: request.tools && request.tools.length > 0 ? (request.toolChoice ?? "auto") : undefined,
     stream: stream ? true : undefined,
     stream_options: stream ? { include_usage: true } : undefined,
@@ -76,6 +76,13 @@ function stripInternalMessageFields(message: LlmRequest["messages"][number]): Re
     ...wireMessage
   } = message;
   return wireMessage;
+}
+
+// source 是 runtime 侧的来源标记（上下文构成估算用），不属于 wire 协议；
+// OpenAI 兼容网关对 tools 未知字段可能直接 400，必须与 messages 一样剥离内部字段。
+function stripInternalToolFields(tool: NonNullable<LlmRequest["tools"]>[number]): Record<string, unknown> {
+  const { source: _source, ...wireTool } = tool;
+  return wireTool;
 }
 
 function parseCompletion(body: Record<string, unknown>): LlmResult {

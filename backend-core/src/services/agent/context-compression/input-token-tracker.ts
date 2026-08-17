@@ -3,6 +3,14 @@ import { countMessagesTokens, type ContextUsageSnapshot } from "@ragsystem/agent
 
 const MAX_CORRECTION_FACTOR = 4;
 export const CONTEXT_TOKEN_USAGE_METADATA_KEY = "_context_token_usage";
+/** 会话级缓存命中累计（每次 LLM 调用后并入；与 _context_token_usage 并存，独立 key 不受 per-thread 基线结构约束）。 */
+export const SESSION_CACHE_TOTALS_METADATA_KEY = "_cache_session_totals";
+
+export interface SessionCacheTotals {
+  cachedInputTokens: number;
+  cacheCreationInputTokens: number;
+  inputTokens: number;
+}
 
 export interface InputTokenTrackerIdentity {
   threadKey: string;
@@ -20,6 +28,8 @@ interface InputTokenObservation {
   contextTokens: number;
   providerInputTokens: number;
   providerOutputTokens: number;
+  cachedInputTokens: number | null;
+  cacheCreationInputTokens: number | null;
   workingMessageTokens: number;
   systemPromptTokens: number | null;
   budgetTokens: number | null;
@@ -29,6 +39,8 @@ export interface PersistedContextTokenUsage {
   contextTokens: number;
   providerInputTokens: number;
   providerOutputTokens: number;
+  cachedInputTokens?: number;
+  cacheCreationInputTokens?: number;
   budgetTokens: number;
   systemPromptTokens: number;
 }
@@ -61,6 +73,8 @@ export class RuntimeInputTokenTracker {
       contextTokens: actualInputTokens + actualOutputTokens,
       providerInputTokens: actualInputTokens,
       providerOutputTokens: actualOutputTokens,
+      cachedInputTokens: usage.cachedInputTokens ?? null,
+      cacheCreationInputTokens: usage.cacheCreationInputTokens ?? null,
       workingMessageTokens: countMessagesTokens(workingMessages),
       systemPromptTokens: requestUsage?.systemPromptTokens ?? null,
       budgetTokens: requestUsage?.budgetTokens ?? null,
@@ -103,6 +117,8 @@ export class RuntimeInputTokenTracker {
       contextTokens,
       providerInputTokens,
       providerOutputTokens,
+      cachedInputTokens: nonNegativeInteger(entry.cached_input_tokens),
+      cacheCreationInputTokens: nonNegativeInteger(entry.cache_creation_input_tokens),
       workingMessageTokens,
       systemPromptTokens: nonNegativeInteger(entry.system_prompt_tokens),
       budgetTokens: nonNegativeInteger(entry.budget_tokens),
@@ -125,6 +141,12 @@ export class RuntimeInputTokenTracker {
           context_tokens: this.observation.contextTokens,
           provider_input_tokens: this.observation.providerInputTokens,
           provider_output_tokens: this.observation.providerOutputTokens,
+          ...(this.observation.cachedInputTokens !== null
+            ? { cached_input_tokens: this.observation.cachedInputTokens }
+            : {}),
+          ...(this.observation.cacheCreationInputTokens !== null
+            ? { cache_creation_input_tokens: this.observation.cacheCreationInputTokens }
+            : {}),
           // Retained for compatibility with older readers during rolling upgrades.
           actual_input_tokens: this.observation.providerInputTokens,
           working_message_tokens: this.observation.workingMessageTokens,
@@ -155,10 +177,14 @@ export function readPersistedContextTokenUsage(
   const providerInputTokens = positiveInteger(entry.provider_input_tokens)
     ?? positiveInteger(entry.actual_input_tokens);
   if (contextTokens === null || providerInputTokens === null) return null;
+  const cachedInputTokens = nonNegativeInteger(entry.cached_input_tokens);
+  const cacheCreationInputTokens = nonNegativeInteger(entry.cache_creation_input_tokens);
   return {
     contextTokens,
     providerInputTokens,
     providerOutputTokens: nonNegativeInteger(entry.provider_output_tokens) ?? 0,
+    ...(cachedInputTokens !== null ? { cachedInputTokens } : {}),
+    ...(cacheCreationInputTokens !== null ? { cacheCreationInputTokens } : {}),
     budgetTokens: nonNegativeInteger(entry.budget_tokens) ?? 0,
     systemPromptTokens: nonNegativeInteger(entry.system_prompt_tokens) ?? 0,
   };
@@ -177,12 +203,33 @@ export function readPersistedSessionContextTokenUsage(
   const providerInputTokens = positiveInteger(entry.provider_input_tokens)
     ?? positiveInteger(entry.actual_input_tokens);
   if (contextTokens === null || providerInputTokens === null) return null;
+  const cachedInputTokens = nonNegativeInteger(entry.cached_input_tokens);
+  const cacheCreationInputTokens = nonNegativeInteger(entry.cache_creation_input_tokens);
   return {
     contextTokens,
     providerInputTokens,
     providerOutputTokens: nonNegativeInteger(entry.provider_output_tokens) ?? 0,
+    ...(cachedInputTokens !== null ? { cachedInputTokens } : {}),
+    ...(cacheCreationInputTokens !== null ? { cacheCreationInputTokens } : {}),
     budgetTokens: nonNegativeInteger(entry.budget_tokens) ?? 0,
     systemPromptTokens: nonNegativeInteger(entry.system_prompt_tokens) ?? 0,
+  };
+}
+
+/** 读取会话级缓存命中累计（_cache_session_totals）；未写入过或关键字段非法时返回 null。 */
+export function readPersistedSessionCacheTotals(
+  metadata: Record<string, unknown>,
+): SessionCacheTotals | null {
+  const entry = recordValue(metadata[SESSION_CACHE_TOTALS_METADATA_KEY]);
+  if (!entry) return null;
+  const cachedInputTokens = nonNegativeInteger(entry.cached_input_tokens);
+  const cacheCreationInputTokens = nonNegativeInteger(entry.cache_creation_input_tokens);
+  const inputTokens = nonNegativeInteger(entry.input_tokens);
+  if (cachedInputTokens === null || inputTokens === null) return null;
+  return {
+    cachedInputTokens,
+    cacheCreationInputTokens: cacheCreationInputTokens ?? 0,
+    inputTokens,
   };
 }
 
