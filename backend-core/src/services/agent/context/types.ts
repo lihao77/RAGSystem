@@ -28,8 +28,6 @@ export interface SessionMetadataPort {
 export interface AgentContextRequest {
   sessionId: string;
   threadKey?: string | null;
-  microcompact?: boolean;
-  microcompactKeepRecentTools?: number;
 }
 
 export interface AgentContext {
@@ -65,8 +63,6 @@ export interface AgentContextSource {
 export interface ResolvedAgentContextRequest {
   sessionId: string;
   threadKey: string;
-  microcompact: boolean;
-  microcompactKeepRecentTools: number;
   /** provider KV cache 是否还活(buildContext 据 ProviderCacheTracker 设)。source 据此决定是否更新:cache 活→冻结(命中/保持完整);cache 死→更新(重建/清理)。 */
   cacheAlive: boolean;
   /** 本次 build 是否续期 last_used_at(滑动续期)。只在真正发请求的 run 路径 true;只读 build(preview/token 预算)false,不产生写副作用。 */
@@ -75,5 +71,3 @@ export interface ResolvedAgentContextRequest {
 
 export const HISTORY_SCAN_LIMIT = 10_000;
 export const DEFAULT_THREAD_KEY = "root";
-export const DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS = 5;
-export const MICROCOMPACT_CLEARED_LABEL = "[工具结果已清理]";

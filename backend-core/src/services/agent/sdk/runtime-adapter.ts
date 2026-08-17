@@ -505,7 +505,7 @@ export async function executeRunWithSdk(
   try {
 
   // backend 组装内建 context，插件可通过 hooks 追加上下文。
-  // historyPort 组合 ConversationHistoryPort + SessionMetadataPort：recent source 读历史 + microcompact 缓存指纹，
+  // historyPort 组合 ConversationHistoryPort + SessionMetadataPort：recent source 读历史，
   // context source 读取 session metadata 解析运行上下文。
   const historyPort: ConversationHistoryPort & SessionMetadataPort = {
     getRecentMessages: (sid: string, limit: number | undefined, tk: string | null | undefined) =>
@@ -686,7 +686,6 @@ export async function executeRunWithSdk(
         const refreshed = await contextBuilder.buildContext({
           sessionId: sid,
           threadKey: tk,
-          microcompact: false,
         });
         await sessionMetadata.flush();
         const acceptedIds = new Set([...mailboxAcceptedIds, ...accepted]);
@@ -750,7 +749,7 @@ export async function executeRunWithSdk(
           });
           if (result.status === "success") {
             cacheTracker.invalidate(input.sessionId, input.threadKey);
-            const rebuilt = (await contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true })).conversation;
+            const rebuilt = (await contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey })).conversation;
             await sessionMetadata.flush();
             // 恢复首轮修复:replaceAll 从 store 重读会丢 SDK 工作副本里本轮(通用开始契约重执行)追加但 store 尚未落库的 tool observation。按 tool_call_id 回补配对,避免 assistant tool_use 无 tool_result(Anthropic 400 insufficient tool messages)。
             const rebuiltToolCallIds = new Set(rebuilt.filter((m) => m.role === "tool").map((m) => m.tool_call_id).filter((id): id is string => Boolean(id)));

@@ -22,7 +22,7 @@ agent-sdk = backend-ts agent 运行时的核心功能子集。一个进程 `crea
 
 - 内置 store：message / run_step / run 的存储 + 自带事务（node:sqlite 单库，按 dataRoot 落盘）
 - 统一事件管线：单一消费点，事务内原子写 step+message；实时事件走返回的事件流
-- 上下文管理：`context-builder`（recent-messages / microcompaction / stable-prefix 指纹去重 / sources 数组）+ `AgentContextService` 装配门面
+- 上下文管理：`context-builder`（recent-messages / 正式压缩视图 / stable-prefix 指纹去重 / sources 数组）+ `AgentContextService` 装配门面
 - 提示词组装：`prompt-builder` / sections / system prompt 构造 / 协议说明 / memory 前缀注入
 - memory：`MemoryStore`（文件系统多作用域）+ `MemoryIndexContextSource`（上下文 source）+ memory 工具
 - 压缩：`context-compression`（门控阈值 / 段选择 / tier 候选解析去重 / 有损保护）+ 循环内 beforeModel hook
@@ -58,7 +58,7 @@ const runtime = createRuntime({
     agentName, displayName,
     llmTiers,                // 全量解析的扁平 tier 表（投影算死，内核零兜底）；参数/预算/摘要候选的真相源
     memory,                  // { auto_inject, allowed_scopes, write_scopes, archive_scopes }
-    behavior,                // { system_prompt, compression_trigger_ratio, summarize_max_tokens, preserve_recent_turns, budget: CompressionBudgetConfig, ... }
+    behavior,                // { system_prompt, compression_trigger_ratio, summarize_max_tokens, preserve_recent_turns, ... }
   },
 
   // —— 工具（已解析的实例，非配置系统按名解析）——
@@ -109,9 +109,9 @@ backend-ts 的 `AgentConfig`（zod）混了核心字段与衍生字段。SDK 取
 - 字段回落（tier → default → system）、extra_params merge → 投影时算死，每档产出单一标量
 - 缺档（如 fast 未配）→ 投影时用 default 补齐，或删档
 
-解析后内核三处用法退化为纯读 / 纯算术（不再含任何 fallback）：
+解析后内核三处用法退化为纯读 / 纯算术（不再含多源 fallback）：
 - LLM 参数：读 `tiers[tier].temperature / maxCompletionTokens / extraParams`（`resolveTierLlmParams` 兜底链删除）
-- 上下文预算：`CompressionBudgetConfig`（带默认参数）+ `tiers.default.maxContextTokens`（provider 最大上下文）做纯算术（`resolveContextBudget` 多源兜底删除）
+- 上下文预算：`resolveContextBudget` 按 `tiers.default.maxContextTokens`（provider 最大上下文）做纯算术；窗口缺失或负数预算用内置兜底
 - 摘要候选：读 `[tiers.fast, tiers.default]` 去重（`resolveSummaryTierCandidates` 的 provider 解析 + system 兜底删除）
 
 > 顶层 `provider/modelName`（§2）即 `tiers.default`，单一真相、不重复推导。
@@ -277,7 +277,7 @@ run interrupted 时，Dispatcher 终态处理在**终态 tx 内**：
 ### context-builder（sources 数组）
 
 迁入：`AgentContextBuilder` + sources：
-- `RecentMessagesContextSource`：从 store 读历史 + microcompaction（廉价裁剪旧 observation，保 KV 缓存）
+- `RecentMessagesContextSource`：从 store 读历史并应用已落库的正式压缩视图
 - `MemoryIndexContextSource`：memory 前缀注入（见 §8）
 - `EmptyMemoryContextSource`：空实现顶位
 
@@ -286,8 +286,8 @@ run interrupted 时，Dispatcher 终态处理在**终态 tx 内**：
 ### AgentContextService（装配门面）
 
 迁入 `AgentContextService`，三能力：
-- `prepare`：run 前置构建上下文（含 microcompaction）+ 算 usage/budget，不压缩
-- `recompact`：循环内 micro-first 重建（microcompact → 重判 → 仅超阈才 LLM 压缩 + 重建）
+- `prepare`：run 前置构建上下文 + 算 usage/budget，不压缩
+- `recompact`：循环内重判，超阈后执行 LLM 压缩并从正式压缩视图重建
 - `buildUsage` / `snapshotContext`：只读快照
 
 依赖：内置 store（读历史）+ compression service + profile.llmTiers（算预算）。
@@ -315,7 +315,7 @@ delegation / skill 相关 section 在 SDK 内条件性产出（profile 不含这
 - memory 工具：save_memory / list_memory / archive_memory（作为 SDK 自带工具，或由调用者注入）
 
 memory 配置（profile.memory）驱动：auto_inject / allowed_scopes / write_scopes / archive_scopes。
-stable-prefix 指纹含 memory 前缀指纹，microcompaction 不打掉它（保 KV 缓存）。
+stable-prefix 指纹含 memory 前缀指纹；正式压缩只替换 history 视图，不改写 memory 前缀快照。
 
 ---
 
@@ -328,24 +328,10 @@ stable-prefix 指纹含 memory 前缀指纹，microcompaction 不打掉它（保
   保留最近 N 轮）→ LLM 摘要（tier 候选 fast→default 去重，前级失败降级）→ 落 store
   （insertCompressionMessage，replacesUpToSeq）→ 有损保护（摘要失败保留完整历史）
 - `forceCompactSession`：/compact 手动强制
-- `resolveContextBudget`：`CompressionBudgetConfig`（带默认参数）按 `tiers.default.maxContextTokens`（provider 最大上下文）做纯算术（无多源兜底）；`resolveContextCompressionSettings` 靠 behavior
-
-预算配置对象（默认参数内置，投影可选覆盖）——内核不查 systemConfig，只读此对象 + tier 表：
+- `resolveContextBudget`：按 `tiers.default.maxContextTokens`（provider 最大上下文）做纯算术；窗口缺失或预算为负时用内置 4000 兜底，不再接受最小预算配置
 
 ```ts
-interface CompressionBudgetConfig {
-  contextWindowSafetyFactor: number;   // 默认 0.9
-  systemPromptReserve: number;          // 默认 2000
-  minContextBudget: number;             // 默认 4000
-}
-
-// 上下文预算 = provider 最大上下文按系数缩放，减去 prompt 与补全预留，clamp 到下限
-budget = max(
-  floor(tiers.default.maxContextTokens * config.contextWindowSafetyFactor)
-    - config.systemPromptReserve
-    - tiers.default.maxCompletionTokens,
-  config.minContextBudget,
-);
+// 上下文预算 = max(floor(tiers.default.maxContextTokens × 0.9) − systemPromptTokens, 4000)
 ```
 
 ### 循环内 hook

@@ -37,7 +37,6 @@ export async function buildBackendAgentContext(
   const request = {
     sessionId: options.sessionId,
     threadKey: options.threadKey ?? "root",
-    microcompact: true,
   };
   const built = options.touch === undefined
     ? await contextBuilder.buildContext(request)

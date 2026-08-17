@@ -1,6 +1,6 @@
 /**
  * RecentMessagesContextSource(自 SDK context/recent-messages-source.ts 迁入)。
- * 从 conversationStore 读历史 → filterHistoryMessages → 压缩视图 → microcompact 裁剪 → conversation。
+ * 从 conversationStore 读历史 → filterHistoryMessages → 压缩视图 → conversation。
  *
  * 字段适配:history-view 已改 snake;本 source 不直接访问 MessageInfo 字段(全经 history-view 纯函数)。
  */
@@ -13,10 +13,8 @@ import type {
 import { HISTORY_SCAN_LIMIT } from "./types.js";
 import fs from "node:fs";
 import {
-  countObservationMessages,
   filterHistoryMessages,
   messagesToConversation,
-  microcompactHistoryMessages,
   resolveCompressionViewDetailed,
 } from "./history-view.js";
 import { projectConversationExtensions, type ProjectionRegistry } from "./extensions/index.js";
@@ -40,30 +38,17 @@ export class RecentMessagesContextSource implements AgentContextSource {
     const filteredMessages = filterHistoryMessages(messages);
     const compressionView = resolveCompressionViewDetailed(filteredMessages);
     const historyMessages = compressionView.messages;
-    const microcompactApplied = request.microcompact && !request.cacheAlive;
-    const microcompact = microcompactApplied
-      ? microcompactHistoryMessages(historyMessages, request.microcompactKeepRecentTools)
-      : { messages: historyMessages, clearedCount: 0, observationCount: countObservationMessages(historyMessages) };
     const metadata: Record<string, unknown> = {
       source_message_count: messages.length,
       filtered_message_count: filteredMessages.length,
-      resolved_message_count: microcompact.messages.length,
+      resolved_message_count: historyMessages.length,
       compression_view: {
         applied: compressionView.applied,
         summary_seq: compressionView.summarySeq,
         replaces_up_to_seq: compressionView.replacesUpToSeq,
       },
     };
-    if (request.microcompact) {
-      metadata.microcompact = {
-        applied: microcompactApplied,
-        reason: request.cacheAlive ? "cache_fresh" : "cache_expired",
-        keep_recent_tools: request.microcompactKeepRecentTools,
-        observation_count: microcompact.observationCount,
-        cleared_count: microcompact.clearedCount,
-      };
-    }
-    const { conversation, originals } = messagesToConversation(microcompact.messages);
+    const { conversation, originals } = messagesToConversation(historyMessages);
     await restoreActiveProviderContinuation(request.sessionId, conversation, originals, this.history);
     // Canonical message content first, then metadata-only context extensions.
     // 附件图片可缓存；tool 图片每次读盘以遵守 transient TTL。两者都不把图片字节写入 SQLite。

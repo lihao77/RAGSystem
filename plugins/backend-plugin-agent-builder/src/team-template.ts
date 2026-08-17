@@ -240,7 +240,7 @@ function builderAgent(input: BuilderAgentInput): AgentConfig {
       behavior: {
         system_prompt: input.prompt,
         compression_trigger_ratio: 0.85,
-        summarize_max_tokens: 300,
+        summarize_max_tokens: 30000,
         preserve_recent_turns: 3,
         builder_template_version: AGENT_BUILDER_TEAM_TEMPLATE_VERSION,
       },

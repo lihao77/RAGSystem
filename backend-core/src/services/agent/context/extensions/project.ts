@@ -24,7 +24,6 @@ export async function projectConversationExtensions(
   for (const [index, msg] of conversation.entries()) {
     const raw = rawMessages[index];
     if (!raw || raw.role !== msg.role) continue;
-    if (raw.role === "tool" && isMicrocompactCleared(raw, msg)) continue;
     const exts = normalizeExtensions(raw.metadata);
     if (!exts || exts.length === 0) continue;
     const ctx: ProjectContext = { ...ctxBase, role: raw.role };
@@ -34,11 +33,6 @@ export async function projectConversationExtensions(
       appendProjection(msg, projected);
     }
   }
-}
-
-function isMicrocompactCleared(raw: NonNullable<RawMessage>, message: ChatMessage): boolean {
-  if (raw.metadata.microcompact_cleared === true) return true;
-  return typeof message.content === "string" && message.content.startsWith("[工具结果已清理");
 }
 
 function appendProjection(msg: ChatMessage, projected: ContentPart[] | string): void {

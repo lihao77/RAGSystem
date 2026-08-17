@@ -167,7 +167,7 @@ function buildSystemAgentConfig(input: {
       behavior: {
         system_prompt: input.system_prompt,
         compression_trigger_ratio: 0.85,
-        summarize_max_tokens: 300,
+        summarize_max_tokens: 30000,
         preserve_recent_turns: 3,
       },
     },

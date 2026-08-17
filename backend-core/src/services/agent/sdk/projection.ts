@@ -15,7 +15,7 @@ import { asRecord, normalizeString } from "../../../utils/guards.js";
  *   - 删 resolveDefaultSource 特殊分支：selectLlm 替换 default 已在此处做完，
  *     resolved.tiers.default 永远是最终真相，readTierParams 只做两级回落
  */
-import type { AgentProfile, CompressionBudgetConfig, ResolvedTier, TierMap } from "@ragsystem/agent-sdk";
+import type { AgentProfile, ResolvedTier, TierMap } from "@ragsystem/agent-sdk";
 import { ALL_THINKING_LEVELS, type ProviderConfig, type ThinkingLevel } from "@ragsystem/agent-llm";
 import type { AgentConfig, AgentLlmConfig } from "../../../contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
@@ -195,25 +195,7 @@ export function projectBehavior(agent: AgentConfig): AgentProfile["behavior"] {
     summarizeMaxTokens: pickNumber(behavior?.summarize_max_tokens, null),
     preserveRecentTurns: pickNumber(behavior?.preserve_recent_turns, null),
   };
-  const budget = resolveCompressionBudget(behavior);
-  if (budget) {
-    result.budget = budget;
-  }
   return result;
-}
-
-function resolveCompressionBudget(behavior: Record<string, unknown> | null): CompressionBudgetConfig | undefined {
-  if (!behavior) {
-    return undefined;
-  }
- const budget = asRecord(behavior.compression_budget);
- if (!budget) {
-   return undefined;
- }
-  // CompressionBudgetConfig 字段非空 number，强制带默认回落（与 SDK DEFAULT_COMPRESSION_BUDGET 对齐）。
-  return {
-    minContextBudget: requireNumber(budget.min_context_budget, 4000),
-  };
 }
 
 /** 从 custom_params 透传副本中移除 behavior（已单独投影到 profile.behavior）。 */
@@ -230,11 +212,6 @@ function stripBehaviorFromCustomParams(customParams: Record<string, unknown>): R
 function pickNumber(primary: unknown, fallback: number | null): number | null {
   const n = numberOrNull(primary);
   return n !== null ? n : fallback;
-}
-
-/** 强制非空 number：无效值回落到默认（CompressionBudgetConfig 等非空字段用）。 */
-function requireNumber(primary: unknown, fallback: number): number {
-  return numberOrNull(primary) ?? fallback;
 }
 
 function numberOrNull(value: unknown): number | null {

@@ -28,7 +28,7 @@ TS 现役上下文子系统（`AgentContextService` 门面 + `beforeModel` 压�
 |---|---|---|---|---|---|
 | 1 | LLM 摘要 tier fallback | `_try_llm_summary` (fast→default→系统) | `summarizeSegment` 单 provider（default）；`llm_tiers` 只消费 default | `context-compression` 摘要路径 + tier resolver | 1 |
 | 2 | 9 章节摘要 prompt | `_COMPACT_PROMPT_BODY`（含完整保留用户消息 + analysis 草稿） | `COMPACT_PROMPT_BODY` 6 章节 | `context-compression` prompt 常量 | 2 |
-| 3 | observation 治理层 | `observation_formatters/` + `observation_policy` | 仅 `microcompactRuntimeHistoryMessages` 粗粒度清理 | `context-builder` 新增 formatter 层 | 3 |
+| 3 | observation 治理层 | `observation_formatters/` + `observation_policy` | 读取时不裁剪 observation；旧历史仅由正式 LLM 摘要替换 | `context-builder` 新增 formatter 层 | 3 |
 | 4 | KV cache 利用与保活 | `_apply_prompt_cache_policy` + hidden keepalive | 前缀已逐字稳定（记忆快照按 scope 配置打指纹，记忆内容回写不进前缀）；但 **provider payload 从不打 `cache_control`**，keepalive 配置已落地却**无执行代码** | 4a：`llm-chat-client` Anthropic 路径打标；4b：新增 `kernel-plugins/keepalive/`（ToolProvider 装饰器） | 4 |
 
 ## 4. 分阶段实施
@@ -51,13 +51,13 @@ TS 现役上下文子系统（`AgentContextService` 门面 + `beforeModel` 压�
 
 ### 阶段 3：observation 治理层（体积治理·中风险）
 
-- **现状**：`microcompactRuntimeHistoryMessages`（`context-builder/history-view.ts:122`）只做"保留最近 N 条 observation、余者替换占位"的粗粒度清理，无 per-tool 结构化裁剪。
+- **现状**：读取历史时保留完整 observation，无 per-tool 结构化裁剪；只有成功落库的正式 LLM 摘要会替换旧历史视图。
 - **Python**：`observation_formatters/`（bash/grep/glob/json/web_fetch/chart… 按工具类型格式化）+ `observation_policy`（体积策略）。
-- **做法**：新增 observation formatter 层（按 `msg_type`/工具类型裁剪与格式化），`microcompact` 降级为兜底。先接入高频工具（bash/grep/glob/read），其余走 fallback。
+- **做法**：新增 observation formatter 层（按 `msg_type`/工具类型裁剪与格式化）。先接入高频工具（bash/grep/glob/read）；未命中 formatter 的结果保留原文，不设置全局有损兜底。
 - **落点**：`context-builder/` 新增 `observation-formatters/` + policy；接入点在 `recent-messages-source.ts`。
-- **验收**：各工具输出按策略裁剪且不丢关键信息；microcompact 行为不回归；单测 per-tool formatter。
+- **验收**：各工具输出按策略裁剪且不丢关键信息；未识别工具的 observation 原样保留；单测 per-tool formatter。
 
-> **已落地（独立于本阶段）**：循环内压缩已改为 **micro-first**（对齐 Python `pipeline.py:489-511` 的 microcompact→重判→压缩顺序）。`AgentContextService.recompact`（`context/index.ts`）现先 microcompact 廉价裁剪、按裁剪后 token 重判，仅当仍 ≥ 压缩阈值才走 `compressIfNeeded`（LLM 摘要）；micro 能压下去时不触发 LLM 压缩。微压缩门控（fingerprint 变 / TTL 过期）与落地契约（压缩仍落 store）不变。本阶段的 observation formatter 仍接 `recent-messages-source` 的 microcompact 这一步，二者互补。
+> **架构决策**：已移除读取时的粗粒度有损清理。循环内只按 token 阈值调用 `compressIfNeeded`（LLM 摘要）；摘要成功后从已落库的压缩视图重建，摘要不可用时继续保留完整历史。
 
 ### 阶段 4：KV cache 利用与保活（成本·新模块）
 
@@ -91,7 +91,7 @@ TS 现役上下文子系统（`AgentContextService` 门面 + `beforeModel` 压�
 
 - ❌ 不整体移植 `ContextPipeline`（架构倒退）。
 - ❌ 不改压缩数据落地方式（不退回 Python 内存写回）。
-- ❌ 不照搬 Python 双源默认值瑕疵（`summarize_max_tokens` config=2000 / budget fallback=300 不一致）。
+- ❌ 不照搬 Python 双源默认值瑕疵（`summarize_max_tokens` 配置默认值与预算回落值必须保持一致）。
 - ❌ 不引入 Python 的 `prepared_messages` session 缓存复用——TS 用 store+hook 模型，缓存语义不同；若需要单独立项评估，不混入本计划。
 - ❌ 阶段 4 不做"防记忆回写打掉前缀缓存"——TS 记忆指纹只对 scope 配置哈希、记忆内容不进前缀，前缀本就稳定，无此问题。
 - ❌ 4b 不分 provider、不做 Anthropic 1h TTL 等分流优化——一律按配置统一定时保活。

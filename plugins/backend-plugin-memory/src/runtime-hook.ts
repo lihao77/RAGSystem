@@ -45,8 +45,6 @@ export function configureMemoryHooks(registry: HookRegistry, dependencies: Memor
     const contribution = await source.build({
       sessionId: ctx.session.sessionId,
       threadKey: ctx.session.threadKey,
-      microcompact: true,
-      microcompactKeepRecentTools: 5,
       cacheAlive: false,
       touch: true,
     });

@@ -14,7 +14,6 @@ export interface ContextCompressionSettings {
   compressionTriggerRatio: number;
   summarizeMaxTokens: number;
   preserveRecentTurns: number;
-  minContextBudget: number;
 }
 
 const CONTEXT_WINDOW_SAFETY_FACTOR = 0.9;
@@ -30,13 +29,12 @@ export function resolveContextCompressionSettings(agent: AgentConfig, systemConf
     ),
     summarizeMaxTokens: positiveIntOrDefault(
       behaviorConfig.summarize_max_tokens,
-      positiveIntOrDefault(contextConfig.summarize_max_tokens, 300),
+      positiveIntOrDefault(contextConfig.summarize_max_tokens, 30000),
     ),
     preserveRecentTurns: positiveIntOrDefault(
       behaviorConfig.preserve_recent_turns,
       positiveIntOrDefault(contextConfig.preserve_recent_turns, 3),
     ),
-    minContextBudget: positiveIntOrDefault(contextConfig.min_context_budget, 4000),
   };
 }
 
@@ -59,5 +57,3 @@ function nonNegativeIntOrDefault(value: unknown, fallback: number): number {
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
-
-

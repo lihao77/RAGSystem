@@ -14,8 +14,7 @@ import type {
   AgentContextSource,
   ResolvedAgentContextRequest,
 } from "./types.js";
-import { DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS, DEFAULT_THREAD_KEY } from "./types.js";
-import { positiveIntegerOrDefault } from "./helpers.js";
+import { DEFAULT_THREAD_KEY } from "./types.js";
 import type { ProviderCacheTracker } from "./provider-cache-tracker.js";
 
 export class AgentContextBuilder {
@@ -71,11 +70,6 @@ function resolveContextRequest(
   return {
     sessionId: request.sessionId,
     threadKey,
-    microcompact: request.microcompact === true,
-    microcompactKeepRecentTools: positiveIntegerOrDefault(
-      request.microcompactKeepRecentTools,
-      DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS,
-    ),
     cacheAlive,
     touch,
   };

@@ -30,24 +30,12 @@ export interface ResolvedTier {
 /** tier 名 → 已决档。至少含 default（tier 解析的最后一道真相）。 */
 export type TierMap = Record<string, ResolvedTier>;
 
-/** 压缩预算配置。budget = window×0.9 − systemPromptTokens(0.9 含回复预留+安全余量),clamp 到 minContextBudget。 */
-export interface CompressionBudgetConfig {
-  /** 最小上下文预算下限（兜底,防 window 缺失或算出负数）,默认 4000。 */
-  minContextBudget: number;
-}
-
-export const DEFAULT_COMPRESSION_BUDGET: CompressionBudgetConfig = {
-  minContextBudget: 4000,
-};
-
 /** agent 行为配置（投影自 AgentConfig.custom_params.behavior）。 */
 export interface AgentBehavior {
   systemPrompt: string;
   compressionTriggerRatio: number | null;
   summarizeMaxTokens: number | null;
   preserveRecentTurns: number | null;
-  /** 压缩预算配置；不传用 DEFAULT_COMPRESSION_BUDGET。 */
-  budget?: CompressionBudgetConfig;
 }
 
 /**

@@ -93,7 +93,7 @@ export interface RunInput {
   startRound?: number;
   /** 已持久化工具结果，供恢复同一轮依赖型工具调用时解析 {result_N}。 */
   resumeToolResults?: ReadonlyMap<string, ToolExecutionResult>;
-  /** run 起始会话快照（backend 组装：memory + recent + microcompact + 压缩视图 + 图片注入）。SDK 仅靠此快照 + 工作副本推进，纯计算不落库。 */
+  /** run 起始会话快照（backend 组装：memory + recent + 压缩视图 + 图片注入）。SDK 仅靠此快照 + 工作副本推进，纯计算不落库。 */
   conversation: ChatMessage[];
 }
 
@@ -229,7 +229,6 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         const historyBudgetTokens = resolveContextBudget(
           profile.llmTiers,
           estimate.systemPromptTokens,
-          profile.behavior.budget,
         );
         return {
           ...estimate,

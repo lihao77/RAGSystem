@@ -154,7 +154,7 @@ export class AgentCompressionService {
     const threadKey = input.threadKey?.trim() || "root";
     const profile = projectAgentProfile({ agent: input.agent, providers: this.providersProvider() });
     const settings = resolveContextCompressionSettings(input.agent, this.systemConfig.getConfig());
-    const budgetTokens = resolveContextBudget(profile.llmTiers, input.systemPromptTokens, profile.behavior.budget);
+    const budgetTokens = resolveContextBudget(profile.llmTiers, input.systemPromptTokens);
     const persistedMessages = await this.history.getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey);
     const rawMessages = persistedMessages.filter(isCompressibleHistoryMessage);
     const historyResolved = resolveCompressionView(rawMessages);

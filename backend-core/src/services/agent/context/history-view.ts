@@ -1,13 +1,11 @@
 /**
- * 历史视图:过滤 / 压缩视图 / messagesToConversation / microcompact(自 SDK context/history-view.ts 迁入)。
+ * 历史视图:过滤 / 压缩视图 / messagesToConversation(自 SDK context/history-view.ts 迁入)。
  *
  * 字段适配:backend MessageInfo 为 snake_case(tool_calls / tool_call_id),本文件引用相应调整;
  * 其余字段(role/content/metadata/seq/name)与 SDK 一致。核心逻辑零改动。
  */
 import type { ChatMessage } from "@ragsystem/agent-llm";
-import { extractText } from "@ragsystem/agent-llm";
 import type { MessageInfo } from "../../../contracts/session/session.js";
-import { MICROCOMPACT_CLEARED_LABEL } from "./types.js";
 import { numberOrNull } from "./helpers.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import { hasAgentVisibleMessageContent } from "./message-content-projector.js";
@@ -150,52 +148,4 @@ function stabilizeFollowupOrder(messages: MessageInfo[]): MessageInfo[] {
     }
   }
   return output;
-}
-
-export interface MicrocompactResult {
-  messages: MessageInfo[];
-  observationCount: number;
-  clearedCount: number;
-}
-
-export function microcompactHistoryMessages(messages: MessageInfo[], keepRecentTools: number): MicrocompactResult {
-  const observationIndices = messages
-    .map((message, index) => (message.metadata.msg_type === MSG_TYPE.OBSERVATION ? index : -1))
-    .filter((index) => index >= 0);
-  if (observationIndices.length === 0 || observationIndices.length <= keepRecentTools) {
-    return { messages, observationCount: observationIndices.length, clearedCount: 0 };
-  }
-  const clearIndices = new Set(observationIndices.slice(0, observationIndices.length - keepRecentTools));
-  let clearedCount = 0;
-  const compacted = messages.map((message, index) => {
-    if (!clearIndices.has(index)) {
-      return message;
-    }
-    const nextContent = microcompactClearedContent(message);
-    const contentChanged = extractText(message.content) !== nextContent;
-    if (!contentChanged && message.metadata.microcompact_cleared === true) {
-      return message;
-    }
-    if (contentChanged) clearedCount += 1;
-    return {
-      ...message,
-      content: nextContent,
-      content_parts: [{ type: "text" as const, text: nextContent }],
-      metadata: { ...message.metadata, microcompact_cleared: true },
-    };
-  });
-  return { messages: compacted, observationCount: observationIndices.length, clearedCount };
-}
-
-export function countObservationMessages(messages: MessageInfo[]): number {
-  return messages.filter((message) => message.metadata.msg_type === MSG_TYPE.OBSERVATION).length;
-}
-
-function microcompactClearedContent(message: MessageInfo): string {
-  const text = extractText(message.content);
-  if (text === MICROCOMPACT_CLEARED_LABEL || text.startsWith("[工具结果已清理")) {
-    return text;
-  }
-  const round = message.metadata.round;
-  return typeof round === "number" && Number.isFinite(round) ? `[工具结果已清理,轮次 ${round}]` : MICROCOMPACT_CLEARED_LABEL;
 }
