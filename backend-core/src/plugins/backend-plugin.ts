@@ -7,6 +7,7 @@ import type { AgentConfigPort } from "../contracts/agent/agent-config.js";
 import type { SessionApplication } from "../contracts/session/session-application.js";
 import type { PathAccessPolicy } from "../contracts/runtime/path-access-policy.js";
 import type { BackgroundTaskPort } from "../contracts/runtime/background-tasks.js";
+import type { PendingInteractionPort } from "../contracts/runtime/pending-interactions.js";
 import type { TenantId } from "../identity/types.js";
 import type { ClientEventPublisherPort } from "../contracts/runtime/core-runtime-ports.js";
 import type { ModelProviderCatalogPort } from "../contracts/integrations/model-adapter.js";
@@ -173,6 +174,12 @@ export interface BackendPluginRuntimeContext {
   readonly clientEvents: ClientEventPublisherPort;
   /** 宿主在调用各插件 runtime factory 前按插件注入（plugin_id 盖章）；插件推下行事件用它，勿直接用 clientEvents 裸发语义帧。 */
   readonly pluginEvents?: PluginClientEventPublisher;
+  /**
+   * 人工交互端口（waitForUserInput/waitForApproval）：插件工具执行中向用户提问或请求审批，
+   * 与内置 request_user_input 同管线（deadline 内原地等待，超时挂起、补答后按 toolCallId
+   * 缓存恢复）。装配时序早于协调器构造，宿主以延迟绑定注入——插件仅应在工具执行期调用。
+   */
+  readonly pendingInteractions: PendingInteractionPort;
   readonly resources?: readonly BackendPluginResourceContribution[];
   /** Tool descriptors registered by all installed plugins, for runtime control-plane consumers. */
   readonly listPluginTools?: () => readonly BackendToolDescriptor[];

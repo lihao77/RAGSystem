@@ -16,6 +16,7 @@ import { FileIndexService } from "./files/file-index-service.js";
 import { LocalSessionFileLookup } from "./files/session-file-lookup.js";
 import { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
 import { createCoreRuntimeContainer } from "@ragsystem/backend-core/services/runtime/core-runtime-container.js";
+import { createPendingInteractionBinding } from "@ragsystem/backend-core/services/runtime/pending-interaction-binding.js";
 import { DelegationPendingService } from "@ragsystem/backend-core/services/runtime/delegation-pending-service.js";
 import { DurableClientEventPublisher } from "@ragsystem/backend-core/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "@ragsystem/backend-core/services/runtime/event-outbox/dispatcher.js";
@@ -104,6 +105,8 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     clientEvents,
     ...(options.asyncBackgroundTasks ? { repository: options.asyncBackgroundTasks, tenantId: options.tenantId } : {}),
   });
+  // 插件 createRuntime 先于协调器构造，port 延迟绑定：先传稳定引用，容器建好后回填。
+  const pendingInteractionBinding = createPendingInteractionBinding();
   const pluginRuntime = await options.plugins?.createRuntime({
     deploymentKind: "local",
     tenantId: options.tenantId,
@@ -114,6 +117,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     sessions: requestSessionApplication,
     backgroundTasks,
     clientEvents,
+    pendingInteractions: pendingInteractionBinding.port,
     resources: [
       provideBackendResource(
         BACKEND_HOST_RESOURCES.toolPolicy,
@@ -208,6 +212,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
       conversationStore.close();
     },
   });
+  pendingInteractionBinding.bind(runtime.pendingInteractions);
   localExecutionRead = new LocalExecutionReadApplication(runtime.agentExecution, conversationStore);
   options.onInfrastructureCreated?.({ conversationStore, agentMailbox, sessions: sessionApplication });
   return runtime;

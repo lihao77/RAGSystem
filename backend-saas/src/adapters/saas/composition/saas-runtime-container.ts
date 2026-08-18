@@ -16,6 +16,7 @@ import { SystemConfigService } from "@ragsystem/backend-core/services/config/sys
 import { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 import { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
 import { createCoreRuntimeContainer } from "@ragsystem/backend-core/services/runtime/core-runtime-container.js";
+import { createPendingInteractionBinding } from "@ragsystem/backend-core/services/runtime/pending-interaction-binding.js";
 import { DelegationPendingService } from "@ragsystem/backend-core/services/runtime/delegation-pending-service.js";
 import { DurableClientEventPublisher } from "@ragsystem/backend-core/services/runtime/event-outbox/client-event-publisher.js";
 import { HostToolRegistry } from "@ragsystem/backend-core/services/runtime/host-tool-registry.js";
@@ -113,6 +114,8 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     options.sandboxLeaseTimeoutSeconds,
     sandboxFileBridge,
   );
+  // 插件 createRuntime 先于协调器构造，port 延迟绑定：先传稳定引用，容器建好后回填。
+  const pendingInteractionBinding = createPendingInteractionBinding();
   const pluginRuntime = await options.plugins?.createRuntime({
     deploymentKind: "saas",
     tenantId,
@@ -123,6 +126,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     sessions: sessionApplication,
     backgroundTasks,
     clientEvents,
+    pendingInteractions: pendingInteractionBinding.port,
     resources: [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxRuntime, sandboxRuntime, "@ragsystem/backend-saas")],
   });
   const pluginCapabilities = pluginRuntime?.capabilities ?? new CapabilityRegistry();
@@ -132,7 +136,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     "@ragsystem/backend-saas",
   );
 
-  return createCoreRuntimeContainer({
+  const runtime = createCoreRuntimeContainer({
     deploymentKind: "saas",
     tenantId,
     pluginCapabilities,
@@ -218,6 +222,8 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
       }
     },
   });
+  pendingInteractionBinding.bind(runtime.pendingInteractions);
+  return runtime;
 }
 
 /** Refresh tenant-scoped provider configuration before a leased runtime is used. */
