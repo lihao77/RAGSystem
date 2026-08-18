@@ -78,6 +78,8 @@ export class AguiTranslator {
         return { events: [this.modelLifecycle(env)] };
       case "state_sync":
         return { events: this.stateSync(payloadOf(env)) };
+      case "plugin_event":
+        return { events: [this.pluginEvent(payloadOf(env))] };
       case "delegate_call":
         return this.delegateCall(env, payloadOf(env));
       case "interaction":
@@ -257,6 +259,18 @@ export class AguiTranslator {
     if (payload.ref !== undefined) value.ref = payload.ref;
     const event: CustomEvent = { type: "CUSTOM", ...this.base(), name: category, value };
     return [event];
+  }
+
+  /**
+   * 插件下行帧（plugin_event）投影为 CUSTOM "plugin_event"：payload.plugin_id 宿主盖章
+   * 不可伪造，前端按 plugin_id + event 消费，data 一律按不可信数据处理。
+   */
+  private pluginEvent(payload: Rec): AguiEvent {
+    const value: Rec = {};
+    if (payload.plugin_id !== undefined) value.plugin_id = payload.plugin_id;
+    if (payload.event !== undefined) value.event = payload.event;
+    if (payload.data !== undefined) value.data = payload.data;
+    return { type: "CUSTOM", ...this.base(), name: "plugin_event", value };
   }
 
   private delegateCall(env: Envelope, payload: Rec): TranslateResult {

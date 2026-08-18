@@ -147,6 +147,34 @@ describe("AguiTranslator text streaming", () => {
   });
 });
 
+
+describe("AguiTranslator plugin events", () => {
+  it("projects plugin_event envelopes as CUSTOM plugin_event with stamped payload", () => {
+    const result = translator().translate({
+      type: "plugin_event",
+      session_id: "thread-1",
+      run_id: "internal-1",
+      payload: {
+        plugin_id: "@ragsystem/backend-plugin-image-tools",
+        event: "image.describe_progress",
+        data: { index: 0, total: 2 },
+      },
+    });
+    expect(result.events).toEqual([{
+      type: "CUSTOM",
+      threadId: "thread-1",
+      runId: "external-1",
+      timestamp: expect.any(Number),
+      name: "plugin_event",
+      value: {
+        plugin_id: "@ragsystem/backend-plugin-image-tools",
+        event: "image.describe_progress",
+        data: { index: 0, total: 2 },
+      },
+    }]);
+  });
+});
+
 describe("AguiTranslator interrupt identity", () => {
   it("uses the durable interaction id for approval interrupts", () => {
     const result = translator().translate(interactionEnvelope("approval-42"));
