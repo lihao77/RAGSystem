@@ -724,8 +724,15 @@ export async function executeRunWithSdk(
         agentName: input.agent.agent_name,
       });
       // run 内压缩（round.before）：判阈值 → compressIfNeeded → 压缩成功则重组 conversation（重读 store 含压缩视图）→ replaceAll 工作副本。
+      // 熔断:摘要连续失败(摘要模型不可用/输出为空)达上限后,本 run 不再每轮白调摘要 LLM;
+      // 阈值未命中/候选不足属正常跳过,不计数。
+      let consecutiveCompressionFailures = 0;
+      const MAX_CONSECUTIVE_COMPRESSION_FAILURES = 3;
       if (deps.compressionService) {
         hookRegistry.on("round.before", async (hookInput) => {
+          if (consecutiveCompressionFailures >= MAX_CONSECUTIVE_COMPRESSION_FAILURES) {
+            return;
+          }
           // Compression budgets use the stable core prompt. Plugin hooks add their context afterward.
           const mode = resolveToolInstructionMode(profile.llmTiers.default?.provider);
           const systemPromptBase = buildFullSystemPrompt(profile, {
@@ -748,17 +755,22 @@ export async function executeRunWithSdk(
             ...(prediction ? { providerAdjustedInputTokens: prediction.inputTokens } : {}),
             ...(input.signal ? { signal: input.signal } : {}),
           });
-          if (result.status === "success") {
-            cacheTracker.invalidate(input.sessionId, input.threadKey);
-            const rebuilt = (await contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey })).conversation;
-            await sessionMetadata.flush();
-            // 恢复首轮修复:replaceAll 从 store 重读会丢 SDK 工作副本里本轮(通用开始契约重执行)追加但 store 尚未落库的 tool observation。按 tool_call_id 回补配对,避免 assistant tool_use 无 tool_result(Anthropic 400 insufficient tool messages)。
-            // 回补前提见 selectLostObservations:tool_use 必须仍在 rebuilt,否则回补的是被压缩替换的历史,会成为无前置 tool_calls 的孤儿(OpenAI 兼容协议 400)。
-            const lostObservations = selectLostObservations(hookInput.ctx.messages, rebuilt);
-            hookInput.ctx.replaceAll(rebuilt);
-            if (lostObservations.length > 0) {
-              hookInput.ctx.appendMessages(lostObservations);
+          if (result.status !== "success") {
+            if (result.reason === "summary_unavailable") {
+              consecutiveCompressionFailures += 1;
             }
+            return;
+          }
+          consecutiveCompressionFailures = 0;
+          cacheTracker.invalidate(input.sessionId, input.threadKey);
+          const rebuilt = (await contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey })).conversation;
+          await sessionMetadata.flush();
+          // 恢复首轮修复:replaceAll 从 store 重读会丢 SDK 工作副本里本轮(通用开始契约重执行)追加但 store 尚未落库的 tool observation。按 tool_call_id 回补配对,避免 assistant tool_use 无 tool_result(Anthropic 400 insufficient tool messages)。
+          // 回补前提见 selectLostObservations:tool_use 必须仍在 rebuilt,否则回补的是被压缩替换的历史,会成为无前置 tool_calls 的孤儿(OpenAI 兼容协议 400)。
+          const lostObservations = selectLostObservations(hookInput.ctx.messages, rebuilt);
+          hookInput.ctx.replaceAll(rebuilt);
+          if (lostObservations.length > 0) {
+            hookInput.ctx.appendMessages(lostObservations);
           }
         });
       }
