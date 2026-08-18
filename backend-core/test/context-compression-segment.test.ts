@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { selectCompressibleSegment } from "../src/services/agent/context-compression/compression-service.js";
+import { normalizePreserveTokenBudgets } from "../src/services/agent/context-compression/index.js";
 import type { MessageInfo } from "../src/contracts/session/session.js";
 
 /**
@@ -63,7 +64,8 @@ describe("selectCompressibleSegment 配对边界对齐", () => {
     const selected = selectCompressibleSegment(history, SETTINGS);
     expect(selected.ok).toBe(true);
     if (!selected.ok) return;
-    // 对齐后 boundary=2:段=[user, assistant],保留区从带 tool_calls 的 assistant 开始
+    // 对齐后 boundary=2:段=[user, assistant],保留区从带 tool_calls 的 assistant 开始——
+    // 整个事务(tool_use + 4 条结果)都在保留区,段内无悬空,保留区首条不是 tool。
     expect(selected.segment.map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(selected.replacesUpToSeq).toBe(2);
   });
@@ -184,5 +186,75 @@ describe("selectCompressibleSegment user 锚点对齐", () => {
     expect(selected.ok).toBe(true);
     if (!selected.ok) return;
     expect(selected.replacesUpToSeq).toBe(7);
+  });
+});
+
+describe("selectCompressibleSegment 穿插 follow-up 的配对(评审回归)", () => {
+  it("持久化 follow-up 夹在 tool_use 与结果之间、边界落在 follow-up 上时,悬空 intent 一并入段", () => {
+    seqCounter = 0;
+    const followup = (extra: Partial<MessageInfo> = {}) =>
+      msg("user", { metadata: { execution_kind: "session_followup" }, ...extra });
+    const history: MessageInfo[] = [
+      msg("user"), msg("assistant"),                                    // 1-2 旧历史
+      msg("assistant", { tool_calls: [toolCall("f0")] }),               // 3 悬空 intent(结果在保留区)
+      followup(),                                                       // 4 follow-up(缓冲顺序,历史 raw 形态)
+      msg("tool", { tool_call_id: "f0" }),                              // 5 结果
+      followup(), msg("assistant"), followup(), msg("assistant"), followup(), // 6-10 尾部(全 user,锚点不动)
+    ];
+    // minMessages=6 → 初始 boundary=4(follow-up)。旧对齐只看保留区首条 role:
+    // user 不动 → 段=[1..3] 含悬空 intent,保留区 [follow-up, tool f0, ...] 的 f0 被 orphan guard 丢弃。
+    // 修复后段尾悬空 intent 回退:段=[1,2],保留区从该 intent 开始完整配对。
+    const selected = selectCompressibleSegment(history, SETTINGS);
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) return;
+    expect(selected.replacesUpToSeq).toBe(2);
+    const kept = history.filter((m) => m.seq > selected.replacesUpToSeq);
+    expect(kept[0]?.role).toBe("assistant");
+    expect(kept[0]?.tool_calls?.map((c) => c.id)).toEqual(["f0"]);
+  });
+
+  it("段尾 assistant tool_use 的结果全在保留区时,整段回退(经典悬空 case)", () => {
+    seqCounter = 0;
+    const history: MessageInfo[] = [
+      msg("user"), msg("assistant"),
+      msg("assistant", { tool_calls: [toolCall("g0"), toolCall("g1")] }),
+      msg("tool", { tool_call_id: "g0" }),
+      msg("tool", { tool_call_id: "g1" }),
+      msg("assistant"), msg("user"), msg("assistant"),
+    ];
+    // 8 条;minMessages=6 → 初始 boundary=2,段尾 assistant 无 tool_calls 不触发;
+    // 改 minMessages=4:boundary=4,段尾是 tool(部分结果在段内)→ 不动(完整替换安全);
+    // minMessages=5:boundary=3,段尾悬空 intent → 回退到 2。
+    const selected = selectCompressibleSegment(history, { ...SETTINGS, preserveRecentTurns: 2.5 });
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) return;
+    expect(selected.replacesUpToSeq).toBe(2);
+  });
+});
+
+describe("normalizePreserveTokenBudgets 预算钳制(评审回归)", () => {
+  it("小窗/未知窗兜底 4000:默认 8000/40000 钳到 budget×25%", () => {
+    expect(normalizePreserveTokenBudgets(8000, 40000, 4000)).toEqual({
+      preserveMinTokens: 1000,
+      preserveMaxTokens: 1000,
+    });
+  });
+
+  it("min > max 的配置被归一化", () => {
+    expect(normalizePreserveTokenBudgets(50000, 30000, 128000)).toEqual({
+      preserveMinTokens: 30000,
+      preserveMaxTokens: 30000,
+    });
+  });
+
+  it("大窗下默认预算不变(128000×0.25=32000 ≥ 8000,cap 只吃 max)", () => {
+    expect(normalizePreserveTokenBudgets(8000, 40000, 128000)).toEqual({
+      preserveMinTokens: 8000,
+      preserveMaxTokens: 32000,
+    });
+  });
+
+  it("兜底:非法预算与零值预算不产出非法配置", () => {
+    expect(normalizePreserveTokenBudgets(0, 0, 0)).toEqual({ preserveMinTokens: 1, preserveMaxTokens: 1 });
   });
 });

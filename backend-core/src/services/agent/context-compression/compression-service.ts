@@ -19,7 +19,7 @@ import type { SystemConfigService } from "../../config/system-config-service.js"
 import { HISTORY_SCAN_LIMIT, resolveCompressionView } from "../context/index.js";
 import { hasAgentVisibleMessageContent } from "../context/message-content-projector.js";
 import { projectAgentProfile } from "../sdk/projection.js";
-import { resolveContextCompressionSettings, type ContextCompressionSettings } from "./index.js";
+import { resolveContextCompressionSettings, normalizePreserveTokenBudgets, type ContextCompressionSettings } from "./index.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 
 // 桥接文案即叙事锚点:告知模型"开头是摘要(被告知的情况),之后是正在发生的现场(未压缩原文,不重叠)"。
@@ -154,8 +154,13 @@ export class AgentCompressionService {
   private async loadHistory(input: CompressInput): Promise<LoadedHistory> {
     const threadKey = input.threadKey?.trim() || "root";
     const profile = projectAgentProfile({ agent: input.agent, providers: this.providersProvider() });
-    const settings = resolveContextCompressionSettings(input.agent, this.systemConfig.getConfig());
+    const rawSettings = resolveContextCompressionSettings(input.agent, this.systemConfig.getConfig());
     const budgetTokens = resolveContextBudget(profile.llmTiers, input.systemPromptTokens);
+    // 保留区 token 预算钳到实际历史预算:兜底小窗下默认值会让选段 missing_segment_seq、压缩永久失效。
+    const settings: ContextCompressionSettings = {
+      ...rawSettings,
+      ...normalizePreserveTokenBudgets(rawSettings.preserveMinTokens, rawSettings.preserveMaxTokens, budgetTokens),
+    };
     const persistedMessages = await this.history.getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey);
     const rawMessages = persistedMessages.filter(isCompressibleHistoryMessage);
     const historyResolved = resolveCompressionView(rawMessages);
@@ -233,11 +238,7 @@ export function selectCompressibleSegment(historyResolved: MessageInfo[], settin
   if (candidates.length <= minPreserveCount) {
     return { ok: false, reason: "insufficient_candidates" };
   }
-  const boundary = preferUserMessageStart(
-    candidates,
-    alignSegmentBoundary(candidates, selectPreserveBoundary(candidates, settings)),
-    settings,
-  );
+  const boundary = selectPreserveBoundary(candidates, settings);
   const segment = candidates.slice(0, boundary);
   const replacesUpToSeq = lastPositiveSeq(segment);
   if (segment.length === 0 || replacesUpToSeq === null) {
@@ -251,6 +252,7 @@ export function selectCompressibleSegment(historyResolved: MessageInfo[], settin
  * 保留区起点（token 预算制）：从尾部向前累计，至少保留 preserveRecentTurns×2 条且不低于
  * preserveMinTokens，上限 preserveMaxTokens（单条超限也只能整条保留）。条数下限保叙事完整；
  * token 上下限防"6 条只有几百 token 断叙"与"6 条巨型工具结果白压"两个极端。
+ * 锚点内收(user)→ 配对对齐(段尾悬空 tool_use / 保留区首条 tool 结果)在同一函数内完成。
  */
 function selectPreserveBoundary(candidates: MessageInfo[], settings: ContextCompressionSettings): number {
   const minMessages = settings.preserveRecentTurns * 2;
@@ -267,17 +269,24 @@ function selectPreserveBoundary(candidates: MessageInfo[], settings: ContextComp
     // token 上限不突破条数下限:保留区先保叙事完整(minMessages),再受预算约束。
     if (kept >= minMessages && tokens >= settings.preserveMaxTokens) break;
   }
-  return boundary;
+  return alignSegmentBoundary(candidates, preferUserMessageStart(candidates, boundary, settings));
 }
 
 /**
- * 配对边界对齐:保留区不得以 tool 消息开头——其 assistant tool_use 落在压缩段内会被摘要,
- * 保留区出现孤立 observation(OpenAI 400: tool must respond to tool_calls / Anthropic tool_result without preceding tool_use)。
- * tool 结果恒紧跟其 assistant intent,逐条前移边界即可把整个事务拉进保留区(只多保留一个事务)。
+ * 配对边界对齐:压缩段不得以"悬空 tool_use"(assistant 带 tool_calls 且其结果全部落在保留区)结尾,
+ * 也不得横切 tool 结果序列——保留区首条若是 tool,其 tool_use 必在段内被摘要,构成孤立
+ * observation(OpenAI 400 / Anthropic tool_result without preceding tool_use)。缓冲型 follow-up
+ * 穿插(user 消息夹在 tool_use 与结果之间)由前一条规则覆盖:段尾悬空 intent 即回退。
+ * 仅检查段尾与保留区首条:同一事务的 intent 恒在其 tool 结果之前,两处成立则段内必然配对。
  */
 function alignSegmentBoundary(candidates: MessageInfo[], boundary: number): number {
   let aligned = Math.min(Math.max(0, boundary), candidates.length);
-  while (aligned > 0 && candidates[aligned]?.role === "tool") {
+  while (aligned > 0) {
+    const segmentTail = candidates[aligned - 1];
+    const keptHead = candidates[aligned];
+    const tailIsDanglingToolUse = segmentTail?.role === "assistant" && (segmentTail.tool_calls?.length ?? 0) > 0;
+    const keptHeadIsToolResult = keptHead?.role === "tool";
+    if (!tailIsDanglingToolUse && !keptHeadIsToolResult) break;
     aligned -= 1;
   }
   return aligned;

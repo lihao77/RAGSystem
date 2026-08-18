@@ -22,6 +22,24 @@ export interface ContextCompressionSettings {
 
 const CONTEXT_WINDOW_SAFETY_FACTOR = 0.9;
 
+/** 保留区 token 预算相对历史总预算的上限占比——小窗/未知窗(兜底 4000)也能压得出效果。 */
+const PRESERVE_BUDGET_RATIO = 0.25;
+
+/**
+ * 保留区 token 预算钳制到实际历史预算:小窗模型(如兜底 4000)下默认值 8000/40000 会让保留区
+ * 比整段历史预算还大,选段只能返回 missing_segment_seq → 压缩永久失效、超限请求持续打向 provider。
+ * 钳到 budget×25%(保留区过阈值即触发二次压缩,天然收敛),同时归一化 min/max 关系。
+ */
+export function normalizePreserveTokenBudgets(
+  minTokens: number,
+  maxTokens: number,
+  budgetTokens: number,
+): { preserveMinTokens: number; preserveMaxTokens: number } {
+  const cap = Math.max(1, Math.floor(Math.max(1, budgetTokens) * PRESERVE_BUDGET_RATIO));
+  const preserveMaxTokens = Math.min(Math.max(1, maxTokens), cap);
+  return { preserveMinTokens: Math.min(Math.max(1, minTokens), preserveMaxTokens), preserveMaxTokens };
+}
+
 export function resolveContextCompressionSettings(agent: AgentConfig, systemConfig: SystemConfigData): ContextCompressionSettings {
   const contextConfig = asRecord(systemConfig.context) ?? {};
   const behaviorConfig = asRecord(agent.custom_params.behavior) ?? {};
