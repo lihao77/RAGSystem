@@ -160,6 +160,7 @@ export class AgentCompressionService {
     const settings: ContextCompressionSettings = {
       ...rawSettings,
       ...normalizePreserveTokenBudgets(rawSettings.preserveMinTokens, rawSettings.preserveMaxTokens, budgetTokens),
+      preserveBudgetTokens: budgetTokens,
     };
     const persistedMessages = await this.history.getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey);
     const rawMessages = persistedMessages.filter(isCompressibleHistoryMessage);
@@ -235,7 +236,8 @@ export function selectCompressibleSegment(historyResolved: MessageInfo[], settin
   const startIndex = historyResolved[0]?.metadata.msg_type === MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY ? 1 : 0;
   const candidates = historyResolved.slice(startIndex);
   const minPreserveCount = settings.preserveRecentTurns * 2;
-  if (candidates.length <= minPreserveCount) {
+  if (candidates.length <= minPreserveCount
+    && (settings.preserveBudgetTokens === undefined || countMessagesTokens(candidates) <= settings.preserveMaxTokens)) {
     return { ok: false, reason: "insufficient_candidates" };
   }
   const boundary = selectPreserveBoundary(candidates, settings);
@@ -250,8 +252,8 @@ export function selectCompressibleSegment(historyResolved: MessageInfo[], settin
 
 /**
  * 保留区起点（token 预算制）：从尾部向前累计，至少保留 preserveRecentTurns×2 条且不低于
- * preserveMinTokens，上限 preserveMaxTokens（单条超限也只能整条保留）。条数下限保叙事完整；
- * token 上下限防"6 条只有几百 token 断叙"与"6 条巨型工具结果白压"两个极端。
+ * preserveMinTokens，上限 preserveMaxTokens（单条超限也只能整条保留）。真实加载预算存在时，
+ * token 上限优先于条数下限；无预算的纯边界测试仍保留原有条数语义。
  * 锚点内收(user)→ 配对对齐(段尾悬空 tool_use / 保留区首条 tool 结果)在同一函数内完成。
  */
 function selectPreserveBoundary(candidates: MessageInfo[], settings: ContextCompressionSettings): number {
@@ -263,13 +265,18 @@ function selectPreserveBoundary(candidates: MessageInfo[], settings: ContextComp
     if (kept >= minMessages && tokens >= settings.preserveMinTokens) break;
     const message = candidates[boundary - 1];
     if (!message) break;
-    tokens += estimateMessageTokens(message);
+    const nextTokens = tokens + estimateMessageTokens(message);
+    // 只有真实加载预算存在时才把 token 上限作为硬边界;纯边界函数仍允许条数下限优先,
+    // 以便在没有模型预算上下文时保持原有事务对齐语义。
+    if (settings.preserveBudgetTokens !== undefined && kept > 0 && nextTokens > settings.preserveMaxTokens) break;
+    tokens = nextTokens;
     boundary -= 1;
     kept += 1;
-    // token 上限不突破条数下限:保留区先保叙事完整(minMessages),再受预算约束。
-    if (kept >= minMessages && tokens >= settings.preserveMaxTokens) break;
+    if (settings.preserveBudgetTokens !== undefined && tokens >= settings.preserveMaxTokens) break;
+    if (settings.preserveBudgetTokens === undefined && kept >= minMessages && tokens >= settings.preserveMaxTokens) break;
   }
-  return alignSegmentBoundary(candidates, preferUserMessageStart(candidates, boundary, settings));
+  const transactionAligned = alignSegmentBoundary(candidates, boundary);
+  return preferUserMessageStart(candidates, transactionAligned, settings);
 }
 
 /**
@@ -277,11 +284,18 @@ function selectPreserveBoundary(candidates: MessageInfo[], settings: ContextComp
  * 也不得横切 tool 结果序列——保留区首条若是 tool,其 tool_use 必在段内被摘要,构成孤立
  * observation(OpenAI 400 / Anthropic tool_result without preceding tool_use)。缓冲型 follow-up
  * 穿插(user 消息夹在 tool_use 与结果之间)由前一条规则覆盖:段尾悬空 intent 即回退。
- * 仅检查段尾与保留区首条:同一事务的 intent 恒在其 tool 结果之前,两处成立则段内必然配对。
+ * 除段尾与保留区首条外,还按 tool_call_id 检查所有跨边界的结果,确保多结果事务不会被 follow-up
+ * 或其他消息分隔后切开。
  */
 function alignSegmentBoundary(candidates: MessageInfo[], boundary: number): number {
   let aligned = Math.min(Math.max(0, boundary), candidates.length);
+  const toolCallOwners = indexToolCallOwners(candidates);
   while (aligned > 0) {
+    const crossingOwner = findCrossingToolCallOwner(candidates, aligned, toolCallOwners);
+    if (crossingOwner !== null) {
+      aligned = crossingOwner;
+      continue;
+    }
     const segmentTail = candidates[aligned - 1];
     const keptHead = candidates[aligned];
     const tailIsDanglingToolUse = segmentTail?.role === "assistant" && (segmentTail.tool_calls?.length ?? 0) > 0;
@@ -290,6 +304,35 @@ function alignSegmentBoundary(candidates: MessageInfo[], boundary: number): numb
     aligned -= 1;
   }
   return aligned;
+}
+
+function indexToolCallOwners(candidates: MessageInfo[]): Map<string, number> {
+  const owners = new Map<string, number>();
+  for (const [index, message] of candidates.entries()) {
+    if (message.role !== "assistant" || !message.tool_calls?.length) continue;
+    for (const call of message.tool_calls) {
+      if (call.id && !owners.has(call.id)) {
+        owners.set(call.id, index);
+      }
+    }
+  }
+  return owners;
+}
+
+function findCrossingToolCallOwner(
+  candidates: MessageInfo[],
+  boundary: number,
+  toolCallOwners: Map<string, number>,
+): number | null {
+  let earliestOwner: number | null = null;
+  for (let index = boundary; index < candidates.length; index += 1) {
+    const message = candidates[index];
+    if (message?.role !== "tool" || !message.tool_call_id) continue;
+    const owner = toolCallOwners.get(message.tool_call_id);
+    if (owner === undefined || owner >= boundary) continue;
+    earliestOwner = earliestOwner === null ? owner : Math.min(earliestOwner, owner);
+  }
+  return earliestOwner;
 }
 
 /**

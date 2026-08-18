@@ -18,6 +18,8 @@ export interface ContextCompressionSettings {
   preserveMinTokens: number;
   /** 保留区 token 上限:单条超限也只能整条保留;user 锚点内收同样受此上限约束。 */
   preserveMaxTokens: number;
+  /** 真实加载预算;存在时保留区 token 上限优先于条数下限。 */
+  preserveBudgetTokens?: number;
 }
 
 const CONTEXT_WINDOW_SAFETY_FACTOR = 0.9;
@@ -35,15 +37,19 @@ export function normalizePreserveTokenBudgets(
   maxTokens: number,
   budgetTokens: number,
 ): { preserveMinTokens: number; preserveMaxTokens: number } {
-  const cap = Math.max(1, Math.floor(Math.max(1, budgetTokens) * PRESERVE_BUDGET_RATIO));
-  const preserveMaxTokens = Math.min(Math.max(1, maxTokens), cap);
-  return { preserveMinTokens: Math.min(Math.max(1, minTokens), preserveMaxTokens), preserveMaxTokens };
+  const cap = Math.max(1, Math.floor(Math.max(1, finitePositiveIntOrOne(budgetTokens)) * PRESERVE_BUDGET_RATIO));
+  const range = normalizePreserveTokenRange(minTokens, maxTokens);
+  const preserveMaxTokens = Math.min(range.preserveMaxTokens, cap);
+  return {
+    preserveMinTokens: Math.min(range.preserveMinTokens, preserveMaxTokens),
+    preserveMaxTokens,
+  };
 }
 
 export function resolveContextCompressionSettings(agent: AgentConfig, systemConfig: SystemConfigData): ContextCompressionSettings {
   const contextConfig = asRecord(systemConfig.context) ?? {};
   const behaviorConfig = asRecord(agent.custom_params.behavior) ?? {};
-  return {
+  const settings = {
     compressionTriggerRatio: clamp(
       numberOrDefault(behaviorConfig.compression_trigger_ratio, numberOrDefault(contextConfig.compression_trigger_ratio, 0.85)),
       0.5,
@@ -66,6 +72,16 @@ export function resolveContextCompressionSettings(agent: AgentConfig, systemConf
       positiveIntOrDefault(contextConfig.preserve_max_tokens, 40000),
     ),
   };
+  return { ...settings, ...normalizePreserveTokenRange(settings.preserveMinTokens, settings.preserveMaxTokens) };
+}
+
+function normalizePreserveTokenRange(minTokens: number, maxTokens: number): Pick<ContextCompressionSettings, "preserveMinTokens" | "preserveMaxTokens"> {
+  const preserveMinTokens = finitePositiveIntOrOne(minTokens);
+  const preserveMaxTokens = finitePositiveIntOrOne(maxTokens);
+  return {
+    preserveMinTokens: Math.min(preserveMinTokens, preserveMaxTokens),
+    preserveMaxTokens,
+  };
 }
 
 function numberOrDefault(value: unknown, fallback: number): number {
@@ -78,6 +94,10 @@ function positiveInt(value: unknown): number | null {
 
 function positiveIntOrDefault(value: unknown, fallback: number): number {
   return positiveInt(value) ?? fallback;
+}
+
+function finitePositiveIntOrOne(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.max(1, Math.floor(value)) : 1;
 }
 
 function nonNegativeIntOrDefault(value: unknown, fallback: number): number {

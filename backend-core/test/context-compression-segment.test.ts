@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { countMessagesTokens } from "@ragsystem/agent-sdk";
 
 import { selectCompressibleSegment } from "../src/services/agent/context-compression/compression-service.js";
 import { normalizePreserveTokenBudgets } from "../src/services/agent/context-compression/index.js";
+import { messagesToConversation } from "../src/services/agent/context/history-view.js";
 import type { MessageInfo } from "../src/contracts/session/session.js";
 
 /**
@@ -148,6 +150,22 @@ describe("selectCompressibleSegment 保留区 token 预算", () => {
     expect(kept.length).toBeLessThanOrEqual(7);
     expect(kept.length).toBeGreaterThanOrEqual(6);
   });
+
+  it("小窗口下 token 上限优先于近期消息条数下限", () => {
+    seqCounter = 0;
+    const history = Array.from({ length: 7 }, () => msg("assistant", { content: "x".repeat(3000) }));
+    const selected = selectCompressibleSegment(history, {
+      ...SETTINGS,
+      preserveMinTokens: 1000,
+      preserveMaxTokens: 1000,
+      preserveBudgetTokens: 4000,
+    });
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) return;
+    const kept = history.filter((message) => message.seq > selected.replacesUpToSeq);
+    expect(kept.length).toBeLessThan(6);
+    expect(countMessagesTokens(kept)).toBeLessThanOrEqual(1000);
+  });
 });
 
 describe("selectCompressibleSegment user 锚点对齐", () => {
@@ -211,6 +229,28 @@ describe("selectCompressibleSegment 穿插 follow-up 的配对(评审回归)", (
     const kept = history.filter((m) => m.seq > selected.replacesUpToSeq);
     expect(kept[0]?.role).toBe("assistant");
     expect(kept[0]?.tool_calls?.map((c) => c.id)).toEqual(["f0"]);
+  });
+
+  it("多个 tool result 被 follow-up 分隔且边界落在中间时,按 tool_call_id 回收到 intent", () => {
+    seqCounter = 0;
+    const followup = () => msg("user", { metadata: { execution_kind: "session_followup" } });
+    const history: MessageInfo[] = [
+      msg("user"), msg("assistant"),
+      msg("assistant", { tool_calls: [toolCall("h0"), toolCall("h1")] }),
+      followup(),
+      msg("tool", { tool_call_id: "h0" }),
+      followup(),
+      msg("tool", { tool_call_id: "h1" }),
+      msg("user"), msg("assistant"), msg("user"), msg("assistant"),
+    ];
+    const selected = selectCompressibleSegment(history, SETTINGS);
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) return;
+    expect(selected.replacesUpToSeq).toBe(2);
+    const kept = history.filter((message) => message.seq > selected.replacesUpToSeq);
+    const conversation = messagesToConversation(kept).conversation;
+    expect(conversation.find((message) => message.role === "assistant")?.tool_calls?.map((call) => call.id)).toEqual(["h0", "h1"]);
+    expect(conversation.filter((message) => message.role === "tool").map((message) => message.tool_call_id)).toEqual(["h0", "h1"]);
   });
 
   it("段尾 assistant tool_use 的结果全在保留区时,整段回退(经典悬空 case)", () => {
