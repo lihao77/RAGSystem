@@ -224,32 +224,35 @@ type SegmentSelection =
   | { ok: true; segment: MessageInfo[]; replacesUpToSeq: number; existingSummary: string }
   | { ok: false; reason: "insufficient_candidates" | "missing_segment_seq" };
 
-function selectCompressibleSegment(historyResolved: MessageInfo[], settings: ContextCompressionSettings): SegmentSelection {
+/** 选段纯函数（导出供单测直接断言边界对齐）。 */
+export function selectCompressibleSegment(historyResolved: MessageInfo[], settings: ContextCompressionSettings): SegmentSelection {
   const startIndex = historyResolved[0]?.metadata.msg_type === MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY ? 1 : 0;
   const candidates = historyResolved.slice(startIndex);
   const preserveCount = settings.preserveRecentTurns * 2;
   if (candidates.length <= preserveCount) {
     return { ok: false, reason: "insufficient_candidates" };
   }
-  let segment = preserveCount > 0 ? candidates.slice(0, candidates.length - preserveCount) : [...candidates];
-  // 配对边界对齐:segment 末若是 assistant tool_use(其 tool_result 落在保留区),排除该 tool_use,避免摘要 tool_use 而保留 tool_result 造成孤立 observation(Anthropic tool_result without preceding tool_use)。
-  while (segment.length > 0) {
-    const last = segment[segment.length - 1];
-    if (!last) {
-      break;
-    }
-    if (last.role === "assistant" && last.tool_calls && last.tool_calls.length > 0) {
-      segment = segment.slice(0, -1);
-    } else {
-      break;
-    }
-  }
+  const boundary = alignSegmentBoundary(candidates, Math.max(0, candidates.length - preserveCount));
+  const segment = candidates.slice(0, boundary);
   const replacesUpToSeq = lastPositiveSeq(segment);
   if (segment.length === 0 || replacesUpToSeq === null) {
     return { ok: false, reason: "missing_segment_seq" };
   }
   const existingSummary = startIndex === 1 ? extractText(historyResolved[0]?.content ?? "") : "";
   return { ok: true, segment, replacesUpToSeq, existingSummary };
+}
+
+/**
+ * 配对边界对齐:保留区不得以 tool 消息开头——其 assistant tool_use 落在压缩段内会被摘要,
+ * 保留区出现孤立 observation(OpenAI 400: tool must respond to tool_calls / Anthropic tool_result without preceding tool_use)。
+ * tool 结果恒紧跟其 assistant intent,逐条前移边界即可把整个事务拉进保留区(只多保留一个事务)。
+ */
+function alignSegmentBoundary(candidates: MessageInfo[], boundary: number): number {
+  let aligned = Math.min(Math.max(0, boundary), candidates.length);
+  while (aligned > 0 && candidates[aligned]?.role === "tool") {
+    aligned -= 1;
+  }
+  return aligned;
 }
 
 function isCompressibleHistoryMessage(message: MessageInfo): boolean {
