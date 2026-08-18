@@ -66,7 +66,9 @@ export function resolveCompressionViewDetailed(messages: MessageInfo[]): Compres
   }
   const replacesUpToSeq = numberOrNull(compressionMessage.metadata.replaces_up_to_seq);
   const cutoff = replacesUpToSeq ?? compressionMessage.seq;
-  const output: MessageInfo[] = [{ ...compressionMessage, role: "assistant", metadata: { msg_type: MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY } }];
+  // 摘要对模型以 user role 呈现(桥接叙事锚点:摘要不是"模型自己说过的话";同时满足
+  // Anthropic 首条必须 user 的约束)。存储层 role 保持 assistant 不动,UI 展示不受影响。
+  const output: MessageInfo[] = [{ ...compressionMessage, role: "user", metadata: { msg_type: MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY } }];
   for (const [index, message] of messages.entries()) {
     if (index === compressionIndex || message.metadata.msg_type === MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY) {
       continue;

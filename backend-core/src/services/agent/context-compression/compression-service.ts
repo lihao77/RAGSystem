@@ -22,7 +22,8 @@ import { projectAgentProfile } from "../sdk/projection.js";
 import { resolveContextCompressionSettings, type ContextCompressionSettings } from "./index.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 
-const COMPACT_SUMMARY_PREFIX = "本次会话从之前的对话继续，以下是该对话早期内容的摘要。\n\n";
+// 桥接文案即叙事锚点:告知模型"开头是摘要(被告知的情况),之后是正在发生的现场(未压缩原文,不重叠)"。
+const COMPACT_SUMMARY_PREFIX = "本次会话从之前的对话继续，以下是该对话早期内容的摘要。摘要之后是最近未压缩的原始对话，与摘要内容不重叠。\n\n";
 // 输出格式三处统一为"<summary> 块"（formatCompactResponse 优先解析 <summary>，纯文本仅作解析兜底）。
 const NO_TOOLS_PREAMBLE = "你正在生成上下文压缩摘要。不要调用工具，不要输出工具调用协议。\n\n";
 const NO_TOOLS_TRAILER = "\n\n再次提醒：不要调用工具；只输出一个 <summary>…</summary> 块，不要输出其他内容。";
