@@ -55,7 +55,7 @@ defineProps({
 }
 
 /* 开关行：卡片化整行，启用时底色/描边变为 accent 淡色（无左侧竖线） */
-.studio-panel .switch-list { display: flex; flex-direction: column; gap: 4px; }
+.studio-panel .switch-list { display: flex; flex-direction: row; gap: 4px; }
 .studio-panel .switch-row {
   display: flex;
   align-items: center;
