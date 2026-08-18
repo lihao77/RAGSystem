@@ -6,6 +6,8 @@ export type { NativeHybridProtocolDeps } from "./native-hybrid-protocol.js";
 export { createProtocol, resolveToolInstructionMode } from "./select-protocol.js";
 export type { ProtocolFactoryOptions, SelectedProtocol } from "./select-protocol.js";
 export { renderXmlModelMessage, renderNativeModelMessage } from "./message-rendering.js";
+export { sanitizeToolPairing } from "./tool-pairing.js";
+export type { ToolPairingSanitizeResult } from "./tool-pairing.js";
 export {
   StreamingRuntimeXmlParser,
   parseRuntimeToolCallsXml,

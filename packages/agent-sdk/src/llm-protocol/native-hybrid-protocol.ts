@@ -28,6 +28,7 @@ import type { RuntimeToolDefinition } from "../prompt/tool-types.js";
 import { withModelAttemptLifecycle } from "./model-attempt-lifecycle.js";
 import { renderNativeXmlProtocolInstruction, StreamingRuntimeXmlParser } from "./xml/index.js";
 import { renderNativeModelMessage } from "./message-rendering.js";
+import { sanitizeToolPairing } from "./tool-pairing.js";
 
 /** NativeHybridProtocol 构造依赖。 */
 export interface NativeHybridProtocolDeps {
@@ -291,7 +292,7 @@ export class NativeHybridProtocol implements Protocol {
     return imageParts.length ? [...messages, { role: "user", content: imageParts }] : messages;
   }
 
-  /** FC 直传结构化 ChatMessage（厂商模型原生消费）。 */
+  /** FC 直传结构化 ChatMessage（厂商模型原生消费）。role:tool 上线前过配对兜底，孤立 observation 不上线。 */
   toModelMessages(messages: ChatMessage[]): ChatMessage[] {
     const rendered: ChatMessage[] = [];
     let deferredImages: ContentPart[] = [];
@@ -300,7 +301,7 @@ export class NativeHybridProtocol implements Protocol {
       rendered.push({ role: "user", content: deferredImages });
       deferredImages = [];
     };
-    for (const message of messages) {
+    for (const message of sanitizeToolPairing(messages).messages) {
       if (message.role !== "tool") {
         flushImages();
         rendered.push(renderNativeModelMessage(message));
