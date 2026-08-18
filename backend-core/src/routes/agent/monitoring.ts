@@ -323,6 +323,8 @@ function buildCompressionConfig(agent: AgentConfig, container: FastifyRequest["c
     strategy: "llm_summarize",
     trigger_ratio: settings.compressionTriggerRatio,
     preserve_recent_turns: settings.preserveRecentTurns,
+    preserve_min_tokens: settings.preserveMinTokens,
+    preserve_max_tokens: settings.preserveMaxTokens,
     summarize_max_tokens: settings.summarizeMaxTokens,
   };
 }

@@ -10,7 +10,7 @@
  * run 内压缩（round.before 触发,compressIfNeeded）+ /compact（forceCompact）共用本服务。
  */
 import { LlmProviderClient, extractText, type ChatMessage, type LlmClient, type LlmRequest } from "@ragsystem/agent-llm";
-import { countMessagesTokens, readTierParams, resolveContextBudget, resolveSummaryTierCandidates } from "@ragsystem/agent-sdk";
+import { countMessagesTokens, estimateMessageTokens, readTierParams, resolveContextBudget, resolveSummaryTierCandidates } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { CompressionHistoryPort } from "../../../contracts/runtime/core-runtime-ports.js";
@@ -228,11 +228,15 @@ type SegmentSelection =
 export function selectCompressibleSegment(historyResolved: MessageInfo[], settings: ContextCompressionSettings): SegmentSelection {
   const startIndex = historyResolved[0]?.metadata.msg_type === MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY ? 1 : 0;
   const candidates = historyResolved.slice(startIndex);
-  const preserveCount = settings.preserveRecentTurns * 2;
-  if (candidates.length <= preserveCount) {
+  const minPreserveCount = settings.preserveRecentTurns * 2;
+  if (candidates.length <= minPreserveCount) {
     return { ok: false, reason: "insufficient_candidates" };
   }
-  const boundary = alignSegmentBoundary(candidates, Math.max(0, candidates.length - preserveCount));
+  const boundary = preferUserMessageStart(
+    candidates,
+    alignSegmentBoundary(candidates, selectPreserveBoundary(candidates, settings)),
+    settings,
+  );
   const segment = candidates.slice(0, boundary);
   const replacesUpToSeq = lastPositiveSeq(segment);
   if (segment.length === 0 || replacesUpToSeq === null) {
@@ -240,6 +244,29 @@ export function selectCompressibleSegment(historyResolved: MessageInfo[], settin
   }
   const existingSummary = startIndex === 1 ? extractText(historyResolved[0]?.content ?? "") : "";
   return { ok: true, segment, replacesUpToSeq, existingSummary };
+}
+
+/**
+ * 保留区起点（token 预算制）：从尾部向前累计，至少保留 preserveRecentTurns×2 条且不低于
+ * preserveMinTokens，上限 preserveMaxTokens（单条超限也只能整条保留）。条数下限保叙事完整；
+ * token 上下限防"6 条只有几百 token 断叙"与"6 条巨型工具结果白压"两个极端。
+ */
+function selectPreserveBoundary(candidates: MessageInfo[], settings: ContextCompressionSettings): number {
+  const minMessages = settings.preserveRecentTurns * 2;
+  let boundary = candidates.length;
+  let kept = 0;
+  let tokens = 0;
+  while (boundary > 0) {
+    if (kept >= minMessages && tokens >= settings.preserveMinTokens) break;
+    const message = candidates[boundary - 1];
+    if (!message) break;
+    tokens += estimateMessageTokens(message);
+    boundary -= 1;
+    kept += 1;
+    // token 上限不突破条数下限:保留区先保叙事完整(minMessages),再受预算约束。
+    if (kept >= minMessages && tokens >= settings.preserveMaxTokens) break;
+  }
+  return boundary;
 }
 
 /**
@@ -253,6 +280,30 @@ function alignSegmentBoundary(candidates: MessageInfo[], boundary: number): numb
     aligned -= 1;
   }
   return aligned;
+}
+
+/**
+ * 叙事锚点对齐:保留区尽量以 user 消息开头。模型没有"保留区"概念,压缩后的序列应读作
+ * "交接摘要 + 一段有头的近期对话";首条是没头没尾的 assistant 轮会让模型自行幻觉前因。
+ * 内收上限 preserveMaxTokens——子智能体长工具链里两条 user 消息可能相隔上百条,
+ * 超预算即放弃,接受事务对齐边界。
+ */
+function preferUserMessageStart(candidates: MessageInfo[], boundary: number, settings: ContextCompressionSettings): number {
+  if (boundary <= 0 || boundary >= candidates.length) return boundary;
+  if (candidates[boundary]?.role === "user") return boundary;
+  let tokens = countMessagesTokens(candidates.slice(boundary));
+  let walked = boundary;
+  while (walked > 0) {
+    const previous = candidates[walked - 1];
+    if (!previous) break;
+    const nextTokens = tokens + estimateMessageTokens(previous);
+    // 内收含 user 锚点本身都受上限约束:短历史锚点可能就在段首,无约束会把整段掏空。
+    if (nextTokens > settings.preserveMaxTokens) return boundary;
+    if (previous.role === "user") return walked - 1;
+    tokens = nextTokens;
+    walked -= 1;
+  }
+  return boundary;
 }
 
 function isCompressibleHistoryMessage(message: MessageInfo): boolean {

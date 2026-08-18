@@ -14,6 +14,10 @@ export interface ContextCompressionSettings {
   compressionTriggerRatio: number;
   summarizeMaxTokens: number;
   preserveRecentTurns: number;
+  /** 保留区 token 下限:除条数下限外,保留区估算 token 不低于此值,避免"保留 6 条但只有几百 token"叙事断裂。 */
+  preserveMinTokens: number;
+  /** 保留区 token 上限:单条超限也只能整条保留;user 锚点内收同样受此上限约束。 */
+  preserveMaxTokens: number;
 }
 
 const CONTEXT_WINDOW_SAFETY_FACTOR = 0.9;
@@ -34,6 +38,14 @@ export function resolveContextCompressionSettings(agent: AgentConfig, systemConf
     preserveRecentTurns: positiveIntOrDefault(
       behaviorConfig.preserve_recent_turns,
       positiveIntOrDefault(contextConfig.preserve_recent_turns, 3),
+    ),
+    preserveMinTokens: positiveIntOrDefault(
+      behaviorConfig.preserve_min_tokens,
+      positiveIntOrDefault(contextConfig.preserve_min_tokens, 8000),
+    ),
+    preserveMaxTokens: positiveIntOrDefault(
+      behaviorConfig.preserve_max_tokens,
+      positiveIntOrDefault(contextConfig.preserve_max_tokens, 40000),
     ),
   };
 }
