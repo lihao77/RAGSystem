@@ -142,9 +142,10 @@ test("Gemini stream separates thoughts, preserves signatures, tools, and cache u
       totalTokens: 112,
       cachedInputTokens: 97,
     });
-    assert.deepEqual(chunks.map((chunk) => ({ content: chunk.content, toolCalls: chunk.toolCalls })), [
-      { content: "done", toolCalls: undefined },
-      { content: "", toolCalls: result.toolCalls },
+    assert.deepEqual(chunks.map((chunk) => ({ content: chunk.content, reasoning: chunk.reasoning, toolCalls: chunk.toolCalls })), [
+      { content: "", reasoning: "plan", toolCalls: undefined },
+      { content: "done", reasoning: undefined, toolCalls: undefined },
+      { content: "", reasoning: undefined, toolCalls: result.toolCalls },
     ]);
   } finally {
     globalThis.fetch = originalFetch;

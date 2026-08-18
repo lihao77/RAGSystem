@@ -129,6 +129,22 @@ describe("AguiTranslator text streaming", () => {
       },
     })]);
   });
+
+  it("routes model thinking through CUSTOM passthrough, not the intent REASONING channel", () => {
+    const result = translator().translate(streamEnvelope("reasoning_delta", "think "));
+    expect(result.events).toEqual([expect.objectContaining({
+      type: "CUSTOM",
+      name: "stream_output",
+      value: { phase: "reasoning_delta", content: "think " },
+    })]);
+
+    const done = translator().translate(streamEnvelope("reasoning_complete", "think twice"));
+    expect(done.events).toEqual([expect.objectContaining({
+      type: "CUSTOM",
+      name: "stream_output",
+      value: { phase: "reasoning_complete", content: "think twice" },
+    })]);
+  });
 });
 
 describe("AguiTranslator interrupt identity", () => {

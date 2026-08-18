@@ -88,3 +88,29 @@ test("OpenAI-compatible stream accumulates reasoning deltas into continuation st
     globalThis.fetch = originalFetch;
   }
 });
+
+test("OpenAI-compatible stream passes reasoning deltas through chunks", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(sseBody([
+    { choices: [{ delta: { reasoning_content: "think " } }] },
+    { choices: [{ delta: { reasoning_content: "now" } }] },
+    { choices: [{ delta: { content: "answer" }, finish_reason: "stop" }] },
+  ]), { headers: { "content-type": "text/event-stream" } });
+
+  try {
+    const chunks = [];
+    const result = await new LlmProviderClient().stream({
+      provider: { key: "qwen", name: "Qwen", provider_type: "qwen", api_key: "secret" },
+      model: "qwen-plus",
+      messages: [{ role: "user", content: "inspect" }],
+    }, async (chunk) => { chunks.push(chunk); });
+    assert.deepEqual(chunks.map((c) => ({ content: c.content, reasoning: c.reasoning })), [
+      { content: "", reasoning: "think " },
+      { content: "", reasoning: "now" },
+      { content: "answer", reasoning: undefined },
+    ]);
+    assert.equal(result.reasoning, "think now");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

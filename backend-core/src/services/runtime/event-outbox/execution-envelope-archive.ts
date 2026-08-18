@@ -29,10 +29,11 @@ export function buildExecutionEnvelopeRunStep(
     return null;
   }
   // Token/text streaming belongs to the durable outbox, not execution history.
-  // Keep only the completed intent snapshot used to reconstruct model reasoning.
+  // Keep only the completed intent/reasoning snapshots used to reconstruct
+  // model-visible action notes and thinking blocks on history replay.
   if (envelope.type === "stream_output") {
     const payload = envelope.payload as Record<string, unknown> | undefined;
-    if (payload?.phase !== "intent_complete") return null;
+    if (payload?.phase !== "intent_complete" && payload?.phase !== "reasoning_complete") return null;
   }
   return {
     sessionId,

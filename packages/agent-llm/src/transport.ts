@@ -205,7 +205,7 @@ export async function consumeProviderStream<T>(
   let outputStarted = false;
   try {
     return await read(async (chunk) => {
-      if (chunk.content || (chunk.toolCalls?.length ?? 0) > 0) outputStarted = true;
+      if (chunk.content || chunk.reasoning || (chunk.toolCalls?.length ?? 0) > 0) outputStarted = true;
       return onChunk(chunk);
     });
   } catch (error) {

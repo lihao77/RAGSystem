@@ -237,6 +237,10 @@ export function createSessionEventReducer({
         runtime.markModelStreaming(event);
         syncLlmRetryState();
         deps.applyEnvelopeToMessage(currentMsg, event);
+      } else if (phase === 'reasoning_delta' || phase === 'reasoning_complete') {
+        runtime.markModelStreaming(event);
+        syncLlmRetryState();
+        deps.applyEnvelopeToMessage(currentMsg, event);
       }
     } else if (eventType === 'tool_call') {
       deps.applyEnvelopeToMessage(currentMsg, event);

@@ -17,7 +17,7 @@
       />
     </Button>
 
-    <div class="assistant-execution-list-outer" :class="{ 'is-open': expanded }">
+    <div ref="listOuter" class="assistant-execution-list-outer" :class="{ 'is-open': expanded }">
       <div class="assistant-execution-list-clip">
         <div class="assistant-execution-list">
         <template v-if="nodes.length">
@@ -56,7 +56,7 @@
 
 <script setup>
 import { ChevronDown } from 'lucide-vue-next';
-import { computed, inject, ref, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { buildExecutionTree } from '../../utils/executionTreeBuilder.js';
@@ -112,9 +112,76 @@ watch(() => props.msg.run_id || props.msg.id, () => {
 });
 
 async function toggleExpanded() {
-  expanded.value = !expanded.value;
-  if (expanded.value) await loadHistoricalSteps();
+  if (expanded.value) {
+    expanded.value = false;
+    return;
+  }
+  // 历史步骤未就绪时先取完整数据再展开，避免先开占位面板、数据到达后再跳变。
+  if (msgIsUnloadedHistory.value || props.msg.executionStepsLoading) {
+    await loadHistoricalSteps();
+    await waitForStepsSettled();
+  }
+  expanded.value = true;
 }
+
+/** 等在途的步骤加载落地（并发触发时 loadHistoricalSteps 会直接返回）。 */
+function waitForStepsSettled() {
+  if (!props.msg.executionStepsLoading) return Promise.resolve();
+  return new Promise((resolve) => {
+    const stop = watch(() => props.msg.executionStepsLoading, (loading) => {
+      if (!loading) {
+        stop();
+        resolve();
+      }
+    });
+  });
+}
+
+/* 面板高度动画：内容无上限，max-height 用实测值驱动（展开后解除上限，
+   流式节点增长不被裁剪）。不用 grid 0fr/1fr——Chrome 在 fr 过渡期对 item 的
+   stretch 解析有缺陷，动画过程中容器占位与实际内容之间会出现空白。 */
+const listOuter = ref(null);
+let heightReleaseTimer = 0;
+
+watch(expanded, (open) => {
+  nextTick(() => syncPanelHeight(open));
+});
+
+onBeforeUnmount(() => {
+  window.clearTimeout(heightReleaseTimer);
+});
+
+function syncPanelHeight(open) {
+  const el = listOuter.value;
+  if (!el) return;
+  window.clearTimeout(heightReleaseTimer);
+  if (open) {
+    el.style.maxHeight = `${el.scrollHeight}px`;
+    scheduleHeightRelease(el);
+  } else {
+    if (el.style.maxHeight === 'none') {
+      el.style.maxHeight = `${el.scrollHeight}px`;
+      void el.offsetHeight;
+    }
+    el.style.maxHeight = '0px';
+  }
+}
+
+function scheduleHeightRelease(el) {
+  heightReleaseTimer = window.setTimeout(() => {
+    if (expanded.value) el.style.maxHeight = 'none';
+  }, 260);
+}
+
+/* 展开期间内容变化（历史步骤加载完成 / 流式新增节点）：上限仍钉在旧值时
+   平滑过渡到新高度，避免释放后从占位高度直接跳变到完整高度。 */
+watch(nodes, () => {
+  if (!expanded.value) return;
+  const el = listOuter.value;
+  if (!el || el.style.maxHeight === 'none') return;
+  el.style.maxHeight = `${el.scrollHeight}px`;
+  scheduleHeightRelease(el);
+});
 
 async function loadHistoricalSteps() {
   if (!msgIsUnloadedHistory.value || props.msg.executionStepsLoading) return;
@@ -171,13 +238,13 @@ function nodeKey(node, index) {
 }
 
 .assistant-execution-list-outer {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 240ms var(--ease-out-expo, ease);
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 180ms linear;
 }
 
 .assistant-execution-list-outer.is-open {
-  grid-template-rows: 1fr;
+  transition: max-height 240ms linear;
 }
 
 .assistant-execution-list-clip {

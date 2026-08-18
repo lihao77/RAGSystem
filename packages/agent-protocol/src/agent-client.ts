@@ -150,9 +150,12 @@ export interface ExecutionToolCall {
   agentOperation?: import("./protocol.js").AgentOperation;
 }
 
-/** ReAct 单轮：一段 intent（思考文本）+ 该轮发起的工具调用。 */
+/** ReAct 单轮：模型思维链（reasoning）+ 一段 intent（动作说明）+ 该轮发起的工具调用。 */
 export interface ExecutionRound {
   round: number;
+  /** 思考模型思维链原文（仅展示，不回灌模型上下文）。 */
+  reasoning: string;
+  reasoningComplete: boolean;
   intent: string;
   intentComplete: boolean;
   toolCalls: ExecutionToolCall[];

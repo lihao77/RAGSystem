@@ -194,6 +194,10 @@ export class AguiTranslator {
       // stream_output payload as a CUSTOM event; RAGSystem clients map it
       // back to the same envelope used by WebSocket transport.
       events.push({ type: "CUSTOM", ...this.base(), name: "stream_output", value: payload });
+    } else if (phase === "reasoning_delta" || phase === "reasoning_complete") {
+      // Model thinking blocks ride the same CUSTOM passthrough as part_added;
+      // the REASONING_MESSAGE channel stays bound to <intent> action notes.
+      events.push({ type: "CUSTOM", ...this.base(), name: "stream_output", value: payload });
     }
     return events;
   }

@@ -321,6 +321,11 @@ async function parseAnthropicStream(
         const block = thinking.get(index) ?? { type: "thinking", thinking: "", signature: "" };
         block.thinking += body.delta.thinking;
         thinking.set(index, block);
+        const control = await onChunk({ content: "", reasoning: body.delta.thinking, finishReason, raw: body });
+        if (control?.stop) {
+          stopped = true;
+          return true;
+        }
       } else if (body.delta.type === "signature_delta" && typeof body.delta.signature === "string") {
         const block = thinking.get(index) ?? { type: "thinking", thinking: "", signature: "" };
         block.signature += body.delta.signature;

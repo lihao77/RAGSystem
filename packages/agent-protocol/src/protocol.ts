@@ -376,6 +376,8 @@ export const StreamOutputPayloadSchema = z.object({
     "final",
     "intent_delta",
     "intent_complete",
+    "reasoning_delta",
+    "reasoning_complete",
   ]),
   content: z.string().optional(),
   part_index: z.number().int().nonnegative().optional(),

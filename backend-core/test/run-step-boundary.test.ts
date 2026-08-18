@@ -9,6 +9,7 @@ describe("execution envelope message boundaries", () => {
     ["delta", "a"],
     ["first_token", ""],
     ["intent_delta", "thinking"],
+    ["reasoning_delta", "thinking"],
     ["part_added", "answer"],
     ["final", "done"],
   ])("does not archive stream_output phase %s as a Run step", (phase, content) => {
@@ -36,6 +37,20 @@ describe("execution envelope message boundaries", () => {
 
     expect(buildExecutionEnvelopeRunStep("session-1", "run-1", envelope, "event-intent"))
       .toMatchObject({ payload: { type: "stream_output", payload: { phase: "intent_complete" } } });
+  });
+
+  it("archives the completed reasoning snapshot for history replay", () => {
+    const envelope = {
+      type: "stream_output",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "call-1",
+      agent_id: "agent-1",
+      payload: { phase: "reasoning_complete", content: "full thinking trace", round: 0 },
+    } as Envelope;
+
+    expect(buildExecutionEnvelopeRunStep("session-1", "run-1", envelope, "event-reasoning"))
+      .toMatchObject({ payload: { type: "stream_output", payload: { phase: "reasoning_complete" } } });
   });
 
   it("uses boundary_message_id only as a live presentation target", () => {

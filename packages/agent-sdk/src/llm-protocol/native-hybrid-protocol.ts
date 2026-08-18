@@ -124,11 +124,20 @@ export class NativeHybridProtocol implements Protocol {
     let protocolTagSeen = false;
     const pendingFallbackDeltas: string[] = [];
     const toolCalls: ChatToolCall[] = [];
+    let reasoning = "";
 
     const result = await stream(baseRequest, async (chunk) => {
       throwIfAborted(signal, "Agent run aborted");
       if (chunk.toolCalls && chunk.toolCalls.length > 0) {
         toolCalls.push(...chunk.toolCalls);
+      }
+      if (chunk.reasoning) {
+        reasoning += chunk.reasoning;
+        if (!firstChunkSeen) {
+          firstChunkSeen = true;
+          this.deps.events.emit({ type: "first_token", agentName, elapsedMs: Date.now() - providerStartedAt });
+        }
+        this.deps.events.emit({ type: "reasoning_delta", agentName, content: chunk.reasoning, round });
       }
       if (!chunk.content) {
         return undefined;
@@ -160,6 +169,11 @@ export class NativeHybridProtocol implements Protocol {
       return undefined;
     });
     throwIfAborted(signal, "Agent run aborted");
+
+    const reasoningText = reasoning || result.reasoning || "";
+    if (reasoningText) {
+      this.deps.events.emit({ type: "reasoning_complete", agentName, content: reasoningText, round });
+    }
 
     if (result.finishReason === "interrupted") {
       throw new RuntimeAbortError("LLM stream interrupted");

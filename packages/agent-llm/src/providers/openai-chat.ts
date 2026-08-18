@@ -169,11 +169,12 @@ async function parseStream(response: Response, request: LlmRequest, onChunk: Llm
     const delta = isRecord(choice.delta) ? choice.delta : choice;
     accumulateToolCalls(delta.tool_calls, tools);
     accumulateOpenAiChatAssistantFields(delta, assistantFields);
-    reasoning += extractReasoning(delta);
+    const reasoningDelta = extractReasoning(delta);
+    reasoning += reasoningDelta;
     const text = extractTextContent(delta.content) || extractTextContent(choice.text);
-    if (text) {
-      content += text;
-      const control = await onChunk({ content: text, finishReason, raw: body });
+    if (text || reasoningDelta) {
+      if (text) content += text;
+      const control = await onChunk({ content: text, ...(reasoningDelta ? { reasoning: reasoningDelta } : {}), finishReason, raw: body });
       if (control?.stop) {
         stopped = true;
         return true;

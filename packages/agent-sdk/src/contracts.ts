@@ -24,6 +24,8 @@ export type {
   OutputFileRefEvent,
   IntentDeltaEvent,
   IntentCompleteEvent,
+  ReasoningDeltaEvent,
+  ReasoningCompleteEvent,
   AssistantIntermediateEvent,
   ToolCallEvent,
   ToolResultEvent,

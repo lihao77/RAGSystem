@@ -48,6 +48,46 @@ test("Anthropic 流式响应保留缓存命中 token（cache_read / cache_creati
   }
 });
 
+test("Anthropic 流式 thinking_delta 随 chunk 透传 reasoning", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(sseBody([
+    { type: "message_start", data: { type: "message_start", message: { usage: { input_tokens: 12, output_tokens: 0 } } } },
+    { type: "content_block_start", data: { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } } },
+    { type: "content_block_delta", data: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "ponder " } } },
+    { type: "content_block_delta", data: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "deeply" } } },
+    { type: "content_block_delta", data: { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig-1" } } },
+    { type: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
+    { type: "content_block_start", data: { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } } },
+    { type: "content_block_delta", data: { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "answer" } } },
+    { type: "content_block_stop", data: { type: "content_block_stop", index: 1 } },
+    { type: "message_delta", data: { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 4 } } },
+    { type: "message_stop", data: { type: "message_stop" } },
+  ]), { headers: { "content-type": "text/event-stream" } });
+
+  try {
+    const chunks = [];
+    const adapter = new AnthropicAdapter();
+    const result = await adapter.stream(
+      {
+        provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k" },
+        model: "claude-test",
+        messages: [{ role: "user", content: "hi" }],
+      },
+      async (chunk) => { chunks.push(chunk); },
+    );
+    assert.deepEqual(chunks.map((c) => ({ content: c.content, reasoning: c.reasoning })), [
+      { content: "", reasoning: "ponder " },
+      { content: "", reasoning: "deeply" },
+      { content: "answer", reasoning: undefined },
+    ]);
+    assert.equal(result.reasoning, "ponder deeply");
+    assert.equal(result.content, "answer");
+    assert.deepEqual(result.reasoningBlocks, [{ type: "thinking", thinking: "ponder deeply", signature: "sig-1" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Anthropic 流式无缓存事件时不伪造缓存字段", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(sseBody([

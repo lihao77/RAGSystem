@@ -130,7 +130,7 @@ function flushPendingAgents(state: ExecutionTreeState, parent: ExecutionAgent): 
 function ensureRound(agent: ExecutionAgent, round: number): ExecutionRound {
   const existing = agent.rounds.find((r) => r.round === round);
   if (existing) return existing;
-  const r: ExecutionRound = { round, intent: "", intentComplete: false, toolCalls: [] };
+  const r: ExecutionRound = { round, reasoning: "", reasoningComplete: false, intent: "", intentComplete: false, toolCalls: [] };
   agent.rounds.push(r);
   return r;
 }
@@ -168,6 +168,21 @@ function applyIntentStream(state: ExecutionTreeState, env: Envelope, payload: Re
     else r.intent = content;
   }
   if (phase === "intent_complete") r.intentComplete = true;
+}
+
+/** stream_output(reasoning_*)：模型思维链（展示用），投影与 intent 同构——delta 累加 / complete 覆盖+置位。 */
+function applyReasoningStream(state: ExecutionTreeState, env: Envelope, payload: Record<string, unknown>): void {
+  const phase = asString(payload.phase);
+  if (phase !== "reasoning_delta" && phase !== "reasoning_complete") return;
+  const agent = routeStreamAgent(state, env);
+  const round = asNumber(payload.round) ?? latestRound(agent);
+  const r = ensureRound(agent, round);
+  const content = asString(payload.content);
+  if (content) {
+    if (phase === "reasoning_delta" && !r.reasoningComplete) r.reasoning += content;
+    else r.reasoning = content;
+  }
+  if (phase === "reasoning_complete") r.reasoningComplete = true;
 }
 
 /** stream_output(delta/final)：agent 输出内容（非 intent 思考），累加到 agent.output（delta 累加 / final 覆盖）。 */
@@ -407,6 +422,8 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
       const phase = asString(payload.phase);
       if (phase === "intent_delta" || phase === "intent_complete") {
         applyIntentStream(state, env, payload);
+      } else if (phase === "reasoning_delta" || phase === "reasoning_complete") {
+        applyReasoningStream(state, env, payload);
       } else if (phase === "delta" || phase === "part_added" || phase === "final") {
         applyOutputStream(state, env, payload);
       }

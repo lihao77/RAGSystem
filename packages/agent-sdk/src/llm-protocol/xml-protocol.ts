@@ -127,7 +127,7 @@ export class XmlProtocol implements Protocol {
     ctx: KernelContext,
     baseRequest: LlmRequest,
     round: number,
-    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; finishReason?: string | null; usage?: TokenUsage }>,
+    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; reasoning?: string; finishReason?: string | null; usage?: TokenUsage }>,
   ): Promise<KernelOutcome> {
     const signal = ctx.session.signal;
     let messages = [...baseRequest.messages];
@@ -291,7 +291,7 @@ export class XmlProtocol implements Protocol {
     ctx: KernelContext,
     request: LlmRequest,
     round: number,
-    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; finishReason?: string | null; usage?: TokenUsage }>,
+    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; reasoning?: string; finishReason?: string | null; usage?: TokenUsage }>,
   ): Promise<{
     rawContent: string;
     intent: string;
@@ -319,9 +319,27 @@ export class XmlProtocol implements Protocol {
     let protocolTagSeen = false;
     const pendingFallbackDeltas: string[] = [];
     const toolCalls: ParsedToolCall[] = [];
+    let reasoning = "";
 
     const result = await stream(request, async (chunk) => {
       throwIfAborted(signal, "Agent run aborted");
+      if (chunk.reasoning) {
+        reasoning += chunk.reasoning;
+        if (!firstChunkSeen) {
+          firstChunkSeen = true;
+          this.deps.events.emit({
+            type: "first_token",
+            agentName,
+            elapsedMs: Date.now() - providerStartedAt,
+          });
+        }
+        this.deps.events.emit({
+          type: "reasoning_delta",
+          agentName,
+          content: chunk.reasoning,
+          round,
+        });
+      }
       if (!chunk.content || toolCallsClosed) {
         return toolCallsClosed ? { stop: true } : undefined;
       }
@@ -383,6 +401,14 @@ export class XmlProtocol implements Protocol {
       return undefined;
     });
     throwIfAborted(signal, "Agent run aborted");
+    if (reasoning) {
+      this.deps.events.emit({
+        type: "reasoning_complete",
+        agentName,
+        content: reasoning,
+        round,
+      });
+    }
 
     const rawContent = parser.getFullResponse() || result.content;
     if (parser.currentState !== null && !error) {

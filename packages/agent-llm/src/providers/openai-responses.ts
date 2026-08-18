@@ -177,6 +177,11 @@ async function parseResponseStream(
       }
     } else if (type === "response.reasoning_summary_text.delta" && typeof body.delta === "string") {
       reasoning += body.delta;
+      const control = await onChunk({ content: "", reasoning: body.delta, finishReason, raw: body });
+      if (control?.stop) {
+        stopped = true;
+        return true;
+      }
     } else if (type === "response.output_item.added" && isRecord(body.item)) {
       const index = typeof body.output_index === "number" ? body.output_index : tools.size + reasoningItems.size;
       if (body.item.type === "function_call") tools.set(index, toolFromResponseItem(body.item, index));

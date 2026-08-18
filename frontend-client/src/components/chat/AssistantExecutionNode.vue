@@ -1,6 +1,53 @@
 <template>
   <div class="assistant-step-node">
-    <template v-if="node.type === 'thought'">
+    <template v-if="node.type === 'reasoning'">
+      <button
+        type="button"
+        class="assistant-step-row"
+        :class="{ 'status-running': reasoningStreaming }"
+        :style="indentStyle"
+        :aria-expanded="reasoningExpanded"
+        @click="toggleReasoningExpanded"
+      >
+        <span class="assistant-step-icon" title="思考过程">
+          <svg v-if="reasoningStreaming" class="assistant-step-spinner" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="34 14" />
+          </svg>
+          <Brain v-else aria-hidden="true" />
+        </span>
+        <span class="assistant-step-name">深度思考</span>
+        <span v-if="reasoningStreaming" class="assistant-step-summary">思考中...</span>
+        <ChevronDown class="assistant-step-chevron" :class="{ open: reasoningExpanded }" aria-hidden="true" />
+      </button>
+      <div
+        class="assistant-step-reasoning-wrap"
+        :class="{
+          'is-open': reasoningExpanded,
+          'is-scrolled-top': reasoningTopFaded,
+          'is-scrolled-bottom': reasoningBottomFaded,
+        }"
+        :style="reasoningLineStyle"
+      >
+        <div ref="reasoningClipEl" class="assistant-step-reasoning-clip">
+          <div
+            ref="reasoningEl"
+            class="assistant-step-reasoning"
+            :style="detailIndentStyle"
+            @scroll.passive="updateReasoningFades"
+          >
+            <MarkdownContent
+              :content="node.reasoning || ''"
+              :streaming="reasoningStreaming"
+              @notify="emit('notify', $event)"
+              @citation-click="emit('citation-click', $event)"
+            />
+          </div>
+        </div>
+        <div class="assistant-step-reasoning-fade is-bottom" aria-hidden="true"></div>
+      </div>
+    </template>
+
+    <template v-else-if="node.type === 'thought'">
       <div class="assistant-step-intent" :style="indentStyle">
         <MarkdownContent
           :content="node.intent || ''"
@@ -95,8 +142,8 @@
 </template>
 
 <script setup>
-import { ChevronDown } from 'lucide-vue-next';
-import { computed, ref, watch } from 'vue';
+import { Brain, ChevronDown } from 'lucide-vue-next';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import WorkPanelTimelineIcon from '../workpanel/WorkPanelTimelineIcon.vue';
 import {
   getToolDisplayName,
@@ -157,6 +204,8 @@ const agentAccent = computed(() => (
 ));
 const indentStyle = computed(() => ({ paddingLeft: `${props.depth * 22}px` }));
 const detailIndentStyle = computed(() => ({ marginLeft: `${props.depth * 22 + 22}px` }));
+// 竖线挂在思考图标（14px）中心的正下方，随节点缩进层级对齐。
+const reasoningLineStyle = computed(() => ({ '--reasoning-line-left': `${props.depth * 22 + 7}px` }));
 
 const iconKind = computed(() => {
   if (isAgentNode.value) return 'agent';
@@ -197,7 +246,99 @@ const summaryText = computed(() => {
 
 watch(() => getExecutionNodeKey(props.node), () => {
   expanded.value = false;
+  reasoningOverride.value = null;
 });
+
+// 思考块折叠:流式中自动展开,完成后自动收起;用户点击后本次覆盖自动行为。
+const reasoningStreaming = computed(() => props.running && props.node.reasoning_complete === false);
+const reasoningOverride = ref(null);
+const reasoningExpanded = computed(() => (
+  reasoningOverride.value !== null ? reasoningOverride.value : reasoningStreaming.value
+));
+
+function toggleReasoningExpanded() {
+  reasoningOverride.value = !reasoningExpanded.value;
+}
+
+// 流式时思考块自动跟随最新内容；用户主动上滑阅读（距底 >40px）则不打扰。
+const reasoningEl = ref(null);
+watch(() => props.node.reasoning, () => {
+  if (reasoningStreaming.value && reasoningExpanded.value) {
+    const el = reasoningEl.value;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight <= 40) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }
+  updateReasoningFades();
+  retargetReasoningHeight();
+});
+
+// 上下渐变遮罩：只在对应方向还有未滚到的内容时出现，滚到头即消失。
+const reasoningTopFaded = ref(false);
+const reasoningBottomFaded = ref(false);
+
+function updateReasoningFades() {
+  const el = reasoningEl.value;
+  if (!el) return;
+  reasoningTopFaded.value = el.scrollTop > 4;
+  reasoningBottomFaded.value = el.scrollHeight - el.scrollTop - el.clientHeight > 4;
+}
+
+watch(reasoningExpanded, (open) => {
+  nextTick(() => {
+    updateReasoningFades();
+    syncReasoningHeight(open);
+  });
+});
+
+onBeforeUnmount(() => {
+  window.clearTimeout(reasoningHeightTimer);
+});
+
+/* 高度动画：max-height 用实测值驱动。固定 320px 区间会让短内容在过渡早期
+   就到达实际高度、其后全是不可见的空跑，观感上"过快"；展开动画结束后
+   把上限放回 320px，流式增长的内容仍有滚动空间。 */
+const reasoningClipEl = ref(null);
+let reasoningHeightTimer = 0;
+
+function syncReasoningHeight(open) {
+  const clip = reasoningClipEl.value;
+  if (!clip) return;
+  window.clearTimeout(reasoningHeightTimer);
+  if (open) {
+    const target = Math.min(clip.scrollHeight, 320);
+    clip.style.maxHeight = `${target}px`;
+    scheduleReasoningRelease(clip);
+  } else {
+    // 钉住到当前可视高度时需临时禁用过渡：上限(320)→实测值的跳变本身不可见，
+    // 若作为过渡处理会让 max-height 从 320 插值到 0，短内容在越过自身高度前
+    // 一直无视觉变化，最后才瞬间收完。
+    clip.style.transition = 'none';
+    clip.style.maxHeight = `${clip.offsetHeight}px`;
+    void clip.offsetHeight;
+    clip.style.transition = '';
+    clip.style.maxHeight = '0px';
+  }
+}
+
+function scheduleReasoningRelease(clip) {
+  reasoningHeightTimer = window.setTimeout(() => {
+    if (reasoningExpanded.value) clip.style.maxHeight = '320px';
+  }, 260);
+}
+
+/* 流式内容增长：上限仍钉在旧的实测值时平滑过渡到新高度（只增不减）。 */
+function retargetReasoningHeight() {
+  if (!reasoningExpanded.value) return;
+  const clip = reasoningClipEl.value;
+  if (!clip) return;
+  const cap = clip.style.maxHeight;
+  if (!cap || cap === 'none' || cap === '320px') return;
+  const target = Math.min(clip.scrollHeight, 320);
+  if (target <= parseFloat(cap)) return;
+  clip.style.maxHeight = `${target}px`;
+  scheduleReasoningRelease(clip);
+}
 
 function toggleExpanded() {
   if (expandable.value) expanded.value = !expanded.value;
@@ -258,6 +399,17 @@ function truncate(value, maxLength) {
 .assistant-step-intent :deep(.markdown-body) {
   font-size: 14px;
   line-height: 1.7;
+}
+
+.assistant-step-brain {
+  width: 14px;
+  height: 14px;
+}
+
+.assistant-step-reasoning :deep(.markdown-body) {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
 }
 
 .assistant-step-row {
@@ -357,26 +509,97 @@ function truncate(value, maxLength) {
   color: var(--color-error);
 }
 
+/* 折叠容器（工具/agent 详情）：0fr→1fr 匀速高度动画控制显隐；展开稍长、收起略快。 */
 .assistant-step-detail-wrap,
 .assistant-step-child-wrap {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 240ms var(--ease-out-expo, ease), margin-bottom 240ms var(--ease-out-expo, ease);
+  transition: grid-template-rows 180ms linear, margin-bottom 180ms linear;
 }
 
 .assistant-step-detail-wrap.is-open,
 .assistant-step-child-wrap.is-open {
   grid-template-rows: 1fr;
+  transition: grid-template-rows 240ms linear, margin-bottom 240ms linear;
 }
 
 .assistant-step-detail-wrap.is-open {
   margin-bottom: 10px;
 }
 
+/* 折叠内层裁剪：0fr 收起时裁到不可见；内容不做淡入淡出，显隐完全由高度动画承担。 */
 .assistant-step-detail,
 .assistant-step-child-clip {
   min-height: 0;
   overflow: hidden;
+}
+
+/* 裁剪层：max-height 折叠动画。不用 grid 0fr/1fr——Chrome 在 fr 过渡期对 grid item
+   的 stretch 解析有缺陷（clip 不填满轨道、容器却按完整插值高度占位），动画过程中
+   会在内容下方留出一段空白；max-height 直接驱动 clip 自身高度，任意中间态都贴合。
+   与滚动层分离保证动画期间滚动条几何不变（揭开/盖上一张静止的内容快照）。 */
+/* 展开/收起同速（240ms 匀速）；max-height 目标值由 syncReasoningHeight 以实测高度内联驱动。 */
+.assistant-step-reasoning-clip {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 240ms linear;
+}
+
+/* 滚动层：高度只取决于自身内容（≤320px），不随外层折叠动画变化。 */
+.assistant-step-reasoning {
+  max-height: 320px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* markdown 末元素的 margin-bottom 会被 BFC 容器包含，在块尾留出空白；思考块与 intent 块统一清零。 */
+.assistant-step-reasoning :deep(.markdown-body > :last-child),
+.assistant-step-intent :deep(.markdown-body > :last-child) {
+  margin-bottom: 0;
+}
+
+/* 左侧竖线：1px，位于思考图标中心的正下方（随缩进层级），随展开高度生长。 */
+.assistant-step-reasoning-wrap {
+  position: relative;
+}
+
+.assistant-step-reasoning-wrap::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--reasoning-line-left, 7px);
+  width: 1px;
+  background: var(--color-bg-tertiary);
+  pointer-events: none;
+}
+
+/* 上/下渐变遮罩：对应方向还有未滚到的内容时出现，滚到头消失；颜色用 rail 面色。 */
+.assistant-step-reasoning-wrap::after,
+.assistant-step-reasoning-fade {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 24px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.assistant-step-reasoning-wrap::after {
+  top: 0;
+  background: linear-gradient(to bottom, var(--surface-rail, transparent), transparent);
+}
+
+.assistant-step-reasoning-fade.is-bottom {
+  bottom: 0;
+  background: linear-gradient(to top, var(--surface-rail, transparent), transparent);
+}
+
+.assistant-step-reasoning-wrap.is-open.is-scrolled-top::after,
+.assistant-step-reasoning-wrap.is-open.is-scrolled-bottom .assistant-step-reasoning-fade {
+  opacity: 1;
 }
 
 .assistant-step-detail {
@@ -435,6 +658,10 @@ function truncate(value, maxLength) {
 
   .assistant-step-detail-wrap,
   .assistant-step-child-wrap,
+  .assistant-step-reasoning-clip,
+  .assistant-step-detail,
+  .assistant-step-child-clip,
+  .assistant-step-reasoning,
   .assistant-step-chevron,
   .assistant-step-icon,
   .assistant-step-name,

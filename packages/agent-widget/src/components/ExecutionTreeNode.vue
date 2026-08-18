@@ -1,8 +1,24 @@
 <template>
   <div class="rag-exec-item">
+    <!-- reasoning 行（思考块） -->
+    <div
+      v-if="node.type === 'reasoning'"
+      class="rag-exec-node rag-exec-reasoning"
+      :style="{ paddingLeft: node.depth * 22 + 'px' }"
+      @click="toggleFold(node.foldId)"
+    >
+      <span class="rag-exec-icon" v-html="TOOL_ICONS.sparkles"></span>
+      <span class="rag-exec-name">深度思考</span>
+      <span v-if="!node.complete" class="rag-exec-status">思考中…</span>
+      <span
+        class="rag-exec-tail"
+        :class="{ open: isOpen(node.foldId) }"
+        v-html="CHEVRON_DOWN"
+      ></span>
+    </div>
     <!-- intent 行 -->
     <div
-      v-if="node.type === 'intent'"
+      v-else-if="node.type === 'intent'"
       class="rag-exec-node rag-exec-intent"
       :style="{ paddingLeft: node.depth * 22 + 'px' }"
       @click="toggleFold(node.foldId)"
@@ -41,6 +57,21 @@
       <span class="rag-exec-name">{{ node.tool.toolName }}</span>
       <span class="rag-exec-status">{{ toolSummary(node.tool) }}</span>
       <span class="rag-exec-tail" :class="{ open: isOpen(node.tool.callId) }" v-html="CHEVRON_DOWN"></span>
+    </div>
+
+    <!-- reasoning 展开详情：思考全文（grid 0fr→1fr）-->
+    <div
+      v-if="node.type === 'reasoning'"
+      class="rag-exec-detail-wrap"
+      :class="{ 'is-open': isOpen(node.foldId) }"
+      :style="{ marginLeft: (node.depth * 22 + 22) + 'px' }"
+    >
+      <div class="rag-exec-detail">
+        <div class="rag-exec-detail-block">
+          <span class="rag-exec-detail-label">思考过程</span>
+          <pre class="rag-exec-detail-pre rag-exec-reasoning-text">{{ node.text }}</pre>
+        </div>
+      </div>
     </div>
 
     <!-- tool 展开详情：参数 + 结果（grid 0fr→1fr）-->
@@ -175,7 +206,7 @@ function formatResult(tool) {
 .rag-exec-children {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.22s var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1));
+  transition: grid-template-rows 0.22s linear;
 }
 .rag-exec-children.is-open {
   grid-template-rows: 1fr;
@@ -185,5 +216,9 @@ function formatResult(tool) {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+/* 思考全文可读高度略高于工具参数块。 */
+.rag-exec-reasoning-text {
+  max-height: 260px;
 }
 </style>

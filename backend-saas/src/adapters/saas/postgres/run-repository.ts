@@ -223,7 +223,7 @@ export class PostgresRunRepository implements AsyncRunStore {
       AND COALESCE(step.payload->>'type', '')<>'state_sync'
       AND NOT (
         step.payload->>'type'='stream_output'
-        AND COALESCE(step.payload->'payload'->>'phase', '')<>'intent_complete'
+        AND COALESCE(step.payload->'payload'->>'phase', '') NOT IN ('intent_complete', 'reasoning_complete')
       )
       AND NOT EXISTS (
         SELECT 1 FROM saas_run_message_boundaries AS boundary
@@ -251,7 +251,7 @@ export class PostgresRunRepository implements AsyncRunStore {
     const clauses: string[] = [
       "tenant_id = $1",
       "COALESCE(payload->>'type', '')<>'state_sync'",
-      "NOT (payload->>'type'='stream_output' AND COALESCE(payload->'payload'->>'phase', '')<>'intent_complete')",
+      "NOT (payload->>'type'='stream_output' AND COALESCE(payload->'payload'->>'phase', '') NOT IN ('intent_complete', 'reasoning_complete'))",
     ]; const params: unknown[] = [input.tenantId];
     const add = (sql: string, value: unknown): void => { params.push(value); clauses.push(sql.replace("?", `$${params.length}`)); };
     if (input.runId) add("run_id = ?", input.runId);

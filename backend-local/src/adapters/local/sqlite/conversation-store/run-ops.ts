@@ -302,7 +302,7 @@ export class RunOps {
       AND COALESCE(json_extract(step.payload, '$.type'), '')<>'state_sync'
       AND NOT (
         json_extract(step.payload, '$.type')='stream_output'
-        AND COALESCE(json_extract(step.payload, '$.payload.phase'), '')<>'intent_complete'
+        AND COALESCE(json_extract(step.payload, '$.payload.phase'), '') NOT IN ('intent_complete', 'reasoning_complete')
       )
       AND NOT EXISTS (
         SELECT 1 FROM run_message_boundaries AS boundary
@@ -404,7 +404,7 @@ export class RunOps {
               AND COALESCE(json_extract(payload, '$.type'), '')<>'state_sync'
               AND NOT (
                 json_extract(payload, '$.type')='stream_output'
-                AND COALESCE(json_extract(payload, '$.payload.phase'), '')<>'intent_complete'
+                AND COALESCE(json_extract(payload, '$.payload.phase'), '') NOT IN ('intent_complete', 'reasoning_complete')
               )
             ORDER BY step_order ASC
             LIMIT ? OFFSET ?
@@ -419,7 +419,7 @@ export class RunOps {
             AND COALESCE(json_extract(payload, '$.type'), '')<>'state_sync'
             AND NOT (
               json_extract(payload, '$.type')='stream_output'
-              AND COALESCE(json_extract(payload, '$.payload.phase'), '')<>'intent_complete'
+              AND COALESCE(json_extract(payload, '$.payload.phase'), '') NOT IN ('intent_complete', 'reasoning_complete')
             )
           ORDER BY step_order ASC
           LIMIT ? OFFSET ?

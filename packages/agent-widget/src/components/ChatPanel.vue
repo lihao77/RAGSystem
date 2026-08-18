@@ -288,6 +288,7 @@ function bindClient(c) {
   // 工具调用属该回复；error 等后续消息不承载工具树，避免同一 tool call 在原消息与错误卡上各渲染一次。
   u.push(c.executionTree.subscribe((t) => {
     if (currentRunMsg) currentRunMsg.executionTree = t;
+    syncReasoningAutoFold(buildTree(t));
   }));
   u.push(c.events.subscribe((env) => handleEvent(env)));
   return () => u.forEach((fn) => { try { fn(); } catch {} });
@@ -831,6 +832,13 @@ function buildTree(tree) {
         }
         roundChildren.push({ type: "tool", tool: tc, depth: intentDepth + 1, foldId: tc.callId });
       }
+      // 模型思维链在 intent 之前到达：独立可折叠 reasoning 节点（仅展示）。
+      if (round.reasoning && round.reasoning.trim()) {
+        children.push({
+          type: "reasoning", depth: intentDepth, foldId: `reasoning:${agentKey}:r${round.round}`,
+          text: round.reasoning, complete: !!round.reasoningComplete, children: [],
+        });
+      }
       const hasIntent = !!(round.intent && round.intent.trim());
       if (hasIntent) {
         children.push({
@@ -871,6 +879,30 @@ function toggleFold(id) {
   if (next.has(id)) next.delete(id);
   else next.add(id);
   expanded.value = next;
+}
+/** 思考块折叠：流式（未完成）自动展开，完成时自动收起；只回收本轮自动展开过的节点，用户手动开合不受影响。 */
+const autoOpenedReasoning = new Set();
+function syncReasoningAutoFold(nodes) {
+  let changed = false;
+  const walk = (list) => {
+    for (const n of list) {
+      if (n.type === "reasoning") {
+        if (!n.complete) {
+          if (!expanded.value.has(n.foldId)) {
+            expanded.value.add(n.foldId);
+            autoOpenedReasoning.add(n.foldId);
+            changed = true;
+          }
+        } else if (autoOpenedReasoning.delete(n.foldId) && expanded.value.has(n.foldId)) {
+          expanded.value.delete(n.foldId);
+          changed = true;
+        }
+      }
+      if (n.children && n.children.length) walk(n.children);
+    }
+  };
+  walk(nodes);
+  if (changed) expanded.value = new Set(expanded.value);
 }
 function isFoldOpen(id) {
   return expanded.value.has(id);
@@ -1365,7 +1397,7 @@ function scrollToBottom() {
   display: grid;
   grid-template-rows: 0fr;
   margin-bottom: 0;
-  transition: grid-template-rows 0.24s var(--ease-spring, ease), margin-bottom 0.24s var(--ease-spring, ease);
+  transition: grid-template-rows 0.24s linear, margin-bottom 0.24s linear;
 }
 .rag-exec-detail-wrap.is-open {
   grid-template-rows: 1fr;

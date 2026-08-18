@@ -191,7 +191,7 @@ export interface TokenUsage {
 /** 一次 LLM 调用的结果。 */
 export interface LlmResult {
   content: string;
-  /** 思考模型思维链原文；仅用于非空判定与调试，不进事件流正文。 */
+  /** 思考模型思维链全文（流式 chunk 增量的累积）；用于空响应判定与 reasoning_complete 快照。 */
   reasoning?: string;
   /** 需随 assistant 工具调用消息原样回传的厂商推理块。 */
   reasoningBlocks?: ReasoningBlock[];
@@ -207,6 +207,8 @@ export interface LlmResult {
 /** 流式增量 chunk。 */
 export interface LlmStreamChunk {
   content: string;
+  /** 思考增量（与 content 同为 delta 语义，累积后对应 LlmResult.reasoning）。 */
+  reasoning?: string;
   finishReason?: string | null;
   raw?: unknown;
   toolCalls?: ChatToolCall[];

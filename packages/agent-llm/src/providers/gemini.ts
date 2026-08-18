@@ -286,6 +286,11 @@ async function parseGeminiStream(
       if (typeof part.text !== "string") continue;
       if (part.thought === true) {
         reasoning += part.text;
+        const control = await onChunk({ content: "", reasoning: part.text, finishReason, raw: body });
+        if (control?.stop) {
+          stopped = true;
+          return true;
+        }
         continue;
       }
       content += part.text;

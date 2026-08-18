@@ -71,6 +71,22 @@ export interface IntentCompleteEvent {
   assistantMessage?: ChatMessage;
 }
 
+/** 思考模型思维链增量（provider reasoning 流式透传；仅展示用，不进模型上下文）。 */
+export interface ReasoningDeltaEvent {
+  type: "reasoning_delta";
+  agentName: string;
+  content: string;
+  round: number;
+}
+
+/** 一轮思考流结束的全文快照（host 归档为 run step 供历史回放）。 */
+export interface ReasoningCompleteEvent {
+  type: "reasoning_complete";
+  agentName: string;
+  content: string;
+  round: number;
+}
+
 export interface AssistantIntermediateEvent {
   type: "assistant_intermediate";
   agentName: string;
@@ -150,6 +166,8 @@ export type KernelEvent =
   | OutputFileRefEvent
   | IntentDeltaEvent
   | IntentCompleteEvent
+  | ReasoningDeltaEvent
+  | ReasoningCompleteEvent
   | AssistantIntermediateEvent
   | ToolCallEvent
   | ToolResultEvent

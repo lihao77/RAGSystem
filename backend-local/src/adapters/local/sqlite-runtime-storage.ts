@@ -1110,7 +1110,8 @@ function isLegacyUnarchivedStreamStep(payload: Record<string, unknown>): boolean
   if (payload.type !== "stream_output") return false;
   const inner = payload.payload;
   if (!inner || typeof inner !== "object" || Array.isArray(inner)) return true;
-  return (inner as Record<string, unknown>).phase !== "intent_complete";
+  const phase = (inner as Record<string, unknown>).phase;
+  return phase !== "intent_complete" && phase !== "reasoning_complete";
 }
 
 function assertRecordScope(

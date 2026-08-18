@@ -97,6 +97,48 @@ describe("kernel event wire translation", () => {
     });
   });
 
+  it("projects reasoning stream events with round lineage like intent", () => {
+    const childContext = {
+      sessionId: "session-1",
+      runId: "run-1",
+      rootCallId: "root-call",
+      requestId: "request-1",
+      agentId: "agent",
+      parentCallId: "parent-call",
+    };
+    const [delta] = translateKernelEvent({
+      type: "reasoning_delta",
+      agentName: "agent",
+      content: "think ",
+      round: 2,
+    }, childContext);
+    expect(delta).toMatchObject({
+      type: "stream_output",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "root-call",
+      agent_id: "agent",
+    });
+    expect(delta?.payload).toEqual({
+      phase: "reasoning_delta",
+      content: "think ",
+      round: 2,
+      lineage: { parent_call_id: "parent-call" },
+    });
+
+    const [complete] = translateKernelEvent({
+      type: "reasoning_complete",
+      agentName: "agent",
+      content: "think twice",
+      round: 2,
+    }, context);
+    expect(complete?.payload).toEqual({
+      phase: "reasoning_complete",
+      content: "think twice",
+      round: 2,
+    });
+  });
+
   it("projects model_request as an explicit root model lifecycle event", () => {
     const events = translateKernelEvent(
       { type: "model_request", agentName: "agent", round: 3 },

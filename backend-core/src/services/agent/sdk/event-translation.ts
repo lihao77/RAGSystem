@@ -10,6 +10,8 @@ import type {
   ModelRequestEvent,
   OutputDeltaEvent,
   OutputFileRefEvent,
+  ReasoningCompleteEvent,
+  ReasoningDeltaEvent,
   RuntimeErrorEvent,
   ToolCallEvent,
   ToolResultEvent,
@@ -58,6 +60,10 @@ export function translateKernelEvent(event: KernelEvent, ctx: WireTranslationCon
       return [onIntentDelta(event, ctx)];
     case "intent_complete":
       return [onIntentComplete(event, ctx)];
+    case "reasoning_delta":
+      return [onReasoningDelta(event, ctx)];
+    case "reasoning_complete":
+      return [onReasoningComplete(event, ctx)];
     case "tool_call":
       return [onToolCall(event, ctx)];
     case "tool_result":
@@ -205,6 +211,22 @@ function onIntentComplete(event: IntentCompleteEvent, ctx: WireTranslationContex
     type: "stream_output",
     ...topMarkers(ctx),
     payload: { phase: "intent_complete", content: event.content, round: event.round, ...streamLineage(ctx) } satisfies StreamOutputPayload,
+  };
+}
+
+function onReasoningDelta(event: ReasoningDeltaEvent, ctx: WireTranslationContext): Envelope {
+  return {
+    type: "stream_output",
+    ...topMarkers(ctx),
+    payload: { phase: "reasoning_delta", content: event.content, round: event.round, ...streamLineage(ctx) } satisfies StreamOutputPayload,
+  };
+}
+
+function onReasoningComplete(event: ReasoningCompleteEvent, ctx: WireTranslationContext): Envelope {
+  return {
+    type: "stream_output",
+    ...topMarkers(ctx),
+    payload: { phase: "reasoning_complete", content: event.content, round: event.round, ...streamLineage(ctx) } satisfies StreamOutputPayload,
   };
 }
 

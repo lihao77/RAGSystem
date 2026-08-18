@@ -166,6 +166,19 @@ function buildAgentChildren(agent, consumedChildIds, injections = []) {
 
     // 有 intent 的 round 包 thought(显示思考内容,每个思考自然标识一个 round 的开始);无 intent 的工具直接平级,
     // 不为无 intent 的 round 造空 thought 节点。不显示"轮次 N"号(round 归属靠思考节点 + injection 位置体现)。
+    // 模型思维链(reasoning)在 intent 之前到达,作为独立可折叠节点放在 thought 前(仅展示,不进模型上下文)。
+    if (round.reasoning) {
+      children.push({
+        type: 'reasoning',
+        agent: agent.agentId,
+        agent_display_name: agent.displayName || agent.agentId,
+        round: round.round,
+        reasoning: round.reasoning,
+        reasoning_complete: round.reasoningComplete !== false,
+        status: round.reasoningComplete === false ? 'running' : 'success',
+        children: [],
+      });
+    }
     const hasIntent = Boolean(round.intent);
     if (hasIntent) {
       children.push({
