@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { SMOKE_FILE_REF_FILES } from '../src/utils/smokeFixtures.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(__dirname, '..');
 const viteBin = resolve(dirname(fileURLToPath(import.meta.resolve('vite'))), '..', '..', 'bin', 'vite.js');
@@ -219,7 +221,72 @@ const shots = [
       { type: 'expectText', selector: '.workspace-file-card', text: 'water-level-report.csv' },
       { type: 'expectVisible', selector: '[aria-label="打开运行中心"]' },
       { type: 'click', selector: '[aria-label="打开运行中心"]', waitMs: 300 },
-      { type: 'expectText', selector: '.runtime-overview', text: '持续目标与后台任务' },
+      { type: 'expectText', selector: '.runtime-center-head__subtitle', text: '持续目标与后台任务' },
+      { type: 'expectVisible', selector: '.runtime-overview' },
+    ],
+  },
+  {
+    name: 'chat-fileref-desktop',
+    path: '/?__smoke=fileref',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockFileRefApi' },
+      { type: 'expectText', selector: '.message-stream', text: 'file_ref 三种 presentation 的渲染矩阵' },
+      // inline 图片 + preview 缩略图（caption 文本断言，避免视口外误报）
+      { type: 'expectText', selector: '.message-stream', text: '站点实拍（inline 内联图）' },
+      { type: 'expectText', selector: '.message-stream', text: '预警分布图（preview 缩略图）' },
+      // inline 外壳内容（markdown/csv/py）
+      { type: 'expectText', selector: '.message-stream', text: '监测周报（摘要）' },
+      { type: 'expectText', selector: '.message-stream', text: '站点-1' },
+      { type: 'expectText', selector: '.message-stream', text: 'WARN_THRESHOLD' },
+      { type: 'expectText', selector: '.file-csv-table__foot', text: '共 15 行' },
+      // preview 卡片
+      { type: 'expectText', selector: '.message-stream', text: '指标汇总（preview JSON）' },
+      // attachment 下载卡片（排除 preview 可点击卡片）
+      { type: 'expectText', selector: '.workspace-file-card:not(.workspace-file-card--clickable)', text: 'raw-export.csv' },
+      // 图片真实解码校验（防止坏图夹具静默通过文本断言）
+      { type: 'expectImagesDecoded', selector: '.message-stream' },
+    ],
+  },
+  {
+    name: 'chat-fileref-preview-dialog',
+    path: '/?__smoke=fileref',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockFileRefApi' },
+      { type: 'expectText', selector: '.message-stream', text: '指标汇总（preview JSON）' },
+      { type: 'click', selector: '.workspace-file-card--clickable', waitMs: 600 },
+      { type: 'expectVisible', selector: '[role="dialog"]' },
+      { type: 'expectText', selector: '[role="dialog"]', text: '指标汇总（preview JSON）' },
+      { type: 'expectText', selector: '[role="dialog"]', text: 'mean_level' },
+    ],
+  },
+  {
+    name: 'chat-fileref-lightbox',
+    path: '/?__smoke=fileref',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockFileRefApi' },
+      { type: 'expectText', selector: '.message-stream', text: '站点实拍（inline 内联图）' },
+      { type: 'click', selector: '.fallback-image', waitMs: 600 },
+      { type: 'expectVisible', selector: '.image-lightbox' },
+      { type: 'expectText', selector: '.image-lightbox__title', text: '站点实拍' },
+      { type: 'expectImagesDecoded', selector: '.image-lightbox' },
+    ],
+  },
+  {
+    name: 'chat-fileref-mobile',
+    path: '/?__smoke=fileref',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'mockFileRefApi' },
+      { type: 'expectText', selector: '.message-stream', text: '监测周报（摘要）' },
+      { type: 'expectText', selector: '.message-stream', text: '指标汇总（preview JSON）' },
+      { type: 'expectImagesDecoded', selector: '.message-stream' },
     ],
   },
   {
@@ -818,7 +885,8 @@ async function setupShotMocks(client, shot) {
   const mockMapArtifactApi = (shot.actions || []).some(action => action.type === 'mockMapArtifactApi');
   const mockKnowledgeSearchApi = (shot.actions || []).some(action => action.type === 'mockKnowledgeSearchApi');
   const mockSessionSidebarApi = (shot.actions || []).some(action => action.type === 'mockSessionSidebarApi');
-  if (!mockArtifactApi && !mockMapArtifactApi && !mockKnowledgeSearchApi && !mockSessionSidebarApi) return;
+  const mockFileRefApi = (shot.actions || []).some(action => action.type === 'mockFileRefApi');
+  if (!mockArtifactApi && !mockMapArtifactApi && !mockKnowledgeSearchApi && !mockSessionSidebarApi && !mockFileRefApi) return;
 
   await client.send('Fetch.enable', {
     patterns: [
@@ -862,10 +930,42 @@ async function setupShotMocks(client, shot) {
           requestStage: 'Request',
         },
       ] : []),
+      ...(mockFileRefApi ? [
+        {
+          urlPattern: '*://*/api/agent/sessions/smoke-fileref-session/workspace-files/content*',
+          requestStage: 'Request',
+        },
+      ] : []),
     ],
   });
 
   client.on('Fetch.requestPaused', async (event) => {
+    if (mockFileRefApi && event.request?.url?.includes('/api/agent/sessions/smoke-fileref-session/workspace-files/content')) {
+      const requestUrl = new URL(event.request.url);
+      const filePath = requestUrl.searchParams.get('path') || '';
+      const file = SMOKE_FILE_REF_FILES[filePath];
+      if (!file) {
+        await client.send('Fetch.fulfillRequest', {
+          requestId: event.requestId,
+          responseCode: 404,
+          responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
+          body: Buffer.from(JSON.stringify({ detail: '文件不存在或已过期' }), 'utf8').toString('base64'),
+        });
+        return;
+      }
+      const bodyBase64 = file.base64 ? file.body : Buffer.from(file.body, 'utf8').toString('base64');
+      await client.send('Fetch.fulfillRequest', {
+        requestId: event.requestId,
+        responseCode: 200,
+        responseHeaders: [
+          { name: 'Content-Type', value: file.contentType },
+          { name: 'Content-Length', value: String(Buffer.from(bodyBase64, 'base64').length) },
+          { name: 'Cache-Control', value: 'no-store' },
+        ],
+        body: bodyBase64,
+      });
+      return;
+    }
     if (mockSessionSidebarApi) {
       const requestUrl = new URL(event.request.url);
       const workspaceRagsystem = {
@@ -1361,7 +1461,7 @@ function jsString(value) {
 
 async function runShotActions(client, shot) {
   for (const action of shot.actions || []) {
-    if (action.type === 'mockArtifactApi' || action.type === 'mockMapArtifactApi' || action.type === 'mockKnowledgeSearchApi' || action.type === 'mockSessionSidebarApi') {
+    if (action.type === 'mockArtifactApi' || action.type === 'mockMapArtifactApi' || action.type === 'mockKnowledgeSearchApi' || action.type === 'mockSessionSidebarApi' || action.type === 'mockFileRefApi') {
       continue;
     }
 
@@ -1405,6 +1505,23 @@ async function runShotActions(client, shot) {
         return canvasRect.width >= sectionRect.width * 0.95 && canvasRect.height >= sectionRect.height * 0.95;
       })()`, action.timeoutMs ?? 30000);
       if (!rendered) throw new Error(`${shot.name} MapLibre canvas did not fill the map workspace`);
+      continue;
+    }
+
+    if (action.type === 'expectImagesDecoded') {
+      const decoded = await waitForEvaluation(client, `(() => {
+        const root = document.querySelector(${jsString(action.selector)});
+        const images = root ? [...root.querySelectorAll('img')] : [];
+        return images.length > 0 && images.every((image) => image.complete && image.naturalWidth > 0);
+      })()`, action.timeoutMs ?? 30000);
+      if (!decoded) {
+        const state = await evaluate(client, `(() => {
+          const root = document.querySelector(${jsString(action.selector)});
+          const images = root ? [...root.querySelectorAll('img')] : [];
+          return images.map((image) => ({ src: String(image.src).slice(0, 80), complete: image.complete, naturalWidth: image.naturalWidth }));
+        })()`);
+        throw new Error(`${shot.name} images did not decode: ${JSON.stringify(state)}`);
+      }
       continue;
     }
 

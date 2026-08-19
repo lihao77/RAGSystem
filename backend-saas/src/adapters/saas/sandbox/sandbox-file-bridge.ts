@@ -1,9 +1,8 @@
-import path from "node:path";
-
 import type { AsyncSessionFileStorage } from "@ragsystem/backend-core/contracts/session/session-file-storage.js";
 import type { WorkspaceBlobStorage } from "@ragsystem/backend-core/contracts/storage/workspace-blob-storage.js";
 import type { SandboxDriver, SandboxLease, SandboxLeaseLifecycle, SandboxOwner } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 import type { UploadedFileRecord } from "@ragsystem/backend-core/contracts/storage/files.js";
+import { inferMimeType } from "@ragsystem/backend-core/utils/mime.js";
 
 const MiB = 1024 * 1024;
 
@@ -194,21 +193,6 @@ function decodeBase64(value: string): Uint8Array {
     throw new Error("Sandbox driver returned invalid base64 output");
   }
   return body;
-}
-
-function inferMimeType(filePath: string): string {
-  switch (path.posix.extname(filePath).toLowerCase()) {
-    case ".txt": case ".md": case ".log": return "text/plain";
-    case ".json": return "application/json";
-    case ".csv": return "text/csv";
-    case ".html": return "text/html";
-    case ".pdf": return "application/pdf";
-    case ".png": return "image/png";
-    case ".jpg": case ".jpeg": return "image/jpeg";
-    case ".gif": return "image/gif";
-    case ".svg": return "image/svg+xml";
-    default: return "application/octet-stream";
-  }
 }
 
 function validateLimits(limits: SandboxFileTransferLimits): SandboxFileTransferLimits {

@@ -16,6 +16,7 @@ const ALL_IDS = [
   "@ragsystem/backend-plugin-skills",
   "@ragsystem/backend-plugin-agent-builder",
   "@ragsystem/backend-plugin-widget",
+  "@ragsystem/backend-plugin-image-tools",
 ];
 
 test("Local product loads the configured plugins by default", async () => {

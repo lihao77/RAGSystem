@@ -108,6 +108,9 @@ function renderCodeBlock(str, lang) {
   return `<div class="md-special-block md-code-block">${header}<div class="md-block-body"><pre class="hljs"><code>${highlighted}</code></pre></div></div>`
 }
 
+// 供文件预览（FileCodeView）等非 markdown 场景复用同一套代码块外壳与复制按钮
+export { renderCodeBlock }
+
 // 初始化 markdown-it
 const md = new MarkdownIt({
   // 禁用原始 HTML（防 XSS）

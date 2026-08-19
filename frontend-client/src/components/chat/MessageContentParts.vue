@@ -23,6 +23,7 @@
           :file-path="part.file_path"
           :presentation="part.presentation"
           :caption="part.caption || ''"
+          @notify="emit('notify', $event)"
         />
       </div>
     </template>

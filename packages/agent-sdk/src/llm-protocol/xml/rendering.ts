@@ -20,6 +20,7 @@ export function renderRuntimeXmlProtocolInstruction(tools: RuntimeToolDefinition
     "Use <tool_calls> when a tool is needed. Tool calls are hidden from the user and parsed by the runtime.",
     "Use <final_answer> only when the task is complete. The final answer is the only assistant message persisted as the final response.",
     'Inside <final_answer>, embed a durable workspace file only with the exact self-closing <file_ref path="relative/path" presentation="inline|attachment|preview" caption="optional label"/> tag. Plain "File: ..." text, Markdown links, and attachment prose are not file references. Only use a real workspace-relative path returned by a tool; copy transient or external output into workspace before referencing it.',
+    'Choose presentation by intent: "inline" embeds the file content directly in the reply (small images, short code/text, small tables); "preview" shows a compact card the user clicks to open a full-size viewer (large images, charts, reports, PDF/HTML documents); "attachment" offers the file as a download without rendering its content (deliverables, datasets, archives).',
     "Do not mix <final_answer> with <tool_calls> in the same round.",
     "Preferred tool call format (arguments as a single JSON object inside the tool tag):",
     '<tool_calls><tool name="tool_name"><![CDATA[{ "param1": value1, "param2": value2 }]]></tool></tool_calls>',
@@ -50,6 +51,7 @@ export function renderNativeXmlProtocolInstruction(): string {
     "Use <intent> only for an optional short natural language action note visible to the user when calling a tool. Do not expose hidden reasoning.",
     "Use <final_answer> only when the task is complete. The final answer is the only assistant message persisted as the final response.",
     'Inside <final_answer>, embed a durable workspace file only with the exact self-closing <file_ref path="relative/path" presentation="inline|attachment|preview" caption="optional label"/> tag. Plain "File: ..." text, Markdown links, and attachment prose are not file references. Only use a real workspace-relative path returned by a tool; copy transient or external output into workspace before referencing it.',
+    'Choose presentation by intent: "inline" embeds the file content directly in the reply (small images, short code/text, small tables); "preview" shows a compact card the user clicks to open a full-size viewer (large images, charts, reports, PDF/HTML documents); "attachment" offers the file as a download without rendering its content (deliverables, datasets, archives).',
     "Tool parameters are supplied through function calling; never serialize them as XML text.",
   ].join("\n");
 

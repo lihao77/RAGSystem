@@ -797,6 +797,19 @@ watch(
       return;
     }
 
+    if (import.meta.env.DEV && route.query?.__smoke === 'fileref') {
+      const { createSmokeFileRefMessages } = await import('../utils/smokeFixtures');
+      disconnectSessionWS();
+      invalidateActiveStream();
+      clearExecutionState();
+      currentSessionId.value = 'smoke-fileref-session';
+      messages.value = createSmokeFileRefMessages();
+      contextUsage.value = { used: 1840, max: 8192 };
+      await nextTick();
+      scrollToBottom(true);
+      return;
+    }
+
     if (import.meta.env.DEV && route.query?.__smoke === 'pending-image') {
       const { createSmokePendingImageMessages, armSmokePendingImageSend } = await import('../utils/smokeFixtures');
       disconnectSessionWS();

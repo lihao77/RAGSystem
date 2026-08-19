@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import type { WorkspaceFileApplication, WorkspaceFileReadResult } from "@ragsystem/backend-core/contracts/application/workspace-file-application.js";
+import { inferMimeType } from "@ragsystem/backend-core/utils/mime.js";
 
 export class LocalWorkspaceFileApplication implements WorkspaceFileApplication {
   constructor(private readonly resolveWorkspaceRoot: (sessionId: string) => Promise<string | null>) {}
@@ -47,18 +48,3 @@ function isPathUnder(candidate: string, root: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-function inferMimeType(filePath: string): string {
-  switch (path.extname(filePath).toLowerCase()) {
-    case ".geojson": return "application/geo+json";
-    case ".json": return "application/json";
-    case ".csv": return "text/csv";
-    case ".txt": case ".md": case ".log": return "text/plain";
-    case ".html": return "text/html";
-    case ".png": return "image/png";
-    case ".jpg": case ".jpeg": return "image/jpeg";
-    case ".gif": return "image/gif";
-    case ".webp": return "image/webp";
-    case ".svg": return "image/svg+xml";
-    default: return "application/octet-stream";
-  }
-}
