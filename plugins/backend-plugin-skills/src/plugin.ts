@@ -1,5 +1,6 @@
 import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { provideCapability } from "@ragsystem/backend-core/plugins/capability-registry.js";
+import { provideAgentCapability } from "@ragsystem/backend-core/plugins/agent-capability-provider.js";
 
 import { SKILLS_RUNTIME_CAPABILITY } from "./capability.js";
 import type { SkillsPluginDependencies } from "./dependencies.js";
@@ -12,7 +13,7 @@ export const SKILLS_PLUGIN_ID = "@ragsystem/backend-plugin-skills";
 
 export function createSkillsPlugin(dependencies: SkillsPluginDependencies): BackendPlugin {
   return {
-    manifest: { id: SKILLS_PLUGIN_ID, version: "0.1.0" },
+    manifest: { id: SKILLS_PLUGIN_ID, version: "0.2.0" },
     register(context) {
       context.runtimes.register(async (runtimeContext) => {
         const unregisterSystemConfig = runtimeContext.systemConfig
@@ -26,7 +27,36 @@ export function createSkillsPlugin(dependencies: SkillsPluginDependencies): Back
         try {
           const runtime = await dependencies.runtimeFactory(runtimeContext);
           return {
-            capabilities: [provideCapability(SKILLS_RUNTIME_CAPABILITY, runtime)],
+            capabilities: [
+              provideCapability(SKILLS_RUNTIME_CAPABILITY, runtime),
+              provideAgentCapability({
+                id: "skills",
+                display_name: "技能",
+                listItems: async () => {
+                  const items = await runtime.library.listSkills();
+                  const infos = new Map(
+                    (runtime.tools?.loadAllSkills?.() ?? []).map((info) => [info.name, info]),
+                  );
+                  return items.map((item) => {
+                    const requires = infos.get(item.name)?.requires;
+                    return {
+                      name: item.name,
+                      display_name: item.display_name,
+                      description: item.description,
+                      ...(requires ? { metadata: { requires } } : {}),
+                    };
+                  });
+                },
+                getAgentConfig: async (teamName, agentName) =>
+                  (await runtime.agentConfig.getEffective({ teamName, agentName })).enabled_skills,
+                putAgentConfig: async (teamName, agentName, names) => {
+                  await runtime.agentConfig.put(
+                    { teamName, agentName },
+                    { enabled_skills: [...names] },
+                  );
+                },
+              }, SKILLS_PLUGIN_ID),
+            ],
             dispose: () => {
               try {
                 runtime.dispose?.();

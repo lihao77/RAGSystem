@@ -1,5 +1,6 @@
 import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { provideCapability } from "@ragsystem/backend-core/plugins/capability-registry.js";
+import { provideAgentCapability } from "@ragsystem/backend-core/plugins/agent-capability-provider.js";
 
 import { MCP_RUNTIME_CAPABILITY } from "./capability.js";
 import type { McpPluginDependencies } from "./dependencies.js";
@@ -10,12 +11,30 @@ export const MCP_PLUGIN_ID = "@ragsystem/backend-plugin-mcp";
 
 export function createMcpPlugin(dependencies: McpPluginDependencies): BackendPlugin {
   return {
-    manifest: { id: MCP_PLUGIN_ID, version: "0.1.0" },
+    manifest: { id: MCP_PLUGIN_ID, version: "0.2.0" },
     register(context) {
       context.runtimes.register(async (runtimeContext) => {
         const runtime = await dependencies.runtimeFactory(runtimeContext);
         return {
-          capabilities: [provideCapability(MCP_RUNTIME_CAPABILITY, runtime)],
+          capabilities: [
+            provideCapability(MCP_RUNTIME_CAPABILITY, runtime),
+            provideAgentCapability({
+              id: "mcp",
+              display_name: "MCP 服务器",
+              listItems: () => runtime.service.listServers().map((server) => ({
+                name: server.name,
+                display_name: server.display_name || server.name,
+              })),
+              getAgentConfig: async (teamName, agentName) =>
+                (await runtime.agentConfig.getEffective({ teamName, agentName })).enabled_servers,
+              putAgentConfig: async (teamName, agentName, names) => {
+                await runtime.agentConfig.put(
+                  { teamName, agentName },
+                  { enabled_servers: [...names] },
+                );
+              },
+            }, MCP_PLUGIN_ID),
+          ],
           ...(runtime.dispose ? { dispose: () => runtime.dispose?.() } : {}),
         };
       });

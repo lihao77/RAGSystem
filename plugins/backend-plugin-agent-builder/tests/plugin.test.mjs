@@ -4,9 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { AGENT_CONFIG_CHANGED_EVENT } from "@ragsystem/backend-core/contracts/agent/agent-config-events.js";
-import { CapabilityRegistry, provideCapability } from "@ragsystem/backend-core/plugins/capability-registry.js";
-import { MCP_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-mcp/capability.js";
-import { SKILLS_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-skills/capability.js";
+import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
+import { provideAgentCapability } from "@ragsystem/backend-core/plugins/agent-capability-provider.js";
 
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
@@ -55,27 +54,45 @@ class MemoryTeamStore {
   }
 }
 
-class MemoryBindings {
-  skills = new Map();
-  mcp = new Map();
-  failMcpWrite = false;
-  inventory = {
-    tools: new Set(["read_file", "write_file"]),
-    skills: new Set(["review-code"]),
-    mcpServers: new Set(["github"]),
+function fakeCapabilityProvider(id, names = []) {
+  const config = new Map();
+  return {
+    id,
+    display_name: `provider ${id}`,
+    items: names.map((name) => ({ name })),
+    config,
+    failNextWrite: false,
+    async listItems() {
+      return this.items;
+    },
+    async getAgentConfig(teamName, agentName) {
+      return [...(this.config.get(`${teamName}/${agentName}`) ?? [])];
+    },
+    async putAgentConfig(teamName, agentName, names) {
+      if (this.failNextWrite && names.length > 0) {
+        this.failNextWrite = false;
+        throw new Error(`${id} write failed`);
+      }
+      this.config.set(`${teamName}/${agentName}`, [...names]);
+    },
   };
+}
 
-  key(teamName, agentName) { return `${teamName}/${agentName}`; }
-  async getSkillConfig(teamName, agentName) { return [...(this.skills.get(this.key(teamName, agentName)) ?? [])]; }
-  async putSkillConfig(teamName, agentName, names) { this.skills.set(this.key(teamName, agentName), [...names]); }
-  async getMcpConfig(teamName, agentName) { return [...(this.mcp.get(this.key(teamName, agentName)) ?? [])]; }
-  async putMcpConfig(teamName, agentName, names) {
-    if (this.failMcpWrite && names.length > 0) {
-      this.failMcpWrite = false;
-      throw new Error("MCP write failed");
-    }
-    this.mcp.set(this.key(teamName, agentName), [...names]);
-  }
+function memoryBindings() {
+  const skills = fakeCapabilityProvider("skills", ["review-code"]);
+  const mcp = fakeCapabilityProvider("mcp", ["github"]);
+  return {
+    skills,
+    mcp,
+    inventory: {
+      tools: new Set(["read_file", "write_file"]),
+      providers: new Map([
+        [skills.id, new Set(["review-code"])],
+        [mcp.id, new Set(["github"])],
+      ]),
+    },
+    providers: [skills, mcp],
+  };
 }
 
 test("validation rejects missing capabilities and delegation cycles", () => {
@@ -86,8 +103,10 @@ test("validation rejects missing capabilities and delegation cycles", () => {
     ],
   }), {
     tools: new Set(["read_file"]),
-    skills: new Set(),
-    mcpServers: new Set(),
+    providers: new Map([
+      ["skills", new Set()],
+      ["mcp", new Set()],
+    ]),
   });
   assert.equal(report.valid, false);
   assert.ok(report.issues.some((issue) => issue.code === "unknown_tool"));
@@ -97,7 +116,7 @@ test("validation rejects missing capabilities and delegation cycles", () => {
 test("publishing materializes the Draft as a same-name Team", async () => {
   const fixture = await createFixture();
   try {
-    const bindings = new MemoryBindings();
+    const bindings = memoryBindings();
     const draft = await fixture.service.createDraft(blueprint());
     const published = await fixture.service.publishDraft(draft.id, draft.revision, bindings);
     assert.equal(published.status, "published");
@@ -105,8 +124,8 @@ test("publishing materializes the Draft as a same-name Team", async () => {
     assert.equal(published.source_team_name, "support-team");
     assert.ok(published.published_at);
     assert.deepEqual(Object.keys(fixture.agentConfig.listConfigs({ teamName: "support-team" })).sort(), ["lead", "worker"]);
-    assert.deepEqual(bindings.skills.get("support-team/lead"), ["review-code"]);
-    assert.deepEqual(bindings.mcp.get("support-team/lead"), ["github"]);
+    assert.deepEqual(bindings.skills.config.get("support-team/lead"), ["review-code"]);
+    assert.deepEqual(bindings.mcp.config.get("support-team/lead"), ["github"]);
 
     const repeated = await fixture.service.publishDraft(draft.id, published.revision, bindings);
     assert.equal(repeated.id, published.id);
@@ -124,7 +143,7 @@ test("auto approval publishes a valid Agent draft without activating its Team", 
       : undefined,
   });
   try {
-    const bindings = new MemoryBindings();
+    const bindings = memoryBindings();
     const draft = await fixture.service.createDraft(blueprint());
     const published = await fixture.service.autoApproveDraft(draft, async () => bindings);
     assert.equal(published.status, "published");
@@ -139,7 +158,7 @@ test("auto approval publishes a valid Agent draft without activating its Team", 
 test("an edited published Draft updates the same Team", async () => {
   const fixture = await createFixture();
   try {
-    const bindings = new MemoryBindings();
+    const bindings = memoryBindings();
     const first = await fixture.service.createDraft(blueprint());
     const published = await fixture.service.publishDraft(first.id, first.revision, bindings);
     const edited = await fixture.service.updateDraft(published.id, published.revision, blueprint({
@@ -167,7 +186,7 @@ test("an edited published Draft updates the same Team", async () => {
 test("failed republish restores the existing Team configuration", async () => {
   const fixture = await createFixture();
   try {
-    const bindings = new MemoryBindings();
+    const bindings = memoryBindings();
     const draft = await fixture.service.createDraft(blueprint());
     const published = await fixture.service.publishDraft(draft.id, draft.revision, bindings);
     const originalConfig = fixture.agentConfig.getConfig("lead", { teamName: "support-team" });
@@ -177,16 +196,16 @@ test("failed republish restores the existing Team configuration", async () => {
         agent("worker", { description: "Worker" }),
       ],
     }));
-    bindings.failMcpWrite = true;
+    bindings.mcp.failNextWrite = true;
 
     await assert.rejects(
       fixture.service.publishDraft(edited.id, edited.revision, bindings),
-      /MCP write failed/,
+      /mcp write failed/,
     );
 
     const liveConfig = fixture.agentConfig.getConfig("lead", { teamName: "support-team" });
     assert.equal(liveConfig.description, originalConfig.description);
-    assert.deepEqual(await bindings.getMcpConfig("support-team", "lead"), ["github"]);
+    assert.deepEqual(bindings.mcp.config.get("support-team/lead"), ["github"]);
     const unchanged = await fixture.service.getDraft(edited.id);
     assert.equal(unchanged.status, "draft");
     assert.equal(unchanged.revision, edited.revision);
@@ -198,7 +217,7 @@ test("failed republish restores the existing Team configuration", async () => {
 test("a new Draft never overwrites an existing Team", async () => {
   const fixture = await createFixture();
   try {
-    const bindings = new MemoryBindings();
+    const bindings = memoryBindings();
     await fixture.agentConfig.createTeam("support-team");
     const draft = await fixture.service.createDraft(blueprint());
 
@@ -220,12 +239,12 @@ test("a new Draft never overwrites an existing Team", async () => {
 test("failed materialization does not publish the Draft or leave a Team", async () => {
   const fixture = await createFixture();
   try {
-    const bindings = new MemoryBindings();
-    bindings.failMcpWrite = true;
+    const bindings = memoryBindings();
+    bindings.mcp.failNextWrite = true;
     const draft = await fixture.service.createDraft(blueprint());
     await assert.rejects(
       fixture.service.publishDraft(draft.id, draft.revision, bindings),
-      /MCP write failed/,
+      /mcp write failed/,
     );
     assert.equal((await fixture.agentConfig.listTeams()).teams.some((team) => team.team_name === "support-team"), false);
     assert.equal((await fixture.service.getDraft(draft.id)).status, "draft");
@@ -237,7 +256,7 @@ test("failed materialization does not publish the Draft or leave a Team", async 
 test("invalid drafts cannot be published", async () => {
   const fixture = await createFixture();
   try {
-    const bindings = new MemoryBindings();
+    const bindings = memoryBindings();
     const invalid = blueprint({ agents: [agent("lead", { tools: ["missing"] })] });
     const draft = await fixture.service.createDraft(invalid);
     await assert.rejects(
@@ -255,19 +274,19 @@ test("invalid drafts cannot be published", async () => {
 test("manual Team snapshots create one linked Draft and update it idempotently", async () => {
   const fixture = await createFixture();
   try {
-    const bindings = new MemoryBindings();
+    const bindings = memoryBindings();
     await fixture.agentConfig.createTeam("copied-team");
     await fixture.agentConfig.copyAgentsToTeam("copied-team", "default", ["general_agent"]);
-    await bindings.putSkillConfig("copied-team", "general_agent", ["review-code"]);
-    await bindings.putMcpConfig("copied-team", "general_agent", ["github"]);
+    bindings.skills.config.set("copied-team/general_agent", ["review-code"]);
+    bindings.mcp.config.set("copied-team/general_agent", ["github"]);
 
     const created = await fixture.service.synchronizeTeamDraft("copied-team", bindings);
     assert.ok(created);
     assert.equal(created.status, "published");
     assert.equal(created.source_team_name, "copied-team");
     assert.equal(created.blueprint.entry_agent, "general_agent");
-    assert.deepEqual(created.blueprint.agents[0].skills, ["review-code"]);
-    assert.deepEqual(created.blueprint.agents[0].mcp_servers, ["github"]);
+    assert.deepEqual(created.blueprint.agents[0].capabilities.skills, ["review-code"]);
+    assert.deepEqual(created.blueprint.agents[0].capabilities.mcp, ["github"]);
 
     await fixture.agentConfig.activateTeam("copied-team");
     await fixture.agentConfig.patchConfig("general_agent", { description: "Edited manually" });
@@ -305,7 +324,7 @@ test("manual Team snapshots create one linked Draft and update it idempotently",
 test("editing a published Team updates the same published Draft without losing config", async () => {
   const fixture = await createFixture();
   try {
-    const bindings = new MemoryBindings();
+    const bindings = memoryBindings();
     bindings.inventory = {};
     const first = await fixture.service.createDraft(blueprint({
       entry_agent: "lead",
@@ -357,7 +376,7 @@ test("editing a published Team updates the same published Draft without losing c
 test("Agent Drafts delete independently and Team deletion restores Drafts that still exist", async () => {
   const fixture = await createFixture();
   try {
-    const bindings = new MemoryBindings();
+    const bindings = memoryBindings();
     const removable = await fixture.service.createDraft(blueprint());
     assert.deepEqual(await fixture.service.deleteDraft(removable.id), { id: removable.id });
     await assert.rejects(fixture.service.getDraft(removable.id), /does not exist/);
@@ -404,7 +423,7 @@ test("Agent Drafts delete independently and Team deletion restores Drafts that s
 test("a deleted published Agent Draft is rebuilt from its Team configuration", async () => {
   const fixture = await createFixture();
   try {
-    const bindings = new MemoryBindings();
+    const bindings = memoryBindings();
     const created = await fixture.service.createDraft(blueprint());
     const published = await fixture.service.publishDraft(created.id, created.revision, bindings);
     await fixture.service.deleteDraft(published.id);
@@ -437,7 +456,7 @@ test("workspace validation failure does not synchronize the system Agent draft",
     fs.writeFileSync(localBlueprintPath, `${JSON.stringify(localBlueprint, null, 2)}\n`);
 
     await assert.rejects(
-      fixture.service.publishWorkspaceDraft(created.draft.id, workspace, new MemoryBindings()),
+      fixture.service.publishWorkspaceDraft(created.draft.id, workspace, memoryBindings()),
       AgentBuilderValidationError,
     );
     const unchanged = await fixture.service.getDraft(created.draft.id);
@@ -457,7 +476,7 @@ test("workspace publish auto-publishes edits through the same Agent Draft", asyn
   try {
     const workspace = path.join(fixture.root, "session-workspace");
     const created = await fixture.service.createWorkspaceDraft("workspace-team", "Workspace draft", workspace);
-    const first = await fixture.service.publishWorkspaceDraft(created.draft.id, workspace, new MemoryBindings());
+    const first = await fixture.service.publishWorkspaceDraft(created.draft.id, workspace, memoryBindings());
     assert.equal(first.auto_published, true);
     assert.equal(first.draft.status, "published");
     assert.equal(first.draft.revision, created.draft.revision + 1);
@@ -467,7 +486,7 @@ test("workspace publish auto-publishes edits through the same Agent Draft", asyn
     const localBlueprint = JSON.parse(fs.readFileSync(localBlueprintPath, "utf8"));
     localBlueprint.description = "Updated workspace Team";
     fs.writeFileSync(localBlueprintPath, `${JSON.stringify(localBlueprint, null, 2)}\n`);
-    const second = await fixture.service.publishWorkspaceDraft(created.draft.id, workspace, new MemoryBindings());
+    const second = await fixture.service.publishWorkspaceDraft(created.draft.id, workspace, memoryBindings());
     assert.equal(second.draft.id, created.draft.id);
     assert.equal(second.draft.status, "published");
     assert.equal(second.draft.revision, first.draft.revision + 1);
@@ -823,7 +842,7 @@ test("Builder-only draft tools are visible only to the Builder entry Agent", asy
   }
 });
 
-test("Builder capability inventory exposes existing Tools, Skills, and MCP Servers", async () => {
+test("Builder capability inventory lists Tools and every registered capability provider", async () => {
   const fixture = await createFixture([{
     name: "read_file",
     description: "Read a managed file",
@@ -832,29 +851,24 @@ test("Builder capability inventory exposes existing Tools, Skills, and MCP Serve
   }]);
   try {
     const capabilities = new CapabilityRegistry([
-      provideCapability(SKILLS_RUNTIME_CAPABILITY, {
-        library: {
-          listSkills: async () => [{ name: "review-code", display_name: "Review Code", description: "Review changes" }],
-        },
-        tools: {
-          loadAllSkills: () => [{
-            name: "review-code",
-            description: "Review changes",
-            requires: { mcp_servers: ["github"] },
-          }],
-        },
+      provideAgentCapability({
+        id: "skills",
+        display_name: "技能",
+        listItems: async () => [{
+          name: "review-code",
+          display_name: "Review Code",
+          description: "Review changes",
+          metadata: { requires: { mcp_servers: ["github"] } },
+        }],
+        getAgentConfig: async () => [],
+        putAgentConfig: async () => undefined,
       }),
-      provideCapability(MCP_RUNTIME_CAPABILITY, {
-        application: {
-          listServers: async () => [{
-            name: "github",
-            display_name: "GitHub",
-            transport: "streamable_http",
-            enabled: true,
-            status: "connected",
-            tool_count: 3,
-          }],
-        },
+      provideAgentCapability({
+        id: "mcp",
+        display_name: "MCP 服务器",
+        listItems: () => [{ name: "github", display_name: "GitHub" }],
+        getAgentConfig: async () => [],
+        putAgentConfig: async () => undefined,
       }),
     ]);
     const tool = createAgentBuilderTools(fixture.service, capabilities)
@@ -868,22 +882,123 @@ test("Builder capability inventory exposes existing Tools, Skills, and MCP Serve
       category: "filesystem",
       risk_level: "low",
     });
-    assert.deepEqual(result.content.skills, [
+    assert.deepEqual(result.content.capability_providers, [
       {
-        name: "review-code",
-        display_name: "Review Code",
-        description: "Review changes",
-        requires: { mcp_servers: ["github"] },
+        id: "mcp",
+        display_name: "MCP 服务器",
+        items: [{ name: "github", display_name: "GitHub" }],
+      },
+      {
+        id: "skills",
+        display_name: "技能",
+        items: [{
+          name: "review-code",
+          display_name: "Review Code",
+          description: "Review changes",
+          metadata: { requires: { mcp_servers: ["github"] } },
+        }],
       },
     ]);
-    assert.deepEqual(result.content.mcp_servers, [{
-      name: "github",
-      display_name: "GitHub",
-      transport: "streamable_http",
-      enabled: true,
-      status: "connected",
-      tool_count: 3,
-    }]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("legacy v1 drafts on disk normalize to v2 capabilities at the read boundary", async () => {
+  const fixture = await createFixture();
+  try {
+    const legacyDraft = {
+      id: "draft_legacy000000000000000000001",
+      revision: 1,
+      status: "draft",
+      source_team_name: null,
+      blueprint: blueprint(),
+      validation: null,
+      published_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    const draftsRoot = path.join(fixture.root, "agent-builder", "drafts");
+    fs.mkdirSync(draftsRoot, { recursive: true });
+    fs.writeFileSync(path.join(draftsRoot, `${legacyDraft.id}.json`), JSON.stringify(legacyDraft));
+
+    const drafts = await fixture.service.listDrafts();
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0].blueprint.schema_version, 2);
+    assert.equal(drafts[0].blueprint.agents[0].skills, undefined);
+    assert.equal(drafts[0].blueprint.agents[0].mcp_servers, undefined);
+    assert.deepEqual(drafts[0].blueprint.agents[0].capabilities, {
+      skills: ["review-code"],
+      mcp: ["github"],
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("capabilities of an unregistered provider fail validation only when non-empty", () => {
+  const invalid = validateBlueprint(blueprint({
+    agents: [agent("lead", { capabilities: { planning_agents: ["planning_agent_agent_1"], skills: ["review-code"] } })],
+  }), {
+    tools: new Set(["read_file"]),
+    providers: new Map([["skills", new Set(["review-code"])]]),
+  });
+  assert.equal(invalid.valid, false);
+  assert.ok(invalid.issues.some((issue) => issue.code === "unknown_capability_provider"));
+
+  const tolerant = validateBlueprint(blueprint({
+    agents: [agent("lead", { capabilities: { planning_agents: [] } })],
+  }), {
+    tools: new Set(["read_file"]),
+    providers: new Map([["skills", new Set(["review-code"])]]),
+  });
+  assert.equal(tolerant.valid, true);
+});
+
+test("a third capability provider joins publishing and rollback without agent-builder changes", async () => {
+  const fixture = await createFixture();
+  try {
+    const bindings = memoryBindings();
+    const planning = fakeCapabilityProvider("planning_agents", ["planning_agent_agent_1"]);
+    bindings.providers.push(planning);
+    bindings.inventory.providers.set("planning_agents", new Set(["planning_agent_agent_1"]));
+
+    const draft = await fixture.service.createDraft(blueprint({
+      agents: [
+        agent("lead", {
+          tools: ["read_file"],
+          capabilities: {
+            skills: ["review-code"],
+            mcp: ["github"],
+            planning_agents: ["planning_agent_agent_1"],
+          },
+          delegates: ["worker"],
+        }),
+        agent("worker", { tools: ["write_file"] }),
+      ],
+    }));
+    const published = await fixture.service.publishDraft(draft.id, draft.revision, bindings);
+    assert.equal(published.status, "published");
+    assert.deepEqual(planning.config.get("support-team/lead"), ["planning_agent_agent_1"]);
+    assert.equal(published.blueprint.agents[0].capabilities.planning_agents.length, 1);
+
+    planning.failNextWrite = true;
+    const edited = await fixture.service.updateDraft(published.id, published.revision, blueprint({
+      agents: [
+        agent("lead", {
+          tools: ["read_file"],
+          capabilities: { skills: [], mcp: [], planning_agents: ["planning_agent_agent_1"] },
+          delegates: ["worker"],
+        }),
+        agent("worker", { tools: ["write_file"] }),
+      ],
+    }));
+    await assert.rejects(
+      fixture.service.publishDraft(edited.id, edited.revision, bindings),
+      /planning_agents write failed/,
+    );
+    assert.deepEqual(planning.config.get("support-team/lead"), ["planning_agent_agent_1"]);
+    assert.deepEqual(bindings.skills.config.get("support-team/lead"), ["review-code"]);
   } finally {
     fixture.cleanup();
   }

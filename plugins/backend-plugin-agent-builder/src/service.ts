@@ -3,14 +3,16 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AgentConfig, AgentConfigPort, AgentLlmConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { AgentCapabilityProvider } from "@ragsystem/backend-core/plugins/agent-capability-provider.js";
 import type { BackendToolDescriptor } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import type { SystemConfigPort } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 import {
-  AgentBlueprintSchema,
   AgentBlueprintAgentSchema,
+  AgentBlueprintSchema,
   AgentDraftSchema,
+  parseBlueprint,
   type AgentBlueprint,
   type AgentBlueprintAgent,
   type AgentBuilderCapabilityInventory,
@@ -23,10 +25,7 @@ import { resolveAgentBuilderApprovalConfig } from "./config.js";
 
 export interface AgentBuilderBindings {
   readonly inventory: AgentBuilderCapabilityInventory;
-  getSkillConfig(teamName: string, agentName: string): Promise<string[]>;
-  putSkillConfig(teamName: string, agentName: string, skillNames: string[]): Promise<void>;
-  getMcpConfig(teamName: string, agentName: string): Promise<string[]>;
-  putMcpConfig(teamName: string, agentName: string, serverNames: string[]): Promise<void>;
+  readonly providers: readonly AgentCapabilityProvider[];
 }
 
 export class AgentBuilderConflictError extends Error {}
@@ -84,7 +83,7 @@ export class AgentBuilderService {
   }
 
   createDraft(
-    blueprintInput: AgentBlueprint,
+    blueprintInput: unknown,
     validation: AgentBuilderValidationReport | null = null,
     options: { sourceTeamName?: string | null; status?: "draft" | "published" } = {},
   ): Promise<AgentDraft> {
@@ -92,12 +91,12 @@ export class AgentBuilderService {
   }
 
   private async createDraftUnlocked(
-    blueprintInput: AgentBlueprint,
+    blueprintInput: unknown,
     validation: AgentBuilderValidationReport | null,
     options: { sourceTeamName?: string | null; status?: "draft" | "published" },
   ): Promise<AgentDraft> {
     const now = new Date().toISOString();
-    const blueprint = AgentBlueprintSchema.parse(blueprintInput);
+    const blueprint = parseBlueprint(blueprintInput);
     const existing = (await this.store.listDrafts()).find((draft) => draft.blueprint.name === blueprint.name) ?? null;
     if (existing) throw new AgentBuilderConflictError(`An Agent draft already targets '${blueprint.name}'`);
     const draft = AgentDraftSchema.parse({
@@ -116,10 +115,10 @@ export class AgentBuilderService {
   }
 
   async createDraftForEditing(
-    blueprintInput: AgentBlueprint,
+    blueprintInput: unknown,
     bindings: AgentBuilderBindings,
   ): Promise<AgentDraft> {
-    const blueprint = AgentBlueprintSchema.parse(blueprintInput);
+    const blueprint = parseBlueprint(blueprintInput);
     const existing = (await this.store.listDrafts()).find((draft) => draft.blueprint.name === blueprint.name) ?? null;
     if (existing) throw new AgentBuilderConflictError(`An Agent draft already targets '${blueprint.name}'`);
     const teams = await this.agentConfig.listTeams();
@@ -216,8 +215,8 @@ export class AgentBuilderService {
     workspaceRoot: string,
     bindings?: AgentBuilderBindings,
   ): Promise<{ draft: AgentDraft; workspacePath: string }> {
-    const blueprint = AgentBlueprintSchema.parse({
-      schema_version: 1,
+    const blueprint = parseBlueprint({
+      schema_version: 2,
       name,
       description,
       entry_agent: "main",
@@ -227,8 +226,7 @@ export class AgentBuilderService {
         instructions: "Define the agent instructions in this blueprint before publishing.",
         enabled: true,
         tools: [],
-        skills: [],
-        mcp_servers: [],
+        capabilities: {},
         delegates: [],
         goals_enabled: false,
         background_tasks: false,
@@ -270,7 +268,7 @@ export class AgentBuilderService {
     assertRevision(current, manifest.expected_revision);
     let blueprint: AgentBlueprint;
     try {
-      blueprint = AgentBlueprintSchema.parse(await readWorkspaceJson(workspacePath, "blueprint.json"));
+      blueprint = parseBlueprint(await readWorkspaceJson(workspacePath, "blueprint.json"));
     } catch (error) {
       throw new AgentBuilderValidationError({
         valid: false,
@@ -301,13 +299,13 @@ export class AgentBuilderService {
   updateDraft(
     id: string,
     expectedRevision: number,
-    blueprintInput: AgentBlueprint,
+    blueprintInput: unknown,
     validation: AgentBuilderValidationReport | null = null,
   ): Promise<AgentDraft> {
     return this.exclusive(async () => {
       const current = await this.getDraft(id);
       assertRevision(current, expectedRevision);
-      const blueprint = AgentBlueprintSchema.parse(blueprintInput);
+      const blueprint = parseBlueprint(blueprintInput);
       if (current.source_team_name && blueprint.name !== current.blueprint.name) {
         throw new AgentBuilderConflictError("Published Team names are immutable; create a separate Draft for a rename");
       }
@@ -425,15 +423,17 @@ export class AgentBuilderService {
     const teams = await this.agentConfig.listTeams();
     const existed = teams.teams.some((team) => team.team_name === teamName);
     const agents = existed ? this.agentConfig.listConfigs({ teamName }) : null;
-    const skills = new Map<string, string[]>();
-    const mcpServers = new Map<string, string[]>();
+    const capabilities = new Map<string, ReadonlyMap<string, string[]>>();
     if (existed) {
       for (const agentName of Object.keys(agents ?? {})) {
-        skills.set(agentName, await bindings.getSkillConfig(teamName, agentName));
-        mcpServers.set(agentName, await bindings.getMcpConfig(teamName, agentName));
+        const perProvider = new Map<string, string[]>();
+        for (const provider of bindings.providers) {
+          perProvider.set(provider.id, [...await provider.getAgentConfig(teamName, agentName)]);
+        }
+        capabilities.set(agentName, perProvider);
       }
     }
-    return { existed, agents, skills, mcpServers };
+    return { existed, agents, capabilities };
   }
 
   private async materialize(
@@ -450,14 +450,16 @@ export class AgentBuilderService {
       ])),
     );
     for (const agent of blueprint.agents) {
-      await bindings.putSkillConfig(teamName, agent.name, agent.skills);
-      await bindings.putMcpConfig(teamName, agent.name, agent.mcp_servers);
+      for (const provider of bindings.providers) {
+        await provider.putAgentConfig(teamName, agent.name, agent.capabilities[provider.id] ?? []);
+      }
     }
     const nextNames = new Set(blueprint.agents.map((agent) => agent.name));
     for (const previousName of Object.keys(snapshot.agents ?? {})) {
       if (nextNames.has(previousName)) continue;
-      await bindings.putSkillConfig(teamName, previousName, []);
-      await bindings.putMcpConfig(teamName, previousName, []);
+      for (const provider of bindings.providers) {
+        await provider.putAgentConfig(teamName, previousName, []);
+      }
     }
   }
 
@@ -473,8 +475,9 @@ export class AgentBuilderService {
         await this.agentConfig.deleteTeam(teamName);
       }
       for (const agent of blueprint.agents) {
-        await bindings.putSkillConfig(teamName, agent.name, []);
-        await bindings.putMcpConfig(teamName, agent.name, []);
+        for (const provider of bindings.providers) {
+          await provider.putAgentConfig(teamName, agent.name, []);
+        }
       }
       return;
     }
@@ -493,8 +496,10 @@ export class AgentBuilderService {
       ...blueprint.agents.map((agent) => agent.name),
     ]);
     for (const agentName of agentNames) {
-      await bindings.putSkillConfig(teamName, agentName, snapshot.skills.get(agentName) ?? []);
-      await bindings.putMcpConfig(teamName, agentName, snapshot.mcpServers.get(agentName) ?? []);
+      const previous = snapshot.capabilities.get(agentName);
+      for (const provider of bindings.providers) {
+        await provider.putAgentConfig(teamName, agentName, previous?.get(provider.id) ?? []);
+      }
     }
   }
 
@@ -508,8 +513,7 @@ export class AgentBuilderService {
 interface MaterializationSnapshot {
   existed: boolean;
   agents: Record<string, AgentConfig> | null;
-  skills: Map<string, string[]>;
-  mcpServers: Map<string, string[]>;
+  capabilities: Map<string, ReadonlyMap<string, string[]>>;
 }
 
 function agentDraftWorkspacePath(workspaceRoot: string, draftId: string): string {
@@ -553,10 +557,10 @@ function parseWorkspaceManifest(value: unknown): { draft_id: string; expected_re
 }
 
 export function validateBlueprint(
-  blueprintInput: AgentBlueprint,
+  blueprintInput: unknown,
   inventory: AgentBuilderCapabilityInventory,
 ): AgentBuilderValidationReport {
-  const blueprint = AgentBlueprintSchema.parse(blueprintInput);
+  const blueprint = parseBlueprint(blueprintInput);
   const issues: AgentBuilderValidationIssue[] = [];
   const names = new Set(blueprint.agents.map((agent) => agent.name));
   if (!names.has(blueprint.entry_agent)) {
@@ -572,8 +576,30 @@ export function validateBlueprint(
       }
     }
     checkBindings(issues, inventory.tools, agent.tools, `agents.${index}.tools`, "unknown_tool", "tool");
-    checkBindings(issues, inventory.skills, agent.skills, `agents.${index}.skills`, "unknown_skill", "Skill");
-    checkBindings(issues, inventory.mcpServers, agent.mcp_servers, `agents.${index}.mcp_servers`, "unknown_mcp_server", "MCP server");
+    for (const [providerId, requested] of Object.entries(agent.capabilities)) {
+      const available = inventory.providers?.get(providerId);
+      if (!available) {
+        if (requested.length > 0) {
+          issues.push(issue(
+            "error",
+            "unknown_capability_provider",
+            `agents.${index}.capabilities.${providerId}`,
+            `Capability provider '${providerId}' is not available`,
+          ));
+        }
+        continue;
+      }
+      for (const name of requested) {
+        if (!available.has(name)) {
+          issues.push(issue(
+            "error",
+            "unknown_capability",
+            `agents.${index}.capabilities.${providerId}`,
+            `Capability '${name}' of provider '${providerId}' is not available`,
+          ));
+        }
+      }
+    }
   }
   const cycle = findDelegationCycle(blueprint.agents);
   if (cycle) {
@@ -596,6 +622,10 @@ async function teamConfigToBlueprint(
   const entries = Object.entries(configs);
   const entryAgent = entries.find(([, config]) => config.default_entry)?.[0] ?? entries[0]![0];
   const agents = await Promise.all(entries.map(async ([name, config]) => {
+    const capabilities: Record<string, string[]> = {};
+    for (const provider of bindings.providers) {
+      capabilities[provider.id] = [...await provider.getAgentConfig(teamName, name)];
+    }
     return AgentBlueprintAgentSchema.parse({
       name,
       display_name: config.display_name,
@@ -604,8 +634,7 @@ async function teamConfigToBlueprint(
       enabled: config.enabled,
       llm_tiers: config.llm_tiers,
       tools: config.tools.enabled_tools,
-      skills: await bindings.getSkillConfig(teamName, name),
-      mcp_servers: await bindings.getMcpConfig(teamName, name),
+      capabilities,
       delegates: config.delegation.enabled_agents,
       goals_enabled: config.goals.enabled,
       background_tasks: config.tasks.background,
@@ -613,7 +642,7 @@ async function teamConfigToBlueprint(
     });
   }));
   return AgentBlueprintSchema.parse({
-    schema_version: 1,
+    schema_version: 2,
     name: blueprintName,
     description: basis?.description ?? `Configuration synchronized from Team '${teamName}'.`,
     entry_agent: entryAgent,

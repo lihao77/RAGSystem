@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { AgentDraftSchema, type AgentDraft } from "./contracts.js";
+import { AgentDraftSchema, parseAgentDraft, type AgentDraft } from "./contracts.js";
 import type { AgentBuilderStore } from "./store.js";
 
 export class FilesystemAgentBuilderStore implements AgentBuilderStore {
@@ -13,12 +13,12 @@ export class FilesystemAgentBuilderStore implements AgentBuilderStore {
   }
 
   async listDrafts(): Promise<AgentDraft[]> {
-    const drafts = await readRecords(this.draftsRoot, AgentDraftSchema.parse);
+    const drafts = await readRecords(this.draftsRoot, parseAgentDraft);
     return drafts.sort((left, right) => right.updated_at.localeCompare(left.updated_at));
   }
 
   async getDraft(id: string): Promise<AgentDraft | null> {
-    return readRecord(this.draftPath(id), AgentDraftSchema.parse);
+    return readRecord(this.draftPath(id), parseAgentDraft);
   }
 
   async putDraft(draft: AgentDraft): Promise<void> {

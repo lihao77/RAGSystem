@@ -29,6 +29,16 @@ export const registerAgentBuilderRoutes: FastifyPluginAsync = async (app) => {
     ok(await service(request).listDrafts(), "Agent drafts"),
   );
 
+  app.get("/capability-providers", async (request) => {
+    const bindings = await bindingsFor(request.container);
+    const providers = await Promise.all(bindings.providers.map(async (provider) => ({
+      id: provider.id,
+      display_name: provider.display_name,
+      items: await provider.listItems(),
+    })));
+    return ok(providers, "Agent capability providers");
+  });
+
   app.get<{ Params: IdParams }>("/drafts/:id", async (request) =>
     handle(async () => ok(await service(request).getDraft(request.params.id), "Agent draft")),
   );

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { AgentLlmConfigSchema } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 const IdentifierSchema = z.string()
   .trim()
@@ -17,8 +18,7 @@ export const AgentBlueprintAgentSchema = z.object({
   llm: AgentLlmConfigSchema.nullable().optional(),
   llm_tiers: z.record(AgentLlmConfigSchema).nullable().optional(),
   tools: z.array(z.string().trim().min(1)).max(100).optional().default([]),
-  skills: z.array(z.string().trim().min(1)).max(100).optional().default([]),
-  mcp_servers: z.array(z.string().trim().min(1)).max(100).optional().default([]),
+  capabilities: z.record(z.array(z.string().trim().min(1)).max(100)).optional().default({}),
   delegates: z.array(IdentifierSchema).max(20).optional().default([]),
   goals_enabled: z.boolean().optional().default(false),
   background_tasks: z.boolean().optional().default(false),
@@ -26,7 +26,7 @@ export const AgentBlueprintAgentSchema = z.object({
 }).strict();
 
 export const AgentBlueprintSchema = z.object({
-  schema_version: z.literal(1),
+  schema_version: z.literal(2),
   name: IdentifierSchema,
   description: z.string().trim().min(1).max(1_000),
   entry_agent: IdentifierSchema,
@@ -76,12 +76,12 @@ export const AgentDraftSchema = z.object({
 }).strict();
 
 export const CreateAgentDraftRequestSchema = z.object({
-  blueprint: AgentBlueprintSchema,
+  blueprint: z.unknown(),
 }).strict();
 
 export const UpdateAgentDraftRequestSchema = z.object({
   expected_revision: z.number().int().positive(),
-  blueprint: AgentBlueprintSchema,
+  blueprint: z.unknown(),
 }).strict();
 
 export const PublishAgentDraftRequestSchema = z.object({
@@ -96,6 +96,41 @@ export type AgentDraft = z.infer<typeof AgentDraftSchema>;
 
 export interface AgentBuilderCapabilityInventory {
   readonly tools?: ReadonlySet<string>;
-  readonly skills?: ReadonlySet<string>;
-  readonly mcpServers?: ReadonlySet<string>;
+  /** 提供方 id → 可用能力名集合；缺失的提供方跳过校验（与插件未安装语义一致）。 */
+  readonly providers?: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+/**
+ * 将 schema v1 蓝图（agents[].skills / agents[].mcp_servers 独立字段）归一化为
+ * v2 的 capabilities 映射（skills→"skills"、mcp_servers→"mcp"）；
+ * 已存在的 capabilities 键优先，不被同名旧字段覆盖。v2 输入原样通过。
+ */
+export function normalizeLegacyBlueprint(value: unknown): unknown {
+  if (!isRecord(value) || !Array.isArray(value.agents)) return value;
+  return {
+    ...value,
+    schema_version: 2,
+    agents: value.agents.map((agent) => {
+      if (!isRecord(agent)) return agent;
+      const { skills, mcp_servers, ...rest } = agent;
+      const capabilities = isRecord(agent.capabilities) ? { ...agent.capabilities } : {};
+      if (Array.isArray(skills) && capabilities.skills === undefined) capabilities.skills = skills;
+      if (Array.isArray(mcp_servers) && capabilities.mcp === undefined) capabilities.mcp = mcp_servers;
+      return { ...rest, capabilities };
+    }),
+  };
+}
+
+/** 全部蓝图入口的统一解析口：先归一化旧格式，再执行 v2 strict 校验。 */
+export function parseBlueprint(value: unknown): AgentBlueprint {
+  return AgentBlueprintSchema.parse(normalizeLegacyBlueprint(value));
+}
+
+/** 草稿文件/API 载荷的统一解析口（含蓝图归一化）。 */
+export function parseAgentDraft(value: unknown): AgentDraft {
+  return AgentDraftSchema.parse(
+    isRecord(value) && value.blueprint !== undefined
+      ? { ...value, blueprint: normalizeLegacyBlueprint(value.blueprint) }
+      : value,
+  );
 }

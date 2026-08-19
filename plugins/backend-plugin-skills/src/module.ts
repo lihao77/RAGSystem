@@ -15,7 +15,7 @@ const localRuntimeFactory = createLocalSkillsRuntimeFactory();
 
 export const backendPluginModule: BackendPluginModule = {
   apiVersion: 1,
-  manifest: { id: SKILLS_PLUGIN_ID, version: "0.1.0" },
+  manifest: { id: SKILLS_PLUGIN_ID, version: "0.2.0" },
   create({ config }) {
     assertEmptyConfig(config);
     return createInstalledSkillsPlugin();

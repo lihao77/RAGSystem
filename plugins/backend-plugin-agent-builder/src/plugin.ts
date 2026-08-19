@@ -22,7 +22,7 @@ export function createAgentBuilderPlugin(): BackendPlugin {
   return {
     manifest: {
       id: AGENT_BUILDER_PLUGIN_ID,
-      version: "0.1.0",
+      version: "0.2.0",
       requires: [
         "@ragsystem/backend-plugin-mcp",
         "@ragsystem/backend-plugin-skills",

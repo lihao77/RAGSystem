@@ -3,8 +3,7 @@ import { z } from "zod";
 import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import type { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
-import { MCP_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-mcp/capability.js";
-import { SKILLS_RUNTIME_CAPABILITY } from "@ragsystem/backend-plugin-skills/capability.js";
+import { listAgentCapabilityProviders } from "@ragsystem/backend-core/plugins/agent-capability-provider.js";
 
 import type { AgentDraft } from "./contracts.js";
 import type { AgentBuilderService } from "./service.js";
@@ -31,7 +30,7 @@ export function createAgentBuilderTools(
   return [
     buildTool({
       name: "list_agent_builder_capabilities",
-      description: "List the existing Tools, Skills, and MCP Servers available to this tenant. Skill entries may include declared MCP dependencies as guidance. Use this before designing a Blueprint; only bind names returned by this tool and never invent capabilities.",
+      description: "List the existing Tools and all registered capability providers (for example Skills and MCP Servers) available to this tenant. Each provider section lists its bindable capability names. Use this before designing a Blueprint; only bind names returned by this tool and never invent capabilities.",
       inputSchema: EmptyToolInputSchema,
       parameters: {
         type: "object",
@@ -45,15 +44,14 @@ export function createAgentBuilderTools(
       isConcurrencySafe: () => true,
       async call() {
         try {
-          const skillsRuntime = capabilities?.get(SKILLS_RUNTIME_CAPABILITY);
-          const mcpRuntime = capabilities?.get(MCP_RUNTIME_CAPABILITY);
-          const [skills, mcpServers] = await Promise.all([
-            skillsRuntime?.library.listSkills() ?? Promise.resolve([]),
-            mcpRuntime?.application.listServers() ?? Promise.resolve([]),
-          ]);
+          const providers = capabilities ? listAgentCapabilityProviders(capabilities) : [];
+          const capabilityProviders = await Promise.all(providers.map(async (provider) => ({
+            id: provider.id,
+            display_name: provider.display_name,
+            items: await provider.listItems(),
+          })));
           const tools = service.listAvailableTools();
-          const skillInfos = skillsRuntime?.tools?.loadAllSkills?.() ?? [];
-          const skillInfoByName = new Map(skillInfos.map((skill) => [skill.name, skill]));
+          const itemCount = capabilityProviders.reduce((sum, section) => sum + section.items.length, 0);
           return toolSuccess({
             tools: tools.map((tool) => ({
               name: tool.name,
@@ -61,27 +59,10 @@ export function createAgentBuilderTools(
               category: tool.category,
               risk_level: tool.risk_level,
             })),
-            skills: skills.map((skill) => {
-              const info = skillInfoByName.get(skill.name);
-              const requires = info?.requires;
-              return {
-                name: skill.name,
-                display_name: skill.display_name,
-                description: skill.description,
-                ...(requires ? { requires } : {}),
-              };
-            }),
-            mcp_servers: mcpServers.map((server) => ({
-              name: server.name,
-              display_name: server.display_name,
-              transport: server.transport,
-              enabled: server.enabled,
-              status: server.status,
-              tool_count: server.tool_count,
-            })),
+            capability_providers: capabilityProviders,
           }, {
             toolName: "list_agent_builder_capabilities",
-            summary: `Found ${tools.length} Tool(s), ${skills.length} Skill(s), and ${mcpServers.length} MCP Server(s)`,
+            summary: `Found ${tools.length} Tool(s) and ${itemCount} capability item(s) across ${capabilityProviders.length} provider(s)`,
             outputType: "agent_builder.capabilities",
           });
         } catch (error) {
