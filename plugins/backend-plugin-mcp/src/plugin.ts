@@ -11,7 +11,7 @@ export const MCP_PLUGIN_ID = "@ragsystem/backend-plugin-mcp";
 
 export function createMcpPlugin(dependencies: McpPluginDependencies): BackendPlugin {
   return {
-    manifest: { id: MCP_PLUGIN_ID, version: "0.2.0" },
+    manifest: { id: MCP_PLUGIN_ID, version: "0.2.1" },
     register(context) {
       context.runtimes.register(async (runtimeContext) => {
         const runtime = await dependencies.runtimeFactory(runtimeContext);
@@ -55,9 +55,15 @@ export function createMcpPlugin(dependencies: McpPluginDependencies): BackendPlu
           teamName: teamName ?? "default",
           agentName: agent.agent_name,
         });
+        const enabledServers = config.enabled_servers;
+        if (enabledServers.length) {
+          // 对话开始前按需拉起该 agent 启用的服务器(auto_connect=false 的不再启动期常驻连接):
+          // 未连接的并行建连,单台失败/超时只损失该服务器的工具,不阻塞本次对话。
+          await runtime.service.ensureServersReady(enabledServers);
+        }
         return createMcpTools({
           mcp: runtime.service,
-          enabledServers: config.enabled_servers,
+          enabledServers,
         });
       });
     },

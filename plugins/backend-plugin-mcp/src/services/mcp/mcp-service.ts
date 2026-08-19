@@ -65,6 +65,20 @@ export const MCP_SERVERS_RELATIVE_PATH = path.join("config", "mcp", "mcp_servers
 export const REGISTRY_BASE_URL = process.env.MCP_REGISTRY_BASE_URL || "https://registry.modelcontextprotocol.io";
 export const REGISTRY_TIMEOUT_MS = Math.max(1000, Number(process.env.MCP_REGISTRY_TIMEOUT ?? 15) * 1000);
 export const MAX_REGISTRY_SEARCH_PAGES = 5;
+/** 对话期按需建连的单台连接超时(env: MCP_LAZY_CONNECT_TIMEOUT_MS,默认 5s)。 */
+export const LAZY_CONNECT_DEFAULT_TIMEOUT_MS = 5_000;
+/** 按需建连失败后的重试冷却(env: MCP_LAZY_CONNECT_RETRY_MS,默认 60s)。 */
+export const LAZY_CONNECT_DEFAULT_RETRY_MS = 60_000;
+
+function lazyConnectTimeoutMs(): number {
+  const configured = Number(process.env.MCP_LAZY_CONNECT_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : LAZY_CONNECT_DEFAULT_TIMEOUT_MS;
+}
+
+function lazyConnectRetryMs(): number {
+  const configured = Number(process.env.MCP_LAZY_CONNECT_RETRY_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : LAZY_CONNECT_DEFAULT_RETRY_MS;
+}
 
 export class McpServiceError extends Error {
   readonly statusCode: number;
@@ -84,6 +98,8 @@ export class McpService {
   private readonly suppressReconnect = new Set<string>();
   /** per-server/per-tool 调用 metrics(运行时累积,不持久化)。 */
   private readonly metrics = new Map<string, Map<string, McpToolMetrics>>();
+  /** 对话期按需建连(ensureServersReady)的失败冷却:server→最近一次失败时间戳。 */
+  private readonly lazyConnectFailures = new Map<string, number>();
   private readonly configPath: string | null;
 
   constructor(options: { dataRoot?: string | undefined; configPath?: string | undefined } = {}) {
@@ -188,6 +204,53 @@ export class McpService {
         // Startup should keep running even when an optional MCP server is unavailable.
       }
     }
+  }
+
+  /**
+   * 对话(run)开始前的按需建连:把给定列表中"已启用、未连接、未被手动断开"的服务器并行拉起。
+   * auto_connect=false 的服务器不参与启动期常驻连接,改由工具工厂在解析工具前调用本方法,
+   * 只连当前 agent 实际启用的服务器;单台超时/失败仅损失该服务器的工具,不阻塞本次对话,
+   * 失败的服务器在冷却期内不再重试,避免每条消息都白等一次超时。
+   */
+  async ensureServersReady(serverNames: readonly string[]): Promise<void> {
+    const now = Date.now();
+    const cooldownMs = lazyConnectRetryMs();
+    const timeoutMs = lazyConnectTimeoutMs();
+    const targets: string[] = [];
+    for (const rawName of serverNames) {
+      const name = rawName.trim();
+      if (!name) continue;
+      const server = this.servers.get(name);
+      if (!server?.enabled) continue;
+      if (this.manuallyDisconnectedServers.has(name)) continue;
+      const status = this.getServerStatus(name).status;
+      if (status === "connected" || status === "connecting") continue;
+      const failedAt = this.lazyConnectFailures.get(name);
+      if (failedAt !== undefined && now - failedAt < cooldownMs) continue;
+      targets.push(name);
+    }
+    if (!targets.length) return;
+    await Promise.allSettled(targets.map(async (name) => {
+      const connect = this.connectServer(name, { automatic: true });
+      try {
+        // 连接先行启动;成功/失败都清计时器。超时后底层连接继续在后台完成,
+        // 若最终成功,connectServer 的成功路径会自行清除该服务器的冷却记录。
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new McpServiceError(`按需连接超时(${timeoutMs}ms): ${name}`, 408)),
+            timeoutMs,
+          );
+          timer.unref?.();
+          connect.then(
+            () => { clearTimeout(timer); resolve(); },
+            (error: unknown) => { clearTimeout(timer); reject(error); },
+          );
+        });
+        this.lazyConnectFailures.delete(name);
+      } catch {
+        this.lazyConnectFailures.set(name, Date.now());
+      }
+    }));
   }
 
   async addServer(payload: McpServerCreate, options: { connect?: boolean } = {}): Promise<{ name: string }> {
@@ -320,6 +383,7 @@ export class McpService {
       state.status = "connected";
       state.errorMessage = null;
       state.reconnectAttempts = 0;
+      this.lazyConnectFailures.delete(serverName);
       return this.getServerStatus(serverName);
     } catch (error) {
       state.status = "error";

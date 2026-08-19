@@ -16,7 +16,7 @@ const localRuntimeFactory = createLocalMcpRuntimeFactory();
 
 export const backendPluginModule: BackendPluginModule = {
   apiVersion: 1,
-  manifest: { id: MCP_PLUGIN_ID, version: "0.2.0" },
+  manifest: { id: MCP_PLUGIN_ID, version: "0.2.1" },
   create({ config }) {
     assertEmptyConfig(config);
     return createInstalledMcpPlugin();
