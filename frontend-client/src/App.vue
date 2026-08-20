@@ -16,7 +16,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { nextTick, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import GlobalToast from './components/GlobalToast.vue';
 import GlobalConfirmDialog from './components/GlobalConfirmDialog.vue';
@@ -36,8 +36,22 @@ router.beforeEach((to, from) => {
   transitionName.value = toDepth >= fromDepth ? 'slide-forward' : 'slide-backward';
 });
 
+/** 桌宠快速对话：文本注入聊天输入框（Vue 受控 textarea 需派发 input 事件同步 v-model）。 */
+const fillComposer = async (text) => {
+  await nextTick();
+  const input = document.querySelector('.message-composer textarea, main textarea, textarea');
+  if (!input) return;
+  input.value = text;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.focus();
+};
+
 onMounted(() => {
   themeStore.init();
+  window.ragsystemDesktop?.onQuickAsk?.(async (text) => {
+    if (router.currentRoute.value.path !== '/') await router.push('/');
+    await fillComposer(String(text ?? ''));
+  });
 });
 </script>
 

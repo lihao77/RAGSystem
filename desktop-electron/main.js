@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, Menu, screen, Tray } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -13,11 +13,15 @@ const MAX_PORT_SEARCH = 20
 const START_TIMEOUT_MS = 45000
 const isDev = !app.isPackaged
 const isSmoke = process.env.RAGSYSTEM_DESKTOP_SMOKE === '1'
+// 开发时前端走 Vite dev server（HMR）；设置后主窗口/宠物窗口加载该地址而非后端静态产物
+const devFrontendUrl = process.env.RAGSYSTEM_DEV_FRONTEND_URL?.trim() || null
 const APP_ICON = path.join(__dirname, 'build', 'icon.ico')
 
 let mainWindow = null
 let backendProcess = null
 let actualPort = PREFERRED_PORT
+let tray = null
+const petWindows = []
 
 ipcMain.handle('dialog:select-project-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -28,6 +32,32 @@ ipcMain.handle('dialog:select-project-folder', async () => {
     return { canceled: true, path: null }
   }
   return { canceled: false, path: result.filePaths[0] }
+})
+
+// 桌宠窗口点击穿透切换：interactive=true 时宠物可交互，false 时鼠标事件直达下层窗口
+ipcMain.handle('pet:set-click-through', (event, interactive) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win || win.isDestroyed()) return false
+  win.setIgnoreMouseEvents(!interactive, { forward: true })
+  return true
+})
+
+// 宠物窗口默认不抢焦点（focusable:false）；快速输入框打开时临时可聚焦收键盘
+ipcMain.handle('pet:set-focus', (event, focus) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win || win.isDestroyed()) return false
+  win.setFocusable(Boolean(focus))
+  if (focus) win.focus()
+  return true
+})
+
+// 快速对话：把宠物窗口输入的文本送主窗口聊天输入框并前置主窗口
+ipcMain.handle('pet:quick-ask', (event, text) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  mainWindow.show()
+  mainWindow.focus()
+  mainWindow.webContents.send('ragsystem:quick-ask', String(text ?? '').slice(0, 2000))
+  return true
 })
 
 function isPortInUse(port) {
@@ -125,7 +155,10 @@ async function startBackend() {
     actualPort = PREFERRED_PORT
   }
 
-  const runtimeRoot = process.env.RAG_DATA_ROOT || path.join(os.homedir(), '.ragsystem')
+  // 桌面端使用独立数据目录：backend-local 硬性要求 deployment/execution=local，
+  // 而 ~/.ragsystem 可能被 SaaS/远程档位的开发数据占用（system_settings 会覆盖 env）。
+  // 仍可用 RAG_DATA_ROOT 环境变量显式覆盖。
+  const runtimeRoot = process.env.RAG_DATA_ROOT || path.join(os.homedir(), '.ragsystem-desktop')
   const logsDir = path.join(runtimeRoot, 'logs')
   ensureDir(logsDir)
 
@@ -219,13 +252,112 @@ function createMainWindow() {
     mainWindow = null
   })
 
-  mainWindow.loadURL(`http://127.0.0.1:${actualPort}`)
+  mainWindow.loadURL(devFrontendUrl || `http://127.0.0.1:${actualPort}`)
+}
+
+// 桌宠窗口：透明无边框置顶，每个显示器一个（宠物在各自屏幕内渲染与漫游），
+// 透明区域点击穿透（由 /pet 页面按命中检测经 IPC 切换）。display 索引随 URL 传给页面，
+// 用于位置记忆分键。
+function createPetWindow(display, displayIndex) {
+  const { x, y, width, height } = display.bounds
+  const petWindow = new BrowserWindow({
+    x,
+    y,
+    width,
+    height,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    focusable: false,
+    show: false,
+    title: APP_NAME,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false, // 未聚焦窗口中动画不被节流
+    },
+  })
+  petWindow.setAlwaysOnTop(true, 'screen-saver')
+  petWindow.setIgnoreMouseEvents(true, { forward: true })
+  petWindow.once('ready-to-show', () => petWindow.show())
+  petWindow.on('closed', () => {
+    const index = petWindows.indexOf(petWindow)
+    if (index >= 0) petWindows.splice(index, 1)
+  })
+  petWindow.loadURL(`${devFrontendUrl || `http://127.0.0.1:${actualPort}`}/pet?display=${displayIndex}`)
+  petWindows.push(petWindow)
+  return petWindow
+}
+
+function createPetWindows() {
+  const displays = screen.getAllDisplays()
+  displays.forEach((display, index) => createPetWindow(display, index))
+}
+
+function petWindowsVisible() {
+  return petWindows.some((win) => win.isVisible())
+}
+
+function togglePetWindows() {
+  const show = !petWindowsVisible()
+  for (const win of petWindows) {
+    if (show) win.show()
+    else win.hide()
+  }
+}
+
+function createTray() {
+  tray = new Tray(APP_ICON)
+  tray.setToolTip(APP_NAME)
+  const rebuildMenu = () => {
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: petWindowsVisible() ? '隐藏桌宠' : '显示桌宠', click: togglePetWindows },
+      {
+        label: '打开主窗口',
+        click: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show()
+            mainWindow.focus()
+          } else {
+            createMainWindow()
+          }
+        },
+      },
+      { type: 'separator' },
+      {
+        label: '开机自启',
+        type: 'checkbox',
+        checked: app.getLoginItemSettings().openAtLogin,
+        click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked }),
+      },
+      { type: 'separator' },
+      {
+        label: '退出',
+        click: () => {
+          app.isQuitting = true
+          app.quit()
+        },
+      },
+    ]))
+  }
+  tray.on('click', togglePetWindows)
+  rebuildMenu()
 }
 
 async function bootstrap() {
   try {
     await startBackend()
     createMainWindow()
+    createTray()
+    // 桌宠默认开启；RAGSYSTEM_DESKTOP_PET=0 关闭。smoke 模式跳过（不影响断言）。
+    if (!isSmoke && process.env.RAGSYSTEM_DESKTOP_PET !== '0') {
+      createPetWindows()
+    }
   } catch (error) {
     if (isSmoke) {
       failSmoke(error)
@@ -282,6 +414,10 @@ function finishSmoke(code) {
 
 app.on('before-quit', () => {
   app.isQuitting = true
+  if (tray) {
+    tray.destroy()
+    tray = null
+  }
   if (backendProcess && !backendProcess.killed) {
     backendProcess.kill()
   }

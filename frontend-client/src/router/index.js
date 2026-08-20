@@ -20,6 +20,7 @@ const InstallWizard = () => import('../views/InstallWizard.vue');
 const PlatformTenants = () => import('../views/PlatformTenants.vue');
 const PlatformUsers = () => import('../views/PlatformUsers.vue');
 const MemoryManager = () => import('../views/MemoryManager.vue');
+const PetView = () => import('../views/PetView.vue');
 
 const shellMeta = {
   depth: 0,
@@ -70,6 +71,7 @@ const routes = [
       { path: 'platform/users', component: PlatformUsers, meta: pageMeta('platform-users', 9, 11, { section: 'platform', requiresPlatformAdmin: true }) },
     ],
   },
+  { path: '/pet', component: PetView, meta: { public: true, depth: 0, shellKey: 'pet' } },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];
 
@@ -94,7 +96,9 @@ router.beforeEach(async (to) => {
 
   await bootstrapStore.load();
 
-  if (bootstrapStore.needsInstall && to.path !== '/install') {
+  // /pet 是装饰性桌面宠物页：安装完成前也要保持原路由（否则宠物窗口会被
+  // 重定向到 /install 并卡住；宠物资产 /api/pet 本身是 public 的，不依赖安装状态）
+  if (bootstrapStore.needsInstall && to.path !== '/install' && to.path !== '/pet') {
     return { path: '/install' };
   }
   if (!bootstrapStore.needsInstall && to.path === '/install') {
