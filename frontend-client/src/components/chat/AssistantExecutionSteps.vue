@@ -174,13 +174,14 @@ function scheduleHeightRelease(el) {
 }
 
 /* 展开期间内容变化（历史步骤加载完成 / 流式新增节点）：上限仍钉在旧值时
-   平滑过渡到新高度，避免释放后从占位高度直接跳变到完整高度。 */
+   平滑过渡到新高度，避免释放后从占位高度直接跳变到完整高度。
+   不重排释放定时器——流式节点高频到达时每次续期会让面板一直处于追赶过渡，
+   列表底部（正在流式的节点）被裁在可视区外；初次展开排定的释放照常触发。 */
 watch(nodes, () => {
   if (!expanded.value) return;
   const el = listOuter.value;
   if (!el || el.style.maxHeight === 'none') return;
   el.style.maxHeight = `${el.scrollHeight}px`;
-  scheduleHeightRelease(el);
 });
 
 async function loadHistoricalSteps() {

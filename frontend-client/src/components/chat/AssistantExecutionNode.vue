@@ -94,7 +94,7 @@
         />
       </button>
 
-      <div v-if="hasDetails" class="assistant-step-detail-wrap" :class="{ 'is-open': expanded }">
+      <div v-if="hasDetails" ref="detailWrapEl" class="assistant-step-detail-wrap" :class="{ 'is-open': expanded }">
         <div class="assistant-step-detail" :style="detailIndentStyle">
           <template v-if="node.type === 'tool_call'">
             <div class="assistant-step-detail-block">
@@ -124,18 +124,16 @@
         </div>
       </div>
 
-      <div v-if="hasChildren" class="assistant-step-child-wrap" :class="{ 'is-open': expanded }">
-        <div class="assistant-step-child-clip">
-          <AssistantExecutionNode
-            v-for="(child, index) in node.children"
-            :key="nodeKey(child, index)"
-            :node="child"
-            :depth="depth + 1"
-            :running="running"
-            @notify="emit('notify', $event)"
-            @citation-click="emit('citation-click', $event)"
-          />
-        </div>
+      <div v-if="hasChildren" ref="childWrapEl" class="assistant-step-child-wrap" :class="{ 'is-open': expanded }">
+        <AssistantExecutionNode
+          v-for="(child, index) in node.children"
+          :key="nodeKey(child, index)"
+          :node="child"
+          :depth="depth + 1"
+          :running="running"
+          @notify="emit('notify', $event)"
+          @citation-click="emit('citation-click', $event)"
+        />
       </div>
     </template>
   </div>
@@ -261,16 +259,19 @@ function toggleReasoningExpanded() {
 }
 
 // 流式时思考块自动跟随最新内容；用户主动上滑阅读（距底 >40px）则不打扰。
+// 吸附判定在渲染前读旧位置；滚动必须等渲染后读新 scrollHeight——提前读永远差一截，
+// 且单次增量渲染超过 40px 时会被误判成用户上滑而永久停止跟随。
 const reasoningEl = ref(null);
 watch(() => props.node.reasoning, () => {
-  if (reasoningStreaming.value && reasoningExpanded.value) {
-    const el = reasoningEl.value;
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight <= 40) {
+  const el = reasoningEl.value;
+  const stickToBottom = Boolean(el) && el.scrollHeight - el.scrollTop - el.clientHeight <= 40;
+  nextTick(() => {
+    if (el && stickToBottom && reasoningStreaming.value && reasoningExpanded.value) {
       el.scrollTop = el.scrollHeight;
     }
-  }
-  updateReasoningFades();
-  retargetReasoningHeight();
+    updateReasoningFades();
+    retargetReasoningHeight();
+  });
 });
 
 // 上下渐变遮罩：只在对应方向还有未滚到的内容时出现，滚到头即消失。
@@ -288,11 +289,15 @@ watch(reasoningExpanded, (open) => {
   nextTick(() => {
     updateReasoningFades();
     syncReasoningHeight(open);
+    // 流式中（手动收起后）重新展开：直接定位到最新内容，保持吸附。
+    const el = reasoningEl.value;
+    if (open && reasoningStreaming.value && el) el.scrollTop = el.scrollHeight;
   });
 });
 
 onBeforeUnmount(() => {
   window.clearTimeout(reasoningHeightTimer);
+  window.clearTimeout(collapseHeightTimer);
 });
 
 /* 高度动画：max-height 用实测值驱动。固定 320px 区间会让短内容在过渡早期
@@ -327,7 +332,9 @@ function scheduleReasoningRelease(clip) {
   }, 260);
 }
 
-/* 流式内容增长：上限仍钉在旧的实测值时平滑过渡到新高度（只增不减）。 */
+/* 流式内容增长：上限仍钉在旧的实测值时平滑过渡到新高度（只增不减）。
+   不重排释放定时器——流式增量若每次续期，上限会一直处在追赶过渡中，最新内容
+   长期被裁在可视区外；初次展开排定的释放照常触发后，交还给 320px 上限+滚动层。 */
 function retargetReasoningHeight() {
   if (!reasoningExpanded.value) return;
   const clip = reasoningClipEl.value;
@@ -337,7 +344,63 @@ function retargetReasoningHeight() {
   const target = Math.min(clip.scrollHeight, 320);
   if (target <= parseFloat(cap)) return;
   clip.style.maxHeight = `${target}px`;
-  scheduleReasoningRelease(clip);
+}
+
+/* 详情/子步骤折叠：与思考块、外层步骤面板同思路，max-height 用实测值驱动（不用
+   grid 0fr/1fr——Chrome 在 fr 过渡期对 grid item 的 stretch 解析有缺陷，收起动画
+   会在内容下方留出空白）；展开动画结束后释放上限，流式新增的子节点/结果不被裁剪。 */
+const detailWrapEl = ref(null);
+const childWrapEl = ref(null);
+let collapseHeightTimer = 0;
+
+watch(expanded, (open) => {
+  nextTick(() => syncCollapseHeight(open));
+});
+
+/* 结果流式就绪会让 hasDetails/hasChildren 中途变真：容器在展开态下才挂载，max-height
+   仍是 CSS 初值 0，需补一次高度同步。 */
+watch([hasDetails, hasChildren], ([details, children], [prevDetails, prevChildren]) => {
+  if (expanded.value && ((details && !prevDetails) || (children && !prevChildren))) {
+    nextTick(() => syncCollapseHeight(true));
+  }
+});
+
+function syncCollapseHeight(open) {
+  window.clearTimeout(collapseHeightTimer);
+  const wraps = collapseWraps();
+  if (open) {
+    for (const el of wraps) el.style.maxHeight = `${el.scrollHeight}px`;
+    if (wraps.length) scheduleCollapseRelease();
+    return;
+  }
+  for (const el of wraps) {
+    if (el.style.maxHeight === 'none') {
+      el.style.maxHeight = `${el.scrollHeight}px`;
+      void el.offsetHeight;
+    }
+    el.style.maxHeight = '0px';
+  }
+}
+
+function scheduleCollapseRelease() {
+  collapseHeightTimer = window.setTimeout(() => {
+    if (!expanded.value) return;
+    for (const el of collapseWraps()) el.style.maxHeight = 'none';
+  }, 260);
+}
+
+/* 展开期间内容变化（流式新增子节点/结果）：上限仍钉在旧实测值时平滑过渡到新高度。
+   不重排释放定时器——连续流式会不断续期，容器高度一直在过渡中追赶内容，底部最新
+   内容长期被裁；初次展开排定的释放照常触发后，上限交还给内容自身。 */
+watch(() => props.node, () => {
+  if (!expanded.value) return;
+  const pinned = collapseWraps().filter(el => el.style.maxHeight && el.style.maxHeight !== 'none');
+  if (!pinned.length) return;
+  for (const el of pinned) el.style.maxHeight = `${el.scrollHeight}px`;
+});
+
+function collapseWraps() {
+  return [detailWrapEl.value, childWrapEl.value].filter(Boolean);
 }
 
 function toggleExpanded() {
@@ -509,29 +572,25 @@ function truncate(value, maxLength) {
   color: var(--color-error);
 }
 
-/* 折叠容器（工具/agent 详情）：0fr→1fr 匀速高度动画控制显隐；展开稍长、收起略快。 */
+/* 折叠容器（工具/agent 详情与子步骤）：max-height 由 syncCollapseHeight 以实测高度内联
+   驱动，展开动画结束后释放上限（none）。不用 grid 0fr/1fr——Chrome 在 fr 过渡期对
+   grid item 的 stretch 解析有缺陷（容器按插值高度占位、内容不跟随），收起动画会在
+   内容下方留出一段空白；max-height 直接驱动容器自身高度，任意中间态都贴合。
+   展开稍长、收起略快。 */
 .assistant-step-detail-wrap,
 .assistant-step-child-wrap {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 180ms linear, margin-bottom 180ms linear;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 180ms linear, margin-bottom 180ms linear;
 }
 
 .assistant-step-detail-wrap.is-open,
 .assistant-step-child-wrap.is-open {
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 240ms linear, margin-bottom 240ms linear;
+  transition: max-height 240ms linear, margin-bottom 240ms linear;
 }
 
 .assistant-step-detail-wrap.is-open {
   margin-bottom: 10px;
-}
-
-/* 折叠内层裁剪：0fr 收起时裁到不可见；内容不做淡入淡出，显隐完全由高度动画承担。 */
-.assistant-step-detail,
-.assistant-step-child-clip {
-  min-height: 0;
-  overflow: hidden;
 }
 
 /* 裁剪层：max-height 折叠动画。不用 grid 0fr/1fr——Chrome 在 fr 过渡期对 grid item
@@ -660,7 +719,6 @@ function truncate(value, maxLength) {
   .assistant-step-child-wrap,
   .assistant-step-reasoning-clip,
   .assistant-step-detail,
-  .assistant-step-child-clip,
   .assistant-step-reasoning,
   .assistant-step-chevron,
   .assistant-step-icon,
