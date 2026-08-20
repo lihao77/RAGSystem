@@ -1,5 +1,5 @@
 <template>
-  <PageLayout title="系统配置" subtitle="记忆与系统运行参数">
+  <PageLayout title="系统配置" subtitle="系统模型与运行参数">
     <template #header-actions>
       <span v-if="isDirty" class="unsaved-hint">未保存</span>
       <Button variant="ghost" size="icon-sm" :disabled="loading || saving" aria-label="重新加载" :title="isDirty ? '重新加载（将丢弃未保存的修改）' : '重新加载'" @click="handleReload">
@@ -24,7 +24,7 @@
     <EntityListLayout
       v-if="loading || error"
       title="系统配置数据"
-      description="加载记忆与系统运行参数。"
+      description="加载系统模型与运行参数。"
       :loading="loading"
       loading-text="加载系统配置..."
       :error="error"
@@ -77,15 +77,14 @@ import { getProviders } from '../api/modelAdapter.js';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import { Input } from '../components/ui/input';
 import {
-  applyProviderToLlm,
   createExtraParamEntry,
-  getProviderModels,
   parseExtraParamEntries,
   parseExtraParamsInput,
 } from '../utils/modelList.js';
 import { Button } from '../components/ui/button';
 import { showToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
+import { useProviderSchemaEnrich } from '../composables/useProviderSchemaEnrich.js';
 import {
   getSystemConfigSchema,
   getSystemConfig,
@@ -107,7 +106,14 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
 const { confirm } = useConfirm();
-const configSchema = computed(() => enrichSchemaWithProviderSelection(baseConfigSchema.value, configData.value));
+const { enrichSchemaWithProviderSelection, applyProviderCascade } = useProviderSchemaEnrich(providers);
+
+// 插件贡献的组（带 sourceExtension 标记）归插件管理页显示，此处只渲染系统内置组
+const builtinConfigSchema = computed(() => ({
+  ...baseConfigSchema.value,
+  groups: (baseConfigSchema.value.groups ?? []).filter((group) => !group.sourceExtension),
+}));
+const configSchema = computed(() => enrichSchemaWithProviderSelection(builtinConfigSchema.value, configData.value));
 
 // 脏检查：加载/保存成功后打快照，表单或额外参数有改动即标记未保存
 const savedSnapshot = ref('');
@@ -139,106 +145,8 @@ async function loadData() {
   }
 }
 
-const PROVIDER_SELECT_GROUPS = ['llm', 'image_tools'];
-
-function findSelectedProvider(groupConfig) {
-  const providerName = String(groupConfig?.provider || '').trim();
-  const providerType = String(groupConfig?.provider_type || '').trim();
-  if (!providerName) return null;
-  return providers.value.find((provider) => {
-    const identifiers = [provider?.name, provider?.key].map((value) => String(value || '').trim());
-    return identifiers.includes(providerName)
-      && (!providerType || String(provider?.provider_type || '').trim() === providerType);
-  }) || null;
-}
-
-/**
- * 将含 provider/model_name 字段的配置组动态化为下拉选择（如 llm、image_tools）。
- * provider 选项来自系统模型 Provider 配置；model 选项来自所选 Provider 的模型列表。
- * llm 组的 provider_type 由所选 Provider 自动带出；其余组保持原样（可选消歧）。
- * 图片理解组（视觉辅助）只列出支持视觉的 provider。
- */
-function enrichSchemaWithProviderSelection(schema, config = configData.value) {
-  // Schema data is held by a Vue ref and may contain reactive proxies, which
-  // structuredClone cannot clone in the browser.
-  const next = JSON.parse(JSON.stringify(schema || { groups: [] }));
-  for (const group of next.groups || []) {
-    const groupConfig = config?.[group.key];
-    if (!groupConfig || typeof groupConfig !== 'object' || Array.isArray(groupConfig)) continue;
-    const fields = group.fields || [];
-    const hasProviderField = fields.some((field) => field.key === 'provider');
-    const hasModelField = fields.some((field) => field.key === 'model_name');
-    if (!hasProviderField && !hasModelField) continue;
-
-    const currentProvider = String(groupConfig.provider || '').trim();
-    const currentModel = String(groupConfig.model_name || '').trim();
-    // 视觉辅助组只提供支持视觉的 provider；llm 主模型组保留全部（主模型可为非视觉）。
-    const visionOnly = group.key === 'image_tools';
-    const providerOptions = providers.value
-      .filter((provider) => !visionOnly || provider.supports_vision === true)
-      .map((provider) => ({
-        value: provider.name || provider.key || '',
-        label: `${provider.name || provider.key || '未命名'}${provider.provider_type ? ` (${provider.provider_type})` : ''}`,
-      }))
-      .filter((option) => option.value);
-    if (currentProvider && !providerOptions.some((option) => option.value === currentProvider)) {
-      providerOptions.unshift({ value: currentProvider, label: `${currentProvider} (当前配置)` });
-    }
-    const selectedProvider = findSelectedProvider(groupConfig);
-    const modelOptions = getProviderModels(selectedProvider).map((model) => ({ value: model, label: model }));
-    if (currentModel && !modelOptions.some((option) => option.value === currentModel)) {
-      modelOptions.unshift({ value: currentModel, label: `${currentModel} (当前配置)` });
-    }
-
-    for (const field of fields) {
-      if (field.key === 'provider') {
-        field.type = 'select';
-        field.options = [{ value: '', label: '未设置' }, ...providerOptions];
-      } else if (field.key === 'model_name') {
-        field.type = 'select';
-        field.options = [{ value: '', label: '选择模型' }, ...modelOptions];
-      } else if (field.key === 'provider_type' && PROVIDER_SELECT_GROUPS.includes(group.key)) {
-        field.type = 'text';
-        field.disabled = true;
-        field.placeholder = '未设置';
-        field.help = '由所选 Provider 自动带出';
-      }
-    }
-  }
-  return next;
-}
-
-function applyProviderToGroup(groupKey, groupConfig, selected) {
-  if (groupKey === 'llm') return applyProviderToLlm(groupConfig, selected);
-  // 其余组（image_tools）：带出 provider 与 provider_type，并清空 model_name——
-  // 模型列表随 Provider 变化，沿用旧模型名会造成 "Provider A + 模型 B" 的静默错误配置。
-  return {
-    ...groupConfig,
-    provider: selected.name || selected.key || '',
-    provider_type: selected.provider_type || '',
-    model_name: '',
-  };
-}
-
 function handleConfigChange(nextConfig) {
-  for (const groupKey of PROVIDER_SELECT_GROUPS) {
-    const previousProvider = configData.value?.[groupKey]?.provider;
-    const nextProvider = nextConfig?.[groupKey]?.provider;
-    if (!nextProvider) {
-      // 清空 provider 时重置该组关联字段
-      nextConfig = {
-        ...nextConfig,
-        [groupKey]: { ...nextConfig[groupKey], provider: '', provider_type: '', model_name: '' },
-      };
-      continue;
-    }
-    if (nextProvider === previousProvider) continue;
-    const selected = providers.value.find((item) => item?.name === nextProvider || item?.key === nextProvider);
-    if (selected) {
-      nextConfig = { ...nextConfig, [groupKey]: applyProviderToGroup(groupKey, nextConfig[groupKey], selected) };
-    }
-  }
-  configData.value = nextConfig;
+  configData.value = applyProviderCascade(configData.value, nextConfig, builtinConfigSchema.value);
 }
 
 function addExtraParam() {

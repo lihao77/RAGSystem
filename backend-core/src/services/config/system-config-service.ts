@@ -186,6 +186,10 @@ function buildSystemConfigSchema(): SystemConfigSchema {
         key: "llm",
         label: "LLM 配置",
         description: "当智能体未配置任何 LLM tier 时使用的系统默认模型",
+        providerSelect: {
+          autoSelectModel: true,
+          applyProviderFields: ["temperature", "max_completion_tokens", "max_context_tokens"],
+        },
         fields: [
           textField("provider", "Provider", "AI 提供商名称；留空表示未配置", ""),
           textField("provider_type", "Provider Type", "Provider 类型（用于精确查找，避免同名冲突）", ""),

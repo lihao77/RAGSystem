@@ -28,6 +28,7 @@ export const IMAGE_TOOLS_SYSTEM_CONFIG_EXTENSION: SystemConfigExtension = {
       key: IMAGE_TOOLS_CONFIG_KEY,
       label: "图片理解",
       description: "为不支持视觉输入的主模型提供图片文字描述（用户消息与 view_image 工具）。",
+      providerSelect: { visionOnly: true },
       fields: [
         {
           key: "enabled",

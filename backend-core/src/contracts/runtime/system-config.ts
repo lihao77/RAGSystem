@@ -29,6 +29,22 @@ export interface SystemConfigGroup {
   fields: SystemConfigField[];
   /** 该组来自哪个扩展（约定为插件 manifest id）；内置组无此字段。插件设置页按它分组。 */
   sourceExtension?: string;
+  /** 声明后宿主前端将 provider/model_name 渲染为下拉并按提示过滤/联动。 */
+  providerSelect?: SystemConfigProviderSelectHints;
+}
+
+/**
+ * provider/model 下拉增强提示，由组定义方（内置 schema 或插件扩展）自声明，
+ * 宿主前端不内置任何具体组名。含 provider/model_name 字段的组默认渲染下拉，
+ * 提示只改变过滤与联动行为。
+ */
+export interface SystemConfigProviderSelectHints {
+  /** 只列出支持视觉的 Provider（视觉辅助组用）。 */
+  visionOnly?: boolean;
+  /** 切换 Provider 时自动选择其第一个模型（系统默认 LLM 用）；缺省则清空 model_name 等待手选。 */
+  autoSelectModel?: boolean;
+  /** 切换 Provider 时从 Provider 同名字段回填到组配置的字段名（值非空时以 Number 写入）。 */
+  applyProviderFields?: readonly string[];
 }
 
 export interface SystemConfigSchema {

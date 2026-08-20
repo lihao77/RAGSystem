@@ -28,6 +28,7 @@ context.runtimes.register((runtimeContext) => {
 - **读取**：请求/操作时 `systemConfig.getSection("<组 key>")` 热读（改完即生效）；不要在工厂创建时快照（除非接受重启生效）。
 - **注册时回灌**：把 `getSection` 的当前值作为 defaults 传入，避免 rebuildProjection 丢已存值。
 - **敏感字段**：按 key 名自动脱敏（password/api_key/token 等），PATCH 回写时 `********` 占位被丢弃。
+- **provider 下拉**：含 `provider`/`model_name` 字段的组在设置页自动渲染为下拉；组可声明 `providerSelect` 提示改变联动行为（`visionOnly` 只列支持视觉的 Provider、`autoSelectModel` 切换后自动选第一个模型、`applyProviderFields` 切换时从 Provider 回填同名字段）。参考实现：内置 llm 组与 image-tools 插件。
 
 ## 二、插件前端 view（运行时 ESM 微前端）
 

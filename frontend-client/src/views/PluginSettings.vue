@@ -55,13 +55,16 @@ import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import SchemaForm from '../components/SchemaForm.vue';
 import { Button } from '../components/ui/button/index.ts';
 import { showToast } from '../composables/useToast.js';
+import { useProviderSchemaEnrich } from '../composables/useProviderSchemaEnrich.js';
+import { getProviders } from '../api/modelAdapter.js';
 import { getSystemConfigSchema, getSystemConfig, updateSystemConfig } from '../api/systemConfig.js';
 import { getInstalledPlugins } from '../api/plugins.js';
 
 /**
  * 插件设置页：列出声明了 systemConfig 扩展组的插件（后端 /api/plugins 的
  * configGroups + /api/system-config/schema 的 sourceExtension 分组），
- * 复用 SchemaForm 渲染；保存按"有改动的插件"粒度 PATCH system-config。
+ * 复用 SchemaForm 渲染（含 provider/model 下拉增强）；保存按"有改动的
+ * 插件"粒度 PATCH system-config。系统配置页只显示内置组，插件组仅在此页出现。
  */
 const loading = ref(true);
 const loadError = ref('');
@@ -69,16 +72,18 @@ const saving = ref(false);
 const installed = ref([]);
 const configData = ref({});
 const schemaGroups = ref([]);
+const providers = ref([]);
+const { enrichSchemaWithProviderSelection, applyProviderCascade } = useProviderSchemaEnrich(providers);
 
 // 每插件快照（脏检查）：{ [pluginId]: JSON.stringify(该插件各组当前值) }
 const savedSnapshots = ref({});
 
 const configurablePlugins = computed(() => installed.value
   .filter((plugin) => (plugin.configGroups ?? []).length > 0)
-  .map((plugin) => ({
-    ...plugin,
-    groups: schemaGroups.value.filter((group) => plugin.configGroups.includes(group.key)),
-  })));
+  .map((plugin) => {
+    const groups = schemaGroups.value.filter((group) => plugin.configGroups.includes(group.key));
+    return { ...plugin, groups: enrichSchemaWithProviderSelection({ groups }, configData.value).groups };
+  }));
 
 const dirtyPlugins = computed(() => {
   const dirty = new Set();
@@ -97,14 +102,16 @@ async function loadData() {
   loading.value = true;
   loadError.value = '';
   try {
-    const [plugins, schema, config] = await Promise.all([
+    const [plugins, schema, config, providerResult] = await Promise.all([
       getInstalledPlugins(),
       getSystemConfigSchema(),
       getSystemConfig(),
+      getProviders().catch(() => []),
     ]);
     installed.value = plugins;
     schemaGroups.value = schema?.groups ?? [];
     configData.value = config ?? {};
+    providers.value = Array.isArray(providerResult) ? providerResult : [];
     takeSnapshots();
   } catch (e) {
     loadError.value = e.message || '加载插件清单失败';
@@ -122,14 +129,16 @@ function takeSnapshots() {
 }
 
 function handleConfigChange(nextConfig) {
-  configData.value = nextConfig;
+  // 级联只作用于本页渲染的插件组（带 sourceExtension 标记）
+  const pluginSchema = { groups: schemaGroups.value.filter((group) => group.sourceExtension) };
+  configData.value = applyProviderCascade(configData.value, nextConfig, pluginSchema);
 }
 
 async function handleSave() {
   if (dirtyPlugins.value.size === 0) return;
   saving.value = true;
   try {
-    // 只 PATCH 有改动的插件的组，避免覆盖别处（系统配置页）的未保存修改
+    // 只 PATCH 有改动的插件的组，保持最小载荷，避免覆盖其他插件的未保存修改
     const payload = {};
     for (const plugin of configurablePlugins.value) {
       if (!dirtyPlugins.value.has(plugin.id)) continue;
