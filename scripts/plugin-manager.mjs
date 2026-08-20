@@ -15,6 +15,7 @@
  * 后端启动时产品清单 + 用户清单合并装载；变更需重启后端生效。
  */
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -43,17 +44,32 @@ function usage(code = 1) {
 
 function parseArgs(argv) {
   let dataRoot = process.env.RAG_DATA_ROOT?.trim() || path.join(os.homedir(), ".ragsystem");
+  let sha256;
   const rest = [];
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--data-root") {
       dataRoot = argv[index + 1];
       if (!dataRoot) usage();
       index += 1;
+    } else if (argv[index] === "--sha256") {
+      sha256 = argv[index + 1];
+      if (!sha256) usage();
+      index += 1;
     } else {
       rest.push(argv[index]);
     }
   }
-  return { dataRoot: path.resolve(dataRoot), command: rest[0], args: rest.slice(1) };
+  return { dataRoot: path.resolve(dataRoot), sha256, command: rest[0], args: rest.slice(1) };
+}
+
+/** 校验分发产物完整性（zip/单文件安装前；npm/git 规格无法校验）。 */
+function verifySha256(spec, expected) {
+  if (!/^[0-9a-f]{64}$/i.test(expected)) throw new Error(`--sha256 格式无效（期望 64 位十六进制）`);
+  const digest = createHash("sha256").update(fs.readFileSync(path.resolve(spec))).digest("hex");
+  if (digest !== expected.toLowerCase()) {
+    throw new Error(`sha256 校验失败：期望 ${expected.toLowerCase()}，实际 ${digest}`);
+  }
+  console.log("sha256 校验通过。");
 }
 
 function readList(listPath) {
@@ -155,7 +171,9 @@ async function installBundle(pluginsDir, spec) {
     const listPath = path.join(pluginsDir, "plugins.yaml");
     const list = readList(listPath);
     if (list.plugins.some((item) => item.module === module)) {
-      console.log(`已安装（跳过）: ${name}`);
+      // 同名重装 = 升级：文件已在上面整体替换，清单保持原状（含启用状态）
+      console.log(`已更新: ${name}（文件已替换，启用状态保持不变）`);
+      console.log("重启后端后生效（本地开发 tsx watch 会自动重载）。");
       return;
     }
     list.plugins.push({ module, enabled: true });
@@ -237,7 +255,7 @@ async function add(dataRoot, spec) {
     if (!found) throw new Error(`包已安装但找不到插件入口（期望 ${name}/module.js）: ${packageDir}`);
     const module = `./node_modules/${name}/${found.entry}`;
     if (list.plugins.some((item) => item.module === module)) {
-      console.log(`已安装（跳过）: ${name}`);
+      console.log(`已更新: ${name}（npm 依赖已重装，启用状态保持不变）`);
       return;
     }
     list.plugins.push({ module, enabled: true });
@@ -314,9 +332,18 @@ function remove(dataRoot, target) {
   console.log("重启后端后生效。");
 }
 
-const { dataRoot, command, args } = parseArgs(process.argv.slice(2));
+const { dataRoot, sha256, command, args } = parseArgs(process.argv.slice(2));
 try {
-  if (command === "add" && args.length === 1) await add(dataRoot, args[0]);
+  if (command === "add" && args.length >= 1) {
+    if (sha256) {
+      if (isDirectorySpec(args[0]) && fs.existsSync(args[0]) && fs.statSync(args[0]).isFile()) {
+        verifySha256(args[0], sha256);
+      } else {
+        throw new Error("--sha256 仅支持 zip / module.js 分发产物");
+      }
+    }
+    await add(dataRoot, args[0]);
+  }
   else if (command === "list") list(dataRoot);
   else if ((command === "enable" || command === "disable") && args.length === 1) toggle(dataRoot, args[0], command === "enable");
   else if (command === "remove" && args.length === 1) remove(dataRoot, args[0]);

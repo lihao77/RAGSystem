@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
+import { resolvePluginAssetDir } from "@ragsystem/backend-core/plugins/plugin-assets.js";
 import type {} from "@ragsystem/backend-core/fastify-context.js";
 
 import { PetActivityTracker } from "./pet-activity.js";
@@ -64,31 +64,20 @@ export function createPetPlugin(dependencies: PetPluginDependencies = {}): Backe
 }
 
 /**
- * 默认 thumb 动画目录解析（按存在性探测）：
- * 0. 分发产物布局：module.js 与资产平级（bundle-plugin zip 安装形态，见 docs/BACKEND_PLUGIN_CONFIG.md）
- * 1. workspace 布局：<包根>/assets/thumb（src/ 与 dist/ 深度一致，均为两级向上）
- * 2. 桌面打包布局：<plugin-modules>/plugin-assets/pet/thumb（prepare-backend 拷贝位置）
- * 均不存在时返回布局 1 路径（manifest 输出空清单、thumb 404，前端隐藏宠物）。
+ * 默认 thumb 动画目录：三布局探测统一走 backend-core 的 resolvePluginAssetDir
+ * （分发产物 / workspace / 桌面打包）；均不存在时返回 workspace 候选
+ * （manifest 输出空清单、thumb 404，前端隐藏宠物）。
  */
 export function resolveDefaultPetAssetsRoot(): string {
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-  const distributedLayout = path.resolve(moduleDir, "assets", "thumb");
-  if (fs.existsSync(distributedLayout)) return distributedLayout;
-  const packageLayout = path.resolve(moduleDir, "..", "assets", "thumb");
-  if (fs.existsSync(packageLayout)) return packageLayout;
-  const desktopLayout = path.resolve(moduleDir, "plugin-assets", "pet", "thumb");
-  if (fs.existsSync(desktopLayout)) return desktopLayout;
-  return packageLayout;
+  return resolvePluginAssetDir({ moduleUrl: import.meta.url, relative: "assets/thumb", pluginId: PET_PLUGIN_ID });
 }
 
-/** 默认前端 UI 产物目录解析（三布局探测，同 resolveDefaultPetAssetsRoot；缺失时 bundle 404 前端降级）。 */
+/** 默认前端 UI 产物目录：三布局探测（分发/桌面=ui/，workspace=ui/dist；缺失时 bundle 404 前端降级）。 */
 export function resolveDefaultPetUiRoot(): string {
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-  const distributedLayout = path.resolve(moduleDir, "ui");
-  if (fs.existsSync(distributedLayout)) return distributedLayout;
-  const packageLayout = path.resolve(moduleDir, "..", "ui", "dist");
-  if (fs.existsSync(packageLayout)) return packageLayout;
-  const desktopLayout = path.resolve(moduleDir, "plugin-assets", "pet", "ui");
-  if (fs.existsSync(desktopLayout)) return desktopLayout;
-  return packageLayout;
+  return resolvePluginAssetDir({
+    moduleUrl: import.meta.url,
+    relative: "ui",
+    workspaceRelative: "ui/dist",
+    pluginId: PET_PLUGIN_ID,
+  });
 }

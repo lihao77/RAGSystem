@@ -34,7 +34,8 @@
     "e2e:saas-compose": "node scripts/saas-compose-e2e.mjs",
     "demo": "npm -w @ragsystem/demo-app run start",
     "plugin": "node scripts/plugin-manager.mjs",
-    "bundle-plugin": "node scripts/bundle-plugin.mjs"
+    "bundle-plugin": "node scripts/bundle-plugin.mjs",
+    "create-plugin": "node scripts/create-plugin.mjs"
   },
   "engines": {
     "node": ">=22.5.0"

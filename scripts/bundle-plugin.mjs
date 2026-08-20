@@ -15,6 +15,7 @@
  * 再兜底 workspace 布局（与 pet 的双布局探测一致）。
  */
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -94,9 +95,11 @@ const zipPath = path.join(outputRoot, `${artifactName}.zip`);
 fs.writeFileSync(zipPath, await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
 fs.rmSync(path.join(outputRoot, "module.tmp.js"), { force: true });
 
+const sha256 = createHash("sha256").update(fs.readFileSync(zipPath)).digest("hex");
 console.log(`已打包: ${zipPath}`);
+console.log(`sha256: ${sha256}`);
 console.log(`包含: module.js${assets.length ? " + " + assets.map((asset) => `${asset.source}→${asset.destination}`).join(", ") : ""}`);
-console.log(`安装: npm run plugin -- add ${zipPath}`);
+console.log(`安装: npm run plugin -- add ${zipPath} --sha256 ${sha256}`);
 
 function addDirectoryToZip(zip, prefix, directory) {
   for (const name of fs.readdirSync(directory)) {

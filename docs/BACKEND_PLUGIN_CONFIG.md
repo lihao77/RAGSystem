@@ -111,6 +111,7 @@ npm run plugin -- add ../my-backend-plugin
 
 # 分发产物：bundle-plugin 打出的 zip（或单文件 module.js）——打包版软件同样适用
 npm run plugin -- add my-plugin-1.0.0.zip
+npm run plugin -- add my-plugin.zip --sha256 <bundle-plugin 输出的哈希>   # 可选完整性校验
 
 # npm 包 / git 仓库：npm install --prefix <数据目录>/plugins 安装（需本机有 npm）
 npm run plugin -- add some-npm-plugin
@@ -141,7 +142,7 @@ npm run bundle-plugin -- plugins/backend-plugin-pet --asset assets:assets --asse
 
 - 入口取 `src/module.ts` / `module.js`；`--asset <源目录:目标目录>` 可重复，目标目录相对 module.js；
 - `--out <dir>` 覆盖输出目录（默认 `<插件目录>/release/`）；
-- **产物布局约定**：资产与 module.js 平级。插件内解析资产优先
-  `path.resolve(path.dirname(fileURLToPath(import.meta.url)), "<目标目录>")`，
-  再兜底 workspace 布局（参考 pet 的三布局探测）；
+- **产物布局约定**：资产与 module.js 平级。插件内解析资产统一用 backend-core 的
+  `resolvePluginAssetDir({ moduleUrl, relative, workspaceRelative?, pluginId })`（三布局探测：分发/workspace/桌面），不要手写探测；
+- 新插件用脚手架生成：`npm run create-plugin -- <name>`（模板已内置配置扩展、ui 清单、资产探测、构建配置全部约定）；
 - 打包版软件用户无需 npm/git：拿到 zip 后 `npm run plugin -- add <zip>` 或（后续）应用内文件导入即装。

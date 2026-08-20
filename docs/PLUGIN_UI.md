@@ -75,7 +75,7 @@ export function mountView(element, host) {
 
 ### 构建约定（vite lib 模式）
 
-以 pet 为模板（`plugins/backend-plugin-pet/ui/`）：
+以 pet 为模板（`plugins/backend-plugin-pet/ui/`）；新插件用脚手架生成（`npm run create-plugin -- <name>`），模板已内置全部约定。
 
 ```js
 // ui/vite.config.js
@@ -94,8 +94,15 @@ export default defineConfig({
 
 - 产物：`ui/dist/bundle.js` + `ui/dist/style.css`（CSS 固定名，`mountView` 以 `import.meta.url` 推导同目录 `<link>` 注入——动态 import 不会自动加载 CSS）。
 - 命令：包内 `npm run build:ui`。
-- 后端伺服：插件在自己的路由前缀下伺服（防穿越 + 手动 content-type，参考 `plugins/backend-plugin-pet/src/pet-assets.ts` 的 `registerPetUiRoutes`）。
-- 桌面打包：`desktop-electron/scripts/prepare-backend.mjs` 把 `ui/dist` 拷到 `plugin-assets/<plugin>/ui`；插件运行时按双布局探测（包内 `ui/dist` → 桌面 `plugin-assets`）。
+- 后端伺服：插件在自己的路由前缀下伺服（防穿越 + 手动 content-type，参考 `plugins/backend-plugin-pet/src/pet-assets.ts` 的 `registerPetUiRoutes`；建议带 etag 协商缓存）。
+- 桌面打包：`desktop-electron/scripts/prepare-backend.mjs` 把产物拷到 `plugin-assets/<plugin>/`。
+- 资产目录解析统一用 `resolvePluginAssetDir({ moduleUrl: import.meta.url, relative, workspaceRelative?, pluginId })`（backend-core 导出），三布局探测：分发产物（与 module.js 平级）/ workspace / 桌面——不要手写探测。
+
+### 硬契约（违反即视为破坏插件生态兼容性）
+
+1. **卸载必须清理全部全局副作用**。`mountView` 返回的 `unmount()` 被调用时，插件必须移除自己注册的一切：全局事件监听器、定时器、SSE/EventSource、注入 `<head>` 的节点、对 `window`/`document` 的一切修改。容器内 DOM 由宿主销毁，容器外的一概由插件自清。参考 pet 的 `cleanupClickThrough`/`restoredStyles` 模式。
+2. **CSS 必须命名空间化**。bundle 的样式是全局注入的（无 Shadow DOM 隔离）：所有类名以插件名做前缀（如 `.pet-quick`、`.my-plugin-panel`），禁止触碰宿主既有选择器与 `body`/`html` 全局样式（确需修改全局时必须在 unmount 恢复——参考 pet 的 `body.pet-page` 处理）。
+3. **不要依赖宿主运行时**。不 import 宿主的模块、不使用宿主的 provide/inject/Pinia/router；一切交互经 `pluginHost` props。bundle 自带 Vue，禁止 external。
 
 ### 安全说明
 
