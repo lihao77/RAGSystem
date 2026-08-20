@@ -10,7 +10,7 @@ const environment = loadEnvSource(process.env, process.env.INIT_CWD?.trim() || p
 Object.assign(process.env, environment);
 const env = loadEnv(environment);
 const socketPath = environment.BACKEND_TS_SOCKET_PATH?.trim();
-const deployment = createLocalDeploymentRuntime(env);
+const deployment = await createLocalDeploymentRuntime(env);
 let app;
 
 try {

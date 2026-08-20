@@ -98,10 +98,12 @@ router.beforeEach(async (to) => {
 
   // /pet 是装饰性桌面宠物页：安装完成前也要保持原路由（否则宠物窗口会被
   // 重定向到 /install 并卡住；宠物资产 /api/pet 本身是 public 的，不依赖安装状态）
-  if (bootstrapStore.needsInstall && to.path !== '/install' && to.path !== '/pet') {
+  // 本地形态免安装（后端启动即固化 installed），任何情况下都不进入安装向导
+  const isLocalDeployment = bootstrapStore.profile.deployment === 'local';
+  if (bootstrapStore.needsInstall && !isLocalDeployment && to.path !== '/install' && to.path !== '/pet') {
     return { path: '/install' };
   }
-  if (!bootstrapStore.needsInstall && to.path === '/install') {
+  if (to.path === '/install' && (!bootstrapStore.needsInstall || isLocalDeployment)) {
     return { path: bootstrapStore.requiresAuth && !authStore.isAuthenticated ? '/login' : '/' };
   }
   if (!bootstrapStore.requiresAuth && authStore.isAuthenticated) {

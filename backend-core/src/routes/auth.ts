@@ -33,47 +33,34 @@ interface InstallRouteOptions extends BaseAuthRouteOptions {
 export const registerInstallRoutes: FastifyPluginAsync<InstallRouteOptions> = async (app, options) => {
   app.post("/install", async (request) => {
     const input = InstallRequestSchema.parse(request.body);
-    if (input.deployment === "saas" && !input.admin) {
+    const runningProfile = options.runtime.profile;
+    if (runningProfile.deployment === "local") {
+      // local 形态免安装：组合根启动时已固化 profile 与隐式身份，此处保持幂等 no-op。
+      return { ...runningProfile, installed: true, restart_required: false, platformRole: "admin" };
+    }
+
+    if (!input.admin) {
       throw new HttpError(400, "invalid_request", "SaaS 安装必须配置管理员账号");
     }
 
-    const deploymentMode = input.deployment === "single" ? "local" : "saas";
-    const authMode = input.deployment === "single" ? "local" : "password";
-    const tenancyMode = input.deployment === "single" ? "single" : (input.tenancy ?? "single");
-    const configuredSaaSProfile = options.runtime.profile.deployment === "saas"
-      ? options.runtime.profile
-      : null;
-    const executionMode = input.deployment === "single"
-      ? "local"
-      : configuredSaaSProfile?.execution ?? "remote";
-    const storageMode = input.deployment === "single"
-      ? "sqlite"
-      : configuredSaaSProfile?.storage ?? "sqlite-per-tenant";
-    const tenantId = createTenantId(input.deployment === "single" ? "tnt_local" : "tnt_default");
-    const tenantName = input.tenantDisplayName ?? (input.deployment === "single" ? "Local" : "Default");
-
     const settings = {
-      deployment_mode: deploymentMode,
-      auth_mode: authMode,
-      tenancy_mode: tenancyMode,
-      execution_mode: executionMode,
-      storage_mode: storageMode,
-      ui_mode: input.deployment === "single" ? "local" : "saas",
+      deployment_mode: "saas",
+      auth_mode: "password",
+      tenancy_mode: runningProfile.tenancy,
+      execution_mode: runningProfile.execution,
+      storage_mode: runningProfile.storage,
+      ui_mode: "saas",
       installed: "true",
     };
     options.validateProfileSettings(settings);
     await options.controlPlane.provisioning.install({
-      tenant: { id: tenantId, displayName: tenantName },
-      ...(input.deployment === "saas" && input.admin
-        ? {
-            admin: {
-              id: createUserId(`usr_${randomUUID().replaceAll("-", "")}`),
-              displayName: input.admin.username,
-              username: input.admin.username,
-              passwordHash: hashPassword(input.admin.password),
-            },
-          }
-        : {}),
+      tenant: { id: createTenantId("tnt_default"), displayName: input.tenantDisplayName ?? "Default" },
+      admin: {
+        id: createUserId(`usr_${randomUUID().replaceAll("-", "")}`),
+        displayName: input.admin.username,
+        username: input.admin.username,
+        passwordHash: hashPassword(input.admin.password),
+      },
       settings,
     });
 

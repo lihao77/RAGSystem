@@ -7,8 +7,7 @@ import { provideBackendResource, type BackendPluginResourceContribution } from "
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import type { DeploymentProfile } from "@ragsystem/backend-core/identity/types.js";
-import { PasswordIdentityProvider, type IdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
-import type { SessionTokenService } from "@ragsystem/backend-core/services/runtime/session-token-service.js";
+import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "@ragsystem/backend-core/services/identity/index.js";
 import { createWsTicketService } from "@ragsystem/backend-core/services/runtime/ws-ticket-service.js";
 import {
   createLocalFileChangeApplicationResolver,
@@ -28,13 +27,16 @@ export interface LocalDeploymentRuntime extends DeploymentRuntime {
   };
 }
 
-export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntime {
+export async function createLocalDeploymentRuntime(env: AppEnv): Promise<LocalDeploymentRuntime> {
   if (env.deploymentMode === "saas" || env.storageMode === "postgres" || env.controlStorageMode === "postgres") {
     throw new Error("Local backend only supports SQLite control/runtime storage");
   }
 
   const controlStore = createControlStore(env.systemRoot);
   const controlPlane = new SqliteControlPlaneAdapter(controlStore);
+  // 必须先于 buildCoreApp 读 settings 完成：固化本地档位，同时自愈被历史
+  // 安装写入污染的 system_settings（例如共用数据目录时期留下的 SaaS 配置）。
+  await ensureLocalInstallation(controlPlane);
   const wsTickets = createWsTicketService();
   const applications = createLocalRequestApplicationResolvers();
   const deploymentApplications: DeploymentApplicationResolvers = {
@@ -70,9 +72,9 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
       logger,
       plugins ? { runtimeOptions: { plugins } } : {},
     ),
-    createIdentityProvider: async (authMode, sessionTokens) => {
-      const identityProvider = createLocalIdentityProvider(authMode, controlPlane, sessionTokens);
-      if (identityProvider instanceof SceneLocalIdentityProvider) await identityProvider.initialize();
+    createIdentityProvider: async (authMode) => {
+      const identityProvider = createLocalIdentityProvider(authMode, controlPlane);
+      await identityProvider.initialize();
       return identityProvider;
     },
     close: async () => {
@@ -84,19 +86,39 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
   };
 }
 
+/**
+ * 本地形态免安装：启动时幂等固化部署档位并供给隐式身份（usr_local/tnt_local），
+ * 前端不再出现安装向导。settings 为 upsert 语义，重复启动无副作用。
+ */
+async function ensureLocalInstallation(controlPlane: SqliteControlPlaneAdapter): Promise<void> {
+  await controlPlane.settings.setMany({
+    deployment_mode: "local",
+    auth_mode: "local",
+    tenancy_mode: "single",
+    execution_mode: "local",
+    storage_mode: "sqlite",
+    ui_mode: "local",
+    installed: "true",
+  });
+  await controlPlane.provisioning.ensureLocalIdentity({
+    tenant: { id: LOCAL_TENANT_ID, displayName: "Local" },
+    user: { id: LOCAL_USER_ID, displayName: "Local User", platformRole: "admin" },
+    role: "owner",
+  });
+}
+
 function validateLocalProfile(profile: DeploymentProfile): void {
-  if (profile.deployment !== "local" || profile.execution !== "local") {
-    throw new Error("Local backend currently requires deployment=local and execution=local");
+  if (profile.deployment !== "local" || profile.execution !== "local" || profile.auth !== "local") {
+    throw new Error("Local backend requires deployment=local, execution=local and auth=local (implicit identity)");
   }
 }
 
 function createLocalIdentityProvider(
   authMode: string,
   controlPlane: SqliteControlPlaneAdapter,
-  sessionTokens: SessionTokenService | undefined,
-): IdentityProvider {
-  if (authMode === "local") return new SceneLocalIdentityProvider(controlPlane);
-  if (authMode === "password" && sessionTokens) return new PasswordIdentityProvider(controlPlane, sessionTokens);
-  if (authMode === "oidc") throw new Error("Local backend does not provide OIDC identity");
-  throw new Error(`Cannot create Local identity provider for auth mode: ${authMode}`);
+): SceneLocalIdentityProvider {
+  if (authMode !== "local") {
+    throw new Error(`Local backend locks auth to implicit local identity, got: ${authMode}`);
+  }
+  return new SceneLocalIdentityProvider(controlPlane);
 }

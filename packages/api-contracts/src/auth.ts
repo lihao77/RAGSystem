@@ -6,9 +6,11 @@ const UserIdSchema = z.string().regex(/^usr_[a-z0-9]+(?:_[a-z0-9]+)*$/);
 export const TenantRoleSchema = z.enum(["owner", "admin", "member"]);
 export const PlatformRoleSchema = z.literal("admin");
 
+/**
+ * 安装请求：部署形态由运行中的后端决定（local/saas 是不同的部署包），
+ * 此处不再携带形态选择。SaaS 安装须提供管理员账号；local 形态免安装。
+ */
 export const InstallRequestSchema = z.object({
-  deployment: z.enum(["single", "saas"]),
-  tenancy: z.enum(["single", "multi"]).optional(),
   admin: z.object({
     username: z.string().trim().min(1),
     password: z.string().min(8),

@@ -44,8 +44,6 @@ try {
   await requestJson(baseUrl, "/api/install", {
     method: "POST",
     body: {
-      deployment: "saas",
-      tenancy: "multi",
       admin: { username: adminUsername, password: adminPassword },
       tenantDisplayName: "SaaS E2E Default",
     },
