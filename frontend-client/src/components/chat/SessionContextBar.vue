@@ -171,20 +171,31 @@ const runtimeTriggerTitle = computed(() => {
 </script>
 
 <style scoped>
+/* Electron 桌面端兼任标题栏：整栏可拖拽（被动文字随行），交互子元素排除；
+   浏览器中 app-region 无效，不影响 Web 端。实底 --surface-shell 与右上角
+   原生窗口控件条同色，按钮条融入背景；高度与其他顶栏行统一 44px
+   （36px 图标按钮 + 上下 4px padding 的自然高度）。 */
 .session-context-bar {
   position: relative;
   z-index: var(--z-sticky);
   display: flex;
-  min-height: 52px;
+  min-height: 44px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: var(--top-bar-padding-y) var(--top-bar-padding-x);
-  background: transparent;
+  background: var(--surface-shell);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   transition: background var(--transition-normal);
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.session-context-bar :is(button, [role='button'], input, a) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .session-context-bar.scrolled {
@@ -252,6 +263,9 @@ const runtimeTriggerTitle = computed(() => {
   flex: 0 0 auto;
   align-items: center;
   gap: 2px;
+  /* Electron 右上角原生最小化/最大化/关闭按钮区让位（titlebar-area-width 之外即控件区宽度）；
+     浏览器回退为 0 */
+  padding-right: calc(100vw - env(titlebar-area-width, 100vw));
 }
 
 .runtime-trigger {

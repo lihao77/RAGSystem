@@ -237,6 +237,8 @@ const openMobileSidebar = () => {
 }
 
 /* ===== 桌面端 Header —— 与内容区同宽同对齐 ===== */
+/* Electron 桌面端兼任标题栏拖拽区：整行可拖拽（标题文字随行），交互子元素排除；
+   header 在文档流中不与内容重叠，原 pointer-events 穿透不再需要（且会禁用拖拽命中） */
 .page-header {
   position: relative;
   z-index: var(--z-sticky);
@@ -244,7 +246,6 @@ const openMobileSidebar = () => {
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-lg);
-  pointer-events: none;
   /* 与 .page-content 用同一个 max-width + 居中，保证标题列与正文列严丝合缝 */
   width: 100%;
   max-width: var(--page-shell-max-width, 1400px);
@@ -254,14 +255,17 @@ const openMobileSidebar = () => {
   background: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  -webkit-app-region: drag;
+  app-region: drag;
 }
 
 .page-header::after {
   display: none;
 }
 
-.page-header > * {
-  pointer-events: auto;
+.page-header :is(button, [role='button'], input, a) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .page-header__group {

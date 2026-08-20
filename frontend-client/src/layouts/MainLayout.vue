@@ -547,12 +547,23 @@ onUnmounted(() => {
   width: var(--sidebar-collapsed-width);
 }
 
+/* Electron 桌面端隐藏原生标题栏后，logo 行兼任标题栏：整行可拖拽/双击最大化，
+   交互子元素（logo、折叠按钮）排除；浏览器中 app-region 无效，不影响 Web 端。
+   高度与顶栏行统一 44px（会话顶栏/原生窗口控件同高）。 */
 .sidebar-top-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 44px;
   padding: 6px 8px 6px 9px;
   transition: all var(--transition-normal);
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.sidebar-top-bar :is(button, [role='button'], .sidebar-logo-wrapper) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .sidebar.collapsed .sidebar-top-bar {

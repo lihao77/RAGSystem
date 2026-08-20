@@ -17,6 +17,13 @@ const isSmoke = process.env.RAGSYSTEM_DESKTOP_SMOKE === '1'
 const devFrontendUrl = process.env.RAGSYSTEM_DEV_FRONTEND_URL?.trim() || null
 const APP_ICON = path.join(__dirname, 'build', 'icon.ico')
 
+// 主窗口标题栏（窗口控件区）：背景全透明，页面内容直接透到最小化/关闭按钮下方，
+// 无需与任何主题/页面颜色同步；仅符号色跟随主题（--color-text-primary）。
+// 高度与前端顶栏行（.sidebar-top-bar / .session-context-bar）统一为 44px。
+const TITLE_BAR_HEIGHT = 44
+const TITLE_BAR_TRANSPARENT = '#00000000'
+const TITLE_BAR_DARK = { symbolColor: '#fafafa' }
+
 let mainWindow = null
 let backendProcess = null
 let actualPort = PREFERRED_PORT
@@ -58,6 +65,23 @@ ipcMain.handle('pet:quick-ask', (event, text) => {
   mainWindow.focus()
   mainWindow.webContents.send('ragsystem:quick-ask', String(text ?? '').slice(0, 2000))
   return true
+})
+
+// 主题切换时渲染进程推送按钮符号色（--color-text-primary 计算值）；
+// 控件条背景恒为全透明，页面直接透过，无需同步背景色
+ipcMain.handle('window:set-title-bar-theme', (event, theme) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win || win.isDestroyed()) return false
+  try {
+    win.setTitleBarOverlay({
+      color: TITLE_BAR_TRANSPARENT,
+      symbolColor: String(theme?.symbolColor || TITLE_BAR_DARK.symbolColor),
+      height: TITLE_BAR_HEIGHT,
+    })
+    return true
+  } catch {
+    return false // 无 titleBarOverlay 的窗口（如透明桌宠窗）调用会抛错，静默忽略
+  }
 })
 
 function isPortInUse(port) {
@@ -212,6 +236,13 @@ function createMainWindow() {
     autoHideMenuBar: true,
     title: APP_NAME,
     icon: APP_ICON,
+    backgroundColor: '#161616', // 启动首帧底色（默认暗色主题）
+    // Windows：隐藏原生标题栏，Window Controls Overlay 保留原生最小化/最大化/关闭，
+    // 控件条背景全透明——按钮悬浮在页面内容上，天然匹配任何主题/页面
+    ...(process.platform === 'win32' ? {
+      titleBarStyle: 'hidden',
+      titleBarOverlay: { color: TITLE_BAR_TRANSPARENT, ...TITLE_BAR_DARK, height: TITLE_BAR_HEIGHT },
+    } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
