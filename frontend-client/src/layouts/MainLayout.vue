@@ -138,7 +138,9 @@ import UserMenu from '../components/UserMenu.vue';
 import SceneSwitcher from '../components/SceneSwitcher.vue';
 import SessionList from '../components/session-list/SessionList.vue';
 import { SESSION_BROWSER_VIEWS, UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '../stores/workspace.js';
-import { sidebarAdminNavItem, filterManagementNavItems, adminNavGroups } from '../navigation/adminNavigation';
+import { sidebarAdminNavItem, filterManagementNavItems, adminNavGroups, IconPluginView } from '../navigation/adminNavigation';
+import { usePluginStore } from '../stores/plugins.js';
+import { ensurePluginViewRoutes } from '../router/index.js';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';
 import HotkeysHelp from '../components/HotkeysHelp.vue';
@@ -172,13 +174,42 @@ const lastChatSessionId = ref(null);
 const isChatRoute = computed(() => (route.meta?.mainView || 'chat') === 'chat');
 const pageShell = computed(() => (isChatRoute.value ? 'div' : AdminLayout));
 const isPageActive = (mainView) => (route.meta?.mainView || 'chat') === mainView;
+const pluginsStore = usePluginStore();
+// 插件 management 视图的导航项（来自 tenant 清单的 ui.views；非 exposePublic 插件只在这里可见）
+const pluginManagementNavItems = computed(() => {
+  const items = [];
+  for (const plugin of pluginsStore.installed) {
+    for (const view of plugin.ui?.views ?? []) {
+      if (view?.placement !== 'management' || !view?.route || !view?.entry) continue;
+      const mainView = `plugin:${plugin.id}:${view.entry}`;
+      items.push({
+        key: mainView,
+        mainView,
+        path: view.route,
+        label: view.title || view.entry,
+        title: view.title || view.entry,
+        description: `插件 ${plugin.id} 提供的管理页面。`,
+        group: 'operations',
+        requireTenantRole: 'admin',
+        icon: IconPluginView,
+      });
+    }
+  }
+  return items;
+});
+if (authStore.isAuthenticated && hasTenantRole('admin')) {
+  // tenant 完整清单：management 视图的路由补注册 + 导航项
+  pluginsStore.loadInstalled()
+    .then((plugins) => ensurePluginViewRoutes(plugins))
+    .catch(() => {});
+}
 const visibleManagementNavItems = computed(() => filterManagementNavItems(bootstrapStore.capabilities, {
   isAuthenticated: authStore.isAuthenticated,
   authMode: bootstrapStore.profile.auth,
   isLocal: bootstrapStore.profile.ui === 'local' || bootstrapStore.profile.deployment === 'local',
   isPlatformAdmin: isPlatformAdmin.value,
   hasTenantRole,
-}));
+}, pluginManagementNavItems.value));
 const adminItemsByGroup = (groupKey) => visibleManagementNavItems.value.filter((i) => i.group === groupKey);
 const visibleAdminNavGroups = computed(() => adminNavGroups.filter((group) => adminItemsByGroup(group.key).length > 0));
 const canViewAdminOverview = computed(() => hasTenantRole(sidebarAdminNavItem.requireTenantRole));

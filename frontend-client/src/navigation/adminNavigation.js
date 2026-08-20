@@ -7,6 +7,7 @@ import {
   Layers,
   LayoutGrid,
   Plug,
+  Puzzle,
   Radio,
   Settings,
   SquarePlus,
@@ -16,6 +17,7 @@ import {
 } from 'lucide-vue-next';
 
 export const IconAdminCenter = LayoutGrid;
+export const IconPluginView = Puzzle;
 
 export const adminNavGroups = [
   {
@@ -168,6 +170,17 @@ export const managementNavItems = [
     requireTenantRole: 'owner',
     icon: Settings,
   },
+  {
+    key: 'plugins-settings',
+    mainView: 'plugins-settings',
+    path: '/plugins-settings',
+    label: '插件管理',
+    title: '插件管理',
+    description: '查看已安装插件，并配置插件提供的设置项。',
+    group: 'operations',
+    requireTenantRole: 'owner',
+    icon: Puzzle,
+  },
 ];
 
 const capabilityByNavigationKey = {
@@ -176,8 +189,8 @@ const capabilityByNavigationKey = {
   'widget-credentials': 'widget',
 };
 
-export function filterManagementNavItems(capabilities = {}, context = {}) {
-  return managementNavItems.filter((item) => {
+export function filterManagementNavItems(capabilities = {}, context = {}, extraItems = []) {
+  return [...managementNavItems, ...extraItems].filter((item) => {
     if (context.isLocal && (item.requiresPlatformAdmin || item.key === 'members')) {
       return false;
     }
