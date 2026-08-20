@@ -29,20 +29,20 @@
       >
         <template v-if="!hasMessages" #context>
           <TaskLauncher
-            :team="team"
-            :team-options="teamOptions"
-            :team-loading="teamLoading"
-            :entry-agent="entryAgent"
             :workspace-root="workspaceRoot"
-            :entry-agent-options="entryAgentOptions"
-            :entry-agent-loading="entryAgentLoading"
-            @update:team="emit('update:team', $event)"
-            @update:entry-agent="emit('update:entryAgent', $event)"
             @update:workspace-root="emit('update:workspaceRoot', $event)"
           />
         </template>
         <template #footerMeta>
           <div class="composer-run-controls" role="group" aria-label="本次发送设置">
+            <TeamAgentSelector
+              v-if="!sessionId"
+              :team="team"
+              :team-options="teamOptions"
+              :team-loading="teamLoading"
+              :entry-agent="entryAgent"
+              @update:selection="emit('update:selection', $event)"
+            />
             <LLMSelector presentation="composer" />
             <ThinkingLevelSelector />
             <PermissionModeSelector :session-id="sessionId" :chat-sdk-client="chatSdkClient" />
@@ -137,6 +137,7 @@ import LLMSelector from '../LLMSelector.vue';
 import ThinkingLevelSelector from '../ThinkingLevelSelector.vue';
 import PermissionModeSelector from '../PermissionModeSelector.vue';
 import TaskLauncher from './TaskLauncher.vue';
+import TeamAgentSelector from './TeamAgentSelector.vue';
 import { Popover, PopoverAnchor, PopoverContent } from '../ui/popover/index';
 import { formatTokenCount } from '../../utils/format.js';
 
@@ -163,8 +164,6 @@ const props = defineProps({
   teamLoading: { type: Boolean, default: false },
   entryAgent: { type: String, default: '' },
   workspaceRoot: { type: String, default: '' },
-  entryAgentOptions: { type: Array, default: () => [] },
-  entryAgentLoading: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
@@ -175,8 +174,7 @@ const emit = defineEmits([
   'openAttachments',
   'removeAttachment',
   'pasteFiles',
-  'update:team',
-  'update:entryAgent',
+  'update:selection',
   'update:workspaceRoot',
   'openContextDrawer',
 ]);

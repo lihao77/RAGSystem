@@ -148,6 +148,20 @@ export function useChatSessionController(deps) {
     await loadEntryAgentOptions(next);
   };
 
+  /**
+   * 级联选择器单次提交 team + entryAgent，避免「改 team 清空 agent 再回填」的中间态。
+   * entryAgent 留空 = 使用该 team 的默认入口 Agent（与服务端兜底语义一致）；
+   * loadEntryAgentOptions 会校验 agent 在该 team 下仍存在且启用，否则清空。
+   */
+  const setPendingTeamAgent = async (teamName, agentName = '') => {
+    const next = (teamName || '').trim();
+    const agent = (agentName || '').trim();
+    if (next === currentSessionTeam.value.trim() && agent === pendingEntryAgent.value.trim()) return;
+    currentSessionTeam.value = next;
+    pendingEntryAgent.value = agent;
+    await loadEntryAgentOptions(next);
+  };
+
   const hydrateSessionContext = async (sessionId, listItem = null, isCurrent = () => true) => {
     const client = deps.chatSdkClient;
     if (!client) throw new Error('Chat SDK 未初始化');
@@ -349,6 +363,7 @@ export function useChatSessionController(deps) {
     loadEntryAgentOptions,
     loadActiveTeam,
     setPendingTeam,
+    setPendingTeamAgent,
     exportCurrentSession,
     updateRecentSession,
     syncSessionFromRoute,

@@ -113,16 +113,13 @@
             :team-loading="teamLoading"
             :entry-agent="pendingEntryAgent"
             :workspace-root="pendingWorkspaceRoot"
-            :entry-agent-options="entryAgentOptions"
-            :entry-agent-loading="entryAgentLoading"
             @send="handleSend"
             @stop="handleStop"
             @resume="handleResume"
             @open-attachments="() => openSessionFilesDrawer('composer')"
             @remove-attachment="removePendingAttachment"
             @paste-files="handleSessionFileSelect"
-            @update:team="setPendingTeam"
-            @update:entry-agent="pendingEntryAgent = $event"
+            @update:selection="({ team, entryAgent }) => setPendingTeamAgent(team, entryAgent)"
             @update:workspace-root="pendingWorkspaceRoot = $event"
             @open-context-drawer="openCtxDrawer"
           />
@@ -643,12 +640,10 @@ const {
   pendingWorkspaceRoot,
   pendingEntryAgent,
   sessionWorkspaceDisplay,
-  entryAgentOptions,
-  entryAgentLoading,
   isExportingSession,
   loadEntryAgentOptions,
   loadActiveTeam,
-  setPendingTeam,
+  setPendingTeamAgent,
   exportCurrentSession,
   updateRecentSession,
   syncSessionFromRoute,

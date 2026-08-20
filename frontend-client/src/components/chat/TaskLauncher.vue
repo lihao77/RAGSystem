@@ -42,77 +42,22 @@
         <p v-else class="project-list-empty">暂无项目</p>
       </DialogContent>
     </Dialog>
-
-    <Dialog v-model:open="settingsOpen">
-      <DialogTrigger as-child>
-        <Button variant="ghost" size="icon-xs" aria-label="新会话设置" title="新会话设置">
-          <SlidersHorizontal />
-        </Button>
-      </DialogTrigger>
-      <DialogContent class="launch-settings-dialog w-[min(460px,calc(100vw-24px))] max-w-none rounded-lg">
-        <DialogHeader>
-          <DialogTitle>新会话设置</DialogTitle>
-          <DialogDescription>选择本次会话使用的 Team 和入口 Agent。</DialogDescription>
-        </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel for="new-chat-team">Team</FieldLabel>
-            <CustomSelect
-              trigger-id="new-chat-team"
-              trigger-aria-label="Team"
-              :model-value="team"
-              :options="teamOptions"
-              :disabled="teamSelectDisabled"
-              :dropdown-max-height="320"
-              dropdown-placement="auto"
-              :placeholder="teamPlaceholder"
-              @update:modelValue="emit('update:team', $event)"
-            />
-          </Field>
-          <Field>
-            <FieldLabel for="new-chat-entry-agent">入口 Agent</FieldLabel>
-            <CustomSelect
-              trigger-id="new-chat-entry-agent"
-              trigger-aria-label="入口 Agent"
-              :model-value="entryAgent"
-              :options="entryAgentOptions"
-              :disabled="entryAgentLoading || teamLoading"
-              :dropdown-max-height="320"
-              dropdown-placement="auto"
-              :placeholder="entryAgentPlaceholder"
-              @update:modelValue="emit('update:entryAgent', $event)"
-            />
-          </Field>
-        </FieldGroup>
-        <DialogFooter>
-          <Button size="sm" @click="settingsOpen = false">完成</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import { Check, ChevronDown, FolderKanban, FolderOpen, SlidersHorizontal } from 'lucide-vue-next';
-import CustomSelect from '../ui/CustomSelect.vue';
+import { Check, ChevronDown, FolderKanban, FolderOpen } from 'lucide-vue-next';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
-import { Field, FieldGroup, FieldLabel } from '../ui/field';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
 import { useWorkspaceStore } from '../../stores/workspace.js';
 
 const props = defineProps({
-  team: { type: String, default: '' },
-  teamOptions: { type: Array, default: () => [] },
-  teamLoading: { type: Boolean, default: false },
-  entryAgent: { type: String, default: '' },
-  entryAgentOptions: { type: Array, default: () => [] },
-  entryAgentLoading: { type: Boolean, default: false },
   workspaceRoot: { type: String, default: '' },
 });
 
-const emit = defineEmits(['update:team', 'update:entryAgent', 'update:workspaceRoot']);
+const emit = defineEmits(['update:workspaceRoot']);
 const workspaceStore = useWorkspaceStore();
 const {
   items: workspaces,
@@ -121,23 +66,11 @@ const {
   loading: workspaceLoading,
 } = storeToRefs(workspaceStore);
 const projectDialogOpen = ref(false);
-const settingsOpen = ref(false);
 
 const projectLabel = computed(() => {
   if (workspaceLoading.value) return '加载项目…';
   if (currentWorkspace.value) return currentWorkspace.value.display_name;
   return '选择项目';
-});
-const teamSelectDisabled = computed(() => props.teamLoading || props.teamOptions.length === 0);
-const teamPlaceholder = computed(() => {
-  if (props.teamLoading) return '加载 Team…';
-  if (props.teamOptions.length === 0) return '暂无 Team';
-  return '使用默认 Team';
-});
-const entryAgentPlaceholder = computed(() => {
-  if (props.teamLoading || props.entryAgentLoading) return '加载 Agent…';
-  if (props.entryAgentOptions.length === 0) return '使用服务端默认 Agent';
-  return '使用默认 Agent';
 });
 
 function selectWorkspace(id) {

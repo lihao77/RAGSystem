@@ -1,7 +1,7 @@
 <template>
   <div class="llm-selector" :class="{ 'llm-selector--composer': presentation === 'composer' }">
-    <Popover v-model:open="open">
-      <PopoverTrigger as-child>
+    <DropdownMenu v-model:open="open">
+      <DropdownMenuTrigger as-child>
         <button
           type="button"
           class="llm-select-trigger"
@@ -15,44 +15,42 @@
           <IconChevronDown class="arrow-icon" :class="{ rotate: open }" :size="14" />
           <div v-if="loading" class="loading-spinner"></div>
         </button>
-      </PopoverTrigger>
-      <PopoverContent
-        class="llm-popover p-0"
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        class="llm-menu"
         align="start"
         :side="presentation === 'composer' ? 'top' : 'bottom'"
         :side-offset="8"
       >
-        <Command>
-          <CommandInput v-if="models.length > 5" placeholder="Search models..." />
-          <CommandList>
-            <CommandEmpty>No models found</CommandEmpty>
-            <CommandGroup>
-              <CommandItem class="llm-option rounded-md px-3 py-1.5 data-[highlighted]:bg-[var(--color-interactive-hover)]" value="__default__" @select="() => selectModel('')">
-                <span class="option-copy">
-                  <span class="option-label">默认</span>
-                  <span class="option-sub">使用智能体配置</span>
-                </span>
-                <IconCheck v-if="!selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
-              </CommandItem>
-              <CommandSeparator />
-              <CommandItem
-                v-for="m in models"
-                :key="m.value"
-                class="llm-option rounded-md px-3 py-1.5 data-[highlighted]:bg-[var(--color-interactive-hover)]"
-                :value="m.value"
-                @select="() => selectModel(m.value)"
-              >
-                <span class="option-copy">
-                  <span class="option-label">{{ m.model }}</span>
-                  <span class="option-sub">{{ m.provider }}</span>
-                </span>
-                <IconCheck v-if="m.value === selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
-              </CommandItem>
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+        <DropdownMenuItem class="llm-option" @select="selectModel('')">
+          <span class="option-copy">
+            <span class="option-label">默认</span>
+            <span class="option-sub">使用智能体配置</span>
+          </span>
+          <IconCheck v-if="!selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <!-- 点击 provider 行 = 选该 provider 的默认（首个）模型；hover 展开子菜单选具体模型 -->
+        <DropdownMenuSub v-for="group in providerGroups" :key="group.key">
+          <DropdownMenuSubTrigger class="llm-option llm-provider" @click="selectProviderDefault(group)">
+            <span class="option-label">{{ group.label }}</span>
+            <IconCheck v-if="group.selected" class="check-icon" :size="14" :stroke-width="2.5" />
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent class="llm-submenu">
+            <DropdownMenuItem
+              v-for="(m, i) in group.models"
+              :key="m.value"
+              class="llm-option"
+              @select="selectModel(m.value)"
+            >
+              <span class="option-label">{{ m.model }}</span>
+              <span v-if="i === 0" class="default-tag">默认</span>
+              <IconCheck v-if="m.value === selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
 
     <div v-if="error" class="error-indicator" :title="error"><IconWarning :size="16" /></div>
   </div>
@@ -61,8 +59,16 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
-import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
-import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator } from './ui/command';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { findProviderModelByValue, getAvailableModels } from '../api/modelAdapter';
 import { useLlmStore } from '../stores/llm.js';
 import IconChevronDown from './icons/IconChevronDown.vue';
@@ -85,6 +91,30 @@ const loading = ref(false);
 const error = ref('');
 const open = ref(false);
 
+// 按 provider 分组（保持接口返回顺序）；组内首个模型即该 provider 的默认模型
+// （collectProviderModels 以 model_map 的 chat 任务列表开头，顺序即用户配置的优先级）。
+const providerGroups = computed(() => {
+  const groups = [];
+  const byKey = new Map();
+  for (const m of models.value) {
+    const key = `${m.provider}|${m.provider_type}`;
+    if (!byKey.has(key)) {
+      const group = {
+        key,
+        label: m.provider + (m.provider_type ? ` (${m.provider_type})` : ''),
+        models: [],
+        selected: false,
+      };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    const group = byKey.get(key);
+    group.models.push(m);
+    if (m.value === selectedModel.value) group.selected = true;
+  }
+  return groups;
+});
+
 const displayText = computed(() => {
   if (loading.value) return '加载中';
   if (models.value.length === 0) return '无可用模型';
@@ -104,6 +134,11 @@ const selectedModelTitle = computed(() => {
 const selectModel = (value) => {
   llmStore.setSelectedLLM(value);
   open.value = false;
+};
+
+const selectProviderDefault = (group) => {
+  if (!group.models.length) return;
+  selectModel(group.models[0].value);
 };
 
 const loadModels = async () => {
@@ -247,23 +282,35 @@ defineExpose({ getSelection });
   to { transform: translateY(-50%) rotate(360deg); }
 }
 
-/* Popover 内容 */
-.llm-popover {
-  width: 280px;
-  padding: 0;
+/* 菜单 */
+.llm-menu {
+  min-width: 240px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   background: var(--color-bg-elevated);
   box-shadow: var(--shadow-lg);
 }
 
-/* Command 选项:padding/圆角/hover 在模板上用 tailwind 类覆盖 CommandItem 默认,无需 !important */
+.llm-submenu {
+  min-width: 200px;
+  max-height: 320px;
+  overflow-y: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-lg);
+}
+
 .llm-option {
   color: var(--color-text-primary);
   font-size: 14px;
   font-weight: 500;
-  justify-content: space-between;
   gap: 12px;
+  cursor: pointer;
+}
+
+.llm-provider {
+  font-size: 13px;
 }
 
 .option-copy {
@@ -274,6 +321,8 @@ defineExpose({ getSelection });
   gap: 2px;
 }
 .option-label {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -285,6 +334,16 @@ defineExpose({ getSelection });
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.default-tag {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(var(--color-brand-accent-rgb), 0.14);
+  color: var(--color-brand-accent-light);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 16px;
 }
 .check-icon {
   flex-shrink: 0;
