@@ -1,7 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 
 import type { AppEnv } from "../config/env.js";
-import type { BackendRouteContribution, BackendRouteScope } from "../plugins/backend-plugin.js";
+import type {
+  BackendPluginEventPublisher,
+  BackendRouteContribution,
+  BackendRouteHostContext,
+  BackendRouteInstallContext,
+  BackendRouteScope,
+} from "../plugins/backend-plugin.js";
 import type { ControlPlane } from "../contracts/control-plane/index.js";
 import type { DeploymentProfile } from "../identity/types.js";
 import { registerAdminRoutes } from "../routes/admin.js";
@@ -37,6 +43,7 @@ interface PublicRouteAssemblyOptions {
   validateProfileSettings: (settings: Readonly<Record<string, string>>) => void;
   pluginRoutes?: readonly BackendRouteContribution[];
   emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
+  pluginRouteHost?: BackendRouteHostContext;
 }
 
 export async function registerPublicAndAuthRoutes(
@@ -62,7 +69,10 @@ export async function registerPublicAndAuthRoutes(
     controlPlane: options.controlPlane,
     runtime: options.runtime,
   });
-  await registerPluginRoutes(app, options.pluginRoutes, "public", options.emitPluginEvent);
+  await registerPluginRoutes(app, options.pluginRoutes, "public", {
+    emitPluginEvent: options.emitPluginEvent,
+    host: options.pluginRouteHost,
+  });
 }
 
 export interface SharedBusinessRouteAssemblyOptions {
@@ -81,6 +91,7 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveWorkspaceFileApplication: NonNullable<RouteOptions["resolveWorkspaceFileApplication"]>;
   pluginRoutes?: readonly BackendRouteContribution[];
   emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
+  pluginRouteHost?: BackendRouteHostContext;
 }
 
 export async function registerSharedBusinessRoutes(
@@ -122,7 +133,10 @@ export async function registerSharedBusinessRoutes(
         ...routeOptions,
       });
     }
-    await registerPluginRoutes(scope, options.pluginRoutes, "tenant", options.emitPluginEvent);
+    await registerPluginRoutes(scope, options.pluginRoutes, "tenant", {
+      emitPluginEvent: options.emitPluginEvent,
+      host: options.pluginRouteHost,
+    });
   });
 }
 
@@ -132,6 +146,7 @@ interface ManagementRouteAssemblyOptions {
   identityProvider: IdentityProvider;
   pluginRoutes?: readonly BackendRouteContribution[];
   emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
+  pluginRouteHost?: BackendRouteHostContext;
 }
 
 export async function registerManagementAndPlatformRoutes(
@@ -141,7 +156,10 @@ export async function registerManagementAndPlatformRoutes(
   await app.register(async (scope) => {
     installIdentityScope(scope, { identityProvider: options.identityProvider });
     await scope.register(registerAdminRoutes, { prefix: "/api/admin", controlPlane: options.controlPlane });
-    await registerPluginRoutes(scope, options.pluginRoutes, "management", options.emitPluginEvent);
+    await registerPluginRoutes(scope, options.pluginRoutes, "management", {
+      emitPluginEvent: options.emitPluginEvent,
+      host: options.pluginRouteHost,
+    });
   });
   await app.register(async (scope) => {
     installIdentityScope(scope, { identityProvider: options.identityProvider, identityScope: "platform" });
@@ -151,7 +169,10 @@ export async function registerManagementAndPlatformRoutes(
       registry: options.registry,
       ...(options.emitPluginEvent ? { emitPluginEvent: options.emitPluginEvent } : {}),
     });
-    await registerPluginRoutes(scope, options.pluginRoutes, "platform", options.emitPluginEvent);
+    await registerPluginRoutes(scope, options.pluginRoutes, "platform", {
+      emitPluginEvent: options.emitPluginEvent,
+      host: options.pluginRouteHost,
+    });
   });
 }
 
@@ -192,13 +213,20 @@ async function registerPluginRoutes(
   app: FastifyInstance,
   contributions: readonly BackendRouteContribution[] | undefined,
   scope: BackendRouteScope,
-  emitPluginEvent?: (event: string, payload: unknown) => Promise<void>,
+  extras: {
+    emitPluginEvent?: BackendPluginEventPublisher | undefined;
+    host?: BackendRouteHostContext | undefined;
+  } = {},
 ): Promise<void> {
   for (const contribution of contributions ?? []) {
     if (contribution.scope !== scope) continue;
+    const installContext: BackendRouteInstallContext = {
+      ...(extras.emitPluginEvent ? { emitPluginEvent: extras.emitPluginEvent } : {}),
+      ...(extras.host ? { host: extras.host } : {}),
+    };
     await app.register(async (pluginScope) => contribution.install(
       pluginScope,
-      emitPluginEvent ? { emitPluginEvent } : {},
+      installContext,
     ), {
       prefix: contribution.prefix,
     });

@@ -67,6 +67,7 @@
       </Transition>
 
       <div class="sidebar-footer">
+        <SceneSwitcher />
         <UserMenu />
         <button
           class="footer-toggle-btn"
@@ -134,6 +135,7 @@ import { destroyFrontendChatSdk, getFrontendChatSdk } from '../composables/chatS
 import { IconLogo, IconChevronLeft, IconChevronRight, IconNewConversation } from '../components/icons';
 import { Button } from '../components/ui/button';
 import UserMenu from '../components/UserMenu.vue';
+import SceneSwitcher from '../components/SceneSwitcher.vue';
 import SessionList from '../components/session-list/SessionList.vue';
 import { SESSION_BROWSER_VIEWS, UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '../stores/workspace.js';
 import { sidebarAdminNavItem, filterManagementNavItems, adminNavGroups } from '../navigation/adminNavigation';

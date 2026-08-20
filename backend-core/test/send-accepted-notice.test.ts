@@ -29,7 +29,7 @@ describe("startStream onAccepted（send 前置确认）", () => {
       runtimeStorage: { operations: { getActiveRootRun: vi.fn(async () => null) } } as never,
       clientEvents: {} as never,
       mailbox: null,
-      runReader: null,
+      runReader: null as never,
       participantRuns: {} as never,
       transformUserMessage: null,
     });

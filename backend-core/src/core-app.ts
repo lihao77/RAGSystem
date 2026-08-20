@@ -71,16 +71,20 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   const routedIdentityProvider: IdentityProvider = {
     resolve: (request, scope) => runtime.identityProvider.resolve(request, scope),
   };
-  const registry = await deployment.createRegistry(
-    app.log,
-    pluginManager.runtimeContributions(deployment.hostResources ?? []),
-  );
+  const runtimeContributions = pluginManager.runtimeContributions(deployment.hostResources ?? []);
+  const registry = await deployment.createRegistry(app.log, runtimeContributions);
   const wsTickets = deployment.wsTickets;
   await pluginManager.initializeApplication({
     logger: app.log,
     registry,
     ...(deployment.hostResources ? { resources: deployment.hostResources } : {}),
   });
+  // 路由装配晚于 initializeApplication，宿主上下文此刻必已就绪；
+  // 资源池复用 runtimeContributions 的合并视图（宿主资源 + 插件注册资源）。
+  const pluginRouteHost = {
+    registry,
+    resources: runtimeContributions.resources,
+  };
   app.decorateRequest("identity");
   app.decorateRequest("userId");
   app.decorateRequest("tenantId");
@@ -192,6 +196,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     validateProfileSettings,
     emitPluginEvent: (event, payload) => pluginManager.emit(event, payload),
     pluginRoutes: pluginManager.routes("public"),
+    pluginRouteHost,
   });
   await registerSharedBusinessRoutes(app, {
     registry,
@@ -201,6 +206,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     ...applications,
     emitPluginEvent: (event, payload) => pluginManager.emit(event, payload),
     pluginRoutes: pluginManager.routes("tenant"),
+    pluginRouteHost,
   });
   await registerManagementAndPlatformRoutes(app, {
     controlPlane,
@@ -212,6 +218,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
       ...pluginManager.routes("platform"),
     ],
     emitPluginEvent: (event, payload) => pluginManager.emit(event, payload),
+    pluginRouteHost,
   });
   await registerRealtimeRoutes(app, {
     registry,

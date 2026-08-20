@@ -88,6 +88,12 @@ export interface ControlPlaneProvisioning {
     user: { id: UserId; displayName: string; platformRole: PlatformRole };
     role: ControlMembership["role"];
   }): Promise<{ tenant: ControlTenant; user: ControlUser; membership: ControlMembership }>;
+  /**
+   * 租户级联拆解：删除租户行及其全部成员关系。"唯一 owner 不可移除"的成员治理守卫
+   * 防的是误删成员，不适用于整租户删除，故级联绕过之。可选能力；未实现的部署
+   * 调用方需退化为仅删租户行。
+   */
+  removeTenant?(input: { tenantId: TenantId }): Promise<void>;
 }
 
 export interface ControlPlaneCommands {

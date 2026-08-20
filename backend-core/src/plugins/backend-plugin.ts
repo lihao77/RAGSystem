@@ -22,8 +22,21 @@ export type BackendRouteScope = "public" | "tenant" | "management" | "platform";
 
 export type BackendPluginEventPublisher = (event: string, payload: unknown) => Promise<void>;
 
+/**
+ * 路由装配期可用的宿主上下文。
+ *
+ * 装配时序晚于 initializeApplication（registry 与合并资源池已就绪），
+ * 需要宿主对象的路由插件直接从 install context 消费，无需手工闭包暂存。
+ */
+export interface BackendRouteHostContext {
+  readonly registry: RuntimeContainerRegistry;
+  /** 宿主资源 + 全部插件注册资源的合并池（与 application 工厂所见一致）。 */
+  readonly resources: readonly BackendPluginResourceContribution[];
+}
+
 export interface BackendRouteInstallContext {
   readonly emitPluginEvent?: BackendPluginEventPublisher;
+  readonly host?: BackendRouteHostContext;
 }
 
 /* ============================================================

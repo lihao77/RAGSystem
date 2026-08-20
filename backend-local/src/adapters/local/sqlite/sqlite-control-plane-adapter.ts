@@ -79,6 +79,9 @@ export class SqliteControlPlaneAdapter implements ControlPlane {
       createTenantWithOwner: async (input) => this.createTenantWithOwner(input),
       inviteOrAttachMember: async (input) => this.inviteOrAttachMember(input),
       removeMember: async (input) => this.store.transaction(() => this.store.deleteMembership(input.userId, input.tenantId)),
+      removeTenant: async (input) => {
+        this.store.deleteTenantCascade(input.tenantId);
+      },
       ensureLocalIdentity: async (input) => this.store.transaction(() => {
         const tenant = this.store.getTenant(input.tenant.id)
           ?? this.store.createTenant(input.tenant);

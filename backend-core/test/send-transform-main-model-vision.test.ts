@@ -52,7 +52,7 @@ describe("sendUserMessage 主模型视觉能力传递", () => {
       runtimeStorage: { operations: { getActiveRootRun: vi.fn(async () => null) } } as never,
       clientEvents: {} as never,
       mailbox: null,
-      runReader: null,
+      runReader: null as never,
       participantRuns: {} as never,
       transformUserMessage: vi.fn(async (input: Record<string, unknown>) => {
         capturedInputs.push(input);
@@ -82,7 +82,7 @@ describe("sendUserMessage 主模型视觉能力传递", () => {
 
     expect(result.started).toBe(true);
     expect(capturedInputs).toHaveLength(1);
-    expect(capturedInputs[0].mainModelSupportsVision).toBe(expected);
+    expect(capturedInputs[0]?.mainModelSupportsVision).toBe(expected);
   });
 
   it("selectedLlm 覆盖时按覆盖后的模型解析", async () => {
@@ -90,10 +90,10 @@ describe("sendUserMessage 主模型视觉能力传递", () => {
       provider: { name: "provider-1", provider_type: "openai", supports_vision: true },
     });
 
-    await launchers.startStream({ ...streamRequest, selected_llm: "provider-1/model-1" } as never, "request-2");
+    await launchers.startStream({ ...(streamRequest as object), selected_llm: "provider-1/model-1" } as never, "request-2");
 
     expect(resolveExecutionConfig).toHaveBeenCalledWith(expect.objectContaining({ selectedLlm: "provider-1/model-1" }));
-    expect(capturedInputs[0].mainModelSupportsVision).toBe(true);
+    expect(capturedInputs[0]?.mainModelSupportsVision).toBe(true);
   });
 
   it("主模型解析失败时不传标志（transformer 保持原行为）", async () => {
@@ -103,6 +103,6 @@ describe("sendUserMessage 主模型视觉能力传递", () => {
 
     expect(result.started).toBe(false); // launchRun 以 readiness 失败收尾
     expect(capturedInputs).toHaveLength(1);
-    expect(capturedInputs[0].mainModelSupportsVision).toBeUndefined();
+    expect(capturedInputs[0]?.mainModelSupportsVision).toBeUndefined();
   });
 });

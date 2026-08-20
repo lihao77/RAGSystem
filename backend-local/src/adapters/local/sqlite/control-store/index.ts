@@ -53,6 +53,14 @@ export class ControlStore {
     return Number(this.db.prepare("DELETE FROM tenants WHERE id=?").run(id).changes) > 0;
   }
 
+  /** 租户级联拆解：成员关系与租户行同事务删除（绕过唯一 owner 守卫，见 ControlPlaneProvisioning.removeTenant）。 */
+  deleteTenantCascade(id: TenantId): boolean {
+    return this.inImmediateTransaction(() => {
+      this.db.prepare("DELETE FROM memberships WHERE tenant_id=?").run(id);
+      return Number(this.db.prepare("DELETE FROM tenants WHERE id=?").run(id).changes) > 0;
+    });
+  }
+
   createUser(input: { id: UserId; displayName: string; createdAt?: string; username?: string; password_hash?: string; platform_role?: PlatformRole | null; status?: UserStatus }): ControlUser {
     const createdAt = input.createdAt ?? new Date().toISOString();
     const platformRole = assertPlatformRole(input.platform_role ?? null);

@@ -7,7 +7,7 @@ import { provideBackendResource, type BackendPluginResourceContribution } from "
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
 import type { DeploymentProfile } from "@ragsystem/backend-core/identity/types.js";
-import { LocalIdentityProvider, PasswordIdentityProvider, type IdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
+import { PasswordIdentityProvider, type IdentityProvider } from "@ragsystem/backend-core/services/identity/index.js";
 import type { SessionTokenService } from "@ragsystem/backend-core/services/runtime/session-token-service.js";
 import { createWsTicketService } from "@ragsystem/backend-core/services/runtime/ws-ticket-service.js";
 import {
@@ -16,6 +16,7 @@ import {
   createLocalSessionFileApplicationResolver,
   createLocalWorkspaceFileApplicationResolver,
 } from "../application/local-request-application-resolvers.js";
+import { SceneLocalIdentityProvider } from "../identity/scene-local-identity-provider.js";
 import { LocalTenantRuntimeRegistry } from "../tenant-runtime-registry.js";
 import { TenantPaths } from "../tenant-paths.js";
 import { createControlStore } from "../sqlite/control-store/index.js";
@@ -71,7 +72,7 @@ export function createLocalDeploymentRuntime(env: AppEnv): LocalDeploymentRuntim
     ),
     createIdentityProvider: async (authMode, sessionTokens) => {
       const identityProvider = createLocalIdentityProvider(authMode, controlPlane, sessionTokens);
-      if (identityProvider instanceof LocalIdentityProvider) await identityProvider.initialize();
+      if (identityProvider instanceof SceneLocalIdentityProvider) await identityProvider.initialize();
       return identityProvider;
     },
     close: async () => {
@@ -94,7 +95,7 @@ function createLocalIdentityProvider(
   controlPlane: SqliteControlPlaneAdapter,
   sessionTokens: SessionTokenService | undefined,
 ): IdentityProvider {
-  if (authMode === "local") return new LocalIdentityProvider(controlPlane);
+  if (authMode === "local") return new SceneLocalIdentityProvider(controlPlane);
   if (authMode === "password" && sessionTokens) return new PasswordIdentityProvider(controlPlane, sessionTokens);
   if (authMode === "oidc") throw new Error("Local backend does not provide OIDC identity");
   throw new Error(`Cannot create Local identity provider for auth mode: ${authMode}`);

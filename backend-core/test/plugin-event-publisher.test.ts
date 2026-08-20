@@ -16,7 +16,10 @@ type PluginEventPayload = {
   delivery?: string;
 };
 
-function fakePort(overrides: Partial<ClientEventPublisherPort> = {}) {
+function fakePort(
+  // 显式传 undefined 模拟"端口缺失某能力"，exactOptionalPropertyTypes 下需允许该用法。
+  overrides: { [K in keyof ClientEventPublisherPort]?: ClientEventPublisherPort[K] | undefined } = {},
+) {
   const publish = vi.fn(async (_sessionId: string, _event: Envelope, _options?: ClientEventPublishOptions) => ({} as OutboxRow));
   const publishEphemeral = vi.fn(async (_sessionId: string, _event: Envelope) => {});
   return {

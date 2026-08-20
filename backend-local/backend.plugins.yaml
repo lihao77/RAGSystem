@@ -11,3 +11,4 @@ plugins:
   - module: "@ragsystem/backend-plugin-widget/module.js"
   - module: "@ragsystem/backend-plugin-image-tools/module.js"
   - module: "@ragsystem/backend-plugin-pet/module.js"
+  - module: "@ragsystem/backend-plugin-local-scenes/module.js"
