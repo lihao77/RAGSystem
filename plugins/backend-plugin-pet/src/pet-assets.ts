@@ -104,3 +104,75 @@ function isSafeAnimationName(name: string): boolean {
   if (name.length === 0 || name.startsWith(".")) return false;
   return !/[\x00-\x1f\\/]/.test(name);
 }
+
+export interface PetUiRouteOptions {
+  /** UI 产物目录（内含 bundle.js 与可选 assets/，见 ui/ 构建）。 */
+  readonly uiRoot: string;
+}
+
+const UI_CONTENT_TYPES: Record<string, string> = {
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".mjs": "application/javascript; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+  ".woff2": "font/woff2",
+};
+
+/**
+ * 桌宠前端 bundle 伺服（挂载于 /api/pet 前缀，public scope）：
+ *   GET /ui/bundle.js    前端动态 import 的 ESM 入口
+ *   GET /ui/assets/*     bundle 引用的静态资产
+ * 目录缺失（未构建 ui）时统一 404，前端保持"插件未启用"降级。
+ */
+export const registerPetUiRoutes: FastifyPluginAsync<PetUiRouteOptions> = async (app, options) => {
+  const root = path.resolve(options.uiRoot);
+
+  app.get("/ui/*", async (request, reply) => {
+    const raw = (request.params as { "*": unknown })["*"];
+    const relative = typeof raw === "string" ? raw : "";
+    if (!isSafeUiAssetPath(relative)) {
+      return await reply.code(400).send({ error: "invalid ui asset path" });
+    }
+    const file = path.resolve(root, relative);
+    if (!file.startsWith(root + path.sep)) {
+      return await reply.code(400).send({ error: "invalid ui asset path" });
+    }
+    let stat: fs.Stats;
+    try {
+      stat = await fs.promises.stat(file);
+    } catch {
+      return await reply.code(404).send({ error: "ui asset not found" });
+    }
+    if (!stat.isFile()) {
+      return await reply.code(404).send({ error: "ui asset not found" });
+    }
+    const contentType = UI_CONTENT_TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream";
+    // JS/CSS 重建后同名变化：etag 协商缓存（no-cache 重验证 + 304），避免浏览器在
+    // max-age 窗口内拿到旧 bundle 报 "process is not defined" 之类的过期错误。
+    const revalidate = contentType.startsWith("application/javascript") || contentType.startsWith("text/css");
+    if (revalidate) {
+      const etag = `"${stat.mtimeMs.toString(16)}-${stat.size.toString(16)}"`;
+      if (request.headers["if-none-match"] === etag) {
+        return await reply.code(304).header("etag", etag).send();
+      }
+      reply.header("etag", etag);
+      reply.header("cache-control", "no-cache");
+    } else {
+      reply.header("cache-control", "public, max-age=300");
+    }
+    reply.header("content-type", contentType);
+    reply.header("content-length", stat.size);
+    return await reply.send(createReadStream(file));
+  });
+};
+
+/** 相对资产路径：非空、不以点开头、无控制字符、不含 .. 段（允许一级 assets/ 子目录）。 */
+function isSafeUiAssetPath(relative: string): boolean {
+  if (relative.length === 0 || relative.startsWith(".")) return false;
+  if (/[\x00-\x1f]/.test(relative)) return false;
+  return relative.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}

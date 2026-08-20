@@ -85,6 +85,15 @@ if (fs.existsSync(petAssetsSource)) {
     { recursive: true },
   );
 }
+// 桌宠前端 bundle（ui/dist，npm run build:ui 产物）：缺失时跳过（bundle 404，前端降级）
+const petUiSource = path.join(repoRoot, "plugins", "backend-plugin-pet", "ui", "dist");
+if (fs.existsSync(petUiSource)) {
+  fs.cpSync(
+    petUiSource,
+    path.join(outputRoot, "plugin-modules", "plugin-assets", "pet", "ui"),
+    { recursive: true },
+  );
+}
 fs.writeFileSync(
   path.join(outputRoot, "package.json"),
   `${JSON.stringify({ name: "ragsystem-desktop-backend", private: true, type: "module" }, null, 2)}\n`,

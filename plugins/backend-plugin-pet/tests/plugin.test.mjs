@@ -8,7 +8,7 @@ import Fastify from "fastify";
 
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
 
-import { createPetPlugin, mapToolToAnimation, PetActivityTracker, registerPetAssetRoutes } from "../dist/index.js";
+import { createPetPlugin, mapToolToAnimation, PetActivityTracker, registerPetAssetRoutes, PET_PLUGIN_ID, createPetSystemConfigExtension, resolvePetConfig, DEFAULT_PET_CONFIG } from "../dist/index.js";
 
 const EMPTY_SNAPSHOT = { activeRuns: 0, lastErrorAt: null, lastCompletedAt: null, lastSummary: null, busyHint: null };
 
@@ -153,6 +153,103 @@ test("thumb 路由拒绝路径穿越与非法动画名（路由层 404 或校验
       `expected 400/404 for ${name}, got ${res.statusCode}`,
     );
   }
+});
+
+test("ui 清单注册：exposePublic 的 standalone 视图进入 BackendPluginManager.listUi", async () => {
+  const manager = new BackendPluginManager([createPetPlugin()]);
+  await manager.register();
+  const ui = manager.listUi();
+  assert.equal(ui.length, 1);
+  assert.equal(ui[0].pluginId, PET_PLUGIN_ID);
+  assert.equal(ui[0].manifest.bundleUrl, "/api/pet/ui/bundle.js");
+  assert.equal(ui[0].manifest.exposePublic, true);
+  assert.equal(ui[0].manifest.views[0].route, "/pet");
+  await manager.stop();
+});
+
+test("systemConfig 扩展注册 pet 组并回灌已存值；resolvePetConfig 非法值回退默认", async () => {
+  const extension = createPetSystemConfigExtension({ default_animation: "smug", scale: 1.5, notice_enabled: false });
+  assert.equal(extension.defaults.pet.default_animation, "smug");
+  assert.equal(extension.defaults.pet.scale, 1.5);
+  const group = extension.groups.find((g) => g.key === "pet");
+  assert.ok(group);
+  assert.deepEqual(
+    group.fields.map((f) => f.key).sort(),
+    ["default_animation", "notice_enabled", "scale"],
+  );
+
+  assert.deepEqual(resolvePetConfig({ scale: "not-a-number" }), DEFAULT_PET_CONFIG);
+  assert.deepEqual(resolvePetConfig(undefined), DEFAULT_PET_CONFIG);
+  assert.deepEqual(resolvePetConfig({ scale: 0.75 }), { default_animation: "idle", scale: 0.75, notice_enabled: true });
+});
+
+test("runtime 注册 systemConfig 扩展并在 dispose 时反注册", async () => {
+  const registered = [];
+  const port = {
+    getSection: () => undefined,
+    registerExtension: (id, ext) => {
+      registered.push(id);
+      assert.equal(ext.groups[0].key, "pet");
+      return () => registered.push(`unregister:${id}`);
+    },
+  };
+  const manager = new BackendPluginManager([createPetPlugin()]);
+  await manager.register();
+  const contributions = manager.runtimeContributions();
+  const runtime = await contributions.createRuntime({ systemConfig: port });
+  assert.deepEqual(registered, [PET_PLUGIN_ID]);
+  runtime.dispose();
+  assert.deepEqual(registered, [PET_PLUGIN_ID, `unregister:${PET_PLUGIN_ID}`]);
+  await manager.stop();
+});
+
+test("tenant /settings 路由经 request.container.systemConfig 返回合并后的 pet 配置", async () => {
+  const contributionsOf = (plugin) => {
+    const manager = new BackendPluginManager([plugin]);
+    return manager.register().then(() => manager);
+  };
+  const manager = await contributionsOf(createPetPlugin());
+  const app = Fastify();
+  app.decorateRequest("container", null);
+  app.addHook("onRequest", async (request) => {
+    request.container = {
+      systemConfig: { getSchema: () => ({ groups: [] }), getSection: () => ({ scale: 2, notice_enabled: false }) },
+    };
+  });
+  for (const contribution of manager.routes("tenant")) {
+    await app.register(contribution.install, { prefix: contribution.prefix });
+  }
+  const res = await app.inject({ method: "GET", url: "/api/pet/settings" });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { default_animation: "idle", scale: 2, notice_enabled: false });
+  await app.close();
+  await manager.stop();
+});
+
+test("ui bundle 伺服：bundle.js/style.css 带 content-type，穿越路径被拒，缺失目录 404", async () => {
+  const uiRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-pet-ui-test-"));
+  fs.writeFileSync(path.join(uiRoot, "bundle.js"), "export function mountView(){}");
+  fs.writeFileSync(path.join(uiRoot, "style.css"), ".pet{}");
+  const app = Fastify();
+  const { registerPetUiRoutes } = await import("../dist/index.js");
+  await app.register(registerPetUiRoutes, { uiRoot });
+
+  const bundle = await app.inject({ method: "GET", url: "/ui/bundle.js" });
+  assert.equal(bundle.statusCode, 200);
+  assert.equal(bundle.headers["content-type"], "application/javascript; charset=utf-8");
+
+  const css = await app.inject({ method: "GET", url: "/ui/style.css" });
+  assert.equal(css.statusCode, 200);
+  assert.equal(css.headers["content-type"], "text/css; charset=utf-8");
+
+  const traversal = await app.inject({ method: "GET", url: "/ui/..%2F..%2Fpackage.json" });
+  assert.ok(traversal.statusCode === 400 || traversal.statusCode === 404, `got ${traversal.statusCode}`);
+
+  const missing = await Fastify();
+  await missing.register(registerPetUiRoutes, { uiRoot: path.join(uiRoot, "nope") });
+  assert.equal((await missing.inject({ method: "GET", url: "/ui/bundle.js" })).statusCode, 404);
+  await app.close();
+  await missing.close();
 });
 
 async function buildApp(assetsRoot, activity) {
