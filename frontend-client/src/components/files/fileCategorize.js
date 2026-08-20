@@ -57,6 +57,8 @@ export const EXTENSION_MIME_MAP = {
   m4v: 'video/mp4',
   webm: 'video/webm',
   mov: 'video/quicktime',
+  // 交互图表（ECharts option JSON），按 JSON mime 传输
+  echarts: 'application/json',
 };
 
 /** 代码/文本类扩展名 → highlight.js 语言名（仅覆盖已注册语言，其余按纯文本展示）。 */
@@ -112,6 +114,7 @@ const CATEGORY_LABELS = {
   code: '代码',
   json: 'JSON',
   csv: '表格',
+  chart: '图表',
   pdf: 'PDF',
   html: '网页',
   audio: '音频',
@@ -162,6 +165,7 @@ function categoryFromMimeType(mimeType) {
  */
 export function categorizeFile(filePath, mimeType = '') {
   const extension = getFileExtension(filePath);
+  const baseName = String(filePath || '').replace(/\\/g, '/').split('/').pop().toLowerCase();
   const language = Object.prototype.hasOwnProperty.call(CODE_LANGUAGE_MAP, extension)
     ? CODE_LANGUAGE_MAP[extension]
     : undefined;
@@ -169,6 +173,8 @@ export function categorizeFile(filePath, mimeType = '') {
   let category = '';
   if (extension === 'md' || extension === 'markdown') category = 'markdown';
   else if (extension === 'csv' || extension === 'tsv') category = 'csv';
+  // 交互图表两种命名：trend.echarts 或 trend.echarts.json（后者需按 basename 识别，扩展名是 json）
+  else if (extension === 'echarts' || baseName.endsWith('.echarts.json')) category = 'chart';
   else if (extension === 'json' || extension === 'geojson' || extension === 'jsonc') category = 'json';
   else if (extension === 'pdf') category = 'pdf';
   else if (extension === 'html' || extension === 'htm') category = 'html';

@@ -12,7 +12,7 @@
       </DialogHeader>
 
       <div class="flex min-h-0 flex-1 flex-col">
-        <!-- 文本类：滚动区域承载全文 -->
+        <!-- 文本类：滚动区域承载全文（图表数据解析失败时也按 JSON 走此分支） -->
         <div
           v-if="isTextual"
           class="file-preview-dialog__scroll min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-elevated p-4"
@@ -21,11 +21,16 @@
           <FileCodeView
             v-else
             :text="text"
-            :language="language"
+            :language="category === 'json' || category === 'chart' ? 'json' : language"
             :truncated="truncated"
-            :note="truncated ? '完整内容超出预览上限' : ''"
+            :note="category === 'chart' ? `图表数据无法解析（${chartSpec?.reason || '未知原因'}），已按 JSON 展示` : (truncated ? '完整内容超出预览上限' : '')"
             @notify="payload => emit('notify', payload)"
           />
+        </div>
+
+        <!-- 交互图表：撑满视口 -->
+        <div v-else-if="category === 'chart' && chartSpec?.ok" class="min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
+          <ChartRenderer :echarts-config="chartSpec.option" :title="title" />
         </div>
 
         <!-- CSV：全行数表格 -->
@@ -80,6 +85,8 @@ import { Download } from 'lucide-vue-next';
 import MarkdownContent from '../chat/MarkdownContent.vue';
 import FileCodeView from './FileCodeView.vue';
 import FileCsvTable from './FileCsvTable.vue';
+import ChartRenderer from '../ChartRenderer.vue';
+import { parseChartSpec } from './chartSpec.js';
 import { getCategoryIcon } from './categoryIcons.js';
 import { CSV_DIALOG_ROWS } from './fileCategorize.js';
 
@@ -100,6 +107,9 @@ const props = defineProps({
 const emit = defineEmits(['update:open', 'download', 'notify']);
 
 const csvDialogRows = CSV_DIALOG_ROWS;
-const isTextual = computed(() => ['markdown', 'code', 'json'].includes(props.category));
+const chartSpec = computed(() => (props.category === 'chart' ? parseChartSpec(props.text) : null));
+// 图表数据解析失败时并入文本分支按 JSON 展示
+const isTextual = computed(() => ['markdown', 'code', 'json'].includes(props.category)
+  || (props.category === 'chart' && !chartSpec.value?.ok));
 const categoryIcon = computed(() => getCategoryIcon(props.category));
 </script>

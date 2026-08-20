@@ -141,6 +141,12 @@ export interface UserMessageTransformInput {
   readonly contentParts: readonly MessageContentPart[];
   /** 已解析的附件（attachment_resolver 产物，含 file_id/mime/kind）。 */
   readonly attachments: readonly MessageAttachment[];
+  /**
+   * 本次发送实际使用的主模型（agent 默认档，含 selectedLlm 覆盖）是否支持视觉输入；
+   * 与上下文投影层/工具层的 supportsVision 同源——transformer 可据此跳过对视觉模型的冗余描述。
+   * undefined = 发送时未能解析出主模型（保持原行为，不做猜测）。
+   */
+  readonly mainModelSupportsVision?: boolean;
   /** 按 file_id 读取附件字节；未知或不存在的 file_id 返回 null。 */
   readAttachment(fileId: string): Promise<Uint8Array | null>;
   readonly modelAdapter: ModelProviderCatalogPort;

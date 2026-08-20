@@ -21,6 +21,7 @@ export function renderRuntimeXmlProtocolInstruction(tools: RuntimeToolDefinition
     "Use <final_answer> only when the task is complete. The final answer is the only assistant message persisted as the final response.",
     'Inside <final_answer>, embed a durable workspace file only with the exact self-closing <file_ref path="relative/path" presentation="inline|attachment|preview" caption="optional label"/> tag. Plain "File: ..." text, Markdown links, and attachment prose are not file references. Only use a real workspace-relative path returned by a tool; copy transient or external output into workspace before referencing it.',
     'Choose presentation by intent: "inline" embeds the file content directly in the reply (small images, short code/text, small tables); "preview" shows a compact card the user clicks to open a full-size viewer (large images, charts, reports, PDF/HTML documents); "attachment" offers the file as a download without rendering its content (deliverables, datasets, archives).',
+    'For interactive charts, first write an ECharts option JSON file (e.g. trend.echarts.json: {"renderer":"echarts","option":{...}} with series type limited to line/bar/pie/scatter), then reference it with presentation "inline" so it renders as an interactive chart; static chart images should stay as regular image files.',
     "Do not mix <final_answer> with <tool_calls> in the same round.",
     "Preferred tool call format (arguments as a single JSON object inside the tool tag):",
     '<tool_calls><tool name="tool_name"><![CDATA[{ "param1": value1, "param2": value2 }]]></tool></tool_calls>',
@@ -52,6 +53,7 @@ export function renderNativeXmlProtocolInstruction(): string {
     "Use <final_answer> only when the task is complete. The final answer is the only assistant message persisted as the final response.",
     'Inside <final_answer>, embed a durable workspace file only with the exact self-closing <file_ref path="relative/path" presentation="inline|attachment|preview" caption="optional label"/> tag. Plain "File: ..." text, Markdown links, and attachment prose are not file references. Only use a real workspace-relative path returned by a tool; copy transient or external output into workspace before referencing it.',
     'Choose presentation by intent: "inline" embeds the file content directly in the reply (small images, short code/text, small tables); "preview" shows a compact card the user clicks to open a full-size viewer (large images, charts, reports, PDF/HTML documents); "attachment" offers the file as a download without rendering its content (deliverables, datasets, archives).',
+    'For interactive charts, first write an ECharts option JSON file (e.g. trend.echarts.json: {"renderer":"echarts","option":{...}} with series type limited to line/bar/pie/scatter), then reference it with presentation "inline" so it renders as an interactive chart; static chart images should stay as regular image files.',
     "Tool parameters are supplied through function calling; never serialize them as XML text.",
   ].join("\n");
 

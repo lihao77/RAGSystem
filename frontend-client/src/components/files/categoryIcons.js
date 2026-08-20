@@ -2,6 +2,7 @@
  * 展示类别 → lucide 图标映射，供预览卡片与 Dialog 标题复用。
  */
 import {
+  ChartLine,
   File as FileIcon,
   FileCode,
   FileImage,
@@ -20,6 +21,7 @@ const CATEGORY_ICONS = {
   code: FileCode,
   json: FileJson,
   csv: FileSpreadsheet,
+  chart: ChartLine,
   pdf: FileType,
   html: Globe,
   audio: Music,

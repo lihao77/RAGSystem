@@ -21,6 +21,13 @@
         <div v-if="caption || fileName" class="image-caption">{{ caption || fileName }}</div>
       </div>
 
+      <!-- 交互图表：inline/preview 均直接渲染（自带标题栏/下载 PNG/全屏） -->
+      <ChartRenderer
+        v-else-if="renderMode === 'chart'"
+        :echarts-config="chartSpec.option"
+        :title="caption || fileName"
+      />
+
       <!-- 文本/二进制内容 inline：统一外壳（标题栏 + 限高内容 + 操作） -->
       <div v-else-if="renderMode === 'inline'" class="file-inline-shell">
         <div class="file-inline-shell__head">
@@ -44,10 +51,11 @@
             <MarkdownContent :content="displayText || '（空文件）'" @notify="payload => emit('notify', payload)" />
           </div>
           <FileCodeView
-            v-else-if="categoryInfo.category === 'code' || categoryInfo.category === 'json'"
+            v-else-if="categoryInfo.category === 'code' || categoryInfo.category === 'json' || categoryInfo.category === 'chart'"
             :text="displayText"
-            :language="categoryInfo.category === 'json' ? 'json' : categoryInfo.language"
+            :language="categoryInfo.category === 'json' || categoryInfo.category === 'chart' ? 'json' : categoryInfo.language"
             :truncated="textState.truncated"
+            :note="categoryInfo.category === 'chart' ? `图表数据无法解析（${chartSpec?.reason || '未知原因'}），已按 JSON 展示` : ''"
             :max-height="420"
             @notify="payload => emit('notify', payload)"
           />
@@ -142,6 +150,8 @@ import { useImageLightbox } from '../composables/useImageLightbox.js';
 import FileCodeView from './files/FileCodeView.vue';
 import FileCsvTable from './files/FileCsvTable.vue';
 import FilePreviewDialog from './files/FilePreviewDialog.vue';
+import ChartRenderer from './ChartRenderer.vue';
+import { parseChartSpec } from './files/chartSpec.js';
 import { getCategoryIcon } from './files/categoryIcons.js';
 import {
   BINARY_PREVIEW_LIMIT,
@@ -178,7 +188,7 @@ const categoryInfo = computed(() => categorizeFile(props.filePath, mimeType.valu
 const categoryIcon = computed(() => getCategoryIcon(categoryInfo.value.category));
 const isPreviewPresentation = computed(() => props.presentation === 'preview');
 
-const TEXTUAL_CATEGORIES = ['markdown', 'code', 'json', 'csv'];
+const TEXTUAL_CATEGORIES = ['markdown', 'code', 'json', 'csv', 'chart'];
 const BINARY_CATEGORIES = ['pdf', 'html', 'audio', 'video'];
 
 const binaryWithinLimit = computed(() => BINARY_CATEGORIES.includes(categoryInfo.value.category)
@@ -187,24 +197,6 @@ const binaryWithinLimit = computed(() => BINARY_CATEGORIES.includes(categoryInfo
   // 扩展名判成 pdf 但服务端返回其他 content-type 时降级为下载卡片，防伪装成 PDF 的 HTML 执行脚本。
   // （html 分支始终走 sandbox="" iframe，无需同样校验）
   && (categoryInfo.value.category !== 'pdf' || mimeType.value === 'application/pdf'));
-
-/**
- * presentation × category → 渲染模式：
- *   image        图片（inline 全尺寸 / preview 缩略图），点击 lightbox
- *   inline       内容直接嵌入消息流（外壳 + 限高滚动）
- *   preview-card 紧凑卡片，点击打开 FilePreviewDialog
- *   card         下载卡片（attachment / 不支持类别 / 超限降级）
- */
-const renderMode = computed(() => {
-  if (!asset.value) return 'card';
-  const { category } = categoryInfo.value;
-  if (category === 'image') return props.presentation === 'attachment' ? 'card' : 'image';
-  if (props.presentation === 'attachment') return 'card';
-  if (category === 'audio') return binaryWithinLimit.value ? 'inline' : 'card';
-  if (TEXTUAL_CATEGORIES.includes(category)) return isPreviewPresentation.value ? 'preview-card' : 'inline';
-  if (binaryWithinLimit.value) return isPreviewPresentation.value ? 'preview-card' : 'inline';
-  return 'card';
-});
 
 /* ---- 文本类内容解码（inline 用 512KB 截断，Dialog 放宽到 4MB） ---- */
 const textState = ref({ text: '', truncated: false });
@@ -240,6 +232,31 @@ const inlineNote = computed(() => {
   return categoryInfo.value.category === 'markdown'
     ? '内容较长，内联仅展示前 512KB，可点击"放大"查看'
     : '';
+});
+
+/** 图表 option：文本解码后解析 + 净化，成功才走交互渲染，失败降级 JSON 代码视图。 */
+const chartSpec = computed(() => (categoryInfo.value.category === 'chart'
+  ? parseChartSpec(displayText.value)
+  : null));
+
+/**
+ * presentation × category → 渲染模式：
+ *   image        图片（inline 全尺寸 / preview 缩略图），点击 lightbox
+ *   chart        交互图表（ECharts），inline/preview 均直接渲染
+ *   inline       内容直接嵌入消息流（外壳 + 限高滚动）
+ *   preview-card 紧凑卡片，点击打开 FilePreviewDialog
+ *   card         下载卡片（attachment / 不支持类别 / 超限降级）
+ */
+const renderMode = computed(() => {
+  if (!asset.value) return 'card';
+  const { category } = categoryInfo.value;
+  if (category === 'image') return props.presentation === 'attachment' ? 'card' : 'image';
+  if (props.presentation === 'attachment') return 'card';
+  if (category === 'chart') return chartSpec.value?.ok ? 'chart' : 'inline';
+  if (category === 'audio') return binaryWithinLimit.value ? 'inline' : 'card';
+  if (TEXTUAL_CATEGORIES.includes(category)) return isPreviewPresentation.value ? 'preview-card' : 'inline';
+  if (binaryWithinLimit.value) return isPreviewPresentation.value ? 'preview-card' : 'inline';
+  return 'card';
 });
 
 /* ---- blob objectURL 惰性创建：图片（含 lightbox）与二进制类共用，复用缓存避免二次下载 ---- */

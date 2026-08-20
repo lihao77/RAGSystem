@@ -405,6 +405,24 @@ export const SMOKE_FILE_REF_FILES = {
     contentType: 'text/csv',
     body: ['record_id,payload'].concat(Array.from({ length: 5 }, (_, i) => `${i + 1},"原始导出数据行 ${i + 1}"`)).join('\n'),
   },
+  'charts/trend.echarts.json': {
+    contentType: 'application/json',
+    body: JSON.stringify({
+      renderer: 'echarts',
+      version: 1,
+      option: {
+        title: { text: 'Smoke 水位趋势', left: 'center' },
+        tooltip: { trigger: 'axis' },
+        legend: { data: ['实测水位', '警戒线'], top: 32 },
+        xAxis: { type: 'category', data: ['08-13', '08-14', '08-15', '08-16', '08-17', '08-18'] },
+        yAxis: { type: 'value', name: 'm' },
+        series: [
+          { type: 'line', name: '实测水位', smooth: true, data: [10.6, 10.9, 11.2, 11.6, 12.1, 12.4] },
+          { type: 'line', name: '警戒线', data: [12, 12, 12, 12, 12, 12] },
+        ],
+      },
+    }),
+  },
 };
 
 /** file_ref 冒烟消息：覆盖 presentation × category 矩阵（文件内容由 screenshot-smoke 在网络层供给）。 */
@@ -422,6 +440,7 @@ export function createSmokeFileRefMessages() {
       { type: 'file_ref', file_path: 'data/water-level.csv', presentation: 'inline', caption: '水位序列（inline 表格）' },
       { type: 'file_ref', file_path: 'scripts/analyze.py', presentation: 'inline', caption: '分析脚本（inline 代码块）' },
       { type: 'file_ref', file_path: 'data/metrics.json', presentation: 'preview', caption: '指标汇总（preview JSON）' },
+      { type: 'file_ref', file_path: 'charts/trend.echarts.json', presentation: 'inline', caption: '水位趋势（inline 交互图表）' },
       { type: 'file_ref', file_path: 'report/final-report.pdf', presentation: 'preview', caption: '正式周报（preview PDF）' },
       { type: 'file_ref', file_path: 'site/dashboard.html', presentation: 'preview', caption: '看板页面（preview HTML）' },
       { type: 'file_ref', file_path: 'data/raw-export.csv', presentation: 'attachment', caption: '原始导出（attachment 下载卡片）' },

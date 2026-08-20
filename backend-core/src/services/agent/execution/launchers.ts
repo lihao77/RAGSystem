@@ -19,7 +19,7 @@ import { isRootUserRevisionAnchor } from "../../../contracts/session/message-vis
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import { asString, renderBackgroundNotification } from "./helpers.js";
-import { resolveReadyAgent } from "./readiness.js";
+import { resolveReadyAgent, type ReadinessResolution } from "./readiness.js";
 import type { AttachmentResolver } from "./attachment-resolver.js";
 import { createCommandRefPart, parseSlashCommand, type SlashCommandHandler } from "./slash-command-handler.js";
 import type { AgentRunEngine } from "./run-engine.js";
@@ -292,15 +292,21 @@ class AgentLaunchers {
     return (await this.runtimeStorage.operations.getActiveRootRun?.(sessionId))?.runId ?? null;
   }
 
+  /** agent 默认档 + selectedLlm 覆盖的主模型解析（launchRun 与持久化前变换共用同一口径）。 */
+  private resolveRunReadiness(
+    agentName: string | null | undefined,
+    sessionIdentity: SessionIdentity,
+    selectedLlm: string,
+  ): ReadinessResolution {
+    return resolveReadyAgent(this.runtimeCore, {
+      agentName: agentName?.trim() || sessionIdentity.teamSnapshot.entry_agent_name,
+      teamSnapshot: sessionIdentity.teamSnapshot,
+      selectedLlm,
+    });
+  }
+
   private launchRun(input: UnifiedRunStartInput): UnifiedRunStartResult {
-    const ready = resolveReadyAgent(
-      this.runtimeCore,
-      {
-        agentName: input.agentName?.trim() || input.sessionIdentity.teamSnapshot.entry_agent_name,
-        teamSnapshot: input.sessionIdentity.teamSnapshot,
-        selectedLlm: input.selectedLlm,
-      },
-    );
+    const ready = this.resolveRunReadiness(input.agentName, input.sessionIdentity, input.selectedLlm);
     if (!ready.ok) {
       return { ok: false, error: ready.reason };
     }
@@ -467,12 +473,16 @@ class AgentLaunchers {
     // 持久化前变换：插件管道可在写入前改写 contentParts（如为图片附件追加视觉描述）。
     // ACK 已在此前前置（onAccepted），变换耗时不阻塞确认；单图耗时由插件自身超时约束
     // （image_tools.timeout_seconds 默认 60s）；失败回退原始 parts。
+    // 与 launchRun 同一口径提前解析主模型：多模态模型直接看原图，插件跳过冗余的视觉辅助描述
+    // （解析失败时不传标志，transformer 保持原行为）。
+    const readyForTransform = this.resolveRunReadiness(input.agentName, sessionIdentity, input.selectedLlm);
     const persistedContentParts = this.transformUserMessage
       ? (await this.transformUserMessage({
           sessionId,
           tenantId: this.tenantId,
           contentParts,
           attachments: attachmentResolution.attachments,
+          ...(readyForTransform.ok ? { mainModelSupportsVision: readyForTransform.provider.supports_vision === true } : {}),
         })) ?? contentParts
       : contentParts;
 

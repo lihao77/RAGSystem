@@ -151,6 +151,30 @@ test("transformer skips unreadable attachments", async () => {
   assert.equal(result.length, 2);
 });
 
+test("transformer skips description when the main model supports vision", async () => {
+  const input = transformerInput({
+    systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
+    mainModelSupportsVision: true,
+  });
+  let helperCalls = 0;
+  const result = await describeUserMessageImagesWithHelper(input, async () => {
+    helperCalls += 1;
+    return stubHelper("desc");
+  });
+  assert.equal(result, null); // 多模态主模型直接看原图，不生成描述
+  assert.equal(helperCalls, 0); // 视觉辅助模型一次也不调用
+});
+
+test("transformer describes when the main model vision capability is not declared", async () => {
+  const input = transformerInput({
+    systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
+    mainModelSupportsVision: false,
+  });
+  const result = await describeUserMessageImagesWithHelper(input, () => stubHelper("desc"));
+  assert.ok(result);
+  assert.equal(result.some((part) => part.type === "image_description"), true);
+});
+
 /* ── 插件装配 ── */
 
 test("plugin contributes the view_image descriptor only when installed", async () => {

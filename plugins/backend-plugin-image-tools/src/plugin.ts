@@ -101,6 +101,9 @@ export async function describeUserMessageImagesWithHelper(
   input: UserMessageTransformInput,
   createHelper: (provider: ModelProviderConfig, config: ImageToolsSystemConfig) => VisionHelper | Promise<VisionHelper>,
 ): Promise<MessageContentPart[] | null> {
+  // 主模型支持视觉时直接看原图（与 view_image/投影层 supportsVision 同源），
+  // 跳过辅助描述：省一次视觉模型调用与解析等待；代价是该消息不再持久化描述文本。
+  if (input.mainModelSupportsVision === true) return null;
   const config = resolveImageToolsSystemConfig(input.systemConfig.getSection(IMAGE_TOOLS_CONFIG_KEY));
   if (!isVisionHelperEnabled(config)) return null;
   const imageParts = input.contentParts.filter(

@@ -245,6 +245,11 @@ const shots = [
       { type: 'expectText', selector: '.message-stream', text: '指标汇总（preview JSON）' },
       // attachment 下载卡片（排除 preview 可点击卡片）
       { type: 'expectText', selector: '.workspace-file-card:not(.workspace-file-card--clickable)', text: 'raw-export.csv' },
+      // 交互图表（ECharts）：header 标题（caption）+ canvas 真实渲染（echarts.init 后 canvas 像素尺寸非零；
+      // option.title 画在 canvas 内，不属于 DOM 文本，故断言头部 caption 而非图表内标题）
+      { type: 'expectText', selector: '.message-stream', text: '水位趋势（inline 交互图表）' },
+      { type: 'expectText', selector: '.chart-renderer', text: '水位趋势（inline 交互图表）' },
+      { type: 'expectCanvas', selector: '.chart-container canvas' },
       // 图片真实解码校验（防止坏图夹具静默通过文本断言）
       { type: 'expectImagesDecoded', selector: '.message-stream' },
     ],
@@ -1521,6 +1526,22 @@ async function runShotActions(client, shot) {
           return images.map((image) => ({ src: String(image.src).slice(0, 80), complete: image.complete, naturalWidth: image.naturalWidth }));
         })()`);
         throw new Error(`${shot.name} images did not decode: ${JSON.stringify(state)}`);
+      }
+      continue;
+    }
+
+    if (action.type === 'expectCanvas') {
+      const rendered = await waitForEvaluation(client, `(() => {
+        const canvas = document.querySelector(${jsString(action.selector)});
+        if (!canvas) return false;
+        return canvas.width >= ${action.minWidth ?? 200} && canvas.height >= ${action.minHeight ?? 100};
+      })()`, action.timeoutMs ?? 30000);
+      if (!rendered) {
+        const state = await evaluate(client, `(() => {
+          const canvas = document.querySelector(${jsString(action.selector)});
+          return canvas ? { width: canvas.width, height: canvas.height } : null;
+        })()`);
+        throw new Error(`${shot.name} canvas did not render: ${JSON.stringify(state)}`);
       }
       continue;
     }

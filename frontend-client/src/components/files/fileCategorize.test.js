@@ -82,3 +82,14 @@ test('展示上限常量符合约定', () => {
   assert.equal(EXTENSION_MIME_MAP.pdf, 'application/pdf');
   assert.equal(EXTENSION_MIME_MAP.mp4, 'video/mp4');
 });
+
+test('categorizeFile 识别交互图表（.echarts 与 .echarts.json）', () => {
+  assert.equal(categorizeFile('charts/trend.echarts').category, 'chart');
+  assert.equal(categorizeFile('charts/trend.echarts.json').category, 'chart');
+  assert.equal(categorizeFile('charts\\水位趋势.ECHARTS.json').category, 'chart');
+  assert.equal(categorizeFile('charts/trend.echarts').label, '图表');
+  // 普通 json 仍是 json 类别，不受影响
+  assert.equal(categorizeFile('data/metrics.json').category, 'json');
+  assert.equal(categorizeFile('data/echarts.json').category, 'json');
+  assert.equal(correctMimeType('application/octet-stream', 'charts/trend.echarts'), 'application/json');
+});
