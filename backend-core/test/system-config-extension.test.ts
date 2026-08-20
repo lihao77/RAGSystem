@@ -48,4 +48,20 @@ describe("system config extension lifecycle", () => {
 
     expect(service.getSection("plugin_a")).toEqual({ enabled: false });
   });
+
+  it("tags extension groups with sourceExtension while builtin groups stay untagged", async () => {
+    const service = new SystemConfigService(new MemorySystemConfigStore());
+    await service.initialize();
+    service.registerExtension("plugin-a", {
+      defaults: { plugin_a: { enabled: true } },
+      groups: [{ key: "plugin_a", label: "Plugin A", description: "", fields: [] }],
+    });
+
+    const groups = service.getSchema().groups;
+    const pluginGroup = groups.find((group) => group.key === "plugin_a");
+    expect(pluginGroup?.sourceExtension).toBe("plugin-a");
+    for (const group of groups.filter((item) => item.key !== "plugin_a")) {
+      expect(group.sourceExtension).toBeUndefined();
+    }
+  });
 });

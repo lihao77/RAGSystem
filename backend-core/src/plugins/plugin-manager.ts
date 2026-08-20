@@ -27,6 +27,9 @@ import type {
   PluginResourceRegistrar,
   PluginToolRegistrar,
   PluginUserMessageTransformerRegistrar,
+  PluginUiRegistrar,
+  PluginUiManifest,
+  BackendUiContribution,
   UserMessageTransformInput,
   UserMessageTransformer,
 } from "./backend-plugin.js";
@@ -54,6 +57,54 @@ class BackendRouteRegistry {
 
   forScope(scope: BackendRouteScope): readonly BackendRouteContribution[] {
     return this.contributions.filter((contribution) => contribution.scope === scope);
+  }
+}
+
+class BackendUiRegistry {
+  private readonly contributions: BackendUiContribution[] = [];
+
+  forPlugin(pluginId: string): PluginUiRegistrar {
+    return {
+      register: (manifest) => {
+        validateUiManifest(manifest);
+        const contribution: BackendUiContribution = { pluginId, manifest };
+        this.contributions.push(contribution);
+        return () => {
+          const index = this.contributions.indexOf(contribution);
+          if (index >= 0) this.contributions.splice(index, 1);
+        };
+      },
+    };
+  }
+
+  list(): readonly BackendUiContribution[] {
+    return this.contributions.map((contribution) => ({
+      pluginId: contribution.pluginId,
+      manifest: structuredClone(contribution.manifest),
+    }));
+  }
+
+  removePlugin(pluginId: string): void {
+    for (let index = this.contributions.length - 1; index >= 0; index -= 1) {
+      if (this.contributions[index]?.pluginId === pluginId) this.contributions.splice(index, 1);
+    }
+  }
+}
+
+function validateUiManifest(manifest: PluginUiManifest): void {
+  if (!manifest.bundleUrl.startsWith("/") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(manifest.bundleUrl)) {
+    throw new Error(`Plugin UI bundleUrl must be a same-origin path starting with '/': ${manifest.bundleUrl}`);
+  }
+  if (manifest.views.length === 0) {
+    throw new Error("Plugin UI manifest must declare at least one view");
+  }
+  for (const view of manifest.views) {
+    if (!view.route.startsWith("/")) {
+      throw new Error(`Plugin UI view route must start with '/': ${view.route}`);
+    }
+    if (!view.entry.trim()) {
+      throw new Error(`Plugin UI view entry must not be empty (route '${view.route}')`);
+    }
   }
 }
 
@@ -406,6 +457,7 @@ export class BackendPluginManager {
   private readonly applicationFactoryRegistry = new BackendApplicationFactoryRegistry();
   private readonly applicationEventRegistry = new BackendApplicationEventRegistry();
   private readonly userMessageTransformerRegistry = new BackendUserMessageTransformerRegistry();
+  private readonly uiRegistry = new BackendUiRegistry();
   private registered = false;
   private startedPlugins: BackendPlugin[] = [];
   private applicationRuntime: BackendPluginApplicationRuntimeHandle | null = null;
@@ -432,6 +484,7 @@ export class BackendPluginManager {
         applications: this.applicationFactoryRegistry.forPlugin(plugin.manifest.id),
         events: this.applicationEventRegistry.forPlugin(plugin.manifest.id),
         transformers: this.userMessageTransformerRegistry.forPlugin(plugin.manifest.id),
+        ui: this.uiRegistry.forPlugin(plugin.manifest.id),
       };
       await plugin.register(context);
     }
@@ -462,6 +515,18 @@ export class BackendPluginManager {
   routes(scope: BackendRouteScope): readonly BackendRouteContribution[] {
     if (!this.registered) throw new Error("Plugins must be registered before routes are read");
     return this.routeRegistry.forScope(scope);
+  }
+
+  /** 已注册插件的 UI 清单（深拷贝，含宿主盖章的 pluginId）。 */
+  listUi(): readonly BackendUiContribution[] {
+    if (!this.registered) throw new Error("Plugins must be registered before UI manifests are read");
+    return this.uiRegistry.list();
+  }
+
+  /** 已注册插件的基本信息（id/version），供插件清单端点使用。 */
+  listPlugins(): readonly { id: string; version: string }[] {
+    if (!this.registered) throw new Error("Plugins must be registered before plugins are listed");
+    return this.orderedPlugins.map((plugin) => ({ id: plugin.manifest.id, version: plugin.manifest.version }));
   }
 
   installHooks(registry: HookRegistry): void {
@@ -522,6 +587,7 @@ export class BackendPluginManager {
         this.applicationFactoryRegistry.removePlugin(plugin.manifest.id);
         this.applicationEventRegistry.removePlugin(plugin.manifest.id);
         this.userMessageTransformerRegistry.removePlugin(plugin.manifest.id);
+        this.uiRegistry.removePlugin(plugin.manifest.id);
       }
     }
     try {

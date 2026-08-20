@@ -101,6 +101,43 @@ export interface PluginResourceRegistrar {
   register<Value>(token: BackendResourceToken<Value>, value: Value): () => void;
 }
 
+/* ============================================================
+ * 插件前端 UI（运行时 ESM bundle 清单）
+ * ========================================================== */
+
+/** 插件 view 的挂载位置：standalone = 顶级独立路由；management = 管理中心导航。 */
+export type PluginUiViewPlacement = "standalone" | "management";
+
+export interface PluginUiView {
+  /** 前端路由路径（如 "/pet"）；须以 "/" 开头且不得与内置路由冲突。 */
+  readonly route: string;
+  /** bundle 导出的组件名（views 记录的 key，契约见 packages/plugin-ui-sdk）。 */
+  readonly entry: string;
+  /** 导航/窗口标题。 */
+  readonly title?: string;
+  readonly placement?: PluginUiViewPlacement;
+  /** 无认证可访问（独立窗口场景，如桌面宠物窗）。 */
+  readonly public?: boolean;
+}
+
+export interface PluginUiManifest {
+  /** bundle 的同源 URL；插件通常在自己的路由前缀下伺服（如 "/api/pet/ui/bundle.js"）。 */
+  readonly bundleUrl: string;
+  /** true 时 views 进入公开清单端点（认证前的路由挂载需要，如宠物独立窗）。 */
+  readonly exposePublic?: boolean;
+  readonly views: readonly PluginUiView[];
+}
+
+export interface PluginUiRegistrar {
+  register(manifest: PluginUiManifest): () => void;
+}
+
+/** 一个插件注册的 UI 清单（pluginId 宿主盖章，与其它 contribution 一致）。 */
+export interface BackendUiContribution {
+  readonly pluginId: string;
+  readonly manifest: PluginUiManifest;
+}
+
 export interface BackendToolFactoryContext {
   readonly tenantId: string;
   readonly teamName: string | null;
@@ -264,6 +301,7 @@ export interface BackendPluginContext {
   readonly applications: PluginApplicationRegistrar;
   readonly events: PluginEventRegistrar;
   readonly transformers: PluginUserMessageTransformerRegistrar;
+  readonly ui: PluginUiRegistrar;
 }
 
 export interface BackendPluginManifest {

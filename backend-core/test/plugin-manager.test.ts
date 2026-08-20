@@ -57,6 +57,63 @@ describe("BackendPluginManager", () => {
     );
   });
 
+  it("collects UI manifests with host-stamped plugin ids and clears them on stop", async () => {
+    const manager = new BackendPluginManager([{
+      manifest: { id: "ui-plugin", version: "1.0.0" },
+      register(context) {
+        context.ui.register({
+          bundleUrl: "/api/ui-plugin/ui/bundle.js",
+          exposePublic: true,
+          views: [{ route: "/ui-plugin", entry: "Panel", placement: "standalone", public: true }],
+        });
+      },
+    }]);
+    await manager.register();
+    await manager.start();
+
+    expect(manager.listUi()).toEqual([{
+      pluginId: "ui-plugin",
+      manifest: {
+        bundleUrl: "/api/ui-plugin/ui/bundle.js",
+        exposePublic: true,
+        views: [{ route: "/ui-plugin", entry: "Panel", placement: "standalone", public: true }],
+      },
+    }]);
+    expect(manager.listPlugins()).toEqual([{ id: "ui-plugin", version: "1.0.0" }]);
+
+    await manager.stop();
+    expect(manager.listUi()).toEqual([]);
+  });
+
+  it("rejects invalid UI manifests", async () => {
+    const manager = new BackendPluginManager([{
+      manifest: { id: "bad-ui", version: "1.0.0" },
+      register(context) {
+        context.ui.register({
+          bundleUrl: "https://evil.example.com/bundle.js",
+          views: [{ route: "/x", entry: "Panel" }],
+        });
+      },
+    }]);
+    await expect(manager.register()).rejects.toThrow("same-origin path starting with '/'");
+
+    const emptyViews = new BackendPluginManager([{
+      manifest: { id: "empty-ui", version: "1.0.0" },
+      register(context) {
+        context.ui.register({ bundleUrl: "/api/empty/ui/bundle.js", views: [] });
+      },
+    }]);
+    await expect(emptyViews.register()).rejects.toThrow("at least one view");
+
+    const badRoute = new BackendPluginManager([{
+      manifest: { id: "bad-route", version: "1.0.0" },
+      register(context) {
+        context.ui.register({ bundleUrl: "/api/x/ui/bundle.js", views: [{ route: "no-slash", entry: "Panel" }] });
+      },
+    }]);
+    await expect(badRoute.register()).rejects.toThrow("route must start with '/'");
+  });
+
   it("injects opaque plugin resources into generic runtime factories", async () => {
     const skillRoot = path.resolve("plugin-skills");
     const skillSource = createBackendResourceToken<string>("ragsystem.skill-source", "skills");

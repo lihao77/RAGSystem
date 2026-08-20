@@ -20,6 +20,7 @@ import { registerBootstrapRoutes } from "../routes/bootstrap.js";
 import { registerHealthRoutes, registerProbeRoutes } from "../routes/health.js";
 import { registerModelAdapterRoutes } from "../routes/model-adapter.js";
 import { registerPlatformRoutes } from "../routes/platform.js";
+import { registerPublicPluginUiManifestRoutes, registerTenantPluginRoutes, type PluginListingOptions } from "../routes/plugins.js";
 import { registerSystemConfigRoutes } from "../routes/system-config.js";
 import type { RouteOptions } from "../routes/route-options.js";
 import { AuthError, type IdentityProvider } from "../services/identity/index.js";
@@ -44,6 +45,7 @@ interface PublicRouteAssemblyOptions {
   pluginRoutes?: readonly BackendRouteContribution[];
   emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
   pluginRouteHost?: BackendRouteHostContext;
+  pluginListing?: PluginListingOptions;
 }
 
 export async function registerPublicAndAuthRoutes(
@@ -73,6 +75,10 @@ export async function registerPublicAndAuthRoutes(
     emitPluginEvent: options.emitPluginEvent,
     host: options.pluginRouteHost,
   });
+  await app.register(registerPublicPluginUiManifestRoutes, {
+    prefix: "/api",
+    ...(options.pluginListing ?? { listPlugins: () => [], listUi: () => [] }),
+  });
 }
 
 export interface SharedBusinessRouteAssemblyOptions {
@@ -92,6 +98,7 @@ export interface SharedBusinessRouteAssemblyOptions {
   pluginRoutes?: readonly BackendRouteContribution[];
   emitPluginEvent?: (event: string, payload: unknown) => Promise<void>;
   pluginRouteHost?: BackendRouteHostContext;
+  pluginListing?: PluginListingOptions;
 }
 
 export async function registerSharedBusinessRoutes(
@@ -136,6 +143,10 @@ export async function registerSharedBusinessRoutes(
     await registerPluginRoutes(scope, options.pluginRoutes, "tenant", {
       emitPluginEvent: options.emitPluginEvent,
       host: options.pluginRouteHost,
+    });
+    await scope.register(registerTenantPluginRoutes, {
+      prefix: "/api/plugins",
+      ...(options.pluginListing ?? { listPlugins: () => [], listUi: () => [] }),
     });
   });
 }

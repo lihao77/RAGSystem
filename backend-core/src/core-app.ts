@@ -85,6 +85,10 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     registry,
     resources: runtimeContributions.resources,
   };
+  const pluginListing = {
+    listPlugins: () => pluginManager.listPlugins(),
+    listUi: () => pluginManager.listUi(),
+  };
   app.decorateRequest("identity");
   app.decorateRequest("userId");
   app.decorateRequest("tenantId");
@@ -197,6 +201,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     emitPluginEvent: (event, payload) => pluginManager.emit(event, payload),
     pluginRoutes: pluginManager.routes("public"),
     pluginRouteHost,
+    pluginListing,
   });
   await registerSharedBusinessRoutes(app, {
     registry,
@@ -207,6 +212,7 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     emitPluginEvent: (event, payload) => pluginManager.emit(event, payload),
     pluginRoutes: pluginManager.routes("tenant"),
     pluginRouteHost,
+    pluginListing,
   });
   await registerManagementAndPlatformRoutes(app, {
     controlPlane,

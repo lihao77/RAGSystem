@@ -50,7 +50,9 @@ export class SystemConfigService {
     return {
       groups: [
         ...buildSystemConfigSchema().groups,
-        ...Array.from(this.extensions.values()).flatMap((extension) => extension.groups),
+        ...Array.from(this.extensions.entries()).flatMap(([extensionId, extension]) =>
+          extension.groups.map((group) => ({ ...group, sourceExtension: extensionId })),
+        ),
       ],
     };
   }

@@ -27,6 +27,8 @@ export interface SystemConfigGroup {
   label: string;
   description: string;
   fields: SystemConfigField[];
+  /** 该组来自哪个扩展（约定为插件 manifest id）；内置组无此字段。插件设置页按它分组。 */
+  sourceExtension?: string;
 }
 
 export interface SystemConfigSchema {
