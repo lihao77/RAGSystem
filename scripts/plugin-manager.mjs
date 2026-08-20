@@ -214,13 +214,19 @@ async function add(dataRoot, spec) {
   const listPath = path.join(pluginsDir, "plugins.yaml");
   const list = readList(listPath);
 
+  // 本地规格以"磁盘上存在"为准（兼容不带 ./ 前缀的相对路径）；否则视为 npm/git 规格
+  const absoluteSpec = path.resolve(spec);
+  const specExists = fs.existsSync(absoluteSpec);
+  const specIsFile = specExists && fs.statSync(absoluteSpec).isFile();
+  const isLocalSpec = specExists || isDirectorySpec(spec);
+
   // 分发产物（.zip / module.js 单文件）
-  if (isDirectorySpec(spec) && fs.existsSync(spec) && fs.statSync(spec).isFile() && /\.(zip|js|mjs)$/i.test(spec)) {
+  if (specIsFile && /\.(zip|js|mjs)$/i.test(spec)) {
     await installBundle(pluginsDir, spec);
     return;
   }
 
-  if (isDirectorySpec(spec)) {
+  if (isLocalSpec) {
     const absolute = path.resolve(spec);
     if (!fs.existsSync(absolute)) throw new Error(`路径不存在: ${absolute}`);
     let module;

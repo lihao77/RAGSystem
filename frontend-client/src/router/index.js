@@ -85,6 +85,8 @@ const router = createRouter({
 
 // ---- 插件 view 路由动态注册（清单来自 GET /api/plugins/ui-manifests） ----
 let pluginRoutesRegistered = false;
+// management 视图依赖 tenant 完整清单（认证后可得）；直开 URL 时守卫补注册并重试
+let installedPluginRoutesRegistered = false;
 
 function registerPluginRoutes(manifests) {
   for (const plugin of manifests ?? []) {
@@ -183,6 +185,25 @@ router.beforeEach(async (to) => {
       await authStore.refreshIdentity();
     } catch {
       return { path: '/login', query: { redirect: to.fullPath } };
+    }
+  }
+
+  // management 位置的插件视图不在公开清单里（需登录态取 tenant 清单）：
+  // 直开 URL 会被通配路由先吃掉，这里补注册后按地址栏原始路径重试一次。
+  // 本地形态免登录（requiresAuth=false）即可尝试；SaaS 未登录跳过（后续登录后 MainLayout 兜底）。
+  if (!installedPluginRoutesRegistered && (authStore.isAuthenticated || !bootstrapStore.requiresAuth)) {
+    installedPluginRoutesRegistered = true;
+    try {
+      ensurePluginViewRoutes(await usePluginStore().loadInstalled());
+    } catch {
+      // 清单不可达：management 视图本次不可用，不打断导航
+    }
+    if (typeof window !== 'undefined') {
+      const intended = window.location.pathname + window.location.search;
+      if (intended !== '/' && intended !== to.fullPath) {
+        const retry = router.resolve(intended);
+        if (retry.matched.length > 0 && retry.name?.startsWith('plugin-view:')) return retry;
+      }
     }
   }
   if (to.path === '/login' && (!bootstrapStore.requiresAuth || authStore.isAuthenticated)) {

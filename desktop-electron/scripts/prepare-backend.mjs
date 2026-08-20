@@ -77,12 +77,12 @@ fs.cpSync(
   { recursive: true },
 );
 // 桌宠 thumb 动画（约 35MB，不入 git）：已 fetch 时随包拷贝，缺失时跳过（宠物自动隐藏）
-// 拷贝位置与 resolvePluginAssetDir 桌面布局对齐：plugin-assets/pet/assets/thumb
+// 拷贝位置与 resolvePluginAssetDir 桌面布局对齐：plugin-assets/<插件id短名>/assets/thumb
 const petAssetsSource = path.join(repoRoot, "plugins", "backend-plugin-pet", "assets");
 if (fs.existsSync(petAssetsSource)) {
   fs.cpSync(
     petAssetsSource,
-    path.join(outputRoot, "plugin-modules", "plugin-assets", "pet", "assets"),
+    path.join(outputRoot, "plugin-modules", "plugin-assets", "backend-plugin-pet", "assets"),
     { recursive: true },
   );
 }
@@ -91,7 +91,7 @@ const petUiSource = path.join(repoRoot, "plugins", "backend-plugin-pet", "ui", "
 if (fs.existsSync(petUiSource)) {
   fs.cpSync(
     petUiSource,
-    path.join(outputRoot, "plugin-modules", "plugin-assets", "pet", "ui"),
+    path.join(outputRoot, "plugin-modules", "plugin-assets", "backend-plugin-pet", "ui"),
     { recursive: true },
   );
 }
