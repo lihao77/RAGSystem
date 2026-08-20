@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { createLocalDeploymentRuntime } from "./adapters/local/composition/local-deployment-runtime.js";
 import { loadEnv, loadEnvSource } from "@ragsystem/backend-core/config/env.js";
 import { buildCoreApp } from "@ragsystem/backend-core/core-app.js";
@@ -22,6 +24,8 @@ try {
         ? { configPath: environment.BACKEND_PLUGIN_CONFIG }
         : {}),
       env: environment,
+      // 用户级插件清单（npm run plugin 安装器写入；缺失时跳过）
+      userPluginsPath: path.join(env.dataRoot, "plugins", "plugins.yaml"),
     }),
   });
   const address = socketPath

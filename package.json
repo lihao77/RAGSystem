@@ -32,7 +32,9 @@
     "check:frontend": "npm run build:chat-sdk && npm -w frontend-client run check",
     "check:widget": "npm run build:chat-sdk && npm -w @ragsystem/agent-widget run typecheck && npm -w @ragsystem/agent-widget run typecheck:test && npm -w @ragsystem/agent-widget run build",
     "e2e:saas-compose": "node scripts/saas-compose-e2e.mjs",
-    "demo": "npm -w @ragsystem/demo-app run start"
+    "demo": "npm -w @ragsystem/demo-app run start",
+    "plugin": "node scripts/plugin-manager.mjs",
+    "bundle-plugin": "node scripts/bundle-plugin.mjs"
   },
   "engines": {
     "node": ">=22.5.0"
@@ -46,7 +48,9 @@
   },
   "devDependencies": {
     "eslint": "9.39.5",
-    "shadcn-vue": "^2.7.4"
+    "shadcn-vue": "^2.7.4",
+    "jszip": "^3.10.1",
+    "esbuild": "^0.28.1"
   },
   "optionalDependencies": {
     "@esbuild/win32-x64": "0.28.1"

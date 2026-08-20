@@ -98,3 +98,50 @@ services:
 插件模块拥有与后端进程相同的权限。只允许部署管理员修改配置或安装插件包，不要从租户可写目录加载模块。配置变更在重启后生效，当前不支持热加载。
 
 Plugin modules execute with backend process privileges. Restrict package installation and YAML writes to deployment administrators. Changes take effect after restart; hot reload is intentionally not supported.
+
+## 本地版简单安装（npm run plugin）
+
+本地版在产品清单之外支持**用户级插件清单**：`<RAG_DATA_ROOT>/plugins/plugins.yaml`（默认 `~/.ragsystem/plugins/plugins.yaml`，格式与 `backend.plugins.yaml` 完全相同）。后端启动时两份清单合并装载，跨清单的重复插件 id 会在启动时报错。SaaS 版不读取用户级清单。
+
+安装器 CLI（repo 根目录）：
+
+```bash
+# 源码方式：直接登记绝对路径，零拷贝——改源码、构建、重启即生效（开发插件首选）
+npm run plugin -- add ../my-backend-plugin
+
+# 分发产物：bundle-plugin 打出的 zip（或单文件 module.js）——打包版软件同样适用
+npm run plugin -- add my-plugin-1.0.0.zip
+
+# npm 包 / git 仓库：npm install --prefix <数据目录>/plugins 安装（需本机有 npm）
+npm run plugin -- add some-npm-plugin
+npm run plugin -- add https://github.com/org/backend-plugin-foo.git
+
+npm run plugin -- list                # 查看已安装
+npm run plugin -- disable my-plugin   # 禁用（后端不再 import）
+npm run plugin -- enable my-plugin
+npm run plugin -- remove my-plugin    # 移除（npm/modules 安装的一并清理；源码登记只清清单）
+```
+
+约定与注意：
+
+- 插件入口按 `module.js` → `module.mjs` → `dist/module.js` → `src/module.ts` 顺序探测；`src/module.ts` 仅开发模式（tsx）可加载，生产/桌面需要先构建 dist；
+- 分发产物安装到 `<数据目录>/plugins/modules/<插件id>/`，插件 id 从产物内容探测（找不到时用文件名）；
+- 所有变更**重启后端后生效**（本地开发 tsx watch 自动重载）；
+- 安装即以后端进程权限执行插件代码——只安装你信任的插件（本地版信任模型：用户是机器主人）。
+
+### 插件打包分发（作者侧）
+
+`npm run bundle-plugin` 把插件源码 esbuild 成自包含单文件（与桌面打包同构：externals 仅 `node:*` 与原生模块），连同资产打成 zip：
+
+```bash
+npm run bundle-plugin -- plugins/backend-plugin-pet --asset assets:assets --asset ui/dist:ui
+# → plugins/backend-plugin-pet/release/backend-plugin-pet-0.1.0.zip
+#   内含 module.js + assets/ + ui/（资产与 module.js 平级）
+```
+
+- 入口取 `src/module.ts` / `module.js`；`--asset <源目录:目标目录>` 可重复，目标目录相对 module.js；
+- `--out <dir>` 覆盖输出目录（默认 `<插件目录>/release/`）；
+- **产物布局约定**：资产与 module.js 平级。插件内解析资产优先
+  `path.resolve(path.dirname(fileURLToPath(import.meta.url)), "<目标目录>")`，
+  再兜底 workspace 布局（参考 pet 的三布局探测）；
+- 打包版软件用户无需 npm/git：拿到 zip 后 `npm run plugin -- add <zip>` 或（后续）应用内文件导入即装。
