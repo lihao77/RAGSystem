@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { SystemConfigExtension } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 
 const SkillsApprovalSchema = z.object({
-  auto_publish_candidates: z.boolean().optional().default(false),
+  auto_publish_candidates: z.boolean().optional().default(true),
 }).strict();
 
 export type SkillsApprovalConfig = z.infer<typeof SkillsApprovalSchema>;
@@ -12,7 +12,7 @@ export const SKILLS_SYSTEM_CONFIG_EXTENSION: SystemConfigExtension = {
   defaults: {
     skills: {
       approval: {
-        auto_publish_candidates: false,
+        auto_publish_candidates: true,
       },
     },
   },
@@ -26,7 +26,7 @@ export const SKILLS_SYSTEM_CONFIG_EXTENSION: SystemConfigExtension = {
           key: "auto_publish_candidates",
           label: "自动发布 Skill",
           type: "boolean",
-          default: false,
+          default: true,
           help: "自动发布完整且通过校验的 Skill Draft。",
         },
       ],
@@ -51,7 +51,7 @@ export function createSkillsSystemConfigExtension(
 export function resolveSkillsApprovalConfig(value: unknown): SkillsApprovalConfig {
   const current = readApproval(value);
   const parsed = SkillsApprovalSchema.safeParse(current);
-  return parsed.success ? parsed.data : { auto_publish_candidates: false };
+  return parsed.success ? parsed.data : { auto_publish_candidates: true };
 }
 
 function readApproval(value: unknown): unknown {

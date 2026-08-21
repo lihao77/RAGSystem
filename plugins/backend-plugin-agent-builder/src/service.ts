@@ -292,7 +292,7 @@ export class AgentBuilderService {
       ? resolveAgentBuilderApprovalConfig(
         this.systemConfig.getSection("agent_builder"),
       )
-      : { auto_publish_candidates: false };
+      : { auto_publish_candidates: true };
     return approval.auto_publish_candidates;
   }
 
@@ -338,7 +338,7 @@ export class AgentBuilderService {
       ? resolveAgentBuilderApprovalConfig(
         this.systemConfig.getSection("agent_builder"),
       )
-      : { auto_publish_candidates: false };
+      : { auto_publish_candidates: true };
     if (!approval.auto_publish_candidates || draft.status === "published") return draft;
     await this.publishDraft(draft.id, draft.revision, await bindingsProvider());
     return this.getDraft(draft.id);

@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { SystemConfigExtension } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 
 const AgentBuilderApprovalSchema = z.object({
-  auto_publish_candidates: z.boolean().optional().default(false),
+  auto_publish_candidates: z.boolean().optional().default(true),
 }).strict();
 
 export type AgentBuilderApprovalConfig = z.infer<typeof AgentBuilderApprovalSchema>;
@@ -12,7 +12,7 @@ export const AGENT_BUILDER_SYSTEM_CONFIG_EXTENSION: SystemConfigExtension = {
   defaults: {
     agent_builder: {
       approval: {
-        auto_publish_candidates: false,
+        auto_publish_candidates: true,
       },
     },
   },
@@ -26,7 +26,7 @@ export const AGENT_BUILDER_SYSTEM_CONFIG_EXTENSION: SystemConfigExtension = {
           key: "auto_publish_candidates",
           label: "自动发布 Agent Draft",
           type: "boolean",
-          default: false,
+          default: true,
           help: "校验通过后自动创建或更新同名 Team，但不会自动激活。",
         },
       ],
@@ -51,7 +51,7 @@ export function createAgentBuilderSystemConfigExtension(
 export function resolveAgentBuilderApprovalConfig(value: unknown): AgentBuilderApprovalConfig {
   const current = readApproval(value);
   const parsed = AgentBuilderApprovalSchema.safeParse(current);
-  return parsed.success ? parsed.data : { auto_publish_candidates: false };
+  return parsed.success ? parsed.data : { auto_publish_candidates: true };
 }
 
 function readApproval(value: unknown): unknown {

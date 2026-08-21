@@ -772,11 +772,17 @@ test("Builder template migration removes stale Artifact authoring instructions a
 });
 
 test("Builder-only draft tools are visible only to the Builder entry Agent", async () => {
+  const manualApprovalConfig = {
+    getSection: (key) => key === "agent_builder"
+      ? { approval: { auto_publish_candidates: false } }
+      : undefined,
+    registerExtension: () => () => undefined,
+  };
   const fixture = await createFixture();
   try {
     const manager = installedAgentBuilderManager();
     await manager.register();
-    const runtime = await manager.runtimeContributions().createRuntime(runtimeContext(fixture));
+    const runtime = await manager.runtimeContributions().createRuntime(runtimeContext(fixture, manualApprovalConfig));
     try {
       const builderAgent = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
       const ordinaryAgent = fixture.agentConfig.getConfig("orchestrator_agent", { teamName: "default" });
@@ -1086,11 +1092,12 @@ function installedAgentBuilderManager() {
   return new BackendPluginManager([mcp, skills, createAgentBuilderPlugin()]);
 }
 
-function runtimeContext(fixture) {
+function runtimeContext(fixture, systemConfig = null) {
   return {
     deploymentKind: "local",
     tenantId: "tenant-test",
     dataRoot: fixture.root,
     agentConfig: fixture.agentConfig,
+    ...(systemConfig ? { systemConfig } : {}),
   };
 }

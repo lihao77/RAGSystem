@@ -203,7 +203,7 @@ export class SkillAuthoringService {
     });
     const approval = this.systemConfig
       ? resolveSkillsApprovalConfig(this.systemConfig.getSection("skills"))
-      : { auto_publish_candidates: false };
+      : { auto_publish_candidates: true };
     let published: SkillDraft;
     if (approval.auto_publish_candidates) {
       published = await this.publishWorkspaceCandidate(current, candidate);
