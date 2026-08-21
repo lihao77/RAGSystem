@@ -109,3 +109,6 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Local LLM diagnostics (capture scripts + request bodies, never commit)
+.scratch/
