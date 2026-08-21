@@ -78,6 +78,27 @@ const { enrichSchemaWithProviderSelection, applyProviderCascade } = useProviderS
 // 每插件快照（脏检查）：{ [pluginId]: JSON.stringify(该插件各组当前值) }
 const savedSnapshots = ref({});
 
+// group key 与 SchemaForm 同约定：点号为嵌套路径（"skills.approval" →
+// config.skills.approval），不能整串索引，否则脏检查永远读到 undefined。
+function getGroupConfig(config, groupKey) {
+  let obj = config;
+  for (const part of groupKey.split('.')) {
+    if (obj == null || typeof obj !== 'object') return undefined;
+    obj = obj[part];
+  }
+  return obj;
+}
+
+function setGroupConfig(target, groupKey, value) {
+  const parts = groupKey.split('.');
+  let obj = target;
+  for (const part of parts.slice(0, -1)) {
+    if (!obj[part] || typeof obj[part] !== 'object') obj[part] = {};
+    obj = obj[part];
+  }
+  obj[parts[parts.length - 1]] = value;
+}
+
 const configurablePlugins = computed(() => installed.value
   .filter((plugin) => (plugin.configGroups ?? []).length > 0)
   .map((plugin) => {
@@ -88,7 +109,7 @@ const configurablePlugins = computed(() => installed.value
 const dirtyPlugins = computed(() => {
   const dirty = new Set();
   for (const plugin of configurablePlugins.value) {
-    const current = JSON.stringify(plugin.groups.map((group) => configData.value?.[group.key] ?? null));
+    const current = JSON.stringify(plugin.groups.map((group) => getGroupConfig(configData.value, group.key) ?? null));
     if (savedSnapshots.value[plugin.id] !== undefined && current !== savedSnapshots.value[plugin.id]) {
       dirty.add(plugin.id);
     }
@@ -123,7 +144,7 @@ async function loadData() {
 function takeSnapshots() {
   const next = {};
   for (const plugin of configurablePlugins.value) {
-    next[plugin.id] = JSON.stringify(plugin.groups.map((group) => configData.value?.[group.key] ?? null));
+    next[plugin.id] = JSON.stringify(plugin.groups.map((group) => getGroupConfig(configData.value, group.key) ?? null));
   }
   savedSnapshots.value = next;
 }
@@ -138,12 +159,14 @@ async function handleSave() {
   if (dirtyPlugins.value.size === 0) return;
   saving.value = true;
   try {
-    // 只 PATCH 有改动的插件的组，保持最小载荷，避免覆盖其他插件的未保存修改
+    // 只 PATCH 有改动的插件的组，保持最小载荷，避免覆盖其他插件的未保存修改；
+    // 点号 group key 按嵌套路径写入（payload.skills.approval = ...），后端按
+    // 根 key（skills）deepMerge 子树，字面量 "skills.approval" 会被当未知根组丢弃
     const payload = {};
     for (const plugin of configurablePlugins.value) {
       if (!dirtyPlugins.value.has(plugin.id)) continue;
       for (const group of plugin.groups) {
-        payload[group.key] = configData.value?.[group.key] ?? {};
+        setGroupConfig(payload, group.key, getGroupConfig(configData.value, group.key) ?? {});
       }
     }
     await updateSystemConfig(payload);

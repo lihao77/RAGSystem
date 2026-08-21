@@ -113,6 +113,14 @@ const builtinConfigSchema = computed(() => ({
   ...baseConfigSchema.value,
   groups: (baseConfigSchema.value.groups ?? []).filter((group) => !group.sourceExtension),
 }));
+
+// 插件贡献组的根 key（点号首段）。本页保存只 PATCH 内置组，避免用页面加载时的
+// 旧快照覆盖插件管理页已保存的插件配置
+const pluginRootKeys = computed(() => new Set(
+  (baseConfigSchema.value.groups ?? [])
+    .filter((group) => group.sourceExtension)
+    .map((group) => group.key.split('.')[0]),
+));
 const configSchema = computed(() => enrichSchemaWithProviderSelection(builtinConfigSchema.value, configData.value));
 
 // 脏检查：加载/保存成功后打快照，表单或额外参数有改动即标记未保存
@@ -167,6 +175,7 @@ async function handleSave() {
         extra_params: parseExtraParamsInput(extraParamEntries.value, '系统 LLM '),
       },
     };
+    for (const key of pluginRootKeys.value) delete payload[key];
     const updated = await updateSystemConfig(payload);
     configData.value = updated;
     extraParamEntries.value = parseExtraParamEntries(updated?.llm?.extra_params);
