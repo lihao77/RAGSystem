@@ -74,3 +74,29 @@ test('运行概览收进顶栏胶囊,Goal 与后台任务合并在同一概览',
   assert.equal(nodeSource.includes('完整详情'), false);
   assert.equal(actionsSource.includes('在运行中心查看执行树'), false);
 });
+
+test('工具调用详情按工具类型分化：bash 终端块、edit diff 块、其余分段/兜底', async () => {
+  const nodeSource = await readFile(new URL('./chat/AssistantExecutionNode.vue', import.meta.url), 'utf8');
+  const detailSource = await readFile(new URL('./chat/AssistantToolCallDetail.vue', import.meta.url), 'utf8');
+
+  // 渲染节点只负责行与折叠，工具详情整体交给专用组件
+  assert.equal(nodeSource.includes('<AssistantToolCallDetail'), true);
+  assert.equal(nodeSource.includes('formatArguments'), false);
+  // 四种形态：终端(execute_bash) → diff(edit_file) → 分段(已知工具) → 参数/结果兜底
+  assert.equal(detailSource.includes('v-if="terminalView"'), true);
+  assert.equal(detailSource.includes('v-else-if="diffView"'), true);
+  assert.equal(detailSource.includes('v-else-if="visibleSections.length"'), true);
+  assert.equal(detailSource.includes('getToolTerminalView'), true);
+  assert.equal(detailSource.includes('getToolDiffView'), true);
+  assert.equal(detailSource.includes('getToolInputSections'), true);
+  assert.equal(detailSource.includes('getToolOutputSections'), true);
+  assert.equal(detailSource.includes('renderCodeBlock'), true);
+  // 终端语义：$ 提示符 + stdout/stderr 分色 + 退出码徽标；diff 语义：+/- 标记与增删行着色
+  assert.equal(detailSource.includes('tool-terminal__prompt'), true);
+  assert.equal(detailSource.includes('tool-terminal__stdout'), true);
+  assert.equal(detailSource.includes('tool-terminal__stderr'), true);
+  assert.equal(detailSource.includes('tool-terminal__exit'), true);
+  assert.equal(detailSource.includes('tool-diff__mark'), true);
+  assert.equal(detailSource.includes('color-mix(in srgb, var(--color-success) 8%, transparent)'), true);
+  assert.equal(detailSource.includes('color-mix(in srgb, var(--color-error) 8%, transparent)'), true);
+});

@@ -19,7 +19,7 @@ const FILE_TOOLS = ['read_file', 'write_file', 'edit_file', 'preview_data_struct
 export function parseToolPayload(node) {
   const preview = node?.result_preview ?? node?.result ?? ''
   const args = asRecord(parseMaybeJson(node?.arguments) ?? node?.arguments)
-  const parsedPreview = parseMaybeJson(preview)
+  const parsedPreview = parseMaybeJson(preview) || parseObservationJsonFence(preview)
   const rawResult = parseMaybeJson(node?.raw_result)
   const payload = rawResult || parsedPreview || null
   const content = payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'content')
@@ -35,6 +35,17 @@ export function parseToolPayload(node) {
     content,
     metadata: asRecord(payload?.metadata),
   }
+}
+
+/* 协议 ToolResultPayload 只携带渲染后的 observation 文本（raw_result 无人赋值）：
+   json 类工具的 observation = summary 前缀 + ```json 围栏(结构化 content)。
+   直接 JSON.parse 失败时退而从围栏提取，subtitle/inspector 的 content 消费方依赖这里。 */
+function parseObservationJsonFence(value) {
+  if (typeof value !== 'string') return null
+  const text = stripResultEnvelope(value)
+  const fence = text.match(/```json\r?\n([\s\S]*?)\r?\n```/)
+  if (!fence) return null
+  return parseMaybeJson(fence[1])
 }
 
 /** 解析 mcp__server__tool 工具名(对标后端 mcp-service.parseMcpToolName)。 */
@@ -164,6 +175,201 @@ export function hasToolArguments(node) {
 
 export function formatToolContent(value, maxLength = 1600) {
   return formatContent(value, maxLength)
+}
+
+/** execute_bash 终端视图：终端风格详情组件的展示模型（命令/stdout/stderr/退出码/后台）。 */
+export function getToolTerminalView(node) {
+  if (!node || node.type !== 'tool_call' || node.tool_name !== 'execute_bash') return null
+  const { args, content, metadata, preview } = parseToolPayload(node)
+  const text = parseBashObservationText(preview)
+  return {
+    command: pickString(args.command, metadata.command),
+    description: pickString(args.description),
+    workingDir: compactPath(pickString(metadata.working_dir, args.working_dir), 48),
+    stdout: asTextBlock(content?.stdout) || text?.stdout || '',
+    stderr: asTextBlock(content?.stderr) || text?.stderr || '',
+    exitCode: firstNumber(
+      content?.return_code,
+      content?.exit_code,
+      metadata.return_code,
+      metadata.exit_code,
+      text?.returnCode,
+    ),
+    backgroundStarted: Boolean(
+      content?.background_started || metadata.background_started || text?.backgroundStarted,
+    ),
+    backgroundId: pickString(content?.background_task_id, metadata.background_task_id, text?.backgroundTaskId),
+    backgroundOutputPath: pickString(metadata.background_output_path),
+  }
+}
+
+/* execute_bash 的 observation 无 json 围栏，走专用渲染器(renderBashToolObservation)：
+   摘要行 + 裸 stdout + `[stderr]`/`[stdout]` 标记块（失败时 stderr 块在 stdout 前）。
+   按标记与摘要行格式确定性还原 stdout/stderr/退出码/后台任务。 */
+function parseBashObservationText(value) {
+  const text = stripResultEnvelope(String(value || '')).trim()
+  if (!text) return null
+  const background = text.match(/后台任务已启动\ntask_id:\s*(\S+)/)
+  if (background) {
+    return { stdout: '', stderr: '', returnCode: null, backgroundStarted: true, backgroundTaskId: background[1] }
+  }
+  const result = { stdout: '', stderr: '', returnCode: null, backgroundStarted: false, backgroundTaskId: null }
+  const lines = text.split(/\r?\n/)
+  if (/^命令执行完成，返回码 \d+/.test(lines[0]) || /^命令执行超时/.test(lines[0])) {
+    const code = lines[0].match(/返回码 (\d+)/)
+    if (code) result.returnCode = Number(code[1])
+    lines.shift()
+  }
+  const body = lines.join('\n')
+  const stdoutMark = body.indexOf('[stdout]')
+  const stderrMark = body.indexOf('[stderr]')
+  if (stdoutMark >= 0) {
+    result.stdout = body.slice(stdoutMark + '[stdout]'.length).replace(/^\r?\n/, '')
+    if (stderrMark >= 0) {
+      result.stderr = body.slice(stderrMark + '[stderr]'.length, stdoutMark).replace(/^\r?\n/, '').replace(/\s+$/, '')
+    }
+  } else if (stderrMark >= 0) {
+    result.stdout = body.slice(0, stderrMark).replace(/\s+$/, '')
+    result.stderr = body.slice(stderrMark + '[stderr]'.length).replace(/^\r?\n/, '')
+  } else {
+    result.stdout = body
+  }
+  return result
+}
+
+/** edit_file diff 视图：文件路径 + 行级 diff 模型（配合后端 buildDiffPreview 产物）。 */
+export function getToolDiffView(node) {
+  if (!node || node.type !== 'tool_call' || node.tool_name !== 'edit_file') return null
+  const { args, content, metadata } = parseToolPayload(node)
+  const diffText = pickString(content?.diff_preview)
+  if (!diffText) return null
+  const parsed = parseDiffPreviewText(diffText)
+  return {
+    filePath: compactPath(pickString(content?.display_path, metadata.display_path, args.file_path), 64),
+    fileName: parsed.fileName,
+    replacements: firstNumber(content?.replacements, metadata.replacements),
+    truncated: parsed.truncated,
+    lines: parsed.lines,
+    added: parsed.lines.filter(line => line.type === 'added').length,
+    removed: parsed.lines.filter(line => line.type === 'removed').length,
+  }
+}
+
+/**
+ * 解析后端类 unified diff 文本（--- a/x、+++ b/x、@@ 行号 @@、-old、+new）为行模型。
+ * 兼容标准 `@@ -1,3 +1,4 @@` hunk 头；行号缺失时对应列为空。
+ */
+export function parseDiffPreviewText(text) {
+  const result = { fileName: '', truncated: false, lines: [] }
+  if (typeof text !== 'string' || !text.trim()) return result
+  let oldNo = null
+  let newNo = null
+  for (const rawLine of text.split(/\r?\n/)) {
+    if (rawLine.startsWith('+++ b/')) {
+      result.fileName = rawLine.slice(6).trim()
+      continue
+    }
+    if (rawLine.startsWith('--- ')) continue
+    if (rawLine.startsWith('@@')) {
+      const range = parseHunkHeader(rawLine)
+      oldNo = range.oldStart
+      newNo = range.newStart
+      result.lines.push({ type: 'hunk', text: rawLine, lineNo: newNo })
+      continue
+    }
+    if (/^\.\.\.\s*\[DIFF TRUNCATED\]/.test(rawLine)) {
+      result.truncated = true
+      continue
+    }
+    if (rawLine.startsWith('-')) {
+      result.lines.push({ type: 'removed', text: rawLine.slice(1), lineNo: oldNo })
+      if (oldNo != null) oldNo += 1
+      continue
+    }
+    if (rawLine.startsWith('+')) {
+      result.lines.push({ type: 'added', text: rawLine.slice(1), lineNo: newNo })
+      if (newNo != null) newNo += 1
+      continue
+    }
+    result.lines.push({ type: 'context', text: rawLine, lineNo: newNo })
+    if (oldNo != null) oldNo += 1
+    if (newNo != null) newNo += 1
+  }
+  return result
+}
+
+/** 兜底详情文本：剥协议信封与标签、收敛空白，供未知工具的「结果」段展示。 */
+export function getToolFallbackText(node) {
+  const raw = typeof node?.result === 'string' && node.result.trim()
+    ? node.result
+    : node?.result_preview
+  return cleanFallbackText(raw)
+}
+
+/** 失败工具的错误摘要（已剥「xx 执行失败:」前缀与信封）。 */
+export function getToolErrorText(node) {
+  const { payload, preview } = parseToolPayload(node)
+  return getErrorText(payload, preview)
+}
+
+function cleanFallbackText(value) {
+  if (!value) return ''
+  return stripResultEnvelope(String(value))
+    .replace(/<\/?(?:result|observation|output)[^>]*>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function asTextBlock(value) {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return formatContent(value, 2400)
+}
+
+function parseHunkHeader(line) {
+  const simple = line.match(/@@\s*line\s+(\d+)\s*@@/i)
+  if (simple) return { oldStart: Number(simple[1]), newStart: Number(simple[1]) }
+  const unified = line.match(/@@\s*-(\d+)(?:,\d+)?\s*\+(\d+)(?:,\d+)?\s*@@/)
+  if (unified) return { oldStart: Number(unified[1]), newStart: Number(unified[2]) }
+  return { oldStart: null, newStart: null }
+}
+
+const PATH_LANGUAGE_HINTS = {
+  py: 'python',
+  js: 'javascript', mjs: 'javascript', cjs: 'javascript',
+  ts: 'typescript', tsx: 'typescript',
+  json: 'json',
+  md: 'markdown',
+  sh: 'bash', bash: 'bash', zsh: 'bash',
+  ps1: 'powershell',
+  yml: 'yaml', yaml: 'yaml',
+  css: 'css',
+  html: 'xml', xml: 'xml', svg: 'xml', vue: 'xml',
+  sql: 'sql',
+  java: 'java',
+  go: 'go',
+  rs: 'rust',
+  cpp: 'cpp', cc: 'cpp', cxx: 'cpp', h: 'cpp', hpp: 'cpp',
+  cs: 'csharp',
+  php: 'php',
+  ini: 'ini', toml: 'ini', env: 'ini',
+  dockerfile: 'dockerfile',
+}
+
+/** 从文件路径推断 hljs 语言（推断不出返回空串，渲染时走纯文本）。 */
+export function languageFromPath(value) {
+  const text = pickString(value)
+  const dot = text.lastIndexOf('.')
+  if (dot < 0) return PATH_LANGUAGE_HINTS[text.toLowerCase()] || ''
+  return PATH_LANGUAGE_HINTS[text.slice(dot + 1).toLowerCase()] || ''
 }
 
 function buildToolMeta(node, args, content, metadata, payload) {
@@ -340,7 +546,7 @@ function buildToolInputSections(node, args) {
   }
 
   if (name === 'execute_bash') {
-    sections.push(section('input-bash-command', '命令', args.command, 'code'))
+    sections.push(section('input-bash-command', '命令', args.command, 'code', { language: 'bash' }))
     sections.push(section('input-bash-dir', '工作目录', formatPairs([
       ['目录', args.working_dir || '.'],
       ['空间', args.working_dir_space],
@@ -352,7 +558,7 @@ function buildToolInputSections(node, args) {
 
   if (name === 'execute_code') {
     sections.push(section('input-code-desc', '用途', args.description))
-    sections.push(section('input-code-body', '代码', args.code, 'code'))
+    sections.push(section('input-code-body', '代码', args.code, 'code', { language: 'python' }))
     sections.push(section('input-code-options', '选项', formatPairs([
       ['超时', args.timeout ? `${args.timeout}s` : ''],
     ])))
@@ -376,7 +582,7 @@ function buildToolInputSections(node, args) {
       ['空间', args.file_path_space],
       ['编码', args.encoding],
     ])))
-    sections.push(section('input-file-write-content', '写入内容', args.content, 'code'))
+    sections.push(section('input-file-write-content', '写入内容', args.content, 'code', { language: languageFromPath(args.file_path) }))
     return compactSections(sections)
   }
 
@@ -541,6 +747,7 @@ function buildToolOutputSections(node, args, content, metadata, payload) {
       metadata.preview_only ? '预览内容' : '文件内容',
       typeof content === 'string' ? content : '',
       'code',
+      { language: languageFromPath(args.file_path) },
     ))
     sections.push(section('output-read-summary', '结果摘要', summary))
     return compactSections(sections)

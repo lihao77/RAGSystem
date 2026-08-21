@@ -96,18 +96,12 @@
 
       <div v-if="hasDetails" ref="detailWrapEl" class="assistant-step-detail-wrap" :class="{ 'is-open': expanded }">
         <div class="assistant-step-detail" :style="detailIndentStyle">
-          <template v-if="node.type === 'tool_call'">
-            <div class="assistant-step-detail-block">
-              <span class="assistant-step-detail-label">参数</span>
-              <pre class="assistant-step-detail-pre">{{ formatArguments(node.arguments) }}</pre>
-            </div>
-            <div class="assistant-step-detail-block">
-              <span class="assistant-step-detail-label">结果</span>
-              <div class="assistant-step-detail-text" :class="{ 'is-error': status === 'error' }">
-                {{ detailResult }}
-              </div>
-            </div>
-          </template>
+          <AssistantToolCallDetail
+            v-if="node.type === 'tool_call'"
+            :node="node"
+            :running="running"
+            @notify="emit('notify', $event)"
+          />
 
           <template v-else>
             <div v-if="detailTask" class="assistant-step-detail-block">
@@ -154,6 +148,7 @@ import {
 } from '../../utils/executionTreePresentation.js';
 import { getAgentOperationTitle } from '../../utils/executionTreeBuilder.js';
 import { agentNodeAccentColor } from '../../utils/participantVisual.js';
+import AssistantToolCallDetail from './AssistantToolCallDetail.vue';
 import MarkdownContent from './MarkdownContent.vue';
 
 defineOptions({ name: 'AssistantExecutionNode' });
@@ -175,14 +170,7 @@ const detailTask = computed(() => {
   if (props.node.type === 'injection' || props.node.type === 'agent_message') return cleanText(props.node.content || '');
   return '';
 });
-const detailResult = computed(() => {
-  if (props.node.type === 'tool_call') {
-    if (status.value === 'running') return '执行中...';
-    return cleanText(props.node.result || props.node.result_preview || '')
-      || (status.value === 'error' ? '失败（无结果）' : '（无结果）');
-  }
-  return cleanText(props.node.result_summary || '');
-});
+const detailResult = computed(() => cleanText(props.node.result_summary || ''));
 const hasDetails = computed(() => Boolean(
   props.node.type === 'tool_call'
   || detailTask.value
@@ -409,16 +397,6 @@ function toggleExpanded() {
 
 function nodeKey(node, index) {
   return getExecutionNodeKey(node) || `${node.type || 'step'}-${index}`;
-}
-
-function formatArguments(value) {
-  if (value === undefined || value === null) return '（无）';
-  if (typeof value === 'string') return value.trim() || '（无）';
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
 }
 
 function cleanText(value) {
@@ -681,7 +659,6 @@ function truncate(value, maxLength) {
   font-weight: 600;
 }
 
-.assistant-step-detail-pre,
 .assistant-step-detail-text {
   max-height: 200px;
   margin: 0;
@@ -694,11 +671,6 @@ function truncate(value, maxLength) {
   overflow-wrap: anywhere;
   padding: 7px 9px;
   white-space: pre-wrap;
-}
-
-.assistant-step-detail-pre {
-  max-height: 160px;
-  font-family: var(--font-mono);
 }
 
 .assistant-step-detail-text.is-error {
