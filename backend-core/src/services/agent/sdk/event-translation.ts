@@ -261,6 +261,8 @@ function onToolResult(event: ToolResultEvent, ctx: WireTranslationContext): Enve
     summary: event.summary,
     lineage: toolLineage(ctx),
   };
+  const rawResult = boundedRawResult(event.rawResult);
+  if (rawResult) base.raw_result = rawResult;
   const agentOperation = translateAgentOperation(event.metadata.agent_operation);
   if (agentOperation) base.agent_operation = agentOperation;
   const files = translateToolFiles(event.referenceResult.files);
@@ -380,4 +382,18 @@ function asString(value: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+/* raw_result 是 SDK 的 LLM-facing（已裁剪/物化）结构化信封，透传给 UI 免去文本反解析；
+   再加一道体积防线保护 SSE/持久化——超限丢弃，observation 文本仍完整，前端有解析兜底。 */
+const RAW_RESULT_MAX_JSON_LENGTH = 64 * 1024;
+
+function boundedRawResult(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value) || Array.isArray(value)) return undefined;
+  try {
+    if (JSON.stringify(value).length > RAW_RESULT_MAX_JSON_LENGTH) return undefined;
+    return value;
+  } catch {
+    return undefined;
+  }
 }

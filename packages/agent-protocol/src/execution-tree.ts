@@ -282,6 +282,7 @@ function applyToolResult(state: ExecutionTreeState, env: Envelope, payload: Reco
     : status === "interrupted" ? "interrupted" : "failed";
   const observation = asString(payload.observation);
   if (observation) tool.observation = observation;
+  if (payload.raw_result !== undefined) tool.rawResult = payload.raw_result;
   const summary = asString(payload.summary);
   if (summary) tool.summary = summary;
   if (Array.isArray(payload.files)) {

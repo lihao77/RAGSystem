@@ -831,3 +831,56 @@ describe("agent-protocol ack/error 扩展字段", () => {
     expect((parsed.payload as { request_id?: string }).request_id).toBe("request-1");
   });
 });
+
+describe("tool_result raw_result（结构化结果透传）", () => {
+  it("schema 接受任意结构化 raw_result 并在投影中落到 tool.rawResult", () => {
+    const state = createExecutionTreeState();
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "tool_call",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "tool-raw-1",
+      payload: { phase: "start", status: "running", tool: "execute_bash" },
+    }));
+    const rawResult = {
+      success: true,
+      tool_name: "execute_bash",
+      summary: "命令执行完成，返回码 0",
+      content: { stdout: "3 passed", stderr: "", return_code: 0 },
+      metadata: { working_dir: "D:/work" },
+    };
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "tool_result",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "tool-raw-1",
+      payload: { phase: "end", ok: true, status: "succeeded", tool: "execute_bash", observation: "rendered text", raw_result: rawResult },
+    }));
+
+    const tool = getExecutionTree(state).root?.rounds[0]?.toolCalls[0]!;
+    expect(tool.observation).toBe("rendered text");
+    expect(tool.rawResult).toEqual(rawResult);
+  });
+
+  it("旧 envelope 不带 raw_result 时投影保持 undefined（向后兼容）", () => {
+    const state = createExecutionTreeState();
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "tool_call",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "tool-raw-2",
+      payload: { phase: "start", status: "running", tool: "grep" },
+    }));
+    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
+      type: "tool_result",
+      session_id: "session-1",
+      run_id: "run-1",
+      call_id: "tool-raw-2",
+      payload: { phase: "end", ok: true, status: "succeeded", tool: "grep", observation: "legacy text" },
+    }));
+
+    const tool = getExecutionTree(state).root?.rounds[0]?.toolCalls[0]!;
+    expect(tool.observation).toBe("legacy text");
+    expect(tool.rawResult).toBeUndefined();
+  });
+});

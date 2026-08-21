@@ -235,6 +235,7 @@ async function executePlannedToolCall(plan: PlannedToolCall, opts: ToolRoundExec
     observation: observationResult.observation,
     metadata: toolResult.metadata,
     referenceResult: materializeToolResult(toolResult),
+    rawResult: observationResult.rawResult,
     elapsedTime,
     round: opts.round,
     order,

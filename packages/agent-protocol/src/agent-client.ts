@@ -142,6 +142,8 @@ export interface ExecutionToolCall {
   status: "running" | "succeeded" | "failed" | "interrupted";
   arguments?: unknown;
   observation?: string;
+  /** 渲染前的结构化结果信封（content/metadata）；observation 仍为模型回填文本。 */
+  rawResult?: unknown;
   summary?: string;
   files?: ToolFileRef[];
   rawResultRef?: string;

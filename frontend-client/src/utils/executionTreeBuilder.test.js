@@ -194,3 +194,23 @@ test('preserves intent completion so inline rendering only streams the active in
   assert.equal(completedThought.intent_complete, true);
   assert.equal(completedThought.status, 'success');
 });
+
+test('maps protocol rawResult onto node.raw_result for structured consumption', () => {
+  const rawResult = {
+    success: true,
+    tool_name: 'execute_bash',
+    summary: '命令执行完成，返回码 0',
+    content: { stdout: '3 passed', stderr: '', return_code: 0 },
+    metadata: { working_dir: 'D:/work' },
+  };
+  const tree = treeWith([
+    { ...tool('tool-raw', 'execute_bash'), observation: 'rendered text', rawResult },
+    tool('tool-legacy', 'grep'),
+  ]);
+
+  const [withRaw, legacy] = buildExecutionTree(tree)[0].children;
+
+  assert.equal(withRaw.raw_result, rawResult);
+  assert.equal(withRaw.result_preview, 'rendered text');
+  assert.equal('raw_result' in legacy, false);
+});

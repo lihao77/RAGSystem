@@ -49,6 +49,8 @@ const createToolNode = (toolCall, linkedAgent = null) => {
     status: mapStatus(toolCall.status),
     result: toolCall.observation || toolCall.summary || '',
     result_preview: toolCall.observation || toolCall.summary || '',
+    // 协议 raw_result（结构化信封）：parseToolPayload 优先消费，免去 observation 文本反解析。
+    ...(toolCall.rawResult !== undefined ? { raw_result: toolCall.rawResult } : {}),
     approval_message: toolCall.approval?.message || '',
     elapsed_time: typeof toolCall.elapsedMs === 'number' ? toolCall.elapsedMs / 1000 : null,
     ...(toolCall.toolName === 'agent' ? {

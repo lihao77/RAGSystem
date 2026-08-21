@@ -453,6 +453,8 @@ export const ToolResultPayloadSchema = z
     status: z.enum(["succeeded", "failed", "interrupted"]),
     observation: z.string().optional(),
     summary: z.string().optional(),
+    /** 结构化工具结果（渲染前的 content/metadata 信封）。UI 优先消费；observation 仍是模型回填的事实源。 */
+    raw_result: z.unknown().optional(),
     files: z.array(ToolFileRefSchema).optional(),
     agent_operation: AgentOperationSchema.optional(),
     elapsed_ms: z.number().nonnegative().optional(),

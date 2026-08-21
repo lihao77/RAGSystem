@@ -116,6 +116,8 @@ export interface ToolResultEvent {
   metadata: Record<string, unknown>;
   /** Durable subset used to restore same-round {result_N} references after a process restart. */
   referenceResult: Record<string, unknown>;
+  /** LLM-facing（已裁剪/物化）的结构化结果信封，供协议层 raw_result 透传给 UI。 */
+  rawResult?: Record<string, unknown>;
   elapsedTime: number;
   round: number;
   order: number;

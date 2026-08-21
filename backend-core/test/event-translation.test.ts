@@ -232,4 +232,46 @@ describe("kernel event wire translation", () => {
       },
     });
   });
+
+  it("projects the structured rawResult onto raw_result with a size guard", () => {
+    const context = {
+      sessionId: "session-1",
+      runId: "run-1",
+      rootCallId: "root-call",
+      requestId: "request-1",
+      agentId: "agent",
+    };
+    const rawResult = {
+      success: true,
+      tool_name: "execute_bash",
+      summary: "done",
+      content: { stdout: "ok", stderr: "", return_code: 0 },
+      metadata: {},
+    };
+    const base = {
+      type: "tool_result" as const,
+      agentName: "agent",
+      toolCallId: "tool-raw",
+      toolName: "execute_bash",
+      success: true,
+      summary: "done",
+      observation: "rendered",
+      metadata: {},
+      referenceResult: {},
+      elapsedTime: 0.1,
+      round: 0,
+      order: 0,
+      roundIndex: 0,
+    };
+
+    const [withRaw] = translateKernelEvent({ ...base, rawResult }, context);
+    expect((withRaw?.payload as Record<string, unknown>).raw_result).toEqual(rawResult);
+
+    const oversized = { ...rawResult, content: { stdout: "x".repeat(80 * 1024) } };
+    const [dropped] = translateKernelEvent({ ...base, rawResult: oversized }, context);
+    expect((dropped?.payload as Record<string, unknown>).raw_result).toBeUndefined();
+
+    const [legacy] = translateKernelEvent(base, context);
+    expect((legacy?.payload as Record<string, unknown>).raw_result).toBeUndefined();
+  });
 });
