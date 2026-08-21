@@ -66,12 +66,10 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
     .map((message) => ({ type: "text", text: extractText(message.content) }));
   if (cacheEnabled && system.length) system[system.length - 1]!.cache_control = { type: "ephemeral" };
 
-  const activeContinuationIndex = findLastContinuationIndex(request.messages, "anthropic_messages");
   const messages = coalesceConsecutiveUserMessages(
     request.messages
-      .map((message, index) => ({ message, index }))
-      .filter(({ message }) => message.role !== "system")
-      .map(({ message, index }) => mapAnthropicMessage(message, index === activeContinuationIndex)),
+      .filter((message) => message.role !== "system")
+      .map((message) => mapAnthropicMessage(message)),
   );
   if (cacheEnabled) markLatestMessageCacheBreakpoint(messages);
 
@@ -112,7 +110,7 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
   };
 }
 
-function mapAnthropicMessage(message: ChatMessage, includeContinuation: boolean): Record<string, unknown> {
+function mapAnthropicMessage(message: ChatMessage): Record<string, unknown> {
   if (message.role === "tool") {
     return {
       role: "user",
@@ -121,7 +119,10 @@ function mapAnthropicMessage(message: ChatMessage, includeContinuation: boolean)
   }
   const role = message.role === "assistant" ? "assistant" : "user";
   const content: unknown[] = [];
-  if (role === "assistant" && includeContinuation) {
+  if (role === "assistant") {
+    // 工具事务内每条 assistant 的 thinking 块必须随自己的 tool_use 原样回传（Anthropic 硬性要求，
+    // "Pass every thinking block back ... alongside the tool_use block it accompanied"）。
+    // 事务外的历史消息不带这些字段，天然不回传；跨 turn 丢弃 prior thinking 是官方允许的姿势。
     const continuationBlocks = message.provider_continuation?.protocol === "anthropic_messages"
       ? message.provider_continuation.blocks
       : message.reasoning_blocks;
@@ -138,14 +139,6 @@ function mapAnthropicMessage(message: ChatMessage, includeContinuation: boolean)
     });
   }
   return { role, content };
-}
-
-function findLastContinuationIndex(messages: ChatMessage[], protocol: "anthropic_messages"): number {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.provider_continuation?.protocol === protocol || message?.reasoning_blocks?.length) return index;
-  }
-  return -1;
 }
 
 function sanitizeReasoningBlocks(blocks: ReasoningBlock[] | undefined): ReasoningBlock[] {

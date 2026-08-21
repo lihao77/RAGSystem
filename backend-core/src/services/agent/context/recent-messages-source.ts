@@ -89,21 +89,43 @@ async function restoreActiveProviderContinuation(
   history: ConversationHistoryPort,
 ): Promise<void> {
   if (!history.getProviderContinuation) return;
+  const getContinuation = history.getProviderContinuation;
   // A continuation is active only when the last non-tool message is its assistant tool call.
   // A later user or assistant message starts a new transaction and must not inherit hidden state.
+  let activeIndex = -1;
   for (let index = conversation.length - 1; index >= 0; index -= 1) {
     const message = conversation[index];
     if (!message || message.role === "tool") continue;
     if (message.role !== "assistant" || !message.tool_calls?.length) return;
-    const original = originals[index];
-    if (!original) return;
-    const record = await history.getProviderContinuation(sessionId, original.id);
-    if (!record) return;
-    const expected = new Set(message.tool_calls.map((call) => call.id));
-    if (record.state.toolCallIds.length !== expected.size || !record.state.toolCallIds.every((id) => expected.has(id))) return;
-    message.provider_continuation = record.state;
-    return;
+    activeIndex = index;
+    break;
   }
+  if (activeIndex < 0) return;
+  if (!await restoreMessageContinuation(sessionId, conversation[activeIndex]!, originals[activeIndex] ?? null, getContinuation)) return;
+  // 事务内更早的 assistant 工具调用轮同样要恢复：厂商要求整段事务的隐藏推理
+  // （thinking 块 / reasoning items / thoughtSignature）一起回传，缺一轮即可能 400。
+  // 某轮记录缺失时跳过该轮、继续恢复其余（历史数据不全时尽力而为）。
+  for (let index = activeIndex - 1; index >= 0; index -= 1) {
+    const message = conversation[index];
+    if (!message || message.role === "tool") continue;
+    if (message.role !== "assistant" || !message.tool_calls?.length) return;
+    await restoreMessageContinuation(sessionId, message, originals[index] ?? null, getContinuation);
+  }
+}
+
+async function restoreMessageContinuation(
+  sessionId: string,
+  message: ChatMessage,
+  original: MessageInfo | null,
+  getContinuation: NonNullable<ConversationHistoryPort["getProviderContinuation"]>,
+): Promise<boolean> {
+  if (!original) return false;
+  const record = await getContinuation(sessionId, original.id);
+  if (!record) return false;
+  const expected = new Set(message.tool_calls?.map((call) => call.id) ?? []);
+  if (record.state.toolCallIds.length !== expected.size || !record.state.toolCallIds.every((id) => expected.has(id))) return false;
+  message.provider_continuation = record.state;
+  return true;
 }
 
 /** Tool media obeys transient TTL, so it must never reuse the attachment data-URL cache. */

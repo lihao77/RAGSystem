@@ -59,7 +59,7 @@ export type ProviderContinuationState =
   | {
       protocol: "openai_responses";
       toolCallIds: string[];
-      /** First function call after the user turn; reasoning items must be replayed before it. */
+      /** First function call of this round; the round's reasoning items replay immediately before it. */
       anchorCallId: string;
       reasoningItems: Record<string, unknown>[];
     }

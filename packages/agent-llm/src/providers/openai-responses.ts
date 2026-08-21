@@ -26,7 +26,7 @@ interface ResponseToolAccumulator {
 
 export class OpenAiResponsesAdapter implements LlmProviderAdapter {
   async complete(request: LlmRequest): Promise<LlmResult> {
-    return this.call(request, false, async (response) => parseResponse(await requireOkJson(response, request), request));
+    return this.call(request, false, async (response) => parseResponse(await requireOkJson(response, request)));
   }
 
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
@@ -52,13 +52,7 @@ export function buildResponsesBody(request: LlmRequest, stream = false): Record<
     .filter((message) => message.role === "system")
     .map((message) => extractText(message.content))
     .join("\n\n") || undefined;
-  const activeContinuation = findLastResponsesContinuation(request.messages);
-  const anchorIndex = activeContinuation
-    ? findToolCallMessageIndex(request.messages, activeContinuation.state.anchorCallId)
-    : -1;
-  const injectionIndex = anchorIndex >= 0 ? anchorIndex : (activeContinuation?.index ?? -1);
-  const input = request.messages.flatMap((message, index) =>
-    mapInputMessage(message, index === injectionIndex ? activeContinuation?.state : undefined));
+  const input = request.messages.flatMap((message) => mapInputMessage(message));
   const reasoningEffort = effectiveReasoningEffort(request.provider, request.thinkingLevel);
   return {
     ...compactRecord(request.extraParams),
@@ -83,15 +77,17 @@ export function buildResponsesBody(request: LlmRequest, stream = false): Record<
   };
 }
 
-function mapInputMessage(
-  message: ChatMessage,
-  continuation: Extract<ProviderContinuationState, { protocol: "openai_responses" }> | undefined,
-): Record<string, unknown>[] {
+function mapInputMessage(message: ChatMessage): Record<string, unknown>[] {
   if (message.role === "system") return [];
   if (message.role === "tool") {
     return [{ type: "function_call_output", call_id: message.tool_call_id, output: extractText(message.content) }];
   }
   const items: Record<string, unknown>[] = [];
+  // OpenAI 要求自上一条用户消息以来的 reasoning items 按原样、原顺序回传，
+  // 且紧挨各自轮次的 function_call：逐条消息注入自己轮次的 items，不合并、不挪位。
+  const continuation = message.provider_continuation?.protocol === "openai_responses"
+    ? message.provider_continuation
+    : undefined;
   if (continuation) items.push(...continuation.reasoningItems);
   const content = typeof message.content === "string" ? message.content : toResponsesContent(message.content);
   if (content !== "" || !message.tool_calls?.length) {
@@ -108,22 +104,7 @@ function mapInputMessage(
   return items;
 }
 
-function findLastResponsesContinuation(messages: ChatMessage[]): {
-  index: number;
-  state: Extract<ProviderContinuationState, { protocol: "openai_responses" }>;
-} | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const state = messages[index]?.provider_continuation;
-    if (state?.protocol === "openai_responses") return { index, state };
-  }
-  return null;
-}
-
-function findToolCallMessageIndex(messages: ChatMessage[], callId: string): number {
-  return messages.findIndex((message) => message.tool_calls?.some((call) => call.id === callId));
-}
-
-function parseResponse(body: Record<string, unknown>, request: LlmRequest): LlmResult {
+function parseResponse(body: Record<string, unknown>): LlmResult {
   const content = extractOutputText(body);
   const reasoning = extractResponseReasoning(body);
   const toolCalls = extractResponseToolCalls(body);
@@ -135,7 +116,7 @@ function parseResponse(body: Record<string, unknown>, request: LlmRequest): LlmR
   const result: LlmResult = { content, raw: body, finishReason };
   if (reasoning) result.reasoning = reasoning;
   if (toolCalls.length) result.toolCalls = toolCalls;
-  const continuation = buildResponsesContinuation(request, toolCalls, reasoningItems);
+  const continuation = buildResponsesContinuation(toolCalls, reasoningItems);
   if (continuation) result.providerContinuation = continuation;
   const usage = extractOpenAiUsage(body);
   if (usage) result.usage = usage;
@@ -237,7 +218,7 @@ async function parseResponseStream(
   if (reasoning) result.reasoning = reasoning;
   if (toolCalls.length) result.toolCalls = toolCalls;
   const continuationItems = [...reasoningItems.entries()].sort(([a], [b]) => a - b).map(([, item]) => item);
-  const continuation = buildResponsesContinuation(request, toolCalls, continuationItems);
+  const continuation = buildResponsesContinuation(toolCalls, continuationItems);
   if (continuation) result.providerContinuation = continuation;
   if (usage) result.usage = usage;
   return result;
@@ -267,24 +248,15 @@ function extractResponseReasoningItems(body: unknown): Record<string, unknown>[]
 }
 
 function buildResponsesContinuation(
-  request: LlmRequest,
   toolCalls: ChatToolCall[],
   newItems: Record<string, unknown>[],
 ): Extract<ProviderContinuationState, { protocol: "openai_responses" }> | null {
-  if (!toolCalls.length) return null;
-  const previous = findLastResponsesContinuation(request.messages)?.state;
-  const merged = new Map<string, Record<string, unknown>>();
-  for (const item of [...(previous?.reasoningItems ?? []), ...newItems]) {
-    const key = typeof item.id === "string" && item.id ? item.id : JSON.stringify(item);
-    merged.set(key, item);
-  }
-  const reasoningItems = [...merged.values()];
-  if (!reasoningItems.length) return null;
+  if (!toolCalls.length || !newItems.length) return null;
   return {
     protocol: "openai_responses",
     toolCallIds: toolCalls.map((call) => call.id),
-    anchorCallId: previous?.anchorCallId ?? toolCalls[0]!.id,
-    reasoningItems,
+    anchorCallId: toolCalls[0]!.id,
+    reasoningItems: newItems,
   };
 }
 

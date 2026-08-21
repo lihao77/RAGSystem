@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { MSG_TYPE } from "../src/contracts/message-kinds.js";
+import type { ProviderContinuationRecord } from "../src/contracts/conversation-store/types.js";
 import type { MessageInfo } from "../src/contracts/session/session.js";
+import type { ConversationHistoryPort } from "../src/services/agent/context/types.js";
 import { ProjectionRegistry } from "../src/services/agent/context/extensions/registry.js";
 import { RecentMessagesContextSource } from "../src/services/agent/context/recent-messages-source.js";
 
@@ -68,5 +70,107 @@ describe("RecentMessagesContextSource", () => {
     expect(result.conversation?.filter((entry) => entry.role === "tool").map((entry) => entry.content)).toEqual(
       Array.from({ length: 7 }, (_, index) => `complete observation ${index + 1}`),
     );
+  });
+
+  const continuationRecord = (messageId: string, callId: string, thinking: string): ProviderContinuationRecord => ({
+    message_id: messageId,
+    session_id: "session-1",
+    thread_key: "root",
+    provider_type: "anthropic",
+    tool_call_ids: [callId],
+    state: {
+      protocol: "anthropic_messages",
+      toolCallIds: [callId],
+      blocks: [{ type: "thinking", thinking, signature: `sig-${callId}` }],
+    },
+    created_at: "2026-01-01T00:00:00.000Z",
+  });
+
+  /** 未关闭的两轮工具事务：user → A1(tool₁) → T1 → A2(tool₂) → T2。 */
+  function openTransactionHistory(): MessageInfo[] {
+    const call = (id: string, seq: number) => ({
+      id: `intent-${id}`,
+      seq,
+      role: "assistant" as const,
+      metadata: { msg_type: MSG_TYPE.INTENT },
+      tool_calls: [{
+        id: `call-${id}`,
+        type: "function" as const,
+        function: { name: "read", arguments: "{}" },
+      }],
+    });
+    const observation = (id: string, seq: number) => message({
+      id: `observation-${id}`,
+      seq,
+      role: "tool",
+      content: `result ${id}`,
+      content_parts: [{ type: "text", text: `result ${id}` }],
+      metadata: { msg_type: MSG_TYPE.OBSERVATION },
+      tool_call_id: `call-${id}`,
+      name: "read",
+    });
+    return [
+      message({ id: "user-1", seq: 1, role: "user", content: "do it", content_parts: [{ type: "text", text: "do it" }], metadata: {} }),
+      message(call("1", 2)),
+      observation("1", 3),
+      message(call("2", 4)),
+      observation("2", 5),
+    ];
+  }
+
+  async function buildConversation(
+    history: MessageInfo[],
+    records: Map<string, ProviderContinuationRecord>,
+  ) {
+    const historyPort: ConversationHistoryPort = {
+      getRecentMessages: vi.fn(async () => history),
+      getProviderContinuation: vi.fn(async (_sessionId: string, messageId: string) => records.get(messageId) ?? null),
+    } as ConversationHistoryPort;
+    const source = new RecentMessagesContextSource(historyPort, false, new ProjectionRegistry());
+    const result = await source.build({ sessionId: "session-1", threadKey: "root", cacheAlive: false, touch: false });
+    return result.conversation ?? [];
+  }
+
+  it("restores hidden reasoning for every assistant round inside an open tool transaction", async () => {
+    const conversation = await buildConversation(openTransactionHistory(), new Map([
+      ["intent-1", continuationRecord("intent-1", "call-1", "round one")],
+      ["intent-2", continuationRecord("intent-2", "call-2", "round two")],
+    ]));
+
+    const assistants = conversation.filter((entry) => entry.role === "assistant");
+    expect(assistants).toHaveLength(2);
+    expect(assistants[0]!.provider_continuation).toEqual(continuationRecord("intent-1", "call-1", "round one").state);
+    expect(assistants[1]!.provider_continuation).toEqual(continuationRecord("intent-2", "call-2", "round two").state);
+  });
+
+  it("restores the active round and skips missing earlier records instead of aborting", async () => {
+    const conversation = await buildConversation(openTransactionHistory(), new Map([
+      ["intent-2", continuationRecord("intent-2", "call-2", "round two")],
+    ]));
+
+    const assistants = conversation.filter((entry) => entry.role === "assistant");
+    expect(assistants[0]!.provider_continuation).toBeUndefined();
+    expect(assistants[1]!.provider_continuation).toEqual(continuationRecord("intent-2", "call-2", "round two").state);
+  });
+
+  it("restores nothing when the latest transaction record is missing", async () => {
+    const conversation = await buildConversation(openTransactionHistory(), new Map([
+      ["intent-1", continuationRecord("intent-1", "call-1", "round one")],
+    ]));
+
+    expect(conversation.every((entry) => entry.provider_continuation === undefined)).toBe(true);
+  });
+
+  it("restores nothing once a later user message closes the transaction", async () => {
+    const history = [
+      ...openTransactionHistory(),
+      message({ id: "user-2", seq: 6, role: "user", content: "next question", content_parts: [{ type: "text", text: "next question" }], metadata: {} }),
+    ];
+    const conversation = await buildConversation(history, new Map([
+      ["intent-1", continuationRecord("intent-1", "call-1", "round one")],
+      ["intent-2", continuationRecord("intent-2", "call-2", "round two")],
+    ]));
+
+    expect(conversation.every((entry) => entry.provider_continuation === undefined)).toBe(true);
   });
 });
